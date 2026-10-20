@@ -1,0 +1,63 @@
+{
+ "run_id": "protectzone-01",
+ "sha": "SHA_PLACEHOLDER",
+ "registered_at": "2026-10-20T00:00:00Z",
+ "tier": 2,
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[protectzone-01 on the fleet 9e7d9980: branch protectzone-on-9e7d998. OWNER 2026-10-20 ~15:30Z 'option 1': the showcase world's naturally generated village is kept as scenery. THE CHANGE: a per-world <pool dir>/protected-zones.json (no file = every wrapper a pass-through: the bench is unchanged without one); one decision (in a zone every dig/place/use/open/sleep/craft is refused; survival may dig/place/use); four layers (chokepoint on bot.dig/_genericPlace/activateBlock/openBlock/sleep/craft; findBlocks never answers a zone cell; pathfinder break+place 100 on the shared arrays; mine keep-out + far starts + per-dig stop, place() spot search, bucket). EXPOSURE ON THE BENCH needs the FIXTURE (scripts/host/protectzone-fixture.py --install, coordinator, BEFORE the launch, on EVERY drawable pool: one strip 20..44 east of each town, the whole column; inert for the control build, which has no reader). Without the fixture the canary is unexposed and closes INCONCLUSIVE. Rollback: remove the file (zones off at the next 30 s read) or teardown. Showcase: REQUIRED_KEPT gains `protectzone-01 <sha>`.]",
+ "lint": "eslint no-undef on this tip: exactly one hit, bots/src/reflex.mjs:2384 'withinBody' -- the pre-existing guarded line.",
+ "licence": {
+  "class": "kind",
+  "kind": "_protectzone_mode",
+  "min_rows": 1,
+  "note": "Only a protectzone-01 build writes _protectzone_mode (zones=N why=ok|absent|stale:... ids=... world=...), once per spawn and on every change. With the fixture installed the canary's rows read zones=1 why=ok; zones=0 why=absent means the fixture is missing (INCONCLUSIVE)."
+ },
+ "reads": ["protectzoneread", "immobiledid"],
+ "read_minutes": [180, 360],
+ "deadline_min": 1080,
+ "change_rows": ["protect_zone"],
+ "linkage_extra": ["protect_zone_refused"],
+ "draw_exposure": {
+  "hours": 24,
+  "require": [],
+  "note": "Every drawable pool gets the fixture before the launch (the fixture is the exposure); no draw requirement beyond the default."
+ },
+ "exposure": {
+  "read": "protectzoneread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "licence zones>=1 on every drawn pool AND canary bot-minutes inside the fixture boxes >= 60 AND protection events (find_filtered + refusals + mine walk-outs) >= 10."
+ },
+ "own_lines": [
+  {"read": "protectzoneread", "field": "z1_trapped", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "Z1: a canary bot inside a zone box for >= 15 min with < 3 blocks moved (the dead end the guard must never make)."},
+  {"read": "protectzoneread", "field": "z2_refusal_loop", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "Z2: >= 60 refusals by one bot in 10 min (a refusal whose remedy is never taken)."},
+  {"read": "protectzoneread", "field": "rows_control", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "ARMS: a control _protectzone_mode / _protect_zone / _protect_zone_refused row after the deploy. BLOCKS KEEP."},
+  {"read": "protectzoneread", "field": "licence_ok", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "LIVENESS: a zones>=1 why=ok licence row on every drawn pool (the fixture is in place). BLOCKS KEEP (INCONCLUSIVE)."},
+  {"read": "protectzoneread", "field": "instrument_control", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control bots seen inside their pool's fixture box >= 1 (the ground is visited; positions readable). BLOCKS KEEP."}
+ ],
+ "primary": {
+  "read": "protectzoneread",
+  "field": "gather_ok_did",
+  "note": "REPORTED: gather successes per bot-h, DiD (should not fall: the strip is 25 x 21 columns of a world); refusals by op; survival_allowed."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control (immobiledid)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Then `protectzone-fixture.py --remove` (the data) unless the next run wants it."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [720],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Tier 2: KEEP at +180 when exposed (exactly 4 pools, >= 48 bot-h, no WATCH/HOLD, kind licence, death rate <= control, clean baseline); extend only for exposure."
+ },
+ "requires": "the fleet on 9e7d9980 (cobblekeep-01 KEPT and promoted), or a rebase onto the live tip."
+}

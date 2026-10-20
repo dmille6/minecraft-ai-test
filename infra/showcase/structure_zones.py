@@ -10,9 +10,11 @@ It reads COPIES of the region files (never the live world: copy them first, e.g.
   1. every structure START in the chunk NBT (`structures.starts`) with its pieces' bounding boxes;
   2. for each kept structure (default: minecraft:village_*), the blocks a village builds inside its pieces' union box
      (beds, bell, workstations, dirt_path, spruce planks/doors/trapdoors, glass panes, torches, cobblestone, chests ...);
-  3. its FOOTPRINT: the extent of those blocks together with its house and town-centre pieces (a street piece that left no
-     block -- e.g. one generated over podzol -- adds nothing), padded `pad` blocks horizontally, from (lowest block - pad)
-     to (highest block or house roof + pad).
+  3. its FOOTPRINT: the extent of those blocks (counted only inside one of its own pieces' boxes: snow and ice lie about
+     naturally in a snowy biome) together with its house and town-centre pieces (a street piece that left no block -- e.g.
+     one generated over podzol -- adds nothing), padded `pad` blocks horizontally; its box runs from the world's bottom
+     (`--bottom`, -64) to the highest block or house roof + pad. A WHOLE COLUMN (Claude r1 P1): a bot that tunnelled in
+     under a footprint could only come up through the village.
 `hashed_seed` is the login packet's hashedSeed as mineflayer reads it (worldIdFromLogin: "<hi>:<lo>" of the int64
 sha256(seed) first 8 bytes, little-endian) -- verified against a sandbox bot's logged world id.
 """
@@ -140,6 +142,7 @@ def main():
     ap.add_argument('--radius', type=int, default=1000); ap.add_argument('--pad', type=int, default=8)
     ap.add_argument('--seed', type=int); ap.add_argument('--world', default='showcase')
     ap.add_argument('--kinds', default='village'); ap.add_argument('--out'); ap.add_argument('--list')
+    ap.add_argument('--bottom', type=int, default=-64)
     a = ap.parse_args()
     hx, hz = a.home
     starts, walked = [], 0
@@ -165,7 +168,8 @@ def main():
         name = s['structure'].split(':')[-1]
         row = {'structure': s['structure'], 'chunk': s['chunk'], 'box': s['box'], 'pieces': len(s['pieces']), 'dist': s['dist']}
         if any(name.startswith(k) for k in kinds):
-            hits = scan_markers(a.region_dir, s['box'])
+            inpiece = lambda h: any(p['BB'][0] <= h[0] <= p['BB'][3] and p['BB'][1] <= h[1] <= p['BB'][4] and p['BB'][2] <= h[2] <= p['BB'][5] for p in s['pieces'])
+            hits = [h for h in scan_markers(a.region_dir, s['box']) if inpiece(h)]
             houses = [p['BB'] for p in s['pieces'] if p['pool'] and ('/houses/' in p['pool'] or '/town_centers/' in p['pool'])]
             pts = [(h[0], h[1], h[2]) for h in hits] + [(b[0], b[1], b[2]) for b in houses] + [(b[3], b[4], b[5]) for b in houses]
             row['markers'] = len(hits); row['marker_counts'] = dict(collections.Counter(h[3] for h in hits).most_common(12))
@@ -175,7 +179,8 @@ def main():
             else:
                 xs = [p[0] for p in pts]; ys = [h[1] for h in hits]; zs = [p[2] for p in pts]
                 top = max(ys + [b[4] for b in houses])
-                box = [min(xs) - a.pad, min(ys) - a.pad, min(zs) - a.pad, max(xs) + a.pad, top + a.pad, max(zs) + a.pad]
+                box = [min(xs) - a.pad, a.bottom, min(zs) - a.pad, max(xs) + a.pad, top + a.pad, max(zs) + a.pad]
+                row['lowest_block'] = min(ys)
                 zid = f"{name.replace('_', '-')}-{s['chunk'][0]}_{s['chunk'][1]}"
                 row['zone'] = zid
                 row['special'] = [list(h) for h in hits if h[3] in ('bell', 'chest', 'barrel', 'crafting_table', 'furnace', 'smoker', 'blast_furnace') or h[3].endswith('_bed') or h[3].endswith('_table') or h[3] in ('grindstone', 'lectern', 'loom', 'stonecutter', 'composter', 'water_cauldron', 'cauldron', 'brewing_stand')]

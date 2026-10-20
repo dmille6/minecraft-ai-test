@@ -12,7 +12,7 @@ process.env.HOME_X = '200'; process.env.HOME_Y = '65'; process.env.HOME_Z = '200
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync, writeFileSync, unlinkSync, mkdtempSync, utimesSync } from 'node:fs'
+import { readFileSync, writeFileSync, unlinkSync, mkdtempSync, utimesSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -70,17 +70,29 @@ test('FILE: a malformed zone is dropped and NAMED; the valid ones still protect;
   assert.equal(parseZones({ version: 2, zones: [VILLAGE] }).why, 'bad_version:2')
   assert.equal(parseZones([VILLAGE]).why, 'not_an_object')
 })
-test('READER: re-reads an edited file (mtime) after RELOAD_MS, and a missing or broken file is "off", never a throw', () => {
+test('READER: zones() never touches the disk; refresh() reads an install or edit; a BROKEN file keeps the last good list (stale), only a REMOVED file turns the zones off; every change is reported', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'pz-'))
   const f = path.join(dir, PZ.ZONES_FILE)
-  let t = 0
-  const rd = zoneReader({ file: () => f, worldId: () => '-123456789', now: () => t })
-  assert.equal(rd.zones().length, 0); assert.equal(rd.state().why, 'absent')
+  const changes = []
+  let stats = 0
+  const fsx = { statSync: (...a) => { stats++; return statSync(...a) }, readFileSync }
+  const rd = zoneReader({ file: () => f, worldId: () => '-123456789', fsx, onChange: st => changes.push(st.why) })
+  rd.refresh(); assert.equal(rd.zones().length, 0); assert.equal(rd.state().why, 'absent')
   writeFileSync(f, JSON.stringify(FILE))
-  assert.equal(rd.zones().length, 0, 'cached inside RELOAD_MS')
-  t += PZ.RELOAD_MS; assert.equal(rd.zones().length, 1, 'read after RELOAD_MS'); assert.match(PZ.protectZoneModeDetail(rd.state(), 'w'), /zones=1 why=ok ids=village-taiga-6_1/)
+  assert.equal(rd.zones().length, 0, 'not read until refresh()')
+  const before = stats
+  for (let i = 0; i < 1000; i++) rd.zones()
+  assert.equal(stats, before, 'zones() (the A* step) never stats the file (Claude r1 P2)')
+  rd.refresh(); assert.equal(rd.zones().length, 1, 'read on refresh'); assert.match(PZ.protectZoneModeDetail(rd.state(), 'w'), /zones=1 why=ok ids=village-taiga-6_1/)
   writeFileSync(f, '{ not json'); utimesSync(f, new Date(), new Date(Date.now() + 5000))
-  t += PZ.RELOAD_MS; assert.equal(rd.zones().length, 0); assert.match(rd.state().why, /^unreadable:/)
+  rd.refresh(); assert.equal(rd.zones().length, 1, 'a torn / hand-broken file keeps the last good list'); assert.match(rd.state().why, /^stale:/)
+  writeFileSync(f, JSON.stringify({ ...FILE, version: 9 })); utimesSync(f, new Date(), new Date(Date.now() + 9000))
+  rd.refresh(); assert.equal(rd.zones().length, 1, 'a bad version keeps it too'); assert.match(rd.state().why, /^stale:bad_version/)
+  unlinkSync(f); rd.refresh(); assert.equal(rd.zones().length, 0, 'removing the file is the rollback'); assert.equal(rd.state().why, 'absent')
+  assert.deepEqual(changes, ['absent', 'ok', changes[2], 'stale:bad_version:9', 'absent'])
+  assert.match(changes[2], /^stale:/)
+  const fresh = zoneReader({ file: () => path.join(dir, 'nope', PZ.ZONES_FILE) }); fresh.refresh()
+  assert.equal(fresh.state().why, 'absent', 'never a throw')
 })
 
 // ---- the one decision ------------------------------------------------------------------------------------------------
@@ -97,7 +109,10 @@ test('DECISION: inside a zone every op is refused; survival may dig, place and u
 test('REMEDY: names the zone, the box, and a goto outside it from where the bot stands', () => {
   const r = PZ.zoneRemedy(Z[0], 'dig', { x: 100, y: 70, z: 0 }, { x: 60.5, y: 72, z: 0.5 })
   assert.match(r, /the taiga village \(x 49\.\.157, z -59\.\.45\)/)
-  assert.match(r, new RegExp(`goto ${49 - EXIT_PAD} 72 0`), r)
+  assert.match(r, /walk out first \(to column x 45, z 0, 4 blocks past its west side\)/, r)
+  const r2 = PZ.zoneRemedy(Z[0], 'dig', { x: 100, y: 70, z: 0 }, { x: 60.5, y: 72, z: 0.5 }, { standY: (x, z) => (x === 45 && z === 0 ? 75 : null) })
+  assert.match(r2, /goto 45 75 0/, 'a standable height at the exit column, not the y the bot stands at (Claude r1 P2)')
+  assert.match(PZ.zoneRemedy(Z[0], 'dig', { x: 49, y: 70, z: 0 }, { x: 47, y: 70, z: 0 }), /you are beside it: step away from its west edge/)
   assert.deepEqual(exitPoint(Z[0], { x: 155, z: 0 }), { x: 157 + EXIT_PAD, z: 0, side: 'east' })
   assert.deepEqual(exitPoint(Z[0], { x: 150, z: 40 }), { x: 150, z: 45 + EXIT_PAD, side: 'south' }, 'the NEAREST side (5 to the south vs 7 to the east)')
   assert.equal(exitPoint(Z[0], { x: 0, z: 0 }), null, 'not over the zone: no exit to name')
@@ -126,7 +141,7 @@ test('GUARD: a dig, use, open, sleep and table craft in the village are REJECTED
     ['sleep', () => bot.sleep(blk(66, 70, -11, 'blue_bed'))], ['craft', () => bot.craft({ id: 1 }, 1, blk(64, 70, -11, 'crafting_table'))]]) {
     let p
     assert.doesNotThrow(() => { p = call() }, `${op}: never a synchronous throw (the pathfinder chains .then/.catch)`)
-    await assert.rejects(p, e => e instanceof ProtectedZoneError && e.code === 'protected_zone' && e.op === op && /the taiga village/.test(e.message) && /goto 46 72 0/.test(e.message), op)
+    await assert.rejects(p, e => e instanceof ProtectedZoneError && e.code === 'protected_zone' && e.op === op && /the taiga village/.test(e.message) && /to column x 45, z 0/.test(e.message), op)
   }
   assert.equal(calls.length, 0, 'nothing reached mineflayer')
   assert.deepEqual(refusals.map(r => r.op), ['dig', 'use', 'open', 'sleep', 'craft'])
@@ -144,7 +159,8 @@ test('GUARD: outside the zone every call passes through unchanged (same argument
 test('GUARD: a PLACEMENT is judged by the cell the block would occupy (reference + face), not the reference', async () => {
   const { bot, calls } = fakeBot()
   await assert.rejects(bot._genericPlace(blk(48, 70, 0, 'dirt'), V(1, 0, 0)), ProtectedZoneError, 'a block placed INTO the zone from outside')
-  assert.equal(await bot._genericPlace(blk(49, 70, 0), V(-1, 0, 0)), 'place-ok', 'a block placed OUT of it, against its wall')
+  await assert.rejects(bot._genericPlace(blk(49, 70, 0), V(-1, 0, 0)), ProtectedZoneError, 'placed OUT of it but AGAINST its wall: the reference is right-clicked (Codex r1 P1)')
+  assert.equal(await bot._genericPlace(blk(47, 70, 0), V(1, 0, 0)), 'place-ok', 'both cells outside, the destination 1 from the edge')
   assert.equal(calls.length, 1)
 })
 test('GUARD: SURVIVAL keeps priority -- a reflex holding the body, or the reflex tick\'s scope, may dig and place (not open)', async () => {
@@ -346,7 +362,7 @@ test('CHAIN mine: standing in the MIDDLE of a zone (30 from every side) it walks
   assert.ok(bot.protectZone.mine_walkout >= 1)
 })
 test('LAYERS: the zone left out of mine\'s keep-out -> the chokepoint still refuses every zone dig; remove the guard too and the zone IS dug (positive control)', async () => {
-  await withMutant(SKILLS_URL, '    return composeKeepOut(farm, townKeepOut(townHome(), nameAt), zoneKeepOut(liveZones()))\n', '    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))\n', async mod => {
+  await withMutant(SKILLS_URL, '  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones()))\n', '  const farmNow = () => townNow()\n', async mod => {
     const guarded = stairWorld({ at: [270, 65, 200] })
     await runMine(mod, guarded)
     assert.equal(guarded._digs.filter(inM).length, 0, 'the chokepoint holds on its own')
@@ -364,22 +380,34 @@ test('MUTANT KILLED: no zone far starts -- from the middle of a zone the real co
     assert.equal(bot._digs.filter(inM).length, 0)
   })
 })
-test('CHAIN mine: EVERY walk-out obstructed -> a protected_zone refusal naming a goto outside the zone (never a dig in it) -- and that move works', async () => {
+test('CHAIN mine: EVERY walk-out obstructed -> a protected_zone refusal naming no exit at all, nothing dug', async () => {
   const bot = stairWorld({ at: [270, 65, 200], walkable: () => false })
   const r = await runMine(SK, bot)
   assert.equal(bot._digs.length, 0, 'nothing dug')
   assert.equal(r.failClass, 'protected_zone', `${r.status} ${r.detail}`)
+  assert.match(r.detail, /^reason=protected_zone /)
+})
+test('CHAIN mine (ONE world, Codex r1 P1): the zone\'s WEST side is unwalkable -- the walk-offs there fail, the refusal names an exit on ANOTHER side, and in the SAME world that goto and the next mine succeed', async () => {
+  // the bot 5 inside the west edge; every SURFACE cell west of the zone (x < 240, y >= 65) refuses a walk (a ravine along
+  // that side): only a walk INTO such a cell fails, the world is otherwise the same (a stair's own steps below are fine)
+  const bot = stairWorld({ at: [245, 65, 200], walkable: to => to.x >= 240 || to.y < 65 })
+  const r = await runMine(SK, bot)
+  assert.equal(bot._digs.filter(inM).length, 0, 'no zone cell dug')
+  assert.equal(r.failClass, 'protected_zone', `${r.status} ${String(r.detail).slice(0, 300)}`)
+  assert.ok(bot._walks.some(w => w.x < 240), `a west walk-off was tried and failed: ${JSON.stringify(bot._walks.slice(0, 4))}`)
   const m = String(r.detail).match(/goto (-?\d+) (-?\d+) (-?\d+)/)
   assert.ok(m, r.detail)
   const to = { x: Number(m[1]), y: Number(m[2]), z: Number(m[3]) }
-  assert.ok(!zoneAt(MZ, to.x, 70, to.z), `the named cell is outside the zone: ${JSON.stringify(to)}`)
-  // THE REMEDY, PERFORMED: the walk is made (the world now lets it), then mine descends outside the zone
-  const ok = stairWorld({ at: [270, 65, 200] })
-  await ok.pathfinder.goto({ x: to.x, y: to.y, z: to.z })
-  assert.ok(!zoneAt(MZ, ok.entity.position.x, 70, ok.entity.position.z), 'the bot is out')
-  const again = await runMine(SK, ok)
-  assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 160)}`)
-  assert.equal(ok._digs.filter(inM).length, 0)
+  assert.ok(to.x >= 240, `the named exit is not on the failed west side: ${JSON.stringify(to)}`)
+  assert.ok(!zoneAt(MZ, to.x, to.y, to.z) && !zoneAt(MZ, to.x, 70, to.z), `the named cell is outside the zone: ${JSON.stringify(to)}`)
+  // THE REMEDY, PERFORMED IN THE SAME WORLD (still unwalkable west): the goto succeeds, and mine descends outside the zone
+  await bot.pathfinder.goto({ x: to.x, y: to.y, z: to.z })
+  assert.deepEqual([bot.entity.position.x, bot.entity.position.z], [to.x, to.z], 'the bot reached the named exit')
+  bot._digs.length = 0
+  const again = await runMine(SK, bot)
+  assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 200)}`)
+  assert.equal(bot._digs.filter(inM).length, 0)
+  assert.ok(bot._digs.length > 0)
 })
 test('CHAIN mine: a bearing from just OUTSIDE runs into the zone -> it turns to a clear one (no refusal, no zone cell)', async () => {
   const MW = await import('../src/minewell.mjs')
@@ -417,9 +445,11 @@ test('BUCKET: no pour into, and no scoop from, a zone; the refusal names the zon
 const IDX = strip(readFileSync(INDEX_URL, 'utf8'))
 const once = (s, needle) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `expected exactly one ${JSON.stringify(needle)}, found ${n}`); return s.indexOf(needle) }
 const idxWired = s => {
-  const reader = once(s, 'const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null })')
-  once(s, 'bot.protectZones = zoneRd.zones')
-  const brk = once(s, 'moves.exclusionAreasBreak = [...moves.exclusionAreasBreak, zonePrice]')
+  const reader = once(s, 'const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null,')
+  once(s, 'zoneRd.refresh()\n')
+  once(s, 'const zoneTimer = setInterval(() => zoneRd.refresh(), ZONE_RELOAD_MS)')
+  once(s, "bot.protectZones = () => (/overworld$/.test(String(bot.game?.dimension ?? 'overworld')) ? zoneRd.zones() : [])")
+  const brk = once(s, 'moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)')
   const plc = once(s, 'moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePrice]')
   const well = s.indexOf('moves.exclusionAreasBreak = [(block) => wellBreakCost')
   const clone = s.indexOf('Object.assign(gatherMoves, moves)')
@@ -457,5 +487,122 @@ test('MUTANT KILLED (protectzone.mjs): survival exempted for OPEN would let a re
     assert.equal(await bot.openBlock(blk(124, 64, -13, 'chest')), 'open-ok', 'the mutant opens it')
     const { bot: real } = fakeBot({ ctx: { holder: 'entombed', skill: null } })
     await assert.rejects(real.openBlock(blk(124, 64, -13, 'chest')), ProtectedZoneError, 'the real guard refuses')
+  })
+})
+
+// ---- review round 1 (Codex r1) --------------------------------------------------------------------------------------
+test('PLACE (Codex r1 P1): a placement whose REFERENCE is in the zone is refused (mineflayer right-clicks the reference: a village chest would open)', async () => {
+  const { bot, calls } = fakeBot()
+  await assert.rejects(bot._genericPlace(blk(49, 70, 0, 'chest'), V(-1, 0, 0)), ProtectedZoneError, 'reference in, destination out')
+  await assert.rejects(bot._genericPlace(blk(100, 52, 0, 'stone'), V(0, 1, 0)), ProtectedZoneError, 'a tall block whose upper half enters the zone bottom (y 54)')
+  assert.equal(await bot._genericPlace(blk(100, 51, 0, 'stone'), V(0, 1, 0)), 'place-ok', 'one lower: all three cells below the bottom')
+  assert.equal(calls.length, 1)
+})
+test('INNER USE (Codex r1 P2): an approved open/craft/sleep reaches activateBlock UNAWAITED; a zone re-read in between does not refuse it, and no refusal is ever an unhandled rejection', async () => {
+  let zones = []
+  const used = []
+  const bot = { entity: { position: V(60, 70, 0) }, pathfinder: {},
+                activateBlock: async b => { used.push(b.position.x); return 'use-ok' },
+                // mineflayer inventory.js:385: openBlock calls bot.activateBlock WITHOUT awaiting, then waits for the window
+                openBlock: async function (b) { await new Promise(r => setTimeout(r, 5)); zones = Z; bot.activateBlock(b); return 'window' } }
+  attachProtectZone(bot, { zones: () => zones })
+  const unhandled = []
+  const onU = e => unhandled.push(e)
+  process.on('unhandledRejection', onU)
+  try {
+    assert.equal(await bot.openBlock(blk(124, 64, -13, 'chest')), 'window', 'judged when the zone was off; the file arrived mid-call')
+    assert.deepEqual(used, [124], 'its own activation passed')
+    bot.activateBlock(blk(124, 64, -13, 'chest'))   // a direct, unawaited, refused use: must not surface as unhandled
+    await new Promise(r => setTimeout(r, 20))
+    assert.equal(used.length, 1, 'the direct use was refused')
+    assert.equal(unhandled.length, 0, `no unhandled rejection: ${unhandled.map(String)}`)
+  } finally { process.off('unhandledRejection', onU) }
+})
+test('ENUMERATION (Codex r1 P2): maxDistance 0 or omitted is mineflayer\'s 16 -- a zone within 16 is filtered, not passed through', () => {
+  const seen = []
+  const b2 = { entity: { position: V(60.5, 70, 0.5) }, findBlocks (o) { seen.push(o); return [] } }
+  attachProtectZone(b2, { zones: () => Z })
+  const o = { matching: 1, maxDistance: 0 }
+  b2.findBlocks(o)
+  assert.notEqual(seen[0], o, 'wrapped (the zone is within mineflayer\'s default 16)')
+  const far = { entity: { position: V(-500, 70, 0) }, findBlocks (q) { seen.push(q); return [] } }
+  attachProtectZone(far, { zones: () => Z })
+  const o2 = { matching: 1 }
+  far.findBlocks(o2)
+  assert.equal(seen.at(-1), o2, 'a far search with the default distance is still handed through')
+})
+test('BUCKET (Codex r1 P1): no fill or pour within 6 of a zone (the server ray, not the aimed cell, decides); 7+ away it proceeds to the normal checks', async () => {
+  const mk = x => ({ entity: { position: V(x, 70, 0.5) }, inventory: { items: () => [] }, blockAt: p => ({ name: 'air', boundingBox: 'empty', position: p }), protectZones: () => Z, pathfinder: { setGoal () {} } })
+  for (const action of ['fill', 'pour']) {
+    const near = await SKILLS.bucket.run({ bot: mk(43.5) }, { action }, new AbortController().signal)
+    assert.equal(near.failClass, 'protected_zone', `${action} 6 from the zone: ${near.detail}`)
+    const far = await SKILLS.bucket.run({ bot: mk(41.5) }, { action }, new AbortController().signal)
+    assert.notEqual(far.failClass, 'protected_zone', `${action} 8 from the zone reaches the bucket's own checks: ${far.detail}`)
+  }
+})
+test('DATA: the showcase file parses, binds to the showcase world, and every zone is a WHOLE COLUMN (Claude r1 P1: no tunnel under a footprint)', () => {
+  const doc = JSON.parse(readFileSync(new URL('../../infra/showcase/protected-zones.showcase.json', import.meta.url), 'utf8'))
+  const r = parseZones(doc, { worldId: '1292467317:1056448044' })
+  assert.equal(r.why, 'ok'); assert.deepEqual(r.bad, [])
+  assert.equal(parseZones(doc, { worldId: '-1909043226:-504800724' }).why, 'world_mismatch', 'the sandbox world (another seed) is refused')
+  for (const z of r.zones) assert.equal(z.y0, -64, `${z.id} runs from the world's bottom`)
+  const v = r.zones.find(z => z.id === 'village-taiga-6_1')
+  assert.ok(v, 'the near taiga village')
+  for (const [x, y, z, what] of [[124, 64, -13, 'a chest'], [93, 77, 25, 'the bell'], [64, 70, -11, 'the crafting table'], [66, 70, -11, 'a bed'], [100, 12, 0, 'rock under it']]) assert.ok(zoneAt(r.zones, x, y, z), `${what} at ${x},${y},${z} is protected`)
+  for (const [x, y, z, what] of [[0, 69, 0, 'home'], [44, 69, 0, 'ring@1\'s outer edge (d 44)'], [48, 69, 0, 'one short of the zone']]) assert.equal(zoneAt(r.zones, x, y, z), null, `${what} is not`)
+})
+
+// ---- review round 1 (Claude r1) -------------------------------------------------------------------------------------
+// mineflayer 4.37.1's OWN findBlocks (lib/plugins/blocks.js) over a real prismarine-world with paletted sections
+function realFindBot (zones, at = V(60.5, 70, 0.5)) {
+  const { EventEmitter } = require_('node:events')
+  const registry = require_('prismarine-registry')('1.21.8')
+  const inject = require_('mineflayer/lib/plugins/blocks.js')
+  const Chunk = require_('prismarine-chunk')(registry)
+  const World = require_('prismarine-world')(registry)
+  const bot = new EventEmitter()
+  bot._client = new EventEmitter(); bot.registry = registry; bot.version = '1.21.8'; bot.supportFeature = () => false
+  bot.game = { minY: -64, height: 384 }
+  inject(bot, { version: '1.21.8' })
+  bot.world = new World(null).sync
+  bot.entity = { position: at }
+  for (const cx of [1, 2, 3, 4]) for (const cz of [-1, 0]) bot.world.setColumn(cx, cz, new Chunk({ minY: -64, worldHeight: 384 }))
+  for (const [x, y, z] of [[62, 70, 0], [63, 70, 0], [40, 70, 0], [30, 70, 0]]) bot.world.setBlockStateId(V(x, y, z), registry.blocksByName.chest.defaultState)
+  attachProtectZone(bot, { zones: () => zones })
+  return { bot, id: registry.blocksByName.chest.id }
+}
+test('ENUMERATION through mineflayer\'s REAL findBlocks (Claude r1 P3): id matching, function matching, findBlock, useExtraInfo, count -- never a zone cell; positive control without zones', () => {
+  const { bot, id } = realFindBot(Z)
+  assert.deepEqual(bot.findBlocks({ matching: id, maxDistance: 48, count: 2 }).map(p => p.x), [40, 30], 'the two OUTSIDE, though two inside are nearer')
+  assert.deepEqual(bot.findBlocks({ matching: b => b?.name === 'chest', maxDistance: 48, count: 5 }).map(p => p.x), [40, 30])
+  assert.equal(bot.findBlock({ matching: id, maxDistance: 48 }).position.x, 40)
+  assert.deepEqual(bot.findBlocks({ matching: id, maxDistance: 48, count: 5, useExtraInfo: true }).map(p => p.x), [40, 30], 'useExtraInfo: every section scanned, still judged')
+  const raw = realFindBot([])
+  assert.deepEqual(raw.bot.findBlocks({ matching: raw.id, maxDistance: 48, count: 2 }).map(p => p.x), [62, 63], 'without zones the nearest (inside) come first')
+})
+test('CHAIN mine (R6, Claude r1 P3): a zone that appears MID-STAIR (a file installed while the stair runs) stops it at the next zone cell -- protected_zone_step, nothing in the zone dug', async () => {
+  let zones = []
+  const bot = stairWorld({ at: [237, 65, 200], yaw: -Math.PI / 2, zones: [] })
+  bot.protectZones = () => zones
+  const dig0 = bot.dig
+  let n = 0
+  bot.dig = async b => { if (++n === 1) zones = MZ; return dig0(b) }   // the file lands after the first cut
+  const r = await runMine(SK, bot)
+  assert.equal(bot._digs.filter(inM).length, 0, `zone cells dug: ${JSON.stringify(bot._digs.filter(inM).slice(0, 3))}`)
+  assert.equal(r.failClass, 'protected_zone', `${r.status} ${String(r.detail).slice(0, 160)}`)
+  assert.match(r.detail, /^reason=protected_zone_step .*240,64,200 is in the test village/)
+  assert.ok(bot._digs.length > 0, 'positive control: the stair was cutting east before the file landed')
+})
+test('MUTANT KILLED (R6): the per-step zone branch removed -> the stop names the TREE FARM (the fallback words), not the zone', async () => {
+  await withMutant(SKILLS_URL, "        if (kind === 'protected') {\n", "        if (kind === 'protected-x') {\n", async mod => {
+    let zones = []
+    const bot = stairWorld({ at: [237, 65, 200], yaw: -Math.PI / 2, zones: [] })
+    bot.protectZones = () => zones
+    const dig0 = bot.dig
+    let n = 0
+    bot.dig = async b => { if (++n === 1) zones = MZ; return dig0(b) }
+    const r = await runMine(mod, bot)
+    assert.notEqual(r.failClass, 'protected_zone', `${r.failClass} ${String(r.detail).slice(0, 120)}`)
+    assert.match(String(r.detail), /tree farm/)
   })
 })
