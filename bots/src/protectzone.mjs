@@ -131,7 +131,9 @@ export function blockedIn (q, cx, cy, cz, feet = null) {
  */
 export function placeBlocked (zones, x, y, z, feet = null) {
   return blocked(zones, x, y, z, feet) || blocked(zones, x, y + 1, z, feet) || blocked(zones, x, y - 1, z, feet) ||
-         blocked(zones, x + 1, y, z, feet) || blocked(zones, x - 1, y, z, feet) || blocked(zones, x, y, z + 1, feet) || blocked(zones, x, y, z - 1, feet)
+         blocked(zones, x + 1, y, z, feet) || blocked(zones, x - 1, y, z, feet) || blocked(zones, x, y, z + 1, feet) || blocked(zones, x, y, z - 1, feet) ||
+         // the forward bridge places against the bot's floor, DIAGONAL-below the priced cell (Claude r4 P3)
+         blocked(zones, x + 1, y - 1, z, feet) || blocked(zones, x - 1, y - 1, z, feet) || blocked(zones, x, y - 1, z + 1, feet) || blocked(zones, x, y - 1, z - 1, feet)
 }
 
 /** Is the bot's column (any y) inside this zone's footprint, grown by `margin`? Pure. */
