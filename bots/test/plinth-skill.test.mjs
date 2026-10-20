@@ -950,7 +950,7 @@ const once = (src, needle, where) => { const n = src.split(needle).length - 1; a
 const COG = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
 const cogPlinth = src => {
   once(src, 'order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order', 'cognitive')
-  once(src, "if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", 'cognitive')
+  once(src, "if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", 'cognitive')
   once(src, 'const r = plinthOrder({', 'cognitive')
   once(src, 'chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64))', 'cognitive')
 }
@@ -1005,7 +1005,7 @@ await t('cognitive.mjs: the plinth order goes before the town deposit, and its o
 await t('MUTANT (cognitive): the deposit first, or the outcome line removed, is detected', () => {
   const m1 = COG.replace('order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order', 'order = this.#townDepositOrder(milestone) ?? this.#plinthOrder() ?? order')
   assert.notEqual(m1, COG, 'MUTATION DID NOT APPLY'); assert.throws(() => cogPlinth(m1), /found 0/)
-  const m2 = COG.replace("if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", '')
+  const m2 = COG.replace("if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", '')
   assert.notEqual(m2, COG, 'MUTATION DID NOT APPLY'); assert.throws(() => cogPlinth(m2), /found 0/)
 })
 
