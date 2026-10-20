@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, deletionPending, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -29,7 +29,7 @@ import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
-import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
+import { townDepositOrder, townDepositOutcome, townDepositPlan, TD_DELETION_RECENT_MS } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
 import { recountOrder, recountOutcome } from './recount.mjs'
@@ -713,18 +713,28 @@ export class CognitiveLoop {
       const bot = this.bot
       const items = bot.inventory?.items?.() ?? []
       let wanted = null
-      const plan = () => {
+      // `rows`: townDepositOrder's deletion-first decision for the bag allowance's chest rows (bagbudget-01)
+      const plan = ({ rows = true } = {}) => {
         wanted = [...(this.#wantedItems(milestone) ?? [])]
         const noSwords = foodSkipNow(bot).active   // the peaceful kit: the switch, read here
-        const p = townDepositPlan(items, { wanted, noSwords })
+        const p = townDepositPlan(items, { wanted, noSwords, rows })
         if (p.freed >= 1) return p
         // THE VALVE (stocktarget design 3.2): only with the PROOF that nothing else at town frees a slot -- no well-able stack,
         // nothing compostable -- one spare tool copy may go in above the town's tool target
-        return valveProof(bot, items) ? townDepositPlan(items, { wanted, noSwords, valve: true }) : p
+        return valveProof(bot, items) ? townDepositPlan(items, { wanted, noSwords, valve: true, rows }) : p
       }
       const r = townDepositOrder({
         // the count step (stocktarget design 3.7): targeted surplus the town cannot judge yet, and a container to count
         count: () => stockCountKeys(bot, items, { floor: true }).length > 0,
+        // bagbudget-01: can the well or the composter still free a slot here (skills.mjs deletionPending, with this loop's
+        // own backoffs)? Then the allowance's chest rows wait (bounded: towndeposit.mjs TD_DELETION_WAIT_MS)
+        deletion: () => {
+          const now = Date.now()
+          const pending = deletionPending(bot, items, { now, wellState: this.wellState, townState: this.townState })
+          // ...and is it HAPPENING: a dispose_well or compost order issued recently (Claude design r2 P2-1)
+          const last = Math.max(this.wellState?.lastDisposeAt ?? -Infinity, this.townState?.lastCompostAt ?? -Infinity)
+          return { pending, recent: now - last < TD_DELETION_RECENT_MS }
+        },
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
         // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
