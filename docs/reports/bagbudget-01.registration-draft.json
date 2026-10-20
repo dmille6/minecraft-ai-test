@@ -1,28 +1,41 @@
 {
   "run_id": "bagbudget-01",
-  "sha": "SHA_PLACEHOLDER",
-  "registered_at": "REGISTERED_PLACEHOLDER",
+  "sha": "31416ee5e1a89e8e1c745750d84ad0b90d863a68",
+  "registered_at": "2026-10-20T06:10:00Z",
   "ladder_change": false,
   "promotion": "fleet-wide",
   "class": "",
   "tier": 2,
-  "notes": "[bagbudget-01 on cobblekeep-01 9e7d9980 (use only once cobblekeep-01 is KEPT and promoted): branch bagbudget-on-9e7d998 @ SHA_PLACEHOLDER] ONE BAG ALLOWANCE EVERY KEEP LAYER READS (OWNER 2026-10-20 ~03:20Z 'fix allowance ... yes i agree with your assessment and make those changes'). Measured 10-20 (files, docs/reports/bagbudget-01-design-2026-10-20.md): 38 of 80 bags at >= 34 slots (median 578 cobble per full bag); 646 of 646 town-deposit no_effect runs in 24 h were the count step with an empty plan (the count failed on lids; the skill then said 'everything carried is kept' for a count of 0); ~3 slots per full bag had NO exit (bone_meal 40, ladders 35, torches 34 of 1,349 slots). The six full bots that never attempted a deposit in 24 h sat in ONE block for the whole day underground (immobility: homefix-01's). THE CHANGE: bagallowance.mjs, one table (every keep layer's number imported from it, values unchanged); at the TOWN DEPOSIT ONLY, for a bag >= 34 slots when the visit began, the chest rows' surplus goes to a town chest as whole stacks: torch 0, ladders below the stranded-escape 26, bone_meal 0, an eaten food beyond the best stack, building stone above the scaffold reserve; stations/buckets/composter keep 1; junk, compost inputs (incl. the peaceful switch's) and saplings never a chest's; unlisted names stay. Deletion first, bounded (60 s grace unless a well/compost order issued in the last 3 min; 5 min of time full at town at most); base-plan stacks first; the visit latch; the count step kept; honest no_effect; _bagbudget rows. Row P: last-swing keeps no spent pickaxe while the bag holds a stone pickaxe's stone (wear_out, and the craft's make-room through the same hygiene plan; anywhere at >= 34). Never the reason for a deposit, a walk, a trip or a new chest (depositPlan never sees it). BAG_ALLOWANCE=off is the rollback. TIER 2 (owner 10-19 tiers; the operator's cobblekeep-01 precedent 10-19 16:40Z): deterministic defect gates on rows the change writes, Paper base vs candidate below; a run that misses any early-KEEP condition (the death rate above control's included: freed slots can mean more mining) reads on as TIER 3. The bag-fix class is the alternative (needs a bag_fix block with a null-banded primary; not carried). LAUNCH CONDITIONS: cobblekeep-01 KEPT+promoted; gate v36 present; draw excludes brain-01's pools while it runs; tier-2 240-min pool cool-off.",
-  "lint": "LINT_PLACEHOLDER",
+  "notes": "[bagbudget-01 on cobblekeep-01 9e7d9980 (use only once cobblekeep-01 is KEPT and promoted): branch bagbudget-on-9e7d998 @ 31416ee5e1a89e8e1c745750d84ad0b90d863a68] ONE BAG ALLOWANCE EVERY KEEP LAYER READS (OWNER 2026-10-20 ~03:20Z 'fix allowance ... yes i agree with your assessment and make those changes'). Measured 10-20 (files, docs/reports/bagbudget-01-design-2026-10-20.md): 38 of 80 bags at >= 34 slots (median 578 cobble per full bag); 646 of 646 town-deposit no_effect runs in 24 h were the count step with an empty plan (the count failed on lids; the skill then said 'everything carried is kept' for a count of 0); ~3 slots per full bag had NO exit (bone_meal 40, ladders 35, torches 34 of 1,349 slots). The six full bots that never attempted a deposit in 24 h sat in ONE block for the whole day underground (immobility: homefix-01's). THE CHANGE: bagallowance.mjs, one table (every keep layer's number imported from it, values unchanged); at the TOWN DEPOSIT ONLY, for a bag >= 34 slots when the visit began, the chest rows' surplus goes to a town chest as whole stacks: torch 0, ladders below the stranded-escape 26, bone_meal 0, an eaten food beyond the best stack, building stone above the scaffold reserve; stations/buckets/composter keep 1; junk, compost inputs (incl. the peaceful switch's) and saplings never a chest's; unlisted names stay. Deletion first, bounded (60 s grace unless a well/compost order issued in the last 3 min; 5 min of time full at town at most); base-plan stacks first; the visit latch; the count step kept; honest no_effect; _bagbudget rows. Row P: last-swing keeps no spent pickaxe while the bag holds a stone pickaxe's stone (wear_out, and the craft's make-room through the same hygiene plan; anywhere at >= 34). Never the reason for a deposit, a walk, a trip or a new chest (depositPlan never sees it). BAG_ALLOWANCE=off is the rollback. TIER 2 (owner 10-19 tiers; the operator's cobblekeep-01 precedent 10-19 16:40Z): deterministic defect gates on rows the change writes, Paper base vs candidate below; a run that misses any early-KEEP condition (the death rate above control's included: freed slots can mean more mining) reads on as TIER 3. The bag-fix class is the alternative (needs a bag_fix block with a null-banded primary; not carried). LAUNCH CONDITIONS: cobblekeep-01 KEPT+promoted; gate v36 present; draw excludes brain-01's pools while it runs; tier-2 240-min pool cool-off. VARIANT ON THE FLEET SHA (if cobblekeep-01 is not promoted): branch bagbudget-on-adbec4f = the same commits cherry-picked onto adbec4f4 (one union conflict in index.mjs's licence rows), code at b916404c, npm test 268/268; its registration is this one with sha b916404c and the base adbec4f4 (the read and gates are identical; D4 still applies: the base keeps every iron-ladder unit).",
+  "lint": "eslint no-undef on bots/src at 31416ee5: exactly ONE hit, the pre-existing reflex.mjs:2384 withinBody (as on the base).",
   "licence": {
     "class": "kind",
     "kind": "_bagbudget_mode",
     "min_rows": 1,
     "note": "Only this build writes _bagbudget_mode (phase=mode on=1 mode=on rows=... cobble=64 spent_picks=3/0@cobble3), once per spawn in index.mjs. Dry run 10-20 on the base fleet (placebo-b, hive-a, board-a, placebo-c pretend canary, 180 min, 355,528 rows): 0 rows."
   },
-  "reads": ["bagbudgetread", "immobiledid"],
-  "read_minutes": [180, 360],
+  "reads": [
+    "bagbudgetread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360
+  ],
   "deadline_min": 1440,
-  "change_rows": ["_bagbudget", "_town_deposit"],
+  "change_rows": [
+    "_bagbudget",
+    "_town_deposit"
+  ],
   "linkage_extra": [],
   "draw_exposure": {
     "hours": 12,
     "require": [
-      {"name": "town deposits in the drawn pool (the population: full bags at town)", "kind": "_town_deposit", "min": 8}
+      {
+        "name": "town deposits in the drawn pool (the population: full bags at town)",
+        "kind": "_town_deposit",
+        "min": 8
+      }
     ],
     "note": "MEASURED 10-20 (files, 24 h): 784 town deposits fleet-wide (~49 per shared pool per day); full bags at town in every shared pool. CLAUDE.md: the canary pool must contain the population. Row P needs no draw (wear_out runs fleet-wide at >= 34). NO draw_require_pools."
   },
@@ -33,24 +46,82 @@
     "note": ">= 3 canary _bagbudget phase=bank runs that banked an allowance stack AND >= 1 canary phase=wear row (both mechanisms)."
   },
   "own_lines": [
-    {"read": "bagbudgetread", "field": "breach_junk_chest", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
-     "note": "D1: a canary bank row banked a junk name (the owner's 10-04 rule; PEACEFUL_COMPOST and apple only on peaceful=1 rows; swords only in a peaceful world). The read's lists are held to the bots' own by --selftest with JS_CHECK."},
-    {"read": "bagbudgetread", "field": "d1_incomplete", "op": "<=", "value": 0, "on_fail": "REVERT",
-     "note": "D1 coverage: a bank run whose parts are not all present (or truncated) -- D1 could not see every banked name. BLOCKS KEEP."},
-    {"read": "bagbudgetread", "field": "breach_below_allowance", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
-     "note": "D2: a station left below 1, or 26+ ladders banked."},
-    {"read": "bagbudgetread", "field": "breach_full_noeffect_chest", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
-     "note": "D3: a canary full-bag no_effect whose phase=none row says rows=1 chest=1 (chest surplus planned to nothing)."},
-    {"read": "bagbudgetread", "field": "breach_ingot_banked", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
-     "note": "D4 (cobblekeep-01's): an ingot banked by the town deposit (its row or the complete bank parts)."},
-    {"read": "bagbudgetread", "field": "harm_storage_full", "op": "<=", "value": 0, "on_fail": "REVERT",
-     "note": "D5: canary town_storage_full >= 3 AND above 2x the control's rate per bot-h (the chests filling)."},
-    {"read": "bagbudgetread", "field": "rows_control", "op": "<=", "value": 0, "on_fail": "REVERT",
-     "note": "Arms: control _bagbudget_mode / _bagbudget rows. BLOCKS KEEP."},
-    {"read": "bagbudgetread", "field": "licence_canary", "op": ">=", "value": 1, "on_fail": "REVERT",
-     "note": "LIVENESS: the canary build is live. BLOCKS KEEP (INCONCLUSIVE)."},
-    {"read": "bagbudgetread", "field": "instrument_control", "op": ">=", "value": 1, "on_fail": "REVERT",
-     "note": "POSITIVE CONTROL: control town deposits, control full bags and control wear_out rows visible (dry run 44 / 20 / 18). BLOCKS KEEP."}
+    {
+      "read": "bagbudgetread",
+      "field": "breach_junk_chest",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "D1: a canary bank row banked a junk name (the owner's 10-04 rule; PEACEFUL_COMPOST and apple only on peaceful=1 rows; swords only in a peaceful world). The read's lists are held to the bots' own by --selftest with JS_CHECK."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "d1_incomplete",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "D1 coverage: a bank run whose parts are not all present (or truncated) -- D1 could not see every banked name. BLOCKS KEEP."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "breach_below_allowance",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "D2: a station left below 1, or 26+ ladders banked."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "breach_full_noeffect_chest",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "D3: a canary full-bag no_effect whose phase=none row says rows=1 chest=1 (chest surplus planned to nothing)."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "breach_ingot_banked",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "D4 (cobblekeep-01's): an ingot banked by the town deposit (its row or the complete bank parts)."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "harm_storage_full",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "D5: canary town_storage_full >= 3 AND above 2x the control's rate per bot-h (the chests filling)."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Arms: control _bagbudget_mode / _bagbudget rows. BLOCKS KEEP."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "licence_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "LIVENESS: the canary build is live. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "bagbudgetread",
+      "field": "instrument_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "POSITIVE CONTROL: control town deposits, control full bags and control wear_out rows visible (dry run 44 / 20 / 18). BLOCKS KEEP."
+    }
   ],
   "primary": {
     "read": "bagbudgetread",
@@ -65,15 +136,18 @@
   },
   "extension": {
     "until_exposure": true,
-    "extra_reads": [720, 1080],
+    "extra_reads": [
+      720,
+      1080
+    ],
     "final_on_zero_exposure": "INCONCLUSIVE",
     "note": "Row J/chest rows fire on the first full-bag town visit with torches/bone meal/ladders (most full bags hold them); row P on the first wear_out at >= 34."
   },
   "variant_prep": {
     "branch": "bagbudget-on-9e7d998",
-    "head": "SHA_PLACEHOLDER",
+    "head": "31416ee5e1a89e8e1c745750d84ad0b90d863a68",
     "base": "9e7d998003aeead7a2763958f1147f76e3b4a3f3",
-    "npm_test": "NPM_PLACEHOLDER"
+    "npm_test": "npm test 269/269 at fcd68ac0 (code at 31416ee5); variant bagbudget-on-adbec4f 268/268 at 95a40f92"
   },
-  "approved": "APPROVED_PLACEHOLDER"
+  "approved": "bagbudget agent 2026-10-20: one allowance table (values unchanged in every layer); at the town deposit only, a bag >= 34 at the visit start banks the chest rows (torch 0, ladders < 26, bone_meal 0, an eaten food beyond the best, building stone above the scaffold reserve; stations keep 1; junk, compost inputs and saplings never; unlisted stays), deletion first bounded, base first, the latch, the count step kept, honest no_effect; row P (last-swing keeps no spent pickaxe while the bag holds a stone pickaxe's stone). REVIEWS: design Codex r1-r3 CHANGE -> r4 APPROVE, Claude r1-r2 CHANGE -> r3 APPROVE; code Codex r1 CHANGE -> r2 CHANGE -> r3 APPROVE, Claude r1-r3 APPROVE (docs/reports/bagbudget-01-reviews-2026-10-20.txt). eslint no-undef only reflex.mjs:2384 withinBody. npm test 269/269. Paper base vs candidate: SEE docs/reports/bagbudget-01-design-2026-10-20.md section 11 -- a LAUNCH PRECONDITION. Registration: NO draw_require_pools; licence 0 baseline rows in the dry run. TIER 2 decided explicitly (operator cobblekeep-01 precedent); the coordinator may choose tier 3 or the bag-fix class."
 }
