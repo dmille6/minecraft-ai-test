@@ -168,7 +168,7 @@ def cmd_follow(a):
     d['auto'] = os.path.exists(AUTO)
     append(FOLLOW, d)
     print(json.dumps(d))
-    if not d['auto']:
+    if not d['auto'] or getattr(a, 'observe_only', False):
         return 0
     if not feed:
         return 0      # no fresh feed this hour: never act on stale evidence (an empty journal would read as "not kept")
@@ -563,7 +563,8 @@ def cmd_status(a):
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd', required=True)
-    sub.add_parser('follow')
+    fo = sub.add_parser('follow')
+    fo.add_argument('--observe-only', action='store_true', help='ledger + feed + decision row; never act')
     s = sub.add_parser('stage')
     s.add_argument('sha')
     s.add_argument('--bootstrap', action='store_true')

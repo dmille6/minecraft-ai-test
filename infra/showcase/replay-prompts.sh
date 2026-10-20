@@ -6,7 +6,7 @@
 set -euo pipefail
 REL=$(readlink -f /srv/showcase/harness)
 [ -f "$REL/RELEASE.json" ] || { echo "no active release (stage + activate one first)"; exit 1; }
-python3 /srv/showcase/bin/showcase_ops.py follow >/dev/null       # a fresh feed (the prompts ride in it)
+python3 /srv/showcase/bin/showcase_ops.py follow --observe-only >/dev/null   # a fresh feed; never deploys
 # The env is handed to node as a DICTIONARY (never sourced: values like `url|model` are not shell-safe).
 exec python3 - "$REL" <<'PY'
 import json, os, subprocess, sys, tempfile
