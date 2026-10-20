@@ -13,7 +13,7 @@
 #       test_changerowcheck.py,test_verdict_acceptance.py,test_threepool.py,test_drawrequire.py,test_holdtoken.py,\
 #       test_changerows_underscore.py,test_license_change_rows.py} \
 #       scripts/host/{canary-loop.sh,drawrec.sh,bagread.py,holdtoken.py,heavyread.sh,canary-sched.py,test_bagfix_loop.py,\
-#       canarywatch.py,ugsafe2_value.py,changerows_replay.py,changerows-precheck.sh,changerows-suites.sh,\
+#       canarywatch.py,ugsafe2_value.py,changerows_replay.py,changerows-precheck.sh,changerows-suites.sh,gatedigest.py,\
 #       changerows-rules-paragraph.md,install-changerows-1020.sh} \
 #       docs/reports/airpocket-01.{ee21207,dbb4d78}.json mike@10.0.0.31:changerows-1020/stage/
 # THEN:  bash ~/changerows-1020/stage/changerows-precheck.sh      (read-only; any time)
@@ -134,6 +134,11 @@ fi
 # may launch -- refuse rather than install under a launch.
 [ "$(python3 $S/holdtoken.py owner 2>&1)" = "$TOKEN" ] || die "the install-hold is no longer ours ($(python3 $S/holdtoken.py owner 2>&1)): nothing installed"
 _busy
+# THE PRECHECK AGAIN, UNDER THE HOLD AND THE LOCK (round 1, Claude P2): steps 2-4 can take an hour or more; a hand edit
+# to either target or to the registered bundle in that time must refuse here, not be silently overwritten (and then
+# make the rollback refuse on OLD_DIGEST).
+bash "$S/changerows-precheck.sh" > "$S/precheck2.out" 2>&1 || { sed 's/^/  /' "$S/precheck2.out"; die "the precheck no longer passes under the hold: nothing installed"; }
+grep -q "^PRECHECK OK: predicted bundle $PD\$" "$S/precheck2.out" || die "the predicted bundle moved since step 3 ($(tail -1 $S/precheck2.out)): nothing installed"
 say "5. install: backups verified first, then each file replaced by rename"
 for f in "${!TGT[@]}"; do
   t=${TGT[$f]}

@@ -12,7 +12,7 @@ FAIL=0
 bad() { echo "PRECHECK FAIL: $*"; FAIL=1; }
 declare -A TGT=([verdict.py]=$H/verdict.py [changerowcheck.py]=$H/mcai-analysis/changerowcheck.py)
 declare -A BASE=([verdict.py]=43bdfb34ea3386eaeb0185baa9725d1f [changerowcheck.py]=e8211c7633b54ecf8a19b503eca725b4)
-SAME="bagfixrule.py:$H/mcai-analysis/bagfixrule.py usaferule.py:$H/mcai-analysis/usaferule.py usafegate.py:$H/mcai-analysis/usafegate.py bagfixgate.py:$H/mcai-analysis/bagfixgate.py deathgate.py:$H/mcai-analysis/deathgate.py drawrequire.py:$H/mcai-analysis/drawrequire.py singledeath.py:$H/mcai-analysis/singledeath.py tierrule.py:$H/mcai-analysis/tierrule.py drawsteady.py:$H/mcai-analysis/drawsteady.py bagread.py:$H/mcai-analysis/bagread.py heavyread.sh:$H/mcai-analysis/heavyread.sh canary-loop.sh:$H/canary-loop.sh drawrec.sh:$H/mcai-analysis/drawrec.sh canary-sched.py:$H/canary-sched.py canarywatch.py:$H/canarywatch.py"
+SAME="bagfixrule.py:$H/mcai-analysis/bagfixrule.py usaferule.py:$H/mcai-analysis/usaferule.py usafegate.py:$H/mcai-analysis/usafegate.py bagfixgate.py:$H/mcai-analysis/bagfixgate.py deathgate.py:$H/mcai-analysis/deathgate.py drawrequire.py:$H/mcai-analysis/drawrequire.py singledeath.py:$H/mcai-analysis/singledeath.py tierrule.py:$H/mcai-analysis/tierrule.py drawsteady.py:$H/mcai-analysis/drawsteady.py bagread.py:$H/mcai-analysis/bagread.py heavyread.sh:$H/mcai-analysis/heavyread.sh canary-loop.sh:$H/canary-loop.sh drawrec.sh:$H/mcai-analysis/drawrec.sh canary-sched.py:$H/canary-sched.py canarywatch.py:$H/canarywatch.py gatedigest.py:$H/mcai-analysis/gatedigest.py"
 
 echo "== precheck 1. staged files present"
 for f in "${!TGT[@]}" test_changerows_underscore.py test_license_change_rows.py test_changerowcheck.py test_verdict_acceptance.py \
