@@ -188,7 +188,9 @@ async function sceneP2 () {
   setHome(H); await flatArena()
   // a barrier corridor 1 wide, 2 high, along x: the bot can shuffle but home (20 out) is unreachable
   const cx = H.x + 20, cz = H.z
-  rcon(`fill ${cx - 1} 120 ${cz - 1} ${cx + 3} 122 ${cz + 1} minecraft:barrier`, `fill ${cx} 120 ${cz} ${cx + 2} 121 ${cz} minecraft:air`)
+  // ...with a barrier FLOOR (r1b: the level-2 home rescue's dig retry dug the stone floor, picked the blocks up, and the
+  // watchdog rightly read `items +N` as progress -- escalation back to 0, never 3). Barrier cannot be dug: no items.
+  rcon(`fill ${cx - 1} 119 ${cz - 1} ${cx + 3} 122 ${cz + 1} minecraft:barrier`, `fill ${cx} 120 ${cz} ${cx + 2} 121 ${cz} minecraft:air`)
   await place({ x: cx + 0.5, y: 120, z: cz + 0.5 })
   const { rows, untap } = rowsTap()
   const realGoto = SKILLS.goto

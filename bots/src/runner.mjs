@@ -251,8 +251,19 @@ export class Runner {
     if (config.reflex.arbiter) {
       // A reflex may be holding the body (an escape in progress): a skill does
       // not start under it. That is the answer "busy", not a silent overlap.
-      const grant = await this.arb.acquire({ owner: skillName, priority: PRIORITY.work, context: null,
-                                             onCancel: () => { this.interrupt(`preempted by ${this.arb.holder?.owner ?? 'a reflex'}`) } })
+      const ask = () => this.arb.acquire({ owner: skillName, priority: PRIORITY.work, context: null,
+                                           onCancel: () => { this.interrupt(`preempted by ${this.arb.holder?.owner ?? 'a reflex'}`) } })
+      let grant = await ask()
+      // THE OWNER LOSES THE BODY TO THE RUN IT IS ABOUT TO TURN AWAY (Claude code r1 P2-2): both waited on the same
+      // preemption, the brain's in-flight run was granted first, and its re-check below gives the body back one microtask
+      // LATER -- after this owner was refused (by the time this line runs it has usually released already). With no skill
+      // running and the body either free again or held at WORK priority (a run in its start, never a reflex), ask once more
+      // after a macrotask, by which time that run has released or started.
+      const by = this.arb.holder
+      if (!grant && myGen != null && !this.current && (by == null || by.priority === PRIORITY.work)) {
+        await new Promise(r => setImmediate(r))
+        grant = await ask()
+      }
       if (!grant) {
         if (myGen != null) this.releaseReservation(myGen)
         return declined({ status: 'failed', failClass: 'body_held', detail: `the body is held by ${this.arb.holder?.owner ?? 'a reflex'}; the skill did not start` })
@@ -264,6 +275,21 @@ export class Runner {
         this.arb.release(grant, 'the runner was reserved while this run waited for the body')
         return declined({ status: 'failed', failClass: 'runner_reserved',
                  detail: `the runner was reserved for ${landed.owner}'s rescue while this run waited for the body; not now` })
+      }
+      // THE OWNER'S OWN START, RE-CHECKED AFTER THE SAME AWAIT (Codex code r1 P1): a NEWER reservation that replaced this
+      // one while the rescue waited for the body makes this attempt stale -- it gives the grant back and the newer one
+      // stands. A reservation that merely EXPIRED during the wait does not: nothing else can have started (no other run
+      // passes the entry check while it was live, and once it lapsed the arbiter refuses an equal-priority asker while this
+      // run holds the body -- the `current` check below is the backstop), so the rescue starts rather than being thrown away.
+      if (myGen != null && landed && landed.gen !== myGen) {
+        this.arb.release(grant, 'a newer reservation replaced this one while the rescue waited for the body')
+        return declined({ status: 'failed', failClass: 'runner_reserved',
+                 detail: 'a newer reservation replaced this one while the rescue waited for the body; not now' })
+      }
+      if (this.current) {
+        this.arb.release(grant, 'another run started while this one waited for the body')
+        if (myGen != null) this.releaseReservation(myGen)
+        return declined({ status: 'failed', failClass: 'runner_busy', detail: `busy with ${this.current.skill}; another run started first` })
       }
       this.grant = grant
     }
@@ -342,7 +368,9 @@ export class Runner {
       // re-throw sits at 20+ sites; skill_error feeds consecutiveFailures, the pause and the lessons.
       result = (e?.aborted || controller.signal.aborted)
         ? { status: 'aborted', failClass: 'interrupted',
-            detail: this.interruptedReason ?? 'aborted', ...carried }
+            // the thrown message is KEPT when the throw was not the skill's own abort mark (Claude code r1 P3-1): a real bug
+            // thrown after an abort stays findable in the row, while the class says what ended the run
+            detail: (this.interruptedReason ?? 'aborted') + (e?.aborted ? '' : ` (threw ${e?.name ?? 'Error'}: ${String(e?.message ?? e).slice(0, 80)})`), ...carried }
         : e?.budgetExceeded
           ? { status: 'unknown', failClass: e.failClass ?? 'path_budget',
               detail: e?.message ?? String(e), ...carried }

@@ -52,9 +52,14 @@ export const RESERVE_EXPIRED_CAP = 2
  *   not started        held: the level goes back one and backs off one window ...
  *   ... unless this is the RESERVE_EXPIRED_CAP-th consecutive reserve_expired: not held, and below level 3 jump to it
  */
-export function rescueLevelStep ({ started = false, failClass = null, level = 0, streak = 0, cap = RESERVE_EXPIRED_CAP } = {}) {
+export function rescueLevelStep ({ started = false, failClass = null, level = 0, streak = 0, cap = RESERVE_EXPIRED_CAP,
+                                   sinceLastMs = 0, ttlMs = Infinity } = {}) {
   if (started) return { streak: 0, hold: false, jump: false }
-  const n = failClass === 'reserve_expired' ? streak + 1 : 0
+  // CONSECUTIVE MEANS RECENT (Claude code r1 P3-4): a streak of 1 left from hours ago is not half of a wedge, so an old
+  // reserve_expired does not count toward the cap -- only one inside `ttlMs` of this one (the watchdog passes two windows,
+  // the held level's backoff and the next verdict's window, plus the pending bound: 590 s at production clocks).
+  const live = sinceLastMs <= ttlMs ? streak : 0
+  const n = failClass === 'reserve_expired' ? live + 1 : 0
   if (n >= cap) return { streak: n, hold: false, jump: level < 3 }
   return { streak: n, hold: true, jump: false }
 }
@@ -118,6 +123,7 @@ export class StagnationWatchdog {
     this.pending = null
     this.attemptSeq = 0
     this.reserveExpiredStreak = 0
+    this.lastReserveExpiredAt = -Infinity
     this.backoffUntil = 0
     this.windowResetAt = 0
     this.reserveMs = RESCUE_RESERVE_MS
@@ -544,8 +550,12 @@ export class StagnationWatchdog {
 
   /** The ladder after a rescue's run (H2 item 4; the decision is rescueLevelStep). */
   async #afterRescue (pd, r, started) {
-    const step = rescueLevelStep({ started, failClass: r?.failClass ?? null, level: this.escalation, streak: this.reserveExpiredStreak })
+    const now = Date.now()
+    const step = rescueLevelStep({ started, failClass: r?.failClass ?? null, level: this.escalation, streak: this.reserveExpiredStreak,
+                                   sinceLastMs: now - this.lastReserveExpiredAt,
+                                   ttlMs: 2 * config.watchdog.windowMs + this.pendingBoundMs() })
     this.reserveExpiredStreak = step.streak
+    if (r?.failClass === 'reserve_expired') this.lastReserveExpiredAt = now
     if (started) return r
     this.#resetWindow()
     if (step.hold) {
