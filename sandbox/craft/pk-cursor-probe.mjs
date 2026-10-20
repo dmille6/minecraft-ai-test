@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 const BOTS = path.resolve(process.argv[2])
 const SERVER = process.argv[3] ?? 'sandbox3'
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 Object.assign(process.env, { OLLAMA_MODEL: 'probe', LOG_DIR: '/tmp/pk-cursor-probe-log', BOT_NAME: 'sandbox-Cur', HOME_X: '760', HOME_Y: '120', HOME_Z: '700' })
 const { createRequire } = await import('node:module')

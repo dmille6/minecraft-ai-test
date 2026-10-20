@@ -12,10 +12,11 @@
 'use strict'
 const { execFileSync, spawn } = require('child_process')
 const http = require('http')
+const sbx = require('../lib/sbxlock.cjs')
 const fs = require('fs'); const path = require('path')
 const [BOT_ROOT, LABEL, SERVER = 'sandbox3'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL) throw new Error('usage: node minewell-e2e.cjs <botRoot> <label> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 const R = process.env.WELL_REPO || path.resolve(__dirname, '../..')
 const NAME = 'sandbox-Mwell'
@@ -151,8 +152,7 @@ async function scene () {
 }
 
 async function main () {
-  const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-  if (!/minewell/.test(lock)) throw new Error('the sandbox lock is not held for minewell: ' + lock.trim().slice(0, 160))
+  sbx.requireSandboxLock(SERVER, /minewell/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })
   P(`root=${BOT_ROOT} label=${LABEL} server=${SERVER}`)

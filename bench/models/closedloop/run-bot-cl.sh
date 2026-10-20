@@ -5,7 +5,7 @@
 set -euo pipefail
 ENVF="${1:?env file}"
 set -a; source "$ENVF"; set +a
-[[ "${MINECRAFT_HOST:-}" == "10.0.0.30" && "${MINECRAFT_PORT:-}" =~ ^(25599|25600|25601|25602)$ ]] || { echo "refusing: not a sandbox server"; exit 3; }
+[[ "${MINECRAFT_HOST:-}" == "10.0.0.30" && "${MINECRAFT_PORT:-}" =~ ^(25599|25600|25601|25602|25603|25604|25605|25606)$ ]] || { echo "refusing: not a sandbox server"; exit 3; }
 # The Studio's Ollama, or the Studio's LM Studio through the bench translating proxy (ollama2openai.py on the
 # Studio, forwarded by an ssh tunnel on the Mac mini at 10.0.0.70:11501), or the Studio's Ollama through the same
 # kind of tunnel at 10.0.0.70:11502 (the WAN forward of :11434 disappeared 10-06 ~15:50Z). Nothing else.

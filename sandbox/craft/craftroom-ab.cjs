@@ -21,7 +21,7 @@ const { execFileSync, spawn } = require('child_process')
 const fs = require('fs'); const path = require('path')
 const [ARM, BOT_ROOT, ROUNDS_S, SCENES_S, SERVER = 'sandbox'] = process.argv.slice(2)
 if (!ARM || !BOT_ROOT || !SCENES_S) throw new Error('usage: node craftroom-ab.cjs <arm> <botRoot> <rounds> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only: ' + Object.keys(PORTS).join(', '))
 const ROUNDS = Number(ROUNDS_S || 1)
 const SCENES = SCENES_S.split(',')

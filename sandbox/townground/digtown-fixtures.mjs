@@ -16,13 +16,13 @@
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
+import sbx from '../lib/sbxlock.cjs'
 import path from 'node:path'
 
 const [BOT_ROOT, SERVER = 'sandbox4', SCENES = 'S1,S2,S3,S4,S5,S6'] = process.argv.slice(2)
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!BOT_ROOT || !PORTS[SERVER]) throw new Error('usage: digtown-fixtures.mjs <botRoot> [sandbox..sandbox4] [scenes]')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || true'], { encoding: 'utf8' })
-if (!/townground/.test(lock)) throw new Error(`the sandbox lock is not ours: ${JSON.stringify(lock.trim())}`)
+sbx.requireSandboxLock(SERVER, /townground/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
 const require = createRequire(path.resolve(BOT_ROOT, 'bots/package.json'))
 const mineflayer = require('mineflayer')
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')

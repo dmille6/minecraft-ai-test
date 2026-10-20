@@ -21,16 +21,16 @@
 import { execFileSync, spawn } from 'node:child_process'
 import http from 'node:http'
 import fs from 'node:fs'
+import sbx from '../lib/sbxlock.cjs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const [BOT_ROOT, SCENES_S, SERVER = 'sandbox2'] = process.argv.slice(2)
 if (!BOT_ROOT || !SCENES_S) throw new Error('usage: plinth-e2e.mjs <botRoot> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-if (!/plinth/.test(lock)) throw new Error(`the sandbox lock does not name plinth: ${lock.trim()}`)
+sbx.requireSandboxLock(SERVER, /plinth/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
 const __dir = path.dirname(fileURLToPath(import.meta.url))
 const R = process.env.WELL_REPO || path.resolve(__dir, '../..')
 const REGION = process.env.PLINTH_REGION || ''

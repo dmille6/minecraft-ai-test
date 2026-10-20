@@ -2,7 +2,7 @@
 
 The existing infra/minecraft/rcon.py hardcodes port 25575 and reads the password from
 /srv/minecraft/server/.rcon.env -- a different server from the block2 fleet, so it cannot
-talk to the 16 live worlds or the 4 sandboxes at all. This takes host/port/password and
+talk to the 16 live worlds or the 8 sandboxes at all. This takes host/port/password and
 reads them from each world's own server.properties.
 
 The multi-packet sentinel is carried over verbatim from that file, because the lesson it
@@ -20,7 +20,7 @@ import re
 import socket
 import struct
 
-SANDBOX_WORLDS = ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4')
+SANDBOX_WORLDS = ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4', 'sandbox5', 'sandbox6', 'sandbox7', 'sandbox8')
 
 
 class RconError(RuntimeError):

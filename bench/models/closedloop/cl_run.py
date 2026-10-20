@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BOTS_HOST, WORLDS_HOST, STUDIO = 'mike@10.0.0.31', 'mike@10.0.0.30', 'mike@ai.ticrcorp.com'
 C2_DIRECTOR = 'mbench_Mayor'   # word characters only: mineflayer's chat pattern drops or truncates other senders (smoke 10-07)
 C2_OLLAMA = 'http://10.0.0.70:11502'      # the overseer/escalation model: the Studio's Ollama via the mini's supervised tunnel
-PORTS = {'sandbox': 25599, 'sandbox2': 25600, 'sandbox3': 25601, 'sandbox4': 25602}
+PORTS = {'sandbox': 25599, 'sandbox2': 25600, 'sandbox3': 25601, 'sandbox4': 25602, 'sandbox5': 25603, 'sandbox6': 25604, 'sandbox7': 25605, 'sandbox8': 25606}
 NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel']   # Minecraft names <= 16 chars: 'mbench-s4-Charlie' (17) was kicked
 
 
@@ -30,31 +30,45 @@ def sh(host, cmd, check=True, timeout=600):
     return r.stdout
 
 
-class sandbox_lock:
-    """The agents' shared convention: mkdir /tmp/mcai-sandbox.lock + an owner file. Held only for the short
-    server-state change (a world reset), never for a whole run: the bot processes run on 10.0.0.31, not the mini."""
-    D = '/tmp/mcai-sandbox.lock'
+SBXLOCK_SH = os.path.join(HERE, '..', '..', '..', 'sandbox', 'sbxlock.sh')
 
-    def __init__(self, who, wait_s=900):
-        self.who, self.wait_s = who, wait_s
+
+def _sbxlock_ssh(args):
+    """Run sandbox/sbxlock.sh ON THE LOCK HOST (10.0.0.31), where every agent's sandbox locks live."""
+    with open(SBXLOCK_SH) as f:
+        r = subprocess.run(['ssh', '-o', 'BatchMode=yes', BOTS_HOST, 'SBXLOCK_LOCAL=1 bash -s -- ' + ' '.join(shlex.quote(x) for x in args)],
+                           stdin=f, capture_output=True, text=True, timeout=60)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+class sandbox_lock:
+    """The agents' shared convention, on 10.0.0.31: THIS server's per-server lock /tmp/mcai-sandbox.lock.<server>
+    (taken through sandbox/sbxlock.sh, which backs out if the global /tmp/mcai-sandbox.lock is held). Held only for
+    the short server-state change (a world reset), never for a whole run.
+    Until 10-20 this mkdir'd /tmp/mcai-sandbox.lock on the machine it ran on -- the Mac mini -- so it never excluded
+    anyone: the shared lock is on 10.0.0.31."""
+    TAG = 'mbench'
+
+    def __init__(self, who, server, wait_s=900, run=None, poll_s=15):
+        self.who, self.server, self.wait_s, self.poll_s = who, server, wait_s, poll_s
+        self.run = run or _sbxlock_ssh
 
     def __enter__(self):
         t = time.time()
         while True:
-            try:
-                os.mkdir(self.D)
-                open(os.path.join(self.D, 'owner'), 'w').write('%s since %s\n' % (self.who, now()))
+            rc, out = self.run(['take', self.server, self.TAG, self.who])
+            if rc == 0 and out.startswith('TAKEN'):
                 return self
-            except FileExistsError:
-                if time.time() - t > self.wait_s:
-                    raise SystemExit('sandbox lock held for %ds by: %s' % (self.wait_s, open(os.path.join(self.D, 'owner')).read() if os.path.exists(os.path.join(self.D, 'owner')) else '?'))
-                time.sleep(15)
+            if rc == 2 or not out.startswith(('HELD', 'REFUSED')):
+                raise SystemExit('sandbox lock: %s' % out[-300:])          # usage/unknown server/ssh failure: never wait on it
+            if time.time() - t > self.wait_s:
+                raise SystemExit('sandbox lock for %s not free after %ds: %s' % (self.server, self.wait_s, out[-300:]))
+            time.sleep(self.poll_s)
 
     def __exit__(self, *e):
-        try:
-            os.remove(os.path.join(self.D, 'owner')); os.rmdir(self.D)
-        except OSError:
-            pass
+        rc, out = self.run(['release', self.server, self.TAG])
+        if rc != 0:
+            print('sandbox lock release for %s: %s' % (self.server, out[-300:]), file=sys.stderr)
 
 
 def now():
@@ -164,7 +178,7 @@ def main():
     if 'ticrcorp' in a.endpoint or ':11502' in a.endpoint:
         sh(STUDIO, "curl -s -m 600 localhost:11434/api/chat -d %s >/dev/null" % shlex.quote(json.dumps(warm)), check=False, timeout=700)
     subprocess.run(['scp', '-q', os.path.join(HERE, 'cl_world.sh'), WORLDS_HOST + ':/tmp/mbench-cl_world.sh'], check=True)
-    with sandbox_lock('model-selection agent: %s world reset for %s' % (a.server, run_id)):
+    with sandbox_lock('model-selection agent: %s world reset for %s' % (a.server, run_id), a.server):
         log(sh(WORLDS_HOST, 'bash /tmp/mbench-cl_world.sh %s reset' % a.server, timeout=900).strip()[-300:])
     for f in ('run-bot-cl.sh', 'cl_metrics.py'):
         subprocess.run(['scp', '-q', os.path.join(HERE, f), BOTS_HOST + ':mbench-cl/' + f], check=True)

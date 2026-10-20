@@ -45,6 +45,7 @@
 'use strict'
 const { execFileSync, spawn } = require('child_process')
 const http = require('http')
+const sbx = require('../lib/sbxlock.cjs')
 const fs = require('fs'); const path = require('path')
 
 const [SERVER, PLAN_S] = process.argv.slice(2)
@@ -404,8 +405,7 @@ async function runTrial (arm, scene, k) {
 }
 
 async function main () {
-  const lock = r31('cat /tmp/mcai-sandbox.lock/* 2>/dev/null || echo NOLOCK')
-  if (!/airpocket/.test(lock)) throw new Error('the sandbox lock is not held for airpocket: ' + lock.trim().slice(0, 120))
+  sbx.requireSandboxLock(SERVER, /airpocket/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
   for (const t = Date.now(); ;) {
     const pl = rcon('list')[0].reply
     if (/There are 0 of/.test(pl)) break

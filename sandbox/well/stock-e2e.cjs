@@ -16,10 +16,11 @@
 'use strict'
 const { execFileSync, spawn } = require('child_process')
 const http = require('http')
+const sbx = require('../lib/sbxlock.cjs')
 const fs = require('fs'); const path = require('path')
 const [BOT_ROOT, SCENES_S, SERVER = 'sandbox3'] = process.argv.slice(2)
 if (!BOT_ROOT || !SCENES_S) throw new Error('usage: node well-e2e.cjs <botRoot> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 const R = process.env.WELL_REPO || path.resolve(__dirname, '../..')
 const NAME = 'sandbox-Stock', NAME2 = 'sandbox-Stock2', WALKER = 'sandbox-SWalk'
@@ -870,9 +871,8 @@ scenes.stockrace = async () => {
 }
 
 async function main () {
-  const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
   const owner = process.env.LOCK_OWNER || 'stocktarget'
-  if (!new RegExp(owner).test(lock)) throw new Error(`the sandbox lock is not held for ${owner}: ` + lock.trim().slice(0, 160))
+  sbx.requireSandboxLock(SERVER, new RegExp(owner))   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
   W = await import(path.join(BOT_ROOT, 'bots/src/well.mjs'))
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })

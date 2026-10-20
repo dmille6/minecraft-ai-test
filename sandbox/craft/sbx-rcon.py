@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-# SANDBOX-ONLY RCON helper: rcon.py <sandbox|sandbox2|sandbox3|sandbox4> "cmd" ["cmd" ...]   (or - to read cmds from stdin)
+# SANDBOX-ONLY RCON helper: rcon.py <sandbox|sandbox2..sandbox8> "cmd" ["cmd" ...]   (or - to read cmds from stdin)
 import socket, struct, subprocess, sys
 srv = sys.argv[1]
-assert srv in ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4'), 'sandbox servers only'
+assert srv in ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4', 'sandbox5', 'sandbox6', 'sandbox7', 'sandbox8'), 'sandbox servers only'
 def prop(k):
     out = subprocess.run(['sudo', 'grep', '-h', '^' + k + '=', f'/srv/block2/{srv}/server.properties'], capture_output=True, text=True).stdout
     return out.split('=', 1)[1].strip()

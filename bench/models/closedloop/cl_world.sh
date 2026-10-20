@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stage C world control, run ON THE WORLDS HOST (10.0.0.30) for ONE sandbox server only.
-#   cl_world.sh <sandbox|sandbox2|sandbox3|sandbox4> init|reset|restore|status
+#   cl_world.sh <sandbox|sandbox2..sandbox8> init|reset|restore|status
 # init    : save server.properties, switch level-name to mbench-world (the sandbox's own `world` is never
 #           touched), max-players 12, generate the world from the fleet seed, set the fleet's gamerules and
 #           world spawn at the fleet's home (355,73,147) over RCON, then snapshot it as the pristine start.
@@ -8,7 +8,7 @@
 # restore : stop, put the original server.properties back (level-name=world), start.
 set -euo pipefail
 S=${1:?server}; CMD=${2:?cmd}
-case "$S" in sandbox|sandbox2|sandbox3|sandbox4) ;; *) echo "refusing: $S is not a sandbox"; exit 3;; esac
+case "$S" in sandbox|sandbox2|sandbox3|sandbox4|sandbox5|sandbox6|sandbox7|sandbox8) ;; *) echo "refusing: $S is not a sandbox"; exit 3;; esac
 D=/srv/block2/$S; U=block2-$S; P=/srv/block2/mbench-pristine-$S.tgz; LN=mbench-world
 rcon() { sudo python3 - "$D" "$@" <<'PY'
 import socket, struct, sys
