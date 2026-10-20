@@ -85,7 +85,6 @@ def small_gray(path):
 
 
 def build(view, stamps, out_mp4, label):
-    fdir = os.path.join(ROOT, 'frames', view)
     os.makedirs(os.path.dirname(out_mp4), exist_ok=True)
     side = {'view': view, 'label': label, 'candidates': len(stamps), 'fps': FPS, 'level': LEVEL,
             'min_changed_frac': MIN_CHANGED_FRAC}
@@ -93,11 +92,11 @@ def build(view, stamps, out_mp4, label):
         side.update(included=0, skipped_nochange=0, note='no frames in range')
         json.dump(side, open(out_mp4 + '.json', 'w'), indent=1)
         return side
-    kept, skipped = dedup(stamps, lambda s: small_gray(os.path.join(fdir, s + '.png')))
+    kept, skipped = dedup(stamps, lambda s: small_gray(frame_path(ROOT, view, s)))
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, 'video')) as tmp:
         for i, s in enumerate(kept, 1):
             text = f"showcase {view}  {s[0:4]}-{s[4:6]}-{s[6:8]} {s[9:11]}\\:{s[11:13]} UTC"
-            subprocess.run(NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-i', os.path.join(fdir, s + '.png'),
+            subprocess.run(NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-i', frame_path(ROOT, view, s),
                                    '-vf', f"drawtext=fontfile={FONT}:text='{text}':x=w-tw-28:y=h-th-28:fontsize=36:"
                                           "fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=12",
                                    os.path.join(tmp, '%06d.png' % i)], check=True)
@@ -116,9 +115,23 @@ def build(view, stamps, out_mp4, label):
     return side
 
 
+def frame_path(root, view, stamp):
+    return os.path.join(root, 'frames', view, stamp[:8], stamp + '.png')    # same layout as tl_showcase.frame_path
+
+
 def all_stamps(view):
     d = os.path.join(ROOT, 'frames', view)
-    return sorted(f[:-4] for f in os.listdir(d) if f.endswith('.png')) if os.path.isdir(d) else []
+    out = []
+    if os.path.isdir(d):
+        for day in os.listdir(d):
+            if os.path.isdir(os.path.join(d, day)):
+                out += [f[:-4] for f in os.listdir(os.path.join(d, day)) if f.endswith('.png')]
+    return sorted(out)
+
+
+def paired_stamps():
+    """Readers use only stamps present in BOTH views (a pair is published together or not at all)."""
+    return sorted(set(all_stamps('angled')) & set(all_stamps('topdown')))
 
 
 def window(kind, a, now):
@@ -155,12 +168,12 @@ def main():
     a = ap.parse_args()
     now = dt.datetime.now(dt.timezone.utc)
     lo, hi, bucket, name = window(a.kind, a, now)
-    if a.kind == 'monthly' and not sample(all_stamps('angled'), lo, hi, bucket):
+    if a.kind == 'monthly' and not sample(paired_stamps(), lo, hi, bucket):
         print(f'monthly {name}: SKIP -- no frames in that month yet')
         return 0
     rc = 0
     for v in VIEWS:
-        st = sample(all_stamps(v), lo, hi, bucket)
+        st = sample(paired_stamps(), lo, hi, bucket)
         try:
             side = build(v, st, os.path.join(ROOT, 'video', f'{name}-{v}.mp4'), name)
             print(json.dumps(side))

@@ -27,7 +27,8 @@ set -euo pipefail
 ROOT=${ROOT:-/srv/block2}
 STAGE=${STAGE:-/srv/world-backup/staging}
 EXPECT=${EXPECT:-16}
-PORT_LO=25570; PORT_HI=25585          # fleet worlds. Sandboxes are 25599-25602 and are NEVER backed up.
+PORT_LO=${PORT_LO:-25570}; PORT_HI=${PORT_HI:-25585}   # fleet worlds. Sandboxes are 25599-25602 and are NEVER backed up.
+UNIT_CHECK=${UNIT_CHECK:-1}           # the block2@ unit cross-check; the showcase run (ROOT = a pulled copy) sets 0
 BWLIMIT=${BWLIMIT:-40000}             # KB/s for pass 1. mq-deadline ignores ionice classes, so this is the real throttle.
 NAS_HOST=${NAS_HOST:-10.0.0.5}
 NAS_USER=${NAS_USER:-mike}
@@ -61,9 +62,9 @@ for p in "$ROOT"/*/server.properties; do
   if [ "$port" -ge "$PORT_LO" ] && [ "$port" -le "$PORT_HI" ]; then worlds+=("$d"); fi
 done
 [ "${#worlds[@]}" -eq "$EXPECT" ] || die "found ${#worlds[@]} fleet worlds by port, expected $EXPECT (${worlds[*]:-none})" 4
-units=$(systemctl list-units --type=service --state=running --no-legend 'block2@*' | awk '{print $1}' | sed 's/^block2@//; s/\.service$//' | sort | tr '\n' ' ')
+[ "$UNIT_CHECK" = 1 ] && units=$(systemctl list-units --type=service --state=running --no-legend 'block2@*' | awk '{print $1}' | sed 's/^block2@//; s/\.service$//' | sort | tr '\n' ' ')
 want=$(printf '%s\n' "${worlds[@]}" | sort | tr '\n' ' ')
-[ "$units" = "$want" ] || log "WARN: running block2@ units ($units) differ from world dirs by port ($want)"
+[ "$UNIT_CHECK" = 1 ] && { [ "$units" = "$want" ] || log "WARN: running block2@ units ($units) differ from world dirs by port ($want)"; }
 for w in "${worlds[@]}"; do
   sudo -n test -f "$ROOT/$w/world/level.dat" || die "$w has no world/level.dat -- refusing" 5
 done

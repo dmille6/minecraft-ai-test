@@ -209,7 +209,7 @@ def capture(cfg, stamp):
     os.makedirs(stage, exist_ok=True)
     for v in VIEWS:
         cam = cfg['cameras'][v]
-        final = os.path.join(cfg['root'], 'frames', v, stamp + '.png')
+        final = frame_path(cfg['root'], v, stamp)
         os.makedirs(os.path.dirname(final), exist_ok=True)
         finals.append(final)
         out = os.path.join(stage, f'{v}-{stamp}.png')
@@ -241,9 +241,25 @@ def capture(cfg, stamp):
     return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1)
 
 
+def frame_path(root, view, stamp):
+    """frames/<view>/<YYYYmmdd>/<stamp>.png -- one directory per UTC day, so the nightly NAS sync pulls only the
+    newest days and .30's staging can be pruned without re-pulling history. Pure (tested)."""
+    return os.path.join(root, 'frames', view, stamp[:8], stamp + '.png')
+
+
+def list_stamps(root, view):
+    d = os.path.join(root, 'frames', view)
+    out = []
+    if os.path.isdir(d):
+        for day in os.listdir(d):
+            dd = os.path.join(d, day)
+            if os.path.isdir(dd):
+                out += [f[:-4] for f in os.listdir(dd) if f.endswith('.png')]
+    return sorted(out)
+
+
 def frame_stamps(cfg, view='angled'):
-    d = os.path.join(cfg['root'], 'frames', view)
-    return sorted(f[:-4] for f in os.listdir(d) if f.endswith('.png')) if os.path.isdir(d) else []
+    return list_stamps(cfg['root'], view)
 
 
 def frame0_time(cfg):
