@@ -10,13 +10,13 @@
    "label": "the taiga village at 103,-7",
    "box": [
     49,
-    54,
+    -64,
     -59,
     157,
     90,
     45
    ],
-   "source": "minecraft:village_taiga start chunk 6,1: 1638 village blocks, 9 houses, pad 8"
+   "source": "minecraft:village_taiga start chunk 6,1: 1470 village blocks, 9 houses, pad 8"
   },
   {
    "id": "village-taiga-23_-20",
@@ -24,13 +24,13 @@
    "label": "the taiga village at 374,-335",
    "box": [
     301,
-    54,
+    -64,
     -404,
     447,
     86,
     -265
    ],
-   "source": "minecraft:village_taiga start chunk 23,-20: 2735 village blocks, 14 houses, pad 8"
+   "source": "minecraft:village_taiga start chunk 23,-20: 2524 village blocks, 14 houses, pad 8"
   },
   {
    "id": "village-snowy--50_49",
@@ -38,13 +38,13 @@
    "label": "the snowy village at -788,777",
    "box": [
     -855,
-    54,
+    -64,
     690,
     -720,
     82,
     865
    ],
-   "source": "minecraft:village_snowy start chunk -50,49: 3763 village blocks, 23 houses, pad 8"
+   "source": "minecraft:village_snowy start chunk -50,49: 3528 village blocks, 23 houses, pad 8"
   },
   {
    "id": "village-snowy--52_-48",
@@ -52,41 +52,41 @@
    "label": "the snowy village at -818,-774",
    "box": [
     -875,
-    55,
+    -64,
     -821,
     -760,
     86,
     -727
    ],
-   "source": "minecraft:village_snowy start chunk -52,-48: 1821 village blocks, 9 houses, pad 8"
+   "source": "minecraft:village_snowy start chunk -52,-48: 1608 village blocks, 9 houses, pad 8"
   },
   {
    "id": "village-snowy-1_54",
    "kind": "village",
-   "label": "the snowy village at 14,862",
+   "label": "the snowy village at 15,862",
    "box": [
-    -58,
-    51,
+    -56,
+    -64,
     782,
     86,
     91,
     942
    ],
-   "source": "minecraft:village_snowy start chunk 1,54: 4235 village blocks, 22 houses, pad 8"
+   "source": "minecraft:village_snowy start chunk 1,54: 3724 village blocks, 22 houses, pad 8"
   },
   {
    "id": "village-snowy--58_-14",
    "kind": "village",
-   "label": "the snowy village at -926,-199",
+   "label": "the snowy village at -925,-199",
    "box": [
-    -1013,
-    55,
+    -1012,
+    -64,
     -256,
     -838,
     114,
     -141
    ],
-   "source": "minecraft:village_snowy start chunk -58,-14: 3556 village blocks, 13 houses, pad 8"
+   "source": "minecraft:village_snowy start chunk -58,-14: 3165 village blocks, 13 houses, pad 8"
   },
   {
    "id": "village-snowy-59_-30",
@@ -94,13 +94,13 @@
    "label": "the snowy village at 934,-472",
    "box": [
     868,
-    54,
+    -64,
     -524,
     1001,
     85,
     -419
    ],
-   "source": "minecraft:village_snowy start chunk 59,-30: 4368 village blocks, 23 houses, pad 8"
+   "source": "minecraft:village_snowy start chunk 59,-30: 3919 village blocks, 23 houses, pad 8"
   }
  ],
  "generated_by": "infra/showcase/structure_zones.py",
