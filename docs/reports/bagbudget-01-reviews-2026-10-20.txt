@@ -75,3 +75,56 @@ Static review only; tests create files and were not run under the no-edit constr
 --- Claude ---
 (r4 changed only the deletion clock, Codex r3 P2; Claude had approved r3 -- re-checked in the code review)
 
+====================================================================================================
+CODE r1
+====================================================================================================
+--- Codex ---
+VERDICT: CHANGE
+
+1. **P2 — Incomplete bank runs can pass D1 coverage.** `scripts/host/bagbudgetread.py:120–128,215` retains completed runs and counts rows rather than distinct part numbers. After a complete `1/2,2/2`, a subsequent run missing `1/2` merges its `2/2` into the previous run: `3/2` passes completeness, potentially hiding junk on the missing first part. Close completed runs and validate part sequences/run identity.
+
+2. **P2 — D4 can miss banked ingots.** `scripts/host/bagbudgetread.py:232` checks only legacy `_town_deposit` text, which `bots/src/towndeposit.mjs:491–502` sorts by quantity and truncates at 300 characters. Tools and larger transfers can push `iron_ingot` beyond the cut. Check the complete `_bagbudget` bank tokens too.
+
+3. **P2 — `bagwell` can pass without deleting any junk.** `sandbox/well/stock-e2e.cjs:887–894` accepts any earlier `_well_dispose`, including failed/no-effect rows (`bots/src/skills.mjs:8502`). Failed disposal followed by timeout-release banking takes 36→33 and satisfies every pass condition while egg/flint remain. Require verified disposal of both junk stacks before banking.
+
+4. **P3 — `bagfar` does not enforce usable-pickaxe preservation.** `sandbox/well/stock-e2e.cjs:921–922` reports `goodPickaxe` but excludes it from `CANDIDATE_PASS`. Destroying the good pickaxe alongside the spent copies can still pass. Require its survival and validate the initial four-spent-copy fixture.
+
+Read self-test passed, including `JS_CHECK`. Both targeted Node suites were blocked before assertions by sandbox `EPERM` on temporary-directory creation. No tracked files edited.
+
+--- Claude ---
+VERDICT: APPROVE (on 7e9fd2b3). Checks passed (bagbudget, towndeposit, read selftest); no new import cycles; no junk-into-chest route (probed); BAG_ALLOWANCE=off matches the base except text/logging and the order's extra arg keys; the deletion wait cannot hold forever; every mutant anchored and killed for the right reason. P2-1 the deletion-first wiring (deletionPending, the cognitive closure) had no behaviour test through the real loop -- add one (well.test.mjs has the fixture) or make Paper bagwell a hard precondition. P3-1 D3 cannot fire by construction and the property's guarantee/junk assertions are tautologies (the anchored mutant is the real test) -- label D3 a consistency tripwire or promote the cross-check. P3-2 the clock counts the whole gap between calls (safe: only releases early). P3-3 bagmix passes on apples only because the sandbox is peaceful. P3-4 RCON_LOCAL trusts SANDBOX_LOCK_OWNER. P3-5 bestFood could keep the composter's apple in a peaceful world.
+
+====================================================================================================
+CODE r2
+====================================================================================================
+--- Codex ---
+VERDICT: CHANGE
+
+1. **P2 — D1 still merges incomplete visits.** `scripts/host/bagbudgetread.py:125`: visit A’s `1/2` followed by visit B’s `2/2` five minutes later becomes one complete run. Reproduced: `d1_incomplete=0`; the completed-run-plus-orphan control correctly reports 1. Use a visit identifier or reliable boundary.
+
+2. **P2 — New D6 can falsely force REVERT.** `scripts/host/bagbudgetread.py:262–267` counts legitimately retained torches/bone meal/ladders as omissions. Wanted-item floors and withdraw holds explicitly preserve them (`bots/src/towndeposit.mjs:269–273`; `bots/test/bagbudget.test.mjs:147–152`). Two such observations—even across different bots—do not prove a defect. Exclude legitimate keeps using telemetry, or retain this as reporting only.
+
+3. **P3 — RCON_LOCAL lock finding remains unresolved.** `sandbox/well/stock-e2e.cjs:934–937` still trusts `SANDBOX_LOCK_OWNER` without checking the actual lock.
+
+Craft-room’s switch propagation and survivor rule are correct (`bots/src/craftroom.mjs:272–280`). Other listed fixes look addressed.
+
+Python self-test passed. All four permitted Node commands encountered read-only sandbox `EPERM` failures; runtime validation remains incomplete.
+
+--- Claude ---
+VERDICT: APPROVE (on 7af10484). Every round-1 finding of both reviewers resolved (run closing at 1..n, D4 from the bank parts, bagwell's successful dispose, bagfar's four spent + survivor, the real-loop chain + mutant, D3 labelled, D6, the clock comment, bagmix's difficulty, bestFood's skip); the craftroom change right (craftRoomRemedy reads the hygiene plan under the same switch; the survivor rule unchanged; all wearOutPlan callers share the default). P3: D6 counts rows not bots; "class": "" beside "tier": 2 (safer to drop); the well.test chain moves nothing, so Paper bagwell stays a launch precondition.
+
+====================================================================================================
+CODE r3
+====================================================================================================
+--- Codex ---
+VERDICT: APPROVE
+
+1. P3 — `RCON_LOCAL` still relies on the launcher’s lock; explicitly documented, not mechanically enforced by the driver (`docs/reports/bagbudget-01-design-2026-10-20.md:368–370`).
+
+Both P2 findings are resolved: visit IDs prevent cross-visit stitching (`scripts/host/bagbudgetread.py:127–130`); the cross-check is reporting-only (`:268`, `:448`), with D6 removed from registration.
+
+Read selftest and actual JS→Python multipart round-trip passed. Registration JSON and gate fields validated; new skill assertion matches emitted format. Both Node suites were blocked before tests by sandbox `mkdtemp` EPERM. No tracked files edited.
+
+--- Claude ---
+VERDICT: APPROVE (on e4cd41c0). Codex r2 P2-1 resolved (v= per visit, computed once per visit; KV parses it; parts stay under 300; fixtures 2-incomplete / 1-complete); P2-2 resolved (D6 gone from judge and own_lines; selftest asserts absence); RCON_LOCAL accepted as documented. P3: the id took the last six characters of the name, so a fleet name like hive-c-Bravo gives '-Bravo...' while the test forbade a '-' lead -- assert 'not exactly -' or use the full name. (Taken in 31416ee5: the full name.)
+
