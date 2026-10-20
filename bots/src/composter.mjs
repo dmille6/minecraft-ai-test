@@ -22,6 +22,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
+import { RUNNER_DECLINED } from './declined.mjs'
 import { chainPeak } from './craftroom.mjs'
 import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from './withdrawpick.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch the composter also takes the plants a
@@ -643,7 +644,8 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
 }
 
 /** The runner declined to start the order (it never ran): a free skip, like no_effect. */
-export const RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
+// THE ONE SHARED SET (declined.mjs, homefix-01), re-exported for well.mjs and the tests that import it from here.
+export { RUNNER_DECLINED }
 
 /** After a town order ran -> the new state. A skip (no_effect), an interruption, or a runner refusal costs nothing; a fault backs off. */
 export function townOrderOutcome (skill, status, now = 0, state = {}, failClass = null) {

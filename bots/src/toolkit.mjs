@@ -23,6 +23,7 @@
 // all. The owner's "else stay until worn out" is this path.
 
 import { remaining, FLOOR, HARD_STOP, tier, isPickaxe } from './toolfor.mjs'
+import { RUNNER_DECLINED } from './declined.mjs'
 
 /** TOOLKIT=on|off, default on; anything else reads as on and the process says so in its `_toolkit` mode row. */
 export function toolkitMode (env = {}) {
@@ -132,7 +133,7 @@ export function kitTakes (inChest = [], draw = {}, { keep = TOWN_IRON_KEEP, stic
 
 const lazy = v => (typeof v === 'function' ? v() : v)
 /** The runner declined to start it: nothing is charged (recount.mjs DECLINED). */
-const DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
+const DECLINED = RUNNER_DECLINED   // the one shared set (declined.mjs, homefix-01)
 
 /**
  * THE ORDER -> { order, state }. Pure; cognitive.mjs supplies the readings and keeps `state`. AFTER every other
