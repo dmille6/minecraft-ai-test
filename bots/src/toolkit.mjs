@@ -319,7 +319,9 @@ export const kitNarrows = ({ on = TOOLKIT_IRONPICK.on, needs = [], outcome = '',
  * when it was skipped (null: not recorded -- held, the base rule). Held while what it had plus what the bag's wood makes is
  * short of this draw's sticks: a holder skipped for the whole kit's 8 is not held back from the pickaxe's 4.
  */
-export const kitStickHeld = (had, draw = {}, sticksMakeable = 0) =>
+// ONLY A PICKAXE DRAW with the switch on (Codex r3 P2: one variable) -- any other draw keeps the base's unconditional hold-back
+export const kitStickHeld = (had, draw = {}, sticksMakeable = 0, { ironpick = TOOLKIT_IRONPICK.on } = {}) =>
+  !(ironpick && (draw.needs ?? [])[0] === 'iron_pickaxe') ||
   had == null || !Number.isFinite(Number(had)) || Number(had) + (Number(sticksMakeable) || 0) < (Number(draw.sticks) || 0)
 
 export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRONPICK.on, atTown = false, items = [], credit = 0, container = false, townMiss = false,
@@ -336,9 +338,10 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRO
   // ironpick-01: room for the tools too, even when the credit covers the draw (Claude r1 P3: the credit-only run made tools
   // into a bag never checked); off: the base condition exactly
   const roomFor = dk => {
-    // A CREDIT-ONLY PICKAXE RUN visits no chest, so no room can be MADE for it (Codex r2 P2): the bag's empty slots must
-    // already take every tool it makes
-    if (ironpick && dk.needs.includes('iron_pickaxe') && dk.ingots === 0 && dk.sticks === 0) return BAG_SLOTS - list(items).length >= dk.needs.length
+    // A PICKAXE RUN THE CREDIT FUNDS may visit no chest at all -- none when it needs no sticks, none that gives anything when the
+    // town has no sticks -- so room a deposit could make is no room for it (Codex r2 P2, r3 P2): the bag's EXISTING empty slots
+    // must take every tool it makes, and a slot for the sticks it would take
+    if (ironpick && dk.needs.includes('iron_pickaxe') && dk.ingots === 0) return BAG_SLOTS - list(items).length >= dk.needs.length + (dk.sticks > 0 ? 1 : 0)
     return !((dk.ingots > 0 || dk.sticks > 0) && typeof room === 'function' && !room(dk))
   }
   let d = null, tabled = false
