@@ -10534,9 +10534,10 @@ export function townKitIronMiss (bot, draw = null) {
     // the stick chest left the only iron holder held back for an hour, and the gate issued no order with both in town)
     // ...only a KNOWN stick holder (a fresh count: the journal's or the index's), never mere unknown containers -- else a town
     // with no sticks at all would re-issue the order every backoff to look again (the base holds back until the skip expires)
-    const sticksFindable = KITSTICKS.on && d.ingots > 0 && townSearchHolder(bot, 'stick')
     // ironpick-01 (Codex r2 P2): held back only while what it had is short of THIS draw's sticks (kitStickHeld)
-    if (!sticksFindable && kitSticksAtRisk(d, mk)) for (const [k, until] of bot.kitNoSticks ?? []) if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)
+    if (kitSticksAtRisk(d, mk) && !(KITSTICKS.on && d.ingots > 0 && townSearchHolder(bot, 'stick'))) {
+      for (const [k, until] of bot.kitNoSticks ?? []) if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)
+    }
     return townSearchEmpty(bot, [kitIronNeed(d.ingots)], { tried: held })
   } catch { return false }
 }
@@ -10909,7 +10910,16 @@ async function kitSticksPass (ctx, signal, deadline, keep, want, ironWant = 0) {
       if (sstep === 'took') { const n = v.moved?.took?.stick ?? 0; took += n; left = Math.max(0, left - n); if (n > 0 && ixPick) hit = 1 }
       // A STOP THAT MOVED NOTHING is not the kit's end (Claude code r1 P3): the pre-draw stops, the iron search runs as
       // toolkit-03's would; only an unsettled cursor or an unverified move ends the run
-      else if (sstep === 'stop') { if (v.result?.failClass === 'transfer_unsettled' || (v.moved && !v.verified)) unsettled = v.result; else stopped = v.result?.failClass ?? 'failed'; break }
+      else if (sstep === 'stop') {
+        if (v.result?.failClass === 'transfer_unsettled' || (v.moved && !v.verified)) unsettled = v.result
+        else {
+          stopped = v.result?.failClass ?? 'failed'
+          // a stick holder whose take stopped (no room, no recount...) leaves THIS bot's searches a while, so the kit gate's
+          // townSearchHolder does not re-issue the order for the same stop every backoff (Claude code r2 P3)
+          bot.withdrawSearchSkip ??= new Map(); bot.withdrawSearchSkip.set(containerKey(bot, cb.position), Date.now() + SEARCH_FAIL_SKIP_MS)
+        }
+        break
+      }
       else if (sstep === 'miss' && ingredientNeedsAbsent(v.saw ?? []).includes('stick')) {
         updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), ['stick']))
       }
@@ -11010,7 +11020,7 @@ async function toolkit (ctx, args, signal) {
       if (KITSTICKS.on && draw.ingots > 0 && kitSticksAtRisk(draw, kitMeans(items(), { tableNear }).sticksMakeable)) {
         // only what the bag's wood cannot make (Claude code r1 P3): with the rest from planks, kitTakes asks the iron's container for none
         const sp = await kitSticksPass(ctx, signal, deadline, keep, draw.sticks - kitMeans(items(), { tableNear }).sticksMakeable, draw.ingots)
-        st.preSticks = sp.took
+        st.preSticks = sp.took; st.sticks = sp.took   // on every exit from here the row carries the pre-drawn sticks (Codex code r2 P3)
         if (sp.unsettled) { st.stop = 'stick_draw_unsettled'; return out('failed', 'draw_failed', sp.unsettled.detail, sp.unsettled.failClass ?? 'kit_draw') }
         if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn, limit: drawLimit })   // the sticks are in the bag now: the iron's container need not hold them
       }
@@ -11053,7 +11063,7 @@ async function toolkit (ctx, args, signal) {
         }
         if (step === 'next' && SEARCH_FAIL_SKIP.has(v.result.failClass)) progressed = true   // left out of the next run's search
         if (step === 'stop') {
-          st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
+          st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = (v.moved?.took?.stick ?? 0) + (st.preSticks ?? 0); st.stop = v.result.failClass ?? 'failed'
           if (st.drew > 0) st.ironSeen = (v.saw ?? []).reduce((t, it) => t + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
           Object.assign(st.search, searchTally(tried), { left: -1 }); st.searchT1 = Date.now()
           const oc = v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed'

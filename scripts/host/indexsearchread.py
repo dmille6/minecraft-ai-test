@@ -116,8 +116,13 @@ def judge(rows):
         elif r['name'] == '_smelt_town':
             stop = f.get('stop') or '?'
             c[k + ('job',)] += 1
-            c[k + ('fuel_job',)] += (num(f, 'withdrawn') + num(f, 'bag0')) > 0
-            c[k + ('coal_pop',)] += (num(f, 'withdrawn') + num(f, 'bag0')) > 0 or stop in FUEL_UNFOUND
+            # THE COAL-SEARCHING JOBS (Codex code r2 P2): coal drawn (coal >= 1), or a fuel failure -- no_fuel, or a search cut
+            # with the COAL pass's candidates left (more=coal). bag0 counts copper INGOTS too (a banked carry is no coal search),
+            # and search_more / search_stalled with more=cu are the copper pass's
+            cfail = stop == 'no_fuel' or (stop in ('search_more', 'search_stalled') and f.get('more') == 'coal')
+            c[k + ('fuel_job',)] += num(f, 'coal') >= 1 or cfail
+            c[k + ('coal_pop',)] += num(f, 'coal') >= 1 or cfail
+            c[k + ('cfail',)] += cfail
             c[k + ('no_fuel',)] += stop == 'no_fuel'
             c[k + ('fuel_unfound',)] += stop in FUEL_UNFOUND
         elif is_order(r):
@@ -132,18 +137,18 @@ def judge(rows):
     g = lambda per, arm, f: c[(per, arm, f)]
     for per in ('pre', 'post'):
         for arm in ('canary', 'control'):
-            for f in ('kit', 'kit_opens', 'base_lic', 'coal_pop', 'no_iron', 'unfound', 'crafted', 'job', 'fuel_job', 'no_fuel', 'fuel_unfound', 'wp', 'wp_ok', '_index_search', '_indexsearch_mode', '_kit_sticks'):
+            for f in ('kit', 'kit_opens', 'base_lic', 'coal_pop', 'cfail', 'no_iron', 'unfound', 'crafted', 'job', 'fuel_job', 'no_fuel', 'fuel_unfound', 'wp', 'wp_ok', '_index_search', '_indexsearch_mode', '_kit_sticks'):
                 out['%s_%s_%s' % (f.strip('_'), per, arm)] = g(per, arm, f)
     cells = lambda kk, n: [(g(per, arm, kk), g(per, arm, n)) for arm in ('canary', 'control') for per in ('pre', 'post')]
     for name, kk, n in (('no_iron_per_attempt', 'no_iron', 'kit'), ('unfound_per_attempt', 'unfound', 'kit'), ('crafted_per_attempt', 'crafted', 'kit'),
-                        ('no_fuel_per_job', 'no_fuel', 'coal_pop'), ('fuel_unfound_per_job', 'fuel_unfound', 'coal_pop'), ('withdraw_pick_ok', 'wp_ok', 'wp')):
+                        ('no_fuel_per_job', 'no_fuel', 'coal_pop'), ('fuel_unfound_per_job', 'cfail', 'coal_pop'), ('withdraw_pick_ok', 'wp_ok', 'wp')):
         d, z = did_z(cells(kk, n))
         out[name + '_did'], out[name + '_z'] = d, z
     if out['withdraw_pick_ok_did'] is None:
         out['withdraw_pick_gate'] = None                      # INSUFFICIENT: not judged (the line is nullable), never `ok`
     else:
         out['withdraw_pick_gate'] = 0 if (out['withdraw_pick_ok_did'] < WP_TOL and out['withdraw_pick_ok_z'] < -2) else 1
-    per_att = lambda per, arm: g(per, arm, 'kit_opens') / g(per, arm, 'kit') if g(per, arm, 'kit') else None
+    per_att = lambda per, arm: g(per, arm, 'kit_opens') / g(per, arm, 'kit') if g(per, arm, 'kit') >= MIN_CELL else None   # thin: None (Claude r2 P3)
     pa = [per_att(p, a) for a in ('canary', 'control') for p in ('pre', 'post')]
     out['kit_opens_per_attempt_did'] = None if None in pa else (pa[1] - pa[0]) - (pa[3] - pa[2])
     # THE BASE IS townindex-01 (Claude code r1 P3): control bots must write its licence, or the DiD measures both changes together
@@ -237,6 +242,11 @@ def selftest():
     assert judge(base + [R('_index_search', IXS.replace('visits=1', 'visits=16'))])['pass_over_budget'] == 0, 'D4 control: the coal budget is 16'
     assert judge(base + [R('_index_search', IXS.replace('need=coal', 'need=raw_copper').replace('visits=1', 'visits=13'))])['pass_over_budget'] == 1, 'D4: the copper budget is 12'
     # the smelt population: copper-only jobs moving INTO the coal pass do not inflate no_fuel per coal-searching job
+    SM_CARRY = 'stop=banked_carry n=0 bag0=8 withdrawn=0 coal=0 smelted=0 prior=0 deposited=8'
+    SM_CUMORE = 'stop=search_more n=0 bag0=0 withdrawn=0 coal=0 smelted=0 prior=0 deposited=0 looked=12 more=cu'
+    SM_COALMORE = 'stop=search_more n=0 bag0=0 withdrawn=8 coal=0 smelted=0 prior=0 deposited=8 looked=16 more=coal'
+    cc = judge([R('_smelt_town', SM_CARRY, status='no_effect'), R('_smelt_town', SM_CUMORE, status='no_effect'), R('_smelt_town', SM_COALMORE, status='no_effect')])
+    assert cc['coal_pop_post_canary'] == 1 and cc['fuel_job_post_canary'] == 1 and cc['cfail_post_canary'] == 1, ('a banked carry and a copper search are not coal searches', cc)
     SM_NOCU = 'stop=town_has_none n=0 bag0=0 withdrawn=0 coal=0 smelted=0 prior=0 deposited=0'
     pop = judge(base + [R('_smelt_town', SM_NOCU, per='pre', status='no_effect')] * 20 + [R('_smelt_town', SM_NOCU, per='pre', arm='control', bot='hive-c-Alpha', status='no_effect')] * 20)
     assert pop['no_fuel_per_job_did'] == 0, ('no-copper exits are not in the coal population', pop['no_fuel_per_job_did'])
@@ -348,8 +358,8 @@ if __name__ == '__main__':
           % (res['ix_over_cand'], res['first_ix_unranked'], res['sticks_over_want'], res['pass_over_budget'], res['hit_without_take'], res['_lists']))
     print('REPORTED     first container %s | passes that took %d, of which the index ranked the giver %d | COST container opens per kit attempt DiD %s (should FALL)'
           % (res['first'], res['took_passes'], res['hit_passes'], 'null' if res['kit_opens_per_attempt_did'] is None else '%+.2f' % res['kit_opens_per_attempt_did']))
-    print('BASE         control `_townindex_mode` rows in the window %d -> %s (the base must be townindex-01, or the DiD measures both changes together)'
-          % (res['base_townindex_control'], 'ok' if res['base_townindex_control'] else 'WARNING: the controls are not on townindex-01'))
+    print('BASE         control `_townindex_mode` rows in the window %d -> %s (the base must be townindex-01, or the DiD measures both changes together; a once-per-spawn row: its absence is weak evidence -- check the manifest)'
+          % (res['base_townindex_control'], 'ok' if res['base_townindex_control'] else 'CHECK: no control licence row in the window'))
     print('EXPOSURE     -> %s (canary kit attempts %d need %d; canary smelt fuel draws %d of %d jobs, need %d; pre ok %d) | INSTRUMENT control kit %d smelt %d -> %s'
           % ('READY' if res['exposure_ready'] else 'NOT YET', res['kit_post_canary'], EXPOSURE_KIT, res['fuel_job_post_canary'], res['job_post_canary'], EXPOSURE_SMELT, res['pre_ok'],
              res['kit_post_control'], res['job_post_control'], 'ok' if res['instrument_control'] else 'BLIND'))
