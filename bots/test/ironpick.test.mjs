@@ -318,6 +318,16 @@ async function stickNarrowScene (S = S0) {
   assert.equal(count(chestOf(w), 'iron_ingot'), 8); assert.equal(count(chestOf(w), 'stick'), 0)
 }
 await t('SKILL, STICKS SHORT FOR THE WHOLE KIT (Codex r2 P2): no_sticks for 8 narrows to the pickaxe (4), which the next order draws and makes', () => stickNarrowScene())
+async function creditNoSticksScene (S = S0) {
+  // Claude r4 P3: the credit covers the pickaxe's iron (3 ingots), the whole kit still needs town iron; no sticks anywhere, no
+  // wood: the run ends no_sticks and BACKS OFF -- the pickaxe prefix is not meetable (its 4 sticks cannot be had), so no narrow
+  const w = withServer(town([T('stone_pickaxe', 100), stack('iron_ingot', 3), stack('crafting_table', 1)], [stack('iron_ingot', 20)]))
+  w.bot.kitCredit = 3
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, new AbortController().signal)
+  assert.equal(r.failClass, 'kit_no_sticks', r.detail); assert.match(r.detail, /carry 1 log/)
+  assert.ok(K.toolkitOutcome('failed', 1e9, {}, r.failClass).backoffUntil > 1e9, 'backed off, not narrowed')
+}
+await t('SKILL, CREDIT-FUNDED PICKAXE AND NO STICKS ANYWHERE (Claude r4 P3): no_sticks with its remedy, a backoff -- not a narrow', () => creditNoSticksScene())
 async function sticksOnlyScene (S = S0) {
   // the credit covers the pickaxe's iron (an earlier run drew it); the bag has no sticks, the chest holds sticks and 2 ingots
   const w = withServer(town([T('iron_pickaxe', 30), ...KIT_HELD(), stack('iron_ingot', 3), stack('crafting_table', 1)], [stack('stick', 20), stack('iron_ingot', 2)]))
@@ -490,6 +500,8 @@ await t('MUTANTS: each removes one part of ironpick-01 and a behaviour test abov
   kills.noNarrow = await withMutant(SKILLS_PATH, "        if (narrow) {\n          return out('failed', 'narrow',", "        if (false) {\n          return out('failed', 'narrow',", S => killedBy(() => narrowScene(S)))
   // the hold-back by quantity gone (any recorded holder held back): the pickaxe prefix never sees the 4-stick holder
   kills.stickQty = await withMutant(SKILLS_PATH, 'if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)', 'if (until > Date.now()) held.add(k)', S => killedBy(() => stickNarrowScene(S)))
+  // the credit-funded prefix counted meetable without its sticks: a narrow that cannot be met
+  kills.creditSticks = await withMutant(SKILLS_PATH, 'p1.ingots === 0 ? p1.sticks <= kitMeans(items(), { tableNear }).sticksMakeable :', 'p1.ingots === 0 ? true :', S => killedBy(() => creditNoSticksScene(S)))
   // iron_seen on a sticks-only draw
   kills.seenAlways = await withMutant(SKILLS_PATH, 'if ((got?.took?.iron_ingot ?? 0) > 0) st.ironSeen = ', 'st.ironSeen = ', S => killedBy(() => sticksOnlyScene(S)))
   const survived = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
