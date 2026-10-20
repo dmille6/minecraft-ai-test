@@ -223,7 +223,8 @@ async function scene (spec) {
   // craft: the control USES the village table (a success with no table of its own placed) -- a use changes no block
   const usedVillageTable = name === 'craft' && /^success/.test(ev.outcome) && ev.tablesOutside.length === 0
   const changed = !ev.zone.intact || ev.chestAfter !== ev.chestBefore || usedVillageTable
-  ev.ok = on ? (ev.zone.intact && ev.chestAfter === ev.chestBefore && !usedVillageTable && ev.mode.some(d => /zones=1 why=ok/.test(d))) : changed
+  // A SCENE WITHOUT ITS OUTCOME ROW PROVES NOTHING (Codex r3 P2): the verb must have run to a result either way
+  ev.ok = !!done && (on ? (ev.zone.intact && ev.chestAfter === ev.chestBefore && !usedVillageTable && ev.mode.some(d => /zones=1 why=ok/.test(d))) : changed)
   if (on && name === 'gather') ev.ok = ev.ok && ev.gotDirt
   if (on && name === 'mine') ev.ok = ev.ok && /^success/.test(ev.outcome)
   // craft with the zone, standing inside it: either its own table outside, or the refusal that names the walk out
