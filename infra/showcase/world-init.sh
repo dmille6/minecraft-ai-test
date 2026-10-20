@@ -19,6 +19,7 @@ fi
 PW=$(python3 -c 'import json; print(json.load(open("/srv/showcase/secrets/rcon.json"))["password"])')
 systemctl stop showcase-paper.service 2>/dev/null || true
 rm -rf $S/world $S/world_nether $S/world_the_end
+rm -f $S/logs/latest.log            # the readiness check below must read THIS start's log, not the last one
 umask 027
 # The bench's full server.properties (board-a, 10-15, minus its secrets/seed/ports/motd), then the showcase's own
 # keys. The full file matters: Paper's default pause-when-empty-seconds=60 STOPS TICKING with no player online, so a
@@ -41,8 +42,8 @@ chown -R minecraft:minecraft $S
 chmod 640 $S/server.properties
 sudo -u minecraft test -r $S/server.properties || { echo "server.properties not readable by minecraft"; exit 1; }
 systemctl enable --now showcase-paper.service >/dev/null 2>&1
-for i in $(seq 1 120); do
-  grep -q 'Done (' $S/logs/latest.log 2>/dev/null && break; sleep 2
+for i in $(seq 1 180); do
+  grep -q 'Done (' $S/logs/latest.log 2>/dev/null && ss -ltn | grep -q ':25575 ' && break; sleep 2
 done
 grep -q 'Done (' $S/logs/latest.log || { echo "Paper did not finish starting"; tail -20 $S/logs/latest.log; exit 1; }
 echo "world for seed $SEED up: $(grep -m1 'Done (' $S/logs/latest.log | sed 's/.*Done/Done/')"

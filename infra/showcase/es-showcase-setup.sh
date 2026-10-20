@@ -17,24 +17,31 @@ ok(){ printf '   ok  %s\n' "$*"; }
 NAMES=(mcai-skill-showcase mcai-llm-showcase mcai-sys-showcase mcai-mc-showcase mcai-showcase-ops)
 
 echo "== template simulation (which template, data stream or not, ILM, replicas, strict or not)"
-for n in "${NAMES[@]}"; do
-  q -XPOST "http://localhost:9200/_index_template/_simulate_index/$n" | python3 -c '
-import json, sys
-d = json.load(sys.stdin); n = sys.argv[1]
-if "error" in d:
-    print(f"   {n}: ERROR {json.dumps(d[\"error\"])[:200]}"); sys.exit(0)
-t = d.get("template", {}); s = t.get("settings", {}).get("index", {}); m = t.get("mappings", {})
-ov = d.get("overlapping") or []
-print(f"   {n}: matched={[o.get(\"name\") for o in ov] or \"(the winning template only)\"} "
-      f"dynamic={m.get(\"dynamic\")} ilm={s.get(\"lifecycle\", {}).get(\"name\")} replicas={s.get(\"number_of_replicas\")} "
-      f"top_fields={sorted(m.get(\"properties\", {}))[:14]}")' "$n"
+SIMD=$(mktemp -d)
+for n in "${NAMES[@]}" mcai-skill-agents mcai-llm-agents mcai-sys-journal mcai-mc-paper; do
+  q -XPOST "http://localhost:9200/_index_template/_simulate_index/$n" > "$SIMD/$n.json"
 done
-for n in mcai-sys-journal; do
-  q "http://localhost:9200/_data_stream/$n?filter_path=data_streams.name,data_streams.template" | python3 -c '
-import json,sys; print("   bench", sys.argv[1], "->", json.load(sys.stdin))' "$n" || true
-  q "http://localhost:9200/$n/_settings?filter_path=*.settings.index.lifecycle,*.settings.index.number_of_replicas" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print("   bench", sys.argv[1], "settings", list(d.values())[:1])' "$n" || true
-done
+python3 - "$SIMD" "${NAMES[@]}" <<'PY'
+import json, os, sys
+d, names = sys.argv[1], sys.argv[2:]
+def show(n, tag=''):
+    r = json.load(open(os.path.join(d, n + '.json')))
+    if 'error' in r:
+        print(f"   {tag}{n}: ERROR {json.dumps(r['error'])[:200]}")
+        return None
+    t = r.get('template', {}); s = t.get('settings', {}).get('index', {}); m = t.get('mappings', {})
+    ov = [o.get('name') for o in (r.get('overlapping') or [])]
+    print(f"   {tag}{n}: overlapping={ov} dynamic={m.get('dynamic')} data_stream={'data_stream' in t or bool(r.get('template', {}).get('data_stream'))} "
+          f"ilm={s.get('lifecycle', {}).get('name')} replicas={s.get('number_of_replicas')} top_fields={sorted(m.get('properties', {}))[:12]}")
+    return m
+maps = {n: show(n) for n in names}
+for b, sc in (('mcai-skill-agents', 'mcai-skill-showcase'), ('mcai-llm-agents', 'mcai-llm-showcase'),
+              ('mcai-mc-paper', 'mcai-mc-showcase'), ('mcai-sys-journal', 'mcai-sys-showcase')):
+    bm = show(b, 'bench ')
+    same = (json.dumps(bm, sort_keys=True) == json.dumps(maps.get(sc), sort_keys=True)) if bm is not None else None
+    print(f"   mapping of {sc} == {b}: {same}")
+PY
+rm -rf "$SIMD"
 [ "${1:-}" = --simulate ] && exit 0
 
 echo "== ops template (heartbeat rows; explicit types, 0 replicas, ILM mcai-logs)"

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SHOWCASE, ON THE STUDIO: keeps the showcase brain proxy up (127.0.0.1:11502). docs/reports/showcase-2026-10-20.md s.2.
+     Install: ~/Library/LaunchAgents/; launchctl bootstrap gui/$(id -u) <file>. Remove: launchctl bootout gui/$(id -u)/com.mcai.showcase.proxy.
+     brain-01's com.mcai.brain01.proxy (port 11501) is a different job and is not touched. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.mcai.showcase.proxy</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/bin/python3</string><string>/Users/mike/showcase/showcaseproxy.py</string>
+    <string>--listen</string><string>127.0.0.1:11502</string>
+    <string>--upstream</string><string>http://127.0.0.1:1234</string>
+    <string>--model</string><string>brain</string><string>--serve-as</string><string>gemma4:26b</string>
+    <string>--fallback</string><string>http://127.0.0.1:11434</string>
+    <string>--fallback-model</string><string>qwen2.5:7b-instruct</string>
+    <string>--max-inflight</string><string>10</string>
+    <string>--timeout</string><string>20</string><string>--fallback-timeout</string><string>20</string>
+    <string>--default-think</string><string>false</string>
+    <string>--log</string><string>/Users/mike/showcase/proxy.jsonl</string>
+    <string>--pause-file</string><string>/Users/mike/mbench/out/GPU_RESERVED</string>
+    <string>--pause-file</string><string>/Users/mike/brain01/LIVE</string>
+    <string>--pause-file</string><string>/Users/mike/showcase/OFF</string>
+    <string>--pause-dir</string><string>/Users/mike/showcase/pause.d</string>
+    <string>--quiesced-file</string><string>/Users/mike/showcase/QUIESCED</string>
+    <string>--lms</string><string>/Users/mike/.lmstudio/bin/lms</string>
+  </array>
+  <key>KeepAlive</key><true/><key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/Users/mike/showcase/proxy.err</string>
+</dict></plist>

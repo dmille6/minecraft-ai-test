@@ -241,6 +241,13 @@ class Proxy(unittest.TestCase):
         self.assertIs(SP.lms_brain_idle(busy), False)
         self.assertIsNone(SP.lms_brain_idle('garbage'))
         self.assertIs(SP.lms_brain_idle('No models are currently loaded'), True)
+        # DRILL 2026-10-20 ~13:50Z on the Studio: `lms server stop`, then `lms ps` -> rc 0, the SAME table (the app
+        # still holds the model; only the HTTP server stopped), and `lms server status` still "not running" after
+        # it: `lms ps` does not start the server. Captured verbatim:
+        down = ('\nIDENTIFIER    MODEL                      STATUS    SIZE        CONTEXT    PARALLEL    LOAD CONFIG    '
+                'DEVICE    TTL\nbrain         gemma-4-26b-a4b-it@8bit    IDLE      27.99 GB    16384      12          '
+                'LM Studio      Local        \n')
+        self.assertIs(SP.lms_brain_idle(down), True)
 
     def test_reservation_replaced_in_place_is_a_new_reservation(self):
         with tempfile.TemporaryDirectory() as d:
