@@ -101,6 +101,28 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-20 19:30Z — GAP: bagbudget-01 CLOSED INCONCLUSIVE; gate v36.1 installed; worlds VM 201 RAM 48 -> 80 GB; homefix-01 LIVE (4 pools)
+
+- **bagbudget-01 `31416ee5` INCONCLUSIVE at +360** (owner 10-15 early-close rule: unexposed). Canary full-bag bank runs 0 in 6 h:
+  cobblekeep-01 fleet-wide removed the population -- control full-bag town deposits that banked > 0 went 29/127 -> 45/49.
+  D1-D5 0; 5 spent picks worn. Deaths 2 v 2, both hive-a-Comet (idle drowning after failed gotos; 25-block fall y=-1), not
+  near deposit/wear. ~/bbclose.sh recorded 17:53Z, torn down 17:57Z (10 on 9e7d998, 0 drop-ins). Re-measure the leftover
+  surplus (stations, torches, bone meal) on the new fleet before any bagbudget-02.
+- **Gate v36.1 installed 18:49Z** (change-row spelling; branch changerows-underscore-1020 @ 49723bb9; Codex + Claude APPROVE):
+  bundle 199517353b... -> 635ad8d866a6e4a772351961bd5bd997; replays of cobblekeep-01 / lidclear-01 +180/+360 identical; backups
+  *.bak-v36_1-20261020T182359Z. Note: the FIXED launch check would have refused cobblekeep-01 (_lid_clear 485 baseline rows) and
+  bagbudget-01 (_town_deposit 28) -- a re-arm of bagbudget needs its change_rows fixed and a queue re-add. Open: verdict.py's
+  log scan keeps ordinary rows from the declared date and today only (a read spanning a 3rd UTC day loses the middle day).
+- **Worlds VM 201 RAM 48 -> 80 GB** (ramup.sh 18:50-19:10Z: install-hold, 80 bots stopped, clean saves "All chunks are saved"
+  in every world, qm set 81920, 20 units up, 80 bots restarted 12 s apart, 80 on 9e7d998, hold released). MemAvailable 64 G.
+  The old ad-hoc BlueMap on .30 (nohup) stopped with the VM and was not restarted (the showcase has its own map).
+- **homefix-01 `a52d075e` LIVE 19:21:21Z on hive-d, placebo-d, placebo-b, board-c** (tier 3; reads 180/360, extension to +540 at
+  4 pools; deadline_min 1140). Stale pre-review /tmp/homefixread.py (12:12Z) moved aside first (H4; second time today -- see
+  memory stale-tmp-read-blocks-launch). Queue after it: toolkit-03 -> ironpick-01 -> bamboo-03 -> foldwatch-01 -> treefarm-03.
+- **Ready, not queued (owner decisions tonight):** townindex-01 + indexsearch-01 (both engines APPROVE; variants were keyed on
+  bagbudget's tip -- need JIT re-variants on whatever toolkit-03/ironpick leave); protectzone-01 (b637723f; showcase start gate;
+  needs the bench test-strip fixture); isolated->shared (c6bea93b); showcase decisions; town plan decisions 1-9.
+
 ## 10-20 15:10Z — homefix-01 QUEUED (after bagbudget, HELD for the RAM gap); bagbudget +180 NOT_YET (unexposed); change_rows underscore gate bug; daily Codex ops audit live
 
 - **bagbudget-01 +180 14:38Z NOT_YET:** 2 pools (no tier-2 KEEP possible); exposure 0 -- the canary made 0 full-bag town
