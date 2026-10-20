@@ -159,7 +159,8 @@ for bot in bots:
         period = 'post' if r['t'] >= CUT else 'pre'
         if period == 'post' and arm == 'canary' and CV and ver and not ver.startswith(CV):
             d['offbuild'] += 1; continue
-        d['first'].setdefault(period, r['t']); d['last'][period] = r['t']
+        # rows are not in time order across rotated files: the span is min..max, never first..last seen
+        d['first'][period] = min(d['first'].get(period, r['t']), r['t']); d['last'][period] = max(d['last'].get(period, r['t']), r['t'])
         pos = (raw.get('bot') or {}).get('pos')
         if period == 'post':
             d['pos'].append((r['t'], pos))
