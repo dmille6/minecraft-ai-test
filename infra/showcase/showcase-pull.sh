@@ -45,16 +45,18 @@ nd=0; bad=0
 for vd in $need; do
   mkdir -p "$TLS/frames/$vd"
   if rsync -a -e "$TLK" "$VM:frames/$vd/" "$TLS/frames/$vd/" && \
-     ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "mkdir -p $NB/frames/$vd" && \
-     rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/frames/$vd/" "$NAS:$NB/frames/$vd/"; then
+     tar -C "$TLS" -cf - "frames/$vd" | ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "tar -C $NB -xf -"; then
     nd=$((nd+1))
   else
     log "ALARM: day dir $vd failed to reach the NAS"; bad=$((bad+1))
   fi
 done
-rsync -a --delete -e "$TLK" "$VM:video/" "$TLS/video/" 2>/dev/null && \
-  rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/video" "$NAS:$NB/" || log "WARN: video sync incomplete"
-rsync -a -e "$TLK" "$VM:FRAME0.json" "$TLS/" 2>/dev/null && rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/FRAME0.json" "$NAS:$NB/" || true
+# The NAS (Synology) refuses rsync over ssh for this account; world-backup.sh streams with `cat`, this streams tar.
+mkdir -p "$TLS/video"
+rsync -a --delete -e "$TLK" "$VM:video/" "$TLS/video/" 2>/dev/null || log "WARN: no video dir on the VM yet"
+rsync -a -e "$TLK" "$VM:FRAME0.json" "$TLS/" 2>/dev/null || true
+tar -C "$TLS" -cf - video $( [ -f "$TLS/FRAME0.json" ] && echo FRAME0.json ) | ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "tar -C $NB -xf -" \
+  || log "WARN: video / FRAME0 push incomplete"
 # positive control + completeness: after the pushes the NAS must hold at least what the VM holds, per day dir
 ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames && find . -name '*.png' | awk -F/ '{c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
 short=$(join -a1 -e 0 -o 1.1,1.2,2.2 "$TLS/.vm.inv" "$TLS/.nas.inv" | awk '$2 > $3' | wc -l)
