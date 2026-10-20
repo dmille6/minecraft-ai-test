@@ -12,6 +12,7 @@
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //           kitsearch smeltcoal (toolkit-03: the far chest of iron / of coal; no well needed; LOCK_OWNER=kitsearch)
 //           townindex (townindex-01: the index the bot's own orders write, read back against the server; no well; LOCK_OWNER=townindex)
+//           ixkit ixsticks (indexsearch-01: the index's holder first; the K1 sticks chain; no well; LOCK_OWNER=indexsearch)
 //           bagmix (bagbudget-01: the measured full bag at a town with NO well -> the allowance's chest rows go, junk and stations
 //           stay), bagwell (after `build`: deletion first -- the well takes the junk, then the chest rows), bagfar (a full bag
 //           far from town: no town order, no trip; last-swing keeps no spent pickaxe); LOCK_OWNER=bagbudget
@@ -952,6 +953,71 @@ scenes.townindex = async () => {
       !!report.DBL && dblOk && report.FAR?.state === 'dirty' && Object.values(report).every(e => ['known', 'dirty'].includes(e.state))),
     BASE_SHAPE: !!(licence === 0 && recs.length === 0 && kit.length >= 1 && td.length >= 1) })
 }
+// INDEXSEARCH (indexsearch-01): the town index (townindex-01) already knows what the far chest holds -- seeded, before the bot
+// starts, with EXACTLY what the server says that chest holds (RCON `data get`), as townindex-01 writes an observation at an
+// open -- and the bot's own toolkit order runs. The scene reads back the WORLD (every chest), the kit rows and `_index_search`.
+//   ixkit    9 single chests near home with 5 dirt, FAR (-13, +5) with 20 iron ingots; the bag: an iron pickaxe, 9 sticks, a
+//            crafting table (no axe, no shovel). BASE (townindex-01): the search opens the nearer chests first (visits > 1).
+//            CANDIDATE: FAR first -- one visit -- the kit crafted, FAR 20 -> 16, every near chest still 5 dirt; licence row.
+//   ixsticks THE K1 CHAIN (design 8 K1): the iron ONLY in FAR, which holds no sticks; 20 sticks in a near chest (+10, +4); the bag
+//            has NO sticks and no wood (an iron pickaxe and a crafting table). BASE: kit_no_sticks (the iron is refused).
+//            CANDIDATE: `_kit_sticks` took 6 from the stick chest, then the iron from FAR: the kit crafted, FAR 16, sticks 14.
+async function seedIndex (poolDir, chests) {
+  const TI = await import(path.join(R, 'bots/src/townindex.mjs'))
+  const hk = TI.indexHomeKey(HOME)
+  for (const at of chests) {
+    const k = `${at.x},${at.y},${at.z}`
+    const names = {}
+    const cmds = []; for (let s = 0; s < 27; s++) cmds.push(`data get block ${at.x} ${at.y} ${at.z} Items[{Slot:${s}b}]`)
+    const r = rcon(...cmds); let used = 0
+    for (let s = 0; s < 27; s++) { const it = /has the following block data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) { used++; const e = (names[it.id] ??= [0, 0]); e[0] += it.count; e[1]++ } }
+    TI.appendIndex(poolDir, hk, null, { t: 'obs', id: `scene-${k}`, k, h: [k], at: Date.now() - 60_000, size: 27, used, names, bot: 'sandbox-scene', by: 'scene' })
+  }
+  return TI.indexRecords(poolDir, hk).length
+}
+const IX_NEAR = TS_NEAR.slice(0, 9), IX_STICKS = [10, 4]
+async function ixScene (scene, { sticks = false } = {}) {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  const near = sticks ? [...IX_NEAR.slice(0, 8), IX_STICKS] : IX_NEAR
+  for (const c of near) setChest(sticks && c === IX_STICKS ? [['stick', 20]] : [['dirt', 5]], at(c))
+  const far = at(TS_FAR)
+  setChest([['iron_ingot', 20]], far)
+  const pool = `sbxix-${RUN}-${scene}`
+  const poolDir = path.join(R, 'sandbox/state', `_pool-${pool}`)
+  fs.mkdirSync(poolDir, { recursive: true })
+  // the index as a bot that opened FAR (and, for ixsticks, the stick chest) earlier would have left it
+  const seeded = await seedIndex(poolDir, sticks ? [far, at(IX_STICKS)] : [far])
+  const before = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const bagSpec = sticks ? [['iron_pickaxe', 1], ['crafting_table', 1], ...TORCH(2)] : [['iron_pickaxe', 1], ['stick', 9], ['crafting_table', 1], ...TORCH(2)]
+  const files = await startBot(scene, bagSpec, { pool })
+  const t0 = Date.now()
+  const kitRows = () => rowsOf(files.skillLog).filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail))
+  await waitFor(() => kitRows().length >= 1, 300000, 1000)
+  await sleep(3000)
+  const rows = rowsOf(files.skillLog).filter(r => /^(_toolkit|_kit_search|_index_search|_kit_sticks|_indexsearch_mode)$/.test(r.name))
+  const after = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const b = bag(NAME)
+  await stopBot(); BRAIN_WANDER = false
+  const kit = rows.filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail))
+  const ks = rows.find(r => r.name === '_kit_search')
+  const visits = Number((ks?.detail.match(/ visits=(\d+)/) || [])[1] ?? -1)
+  const licence = rows.filter(r => r.name === '_indexsearch_mode').length
+  const ix = rows.filter(r => r.name === '_index_search').map(r => r.detail)
+  const kst = rows.filter(r => r.name === '_kit_sticks').map(r => r.detail)
+  const crafted = kit.some(r => /^phase=kit outcome=crafted /.test(r.detail)) && (b.totals.iron_axe ?? 0) === 1 && (b.totals.iron_shovel ?? 0) === 1
+  const nearDirtSame = near.every((c, i) => (sticks && c === IX_STICKS) || JSON.stringify(after.near[i]) === JSON.stringify({ dirt: 5 }))
+  const stickChest = sticks ? after.near[near.indexOf(IX_STICKS)] : null
+  result({ scene, root: BOT_ROOT, ms: Date.now() - t0, seeded, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.name} ${r.status} ${r.detail.slice(0, 200)}`),
+    world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearDirtSame, stickChest }, visits, licence, ix, kitSticks: kst,
+    CANDIDATE_PASS: !!(licence >= 1 && crafted && (after.far.iron_ingot ?? 0) === 16 && nearDirtSame &&
+      (sticks ? ((stickChest?.stick ?? 0) === 14 && kst.some(d => /^want=6 took=6 /.test(d))) : (visits === 1 && ix.some(d => /^by=toolkit .* first=ix visits=1 took=1 hit=1 /.test(d))))),
+    BASE_SHAPE: !!(licence === 0 && ix.length === 0 && (sticks ? (kit.every(r => /outcome=no_sticks /.test(r.detail)) && (after.far.iron_ingot ?? 0) === 20) : (crafted && visits > 1))) })
+}
+scenes.ixkit = () => ixScene('ixkit')
+scenes.ixsticks = () => ixScene('ixsticks', { sticks: true })
 scenes.townsearch = () => townSearchScene('townsearch')
 scenes.townsearch2 = () => townSearchScene('townsearch2', { orders: 2, wait: 1700000 })   // two orders (the second ~20 min later)
 
