@@ -12,10 +12,13 @@ if [ "${1:-}" = lmstudio ]; then exec ./lms_factor.sh "$2" "$3" "${6:-4}" "${7:-
 # "pause <tag>": hold the GPU for a Stage C series (closedloop/cl_series.py --wait-pause starts when it sees this)
 # It WAITS for any earlier holder to release first: two pause lines in a row (or a pause behind an LM Studio line)
 # would otherwise overwrite the first holder's reservation at once and its series would never see its tag.
-if [ "${1:-}" = pause ]; then while [ -e out/GPU_RESERVED ]; do sleep 30; done; echo "pause-$2" > out/GPU_RESERVED
-  # SHOWCASE (2026-10-20): Stage C (cl_series.py --wait-pause) starts the moment it sees this tag, so the showcase must
-  # be quiesced BEFORE the line reports done. On refusal the reservation is withdrawn and the line fails.
+if [ "${1:-}" = pause ]; then while [ -e out/GPU_RESERVED ]; do sleep 30; done
+  # SHOWCASE (2026-10-20): Stage C (cl_series.py --wait-pause) starts the moment it reads EXACTLY `pause-<tag>`, so the
+  # tag is published only AFTER the showcase acknowledged a PENDING reservation (which already pauses it). On refusal
+  # the reservation is withdrawn and the line fails; the series never sees its tag.
+  RES="pending-pause-$2-$$-$(date +%s)"; echo "$RES" > out/GPU_RESERVED
   if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || { rm -f out/GPU_RESERVED; exit 1; }; fi
+  echo "pause-$2" > out/GPU_RESERVED
   echo "=== $(date -u +%FT%TZ) pause-$2 (GPU held for Stage C) done" | tee -a out/driver.log; exit 0; fi
 # A5 LM Studio serving: "serve-lms <lms-key> <label> <worker-think> - - [bots] [minutes]" (worker only; stability run)
 if [ "${1:-}" = serve-lms ]; then
@@ -36,7 +39,7 @@ if [ "${1:-}" = serve ]; then
   while [ -e out/GPU_RESERVED ]; do sleep 30; done
   # SHOWCASE (2026-10-20): HOLD the GPU for the run -- the showcase brain proxy pauses on this file -- and wait for its
   # acknowledgement, so no showcase request shares the GPU being measured. Released only if still ours.
-  echo "run-$3" > out/GPU_RESERVED; trap '[ "$(cat out/GPU_RESERVED 2>/dev/null)" = "run-$3" ] && rm -f out/GPU_RESERVED' EXIT
+  RES="run-$3-$$-$(date +%s)"; echo "$RES" > out/GPU_RESERVED; trap '[ "$(cat out/GPU_RESERVED 2>/dev/null)" = "$RES" ] && rm -f out/GPU_RESERVED' EXIT
   if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || exit 1; fi
   echo "=== $(date -u +%FT%TZ) $3 (serve $2 + ${6:-none}) bots=${7:-8}" | tee -a out/driver.log
   for m in $(cat out/.loaded 2>/dev/null); do /Applications/Ollama.app/Contents/Resources/ollama stop "$m" 2>/dev/null; done
@@ -52,7 +55,7 @@ OLLAMA=/Applications/Ollama.app/Contents/Resources/ollama
 # A Stage C closed-loop run holds the GPU: wait for its reservation to clear before starting a model.
 while [ -e out/GPU_RESERVED ]; do sleep 30; done
 # SHOWCASE (2026-10-20): HOLD the GPU for the run (the showcase brain proxy pauses on this file) and wait for its ack.
-echo "run-$LABEL" > out/GPU_RESERVED; trap '[ "$(cat out/GPU_RESERVED 2>/dev/null)" = "run-$LABEL" ] && rm -f out/GPU_RESERVED' EXIT
+RES="run-$LABEL-$$-$(date +%s)"; echo "$RES" > out/GPU_RESERVED; trap '[ "$(cat out/GPU_RESERVED 2>/dev/null)" = "$RES" ] && rm -f out/GPU_RESERVED' EXIT
 if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || exit 1; fi
 echo "=== $(date -u +%FT%TZ) $LABEL ($ENGINE $MODEL) mode=$MODE brain-think=$BT slow-think=$ST" | tee -a out/driver.log
 if [ "$ENGINE" = ollama ]; then

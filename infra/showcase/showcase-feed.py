@@ -41,14 +41,26 @@ def newest_row(path, chunk=65536):
 
 
 def tree_digest(root):
+    """CONTENT identity of the installed tree: sha256 over every entry's relative path and either its bytes (files)
+    or its target (symlinks, directory symlinks included -- os.walk does not follow them). The same function runs on
+    the showcase VM against the unpacked artifact, so 'the tree the bench runs' and 'the tree the showcase runs' are
+    compared by content. ~1 GB read hourly at idle I/O priority."""
     h = hashlib.sha256()
     n = 0
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames.sort()
-        for fn in sorted(filenames):
+        names = sorted(filenames + [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))])
+        for fn in names:
             p = os.path.join(dirpath, fn)
-            st = os.lstat(p)
-            h.update(f'{os.path.relpath(p, root)}\0{st.st_size}\0{st.st_mtime_ns}\n'.encode())
+            rel = os.path.relpath(p, root)
+            if os.path.islink(p):
+                h.update(f'L\0{rel}\0{os.readlink(p)}\n'.encode())
+            else:
+                fh = hashlib.sha256()
+                with open(p, 'rb') as f:
+                    for chunk in iter(lambda: f.read(1 << 20), b''):
+                        fh.update(chunk)
+                h.update(f'F\0{rel}\0{fh.hexdigest()}\n'.encode())
             n += 1
     if not n:
         raise OSError(f'{root} is empty')

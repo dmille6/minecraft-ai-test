@@ -53,9 +53,10 @@ SAVE_LOCK = '/srv/showcase/save.lock'
 
 class SaveHold:
     """ONE owner of Paper's save pause at a time (the 15-min timelapse snapshot and the nightly backup stage both
-    pause saving). `with SaveHold(wait_s=0) as h:` -> h.held is True when THIS process took the lock and paused saving
-    (it turns saving back on at exit, always); False when another holder already has the lock -- saving is then
-    already paused by that holder, so a copy is consistent, and this process must NOT touch save-on."""
+    pause saving). `with SaveHold(wait_s=N) as h:` waits up to N s for the EXCLUSIVE lock. h.held True: this process
+    paused saving and turns it back on at exit, always. h.held False: someone else owns the pause -- the caller must
+    NOT copy (the owner may save-on mid-copy) and must report a skip. A failure after save-off inside __enter__ is
+    unwound here (save-on, unlock) before the exception propagates."""
 
     def __init__(self, wait_s=0, path=SAVE_LOCK):
         self.wait_s, self.path, self.held, self.f = wait_s, path, False, None
@@ -72,8 +73,17 @@ class SaveHold:
                 if time.time() - t0 >= self.wait_s:
                     return self
                 time.sleep(1)
+        try:
+            save_hold(True)
+        except BaseException:
+            try:
+                save_hold(False)
+            except Exception:
+                pass
+            fcntl.flock(self.f, fcntl.LOCK_UN)
+            self.f.close()
+            raise
         self.held = True
-        save_hold(True)
         return self
 
     def __exit__(self, *exc):

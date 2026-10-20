@@ -141,8 +141,11 @@ def lms_brain_idle(lms_ps_text, model='brain'):
 
 
 def ollama_resident(ps_json, model):
-    """From Ollama's /api/ps: is `model` loaded? Pure (tested)."""
-    return any(m.get('name') == model or m.get('model') == model for m in (ps_json or {}).get('models') or [])
+    """From Ollama's /api/ps: is `model` loaded? True / False, or None for a malformed answer (no `models` list) --
+    unknown never acknowledges. Pure (tested)."""
+    if not isinstance(ps_json, dict) or not isinstance(ps_json.get('models'), list):
+        return None
+    return any(isinstance(m, dict) and (m.get('name') == model or m.get('model') == model) for m in ps_json['models'])
 
 
 def _head(p):
@@ -203,23 +206,50 @@ def poll_bench_procs():
 
 
 def probe_upstreams():
-    """-> (fallback_resident, upstream_idle); None where it could not be read (which never acknowledges)."""
+    """-> (fallback_resident, upstream_idle); None where it could not be read (which never acknowledges). Ollama is
+    ALWAYS probed: after a proxy restart nothing in memory says whether a fallback model is still loaded."""
     res = None
-    if A.fallback and STATE.get('fallback_loaded_by_us'):
+    if A.fallback:
         try:
             d = json.loads(urllib.request.urlopen(A.fallback.rstrip('/') + '/api/ps', timeout=5).read())
             res = ollama_resident(d, A.fallback_model)
         except Exception:
             res = None
     else:
-        res = False                       # the showcase loaded nothing on Ollama during this pause
+        res = False
     idle = None
     try:
-        out = subprocess.run([os.path.expanduser(A.lms), 'ps'], capture_output=True, text=True, timeout=15).stdout
-        idle = lms_brain_idle(out, A.model)
+        p = subprocess.run([os.path.expanduser(A.lms), 'ps'], capture_output=True, text=True, timeout=15)
+        idle = lms_brain_idle(p.stdout + p.stderr, A.model)
     except Exception:
         idle = None
     return res, idle
+
+
+def ack_text(pause_files, pause_dir, bench_proc, now_s, head=_head, listdir=os.listdir):
+    """The acknowledgement names every reservation it acknowledges, one `RESV <token>` line each (a pause file's first
+    line; a pause-dir entry's name), so a consumer accepts only an ack that names ITS reservation. Pure (tested)."""
+    out = ['%s quiesced' % time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now_s))]
+    for p in pause_files or ():
+        h = head(p)
+        if h is not None:
+            out.append('RESV ' + h.decode(errors='replace').splitlines()[0].strip() if h.strip() else 'RESV ')
+    if pause_dir:
+        try:
+            out += ['RESV ' + n for n in sorted(listdir(pause_dir)) if not n.startswith('.')]
+        except OSError:
+            pass
+    if bench_proc:
+        out.append('PROC ' + bench_proc)
+    return '\n'.join(out) + '\n'
+
+
+def withdraw_ack():
+    try:
+        if os.path.exists(A.quiesced_file):
+            os.remove(A.quiesced_file)
+    except OSError:
+        pass
 
 
 def mark_quiesced():
@@ -234,43 +264,43 @@ def mark_quiesced():
             STATE['sig'], STATE['sig_t'] = sig, now
         inflight = STATE['inflight']
         idle_s = now - max(STATE.get('last_done', 0), STATE.get('sig_t', 0))
-    if changed and os.path.exists(A.quiesced_file):
-        try:
-            os.remove(A.quiesced_file)
-        except OSError:
-            pass
+    if changed:
+        withdraw_ack()
     p = is_paused()
     if not p:
-        if os.path.exists(A.quiesced_file):
-            try:
-                os.remove(A.quiesced_file)
-            except OSError:
-                pass
+        withdraw_ack()
         return
     if os.path.exists(A.quiesced_file) and not changed and not inflight:
         return        # acknowledged for THIS set of reservations; nothing of the showcase's has run since
-    resident, idle = probe_upstreams() if (not inflight and idle_s >= A.quiesce_grace) else (None, None)
+    if inflight or idle_s < A.quiesce_grace:
+        return
+    resident, idle = probe_upstreams()
     act = quiesce_state(True, inflight, idle_s, A.quiesce_grace, resident, idle)
     if act == 'unload':
-        if now - STATE.get('last_unload', 0) >= 10:        # retried every 10 s until /api/ps confirms it is gone
-            STATE['last_unload'] = now
+        # ONCE per set of reservations. A model that is still (or again) resident after that is someone else's
+        # (e.g. a hand-started benchmark loading the same qwen): never unload it again, never acknowledge -- fail closed.
+        if STATE.get('unload_sig') != sig and resident:
+            STATE['unload_sig'] = sig
             try:
                 post_json(A.fallback.rstrip('/') + '/api/generate', {'model': A.fallback_model, 'keep_alive': 0}, 30)
                 logline(status='unload', model=A.fallback_model, paused_by=p)
             except Exception as e:
                 logline(status='unload-failed', model=A.fallback_model, error=str(e)[:200])
         return
-    if act == 'ack':
-        STATE['fallback_loaded_by_us'] = False
-        if not os.path.exists(A.quiesced_file):
-            with open(A.quiesced_file, 'w') as f:
-                f.write('%s paused_by=%s\n' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), p))
-            logline(status='quiesced', paused_by=p)
-    elif os.path.exists(A.quiesced_file):
-        try:
-            os.remove(A.quiesced_file)
-        except OSError:
-            pass
+    if act != 'ack':
+        return
+    # REVALIDATE before publishing: the probes took time; a new reservation or a request may have arrived.
+    if pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:
+        return
+    with LOCK:
+        if STATE['inflight']:
+            return
+    txt = ack_text(A.pause_file, A.pause_dir, STATE.get('bench_proc'), time.time())
+    tmp = A.quiesced_file + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write(txt)
+    os.replace(tmp, A.quiesced_file)                 # atomic: a consumer never reads half an acknowledgement
+    logline(status='quiesced', paused_by=p)
 
 
 def quiesce_loop():

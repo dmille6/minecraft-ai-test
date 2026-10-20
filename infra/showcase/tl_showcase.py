@@ -98,9 +98,11 @@ def snapshot(cfg):
     # capture also starts with save-on (below), so a killed capture cannot leave saving off for more than one slot.
     import rcon            # infra/showcase/rcon.py, installed beside this file
     try:
-        # ONE save-pause owner at a time (rcon.SaveHold): if the nightly backup stage holds the pause, saving is
-        # already off and the copy is consistent -- copy without touching save-on.
-        with (rcon.SaveHold(wait_s=0) if cfg.get('save_hold', True) else _Null()):
+        # ONE save-pause owner at a time (rcon.SaveHold): wait up to 120 s for the exclusive pause (the nightly backup
+        # stage holds it ~1-3 min); if it is still held, SKIP this slot -- never copy under someone else's pause.
+        with (rcon.SaveHold(wait_s=cfg.get('save_wait_s', 120)) if cfg.get('save_hold', True) else _Owned()) as h:
+            if not h.held:
+                return False, 'save-pause lock held by another owner (the backup stage?) for 120 s; slot skipped', 0
             p = subprocess.run(NICE + ['rsync', '-a', '--files-from=-', src + '/', dst + '/'],
                                input='\n'.join(files) + '\n', text=True, capture_output=True)
             if p.returncode != 0:
@@ -114,8 +116,8 @@ def snapshot(cfg):
     return True, None, len(files)
 
 
-class _Null:
-    held = False
+class _Owned:
+    held = True
 
     def __enter__(self):
         return self
@@ -293,7 +295,8 @@ def cmd_capture(cfg, a):
             heartbeat(cfg, dict(row, ok=False, step='frame0', why=msg))
             return 1
     f0 = frame0_time(cfg) or t
-    regular = [parse_stamp(s) for s in frame_stamps(cfg) if '-event-' not in s]
+    paired = set(frame_stamps(cfg, 'angled')) & set(frame_stamps(cfg, 'topdown'))   # a slot counts only as a PAIR
+    regular = [parse_stamp(s) for s in sorted(paired) if '-event-' not in s]
     miss, exp = missing_slots([x for x in regular if x], t, cfg['capture_min'], f0)
     ok = crc == 0 and len(got) == len(VIEWS)
     heartbeat(cfg, dict(row, ok=ok, step='done' if ok else 'capture', why=None if ok else msg,

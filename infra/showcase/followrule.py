@@ -198,8 +198,8 @@ def decide(ledger, promoted, showcase_sha, now, is_ancestor, merge_base=None, re
         return dict(base, decision='HOLD', target=None,
                     reason=f"newest observation unverified and unexplained (census {last.get('census_share')} of "
                            f"{last.get('census_n')}/{last.get('roster_n')} bots, feed errors {last.get('feed_errors')});"
-                           f" retried hourly. If coverage is low because bench bots are stopped on purpose, the roster "
-                           f"is the bench's ENABLED mcbot@ units: a stopped pool should be disabled too")
+                           f" retried hourly. Observation for the bench operator, not an action for the showcase: the "
+                           f"roster is the bench's ENABLED mcbot@ units, so a pool stopped but left enabled keeps coverage low")
     if not ok_targets:
         if since and since > now - dt.timedelta(hours=hold_h):
             due = since + dt.timedelta(hours=hold_h)

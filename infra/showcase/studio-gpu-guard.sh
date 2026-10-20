@@ -21,7 +21,7 @@ showcase_gpu_acquire() {
     echo "showcase guard: no showcase proxy running -- nothing to quiesce"; return 0
   fi
   while [ "$waited" -lt "$max" ]; do
-    if [ -e "$SHOWCASE_QUIESCED" ] && [ "$SHOWCASE_QUIESCED" -nt "$SHOWCASE_PAUSE_FILE" ]; then
+    if [ -e "$SHOWCASE_QUIESCED" ] && [ "$SHOWCASE_QUIESCED" -nt "$SHOWCASE_PAUSE_FILE" ] && grep -qxF "RESV $(basename "$SHOWCASE_PAUSE_FILE")" "$SHOWCASE_QUIESCED"; then
       echo "showcase guard: showcase quiesced ($(cat "$SHOWCASE_QUIESCED")) after ${waited}s"; return 0
     fi
     sleep 2; waited=$((waited + 2))
@@ -41,7 +41,7 @@ showcase_await_quiesced() {
     echo "showcase guard: no showcase proxy running -- nothing to quiesce"; return 0
   fi
   while [ "$waited" -lt "$max" ]; do
-    if [ -e "$SHOWCASE_QUIESCED" ] && [ "$SHOWCASE_QUIESCED" -nt "$resv" ]; then
+    if [ -e "$SHOWCASE_QUIESCED" ] && [ "$SHOWCASE_QUIESCED" -nt "$resv" ] && grep -qxF "RESV $(head -n 1 "$resv" 2>/dev/null)" "$SHOWCASE_QUIESCED"; then
       echo "showcase guard: showcase quiesced ($(cat "$SHOWCASE_QUIESCED")) after ${waited}s"; return 0
     fi
     sleep 2; waited=$((waited + 2))
