@@ -14505,9 +14505,11 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal, until = null 
     const tool = bestTool(bot, floor)
     const plan = planDig(predictedDigMs(floor, tool))
     if (plan.refuse) { stopped = `cannot break ${floor.name} by hand`; break }
-    // ...nor a floor dig it cannot finish (a half-broken floor under a bot whose skill is about to time out is worse than none)
-    if (until != null && until - Date.now() < plan.budgetMs + 420) { stopped = 'the caller\'s budget cannot cover the floor dig'; break }
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
+    // ...nor a floor dig it cannot finish (a half-broken floor under a bot whose skill is about to time out is worse than
+    // none). Checked AFTER the equip, immediately before the dig (Codex code r3 P2: an equip's own wait spent the margin).
+    if (signal?.aborted) { stopped = 'aborted'; break }
+    if (until != null && until - Date.now() < plan.budgetMs + 420) { stopped = 'the caller\'s budget cannot cover the floor dig'; break }
     try {
       // Same reasoning as the climb: breaking the floor to fall through it wants
       // the hole, not the cobble.
