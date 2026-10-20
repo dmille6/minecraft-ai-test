@@ -114,10 +114,15 @@ def snapshot(cfg):
                                input='\n'.join(files) + '\n', text=True, capture_output=True)
             if p.returncode != 0:
                 return False, f'rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
-            p = subprocess.run(NICE + ['rsync', '-a', os.path.join(cfg['world'], 'level.dat'), cfg['mirror'] + '/'],
-                               capture_output=True, text=True)
+            # level.dat is rewritten by Paper through a 0600 temp file (no ACL reaches it): read it with `sudo -n cat`,
+            # exactly as .30's tl.py does; written here 0600 too.
+            with open(os.open(os.path.join(cfg['mirror'], 'level.dat.part'), os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                              0o600), 'wb') as f:
+                p = subprocess.run(['sudo', '-n', 'cat', os.path.join(cfg['world'], 'level.dat')], stdout=f,
+                                   stderr=subprocess.PIPE)
             if p.returncode != 0:
-                return False, f'level.dat rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
+                return False, f'level.dat read rc={p.returncode} {p.stderr.decode(errors="replace").strip()[:200]}', 0
+            os.replace(os.path.join(cfg['mirror'], 'level.dat.part'), os.path.join(cfg['mirror'], 'level.dat'))
     except Exception as e:
         return False, f'snapshot: {type(e).__name__}: {str(e)[:160]}', 0
     return True, None, len(files)
