@@ -136,6 +136,12 @@ await t('THE CREDIT-ONLY RUN checks room for its tools too (Claude r1 P3): credi
   const b35 = bag.slice(0, 35)
   assert.equal(toolkitOrder({ ...o, items: b35, room: d => roomPlan(b35, kitRoomTakes(d), { keep }).ok }).order?.skill, 'toolkit', 'one slot free: issued')
   // Codex r2 P2: a credit-only run visits no chest, so room a DEPOSIT could make is no room -- a full bag with a bankable stack
+  // Codex r3 P2: the same with the pickaxe's sticks to draw (ingots 0, sticks > 0): the town may have none, so no visit makes room
+  const noSticks = slotted([T('iron_pickaxe', 30), ...KIT_HELD(), stack('iron_ingot', 3), stack('raw_copper', 64), ...Array.from({ length: 31 }, () => stack('white_wool', 1))])
+  assert.deepEqual(K.kitDraw(noSticks, { credit: 3 }), { needs: ['iron_pickaxe'], ingots: 0, sticks: 4 })
+  assert.equal(toolkitOrder({ ...o, items: noSticks, room: d => roomPlan(noSticks, kitRoomTakes(d), { keep }).ok }).order, null, 'credit funds the iron, sticks to draw, no empty slot: no order')
+  const two = noSticks.slice(0, 34)
+  assert.equal(toolkitOrder({ ...o, items: two, room: d => roomPlan(two, kitRoomTakes(d), { keep }).ok }).order?.skill, 'toolkit', 'two empty slots (the pickaxe + the sticks): issued')
   const bank = slotted([...bag.slice(0, 35), stack('raw_copper', 64)])
   assert.equal(roomPlan(bank, kitRoomTakes(K.kitDraw(bank, { credit: 3 })), { keep }).ok, true, 'CONTROL: the room plan would bank the copper')
   assert.equal(toolkitOrder({ ...o, items: bank, room: d => roomPlan(bank, kitRoomTakes(d), { keep }).ok }).order, null, 'but no chest is visited: no order')
@@ -149,10 +155,12 @@ await t('kitNarrows / kitStickHeld (Codex r2 P2, Claude r2 P3): narrow only a mu
   assert.equal(K.kitNarrows({ on: true, needs: ['iron_pickaxe'], outcome: 'no_iron', prefixMet: true }), false, 'one tool: nothing smaller')
   assert.equal(K.kitNarrows({ on: true, needs: ['iron_axe', 'iron_shovel'], outcome: 'no_iron', prefixMet: true }), false, 'no pickaxe: the base')
   assert.equal(K.kitNarrows({ on: false, needs, outcome: 'no_iron', prefixMet: true }), false, 'off')
-  assert.equal(K.kitStickHeld(4, { sticks: 8 }, 0), true, '4 sticks, the whole kit\'s 8: held')
-  assert.equal(K.kitStickHeld(4, { sticks: 4 }, 0), false, 'the pickaxe\'s 4: not held')
-  assert.equal(K.kitStickHeld(null, { sticks: 2 }, 0), true, 'not recorded: held (the base rule)')
-  assert.equal(K.kitStickHeld(2, { sticks: 6 }, 4), false, 'what the bag\'s wood makes counts')
+  assert.equal(K.kitStickHeld(null, { needs: ['iron_pickaxe'], sticks: 2 }, 0), true, 'not recorded: held (the base rule)')
+  const P = n => ({ needs: ['iron_pickaxe', 'iron_axe'], sticks: n })
+  assert.equal(K.kitStickHeld(4, P(8), 0), true); assert.equal(K.kitStickHeld(4, P(4), 0), false)
+  assert.equal(K.kitStickHeld(2, P(6), 4), false, 'what the bag\'s wood makes counts')
+  assert.equal(K.kitStickHeld(2, { needs: ['iron_axe', 'iron_shovel'], sticks: 6 }, 4), true, 'an axe-and-shovel draw: the base hold-back, unconditional (Codex r3 P2)')
+  assert.equal(K.kitStickHeld(4, P(4), 0, { ironpick: false }), true, 'off: the base')
 })
 await t('toolkitOutcome: a `narrow` run (KIT_NARROW) is no backoff, only the cooldown -- capped with `more` by KIT_MORE_MAX', () => {
   let st = { lastIssuedAt: 1e9 }
