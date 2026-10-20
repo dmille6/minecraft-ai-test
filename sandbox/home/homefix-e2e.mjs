@@ -68,11 +68,13 @@ const hd = (p, h = H) => p ? Math.hypot(p.x - h.x, p.z - h.z) : null
 const setHome = h => { config.world.homeX = h.x; config.world.homeY = h.y; config.world.homeZ = h.z }
 
 // ---------------------------------------------------------------- arenas
-const FLAT = { x0: H.x - 80, x1: H.x + 80, z0: H.z - 80, z1: H.z + 80 }
-function flatArena () {
-  const c = [`kill @e[type=!player,x=${FLAT.x0},y=100,z=${FLAT.z0},dx=160,dy=40,dz=160]`]
+const FLAT = { x0: H.x - 64, x1: H.x + 64, z0: H.z - 64, z1: H.z + 64 }
+async function flatArena () {
+  await connect(); await place({ x: H.x + 0.5, y: 125, z: H.z + 0.5 }); await sleep(6000); cleanupNeedsBot = true
+  const c = [`kill @e[type=!player,x=${FLAT.x0},y=100,z=${FLAT.z0},dx=128,dy=40,dz=128]`]
   for (let y = 100; y <= 140; y++) c.push(`fill ${FLAT.x0} ${y} ${FLAT.z0} ${FLAT.x1} ${y} ${FLAT.z1} minecraft:${y < 119 ? 'stone' : y === 119 ? 'grass_block' : 'air'}`)
-  const bad = rcon(...c).filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
+  const out = []; for (let i = 0; i < c.length; i += 10) out.push(...rcon(...c.slice(i, i + 10)))
+  const bad = out.filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
   if (bad.length) throw new Error('arena: ' + bad.slice(0, 3).map(x => x.cmd + ' => ' + x.reply).join('; '))
 }
 // P3: underground at a second site. Ground 30..62 stone, 63 grass; home on the surface (y 64); the bot at the bottom of
@@ -80,12 +82,14 @@ function flatArena () {
 // walk cannot simply leave.
 const U = { x: 3800, z: 3800 }
 const UH = { x: U.x, y: 64, z: U.z }
-function undergroundArena () {
+async function undergroundArena () {
+  await connect(); await place({ x: U.x + 0.5, y: 85, z: U.z + 0.5 }); await sleep(6000); cleanupNeedsBot = true
   const x0 = U.x - 30, x1 = U.x + 30, z0 = U.z - 30, z1 = U.z + 30
   const c = [`kill @e[type=!player,x=${x0},y=30,z=${z0},dx=60,dy=50,dz=60]`]
   for (let y = 30; y <= 80; y++) c.push(`fill ${x0} ${y} ${z0} ${x1} ${y} ${z1} minecraft:${y < 63 ? 'stone' : y === 63 ? 'grass_block' : 'air'}`)
   c.push(`fill ${U.x + 12} 40 ${U.z} ${U.x + 12} 60 ${U.z} minecraft:air`)                       // the shaft (cap 61-62 stays stone)
-  const bad = rcon(...c).filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
+  const out = []; for (let i = 0; i < c.length; i += 10) out.push(...rcon(...c.slice(i, i + 10)))
+  const bad = out.filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
   if (bad.length) throw new Error('underground arena: ' + bad.slice(0, 3).map(x => x.cmd + ' => ' + x.reply).join('; '))
 }
 
@@ -131,7 +135,7 @@ async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date
 
 // ---------------------------------------------------------------- P0: unwind 2 s / 25 s, a livelock rung in between
 async function sceneP0 (scene, unwindMs) {
-  setHome(H); flatArena(); await connect(); await place({ x: H.x + 0.5, y: 120, z: H.z + 0.5 })
+  setHome(H); await flatArena(); await place({ x: H.x + 0.5, y: 120, z: H.z + 0.5 })
   const { rows, untap } = rowsTap()
   const { runner, wd, stop } = rig()
   const from = posOf()
@@ -143,7 +147,8 @@ async function sceneP0 (scene, unwindMs) {
   const verdictAt = await waitFor(() => rows.find(r => r.skill?.name === '_stagnation'), 240_000, 200)
   if (verdictAt) { await sleep(300); rung = await runner.run('goto', { x: H.x + 30, y: 120, z: H.z }, { trigger: 'livelock_escape' }) }
   await brain.catch(() => {})
-  await waitFor(() => !wd.pending && rows.some(r => r.trigger === 'watchdog_relocate' || (r.skill?.args?.phase ?? '').startsWith('declined')), 120_000, 500)
+  // the started relocation runs to its own end (<= 180 s skill timeout): wait for it, so its TERMINAL row is in the log
+  await waitFor(() => !wd.pending && !runner.isBusy() && rows.some(r => r.trigger === 'watchdog_relocate' || r.trigger?.startsWith('interrupt:') && r.skill?.name === 'goto' || (r.skill?.args?.phase ?? '').startsWith('declined')), 240_000, 500)
   await sleep(5000)
   const to = posOf()
   stop(); untap()
@@ -159,11 +164,11 @@ async function sceneP0 (scene, unwindMs) {
 
 // ---------------------------------------------------------------- P1: home to an occupied home cell
 async function sceneP1 (scene, startOut) {
-  setHome(H); flatArena()
+  setHome(H); await flatArena()
   // the home point is OCCUPIED: a chest on it and on its four sides (the town chest at the home point)
   rcon(`setblock ${H.x} 120 ${H.z} minecraft:chest`, `setblock ${H.x + 1} 120 ${H.z} minecraft:chest`, `setblock ${H.x - 1} 120 ${H.z} minecraft:chest`,
        `setblock ${H.x} 120 ${H.z + 1} minecraft:chest`, `setblock ${H.x} 120 ${H.z - 1} minecraft:chest`)
-  await connect(); await place({ x: H.x + startOut + 0.5, y: 120, z: H.z + 0.5 })
+  await place({ x: H.x + startOut + 0.5, y: 120, z: H.z + 0.5 })
   const { rows, untap } = rowsTap()
   const runner = new Runner(bot)
   const from = posOf()
@@ -180,11 +185,11 @@ async function sceneP1 (scene, startOut) {
 
 // ---------------------------------------------------------------- P2: a creeping rescue, then escalation 3
 async function sceneP2 () {
-  setHome(H); flatArena()
+  setHome(H); await flatArena()
   // a barrier corridor 1 wide, 2 high, along x: the bot can shuffle but home (20 out) is unreachable
   const cx = H.x + 20, cz = H.z
   rcon(`fill ${cx - 1} 120 ${cz - 1} ${cx + 3} 122 ${cz + 1} minecraft:barrier`, `fill ${cx} 120 ${cz} ${cx + 2} 121 ${cz} minecraft:air`)
-  await connect(); await place({ x: cx + 0.5, y: 120, z: cz + 0.5 })
+  await place({ x: cx + 0.5, y: 120, z: cz + 0.5 })
   const { rows, untap } = rowsTap()
   const realGoto = SKILLS.goto
   let creep = null
@@ -206,6 +211,9 @@ async function sceneP2 () {
     const brain = runner.run('__stuck', {}, { trigger: 'llm:idle' })
     await waitFor(() => creep, 240_000, 500)
     await brain.catch(() => {})
+    // THE BASE SHAPE (H2a): the relocation is answered runner_busy behind the unwinding brain skill and never starts
+    if (!creep) { P_('creep never started (the H2a shape)') }
+    else {
     P_('creep started')
     await waitFor(() => creep.aborted != null, 200_000, 1000)       // the runner's own 180 s timeout ends it
     SKILLS.goto = realGoto
@@ -220,6 +228,7 @@ async function sceneP2 () {
     await waitFor(() => rows.some(r => r.skill?.name === '_stagnation' && Number(r.skill.args?.escalation) === 3), 260_000, 1000)
     await third.catch(() => {})
     await waitFor(() => !wd.pending, 200_000, 1000)
+    }
   } finally { stop(); untap(); SKILLS.goto = realGoto }
   const stag = rows.filter(r => r.skill?.name === '_stagnation').map(brief)
   const rescueRows = rows.filter(r => r.skill?.name === '_watchdog_rescue').map(r => ({ t: r['@timestamp'], ...r.skill.args }))
@@ -231,11 +240,11 @@ async function sceneP2 () {
 
 // ---------------------------------------------------------------- P3: the entombment reflex during home, through surface
 async function sceneP3 () {
-  undergroundArena()
+  await undergroundArena()
   setHome(UH)
   // no tool and no blocks: goto's dig retry hand-digs for its one 25 s budget and the walk ends `stranded`, so home
   // calls `surface` (below sea level), whose ascent stage is a pathfinder GoalY walk
-  await connect(); await place({ x: U.x + 12.5, y: 40, z: U.z + 0.5 })
+  await place({ x: U.x + 12.5, y: 40, z: U.z + 0.5 })
   const { rows, untap } = rowsTap()
   const runner = new Runner(bot)
   // THE REFLEX, when surface's pathfinder stage (a GoalY walk) has been walking for 1.5 s: it interrupts the runner and
@@ -269,7 +278,6 @@ async function sceneP3 () {
 async function main () {
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   P_(`root=${BOT_ROOT} sha=${sha} server=${SERVER} scenes=${SCENES_S}`)
-  rcon(`forceload add ${FLAT.x0} ${FLAT.z0} ${FLAT.x1} ${FLAT.z1}`, `forceload add ${U.x - 30} ${U.z - 30} ${U.x + 30} ${U.z + 30}`)
   for (const s of SCENES_S.split(',')) {
     P_('=== scene', s)
     try {
@@ -286,13 +294,23 @@ async function main () {
     } catch (e) { P_('scene failed', s, e.stack || e.message); result({ scene: s, error: String(e.message).slice(0, 300) }); await disconnect() }
   }
 }
+let cleanupNeedsBot = false
 async function cleanup () {
   await disconnect().catch(() => {})
   try {
-    const c = [`kill @e[type=!player,x=${FLAT.x0},y=100,z=${FLAT.z0},dx=160,dy=40,dz=160]`]
-    for (let y = 100; y <= 140; y++) c.push(`fill ${FLAT.x0} ${y} ${FLAT.z0} ${FLAT.x1} ${y} ${FLAT.z1} minecraft:air`)
-    for (let y = 30; y <= 80; y++) c.push(`fill ${U.x - 30} ${y} ${U.z - 30} ${U.x + 30} ${y} ${U.z + 30} minecraft:air`)
-    P_('cleanup', rcon(...c, `forceload remove ${FLAT.x0} ${FLAT.z0} ${FLAT.x1} ${FLAT.z1}`, `forceload remove ${U.x - 30} ${U.z - 30} ${U.x + 30} ${U.z + 30}`, 'list').slice(-1).map(x => x.reply.slice(0, 80)))
+    // the arenas go back to plain ground (the flat one cleared above its stone; the underground one solid, shaft filled)
+    const flat = [`kill @e[type=!player,x=${FLAT.x0},y=100,z=${FLAT.z0},dx=128,dy=40,dz=128]`]
+    for (let y = 120; y <= 140; y++) flat.push(`fill ${FLAT.x0} ${y} ${FLAT.z0} ${FLAT.x1} ${y} ${FLAT.z1} minecraft:air`)
+    flat.push(`fill ${FLAT.x0} 119 ${FLAT.z0} ${FLAT.x1} 119 ${FLAT.z1} minecraft:grass_block`)
+    const under = [`kill @e[type=!player,x=${U.x - 30},y=30,z=${U.z - 30},dx=60,dy=50,dz=60]`,
+      `fill ${U.x - 30} 40 ${U.z - 30} ${U.x + 30} 62 ${U.z + 30} minecraft:stone`, `fill ${U.x - 30} 63 ${U.z - 30} ${U.x + 30} 63 ${U.z + 30} minecraft:grass_block`]
+    if (cleanupNeedsBot) {
+      await connect()
+      await place({ x: H.x + 0.5, y: 125, z: H.z + 0.5 }); await sleep(3000); for (let i = 0; i < flat.length; i += 10) rcon(...flat.slice(i, i + 10))
+      await place({ x: U.x + 0.5, y: 85, z: U.z + 0.5 }); await sleep(3000); rcon(...under)
+      await disconnect()
+    }
+    P_('cleanup', rcon('list').map(x => x.reply.slice(0, 80)))
   } catch (e) { P_('cleanup failed', e.message) }
 }
 main().then(() => cleanup().then(() => process.exit(0)), e => { P_('FATAL', e.stack || e.message); cleanup().then(() => process.exit(1)) })
