@@ -184,7 +184,7 @@ await t('the file: append + read round-trips; another world\'s records are absen
   assert.equal(TI.indexStateOf(TI.readIndex(d, HK, 'W1').entries.a, 30), 'dirty', 'and a fresh fold agrees')
   assert.deepEqual(Object.keys(TI.readIndex(d, HK, 'W1').entries).sort(), ['a'], 'the fragment never became a record')
 })
-await t('ROTATION: past the size a writer starts generation N+1 with the fold of N-1 and N; N-2 is deleted; entries survive every rotation; a stale writer\'s append to an old generation is re-written in the newest', () => {
+await t('ROTATION: past the size a writer starts generation N+1 with the fold of N-1 and N; N-2 is deleted; entries survive every rotation; a late record in N-1 is still read', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ti-rot-'))
   for (let i = 0; i < 40; i++) TI.appendIndex(d, HK, null, O(`k${i % 7}`, 100 + i, `o${i}`, { coal: [i + 1, 1] }), { rotateBytes: 600 })
   const gens = TI.indexGens(d, HK)
@@ -291,10 +291,15 @@ const depWorld = ({ chest = [5, 64, 0], at = [6.5, 64, 0.5], bag = [stack('oak_l
   w.set(...chest, 'chest'); w.stock(...chest, held.map(s => ({ ...s })))
   return w
 }
-await t('THE DEPOSIT VERB: obs (by=deposit, the pre-click contents) -> dirty pre -> transfers ok=0 (what the window gained) -> dirty post; the container ends DIRTY', async () => {
+const depositShape = async (S = S0) => {
   const w = depWorld()
-  const r = await S0.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+  let atFirst = null
+  const tf0 = w.bot.transfer.bind(w.bot), dep0 = w.bot.openContainer.bind(w.bot)
+  w.bot.openContainer = async b => { const win = await dep0(b); const d0 = win.deposit.bind(win); win.deposit = async (...a) => { atFirst ??= records().map(x => `${x.t}:${x.phase ?? x.by}`); return d0(...a) }; return win }
+  w.bot.transfer = async (...a) => { atFirst ??= records().map(x => `${x.t}:${x.phase ?? x.by}`); return tf0(...a) }
+  const r = await S.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(atFirst, ['obs:deposit', 'dirty:pre'], 'the pre mark is on disk before the first move')
   const recs = records()
   assert.deepEqual(recs.map(x => `${x.t}:${x.phase ?? x.by}`), ['obs:deposit', 'dirty:pre', ...recs.filter(x => x.t === 'xfer').map(() => 'xfer:deposit'), 'dirty:post'])
   assert.deepEqual(recs[0].names, { coal: [3, 1] }, 'the observation is the contents BEFORE the deposit')
@@ -304,7 +309,8 @@ await t('THE DEPOSIT VERB: obs (by=deposit, the pre-click contents) -> dirty pre
   const now = TI.observation(w.containers.get('5,64,0').slots.map((s, i) => s && { ...s, slot: i }).filter(Boolean), 27).names
   for (const [n, c] of Object.entries(gained)) assert.equal(c, now[n][0] - (n === 'coal' ? 3 : 0), `${n}: the record is what the container gained`)
   assert.equal(TI.indexStateOf(entries()['5,64,0']), 'dirty')
-})
+}
+await t('THE DEPOSIT VERB: obs (by=deposit, the pre-click contents) -> dirty pre (on disk before the first move) -> transfers ok=0 (what the window gained) -> dirty post; the container ends DIRTY', () => depositShape())
 await t('THE DEPOSIT VERB, a container OUTSIDE town: the deposit runs as today, and the index writes nothing', async () => {
   const w = depWorld({ chest: [30, 64, 0], at: [29.5, 64, 0.5] })
   const r = await S0.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
@@ -535,14 +541,51 @@ await t("COUNT_TOWN: an extra that cannot be counted backs off in ITS OWN map --
   } finally { B.setStockReaders({ town: null, well: null }) }
 })
 
+// A HELD WINDOW (holdUnsettled): the operation stays open while the hold lives -- renewed every HELD_RENEW_MS -- and its end
+// writes the post mark (Codex r2 P1, Claude r1 P2)
+const heldShape = async (S = S0) => {
+  const w = kitWorld()
+  // the server never confirms an empty cursor: the visit's transfer cannot settle, the window is HELD
+  w.bot.craftSync.confirmCursor = async () => ({ answered: true, cursorEmpty: false, carried: { itemCount: 1 } })
+  try { await kitRun(S, w) } catch { /* the run's own outcome does not matter here */ }
+  const marks = () => records().filter(x => x.t === 'dirty' && x.k === FAR.join(',')).map(x => x.phase)
+  assert.ok(w.bot.inventoryUnsettled, 'positive control: the window is held')
+  assert.deepEqual(marks(), ['pre', 'held'], 'held, not closed')
+  later(TI.HELD_RENEW_MS + 1000)
+  await new Promise(r => setTimeout(r, 1500))
+  assert.deepEqual(marks(), ['pre', 'held', 'held'], 'renewed while the hold lives')
+  later(TI.OP_TTL_MS - 60_000)
+  TI.appendIndex(dir(), HK, null, { t: 'obs', id: 'another', k: FAR.join(','), h: [FAR.join(',')], at: Date.now(), size: 27, used: 1, names: { iron_ingot: [20, 1] }, bot: 'Other' })
+  assert.equal(TI.indexStateOf(entries()[FAR.join(',')]), 'dirty', "another bot's open past the first window, inside the renewed one: still dirty")
+  await w.bot.inventoryUnsettled.release('test')
+  assert.deepEqual(marks(), ['pre', 'held', 'held', 'post'], 'the hold\'s end closes the operation')
+}
+await t('A HELD WINDOW keeps its operation open (renewed while held, past the first OP_TTL window) and its end writes the post mark', () => heldShape())
+const compactShape = (T = TI) => {
+  const P = (at, op, phase) => ({ t: 'dirty', k: 'a', at, id: `${op}-${phase}`, op, phase, w: null })
+  const e = T.foldIndex([P(10, 'opA', 'pre'), P(20, 'opA', 'post'), O('a', 30, 'o1')]).worlds[JSON.stringify(null)].a
+  const c = T.compactEntry(e)
+  const replay = T.foldIndex([{ t: 'ckpt', worlds: { [JSON.stringify(null)]: { a: c } } }, P(10, 'opA', 'pre')]).worlds[JSON.stringify(null)].a
+  assert.equal(T.indexStateOf(replay, 40), 'known', 'a duplicate pre replayed after the checkpoint never reopens a closed operation')
+  const old = T.compactEntry(T.foldIndex([P(10, 'opA', 'pre'), P(20, 'opA', 'post'), O('a', 10 + T.OP_TTL_MS, 'o2')]).worlds[JSON.stringify(null)].a)
+  assert.deepEqual(old.ops, {}, 'dropped once the observation is past its protection')
+}
+await t('CHECKPOINT COMPACTION keeps a closed operation as a tombstone until the observation is past its protection (Codex r2 P2)', () => compactShape())
+
 // ------------------------------------------------------------------------------------------------- the mutants
 await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutant', async () => {
   const kills = {}
   kills.noOpenObs = await withMutant(SKILLS_PATH, "const ixPre = townIndexObserve(bot, c.position, win, 'town_deposit')", 'const ixPre = null', S => killedBy(() => townDepositShape(S)))
   kills.noVerifyObs = await withMutant(SKILLS_PATH, "const ix = townIndexObserve(bot, block.position, win, 'verify')", 'const ix = null', S => killedBy(() => townDepositShape(S)))
-  kills.noPreMarkTd = await withMutant(SKILLS_PATH, "onMutate: () => { ixDirty = townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }", 'onMutate: () => { ixDirty = true }', S => killedBy(() => townDepositShape(S)))
-  kills.noPreMarkWd = await withMutant(SKILLS_PATH, "ixDirty = townIndexDirty(bot, cp, 'withdraw', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => kitShape(S)))
-  kills.noPostMarkWd = await withMutant(SKILLS_PATH, "if (ixDirty) townIndexDirty(bot, cp, 'withdraw', unresolved ? 'held' : 'post', ixOp)", 'if (false) townIndexDirty(bot, cp)', S => killedBy(() => kitShape(S)))
+  kills.noPreMarkTd = await withMutant(SKILLS_PATH, "ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => townDepositShape(S)))
+  kills.noPostMarkTd = await withMutant(SKILLS_PATH, "else townIndexDirty(bot, c.position, 'town_deposit', 'post', ixOp) }", '}', S => killedBy(() => townDepositShape(S)))
+  kills.noPreMarkDep = await withMutant(SKILLS_PATH, "ixDirty = true; townIndexDirty(bot, chestBlock.position, 'deposit', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => depositShape(S)))
+  kills.noPostMarkDep = await withMutant(SKILLS_PATH, "      townIndexDirty(bot, chestBlock.position, 'deposit', 'post', ixOp)\n", '\n', S => killedBy(() => depositShape(S)))
+  kills.heldNotRenewed = await withMutant(SKILLS_PATH, "if (win.ixHeld && Date.now() - win.ixHeld.last >= HELD_RENEW_MS)", 'if (false)', S => killedBy(() => heldShape(S)))
+  kills.heldNotClosed = await withMutant(SKILLS_PATH, "    try { win.ixHeld?.close() } catch { /* townindex-01: the held operation ends (its post mark) */ }\n", '\n', S => killedBy(() => heldShape(S)))
+  kills.compactDropsTombstone = await withMutant(TI_PATH, '    if (e.obs && Number.isFinite(e.obs.at) && e.obs.at >= protectedUntil(o)) continue\n', '    if (o.post != null) continue\n', T => killedBy(() => compactShape(T)))
+  kills.noPreMarkWd = await withMutant(SKILLS_PATH, "ixDirty = true; townIndexDirty(bot, cp, 'withdraw', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => kitShape(S)))
+  kills.noPostMarkWd = await withMutant(SKILLS_PATH, "else townIndexDirty(bot, cp, 'withdraw', 'post', ixOp) }", '}', S => killedBy(() => kitShape(S)))
   kills.anyContainer = await withMutant(SKILLS_PATH, 'const townIndexed = pos => TOWNINDEX.on && !!pos && inTown(homeVec(), pos)', 'const townIndexed = pos => TOWNINDEX.on && !!pos', async S => killedBy(async () => {
     freshPool()
     const w = fakeWorld({ bag: [] }); w.set(30, 64, 0, 'chest'); w.stock(30, 64, 0, [stack('coal', 64)])
@@ -560,7 +603,7 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
       assert.deepEqual(snap(dir()), before)
     }))
   kills.noExtra = await withMutant(SKILLS_PATH, '  const room = RECONCILE_MAX - (rc.tried ?? 0)\n', '  const room = 0\n', S => killedBy(() => countShape(S)))
-  kills.extrasPast3 = await withMutant(SKILLS_PATH, '{ max: room, backoff: indexCountFailed, row: false }', '{ max: RECONCILE_MAX, backoff: indexCountFailed, row: false }', S => killedBy(() => countShape(S)))
+  kills.extrasPast3 = await withMutant(SKILLS_PATH, '{ max: room, backoff: indexCountFailed, row: false, arrive: true }', '{ max: RECONCILE_MAX, backoff: indexCountFailed, row: false, arrive: true }', S => killedBy(() => countShape(S)))
   kills.extrasInBase = await withMutant(SKILLS_PATH, 'rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { remember: true, progress })',
     'rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), [...keys, ...indexRecountKeys(bot, keys)], { remember: true, progress })', S => killedBy(() => countShape(S)))
   kills.abortRethrown = await withMutant(SKILLS_PATH, "    status = e?.aborted || signal?.aborted ? 'aborted' : 'failed'\n", '    throw e\n', S => killedBy(() => abortExtra(S)))
