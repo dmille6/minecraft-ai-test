@@ -15,8 +15,11 @@ import make_env as ME
 rel = sys.argv[1]
 r = json.load(open(rel + '/RELEASE.json'))
 control = ME.parse_env(open(rel + '/control.env').read())
-site = {'home': [0, 70, 0], 'board': [3, 70, 0], 'border_radius': 5000}   # placement is irrelevant to the prompt
-env = dict(ME.build_env(control, 0, site, r['sha']))
+# The CONTROL bot's own env (its home, border, scope, role), so the rebuilt system prompt can equal the one the bench
+# bot sent (the hash control); only the brain endpoint, the model and the code version are the showcase's.
+env = dict(control)
+env.update(OLLAMA_BASE_URLS=f'{ME.BRAIN}|{ME.BRAIN_MODEL}', OLLAMA_BASE_URL=ME.BRAIN, OLLAMA_MODEL=ME.BRAIN_MODEL,
+           CODE_VERSION=r['sha'])
 with tempfile.TemporaryDirectory() as tmp:
     env.update(LOG_DIR=tmp + '/log', STATE_DIR=tmp + '/state')
     os.makedirs(env['LOG_DIR']); os.makedirs(env['STATE_DIR'])
