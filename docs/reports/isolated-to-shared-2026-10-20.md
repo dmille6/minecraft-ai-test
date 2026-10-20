@@ -3,8 +3,8 @@
 _2026-10-20, written by an agent session for the coordinator. OWNER APPROVED about 12:45Z ("i agree do it all, get it working").
 Fleet at writing: `9e7d9980` (cobblekeep-01, promoted 11:23Z) on 70 bots. bagbudget-01 `31416ee5` has been live on board-d and
 hive-a since 11:35Z. Branch: `isolated2shared-on-9e7d998`, cut from the fleet sha. It changes **no bot code**: the changes are a
-host tool, a wrapper, a tripwire, one test file and this document. Revision r2 folds in the r1 reviews (Codex CHANGE, Claude
-CHANGE); section 10 lists each finding and how it was handled._
+host tool, a wrapper, a tripwire, one test file and this document. Revision r3 folds in the r1 and r2 reviews (Codex and Claude:
+CHANGE both rounds); section 10 lists each finding and how it was handled._
 
 ## 0. Summary
 
@@ -32,7 +32,8 @@ The one analysis cost is a one-time step in the control arm of the reads that in
 mechanically:
 
 * convert only into an empty slot;
-* keep the `install-hold` until the next canary's longest read window has passed the last transition (section 5.2).
+* keep the install-hold until the longest read window of any ready canary (+60 min) has passed the last transition. The
+  wrapper releases it only then (section 5.2).
 
 ## 1. Every branch on isolated / self-isolated / MEMORY_SCOPE
 
@@ -176,7 +177,7 @@ P2-5). Nothing in the world is touched.
 | `junkwell-site-<H>.g1.json` | `{x,y,z,world,at}` = the chosen cap (format of composter.mjs createSiteGen) | the raised well every bot already uses |
 | `junkwell-nosite-<H>.json` | **never copied** | one newer than `doneAt` with no `lost` evidence makes plinthWant replan a finished plinth (`complete_lost/no_evidence`, plinth.mjs:932-935). That is real for isolated-a (Comet's) and harmless in isolated-b (older); never copying is simpler than judging. A test and a mutant show it. |
 | `composter-site-<H>.g1.json` | the newest record's site; refused if two records are more than 2 blocks apart (remedy `--composter-from`) | one candidate per pool today |
-| `town-chest-<H>.containers.json` | per container, a fold of every bot's entry in `at` order by chestfull.mjs recordOutcome's rules: an opening (full or took) clears strikes and the unusable mark; an unknown or unavailable keeps every strike (the last 8) and the latest `unusableUntil` since the last opening, from ANY bot. The `_` maps are merged leaf-wise: per container, and per need inside `_ingredient_miss`; the newest time wins. | two bots' failures are the town's evidence, as they would have been in one file (Claude r1 P2-6). A miss that a later `took` outdates is cleared by the readers' own rule (containerPickMiss / containerIngredientMiss). |
+| `town-chest-<H>.containers.json` | per container, chestfull.mjs recordOutcome **replayed** over what the snapshots still show: the LATEST visible opening (full or took, any bot), then every strike NEWER than it as an unknown, and any newer `unavailable`. Strikes older than that opening are dropped, and `unusableUntil` is **re-derived** from the kept strikes, never copied. The `_` maps are merged leaf-wise: per container, and per need inside `_ingredient_miss`; the newest time wins. | two bots' unknowns 10+ min apart make the container unusable, as one shared file would (Codex r2 P2-8); a strike from before another bot's later `took` cannot (Claude r2 P2-3). A randomized test checks the fold against recordOutcome over the merged history in every case where no snapshot hides an opening. The one case it cannot replay, an opening a bot later overwrote with its own unknown, can keep a strike for at most 6 h. A miss that a later `took` outdates is cleared by the readers' own rule. |
 | `town-chest-<H>.cobble.jsonl` (+ ckpt, gens) | **not created** | the journal is an ordered fold of claims and counts by process instance, and five files have no faithful interleaving. A missing journal folds to an empty state (cobblecap.mjs:531-535): every container is UNKNOWN until a bot opens it, and the deterministic `count_town` order (recount.mjs:58, skills.mjs:3424) counts unknown containers. Withdraw `draw` claims are always admitted (cobblecap.mjs:493). The I6 tripwire watches that the recount really closes (Codex r1 P1-4, Claude r1 P2-4). |
 | `.recount.json`, `furnace-leases/`, `treefarm-*`, `.cN` chest claims | not copied | recreated lazily; the leases have expired; the others do not exist in isolated dirs |
 | `world-facts-<pool>.json` | each bot's file is decayed to `now` by the class's own rule (counts below 1 dropped), then the files are UNIONED: every site and resource stays its own entry on its own clock, with no summed count, so no old count inherits a fresh timestamp. Entries are ordered oldest `last` first, so the class's `slice(-N)` keeps the newest; the caps are 120 sites and 200 resources. Unreachable entries older than 24 h are dropped; an id reported by several bots gets `by` and `where` unioned, the newest `last`, and the first reporter's detail. | keeps every bot's death sites, which the pathfinder prices (the class reads them back: tested). A rejuvenating fold was rejected (Codex r1 P1-3). |
@@ -214,9 +215,14 @@ node isolated2shared.mjs status  [--pool isolated-b]
 
 **Refusals.** `apply` and `rollback` exit 2 and write nothing when any of these holds:
 
-* `/tmp/mcai-canary.lock` is busy. The tool re-runs itself under `flock -n` unless the wrapper already holds the lock (Claude
-  r1 P2-2).
-* A canary is declared in the manifest, or any `mcbot@*.service.d/*.conf` drop-in exists.
+* `/tmp/mcai-canary.lock` is busy. The tool re-runs itself under `flock -n -E 75` unless the wrapper already holds the lock
+  (Claude r1 P2-2), so a busy lock (75) is never confused with a crash (Claude r2 P2-2).
+* A canary is declared in the manifest, or any `mcbot@*.service.d/*.conf` drop-in exists, or the unit dir cannot be read
+  (fail-closed: Codex r2 P2-11).
+* A key of the three is assigned more than once in any env file. Every rewrite is computed before anything is written
+  (Codex r2 P2-7).
+* rollback: the inventory is incomplete (fewer than five env files, a bad path; Codex r2 P1-6).
+* apply: the marker says a rollback started and did not finish. Only the rollback may continue (Claude r2 P3-5).
 * Any of the pool's five units is active.
 * An env file is neither exactly isolated nor exactly converted (mixed is allowed only to resume).
 * An override variable is set (1.1).
@@ -241,9 +247,12 @@ before anything changes:
 rename that keep owner and mode. Every other line is byte-identical (tested). A key that appears twice is refused.
 
 **Idempotent and resumable.** A converted pool with its marker is a no-op. A half-done env step (a crash after the seed)
-resumes from the marker.
+resumes from the marker. The marker also freezes `known_caps`: every plinth cap and newest well site the five bots recorded
+before the switch. The tripwire's I2 judges against these (Codex r2 P1-5).
 
-**`rollback`** (units stopped):
+**`rollback`** (units stopped). Its steps run in this order: mark the marker `rollback_started`; the env; the journals; the
+town dir LAST (it holds the marker). So a crash at any step leaves a state that the same command finishes (tested; Codex r2
+P1-3).
 
 * It writes back **only the three lines**, to the values recorded in `plan.json`. `CODE_VERSION`, `RUN_ID` and every other
   line stay as they are NOW, so a promotion in between is kept (Claude r1 P1; tested, and a mutant shows a byte-exact restore
@@ -258,33 +267,50 @@ meantime.
 ### 4.2 `scripts/host/isolated2shared-direct.sh` (the coordinator's one command)
 
 ```
-bash isolated2shared-direct.sh [--rollback] <owner> <hold-minutes> <pool>...
+bash isolated2shared-direct.sh [--quiet <min> --why <text>] <owner> <pool>...     # convert
+bash isolated2shared-direct.sh --rollback <owner> <pool>...                      # roll back
+bash isolated2shared-direct.sh --release <owner>                                 # end the quiet period (refuses before)
 ```
 
 The wrapper does this, in order:
 
-1. Takes `flock -n /tmp/mcai-canary.lock` for the whole run.
-2. Runs `canary-sched.py install-hold <owner> <hold-minutes>`. If the slot is not free it refuses and releases the hold.
-3. Runs a clean `plan` for every pool.
-4. Per pool: writes the journal row `owner-direct`, stops the 5 units, runs `apply` (or `rollback`), starts the 5 units 12 s
-   apart, and writes the journal row `apply-done` (or `rollback-done`), which carries the tripwire command.
-
-If an apply does not complete, the wrapper starts the units again, journals `apply-refused` with the tool's `status` line, and
-stops. The hold stays in place until it expires or until `install-release`.
+1. Refuses within 30 min of fleet-recycle.timer, or while it runs. That timer restarts every unit, stopped ones included, and
+   takes no lock.
+2. Computes QUIET (5.2) from the scheduler's own status table and the queue's registrations. Fail-closed: with no readable
+   ready registration it refuses unless `--quiet` and `--why` are given. QUIET is at least 240.
+3. **Claims the install-hold first**, with the installers' own `holdtoken.py claim` (the scheduler's slot checks under its tick
+   lock; refused if any other hold exists), and **then** takes `flock -n /tmp/mcai-canary.lock`. The scheduler counts a held
+   loop lock as a busy slot, so the order matters (Codex r2 P1-1). A later phase reuses the same hold; its token is in
+   `~/isolated2shared/HOLD.json`.
+4. Runs a clean `plan` for every pool. Any refusal releases the unused hold.
+5. Per pool: journal `owner-direct`; stop the 5 units; `apply` (or `rollback`). Then by exit code:
+   * 0: restart the 5 units 12 s apart (`restart`, never `start`), verify all 5 are active, journal `apply-done` with the
+     not-before time and the pool's own tripwire command.
+   * 2: a clean refusal, nothing written. Restart the units unchanged and stop.
+   * anything else: the tool died part-way. **The units stay stopped** (a mixed pool is worse than five idle bots), it
+     journals `apply-incomplete` with `status`, and it says to re-run (apply resumes) or roll back (Codex r2 P1-4, Claude r2
+     P2-2).
+6. The hold is **not** released on exit. `--release` releases it only once QUIET minutes have passed since the LAST transition
+   row in the journal (`apply-done`, `rollback-done`, `*-incomplete`).
 
 ### 4.3 `scripts/host/isolated2sharedtrip.py --since <stop ISO> --pools <p>[,...]` (read-only)
 
-This is a full file walk of every bot over `[since − 24 h, now]`. The comparators are the still-isolated pools (same seed and
-home, old config) and the shared pools, minus any declared canary. The last line is `TRIPWIRE BREACH ...`, `BLIND ...`,
+This is a full file walk of every bot over `[since − 24 h, now]`. Run it **one pool per run, with that pool's own T0** (its
+`apply-done` row), so no old-env rows land in POST (Claude r2 P3-6). The comparators are:
+
+* the still-isolated pools: same seed and home, old config. A pool that shows any row with a non-`self-` `exp.pool` in the
+  window is converted or mixed, and leaves the comparators (Codex r2 P2-10);
+* the shared pools, minus any declared canary. The last line is `TRIPWIRE BREACH ...`, `BLIND ...`,
 `EARLY` (under 180 min with nothing wrong) or `OK`.
 
 * **I1 CONFIG** (BREACH from +15 min). Every converted bot's newest row carries `exp.pool=<pool>`, `memory_scope=private` and
   `arm=town`. The bot also wrote its once-per-spawn licence rows after the stop: `_plinthfirst_mode policy=1 shared=1` and
   `_plinth021_mode shared=1`. These prove the **code path** took the config, not just the env (Claude r1 P2-5), and they are
   I2's instrument control.
-* **I2 WELL** (BREACH). A `_plinth stage=planned` or a `_well_pit_dug` in a converted pool whose complete `at=` is not a cap
-  the town already had. The known caps are the town record, the site gens, and every old per-bot record and site gen. At a
-  known cap it is only NAMED (a rebuild of the town's own well; Claude r1 P3-9).
+* **I2 WELL** (BREACH). A `_plinth stage=planned` or a `_well_pit_dug` in a converted pool whose complete `at=` is not one of
+  the caps **frozen in the marker** at the switch. Live records are never used: a bot writes a new plan's record before it logs
+  `stage=planned`, so a live record would let a second well authorize itself (Codex r2 P1-5). At a known cap it is only NAMED
+  (a rebuild of the town's own well; Claude r1 P3-9). No marker means BLIND.
 * **I3 DEATHS** (BREACH). Three or more deaths after the stop, AND a rate above 2x the pool's own 24 h PRE rate, AND above 2x
   the shared pools' POST rate. Fewer deaths are NAMED. Exposure is the capped-gap estimator.
 * **I4 FURNACE** (BREACH). Two different bots of one converted pool inside one furnace session at once, neither unleased,
@@ -292,8 +318,13 @@ home, old config) and the shared pools, minus any declared canary. The last line
   Its self-test proves an overlapping isolated-b pair is seen (Codex r1 P1-1, Claude r1 P3-10).
 * **I5 EXPOSURE** (BLIND from +120 min if missing). Per pool: at least one `_well_dispose` success at a known cap, and at least
   one `_smelt_job_tally` row (the job is on and was considered at town).
-* **I6 COBBLE** (BLIND from +60 min, BREACH from +180 min). The fail-closed start must really close: `*_unknown` refusals with
-  no `_stock_recount` that counted anything is a dead end.
+* **I6 COBBLE** (BLIND from +60 min, BREACH from +180 min). The fail-closed start must really close (Codex r2 P2-9). Not
+  closing means either of these:
+  * `*_unknown` refusals with no counted `_stock_recount` in the whole POST;
+  * a trailing-120-min unknown-refusal rate above 3x max(own PRE rate, shared POST rate, 0.2/bh), with no counted recount in
+    that tail.
+
+  For calibration, isolated-b on its old config read 0.51/bh against a reference of 0.62/bh: ok.
 * **I7 DiD** (REPORT ONLY). Per bot-hour, PRE to POST, the converted pool against the still-isolated and the shared pools:
   deaths, `_deposit_new_chest`, town_deposit ok, smelt_town ok, gather ok (Codex r1 P2-8). There is no absolute new-chest
   breach any more.
@@ -329,20 +360,25 @@ chest memory takes effect, and the recount backlog settles.
 * **The death gate.** It is cross-sectional (canary POST vs control POST), so for it "not mid-canary" is enough.
 
 **Rule.** Never convert mid-canary; convert only into an empty slot. After the LAST transition, the slot stays held for
-**W_head + 60 min**, where W_head is the longest read minute of the queue head's registration at that time. The extra 60 min
+**QUIET = W + 60 min**, where W is the longest read minute over every READY queue entry's registrations. That is conservative:
+it is not just the head's W, so a queue reorder cannot shorten it. The wrapper computes it; on 10-20 at 13:00Z it read **780**
+(toolkit-03's +720). The extra 60 min
 let the restart transient (the first recounts and the first smelt trips) clear before the next PRE begins. The hold is the
-wrapper's `install-hold <owner> <minutes>`, a mechanism that already exists. Every PRE of the next canary then starts after the
+scheduler's install-hold, claimed with holdtoken.py. An EXPIRED hold keeps blocking launches (canary-sched S8 "STALE") until
+it is released, and `--release` refuses before last transition + QUIET (Claude r2 P2-1, Codex r2 P1-2). Every PRE of the next canary then starts after the
 switch has settled, at every read, deciding or not. Nothing here is report-only (Codex r1 P2-7, Claude r1 P2-3).
 
-**Cost, for today's queue.**
+**Cost, for today's queue** (`--quiet <min> --why` overrides the computed value; the override is journalled).
 
 * Queued registrations: toolkit-03 reads [180, 360, 720]; ironpick-01, bamboo-03 and treefarm-03 read [180, 360]; foldwatch-01
   reads [180].
-* With toolkit-03 at the head: about 3 h (the pilot's tripwire) + 13 h = **about 16 h of empty slot**.
-* With a [180, 360] head: 3 h + 7 h = **about 10 h**.
-* With foldwatch-01 first: 3 h + 4 h = **about 7 h**.
+* The computed QUIET is 780 min while toolkit-03 is ready: about 3 h (the pilot's tripwire) + 13 h = **about 16 h of empty
+  slot**.
+* After toolkit-03 has run, the ready entries top out at +360: 3 h + 7 h = **about 10 h**.
+* An owner-chosen `--quiet 420 --why "<owner decision>"` with a [180, 360] canary deliberately placed next: about 10 h. A
+  shorter value accepts contamination of that canary's later reads; it is journalled.
 
-Queue order is the coordinator's and the owner's call (section 9).
+The choice is the owner's (section 9).
 
 The underground-safety and bag-fix classes (PRE 24 h, 24-h null bands) need **24 h** after the last transition. None is
 queued.
@@ -395,28 +431,30 @@ isolated-c also agrees 5 of 5, but it has the C6 natural well and a bot stuck un
 
 On 10.0.0.31, once: `mkdir -p ~/isolated2shared`, then copy the three files from this branch into it (section 8).
 
-1. **Pilot.** Into an empty slot: `bash ~/isolated2shared/isolated2shared-direct.sh <owner> 240 isolated-b`. The 240-min hold
-   covers the 180-min tripwire.
-2. Run the tripwire at +15 min (I1 must not breach), +60 and +180.
-   * BREACH -> `--rollback` (hold W_head + 60), and record REVERT in the journal and in STATE.
+1. **Pilot.** Into an empty slot: `bash ~/isolated2shared/isolated2shared-direct.sh <owner> isolated-b`. The wrapper claims the
+   hold with the computed QUIET.
+2. Run the tripwire at +15 min (I1 must not breach), +60 and +180, using the command in the `apply-done` row.
+   * BREACH -> `--rollback`, and record REVERT in the journal and in STATE. The rollback is a transition too, so the quiet
+     period restarts from it.
    * OK at +180 -> record KEEP for the pilot.
-   * BLIND -> read again at +360; the hold must be extended (`install-hold` again).
-3. **The rest**, right after the pilot's OK, still inside the empty slot:
-   `bash ~/isolated2shared/isolated2shared-direct.sh <owner> <W_head+60> isolated-a isolated-c isolated-d`.
-   The hold is re-written to start now.
-4. Run the tripwire for the three pools at +15, +60 and +180 (`--pools isolated-a,isolated-c,isolated-d`). The same decision
-   rule applies, per pool.
-5. When the hold expires, the scheduler resumes the queue. Do not `install-release` early: the hold is the analysis guard
-   (5.2).
-6. Record: KEEP or REVERT per phase in the journal and in STATE.md; memory SHIPPED. Archive (4.5) after the KEEP of the rest.
+   * BLIND -> read again at +360.
+3. **The rest**, after the pilot's OK, while the hold is still in place:
+   `bash ~/isolated2shared/isolated2shared-direct.sh <owner> isolated-a isolated-c isolated-d` (it reuses the hold).
+4. Tripwire per pool, each with its own T0, at +15, +60 and +180. The same decision rule applies, per pool.
+5. When QUIET minutes have passed since the last transition: `bash ~/isolated2shared/isolated2shared-direct.sh --release <owner>`
+   (it refuses earlier). The scheduler then resumes. An expired hold does not resume it by itself.
+6. Record KEEP or REVERT per phase in the journal and in STATE.md, and mark memory SHIPPED. Archive (4.5) after the KEEP of
+   the rest.
 
 ## 7. Evidence produced here
 
-**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 18 checks.
+**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 24 checks.
 
 * The constants and the record-state rule agree with plinth.mjs and with the real WorldFacts class's prune (behaviour, not
   text).
-* foldContainer and mergeContainers work, read back through chestfull and withdrawpick.
+* foldContainer re-derives unusable (Codex's 700-s probe; Claude's strike from before a later took) and agrees with
+  recordOutcome over the merged history in every comparable case of 400 randomized ones. mergeContainers reads back through
+  chestfull and withdrawpick.
 * The world-facts union keeps its clocks, expires what the class expires, and the class reads the death sites back.
 * choosePlinth and the env rewrite (exactly 3 lines).
 * `plan` writes nothing (the whole tree is hashed).
@@ -424,13 +462,17 @@ On 10.0.0.31, once: `mkdir -p ~/isolated2shared`, then copy the three files from
 * **The composed chain on the seeded dir** (real plinthWant: `complete`), with its positive control (the newer no-site record
   makes it `plan`).
 * Idempotence and resume.
-* Seven refusals, each writing nothing.
+* Nine refusals, each writing nothing: canary declared, drop-in present, unreadable unit dir, foreign town dir,
+  disagreeing caps, plan-only, an override, a mixed env, a duplicated key.
+* An interrupted rollback is only ever finished, and a finished one is not repeated.
+* known_caps are frozen into the marker, and the Python tripwire reads them back. A new plan in the live record does not
+  become a known cap.
 * rollback keeps a later CODE_VERSION.
 * **A real bot process on the converted env**: the world model is the seeded pool file, lessons stay per bot, the smelt job is
   on, records are shared, and the system prompt is byte-identical to isolated's (positive control: the `board` scope changes
   it).
 
-Four anchored mutants are killed: copying the no-site records, dropping the canary check, a byte-exact env restore, and
+A randomized property test checks foldContainer against recordOutcome. Four anchored mutants are killed: copying the no-site records, dropping the canary check, a byte-exact env restore, and
 taking the first entry instead of folding.
 
 **Dry runs on the host** (`plan`, read-only, 12:4xZ). All four pools plan cleanly; the numbers are in section 2. The only
@@ -454,23 +496,28 @@ sudo node ~/isolated2shared/isolated2shared.mjs status            # all four: en
 sudo node ~/isolated2shared/isolated2shared.mjs plan --pool isolated-b
 
 # PILOT, into an empty slot (python3 ~/canary-sched.py status | tail -3: DECISION not busy):
-bash ~/isolated2shared/isolated2shared-direct.sh <owner> 240 isolated-b
+bash ~/isolated2shared/isolated2shared-direct.sh <owner> isolated-b
 cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <T0 from the apply-done row> --pools isolated-b   # +15, +60, +180
 
-# REST, after the pilot's TRIPWIRE OK (W_head = the queue head's max read minute, e.g. 360 -> 420):
-bash ~/isolated2shared/isolated2shared-direct.sh <owner> 420 isolated-a isolated-c isolated-d
-cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <T0 of the first> --pools isolated-a,isolated-c,isolated-d
+# REST, after the pilot's TRIPWIRE OK (same hold):
+bash ~/isolated2shared/isolated2shared-direct.sh <owner> isolated-a isolated-c isolated-d
+cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <that pool's T0> --pools isolated-a   # and -c, -d
 
-# ROLLBACK (any converted pool, any time between canaries):
-bash ~/isolated2shared/isolated2shared-direct.sh --rollback <owner> <W_head+60> isolated-b
+# END OF THE QUIET PERIOD (refuses before last transition + QUIET):
+bash ~/isolated2shared/isolated2shared-direct.sh --release <owner>
+
+# ROLLBACK (any converted pool, any time between canaries; it is a transition: the quiet period restarts):
+bash ~/isolated2shared/isolated2shared-direct.sh --rollback <owner> isolated-b
 ```
 
 ## 9. Owner decisions (none blocks the pilot; recommendations in bold)
 
 1. Scope for the converted towns: **`private`** (only towns become shared), or `shared` (lessons pooled as well).
 2. The post-conversion hold:
-   * **the mechanical rule (5.2)**, which costs about 7-16 h of slot depending on the queue head; or
-   * putting foldwatch-01 (reads [180] only) at the head for that window, which brings the cost to about 7 h.
+   * **the mechanical rule (5.2)**: about 16 h of empty slot while toolkit-03 is queued, about 10 h after it has run. The
+     recommendation is to convert right after toolkit-03 closes; or
+   * `--quiet 420 --why "<decision>"` now, with a [180, 360] canary placed next (about 10 h); or
+   * accept contamination with a shorter `--quiet` (not recommended).
 3. 5.3, admission to draws and controls: **later, with its own design, after at least 72 h**.
 
 ## 10. Review log
@@ -505,3 +552,31 @@ bash ~/isolated2shared/isolated2shared-direct.sh --rollback <owner> <W_head+60> 
 | P3-10 I4 lease TTL | I4 |
 | P3-11 set-aside dirs | `_isolated2shared/` |
 | P3-12 no pool runs private | 1.1 |
+
+**r2, Codex CHANGE / CHANGE:**
+
+| finding | handled in |
+|---|---|
+| P1-1 the lock before the hold blocks itself | holdtoken claim first, then flock (4.2) |
+| P1-2 the hold is not mechanical; an expired hold blocks | computed QUIET, guarded `--release` (4.2, 5.2) |
+| P1-3 rollback loses its marker | marker-last order + `rollback_started` (4.1) |
+| P1-4 a partial failure restarts a mixed pool | only exit 2 restarts (4.2) |
+| P1-5 I2 lets a new well authorize itself | frozen known_caps (4.1, 4.3) |
+| P1-6 rollback ignores inventory | refused (4.1) |
+| P2-7 duplicate key found after writes | precomputed rewrites + refusal (4.1) |
+| P2-8 unusable not derived | replay (3) |
+| P2-9 I6 cannot prove recovery | trailing-rate rule (4.3) |
+| P2-10 converted pilot counted as isolated | mixed pools excluded (4.3) |
+| P2-11 drop-in scan fails open | fail-closed (4.1) |
+
+**r2, Claude CHANGE / CHANGE:**
+
+| finding | handled in |
+|---|---|
+| P2-1 the hold runs short; release text | QUIET >= 240 and computed, guarded release (4.2, 6.3) |
+| P2-2 any non-zero exit restarts; flock exit 1 | exit 2 only; `-E 75` (4.1, 4.2) |
+| P2-3 strikes before an opening survive | replay drops them; test (3) |
+| P3-4 header comment | fixed |
+| P3-5 apply resumes a half rollback | refused (4.1) |
+| P3-6 one T0 for three pools | per-pool runs (4.3) |
+| P3-7 duplicate hazards in prompt lines | accepted: pricing uses the nearest site; prompt lines are capped at 4 and can repeat one place for at most one decay period. Noted, not changed. |

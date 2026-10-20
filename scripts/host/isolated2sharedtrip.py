@@ -4,13 +4,16 @@
 # READ ONLY. Run on 10.0.0.31:   cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <ISO> --pools <p>
 #
 # Full walk of every bot's skill log (live + rotated .gz) over [since - pre, now]. Converted bots are judged; every other bot
-# is a comparator: the STILL-ISOLATED pools (same seed and home, old config) and the SHARED pools (minus any declared canary).
+# is a comparator: the STILL-ISOLATED pools (same seed and home, old config: a pool with ANY row whose exp.pool is not
+# `self-...` in the window is converted or mixed, and leaves the comparators -- Codex r2 P2-10) and the SHARED pools (minus any
+# declared canary). One pool per run, with ITS OWN --since (the T0 of its apply-done row), keeps POST free of old-env rows.
 #   I1 CONFIG     (BREACH from +15 min) every converted bot has rows after the start, its newest row carries exp.pool=<pool>,
 #                 exp.memory_scope=private, exp.arm=town, and it wrote its once-per-spawn licence rows _plinthfirst_mode
 #                 (policy=1 shared=1) and _plinth021_mode (shared=1) after the start: the bot code took the new config.
 #   I2 WELL       (BREACH) a _plinth stage=planned, or a _well_pit_dug, in a converted pool at a cap that is NOT one the town
-#                 already had (the seeded cap, any cap or well site in the old per-bot records): a second well. At a known
-#                 cap it is NAMED (a replan/rebuild of the town's own well).
+#                 had BEFORE the switch -- the caps frozen into the migration marker (MIGRATED.json known_caps), never live
+#                 records, which a new plan rewrites before it logs (Codex r2 P1-5). At a known cap it is NAMED. No marker:
+#                 BLIND.
 #   I3 DEATHS     (BREACH) >= 3 deaths in a converted pool after the start AND its rate > 2x its own PRE rate AND > 2x the
 #                 shared pools' rate in the same POST window. Fewer are NAMED with their detail, never a verdict.
 #   I4 FURNACE    (BREACH) two different bots of one converted pool inside one furnace's session at once, neither unleased,
@@ -18,8 +21,10 @@
 #                 switch).
 #   I5 EXPOSURE   (BLIND from +120 min if missing) per converted pool: >= 1 _well_dispose success at a known cap, and >= 1
 #                 _smelt_job_tally row (the job is on and was considered at town). Before +120 min: EARLY.
-#   I6 COBBLE     the fail-closed recount actually closing: _stock_refused rows naming *_unknown, and _stock_recount rows with
-#                 counted > 0. Unknown refusals and no counted recount: BLIND from +60 min, BREACH from +180 min.
+#   I6 COBBLE     the fail-closed recount actually closing (Codex r2 P2-9): over the TRAILING 120 min, the pool's *_unknown
+#                 _stock_refused rate per bot-hour against max(its own PRE rate, the shared pools' POST rate, 0.2) -- above 3x
+#                 with no counted _stock_recount in that tail is not closing: BLIND from +60, BREACH from +180. Unknown
+#                 refusals with NO counted recount in the whole POST: the same.
 #   I7 DiD        (REPORT ONLY) per bot-hour PRE -> POST, converted vs still-isolated vs shared: deaths, _deposit_new_chest,
 #                 town_deposit ok, smelt_town ok, gather ok, and the DiD against each comparator.
 # LAST LINE: `TRIPWIRE BREACH <line> <pool> <detail>` (the first breach) | `TRIPWIRE BLIND <why>` | `TRIPWIRE EARLY` (< 180 min,
@@ -85,34 +90,29 @@ def death_breach(n_post, rate_post, rate_pre, rate_ref):
     return (rate_pre is not None and rate_post > 2 * rate_pre) and (rate_ref is not None and rate_post > 2 * rate_ref)
 
 
-def cobble_state(minutes, unknown_refusals, counted_recounts):
-    """PURE. I6 -> 'ok' | 'watch' | 'breach'. Unknown refusals with no counted recount: watch from +60, breach from +180."""
-    if unknown_refusals == 0 or counted_recounts > 0:
+COBBLE_FLOOR = 0.2      # unknown refusals per bot-hour that are never "excess" (isolated-b ran ~0.6/bh before the switch)
+
+
+def cobble_state(minutes, post_unknown, post_counted, tail_rate, tail_counted, ref_rate):
+    """PURE. I6 -> 'ok' | 'watch' | 'breach'. NOT CLOSING = unknown refusals with no counted recount in the whole POST, or a
+    trailing-120-min unknown-refusal rate above 3x max(ref_rate, COBBLE_FLOOR) with no counted recount in that tail. A rate
+    the instrument could not measure (None) is never 'ok' by default: it is judged on the counts alone."""
+    stuck = (post_unknown > 0 and post_counted == 0) or \
+        (tail_rate is not None and tail_rate > 3 * max(ref_rate or 0.0, COBBLE_FLOOR) and tail_counted == 0)
+    if not stuck:
         return 'ok'
     return 'breach' if minutes >= 180 else 'watch' if minutes >= 60 else 'ok'
 
 
 def known_caps(pool, state=STATE):
-    """Every cap or well site the town already had: the town dir's plinth record and site generations, and every old per-bot
-    dir's (records and site gens). A plan or a dig anywhere else is a SECOND well."""
-    caps = set()
-    dirs = [os.path.join(state, '_pool-%s' % pool)] + sorted(glob.glob(os.path.join(state, '_pool-self-%s-*' % pool)))
-    for d in dirs:
-        for f in glob.glob(os.path.join(d, 'junkwell-plinth-*.json')):
-            if '.lease.' in f or '.caprefused.' in f:
-                continue
-            try:
-                c = (json.load(open(f)).get('plan') or {}).get('cap')
-                caps.add((c['x'], c['y'], c['z']))
-            except Exception:
-                pass
-        for f in glob.glob(os.path.join(d, 'junkwell-site-*.g*.json')):
-            try:
-                r = json.load(open(f))
-                caps.add((r['x'], r['y'], r['z']))
-            except Exception:
-                pass
-    return caps
+    """The caps the town had BEFORE the switch, as the migration froze them (MIGRATED.json known_caps, 'x,y,z'). None when
+    the marker is missing or unreadable: I2 is then BLIND, never judged against live records (a new plan writes its record
+    BEFORE it logs stage=planned, skills.mjs, so a live record would let a second well authorize itself)."""
+    try:
+        caps = json.load(open(os.path.join(state, '_pool-%s' % pool, 'MIGRATED.json'))).get('known_caps')
+        return {tuple(int(v) for v in c.split(',')) for c in caps} if isinstance(caps, list) and caps else None
+    except Exception:
+        return None
 
 
 def files_since(since):
@@ -186,8 +186,11 @@ assert overlaps([('isolated-b', 'f', 'isolated-b-Alpha', 0, 100, False), ('isola
 assert overlaps([('isolated-b', 'f', 'isolated-b-Alpha', 0, 100, True), ('isolated-b', 'f', 'isolated-b-Bravo', 50, 150, False)]) == [], 'unleased'
 assert death_breach(3, 0.30, 0.10, 0.10) and not death_breach(2, 0.9, 0.1, 0.1) and not death_breach(3, 0.30, 0.20, 0.10)
 assert not death_breach(3, 0.30, None, 0.1), 'an unmeasured PRE never trips'
-assert cobble_state(200, 5, 0) == 'breach' and cobble_state(90, 5, 0) == 'watch' and cobble_state(30, 5, 0) == 'ok'
-assert cobble_state(200, 5, 1) == 'ok' and cobble_state(200, 0, 0) == 'ok'
+assert cobble_state(200, 5, 0, 0.1, 0, 0.6) == 'breach' and cobble_state(90, 5, 0, 0.1, 0, 0.6) == 'watch' and cobble_state(30, 5, 0, 0.1, 0, 0.6) == 'ok'
+assert cobble_state(200, 0, 0, 0.0, 0, 0.6) == 'ok', 'nothing refused'
+assert cobble_state(200, 100, 1, 5.0, 0, 0.6) == 'breach', 'Codex r2 probe: 100 refusals, one early recount, still refusing hard: NOT ok'
+assert cobble_state(200, 100, 9, 5.0, 2, 0.6) == 'ok', 'recounting in the tail: closing'
+assert cobble_state(200, 100, 9, 1.0, 0, 0.6) == 'ok', 'tail rate within 3x the reference: the pool\'s normal level'
 _t0 = dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)
 assert era_of(_t0, _t0, _t0 + dt.timedelta(hours=1), _t0 + dt.timedelta(hours=1, minutes=5), _t0 + dt.timedelta(hours=2)) == 'pre'
 assert era_of(_t0 + dt.timedelta(hours=1, minutes=2), _t0, _t0 + dt.timedelta(hours=1), _t0 + dt.timedelta(hours=1, minutes=5), _t0 + dt.timedelta(hours=2)) is None
@@ -222,7 +225,8 @@ def main():
     sel, exp_h, walked = walk(lo, since, post0, now, judged)
     bots = sorted(exp_h)
     conv = {p: [b for b in bots if pool_of(b) == p] for p in pools}
-    still = sorted({pool_of(b) for b in bots if pool_of(b).startswith('isolated') and pool_of(b) not in pools})
+    mixed = {pool_of(b) for b, _t, _k, _s, _d, e in sel if pool_of(b).startswith('isolated') and e.get('pool') and not str(e.get('pool')).startswith('self-')}
+    still = sorted({pool_of(b) for b in bots if pool_of(b).startswith('isolated') and pool_of(b) not in pools and pool_of(b) not in mixed})
     shared = sorted({pool_of(b) for b in bots if not pool_of(b).startswith('isolated') and pool_of(b) not in canary and pool_of(b) != 'sandbox'})
     groups = dict({p: [p] for p in pools}, **{'still-isolated': still, 'shared': shared})
     breaches, blind, named = [], [], []
@@ -236,11 +240,14 @@ def main():
     newest, lic, sessions = {}, defaultdict(set), []
     planned, pitdug, dispose_ok, tally, unknown_ref, counted_rc, deaths = defaultdict(list), defaultdict(list), Counter(), Counter(), Counter(), Counter(), defaultdict(list)
     caps = {p: known_caps(p) for p in pools}
+    unk_t, rc_t = defaultdict(list), defaultdict(list)
     lease_from = since + dt.timedelta(minutes=5, seconds=LEASE_TTL_S)
     for bot, t, k, st, d, exp in sel:
         p = pool_of(bot)
         g = p if p in pools else 'still-isolated' if p in still else 'shared' if p in shared else None
         era = era_of(t, lo, since, post0, now)
+        if g and era and k == '_stock_refused' and re.search(r':(cobble|stock)_unknown\b', d):
+            cnt[(g, era)]['unknown_refusals'] += 1
         if g and era and k in KINDS:
             if k == '_death':
                 cnt[(g, era)]['deaths'] += 1
@@ -261,14 +268,16 @@ def main():
             planned[p].append((bot, t, at_of(d), f.get('why')))
         elif k == '_well_pit_dug':
             pitdug[p].append((bot, t, at_of(d), f.get('from')))
-        elif k == '_well_dispose' and st == 'success' and at_of(d) in caps[p]:
+        elif k == '_well_dispose' and st == 'success' and caps[p] and at_of(d) in caps[p]:
             dispose_ok[p] += 1
         elif k == '_smelt_job_tally':
             tally[p] += 1
         elif k == '_stock_refused' and re.search(r':(cobble|stock)_unknown\b', d):
-            unknown_ref[p] += 1
+            if t >= post0:
+                unknown_ref[p] += 1; unk_t[p].append(t)
         elif k == '_stock_recount' and (int(f.get('counted', '0') or 0) > 0):
-            counted_rc[p] += 1
+            if t >= post0:
+                counted_rc[p] += 1; rc_t[p].append(t)
         elif k == '_death' and t >= post0:
             deaths[p].append((bot, t.strftime('%H:%M'), d[:90]))
         elif k == '_furnace_session' and t >= lease_from:
@@ -297,8 +306,10 @@ def main():
         if len(conv[p]) != 5:
             breach('I1', p, '%d bots on disk, expected 5' % len(conv[p]))
         # I2
-        print('I2 WELL      %s known caps %s | planned %d | pit digs %d' % (p, sorted(caps[p]), len(planned[p]), len(pitdug[p])))
-        for bot, t, c, why in planned[p] + pitdug[p]:
+        print('I2 WELL      %s known caps (frozen at the switch) %s | planned %d | pit digs %d' % (p, sorted(caps[p]) if caps[p] else 'NONE: no migration marker', len(planned[p]), len(pitdug[p])))
+        if not caps[p]:
+            blind.append('%s has no migration marker with known_caps: I2 cannot judge a well' % p)
+        for bot, t, c, why in (planned[p] + pitdug[p]) if caps[p] else []:
             if c is None or c not in caps[p]:
                 breach('I2', p, 'a new well at %s (%s %s %s)' % (c, bot, t.strftime('%H:%M'), why))
             else:
@@ -326,8 +337,17 @@ def main():
         if minutes >= 120 and (dispose_ok[p] == 0 or tally[p] == 0):
             blind.append('%s unexposed (disposals %d, smelt tallies %d)' % (p, dispose_ok[p], tally[p]))
         # I6
-        cs = cobble_state(minutes, unknown_ref[p], counted_rc[p])
-        print('I6 COBBLE    %s unknown refusals %d | recounts that counted %d | %s' % (p, unknown_ref[p], counted_rc[p], cs))
+        tail0 = now - dt.timedelta(minutes=120)
+        post_min = max((now - post0).total_seconds() / 60, 1)
+        tail_h = EXP[p]['post'] * min(120, post_min) / post_min
+        tail_rate = sum(1 for x in unk_t[p] if x >= tail0) / tail_h if tail_h > 0 else None
+        refs = [cnt[(p, 'pre')]['unknown_refusals'] / EXP[p]['pre'] if EXP[p]['pre'] > 0 else None,
+                cnt[('shared', 'post')]['unknown_refusals'] / EXP['shared']['post'] if EXP['shared']['post'] > 0 else None]
+        ref = max([r for r in refs if r is not None], default=None)
+        tail_rc = sum(1 for x in rc_t[p] if x >= tail0)
+        cs = cobble_state(minutes, unknown_ref[p], counted_rc[p], tail_rate, tail_rc, ref)
+        print('I6 COBBLE    %s POST unknown refusals %d, counted recounts %d | trailing 120 min: %s/bh (ref %s/bh = max(own pre, shared post)), counted recounts %d | %s' % (
+            p, unknown_ref[p], counted_rc[p], fmt(tail_rate), fmt(ref), tail_rc, cs))
         if cs == 'breach':
             breach('I6', p, '%d unknown refusals and no recount counted anything in %.0f min: the fail-closed start did not close' % (unknown_ref[p], minutes))
         elif cs == 'watch':

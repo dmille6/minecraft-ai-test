@@ -132,6 +132,34 @@ await ta('foldContainer: an opening clears strikes; unknowns from two bots are t
   assert.deepEqual(u.strikes, [t - 20 * 60e3, t - 60e3]); assert.equal(containerStatus(u, t), 'unusable')
   assert.equal(M.foldContainer([{ o: 'took', at: t - 5, strikes: [] }, { o: 'full', at: t - 1, strikes: [] }]).o, 'full')
 })
+await ta('foldContainer re-derives unusable: two bots\' unknowns 700 s apart -> unusable (Codex r2); none kept from before a later opening (Claude r2)', () => {
+  const t = NOW
+  const two = M.foldContainer([{ o: 'unknown', at: t - 700e3, strikes: [t - 700e3] }, { o: 'unknown', at: t, strikes: [t] }])
+  assert.equal(containerStatus(two, t), 'unusable', 'one shared file would have marked it unusable')
+  const t0 = t - 3600e3, t1 = t - 1800e3, t2 = t - 60e3
+  const f = M.foldContainer([{ o: 'took', at: t1, strikes: [] }, { o: 'unknown', at: t2, strikes: [t0, t2], unusableUntil: t2 + 6 * 3600e3 }])
+  assert.deepEqual(f.strikes, [t2], 'the strike before A\'s took is gone'); assert.equal(containerStatus(f, t), 'backoff', 'not unusable')
+})
+await ta('foldContainer equals recordOutcome over the merged history whenever the snapshots hide no opening (randomized, 400 cases)', async () => {
+  const { recordOutcome } = await import('../src/chestfull.mjs')
+  let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+  let compared = 0
+  for (let c = 0; c < 400; c++) {
+    let t = NOW - 5 * 3600e3; const ev = []
+    for (let i = 0; i < 2 + Math.floor(rnd() * 6); i++) { t += Math.floor(rnd() * 25 * 60e3) + 1; ev.push({ t, bot: Math.floor(rnd() * 3), o: rnd() < 0.3 ? 'took' : 'unknown' }) }
+    const per = [{}, {}, {}]
+    for (const e of ev) per[e.bot].s = recordOutcome(per[e.bot].s, e.o, e.t)
+    let truth; for (const e of ev) truth = recordOutcome(truth, e.o, e.t)
+    // hidden opening: a bot whose own opening was overwritten by its later unknown -- not replayable from snapshots
+    const hidden = per.some((p, b) => p.s && p.s.o === 'unknown' && ev.some(e => e.bot === b && e.o === 'took'))
+    if (hidden) continue
+    compared++
+    const got = M.foldContainer(per.map(p => p.s).filter(Boolean))
+    assert.equal(containerStatus(got, t), containerStatus(truth, t), `case ${c}: ${JSON.stringify(ev)}`)
+    assert.deepEqual(got.strikes, truth.strikes, `case ${c} strikes`)
+  }
+  assert.ok(compared >= 100, `only ${compared} comparable cases: the generator is not testing anything`)
+})
 await ta('mergeContainers: the readers see the town state (pick miss cleared by a later took; ingredient misses per need)', () => {
   const m = M.mergeContainers([
     { bot: 'A', json: { world: WORLD, entries: { k1: { o: 'full', at: 100, strikes: [] }, [PICK_MISS_KEY]: { k1: 50, k2: NOW - 60e3 }, [INGREDIENT_MISS_KEY]: { k3: { stick: NOW - 120e3 } } } } },
@@ -270,9 +298,46 @@ await ta('rollback: only the three lines go back (a later CODE_VERSION stays), t
   assert.equal(M.plan(POOL, M.defaults(o)).state, 'isolated')
 })
 
+await ta('rollback resumes after a crash between its env step and its dir step (the marker moves last)', () => {
+  const o = fixture(); run(o, 'apply', '--pool', POOL)
+  for (const b of BOTS) { const f = path.join(o.envDir, `${b}.env`); fs.writeFileSync(f, M.rewriteEnv(fs.readFileSync(f, 'utf8'), M.OLD_VALUES(b)).text) }
+  quiet.length = 0
+  assert.equal(run(o, 'rollback', '--pool', POOL), 0, quiet.join('\n')); assert.ok(!fs.existsSync(town(o)))
+  quiet.length = 0
+  assert.equal(run(o, 'rollback', '--pool', POOL), 2, 'a finished rollback is not repeated'); assert.match(quiet.join('\n'), /nothing to roll back/)
+})
+await ta('an interrupted rollback is only ever finished: apply refuses to resume it (Claude r2 P3-5)', () => {
+  const o = fixture(); run(o, 'apply', '--pool', POOL)
+  const mf = path.join(town(o), M.MARKER)
+  fs.writeFileSync(mf, JSON.stringify({ ...JSON.parse(fs.readFileSync(mf, 'utf8')), rollback_started: '2026-10-20T12:00:00Z' }))
+  for (const b of BOTS) { const f = path.join(o.envDir, `${b}.env`); fs.writeFileSync(f, M.rewriteEnv(fs.readFileSync(f, 'utf8'), M.OLD_VALUES(b)).text) }
+  const h = treeHash(root(o)); quiet.length = 0
+  assert.equal(run(o, 'apply', '--pool', POOL), 2); assert.match(quiet.join('\n'), /rollback .* did not finish/); assert.equal(treeHash(root(o)), h)
+  assert.equal(run(o, 'rollback', '--pool', POOL), 0); assert.ok(!fs.existsSync(town(o)))
+})
+await ta('more refusals that write nothing: a duplicated key in ONE env file (checked before any write), an unreadable drop-in dir', () => {
+  const o = fixture(); const f = path.join(o.envDir, 'isolated-b-Echo.env')
+  fs.appendFileSync(f, 'MEMORY_POOL=self-isolated-b-Echo\n')
+  let h = treeHash(root(o)); quiet.length = 0
+  assert.equal(run(o, 'apply', '--pool', POOL), 2); assert.match(quiet.join('\n'), /MEMORY_POOL is assigned 2 times/); assert.equal(treeHash(root(o)), h, 'no backup, no seed, no other bot converted')
+  const o2 = fixture(); o2.dropinRoot = path.join(root(o2), 'no-such-dir'); h = treeHash(root(o2)); quiet.length = 0
+  assert.equal(run(o2, 'apply', '--pool', POOL), 2); assert.match(quiet.join('\n'), /cannot inspect/); assert.equal(treeHash(root(o2)), h)
+})
+await ta('the caps the town had are frozen into the marker (I2 judges against them, not live records)', () => {
+  const o = fixture(); run(o, 'apply', '--pool', POOL)
+  const m = JSON.parse(fs.readFileSync(path.join(town(o), M.MARKER), 'utf8'))
+  assert.deepEqual(m.known_caps, ['357,74,160'])
+  const py = execFileSync('python3', ['-c', `import importlib.util,sys; s=importlib.util.spec_from_file_location('t', sys.argv[1]); t=importlib.util.module_from_spec(s); s.loader.exec_module(t); print(sorted(t.known_caps(sys.argv[2], sys.argv[3])))`,
+    path.join(here, '../../scripts/host/isolated2sharedtrip.py'), POOL, o.stateRoot], { encoding: 'utf8' }).trim()
+  assert.equal(py, '[(357, 74, 160)]', 'the tripwire reads the frozen caps from the marker')
+  fs.writeFileSync(path.join(town(o), `junkwell-plinth-${H}.json`), JSON.stringify(plinthRec('plan', NOW, { plan: { cap: { x: 1, y: 2, z: 3 }, steps: [] } })))
+  const py2 = execFileSync('python3', ['-c', `import importlib.util,sys; s=importlib.util.spec_from_file_location('t', sys.argv[1]); t=importlib.util.module_from_spec(s); s.loader.exec_module(t); print(sorted(t.known_caps(sys.argv[2], sys.argv[3])))`,
+    path.join(here, '../../scripts/host/isolated2sharedtrip.py'), POOL, o.stateRoot], { encoding: 'utf8' }).trim()
+  assert.equal(py2, '[(357, 74, 160)]', 'a NEW plan in the live record does not become a known cap')
+})
 await ta('MUTANT KILLED: a byte-exact env restore puts the stale CODE_VERSION back', async () => {
-  await withMutant(TOOL, '    const r = rewriteEnv(b.text, want ?? OLD_VALUES(b.bot))',
-    "    const r = { text: fs.readFileSync(path.join(bdir, path.basename(b.envFile)), 'utf8'), changed: [] }",
+  await withMutant(TOOL, 'try { rewrites.push({ b, r: rewriteEnv(b.text, before[b.bot] ?? OLD_VALUES(b.bot)) }) }',
+    "try { rewrites.push({ b, r: { text: fs.readFileSync(path.join(bdir, path.basename(b.envFile)), 'utf8'), changed: [] } }) }",
     async mod => {
       const o = fixture(); mod.main(['apply', '--pool', POOL], o, say)
       for (const b of BOTS) { const f = path.join(o.envDir, `${b}.env`); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace(/^CODE_VERSION=.*$/m, 'CODE_VERSION=newsha')) }

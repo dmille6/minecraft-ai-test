@@ -18,7 +18,8 @@
 //   junkwell-site     g1 = that record's cap (the raised well every bot already uses)
 //   junkwell-nosite   NEVER copied: one newer than doneAt with no `lost` evidence makes plinthWant replan a finished plinth
 //   composter-site    g1 = the newest record's site; refused if two records are more than 2 blocks apart
-//   containers.json   per container the newest outcome, strikes and unusableUntil dropped; `_` miss maps merged leaf-wise
+//   containers.json   per container chestfull's recordOutcome REPLAYED over the strikes newer than the latest visible
+//                     opening (unusableUntil re-derived, never copied); `_` miss maps merged leaf-wise
 //   cobble journal    NOT created: an empty journal is the fail-closed start (every container unknown until recounted)
 //   world facts       per file decayed to now with the class's own rule, then a UNION (each entry keeps its own clock),
 //                     newest kept within the class's caps; unreachable merged by id, expired ones dropped
@@ -36,6 +37,8 @@ export const MAX_SITES = 120                          // worldfacts.mjs
 export const MAX_RESOURCES = 200                      // worldfacts.mjs
 export const WF_SCHEMA = 1                            // worldfacts.mjs
 export const STRIKE_STATES = new Set(['unknown', 'unavailable'])
+export const UNKNOWN_BACKOFF_MS = 10 * 60 * 1000                // chestfull.mjs
+export const UNUSABLE_TTL_MS = 6 * 60 * 60 * 1000               // chestfull.mjs
 export const POOL_RE = /^isolated-[a-d]$/
 export const NEW_VALUES = pool => ({ MEMORY_SCOPE: 'private', MEMORY_POOL: pool, EXP_ARM: 'town' })
 export const OLD_VALUES = bot => ({ MEMORY_SCOPE: 'isolated', MEMORY_POOL: `self-${bot}`, EXP_ARM: 'isolated' })
@@ -149,18 +152,33 @@ function mergeLeaf (a, b) {
   return a
 }
 /**
- * ONE CONTAINER'S ENTRIES FROM SEVERAL BOTS -> the entry. Pure. Folded in `at` order with chestfull.mjs recordOutcome's
- * rules as far as snapshots allow: an opening (full | took) clears strikes and the unusable mark; an unknown or unavailable
- * keeps every strike and the latest unusableUntil carried since the last opening, from ANY bot (two bots' failures are the
- * town's evidence, as they would have been in one shared file). Strikes are kept to the last 8, as recordOutcome keeps them.
+ * ONE CONTAINER'S ENTRIES FROM SEVERAL BOTS -> the entry. Pure. Each bot's entry is its own recordOutcome fold: its strikes
+ * are its unknowns since ITS last opening. The town's entry REPLAYS chestfull.mjs recordOutcome over what the snapshots
+ * still show, in time order: the LATEST VISIBLE opening (full | took, any bot), then every strike NEWER than it as an unknown,
+ * and an `unavailable` newer than it at its `at`. A strike older than that opening is dropped (in one shared file the opening
+ * cleared it: Claude r2 P2-3), and unusableUntil is RE-DERIVED from the kept strikes, never copied (a bot's own mark may rest
+ * on a strike the opening cleared). So two bots' unknowns >= UNKNOWN_BACKOFF_MS apart after the last opening make the
+ * container unusable, as one shared file would (Codex r2 P2-8). Not replayable: an opening a bot later overwrote with an
+ * unknown (no snapshot shows it); there a strike may survive that the shared file cleared, for at most UNUSABLE_TTL_MS.
  */
 export function foldContainer (list) {
-  let cur = null
-  for (const e of [...list].sort((a, b) => Number(a.at) - Number(b.at))) {
-    if (e.o === 'full' || e.o === 'took') { cur = { o: e.o, at: Number(e.at), strikes: [] }; continue }
-    const strikes = [...new Set([...(cur?.strikes ?? []), ...(Array.isArray(e.strikes) ? e.strikes : [])])].filter(Number.isFinite).sort((a, b) => a - b).slice(-8)
-    const until = Math.max(Number(cur?.unusableUntil ?? -Infinity), Number(e.unusableUntil ?? -Infinity))
-    cur = { o: e.o, at: Number(e.at), strikes, ...(Number.isFinite(until) ? { unusableUntil: until } : {}) }
+  const opens = list.filter(e => e.o === 'full' || e.o === 'took')
+  const lastOpen = opens.length ? opens.reduce((a, b) => (Number(b.at) > Number(a.at) ? b : a)) : null
+  const tOpen = lastOpen ? Number(lastOpen.at) : -Infinity
+  const strikes = new Set(), unavail = []
+  for (const e of list) {
+    for (const t of Array.isArray(e.strikes) ? e.strikes : []) if (Number.isFinite(t) && t > tOpen) strikes.add(t)
+    if (e.o === 'unknown' && Number(e.at) > tOpen) strikes.add(Number(e.at))
+    if (e.o === 'unavailable' && Number(e.at) > tOpen) unavail.push(Number(e.at))
+  }
+  const ev = [...[...strikes].map(t => ({ t, o: 'unknown' })), ...unavail.map(t => ({ t, o: 'unavailable' }))].sort((a, b) => a.t - b.t)
+  let cur = lastOpen ? { o: lastOpen.o, at: tOpen, strikes: [] } : null
+  for (const { t, o } of ev) {
+    if (o === 'unavailable') { cur = { o, at: t, strikes: cur?.strikes ?? [], ...(Number.isFinite(cur?.unusableUntil) ? { unusableUntil: cur.unusableUntil } : {}) }; continue }
+    const prior = (cur?.strikes ?? []).filter(x => t - x < UNUSABLE_TTL_MS)
+    const qualifies = prior.some(x => t - x >= UNKNOWN_BACKOFF_MS)
+    const until = Math.max(cur?.unusableUntil ?? -Infinity, qualifies ? t + UNUSABLE_TTL_MS : -Infinity)
+    cur = { o: 'unknown', at: t, strikes: [...prior, t].slice(-8), ...(Number.isFinite(until) ? { unusableUntil: until } : {}) }
   }
   return cur
 }
@@ -267,6 +285,10 @@ export function readSources (pool, o) {
     if (!stateDir) refusals.push(`${bot}: STATE_DIR missing`)
     if (stateDir && path.dirname(stateDir) !== o.stateRoot) refusals.push(`${bot}: STATE_DIR ${stateDir} is not under ${o.stateRoot}`)
     for (const k of OVERRIDES) if (env[k] != null && !o.allowOverride.includes(k)) refusals.push(`${bot}: ${k}=${env[k]} is set (it changes the conversion's effect); remove it or pass --allow-override ${k}`)
+    for (const k of KEYS) {
+      const n = String(text ?? '').split('\n').filter(l => l.startsWith(`${k}=`)).length
+      if (n !== 1) refusals.push(`${bot}: ${k} is assigned ${n} times in ${f} (must be exactly once)`)
+    }
     if (kind === 'other') refusals.push(`${bot}: env is neither isolated (${KEYS.map(k => `${k}=${OLD_VALUES(bot)[k]}`).join(' ')}) nor converted (${KEYS.map(k => `${k}=${NEW_VALUES(pool)[k]}`).join(' ')}): ${KEYS.map(k => `${k}=${env[k]}`).join(' ')}`)
     if (home && oldDir) {
       b.plinth = readJson(path.join(oldDir, `junkwell-plinth-${home}.json`))
@@ -288,6 +310,14 @@ export function buildSeed (src, o) {
   const refusals = [...src.refusals], files = {}, summary = []
   const H = src.home
   if (!H) return { files, summary, refusals }
+  // THE CAPS THE TOWN HAD BEFORE THE SWITCH (every bot's plinth cap and newest well site), frozen into plan.json and the
+  // marker: the tripwire's I2 judges a plan or a dig against THESE, never against live records a new plan has already
+  // rewritten (Codex r2 P1-5)
+  const known = new Set()
+  for (const b of src.bots) {
+    const c = capOf(b.plinth?.json); if (c) known.add(capKey(c))
+    const st = b.site?.json; if (st && [st.x, st.y, st.z].every(Number.isInteger)) known.add(capKey(st))
+  }
   const pl = choosePlinth(src.bots.map(b => ({ bot: b.bot, rec: b.plinth?.json ?? null, text: b.plinth?.text ?? null })), { from: o.plinthFrom })
   if (!pl.ok) refusals.push(`plinth: ${pl.why} -- remedy: ${pl.remedy}`)
   else {
@@ -321,7 +351,7 @@ export function buildSeed (src, o) {
   summary.push(`world facts: ${wf.json.sites.length} sites, ${Object.keys(wf.json.unreachable).length} unreachable, ${wf.json.resources.length} resources (union of ${src.bots.filter(b => b.facts?.json).length})${wf.notes.length ? `; ${wf.notes.join('; ')}` : ''}`)
   summary.push('cobble journal: not created (fail-closed start: containers unknown until recounted)')
   for (const b of src.bots.filter(x => x.plinth?.bad || x.containers?.bad || x.facts?.bad)) refusals.push(`${b.bot}: a source file is not valid JSON (read it by hand)`)
-  return { files, summary, refusals }
+  return { files, summary, refusals, knownCaps: [...known].sort() }
 }
 
 function declaredCanary (o) {
@@ -331,11 +361,12 @@ function declaredCanary (o) {
   const cp = m.json.canary_pool
   return cp != null && String(cp).trim() !== '' && String(cp) !== 'null' ? `a canary is declared (canary_pool=${cp}): convert only into an empty slot` : null
 }
+/** Canary drop-ins -> [names]. FAILS CLOSED (Codex r2 P2-11): an unreadable unit dir or drop-in dir is a refusal, never "none". */
 function dropins (o) {
   try {
     return fs.readdirSync(o.dropinRoot).filter(d => /^mcbot@.+\.service\.d$/.test(d))
       .flatMap(d => fs.readdirSync(path.join(o.dropinRoot, d)).filter(f => f.endsWith('.conf')).map(f => path.join(d, f)))
-  } catch { return [] }
+  } catch (e) { return [`<cannot inspect ${o.dropinRoot}: ${e.code ?? e.message}>`] }
 }
 function unitsActive (bots, o) {
   if (!o.unitCheck) return []
@@ -373,6 +404,7 @@ export function apply (pool, o, say = console.log) {
   if (p.state === 'converted' && marker.json?.tool === TOOL) { say(`already converted: ${pool} (marker ${marker.json.stamp})`); return 0 }
   const refuse = [...p.src.refusals]
   const resume = fs.existsSync(dir) && marker.json?.tool === TOOL && marker.json?.pool === pool
+  if (resume && marker.json?.rollback_started) refuse.push(`a rollback of ${pool} started ${marker.json.rollback_started} and did not finish: finish it (rollback --pool ${pool}), never resume the apply (Claude r2 P3-5)`)
   if (p.state === 'mixed' && !resume) refuse.push(`env is mixed (${p.src.bots.map(b => `${b.bot}:${b.kind}`).join(' ')}): roll back first (rollback --pool ${pool}), then apply`)
   if (p.state === 'converted') refuse.push(`env is converted but ${dir} has no ${TOOL} marker: inspect by hand`)
   const dc = declaredCanary(o); if (dc) refuse.push(dc)
@@ -380,6 +412,12 @@ export function apply (pool, o, say = console.log) {
   const act = unitsActive(p.src.bots, o); if (act.length) refuse.push(`units not stopped: ${act.join(', ')} (stop all five first: the wrapper does)`)
   if (fs.existsSync(dir) && !resume) refuse.push(`${dir} exists without a ${TOOL} marker: move it aside by hand (it is not this tool's)`)
   if (!resume) refuse.push(...p.seed.refusals)
+  // EVERY env rewrite is computed BEFORE anything is written (Codex r2 P2-7): a file that cannot be rewritten refuses here
+  const rewrites = []
+  for (const b of p.src.bots) {
+    if (b.kind === 'converted') continue
+    try { rewrites.push({ b, r: rewriteEnv(b.text, NEW_VALUES(pool)) }) } catch (e) { refuse.push(`${b.bot}: ${e.message}`) }
+  }
   if (refuse.length) { for (const r of refuse) say(`REFUSED: ${r}`); return 2 }
   const stamp = resume ? marker.json.stamp : stampOf(o)
   const bdir = path.join(o.backupRoot, `${stamp}-${pool}`)
@@ -397,7 +435,7 @@ export function apply (pool, o, say = console.log) {
       path.join(b.oldDir, `town-chest-${p.src.home}.containers.json`), path.join(b.stateDir, `world-facts-${b.bot}.json`)].filter(Boolean)) {
       try { sources[f] = sha256(fs.readFileSync(f)) } catch { /* absent */ }
     }
-    const planJson = { tool: TOOL, v: 1, pool, stamp, at: new Date(o.now).toISOString(), home: p.src.home, summary: p.seed.summary, sources,
+    const planJson = { tool: TOOL, v: 1, pool, stamp, at: new Date(o.now).toISOString(), home: p.src.home, summary: p.seed.summary, sources, known_caps: p.seed.knownCaps,
       seed: Object.fromEntries(Object.entries(p.seed.files).map(([k, v]) => [k, sha256(v)])), env_before: Object.fromEntries(p.src.bots.map(b => [b.bot, Object.fromEntries(KEYS.map(k => [k, b.env[k]]))])) }
     fs.writeFileSync(path.join(bdir, 'plan.json'), JSON.stringify(planJson, null, 1)); fsyncFile(path.join(bdir, 'plan.json'))
     for (const b of p.src.bots) { const c = path.join(bdir, path.basename(b.envFile)); if (sha256(fs.readFileSync(c)) !== sha256(fs.readFileSync(b.envFile))) throw new Error(`backup of ${b.envFile} does not match`) }
@@ -413,9 +451,7 @@ export function apply (pool, o, say = console.log) {
     say(`seeded ${dir} (${Object.keys(p.seed.files).length} files); backup ${bdir}`)
   } else say(`resuming: ${dir} already seeded by ${stamp}; env step only`)
   // 3. THE ENV: three lines per file, every other byte unchanged
-  for (const b of p.src.bots) {
-    if (b.kind === 'converted') continue
-    const r = rewriteEnv(b.text, NEW_VALUES(pool))
+  for (const { b, r } of rewrites) {
     writeLike(b.envFile, r.text, b.envFile)
     say(`env ${path.basename(b.envFile)}: ${r.changed.map(k => `${k}=${NEW_VALUES(pool)[k]}`).join(' ')}`)
   }
@@ -427,16 +463,36 @@ export function rollback (pool, o, say = console.log) {
   const p = plan(pool, o)
   const dir = target(pool, o), marker = readJson(path.join(dir, MARKER))
   const bdir = marker.json?.backup
-  const refuse = []
+  // THE WHOLE INVENTORY OR NOTHING (Codex r2 P1-6): five env files, valid paths, each key once -- a missing bot would leave
+  // its unit unchecked and still running on the town dir this moves. (An override the apply accepted is not re-judged.)
+  const refuse = p.src.refusals.filter(r => !/it changes the conversion's effect/.test(r))
   if (!POOL_RE.test(pool)) refuse.push(`not an isolated pool name: ${pool}`)
   if (!bdir || !fs.existsSync(path.join(bdir, 'plan.json'))) refuse.push(`no ${TOOL} marker with a backup in ${dir}: nothing to roll back (or roll back by hand from ${o.backupRoot})`)
   const dc = declaredCanary(o); if (dc) refuse.push(dc)
   const di = dropins(o); if (di.length) refuse.push(`canary drop-ins present (${di[0]}...)`)
   const act = unitsActive(p.src.bots, o); if (act.length) refuse.push(`units not stopped: ${act.join(', ')} (stop all five first: running bots would re-create the town dir)`)
   for (const b of p.src.bots) if (b.kind === 'other') refuse.push(`${b.bot}: env changed since the apply (${KEYS.map(k => `${k}=${b.env[k]}`).join(' ')}): roll back by hand`)
+  const before = refuse.length ? {} : (readJson(path.join(bdir, 'plan.json')).json?.env_before ?? {})
+  const rewrites = []
+  for (const b of p.src.bots) {
+    if (b.kind === 'isolated') continue
+    try { rewrites.push({ b, r: rewriteEnv(b.text, before[b.bot] ?? OLD_VALUES(b.bot)) }) } catch (e) { refuse.push(`${b.bot}: ${e.message}`) }
+  }
   if (refuse.length) { for (const r of refuse) say(`REFUSED: ${r}`); return 2 }
-  const before = readJson(path.join(bdir, 'plan.json')).json.env_before
-  // 1. the per-bot cobble journals hold counts from before the town's activity: moved into the backup, so each bot's journal
+  // 0. the marker says a rollback is under way: from here an interrupted rollback is only ever FINISHED, never resumed as an apply
+  if (!marker.json.rollback_started) {
+    const mf = path.join(dir, MARKER)
+    writeLike(mf, JSON.stringify({ ...marker.json, rollback_started: new Date(o.now).toISOString() }, null, 1), mf)
+  }
+  // ORDER: env, journals, and the town dir LAST -- it holds the marker, so a crash at any step leaves a state this command
+  // resumes (each step skips what is already done)
+  // 1. the env: the three lines back to what they were; CODE_VERSION / RUN_ID and everything else stay as they are NOW
+  for (const { b, r } of rewrites) {
+    if (!before[b.bot]) say(`WARNING: no recorded values for ${b.bot}; restoring the isolated defaults`)
+    writeLike(b.envFile, r.text, b.envFile)
+    say(`env ${path.basename(b.envFile)}: ${r.changed.join(' ')} restored`)
+  }
+  // 2. the per-bot cobble journals hold counts from before the town's activity: moved into the backup, so each bot's journal
   //    restarts EMPTY (the same fail-closed recount start the apply gave the town)
   const moved = path.join(bdir, `rollback-${stampOf(o)}-cobble`)
   for (const b of p.src.bots) {
@@ -446,19 +502,10 @@ export function rollback (pool, o, say = console.log) {
       fs.renameSync(path.join(b.oldDir, f), path.join(moved, b.bot, f))
     }
   }
-  // 2. the town dir aside (kept: what the town learned is not deleted)
+  // 3. the town dir aside (kept: what the town learned is not deleted)
   fs.mkdirSync(asideRoot(o), { recursive: true, mode: 0o755 })
   const aside = path.join(asideRoot(o), `rolledback-${stampOf(o)}-${pool}`)
   fs.renameSync(dir, aside)
-  // 3. the env: the three lines back to what they were; CODE_VERSION / RUN_ID and everything else stay as they are NOW
-  for (const b of p.src.bots) {
-    if (b.kind === 'isolated') continue
-    const want = before[b.bot]
-    if (!want) { say(`WARNING: no recorded values for ${b.bot}; restoring the isolated defaults`) }
-    const r = rewriteEnv(b.text, want ?? OLD_VALUES(b.bot))
-    writeLike(b.envFile, r.text, b.envFile)
-    say(`env ${path.basename(b.envFile)}: ${r.changed.join(' ')} restored`)
-  }
   say(`ROLLED BACK ${pool}: town dir -> ${aside}; per-bot cobble journals -> ${moved}. Start the five units 12 s apart.`)
   return 0
 }
@@ -505,9 +552,9 @@ export function main (argv, over = {}, say = console.log) {
     // deploy or promotion rewrites the same env files. The wrapper takes it itself and sets I2S_UNDER_LOCK=1; run alone,
     // this re-runs itself under flock -n and refuses when the lock is busy.
     try {
-      execFileSync('flock', ['-n', o.lock, process.execPath, fileURLToPath(import.meta.url), ...argv], { stdio: 'inherit', env: { ...process.env, I2S_UNDER_LOCK: '1' } })
+      execFileSync('flock', ['-n', '-E', '75', o.lock, process.execPath, fileURLToPath(import.meta.url), ...argv], { stdio: 'inherit', env: { ...process.env, I2S_UNDER_LOCK: '1' } })
       return 0
-    } catch (e) { if (e.status === 1) say(`REFUSED: ${o.lock} is held (a canary loop, a deploy or an installer): run between canaries`); return e.status ?? 2 }
+    } catch (e) { if (e.status === 75) say(`REFUSED: ${o.lock} is held (a canary loop, a deploy or an installer): run between canaries`); return e.status ?? 2 }
   }
   if (cmd === 'apply') return apply(pool, o, say)
   if (cmd === 'rollback') return rollback(pool, o, say)
