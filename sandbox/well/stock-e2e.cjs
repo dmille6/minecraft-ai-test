@@ -10,6 +10,11 @@
 //           ironbank (cobblekeep-01: 3 ingots stay, raw iron and coal bank; no well needed)
 //           cobbleband (cobblekeep-01: a town at 984 of the 1000 cap, a full bag of cobble -> the well takes it; after `build`)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
+//           bagmix (bagbudget-01: the measured full bag at a town with NO well -> the allowance's chest rows go, junk and stations
+//           stay), bagwell (after `build`: deletion first -- the well takes the junk, then the chest rows), bagfar (a full bag
+//           far from town: no town order, no trip; last-swing keeps no spent pickaxe); LOCK_OWNER=bagbudget
+//   RCON_LOCAL=1 runs sbx-rcon.py on THIS host (the driver on the sandbox host itself, 10.0.0.30); the lock is then the
+//   launcher's word (SANDBOX_LOCK_OWNER, read by the launcher from 10.0.0.31 before it starts this driver).
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -32,7 +37,9 @@ const P = (...a) => { const s = `[${((Date.now() - T0) / 1000).toFixed(1)}] ` + 
 
 const SSH = ['-o', 'ControlMaster=auto', '-o', `ControlPath=${process.env.HOME}/.ssh/cm-stockab-%C`, '-o', 'ControlPersist=600', 'mike@10.0.0.30']
 function rcon (...cmds) {
-  const out = execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 60000 })
+  const out = process.env.RCON_LOCAL === '1'
+    ? execFileSync('python3', ['/tmp/sbx-rcon.py', SERVER, '-'], { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 60000 })
+    : execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 60000 })
   const res = []; let cur = null
   for (const line of out.split('\n')) { if (line.startsWith('> ')) { cur = { cmd: line.slice(2), reply: '' }; res.push(cur) } else if (cur) cur.reply += (cur.reply ? '\n' : '') + line }
   return res
@@ -63,14 +70,15 @@ function buildArena () {
 const parseItem = seg => {
   const id = (seg.match(/id: "minecraft:([a-z0-9_]+)"/) || [])[1]
   if (!id) return null
-  return { id, count: +((seg.match(/count: (\d+)/) || [])[1] || 1) }
+  const dm = seg.match(/"minecraft:damage": (\d+)/)
+  return { id, count: +((seg.match(/count: (\d+)/) || [])[1] || 1), ...(dm ? { damage: +dm[1] } : {}) }
 }
 function bag (name) {
   const cmds = []; for (let s = 0; s < 36; s++) cmds.push(`data get entity ${name} Inventory[{Slot:${s}b}]`)
   const r = rcon(...cmds); const slots = {}
   for (let s = 0; s < 36; s++) { const it = /has the following entity data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) slots[s] = it }
   const totals = {}; for (const it of Object.values(slots)) totals[it.id] = (totals[it.id] || 0) + it.count
-  return { used: Object.keys(slots).length, totals }
+  return { used: Object.keys(slots).length, totals, slots }
 }
 // item census with SMALL replies only (a multi-packet RCON reply desyncs sbx-rcon.py): scoreboard sums
 const ARENA_SEL = `@e[type=item,x=${A.x0},y=105,z=${A.z0},dx=${A.x1 - A.x0},dy=30,dz=${A.z1 - A.z0}]`
@@ -132,7 +140,7 @@ async function stopBot () {
 }
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 const procs = {}
-async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME } = {}) {
+async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, at = HOME } = {}) {
   const tag = `${RUN}-${scene}-${name}`
   const logRel = `./sandbox/log/stock-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/stock-e2e/${tag}/skill-${name}.jsonl`
@@ -151,11 +159,11 @@ async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NA
   procs[name] = proc
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   // THE CHUNKS FIRST: an order read before the arena's chunks reach the client sees 'unknown' and (correctly) skips.
-  rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
+  rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${at.x + 0.5} ${at.y} ${at.z + 0.5}`)
   await sleep(10000)
-  const c = [`tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`]
+  const c = [`tp ${name} ${at.x + 0.5} ${at.y} ${at.z + 0.5}`]
   let s = 0
-  for (const [id, n] of slotsSpec) c.push(`item replace entity ${name} container.${s++} with minecraft:${id} ${n}`)
+  for (const [id, n, dmg] of slotsSpec) c.push(`item replace entity ${name} container.${s++} with minecraft:${id}${dmg != null ? `[damage=${dmg}]` : ''} ${n}`)
   rcon(...c)
   await sleep(2500)
   return { skillLog, botOut, trace, name, pool, poolDir: path.join(R, 'sandbox/state', `_pool-${pool}`) }
@@ -824,8 +832,100 @@ scenes.stockrace = async () => {
     floorOk: (chest1.totals.oak_log ?? 0) >= 64 })
 }
 
+// ---------------------------------------------------------------- BAGBUDGET-01 (bagallowance.mjs; docs/reports/bagbudget-01-design-2026-10-20.md)
+// THE MEASURED MIX (10-20 W3, a median full bag): cobble, the kit (stations, 12 chests, torches, ladders), pickaxes, logs, two
+// sapling species, bone meal, bamboo, food, the owner's junk, an unlisted block, white wool to 36 (the well's junk).
+const BAG_MIX = [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 50], ['bucket', 1], ['furnace', 1], ['crafting_table', 2], ['chest', 12],
+  ['torch', 11], ['ladder', 4], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 35], ['oak_log', 64], ['oak_sapling', 9], ['birch_sapling', 7], ['bone_meal', 32],
+  ['bamboo', 64], ['bamboo', 30], ['apple', 7], ['cooked_beef', 5], ['salmon', 3], ['egg', 6], ['flint', 4], ['amethyst_block', 4], ['iron_axe', 1], ['stick', 6]]
+const JUNK_IDS = ['egg', 'flint', 'white_wool', 'oak_sapling', 'birch_sapling', 'bamboo', 'apple', 'leaf_litter']
+const STATION_IDS = ['bucket', 'furnace', 'crafting_table', 'chest']
+const ALLOW_IDS = ['torch', 'ladder', 'bone_meal']
+const bbRows = files => rowsOf(files.skillLog).filter(r => /^(town_deposit|_town_deposit|_bagbudget|_bagbudget_mode|dispose_well|_well_dispose|wear_out|compost|count_town)$/.test(r.name))
+  .map(r => `${r.name} ${r.status} ${r.detail.slice(0, 230)}`)
+function bagScene (scene, spec, files, before, chest0, after, chest1, extra = {}) {
+  const ground = census(CAP ?? { x: HOME.x, y: HOME.y, z: HOME.z })
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_bagbudget_mode').length
+  const junkIn = JUNK_IDS.filter(n => (chest1.totals[n] ?? 0) > (chest0.totals[n] ?? 0))
+  const stationsLeft = STATION_IDS.filter(n => (before.totals[n] ?? 0) >= 1 && !((after.totals[n] ?? 0) >= 1))
+  const allowBanked = Object.fromEntries(ALLOW_IDS.map(n => [n, (chest1.totals[n] ?? 0) - (chest0.totals[n] ?? 0)]))
+  const lost = Object.keys(before.totals).filter(n => (before.totals[n] ?? 0) > (after.totals[n] ?? 0) + ((chest1.totals[n] ?? 0) - (chest0.totals[n] ?? 0)))
+  result({ scene, root: BOT_ROOT, licence, bag: { used: [before.used, after.used], before: before.totals, after: after.totals }, chest: { before: chest0.totals, after: chest1.totals },
+    ground: { items: ground.allItems, entities: ground.allEnt }, junkIntoChest: junkIn, stationsLeft, allowBanked, leftBagNotInChest: lost, rows: bbRows(files).slice(0, 30), ...extra })
+}
+// bagmix: a town with NO well and NO composter (so deletion is not pending): the town deposit banks the chest rows at once.
+scenes.bagmix = async () => {
+  buildArena(); BRAIN_WANDER = true; CAP = null
+  rcon(`kill ${ARENA_SEL}`); CHEST = pickChest()
+  rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
+  const spec = [...BAG_MIX]; while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
+  const files = await startBot('bagmix', spec, { pool: `sbxstock-${RUN}-bagmix` })
+  setChest([])
+  const before = bag(NAME), chest0 = chestTotals()
+  const dep = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_town_deposit'), 150000, 500)
+  await sleep(4000)
+  const after = bag(NAME), chest1 = chestTotals()
+  await stopBot(); BRAIN_WANDER = false
+  bagScene('bagmix', spec, files, before, chest0, after, chest1, { deposit: dep ? `${dep.status} ${dep.detail.slice(0, 220)}` : null,
+    CANDIDATE_PASS: !!(dep && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n]) && STATION_IDS.every(n => (after.totals[n] ?? 0) >= 1)),
+    BASE_SHAPE: !!(ALLOW_IDS.every(n => !(chest1.totals[n] ?? 0)) && after.used >= 34) })
+}
+// bagwell (after `build`): the same kind of bag with two junk stacks the well takes and slab filler (kept whole, never junk):
+// DELETION FIRST -- the well throws the egg and flint (36 -> 34: still full), and only then the town deposit banks the
+// chest rows (34 -> 31). The order of the two rows is the evidence.
+scenes.bagwell = async () => {
+  if (!CAP) throw new Error('no well (run build first)')
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`); CHEST = pickChest()
+  rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
+  const spec = [['torch', 11], ['ladder', 4], ['bone_meal', 32], ['egg', 6], ['flint', 4], ['crafting_table', 1], ['furnace', 1], ['bucket', 1], ['cobblestone', 64], ['stone_pickaxe', 1, 35]]
+  const SLABS = ['oak_slab', 'spruce_slab', 'birch_slab', 'jungle_slab', 'acacia_slab', 'dark_oak_slab', 'stone_slab', 'cobblestone_slab', 'smooth_stone_slab', 'sandstone_slab', 'brick_slab', 'mangrove_slab', 'cherry_slab']
+  for (let i = 0; spec.length < 36; i++) spec.push([SLABS[i % SLABS.length], 1 + (i % 5)])
+  const files = await startBot('bagwell', spec, { pool: `sbxstock-${RUN}-bagwell` })
+  setChest([])
+  const before = bag(NAME), chest0 = chestTotals()
+  const disp = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_well_dispose'), 240000, 500)
+  const dep = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_bagbudget' && /^phase=bank/.test(r.detail)), 600000, 1000)
+  await sleep(4000)
+  const after = bag(NAME), chest1 = chestTotals()
+  await stopBot(); BRAIN_WANDER = false
+  bagScene('bagwell', spec, files, before, chest0, after, chest1, { dispose: disp ? `${new Date(disp.ts).toISOString()} ${disp.detail.slice(0, 160)}` : null,
+    bank: dep ? `${new Date(dep.ts).toISOString()} ${dep.detail.slice(0, 200)}` : null, wellFirst: !!(disp && dep && disp.ts < dep.ts),
+    CANDIDATE_PASS: !!(disp && dep && disp.ts < dep.ts && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n])) })
+}
+// bagfar: a full bag on a stone platform 90 east of home (outside TOWN_RADIUS 48: no town order can fire) holding four spent
+// stone pickaxes, a good one and 64 cobble. Last-swing under the allowance keeps none (the bag holds the stone): wear_out
+// destroys all four (the deployed rule keeps three). No town_deposit row; the bot stays on its platform (no trip).
+const FAR = { x: HOME.x + 90, y: 120, z: HOME.z }
+scenes.bagfar = async () => {
+  BRAIN_WANDER = false
+  rcon(`forceload add ${FAR.x - 6} ${FAR.z - 6} ${FAR.x + 6} ${FAR.z + 6}`,
+    `fill ${FAR.x - 6} 112 ${FAR.z - 6} ${FAR.x + 6} 126 ${FAR.z + 6} minecraft:air`, `fill ${FAR.x - 6} 119 ${FAR.z - 6} ${FAR.x + 6} 119 ${FAR.z + 6} minecraft:stone`,
+    `fill ${FAR.x - 1} 120 ${FAR.z + 1} ${FAR.x + 1} 121 ${FAR.z + 1} minecraft:stone`, `fill ${FAR.x - 1} 120 ${FAR.z - 1} ${FAR.x + 1} 121 ${FAR.z - 1} minecraft:stone`)
+  const spec = [['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 20], ['cobblestone', 64]]
+  while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
+  const files = await startBot('bagfar', spec, { pool: `sbxstock-${RUN}-bagfar`, at: FAR })
+  const before = bag(NAME)
+  const spent = b => Object.values(b.slots).filter(it => it.id === 'stone_pickaxe' && (it.damage ?? 0) >= 130).length
+  const wear = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === 'wear_out'), 180000, 500)
+  await sleep(8000)
+  const after = bag(NAME)
+  const posRep = r1(`data get entity ${NAME} Pos`)
+  const pos = ((posRep.match(/\[([^\]]+)\]/) || [])[1] || '').replace(/d/g, '').split(',').map(Number)
+  const td = rowsOf(files.skillLog).filter(r => r.name === 'town_deposit').length
+  const bbw = rowsOf(files.skillLog).filter(r => r.name === '_bagbudget' && /^phase=wear/.test(r.detail)).map(r => r.detail)
+  await stopBot()
+  rcon(`fill ${FAR.x - 6} 112 ${FAR.z - 6} ${FAR.x + 6} 126 ${FAR.z + 6} minecraft:air`, `forceload remove ${FAR.x - 6} ${FAR.z - 6} ${FAR.x + 6} ${FAR.z + 6}`)
+  const stay = pos.length === 3 && Math.hypot(pos[0] - FAR.x, pos[2] - FAR.z) <= 8
+  result({ scene: 'bagfar', root: BOT_ROOT, wear: wear ? `${wear.status} ${wear.detail.slice(0, 220)}` : null, spent: [spent(before), spent(after)], used: [before.used, after.used],
+    goodPickaxe: Object.values(after.slots).some(it => it.id === 'stone_pickaxe' && (it.damage ?? 0) < 120), townDeposits: td, bagbudgetWear: bbw, pos, stayed: stay,
+    CANDIDATE_PASS: !!(wear && spent(after) === 0 && td === 0 && stay && bbw.length >= 1),
+    BASE_SHAPE: !!(wear && spent(after) === 3 && td === 0 && stay && bbw.length === 0) })
+}
+
 async function main () {
-  const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
+  const lock = process.env.RCON_LOCAL === '1' ? String(process.env.SANDBOX_LOCK_OWNER || 'NOLOCK')
+    : execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
   const owner = process.env.LOCK_OWNER || 'stocktarget'
   if (!new RegExp(owner).test(lock)) throw new Error(`the sandbox lock is not held for ${owner}: ` + lock.trim().slice(0, 160))
   W = await import(path.join(BOT_ROOT, 'bots/src/well.mjs'))

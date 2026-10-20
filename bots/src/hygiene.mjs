@@ -18,6 +18,8 @@
 // would take (settle-before-seal, Paper's cross-wall merging, trap holes) -- that is Phase 2, a separate change.
 
 import { spentStoneKept, TOOLKIT } from './toolkit.mjs'
+// bagbudget-01: the one allowance table (bagallowance.mjs); last-swing's spent pickaxes read it
+import { ALLOWANCE, BAG_ALLOWANCE } from './bagallowance.mjs'
 
 /** Worth nothing to this fleet in any quantity: never walked to by pickupNearbyItems. */
 export const NEVER_KEEP = new Set([
@@ -32,7 +34,9 @@ export function neverPickUp (entity) {
 }
 
 /** Spent pickaxes kept: last-swing turns up to three of them into the cobblestone for a new one. */
-export const SPENT_PICKAXES_KEPT = 3
+export const SPENT_PICKAXES_KEPT = ALLOWANCE.spentPickaxes
+/** A stone pickaxe's stone (the recipe accepts any of them: the stone_tool_materials tag). */
+const STONE_PICK_STONE = new Set(['cobblestone', 'cobbled_deepslate', 'blackstone'])
 /** Wear-out starts only under slot pressure: a dig per tool is cheap, but not free. */
 export const TRIGGER_SLOTS = 34
 /** At most this many tools per order: an axe on stone is ~7.5 s a dig, and the runner's budget is finite. */
@@ -46,10 +50,10 @@ const usesLeft = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUse
  *   tools  the spent copies (<= 1 use) to destroy: every spent axe/shovel/hoe, and every spent pickaxe beyond
  *          the SPENT_PICKAXES_KEPT most-worn-last. Empty below TRIGGER_SLOTS. A tool with 2+ uses is never listed.
  */
-export function wearOutPlan (items = [], { toolkit = TOOLKIT.on } = {}) {
+export function wearOutPlan (items = [], { toolkit = TOOLKIT.on, allowance = BAG_ALLOWANCE.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const slots = list.length
-  if (slots < TRIGGER_SLOTS) return { slots, tools: [], toolkit: 0 }
+  if (slots < TRIGGER_SLOTS) return { slots, tools: [], toolkit: 0, bagbudget: 0 }
   // EXACTLY 1 use. A copy the client still shows at 0 has already broken on the server (durability lags); it is
   // not real, so it is neither worn out nor counted toward the three last-swing keeps (both reviews: the old
   // ascending sort KEPT the phantom 0-use copies and wore out working 1-use ones).
@@ -62,8 +66,16 @@ export function wearOutPlan (items = [], { toolkit = TOOLKIT.on } = {}) {
   const stoneOut = spentStoneKept(list, SPENT_PICKAXES_KEPT, toolkit) === 0 ? picks.filter(it => it.name === 'stone_pickaxe') : []
   const rest = picks.filter(it => !stoneOut.includes(it))
   const base = picks.slice(SPENT_PICKAXES_KEPT)
-  const tools = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...rest.slice(SPENT_PICKAXES_KEPT)].slice(0, MAX_PER_ORDER)
-  return { slots, tools, toolkit: tools.filter(it => stoneOut.includes(it) && !base.includes(it)).length }
+  // THE BAG ALLOWANCE (bagbudget-01): last-swing keeps spent pickaxes to mine the cobble for the next stone pickaxe; a bag
+  // that already holds that stone (ALLOWANCE.lastSwingCobble of a stone pickaxe's materials: cobblestone, cobbled_deepslate,
+  // blackstone -- Claude design r1 P3-4) keeps none. A 1-use copy
+  // never counts toward the escape reserve (toolfor depositSurvivors counts copies above HARD_STOP), so none is spent here.
+  const cobble = list.filter(it => STONE_PICK_STONE.has(it.name)).reduce((t, it) => t + (it.count ?? 0), 0)
+  const keepSpent = allowance && cobble >= ALLOWANCE.lastSwingCobble ? 0 : SPENT_PICKAXES_KEPT
+  const restOut = rest.slice(keepSpent), restBase = rest.slice(SPENT_PICKAXES_KEPT)
+  const tools = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...restOut].slice(0, MAX_PER_ORDER)
+  return { slots, tools, toolkit: tools.filter(it => stoneOut.includes(it) && !base.includes(it)).length,
+           bagbudget: tools.filter(it => restOut.includes(it) && !restBase.includes(it)).length }
 }
 
 /**

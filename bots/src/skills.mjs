@@ -63,7 +63,9 @@ import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, fullBagLeft } from './towndeposit.mjs'
+// bagbudget-01: the allowance's rows (bagallowance.mjs)
+import { bagBudgetBankDetails, bagBudgetNoneDetail } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
@@ -126,7 +128,7 @@ import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidF
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel } from './minewell.mjs'
 // wellcare-01 fix 3 (its own statement): a station never on a junk well's cells
-import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
+import { stationKeepOut, stationWellDetail, nearWell, wellOutOfReach } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
 const townHome = () => configuredHome(config.world)
 
@@ -1552,6 +1554,32 @@ export function valveProof (bot, items = bot?.inventory?.items?.() ?? []) {
     if (startableJunk(items, { apples: peaceful, plants: peaceful, level: 0 }) > 0) return false
     const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
     return plan.junkStacks === 0
+  } catch { return false }
+}
+/**
+ * CAN THE WELL OR THE COMPOSTER STILL FREE A SLOT FROM THIS FULL BAG, HERE AND NOW? (bagbudget-01, deletion first: Claude
+ * design r1 P2-2) -> boolean. The well: one stands usable, it is not backing off (the loop's own well state), and its plan
+ * has a stack (junk, a peaceful sword, cobble at the cap, an at-target group). The composter: one stands in town, compost
+ * is not backing off, and a fill could start. Unlike valveProof this asks whether the exit EXISTS, not only whether the bag
+ * holds its input: a town with no well must not hold the allowance's chest rows for a well nobody can use. The well's own
+ * order gates count too (Codex design r2 P2-1): never from inside a well, never from beyond the walk's vertical reach of
+ * its stand (wellcare.mjs wellOutOfReach -- cognitive.mjs holds the dispose order there). Never throws.
+ */
+export function deletionPending (bot, items = bot?.inventory?.items?.() ?? [], { now = Date.now(), wellState = null, townState = null } = {}) {
+  try {
+    if (items.length < TD_TRIGGER_SLOTS) return false
+    const peaceful = foodSkipNow(bot).active
+    const feetY = bot.entity?.position?.y
+    const reach = () => !wellOutOfReach({ feetY, standY: townWellStandY(bot, 'dispose_well') ?? homeVec().y })
+    if (now >= (wellState?.disposeBackoffUntil ?? 0) && wellUsable(bot) && !insideTownWell(bot) && reach()) {
+      const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
+      if (plan.junkStacks > 0) return true
+    }
+    if (now >= (townState?.compostBackoffUntil ?? 0)) {
+      const c = findTownComposter(bot)
+      if (c && startableJunk(items, { apples: peaceful, plants: peaceful, level: composterLevel(c) ?? 0 }) > 0) return true
+    }
+    return false
   } catch { return false }
 }
 /** Is a junk well standing that can take cobble? (the at-cap sentence names the well only then: Codex r1 P2) */
@@ -6584,6 +6612,10 @@ async function wearOut(ctx, _args, signal) {
     logEvent({ kind: 'toolkit', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot), durationMs: Date.now() - wearT0,
                detail: toolkitRow(fields), args: toolkitArgs(fields) })
   }
+  // bagbudget-01: the spent pickaxes listed only because the allowance keeps none for last-swing (the read's exposure)
+  if (plan.bagbudget > 0) {
+    try { logEvent({ kind: 'bagbudget', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot), detail: `phase=wear listed=${plan.bagbudget} worn=${destroyed.length} of=${plan.tools.length} slots=${plan.slots}->${after}` }) } catch { /* telemetry */ }
+  }
   logEvent({ kind: 'wear_out', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot),
              detail: `${plan.slots} -> ${after} slots: ${destroyed.length} of ${plan.tools.length} spent tool(s) worn out` +
                      `${destroyed.length ? ` (${destroyed.join(', ')})` : ''}${stopped ? `; stopped: ${stopped}` : ''}`.slice(0, 300) })
@@ -7075,9 +7107,9 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [] } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], fullBag = null, rows = true } = {}) {
   const bag = windowBag(bot, win)
-  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve })
+  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, fullBag, rows })
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   const done = []
@@ -7157,14 +7189,15 @@ async function townDeposit (ctx, _args, signal) {
   const { bot } = ctx
   // THE COUNT STEP (stocktarget design 3.7): the order asked to count the town first -- up to three containers whose count
   // the stock targets need (unknown, or older than the floor's hour for a group the bag holds surplus of)
-  let counted = null
+  let counted = null, noKeys = false
   if (_args?.recount) {
     const keys = stockCountKeys(bot, bot.inventory?.items?.() ?? [], { floor: true })
     if (keys.length) {
-      const until = Date.now() + TD_BUDGET_MS
+      // an allowance-only plan counts in a THIRD of the budget, so count + deposit stays near the contract's 60 s (Claude r2 P3-3)
+      const until = Date.now() + (_args?.count === 'allowance_only' ? Math.floor(TD_BUDGET_MS / 3) : TD_BUDGET_MS)
       const rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys)
       counted = rc.counted
-    } else counted = 0
+    } else { counted = 0; noKeys = true }
   }
   const items = () => bot.inventory?.items?.() ?? []
   const deadline = Date.now() + TD_BUDGET_MS
@@ -7172,13 +7205,21 @@ async function townDeposit (ctx, _args, signal) {
   const wanted = Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : []
   const before = items()
   const slotsBefore = before.length
+  // THE VISIT'S BAG IS FULL OR NOT, ONCE (bagbudget-01, Codex design r1 P2-5): latched at the start, so a first container
+  // that takes the bag to 33 does not switch the allowance off for the second
+  const fullBag = slotsBefore >= TD_TRIGGER_SLOTS
+  // THE CHEST ROWS: the order's deletion-first decision (townDepositOrder `rows`); without one (chat), asked here
+  const rows = typeof _args?.rows === 'boolean' ? _args.rows : !deletionPending(bot, before)
   const held = list => { const c = {}; for (const it of list) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0); return c }
   const heldBefore = held(before)
   // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target keeps out of this visit, named
   stockRefusedRow(bot, 'town_deposit', before, { wants: wanted, noSwords: foodSkipNow(bot).active })
   // THE VALVE: only with the proof, re-taken here (design 3.2)
-  const valve = !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length && valveProof(bot, before)
-  const planned = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve }).steps.length
+  const valve = !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, fullBag, rows }).steps.length && valveProof(bot, before)
+  const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, fullBag, rows })
+  const planned = startPlan.steps.length
+  // the allowance's own stacks at the start (bagbudget-01's bank row: what it planned, and what the server showed banked)
+  const allowPlanned = startPlan.steps.filter(st => st.allowance).map(st => ({ name: st.name, row: st.allowance }))
   const stock = { claims: 0, refused: 0, valve: 0, counted }
   // `attempted` is what this visit MOVED (the client's clicks) and spends the cap; `banked` is what the server showed in
   // a chest on the re-open. A stack another bot takes out before the re-open is attempted but not banked -- and must
@@ -7193,7 +7234,21 @@ async function townDeposit (ctx, _args, signal) {
     detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
   if (!planned) {
     stop = counted != null ? 'counted the town; nothing to bank above the keeps' : 'nothing to bank above the keeps'; row('no_effect')
-    return { status: 'no_effect', detail: counted ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)` : 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' }
+    // THE HONEST SENTENCE (bagbudget-01): a count of ZERO is not "everything is kept" -- the old `counted ?` read 0 as no
+    // count at all, so 646 of 646 failed counts a day said so. Name what is over the keeps and where it goes instead.
+    let left = []
+    try { left = fullBagLeft(before, { wanted, noSwords: foodSkipNow(bot).active, fullBag }) } catch { left = [] }
+    // the chest rows held back for the well / composter (deletion first): named, so the read can tell a wait from a miss
+    if (!rows && left.includes('chest')) left = left.map(c => (c === 'chest' ? 'chest_after_deletion' : c))
+    if (fullBag) {
+      try { logEvent({ kind: 'bagbudget', status: 'no_effect', snapshot: snapshot(bot), detail: bagBudgetNoneDetail({ slots: slotsBefore, chest: left.includes('chest') ? 1 : 0, rows, classes: left }) }) } catch { /* telemetry */ }
+    }
+    const what = left.length ? `; over the keeps only: ${left.join(', ')}` : ''
+    const base = counted > 0 ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)`
+      : counted === 0 && noKeys ? 'nothing left to count; nothing to bank into a chest'
+      : counted === 0 ? 'could not count the town (no container counted); nothing to bank until it is'
+      : 'nothing to bank into a chest'
+    return { status: 'no_effect', detail: `${base}${what}`.slice(0, 300) }
   }
   if (bot.cobbleOpenPending) { stop = 'a counting open in flight'; row('no_effect'); return { status: 'no_effect', detail: 'a town container has not answered an earlier open yet; the town deposit waits for it' } }
   if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
@@ -7230,7 +7285,7 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, fullBag, rows })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
@@ -7261,13 +7316,22 @@ async function townDeposit (ctx, _args, signal) {
       }
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       if (!v.ok) { stop = 'unverified'; break }
-      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active }).steps.length) break
+      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, fullBag, rows }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
   }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
+  // bagbudget-01's bank row: the allowance's planned stacks, the start counts and the server-verified banked, by name; and
+  // EVERY banked name (the read's junk-into-chest gate must not depend on the 300-char town_deposit detail: Codex r1 P1-4)
+  if (allowPlanned.length || n > 0) {
+    try {
+      // COMPLETE, IN PARTS (Codex design r2 P2-3): every banked name is on some part, each part under the 300-char cut
+      for (const detail of bagBudgetBankDetails({ planned: allowPlanned, heldBefore, banked, slotsBefore, slotsAfter, peaceful: foodSkipNow(bot).active }))
+        logEvent({ kind: 'bagbudget', status: n > 0 ? 'success' : 'failed', snapshot: snapshot(bot), detail })
+    } catch { /* telemetry */ }
+  }
   // A HELD CURSOR OUTRANKS AN EARLIER SUCCESS (Codex round 2): the window is still open and owned; the row keeps the
   // verified tally of the containers before it.
   if (unsettled) {
@@ -7285,16 +7349,20 @@ async function townDeposit (ctx, _args, signal) {
     row('failed')
     return { status: 'failed', failClass: 'town_deposit_unverified', detail: 'moved stacks into the town chest but could not open it again to confirm them; the town deposit waits' }
   }
+  // AN ALLOWANCE-ONLY PLAN HAS NO DEPOSIT-VERB REMEDY (bagbudget-01, Claude design r1 P2-5): the verb never banks the chest
+  // rows (depositPlan never sees them), so its advice would send the bot to a chest for nothing
+  const allowOnly = startPlan.steps.length > 0 && startPlan.steps.every(st => st.allowance)
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
     row('failed')
     return { status: 'failed', failClass: 'town_storage_full',
-             detail: 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
+             detail: allowOnly ? 'the town chests in reach are full; the surplus over the bag allowance waits for a town chest with room -- keep working'
+               : 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
   }
   stop = stop ?? (clicked ? 'not confirmed by the server' : 'nothing moved')
   row('failed')
   return { status: 'failed', failClass: 'town_deposit_failed',
-           detail: `banked nothing at the town chests (${tried.map(t => t.result).join(', ') || 'none tried'}); deposit (no item) walks to the chest and tries others` }
+           detail: `banked nothing at the town chests (${tried.map(t => t.result).join(', ') || 'none tried'}); ${allowOnly ? 'the surplus over the bag allowance waits for the next town visit -- keep working' : 'deposit (no item) walks to the chest and tries others'}` }
 }
 
 // ------------------------------------------------------ build_composter -----

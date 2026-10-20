@@ -22,6 +22,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
+import { ALLOWANCE } from './bagallowance.mjs'   // bagbudget-01: the composter's reserves are the table's
 import { chainPeak } from './craftroom.mjs'
 import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from './withdrawpick.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch the composter also takes the plants a
@@ -56,7 +57,7 @@ export const COMPOST_CHANCE = Object.freeze({
  * sweet_berries, glow_berries, dried_kelp ...) were NOT approved and are never composted.
  */
 export const APPLE_CHANCE = 0.65
-export const APPLE_RESERVE = 4
+export const APPLE_RESERVE = ALLOWANCE.appleReserve
 
 /** Every `_sapling` item in 1.21.11 (oak, spruce, birch, jungle, acacia, cherry, dark_oak, pale_oak): 30%. */
 export const SAPLING_CHANCE = 0.3
@@ -66,7 +67,7 @@ export const SAPLING_CHANCE = 0.3
  * PLANT_RESERVE (8), so composting down to 8 would switch planting off. Twice that leaves eight plantable above
  * planting's floor -- more than an hour of plants at one per ten minutes, and the bots pick up ~230 saplings an hour.
  */
-export const SAPLING_RESERVE = 16
+export const SAPLING_RESERVE = ALLOWANCE.saplingReserve
 
 const isSapling = name => typeof name === 'string' && /_sapling$/.test(name)
 

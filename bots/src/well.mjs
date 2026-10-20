@@ -42,6 +42,7 @@ import { chainPeak } from './craftroom.mjs'
 import { foodSkipActive } from './foodskip.mjs'
 import { groupOf, isProtected, isToolGroup } from './stocktarget.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
+import { ALLOWANCE } from './bagallowance.mjs'   // bagbudget-01: the escape reserve is the table's cobble row
 
 /** The admission radius, needed by the site search above its definition (see ADMISSION_RADIUS). */
 const ADMISSION_RADIUS_FOR_SITE = 5
@@ -114,7 +115,7 @@ export const SCAFFOLD_DECORATIONS = Object.freeze(['andesite', 'diorite', 'grani
  * Both names are also in NEVER_DISPOSE below, so no list can put them back by accident.
  */
 export const BUILDING_STONES = Object.freeze(['stone_bricks', 'smooth_stone'])
-export const STONE_GUARD = 64
+export const STONE_GUARD = ALLOWANCE.cobble
 export const RESERVE_STONE = Object.freeze(['cobblestone', 'cobbled_deepslate', 'andesite', 'diorite', 'granite'])
 const RESERVE_SET = new Set(RESERVE_STONE)
 const SCAFFOLD_DECO = new Set(SCAFFOLD_DECORATIONS)
@@ -153,7 +154,7 @@ export const swordGoes = (name, peaceful) => unwantedSword({ name }, peaceful)
  * smallest first. Never when the town's count is unknown or below the cap (the deposit banks then), never below 64.
  * Without the well in the build (stonecap's other variants) the same surplus simply stays in the bag.
  */
-export const COBBLE_WELL_RESERVE = 64
+export const COBBLE_WELL_RESERVE = ALLOWANCE.cobble
 const WELL_COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
 export const isWellCobble = name => WELL_COBBLE.has(name)
 /** The cobble stacks the well may take at the cap -> [{ slot, name, count }]: whole stacks, smallest first, while the bag

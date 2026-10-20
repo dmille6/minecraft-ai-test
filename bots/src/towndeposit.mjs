@@ -31,9 +31,16 @@
 // bags before and after the plan, at several laps: no rung changes state. That is the "do not fight the ladder" rule
 // as a check rather than a promise.
 
-import { depositPlan, scaffoldKeep, withdrawHolds, setStockKeeps } from './bankable.mjs'
+import { depositPlan, scaffoldKeep, withdrawHolds, setStockKeeps, NEVER_BANKABLE, STANDING_TARGETS, DEPOSIT_ALWAYS, bankableExclusion } from './bankable.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
-import { TRIGGER_SLOTS } from './hygiene.mjs'
+import { TRIGGER_SLOTS, NEVER_KEEP } from './hygiene.mjs'
+// THE BAG ALLOWANCE (bagbudget-01, bagallowance.mjs): the one table; the chest rows' surplus leaves a full bag at town.
+import { ALLOWANCE, BAG_ALLOWANCE, allowanceSteps, isSaplingName } from './bagallowance.mjs'
+// junk never enters a chest (owner 10-04): the well's list and the composter's own judgement, not a copy of them
+import { WELL_JUNK, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
+import { isCompostJunk } from './composter.mjs'
+import { PEACEFUL_COMPOST } from './peacefulkit.mjs'
+import { groupOf } from './stocktarget.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
 // cobblekeep-01 (Codex r3 P2): the bot's OWN smelts, whatever they are, keep their fuel (smelting.mjs is pure, no imports)
@@ -61,17 +68,27 @@ export const TD_WALK_MS = 10 * 1000
 export const TD_OPEN_MS = 8 * 1000
 export const TD_SETTLE_MS = 5 * 1000
 export const TD_MAX_CONTAINERS = 2
+/**
+ * bagbudget-01, DELETION FIRST, BOUNDED TWICE (Claude design r2 P2-1): a full bag at town whose well or composter could still
+ * free a slot holds its chest rows back -- for TD_DELETION_GRACE_MS (two order scans) unless a deletion order was actually
+ * ISSUED within TD_DELETION_RECENT_MS (the well's and the composter's own cooldowns, 3 min: an exit that exists but whose
+ * order never issues -- starved behind a work order, held by the well's depth rule -- does not hold the bag), and never for
+ * more than TD_DELETION_WAIT_MS of time full at town (shorter than the median 9-min stay).
+ */
+export const TD_DELETION_GRACE_MS = 60 * 1000
+export const TD_DELETION_RECENT_MS = 3 * 60 * 1000
+export const TD_DELETION_WAIT_MS = 5 * 60 * 1000
 
 /** depositPlan's creditCap (bankable.mjs bankableInventory default): the most of one name a VISIT banks. */
 export const CREDIT_CAP = 64
 /** Kept as totals by the stockpile rungs (milestones.mjs STOCKPILE_MAX). */
-export const STOCKPILE_KEEP = 64
+export const STOCKPILE_KEEP = ALLOWANCE.stockpile
 /** The gatherer chain's held counts for items that are never bankable anyway (asserted against the chain). */
-export const HELD_TARGETS = Object.freeze({ dirt: 16, sand: 8 })
+export const HELD_TARGETS = Object.freeze({ dirt: ALLOWANCE.dirt, sand: ALLOWANCE.sand })
 /** Planks kept whatever the logs: the pickaxe rungs' `stick >= 2 || planks >= 2` and the table's `planks >= 4`. */
-export const PLANKS_MEANS = 4
+export const PLANKS_MEANS = ALLOWANCE.planksMeans
 /** A wanted item (active rung + ingredients) is kept up to one stack. */
-export const WANTED_KEEP = 64
+export const WANTED_KEEP = ALLOWANCE.wanted
 /** The iron ladder's inputs: the town deposit never banks them (the model's deposit verb still may). */
 export const IRON_LADDER = Object.freeze(['raw_iron', 'iron_ingot', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'coal', 'charcoal'])
 
@@ -205,7 +222,8 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false } = {}) {
+export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
+                                               fullBag = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, rows = true } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -237,6 +255,28 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       steps.push({ slot: it.slot, name, count: it.count }); banked[name] = (banked[name] ?? 0) + it.count; room -= it.count
     }
   }
+  // THE BAG ALLOWANCE (bagbudget-01, bagallowance.mjs): a bag that is FULL for this visit (>= TD_TRIGGER_SLOTS when the visit
+  // began: the caller latches it, Codex design r1 P2-5) banks the chest rows' surplus too -- whole stacks, smallest first,
+  // the goal's and every townKeeps floor kept, the visit's CREDIT_CAP per name. Never a name another layer owns (tools,
+  // targeted groups, the iron ladder, the bank's own targets), never junk or a compost input (notForChest), never a name a
+  // withdraw hold covers. `rows` is the caller's DELETION-FIRST decision (Claude design r1 P2-2: the well and the composter
+  // free the slots first, and only what they cannot free goes to a chest -- townDepositOrder's deletion wait). Before the
+  // valve: the valve is only for a bag with nothing else to free. A pillar-capable name keeps the bag's STOCK_SCAFFOLD_MIN
+  // pillar blocks (the well's own guard: Claude design r1 P2-7).
+  const full = fullBag ?? list.length >= TD_TRIGGER_SLOTS
+  if (bagAllowance && full && rows) {
+    const planned = new Set(Object.keys(allowance))
+    const owned = n => planned.has(n) || bankOwned(n) || notForChest(n, { peaceful }) || (holds[n] ?? 0) > 0
+    const room = n => Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[n]) || 0)))
+    const isPillar = n => pillarCount([{ name: n, count: 1 }]) > 0
+    let pillar = pillarCount(list) - steps.filter(st => isPillar(st.name)).reduce((t, st) => t + st.count, 0)
+    for (const st of allowanceSteps(list, { owned, keeps: keep, room })) {
+      if (isPillar(st.name)) { if (pillar - st.count < STOCK_SCAFFOLD_MIN) continue; pillar -= st.count }
+      steps.push({ slot: st.slot, name: st.name, count: st.count, allowance: st.row })
+      banked[st.name] = (banked[st.name] ?? 0) + st.count
+      why[st.name] = `allowance_${st.row}`
+    }
+  }
   // THE VALVE (stocktarget design 3.2): when nothing else frees a slot and the caller has PROVEN it (`valve`: no well-able,
   // compostable or bankable stack), ONE tool copy that TODAY's tool rule would bank (the best usable copy of each name
   // stays, spent copies never move) goes in above the town's tool target -- tools are never destroyed, so a full bag of
@@ -252,8 +292,78 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       break
     }
   }
-  steps.sort((a, b) => a.slot - b.slot)
+  // THE BASE PLAN'S STACKS FIRST (Claude design r1 P2-3): fitToContainer takes the first free container slots in step order,
+  // so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
+  steps.sort((a, b) => (a.allowance ? 1 : 0) - (b.allowance ? 1 : 0) || a.slot - b.slot)
   return { steps, freed: steps.length, slots: list.length, keep, why, banked }
+}
+
+/**
+ * NAMES ANOTHER LAYER OWNS (bagbudget-01): the allowance never speaks for them. Tools (the tool rule, the wear-out, the
+ * tool target), every targeted group (stocktarget: cobble, logs, planks, sticks, stone, dirt, sand ...), the iron ladder
+ * (ironKeeps), and the bank's own standing targets and always-banked ores (bankable.mjs). Pure.
+ */
+export function bankOwned (name) {
+  return typeof name !== 'string' || TOOL_RE.test(name) || !!groupOf(name) || IRON_LADDER.includes(name) ||
+    STANDING_TARGETS.has(name) || DEPOSIT_ALWAYS.includes(name) || COBBLE.includes(name)
+}
+/**
+ * NEVER INTO A CHEST BY THE ALLOWANCE (OWNER 10-04 "never deposit junk"; Codex design r1 P1-2/P1-3): the bank's ballast,
+ * the junk well's list, what the composter takes -- its plant litter always, and under the peaceful switch its peaceful
+ * plants and the apples above its reserve -- and every sapling (the composter's reserve rule decides them: oak and birch
+ * keep SAPLING_RESERVE, others none under the switch). The well and the composter stay their only exits. Pure.
+ */
+export function notForChest (name, { peaceful = false } = {}) {
+  return typeof name !== 'string' || NEVER_BANKABLE.has(name) || WELL_JUNK.has(name) || NEVER_KEEP.has(name) ||
+    isCompostJunk(name) || isSaplingName(name) || name === 'bamboo' ||
+    (peaceful && (Object.hasOwn(PEACEFUL_COMPOST, name) || name === 'apple'))
+}
+
+/**
+ * WHAT A FULL BAG STILL HOLDS ABOVE THE KEEPS WHEN NOTHING CAN GO INTO A CHEST -> the exit classes, sorted (bagbudget-01:
+ * the honest no_effect; the old sentence said "everything carried is kept" for a count that failed). Pure over Items.
+ *   cobble_at_cap        cobble above the reserve the cap refuses: the junk well takes it (cobblekeep-01)
+ *   uncounted            cobble or a targeted group the town has not counted: count the town first
+ *   at_target            a targeted group the town holds its target of: the junk well at a full bag
+ *   withdraw_hold        just withdrawn: held back for the hold's ten minutes
+ *   spent_tools          copies at 1 use: the wear-out (an at-34 order)
+ *   worn_pickaxes        copies at 2..FLOOR uses: spent first in mining (toolhygiene part 2), never banked
+ *   tool_target          a usable spare the town's tool target refuses: the valve, one per visit
+ *   junk                 the well's list, ballast, plant litter: the well / the composter
+ *   saplings             above the composter's reserve: the composter
+ *   bamboo               bamboo-03's fold
+ *   chest                a chest row's surplus (0 whenever the plan is empty: the plan lists every one)
+ */
+export function fullBagLeft (items = [], { wanted = [], noSwords = peacefulFoodActive(), peaceful = noSwords, fullBag = true } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  const counts = countsOf(list)
+  const { keep } = townKeeps(counts, { wanted })
+  const holds = withdrawHolds()
+  const out = new Set()
+  for (const name of Object.keys(counts)) {
+    if ((holds[name] ?? 0) > 0) { out.add('withdraw_hold'); continue }
+    if (TOOL_RE.test(name)) {
+      for (const it of list.filter(c => c.name === name)) {
+        const u = remaining(it)
+        if (u <= 1) out.add('spent_tools')
+        else if (u <= FLOOR && /_pickaxe$/.test(name)) out.add('worn_pickaxes')
+      }
+      const ex = bankableExclusion(list, name, { wants: wanted, noSwords })
+      if (ex === 'town_stock_target') out.add('tool_target')
+      if (ex === 'town_stock_unknown') out.add('uncounted')
+      continue
+    }
+    if (name === 'bamboo') { out.add('bamboo'); continue }
+    if (isSaplingName(name)) { if (counts[name] > ALLOWANCE.saplingReserve) out.add('saplings'); continue }
+    if (notForChest(name, { peaceful })) { out.add('junk'); continue }
+    const ex = bankableExclusion(list, name, { wants: wanted, noSwords })
+    if (ex === 'town_cobble_cap') { out.add('cobble_at_cap'); continue }
+    if (ex === 'town_cobble_unknown' || ex === 'town_stock_unknown') { out.add('uncounted'); continue }
+    if (ex === 'town_stock_target' && counts[name] > (keep[name] ?? 0)) { out.add('at_target'); continue }
+  }
+  const p = townDepositPlan(list, { wanted, noSwords, peaceful, fullBag })
+  if (p.steps.some(st => st.allowance)) out.add('chest')
+  return [...out].sort()
 }
 
 /**
@@ -308,35 +418,59 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  *   container  is there a town container within STORAGE_REACH of the bot -- value or function, lazy
  *   state      { lastScanAt, lastIssuedAt, backoffUntil, latched, outsideSince }
  */
-export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, count = false } = {}) {
+export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, count = false, deletion = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!inTownZone(pos, home)) {
     if (s.outsideSince == null) s.outsideSince = now
     if (now - s.outsideSince >= TD_REARM_OUTSIDE_MS) s.latched = false
+    s.deletionAt = null   // the wait so far is KEPT (Codex design r2 P2-1): short visits add up, they do not restart it
     return none()
   }
   s.outsideSince = null
-  if (slots < TD_TRIGGER_SLOTS) return none()
+  if (slots < TD_TRIGGER_SLOTS) { s.deletionWaited = 0; s.deletionAt = null; return none() }
+  // THE DELETION WAIT'S CLOCK runs on EVERY call made full at town, before any scan, cooldown or latch gate (Codex design r3
+  // P2-1: accumulated only on scans, 30 short visits of 10 s each never added up). A call outside town stops it (above).
+  if (s.deletionAt != null) s.deletionWaited = (s.deletionWaited ?? 0) + Math.max(0, now - s.deletionAt)
+  s.deletionAt = now
   if (s.latched && now - (s.lastIssuedAt ?? -Infinity) < TD_STAY_REARM_MS) return none()
   if (now - (s.lastIssuedAt ?? -Infinity) < TD_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
   if (now - (s.lastScanAt ?? -Infinity) < TD_SCAN_MS) return none()
   s.lastScanAt = now
-  const p = lazy(plan)
+  // DELETION FIRST, BOUNDED (bagbudget-01; Claude design r1 P2-2): while the well or the composter can still free a slot
+  // here, the allowance's chest rows wait -- for at most TD_DELETION_WAIT_MS of time spent FULL AT TOWN (summed over visits:
+  // Codex design r2 P2-1), so a deletion that never runs (an order that never issues, a well nobody can reach before its
+  // backoff) cannot hold the bag full: no dead end. The wait ends when nothing is left to delete or the bag drops under 34.
+  // `deletion` -> boolean (an exit exists: treated as progressing) or { pending, recent } (cognitive.mjs: recent = a dispose_well
+  // or compost order issued within TD_DELETION_RECENT_MS)
+  const d = lazy(deletion)
+  const del = d && typeof d === 'object' ? !!d.pending : !!d
+  const progressing = d && typeof d === 'object' ? !!d.recent : true
+  if (!del) s.deletionWaited = 0   // nothing left for the well or the composter: the wait restarts from here
+  const waited = s.deletionWaited ?? 0
+  const rows = !del || waited >= TD_DELETION_WAIT_MS || (!progressing && waited >= TD_DELETION_GRACE_MS)
+  const p = typeof plan === 'function' ? plan({ rows }) : plan
+  // A STAY WHOSE CHEST ROWS ARE WITHHELD IS NOT LATCHED (Codex design r2 P2-2): a count-only or base-only visit made while
+  // deletion was pending must not hold the bounded wait's expiry behind the 15-min stay latch (the 5-min cooldown still binds)
+  const withheld = !rows && typeof plan === 'function' && (() => { try { return plan({ rows: true })?.steps?.some(x => x.allowance) } catch { return false } })()
   // THE STOCK TARGETS' COUNT (design 3.7): nothing bankable yet, but a targeted surplus the town cannot judge (ceiling
   // unknown, or at target by the 6 h ceiling and not by the 1 h floor) -- count the town's containers first, so the plan or
   // the well can act (Codex r2 7, Claude r2 P1-2: no full bag waits for a count nobody takes)
   if (!p || !(p.freed >= 1)) {
     if (!lazy(count) || !lazy(container)) return none()
     s.lastIssuedAt = now
-    s.latched = true
-    return { order: { skill: 'town_deposit', args: { recount: true },
+    s.latched = !withheld
+    return { order: { skill: 'town_deposit', args: { recount: true, count: 'empty', rows },
                       why: `at town with ${slots} of 36 slots used; the town's stock of what is carried must be counted first` }, state: s }
   }
   if (!lazy(container)) return none()
   s.lastIssuedAt = now
-  s.latched = true
-  return { order: { skill: 'town_deposit', args: {},
+  s.latched = !withheld
+  // AN ALLOWANCE-ONLY PLAN STILL TAKES THE COUNT STEP (Claude design r1 P2-6): the chest rows made freed >= 1, which used
+  // to mean "nothing to count first" -- uncounted cobble or wood is counted in the same run, then planned again
+  const only = Array.isArray(p.steps) && p.steps.length > 0 && p.steps.every(x => x.allowance)
+  const recount = only && !!lazy(count)
+  return { order: { skill: 'town_deposit', args: { rows, ...(recount ? { recount: true, count: 'allowance_only' } : {}) },
                     why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) of surplus to bank${p.steps?.some(x => x.valve) ? ' (the valve: one spare tool)' : ''}` }, state: s }
 }
 

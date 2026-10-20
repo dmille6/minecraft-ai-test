@@ -22,7 +22,8 @@ await t(`spent = EXACTLY 1 use: axes/hoes go, pickaxes beyond ${SPENT_PICKAXES_K
   const spent = [tool('stone_axe', 1), tool('stone_hoe', 1), tool('wooden_shovel', 0, 59),
                  tool('stone_pickaxe', 0), tool('stone_pickaxe', 0), tool('stone_pickaxe', 1), tool('stone_pickaxe', 1), tool('stone_pickaxe', 1), tool('wooden_pickaxe', 1, 59)]
   const keep = [tool('stone_pickaxe', 2), tool('iron_pickaxe', 200, 250), tool('stone_axe', 50), tool('stone_sword', 1)]
-  const out = wearOutPlan(filled(36, [...spent, ...keep])).tools
+  // the deployed last-swing rule, with the bag allowance OFF (bagbudget-01 keeps none while the bag holds the cobble: below)
+  const out = wearOutPlan(filled(36, [...spent, ...keep]), { allowance: false }).tools
   assert.ok(out.every(x => (x.maxDurability - x.durabilityUsed) === 1), 'only copies at exactly 1 use')
   assert.equal(out.filter(x => x.name.endsWith('_pickaxe')).length, 4 - SPENT_PICKAXES_KEPT, 'three REAL 1-use pickaxes kept; the 0-use phantoms do not count')
   for (const n of ['stone_axe', 'stone_hoe']) assert.ok(out.some(x => x.name === n), n)

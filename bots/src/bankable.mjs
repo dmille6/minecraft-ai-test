@@ -4,6 +4,8 @@ import { remaining, FLOOR } from './toolfor.mjs'
 import { unwantedSword } from './peacefulkit.mjs'
 import { peacefulFoodActive } from './foodskip.mjs'
 import { admitStacks } from './cobblecap.mjs'
+// bagbudget-01: the one allowance table (bagallowance.mjs) -- the reserve, the recipe sticks and KEEP_ONE read it
+import { ALLOWANCE, KEEP_ONE_NAMES } from './bagallowance.mjs'
 // STOCK TARGETS (stocktarget-01; design docs/reports/stocktargets-design-2026-10-08.md): every other bulk group and the
 // capped tools, judged against the town's count of the group through the same journal as the cobble cap.
 import { groupOf, targetOf, isToolGroup, roomUnder } from './stocktarget.mjs'
@@ -33,13 +35,13 @@ import { groupOf, targetOf, isToolGroup, roomUnder } from './stocktarget.mjs'
 // that would inflate a co-primary endpoint without meaning anything.
 
 /** Ballast: things a bot accumulates that no goal ever asked for. */
-const NEVER_BANKABLE = new Set([
+export const NEVER_BANKABLE = new Set([
   'leaf_litter', 'brown_egg', 'egg', 'oak_sapling', 'short_grass', 'dead_bush',
   'seagrass', 'vine', 'poppy', 'dandelion', 'pointed_dripstone', 'rail', 'bamboo',
 ])
 
 /** Always worth keeping in the town chest, whatever the current rung asks for. */
-const STANDING_TARGETS = new Set([
+export const STANDING_TARGETS = new Set([
   'oak_log', 'birch_log', 'jungle_log', 'oak_planks', 'stick', 'cobblestone',
   'cobbled_deepslate', 'stone', 'coal', 'raw_iron', 'iron_ingot', 'diamond',
 ])
@@ -72,7 +74,7 @@ export function isScaffoldItem (name) {
  * fewest slots. No town ledger: both engines dropped it on 10-04 (lost updates, per-bot towns, stale lower bounds).
  */
 export const COBBLE_NAMES = Object.freeze(['cobblestone', 'cobbled_deepslate'])
-export const COBBLE_RESERVE = 64
+export const COBBLE_RESERVE = ALLOWANCE.cobble
 const COBBLE_SET = new Set(COBBLE_NAMES)
 export const isCobble = name => COBBLE_SET.has(name)
 
@@ -154,7 +156,7 @@ export function stockCapBinds () {
 }
 
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
-export const RESERVE_RECIPE = 2
+export const RESERVE_RECIPE = ALLOWANCE.recipeSticks
 
 /**
  * WHAT A DEPOSIT MUST LEAVE BEHIND, AS A TOTAL — not per item. Pure.
@@ -236,7 +238,7 @@ export const EXCLUSION_PHRASE = Object.freeze({
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 /** One of each of these stays in the bot's hands whatever the wants say: the stations and the bucket are how it
  *  works, and banking the only copy disarms it the way banking the only pickaxe does (Codex, deposit pass 2). */
-export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', 'smoker', 'bucket', 'water_bucket', 'lava_bucket'])
+export const KEEP_ONE = new Set(KEEP_ONE_NAMES)
 
 /**
  * What could this bot bank right now, and how much of it is real?

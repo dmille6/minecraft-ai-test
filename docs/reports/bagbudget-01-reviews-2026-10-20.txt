@@ -1,0 +1,77 @@
+bagbudget-01 REVIEW RECORD (2026-10-20). Design: docs/reports/bagbudget-01-design-2026-10-20.md.
+Codex: `codex exec --sandbox read-only - < prompt` from the worktree (final messages verbatim). Claude: an independent
+subagent, read-only (verdicts and findings condensed; every finding is listed).
+
+====================================================================================================
+DESIGN r1
+====================================================================================================
+--- Codex ---
+VERDICT: CHANGE
+
+1. **P1 — Row M removes a working composter-build route.** A carried `composter` falls into “everything else → chest,” although `composterBuildPlan` explicitly consumes it as the zero-craft, zero-extra-slot route. Town deposit runs before the composter order. Add `composter` to the retained stations and test deposit → build with insufficient materials to replace it. Row R also omits `crossbow`, despite retaining `bow` and describing player-kit protection. Evidence: design:139–147; `bots/src/composter.mjs:245–249`; `bots/src/cognitive.mjs:911,934–951`; `bots/src/stocktarget.mjs:100`.
+
+2. **P1 — Junk precedence must include the active peaceful compost policy.** Row J names `NEVER_KEEP`, but the live compost planner also accepts `PEACEFUL_COMPOST`: for example, `blue_orchid` would otherwise hit M, while surplus `bread` could hit F. Both have an existing disposal consumer. Specify that the switch-aware junk classification overrides F/G/M, and use it in D1 too. `isCompostJunk` alone is insufficient. Evidence: design:144–146,210–211; `bots/src/composter.mjs:82–105`; `bots/src/peacefulkit.mjs:38–54`. This is a concrete route for junk entering chests.
+
+3. **P1 — The sapling keep does not compose with composting.** Example: retain 32 spruce saplings and bank 16 oak because spruce is most-held; at subsequent slot pressure, peaceful composting permits consuming all 32 spruce. The positive control is oak/birch, whose existing reserve is 16. Preserve a species that downstream composting also preserves, and reconcile the documented owner rule retaining oak **and** birch. Banking oak is not inherently prohibited by the junk-well rule—saplings are explicitly protected—but deleting `oak_sapling` from global `NEVER_BANKABLE` can also change wanted-item deposits. Make the exception local to the town allowance. Evidence: design:143; `bots/src/peacefulkit.mjs:110–117`; `bots/src/composter.mjs:104–107`; `bots/src/bankable.mjs:304,353`; `bots/src/well.mjs:126`.
+
+4. **P1 — The guarantee and D3 confuse planning with execution.** A full bag can legitimately return `no_effect` while chest surplus exists: an outstanding counting open, sneaking, or vanished containers already produce that result. D3 would revert these valid waits. Conversely, declaring `chest=0` “by construction” cannot detect the planner omitting a name. Separate planner omissions from execution refusals; independently reconstruct eligible stacks and include missing-row/missing-order detection. D1 also needs complete transfer data: `_town_deposit` detail is truncated to 300 characters. Evidence: design:149–153,194–196,210–215; `bots/src/skills.mjs:7194–7201`; `bots/src/towndeposit.mjs:368`.
+
+5. **P2 — The cleanup estimate ignores threshold and visit composition.** If the first container takes a 34-slot bag to 33, the proposed threshold disables allowance steps on the second-container re-plan. The stay latch then prevents another immediate visit. Moreover, compost and well disposal require ≥34 slots: chest cleanup can disable those subsequent exits, so the projected median of ~18 slots is not established. Specify whether eligibility is latched for the visit; test partial first-container capacity, credit exhaustion, and the later disposal orders. Evidence: design:155–158,191–193; `bots/src/skills.mjs:7080,7264`; `bots/src/towndeposit.mjs:320–322`; `bots/src/composter.mjs:603`; `bots/src/well.mjs:1039`.
+
+6. **P2 — Root cause is substantially right; the evidence supports narrower conclusions.** The empty-plan count branch and falsy `counted` wording are exactly as described; `not_wanted` really excludes otherwise unrequested items. However, W3 states **63/85** counts were zero, so it does not establish failed counting as the cause of all **85/85** no-effects. Also, section 2 says **16**, not 15, no-attempt bots; ten later attempted, leaving six. Reported row totals and successes provide useful positive controls. Distance percentiles and median depth alone do not prove one unchanged position for 24 hours: supply XYZ displacement/unique-position evidence and per-bot timestamp coverage. Keeping verified away/underground bots outside this no-trip change is appropriate. Evidence: design:49–55,82–103; `bots/src/towndeposit.mjs:329–334`; `bots/src/skills.mjs:7196`; `bots/src/bankable.mjs:353`.
+
+7. **P2 — Withdrawal can refill the bag, and full storage remains a terminal wait.** The explicit withdraw verb accepts a requested item without applying its bag allowance; the ten-minute hold protects that newly withdrawn surplus from redeposit. Add a deposit → withdraw → hold-expiry chain and state whether this deliberate request overrides the budget. `prune_town` only selects configured stock groups or well junk, so it cannot clear ordinary allowance backlog. An allowance-only full-chest case therefore has no automatic capacity remedy under the proposed no-new-chest rule; describe it as such. Evidence: design:175; `bots/src/skills.mjs:10247–10255`; `bots/src/withdrawpick.mjs:388`; `bots/src/prune.mjs:76–84`.
+
+8. **P3 — Several safety boundaries are sound, but row P misstates them.** One-use pickaxes contribute zero to `depositSurvivors`; two-use copies contribute positively, so removing only genuine one-use copies does not spend the escape reserve. Keeping three craftable cobble preserves last-swing’s material purpose. However, “best + two spares” is not today’s deposit rule: it retains one usable copy per name, plus worn copies that cannot be banked. Correct that description and test the replacement-craft chain, including away-from-town wear-out. The 26-ladder boundary matches the actual reflex consumer; retaining stations, chest, beds, slabs and trapdoors protects their named consumers. Keep the allowance outside `depositPlan`, before valve fallback, with existing holds, visit credits and stock claims intact. Evidence: `bots/src/toolfor.mjs:60–93,145–154`; `bots/src/toolkit.mjs:53–61`; `bots/src/towndeposit.mjs:193–195,244`; `bots/src/reflex.mjs:3723–3727`; `bots/src/skills.mjs:7106–7118`.
+
+9. **P2 — Tier 2 needs an actual eligibility justification.** Missing `bag_fix` registration fields are not evidence that this change qualifies for another tier. CLAUDE.md positively requires a targeted canary population, DiD, one pool, and the two-death tripwire; it does not establish the cited tier exception. Supply the applicable operator policy and registration. Three successful bank rows exercise neither spent-tool destruction nor the failure chains above. Require exposure for both changed mechanisms, independent defect checks, and explicit KEEP/REVERT/INCONCLUSIVE criteria. Evidence: design:217–228; `CLAUDE.md:169–192,206–211`.
+
+No files edited. This review checks the stated measurements against the code; it does not independently validate the remote fleet logs.
+
+--- Claude ---
+VERDICT: CHANGE. P1-1 owner-classified junk into chests through rows F and G ahead of the composter (PEACEFUL_COMPOST foods and flowers, apples above 4, saplings above the reserve; the town deposit runs before the composter, cognitive.mjs:911 vs 943) -- saplings get no chest exit, junk = NEVER_BANKABLE + WELL_JUNK + NEVER_KEEP + isCompostJunk + (peaceful ? PEACEFUL_COMPOST + apple) + swords + bamboo, D1 the same. P1-2 row M "everything else -> chest" reverses allowlist polarity (bankable.mjs:27-33) -- a named list, unlisted stays. P2-1 chest inflow unbounded (state steady-state slots/day, make chest growth a stop condition). P2-2 exit order inverted: compost/well fire only at >= 34 and the town deposit goes first -- chest rows last, only when deletion cannot. P2-3 chest-row stacks take the last container slots ahead of the base plan (fitToContainer order). P2-4 the >= 34 gate re-checked per plan (bankInto, per-container re-plan) -- latch. P2-5 failure text names a remedy (deposit verb) that banks nothing for chest-row surplus. P2-6 allowance steps make freed >= 1 and skip the count step. P2-7 food by points x count keeps raw salmon over the steak the reflex eats (FOOD_PRIORITY); row M can bank pillar blocks (STOCK_SCAFFOLD_MIN). P2-8 "away from town nothing changes" false: wear_out fires anywhere. P2-9 tier fallback, launch after cobblekeep promotion, exclude brain-01 pools, Paper as precondition. P3: count_town is the recount skill (cite the town_deposit field), counted=0 also = no keys; 2.2 15 vs 16, immobility needs a positive control, hive-c-Bravo/isolated-d-Delta not ruled out row by row; expected effect over town-visiting bags; KEEP_ONE wording; >= 3 cobble should count blackstone; the honest sentence names the well even with none; add an off-vs-on property test.
+
+====================================================================================================
+DESIGN r2
+====================================================================================================
+--- Codex ---
+VERDICT: CHANGE
+
+1. **P2 — Deletion eligibility still includes unavailable remedies.** `skills.mjs:1566–1580` checks well existence/backoff but omits the well’s inside/depth gates (`well.mjs:1024–1028,1037`). A bot within the deposit zone but >12 below a raised well can therefore wait ten minutes despite having no issuable deletion order. Briefly leaving town resets that wait (`towndeposit.mjs:419`), so repeated shorter visits can indefinitely defer chest rows. Share the actual deletion-order eligibility checks; retain the timeout for execution uncertainty.
+
+2. **P2 — The advertised ten-minute bound is bypassed by the deposit latch.** With deletion pending and unknown stock, `towndeposit.mjs:438–442` issues `{recount:true,rows:false}` and latches the visit. The fifteen-minute stay gate at `:424` then prevents checking the ten-minute deadline. A failed count leaves usable allowance surplus waiting at least fifteen minutes. Make expiration eligible independently of a count-only visit’s latch. Thirty-second scan granularity itself is acceptable.
+
+3. **P2 — D1’s truncation finding is only partially resolved.** `bagallowance.mjs:190` still discards banked names; the design merely reports `trunc=1` (`docs/reports/bagbudget-01-design-2026-10-20.md:235–237`), while its verdict rules do not block KEEP for incomplete coverage (`:252–253`). Emit complete per-name/chunked evidence, or explicitly make incomplete D1 coverage prevent KEEP.
+
+Otherwise, the named allowance and junk exclusions address the identified chest routes. Count-first with latched `rows` is sound (`skills.mjs:7189–7207`); inspected callers/tests use the `recount` property rather than exact argument-object equality (`bots/test/stocktarget.test.mjs:100`). The planning/execution distinction, independent cross-check, and conditional tier-2 fallback are reasonable. This was a static design review; no files changed or tests run.
+
+--- Claude ---
+VERDICT: CHANGE. All r1 findings resolved. New P2: the deletion-first wait (10 min) outlasts the median 9-min stay, resets on leaving town, stretches to 15 min behind a latched rows=false issue, and "pending" counts exits whose orders never issue (the well's depth hold, well.mjs:1018-1026; deletion orders starved behind a ready work order, cognitive.mjs:904 vs 947/988) -- clock the wait on deletion that actually happens, don't latch on rows=false, reset on the 60 s-outside rule. P3: name the count reason in the args; count + deposit budget ~95 s vs the 60 s contract; 'could not count' when no key was left; D1 apple/PEACEFUL_COMPOST only on peaceful pools; a lone golden carrot keeps itself; 2.2 dates; the tier-2 240-min cool-off and v36 at launch.
+
+====================================================================================================
+DESIGN r3
+====================================================================================================
+--- Codex ---
+VERDICT: CHANGE
+
+1. **P2 — Short visits can still hold the deletion wait forever; round-2’s cross-visit finding is only partially resolved.** [towndeposit.mjs:434](bots/src/towndeposit.mjs:434) returns before accumulating time during the scan cooldown, while [line 427](bots/src/towndeposit.mjs:427) clears `deletionAt` on departure without crediting that visit’s remaining time. Reproduced 30 short visits with 300 seconds of observed full-at-town time: `deletionWaited=0`, no deposit issued—even with `recent:false`. Positive control: one continuous 60-second stay issues correctly. Accumulate observed full-at-town intervals independently of scan/issue gates, and preserve them on departure.
+
+The other round-2 changes are addressed in the reviewed code/design. I found no new junk-into-chest route.
+
+--- Claude ---
+VERDICT: APPROVE. Every round-2 finding of both engines resolved in r3 (the grace unless a deletion order issued in 3 min, the 5-min cap, recent from lastDisposeAt/lastCompostAt, the depth/inside gates, the wait kept across visits, no latch while withheld, count reason in args, the third-of-budget count, 'nothing left to count', parts + peaceful= + d1_incomplete blocking KEEP, FOOD_MIN, dates, launch conditions). No new dead end, junk route or unbounded wait. P3 notes: `recent` also counts a compost harvest order (bounded by the cap); an unlatched withheld stay can re-issue the count step once or twice; the grace can stretch to the 5-min cooldown; a 15 s count may count fewer containers (the recount order picks them up); the second plan per withheld scan is cheap.
+
+====================================================================================================
+DESIGN r4
+====================================================================================================
+--- Codex ---
+VERDICT: APPROVE
+
+1. Round-3 P2 resolved: clock accumulation precedes all gates at `bots/src/towndeposit.mjs:431–438`; scans preserve it while deletion remains pending (`:449–451`). The short-visit regression asserts 320,000 ms accumulated and an issued order at `bots/test/bagbudget.test.mjs:248–255`.
+2. No new P1/P2 found: bounded release remains (`towndeposit.mjs:451`), withheld rows prevent the stay latch (`:455–468`), and release retains junk exclusions (`:269`, `:316–319`).
+
+Static review only; tests create files and were not run under the no-edit constraint.
+
+--- Claude ---
+(r4 changed only the deletion clock, Codex r3 P2; Claude had approved r3 -- re-checked in the code review)
+

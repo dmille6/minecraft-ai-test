@@ -233,7 +233,8 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
     ['raw_iron', 5], ['iron_ingot', 3], ['coal', 20], ['stick', 40], ['oak_planks', 20], ['leaf_litter', 30], ['torch', 20],
     ...filler(12)])
   assert.equal(items.length, 36)
-  const p = townDepositPlan(items)
+  // the base plan (BAG_ALLOWANCE off); bagbudget.test.mjs runs this bag with the allowance on (torch and bone meal go)
+  const p = townDepositPlan(items, { bagAllowance: false })
   const names = p.steps.map(s => s.name)
   for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
     assert.ok(!names.includes(n), `${n} must stay`)
@@ -1004,8 +1005,9 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
   } finally { untap(); done() }
 })
 test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
-  // filler: torches (never bankable, never junk, never compost) -- wool would be the well's junk, and the valve rightly waits for the well
-  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['torch', 1 + (i % 3)])])
+  // filler: oak slabs (never bankable, never junk, never compost, and kept whole by the bag allowance's row R -- torches
+  // were this filler until bagbudget-01 gave them the chest) -- wool would be the well's junk, and the valve rightly waits for the well
+  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['oak_slab', 1 + (i % 3)])])
   // the town really holds its 16 usable stone pickaxes (the bot's own count at the open must agree with the seed)
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 16 ? item('stone_pickaxe', 1) : null)) })
   const now = Date.now()
@@ -1288,4 +1290,89 @@ test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (
     const CC = await import('../src/cobblecap.mjs')
     assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'nowell'), 'under a nowell claim')
   } finally { done() }
+})
+
+// ---- BAGBUDGET-01 (bagallowance.mjs; docs/reports/bagbudget-01-design-2026-10-20.md): the skill and the real-loop chain ----
+const bbRows = async fn => {
+  const rows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_bagbudget') rows.push(r.skill.detail) })
+  try { return { out: await fn(), rows } } finally { untap() }
+}
+// the measured mix (10-20 W3): cobble, the kit, pickaxes, logs, saplings, bone meal, bamboo, food, junk
+const bbMix = () => bag([['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 50], ['bucket', 1], ['furnace', 1], ['crafting_table', 2], ['chest', 12],
+  ['torch', 11], ['ladder', 4], ['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 96], ['oak_log', 64], ['oak_sapling', 9], ['birch_sapling', 7], ['bone_meal', 32],
+  ['bamboo', 64], ['bamboo', 30], ['apple', 7], ['cooked_beef', 5], ['egg', 6], ['flint', 4], ['amethyst_block', 4], ['iron_axe', 1, 200], ['stick', 6], ...filler(12)])
+test('BAGBUDGET SKILL: the measured mix at town -> torch, bone meal, ladders and the second food go to the chest; stations, saplings, junk stay; under 34', async () => {
+  const items = bbMix(); assert.equal(items.length, 36)
+  const c = chestAt(2)
+  const w = world({ items, containers: [c] })
+  const { out: r, rows } = await bbRows(() => run(w.bot))
+  assert.equal(r.status, 'success', r.detail)
+  for (const n of ['torch', 'bone_meal', 'ladder', 'apple']) assert.ok(sumOf(c.items, n) > 0, `${n} banked`)
+  for (const n of ['egg', 'flint', 'white_wool', 'oak_sapling', 'birch_sapling', 'bamboo', 'amethyst_block', 'crafting_table', 'chest', 'furnace', 'bucket', 'cooked_beef'])
+    assert.equal(sumOf(c.items, n), 0, `${n} never banked`)
+  const now = serverBag(w)
+  assert.ok(now.length < 34, `the bag leaves under 34: ${now.length}`)
+  for (const n of ['crafting_table', 'chest', 'furnace', 'bucket', 'cooked_beef']) assert.ok(sumOf(now, n) >= 1, `${n} stays`)
+  assert.equal(total(now) + total(c.items), total(items), 'nothing lost')
+  const bank = rows.filter(d => d.startsWith('phase=bank'))
+  assert.ok(bank.length >= 1 && /allow=torch=11:11/.test(bank.join(' ')) && /allow=bone_meal=32:32/.test(bank.join(' ')), bank.join(' | '))
+  assert.ok(bank.every(d => d.length <= 300 && /part=\d+\/\d+/.test(d)))
+})
+test('BAGBUDGET SKILL: THE VISIT LATCH -- a first chest with one free slot takes the bag to 33; the second still takes the rest', async () => {
+  const items = bag([['torch', 20], ['bone_meal', 9], ['ladder', 3], ...filler(31)])   // 34 slots, nothing else bankable
+  assert.equal(items.length, 34)
+  const a = filledChest(2, 1), b = chestAt(4)
+  const w = world({ items, containers: [a, b] })
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(['torch', 'bone_meal', 'ladder'].reduce((t, n) => t + sumOf(a.items, n) + sumOf(b.items, n), 0), 32, 'all three stacks banked across the two chests')
+})
+test('BAGBUDGET MUTANT KILLED: without the latch the second chest is never planned (34 -> 33 switches the allowance off)', async () => {
+  const SK_URL = new URL('../src/skills.mjs', import.meta.url)
+  const src = fs.readFileSync(SK_URL, 'utf8')
+  const old = '  const fullBag = slotsBefore >= TD_TRIGGER_SLOTS\n'
+  assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION DID NOT APPLY or is not unique')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '  const fullBag = null\n').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const m = await import(out.href)
+    const items = bag([['torch', 20], ['bone_meal', 9], ['ladder', 3], ...filler(31)])
+    const a = filledChest(2, 1), b = chestAt(4)
+    const w = world({ items, containers: [a, b] })
+    await m.SKILLS.town_deposit.run({ bot: w.bot }, {}, null)
+    assert.equal(['torch', 'bone_meal', 'ladder'].reduce((t, n) => t + sumOf(a.items, n) + sumOf(b.items, n), 0) < 32, true, 'the mutant stops after the first chest')
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
+test('BAGBUDGET SKILL: a full bag whose surplus is only junk and saplings banks nothing, and SAYS why (never "everything carried is kept")', async () => {
+  const items = bag([['egg', 6], ['oak_sapling', 40], ['bamboo', 30], ['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 5], ['stone_pickaxe', 1, 90], ...filler(30)])
+  const w = world({ items, containers: [chestAt(2)] })
+  const { out: r, rows } = await bbRows(() => run(w.bot))
+  assert.equal(r.status, 'no_effect')
+  assert.doesNotMatch(r.detail, /everything carried is kept/)
+  assert.match(r.detail, /over the keeps only: .*bamboo.*junk.*saplings.*spent_tools.*worn_pickaxes/)
+  assert.ok(rows.some(d => /^phase=none slots=36 chest=0 rows=1 /.test(d)), rows.join(' | '))
+  const rc = await SKILLS.town_deposit.run({ bot: w.bot }, { recount: true }, null)
+  assert.match(rc.detail, /^nothing left to count/, 'a count step with no key left is not "could not count"')
+})
+test('BAGBUDGET SKILL: an allowance-only plan at full chests says the surplus WAITS (the deposit verb would bank none of it)', async () => {
+  const items = bag([['torch', 20], ...filler(35)])
+  const w = world({ items, containers: [filledChest(2, 0)] })
+  const r = await run(w.bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
+  assert.match(r.detail, /waits for a town chest with room/)
+})
+test('BAGBUDGET CHAIN (the real loop): a full bag whose only surplus is allowance rows gets the order, banks, and leaves under 34', async () => {
+  const items = bag([['dirt', 16], ['oak_log', 64], ['cobblestone', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['stick', 8], ['furnace', 1],
+    ['torch', 12], ['bone_meal', 20], ['ladder', 4], ...filler(26)])
+  assert.equal(items.length, 36)
+  const chest = chestAt(2)
+  const { bot } = world({ items, containers: [chest], botAt: new Vec3(3, 70, 0) })
+  Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
+    recipesFor: () => [], recipesAll: () => [], findBlock: () => null, clearControlStates: () => {}, players: {}, entities: {}, experience: { level: 0 }, username: 'TownBot' })
+  const { ran } = await decisions(bot, 1)
+  assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+  assert.equal(ran[0].status, 'success', ran[0].detail)
+  for (const n of ['torch', 'bone_meal', 'ladder']) assert.ok(sumOf(chest.items, n) > 0, `${n} banked`)
+  assert.ok(bot.inventory.items().length < 34)
 })

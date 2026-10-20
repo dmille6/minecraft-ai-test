@@ -17,6 +17,7 @@
 // PROTECTED below is the runtime guard; stocktarget.test.mjs asserts no group names a protected or compostable kind.
 
 import { remaining, FLOOR } from './toolfor.mjs'
+import { ALLOWANCE } from './bagallowance.mjs'   // bagbudget-01: STOCK_RESERVE is the table's one stack
 
 const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak']
 const bulk = (names, target) => Object.freeze({ names: Object.freeze(names), target, kind: 'bulk' })
@@ -81,7 +82,7 @@ export const countsToward = it => !!it?.name && GROUP_OF.has(it.name) && (!isToo
 
 /** The bot keeps one stack of each group (the 64 of the exit contract, the stockpile rung, the town deposit and the
  *  well's STONE_GUARD); the well takes only whole stacks above it. */
-export const STOCK_RESERVE = 64
+export const STOCK_RESERVE = ALLOWANCE.stack
 
 const GROUP_OF = new Map()
 for (const [g, e] of Object.entries(STOCK_GROUPS)) for (const n of e.names) GROUP_OF.set(n, g)
