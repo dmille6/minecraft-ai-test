@@ -268,7 +268,7 @@ await t('H1 COMPOSED: home deep under its own column (wrong_elevation, below sea
 })
 
 await t('H1 COMPOSED MUTANT KILLED: without wrong_elevation in the climb trigger home ends wrong_elevation with no climb', async () => {
-  await withMutant(SKILLS_PATH, " || last?.failClass === 'wrong_elevation'\n", '\n', async mod => {
+  await withMutant(SKILLS_PATH, "(last?.failClass === 'wrong_elevation' && bot.entity.position.y < homeY)", 'false', async mod => {
     const { r, climbs } = await deepUnder(mod)
     assert.equal(climbs, 0)
     assert.equal(r.failClass, 'wrong_elevation', `${r.status}/${r.failClass}`)

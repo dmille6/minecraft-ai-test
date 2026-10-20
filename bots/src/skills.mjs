@@ -2637,7 +2637,8 @@ async function home(ctx, _args, signal) {
     // `wrong_elevation` too (homefix-01, Claude code r1 P3-3): H1's |dy| bound now fails a bot standing in home's column
     // but deep below it (the two pre-fix dy -10 "successes"), and that failure must name the remedy it can perform from
     // there -- the same climb, gated on the same below-sea-level test.
-    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path' || last?.failClass === 'wrong_elevation'
+    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path' ||
+                  (last?.failClass === 'wrong_elevation' && bot.entity.position.y < homeY)   // below home only (Claude code r2 P3-1)
     if (stuck && !repaired && bot.entity.position.y < SEA_LEVEL) {
       repaired = true
       const up = await surface(ctx, {}, signal, { until: deadline })
@@ -14595,6 +14596,9 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal, until = null 
       //
       // _placeBlockWithOptions is the only way to pass it (place_block.js:37).
       // It is private, so fall back rather than crash if a bump removes it.
+      // NO ACTUATOR STARTS THAT THE CALLER'S BUDGET CANNOT COVER (homefix-01 H4, Codex code r2 P2): the placement's own
+      // 6 s wait would carry `home` past the runner's timeout instead of ending on its own budget.
+      if (until != null && until - Date.now() < 6_200) { stopped = 'the caller\'s budget cannot cover a placement'; break }
       const place = bot._placeBlockWithOptions
         ? bot._placeBlockWithOptions(floor, new Vec3(0, -1, 0),
                                      { swingArm: 'right', forceLook: true })
@@ -14623,6 +14627,8 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal, until = null 
     const tool = bestTool(bot, floor)
     const plan = planDig(predictedDigMs(floor, tool))
     if (plan.refuse) { stopped = `cannot break ${floor.name} by hand`; break }
+    // ...nor a floor dig it cannot finish (a half-broken floor under a bot whose skill is about to time out is worse than none)
+    if (until != null && until - Date.now() < plan.budgetMs + 420) { stopped = 'the caller\'s budget cannot cover the floor dig'; break }
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
     try {
       // Same reasoning as the climb: breaking the floor to fall through it wants

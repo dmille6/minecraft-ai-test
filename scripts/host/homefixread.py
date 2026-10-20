@@ -95,6 +95,30 @@ def deadline_for(pools):
     return 540 if pools >= 4 else 720 if pools == 3 else 1080
 
 
+KEEP_EVENTS = {'_watchdog_rescue', '_stagnation', '_stagnation_reconnect', '_death', SPAWN_MARK, '_stranded', '_stranded_underground',
+               '_stranded_unrecoverable', '_drowning', '_low_health', '_trap'}
+
+
+def on_build(ver, arm, cv):
+    """A row on the canary's own build (control rows always count). Pure."""
+    return arm != 'canary' or not cv or str(ver or '').startswith(cv)
+
+
+def classify(name, ver, t, arm, cut, cv):
+    """One row -> (where, kind). where: 'drop' (an event no gate reads), 'offbuild' (a canary post row from another build:
+    RESTART LAG, memory restart-lag-rows-are-not-canary -- applied to EVERY kept row, stubs included, Claude/Codex code r2),
+    'pre' or 'post'. kind: 'full' (a rescue skill or a kept event) or 'stub' (any other skill row, kept only for its health).
+    Pure."""
+    if name.startswith('_') and name not in KEEP_EVENTS and not name.startswith('_drown'):
+        return 'drop', None
+    kind = 'full' if (name.startswith('_') or name in RESCUE_SKILLS) else 'stub'
+    if t >= cut:
+        if arm == 'canary' and cv and ver and not str(ver).startswith(cv):
+            return 'offbuild', kind
+        return 'post', kind
+    return 'pre', kind
+
+
 def horiz(pos, home):
     return math.hypot(float(pos['x']) - home[0], float(pos['z']) - home[2])
 
@@ -399,6 +423,15 @@ def selftest():
     assert not in_band({'x': 357.5, 'y': 79, 'z': 147}, home) and not over_accepted({'x': 357.5, 'y': 79, 'z': 147}, home)
     assert wilson_lower(0, 20) == 0 or wilson_lower(0, 20) < 1e-9
     assert wilson_lower(3, 20) < RE_BAR < wilson_lower(4, 20), (wilson_lower(3, 20), wilson_lower(4, 20))
+    # COVERAGE (Claude/Codex code r2): an all-old-build canary bot has no on-build post row, stubs included
+    cut = _m(0)
+    rows_old = [('gather', 'aaaa1111', _m(10)), ('home', 'aaaa1111', _m(20)), ('_death', 'aaaa1111', _m(30)), ('_pickups', 'aaaa1111', _m(40))]
+    got = [classify(n, v, tt, 'canary', cut, 'bbbb2222') for n, v, tt in rows_old]
+    assert got == [('offbuild', 'stub'), ('offbuild', 'full'), ('offbuild', 'full'), ('drop', None)], got
+    assert not any(w == 'post' and on_build(v, 'canary', 'bbbb2222') for (w, _), (_, v, _) in zip(got, rows_old))
+    assert classify('gather', 'bbbb2222+x', _m(10), 'canary', cut, 'bbbb2222') == ('post', 'stub') and on_build('bbbb2222+x', 'canary', 'bbbb2222')
+    assert not on_build('', 'canary', 'bbbb2222'), 'a versionless row does not prove the canary build'
+    assert classify('gather', 'aaaa1111', _m(-10), 'canary', cut, 'bbbb2222') == ('pre', 'stub') and classify('home', 'aaaa1111', _m(10), 'control', cut, 'bbbb2222') == ('post', 'full')
     # G1b
     assert g1b_fixtures_ok()
     assert g1b_rows(rows, home)[:2] == (2, 0)
@@ -499,9 +532,6 @@ def compact(r):
             'ver': ((raw.get('code') or {}).get('version') or '')}
 
 
-KEEP_EVENTS = {'_watchdog_rescue', '_stagnation', '_stagnation_reconnect', '_death', SPAWN_MARK, '_stranded', '_stranded_underground',
-               '_stranded_unrecoverable', '_drowning', '_low_health', '_trap'}
-
 bots = sorted(os.path.basename(d.rstrip('/')) for d in glob.glob(LOGROOT + '/*/') if glob.glob(d + 'skill-*.jsonl*'))
 walked = 0; first_t = last_t = None
 per = {}                     # bot -> {'pre': [...], 'post': [...]}
@@ -513,7 +543,7 @@ for bot in bots:
         continue
     except Exception as e:
         blind.append((bot, type(e).__name__)); continue
-    seen = set(); pre, post = [], []
+    seen = set(); pre, post = [], []; onb = 0
     arm = 'canary' if pool_of(bot) in CANS else 'control'
     for r in ev.rows:
         key = (r['t'], r['name'], r['detail'][:80])
@@ -523,25 +553,23 @@ for bot in bots:
         walked += 1
         first_t = r['t'] if first_t is None or r['t'] < first_t else first_t
         last_t = r['t'] if last_t is None or r['t'] > last_t else last_t
-        if r['name'].startswith('_') and r['name'] not in KEEP_EVENTS and not r['name'].startswith('_drown'):
+        raw = r.get('raw') or {}
+        ver = ((raw.get('code') or {}).get('version') or '')
+        where, kind = classify(r['name'], ver, r['t'], arm, CUT, CV)
+        if where == 'offbuild':
+            offbuild += 1; continue
+        if where == 'drop':
             continue
-        # MEMORY (Claude code r1 P3-9): of the skill rows only the rescue skills are read (G1 / G1b / G2 / G3 / the proxy /
-        # the guards); every other row is reduced to its health for the S0-like filter's "previous row" (kept as a stub)
-        if not r['name'].startswith('_') and r['name'] not in RESCUE_SKILLS:
-            h = ((r.get('raw') or {}).get('bot') or {}).get('health')
+        if where == 'post' and on_build(ver, arm, CV):
+            onb += 1
+        if kind == 'stub':
+            h = (raw.get('bot') or {}).get('health')
             if h is not None:
-                (post if r['t'] >= CUT else pre).append({'t': r['t'], 'name': '.', 'health': h, 'ver': ''})
+                (post if where == 'post' else pre).append({'t': r['t'], 'name': '.', 'health': h, 'ver': ver})
             continue
-        c = compact(r)
-        if r['t'] >= CUT:
-            # RESTART LAG: a canary row from another build is not the canary (memory: restart-lag-rows-are-not-canary)
-            if arm == 'canary' and CV and c['ver'] and not c['ver'].startswith(CV):
-                offbuild += 1; continue
-            post.append(c)
-        else:
-            pre.append(c)
+        (post if where == 'post' else pre).append(compact(r))
     pre.sort(key=lambda x: x['t']); post.sort(key=lambda x: x['t'])
-    per[bot] = {'pre': pre, 'post': post, 'arm': arm}
+    per[bot] = {'pre': pre, 'post': post, 'arm': arm, 'on_build': onb}
     del ev
 
 can_bots = [b for b in per if per[b]['arm'] == 'canary']
@@ -561,7 +589,9 @@ try:
 except OSError:
     enabled = []
 roster_can = [b for b in enabled if pool_of(b) in CANS]
-silent = [b for b in roster_can if not (per.get(b) or {}).get('post')]
+# SILENT = no post row ON THE CANARY BUILD (Claude code r2 P2-1, Codex code r2 P1): a bot whose restart failed keeps writing
+# old-build rows, and those must not count as coverage
+silent = [b for b in roster_can if not (per.get(b) or {}).get('on_build')]
 
 # ---- the gates on the arm (post) and their pre-period controls (the arm's own pools, old code)
 G = Counter(); mix = Counter(); mix_pre = Counter(); ex = []
@@ -683,8 +713,9 @@ print('-' * 100)
 readable = bool(walked and can_bots and ctl_bots and not blind and not nohome and roster_can and not silent)
 print('LIVENESS     canary _watchdog_rescue rows %d (>= 1) | ARMS control _watchdog_rescue rows %d (must be 0) | off-build canary rows %d%s'
       % (licence, rows_ctl, offbuild, (' | canary bots with no readable home: %s' % nohome) if nohome else ''))
-print('COVERAGE     enabled canary bots %d, silent in the post window %d %s, unreadable logs %d -> readable %s'
-      % (len(roster_can), len(silent), silent[:5], len(blind), readable))
+print('COVERAGE     enabled canary bots %d, silent (no post row on the canary build) %d %s, unreadable logs %d -> readable %s%s'
+      % (len(roster_can), len(silent), silent[:5], len(blind), readable,
+         ('  [THE ROSTER %s IS UNREADABLE OR EMPTY: coverage cannot be shown, so KEEP is blocked -- not a bot failure]' % ROSTER) if not enabled else ''))
 print('G1  arrival  opps %d / D %d  defects %d | CONTROL pre-period (old code) %d defects in %d opps -> %s'
       % (G['g1_opps'], D_G1, G['g1_defects'], G['g1_pre_defects'], G['g1_pre_opps'], 'OK' if g1_ok_ctl else 'VOID'))
 print('G1b mirror   home successes %d  over-accepted %d | CONTROL fixtures (h9 dy -10) %s; pre-period over-accepted %d (reported)'
