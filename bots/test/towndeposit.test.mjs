@@ -1110,3 +1110,26 @@ test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (
     assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'nowell'), 'under a nowell claim')
   } finally { done() }
 })
+
+// ---- IRONPICK-01 x THE TOWN DEPOSIT: the toolkit's fresh iron pickaxe is never banked straight back -------------------------
+// A full bag at town holding the kit's NEW iron pickaxe (250 uses) beside the worn one it replaced (30) and a stone spare: the REAL
+// town deposit keeps one usable copy per name and banks worst-first, so the fresh copy stays (client and server bags); the worn
+// copy is at most a banked spare (keep-one), never dropped. CONTROL: two worn copies (35, 30) -> the BETTER one stays -- the rule
+// is "the best stays", which is what keeps the fresh copy.
+test('IRONPICK-01 x TOWN DEPOSIT: the fresh iron pickaxe stays in a full bag the real deposit banks from; the worn copy is a spare at most, nothing dropped', async () => {
+  const mk = (a, b) => bag([['iron_pickaxe', 1, a], ['iron_pickaxe', 1, b], ['stone_pickaxe', 1, 90], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20],
+    ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['apple', 45], ['raw_iron', 5], ['coal', 9], ['dirt', 30], ['raw_copper', 7], ...filler(22)])
+  for (const [a, b, best] of [[250, 30, 250], [35, 30, 35]]) {
+    const items = mk(a, b); assert.equal(items.length, 36)
+    const c = chestAt(2)
+    const w = world({ items, containers: [c] })
+    const { out: r } = await rowsOf(() => run(w.bot))
+    assert.equal(r.status, 'success', r.detail)
+    for (const now of [w.bot.inventory.items(), serverBag(w)]) {
+      const iron = now.filter(i => i.name === 'iron_pickaxe').map(i => 250 - i.durabilityUsed)
+      assert.ok(iron.includes(best), `the best iron copy (${best}) stays: ${iron}`)
+    }
+    assert.ok(sumOf(c.items, 'iron_pickaxe') <= 1, 'at most the worse copy is banked (keep one usable per name)')
+    assert.equal(w.st.dropped, 0); assert.equal(total(serverBag(w)) + total(c.items), total(items), 'nothing lost')
+  }
+})

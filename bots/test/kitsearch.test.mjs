@@ -154,9 +154,15 @@ await t('kitTakes: the IRON is judged before the sticks -- a chest short of iron
 })
 await t('THE MISS IS PER DRAW SIZE (Codex r1 P5): kit_iron for the whole kit\'s 4, kit_iron_<n> below; a container seen holding h is a miss for every n with n + 4 > h', () => {
   assert.equal(kitIronNeed(4), KIT_IRON_NEED); assert.equal(kitIronNeed(3), 'kit_iron_3'); assert.equal(kitIronNeed(1), 'kit_iron_1')
-  assert.deepEqual(kitIronMissNeeds(0), ['kit_iron_1', 'kit_iron_2', 'kit_iron_3', 'kit_iron'])
-  assert.deepEqual(kitIronMissNeeds(6), ['kit_iron_3', 'kit_iron'], '6 gives 1 or 2 with 4 kept')
-  assert.deepEqual(kitIronMissNeeds(8), [], 'a whole kit\'s worth')
+  // the base's sizes (max 4: the axe and the shovel, TOOLKIT_IRONPICK=off)
+  assert.deepEqual(kitIronMissNeeds(0, 4, 4), ['kit_iron_1', 'kit_iron_2', 'kit_iron_3', 'kit_iron'])
+  assert.deepEqual(kitIronMissNeeds(6, 4, 4), ['kit_iron_3', 'kit_iron'], '6 gives 1 or 2 with 4 kept')
+  assert.deepEqual(kitIronMissNeeds(8, 4, 4), [], 'a whole axe-and-shovel kit\'s worth')
+  // ironpick-01: the sizes run to 7 (pickaxe 3 + axe 3 + shovel 1); 4 keeps its name
+  assert.deepEqual(kitIronMissNeeds(8), ['kit_iron_5', 'kit_iron_6', 'kit_iron_7'], '8 gives up to 4 with 4 kept')
+  assert.deepEqual(kitIronMissNeeds(11), [], 'a whole kit\'s worth with the pickaxe')
+  assert.equal(kitIronNeed(7), 'kit_iron_7'); assert.equal(kitIronNeed(9), 'kit_iron_7', 'clamped to the largest draw')
+  assert.equal(kitIronNeed(9, 4), KIT_IRON_NEED, 'switch off: the base clamp')
 })
 await t('THE ROW: the search\'s counters come right after the gate fields, before the 300-character cut can reach them (long tool tags)', () => {
   const tags = Array.from({ length: 12 }, (_, i) => `stone_pickaxe@${i + 1}`).join(',')
@@ -211,7 +217,7 @@ await t('THE CHANGE ROW ON AN ABORT: a run aborted mid-search (a reflex, a death
   assert.match(ks[0].skill.detail, /^outcome=aborted need=kit_iron town=10 cand=10 visits=2 vfail=0 maxrep=1 left=-1 tried=\[5,64,3:none;10,64,4:none\]$/, ks[0].skill.detail)
   assert.equal(RECS.slice(n0).filter(r => r.skill?.name === '_kit_search').length, 1, 'once')
   // CONTROL: a run that never searched (the kit held) writes none
-  const w2 = farTown({ bag: [T('iron_axe', 200), T('iron_shovel', 200)] })
+  const w2 = farTown({ bag: [T('iron_pickaxe', 200), T('iron_axe', 200), T('iron_shovel', 200)] })   // the whole kit (ironpick-01)
   const n1 = RECS.length
   await kit(S0, w2)
   assert.equal(RECS.slice(n1).filter(r => r.skill?.name === '_kit_search').length, 0)
@@ -447,7 +453,8 @@ await t('CHAIN (real loop): at town with no kit and the iron only in the FAR che
   const i = ran.findIndex(x => x.skill === 'toolkit')
   assert.ok(i >= 0, JSON.stringify(ran)); assert.ok(ran.slice(0, i).every(x => HOUSEKEEPING.has(x.skill)), `only housekeeping before it: ${JSON.stringify(ran)}`)
   assert.equal(ran[i].status, 'success', lastRow())
-  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1); assert.equal(ironIn(w, FAR), 16)
+  // ironpick-01: the chain bot's best pickaxe is stone, so its kit is all three tools (7 ingots)
+  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1); assert.equal(count(w.bag, 'iron_pickaxe'), 1); assert.equal(ironIn(w, FAR), 13)
   assert.equal(ran.filter(x => x.skill === 'toolkit').length, 1, 'the kit is held: no second order')
 })
 await t('CHAIN (real loop), NO IRON ANYWHERE: one toolkit run (no_iron after looking in all 10), then the bot goes on -- no second order, the model decides again', async () => {
