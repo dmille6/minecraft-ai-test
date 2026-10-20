@@ -627,3 +627,44 @@ Codex 1 (P2, provenance): ACCEPTED. The watch starts before the zero-bag observa
   settlement and re-open, and right after the server completes the deposit; plus the clean-move negative control.
 Claude 1, 2 (P3s): ACCEPTED in the same text (all open windows' bag ranges; expectations held to the verifying re-open;
   the negative control).
+
+======================================================================================================================
+ROUND 9 (r9 doc, commit 7145218a, confirmation) -- Codex APPROVE, Claude APPROVE
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: APPROVE
+
+Per-finding round-8 resolutions:
+
+- **Codex 1 — P2, WATCH provenance: RESOLVED.** §7.3 removes the exemption for changes occurring during `townMove`. The watch starts before the authoritative zero-bag observation, checks pickups continuously—including during pending clicks—and invalidates custody on same-name or unidentified pickups. Expected server transitions are tracked separately; unmatched changes and tracking gaps persist `unresolved` and stop automatic movement. Withdrawal still requires a source debit. This names the inputs, fail-closed behavior and required proof at an appropriate design level.
+
+- **Claude 1 — P3, inventory changes through other windows: RESOLVED.** The watch explicitly covers window 0, every open window’s bag range, furnace windows and full inventory re-syncs. The interrupted coal-carry/milestone-smelt scene exercises the reported consumer case. This addresses the distinction between the main inventory and a container window’s bag representation visible in `skills.mjs` and `craftsync.mjs`.
+
+- **Claude 2 — P3, late corrections and false alarms: RESOLVED.** Expectations remain active through the leg’s verifying re-open. The new clean-move control requires zero non-tidy events and zero unresolved notes despite ordinary corrections, re-syncs and close copy-back. It complements the interference scenes rather than allowing a watcher that rejects everything to pass.
+
+**NEW findings: None. No P1 or P2 remains.**
+
+The changed Paper coverage now includes the previously missing pickup intervals: before withdrawal, during each pending click, during cursor settlement and re-opening, and after server deposit but before client completion. Together with continuous raw pickup observation—supported by the existing `pickuplog.mjs` mechanism—these scenes address the replacement-item counterexample. The clean-transfer control tests whether normal inventory bookkeeping remains usable. These are requirements for implementation proof, not claims that the mechanism already passes Paper.
+
+The broader checks remain consistent:
+
+- §6.2’s allocation totals match `homes.json`, including board-c’s 87 metal slots against 81 home slots and hive-b’s missing overflow. Workshop-fit counts reproduce **13/14/16**.
+- The town index remains separate from disposal targets; observation IDs support transfer attribution. Search and independent-stick prerequisites precede sorting.
+- Ascending CAS acceptance, reservation preservation and renewal, READY-cell joint access, table-first annexes and FOUND scenes retain the earlier fixes.
+- Tidy retains cursor-first recovery, canonical transfer legs, source-return handling and terminal expiry before KEEP release. Its transfer primitive does not assume `swapWithdrawHold` bypasses other banking rules.
+- Drain narrowing remains deferred; the fleet target population and separate lease snapshot are not conflated.
+- The conditional third-container visit, single-tier labels, refusal remedies, canary separation and exposure arithmetic remain coherent. O9 explicitly requests an owner waiver; design approval does not grant it.
+
+No files were edited.
+
+--- Claude round 9, condensed ---
+VERDICT: APPROVE. Round-8 P3s 1-2 RESOLVED (all open windows' bag ranges; expectations held to the verifying re-open;
+negative control named). Changed material checked: collect events exist in pickuplog.mjs (:22-26, :353); unidentified
+pickups fail closed; scenes cover each interval. New, P3:
+1 P3 7.3 / 9 row 8: tidy-01's gate counts every unresolved note, including custody-broken notes whose items are all
+  accounted for (e.g. a same-name pickup while walking) -> the safety mechanism working could revert the canary. Fix:
+  trip on notes that do not account for n (a real loss); report custody-broken-but-accounted notes with a rate.
+
+--- Result ---
+ROUND 9: Codex APPROVE, Claude APPROVE on r9 (commit 7145218a). No P1 or P2 remains on either engine.
+r9.1 (after approval): Claude's P3 applied (the gate split in 7.3 and section 9 row 8). No other text changed.
