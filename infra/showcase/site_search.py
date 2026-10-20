@@ -33,7 +33,7 @@ CORE = 32          # the central 64 x 64
 GRID = 8
 WOOD_R = (80, 104, 128)
 WATER_R = (96, 160, 256)
-LIMITS = {'core_relief': 4, 'area_relief': 8, 'area_wet': 0.03, 'area_canopy': 0.30, 'wood_hits': 8}
+LIMITS = {'core_relief': 5, 'area_relief': 10, 'cave_probes': 8, 'area_wet': 0.03, 'area_canopy': 0.30, 'wood_hits': 8}
 
 
 def load_tiles(rcon, x0, z0, x1, z1, on=True):
@@ -77,13 +77,19 @@ def score(rcon, cx, cz):
                 y, kind = retry(lambda: pt.column(rcon, cx + dx, cz + dz))
                 cols.append((dx, dz, y, kind))
         core = [c for c in cols if abs(c[0]) <= CORE and abs(c[1]) <= CORE]
-        solid = [c[2] for c in cols if c[3] == 'solid']
-        csolid = [c[2] for c in core if c[3] == 'solid']
+        # place-town's surface_y is a binary search that assumes air above / solid below; a column over a CAVE can
+        # converge inside the cave (seed trial 10-20: 0,16 read y=-2 beside y=78). Such reads are counted, not used.
+        allsolid = [c[2] for c in cols if c[3] == 'solid']
+        med = sorted(allsolid)[len(allsolid) // 2] if allsolid else 0
+        cave = lambda y: y < med - 16
+        st['cave_probes'] = sum(1 for y in allsolid if cave(y))
+        solid = [y for y in allsolid if not cave(y)]
+        csolid = [c[2] for c in core if c[3] == 'solid' and not cave(c[2])]
         st['core_water'] = sum(1 for c in core if c[3] == 'water')
         st['area_wet'] = round(sum(1 for c in cols if c[3] == 'water') / len(cols), 3)
         st['area_canopy'] = round(sum(1 for c in cols if c[3] == 'canopy') / len(cols), 3)
         st['area_void'] = sum(1 for c in cols if c[3] == 'void')
-        st['core_relief'] = (max(csolid) - min(csolid)) if csolid else 99
+        st['core_relief'] = (pct(csolid, 0.9) - pct(csolid, 0.1)) if csolid else 99
         st['area_relief'] = (pct(solid, 0.9) - pct(solid, 0.1)) if solid else 99
         st['base_y'] = int(round(sorted(csolid)[len(csolid) // 2])) if csolid else None
         wood = 0
@@ -113,7 +119,7 @@ def score(rcon, cx, cz):
             why.append('void columns')
         if st['core_water']:
             why.append(f"{st['core_water']} water columns in the core")
-        for k in ('core_relief', 'area_relief'):
+        for k in ('core_relief', 'area_relief', 'cave_probes'):
             if st[k] > LIMITS[k]:
                 why.append(f'{k} {st[k]} > {LIMITS[k]}')
         for k in ('area_wet', 'area_canopy'):
