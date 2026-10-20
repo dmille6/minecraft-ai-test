@@ -14,6 +14,9 @@
 //   A VILLAGE'S BOX RUNS FROM THE WORLD'S BOTTOM (y0 -64; infra/showcase/structure_zones.py writes it so; Claude r1 P1): a bot
 //   that dug in UNDER the footprint could only come up through the village -- `surface` and every dig-capable path are
 //   refused there, and the walk out is 50+ blocks of rock. A whole column keeps every tunnel and stair out from under it.
+//   "floor_y" (optional, the lowest village block minus the pad) marks the DEEP part of the column (Claude r2 P2): a bot that
+//   is ALREADY under the floor -- it walked or dropped into a cave pocket there -- may dig and place below the floor to get
+//   out sideways; nobody outside may dig in (blocked() below). The village above the floor stays refused to everyone.
 //
 // WHAT IS GUARDED, and where (every path that can change or consume a block or a container goes through one of these):
 //   CHOKEPOINT (attachProtectZone): bot.dig, bot._genericPlace (placeBlock, _placeBlockWithOptions and placeEntity all
@@ -74,7 +77,12 @@ export function parseZones (raw, { worldId = null } = {}) {
     if (x1 - x0 > MAX_SPAN || z1 - z0 > MAX_SPAN || y1 - y0 > 448) { bad.push(`${id}:span`); continue }
     const kind = typeof z.kind === 'string' && /^[a-z_]{1,24}$/.test(z.kind) ? z.kind : 'scenery'
     const label = typeof z.label === 'string' && z.label ? z.label.slice(0, 60) : `the protected ${kind}`
-    zones.push({ id, kind, label, x0, y0, z0, x1, y1, z1 })
+    let floorY = null
+    if (z.floor_y != null) {
+      if (!isInt(z.floor_y) || z.floor_y < y0 || z.floor_y > y1) { bad.push(`${id}:floor_y`); continue }
+      floorY = z.floor_y
+    }
+    zones.push({ id, kind, label, x0, y0, z0, x1, y1, z1, floorY })
   }
   if (raw.zones.length > MAX_ZONES) bad.push(`over_${MAX_ZONES}`)
   return { zones, why: zones.length ? 'ok' : 'empty', bad }
@@ -92,6 +100,19 @@ export function zoneAt (zones, x, y, z) {
   return null
 }
 export const zoneAtPos = (zones, p) => (p ? zoneAt(zones, p.x, p.y, p.z) : null)
+
+/**
+ * IS THIS CELL CLOSED TO THIS BOT? -> zone | null. Pure, allocation-free. zoneAt, except the DEEP exemption (Claude r2 P2): a
+ * cell below its zone's floor_y is open to a bot whose FEET are also below that floor inside the same column -- a bot in a
+ * cave pocket under a village digs its way out sideways; a bot outside can never tunnel in, and the village (at or above
+ * floor_y) is closed to everyone. `feet` null: no exemption.
+ */
+export function blocked (zones, x, y, z, feet = null) {
+  const q = zoneAt(zones, x, y, z)
+  if (!q || q.floorY == null || !feet || Math.floor(y) >= q.floorY) return q
+  const fx = Math.floor(feet.x), fy = Math.floor(feet.y), fz = Math.floor(feet.z)
+  return fy < q.floorY && fx >= q.x0 && fx <= q.x1 && fz >= q.z0 && fz <= q.z1 ? null : q
+}
 
 /** Is the bot's column (any y) inside this zone's footprint, grown by `margin`? Pure. */
 export function overFootprint (zone, p, margin = 0) {
@@ -111,12 +132,12 @@ export function zonesNear (zones, point, r) {
  * THE WAY OUT -> { x, z, side } | null: the nearest point EXIT_PAD beyond the footprint's nearest side, at the bot's own
  * coordinate on the other axis. Pure. null when p is not over the footprint (then "outside" is where it already is).
  */
-export function exitPoint (zone, p) {
+export function exitPoint (zone, p, pad = EXIT_PAD) {
   if (!overFootprint(zone, p)) return null
   const x = Math.floor(p.x), z = Math.floor(p.z)
   const opts = [
-    { d: x - zone.x0, x: zone.x0 - EXIT_PAD, z, side: 'west' }, { d: zone.x1 - x, x: zone.x1 + EXIT_PAD, z, side: 'east' },
-    { d: z - zone.z0, x, z: zone.z0 - EXIT_PAD, side: 'north' }, { d: zone.z1 - z, x, z: zone.z1 + EXIT_PAD, side: 'south' },
+    { d: x - zone.x0, x: zone.x0 - pad, z, side: 'west' }, { d: zone.x1 - x, x: zone.x1 + pad, z, side: 'east' },
+    { d: z - zone.z0, x, z: zone.z0 - pad, side: 'north' }, { d: zone.z1 - z, x, z: zone.z1 + pad, side: 'south' },
   ].sort((a, b) => a.d - b.d)
   const { d, ...o } = opts[0]
   return o
@@ -126,7 +147,25 @@ export function exitPoint (zone, p) {
 export function sideOf (zone, p) {
   if (!zone || !p) return null
   const x = Math.floor(p.x), z = Math.floor(p.z)
-  return x < zone.x0 ? 'west' : x > zone.x1 ? 'east' : z < zone.z0 ? 'north' : z > zone.z1 ? 'south' : null
+  // A CORNER CELL BELONGS TO THE AXIS IT OVERHANGS MORE (Claude r2 P3): a failed corner walk must not rule out a whole side
+  const ox = x < zone.x0 ? zone.x0 - x : x > zone.x1 ? x - zone.x1 : 0, oz = z < zone.z0 ? zone.z0 - z : z > zone.z1 ? z - zone.z1 : 0
+  if (!ox && !oz) return null
+  return ox >= oz ? (x < zone.x0 ? 'west' : 'east') : (z < zone.z0 ? 'north' : 'south')
+}
+
+/**
+ * A POINT `dist` BEYOND THE ZONE from p -> { x, z, side } | null: over the footprint, past its nearest side; beside it, pushed
+ * straight out from the side it lies beyond. Pure (the bucket's remedy: its refusal reaches 6 past the box).
+ */
+export function awayPoint (zone, p, dist) {
+  if (!zone || !p) return null
+  if (overFootprint(zone, p)) return exitPoint(zone, p, dist)
+  const side = sideOf(zone, p), x = Math.floor(p.x), z = Math.floor(p.z)
+  if (side === 'west') return { x: Math.min(x, zone.x0 - dist), z, side }
+  if (side === 'east') return { x: Math.max(x, zone.x1 + dist), z, side }
+  if (side === 'north') return { x, z: Math.min(z, zone.z0 - dist), side }
+  if (side === 'south') return { x, z: Math.max(z, zone.z1 + dist), side }
+  return null
 }
 
 /** Is any zone's box within `reach` blocks (Chebyshev, any axis) of p? Pure (the bucket: the server's ray, not the target, decides). */
@@ -141,15 +180,16 @@ export function zoneWithin (zones, p, reach) {
  * answers a standable height at the exit column (Claude r1 P2: the bot's own y can be solid rock on a hill or in a cave);
  * without an answer the exit is named by its column. A bot already outside the footprint is told to work beyond it.
  */
-export function zoneRemedy (zone, op, at, from = null, { standY = null } = {}) {
+export function zoneRemedy (zone, op, at, from = null, { standY = null, pad = EXIT_PAD } = {}) {
   const where = at ? `${Math.floor(at.x)},${Math.floor(at.y)},${Math.floor(at.z)}` : '?'
   const box = `x ${zone.x0}..${zone.x1}, z ${zone.z0}..${zone.z1}`
-  const ex = from ? exitPoint(zone, from) : null
+  const ex = from ? (pad > EXIT_PAD ? awayPoint(zone, from, pad) : exitPoint(zone, from, pad)) : null
   let ey = null
   if (ex && typeof standY === 'function') { try { ey = standY(ex.x, ex.z) } catch { ey = null } }
-  const go = ex ? (ey != null ? `walk out first (goto ${ex.x} ${ey} ${ex.z}, ${EXIT_PAD} blocks past its ${ex.side} side) and `
-                              : `walk out first (to column x ${ex.x}, z ${ex.z}, ${EXIT_PAD} blocks past its ${ex.side} side) and `)
-    : from ? `you are beside it: step away from its ${sideOf(zone, from) ?? ''} edge and ` : ''
+  // goto needs a y (gotoLegs: Number(y)): a standable one, else the bot's own as an approximation (Claude r2 P3)
+  const fy = from && Number.isFinite(from.y) ? Math.floor(from.y) : null
+  const go = ex ? `walk out first (goto ${ex.x} ${ey ?? fy ?? 70} ${ex.z}${ey == null ? ', height approximate' : ''}; ${pad} blocks past its ${ex.side} side) and `
+    : from ? `you are beside it: step away from it${sideOf(zone, from) ? ` (its ${sideOf(zone, from)} side)` : ''} and ` : ''
   const what = op === 'open' ? 'open its containers' : op === 'sleep' ? 'sleep in its beds' : op === 'craft' ? 'use its crafting tables'
     : op === 'use' ? 'use its blocks' : op === 'place' ? 'build in it' : 'dig it'
   return `protected zone: ${zone.label} (${box}) is kept as scenery -- bots never ${what} (cell ${where}); ${go}` +
@@ -174,8 +214,8 @@ export const SURVIVAL_OPS = new Set(['dig', 'place', 'use'])
  * THE GUARD'S ONE DECISION -> null (allowed) | { zone }. Pure. `op` in dig | place | use | open | sleep | craft; `cell` the
  * block's cell; `purpose` digPurpose's answer for this call.
  */
-export function zoneDecision ({ zones, op, cell, purpose = null }) {
-  const z = cell ? zoneAt(zones, cell.x, cell.y, cell.z) : null
+export function zoneDecision ({ zones, op, cell, purpose = null, feet = null }) {
+  const z = cell ? blocked(zones, cell.x, cell.y, cell.z, feet) : null
   if (!z) return null
   if (purpose === 'survival' && SURVIVAL_OPS.has(op)) return null
   return { zone: z }
@@ -185,12 +225,25 @@ export function zoneDecision ({ zones, op, cell, purpose = null }) {
  * THE PATHFINDER'S PRICE -> (block) => 0 | ZONE_COST, for exclusionAreasBreak AND exclusionAreasPlace. `zones()` returns
  * the cached list (no fs, no allocation in the A* step). Zones off -> always 0.
  */
-export function zoneCost (zones) {
+export function zoneCost (zones, { feet = () => null, grow = 0 } = {}) {
   return (block) => {
     const list = zones()
     if (!list || !list.length) return 0
     const p = block?.position
-    return p && zoneAt(list, p.x, p.y, p.z) ? ZONE_COST : 0
+    if (!p) return 0
+    if (grow) {
+      // A PLACEMENT'S REFERENCE IS A NEIGHBOUR (Claude r2 P2): the pathfinder prices the placed cell, the guard also judges
+      // the block it is placed against -- so a cell within `grow` of a zone is no scaffold either (no plan the guard refuses)
+      for (let i = 0; i < list.length; i++) {
+        const q = list[i]
+        if (p.x >= q.x0 - grow && p.x <= q.x1 + grow && p.y >= q.y0 - grow && p.y <= q.y1 + grow && p.z >= q.z0 - grow && p.z <= q.z1 + grow) {
+          if (!blocked([q], Math.min(Math.max(p.x, q.x0), q.x1), Math.min(Math.max(p.y, q.y0), q.y1), Math.min(Math.max(p.z, q.z0), q.z1), feet())) continue
+          return ZONE_COST
+        }
+      }
+      return 0
+    }
+    return blocked(list, p.x, p.y, p.z, feet()) ? ZONE_COST : 0
   }
 }
 
@@ -198,9 +251,9 @@ export function zoneCost (zones) {
  * A ZONE AS A KEEP-OUT PART for minewell's composeKeepOut -> { forbid(cell) -> 'protected' | null, bottom }. Pure over
  * the list: EVERY cell of a zone's box is forbidden (air too: a stair never runs through a zone, and never starts in one).
  */
-export function zoneKeepOut (zones) {
+export function zoneKeepOut (zones, feet = null) {
   if (!zones || !zones.length) return { forbid: null, bottom: null }
-  return { forbid: c => (c && zoneAt(zones, c.x, c.y, c.z) ? 'protected' : null), bottom: Math.min(...zones.map(q => q.y0)) }
+  return { forbid: c => (c && blocked(zones, c.x, c.y, c.z, feet) ? 'protected' : null), bottom: Math.min(...zones.map(q => q.y0)) }
 }
 
 /**
@@ -254,8 +307,10 @@ export function zoneReader ({ file, worldId = () => null, fsx = fs, onChange = (
     if (m === sig) return
     let raw
     try { raw = JSON.parse(fsx.readFileSync(f, 'utf8')) } catch (e) { return e?.code === 'ENOENT' ? off(f) : keep(String(e?.message ?? e).slice(0, 60)) }
+    if (raw == null) return keep('null')   // a file holding JSON null is broken, not absent (Codex r2 P2)
     const r = parseZones(raw, { worldId: worldId() })
     if (/^(bad_version|not_an_object|no_zones)/.test(r.why)) return keep(r.why)
+    if (r.why === 'empty' && r.bad.length) return keep(`all_malformed:${r.bad.slice(0, 3).join(',')}`)   // Claude r2 P3
     sig = m
     list = r.zones
     set({ why: r.why, bad: r.bad, file: f, n: r.zones.length, ids: r.zones.map(z => z.id) })
@@ -270,7 +325,7 @@ export function protectZoneModeDetail (st, worldId = null) {
 
 /** Per-bot counters for the `_protect_zone` liveness row (one a minute, only when something was refused or filtered). */
 export function protectZoneCounters () {
-  return { dig: 0, place: 0, use: 0, open: 0, sleep: 0, craft: 0, survival_allowed: 0, find_filtered: 0, mine_refused: 0, mine_walkout: 0, mine_step_refused: 0 }
+  return { dig: 0, place: 0, use: 0, open: 0, sleep: 0, craft: 0, survival_allowed: 0, find_filtered: 0, mine_refused: 0, mine_walkout: 0, mine_step_refused: 0, place_refused: 0, bucket_refused: 0 }
 }
 export function noteProtectZone (bot, key, n = 1) {
   try { if (bot) { bot.protectZone ??= protectZoneCounters(); bot.protectZone[key] = (bot.protectZone[key] ?? 0) + n } } catch { /* telemetry */ }
@@ -327,10 +382,10 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
   const gate = (op, cell) => {
     const list = zones()
     if (!list || !list.length || !cell) return null
-    const z = zoneAt(list, cell.x, cell.y, cell.z)
+    const z = blocked(list, cell.x, cell.y, cell.z, bot.entity?.position ?? null)
     if (!z) return null
     const purpose = SURVIVAL_OPS.has(op) ? purposeOf().purpose : null
-    if (!zoneDecision({ zones: list, op, cell, purpose })) { noteProtectZone(bot, 'survival_allowed'); return null }
+    if (!zoneDecision({ zones: list, op, cell, purpose, feet: bot.entity?.position ?? null })) { noteProtectZone(bot, 'survival_allowed'); return null }
     return refuse(op, z, cell)
   }
   // THE INNER USE OF AN APPROVED CALL (Codex r1 P2): openBlock, craft and sleep reach bot.activateBlock themselves, UNAWAITED.
@@ -388,10 +443,11 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
       const m = options.matching
       const inner = typeof m === 'function' ? m : (() => { const ids = Array.isArray(m) ? m : [m]; return b => (b == null ? false : ids.indexOf(b.type) >= 0) })()
       let filtered = 0
+      const feet = bot.entity?.position ?? null
       const matching = b => {
         if (!inner(b)) return false
         const p = b?.position
-        if (p && zoneAt(list, p.x, p.y, p.z)) { filtered++; return false }
+        if (p && blocked(list, p.x, p.y, p.z, feet)) { filtered++; return false }
         return true
       }
       const out = find.call(this, { ...options, matching })

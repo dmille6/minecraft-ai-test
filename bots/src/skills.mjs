@@ -6153,9 +6153,11 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
                // THE MOVE FIRST (the row's detail is capped at 300 and craft prefixes its own words): the walk, then the why
                detail: (() => {
                  const zz = candidates.zoneSkip.zone, here = bot.entity.position, ex = exitPoint(zz, here)
+                 noteProtectZone(bot, 'place_refused')
                  const ey = ex ? standableY(bot, ex.x, ex.z, here.y) : null
-                 const go = ex ? (ey != null ? `goto ${ex.x} ${ey} ${ex.z}` : `walk to column x ${ex.x}, z ${ex.z}`) : 'step away from it'
-                 return `reason=protected_zone ${go} (${EXIT_PAD} past ${zz.label}'s ${ex?.side ?? ''} side) and place ${item} there: the ${candidates.zoneSkip.n} free cell(s) here are protected scenery`
+                 const go = ex ? `goto ${ex.x} ${ey ?? Math.floor(here.y)} ${ex.z} (${EXIT_PAD} past ${zz.label}'s ${ex.side} side${ey == null ? ', height approximate' : ''})`
+                               : `step 3+ blocks away from ${zz.label}`
+                 return `reason=protected_zone ${go} and place ${item} there: the ${candidates.zoneSkip.n} free cell(s) here are protected scenery`
                })() }
     }
     return {
@@ -12125,7 +12127,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   }
   // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one --
   // composed into the SAME keep-out (one plan, one walk-off, one per-dig stop), the town's part unchanged
-  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones()))
+  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones(), bot.entity?.position ?? null))
   // A START MUST HAVE A DRY FIRST TREAD (the zone's water case, now the planner's): a keep-out that took the dry way walks off
   const dryStart = (from, b) => stairRunway(bot, new Vec3(from.x, from.y, from.z), b) > 0
   // THE FAR STARTS: just beyond the town's square (townground.mjs townExitColumns), at the standable height of each column
@@ -12207,7 +12209,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const to = wellPlan.to
     lastTarget = to
     try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: zoneIn(wellPlan) ? 'walking out of the protected zone before mining' : 'walking off the junk well before mining' })
+      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: 'walking off the junk well before mining' })
     } catch (e) { if (e?.aborted) throw e }
     check(signal)
     await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
@@ -15053,8 +15055,9 @@ async function bucketSkill (ctx, args, signal) {
     let z = null
     try { z = zoneWithin(bot.protectZones?.() ?? [], p, BUCKET_ZONE_REACH) } catch { z = null }
     if (z) {
-      noteProtectZone(bot, action === 'fill' ? 'use' : 'place')
-      return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone no bucket use within ${BUCKET_ZONE_REACH} blocks of ${z.label}: ${zoneRemedy(z, action === 'fill' ? 'use' : 'place', p, p)} (${BUCKET_ZONE_REACH + 1}+ blocks from it)` }
+      noteProtectZone(bot, 'bucket_refused')
+      // THE WALK CLEARS THE BUCKET'S OWN REACH (Codex r2 P2, Claude r2 P3): 6 + goto's arrival range 2 + 1
+      return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone no bucket use within ${BUCKET_ZONE_REACH} blocks of ${z.label}: ${zoneRemedy(z, action === 'fill' ? 'use' : 'place', p, p, { pad: BUCKET_ZONE_REACH + 3, standY: (x, zz) => standableY(bot, x, zz, p.y) })}` }
     }
   }
   const bucketZone = q => { try { return zoneAtPos(bot.protectZones?.() ?? [], q) } catch { return null } }
