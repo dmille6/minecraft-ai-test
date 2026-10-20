@@ -1,0 +1,12 @@
+[Unit]
+Description=SHOWCASE timelapse video (%i: daily | weekly | history | monthly)
+
+[Service]
+Type=oneshot
+User=mike
+Environment=TL_ROOT=/srv/showcase/timelapse
+ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_video.py %i
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=200%
+TimeoutStartSec=3h

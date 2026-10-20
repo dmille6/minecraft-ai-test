@@ -1,0 +1,102 @@
+# SHOWCASE VM (10.0.0.40) filebeat. docs/reports/showcase-2026-10-20.md sections 4-5.
+# EVERY output index is a showcase name. The credential (keystore keys ES_USER / ES_PASS) is mcai_showcase_ship, whose
+# role can write ONLY the showcase names: a misroute is a 403, never a row in a bench stream.
+# test_showcase.py (FilebeatRoutes) asserts no bench stream name appears in the executable lines of this file (comments
+# stripped), and test_showcase_mutants.py proves it fails when one is routed.
+filebeat.inputs:
+  - type: filestream
+    id: showcase-skill-jsonl
+    enabled: true
+    paths: ["/var/log/mcai/showcase-*/skill-*.jsonl"]
+    parsers:
+      - ndjson: {target: "", overwrite_keys: true, add_error_key: true}
+    processors:
+      - add_fields: {target: "@metadata", fields: {route: skill}}
+
+  - type: filestream
+    id: showcase-llm-jsonl
+    enabled: true
+    paths: ["/var/log/mcai/showcase-*/llm-*.jsonl"]
+    parsers:
+      - ndjson: {target: "", overwrite_keys: true, add_error_key: true}
+    processors:
+      - add_fields: {target: "@metadata", fields: {route: llm}}
+
+  - type: filestream
+    id: showcase-paper
+    enabled: true
+    paths: ["/srv/showcase/server/logs/latest.log"]
+    processors:
+      - add_fields: {target: "@metadata", fields: {route: paper}}
+
+  - type: filestream
+    id: showcase-ops
+    enabled: true
+    paths: ["/var/log/showcase/heartbeat.jsonl"]
+    parsers:
+      - ndjson: {target: "", overwrite_keys: true, add_error_key: true}
+    processors:
+      - add_fields: {target: "@metadata", fields: {route: ops}}
+
+  # Units listed EXPLICITLY: include_matches is exact, so a wildcard would match nothing and look healthy.
+  - type: journald
+    id: showcase-journal
+    enabled: true
+    units:
+      - showcase-paper.service
+      - showcase-studio-tunnel.service
+      - showcase-tl.service
+      - mcshow@showcase-Alpha.service
+      - mcshow@showcase-Bravo.service
+      - mcshow@showcase-Comet.service
+      - mcshow@showcase-Delta.service
+      - mcshow@showcase-Echo.service
+      - mcshow@showcase-Frost.service
+      - mcshow@showcase-Gale.service
+      - mcshow@showcase-Haven.service
+      - mcshow@showcase-Iris.service
+      - mcshow@showcase-Juno.service
+    processors:
+      - drop_event:
+          when:
+            and:
+              - equals: {systemd.transport: "stdout"}
+              - not:
+                  regexp: {message: "ERROR|WARN"}
+      - add_fields: {target: "@metadata", fields: {route: sysjournal}}
+
+processors:
+  # As on 10.0.0.31: the skill/llm templates are dynamic:strict and have no agent/ecs/host/input/log.
+  - drop_fields:
+      when.or:
+        - equals: {"@metadata.route": "llm"}
+        - equals: {"@metadata.route": "skill"}
+        - equals: {"@metadata.route": "ops"}
+      fields: ["agent", "ecs", "host", "input", "log"]
+      ignore_missing: true
+  - drop_fields:
+      when.equals: {"@metadata.route": "paper"}
+      fields: ["agent", "ecs", "input"]
+      ignore_missing: true
+
+output.elasticsearch:
+  hosts: ["http://10.0.0.186:9200"]
+  username: "${ES_USER}"
+  password: "${ES_PASS}"
+  indices:
+    - index: "mcai-skill-showcase"
+      when.equals: {"@metadata.route": "skill"}
+    - index: "mcai-llm-showcase"
+      when.equals: {"@metadata.route": "llm"}
+    - index: "mcai-mc-showcase"
+      when.equals: {"@metadata.route": "paper"}
+    - index: "mcai-sys-showcase"
+      when.equals: {"@metadata.route": "sysjournal"}
+    - index: "mcai-showcase-ops"
+      when.equals: {"@metadata.route": "ops"}
+    # catch-all, LAST: its own dynamic:false template; fleetstatus alarms on any document in it
+    - index: "mcai-misc-showcase"
+
+setup.ilm.enabled: false
+setup.template.enabled: false
+logging.level: info

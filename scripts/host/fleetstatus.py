@@ -140,6 +140,79 @@ def elk_disk(now, client=None):
     return out
 
 
+SHOWCASE_OPS = 'mcai-showcase-ops'      # the showcase VM's timelapse heartbeat rows (filebeat route ops)
+
+
+def showcase_report(until, client=None, window_h=3):
+    """The SHOWCASE block (docs/reports/showcase-2026-10-20.md section 4). It reads ONLY the showcase's own
+    streams -- the fleet sections above never see a showcase row -- and never raises: an unreadable stream is a
+    line saying so. Bots not started is a legitimate zero, stated with its denominator (the stream's own total)."""
+    client = client or DISK_CLIENT or _est.http
+    lines, out = [], {}
+    try:
+        from lib import showcasestatus as SS
+    except Exception as e:     # a tree installed without the helper must not blank the FLEET report
+        return {'lines': [f'SHOWCASE: block unavailable ({type(e).__name__}: {str(e)[:100]}) -- install '
+                          f'scripts/lib/showcasestatus.py beside estelemetry.py'], 'error': str(e)[:200]}
+    since = until - dt.timedelta(hours=window_h)
+    try:
+        sk = EsEvents.load('showcase-skill', since=since, until=until, gaps='allow', client=client)
+        n = sk.total()
+        out['skill_docs'] = n
+        if n:
+            bots = sk.bots_present()
+            vers = sk.terms('code.version', allow_zero=True)
+            deaths = sk.count('_death', allow_zero=True)
+            out.update(bots=len(bots), versions=vers, deaths=int(deaths))
+            lines.append(f'SHOWCASE bots: {len(bots)} present in {window_h} h ({n:,} skill docs), deaths {int(deaths)}, '
+                         f'builds {vers}')
+        else:
+            lines.append(f'SHOWCASE bots: 0 skill docs in {window_h} h (bots not started, or not shipping)')
+    except Exception as e:
+        lines.append(f'SHOWCASE bots: stream unreadable ({type(e).__name__}: {str(e)[:120]}) -- before the first '
+                     f'showcase bot row this is expected; afterwards check filebeat on 10.0.0.40')
+    try:
+        ll = EsEvents.load('showcase-llm', since=since, until=until, gaps='allow', client=client)
+        n = ll.total()
+        models = ll.terms('llm.model', allow_zero=True) if n else {}
+        unserved = n - sum(v for k, v in models.items() if k != _est.MISSING)
+        models = {k: v for k, v in models.items() if k != _est.MISSING}
+        eps = ll.terms('llm.endpoint', allow_zero=True) if n else {}
+        foreign = sum(v for k, v in eps.items() if k not in (_est.MISSING, 'http://127.0.0.1:11612'))
+        out.update(llm_docs=n, models=models, unserved=unserved, foreign_endpoint_rows=foreign)
+        lines.append(SS.brain_line(models, unserved, n, foreign))
+    except Exception as e:
+        lines.append(f'SHOWCASE BRAIN: stream unreadable ({type(e).__name__}: {str(e)[:120]})')
+    try:
+        r = client('POST', f'{SHOWCASE_OPS}/_search',
+                   {'size': 400, 'sort': [{'@timestamp': {'order': 'desc'}}],
+                    'query': {'bool': {'filter': [{'term': {'kind': 'showcase_timelapse'}},
+                                                  {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=26))}}}]}}})
+        rows = [h['_source'] for h in r['hits']['hits']]
+        f0 = next((dt.datetime.fromisoformat(x['frame0_t'].replace('Z', '+00:00')) for x in rows if x.get('frame0_t')),
+                  None)
+        lines.append(SS.timelapse_line(rows, until, frame0=f0))
+        pl = SS.pause_line(rows, until)
+        if pl:
+            lines.append(pl)
+        out['heartbeat_rows'] = len(rows)
+    except Exception as e:
+        lines.append(f'SHOWCASE TIMELAPSE: heartbeat unreadable ({type(e).__name__}: {str(e)[:120]}) -- not a healthy '
+                     f'timelapse, an unread one')
+    try:
+        r = client('POST', 'mcai-misc-showcase/_count?ignore_unavailable=true&allow_no_indices=true',
+                   {'query': {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=24))}}}})
+        n = int(r.get('count', 0))
+        out['misc_docs_24h'] = n
+        if n:
+            lines.append(f'  !! SHOWCASE UNROUTED: {n} docs in mcai-misc-showcase in 24 h -- filebeat on 10.0.0.40 met '
+                         f'an event with no route; fix its routing (nothing reached a bench stream: the writer cannot)')
+    except Exception as e:
+        lines.append(f'  !! SHOWCASE unrouted check unreadable ({type(e).__name__}: {str(e)[:100]})')
+    out['lines'] = lines
+    return out
+
+
 def pool_group(p):
     """isolated bots each carry their own pool ('self-isolated-a-Alpha'); group them as 'isolated-a'
     for display so the table reads by world like the other pools."""
@@ -307,6 +380,10 @@ def show(rep):
           f' >= {FULL_AT}: {b[f"full_ge_{FULL_AT}"]}; at {SLOTS}: {b[f"at_{SLOTS}"]}')
     for p, v in b['by_pool'].items():
         print(f'    {p:<12} bots {v["bots"]}  median {v["median"]}  >= {FULL_AT}: {v[f"ge_{FULL_AT}"]}')
+    if rep.get('showcase'):
+        print('\n=== SHOWCASE (10.0.0.40; its own streams -- never part of the fleet numbers above)')
+        for line in rep['showcase']['lines']:
+            print(f'  {line}')
 
 
 def main():
@@ -315,6 +392,7 @@ def main():
     ap.add_argument('--now', help='ISO end time (default: now); windows end 5 min before it')
     ap.add_argument('--stack', default='~/stack.json')
     ap.add_argument('--json')
+    ap.add_argument('--no-showcase', action='store_true', help='omit the SHOWCASE block (fleet sections unchanged)')
     a = ap.parse_args()
     now = (dt.datetime.fromisoformat(a.now.replace('Z', '+00:00')) if a.now
            else dt.datetime.now(dt.timezone.utc)).replace(second=0, microsecond=0)
@@ -330,6 +408,8 @@ def main():
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
     rep['bags'] = bag_report(now, a.stack)
+    if not a.no_showcase:
+        rep['showcase'] = showcase_report(until)
     show(rep)
     if a.json:
         with open(a.json, 'w') as fh:

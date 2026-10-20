@@ -1,0 +1,14 @@
+[Unit]
+Description=SHOWCASE timelapse capture (incremental BlueMap render + two fixed-camera frames + one heartbeat row)
+
+[Service]
+Type=oneshot
+User=mike
+Environment=TL_CONF=/srv/showcase/timelapse/tl.conf
+ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_showcase.py capture
+# A 15-min cadence: never let one capture run into the next slot's
+TimeoutStartSec=13min
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=200%
+MemoryMax=6G

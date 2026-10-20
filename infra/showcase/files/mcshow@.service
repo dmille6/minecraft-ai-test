@@ -1,0 +1,26 @@
+[Unit]
+Description=SHOWCASE bot (%i) -- runs only the release in /srv/showcase/harness; started only by start-bots.sh
+After=network-online.target showcase-paper.service showcase-studio-tunnel.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mcbot
+Group=mcbot
+WorkingDirectory=/srv/showcase/harness
+EnvironmentFile=/srv/showcase/harness/env/%i.env
+# Same envelope as the fleet's mcbot@.service on 10.0.0.31 (768 MB heap, 1G cgroup ceiling).
+ExecStart=/usr/bin/node --max-old-space-size=768 --heapsnapshot-near-heap-limit=1 src/index.mjs
+Restart=always
+RestartSec=10
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/log/mcai /var/lib/mcai
+
+[Install]
+WantedBy=multi-user.target
