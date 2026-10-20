@@ -39,9 +39,9 @@
    ],
    "pieces": 92,
    "dist": 96,
-   "markers": 1638,
+   "markers": 1470,
    "marker_counts": {
-    "dirt_path": 818,
+    "dirt_path": 650,
     "cobblestone": 500,
     "spruce_planks": 100,
     "spruce_trapdoor": 87,
@@ -55,6 +55,7 @@
     "purple_bed": 8
    },
    "houses": 9,
+   "lowest_block": 62,
    "zone": "village-taiga-6_1",
    "special": [
     [
@@ -428,9 +429,9 @@
    ],
    "pieces": 122,
    "dist": 378,
-   "markers": 2735,
+   "markers": 2524,
    "marker_counts": {
-    "dirt_path": 1140,
+    "dirt_path": 929,
     "cobblestone": 878,
     "spruce_trapdoor": 195,
     "spruce_planks": 151,
@@ -444,6 +445,7 @@
     "purple_carpet": 20
    },
    "houses": 14,
+   "lowest_block": 62,
    "zone": "village-taiga-23_-20",
    "special": [
     [
@@ -1601,22 +1603,23 @@
    ],
    "pieces": 112,
    "dist": 787,
-   "markers": 3763,
+   "markers": 3528,
    "marker_counts": {
-    "dirt_path": 1083,
+    "dirt_path": 854,
     "spruce_planks": 838,
     "stripped_spruce_log": 469,
     "snow_block": 316,
     "stripped_spruce_wood": 218,
-    "packed_ice": 159,
+    "packed_ice": 155,
     "spruce_slab": 144,
     "spruce_fence": 112,
     "spruce_stairs": 56,
     "farmland": 55,
-    "blue_ice": 44,
+    "blue_ice": 42,
     "potatoes": 41
    },
    "houses": 23,
+   "lowest_block": 62,
    "zone": "village-snowy--50_49",
    "special": [
     [
@@ -2216,12 +2219,11 @@
    ],
    "pieces": 59,
    "dist": 821,
-   "markers": 1821,
+   "markers": 1608,
    "marker_counts": {
-    "dirt_path": 503,
+    "dirt_path": 429,
     "stripped_spruce_log": 369,
     "spruce_planks": 343,
-    "packed_ice": 138,
     "spruce_fence": 117,
     "stripped_spruce_wood": 66,
     "spruce_stairs": 57,
@@ -2229,9 +2231,11 @@
     "farmland": 36,
     "potatoes": 27,
     "lantern": 22,
-    "snow_block": 15
+    "snow_block": 15,
+    "wall_torch": 14
    },
    "houses": 9,
+   "lowest_block": 63,
    "zone": "village-snowy--52_-48",
    "special": [
     [
@@ -2281,12 +2285,6 @@
      72,
      -771,
      "bell"
-    ],
-    [
-     -807,
-     66,
-     -775,
-     "chest"
     ],
     [
      -834,
@@ -2518,9 +2516,9 @@
    ],
    "pieces": 192,
    "dist": 862,
-   "markers": 4235,
+   "markers": 3724,
    "marker_counts": {
-    "dirt_path": 1541,
+    "dirt_path": 1033,
     "spruce_planks": 828,
     "stripped_spruce_wood": 363,
     "stripped_spruce_log": 351,
@@ -2534,6 +2532,7 @@
     "potatoes": 39
    },
    "houses": 22,
+   "lowest_block": 59,
    "zone": "village-snowy-1_54",
    "special": [
     [
@@ -3245,9 +3244,9 @@
    ],
    "pieces": 147,
    "dist": 926,
-   "markers": 3556,
+   "markers": 3165,
    "marker_counts": {
-    "dirt_path": 1376,
+    "dirt_path": 986,
     "spruce_planks": 863,
     "stripped_spruce_wood": 377,
     "stripped_spruce_log": 293,
@@ -3261,6 +3260,7 @@
     "glass_pane": 26
    },
    "houses": 13,
+   "lowest_block": 63,
    "zone": "village-snowy--58_-14",
    "special": [
     [
@@ -3504,30 +3504,25 @@
    ],
    "pieces": 127,
    "dist": 934,
-   "markers": 4368,
+   "markers": 3919,
    "marker_counts": {
-    "spruce_planks": 1086,
-    "dirt_path": 1006,
+    "spruce_planks": 1024,
     "stripped_spruce_log": 697,
+    "dirt_path": 655,
     "stripped_spruce_wood": 377,
     "spruce_slab": 284,
-    "spruce_fence": 222,
     "snow_block": 217,
-    "spruce_stairs": 131,
+    "spruce_fence": 210,
+    "spruce_stairs": 116,
     "lantern": 46,
     "spruce_door": 40,
     "farmland": 37,
     "glass_pane": 35
    },
    "houses": 23,
+   "lowest_block": 62,
    "zone": "village-snowy-59_-30",
    "special": [
-    [
-     916,
-     63,
-     -506,
-     "chest"
-    ],
     [
      917,
      70,
@@ -3785,12 +3780,6 @@
      68,
      -440,
      "fletching_table"
-    ],
-    [
-     915,
-     63,
-     -516,
-     "chest"
     ]
    ]
   },

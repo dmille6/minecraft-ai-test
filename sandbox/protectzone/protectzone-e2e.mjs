@@ -63,8 +63,9 @@ function worldIdOf (seed) {
 }
 
 // ---------------------------------------------------------------- the arena: flat ground, a small spruce house in the zone
-const C = { x: 3000, z: 3000 }
-const A = { x0: C.x - 50, x1: C.x + 40, z0: C.z - 30, z1: C.z + 30, y0: 100, y1: 140 }
+// inside the bot's WORLD_BORDER_RADIUS 4000 from spawn (gather drops candidates beyond it: the first run at 3000,3000 found none)
+const C = { x: 2000, z: -2400 }
+const A = { x0: C.x - 50, x1: C.x + 40, z0: C.z - 30, z1: C.z + 30, y0: 94, y1: 140 }
 const ZB = { x0: C.x - 5, y0: 110, z0: C.z - 15, x1: C.x + 25, y1: 135, z1: C.z + 15 }      // 31 x 26 x 31 = 24,986 cells (< clone's 32,768)
 const COPY_DZ = 100                                                                          // the pristine copy, 100 south
 // home: 3 west of the zone for the chest / craft scenes (the village chest 15 east of home, inside the town's scan); 25 west
@@ -79,7 +80,7 @@ function buildArena () {
   rcon(...c)
   const k = [`kill @e[type=!player,x=${A.x0},y=${A.y0},z=${A.z0},dx=${A.x1 - A.x0},dy=${A.y1 - A.y0},dz=${A.z1 - A.z0}]`]
   for (let y = A.y0; y <= A.y1; y += 5) k.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(A.y1, y + 4)} ${A.z1} minecraft:air`)
-  for (let y = 108; y <= 116; y += 4) k.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(116, y + 3)} ${A.z1} minecraft:stone`)
+  for (let y = A.y0; y <= 116; y += 4) k.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(116, y + 3)} ${A.z1} minecraft:stone`)   // solid to 94: the stair never meets the world below
   k.push(`fill ${A.x0} 117 ${A.z0} ${A.x1} 119 ${A.z1} minecraft:dirt`)
   // the house: spruce plank walls 5 x 5, 3 high, a plank roof, an open doorway on the west; a chest, a table, a bed inside
   const hx0 = C.x + 5, hx1 = C.x + 9, hz0 = C.z - 2, hz1 = C.z + 2
@@ -194,23 +195,40 @@ async function scene (spec) {
   const files = await startBot(spec, bag, at)
   const t0 = Date.now()
   const verb = name === 'gather' ? { skill: 'gather', args: { block: 'dirt', count: 3 } }
-    : name === 'mine' ? { skill: 'mine', args: { y: 104 } }
+    : name === 'mine' ? { skill: 'mine', args: { y: 106 } }
     : name === 'chest' ? { skill: 'withdraw', args: { item: 'oak_log', count: 8 } }
     : { skill: 'craft', args: { item: 'wooden_pickaxe', count: 1 } }
   brainQueue.length = 0; brainQueue.push(verb)
   const done = await waitFor(() => skillRow(rowsOf(files.skillLog), verb.skill, t0), 6 * 60_000, 2000)
   await sleep(4000)
+  // THE REMEDY, PERFORMED (CLAUDE.md: a refusal's remedy must be executable from where the bot is): when the refusal names a
+  // goto, the scripted brain makes that walk and asks again; the second outcome is the chain's
+  let remedy = null
+  const go = done && /goto (-?\d+) (-?\d+) (-?\d+)/.exec(done.detail)
+  if (on && go) {
+    const t1 = Date.now()
+    brainQueue.push({ skill: 'goto', args: { x: Number(go[1]), y: Number(go[2]), z: Number(go[3]) } }, verb)
+    const walked = await waitFor(() => skillRow(rowsOf(files.skillLog), 'goto', t1), 3 * 60_000, 2000)
+    const again = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === verb.skill && r.ts > (walked?.ts ?? t1) && r.status !== 'started'), 4 * 60_000, 2000)
+    await sleep(3000)
+    remedy = { goto: walked ? `${walked.status} ${walked.detail.slice(0, 80)}` : 'no goto row', again: again ? `${again.status} ${again.detail.slice(0, 160)}` : 'no second row' }
+  }
   const rows = rowsOf(files.skillLog)
-  const ev = { scene: spec, zoneFile: on, verb, outcome: done ? `${done.status} ${done.detail.slice(0, 220)}` : 'no outcome row',
+  const ev = { scene: spec, zoneFile: on, verb, outcome: done ? `${done.status} ${done.detail.slice(0, 220)}` : 'no outcome row', remedy,
                zone: zoneIntact(), chestBefore: pre.chest, chestAfter: chestItems(), ...pzRows(rows) }
   if (name === 'craft') ev.tablesOutside = tablesOutside()
   if (name === 'gather') ev.gotDirt = /dirt/.test(r1(`data get entity ${NAME} Inventory`))
   await stopBot()
   // THE VERDICT. With the zone: the zone and the chest are exactly as before. Without it (the control): the scene changed them.
-  const changed = !ev.zone.intact || ev.chestAfter !== ev.chestBefore
-  ev.ok = on ? (ev.zone.intact && ev.chestAfter === ev.chestBefore && ev.mode.some(d => /zones=1 why=ok/.test(d))) : changed
+  // craft: the control USES the village table (a success with no table of its own placed) -- a use changes no block
+  const usedVillageTable = name === 'craft' && /^success/.test(ev.outcome) && ev.tablesOutside.length === 0
+  const changed = !ev.zone.intact || ev.chestAfter !== ev.chestBefore || usedVillageTable
+  ev.ok = on ? (ev.zone.intact && ev.chestAfter === ev.chestBefore && !usedVillageTable && ev.mode.some(d => /zones=1 why=ok/.test(d))) : changed
   if (on && name === 'gather') ev.ok = ev.ok && ev.gotDirt
   if (on && name === 'mine') ev.ok = ev.ok && /^success/.test(ev.outcome)
+  // craft with the zone, standing inside it: either its own table outside, or the refusal that names the walk out
+  // (craft takes its own table back after use: the proof is the second craft's success, with the zone intact)
+  if (on && name === 'craft') ev.ok = ev.ok && !!remedy && /^success/.test(remedy.again) && /placed a crafting_table/.test(remedy.again)
   result(ev)
 }
 
