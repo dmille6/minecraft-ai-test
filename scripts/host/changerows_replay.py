@@ -264,7 +264,14 @@ def live_mode(inst, staged, rules_staged, work, module_dir):
     print('installed: %s' % (li[:500] or ei))
     print('staged:    %s' % (ls[:500] or es))
     shutil.rmtree(logroot, ignore_errors=True)
-    return 0 if word(li) == word(ls) else 1
+    # round 2 (Codex P2): two crashes are not a match (None == None), and the word alone hides a reason difference
+    if word(li) is None or word(ls) is None or not ai or not as_:
+        print('FAIL: no verdict line or no artifact (installed: %s | staged: %s)' % (ei or li[:200], es or ls[:200]))
+        return 1
+    same = (word(li) == word(ls) and ai.get('extra') == as_.get('extra')
+            and unstage(ai.get('why', [])) == unstage(as_.get('why', [])))
+    print('%s %s LIVE poll' % ('SAME' if same else 'DIFF', run))
+    return 0 if same else 1
 
 
 KNOWN_DRYRUN_ERROR = "NameError: name 'ALLBOTS' is not defined"
