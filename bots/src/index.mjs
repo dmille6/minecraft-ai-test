@@ -56,7 +56,7 @@ import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence r
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
-import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters } from './protectzone.mjs'   // protectzone-01
+import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
 import { startComms } from './comms.mjs'
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
@@ -307,12 +307,17 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
-    // protectzone-01: THE PROTECTED ZONES (protectzone.mjs) -- one per-world file in the town's own directory, re-read at most
-    // every 30 s; no file -> no zone, and every guard below passes straight through. Read here, before the movement profiles
-    // and the guard that use it. The licence row says what this spawn loaded (`_protectzone_mode`).
-    const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null })
-    bot.protectZones = zoneRd.zones
-    try { logEvent({ kind: 'protectzone_mode', status: 'success', snapshot: snapshot(bot), detail: protectZoneModeDetail(zoneRd.state(), bot.worldId) }) } catch {}
+    // protectzone-01: THE PROTECTED ZONES (protectzone.mjs) -- one per-world file in the town's own directory, read now and
+    // every 30 s on a timer (never inside the A* step); no file -> no zone, and every guard below passes straight through.
+    // Read here, before the movement profiles and the guard that use it. The licence row says what this spawn loaded
+    // (`_protectzone_mode`), and again whenever that changes (an install, an edit, a removal, a broken file kept stale).
+    const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null,
+      onChange: st => { try { logEvent({ kind: 'protectzone_mode', status: 'success', snapshot: snapshot(bot), detail: protectZoneModeDetail(st, bot.worldId) }) } catch {} } })
+    zoneRd.refresh()
+    const zoneTimer = setInterval(() => zoneRd.refresh(), ZONE_RELOAD_MS); zoneTimer.unref?.()
+    bot.once('end', () => clearInterval(zoneTimer))
+    // THE OVERWORLD ONLY (Claude r1 P3): the hashed seed is the same in every dimension, the village is not
+    bot.protectZones = () => (/overworld$/.test(String(bot.game?.dimension ?? 'overworld')) ? zoneRd.zones() : [])
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -592,7 +597,7 @@ function connect() {
     // references. No zone loaded -> the price is 0 everywhere and the profile is the base's.
     const zonePrice = zoneCost(() => bot.protectZones?.() ?? [])
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
-    moves.exclusionAreasBreak = [...moves.exclusionAreasBreak, zonePrice]
+    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePrice]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
