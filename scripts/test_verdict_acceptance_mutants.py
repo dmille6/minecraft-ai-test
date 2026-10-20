@@ -252,7 +252,8 @@ MUTANTS = [
     # one -- which is how the alarm went deaf without anyone noticing.
     ('the linkage-unavailable warning removed',
      'verdict.py',
-     'if _cd >= 2 and not C_ROWS:',
+     # RE-ANCHORED 2026-10-20: v34 appended `and not _USAFE`, and this mutant had SKIPPED ever since
+     'if _cd >= 2 and not C_ROWS and not _USAFE:',
      'if False:',
      '  and it says LINKAGE UNAVAILABLE when no change_rows are declared', 'False',
      "A canary with no declared change rows cannot use the licensed-row path at all. If the "
@@ -316,8 +317,9 @@ MUTANTS = [
     # visible at all. A mutant whose anchor has drifted reads exactly like a passing one.
     ('the death gate silenced entirely',
      'verdict.py',
-     "if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT'))",
-     "if False: why.append(_why); (out('REVERT'))",
+     # RE-ANCHORED 2026-10-20: v33 gave this out() a `by` payload, and this mutant had SKIPPED ever since
+     "if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT', {'by': 'death_gate',",
+     "if False: why.append(_why); (out('REVERT', {'by': 'death_gate',",
      '9 deaths in 30 bot-h vs 3 in 210', 'KEEP',
      "swim_to shipped and tripled drowning deaths. A suite that only ever proves the "
      "harness does NOT revert has tested one direction of one rule."),
