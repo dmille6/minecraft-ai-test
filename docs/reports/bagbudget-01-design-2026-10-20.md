@@ -255,12 +255,12 @@ Read `scripts/host/bagbudgetread.py` (files; DiD canary vs control; denominators
      ladders below 26 (the rows the read can judge from the row alone).
   D3 `breach_full_noeffect_chest`: a canary `phase=none` row with `rows=1` and `chest=1` -- a CONSISTENCY tripwire (the
      class comes from the same plan, so it trips only if the two disagree: Claude code r1 P3-1).
-  D6 `breach_planner_omitted`: >= 2 canary full-bag no_effect rows whose own snapshot holds a torch, bone_meal or < 26
-     ladders while the `phase=none` row says `rows=1` -- the read's INDEPENDENT check of the planner (one is reported, never
-     a verdict: a model's `withdraw torch` hold is invisible to the read).
+  CROSS-CHECK (REPORTED, never a verdict; Codex code r2 P2-2): canary full-bag no_effect rows whose own snapshot holds a
+     torch, bone_meal or < 26 ladders while the `phase=none` row says `rows=1` -- the read's independent look at the
+     planner, printed with names; a wanted floor or a withdraw hold keeps them legitimately and the read sees neither.
   D4 `breach_ingot_banked` (cobblekeep-01's, carried).
   D5 `harm_storage_full`: canary `town_storage_full` failures >= 3 AND above 2x the control's rate per bot-h.
-- (The cross-check of Codex design r1 P1-4 is D6 above.)
+- (The cross-check of Codex design r1 P1-4 is above.)
 - PRIMARY (DiD, reported): share of bots at >= 34 slots, slots per bot, full-bag town deposits that banked > 0 (share), craft
   "no slot can be freed" per bot-h, gather success; spent pickaxes per full bag. UNLISTED names in full bags (for the owner).
 - EXPOSURE (declared, tier 2): >= 3 canary `_bagbudget phase=bank` rows that banked an allowance stack AND >= 1 canary
@@ -358,3 +358,13 @@ dispose_well and the egg/flint gone; bagfar needs four spent copies before and t
 well.test.mjs (deletion pending -> every town_deposit order rows=false and dispose_well given; no well -> rows=true;
 an anchored mutant of the cognitive reader); D6 (>= 2 independent omissions REVERT); the clock comment; bagmix reads the
 difficulty; bestFood skips names another exit owns; craftRoomRemedy takes the switch and its tests pin both rules.
+
+**Code r2 (on 7af10484).** Claude APPROVE (every round-1 finding resolved; the craftroom change right; P3: D6 counts rows,
+not bots; `"class": ""` beside `"tier": 2` -- tierrule.py `not reg.get('class')` reads '' as absent, the operator's
+cobblekeep-01 registration has the same pair; the well.test chain's runner moves nothing, so Paper bagwell stays a launch
+precondition). Codex CHANGE: P2 two incomplete visits could still stitch (A's 1/2 + B's 2/2); P2 D6 can false-REVERT on
+legitimate keeps (wanted floors, withdraw holds); P3 RCON_LOCAL trusts the launcher's lock word. TAKEN: every bank part
+carries the visit's id `v=` and the read never joins parts of two visits (fixture: 2 incomplete); D6 removed -- the
+cross-check is reported only. NOT CHANGED (P3, documented): under RCON_LOCAL the driver runs ON the sandbox host, which
+cannot reach 10.0.0.31; the launcher (bbpaper.sh) takes the lock atomically with mkdir on 10.0.0.31 before it starts the
+driver and releases it after, and the driver still refuses a non-empty sandbox.

@@ -1318,6 +1318,7 @@ test('BAGBUDGET SKILL: the measured mix at town -> torch, bone meal, ladders and
   const bank = rows.filter(d => d.startsWith('phase=bank'))
   assert.ok(bank.length >= 1 && /allow=torch=11:11/.test(bank.join(' ')) && /allow=bone_meal=32:32/.test(bank.join(' ')), bank.join(' | '))
   assert.ok(bank.every(d => d.length <= 300 && /part=\d+\/\d+/.test(d)))
+  assert.ok(bank.every(d => /^phase=bank v=[^ -][^ ]* /.test(d)), 'every part names its visit (the read joins parts by it)')
 })
 test('BAGBUDGET SKILL: THE VISIT LATCH -- a first chest with one free slot takes the bag to 33; the second still takes the rest', async () => {
   const items = bag([['torch', 20], ['bone_meal', 9], ['ladder', 3], ...filler(31)])   // 34 slots, nothing else bankable

@@ -7328,7 +7328,8 @@ async function townDeposit (ctx, _args, signal) {
   if (allowPlanned.length || n > 0) {
     try {
       // COMPLETE, IN PARTS (Codex design r2 P2-3): every banked name is on some part, each part under the 300-char cut
-      for (const detail of bagBudgetBankDetails({ planned: allowPlanned, heldBefore, banked, slotsBefore, slotsAfter, peaceful: foodSkipNow(bot).active }))
+      const visit = `${(bot.username ?? 'b').slice(-6)}.${Date.now().toString(36)}`
+      for (const detail of bagBudgetBankDetails({ planned: allowPlanned, heldBefore, banked, slotsBefore, slotsAfter, peaceful: foodSkipNow(bot).active, visit }))
         logEvent({ kind: 'bagbudget', status: n > 0 ? 'success' : 'failed', snapshot: snapshot(bot), detail })
     } catch { /* telemetry */ }
   }

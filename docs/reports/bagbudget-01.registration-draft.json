@@ -41,8 +41,6 @@
      "note": "D2: a station left below 1, or 26+ ladders banked."},
     {"read": "bagbudgetread", "field": "breach_full_noeffect_chest", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
      "note": "D3: a canary full-bag no_effect whose phase=none row says rows=1 chest=1 (chest surplus planned to nothing)."},
-    {"read": "bagbudgetread", "field": "breach_planner_omitted", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
-     "note": "D6: >= 2 canary full-bag no_effect rows whose own snapshot holds a torch, bone_meal or < 26 ladders while phase=none says rows=1 (the read's independent check of the planner; one is reported only). D3 above is a consistency tripwire."},
     {"read": "bagbudgetread", "field": "breach_ingot_banked", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
      "note": "D4 (cobblekeep-01's): an ingot banked by the town deposit (its row or the complete bank parts)."},
     {"read": "bagbudgetread", "field": "harm_storage_full", "op": "<=", "value": 0, "on_fail": "REVERT",
@@ -57,7 +55,7 @@
   "primary": {
     "read": "bagbudgetread",
     "field": "full_share_did",
-    "note": "REPORTED, NOT GATED: share of bots >= 34 slots (est.) DiD (should FALL; dry run on identical code +0.067), slots per bot DiD (null +0.31), full-bag town deposits that banked > 0 share DiD (should RISE; null -0.066), craft 'no slot can be freed' per bot-h DiD (should FALL; null -0.083), gather success DiD (null +0.120); spent pickaxes worn (phase=wear rows); the cross-check (planner omissions the read can see); UNLISTED names in canary full bags for the owner's junk-list call. A REVERT never rests on these."
+    "note": "REPORTED, NOT GATED: share of bots >= 34 slots (est.) DiD (should FALL; dry run on identical code +0.067), slots per bot DiD (null +0.31), full-bag town deposits that banked > 0 share DiD (should RISE; null -0.066), craft 'no slot can be freed' per bot-h DiD (should FALL; null -0.083), gather success DiD (null +0.120); spent pickaxes worn (phase=wear rows); the cross-check (planner omissions the read can see: REPORTED only, a wanted floor or a withdraw hold keeps them legitimately); UNLISTED names in canary full bags for the owner's junk-list call. A REVERT never rests on these."
   },
   "harm": {
     "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. D5 above."
