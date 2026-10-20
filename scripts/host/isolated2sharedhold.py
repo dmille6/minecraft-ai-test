@@ -22,8 +22,12 @@ JOURNAL = os.path.join(H, 'canary-journal.jsonl')
 RUN = 'isolated2shared-01'
 HT = os.environ.get('HOLDTOKEN', os.path.join(H, 'gate-v36', 'holdtoken.py'))
 LONG_CLASSES = ('underground-safety', 'bag-fix')
-TRANSITIONS = ('owner-direct', 'apply-done', 'rollback-done', 'apply-incomplete', 'rollback-incomplete', 'apply-refused', 'rollback-refused')
-OUTCOMES = ('apply-done', 'rollback-done', 'apply-refused', 'rollback-refused')    # a transition that ended in a known state
+TRANSITIONS = ('owner-direct', 'apply-done', 'rollback-done', 'apply-incomplete', 'rollback-incomplete', 'apply-refused',
+               'rollback-refused', 'apply-blocked', 'rollback-blocked')
+# per POOL, the state its LAST transition row (journal order) left it in:
+SAFE = ('apply-done', 'rollback-done', 'apply-refused', 'rollback-refused')     # refused = nothing written, pool uniform, restarted
+UNSAFE = ('apply-incomplete', 'rollback-incomplete', 'apply-blocked', 'rollback-blocked')   # blocked = refused, pool NOT uniform
+CHANGED = ('apply-done', 'rollback-done', 'apply-incomplete', 'rollback-incomplete', 'apply-blocked', 'rollback-blocked')
 FLOOR = 240
 
 
@@ -60,39 +64,41 @@ def quiet_from(ready, entries, read_reg):
     return max(max(w) + 60, FLOOR), None
 
 
-def last_transition(lines, run=RUN):
-    """PURE. The newest ts of a transition row of `run` in journal lines, or None."""
-    last = None
-    for l in lines:
+def _rows(lines, run=RUN):
+    """PURE. -> [(index, ts, phase, pool)] of this rollout's transition rows, in JOURNAL ORDER (never by timestamp: a refusal
+    can land in the same second as its start row, Claude r5 P3-1). `pool` is the row's field (rows since r6) or None."""
+    out = []
+    for n, l in enumerate(lines):
         try:
             r = json.loads(l)
         except Exception:
             continue
         if r.get('run') == run and r.get('phase') in TRANSITIONS and r.get('ts'):
-            last = max(last or '', r['ts'])
-    return last
+            out.append((n, r['ts'], r['phase'], r.get('pool')))
+    return out
+
+
+def last_transition(lines, run=RUN):
+    """PURE. The ts of this rollout's last transition row (journal order), or None."""
+    rows = _rows(lines, run)
+    return rows[-1][1] if rows else None
 
 
 def unreconciled(lines, run=RUN):
-    """PURE. -> the reason release must wait, or None. The newest `owner-direct` (written BEFORE the units stop) must be
-    followed by an OUTCOME row; a newest `*-incomplete` (units left stopped, the pool possibly mixed) is never reconciled by
-    time -- only by a re-run or a rollback that ends in an outcome (Codex r4 P2-2)."""
-    rows = []
-    for l in lines:
-        try:
-            r = json.loads(l)
-        except Exception:
-            continue
-        if r.get('run') == run and r.get('phase') in TRANSITIONS and r.get('ts'):
-            rows.append((r['ts'], r['phase']))
-    if not rows:
-        return None
-    ts, ph = max(rows)
-    if ph == 'owner-direct':
-        return 'a transition started %s has no outcome row (interrupted?): reconcile it first' % ts
-    if ph.endswith('-incomplete'):
-        return 'the last transition (%s %s) is incomplete: re-run or roll back first' % (ph, ts)
-    return None
+    """PURE. -> the reason release must wait, or None. PER POOL (Codex r5 P2-2): every pool's last row must be SAFE; a pool
+    whose last row is `owner-direct` (started, no outcome), or UNSAFE (`*-incomplete`, `*-blocked`: units left stopped, the
+    pool possibly mixed or mid-rollback; Codex r5 P2-1), is reconciled only by a later run on THAT pool that ends SAFE --
+    never by time, and never by another pool's success. A row with no pool field is judged as its own pool `?`."""
+    last = {}
+    for _n, ts, ph, pool in _rows(lines, run):
+        last[pool or '?'] = (ts, ph)
+    bad = ['%s: %s %s' % (p, ph, ts) for p, (ts, ph) in sorted(last.items()) if ph not in SAFE]
+    return ('not reconciled -- re-run or roll back first: ' + '; '.join(bad)) if bad else None
+
+
+def changed_since(lines, since, run=RUN):
+    """PURE. Did any row at or after `since` change a pool (done / incomplete / blocked)? A uniform refusal did not."""
+    return any(ts >= since and ph in CHANGED for _n, ts, ph, _p in _rows(lines, run))
 
 
 def release_ok(now, last, quiet):
@@ -127,11 +133,18 @@ _J = ['{"ts":"2026-10-20T10:00:00Z","run":"isolated2shared-01","phase":"apply-do
 assert last_transition(_J) == '2026-10-20T10:00:00Z'
 assert release_ok(_N, '2026-10-20T10:00:00Z', 120) == (True, parse('2026-10-20T12:00:00Z'))
 assert release_ok(_N, '2026-10-20T10:00:00Z', 121)[0] is False and release_ok(_N, None, 1)[0] is False
-_J2 = _J + ['{"ts":"2026-10-20T11:40:00Z","run":"isolated2shared-01","phase":"owner-direct"}']
+_r = lambda ts, ph, pool: '{"ts":"2026-10-20T%s","run":"isolated2shared-01","phase":"%s","pool":"%s"}' % (ts, ph, pool)
+_J2 = _J + [_r('11:40:00Z', 'owner-direct', 'isolated-b')]
 assert last_transition(_J2) == '2026-10-20T11:40:00Z', 'an owner-direct row is a transition: the quiet period counts from it'
 assert unreconciled(_J2) and unreconciled(_J) is None
-assert unreconciled(_J + ['{"ts":"2026-10-20T11:50:00Z","run":"isolated2shared-01","phase":"apply-incomplete"}'])
-assert unreconciled(_J2 + ['{"ts":"2026-10-20T11:41:00Z","run":"isolated2shared-01","phase":"apply-done"}']) is None
+assert unreconciled(_J2 + [_r('11:41:00Z', 'apply-done', 'isolated-b')]) is None
+assert unreconciled(_J2 + [_r('11:40:00Z', 'apply-refused', 'isolated-b')]) is None, 'same-second refusal: journal order, not ts+phase'
+assert unreconciled(_J2 + [_r('11:41:00Z', 'apply-blocked', 'isolated-b')]), 'Codex r5 P2-1: a refusal that left a pool stopped is not reconciled'
+assert unreconciled([_r('10:00:00Z', 'apply-incomplete', 'isolated-b'), _r('11:00:00Z', 'owner-direct', 'isolated-c'), _r('11:01:00Z', 'apply-done', 'isolated-c')]), \
+    'Codex r5 P2-2: isolated-c succeeding does not reconcile isolated-b'
+assert unreconciled([_r('10:00:00Z', 'apply-incomplete', 'isolated-b'), _r('11:00:00Z', 'owner-direct', 'isolated-b'), _r('11:01:00Z', 'apply-done', 'isolated-b')]) is None
+assert changed_since([_r('11:00:00Z', 'owner-direct', 'isolated-b'), _r('11:00:00Z', 'apply-refused', 'isolated-b')], '2026-10-20T10:00:00Z') is False
+assert changed_since([_r('11:00:00Z', 'apply-blocked', 'isolated-b')], '2026-10-20T10:00:00Z') is True
 assert extended_until('2026-10-20T20:00:00Z', _N, 60) == parse('2026-10-20T20:00:00Z'), 'never shorter'
 assert extended_until('2026-10-20T12:30:00Z', _N, 60) == parse('2026-10-20T14:00:00Z')
 
@@ -247,8 +260,13 @@ def cmd_drop():
         last = last_transition(open(JOURNAL).read().splitlines())
     except Exception:
         last = 'unknown'
-    if last and (last == 'unknown' or last >= h.get('claimed_at', '')):
-        print('NOT DROPPED: a transition happened under this hold (%s)' % last); return 2
+    try:
+        lines = open(JOURNAL).read().splitlines()
+    except Exception:
+        lines = None
+    # a run whose refusals restarted uniform pools changed nothing: its hold may go (Claude r5 P3-2)
+    if lines is None or changed_since(lines, h.get('claimed_at', '')) or unreconciled(lines):
+        print('NOT DROPPED: a pool changed (or is unreconciled) under this hold (%s)' % last); return 2
     ht = _ht(); P = ht._sched().paths()
     ht.release(P, h['token'])
     if ht.owner_of(P['install_hold']) == h['token']:

@@ -3,7 +3,7 @@
 _2026-10-20, written by an agent session for the coordinator. OWNER APPROVED about 12:45Z ("i agree do it all, get it working").
 Fleet at writing: `9e7d9980` (cobblekeep-01, promoted 11:23Z) on 70 bots. bagbudget-01 `31416ee5` has been live on board-d and
 hive-a since 11:35Z. Branch: `isolated2shared-on-9e7d998`, cut from the fleet sha. It changes **no bot code**: the changes are a
-host tool, a wrapper, a tripwire, one test file and this document. Revision r5 folds in the r1-r4 reviews; section 10 lists each finding and how it was handled._
+host tool, a wrapper, a tripwire, one test file and this document. Revision r6 folds in the r1-r5 reviews and the coordinator's hold question (5.2a); section 10 lists each finding and how it was handled._
 
 ## 0. Summary
 
@@ -398,6 +398,51 @@ The choice is the owner's (section 9).
 The underground-safety and bag-fix classes (PRE 24 h, 24-h null bands) need **24 h** after the last transition. None is
 queued.
 
+### 5.2a Why not exclude the converted pools instead of holding? (coordinator question, 10-20)
+
+**Draws: the converted pools are already excluded, by name, and stay excluded.** Every draw rule tests
+`startswith('isolated')`. `draw-exclude.txt` would add nothing.
+
+**Controls: no exclusion mechanism exists, and building one is a gate change.**
+
+* drawrec.sh's `excl` and `draw-exclude.txt` feed the DRAW only.
+* No read takes a control list. Control is every non-canary bot:
+  * verdict.py: `ALLBOTS - CANARY_BOTS`, in the digest-pinned gate bundle;
+  * every queued registered read: `arm = 'canary' if pool_of(b) in CANS else 'control'` (kitsearchread.py:141,
+    ironpickread.py:329, bagbudgetread.py:178, and bambooread, foldwatchread, treefarmread the same).
+* toolkit-03's queue entry pins `kitsearchread_md5`, and every registration carries its sha256.
+* Excluding the four pools from control for N hours therefore means editing verdict.py (a new bundle digest and gate
+  generation) plus every queued read, then re-registering and replacing each variant. That needs both reviews and an install
+  under install-hold. It is the right long-term mechanism, and it belongs with 5.3 (admission). It is far larger than this
+  rollout, so it is not built here.
+* immobiledid.py already drops isolated-* bots on both arms, so the movement guard needs nothing.
+
+**What the hold actually protects, and for how long.**
+
+1. **The pilot's rollback window: 180 min.** The tool refuses while any canary is declared (correctly: a rollback is a
+   transition). If a canary launched during the pilot's tripwire window, a BREACH could not be rolled back until that canary
+   ended, or it would land mid-read in its control.
+2. **The next canary's deciding baseline: that read's PRE.** Every queued registration is tier 2 and can KEEP at +180, with
+   PRE = 180 min. If a conversion falls inside that PRE, the control arm's PRE is the old config and its POST is the new
+   one. The full step then lands in the DiD, weighted 5/70 of control for the pilot and 15/70 for the rest. The metrics the
+   queued canaries measure (toolkit search, iron pickaxes, bag budget, smelting) are town and chest metrics, and those are
+   exactly what the conversion changes.
+3. **The later reads (+360/+720) of the same canary.** These matter only if +180 did not KEEP. With a 240-min hold, the step
+   sits in the first third (+360) or two-thirds (+720) of their PRE.
+
+**Minimum design: 240 min after each phase, not zero.** This is pilot conversion in a canary gap, hold 240 (it covers 1 and 2),
+then the rest after the pilot's OK, hold 240. That is **about 7 h** of empty slot in total, instead of about 16 h (780-min
+rule while toolkit-03 is queued). The residual is a known, bounded contamination of reads after +180, and only for a canary
+that did not KEEP at +180.
+
+The wrapper supports this as an explicit, journalled choice:
+`--quiet 240 --why "<text>" --accept-contamination "<who decided>"`. Without that flag, `--quiet` can only raise the computed
+value. The 240-min floor cannot be lowered: it is the rollback window.
+
+**Zero hold (exclusion only) is not available** without the gate change above. If it were taken anyway, a pilot BREACH
+could not be rolled back during the next canary, and that canary's +180 KEEP would read the conversion as part of its
+control.
+
 ### 5.3 Later: admit the 4 towns to draws and to the name-excluding controls (a separate gate change, NOT built here)
 
 After at least 72 h of post-conversion history:
@@ -463,7 +508,7 @@ On 10.0.0.31, once: `mkdir -p ~/isolated2shared`, then copy the three files from
 
 ## 7. Evidence produced here
 
-**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 30 checks. The r4 additions:
+**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 31 checks. The r4 additions:
 
 * a half rollback with every env still converted is refused;
 * a truncated strike history keeps a bot's valid mark;
@@ -534,11 +579,13 @@ bash ~/isolated2shared/isolated2shared-direct.sh --rollback <owner> isolated-b
 ## 9. Owner decisions (none blocks the pilot; recommendations in bold)
 
 1. Scope for the converted towns: **`private`** (only towns become shared), or `shared` (lessons pooled as well).
-2. The post-conversion hold:
-   * **the mechanical rule (5.2)**: about 16 h of empty slot while toolkit-03 is queued, about 10 h after it has run. The
-     recommendation is to convert right after toolkit-03 closes; or
-   * `--quiet 420 --why "<decision>"` now, with a [180, 360] canary placed next (about 10 h); or
-   * accept contamination with a shorter `--quiet` (not recommended).
+2. The post-conversion hold (5.2a). This is the decision the coordinator asked for:
+   * **the minimum, 240 min per phase (about 7 h in total)**: `--quiet 240 --why ... --accept-contamination "<owner>"`. It
+     protects the pilot's rollback window and every tier-2 +180 decision; reads after +180 of a canary that did not KEEP
+     carry a bounded step. Recommended, given the queue is the bottleneck; or
+   * the full mechanical rule (default): about 16 h while toolkit-03 is queued, about 10 h after it has run; or
+   * control exclusion instead of a hold: not available without a gate change (verdict.py and every queued read). Proposed
+     for 5.3.
 3. 5.3, admission to draws and controls: **later, with its own design, after at least 72 h**.
 
 ## 10. Review log
@@ -636,3 +683,14 @@ extend write uses a with-block and fsync, and the truncated carry is now sound (
 | P2-2 an interrupted transition is ignored | `owner-direct` counts; release refuses while unreconciled |
 | P2-3 uniform env with a half rollback | status names it; restart refused |
 | P2-4 truncated carry resurrects a mark | kept only when the opening predates u − 2·TTL; test with Codex's case |
+
+**r5, Claude APPROVE / APPROVE** (P3s applied: journal order, not timestamp then phase; a run whose refusals restarted uniform
+pools may drop its unused hold). **r5, Codex CHANGE / CHANGE:**
+
+| finding | handled in |
+|---|---|
+| P2-1 an unsafe refusal clears reconciliation | a refusal that leaves units stopped is journalled `*-blocked`, which is UNSAFE |
+| P2-2 reconciliation ignores the pool | rows carry a `pool` field; every pool's last row must be safe |
+
+**Coordinator question (10-20):** exclusion vs hold, in 5.2a. The new `--accept-contamination` lowers the hold to the
+240-min floor, as a journalled decision.

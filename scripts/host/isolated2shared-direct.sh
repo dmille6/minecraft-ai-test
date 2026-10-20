@@ -7,7 +7,8 @@
 #   bash isolated2shared-direct.sh <owner> isolated-a isolated-c isolated-d        # the rest (reuses + extends the hold)
 #   bash isolated2shared-direct.sh --rollback <owner> <pool>...                    # any phase
 #   bash isolated2shared-direct.sh --release <owner>                               # ONLY after the quiet period (refuses before)
-#   options before <owner>: --quiet <min> --why "<text>"   (raise/override the computed quiet period; journalled)
+#   options before <owner>: --quiet <min> --why "<text>" [--accept-contamination "<who decided>"]  (raise the computed quiet
+#   period; LOWER it, never below 240, only with --accept-contamination: design 5.2a; journalled)
 #
 # THE HOLD (design 5.2) lives in isolated2sharedhold.py: the scheduler's install-hold claimed with holdtoken.py BEFORE the loop
 # lock, reused and EXTENDED by a later phase, released only by --release once QUIET has passed since the LAST transition, QUIET
@@ -22,16 +23,18 @@
 set -u
 H=/home/mike; J=$H/canary-journal.jsonl; RUN=isolated2shared-01
 D=${I2S_DIR:-$H/isolated2shared}; TOOL=$D/isolated2shared.mjs; HOLD="python3 $D/isolated2sharedhold.py"
-MODE=apply; QUIET=""; WHY=""
+MODE=apply; QUIET=""; WHY=""; ACCEPT=""
 while [ $# -gt 0 ]; do case "$1" in
   --rollback) MODE=rollback; shift;; --release) MODE=release; shift;;
+  --accept-contamination) ACCEPT=${2:-}; shift 2;;
   --quiet) QUIET=${2:-}; shift 2;; --why) WHY=${2:-}; shift 2;; *) break;; esac; done
 [ $# -ge 1 ] || { echo "usage: $0 [--rollback|--release] [--quiet <min> --why <text>] <owner> [<pool>...]"; exit 2; }
 OWNER=$1; shift; POOLS="$*"
 [ "$MODE" = release ] || [ -n "$POOLS" ] || { echo "name at least one pool"; exit 2; }
 for p in $POOLS; do case "$p" in isolated-a|isolated-b|isolated-c|isolated-d) ;; *) echo "not an isolated pool: $p"; exit 2;; esac; done
 if [ -n "$QUIET" ]; then case "$QUIET" in *[!0-9]*) echo "--quiet must be minutes"; exit 2;; esac; [ -n "$WHY" ] || { echo "--quiet needs --why"; exit 2; }; fi
-journal() { printf '{"ts":"%s","run":"%s","phase":"%s","note":%s}\n' "$(date -u +%FT%TZ)" "$RUN" "$1" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$2")" >> $J; }
+# journal <phase> <note> [<pool>]: the pool is a FIELD, so reconciliation is per pool (Codex r5 P2-2)
+journal() { printf '{"ts":"%s","run":"%s","phase":"%s","note":%s%s}\n' "$(date -u +%FT%TZ)" "$RUN" "$1" "$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$2")" "${3:+,\"pool\":\"$3\"}" >> $J; }
 units() { for b in Alpha Bravo Comet Delta Echo; do echo "mcbot@$1-$b"; done; }
 # RESTART, not start: a unit something else started meanwhile (fleet-recycle restarts every unit, stopped ones included) is
 # restarted onto the new env too, never left running the old one
@@ -57,7 +60,10 @@ mkdir -p "$D"; exec 7>"$D/rollout.lock"; flock -n 7 || { echo "REFUSED: another 
 # QUIET: computed now; --quiet can only RAISE it unless the computation fails (then it is the bound, with its --why)
 CQ=$($HOLD quiet 2>&1); crc=$?
 if [ $crc -eq 0 ]; then
-  [ -z "$QUIET" ] || [ "$QUIET" -ge "$CQ" ] || { echo "REFUSED: --quiet $QUIET is below the computed $CQ"; exit 2; }
+  # BELOW the computed value only as an explicit, journalled decision (design 5.2: the 240-min floor stays -- it is the pilot's
+  # tripwire + rollback window and the tier-2 +180 read's PRE)
+  [ -z "$QUIET" ] || [ "$QUIET" -ge "$CQ" ] || [ -n "$ACCEPT" ] || { echo "REFUSED: --quiet $QUIET is below the computed $CQ (pass --accept-contamination \"<who decided, why>\" to take the shorter hold)"; exit 2; }
+  [ -z "$ACCEPT" ] || WHY="$WHY; ACCEPTED CONTAMINATION below computed $CQ: $ACCEPT"
   QUIET=${QUIET:-$CQ}
 elif [ -z "$QUIET" ] && [ "$MODE" = rollback ] && RQ=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['quiet_min']))" "$D/HOLD.json" 2>/dev/null); then
   QUIET=$RQ; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback is never a dead end (Claude r3 P3-6); a release is (Codex r4 P2-1)
@@ -90,30 +96,30 @@ fi
 for p in $POOLS; do
   recycle_clear || { echo "stopping before $p (nothing done for it)"; drop_if_unused; exit 2; }
   T0=$(date -u +%FT%TZ)
-  journal owner-direct "$MODE $p: stop 5 units $T0, $MODE, restart 12 s apart; OWNER 2026-10-20 'i agree do it all, get it working'; by $OWNER, quiet $QUIET min (${WHY:-computed})"
+  journal owner-direct "$MODE $p: stop 5 units $T0, $MODE, restart 12 s apart; OWNER 2026-10-20 'i agree do it all, get it working'; by $OWNER, quiet $QUIET min (${WHY:-computed})" "$p"
   sudo systemctl stop $(units "$p")
   out=$(sudo env I2S_UNDER_LOCK=1 node "$TOOL" "$MODE" --pool "$p" 2>&1); rc=$?
   printf '%s\n' "$out" | tee -a $H/digest/isolated2shared.log
   if [ $rc -eq 2 ]; then
     if uniform "$p"; then
       echo "REFUSED: $MODE $p wrote nothing; the pool is uniform; restarting its units"; start_staggered "$p"
-      journal "$MODE-refused" "$p: $MODE refused (nothing written); units restarted"
+      journal "$MODE-refused" "$p: $MODE refused (nothing written); units restarted" "$p"
     else
       echo "REFUSED: $MODE $p wrote nothing, but the pool is NOT uniform (an earlier interrupted run): units LEFT STOPPED"
-      journal "$MODE-refused" "$p: $MODE refused; pool not uniform; units LEFT STOPPED"
+      journal "$MODE-blocked" "$p: $MODE refused; pool not uniform or mid-rollback; units LEFT STOPPED" "$p"
     fi
     drop_if_unused; exit 3
   elif [ $rc -ne 0 ]; then
     DONE=$((DONE + 1))
     ST=$(sudo node "$TOOL" status --pool "$p" 2>&1 | head -1)
-    journal "$MODE-incomplete" "$p: $MODE exited $rc part-way; units LEFT STOPPED; $ST"
+    journal "$MODE-incomplete" "$p: $MODE exited $rc part-way; units LEFT STOPPED; $ST" "$p"
     echo "INCOMPLETE: $MODE $p exited $rc. The five units are LEFT STOPPED. Status: $ST"
     echo "  re-run this command (apply resumes from its marker) or: bash $0 --rollback $OWNER $p"; exit 4
   fi
   DONE=$((DONE + 1))
   start_staggered "$p"
-  if ! all_active "$p"; then journal "$MODE-incomplete" "$p: $MODE done but not every unit is active after the restart"; echo "units not active: see systemctl status"; exit 5; fi
-  journal "$MODE-done" "$p since $T0; quiet >= $QUIET min after the last transition; tripwire: cd $D && nice -n 19 python3 isolated2sharedtrip.py --since $T0 --pools $p"
+  if ! all_active "$p"; then journal "$MODE-incomplete" "$p: $MODE done but not every unit is active after the restart" "$p"; echo "units not active: see systemctl status"; exit 5; fi
+  journal "$MODE-done" "$p since $T0; quiet >= $QUIET min after the last transition; tripwire: cd $D && nice -n 19 python3 isolated2sharedtrip.py --since $T0 --pools $p" "$p"
   echo "DONE $MODE $p since $T0"
   echo "  tripwire (+15, +60, +180 min):  cd $D && nice -n 19 python3 isolated2sharedtrip.py --since $T0 --pools $p"
 done

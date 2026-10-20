@@ -353,6 +353,19 @@ await ta('the hold helper\'s rules self-test, and the wrapper and the tripwire p
   execFileSync('bash', ['-n', path.join(here, '../../scripts/host/isolated2shared-direct.sh')])
   execFileSync('python3', [path.join(here, '../../scripts/host/isolated2sharedtrip.py'), '--help'], { encoding: 'utf8' })
 })
+await ta('the wrapper\'s journal rows are strict JSON with the pool as a FIELD, and the hold rules read them per pool', () => {
+  const src = fs.readFileSync(path.join(here, '../../scripts/host/isolated2shared-direct.sh'), 'utf8')
+  const fn = src.split('\n').find(l => l.startsWith('journal() {'))
+  assert.ok(fn, 'journal() not found in the wrapper')
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-j-')), J = path.join(d, 'j.jsonl')
+  execFileSync('bash', ['-c', `${fn}\njournal owner-direct 'stop "5" units' isolated-b\njournal apply-blocked 'left stopped' isolated-b\njournal hold-released 'x'`], { env: { ...process.env, J, RUN: 'isolated2shared-01' } })
+  const rows = fs.readFileSync(J, 'utf8').trim().split('\n').map(l => JSON.parse(l))
+  assert.deepEqual(rows.map(r => [r.phase, r.pool ?? null]), [['owner-direct', 'isolated-b'], ['apply-blocked', 'isolated-b'], ['hold-released', null]])
+  assert.equal(rows[0].note, 'stop "5" units')
+  const py = execFileSync('python3', ['-c', `import importlib.util,sys; s=importlib.util.spec_from_file_location('h', sys.argv[1]); h=importlib.util.module_from_spec(s); s.loader.exec_module(h); print(h.unreconciled(open(sys.argv[2]).read().splitlines()))`,
+    path.join(here, '../../scripts/host/isolated2sharedhold.py'), J], { encoding: 'utf8' }).trim()
+  assert.match(py, /isolated-b: apply-blocked/, 'a blocked pool keeps the hold')
+})
 await ta('tripwire exposure: the trailing window is MEASURED from rows in it, never scaled from the whole POST (Codex r3 P2-5)', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-logs-')), bot = 'isolated-b-Alpha'
   fs.mkdirSync(path.join(d, bot))
