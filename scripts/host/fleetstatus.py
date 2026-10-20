@@ -67,6 +67,30 @@ DISK_STALE = dt.timedelta(hours=2, minutes=30)     # the check runs at :25 every
 SHIPPED = 'mcai-skill-agents,mcai-llm-agents,mcai-mc-paper,mcai-sys-journal'
 DISK_CLIENT = None                                  # tests inject; None = estelemetry.http
 
+# OPS AUDIT (OWNER 2026-10-20 "yes"): Codex reads the operator's last 26 h of decisions once a day (~/bin/opsaudit.sh on
+# the Mac mini) and publishes ~/digest/opsaudit-latest.md here. Its first line ("OPSAUDIT <day> FLAGS: n (k high)") and
+# age open every report, because an audit written to a file nobody opens is no audit (the ELK DiskPressure lesson).
+OPSAUDIT_PATH = '~/digest/opsaudit-latest.md'
+OPSAUDIT_STALE = dt.timedelta(hours=30)
+
+
+def opsaudit_line(now, path=None):
+    """One header line for the daily Codex ops audit. Never raises: missing, stale or failed is an alarm line."""
+    p = os.path.expanduser(path or OPSAUDIT_PATH)
+    try:
+        first = open(p, errors='replace').readline().strip()
+        age = now - dt.datetime.fromtimestamp(os.path.getmtime(p), dt.timezone.utc)
+    except OSError as e:
+        return f'!! ops audit: NO REPORT ({type(e).__name__}) -- the daily Codex audit has not published to {p}'
+    m = re.match(r'OPSAUDIT (\S+) FLAGS: (\d+)(?: \((\d+) high\))?', first)
+    h = age.total_seconds() / 3600
+    if not m:
+        return f'!! ops audit: UNREADABLE first line {first[:120]!r} ({h:.0f} h old)'
+    flags, high = int(m.group(2)), int(m.group(3) or 0)
+    mark = '!! ' if high or age > OPSAUDIT_STALE else ''
+    stale = f' -- STALE (> {OPSAUDIT_STALE.total_seconds() / 3600:.0f} h)' if age > OPSAUDIT_STALE else ''
+    return f'{mark}ops audit (Codex) {m.group(1)}: {flags} flag(s), {high} high, {h:.0f} h old{stale}; read {p}'
+
 
 def elk_disk(now, client=None):
     """Header lines for the ELK host's disk. Never raises: an unreadable reading is itself an
@@ -256,6 +280,8 @@ def show(rep):
     print(f'FLEET STATUS (Elasticsearch) generated {rep["generated_at"]}  -- analysis only; gates read the files')
     for line in rep.get('elk_disk', {}).get('lines', []):
         print(line)
+    if rep.get('opsaudit'):
+        print(rep['opsaudit'])
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -299,7 +325,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)

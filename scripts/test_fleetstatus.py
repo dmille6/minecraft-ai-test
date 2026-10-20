@@ -235,6 +235,47 @@ def t_unknown_name_refused():
     TE.raises(ZeroLooksWrong, lambda: run(docs), contains='town_deposit')
 
 
+def _audit(text, hours_old):
+    d = tempfile.mkdtemp(); p = os.path.join(d, 'opsaudit-latest.md')
+    if text is not None:
+        with open(p, 'w') as fh:
+            fh.write(text)
+        t = dt.datetime(2026, 10, 14, 20, tzinfo=dt.timezone.utc) - dt.timedelta(hours=hours_old)
+        os.utime(p, (t.timestamp(), t.timestamp()))
+    return FS.opsaudit_line(dt.datetime(2026, 10, 14, 20, tzinfo=dt.timezone.utc), path=p)
+
+
+def t_opsaudit_clean_report_is_quiet():
+    line = _audit('OPSAUDIT 2026-10-14 FLAGS: 0 (0 high)\n## Flags\nnone\n', 3)
+    assert line.startswith('ops audit (Codex) 2026-10-14: 0 flag(s), 0 high, 3 h old'), line
+
+
+def t_opsaudit_high_flag_is_an_alarm():
+    line = _audit('OPSAUDIT 2026-10-14 FLAGS: 3 (1 high)\n', 2)
+    assert line.startswith('!! ') and '3 flag(s), 1 high' in line, line
+
+
+def t_opsaudit_stale_report_is_an_alarm():
+    line = _audit('OPSAUDIT 2026-10-12 FLAGS: 0 (0 high)\n', 31)
+    assert line.startswith('!! ') and 'STALE' in line, line
+
+
+def t_opsaudit_missing_report_is_an_alarm_not_silence():
+    line = _audit(None, 0)
+    assert line.startswith('!! ops audit: NO REPORT'), line
+
+
+def t_opsaudit_failed_run_is_an_alarm():
+    line = _audit('OPSAUDIT 2026-10-14 FAILED: codex rc=1, no report line\n', 1)
+    assert line.startswith('!! ops audit: UNREADABLE'), line
+
+
+def t_opsaudit_line_opens_the_report():
+    out = io.StringIO()
+    rep = run(fleet_docs(), stdout=out)
+    assert 'opsaudit' in rep and out.getvalue().splitlines()[2].startswith(('ops audit', '!! ops audit')), out.getvalue()[:400]
+
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 
 if __name__ == '__main__':
