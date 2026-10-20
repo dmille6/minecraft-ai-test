@@ -724,7 +724,7 @@ export class CognitiveLoop {
       const r = toolkitOrder({
         now: Date.now(), atTown: inTown(home, bot.entity?.position), items, credit: bot.kitCredit ?? 0,
         container: () => townContainers(bot).length > 0,
-        townMiss: () => townKitIronMiss(bot),
+        townMiss: d => townKitIronMiss(bot, d),
         // the bag can take the draw -- and, ironpick-01, the tools its crafts make (toolkit.mjs kitRoomTakes): the same room plan
         // and keep as at the chest (withdrawpick roomPlan)
         room: d => roomPlan(items, kitRoomTakes(d), { keep }).ok,
