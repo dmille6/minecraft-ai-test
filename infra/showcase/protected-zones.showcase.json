@@ -16,6 +16,7 @@
     90,
     45
    ],
+   "floor_y": 54,
    "source": "minecraft:village_taiga start chunk 6,1: 1470 village blocks, 9 houses, pad 8"
   },
   {
@@ -30,6 +31,7 @@
     86,
     -265
    ],
+   "floor_y": 54,
    "source": "minecraft:village_taiga start chunk 23,-20: 2524 village blocks, 14 houses, pad 8"
   },
   {
@@ -44,6 +46,7 @@
     82,
     865
    ],
+   "floor_y": 54,
    "source": "minecraft:village_snowy start chunk -50,49: 3528 village blocks, 23 houses, pad 8"
   },
   {
@@ -58,6 +61,7 @@
     86,
     -727
    ],
+   "floor_y": 55,
    "source": "minecraft:village_snowy start chunk -52,-48: 1608 village blocks, 9 houses, pad 8"
   },
   {
@@ -72,6 +76,7 @@
     91,
     942
    ],
+   "floor_y": 51,
    "source": "minecraft:village_snowy start chunk 1,54: 3724 village blocks, 22 houses, pad 8"
   },
   {
@@ -86,6 +91,7 @@
     114,
     -141
    ],
+   "floor_y": 55,
    "source": "minecraft:village_snowy start chunk -58,-14: 3165 village blocks, 13 houses, pad 8"
   },
   {
@@ -100,6 +106,7 @@
     85,
     -419
    ],
+   "floor_y": 54,
    "source": "minecraft:village_snowy start chunk 59,-30: 3919 village blocks, 23 houses, pad 8"
   }
  ],
