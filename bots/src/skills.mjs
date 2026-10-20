@@ -5998,7 +5998,7 @@ function placeSites(bot) {
                           new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
         if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z)) &&
-            !zoneRefused(underfoot.position) && !zoneRefused(underfoot.position.offset(face.x, face.y, face.z)) &&   // protectzone-01: the reference too
+            !blocked(bot.protectZones?.() ?? [], underfoot.position.x, underfoot.position.y, underfoot.position.z, bot.entity?.position ?? null) && !zoneRefused(underfoot.position.offset(face.x, face.y, face.z)) &&   // protectzone-01: the reference by the guard's own test (Codex r4 P3)
             !wellRefused(underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
       }
     }
