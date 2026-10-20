@@ -101,6 +101,22 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-20 07:15Z — brain-01 CLOSED INCONCLUSIVE (+720); COBBLEKEEP-01 LIVE; ironpick-01 QUEUED after toolkit-03; bagbudget-01 Paper partial
+
+- **brain-01 `78fa19d9`**: +720 read 04:51Z NOT_YET -> ~/brclose.sh recorded INCONCLUSIVE 04:51:46Z (OWNER), torn down (10 bots on
+  adbec4f, 0 drop-ins). Studio ~/brain01/LIVE removed; keeper released GPU_RESERVED 04:57Z (KEEP_LOADED stays). brain-02 later.
+- **cobblekeep-01 `9e7d9980` LIVE 05:06:57Z on board-a, placebo-d, hive-c, placebo-a** (tier 2, 4 pools). +180 ~08:07Z.
+- **ironpick-01 QUEUED** (07:10Z, after toolkit-03; variants keyed 34d3e5e9 -> 2d410985, 28dc1158 -> f06f27a2; both engines APPROVE r4;
+  npm test 271/271; Paper ironpick/keep/full CANDIDATE_PASS, base BASE_SHAPE). Registrations + ironpickread.py installed on .31;
+  /opt/minecraft-ai fetched the two branches so the scheduler resolves the shas.
+- **bagbudget-01** (branches bagbudget-on-9e7d998 / -on-adbec4f; both engines APPROVE design + code; npm test 269/269): Paper bagmix
+  CANDIDATE_PASS (36->32, torch/ladder/bone meal banked, no junk in chest), base BASE_SHAPE; build refused under plinth-first (scene
+  needs PLINTH_FIRST=0); rerun: bagwell FAIL (well took junk 36->33, chest rows never ran; crafting_table lost on BOTH arms),
+  bagfar FAIL (2 of 4 spent picks worn: arena has no natural blocks). Returned to its agent to diagnose. NOT queued.
+- **homefix-01 agent was STOPPED by the owner's side** ~06:1xZ mid-Paper (local commit 3fe8cbbe in its worktree, not pushed); its stale
+  sandbox lock moved to /tmp/mcai-sandbox.lock.stale-homefix-20261020 after confirming no process. Not restarted: owner asked.
+- **ES flood**: backfilled exactly (esflood-1020 merged fc8837e6); DiskLow now in fleetstatus.py's header (installed on .31 + .186).
+
 ## 10-20 03:30Z — ELK DISK FULL (fixed: 500 GB); OWNER: iron pickaxe in the toolkit, bag allowance, brain-01 closes at +720
 
 - **ES flood stage 10-19 23:16Z -> 10-20 02:42Z.** The ELK VM (109 on pve1, vmdata zfs) hit 96% of 128 GB (data 48 G + local
