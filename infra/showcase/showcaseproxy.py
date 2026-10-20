@@ -9,28 +9,31 @@ plist, tunnel and key are NOT touched: this is a separate file, process (com.mca
 Design: docs/reports/showcase-2026-10-20.md section 2.
 
     python3 showcaseproxy.py --listen 127.0.0.1:11502 --upstream http://127.0.0.1:1234 --model brain \
-        --serve-as gemma4:26b --fallback http://127.0.0.1:11434 --fallback-model qwen2.5-7b-base:q8_0 \
+        --serve-as gemma4:26b --fallback http://127.0.0.1:11434 --fallback-model qwen2.5:7b-instruct \
         --max-inflight 10 --log ~/showcase/proxy.jsonl --default-think false \
-        --pause-file ~/brain01/LIVE --pause-file ~/mbench/out/GPU_RESERVED --pause-file ~/showcase/OFF \
-        --quiesced-file ~/showcase/QUIESCED
+        --pause-file ~/mbench/out/GPU_RESERVED --pause-file ~/brain01/LIVE --pause-file ~/showcase/OFF \
+        --pause-dir ~/showcase/pause.d --quiesced-file ~/showcase/QUIESCED
 
-WHY PROXY-SIDE FALLBACK, NOT THE 3090. All 80 bench bots fall back to 10.0.0.16; it served 4,869 of 19,808 bench
-decisions in the 3 h to 12:5xZ 10-20 (25 %). Ten showcase bots there would be a load change inside every canary's
-control arm. The bots therefore list ONE endpoint (this proxy, through the tunnel) and this proxy falls back on the
-Studio itself. When the Studio is unreachable the showcase bots make no LLM decisions (reflexes still run); the
-bench is never touched.
+WHY PROXY-SIDE FALLBACK, NOT THE 3090. 10.0.0.16 is the PRIMARY of the 20 *-d bench bots and the fallback of the
+other 60; it served 24 % of bench decisions in the 6 h to 12:3xZ 10-20. Ten showcase bots there would be a load change
+that differs between canary arms. The bots list ONE endpoint (this proxy, through the tunnel) and this proxy falls
+back on the Studio itself (the bench's own model, qwen2.5:7b-instruct, on the Studio's Ollama). When the Studio is
+unreachable the showcase bots make no LLM decisions (reflexes still run); the bench is never touched.
 
-PAUSED MEANS PAUSED. While any --pause-file exists every request is answered 503 before any model is called -- the
-fallback is NOT used either, because the fallback runs on the same GPU a brain canary or a benchmark is measuring.
-Requests already in flight finish (bounded by --timeout + --fallback-timeout). Once paused AND nothing is in flight,
-the proxy writes --quiesced-file (removed when it resumes or work is in flight): the handshake a brain canary's
-launch waits for (touch ~/brain01/LIVE, wait for ~/showcase/QUIESCED, then deploy).
+PAUSED MEANS PAUSED. While any pause source holds -- a --pause-file (GPU_RESERVED: brain-01's keeper during a brain
+canary, every mbench run since run_model.sh/lms_factor.sh hold it; the operator's OFF), an entry in --pause-dir, or a
+benchmark worker process (run_bench/throughput/serving/cl_run/cl_series .py, started by hand) -- every request is
+answered 503 before any model is called; the fallback is NOT used either (same GPU). In-flight work finishes (bounded
+by --timeout + --fallback-timeout); after --quiesce-grace seconds idle the proxy tells Ollama to unload the fallback
+model it loaded (keep_alive 0), then writes --quiesced-file. A NEW pause source withdraws the old acknowledgement and
+the grace starts again, so a consumer waiting for "QUIESCED newer than my reservation" (studio-gpu-guard.sh) gets an
+acknowledgement of ITS reservation.
 
 Response model names are honest: `--serve-as` only when LM Studio says it served --model; the fallback reports
 Ollama's own `model`; so the bot's model_mismatch marks every non-gemma decision.
 GET /healthz: 200 only when not paused AND LM Studio lists --model; the body says why not.
 """
-import argparse, json, os, threading, time, urllib.request
+import argparse, json, os, re, subprocess, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 A = None
@@ -71,12 +74,53 @@ def served_name(upstream_model, model, serve_as):
     return 'lmstudio:%s' % (upstream_model or 'unknown')
 
 
-def paused(pause_files, exists=os.path.exists):
-    """The first pause file present, or None. Pure given `exists` (tested)."""
+def paused(pause_files, exists=os.path.exists, pause_dir=None, listdir=os.listdir):
+    """The first pause file present (or the first entry of --pause-dir), or None. Pure given the fs callables
+    (tested). A GPU consumer that is not the keeper (an mbench run) drops a file in the pause dir, waits for
+    QUIESCED, and removes its file when done -- see infra/showcase/studio-gpu-guard.sh."""
     for p in pause_files or ():
         if exists(p):
             return p
+    if pause_dir:
+        try:
+            names = sorted(n for n in listdir(pause_dir) if not n.startswith('.'))
+        except OSError:
+            names = []
+        if names:
+            return os.path.join(pause_dir, names[0])
     return None
+
+
+BENCH_PROC = re.compile(r'\b(run_bench|throughput|serving|cl_run|cl_series)\.py\b')
+
+
+def bench_procs(ps_text, own_pid):
+    """The first Studio benchmark worker in `ps -axo pid=,command=` output, or None. Pure (tested). The proxy's own
+    process and anything mentioning showcaseproxy are never a match, so the matcher cannot match itself."""
+    for line in ps_text.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        pid, cmd = int(parts[0]), parts[1]
+        if pid == own_pid or 'showcaseproxy' in cmd:
+            continue
+        if BENCH_PROC.search(cmd):
+            return f'pid {pid}: {cmd[:120]}'
+    return None
+
+
+def quiesce_state(is_paused, inflight, idle_s, grace_s, fallback_unloaded):
+    """What the quiesce loop must do now. Pure (tested). -> 'resume' | 'wait' | 'unload' | 'ack'.
+    QUIESCED is acknowledged only when paused, nothing in flight for >= grace_s (an upstream generation the proxy
+    gave up on may still be running inside LM Studio / Ollama; max_tokens 512 bounds it to well under grace_s), and
+    the fallback model the showcase loaded has been told to unload (keep_alive 0)."""
+    if not is_paused:
+        return 'resume'
+    if inflight or idle_s < grace_s:
+        return 'wait'
+    if not fallback_unloaded:
+        return 'unload'
+    return 'ack'
 
 
 def fallback_body(req, model):
@@ -94,17 +138,60 @@ def post_json(url, body, timeout):
     return json.loads(r.read())
 
 
+def is_paused():
+    return paused(A.pause_file, pause_dir=A.pause_dir) or STATE.get('bench_proc')
+
+
+def poll_bench_procs():
+    """A benchmark worker started outside run_model.sh (by hand) holds no reservation: pause on the process too."""
+    try:
+        out = subprocess.run(['ps', '-axo', 'pid=,command='], capture_output=True, text=True, timeout=10).stdout
+        STATE['bench_proc'] = bench_procs(out, os.getpid())
+    except Exception:
+        pass
+
+
 def mark_quiesced():
-    """Keep --quiesced-file true to the state: present iff paused and nothing in flight."""
+    """Keep --quiesced-file true to the state (see quiesce_state)."""
     if not A.quiesced_file:
         return
+    # A NEW reservation needs a NEW acknowledgement: whenever the set of pause holders changes, the old QUIESCED is
+    # withdrawn and the grace starts again, so a guard waiting for "QUIESCED newer than my pause file" is answered.
+    sig = (tuple(p for p in A.pause_file if os.path.exists(p)),
+           tuple(sorted(os.listdir(A.pause_dir))) if A.pause_dir and os.path.isdir(A.pause_dir) else (),
+           STATE.get('bench_proc'))
+    now = time.time()
     with LOCK:
-        idle = STATE['inflight'] == 0
+        if sig != STATE.get('sig'):
+            STATE['sig'], STATE['sig_t'] = sig, now
+            changed = True
+        else:
+            changed = False
+        inflight = STATE['inflight']
+        idle_s = now - max(STATE.get('last_done', 0), STATE.get('sig_t', 0))
+        unloaded = STATE.get('fallback_unloaded', True)
+    if changed and os.path.exists(A.quiesced_file):
+        try:
+            os.remove(A.quiesced_file)
+        except OSError:
+            pass
+    p = is_paused()
+    act = quiesce_state(bool(p), inflight, idle_s, A.quiesce_grace, unloaded or not A.fallback)
     try:
-        if paused(A.pause_file) and idle:
+        if act == 'unload':
+            try:
+                post_json(A.fallback.rstrip('/') + '/api/generate', {'model': A.fallback_model, 'keep_alive': 0}, 30)
+                logline(status='unload', model=A.fallback_model, paused_by=p)
+            except Exception as e:
+                logline(status='unload-failed', model=A.fallback_model, error=str(e)[:200])
+            with LOCK:
+                STATE['fallback_unloaded'] = True       # one attempt per pause; a failure is logged, not looped
+            return
+        if act == 'ack':
             if not os.path.exists(A.quiesced_file):
                 with open(A.quiesced_file, 'w') as f:
-                    f.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '\n')
+                    f.write('%s paused_by=%s\n' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), p))
+                logline(status='quiesced', paused_by=p)
         elif os.path.exists(A.quiesced_file):
             os.remove(A.quiesced_file)
     except OSError:
@@ -113,6 +200,7 @@ def mark_quiesced():
 
 def quiesce_loop():
     while True:
+        poll_bench_procs()
         mark_quiesced()
         time.sleep(2)
 
@@ -137,7 +225,7 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith('/api/tags'):
             return self._send(200, {'models': [{'name': A.serve_as}]})
         if self.path.startswith('/healthz'):
-            p = paused(A.pause_file)
+            p = is_paused()
             with LOCK:
                 inflight = STATE['inflight']
             if p:
@@ -158,7 +246,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': 'bad json'})
         if not self.path.startswith('/api/chat'):
             return self._send(404, {'error': 'only /api/chat is proxied'})
-        p = paused(A.pause_file)
+        p = is_paused()
         if p:
             logline(status=503, ms=0, inflight=STATE['inflight'], error='paused by %s' % p)
             return self._send(503, {'error': 'showcase brain paused (%s present)' % p})
@@ -196,12 +284,14 @@ class H(BaseHTTPRequestHandler):
                                         'prompt_eval_duration': int(ttft * 1e9),
                                         'eval_duration': int(max(0.0, dt_ - ttft) * 1e9)})
             # A pause that began while the primary was failing still stops the fallback.
-            p = paused(A.pause_file)
+            p = is_paused()
             if p or not A.fallback:
                 logline(status=502, path='primary', ms=int((time.time() - t0) * 1000), inflight=inflight,
                         error=primary_err, fallback='paused by %s' % p if p else 'none configured')
                 return self._send(502, {'error': 'upstream: %s' % primary_err})
             t1 = time.time()
+            with LOCK:
+                STATE['fallback_unloaded'] = False     # the showcase now holds the fallback model in memory
             try:
                 d = post_json(A.fallback.rstrip('/') + '/api/chat', fallback_body(req, A.fallback_model),
                               A.fallback_timeout)
@@ -217,6 +307,7 @@ class H(BaseHTTPRequestHandler):
         finally:
             with LOCK:
                 STATE['inflight'] -= 1
+                STATE['last_done'] = time.time()
 
 
 def main():
@@ -227,7 +318,7 @@ def main():
     ap.add_argument('--model', default='brain', help='the LM Studio identifier the keeper loads')
     ap.add_argument('--serve-as', default='gemma4:26b')
     ap.add_argument('--fallback', default=None, help='the Studio Ollama base URL; omit for no fallback')
-    ap.add_argument('--fallback-model', default='qwen2.5-7b-base:q8_0')
+    ap.add_argument('--fallback-model', default='qwen2.5:7b-instruct')
     ap.add_argument('--max-inflight', type=int, default=10)
     ap.add_argument('--timeout', type=float, default=20, help='primary upstream budget (s)')
     ap.add_argument('--fallback-timeout', type=float, default=20, help='fallback budget (s); the sum stays under '
@@ -236,10 +327,16 @@ def main():
     ap.add_argument('--default-think', choices=['true', 'false'], default=None)
     ap.add_argument('--pause-file', action='append', default=[], help='503 everything while this file exists')
     ap.add_argument('--quiesced-file', default=None)
+    ap.add_argument('--pause-dir', default=None, help='any entry in this directory pauses (mbench guard files)')
+    ap.add_argument('--quiesce-grace', type=float, default=30.0,
+                    help='seconds with nothing in flight before QUIESCED is acknowledged')
     A = ap.parse_args()
     if A.default_think is not None:
         A.default_think = A.default_think == 'true'
     A.pause_file = [os.path.expanduser(p) for p in A.pause_file]
+    if A.pause_dir:
+        A.pause_dir = os.path.expanduser(A.pause_dir)
+        os.makedirs(A.pause_dir, exist_ok=True)
     if A.quiesced_file:
         A.quiesced_file = os.path.expanduser(A.quiesced_file)
     if A.log:

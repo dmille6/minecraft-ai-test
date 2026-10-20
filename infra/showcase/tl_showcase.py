@@ -55,8 +55,9 @@ def load_conf():
 
 
 def heartbeat(cfg, row):
+    f0 = frame0_time(cfg)
     row = dict(row, t=now_utc().strftime('%Y-%m-%dT%H:%M:%SZ'), kind='showcase_timelapse',
-               capture_min=cfg['capture_min'])
+               capture_min=cfg['capture_min'], frame0_t=f0.strftime('%Y-%m-%dT%H:%M:%SZ') if f0 else None)
     os.makedirs(os.path.dirname(cfg['heartbeat']), exist_ok=True)
     with open(cfg['heartbeat'], 'a') as f:
         f.write(json.dumps(row) + '\n')
@@ -66,6 +67,41 @@ def heartbeat(cfg, row):
 def child_cpu_s():
     r = resource.getrusage(resource.RUSAGE_CHILDREN)
     return r.ru_utime + r.ru_stime
+
+
+def regions_for(cx, cz, half):
+    """Region file names whose 512 x 512 area intersects the square [cx-half, cx+half]. Pure (tested)."""
+    return [f'r.{rx}.{rz}.mca'
+            for rx in range((cx - half) // 512, (cx + half) // 512 + 1)
+            for rz in range((cz - half) // 512, (cz + half) // 512 + 1)]
+
+
+def free_gb(path):
+    st = os.statvfs(path)
+    return st.f_bavail * st.f_frsize / 1e9
+
+
+def snapshot(cfg):
+    """Copy the masked region files + level.dat from the live world into the persistent mirror BlueMap reads, so it
+    never reads a file Paper is writing (.30 tl.py's method). Two passes: the second re-copies anything that moved
+    under the first. -> (ok, why, n_files)."""
+    src = os.path.join(cfg['world'], 'region')
+    dst = os.path.join(cfg['mirror'], 'region')
+    os.makedirs(dst, exist_ok=True)
+    cx, cz = cfg['home'][0], cfg['home'][2]
+    files = [r for r in regions_for(cx, cz, cfg['mask_half']) if os.path.isfile(os.path.join(src, r))]
+    if not files:
+        return False, f'no region file intersects the mask around {cx},{cz}', 0
+    for _ in range(2):
+        p = subprocess.run(NICE + ['rsync', '-a', '--files-from=-', src + '/', dst + '/'],
+                           input='\n'.join(files) + '\n', text=True, capture_output=True)
+        if p.returncode != 0:
+            return False, f'rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
+    p = subprocess.run(NICE + ['rsync', '-a', os.path.join(cfg['world'], 'level.dat'), cfg['mirror'] + '/'],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        return False, f'level.dat rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
+    return True, None, len(files)
 
 
 def render(cfg, full=False):
@@ -157,8 +193,20 @@ def cmd_capture(cfg, a):
         return 0
     t = now_utc()
     stamp = stamp_of(t) + (f'-event-{a.event}' if a.event else '')
+    disk = round(free_gb(cfg['root']), 1)
+    if disk < cfg.get('min_free_gb', 20):
+        heartbeat(cfg, {'ok': False, 'step': 'disk', 'stamp': stamp, 'disk_free_gb': disk,
+                        'why': f'{disk} GB free < min_free_gb {cfg.get("min_free_gb", 20)}; nothing written'})
+        return 0
+    t0 = time.time()
+    sok, swhy, nreg = snapshot(cfg)
+    if not sok:
+        heartbeat(cfg, {'ok': False, 'step': 'snapshot', 'stamp': stamp, 'why': swhy, 'disk_free_gb': disk})
+        return 0
+    snap_s = round(time.time() - t0, 1)
     rc, rs, rcpu = render(cfg)
-    row = {'stamp': stamp, 'render_s': rs, 'render_cpu_s': rcpu, 'render_rc': rc, 'event': a.event}
+    row = {'stamp': stamp, 'render_s': rs, 'render_cpu_s': rcpu, 'render_rc': rc, 'event': a.event,
+           'snapshot_s': snap_s, 'regions': nreg, 'disk_free_gb': disk}
     if rc != 0:
         heartbeat(cfg, dict(row, ok=False, step='render', why=f'bluemap rc={rc} (see logs/render.log)'))
         return 0
@@ -183,6 +231,10 @@ def cmd_capture(cfg, a):
 
 
 def cmd_render_full(cfg, a):
+    sok, swhy, _ = snapshot(cfg)
+    if not sok:
+        print(json.dumps({'full_render_rc': 'snapshot', 'why': swhy}))
+        return 1
     rc, rs, rcpu = render(cfg, full=True)
     print(json.dumps({'full_render_rc': rc, 'render_s': rs, 'render_cpu_s': rcpu}))
     return 0 if rc == 0 else 1

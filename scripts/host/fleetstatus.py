@@ -158,7 +158,7 @@ def showcase_report(until, client=None, window_h=3):
     try:
         r = client('POST', f'{SHOWCASE_OPS}/_search',
                    {'size': 400, 'sort': [{'@timestamp': {'order': 'desc'}}],
-                    'query': {'bool': {'filter': [{'term': {'kind.keyword': 'showcase_timelapse'}},
+                    'query': {'bool': {'filter': [{'term': {'kind': 'showcase_timelapse'}},
                                                   {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=26))}}}]}}})
         rows = [h['_source'] for h in r['hits']['hits']]
         f0 = next((dt.datetime.fromisoformat(x['frame0_t'].replace('Z', '+00:00')) for x in rows if x.get('frame0_t')),

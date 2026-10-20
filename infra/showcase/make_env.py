@@ -12,10 +12,11 @@ NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Frost', 'Gale', 'Haven', '
 PREFIX = 'showcase-'
 LABEL = 'showcase'
 BRAIN = 'http://127.0.0.1:11612'            # the VM's tunnel to the Studio's showcase proxy
-FALLBACK = 'http://10.0.0.16:11434'         # the 3090 (ollama-3090, VM 200). NEVER 10.0.0.72.
 BRAIN_MODEL = 'gemma4:26b'
-FALLBACK_MODEL = 'qwen2.5:7b-instruct'
-FORBIDDEN_HOSTS = ('10.0.0.72', '192.168.19')
+# NO bench endpoint, ever: the 3090 (10.0.0.16) is the PRIMARY of the 20 *-d bench bots and the fallback of the rest,
+# and 10.0.0.72 serves the others; showcase load there would differ between canary arms. The fallback lives on the
+# Studio, inside showcaseproxy.py (design section 2).
+FORBIDDEN_HOSTS = ('10.0.0.16', '10.0.0.72', '192.168.19')
 
 # Keys the showcase sets itself. Everything else must come from the control env.
 IDENTITY = ('BOT_NAME', 'LOG_DIR', 'STATE_DIR', 'VIEWER_PORT', 'MINECRAFT_HOST', 'MINECRAFT_PORT',
@@ -66,7 +67,7 @@ def build_env(control, i, site, sha, preview=False):
         ('EXP_ARM', LABEL), ('EXP_INSTANCE', LABEL), ('EXP_BLOCK', block),
         ('RUN_ID', f"{block}-{sha[:8]}"),
         ('OLLAMA_MODEL', BRAIN_MODEL),
-        ('OLLAMA_BASE_URLS', f'{BRAIN}|{BRAIN_MODEL},{FALLBACK}|{FALLBACK_MODEL}'),
+        ('OLLAMA_BASE_URLS', f'{BRAIN}|{BRAIN_MODEL}'),
         ('OLLAMA_BASE_URL', BRAIN),
         ('CODE_VERSION', sha),
         ('VIEWER_PORT', str(3200 + i)),

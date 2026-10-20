@@ -17,6 +17,7 @@ if [ "${1:-}" = pause ]; then while [ -e out/GPU_RESERVED ]; do sleep 30; done; 
 if [ "${1:-}" = serve-lms ]; then
   echo "lms-$3" > out/GPU_RESERVED
   while pgrep -f "run_bench.py|throughput.py|serving.py" >/dev/null; do sleep 30; done
+  if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || { rm -f out/GPU_RESERVED; exit 1; }; fi
   echo "=== $(date -u +%FT%TZ) $3 (serve-lms $2) bots=${7:-8}" | tee -a out/driver.log
   for m in $(cat out/.loaded 2>/dev/null); do /Applications/Ollama.app/Contents/Resources/ollama stop "$m" 2>/dev/null; done
   L=~/.lmstudio/bin/lms; $L server start --port 1234 >> out/$3.log 2>&1; $L unload --all >> out/$3.log 2>&1
@@ -29,6 +30,10 @@ fi
 # A5 serving lines: "serve <worker-model> <label> <worker-think> <overseer-think> [overseer-model] [bots] [minutes]"
 if [ "${1:-}" = serve ]; then
   while [ -e out/GPU_RESERVED ]; do sleep 30; done
+  # SHOWCASE (2026-10-20): HOLD the GPU for the run -- the showcase brain proxy pauses on this file -- and wait for its
+  # acknowledgement, so no showcase request shares the GPU being measured. Released only if still ours.
+  echo "run-$3" > out/GPU_RESERVED; trap '[ "$(cat out/GPU_RESERVED 2>/dev/null)" = "run-$3" ] && rm -f out/GPU_RESERVED' EXIT
+  if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || exit 1; fi
   echo "=== $(date -u +%FT%TZ) $3 (serve $2 + ${6:-none}) bots=${7:-8}" | tee -a out/driver.log
   for m in $(cat out/.loaded 2>/dev/null); do /Applications/Ollama.app/Contents/Resources/ollama stop "$m" 2>/dev/null; done
   echo "$2 ${6:-}" > out/.loaded
@@ -42,6 +47,9 @@ MODE=full; case "${1:-}" in screen|slowonly|brainonly) MODE=$1; shift;; esac
 OLLAMA=/Applications/Ollama.app/Contents/Resources/ollama
 # A Stage C closed-loop run holds the GPU: wait for its reservation to clear before starting a model.
 while [ -e out/GPU_RESERVED ]; do sleep 30; done
+# SHOWCASE (2026-10-20): HOLD the GPU for the run (the showcase brain proxy pauses on this file) and wait for its ack.
+echo "run-$LABEL" > out/GPU_RESERVED; trap '[ "$(cat out/GPU_RESERVED 2>/dev/null)" = "run-$LABEL" ] && rm -f out/GPU_RESERVED' EXIT
+if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || exit 1; fi
 echo "=== $(date -u +%FT%TZ) $LABEL ($ENGINE $MODEL) mode=$MODE brain-think=$BT slow-think=$ST" | tee -a out/driver.log
 if [ "$ENGINE" = ollama ]; then
   for m in $(cat out/.loaded 2>/dev/null); do [ "$m" != "$MODEL" ] && $OLLAMA stop "$m" 2>/dev/null; done
