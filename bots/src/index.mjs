@@ -47,6 +47,7 @@ import { installCraftSync } from './craftsync.mjs'
 import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
+import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -306,6 +307,8 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
+    // townindex-01: the licence row, once per spawn -- `_townindex_mode`, a kind the base cannot write (townindex.mjs)
+    try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
