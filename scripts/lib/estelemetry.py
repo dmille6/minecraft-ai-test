@@ -72,8 +72,14 @@ ES_URL = os.environ.get('MCAI_ES_URL', 'http://10.0.0.186:9200')
 KEY_FILE = os.environ.get('MCAI_ES_KEYFILE', '~/.config/mcai/es-readonly.key')
 
 STREAMS = {
-    'skill': {'index': 'mcai-skill-agents', 'kind': 'skill.name', 'status': 'skill.status'},
-    'llm': {'index': 'mcai-llm-agents', 'kind': 'trigger', 'status': 'outcome.status'},
+    'skill': {'index': 'mcai-skill-agents', 'kind': 'skill.name', 'status': 'skill.status', 'family': 'skill'},
+    'llm': {'index': 'mcai-llm-agents', 'kind': 'trigger', 'status': 'outcome.status', 'family': 'llm'},
+    # THE SHOWCASE WORLD (docs/reports/showcase-2026-10-20.md section 4) ships to its OWN data streams, so no
+    # bench reader of the two streams above can ever see a showcase row. These keys exist only so the showcase
+    # can be read ON PURPOSE (fleetstatus' SHOWCASE block); the defaults above are unchanged.
+    'showcase-skill': {'index': 'mcai-skill-showcase', 'kind': 'skill.name', 'status': 'skill.status',
+                       'family': 'skill'},
+    'showcase-llm': {'index': 'mcai-llm-showcase', 'kind': 'trigger', 'status': 'outcome.status', 'family': 'llm'},
 }
 
 # (start, end, streams, action, text). action 'refuse' -> gaps='raise' refuses the window.
@@ -326,7 +332,7 @@ class EsEvents:
         n = rotations_crossed(since, until)
         if n:
             caveats.append(f'window crosses {n} log rotation(s) (23:57-00:00Z): ES is missing '
-                           f'{ROTATION_LOSS[stream]} {stream} rows per rotation (copytruncate race).')
+                           f'{ROTATION_LOSS[STREAMS[stream]["family"]]} {stream} rows per rotation (copytruncate race).')
         if until > now - dt.timedelta(seconds=INGEST_LAG_S):
             caveats.append(f'window ends within {INGEST_LAG_S} s of now: ingest lag (median ~6 s, '
                            f'max ~3 min observed) can leave the newest minutes short.')
@@ -349,7 +355,7 @@ class EsEvents:
         for field, value in self._match(status, fail_class, match).items():
             f.append({'terms' if isinstance(value, (list, tuple)) else 'term': {field: value}})
         if detail_contains:
-            if self.stream != 'skill':
+            if self.cfg['family'] != 'skill':
                 raise ValueError('detail_contains is skill.detail; llm rows have outcome.detail -- use match')
             # ANALYSED phrase match (standard analyzer): case-insensitive; punctuation splits
             # tokens, so 'usable=19' matches the adjacent tokens usable,19 and 'sable=19' does
@@ -362,7 +368,7 @@ class EsEvents:
         if status is not None:
             m[self.cfg['status']] = status
         if fail_class is not None:
-            if self.stream != 'skill':
+            if self.cfg['family'] != 'skill':
                 raise ValueError('fail_class exists only on the skill stream')
             m['skill.fail_class'] = fail_class
         for field, value in m.items():
