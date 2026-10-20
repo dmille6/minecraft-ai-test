@@ -453,7 +453,7 @@ await t('SKILL: a draw that moved LESS iron than asked crafts only what it funde
   assert.equal(count(w.bag, 'iron_ingot'), 4, 'the ladder\'s 4 ingots untouched')
   assert.equal(r.status, 'failed'); assert.match(kitRows().at(-1).skill.detail, /drew=0 sticks=5 .*crafted=- credit=0->0 town=\S+ cand=\S+ visits=1 vfail=0 maxrep=1 left=0 stop=short_of_drawn_iron_for_iron_axe/, 'a successful visit, no iron drawn, no craft')
   // POSITIVE CONTROL: the same bag and chest with no theft draws 4 and crafts both, the 4 ladder ingots still there
-  const w2 = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1)], [stack('iron_ingot', 20), stack('stick', 64)]))
+  const w2 = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1), stack('oak_log', 3)], [stack('iron_ingot', 20), stack('stick', 64)]))
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
   assert.equal(r2.status, 'success', r2.detail); assert.equal(count(w2.bag, 'iron_ingot'), 4)
 })
