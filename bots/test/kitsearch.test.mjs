@@ -296,7 +296,7 @@ const stickless = async (S, KK = K) => {
   // x indexsearch-01 KITSTICKS: the stickless bag's pre-draw takes its sticks from LAST, then the iron search takes the iron
   // there -- LAST is opened twice in that run (once per need); every other container once
   const twice = w.spy.opened.filter((k, i, a) => a.indexOf(k) !== i)
-  assert.ok(twice.every(k => k === kOf(LAST)), `only the sticks-and-iron chest twice: ${twice}`)
+  assert.deepEqual(twice, [kOf(LAST)], `exactly one repeat: the sticks-and-iron chest, once more: ${twice}`)
 }
 await t('THE STICKLESS BOT (Codex/Claude r1 P1): 20 chests, iron and sticks only in the farthest, no sticks or wood in the bag -- run 1 `more` (12 misses), run 2 makes the kit there', async () => {
   await stickless(S0)
