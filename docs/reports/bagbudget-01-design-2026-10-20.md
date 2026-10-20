@@ -368,3 +368,20 @@ carries the visit's id `v=` and the read never joins parts of two visits (fixtur
 cross-check is reported only. NOT CHANGED (P3, documented): under RCON_LOCAL the driver runs ON the sandbox host, which
 cannot reach 10.0.0.31; the launcher (bbpaper.sh) takes the lock atomically with mkdir on 10.0.0.31 before it starts the
 driver and releases it after, and the driver still refuses a non-empty sandbox.
+
+## 11. Tests, lint, variant, Paper
+
+- `npm test` (`node scripts/run-tests.mjs`, the only runner): **269/269 files passed** at fcd68ac0 (this branch; base 268 +
+  bagbudget.test.mjs). Variant `bagbudget-on-adbec4f` (the same five commits cherry-picked onto the fleet's adbec4f4; one
+  conflict, a union in index.mjs's licence rows -- cobblekeep's row dropped, bagbudget's kept): **268/268** at 95a40f92.
+- eslint no-undef on bots/src: exactly ONE hit, the pre-existing reflex.mjs:2384 `withinBody` (as on the base).
+- Read: `scripts/host/bagbudgetread.py --selftest` (every gate fails on its fixture and passes its control; `JS_CHECK=<repo>`
+  holds the read's junk lists to the bots' own in both directions). Dry run on the base fleet 10-20 (placebo-b, hive-a,
+  board-a, placebo-c pretend canary, 180 min, 355,528 rows walked, 80 bots): licence 0 (no baseline rows), every defect 0,
+  instrument ok (control town deposits 44, full bags 20, wear_out 18); null DiDs: full share +0.067, slots +0.31, full-bag
+  banked share -0.066, no-slot -0.083 /bot-h, gather +0.120.
+- Paper (sandbox, base 9e7d9980 vs candidate): staged on 10.0.0.30 (/tmp/bbsbx: node 22, node_modules, the harness, both
+  trees; driver `sandbox/well/stock-e2e.cjs` scenes bagmix,build,bagwell,bagfar, RCON_LOCAL=1 on sandbox3). **NOT RUN at
+  the time of writing: the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) has been held by `homefix homefix-01 Paper
+  P0-P3 (claude agent, 10-20)` since 02:35Z** (all four sandboxes empty at 04:41Z and 05:56Z; another agent is also
+  waiting). The registration names the Paper PASS of bagmix, bagwell and bagfar as a LAUNCH PRECONDITION.
