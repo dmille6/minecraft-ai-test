@@ -1,0 +1,75 @@
+"""fit2.py: what DOES fit near the core. (1) the largest free rectangle inside the 16 cylinder at plaza level (cells with no
+town furniture within 1, no well/farm cell within 2, no tree/sapling within 1, no liquid, no terrain above s); (2) 9x9
+storehouse pads just OUTSIDE the cylinder (every pad cell at Chebyshev 17..30, straight line <= 30), strict rules as fit.py;
+(3) where the existing containers sit (the cluster the retrofit sorts in place)."""
+import json, math, glob, collections, sys
+exec(open('fit.py').read().split('def fit_world')[0].replace("Z0 = json.load(open(sys.argv[1]))['worlds']", "Z0 = {}"))
+res = {}
+for p in sorted(glob.glob('tm/*.json')):
+    r = json.load(open(p)); w = r['world']; hx, hy, hz = r['home']; s = hy - 2
+    top, topy = r['top'], r['topy']
+    def T(dx, dz):
+        gx, gz = dx + R, dz + R
+        return (top[gz][gx], topy[gz][gx]) if 0 <= gx <= 2 * R and 0 <= gz <= 2 * R else (None, None)
+    o = ov.get(w, {})
+    hard = set(); sap = set(); cont = []
+    for q in r['pois']:
+        x, y, z = q['p']
+        if abs(y - hy) > 14: continue
+        k = (x - hx, z - hz)
+        if any(f in q['n'] for f in FURN): hard.add(k)
+        if q['n'].endswith('_sapling'): sap.add(k)
+        if q['n'] in ('chest', 'trapped_chest', 'barrel'): cont.append(k)
+    tree = {(dx, dz) for dx in range(-R, R + 1) for dz in range(-R, R + 1) if cls(T(dx, dz)[0]) == 'tree'}
+    wellc = {(c[0] - hx, c[2] - hz) for c in o.get('well_cells', [])} | {(c[0] - hx, c[2] - hz) for c in o.get('well_caps', [])}
+    for n in o.get('natural_wells', []): wellc.add((n['at'][0] - hx, n['at'][2] - hz))
+    farm = {(c[0] - hx, c[2] - hz) for c in o.get('farm', [])}
+    def dil(cells, d): return {(a + i, b + j) for a, b in cells for i in range(-d, d + 1) for j in range(-d, d + 1)}
+    block = dil(hard, 1) | dil(wellc, 2) | dil(farm, 2) | dil(tree | sap, 1)
+    def free(dx, dz):
+        if (dx, dz) in block: return False
+        n, y = T(dx, dz); c = cls(n)
+        if c in ('liquid', 'unknown', 'furn'): return False
+        if c == 'terrain' and y > s: return False
+        return True
+    # (1) largest free rectangle inside the cylinder (brute force over rectangles up to 16 on a side)
+    inside = {(dx, dz) for dx in range(-16, 17) for dz in range(-16, 17) if math.hypot(dx, dz) <= 15.9 and max(abs(dx), abs(dz)) > 2}
+    F = {c for c in inside if free(*c)}
+    best = (0, None)
+    for x0 in range(-16, 17):
+        for z0 in range(-16, 17):
+            if (x0, z0) not in F: continue
+            maxw = 0
+            while (x0 + maxw, z0) in F: maxw += 1
+            h = 0; wcur = maxw
+            while wcur > 0 and all((x0 + i, z0 + h) in F for i in range(wcur)):
+                h += 1
+                area = wcur * h
+                if min(wcur, h) >= 3 and area > best[0]: best = (area, [x0, z0, x0 + wcur - 1, z0 + h - 1])
+                nw = 0
+                while nw < wcur and (x0 + nw, z0 + h) in F: nw += 1
+                wcur = nw
+    # (2) 9x9 storehouse pads outside the cylinder (Chebyshev 17..30)
+    outs = []
+    for x0 in range(-30, 23):
+        for z0 in range(-30, 23):
+            pad = [(x, z) for x in range(x0, x0 + 9) for z in range(z0, z0 + 9)]
+            ring = [(x, z) for x in range(x0 - 1, x0 + 10) for z in range(z0 - 1, z0 + 10) if not (x0 <= x < x0 + 9 and z0 <= z < z0 + 9)]
+            if any(max(abs(a), abs(b)) < 17 or math.hypot(a, b) > 30 for a, b in pad): continue
+            if any(c in dil(hard, 1) or c in dil(wellc, 2) or c in dil(farm, 3) for c in pad + ring): continue
+            if any(c in dil(tree | sap, 3) for c in pad): continue
+            fill = 0; ok = True
+            for c in pad:
+                n, y = T(*c); k = cls(n)
+                if k in ('liquid', 'unknown') or (k == 'terrain' and y > s): ok = False; break
+                fill += max(0, s - y)
+            if ok: outs.append((fill, x0, z0))
+    outs.sort()
+    # (3) the container cluster
+    cx = sum(a for a, b in cont) / len(cont); cz = sum(b for a, b in cont) / len(cont)
+    within6 = sum(1 for a, b in cont if max(abs(a), abs(b)) <= 6)
+    res[w] = {'free_cells_in_cylinder': len(F), 'cylinder_cells': len(inside), 'largest_rect': best,
+              'outside_pads': len(outs), 'outside_best': outs[0] if outs else None,
+              'containers': len(cont), 'containers_on_platform': within6, 'container_centroid': [round(cx, 1), round(cz, 1)]}
+    print(w, res[w])
+json.dump(res, open('fit2.json', 'w'), indent=1)

@@ -1,0 +1,181 @@
+"""fit.py: the offline PREVIEW of each town's plan (the runtime planner re-proves every cell; this only says whether and
+where the template fits on the 10-20 region copies). Inputs: tm/<world>.json (townmap.py), overlays.json (bots' records),
+docs/reports/zig-z0m0-2026-10-15.json (monument + shaft sites). Output: fit.json + a text table.
+
+Coordinates: dx = x - home.x (east +), dz = z - home.z (south +). s = home.y - 2 (the 13x13 platform's top).
+"""
+import json, math, glob, collections, sys
+Z0 = json.load(open(sys.argv[1]))['worlds']
+ov = json.load(open('overlays.json'))
+R = 48
+FLAT = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+MODE = sys.argv[3] if len(sys.argv) > 3 else 'strict'
+VEG = ('leaves', '_log', 'bamboo', 'bee_nest', 'sapling', 'vine', 'short_grass', 'tall_grass', 'fern', 'bush', 'flower', 'tulip',
+       'poppy', 'dandelion', 'daisy', 'allium', 'orchid', 'bluet', 'cornflower', 'lily', 'sugar_cane', 'mushroom', 'melon', 'pumpkin', 'cocoa')
+TREE = ('leaves', '_log', 'bee_nest')
+FURN = ('chest', 'barrel', 'furnace', 'crafting_table', 'composter', '_bed', 'lectern', 'smoker', 'blast_furnace', 'hopper', 'anvil', 'bell')
+LIQ = ('water', 'lava', 'bubble_column', 'kelp', 'seagrass')
+
+def cls(n):
+    if n is None: return 'unknown'
+    if any(k in n for k in LIQ): return 'liquid'
+    if any(k in n for k in TREE): return 'tree'
+    if any(k in n for k in FURN) or 'torch' in n or 'lantern' in n or 'ladder' in n: return 'furn'
+    if any(k in n for k in VEG): return 'veg'
+    return 'terrain'
+
+def fit_world(path):
+    r = json.load(open(path)); w = r['world']; hx, hy, hz = r['home']; s = hy - 2
+    top, topy = r['top'], r['topy']
+    def T(dx, dz):
+        gx, gz = dx + R, dz + R
+        if 0 <= gx <= 2 * R and 0 <= gz <= 2 * R: return top[gz][gx], topy[gz][gx]
+        return None, None
+    o = ov.get(w, {})
+    poi = collections.defaultdict(list)
+    for q in r['pois']:
+        x, y, z = q['p']
+        if abs(y - hy) <= 14: poi[(x - hx, z - hz)].append(q['n'])
+    MOVABLE = {'strict': (), 'tables': ('crafting_table',), 'stations': ('crafting_table', 'furnace', 'smoker', 'blast_furnace')}[MODE]
+    hard = {k for k, v in poi.items() if any(any(f in n for f in FURN) and n not in MOVABLE for n in v)}
+    movable = {k for k, v in poi.items() if any(n in MOVABLE for n in v)}
+    tree = {(dx, dz) for dx in range(-R, R + 1) for dz in range(-R, R + 1) if cls(T(dx, dz)[0]) == 'tree'}
+    sap = {k for k, v in poi.items() if any(n.endswith('_sapling') for n in v)}
+    wellc = {(c[0] - hx, c[2] - hz) for c in o.get('well_cells', [])} | {(c[0] - hx, c[2] - hz) for c in o.get('well_caps', [])}
+    for n in o.get('natural_wells', []): wellc.add((n['at'][0] - hx, n['at'][2] - hz))
+    farm = {(c[0] - hx, c[2] - hz) for c in o.get('farm', [])}
+    z0 = Z0.get(w, {})
+    zig = (z0.get('ziggurat') or {})
+    shaft = (z0.get('shaft') or {})
+    def near(cells, k, d): return any(max(abs(k[0] - a), abs(k[1] - b)) <= d for a, b in cells)
+    def box(x0, z0_, x1, z1): return [(x, z) for x in range(x0, x1 + 1) for z in range(z0_, z1 + 1)]
+    # ---------------- storehouse: 9x9 pad + 1 ring, inner domain, door toward home
+    best = None; n_ok = 0; why = collections.Counter()
+    for side in 'ENSW':
+        for a in range(3, 8):
+            for off in range(-8, 9):
+                if side == 'E': x0, x1, z0_, z1 = a, a + 8, off - 4, off + 4
+                elif side == 'W': x0, x1, z0_, z1 = -a - 8, -a, off - 4, off + 4
+                elif side == 'S': x0, x1, z0_, z1 = off - 4, off + 4, a, a + 8
+                else: x0, x1, z0_, z1 = off - 4, off + 4, -a - 8, -a
+                pad = box(x0, z0_, x1, z1); ring = [c for c in box(x0 - 1, z0_ - 1, x1 + 1, z1 + 1) if c not in set(pad)]
+                if any(math.hypot(dx, dz) > 15.9 for dx, dz in pad): why['outside the 16 cylinder'] += 1; continue
+                if any(max(abs(dx), abs(dz)) <= 2 for dx, dz in pad): why['on the home point'] += 1; continue
+                bad = None; fill = 0; dig = 0
+                for c in pad + ring:
+                    if c in hard or near(hard, c, 1): bad = 'town furniture within 1'; break
+                    if c in wellc or near(wellc, c, 2): bad = 'well within 2'; break
+                    if c in farm or near(farm, c, 3): bad = 'farm within 3'; break
+                for c in pad:
+                    if bad: break
+                    if near(tree | sap, c, 3): bad = 'tree or sapling within 3'; break
+                    n, y = T(*c); k = cls(n)
+                    if k == 'liquid': bad = 'liquid'; break
+                    if y is None: bad = 'unread'; break
+                    if k == 'terrain' and y > s: dig += y - s
+                    if y < s: fill += s - y
+                if not bad and dig: bad = 'terrain above the pad (a dig the zone refuses)'
+                if bad: why[bad] += 1; continue
+                n_ok += 1
+                cx, cz = (x0 + x1) / 2, (z0_ + z1) / 2
+                score = fill + 2 * math.hypot(cx, cz)
+                if best is None or score < best['score']:
+                    best = {'side': side, 'pad': [x0, z0_, x1, z1], 'fill': fill, 'score': round(score, 1), 'centre': [cx, cz],
+                            'moves': sum(1 for c in pad + ring if c in movable)}
+    store = {'sites': n_ok, 'best': best, 'rejects': dict(why.most_common(6))}
+    # ---------------- workshop: 7x3 strip beside the storehouse ring, stations on the middle row
+    work = None
+    if best:
+        x0, z0_, x1, z1 = best['pad']
+        cands = []
+        if best['side'] in 'EW':
+            for zz in (z0_ - 5, z1 + 2):
+                cands.append((x0, zz, x0 + 6, zz + 2))
+        else:
+            for xx in (x0 - 5, x1 + 2):
+                cands.append((xx, z0_, xx + 2, z0_ + 6))
+        for c in cands:
+            cells = box(*c)
+            bad = None; fill = 0
+            for k in cells:
+                n, y = T(*k)
+                if k in hard and not any(n2 in ('crafting_table', 'furnace') for n2 in poi.get(k, [])): bad = 'town furniture'; break
+                if k in wellc or k in farm: bad = 'well/farm'; break
+                if max(abs(k[0]), abs(k[1])) > 16: bad = 'outside 16'; break
+                if cls(n) == 'liquid': bad = 'liquid'; break
+                if cls(n) == 'terrain' and y is not None and y > s + 1: bad = 'terrain above'; break
+                if y is not None and y < s: fill += s - y
+            if not bad and (work is None or fill < work['fill']): work = {'strip': list(c), 'fill': fill}
+    # ---------------- outer-domain plots: pavilion 11x9 (pad 9x7 + ring) and hall 13x11 (pad 11x9 + ring)
+    zc = zig.get('corner'); zbox = None
+    if zc:
+        zbox = (zc['x'] - hx - 2, zc['z'] - hz - 2, zc['x'] - hx + 2 * (zig['centre']['x'] - zc['x']) + 2, zc['z'] - hz + 2 * (zig['centre']['z'] - zc['z']) + 2)
+    so = shaft.get('origin')
+    orej = collections.Counter()
+    def outer_sites(wd, dp):
+        out = []
+        for x0 in range(-44, 45 - wd):
+            for z0_ in range(-44, 45 - dp):
+                cells = box(x0, z0_, x0 + wd - 1, z0_ + dp - 1)
+                if any(max(abs(a), abs(b)) < 22 or math.hypot(a, b) > 44 for a, b in cells): continue
+                orej['band'] += 1
+                if zbox and not (x0 + wd - 1 < zbox[0] or x0 > zbox[2] or z0_ + dp - 1 < zbox[1] or z0_ > zbox[3]): continue
+                if so and any(max(abs(a - (so['x'] - hx)), abs(b - (so['z'] - hz))) <= 8 for a, b in cells): orej['shaft'] += 1; continue
+                ys = []; bad = False
+                for k in cells:
+                    n, y = T(*k); c = cls(n)
+                    if c in ('liquid', 'unknown', 'furn') or k in hard or k in wellc or k in farm: bad = 'liquid/furniture'; break
+                    if c == 'tree': bad = 'tree in footprint'; break
+                    ys.append(y)
+                if bad: orej[bad] += 1; continue
+                if max(ys) - min(ys) > FLAT: orej['relief > %d' % FLAT] += 1; continue
+                if any(near(tree | sap, k, 3) for k in cells[::3]): orej['tree within 3'] += 1; continue
+                out.append((x0, z0_, max(ys) - min(ys), round(math.hypot(x0 + wd / 2, z0_ + dp / 2))))
+        return out
+    pav = outer_sites(11, 9); hall = outer_sites(13, 11)
+    def sector(x, z):
+        a = math.degrees(math.atan2(z, x)) % 360   # 0 = east, 90 = south
+        return ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'][int(((a + 22.5) % 360) // 45)]
+    pav_best = min(pav, key=lambda t: (t[2], t[3])) if pav else None
+    hall_best = None
+    if hall:
+        def far_from_pav(t):
+            if not pav_best: return True
+            apart = (t[0] + 13 + 4 <= pav_best[0] or pav_best[0] + 11 + 4 <= t[0] or t[1] + 11 + 4 <= pav_best[1] or pav_best[1] + 9 + 4 <= t[1])
+            return apart
+        hs = [t for t in hall if far_from_pav(t)]
+        hall_best = min(hs, key=lambda t: (t[2], t[3])) if hs else None
+    # ---------------- sectors already taken, and the gate
+    taken = {}
+    if zig.get('centre'): taken['monument'] = sector(zig['centre']['x'] - hx, zig['centre']['z'] - hz)
+    if so: taken['shaft'] = sector(so['x'] - hx, so['z'] - hz)
+    caps = o.get('well_caps') or [n['at'] for n in o.get('natural_wells', [])]
+    if caps: taken['well'] = sector(caps[0][0] - hx, caps[0][2] - hz)
+    if o.get('farm'):
+        fx = sum(c[0] for c in o['farm']) / len(o['farm']) - hx; fz = sum(c[2] for c in o['farm']) / len(o['farm']) - hz
+        taken['farm'] = sector(fx, fz)
+    if best: taken['storehouse'] = sector(*best['centre'])
+    if pav_best: taken['pavilion'] = sector(pav_best[0] + 5, pav_best[1] + 4)
+    if hall_best: taken['hall'] = sector(hall_best[0] + 6, hall_best[1] + 5)
+    free = [d for d in ['N', 'E', 'S', 'W', 'NE', 'SE', 'SW', 'NW'] if d not in taken.values()]
+    # flat open band per free sector for the gate
+    def band_score(d):
+        n = 0
+        for dx in range(-44, 45):
+            for dz in range(-44, 45):
+                if 22 <= max(abs(dx), abs(dz)) and math.hypot(dx, dz) <= 44 and sector(dx, dz) == d:
+                    c = cls(T(dx, dz)[0]); n += c in ('terrain', 'veg')
+        return n
+    gate = max(free, key=band_score) if free else None
+    return w, {'home': r['home'], 's': s, 'storehouse': store, 'workshop': work, 'pavilion_sites': len(pav), 'pavilion': pav_best,
+               'hall_sites': len(hall), 'hall': hall_best, 'taken': taken, 'gate': gate,
+               'outer_rejects': dict(orej), 'monument_centre': zig.get('centre') and [zig['centre']['x'] - hx, zig['centre']['z'] - hz],
+               'shaft_origin': so and [so['x'] - hx, so['z'] - hz]}
+
+res = {}
+for p in sorted(glob.glob('tm/*.json')):
+    w, v = fit_world(p); res[w] = v
+    st = v['storehouse']; b = st['best']
+    print(w, 'store', st['sites'], b and (b['side'], b['pad'], 'fill', b['fill']), (st['rejects'] if not b else ''), '| work', v['workshop'],
+          '| pav', v['pavilion_sites'], v['pavilion'], '| hall', v['hall_sites'], v['hall'], '| taken', v['taken'], 'gate', v['gate'], v['outer_rejects'])
+json.dump(res, open('fit-%s-%d.json' % (MODE, FLAT), 'w'), indent=1)

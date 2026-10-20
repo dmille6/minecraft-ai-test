@@ -1,0 +1,75 @@
+"""walk.py <world> -> JSON. Full 24 h walk of one world's bot files with lib/telemetry.py (Events.load; files, not ES).
+
+Time is attributed row to row per bot: the gap before a row (capped at CAP s) is spent on that row's skill, at that row's
+position (rows stamp the END snapshot). A gap over CAP is counted as 'gap' time and not placed. Chore rows also get the
+straight-line walk from the previous positioned row's position to their own (a floor on the walk: paths bend).
+"""
+import json, math, sys, collections, datetime, bisect
+from lib.telemetry import Events
+CAP = 120.0
+W = sys.argv[1]
+home = json.load(open('worlds.json'))[W]
+hx, hy, hz = home
+ev = Events.load(paths='/var/log/mcai/%s-*/skill-*.jsonl*' % W, since_minutes=1440)
+CHORES = {'town_deposit', 'deposit', 'withdraw_pick', 'toolkit', 'smelt_town', 'dispose_well', 'count_town', 'craft', 'smelt',
+          'furnace_drain', 'withdraw', 'compost', 'home'}
+by_bot = collections.defaultdict(list)
+for r in ev.rows:
+    by_bot[r['bot'].get('name')].append(r)
+heat = collections.Counter()              # (cx, cz) 4x4 cells inside +-48, |dy|<=12 -> bot-seconds
+town_s = collections.Counter(); all_s = collections.Counter(); gap_s = 0.0; placed = 0.0
+chores = collections.defaultdict(list)
+rows_n = 0; pos_n = 0
+for bot, rs in by_bot.items():
+    rs.sort(key=lambda r: r['t'])
+    prev_t = None; prev_pos = None; hist_t = []; hist_p = []
+    for r in rs:
+        rows_n += 1
+        pos = (r['bot'] or {}).get('pos')
+        name = r['name']
+        if prev_t is not None:
+            dt = (r['t'] - prev_t).total_seconds()
+            ep = pos if (pos and isinstance(pos, dict) and 'x' in pos) else prev_pos
+            if ep:
+                if dt > CAP: gap_s += dt; dt = CAP
+                dx, dz, dy = ep['x'] - hx, ep['z'] - hz, ep['y'] - hy
+                intown = math.hypot(dx, dz) <= 16 and abs(dy) <= 12
+                all_s[name] += dt; placed += dt
+                if intown: town_s[name] += dt
+                if abs(dx) <= 48 and abs(dz) <= 48 and abs(dy) <= 12:
+                    heat[(int((dx + 48) // 4), int((dz + 48) // 4))] += dt
+        if pos and isinstance(pos, dict) and 'x' in pos:
+            pos_n += 1
+            if name in CHORES:
+                sk = r['raw'].get('skill') or {}
+                d0 = math.hypot(pos['x'] - hx, pos['z'] - hz)
+                ms = sk.get('duration_ms') or 0
+                t0 = r['t'] - datetime.timedelta(milliseconds=ms)
+                i = bisect.bisect_right(hist_t, t0) - 1
+                sp = hist_p[i] if i >= 0 else None
+                walk = math.hypot(pos['x'] - sp['x'], pos['z'] - sp['z']) if sp else None
+                chores[name].append({'status': sk.get('status'), 'fc': sk.get('fail_class'), 'ms': sk.get('duration_ms'),
+                                     'd_home': round(d0, 1), 'dy': round(pos['y'] - hy, 1), 'walk': round(walk, 1) if walk is not None else None,
+                                     'detail': (sk.get('detail') or '')[:160]})
+            prev_pos = pos
+            hist_t.append(r['t']); hist_p.append(pos)
+        prev_t = r['t']
+def med(xs):
+    xs = sorted(x for x in xs if x is not None)
+    return xs[len(xs) // 2] if xs else None
+def pct(xs, q):
+    xs = sorted(x for x in xs if x is not None)
+    return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else None
+summary = {}
+for k, lst in chores.items():
+    summary[k] = {'n': len(lst), 'status': dict(collections.Counter(x['status'] for x in lst)),
+                  'd_home_med': med([x['d_home'] for x in lst]), 'in_town': sum(1 for x in lst if x['d_home'] <= 16 and abs(x['dy']) <= 12),
+                  'walk_med': med([x['walk'] for x in lst]), 'walk_p75': pct([x['walk'] for x in lst], .75),
+                  'ms_med': med([x['ms'] for x in lst]), 'ms_sum_h': round(sum((x['ms'] or 0) for x in lst) / 3.6e6, 2),
+                  'ms_sum_h_success': round(sum((x['ms'] or 0) for x in lst if x['status'] == 'success') / 3.6e6, 2)}
+out = {'world': W, 'home': home, 'rows': rows_n, 'rows_with_pos': pos_n, 'bots': len(by_bot), 'span_h': ev.span,
+       'placed_h': round(placed / 3600, 2), 'gap_h': round(gap_s / 3600, 2),
+       'town_h': round(sum(town_s.values()) / 3600, 2), 'town_by_skill_h': {k: round(v / 3600, 2) for k, v in town_s.most_common(25)},
+       'all_by_skill_h': {k: round(v / 3600, 2) for k, v in all_s.most_common(25)},
+       'heat': {'%d,%d' % k: round(v) for k, v in heat.items()}, 'chores': summary}
+json.dump(out, sys.stdout)

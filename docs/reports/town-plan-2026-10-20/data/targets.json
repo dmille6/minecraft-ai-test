@@ -1,0 +1,186 @@
+{
+ "furnace_drain": {
+  "all": {
+   "n": 1339,
+   "target_named": 1250,
+   "target_in_town": 542,
+   "target_home_q": [
+    8.5,
+    19.4,
+    30.1
+   ],
+   "target_dy_q": [
+    -11,
+    -7,
+    -1
+   ],
+   "bot_home_q": [
+    11.3,
+    21.6,
+    31.1
+   ],
+   "bot_target_q": [
+    1.1,
+    1.7,
+    16.5
+   ],
+   "bot_in_town": 393
+  },
+  "nopath": {
+   "n": 402,
+   "target_named": 402,
+   "target_in_town": 154,
+   "target_home_q": [
+    8.5,
+    23.5,
+    31.1
+   ],
+   "target_dy_q": [
+    -11,
+    -8,
+    -4
+   ],
+   "bot_home_q": [
+    20.0,
+    30.5,
+    37.3
+   ],
+   "bot_target_q": [
+    20.0,
+    37.3,
+    52.2
+   ],
+   "bot_in_town": 12
+  },
+  "success": {
+   "n": 3,
+   "target_named": 1,
+   "target_in_town": 1,
+   "target_home_q": [
+    7.8,
+    7.8,
+    7.8
+   ],
+   "target_dy_q": [
+    3,
+    3,
+    3
+   ],
+   "bot_home_q": [
+    9.2,
+    13.2,
+    45.7
+   ],
+   "bot_target_q": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "bot_in_town": 1
+  },
+  "empty": {
+   "n": 847,
+   "target_named": 847,
+   "target_in_town": 387,
+   "target_home_q": [
+    9.5,
+    18.6,
+    27.8
+   ],
+   "target_dy_q": [
+    -10,
+    -6,
+    -1
+   ],
+   "bot_home_q": [
+    9.5,
+    18.1,
+    27.6
+   ],
+   "bot_target_q": [
+    1.0,
+    1.1,
+    2.0
+   ],
+   "bot_in_town": 371
+  }
+ },
+ "deposit": {
+  "all": {
+   "n": 408,
+   "target_named": 230,
+   "target_in_town": 155,
+   "target_home_q": [
+    3.6,
+    7.6,
+    35.5
+   ],
+   "target_dy_q": [
+    -6,
+    -1,
+    -1
+   ],
+   "bot_home_q": [
+    13.8,
+    30.0,
+    60.0
+   ],
+   "bot_target_q": [
+    23.3,
+    30.5,
+    36.1
+   ],
+   "bot_in_town": 99
+  },
+  "nopath": {
+   "n": 203,
+   "target_named": 202,
+   "target_in_town": 149,
+   "target_home_q": [
+    3.2,
+    7.6,
+    35.5
+   ],
+   "target_dy_q": [
+    -6,
+    -1,
+    -1
+   ],
+   "bot_home_q": [
+    27.7,
+    30.5,
+    38.5
+   ],
+   "bot_target_q": [
+    23.3,
+    30.5,
+    36.0
+   ],
+   "bot_in_town": 0
+  },
+  "success": {
+   "n": 127,
+   "target_named": 0,
+   "target_in_town": 0,
+   "target_home_q": null,
+   "target_dy_q": null,
+   "bot_home_q": [
+    2.1,
+    5.1,
+    16.2
+   ],
+   "bot_target_q": null,
+   "bot_in_town": 95
+  },
+  "empty": {
+   "n": 0,
+   "target_named": 0,
+   "target_in_town": 0,
+   "target_home_q": null,
+   "target_dy_q": null,
+   "bot_home_q": null,
+   "bot_target_q": null,
+   "bot_in_town": 0
+  }
+ }
+}

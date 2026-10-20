@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""overlays.py -> JSON on stdout. READ-ONLY over the bots host's town state (/var/lib/mcai/_pool-*).
+
+Per world: well caps and placed cells (junkwell-plinth-*.json plan), natural well sites (junkwell-site-*.g*.json, newest
+generation), composter sites, tree-farm cells, and the town memory's container entries with their last outcome. Isolated
+worlds keep this state PER BOT (_pool-self-isolated-<w>-<bot>), so each is listed with its owner.
+"""
+import glob, json, os, re, collections
+
+def world_of(pool):
+    m = re.match(r'_pool-self-(isolated-[a-d])-(\w+)$', pool)
+    if m: return m.group(1), m.group(2)
+    m = re.match(r'_pool-((board|hive|placebo)-[a-d])$', pool)
+    return (m.group(1), None) if m else (None, None)
+
+def newest(paths):
+    def gen(p):
+        m = re.search(r'\.g(\d+)\.json$', p); return int(m.group(1)) if m else 0
+    return max(paths, key=gen) if paths else None
+
+out = collections.defaultdict(lambda: {'well_caps': [], 'well_cells': [], 'well_records': [], 'natural_wells': [], 'composters': [],
+                                       'farm': [], 'farm_records': [], 'memory': {}})
+for d in sorted(glob.glob('/var/lib/mcai/_pool-*')):
+    pool = os.path.basename(d)
+    if 'pre-reseed' in pool: continue
+    w, owner = world_of(pool)
+    if not w: continue
+    o = out[w]
+    for p in glob.glob(os.path.join(d, 'junkwell-plinth-*.json')):
+        if '.lease.' in p: continue
+        try: r = json.load(open(p))
+        except Exception: continue
+        plan = r.get('plan') or {}
+        cap = plan.get('cap')
+        if cap: o['well_caps'].append([cap['x'], cap['y'], cap['z']])
+        for s in plan.get('steps', []):
+            if s.get('op') == 'place' and s.get('c'): o['well_cells'].append(s['c'])
+        o['well_records'].append({'owner': owner, 'state': r.get('state'), 'cap': cap, 'k': plan.get('k'), 't': plan.get('t'),
+                                  'prev': len(r.get('prev') or []), 'steps': len(plan.get('steps', [])), 'doneAt': r.get('doneAt')})
+    sites = glob.glob(os.path.join(d, 'junkwell-site-*.g*.json'))
+    n = newest(sites)
+    if n:
+        try: s = json.load(open(n)); o['natural_wells'].append({'owner': owner, 'at': [s['x'], s['y'], s['z']], 'gen': n.rsplit('.g', 1)[1][:-5], 'when': s.get('at')})
+        except Exception: pass
+    cs = glob.glob(os.path.join(d, 'composter-site-*.g*.json'))
+    n = newest(cs)
+    if n:
+        try: s = json.load(open(n)); o['composters'].append({'owner': owner, 'at': [s['x'], s['y'], s['z']]})
+        except Exception: pass
+    tf = glob.glob(os.path.join(d, 'treefarm-*.g*.json'))
+    n = newest(tf)
+    if n:
+        try:
+            s = json.load(open(n))
+            o['farm'] += [[c['x'], c['y'], c['z']] for c in s.get('cells', [])]
+            o['farm_records'].append({'owner': owner, 'anchor': s.get('anchor'), 'cells': len(s.get('cells', [])), 'at': s.get('at'),
+                                      'roles': dict(collections.Counter(c.get('role') for c in s.get('cells', [])))})
+        except Exception: pass
+    for p in glob.glob(os.path.join(d, 'town-chest-*.containers.json')):
+        try: m = json.load(open(p))
+        except Exception: continue
+        ent = m.get('entries', {}) if isinstance(m, dict) else {}
+        o['memory'][owner or 'town'] = {'entries': len(ent), 'outcomes': dict(collections.Counter(v.get('o') for v in ent.values()))}
+print(json.dumps(out, indent=1))

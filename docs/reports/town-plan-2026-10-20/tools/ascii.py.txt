@@ -1,0 +1,40 @@
+"""ascii.py <world> <half>: an annotated top-down text map of the core (north up, east right), from tm/<world>.json."""
+import json, sys
+w, H = sys.argv[1], int(sys.argv[2])
+r = json.load(open('tm/%s.json' % w)); ov = json.load(open('overlays.json')).get(w, {})
+hx, hy, hz = r['home']; R = 48
+grid = {}
+for dz in range(-H, H + 1):
+    for dx in range(-H, H + 1):
+        n = r['top'][dz + R][dx + R] or ''; y = r['topy'][dz + R][dx + R]
+        ch = '.'
+        if 'water' in n: ch = '~'
+        elif 'lava' in n: ch = '!'
+        elif 'leaves' in n or '_log' in n or 'bamboo' in n: ch = 't'
+        elif 'stone_bricks' in n: ch = '#'
+        elif 'cobble' in n: ch = ':'
+        elif y < hy - 5: ch = '_'          # a hole: 5+ below home
+        grid[(dx, dz)] = ch
+for c in ov.get('well_cells', []):
+    k = (c[0] - hx, c[2] - hz)
+    if k in grid: grid[k] = 'w'
+for q in r['pois']:
+    x, y, z = q['p']
+    if abs(y - hy) > 12: continue
+    k = (x - hx, z - hz)
+    if k not in grid: continue
+    n = q['n']
+    sym = {'chest': 'C', 'trapped_chest': 'C', 'barrel': 'C', 'crafting_table': 'T', 'furnace': 'F', 'composter': 'o', 'lectern': 'L'}.get(n)
+    if n.endswith('_bed'): sym = 'B'
+    if n.endswith('_sapling'): sym = 's'
+    if n in ('torch', 'wall_torch', 'lantern') and grid[k] not in 'CTFoLB': sym = '+'
+    if sym:
+        if grid[k] in 'CTF' and sym not in 'CTF': continue
+        grid[k] = sym
+for c in ov.get('well_caps', []) + [n['at'] for n in ov.get('natural_wells', [])]:
+    k = (c[0] - hx, c[2] - hz)
+    if k in grid: grid[k] = 'W'
+grid[(0, 0)] = 'H'
+print('     ' + ''.join(('%d' % (abs(dx) // 10)) if dx % 5 == 0 else ' ' for dx in range(-H, H + 1)))
+for dz in range(-H, H + 1):
+    print('%4d ' % dz + ''.join(grid[(dx, dz)] for dx in range(-H, H + 1)))

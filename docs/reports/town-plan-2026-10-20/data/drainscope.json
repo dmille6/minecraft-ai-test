@@ -1,0 +1,17 @@
+{
+ "rows": 1357,
+ "named": 1265,
+ "by": {
+  "in_town": 547,
+  "out_of_scope": 718,
+  "unnamed": 92
+ },
+ "success_by": {
+  "in_town": 1
+ },
+ "what_died": {
+  "smelt": 1
+ },
+ "furnaces_with_leases": 807,
+ "died_furnaces": 1
+}

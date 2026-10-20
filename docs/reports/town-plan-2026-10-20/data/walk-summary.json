@@ -1,0 +1,431 @@
+{
+ "towns": {
+  "board-a": [
+   86900,
+   57245,
+   5,
+   119.95,
+   11.38,
+   9.5,
+   8.0,
+   10.4,
+   11.6,
+   28.4
+  ],
+  "board-b": [
+   92765,
+   57154,
+   5,
+   119.91,
+   16.45,
+   13.7,
+   10.1,
+   12.7,
+   16.9,
+   39.1
+  ],
+  "board-c": [
+   81038,
+   52659,
+   5,
+   119.93,
+   19.74,
+   16.5,
+   17.4,
+   18.0,
+   20.0,
+   39.3
+  ],
+  "board-d": [
+   177385,
+   97569,
+   5,
+   119.98,
+   5.98,
+   5.0,
+   5.1,
+   5.4,
+   6.1,
+   14.3
+  ],
+  "hive-a": [
+   93906,
+   57091,
+   5,
+   119.98,
+   9.47,
+   7.9,
+   7.6,
+   8.2,
+   9.7,
+   23.5
+  ],
+  "hive-b": [
+   92869,
+   55302,
+   5,
+   119.96,
+   8.98,
+   7.5,
+   5.9,
+   6.4,
+   9.2,
+   31.7
+  ],
+  "hive-c": [
+   90080,
+   55917,
+   5,
+   119.91,
+   8.35,
+   7.0,
+   4.8,
+   6.8,
+   8.5,
+   20.7
+  ],
+  "hive-d": [
+   81335,
+   54817,
+   5,
+   119.97,
+   12.75,
+   10.6,
+   9.7,
+   10.8,
+   13.1,
+   40.0
+  ],
+  "isolated-a": [
+   87706,
+   56185,
+   5,
+   119.95,
+   9.66,
+   8.1,
+   8.1,
+   8.8,
+   9.9,
+   24.6
+  ],
+  "isolated-b": [
+   85276,
+   53128,
+   5,
+   119.97,
+   9.98,
+   8.3,
+   8.7,
+   9.3,
+   10.0,
+   22.1
+  ],
+  "isolated-c": [
+   83749,
+   50847,
+   5,
+   119.96,
+   6.44,
+   5.4,
+   3.9,
+   5.6,
+   6.6,
+   14.9
+  ],
+  "isolated-d": [
+   75740,
+   46890,
+   5,
+   119.97,
+   7.69,
+   6.4,
+   6.2,
+   7.1,
+   7.9,
+   20.2
+  ],
+  "placebo-a": [
+   89207,
+   56472,
+   5,
+   119.91,
+   14.26,
+   11.9,
+   13.2,
+   13.9,
+   14.6,
+   28.0
+  ],
+  "placebo-b": [
+   79542,
+   59504,
+   5,
+   119.94,
+   19.64,
+   16.4,
+   12.9,
+   13.6,
+   21.1,
+   38.2
+  ],
+  "placebo-c": [
+   86694,
+   51150,
+   5,
+   119.95,
+   7.42,
+   6.2,
+   6.3,
+   6.9,
+   7.6,
+   18.0
+  ],
+  "placebo-d": [
+   89831,
+   55068,
+   5,
+   119.96,
+   11.17,
+   9.3,
+   8.7,
+   9.1,
+   11.9,
+   22.5
+  ]
+ },
+ "chores": {
+  "town_deposit": {
+   "n": 749,
+   "status": {
+    "no_effect": 607,
+    "success": 140,
+    "failed": 2
+   },
+   "in_town": 749,
+   "walk_med_of_towns": 0.0,
+   "walk_range": [
+    0.0,
+    9.8
+   ],
+   "d_home_med": 2.1,
+   "bot_h": 0.2,
+   "success_bot_h": 0.0
+  },
+  "craft": {
+   "n": 2258,
+   "status": {
+    "failed": 1406,
+    "aborted": 158,
+    "success": 631,
+    "unknown": 63
+   },
+   "in_town": 194,
+   "walk_med_of_towns": 0.5,
+   "walk_range": [
+    0.0,
+    2.5
+   ],
+   "d_home_med": 66.9,
+   "bot_h": 3.0,
+   "success_bot_h": 1.4
+  },
+  "count_town": {
+   "n": 691,
+   "status": {
+    "no_effect": 369,
+    "success": 319,
+    "aborted": 2,
+    "failed": 1
+   },
+   "in_town": 690,
+   "walk_med_of_towns": 2.1,
+   "walk_range": [
+    0.0,
+    6.4
+   ],
+   "d_home_med": 2.6,
+   "bot_h": 0.3,
+   "success_bot_h": 0.2
+  },
+  "withdraw_pick": {
+   "n": 391,
+   "status": {
+    "success": 234,
+    "no_effect": 111,
+    "failed": 41,
+    "aborted": 3,
+    "unknown": 2
+   },
+   "in_town": 376,
+   "walk_med_of_towns": 3.5,
+   "walk_range": [
+    0.9,
+    10.0
+   ],
+   "d_home_med": 2.9,
+   "bot_h": 1.1,
+   "success_bot_h": 0.5
+  },
+  "home": {
+   "n": 1042,
+   "status": {
+    "success": 446,
+    "failed": 357,
+    "unknown": 38,
+    "aborted": 201
+   },
+   "in_town": 613,
+   "walk_med_of_towns": 8.0,
+   "walk_range": [
+    0.0,
+    78.1
+   ],
+   "d_home_med": 36.2,
+   "bot_h": 8.4,
+   "success_bot_h": 3.5
+  },
+  "compost": {
+   "n": 87,
+   "status": {
+    "success": 81,
+    "failed": 6
+   },
+   "in_town": 84,
+   "walk_med_of_towns": 5.7,
+   "walk_range": [
+    0.0,
+    15.9
+   ],
+   "d_home_med": 3.5,
+   "bot_h": 0.1,
+   "success_bot_h": 0.1
+  },
+  "smelt": {
+   "n": 552,
+   "status": {
+    "failed": 123,
+    "success": 340,
+    "aborted": 67,
+    "no_effect": 16,
+    "unknown": 6
+   },
+   "in_town": 22,
+   "walk_med_of_towns": 0.9,
+   "walk_range": [
+    0.0,
+    2.9
+   ],
+   "d_home_med": 64.4,
+   "bot_h": 2.1,
+   "success_bot_h": 1.6
+  },
+  "toolkit": {
+   "n": 660,
+   "status": {
+    "failed": 476,
+    "success": 180,
+    "aborted": 3,
+    "unknown": 1
+   },
+   "in_town": 658,
+   "walk_med_of_towns": 2.3,
+   "walk_range": [
+    1.0,
+    4.2
+   ],
+   "d_home_med": 1.6,
+   "bot_h": 1.1,
+   "success_bot_h": 0.3
+  },
+  "withdraw": {
+   "n": 14,
+   "status": {
+    "failed": 10,
+    "aborted": 1,
+    "success": 3
+   },
+   "in_town": 8,
+   "walk_med_of_towns": 19.3,
+   "walk_range": [
+    0.0,
+    99.0
+   ],
+   "d_home_med": 10.6,
+   "bot_h": 0.1,
+   "success_bot_h": 0.0
+  },
+  "dispose_well": {
+   "n": 288,
+   "status": {
+    "success": 228,
+    "failed": 43,
+    "aborted": 7,
+    "no_effect": 10
+   },
+   "in_town": 240,
+   "walk_med_of_towns": 16.8,
+   "walk_range": [
+    11.9,
+    85.3
+   ],
+   "d_home_med": 12.7,
+   "bot_h": 1.0,
+   "success_bot_h": 0.8
+  },
+  "smelt_town": {
+   "n": 1582,
+   "status": {
+    "no_effect": 1308,
+    "success": 139,
+    "failed": 123,
+    "aborted": 8,
+    "unknown": 4
+   },
+   "in_town": 1105,
+   "walk_med_of_towns": 7.7,
+   "walk_range": [
+    1.3,
+    14.3
+   ],
+   "d_home_med": 3.6,
+   "bot_h": 8.8,
+   "success_bot_h": 3.1
+  },
+  "furnace_drain": {
+   "n": 1309,
+   "status": {
+    "no_effect": 822,
+    "failed": 398,
+    "aborted": 86,
+    "success": 3
+   },
+   "in_town": 382,
+   "walk_med_of_towns": 13.1,
+   "walk_range": [
+    2.1,
+    25.0
+   ],
+   "d_home_med": 21.6,
+   "bot_h": 4.1,
+   "success_bot_h": 0.0
+  },
+  "deposit": {
+   "n": 406,
+   "status": {
+    "failed": 269,
+    "success": 125,
+    "aborted": 11,
+    "unknown": 1
+   },
+   "in_town": 98,
+   "walk_med_of_towns": 0.3,
+   "walk_range": [
+    0.0,
+    26.0
+   ],
+   "d_home_med": 30.8,
+   "bot_h": 0.9,
+   "success_bot_h": 0.5
+  }
+ }
+}

@@ -1,0 +1,48 @@
+"""fit2.py: what DOES fit near the core. (1) the largest free rectangle inside the 16 cylinder at plaza level (cells with no
+town furniture within 1, no well/farm cell within 2, no tree/sapling within 1, no liquid, no terrain above s); (2) 9x9
+storehouse pads just OUTSIDE the cylinder (every pad cell at Chebyshev 17..30, straight line <= 30), strict rules as fit.py;
+(3) where the existing containers sit (the cluster the retrofit sorts in place)."""
+import json, math, glob, collections, sys
+exec(open('fit.py').read().split('def fit_world')[0].replace("Z0 = json.load(open(sys.argv[1]))['worlds']", "Z0 = {}"))
+res = {}
+for p in sorted(glob.glob('tm/*.json')):
+    r = json.load(open(p)); w = r['world']; hx, hy, hz = r['home']; s = hy - 2
+    top, topy = r['top'], r['topy']
+    def T(dx, dz):
+        gx, gz = dx + R, dz + R
+        return (top[gz][gx], topy[gz][gx]) if 0 <= gx <= 2 * R and 0 <= gz <= 2 * R else (None, None)
+    o = ov.get(w, {})
+    hard = set(); sap = set(); cont = []
+    for q in r['pois']:
+        x, y, z = q['p']
+        if abs(y - hy) > 14: continue
+        k = (x - hx, z - hz)
+        if any(f in q['n'] for f in FURN): hard.add(k)
+        if q['n'].endswith('_sapling'): sap.add(k)
+        if q['n'] in ('chest', 'trapped_chest', 'barrel'): cont.append(k)
+    tree = {(dx, dz) for dx in range(-R, R + 1) for dz in range(-R, R + 1) if cls(T(dx, dz)[0]) == 'tree'}
+    wellc = {(c[0] - hx, c[2] - hz) for c in o.get('well_cells', [])} | {(c[0] - hx, c[2] - hz) for c in o.get('well_caps', [])}
+    for n in o.get('natural_wells', []): wellc.add((n['at'][0] - hx, n['at'][2] - hz))
+    farm = {(c[0] - hx, c[2] - hz) for c in o.get('farm', [])}
+    def dil(cells, d): return {(a + i, b + j) for a, b in cells for i in range(-d, d + 1) for j in range(-d, d + 1)}
+    block = dil(hard, 1) | dil(wellc, 2) | dil(farm, 2) | dil(tree | sap, 1)
+    def free(dx, dz):
+        if (dx, dz) in block: return False
+        n, y = T(dx, dz); c = cls(n)
+        if c in ('liquid', 'unknown', 'furn'): return False
+        if c == 'terrain' and y > s: return False
+        return True
+    inside = {(dx, dz) for dx in range(-16, 17) for dz in range(-16, 17) if math.hypot(dx, dz) <= 15.9 and max(abs(dx), abs(dz)) > 2}
+    F = {c for c in inside if free(*c)}
+    def fits(a, b):
+        n = 0; first = None
+        for x0 in range(-16, 17):
+            for z0 in range(-16, 17):
+                for (wa, wb) in ((a, b), (b, a)):
+                    if all((x0 + i, z0 + j) in F for i in range(wa) for j in range(wb)):
+                        n += 1
+                        if first is None or math.hypot(x0, z0) < math.hypot(*first[:2]): first = (x0, z0, wa, wb)
+        return n, first
+    res[w] = {'5x3': fits(5, 3), '5x2': fits(5, 2), '4x2': fits(4, 2), 'free': len(F)}
+    print(w, res[w])
+json.dump(res, open('workshop-fit.json', 'w'), indent=1)

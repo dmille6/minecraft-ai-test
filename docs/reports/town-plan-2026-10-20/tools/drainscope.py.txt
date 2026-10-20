@@ -1,0 +1,42 @@
+"""drainscope.py: the 24 h furnace_drain rows classified by a proposed scope (files + the pools' furnace-lease dirs).
+A furnace is DIED if its newest lease generation has no .released marker, its `until` has passed, and `what` is not the
+drain's own. Scope = in town (16 h / 12 v) OR died. Shared pools only (isolated lease dirs are per bot)."""
+import json, math, re, sys, os, glob, collections, time
+from lib.telemetry import Events
+worlds = json.load(open('worlds.json'))
+RX = re.compile(r'furnace at (-?\d+),(-?\d+),(-?\d+)')
+now = time.time() * 1000
+out = {'rows': 0, 'named': 0, 'by': collections.Counter(), 'success_by': collections.Counter(), 'what_died': collections.Counter(),
+       'furnaces_with_leases': 0, 'died_furnaces': 0}
+for w, (hx, hy, hz) in worlds.items():
+    if w.startswith('isolated'): continue
+    leases = {}
+    for f in glob.glob('/var/lib/mcai/_pool-%s/furnace-leases/*.json' % w):
+        m = re.match(r'(-?\d+_-?\d+_-?\d+)\.g(\d+)\.json$', os.path.basename(f))
+        if not m: continue
+        k, g = m.group(1), int(m.group(2))
+        if k not in leases or g > leases[k][0]: leases[k] = (g, f)
+    died = set()
+    for k, (g, f) in leases.items():
+        out['furnaces_with_leases'] += 1
+        rel = os.path.exists(f[:-5] + '.released')
+        try: L = json.load(open(f))
+        except Exception: L = {}
+        if not rel and (L.get('until') or 0) < now and L.get('what') != 'drain':
+            died.add(k); out['what_died'][L.get('what')] += 1
+    out['died_furnaces'] += len(died)
+    ev = Events.load(paths='/var/log/mcai/%s-*/skill-*.jsonl*' % w, since_minutes=1440)
+    for r in ev.rows:
+        if r['name'] != 'furnace_drain': continue
+        out['rows'] += 1
+        sk = r['raw'].get('skill') or {}
+        m = RX.search(sk.get('detail') or '')
+        if not m: out['by']['unnamed'] += 1; continue
+        out['named'] += 1
+        x, y, z = map(int, m.groups())
+        intown = math.hypot(x - hx, z - hz) <= 16 and abs(y - hy) <= 12
+        isdied = '%d_%d_%d' % (x, y, z) in died
+        cls = 'in_town' if intown else ('died_outside' if isdied else 'out_of_scope')
+        out['by'][cls] += 1
+        if sk.get('status') == 'success': out['success_by'][cls] += 1
+json.dump(out, sys.stdout, indent=1, default=dict)

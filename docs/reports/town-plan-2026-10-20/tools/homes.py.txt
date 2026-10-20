@@ -1,0 +1,82 @@
+"""homes.py <census-goal.json>: the retrofit HOME ALLOCATION (town-plan section 6.1), run offline on the 00:15Z census.
+
+Eligible containers: TOWN containers only (chestfull.mjs inTown: within 16 horizontally of home, within 12 of home's level).
+A double chest is ONE container: the census lists halves, so two chest halves side by side whose region block states are
+'left'/'right' (tm/<world>.json from townmap.py) are merged; its key is the lower (x, z) half.
+Allocation, groups in a fixed order (metal, fuel, stone, wood, tools, farm, valuable, build, earth, misc): each group takes
+the unassigned container holding the most of it (items, census counts); a group with none of it held takes the unassigned
+container nearest home with the fewest used slots; a group with no stock gets no home until it appears, and one more emptiest container is the
+OVERFLOW. One container per group in v1 (a second only if the group's full stacks
+exceed one container's slots). Everything else is DRAIN. Output: per town the homes with coordinates, and the share of
+each group already in its home.
+"""
+import json, sys, math, collections
+sys.argv, cg = sys.argv[:1], sys.argv[1]
+exec(open('census_summary.py').read().split('def main')[0])
+ORDER = ['metal', 'fuel', 'stone', 'wood', 'tools', 'farm', 'valuable', 'build', 'earth', 'misc']
+d = json.load(open(cg))
+out = {}
+for w, v in sorted(d['worlds'].items()):
+    hx, hy, hz = v['home']
+    tm = json.load(open('tm/%s.json' % w))
+    halftype = {tuple(q['p']): q.get('type') for q in tm['pois'] if q['n'] in ('chest', 'trapped_chest')}
+    town = [c for c in v['containers'] if math.hypot(c['pos'][0] - hx, c['pos'][2] - hz) <= 16 and abs(c['pos'][1] - hy) <= 12]
+    outside = len(v['containers']) - len(town)
+    # merge double-chest halves
+    key = {}
+    pos = [tuple(c['pos']) for c in town]
+    for p in pos:
+        key[p] = p
+    for p in pos:
+        if halftype.get(p) in ('left', 'right'):
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                q = (p[0] + dx, p[1], p[2] + dz)
+                if q in key and halftype.get(q) in ('left', 'right') and halftype.get(q) != halftype.get(p):
+                    k = min(p, q); key[p] = key[q] = k
+    items = collections.defaultdict(collections.Counter); slots = collections.Counter(); halves = collections.Counter()
+    for c in town:
+        k = key[tuple(c['pos'])]; halves[k] += 1
+        for it in c['items']:
+            items[k][it['id']] += it['count']; slots[k] += 1
+    conts = sorted(set(key.values()))
+    gtot = collections.Counter(); gin = collections.defaultdict(collections.Counter); gfull = collections.Counter()
+    for k in conts:
+        for name, n in items[k].items():
+            g = group_of(name); gtot[g] += n; gin[g][k] += n
+    for g in gtot:
+        names = collections.Counter()
+        for k in conts:
+            for name, n in items[k].items():
+                if group_of(name) == g: names[name] += n
+        gfull[g] = sum(math.ceil(n / max_stack(nm)) for nm, n in names.items())
+    free = set(conts); homes = {}
+    gslots = collections.Counter()
+    for k in conts:
+        for c in town:
+            pass
+    for c in town:
+        for it in c['items']:
+            gslots[group_of(it['id'])] += 1          # v1 moves whole stacks into empty slots: capacity is counted in SLOTS AS THEY ARE
+    for g in ORDER:
+        need_slots = gslots.get(g, 0)
+        picks = []
+        if not gtot.get(g):
+            homes[g] = []; continue      # no stock: no home until the group appears (it goes to the overflow)
+        while free:
+            if gin[g]:
+                cand = sorted(free, key=lambda k: (-gin[g][k], slots[k], math.hypot(k[0] - hx, k[2] - hz), k))
+            else:
+                cand = sorted(free, key=lambda k: (slots[k], math.hypot(k[0] - hx, k[2] - hz), k))
+            k = cand[0]; picks.append(k); free.discard(k)
+            cap = sum(27 * halves[p] for p in picks)
+            if cap >= need_slots or len(picks) >= 3: break
+        homes[g] = picks
+    overflow = sorted(free, key=lambda k: (slots[k], math.hypot(k[0] - hx, k[2] - hz), k))[:1]
+    for k in overflow: free.discard(k)
+    share = {g: round(sum(gin[g][k] for k in homes[g]) / gtot[g], 2) if gtot[g] else None for g in ORDER}
+    out[w] = {'town_containers': len(conts), 'town_halves': len(town), 'census_outside_town': outside,
+              'homes': {g: [list(k) for k in homes[g]] for g in ORDER}, 'overflow': [list(k) for k in overflow], 'drain': [list(k) for k in sorted(free)],
+              'home_share_now': share, 'group_slots_now': dict(gslots), 'home_capacity_slots': {g: sum(27 * halves[k] for k in homes[g]) for g in ORDER}}
+    print(w, 'containers', len(conts), '(halves', len(town), ', outside town', outside, ') homes', sum(len(x) for x in homes.values()), 'overflow', len(overflow),
+          'drain', len(free), 'share now', {g: s for g, s in share.items() if s is not None})
+json.dump(out, open('homes.json', 'w'), indent=1)

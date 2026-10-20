@@ -1,0 +1,2405 @@
+{
+ "source": "/home/mike/chestclear3/census-goal-20261020T0015Z.json",
+ "started_utc": "2026-10-20T00:15:05Z",
+ "towns": {
+  "board-a": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 35,
+   "kinds": {
+    "chest": 35
+   },
+   "slots_used": 290,
+   "capacity": 945,
+   "fill_pct": 30.7,
+   "kinds_per_container_median": 6,
+   "kinds_per_container_max": 10,
+   "groups_per_container_median": 4,
+   "containers_with_3plus_groups": 30,
+   "empty_containers": 0,
+   "distinct_items": 34,
+   "partial_stacks": 232,
+   "ideal_slots": 128,
+   "slots_freed_by_consolidation": 162,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 4,
+    "max": 43,
+    "within_8": 26,
+    "within_16": 32
+   },
+   "slots_by_group": {
+    "wood": 97,
+    "metal": 96,
+    "stone": 28,
+    "fuel": 23,
+    "farm": 16,
+    "tools": 11,
+    "build": 7,
+    "misc": 6,
+    "valuable": 6
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 25,
+     "total": 187,
+     "max_one": 30,
+     "median_held": 6
+    },
+    "raw_iron": {
+     "containers": 16,
+     "total": 68,
+     "max_one": 13,
+     "median_held": 3.0
+    },
+    "coal": {
+     "containers": 23,
+     "total": 386,
+     "max_one": 37,
+     "median_held": 12
+    },
+    "copper_ingot": {
+     "containers": 10,
+     "total": 328,
+     "max_one": 120,
+     "median_held": 8.5
+    },
+    "raw_copper": {
+     "containers": 22,
+     "total": 952,
+     "max_one": 116,
+     "median_held": 39.5
+    },
+    "cobblestone": {
+     "containers": 15,
+     "total": 1106,
+     "max_one": 210,
+     "median_held": 58
+    },
+    "oak_log": {
+     "containers": 22,
+     "total": 2162,
+     "max_one": 773,
+     "median_held": 35.5
+    },
+    "stick": {
+     "containers": 9,
+     "total": 350,
+     "max_one": 88,
+     "median_held": 32
+    },
+    "oak_planks": {
+     "containers": 6,
+     "total": 124,
+     "max_one": 64,
+     "median_held": 3.5
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 2,
+     "total": 2,
+     "max_one": 1,
+     "median_held": 1.0
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "board-b": {
+   "home": [
+    -249,
+    65,
+    144
+   ],
+   "containers": 19,
+   "kinds": {
+    "chest": 19
+   },
+   "slots_used": 144,
+   "capacity": 513,
+   "fill_pct": 28.1,
+   "kinds_per_container_median": 5,
+   "kinds_per_container_max": 10,
+   "groups_per_container_median": 3,
+   "containers_with_3plus_groups": 13,
+   "empty_containers": 0,
+   "distinct_items": 15,
+   "partial_stacks": 116,
+   "ideal_slots": 64,
+   "slots_freed_by_consolidation": 80,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 6,
+    "max": 10,
+    "within_8": 16,
+    "within_16": 19
+   },
+   "slots_by_group": {
+    "wood": 51,
+    "metal": 45,
+    "stone": 25,
+    "valuable": 11,
+    "fuel": 7,
+    "tools": 4,
+    "build": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 17,
+     "total": 180,
+     "max_one": 56,
+     "median_held": 4
+    },
+    "raw_iron": {
+     "containers": 12,
+     "total": 71,
+     "max_one": 17,
+     "median_held": 2.5
+    },
+    "coal": {
+     "containers": 7,
+     "total": 145,
+     "max_one": 51,
+     "median_held": 22
+    },
+    "copper_ingot": {
+     "containers": 12,
+     "total": 339,
+     "max_one": 88,
+     "median_held": 26.0
+    },
+    "raw_copper": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "cobblestone": {
+     "containers": 7,
+     "total": 867,
+     "max_one": 372,
+     "median_held": 57
+    },
+    "oak_log": {
+     "containers": 12,
+     "total": 951,
+     "max_one": 256,
+     "median_held": 60.5
+    },
+    "stick": {
+     "containers": 9,
+     "total": 191,
+     "max_one": 70,
+     "median_held": 19
+    },
+    "oak_planks": {
+     "containers": 4,
+     "total": 68,
+     "max_one": 64,
+     "median_held": 1.5
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 2,
+     "total": 3,
+     "max_one": 2,
+     "median_held": 1.5
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "board-c": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 31,
+   "kinds": {
+    "chest": 31
+   },
+   "slots_used": 273,
+   "capacity": 837,
+   "fill_pct": 32.6,
+   "kinds_per_container_median": 6,
+   "kinds_per_container_max": 12,
+   "groups_per_container_median": 4,
+   "containers_with_3plus_groups": 27,
+   "empty_containers": 0,
+   "distinct_items": 33,
+   "partial_stacks": 234,
+   "ideal_slots": 101,
+   "slots_freed_by_consolidation": 172,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 3,
+    "max": 9,
+    "within_8": 30,
+    "within_16": 31
+   },
+   "slots_by_group": {
+    "wood": 89,
+    "metal": 87,
+    "stone": 29,
+    "tools": 18,
+    "fuel": 18,
+    "build": 11,
+    "farm": 10,
+    "valuable": 8,
+    "misc": 3
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 22,
+     "total": 174,
+     "max_one": 44,
+     "median_held": 4.0
+    },
+    "raw_iron": {
+     "containers": 8,
+     "total": 44,
+     "max_one": 15,
+     "median_held": 3.0
+    },
+    "coal": {
+     "containers": 17,
+     "total": 263,
+     "max_one": 53,
+     "median_held": 7
+    },
+    "copper_ingot": {
+     "containers": 17,
+     "total": 648,
+     "max_one": 131,
+     "median_held": 24
+    },
+    "raw_copper": {
+     "containers": 19,
+     "total": 561,
+     "max_one": 85,
+     "median_held": 19
+    },
+    "cobblestone": {
+     "containers": 10,
+     "total": 998,
+     "max_one": 260,
+     "median_held": 96.0
+    },
+    "oak_log": {
+     "containers": 19,
+     "total": 764,
+     "max_one": 79,
+     "median_held": 54
+    },
+    "stick": {
+     "containers": 8,
+     "total": 269,
+     "max_one": 128,
+     "median_held": 7.0
+    },
+    "oak_planks": {
+     "containers": 7,
+     "total": 118,
+     "max_one": 64,
+     "median_held": 10
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 9,
+     "total": 9,
+     "max_one": 1,
+     "median_held": 1
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "board-d": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 31,
+   "kinds": {
+    "chest": 31
+   },
+   "slots_used": 213,
+   "capacity": 837,
+   "fill_pct": 25.4,
+   "kinds_per_container_median": 5,
+   "kinds_per_container_max": 11,
+   "groups_per_container_median": 4,
+   "containers_with_3plus_groups": 22,
+   "empty_containers": 1,
+   "distinct_items": 28,
+   "partial_stacks": 179,
+   "ideal_slots": 84,
+   "slots_freed_by_consolidation": 129,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 3,
+    "max": 5,
+    "within_8": 31,
+    "within_16": 31
+   },
+   "slots_by_group": {
+    "wood": 74,
+    "metal": 53,
+    "stone": 30,
+    "tools": 21,
+    "fuel": 11,
+    "build": 10,
+    "farm": 8,
+    "valuable": 4,
+    "misc": 2
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 20,
+     "total": 140,
+     "max_one": 24,
+     "median_held": 5.5
+    },
+    "raw_iron": {
+     "containers": 9,
+     "total": 31,
+     "max_one": 8,
+     "median_held": 2
+    },
+    "coal": {
+     "containers": 11,
+     "total": 123,
+     "max_one": 37,
+     "median_held": 7
+    },
+    "copper_ingot": {
+     "containers": 21,
+     "total": 706,
+     "max_one": 71,
+     "median_held": 32
+    },
+    "raw_copper": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "cobblestone": {
+     "containers": 13,
+     "total": 917,
+     "max_one": 317,
+     "median_held": 60
+    },
+    "oak_log": {
+     "containers": 17,
+     "total": 466,
+     "max_one": 82,
+     "median_held": 17
+    },
+    "stick": {
+     "containers": 8,
+     "total": 156,
+     "max_one": 87,
+     "median_held": 10.0
+    },
+    "oak_planks": {
+     "containers": 4,
+     "total": 74,
+     "max_one": 68,
+     "median_held": 2.5
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 12,
+     "total": 14,
+     "max_one": 2,
+     "median_held": 1.0
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "hive-a": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 24,
+   "kinds": {
+    "chest": 24
+   },
+   "slots_used": 203,
+   "capacity": 648,
+   "fill_pct": 31.3,
+   "kinds_per_container_median": 6.0,
+   "kinds_per_container_max": 11,
+   "groups_per_container_median": 4.0,
+   "containers_with_3plus_groups": 20,
+   "empty_containers": 0,
+   "distinct_items": 30,
+   "partial_stacks": 163,
+   "ideal_slots": 93,
+   "slots_freed_by_consolidation": 110,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 3.5,
+    "max": 7,
+    "within_8": 24,
+    "within_16": 24
+   },
+   "slots_by_group": {
+    "metal": 79,
+    "wood": 43,
+    "stone": 30,
+    "fuel": 18,
+    "tools": 15,
+    "farm": 7,
+    "valuable": 6,
+    "build": 5
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 18,
+     "total": 224,
+     "max_one": 57,
+     "median_held": 4.0
+    },
+    "raw_iron": {
+     "containers": 9,
+     "total": 25,
+     "max_one": 7,
+     "median_held": 2
+    },
+    "coal": {
+     "containers": 17,
+     "total": 345,
+     "max_one": 64,
+     "median_held": 14
+    },
+    "copper_ingot": {
+     "containers": 13,
+     "total": 733,
+     "max_one": 183,
+     "median_held": 8
+    },
+    "raw_copper": {
+     "containers": 15,
+     "total": 815,
+     "max_one": 119,
+     "median_held": 48
+    },
+    "cobblestone": {
+     "containers": 11,
+     "total": 831,
+     "max_one": 320,
+     "median_held": 39
+    },
+    "oak_log": {
+     "containers": 8,
+     "total": 331,
+     "max_one": 97,
+     "median_held": 23.0
+    },
+    "stick": {
+     "containers": 5,
+     "total": 78,
+     "max_one": 48,
+     "median_held": 9
+    },
+    "oak_planks": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 6,
+     "total": 8,
+     "max_one": 3,
+     "median_held": 1.0
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "hive-b": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 11,
+   "kinds": {
+    "chest": 11
+   },
+   "slots_used": 118,
+   "capacity": 297,
+   "fill_pct": 39.7,
+   "kinds_per_container_median": 8,
+   "kinds_per_container_max": 12,
+   "groups_per_container_median": 5,
+   "containers_with_3plus_groups": 10,
+   "empty_containers": 0,
+   "distinct_items": 25,
+   "partial_stacks": 84,
+   "ideal_slots": 64,
+   "slots_freed_by_consolidation": 54,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 2,
+    "max": 4,
+    "within_8": 11,
+    "within_16": 11
+   },
+   "slots_by_group": {
+    "wood": 32,
+    "metal": 30,
+    "stone": 22,
+    "tools": 13,
+    "fuel": 6,
+    "farm": 6,
+    "valuable": 5,
+    "build": 3,
+    "misc": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 9,
+     "total": 104,
+     "max_one": 40,
+     "median_held": 4
+    },
+    "raw_iron": {
+     "containers": 3,
+     "total": 14,
+     "max_one": 6,
+     "median_held": 5
+    },
+    "coal": {
+     "containers": 6,
+     "total": 80,
+     "max_one": 30,
+     "median_held": 13.5
+    },
+    "copper_ingot": {
+     "containers": 10,
+     "total": 720,
+     "max_one": 225,
+     "median_held": 49.5
+    },
+    "raw_copper": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "cobblestone": {
+     "containers": 7,
+     "total": 1000,
+     "max_one": 455,
+     "median_held": 50
+    },
+    "oak_log": {
+     "containers": 8,
+     "total": 98,
+     "max_one": 52,
+     "median_held": 2.5
+    },
+    "stick": {
+     "containers": 2,
+     "total": 60,
+     "max_one": 39,
+     "median_held": 30.0
+    },
+    "oak_planks": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 4,
+     "total": 8,
+     "max_one": 4,
+     "median_held": 1.5
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "hive-c": {
+   "home": [
+    -68,
+    68,
+    -68
+   ],
+   "containers": 30,
+   "kinds": {
+    "chest": 30
+   },
+   "slots_used": 143,
+   "capacity": 810,
+   "fill_pct": 17.7,
+   "kinds_per_container_median": 4.0,
+   "kinds_per_container_max": 11,
+   "groups_per_container_median": 2.5,
+   "containers_with_3plus_groups": 15,
+   "empty_containers": 6,
+   "distinct_items": 20,
+   "partial_stacks": 112,
+   "ideal_slots": 66,
+   "slots_freed_by_consolidation": 77,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 8.0,
+    "max": 11,
+    "within_8": 18,
+    "within_16": 30
+   },
+   "slots_by_group": {
+    "metal": 69,
+    "stone": 25,
+    "tools": 17,
+    "fuel": 15,
+    "valuable": 10,
+    "wood": 6,
+    "build": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 22,
+     "total": 241,
+     "max_one": 33,
+     "median_held": 7.5
+    },
+    "raw_iron": {
+     "containers": 13,
+     "total": 59,
+     "max_one": 15,
+     "median_held": 3
+    },
+    "coal": {
+     "containers": 15,
+     "total": 131,
+     "max_one": 18,
+     "median_held": 7
+    },
+    "copper_ingot": {
+     "containers": 8,
+     "total": 388,
+     "max_one": 124,
+     "median_held": 30.0
+    },
+    "raw_copper": {
+     "containers": 14,
+     "total": 305,
+     "max_one": 92,
+     "median_held": 10.0
+    },
+    "cobblestone": {
+     "containers": 9,
+     "total": 832,
+     "max_one": 256,
+     "median_held": 60
+    },
+    "oak_log": {
+     "containers": 3,
+     "total": 192,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stick": {
+     "containers": 1,
+     "total": 47,
+     "max_one": 47,
+     "median_held": 47
+    },
+    "oak_planks": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 5,
+     "total": 11,
+     "max_one": 4,
+     "median_held": 2
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "hive-d": {
+   "home": [
+    68,
+    65,
+    68
+   ],
+   "containers": 13,
+   "kinds": {
+    "chest": 13
+   },
+   "slots_used": 80,
+   "capacity": 351,
+   "fill_pct": 22.8,
+   "kinds_per_container_median": 4,
+   "kinds_per_container_max": 6,
+   "groups_per_container_median": 3,
+   "containers_with_3plus_groups": 8,
+   "empty_containers": 0,
+   "distinct_items": 12,
+   "partial_stacks": 53,
+   "ideal_slots": 44,
+   "slots_freed_by_consolidation": 36,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 2,
+    "max": 5,
+    "within_8": 13,
+    "within_16": 13
+   },
+   "slots_by_group": {
+    "metal": 33,
+    "stone": 23,
+    "fuel": 8,
+    "tools": 7,
+    "wood": 6,
+    "valuable": 3
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 9,
+     "total": 94,
+     "max_one": 26,
+     "median_held": 6
+    },
+    "raw_iron": {
+     "containers": 6,
+     "total": 27,
+     "max_one": 11,
+     "median_held": 3.5
+    },
+    "coal": {
+     "containers": 7,
+     "total": 125,
+     "max_one": 58,
+     "median_held": 12
+    },
+    "copper_ingot": {
+     "containers": 11,
+     "total": 653,
+     "max_one": 144,
+     "median_held": 66
+    },
+    "raw_copper": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "cobblestone": {
+     "containers": 6,
+     "total": 1000,
+     "max_one": 390,
+     "median_held": 134.0
+    },
+    "oak_log": {
+     "containers": 3,
+     "total": 67,
+     "max_one": 64,
+     "median_held": 2
+    },
+    "stick": {
+     "containers": 2,
+     "total": 40,
+     "max_one": 39,
+     "median_held": 20.0
+    },
+    "oak_planks": {
+     "containers": 1,
+     "total": 3,
+     "max_one": 3,
+     "median_held": 3
+    },
+    "torch": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "stone_pickaxe": {
+     "containers": 2,
+     "total": 2,
+     "max_one": 1,
+     "median_held": 1.0
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "isolated-a": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 21,
+   "kinds": {
+    "chest": 21
+   },
+   "slots_used": 248,
+   "capacity": 567,
+   "fill_pct": 43.7,
+   "kinds_per_container_median": 8,
+   "kinds_per_container_max": 13,
+   "groups_per_container_median": 5,
+   "containers_with_3plus_groups": 19,
+   "empty_containers": 0,
+   "distinct_items": 34,
+   "partial_stacks": 202,
+   "ideal_slots": 106,
+   "slots_freed_by_consolidation": 142,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 2,
+    "max": 7,
+    "within_8": 21,
+    "within_16": 21
+   },
+   "slots_by_group": {
+    "metal": 90,
+    "wood": 64,
+    "tools": 27,
+    "stone": 18,
+    "fuel": 17,
+    "valuable": 15,
+    "farm": 7,
+    "build": 6,
+    "misc": 4
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 15,
+     "total": 126,
+     "max_one": 37,
+     "median_held": 4
+    },
+    "raw_iron": {
+     "containers": 9,
+     "total": 39,
+     "max_one": 10,
+     "median_held": 4
+    },
+    "coal": {
+     "containers": 16,
+     "total": 389,
+     "max_one": 71,
+     "median_held": 19.0
+    },
+    "copper_ingot": {
+     "containers": 5,
+     "total": 64,
+     "max_one": 24,
+     "median_held": 10
+    },
+    "raw_copper": {
+     "containers": 18,
+     "total": 1138,
+     "max_one": 174,
+     "median_held": 50.5
+    },
+    "cobblestone": {
+     "containers": 9,
+     "total": 598,
+     "max_one": 256,
+     "median_held": 31
+    },
+    "oak_log": {
+     "containers": 13,
+     "total": 641,
+     "max_one": 98,
+     "median_held": 58
+    },
+    "stick": {
+     "containers": 6,
+     "total": 193,
+     "max_one": 98,
+     "median_held": 20.0
+    },
+    "oak_planks": {
+     "containers": 5,
+     "total": 75,
+     "max_one": 64,
+     "median_held": 2
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 9,
+     "total": 16,
+     "max_one": 3,
+     "median_held": 2
+    },
+    "iron_pickaxe": {
+     "containers": 4,
+     "total": 4,
+     "max_one": 1,
+     "median_held": 1.0
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "isolated-b": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 20,
+   "kinds": {
+    "chest": 20
+   },
+   "slots_used": 212,
+   "capacity": 540,
+   "fill_pct": 39.3,
+   "kinds_per_container_median": 6.5,
+   "kinds_per_container_max": 13,
+   "groups_per_container_median": 4.0,
+   "containers_with_3plus_groups": 18,
+   "empty_containers": 0,
+   "distinct_items": 36,
+   "partial_stacks": 183,
+   "ideal_slots": 89,
+   "slots_freed_by_consolidation": 123,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 2.0,
+    "max": 5,
+    "within_8": 20,
+    "within_16": 20
+   },
+   "slots_by_group": {
+    "metal": 76,
+    "wood": 59,
+    "stone": 28,
+    "fuel": 15,
+    "tools": 10,
+    "farm": 9,
+    "build": 6,
+    "valuable": 5,
+    "misc": 4
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 13,
+     "total": 114,
+     "max_one": 27,
+     "median_held": 7
+    },
+    "raw_iron": {
+     "containers": 11,
+     "total": 50,
+     "max_one": 13,
+     "median_held": 3
+    },
+    "coal": {
+     "containers": 14,
+     "total": 354,
+     "max_one": 81,
+     "median_held": 21.5
+    },
+    "copper_ingot": {
+     "containers": 4,
+     "total": 20,
+     "max_one": 11,
+     "median_held": 3.5
+    },
+    "raw_copper": {
+     "containers": 17,
+     "total": 971,
+     "max_one": 137,
+     "median_held": 43
+    },
+    "cobblestone": {
+     "containers": 14,
+     "total": 923,
+     "max_one": 256,
+     "median_held": 47.0
+    },
+    "oak_log": {
+     "containers": 15,
+     "total": 570,
+     "max_one": 80,
+     "median_held": 42
+    },
+    "stick": {
+     "containers": 7,
+     "total": 145,
+     "max_one": 64,
+     "median_held": 13
+    },
+    "oak_planks": {
+     "containers": 5,
+     "total": 73,
+     "max_one": 64,
+     "median_held": 3
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 5,
+     "total": 5,
+     "max_one": 1,
+     "median_held": 1
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "isolated-c": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 17,
+   "kinds": {
+    "chest": 17
+   },
+   "slots_used": 207,
+   "capacity": 459,
+   "fill_pct": 45.1,
+   "kinds_per_container_median": 7,
+   "kinds_per_container_max": 14,
+   "groups_per_container_median": 5,
+   "containers_with_3plus_groups": 15,
+   "empty_containers": 0,
+   "distinct_items": 32,
+   "partial_stacks": 166,
+   "ideal_slots": 96,
+   "slots_freed_by_consolidation": 111,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 2,
+    "max": 33,
+    "within_8": 15,
+    "within_16": 16
+   },
+   "slots_by_group": {
+    "metal": 75,
+    "wood": 54,
+    "stone": 24,
+    "fuel": 15,
+    "farm": 12,
+    "tools": 11,
+    "build": 8,
+    "valuable": 6,
+    "misc": 2
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 10,
+     "total": 88,
+     "max_one": 24,
+     "median_held": 5.0
+    },
+    "raw_iron": {
+     "containers": 5,
+     "total": 22,
+     "max_one": 13,
+     "median_held": 2
+    },
+    "coal": {
+     "containers": 12,
+     "total": 394,
+     "max_one": 98,
+     "median_held": 10.5
+    },
+    "copper_ingot": {
+     "containers": 5,
+     "total": 23,
+     "max_one": 10,
+     "median_held": 5
+    },
+    "raw_copper": {
+     "containers": 15,
+     "total": 1128,
+     "max_one": 224,
+     "median_held": 42
+    },
+    "cobblestone": {
+     "containers": 10,
+     "total": 861,
+     "max_one": 290,
+     "median_held": 54.0
+    },
+    "oak_log": {
+     "containers": 13,
+     "total": 1127,
+     "max_one": 255,
+     "median_held": 81
+    },
+    "stick": {
+     "containers": 2,
+     "total": 55,
+     "max_one": 54,
+     "median_held": 27.5
+    },
+    "oak_planks": {
+     "containers": 4,
+     "total": 72,
+     "max_one": 66,
+     "median_held": 2.5
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 4,
+     "total": 8,
+     "max_one": 2,
+     "median_held": 2.0
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "isolated-d": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 13,
+   "kinds": {
+    "chest": 13
+   },
+   "slots_used": 207,
+   "capacity": 351,
+   "fill_pct": 59.0,
+   "kinds_per_container_median": 9,
+   "kinds_per_container_max": 13,
+   "groups_per_container_median": 6,
+   "containers_with_3plus_groups": 13,
+   "empty_containers": 0,
+   "distinct_items": 28,
+   "partial_stacks": 174,
+   "ideal_slots": 91,
+   "slots_freed_by_consolidation": 116,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 2,
+    "max": 4,
+    "within_8": 13,
+    "within_16": 13
+   },
+   "slots_by_group": {
+    "metal": 71,
+    "wood": 61,
+    "stone": 33,
+    "tools": 14,
+    "fuel": 12,
+    "farm": 7,
+    "build": 6,
+    "valuable": 2,
+    "misc": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 12,
+     "total": 108,
+     "max_one": 27,
+     "median_held": 3.5
+    },
+    "raw_iron": {
+     "containers": 9,
+     "total": 46,
+     "max_one": 13,
+     "median_held": 4
+    },
+    "coal": {
+     "containers": 11,
+     "total": 326,
+     "max_one": 72,
+     "median_held": 20
+    },
+    "copper_ingot": {
+     "containers": 2,
+     "total": 38,
+     "max_one": 28,
+     "median_held": 19.0
+    },
+    "raw_copper": {
+     "containers": 13,
+     "total": 1206,
+     "max_one": 352,
+     "median_held": 71
+    },
+    "cobblestone": {
+     "containers": 10,
+     "total": 985,
+     "max_one": 379,
+     "median_held": 67.5
+    },
+    "oak_log": {
+     "containers": 12,
+     "total": 619,
+     "max_one": 112,
+     "median_held": 54.0
+    },
+    "stick": {
+     "containers": 7,
+     "total": 173,
+     "max_one": 38,
+     "median_held": 27
+    },
+    "oak_planks": {
+     "containers": 6,
+     "total": 81,
+     "max_one": 64,
+     "median_held": 3.0
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 6,
+     "total": 10,
+     "max_one": 3,
+     "median_held": 1.0
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "placebo-a": {
+   "home": [
+    249,
+    75,
+    -144
+   ],
+   "containers": 17,
+   "kinds": {
+    "chest": 17
+   },
+   "slots_used": 128,
+   "capacity": 459,
+   "fill_pct": 27.9,
+   "kinds_per_container_median": 6,
+   "kinds_per_container_max": 10,
+   "groups_per_container_median": 4,
+   "containers_with_3plus_groups": 15,
+   "empty_containers": 0,
+   "distinct_items": 20,
+   "partial_stacks": 104,
+   "ideal_slots": 57,
+   "slots_freed_by_consolidation": 71,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 3,
+    "max": 4,
+    "within_8": 17,
+    "within_16": 17
+   },
+   "slots_by_group": {
+    "metal": 37,
+    "stone": 35,
+    "wood": 21,
+    "fuel": 13,
+    "tools": 12,
+    "valuable": 8,
+    "build": 1,
+    "farm": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 13,
+     "total": 92,
+     "max_one": 18,
+     "median_held": 4
+    },
+    "raw_iron": {
+     "containers": 9,
+     "total": 54,
+     "max_one": 17,
+     "median_held": 4
+    },
+    "coal": {
+     "containers": 13,
+     "total": 179,
+     "max_one": 42,
+     "median_held": 10
+    },
+    "copper_ingot": {
+     "containers": 13,
+     "total": 339,
+     "max_one": 56,
+     "median_held": 27
+    },
+    "raw_copper": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "cobblestone": {
+     "containers": 10,
+     "total": 777,
+     "max_one": 293,
+     "median_held": 30.5
+    },
+    "oak_log": {
+     "containers": 10,
+     "total": 303,
+     "max_one": 76,
+     "median_held": 26.0
+    },
+    "stick": {
+     "containers": 2,
+     "total": 41,
+     "max_one": 39,
+     "median_held": 20.5
+    },
+    "oak_planks": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 5,
+     "total": 8,
+     "max_one": 3,
+     "median_held": 1
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "placebo-b": {
+   "home": [
+    282,
+    65,
+    -388
+   ],
+   "containers": 23,
+   "kinds": {
+    "chest": 23
+   },
+   "slots_used": 175,
+   "capacity": 621,
+   "fill_pct": 28.2,
+   "kinds_per_container_median": 5,
+   "kinds_per_container_max": 10,
+   "groups_per_container_median": 3,
+   "containers_with_3plus_groups": 13,
+   "empty_containers": 1,
+   "distinct_items": 17,
+   "partial_stacks": 136,
+   "ideal_slots": 79,
+   "slots_freed_by_consolidation": 96,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 9,
+    "max": 13,
+    "within_8": 9,
+    "within_16": 23
+   },
+   "slots_by_group": {
+    "metal": 65,
+    "wood": 42,
+    "stone": 23,
+    "tools": 23,
+    "fuel": 13,
+    "valuable": 8,
+    "build": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 18,
+     "total": 173,
+     "max_one": 30,
+     "median_held": 8.0
+    },
+    "raw_iron": {
+     "containers": 13,
+     "total": 34,
+     "max_one": 5,
+     "median_held": 2
+    },
+    "coal": {
+     "containers": 13,
+     "total": 268,
+     "max_one": 52,
+     "median_held": 19
+    },
+    "copper_ingot": {
+     "containers": 4,
+     "total": 81,
+     "max_one": 64,
+     "median_held": 8.0
+    },
+    "raw_copper": {
+     "containers": 15,
+     "total": 479,
+     "max_one": 167,
+     "median_held": 19
+    },
+    "cobblestone": {
+     "containers": 6,
+     "total": 922,
+     "max_one": 256,
+     "median_held": 156.0
+    },
+    "oak_log": {
+     "containers": 9,
+     "total": 568,
+     "max_one": 324,
+     "median_held": 27
+    },
+    "stick": {
+     "containers": 9,
+     "total": 193,
+     "max_one": 64,
+     "median_held": 14
+    },
+    "oak_planks": {
+     "containers": 4,
+     "total": 68,
+     "max_one": 64,
+     "median_held": 1.5
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 8,
+     "total": 18,
+     "max_one": 6,
+     "median_held": 1.5
+    },
+    "iron_pickaxe": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "placebo-c": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "containers": 28,
+   "kinds": {
+    "chest": 28
+   },
+   "slots_used": 196,
+   "capacity": 756,
+   "fill_pct": 25.9,
+   "kinds_per_container_median": 5.0,
+   "kinds_per_container_max": 12,
+   "groups_per_container_median": 3.0,
+   "containers_with_3plus_groups": 19,
+   "empty_containers": 0,
+   "distinct_items": 35,
+   "partial_stacks": 156,
+   "ideal_slots": 95,
+   "slots_freed_by_consolidation": 101,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 3.0,
+    "max": 30,
+    "within_8": 25,
+    "within_16": 26
+   },
+   "slots_by_group": {
+    "metal": 60,
+    "wood": 58,
+    "stone": 23,
+    "tools": 16,
+    "fuel": 10,
+    "misc": 10,
+    "build": 8,
+    "farm": 6,
+    "valuable": 5
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 16,
+     "total": 82,
+     "max_one": 16,
+     "median_held": 3.0
+    },
+    "raw_iron": {
+     "containers": 9,
+     "total": 31,
+     "max_one": 8,
+     "median_held": 2
+    },
+    "coal": {
+     "containers": 10,
+     "total": 189,
+     "max_one": 49,
+     "median_held": 15.0
+    },
+    "copper_ingot": {
+     "containers": 11,
+     "total": 405,
+     "max_one": 112,
+     "median_held": 29
+    },
+    "raw_copper": {
+     "containers": 12,
+     "total": 337,
+     "max_one": 60,
+     "median_held": 23.5
+    },
+    "cobblestone": {
+     "containers": 8,
+     "total": 915,
+     "max_one": 238,
+     "median_held": 103.0
+    },
+    "oak_log": {
+     "containers": 14,
+     "total": 1197,
+     "max_one": 329,
+     "median_held": 77.5
+    },
+    "stick": {
+     "containers": 7,
+     "total": 192,
+     "max_one": 55,
+     "median_held": 27
+    },
+    "oak_planks": {
+     "containers": 4,
+     "total": 71,
+     "max_one": 64,
+     "median_held": 3.0
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 5,
+     "total": 7,
+     "max_one": 3,
+     "median_held": 1
+    },
+    "iron_pickaxe": {
+     "containers": 1,
+     "total": 1,
+     "max_one": 1,
+     "median_held": 1
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  },
+  "placebo-d": {
+   "home": [
+    177,
+    75,
+    73
+   ],
+   "containers": 15,
+   "kinds": {
+    "chest": 15
+   },
+   "slots_used": 119,
+   "capacity": 405,
+   "fill_pct": 29.4,
+   "kinds_per_container_median": 7,
+   "kinds_per_container_max": 10,
+   "groups_per_container_median": 4,
+   "containers_with_3plus_groups": 13,
+   "empty_containers": 0,
+   "distinct_items": 17,
+   "partial_stacks": 84,
+   "ideal_slots": 65,
+   "slots_freed_by_consolidation": 54,
+   "cheb_from_home": {
+    "min": 0,
+    "median": 9,
+    "max": 41,
+    "within_8": 7,
+    "within_16": 13
+   },
+   "slots_by_group": {
+    "metal": 38,
+    "stone": 26,
+    "wood": 22,
+    "fuel": 12,
+    "tools": 10,
+    "valuable": 10,
+    "build": 1
+   },
+   "key_items": {
+    "iron_ingot": {
+     "containers": 12,
+     "total": 197,
+     "max_one": 60,
+     "median_held": 10.0
+    },
+    "raw_iron": {
+     "containers": 8,
+     "total": 44,
+     "max_one": 12,
+     "median_held": 4.0
+    },
+    "coal": {
+     "containers": 10,
+     "total": 321,
+     "max_one": 112,
+     "median_held": 12.0
+    },
+    "copper_ingot": {
+     "containers": 14,
+     "total": 509,
+     "max_one": 76,
+     "median_held": 39.5
+    },
+    "raw_copper": {
+     "containers": 2,
+     "total": 109,
+     "max_one": 64,
+     "median_held": 54.5
+    },
+    "cobblestone": {
+     "containers": 9,
+     "total": 1114,
+     "max_one": 316,
+     "median_held": 84
+    },
+    "oak_log": {
+     "containers": 8,
+     "total": 272,
+     "max_one": 64,
+     "median_held": 34.0
+    },
+    "stick": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "oak_planks": {
+     "containers": 2,
+     "total": 16,
+     "max_one": 11,
+     "median_held": 8.0
+    },
+    "torch": {
+     "containers": 1,
+     "total": 64,
+     "max_one": 64,
+     "median_held": 64
+    },
+    "stone_pickaxe": {
+     "containers": 4,
+     "total": 5,
+     "max_one": 2,
+     "median_held": 1.0
+    },
+    "iron_pickaxe": {
+     "containers": 1,
+     "total": 1,
+     "max_one": 1,
+     "median_held": 1
+    },
+    "dirt": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "wheat_seeds": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "oak_sapling": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    },
+    "bone_meal": {
+     "containers": 0,
+     "total": 0,
+     "max_one": 0,
+     "median_held": null
+    }
+   }
+  }
+ },
+ "fleet_distinct_items": 54,
+ "fleet_items": 56387,
+ "fleet_top": [
+  [
+   "cobblestone",
+   14646
+  ],
+  [
+   "oak_log",
+   10328
+  ],
+  [
+   "raw_copper",
+   8065
+  ],
+  [
+   "copper_ingot",
+   5994
+  ],
+  [
+   "coal",
+   4018
+  ],
+  [
+   "iron_ingot",
+   2324
+  ],
+  [
+   "stick",
+   2247
+  ],
+  [
+   "birch_log",
+   1291
+  ],
+  [
+   "cobbled_deepslate",
+   1208
+  ],
+  [
+   "lapis_lazuli",
+   1206
+  ],
+  [
+   "oak_planks",
+   1099
+  ],
+  [
+   "torch",
+   960
+  ],
+  [
+   "raw_iron",
+   659
+  ],
+  [
+   "oak_sapling",
+   640
+  ],
+  [
+   "jungle_log",
+   331
+  ],
+  [
+   "birch_sapling",
+   323
+  ],
+  [
+   "apple",
+   314
+  ],
+  [
+   "stone_pickaxe",
+   134
+  ],
+  [
+   "ladder",
+   89
+  ],
+  [
+   "chest",
+   63
+  ],
+  [
+   "wooden_pickaxe",
+   50
+  ],
+  [
+   "melon_slice",
+   50
+  ],
+  [
+   "redstone",
+   49
+  ],
+  [
+   "furnace",
+   40
+  ],
+  [
+   "birch_planks",
+   28
+  ],
+  [
+   "dried_kelp",
+   25
+  ],
+  [
+   "amethyst_shard",
+   22
+  ],
+  [
+   "bucket",
+   20
+  ],
+  [
+   "raw_gold",
+   17
+  ],
+  [
+   "mutton",
+   16
+  ],
+  [
+   "crafting_table",
+   16
+  ],
+  [
+   "stone_axe",
+   14
+  ],
+  [
+   "wheat",
+   14
+  ],
+  [
+   "salmon",
+   10
+  ],
+  [
+   "stone_shovel",
+   10
+  ],
+  [
+   "jungle_sapling",
+   9
+  ],
+  [
+   "stone",
+   8
+  ],
+  [
+   "bamboo_block",
+   6
+  ],
+  [
+   "iron_pickaxe",
+   6
+  ],
+  [
+   "tropical_fish",
+   5
+  ]
+ ],
+ "groups_seen": [
+  "build",
+  "farm",
+  "fuel",
+  "metal",
+  "misc",
+  "stone",
+  "tools",
+  "valuable",
+  "wood"
+ ],
+ "misc_items": [
+  "beef",
+  "cod",
+  "cooked_cod",
+  "cooked_mutton",
+  "cooked_porkchop",
+  "dried_kelp",
+  "mutton",
+  "porkchop",
+  "potion",
+  "salmon",
+  "tropical_fish"
+ ]
+}

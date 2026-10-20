@@ -1,0 +1,678 @@
+{
+ "board-a": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 176,
+    "outside the 16 cylinder": 144,
+    "farm within 3": 10,
+    "well within 2": 7,
+    "tree or sapling within 3": 3
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "SE",
+   "well": "NE",
+   "farm": "N"
+  },
+  "gate": "S",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2442,
+   "relief > 4": 171,
+   "liquid/furniture": 250,
+   "shaft": 397
+  },
+  "monument_centre": [
+   -42,
+   -72
+  ],
+  "shaft_origin": [
+   19,
+   19
+  ]
+ },
+ "board-b": {
+  "home": [
+   -249,
+   65,
+   144
+  ],
+  "s": 63,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "outside the 16 cylinder": 144,
+    "town furniture within 1": 138,
+    "well within 2": 55,
+    "tree or sapling within 3": 3
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "NW",
+   "well": "N"
+  },
+  "gate": "E",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2758,
+   "shaft": 274,
+   "relief > 4": 228
+  },
+  "monument_centre": [
+   -80,
+   -62
+  ],
+  "shaft_origin": [
+   -14,
+   -18
+  ]
+ },
+ "board-c": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 177,
+    "outside the 16 cylinder": 144,
+    "well within 2": 14,
+    "tree or sapling within 3": 5
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "SE",
+   "well": "NE"
+  },
+  "gate": "N",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2828,
+   "liquid/furniture": 47,
+   "relief > 4": 42,
+   "shaft": 325
+  },
+  "monument_centre": [
+   -44,
+   -64
+  ],
+  "shaft_origin": [
+   13,
+   20
+  ]
+ },
+ "board-d": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 186,
+    "outside the 16 cylinder": 144,
+    "well within 2": 7,
+    "tree or sapling within 3": 3
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "NE",
+   "well": "NE"
+  },
+  "gate": "S",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2817,
+   "relief > 4": 49,
+   "liquid/furniture": 28,
+   "shaft": 366
+  },
+  "monument_centre": [
+   -42,
+   -70
+  ],
+  "shaft_origin": [
+   21,
+   -9
+  ]
+ },
+ "hive-a": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 156,
+    "outside the 16 cylinder": 144,
+    "well within 2": 37,
+    "tree or sapling within 3": 3
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "SE",
+   "well": "N"
+  },
+  "gate": "W",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2384,
+   "relief > 4": 299,
+   "liquid/furniture": 196,
+   "shaft": 380,
+   "tree within 3": 1
+  },
+  "monument_centre": [
+   -44,
+   -68
+  ],
+  "shaft_origin": [
+   19,
+   18
+  ]
+ },
+ "hive-b": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "outside the 16 cylinder": 144,
+    "town furniture within 1": 125,
+    "well within 2": 53,
+    "tree or sapling within 3": 18
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "SE",
+   "well": "W"
+  },
+  "gate": "E",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2567,
+   "relief > 4": 87,
+   "shaft": 405,
+   "tree within 3": 24
+  },
+  "monument_centre": [
+   -44,
+   -52
+  ],
+  "shaft_origin": [
+   18,
+   20
+  ]
+ },
+ "hive-c": {
+  "home": [
+   -68,
+   68,
+   -68
+  ],
+  "s": 66,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 159,
+    "outside the 16 cylinder": 144,
+    "well within 2": 34,
+    "tree or sapling within 3": 3
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NE",
+   "shaft": "W",
+   "well": "NW",
+   "farm": "SW"
+  },
+  "gate": "N",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 3046,
+   "shaft": 208,
+   "liquid/furniture": 6
+  },
+  "monument_centre": [
+   80,
+   -64
+  ],
+  "shaft_origin": [
+   -17,
+   3
+  ]
+ },
+ "hive-d": {
+  "home": [
+   68,
+   65,
+   68
+  ],
+  "s": 63,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "outside the 16 cylinder": 144,
+    "town furniture within 1": 116,
+    "well within 2": 66,
+    "tree or sapling within 3": 14
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 3,
+  "pavilion": [
+   -22,
+   29,
+   4,
+   37
+  ],
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NE",
+   "shaft": "NW",
+   "well": "W",
+   "pavilion": "SW"
+  },
+  "gate": "S",
+  "outer_rejects": {
+   "band": 3260,
+   "relief > 4": 1909,
+   "tree within 3": 16,
+   "tree in footprint": 494,
+   "liquid/furniture": 585,
+   "shaft": 253
+  },
+  "monument_centre": [
+   76,
+   -80
+  ],
+  "shaft_origin": [
+   -12,
+   -18
+  ]
+ },
+ "isolated-a": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 166,
+    "outside the 16 cylinder": 144,
+    "well within 2": 24,
+    "tree or sapling within 3": 6
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "well": "NE"
+  },
+  "gate": "S",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 3243,
+   "relief > 4": 15,
+   "liquid/furniture": 2
+  },
+  "monument_centre": null,
+  "shaft_origin": null
+ },
+ "isolated-b": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 171,
+    "outside the 16 cylinder": 144,
+    "tree or sapling within 3": 16,
+    "well within 2": 9
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "well": "S"
+  },
+  "gate": "SW",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 3249,
+   "liquid/furniture": 3,
+   "relief > 4": 8
+  },
+  "monument_centre": null,
+  "shaft_origin": null
+ },
+ "isolated-c": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "outside the 16 cylinder": 144,
+    "town furniture within 1": 122,
+    "well within 2": 51,
+    "tree or sapling within 3": 23
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "well": "N"
+  },
+  "gate": "S",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 3215,
+   "relief > 4": 8,
+   "liquid/furniture": 37
+  },
+  "monument_centre": null,
+  "shaft_origin": null
+ },
+ "isolated-d": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 167,
+    "outside the 16 cylinder": 144,
+    "tree or sapling within 3": 19,
+    "well within 2": 10
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "well": "E"
+  },
+  "gate": "SE",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 3260
+  },
+  "monument_centre": null,
+  "shaft_origin": null
+ },
+ "placebo-a": {
+  "home": [
+   249,
+   75,
+   -144
+  ],
+  "s": 73,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 148,
+    "outside the 16 cylinder": 144,
+    "well within 2": 38,
+    "tree or sapling within 3": 10
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "SW",
+   "shaft": "W",
+   "well": "NW"
+  },
+  "gate": "N",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2252,
+   "shaft": 408,
+   "relief > 4": 255,
+   "liquid/furniture": 2
+  },
+  "monument_centre": [
+   -36,
+   56
+  ],
+  "shaft_origin": [
+   -21,
+   -2
+  ]
+ },
+ "placebo-b": {
+  "home": [
+   282,
+   65,
+   -388
+  ],
+  "s": 63,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "outside the 16 cylinder": 144,
+    "town furniture within 1": 136,
+    "well within 2": 54,
+    "tree or sapling within 3": 4,
+    "terrain above the pad (a dig the zone refuses)": 2
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "W",
+   "shaft": "NW",
+   "well": "N"
+  },
+  "gate": "E",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2183,
+   "relief > 4": 231,
+   "shaft": 399,
+   "liquid/furniture": 447
+  },
+  "monument_centre": [
+   -72,
+   28
+  ],
+  "shaft_origin": [
+   -21,
+   -18
+  ]
+ },
+ "placebo-c": {
+  "home": [
+   355,
+   73,
+   147
+  ],
+  "s": 71,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "town furniture within 1": 171,
+    "outside the 16 cylinder": 144,
+    "well within 2": 13,
+    "tree or sapling within 3": 12
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NW",
+   "shaft": "NE",
+   "well": "NE"
+  },
+  "gate": "W",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2734,
+   "liquid/furniture": 73,
+   "relief > 4": 54,
+   "shaft": 399
+  },
+  "monument_centre": [
+   -44,
+   -68
+  ],
+  "shaft_origin": [
+   10,
+   -21
+  ]
+ },
+ "placebo-d": {
+  "home": [
+   177,
+   75,
+   73
+  ],
+  "s": 73,
+  "storehouse": {
+   "sites": 0,
+   "best": null,
+   "rejects": {
+    "outside the 16 cylinder": 144,
+    "town furniture within 1": 132,
+    "well within 2": 42,
+    "tree or sapling within 3": 22
+   }
+  },
+  "workshop": null,
+  "pavilion_sites": 0,
+  "pavilion": null,
+  "hall_sites": 0,
+  "hall": null,
+  "taken": {
+   "monument": "NE",
+   "shaft": "W",
+   "well": "SW"
+  },
+  "gate": "E",
+  "outer_rejects": {
+   "band": 3260,
+   "tree in footprint": 2555,
+   "liquid/furniture": 110,
+   "relief > 4": 290,
+   "shaft": 305
+  },
+  "monument_centre": [
+   92,
+   -94
+  ],
+  "shaft_origin": [
+   -19,
+   6
+  ]
+ }
+}
