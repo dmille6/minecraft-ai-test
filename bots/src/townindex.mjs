@@ -52,6 +52,10 @@ export const INDEX_STALE_MS = 6 * 60 * 60 * 1000
  *  keeps every observation captured inside it from making the container known, for this long after the pre mark. Longer than
  *  any visit's clock (a skill is bounded at 180 s): a live writer has written its post mark long before. */
 export const OP_TTL_MS = 10 * 60 * 1000
+/** A HELD window (a cursor withdraw's hold could not empty: skills.mjs holdUnsettled, which may retry indefinitely) renews its
+ *  operation's `held` mark this often, so the protection lasts while the hold lives and ends OP_TTL_MS after a crashed holder's
+ *  last renewal -- when the server has long closed the window (Codex code r2 P1, Claude code r1 P2). */
+export const HELD_RENEW_MS = 2 * 60 * 1000
 /** A generation past this many bytes is rotated (env TOWNINDEX_ROTATE_BYTES for the tests). */
 export const INDEX_ROTATE_BYTES = Number(process.env.TOWNINDEX_ROTATE_BYTES) > 0 ? Number(process.env.TOWNINDEX_ROTATE_BYTES) : 4 * 1024 * 1024
 /** A fold that would read more than this fails closed (an empty index: every container unknown, today's behaviour). */
@@ -96,8 +100,9 @@ export function supersedes (b, a) {
 
 /** One mutation's marks, joined (the earlier pre, the later post; order-free and idempotent). Pure. */
 const joinOp = (a, b) => ({ pre: [a?.pre, b?.pre].filter(Number.isFinite).reduce((m, v) => Math.min(m, v), Infinity),
+                            held: [a?.held, b?.held].filter(Number.isFinite).reduce((m, v) => Math.max(m, v), -Infinity),
                             post: [a?.post, b?.post].filter(Number.isFinite).reduce((m, v) => Math.max(m, v), -Infinity) })
-const cleanOp = o => ({ pre: Number.isFinite(o.pre) ? o.pre : null, post: Number.isFinite(o.post) ? o.post : null })
+const cleanOp = o => ({ pre: Number.isFinite(o.pre) ? o.pre : null, held: Number.isFinite(o.held) ? o.held : null, post: Number.isFinite(o.post) ? o.post : null })
 /**
  * One record into an entry (copied, never mutated) -> the new entry. Pure. entry = { last: {t, at, id, bot, by}, obs, ops }:
  * `ops` holds each mutation's pre and post marks by its operation id (Codex code r1 P1: another bot's open BETWEEN a writer's
@@ -107,8 +112,8 @@ function mergeEntry (e, r) {
   const last = { t: r.t, at: num(r.at), id: r.id ?? null, bot: r.bot ?? null, by: r.by ?? null }
   const out = { last: e?.last ?? null, obs: e?.obs ?? null, ops: e?.ops ?? {} }
   if (supersedes(last, out.last)) out.last = last
-  if (r.t === 'dirty' && r.op != null && (r.phase === 'pre' || r.phase === 'post')) {
-    const mark = r.phase === 'pre' ? { pre: num(r.at) } : { post: num(r.at) }
+  if (r.t === 'dirty' && r.op != null && (r.phase === 'pre' || r.phase === 'post' || r.phase === 'held')) {
+    const mark = { [r.phase]: num(r.at) }
     out.ops = { ...out.ops, [r.op]: cleanOp(joinOp(out.ops[r.op], mark)) }
   }
   if (r.t === 'obs' && supersedes({ t: 'obs', at: r.at, id: r.id }, out.obs ? { t: 'obs', at: out.obs.at, id: out.obs.id } : null)) {
@@ -126,15 +131,20 @@ function joinEntries (a, b) {
   for (const [op, o] of Object.entries(b.ops ?? {})) e.ops[op] = cleanOp(joinOp(e.ops[op], o))
   return e
 }
-/** Is a mutation still OPEN at the observation's capture? (a pre mark at or before it, no post mark, inside OP_TTL_MS) Pure. */
-const openAt = (ops = {}, at) => Object.values(ops ?? {}).some(o => Number.isFinite(o?.pre) && o.post == null && o.pre <= at && at < o.pre + OP_TTL_MS)
-/** An entry for a CHECKPOINT: closed mutations and those no observation can fall inside any more are dropped. Pure. */
+/** The end of a mutation's protection: OP_TTL_MS past its pre mark or its latest `held` renewal. Pure. */
+const protectedUntil = o => Math.max(Number.isFinite(o?.pre) ? o.pre : -Infinity, Number.isFinite(o?.held) ? o.held : -Infinity) + OP_TTL_MS
+/** Is a mutation still OPEN at the observation's capture? (a pre mark at or before it, no post mark, inside its protection) Pure. */
+const openAt = (ops = {}, at) => Object.values(ops ?? {}).some(o => Number.isFinite(o?.pre) && o.post == null && o.pre <= at && at < protectedUntil(o))
+/**
+ * An entry for a CHECKPOINT -> the entry with only the operations that can still matter. Pure. An operation (open OR closed)
+ * is dropped only once the entry's observation is past its whole protection: a closed one is kept until then as a TOMBSTONE,
+ * so a duplicate pre mark replayed after the checkpoint can never reopen it (Codex code r2 P2).
+ */
 export function compactEntry (e) {
   if (!e) return e
   const ops = {}
   for (const [op, o] of Object.entries(e.ops ?? {})) {
-    if (o.post != null && o.pre != null) continue                                         // closed
-    if (o.post == null && Number.isFinite(o.pre) && e.obs && e.obs.at >= o.pre + OP_TTL_MS) continue   // the newest open is past it
+    if (e.obs && Number.isFinite(e.obs.at) && e.obs.at >= protectedUntil(o)) continue
     ops[op] = o
   }
   return { last: e.last, obs: e.obs, ops }
