@@ -595,7 +595,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
                              composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
                              room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false,
-                             ingredientMiss = false } = {}) {
+                             ingredientMiss = false, pickDefer = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -622,7 +622,8 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   }
   // A PICKAXE-ONLY MISS BLOCKS ONLY THE PICKAXE BRANCH (withdraw-habit review): with no pickaxe in town the order still
   // runs for the ingredients, unless they too are ruled out everywhere (ingredientMiss: their own evidence).
-  if (withdrawReady && lazy(pickRoom)) {
+  // ironpick-01: the pickaxe need is the kit's this decision (toolkit.mjs withdrawDefersToKit): no stone copy fetched for it
+  if (withdrawReady && !lazy(pickDefer) && lazy(pickRoom)) {
     const pickRuledOut = !!lazy(pickMiss)
     if (!pickRuledOut || !lazy(ingredientMiss)) {
       s.lastWithdrawAt = now

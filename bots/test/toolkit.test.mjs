@@ -109,15 +109,20 @@ await t('COMPOSED with craftroom: a full-bag craft may wear out a spent stone co
 
 // ------------------------------------------------------------------------------------------ PART 2: the kit ---
 await t('kitNeeds / kitDraw: per tool with no USABLE copy; the recipes\' ingots, never the bag\'s own; sticks keep STICK_KEEP', () => {
-  assert.deepEqual(kitNeeds([]), ['iron_axe', 'iron_shovel'])
-  assert.deepEqual(kitNeeds([T('iron_axe', 200)]), ['iron_shovel'])
-  assert.deepEqual(kitNeeds([T('iron_axe', FLOOR), T('iron_shovel', FLOOR + 1)]), ['iron_axe'], 'a spent copy is a consumable, not the kit')
-  assert.deepEqual(kitDraw([stack('stick', 1), stack('iron_ingot', 9)]), { needs: ['iron_axe', 'iron_shovel'], ingots: 4, sticks: 4 + STICK_KEEP - 1 },
+  // ironpick-01: these cases hold a full iron pickaxe (IP), so the kit is the axe and the shovel; the pickaxe's own need is
+  // ironpick.test.mjs's. CONTROL: the empty bag lists the pickaxe first.
+  const IP = T('iron_pickaxe', 200)
+  assert.deepEqual(kitNeeds([IP]), ['iron_axe', 'iron_shovel'])
+  assert.deepEqual(kitNeeds([]), ['iron_pickaxe', 'iron_axe', 'iron_shovel'], 'no pickaxe: the pickaxe first (ironpick-01)')
+  assert.deepEqual(kitNeeds([], { ironpick: false }), ['iron_axe', 'iron_shovel'], 'TOOLKIT_IRONPICK=off: the base kit')
+  assert.deepEqual(kitNeeds([IP, T('iron_axe', 200)]), ['iron_shovel'])
+  assert.deepEqual(kitNeeds([IP, T('iron_axe', FLOOR), T('iron_shovel', FLOOR + 1)]), ['iron_axe'], 'a spent copy is a consumable, not the kit')
+  assert.deepEqual(kitDraw([IP, stack('stick', 1), stack('iron_ingot', 9)]), { needs: ['iron_axe', 'iron_shovel'], ingots: 4, sticks: 4 + STICK_KEEP - 1 },
     '9 ingots in the bag are the ladder\'s: the kit still draws 3 + 1')
-  assert.deepEqual(kitDraw([T('iron_axe', 200), stack('stick', 10)]), { needs: ['iron_shovel'], ingots: 1, sticks: 0 })
-  assert.deepEqual(kitDraw([T('iron_axe', 200), T('iron_shovel', 200)]), { needs: [], ingots: 0, sticks: 0 })
-  assert.equal(kitDraw([stack('iron_ingot', 4)], { credit: 4 }).ingots, 0, 'a credited earlier draw is not drawn again')
-  assert.equal(kitDraw([stack('iron_ingot', 2)], { credit: 4 }).ingots, 2, 'the credit never exceeds the ingots still in the bag')
+  assert.deepEqual(kitDraw([IP, T('iron_axe', 200), stack('stick', 10)]), { needs: ['iron_shovel'], ingots: 1, sticks: 0 })
+  assert.deepEqual(kitDraw([IP, T('iron_axe', 200), T('iron_shovel', 200)]), { needs: [], ingots: 0, sticks: 0 })
+  assert.equal(kitDraw([IP, stack('iron_ingot', 4)], { credit: 4 }).ingots, 0, 'a credited earlier draw is not drawn again')
+  assert.equal(kitDraw([IP, stack('iron_ingot', 2)], { credit: 4 }).ingots, 2, 'the credit never exceeds the ingots still in the bag')
   assert.equal(KIT.iron_axe.ingots + KIT.iron_shovel.ingots, 4)
 })
 await t('kitTakes: ingots from ONE container keeping TOWN_IRON_KEEP, sticks ride along; a container short of iron gives nothing', () => {
@@ -127,7 +132,7 @@ await t('kitTakes: ingots from ONE container keeping TOWN_IRON_KEEP, sticks ride
   assert.deepEqual(kitTakes([stack('iron_ingot', 5), stack('iron_ingot', 3)], d).takes, [{ name: 'iron_ingot', count: 4 }], 'stacks summed; no sticks here')
   assert.deepEqual(kitTakes([stack('stick', 1)], { ingots: 0, sticks: 3 }).takes, [{ name: 'stick', count: 1 }], 'what it has, the craft makes the rest')
 })
-const base = { now: 1e9, on: true, atTown: true, items: [], container: true, townMiss: false, room: () => true, tableNear: () => true, state: {} }
+const base = { now: 1e9, on: true, atTown: true, items: [T('iron_pickaxe', 200)], container: true, townMiss: false, room: () => true, tableNear: () => true, state: {} }
 await t('toolkitOrder: at town, kit missing, container, iron not ruled out, room -> toolkit; cooldown charged on issue', () => {
   const r = toolkitOrder(base)
   assert.equal(r.order?.skill, 'toolkit'); assert.match(r.order.why, /no usable iron_axe or iron_shovel/)
@@ -138,12 +143,12 @@ await t('toolkitOrder: at town, kit missing, container, iron not ruled out, room
 await t('toolkitOrder refuses: off, out of town, kit held, no container, every container a recent iron miss, no room', () => {
   assert.equal(toolkitOrder({ ...base, on: false }).order, null)
   assert.equal(toolkitOrder({ ...base, atTown: false }).order, null, 'never a trip')
-  assert.equal(toolkitOrder({ ...base, items: [T('iron_axe', 200), T('iron_shovel', 200)] }).order, null)
+  assert.equal(toolkitOrder({ ...base, items: [T('iron_pickaxe', 200), T('iron_axe', 200), T('iron_shovel', 200)] }).order, null)
   assert.equal(toolkitOrder({ ...base, container: () => false }).order, null)
   assert.equal(toolkitOrder({ ...base, townMiss: () => true }).order, null)
   assert.equal(toolkitOrder({ ...base, room: () => false }).order, null)
   // a credited draw needs no iron from town: the miss memory does not block it (the craft is the remedy left)
-  const credited = toolkitOrder({ ...base, items: [stack('iron_ingot', 4), stack('stick', 9)], credit: 4, townMiss: () => true, room: () => false })
+  const credited = toolkitOrder({ ...base, items: [T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 9)], credit: 4, townMiss: () => true, room: () => false })
   assert.equal(credited.order?.skill, 'toolkit'); assert.deepEqual(credited.order.args, { credit: 4 })
 })
 await t('kitMeans: a table near, carried, or 4 planks\' worth of wood; the sticks the rest of the wood makes', () => {
@@ -391,10 +396,10 @@ await t('WEAR x PLINTH-02: PART 1\'s spent stone copies are never worn out on a 
   assert.equal(b.inv.filter(it => it.name === 'iron_pickaxe').length, 1); assert.equal(b.inv.filter(it => it.name === 'stone_pickaxe').length, 1)
 })
 await t('SKILL: holds the kit -> no_effect, no chest opened; a usable iron axe held -> only the shovel is drawn for and made', async () => {
-  const w = withServer(town([T('iron_axe', 200), T('iron_shovel', 200)], [stack('iron_ingot', 30)]))
+  const w = withServer(town([T('iron_pickaxe', 200), T('iron_axe', 200), T('iron_shovel', 200)], [stack('iron_ingot', 30)]))
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
   assert.equal(r.status, 'no_effect'); assert.equal(w.spy.opened.length, 0)
-  const w2 = withServer(town([T('iron_axe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  const w2 = withServer(town([T('iron_pickaxe', 200), T('iron_axe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
   assert.equal(r2.status, 'success', r2.detail); assert.equal(count(w2.bag, 'iron_shovel'), 1); assert.equal(count(w2.bag, 'iron_axe'), 1)
   assert.equal(count(w2.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 29, 'one ingot for the shovel')
@@ -525,28 +530,29 @@ await t('CHAIN (real loop): a READY milestone step is never displaced -- the run
 })
 await t('CHAIN (real loop): a failed craft backs off -- the bot goes on, the ingots are credited, no second draw, no loop', async () => {
   const w = chainWorld()
-  const { ran, loop } = await decisions(w, 5, { crafter: fakeCraft(w, { fails: ['iron_axe', 'iron_shovel'] }) })
+  // ironpick-01: the chain bot holds a wooden pickaxe only, so its kit is all three tools (3 + 3 + 1 = 7 ingots)
+  const { ran, loop } = await decisions(w, 5, { crafter: fakeCraft(w, { fails: ['iron_pickaxe', 'iron_axe', 'iron_shovel'] }) })
   const { i } = beforeKit(ran)
   assert.ok(i >= 0, JSON.stringify(ran)); assert.equal(ran[i].status, 'failed'); assert.equal(ran[i].failClass, 'kit_craft')
   assert.equal(ran.filter(x => x.skill === 'toolkit').length, 1, `one attempt, then the backoff: ${JSON.stringify(ran)}`)
   assert.ok(ran.slice(i + 1).some(x => x.skill === 'status'), 'the model decides again (no dead end)')
-  assert.equal(w.bot.kitCredit, 4); assert.equal(count(w.bag, 'iron_ingot'), 4)
-  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 16, 'drawn once')
+  assert.equal(w.bot.kitCredit, 7); assert.equal(count(w.bag, 'iron_ingot'), 7)
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 13, 'drawn once')
 })
 await t('CHAIN (real loop): an ABORTED run keeps its iron credited on the bot; the next loop\'s order crafts from it and draws nothing (Codex r1 P2-1)', async () => {
   const w = chainWorld()
   const aborting = async () => { const e = new Error('aborted: low_health'); e.aborted = true; throw e }
   const { ran } = await decisions(w, 3, { crafter: aborting })
   assert.equal(ran.find(x => x.skill === 'toolkit')?.status, 'aborted', JSON.stringify(ran))
-  assert.equal(w.bot.kitCredit, 4); assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 16)
+  assert.equal(w.bot.kitCredit, 7); assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 13)
   // a restart of the decision loop (fresh order state; the bot -- and its credit -- the same): the retry
   const opened = w.spy.opened.length
   const again = await decisions(w, 4, { crafter: fakeCraft(w) })
   const kit = again.ran.find(x => x.skill === 'toolkit')
-  assert.equal(kit?.status, 'success', JSON.stringify(again.ran)); assert.deepEqual(kit.args, { credit: 4 })
+  assert.equal(kit?.status, 'success', JSON.stringify(again.ran)); assert.deepEqual(kit.args, { credit: 7 })
   assert.equal(w.spy.opened.length, opened, 'no chest opened: no second draw')
-  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 16); assert.equal(w.bot.kitCredit, 0)
-  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1)
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 13); assert.equal(w.bot.kitCredit, 0)
+  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1); assert.equal(count(w.bag, 'iron_pickaxe'), 1)
 })
 await t('CHAIN CONTROL (real loop): the same bot out of town never gets the toolkit order', async () => {
   const w = chainWorld({ at: [80.5, 64, 0.5] })
@@ -594,7 +600,7 @@ await t('TOOLKIT x SMELTJOB CHAIN (real loop, 830dc36b): kit missing and the sme
   assert.ok(it >= 0 && ran[it].status === 'success', JSON.stringify(ran))
   assert.ok(is > it, `the smelt job comes after the kit and is not starved: ${JSON.stringify(ran)}`)
   const w2 = chainWorld()
-  w2.bag.push({ ...T('iron_axe', 200), slot: 41 }, { ...T('iron_shovel', 200), slot: 42 })
+  w2.bag.push({ ...T('iron_axe', 200), slot: 41 }, { ...T('iron_shovel', 200), slot: 42 }, { ...T('iron_pickaxe', 200), slot: 43 })   // the whole kit (ironpick-01)
   const c = await decisions(w2, 3)
   assert.ok(!c.ran.some(x => x.skill === 'toolkit'), JSON.stringify(c.ran))
   assert.ok(c.ran.some(x => x.skill === 'smelt_town'), `the smelt job is due in this scene: ${JSON.stringify(c.ran)}`)
