@@ -22,10 +22,10 @@
 #     D2 breach_below_allowance: a station left below 1 (start >= 1, start - banked < 1), or 26+ ladders banked at all
 #     D3 breach_full_noeffect_chest: a canary phase=none row with rows=1 and chest=1 -- a CONSISTENCY tripwire (the row's
 #        class comes from the same plan, so it trips only if the two disagree: Claude code r1 P3-1)
-#     D6 breach_planner_omitted: >= 2 canary full-bag no_effect `_town_deposit` rows (stop nothing to bank above the keeps)
-#        whose OWN snapshot holds a torch, bone_meal or < 26 ladders while the phase=none row says rows=1 -- the read's
-#        independent check of the planner (a single one is reported, never a verdict: a model's `withdraw torch` hold is
-#        invisible to the read)
+#   CROSS-CHECK (REPORTED, never a verdict -- Codex code r2 P2-2): canary full-bag no_effect `_town_deposit` rows (stop nothing
+#        to bank above the keeps) whose OWN snapshot holds a torch, bone_meal or < 26 ladders while the phase=none row says
+#        rows=1 -- the read's independent look at the planner; a wanted floor or a withdraw hold keeps them legitimately and
+#        the read cannot see either, so the names are printed for a human
 #     D4 breach_ingot_banked: a canary _town_deposit that banked iron_ingot (cobblekeep-01's, carried)
 #     D5 harm_storage_full: canary town_storage_full >= 3 AND above 2x the control's rate per bot-h
 #   CROSS-CHECK (REPORTED): canary full-bag no_effect `_town_deposit` rows (stop nothing to bank above the keeps) whose snapshot
@@ -123,9 +123,11 @@ def runs_of(rows):
         f = kv(r['detail'])
         i, _, n = (f.get('part') or '1/1').partition('/')
         i, n = int(i or 1), int(n or 1)
+        # THE VISIT ID (v=, Codex code r2 P2-1): parts of different visits never join, whatever their numbers
+        vid = f.get('v') if f.get('v') not in (None, '-') else None
         run = cur.get(r['bot'])
-        if i == 1 or run is None or run['parts_n'] != n or i in run['seen']:
-            run = {'bot': r['bot'], 't': r['t'], 'seen': set(), 'parts_n': n, 'peaceful': f.get('peaceful') == '1', 'allow': {}, 'other': {},
+        if i == 1 or run is None or run['parts_n'] != n or i in run['seen'] or (vid is not None and run.get('v') != vid):
+            run = {'bot': r['bot'], 't': r['t'], 'v': vid, 'seen': set(), 'parts_n': n, 'peaceful': f.get('peaceful') == '1', 'allow': {}, 'other': {},
                    'banked': int(f.get('banked') or 0) if (f.get('banked') or '').isdigit() else 0, 'arm': r['arm'], 'per': r['per'], 'trunc': False}
             out.append(run); cur[r['bot']] = run
         run['seen'].add(i)
@@ -264,7 +266,6 @@ def judge(rows, last=None, hrs=None):
         if hit and any(kv(x['detail']).get('rows') == '1' for x in near):
             cross.append((r['bot'], hit, str(r['t'])))
     out['crosscheck_omitted'] = len(cross)
-    out['breach_planner_omitted'] = int(len(cross) >= 2)
     for per in ('pre', 'post'):
         for arm in ('canary', 'control'):
             sel = [r for r in rows if r['per'] == per and r['arm'] == arm]
@@ -304,8 +305,8 @@ def selftest():
     T0 = dt.datetime(2026, 10, 20, 12, 0, tzinfo=dt.timezone.utc)
     R = lambda name, detail, mins=0, bot='placebo-b-Alpha', arm='canary', per='post', status='success', fail=None, inv=None: {
         't': T0 + dt.timedelta(minutes=mins), 'per': per, 'arm': arm, 'name': name, 'status': status, 'fail_class': fail, 'detail': detail, 'bot': bot, 'inv': inv}
-    BANK = lambda allow='torch=11:11 allow=bone_meal=32:32', other='-', peaceful=1, part='1/1', banked=43, **k: R('_bagbudget',
-        'phase=bank peaceful=%d stacks=2 banked=%d slots=36->33 rows=bone_meal:1,torch:1 part=%s %s %s' % (peaceful, banked, part,
+    BANK = lambda allow='torch=11:11 allow=bone_meal=32:32', other='-', peaceful=1, part='1/1', banked=43, v='-', **k: R('_bagbudget',
+        'phase=bank v=%s peaceful=%d stacks=2 banked=%d slots=36->33 rows=bone_meal:1,torch:1 part=%s %s %s' % (v, peaceful, banked, part,
         ' '.join('allow=' + a if not a.startswith('allow=') else a for a in allow.split(' allow=')) if allow else '', ' '.join('other=' + o for o in other.split(',')) if other != '-' else 'other=-'), **k)
     WEAR = lambda **k: R('_bagbudget', 'phase=wear listed=3 worn=3 of=4 slots=36->32', **k)
     ctl = [R('_town_deposit', 'slots 36->35 stacks 1/1 clicked 1 bagdelta 1 tools - banked raw_copper:7 stop done containers 1,2,3=took', arm='control', bot='hive-b-A'),
@@ -328,6 +329,10 @@ def selftest():
     stray = judge([BANK(part='1/2'), BANK(part='2/2', allow='', other='coal:7'), BANK(part='2/2', allow='', other='coal:3', mins=5)] + ctl, lastc)
     assert stray['d1_incomplete'] == 1, stray
     assert judge([BANK(part='1/2'), BANK(part='1/2', mins=5), BANK(part='2/2', allow='', other='coal:3', mins=5)] + ctl, lastc)['d1_incomplete'] == 1, 'a run that never got its 2/2'
+    # Codex code r2 P2-1: visit A's 1/2 and visit B's 2/2 (each missing one part) never stitch into one complete run
+    st2 = judge([BANK(part='1/2', v='a.1'), BANK(part='2/2', allow='', other='coal:3', mins=5, v='b.2')] + ctl, lastc)
+    assert st2['d1_incomplete'] == 2, st2
+    assert judge([BANK(part='1/2', v='a.1'), BANK(part='2/2', allow='', other='coal:3', v='a.1')] + ctl, lastc)['d1_incomplete'] == 0, 'control: one visit, both parts'
     # D2: a station below 1; 26+ ladders banked
     assert judge([BANK(allow='crafting_table=1:1')] + ctl, lastc)['breach_below_allowance'] == 1, 'D2: the only table'
     assert judge([BANK(allow='chest=12:0')] + ctl, lastc)['breach_below_allowance'] == 0, 'D2 control: stations kept'
@@ -352,8 +357,7 @@ def selftest():
     # cross-check
     NE = lambda inv, **k: R('_town_deposit', 'slots 36->36 stacks 0/0 clicked 0 bagdelta 0 tools - banked - stop nothing to bank above the keeps containers -', status='no_effect', inv=inv, **k)
     assert judge([NE({'torch': 5}), N(chest='0')] + ctl, lastc)['crosscheck_omitted'] == 1, 'the planner omitted a torch'
-    assert judge([NE({'torch': 5}), N(chest='0')] + ctl, lastc)['breach_planner_omitted'] == 0, 'D6: one is reported, not a verdict'
-    assert judge([NE({'torch': 5}), N(chest='0'), NE({'bone_meal': 9}, mins=20), N(chest='0', mins=20)] + ctl, lastc)['breach_planner_omitted'] == 1, 'D6: two'
+    assert 'breach_planner_omitted' not in judge([NE({'torch': 5}), N(chest='0')] + ctl, lastc), 'the cross-check is reported only'
     assert judge([NE({'torch': 5}), N(chest='0', rows='0')] + ctl, lastc)['crosscheck_omitted'] == 0, 'control: withheld for deletion'
     assert judge([NE({'ladder': 30}), N(chest='0')] + ctl, lastc)['crosscheck_omitted'] == 0, 'control: 26+ ladders stay'
     # exposure and instrument
@@ -441,7 +445,7 @@ if __name__ == '__main__':
     print('HARM         D5 town_storage_full canary %d control %d (per bot-h %.3f vs %.3f) -> %s'
           % (res['storage_full_post_canary'], res['storage_full_post_control'], rate(res['storage_full_post_canary'], 'post', 'canary'),
              rate(res['storage_full_post_control'], 'post', 'control'), 'TRIP' if res['harm_storage_full'] else 'ok'))
-    print('CROSS-CHECK  D6 full no_effect with a torch / bone meal / < 26 ladders and rows=1: %d %s -> %s (>= 2 REVERTS)' % (res['crosscheck_omitted'], res['_lists']['cross'], 'TRIP' if res['breach_planner_omitted'] else 'ok'))
+    print('CROSS-CHECK  (reported) full no_effect with a torch / bone meal / < 26 ladders and rows=1: %d %s (a wanted floor or a withdraw hold keeps them legitimately)' % (res['crosscheck_omitted'], res['_lists']['cross']))
     print('OWNER        unlisted names in canary full bags (stay; the owner\'s junk-list call): %s' % res['_lists']['unlisted'])
     print('EXPOSURE     -> %s (canary bank runs that banked %d, need 3; wear rows %d, need 1) | INSTRUMENT control town deposits %d, full bags %d, wear_out %d -> %s'
           % ('READY' if res['exposure_ready'] else 'NOT YET', res['bank_runs_canary'], res['wear_rows_canary'],

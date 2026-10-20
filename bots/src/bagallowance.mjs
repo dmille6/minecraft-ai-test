@@ -183,7 +183,7 @@ export function bagBudgetModeDetail (mode = BAG_ALLOWANCE) {
  * town_deposit detail is cut at 300 and sorts by count. COMPLETE, IN PARTS (Codex design r2 P2-3): when one row would pass
  * 300 the names continue on further rows, each `part=i/n`, every part carrying the counts. -> [detail]. Pure.
  */
-export function bagBudgetBankDetails ({ planned = [], heldBefore = {}, banked = {}, slotsBefore = null, slotsAfter = null, peaceful = null } = {}) {
+export function bagBudgetBankDetails ({ planned = [], heldBefore = {}, banked = {}, slotsBefore = null, slotsAfter = null, peaceful = null, visit = null } = {}) {
   const allow = [...new Set(planned.map(s => s.name))].sort()
   const rows = {}
   for (const s of planned) rows[s.row] = (rows[s.row] ?? 0) + 1
@@ -191,7 +191,8 @@ export function bagBudgetBankDetails ({ planned = [], heldBefore = {}, banked = 
   const got = allow.reduce((t, k) => t + n(banked?.[k]), 0)
   const other = Object.keys(banked ?? {}).filter(k => n(banked[k]) > 0 && !allow.includes(k)).sort()
   // peaceful= the switch the plan read (the read's junk gate is conditional on it: Claude design r2 P3-5)
-  const head = `phase=bank peaceful=${peaceful == null ? '?' : peaceful ? 1 : 0} stacks=${planned.length} banked=${got} slots=${slotsBefore ?? '?'}->${slotsAfter ?? '?'} ` +
+  // v= the VISIT's id (Codex code r2 P2-1: the read groups parts by it, so two incomplete visits never stitch into one)
+  const head = `phase=bank v=${visit ?? '-'} peaceful=${peaceful == null ? '?' : peaceful ? 1 : 0} stacks=${planned.length} banked=${got} slots=${slotsBefore ?? '?'}->${slotsAfter ?? '?'} ` +
     `rows=${Object.entries(rows).sort().map(([k, v]) => `${k}:${v}`).join(',') || '-'}`
   const tokens = [...allow.map(k => `allow=${k}=${n(heldBefore?.[k])}:${n(banked?.[k])}`), ...other.map(k => `other=${k}:${n(banked[k])}`)]
   const parts = [[]]
