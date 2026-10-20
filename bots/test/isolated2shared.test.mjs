@@ -315,6 +315,43 @@ await ta('an interrupted rollback is only ever finished: apply refuses to resume
   assert.equal(run(o, 'apply', '--pool', POOL), 2); assert.match(quiet.join('\n'), /rollback .* did not finish/); assert.equal(treeHash(root(o)), h)
   assert.equal(run(o, 'rollback', '--pool', POOL), 0); assert.ok(!fs.existsSync(town(o)))
 })
+await ta('a half rollback with EVERY env still converted is refused too, not read as "already converted" (Codex r3 P2-3)', () => {
+  const o = fixture(); run(o, 'apply', '--pool', POOL)
+  const mf = path.join(town(o), M.MARKER)
+  fs.writeFileSync(mf, JSON.stringify({ ...JSON.parse(fs.readFileSync(mf, 'utf8')), rollback_started: '2026-10-20T12:00:00Z' }))
+  const h = treeHash(root(o)); quiet.length = 0
+  assert.equal(run(o, 'apply', '--pool', POOL), 2); assert.match(quiet.join('\n'), /did not finish/); assert.equal(treeHash(root(o)), h)
+})
+await ta('foldContainer keeps a bot\'s own mark when its 8 retained strikes are all newer than the last opening (truncated history, Codex r3 P2-4)', async () => {
+  const { recordOutcome } = await import('../src/chestfull.mjs')
+  let e; const t0 = NOW - 3 * 3600e3
+  e = recordOutcome(e, 'unknown', t0); e = recordOutcome(e, 'unknown', t0 + 11 * 60e3)            // qualifies: unusable
+  for (let i = 0; i < 8; i++) e = recordOutcome(e, 'unknown', t0 + 12 * 60e3 + i * 1000)             // evicts the qualifying pair
+  assert.equal(containerStatus(e, NOW), 'unusable'); assert.equal(e.strikes.length, 8)
+  assert.equal(containerStatus(M.foldContainer([e]), NOW), 'unusable', 'the single snapshot keeps its valid mark')
+  assert.equal(containerStatus(M.foldContainer([e, { o: 'took', at: t0 + 30 * 60e3, strikes: [] }]), NOW), 'visit', 'a later opening still clears it')
+})
+await ta('the hold helper\'s rules self-test, and the wrapper and the tripwire parse (bash -n, python import)', () => {
+  execFileSync('python3', [path.join(here, '../../scripts/host/isolated2sharedhold.py'), 'selftest'], { encoding: 'utf8' })   // asserts run at import
+  execFileSync('bash', ['-n', path.join(here, '../../scripts/host/isolated2shared-direct.sh')])
+  execFileSync('python3', [path.join(here, '../../scripts/host/isolated2sharedtrip.py'), '--help'], { encoding: 'utf8' })
+})
+await ta('tripwire exposure: the trailing window is MEASURED from rows in it, never scaled from the whole POST (Codex r3 P2-5)', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-logs-')), bot = 'isolated-b-Alpha'
+  fs.mkdirSync(path.join(d, bot))
+  const now = new Date(), since = new Date(now - 240 * 60e3), rows = []
+  for (let m = 6; m < 200; m += 1) rows.push(new Date(since.getTime() + m * 60e3))       // busy for 200 min, then silent
+  rows.push(new Date(now - 10 * 60e3)); rows.push(new Date(now - 9 * 60e3))               // two rows 1 min apart in the tail
+  fs.writeFileSync(path.join(d, bot, `skill-${bot}.jsonl`), rows.map(t => JSON.stringify({ '@timestamp': t.toISOString(), skill: { name: 'gather' }, bot: { name: bot } })).join('\n') + '\n')
+  const out = execFileSync('python3', ['-c', `
+import importlib.util,sys,datetime as dt
+s=importlib.util.spec_from_file_location('t', sys.argv[1]); t=importlib.util.module_from_spec(s); s.loader.exec_module(t)
+t.LOGS=sys.argv[2]; now=dt.datetime.now(dt.timezone.utc); since=dt.datetime.fromisoformat(sys.argv[3].replace('Z','+00:00'))
+sel,exp,_=t.walk(since-dt.timedelta(hours=1), since, since+dt.timedelta(minutes=5), now, set(), now-dt.timedelta(minutes=120))
+e=exp[sys.argv[4]]; print('%.4f %.4f' % (e['post'], e['tail']))`, path.join(here, '../../scripts/host/isolated2sharedtrip.py'), d, since.toISOString(), bot], { encoding: 'utf8' }).trim()
+  const [post, tail] = out.split(' ').map(Number)
+  assert.ok(post > 2.5, `post ${post}`); assert.ok(Math.abs(tail - 81 / 60) < 0.05, `the tail holds 80 busy min + 1 min = 1.35 h; measured ${tail} (scaled would be ${(post * 120 / 235).toFixed(2)})`)
+})
 await ta('more refusals that write nothing: a duplicated key in ONE env file (checked before any write), an unreadable drop-in dir', () => {
   const o = fixture(); const f = path.join(o.envDir, 'isolated-b-Echo.env')
   fs.appendFileSync(f, 'MEMORY_POOL=self-isolated-b-Echo\n')

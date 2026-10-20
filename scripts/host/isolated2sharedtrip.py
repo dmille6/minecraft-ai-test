@@ -129,7 +129,7 @@ def era_of(t, lo, since, post0, now):
     return 'pre' if lo <= t < since else 'post' if post0 <= t < now else None
 
 
-def walk(lo, since, post0, now, judged):
+def walk(lo, since, post0, now, judged, tail0=None):
     """Every bot's rows from `lo`. -> (sel, exp_h, walked): sel = (bot, t, kind, status, detail, exp) for the selected kinds
     and for every row of a JUDGED bot after `since` (its newest exp is I1's evidence); exp_h = {bot: {era: bot-hours}} by the
     capped-gap estimator (consecutive rows of one file, gaps capped at GAP_CAP_S, a gap counted in the era of both ends)."""
@@ -154,7 +154,10 @@ def walk(lo, since, post0, now, judged):
                     continue
                 e = era_of(t, lo, since, post0, now)
                 if prev is not None and e is not None and prev[1] == e and t >= prev[0]:
-                    exp_h[bot][e] += min((t - prev[0]).total_seconds(), GAP_CAP_S) / 3600.0
+                    g = min((t - prev[0]).total_seconds(), GAP_CAP_S) / 3600.0
+                    exp_h[bot][e] += g
+                    if e == 'post' and tail0 is not None and prev[0] >= tail0:
+                        exp_h[bot]['tail'] += g          # MEASURED trailing exposure (Codex r3 P2-5), never scaled
                 prev = (t, e)
                 mine = bot in judged and t >= since
                 if mine or any(k in raw for k in KIND_BYTES):
@@ -222,7 +225,8 @@ def main():
         b = os.path.basename(f.rstrip('/'))
         if pool_of(b) in pools:
             judged.add(b)
-    sel, exp_h, walked = walk(lo, since, post0, now, judged)
+    tail0 = now - dt.timedelta(minutes=120)
+    sel, exp_h, walked = walk(lo, since, post0, now, judged, tail0)
     bots = sorted(exp_h)
     conv = {p: [b for b in bots if pool_of(b) == p] for p in pools}
     mixed = {pool_of(b) for b, _t, _k, _s, _d, e in sel if pool_of(b).startswith('isolated') and e.get('pool') and not str(e.get('pool')).startswith('self-')}
@@ -337,9 +341,7 @@ def main():
         if minutes >= 120 and (dispose_ok[p] == 0 or tally[p] == 0):
             blind.append('%s unexposed (disposals %d, smelt tallies %d)' % (p, dispose_ok[p], tally[p]))
         # I6
-        tail0 = now - dt.timedelta(minutes=120)
-        post_min = max((now - post0).total_seconds() / 60, 1)
-        tail_h = EXP[p]['post'] * min(120, post_min) / post_min
+        tail_h = sum(exp_h[b]['tail'] for b in conv[p])
         tail_rate = sum(1 for x in unk_t[p] if x >= tail0) / tail_h if tail_h > 0 else None
         refs = [cnt[(p, 'pre')]['unknown_refusals'] / EXP[p]['pre'] if EXP[p]['pre'] > 0 else None,
                 cnt[('shared', 'post')]['unknown_refusals'] / EXP['shared']['post'] if EXP['shared']['post'] > 0 else None]

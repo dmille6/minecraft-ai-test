@@ -3,8 +3,7 @@
 _2026-10-20, written by an agent session for the coordinator. OWNER APPROVED about 12:45Z ("i agree do it all, get it working").
 Fleet at writing: `9e7d9980` (cobblekeep-01, promoted 11:23Z) on 70 bots. bagbudget-01 `31416ee5` has been live on board-d and
 hive-a since 11:35Z. Branch: `isolated2shared-on-9e7d998`, cut from the fleet sha. It changes **no bot code**: the changes are a
-host tool, a wrapper, a tripwire, one test file and this document. Revision r3 folds in the r1 and r2 reviews (Codex and Claude:
-CHANGE both rounds); section 10 lists each finding and how it was handled._
+host tool, a wrapper, a tripwire, one test file and this document. Revision r4 folds in the r1-r3 reviews; section 10 lists each finding and how it was handled._
 
 ## 0. Summary
 
@@ -276,22 +275,30 @@ The wrapper does this, in order:
 
 1. Refuses within 30 min of fleet-recycle.timer, or while it runs. That timer restarts every unit, stopped ones included, and
    takes no lock.
-2. Computes QUIET (5.2) from the scheduler's own status table and the queue's registrations. Fail-closed: with no readable
-   ready registration it refuses unless `--quiet` and `--why` are given. QUIET is at least 240.
-3. **Claims the install-hold first**, with the installers' own `holdtoken.py claim` (the scheduler's slot checks under its tick
-   lock; refused if any other hold exists), and **then** takes `flock -n /tmp/mcai-canary.lock`. The scheduler counts a held
-   loop lock as a busy slot, so the order matters (Codex r2 P1-1). A later phase reuses the same hold; its token is in
-   `~/isolated2shared/HOLD.json`.
-4. Runs a clean `plan` for every pool. Any refusal releases the unused hold.
-5. Per pool: journal `owner-direct`; stop the 5 units; `apply` (or `rollback`). Then by exit code:
+2. Takes this rollout's own lock (`~/isolated2shared/rollout.lock`, every mode, `--release` included), so a release can never
+   race a conversion (Codex r3 P1-1).
+3. Computes QUIET (5.2) with `isolated2sharedhold.py quiet`: the scheduler's own status table plus the queue's registrations,
+   and 1440 for a ready underground-safety or bag-fix entry. It fails closed: if ANY ready registration is unreadable, it
+   refuses (Codex r3 P2-6) unless `--quiet` and `--why` are given. `--quiet` can only raise a computed value. QUIET is at
+   least 240. A rollback or release whose computation fails falls back to the recorded quiet period (Claude r3 P3-6).
+4. **Claims the install-hold first** (`isolated2sharedhold.py claim`: the installers' own `holdtoken.py claim`, the
+   scheduler's slot checks under its tick lock, refused if any other hold exists), and **then** takes
+   `flock -n /tmp/mcai-canary.lock`. The scheduler counts a held loop lock as a busy slot, so the order matters (Codex r2
+   P1-1). A later phase REUSES the recorded hold only when it is the live one (a non-empty token, `HOLD.json` written by tmp
+   + rename), and EXTENDS its `until` to now + QUIET + 60 under the tick lock, never shorter (Claude r3 P2-1, P2-3).
+5. Runs a clean `plan` for every pool. A refusal before any transition drops a hold this run claimed (Claude r3 P3-5).
+6. Per pool: journal `owner-direct`; stop the 5 units; `apply` (or `rollback`). Then by exit code:
    * 0: restart the 5 units 12 s apart (`restart`, never `start`), verify all 5 are active, journal `apply-done` with the
      not-before time and the pool's own tripwire command.
-   * 2: a clean refusal, nothing written. Restart the units unchanged and stop.
+   * 2: the tool wrote nothing. Restart the units ONLY if `status` shows the pool uniformly isolated or converted; an
+     earlier interrupted run may have left it mixed, and then the units stay stopped (Codex r3 P1-2).
    * anything else: the tool died part-way. **The units stay stopped** (a mixed pool is worse than five idle bots), it
      journals `apply-incomplete` with `status`, and it says to re-run (apply resumes) or roll back (Codex r2 P1-4, Claude r2
      P2-2).
-6. The hold is **not** released on exit. `--release` releases it only once QUIET minutes have passed since the LAST transition
-   row in the journal (`apply-done`, `rollback-done`, `*-incomplete`).
+7. The hold is **not** released on exit. `--release` releases it only once QUIET minutes have passed since the LAST transition
+   row in the journal (`apply-done`, `rollback-done`, `*-incomplete`). QUIET is recomputed at release time as max(recorded,
+   now), so a long canary queued during the hold is covered (Claude r3 P2-2). It verifies the hold is gone before it journals
+   `hold-released` (Claude r3 P3-4).
 
 ### 4.3 `scripts/host/isolated2sharedtrip.py --since <stop ISO> --pools <p>[,...]` (read-only)
 
@@ -322,7 +329,7 @@ This is a full file walk of every bot over `[since − 24 h, now]`. Run it **one
   closing means either of these:
   * `*_unknown` refusals with no counted `_stock_recount` in the whole POST;
   * a trailing-120-min unknown-refusal rate above 3x max(own PRE rate, shared POST rate, 0.2/bh), with no counted recount in
-    that tail.
+    that tail. The tail's bot-hours are MEASURED from the rows in it, never scaled from the whole POST (Codex r3 P2-5).
 
   For calibration, isolated-b on its old config read 0.51/bh against a reference of 0.62/bh: ok.
 * **I7 DiD** (REPORT ONLY). Per bot-hour, PRE to POST, the converted pool against the still-isolated and the shared pools:
@@ -448,7 +455,13 @@ On 10.0.0.31, once: `mkdir -p ~/isolated2shared`, then copy the three files from
 
 ## 7. Evidence produced here
 
-**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 24 checks.
+**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 28 checks. The r4 additions:
+
+* a half rollback with every env still converted is refused;
+* a truncated strike history keeps a bot's valid mark;
+* the hold helper's rules self-test;
+* the wrapper parses (`bash -n`);
+* the tripwire's tail exposure is measured.
 
 * The constants and the record-state rule agree with plinth.mjs and with the real WorldFacts class's prune (behaviour, not
   text).
@@ -491,7 +504,7 @@ refusal is the expected "a canary is declared (bagbudget-01)".
 ```bash
 # once, on 10.0.0.31 (from a checkout of branch isolated2shared-on-9e7d998, or with git show <sha>:<path>):
 mkdir -p ~/isolated2shared
-for f in isolated2shared.mjs isolated2shared-direct.sh isolated2sharedtrip.py; do git -C <checkout> show <sha>:scripts/host/$f > ~/isolated2shared/$f; done
+for f in isolated2shared.mjs isolated2shared-direct.sh isolated2sharedtrip.py isolated2sharedhold.py; do git -C <checkout> show <sha>:scripts/host/$f > ~/isolated2shared/$f; done
 sudo node ~/isolated2shared/isolated2shared.mjs status            # all four: env isolated, town dir absent
 sudo node ~/isolated2shared/isolated2shared.mjs plan --pool isolated-b
 
@@ -580,3 +593,26 @@ bash ~/isolated2shared/isolated2shared-direct.sh --rollback <owner> isolated-b
 | P3-5 apply resumes a half rollback | refused (4.1) |
 | P3-6 one T0 for three pools | per-pool runs (4.3) |
 | P3-7 duplicate hazards in prompt lines | accepted: pricing uses the nearest site; prompt lines are capped at 4 and can repeat one place for at most one decay period. Noted, not changed. |
+
+**r3, Claude DESIGN APPROVE / CODE CHANGE:**
+
+| finding | handled in |
+|---|---|
+| P2-1 a reused hold is never extended | extend under the tick lock (4.2) |
+| P2-2 QUIET frozen at claim, class ignored | recomputed at release; 24 h classes (4.2, hold helper) |
+| P2-3 reuse with no hold; torn HOLD.json | non-empty live token; atomic write |
+| P3-4 release journals regardless | verified gone first |
+| P3-5 claimed hold kept after a first refusal | dropped when no transition |
+| P3-6 rollback needs --quiet | recorded fallback |
+| note: known_caps holds only the newest site gen | accepted: build_well digs only at the recorded site |
+
+**r3, Codex CHANGE / CHANGE:**
+
+| finding | handled in |
+|---|---|
+| P1-1 release races a conversion | rollout lock, every mode |
+| P1-2 exit 2 restarts a mixed pool | restart only when uniform |
+| P2-3 half rollback read as converted | refused before the no-op |
+| P2-4 truncated strikes lose a mark | own mark kept when all 8 are newer than the opening |
+| P2-5 I6 tail scaled | measured |
+| P2-6 unreadable registrations skipped | refuse |

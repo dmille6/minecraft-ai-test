@@ -180,6 +180,15 @@ export function foldContainer (list) {
     const until = Math.max(cur?.unusableUntil ?? -Infinity, qualifies ? t + UNUSABLE_TTL_MS : -Infinity)
     cur = { o: 'unknown', at: t, strikes: [...prior, t].slice(-8), ...(Number.isFinite(until) ? { unusableUntil: until } : {}) }
   }
+  // A TRUNCATED HISTORY (Codex r3 P2-4): recordOutcome keeps the last 8 strikes, so a bot's mark can rest on a strike it has
+  // since evicted. Its own unusableUntil is kept when its 8 retained strikes are ALL newer than the latest visible opening:
+  // then the evicted ones are older than those, and the mark is that bot's own valid evidence (the replay cannot re-derive it).
+  if (cur && cur.o !== 'full' && cur.o !== 'took') {
+    for (const e of list) {
+      const st = Array.isArray(e.strikes) ? e.strikes.filter(Number.isFinite) : []
+      if (st.length >= 8 && Math.min(...st) > tOpen && Number.isFinite(Number(e.unusableUntil)) && !(cur.unusableUntil >= Number(e.unusableUntil))) cur.unusableUntil = Number(e.unusableUntil)
+    }
+  }
   return cur
 }
 /**
@@ -401,6 +410,12 @@ export function plan (pool, o) {
 export function apply (pool, o, say = console.log) {
   const p = plan(pool, o)
   const dir = target(pool, o), marker = readJson(path.join(dir, MARKER))
+  // a half rollback is refused BEFORE the idempotent no-op: with every env still converted it would otherwise read as done
+  // (Codex r3 P2-3)
+  if (marker.json?.tool === TOOL && marker.json?.rollback_started) {
+    say(`REFUSED: a rollback of ${pool} started ${marker.json.rollback_started} and did not finish: finish it (rollback --pool ${pool}), never resume the apply`)
+    return 2
+  }
   if (p.state === 'converted' && marker.json?.tool === TOOL) { say(`already converted: ${pool} (marker ${marker.json.stamp})`); return 0 }
   const refuse = [...p.src.refusals]
   const resume = fs.existsSync(dir) && marker.json?.tool === TOOL && marker.json?.pool === pool
