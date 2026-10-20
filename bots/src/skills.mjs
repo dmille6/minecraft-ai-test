@@ -122,7 +122,7 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
-import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
+import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel } from './minewell.mjs'
@@ -5907,7 +5907,8 @@ function placeSites(bot) {
   const zoneSkip = { n: 0, zone: null }
   const zoneRefused = p => {
     let z = null
-    try { const zs = bot.protectZones?.() ?? []; z = zoneAtPos(zs, p) ?? zoneAtPos(zs, { x: p.x, y: p.y + 1, z: p.z }) } catch { z = null }
+    // the guard's own cells and exemption (Codex r3 P2): a deep bot may place below its zone's floor
+    try { z = placeBlocked(bot.protectZones?.() ?? [], p.x, p.y, p.z, bot.entity?.position ?? null) } catch { z = null }
     if (z) { zoneSkip.n++; zoneSkip.zone ??= z }
     return !!z
   }
@@ -6072,7 +6073,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       if (roomVeto(bot, cellPos)) continue
       // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
       { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
-      { let zz = null; try { zz = zoneAtPos(bot.protectZones?.() ?? [], cellPos) } catch { zz = null } if (zz) continue }   // protectzone-01
+      { let zz = null; try { zz = blocked(bot.protectZones?.() ?? [], cellPos.x, cellPos.y, cellPos.z, bot.entity?.position ?? null) } catch { zz = null } if (zz) continue }   // protectzone-01
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
       // its budget is cancelled here -- withTimeout's default only stops the
