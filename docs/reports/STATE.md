@@ -101,6 +101,21 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-20 03:30Z — ELK DISK FULL (fixed: 500 GB); OWNER: iron pickaxe in the toolkit, bag allowance, brain-01 closes at +720
+
+- **ES flood stage 10-19 23:16Z -> 10-20 02:42Z.** The ELK VM (109 on pve1, vmdata zfs) hit 96% of 128 GB (data 48 G + local
+  snapshot repo /srv/es-backup 47 G); every index went read_only_allow_delete; filebeat retried (429) and resumed. OWNER: grow to
+  500 GB total + move the snapshot repo to the NAS. Disk DONE (`qm resize 109 scsi0 500G`, growpart/pvresize/lvextend -r: 490 G,
+  25% used). The NAS move waits on the owner creating an NFS share `es-backup` for 10.0.0.186 (NAS exports only /volume1/Media
+  today). Hole: 23:16-00:00Z 10-19 missing in ES (copytruncate rotation while blocked); backfill + a DiskLow check being built
+  (branch esflood-1020). Wide-window reads must avoid that hour until the backfill lands.
+- **OWNER (03:20Z): add the iron pickaxe to the toolkit** (2,324 town ingots idle; KIT was axe+shovel only) -> ironpick-01, tier 2,
+  stacked on toolkit-03; **and a per-item bag allowance** (36/80 bags full; 71/77 full-bag town_deposits no_effect "nothing to bank:
+  everything carried is kept") -> bagbudget-01, design + both engines first, base cobblekeep-on-adbec4f. Both building; not queued.
+- **brain-01 closes INCONCLUSIVE at its +720 read (~04:45Z) if NOT_YET** (OWNER "yes take [the] read"): ~/brclose.sh on .31
+  (nohup; log ~/digest/brclose.log) stops the loop, records, tears down 3 steps. cobblekeep-01 (queue head next) then launches.
+  Re-queue brain-02 later for the full >= 200 bot-h read. The Studio's brain01 LIVE flag is cleared after the close.
+
 ## 10-20 02:10Z — OWNER: expansion X1-X10 "all yes except for rails"; brain-01 +360 NOT_YET (3 v 5 deaths, held); homefix-01 + E0 building
 
 - **Owner answer (10-19 ~20:10Z, live operator session) to docs/reports/expansion-plan-2026-10-19.md §10:** X1 YES (the 09-30 "no more
