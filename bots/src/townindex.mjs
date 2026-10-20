@@ -131,10 +131,18 @@ function joinEntries (a, b) {
   for (const [op, o] of Object.entries(b.ops ?? {})) e.ops[op] = cleanOp(joinOp(e.ops[op], o))
   return e
 }
+const fin = v => (Number.isFinite(v) ? v : -Infinity)
 /** The end of a mutation's protection: OP_TTL_MS past its pre mark or its latest `held` renewal. Pure. */
-const protectedUntil = o => Math.max(Number.isFinite(o?.pre) ? o.pre : -Infinity, Number.isFinite(o?.held) ? o.held : -Infinity) + OP_TTL_MS
-/** Is a mutation still OPEN at the observation's capture? (a pre mark at or before it, no post mark, inside its protection) Pure. */
-const openAt = (ops = {}, at) => Object.values(ops ?? {}).some(o => Number.isFinite(o?.pre) && o.post == null && o.pre <= at && at < protectedUntil(o))
+const protectedUntil = o => Math.max(fin(o?.pre), fin(o?.held)) + OP_TTL_MS
+/** The last mark an operation holds (pre, held or post): a checkpoint keeps the operation until OP_TTL_MS past it. Pure. */
+const lastMark = o => Math.max(fin(o?.pre), fin(o?.held), fin(o?.post))
+/**
+ * Is a mutation still OPEN at the observation's capture? -> true when an operation with no post mark covers it: from its pre
+ * mark (or, when the pre mark is missing -- its write failed, Codex code r3 P2 -- from any time) to OP_TTL_MS past its pre or
+ * latest `held` renewal. Pure.
+ */
+const openAt = (ops = {}, at) => Object.values(ops ?? {}).some(o => o?.post == null && (Number.isFinite(o?.pre) || Number.isFinite(o?.held)) &&
+  (Number.isFinite(o?.pre) ? o.pre : -Infinity) <= at && at < protectedUntil(o))
 /**
  * An entry for a CHECKPOINT -> the entry with only the operations that can still matter. Pure. An operation (open OR closed)
  * is dropped only once the entry's observation is past its whole protection: a closed one is kept until then as a TOMBSTONE,
@@ -144,7 +152,7 @@ export function compactEntry (e) {
   if (!e) return e
   const ops = {}
   for (const [op, o] of Object.entries(e.ops ?? {})) {
-    if (e.obs && Number.isFinite(e.obs.at) && e.obs.at >= protectedUntil(o)) continue
+    if (e.obs && Number.isFinite(e.obs.at) && e.obs.at >= lastMark(o) + OP_TTL_MS) continue   // a post-only tombstone too (Codex code r3 P2)
     ops[op] = o
   }
   return { last: e.last, obs: e.obs, ops }
@@ -288,7 +296,11 @@ const GEN_RE = hk => new RegExp(`^town-index-${hk.replace(/[^0-9_-]/g, '')}\\.g(
 /** The generations on disk, ascending -> [N]. */
 export function indexGens (dir, hk) {
   const re = GEN_RE(hk)
-  try { return fs.readdirSync(dir).map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b) } catch { return [] }
+  let names
+  // A MISSING directory is "no index yet"; any other failure THROWS, so a reader says ok:false and never "every container
+  // unknown" (Codex code r3 P2: an EACCES read as an empty index scheduled count_town's extras)
+  try { names = fs.readdirSync(dir) } catch (e) { if (e?.code === 'ENOENT') return []; throw e }
+  return names.map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
 }
 /** THE CURRENT GENERATION: the highest on disk, 1 for a town with none yet. */
 export const currentIndexGen = (dir, hk) => indexGens(dir, hk).at(-1) ?? 1
