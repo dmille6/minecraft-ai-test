@@ -55,7 +55,8 @@ import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // pli
 import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence row (its own statement)
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
-import { openWorldFacts } from './worldfacts.mjs'
+import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
+import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters } from './protectzone.mjs'   // protectzone-01
 import { startComms } from './comms.mjs'
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
@@ -303,6 +304,12 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
+    // protectzone-01: THE PROTECTED ZONES (protectzone.mjs) -- one per-world file in the town's own directory, re-read at most
+    // every 30 s; no file -> no zone, and every guard below passes straight through. Read here, before the movement profiles
+    // and the guard that use it. The licence row says what this spawn loaded (`_protectzone_mode`).
+    const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null })
+    bot.protectZones = zoneRd.zones
+    try { logEvent({ kind: 'protectzone_mode', status: 'success', snapshot: snapshot(bot), detail: protectZoneModeDetail(zoneRd.state(), bot.worldId) }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -577,7 +584,13 @@ function connect() {
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]
     // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
+    // protectzone-01: A PROTECTED ZONE IS NEVER A PATH'S DIG OR SCAFFOLD (100: safeToBreak refuses, a > 100 move is dropped).
+    // Walking through one is untouched (no step price). Both arrays are set HERE, before every clone below copies their
+    // references. No zone loaded -> the price is 0 everywhere and the profile is the base's.
+    const zonePrice = zoneCost(() => bot.protectZones?.() ?? [])
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    moves.exclusionAreasBreak = [...moves.exclusionAreasBreak, zonePrice]
+    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePrice]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -1059,6 +1072,35 @@ function connect() {
       tgTimer.unref?.()
       bot.once('end', () => clearInterval(tgTimer))
     } catch (e) { log('warn', 'dig town instrument not attached', { err: e?.message }) }
+    // protectzone-01: THE GUARD (protectzone.mjs), AFTER the dig instrument so a refused dig never reaches it (it is not a
+    // dig). dig / place / use / open / sleep / craft in a zone are refused (survival digs, places and uses are not), and
+    // findBlocks never answers a zone cell. One row per refusal (at most 30 a minute) and a one-minute count row.
+    try {
+      const reflexes = stopReflexes
+      let rowsThisMin = 0
+      attachProtectZone(bot, {
+        zones: bot.protectZones,
+        context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
+                          reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
+        onRefuse: ({ op, zone, at, purpose, by, remedy }) => {
+          if (rowsThisMin++ >= 30) return
+          try { logEvent({ kind: 'protect_zone_refused', status: 'refused', detail: `op=${op} zone=${zone} at=${at ? `${at.x},${at.y},${at.z}` : '-'} purpose=${purpose} by=${by} | ${remedy}`.slice(0, 300), args: { op, zone, at, purpose, by } }) } catch { /* telemetry */ }
+        },
+      })
+      bot.protectZone = protectZoneCounters()
+      const pzTimer = setInterval(() => {
+        rowsThisMin = 0
+        try {
+          const c = bot.protectZone ?? {}
+          if (!Object.values(c).some(v => v > 0)) return
+          logEvent({ kind: 'protect_zone', status: 'success', snapshot: snapshot(bot), args: { ...c },
+                     detail: Object.entries(c).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ') })
+          bot.protectZone = protectZoneCounters()
+        } catch { /* telemetry */ }
+      }, 60_000)
+      pzTimer.unref?.()
+      bot.once('end', () => clearInterval(pzTimer))
+    } catch (e) { log('warn', 'protected zone guard not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
