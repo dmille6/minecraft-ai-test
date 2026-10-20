@@ -789,6 +789,8 @@ scenes.bagmix = async () => {
   rcon(`kill ${ARENA_SEL}`); CHEST = pickChest()
   rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
   const spec = [...BAG_MIX]; while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
+  // THE WORLD'S DIFFICULTY (Claude code r1 P3-3): apples are the composter's only in a peaceful world; elsewhere row F banks them
+  const peaceful = /peaceful/i.test(r1('difficulty'))
   const files = await startBot('bagmix', spec, { pool: `sbxstock-${RUN}-bagmix` })
   setChest([])
   const before = bag(NAME), chest0 = chestTotals()
@@ -796,8 +798,9 @@ scenes.bagmix = async () => {
   await sleep(4000)
   const after = bag(NAME), chest1 = chestTotals()
   await stopBot(); BRAIN_WANDER = false
-  bagScene('bagmix', spec, files, before, chest0, after, chest1, { deposit: dep ? `${dep.status} ${dep.detail.slice(0, 220)}` : null,
-    CANDIDATE_PASS: !!(dep && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n]) && STATION_IDS.every(n => (after.totals[n] ?? 0) >= 1)),
+  const junkIds = peaceful ? JUNK_IDS : JUNK_IDS.filter(n => n !== 'apple')
+  bagScene('bagmix', spec, files, before, chest0, after, chest1, { deposit: dep ? `${dep.status} ${dep.detail.slice(0, 220)}` : null, peaceful,
+    CANDIDATE_PASS: !!(dep && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !junkIds.some(n => chest1.totals[n]) && STATION_IDS.every(n => (after.totals[n] ?? 0) >= 1)),
     BASE_SHAPE: !!(ALLOW_IDS.every(n => !(chest1.totals[n] ?? 0)) && after.used >= 34) })
 }
 // bagwell (after `build`): the same kind of bag with two junk stacks the well takes and slab filler (kept whole, never junk):
@@ -814,14 +817,16 @@ scenes.bagwell = async () => {
   const files = await startBot('bagwell', spec, { pool: `sbxstock-${RUN}-bagwell` })
   setChest([])
   const before = bag(NAME), chest0 = chestTotals()
-  const disp = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_well_dispose'), 240000, 500)
+  // a SUCCESSFUL dispose (Codex code r1 P2-3: a failed or no_effect one followed by the timeout release must not pass)
+  const disp = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === 'dispose_well' && r.status === 'success'), 240000, 500)
   const dep = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_bagbudget' && /^phase=bank/.test(r.detail)), 600000, 1000)
   await sleep(4000)
   const after = bag(NAME), chest1 = chestTotals()
   await stopBot(); BRAIN_WANDER = false
   bagScene('bagwell', spec, files, before, chest0, after, chest1, { dispose: disp ? `${new Date(disp.ts).toISOString()} ${disp.detail.slice(0, 160)}` : null,
     bank: dep ? `${new Date(dep.ts).toISOString()} ${dep.detail.slice(0, 200)}` : null, wellFirst: !!(disp && dep && disp.ts < dep.ts),
-    CANDIDATE_PASS: !!(disp && dep && disp.ts < dep.ts && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n])) })
+    CANDIDATE_PASS: !!(disp && dep && disp.ts < dep.ts && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n]) &&
+      !(after.totals.egg ?? 0) && !(after.totals.flint ?? 0) && (before.totals.egg ?? 0) === 6 && (before.totals.flint ?? 0) === 4) })
 }
 // bagfar: a full bag on a stone platform 90 east of home (outside TOWN_RADIUS 48: no town order can fire) holding four spent
 // stone pickaxes, a good one and 64 cobble. Last-swing under the allowance keeps none (the bag holds the stone): wear_out
@@ -849,8 +854,10 @@ scenes.bagfar = async () => {
   const stay = pos.length === 3 && Math.hypot(pos[0] - FAR.x, pos[2] - FAR.z) <= 8
   result({ scene: 'bagfar', root: BOT_ROOT, wear: wear ? `${wear.status} ${wear.detail.slice(0, 220)}` : null, spent: [spent(before), spent(after)], used: [before.used, after.used],
     goodPickaxe: Object.values(after.slots).some(it => it.id === 'stone_pickaxe' && (it.damage ?? 0) < 120), townDeposits: td, bagbudgetWear: bbw, pos, stayed: stay,
-    CANDIDATE_PASS: !!(wear && spent(after) === 0 && td === 0 && stay && bbw.length >= 1),
-    BASE_SHAPE: !!(wear && spent(after) === 3 && td === 0 && stay && bbw.length === 0) })
+    // the fixture held four spent copies and the good copy survives (Codex code r1 P3-4)
+    CANDIDATE_PASS: !!(spent(before) === 4 && wear && spent(after) === 0 && td === 0 && stay && bbw.length >= 1 &&
+      Object.values(after.slots).some(it => it.id === 'stone_pickaxe' && (it.damage ?? 0) < 120)),
+    BASE_SHAPE: !!(spent(before) === 4 && wear && spent(after) === 3 && td === 0 && stay && bbw.length === 0) })
 }
 
 async function main () {

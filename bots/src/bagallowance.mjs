@@ -123,18 +123,22 @@ const countsOf = items => {
 /** Row F's one kept food: the held eaten food highest in FOOD_PRIORITY that holds at least FOOD_MIN (a lone golden carrot
  *  does not send 64 steak to the chest: Claude design r2 P3-6); else the highest held at all; or null. Pure. */
 export const FOOD_MIN = 4
-export const bestFood = (counts = {}) => FOOD_PRIORITY.find(n => (Number(counts[n]) || 0) >= FOOD_MIN) ?? FOOD_PRIORITY.find(n => (Number(counts[n]) || 0) > 0) ?? null
+// `skip(name)`: a name another exit owns (the composter's apples in a peaceful world: Claude code r1 P3-5) is never the kept food
+export const bestFood = (counts = {}, skip = () => false) => {
+  const held = n => !skip(n) && (Number(counts[n]) || 0)
+  return FOOD_PRIORITY.find(n => held(n) >= FOOD_MIN) ?? FOOD_PRIORITY.find(n => held(n) > 0) ?? null
+}
 
 /**
  * WHAT THE ROW KEEPS of `name` in a bag with these counts -> a number (Infinity = the whole kind). Pure.
  */
-export function rowKeep (name, counts = {}) {
+export function rowKeep (name, counts = {}, skip = () => false) {
   switch (allowanceRow(name)) {
     case 'station': return ALLOWANCE.station
     case 'torch': return ALLOWANCE.torch
     case 'bone_meal': return ALLOWANCE.boneMeal
     case 'ladder': return (Number(counts.ladder) || 0) >= LADDER_ESCAPE_MIN ? Infinity : ALLOWANCE.ladder
-    case 'food': return bestFood(counts) === name ? Infinity : 0
+    case 'food': return bestFood(counts, skip) === name ? Infinity : 0
     case 'building': return ALLOWANCE.other
     default: return Infinity      // 'kept', 'unlisted'
   }
@@ -154,7 +158,7 @@ export function allowanceSteps (items = [], { owned = () => false, keeps = {}, r
   const out = []
   for (const name of Object.keys(counts).sort()) {
     if (owned(name)) continue
-    const keep = Math.max(rowKeep(name, counts), Math.max(0, Number(keeps?.[name]) || 0))
+    const keep = Math.max(rowKeep(name, counts, owned), Math.max(0, Number(keeps?.[name]) || 0))
     if (!Number.isFinite(keep)) continue
     let left = Math.min(counts[name] - keep, Math.max(0, Number(room(name)) || 0))
     if (!(left > 0)) continue

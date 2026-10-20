@@ -13,6 +13,7 @@
 // Everything here is PURE so the decisions can be tested as behaviour; skills.mjs does the acting.
 
 import { wearOutPlan, wearRank } from './hygiene.mjs'
+import { BAG_ALLOWANCE } from './bagallowance.mjs'   // bagbudget-01 row P: the hygiene plan the remedy reads
 import { TOOL_RE, tier, remaining } from './toolfor.mjs'
 import { inPickupBox } from './pickupbox.mjs'
 import { isCobble } from './bankable.mjs'
@@ -255,7 +256,8 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
 
 /**
  * Which tool may craft wear out to free a slot? -> { tool, why } | null
- *   'spent'     the hygiene plan's own first pick (spent axe/shovel/hoe, or a spent pickaxe beyond the kept three)
+ *   'spent'     the hygiene plan's own first pick (spent axe/shovel/hoe, or a spent pickaxe beyond the kept three -- under
+ *               the bag allowance, bagbudget-01 row P, beyond NONE while the bag holds a stone pickaxe's stone)
  *   'replaced'  a pickaxe craft may go below SPENT_PICKAXES_KEPT by ONE copy: the one it is replacing (lowest tier
  *               first -- every copy at 1 use is worth the same one last swing)
  * Only copies at EXACTLY one use: a 0-use copy is a phantom the server already broke (hygiene.mjs).
@@ -267,10 +269,10 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  * review round 2).
  */
 export const MIN_SURVIVOR_USES = 2
-export function craftRoomRemedy (items = [], item = '') {
+export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= MIN_SURVIVOR_USES)
-  const planned = wearOutPlan(list).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
+  const planned = wearOutPlan(list, { allowance }).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
   if (planned) return { tool: planned, why: 'spent' }
   if (/_pickaxe$/.test(String(item))) {
     const spent = list.filter(it => /_pickaxe$/.test(it.name) && remaining(it) === 1 && survives(it))
