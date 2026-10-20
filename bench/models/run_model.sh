@@ -22,7 +22,7 @@ if [ "${1:-}" = pause ]; then while [ -e out/GPU_RESERVED ]; do sleep 30; done
   echo "=== $(date -u +%FT%TZ) pause-$2 (GPU held for Stage C) done" | tee -a out/driver.log; exit 0; fi
 # A5 LM Studio serving: "serve-lms <lms-key> <label> <worker-think> - - [bots] [minutes]" (worker only; stability run)
 if [ "${1:-}" = serve-lms ]; then
-  echo "lms-$3" > out/GPU_RESERVED
+  echo "lms-$3-$$-$(date +%s)" > out/GPU_RESERVED
   while pgrep -f "run_bench.py|throughput.py|serving.py" >/dev/null; do sleep 30; done
   if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || { rm -f out/GPU_RESERVED; exit 1; }; fi
   echo "=== $(date -u +%FT%TZ) $3 (serve-lms $2) bots=${7:-8}" | tee -a out/driver.log

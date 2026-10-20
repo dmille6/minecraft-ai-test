@@ -1,0 +1,10 @@
+[Unit]
+Description=SHOWCASE timelapse every CAPTURE_MIN (15) minutes -- must agree with capture_min in tl.conf
+
+[Timer]
+OnCalendar=*:00/15
+AccuracySec=10s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

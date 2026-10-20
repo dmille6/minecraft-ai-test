@@ -1,0 +1,18 @@
+# The showcase's ONLY brain path: 127.0.0.1:11612 (this VM) -> the Studio's showcase proxy on its 127.0.0.1:11502.
+# The key is restricted on the Studio to exactly this forward (permitopen="127.0.0.1:11502", command=/usr/bin/false).
+# A dead tunnel = connection refused = the bots make no LLM decision; nothing ever falls back to a bench GPU.
+[Unit]
+Description=SHOWCASE ssh tunnel to the Studio brain proxy (127.0.0.1:11612 -> Studio 127.0.0.1:11502)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mike
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+  -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -i /home/mike/.ssh/id_ed25519_showcase_tunnel \
+  -L 127.0.0.1:11612:127.0.0.1:11502 mike@ai.ticrcorp.com
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

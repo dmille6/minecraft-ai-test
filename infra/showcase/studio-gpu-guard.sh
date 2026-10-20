@@ -28,7 +28,8 @@ showcase_gpu_acquire() {
   done
   echo "showcase guard: REFUSING -- the showcase proxy did not acknowledge a pause within ${max}s." \
        "Remedy: check ~/showcase/proxy.jsonl and 'launchctl print gui/$(id -u)/com.mcai.showcase.proxy';" \
-       "or stop it (launchctl bootout gui/$(id -u)/com.mcai.showcase.proxy) and rerun." >&2
+       "or stop it (launchctl bootout gui/$(id -u)/com.mcai.showcase.proxy) and rerun. The proxy last said:" \
+       "$(tail -n 3 ~/showcase/proxy.jsonl 2>/dev/null | tr "\n" " ")" >&2
   rm -f "$SHOWCASE_PAUSE_FILE"; SHOWCASE_PAUSE_FILE=""
   return 1
 }
@@ -48,7 +49,8 @@ showcase_await_quiesced() {
   done
   echo "showcase guard: REFUSING -- no showcase pause acknowledgement within ${max}s of $resv." \
        "Remedy: check ~/showcase/proxy.jsonl; or stop the proxy (launchctl bootout gui/$(id -u)/com.mcai.showcase.proxy)" \
-       "and rerun." >&2
+       "and rerun. The proxy last said (ack-withheld = another Ollama client holds the fallback model):" \
+       "$(tail -n 3 ~/showcase/proxy.jsonl 2>/dev/null | tr "\n" " ")" >&2
   return 1
 }
 

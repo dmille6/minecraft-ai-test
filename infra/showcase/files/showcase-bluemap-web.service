@@ -1,0 +1,17 @@
+[Unit]
+Description=SHOWCASE BlueMap web viewer (:8100) -- serves the tiles the timelapse renders; renders nothing itself
+After=network-online.target
+
+[Service]
+User=mike
+WorkingDirectory=/srv/showcase/bluemap
+ExecStart=/usr/bin/java -Xmx1G -jar /srv/showcase/bluemap/bluemap-cli.jar -c /srv/showcase/bluemap/config -w
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=100%
+MemoryMax=2G
+Restart=always
+RestartSec=20
+
+[Install]
+WantedBy=multi-user.target

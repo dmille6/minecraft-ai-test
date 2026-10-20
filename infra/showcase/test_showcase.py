@@ -253,14 +253,13 @@ class Proxy(unittest.TestCase):
             self.assertNotEqual(s1, s2)
 
     def test_ack_names_its_reservations_and_unknown_is_unknown(self):
-        heads = {'/r/GPU_RESERVED': b'run-x-123-1792500000\n', '/r/LIVE': b''}
-        t = SP.ack_text(['/r/GPU_RESERVED', '/r/LIVE', '/r/OFF'], '/d', 'pid 9: run_bench.py', 0,
-                        head=heads.get, listdir=lambda d: ['mbench-7', '.x'])
-        lines = t.splitlines()
+        sig = ((('/r/GPU_RESERVED', 1, 21, b'run-x-123-1792500000\n'), ('/r/LIVE', 2, 0, b'')),
+               (('/d/mbench-7', 3, 5, b'x'),), 'pid 9: run_bench.py')
+        lines = SP.ack_text(sig, 0).splitlines()
         self.assertIn('RESV run-x-123-1792500000', lines)
         self.assertIn('RESV mbench-7', lines)
         self.assertIn('PROC pid 9: run_bench.py', lines)
-        self.assertNotIn('RESV .x', lines)
+        self.assertEqual(sum(1 for l in lines if l.startswith('RESV')), 3, 'exactly the validated reservations')
         self.assertIsNone(SP.ollama_resident({}, 'q'))
         self.assertIsNone(SP.ollama_resident({'models': None}, 'q'))
         self.assertIs(SP.ollama_resident({'models': []}, 'q'), False)
@@ -275,6 +274,125 @@ class Proxy(unittest.TestCase):
         self.assertEqual(SP.served_name(None, 'brain', 'gemma4:26b'), 'lmstudio:unknown')
         fb = SP.fallback_body({'model': 'gemma4:26b', 'keep_alive': '30m', 'stream': True}, 'qwen2.5:7b-instruct')
         self.assertEqual((fb['model'], fb['stream'], fb['keep_alive']), ('qwen2.5:7b-instruct', False, '30m'))
+
+
+class QuiesceTransitions(unittest.TestCase):
+    """mark_quiesced() through its transitions, with the upstream probes and the unload call stubbed."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.resv = os.path.join(self.d, 'GPU_RESERVED')
+
+        class A:
+            pass
+        a = A()
+        a.pause_file, a.pause_dir = [self.resv], None
+        a.quiesced_file = os.path.join(self.d, 'QUIESCED')
+        a.quiesce_grace, a.fallback, a.fallback_model, a.log = 30, 'http://x', 'q', None
+        self.saved = (SP.A, dict(SP.STATE), SP.probe_upstreams, SP.post_json)
+        SP.A = a
+        SP.STATE.clear()
+        SP.STATE.update({'inflight': 0})
+        self.probes, self.unloads = [], []
+        self.probe_answer = (False, True)
+        self.on_probe = None
+
+        def probe():
+            self.probes.append(1)
+            if self.on_probe:
+                self.on_probe()
+            return self.probe_answer
+        SP.probe_upstreams = probe
+        SP.post_json = lambda url, body, t: self.unloads.append(body)
+
+    def tearDown(self):
+        SP.A, st, SP.probe_upstreams, SP.post_json = self.saved
+        SP.STATE.clear()
+        SP.STATE.update(st)
+
+    def write(self, txt):
+        with open(self.resv, 'w') as f:
+            f.write(txt + '\n')
+
+    def ack(self):
+        p = SP.A.quiesced_file
+        return open(p).read() if os.path.exists(p) else None
+
+    def test_grace_then_ack_naming_the_reservation(self):
+        self.write('run-x-1-100')
+        SP.mark_quiesced(now=1000.0)
+        self.assertIsNone(self.ack(), 'inside the grace')
+        SP.mark_quiesced(now=1031.0)
+        self.assertIn('RESV run-x-1-100', self.ack())
+        self.assertEqual(len(self.probes), 1, 'Ollama/LM Studio probed even with no in-memory flag (restart-safe)')
+
+    def test_reservation_replaced_during_the_probes_gets_no_ack(self):
+        self.write('run-a-1-100')
+        SP.mark_quiesced(now=1000.0)
+        self.on_probe = lambda: self.write('run-b-2-200')      # B arrives while A's probes run
+        SP.mark_quiesced(now=1031.0)
+        self.assertIsNone(self.ack(), 'an ack must never be published for a signature that changed')
+        self.on_probe = None
+        SP.mark_quiesced(now=1032.0)                           # B is new: its own grace starts
+        self.assertIsNone(self.ack())
+        SP.mark_quiesced(now=1063.0)
+        a = self.ack()
+        self.assertIn('RESV run-b-2-200', a)
+        self.assertNotIn('run-a-1-100', a)
+
+    def test_one_unload_per_pause_even_when_the_tag_changes(self):
+        self.probe_answer = (True, True)                       # the fallback is resident
+        self.write('pending-pause-c1-9-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.mark_quiesced(now=1031.0)
+        self.assertEqual(len(self.unloads), 1)
+        self.write('pause-c1')                                 # the Stage C tag: same pause, new signature
+        SP.mark_quiesced(now=1032.0)
+        SP.mark_quiesced(now=1063.0)
+        self.assertEqual(len(self.unloads), 1, 'a tag change after the handoff must not re-authorise an unload')
+        self.assertIsNone(self.ack(), 'still resident -> fail closed')
+        os.remove(self.resv)                                   # the pause ends
+        SP.mark_quiesced(now=1100.0)
+        self.write('run-next-3-300')                           # a NEW pause: its own single unload
+        SP.mark_quiesced(now=1200.0)
+        SP.mark_quiesced(now=1231.0)
+        self.assertEqual(len(self.unloads), 2)
+
+    def test_inflight_blocks_the_ack(self):
+        self.write('run-x-1-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.STATE['inflight'] = 1
+        SP.mark_quiesced(now=1031.0)
+        self.assertIsNone(self.ack())
+
+
+class SaveHoldLock(unittest.TestCase):
+    def setUp(self):
+        self.R = load('rcon', 'rcon.py')
+        self.calls = []
+        self.R.save_hold = lambda on: self.calls.append(on) or 'ok'
+        self.lock = os.path.join(tempfile.mkdtemp(), 'save.lock')
+
+    def test_exclusive_and_non_owner_does_not_touch_saves(self):
+        with self.R.SaveHold(wait_s=0, path=self.lock) as a:
+            self.assertTrue(a.held)
+            with self.R.SaveHold(wait_s=0, path=self.lock) as b:
+                self.assertFalse(b.held)
+        self.assertEqual(self.calls, [True, False], 'only the owner paused and resumed saving')
+
+    def test_failed_enter_unwinds(self):
+        def boom(on):
+            self.calls.append(on)
+            if on:
+                raise TimeoutError('save-all flush timed out')
+        self.R.save_hold = boom
+        with self.assertRaises(TimeoutError):
+            with self.R.SaveHold(wait_s=0, path=self.lock):
+                pass
+        self.assertEqual(self.calls, [True, False], 'save-on after a failed save-off')
+        self.R.save_hold = lambda on: 'ok'
+        with self.R.SaveHold(wait_s=0, path=self.lock) as c:
+            self.assertTrue(c.held, 'the lock was released')
 
 
 def free_port():

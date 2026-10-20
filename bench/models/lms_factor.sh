@@ -11,7 +11,7 @@ KEY=$1; LABEL=$2; PAR=${3:-4}; CTX=${4:-16384}; BT=${5:-none}; ST=${6:-none}; MO
 SEL="--ids-file data/screen_ids.txt"; [ "$MODE" = full ] && SEL="--extra mbench-sample-x.jsonl" 
 LMS=~/.lmstudio/bin/lms
 while [ -e out/GPU_RESERVED ]; do sleep 30; done      # never overwrite another holder (a Stage C pause)
-echo "lms-$LABEL" > out/GPU_RESERVED
+echo "lms-$LABEL-$$-$(date +%s)" > out/GPU_RESERVED
 while pgrep -f "run_bench.py|throughput.py|serving.py" >/dev/null; do sleep 30; done
 # SHOWCASE (2026-10-20): the showcase brain proxy pauses on GPU_RESERVED; wait for its acknowledgement.
 if [ -f ~/showcase/studio-gpu-guard.sh ]; then . ~/showcase/studio-gpu-guard.sh; showcase_await_quiesced out/GPU_RESERVED || { rm -f out/GPU_RESERVED; exit 1; }; fi

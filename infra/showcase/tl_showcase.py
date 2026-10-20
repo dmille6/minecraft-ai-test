@@ -2,8 +2,9 @@
 """Showcase timelapse: incremental BlueMap render -> two fixed-camera frames, every CAPTURE_MIN minutes.
 
 Runs ON THE SHOWCASE VM (docs/reports/showcase-2026-10-20.md section 6), from a systemd timer, as user `mike`.
-It reads the live world (BlueMap reads region files; Paper is never touched), renders ONLY the chunks modified
-since the last render (`-r` without `-f`), and photographs the persistent BlueMap webserver (127.0.0.1:8100,
+Under the one save-pause lock (rcon.SaveHold: save-off + save-all flush ... save-on) it copies the masked region files
+and level.dat into a persistent MIRROR (BlueMap never reads a file Paper is writing; the world is never edited),
+renders ONLY the chunks modified since the last render (`-r` without `-f`, from the mirror), and photographs the persistent BlueMap webserver (127.0.0.1:8100,
 showcase-bluemap-web.service) with the same puppeteer capture.mjs the .30 timelapse uses.
 
     tl_showcase.py capture [--event LABEL] [--frame0]   render + both frames + one heartbeat row
@@ -12,6 +13,7 @@ showcase-bluemap-web.service) with the same puppeteer capture.mjs the .30 timela
 
 A FAILED STEP IS A ROW, NOT A CRASH: the heartbeat records ok:false and the failed step; no frame is written for
 that slot; the next timer run tries again. Two captures never overlap (flock -n; an overrun is a `skip` row).
+The two views are published together or not at all, and each must be a rendered frame (size + terrain check).
 
 Config: /srv/showcase/timelapse/tl.conf (JSON; CAPTURE_MIN lives in the systemd timer AND here, and the status
 line warns if they differ).
@@ -84,8 +86,9 @@ def free_gb(path):
 
 def snapshot(cfg):
     """Copy the masked region files + level.dat from the live world into the persistent mirror BlueMap reads, so it
-    never reads a file Paper is writing (.30 tl.py's method). Two passes: the second re-copies anything that moved
-    under the first. -> (ok, why, n_files)."""
+    never reads a file Paper is writing (.30 tl.py's method). ONE pass, under the exclusive save-pause lock with saving
+    off and flushed, so the copy is consistent; if another owner holds the pause for 120 s the slot is skipped.
+    -> (ok, why, n_files)."""
     src = os.path.join(cfg['world'], 'region')
     dst = os.path.join(cfg['mirror'], 'region')
     os.makedirs(dst, exist_ok=True)

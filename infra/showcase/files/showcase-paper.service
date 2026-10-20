@@ -1,0 +1,19 @@
+[Unit]
+Description=SHOWCASE Paper server (one long-lived world; never a bench world) -- docs/reports/showcase-2026-10-20.md
+After=network-online.target
+
+[Service]
+Type=simple
+User=minecraft
+WorkingDirectory=/srv/showcase/server
+# The fleet's jar (1.21.8 build 60). 10 bots in ONE world need more heap than a bench world's 2G.
+ExecStart=/usr/bin/java -Xms2G -Xmx8G -jar paper.jar nogui
+Restart=always
+RestartSec=15
+AllowedCPUs=0-5
+MemoryMax=12G
+Nice=-5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

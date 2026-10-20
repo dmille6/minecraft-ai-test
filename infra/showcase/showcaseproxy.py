@@ -33,11 +33,11 @@ Response model names are honest: `--serve-as` only when LM Studio says it served
 Ollama's own `model`; so the bot's model_mismatch marks every non-gemma decision.
 GET /healthz: 200 only when not paused AND LM Studio lists --model; the body says why not.
 """
-import argparse, json, os, re, subprocess, threading, time, urllib.request
+import argparse, json, os, re, subprocess, threading, time, urllib.error, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 A = None
-LOCK = threading.Lock()
+LOCK = threading.RLock()     # re-entrant: logline() takes it too
 STATE = {'inflight': 0}
 
 
@@ -213,6 +213,11 @@ def probe_upstreams():
         try:
             d = json.loads(urllib.request.urlopen(A.fallback.rstrip('/') + '/api/ps', timeout=5).read())
             res = ollama_resident(d, A.fallback_model)
+        except urllib.error.URLError as e:
+            # connection REFUSED = no Ollama server = nothing loaded; a timeout or other error stays unknown
+            res = False if isinstance(getattr(e, 'reason', None), ConnectionRefusedError) else None
+        except ConnectionRefusedError:
+            res = False
         except Exception:
             res = None
     else:
@@ -226,21 +231,20 @@ def probe_upstreams():
     return res, idle
 
 
-def ack_text(pause_files, pause_dir, bench_proc, now_s, head=_head, listdir=os.listdir):
-    """The acknowledgement names every reservation it acknowledges, one `RESV <token>` line each (a pause file's first
-    line; a pause-dir entry's name), so a consumer accepts only an ack that names ITS reservation. Pure (tested)."""
+def ack_text(sig, now_s):
+    """The acknowledgement, built FROM THE VALIDATED SIGNATURE (never from a fresh read of the files): one
+    `RESV <token>` line per reservation in that signature (a pause file's first line; a pause-dir entry's name) and
+    `PROC <process>`, so a consumer accepts only an ack that names ITS reservation, and a reservation that appeared
+    after validation can never be named. Pure (tested)."""
+    files, entries, proc = sig
     out = ['%s quiesced' % time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now_s))]
-    for p in pause_files or ():
-        h = head(p)
-        if h is not None:
-            out.append('RESV ' + h.decode(errors='replace').splitlines()[0].strip() if h.strip() else 'RESV ')
-    if pause_dir:
-        try:
-            out += ['RESV ' + n for n in sorted(listdir(pause_dir)) if not n.startswith('.')]
-        except OSError:
-            pass
-    if bench_proc:
-        out.append('PROC ' + bench_proc)
+    for (_p, _m, _s, h) in files:
+        first = (h or b'').decode(errors='replace').splitlines()
+        out.append('RESV ' + (first[0].strip() if first else ''))
+    for (p, _m, _s, _h) in entries:
+        out.append('RESV ' + os.path.basename(p))
+    if proc:
+        out.append('PROC ' + proc)
     return '\n'.join(out) + '\n'
 
 
@@ -252,54 +256,58 @@ def withdraw_ack():
         pass
 
 
-def mark_quiesced():
-    """Keep --quiesced-file true to the state (see quiesce_state)."""
+def mark_quiesced(now=None):
+    """Keep --quiesced-file true to the state (see quiesce_state). Tested through its transitions."""
     if not A.quiesced_file:
         return
+    now = now or time.time()
     sig = pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc'))
-    now = time.time()
+    p = is_paused()
     with LOCK:
+        if not p:
+            # The pause is OVER: the next pause is a new epoch, with its own (single) unload.
+            STATE['sig'], STATE['epoch_unloaded'] = None, False
+            withdraw_ack()
+            return
         changed = sig != STATE.get('sig')
         if changed:
             STATE['sig'], STATE['sig_t'] = sig, now
+            withdraw_ack()
         inflight = STATE['inflight']
         idle_s = now - max(STATE.get('last_done', 0), STATE.get('sig_t', 0))
-    if changed:
-        withdraw_ack()
-    p = is_paused()
-    if not p:
-        withdraw_ack()
-        return
-    if os.path.exists(A.quiesced_file) and not changed and not inflight:
-        return        # acknowledged for THIS set of reservations; nothing of the showcase's has run since
-    if inflight or idle_s < A.quiesce_grace:
-        return
-    resident, idle = probe_upstreams()
+        if os.path.exists(A.quiesced_file) and not changed and not inflight:
+            return    # acknowledged for THIS set of reservations; nothing of the showcase's has run since
+        if inflight or idle_s < A.quiesce_grace:
+            return
+    resident, idle = probe_upstreams()          # slow; outside the lock (requests are refused while paused anyway)
     act = quiesce_state(True, inflight, idle_s, A.quiesce_grace, resident, idle)
     if act == 'unload':
-        # ONCE per set of reservations. A model that is still (or again) resident after that is someone else's
-        # (e.g. a hand-started benchmark loading the same qwen): never unload it again, never acknowledge -- fail closed.
-        if STATE.get('unload_sig') != sig and resident:
-            STATE['unload_sig'] = sig
+        # ONCE per uninterrupted PAUSE (not per reservation set: a pending -> final Stage C tag or a newly detected
+        # benchmark process must not re-authorise it). A model still or again resident afterwards is someone else's:
+        # it is never unloaded again, and no ack is given -- fail closed.
+        if resident and not STATE.get('epoch_unloaded'):
+            STATE['epoch_unloaded'] = True
             try:
                 post_json(A.fallback.rstrip('/') + '/api/generate', {'model': A.fallback_model, 'keep_alive': 0}, 30)
                 logline(status='unload', model=A.fallback_model, paused_by=p)
             except Exception as e:
                 logline(status='unload-failed', model=A.fallback_model, error=str(e)[:200])
+        elif resident:
+            logline(status='ack-withheld', reason='fallback model resident after this pause\'s one unload: '
+                                                  'another client loaded it', model=A.fallback_model)
         return
     if act != 'ack':
         return
-    # REVALIDATE before publishing: the probes took time; a new reservation or a request may have arrived.
-    if pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:
-        return
+    # FINAL VALIDATION AND PUBLICATION UNDER THE ADMISSION LOCK: a request is admitted (inflight += 1) only under this
+    # lock and only after it re-checks the pause, so nothing can start between this check and the rename; and the ack
+    # names exactly the validated signature.
     with LOCK:
-        if STATE['inflight']:
+        if STATE['inflight'] or pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:
             return
-    txt = ack_text(A.pause_file, A.pause_dir, STATE.get('bench_proc'), time.time())
-    tmp = A.quiesced_file + '.tmp'
-    with open(tmp, 'w') as f:
-        f.write(txt)
-    os.replace(tmp, A.quiesced_file)                 # atomic: a consumer never reads half an acknowledgement
+        tmp = A.quiesced_file + '.tmp'
+        with open(tmp, 'w') as f:
+            f.write(ack_text(sig, time.time()))
+        os.replace(tmp, A.quiesced_file)         # atomic: a consumer never reads half an acknowledgement
     logline(status='quiesced', paused_by=p)
 
 
@@ -355,15 +363,17 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': 'bad json'})
         if not self.path.startswith('/api/chat'):
             return self._send(404, {'error': 'only /api/chat is proxied'})
-        p = is_paused()
-        if p:
-            logline(status=503, ms=0, inflight=STATE['inflight'], error='paused by %s' % p)
-            return self._send(503, {'error': 'showcase brain paused (%s present)' % p})
+        # ADMISSION: the pause check and the in-flight increment happen under ONE lock, the same lock under which
+        # mark_quiesced() validates and publishes an acknowledgement -- so a request can never start after an ack.
         with LOCK:
-            full = STATE['inflight'] >= A.max_inflight
-            if not full:
+            p = is_paused()
+            full = (not p) and STATE['inflight'] >= A.max_inflight
+            if not p and not full:
                 STATE['inflight'] += 1
             inflight = STATE['inflight']
+        if p:
+            logline(status=503, ms=0, inflight=inflight, error='paused by %s' % p)
+            return self._send(503, {'error': 'showcase brain paused (%s present)' % p})
         if full:
             logline(status=503, ms=0, inflight=inflight, error='saturated')
             return self._send(503, {'error': 'showcaseproxy saturated (%d in flight)' % A.max_inflight})

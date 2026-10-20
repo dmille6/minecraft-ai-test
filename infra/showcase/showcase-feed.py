@@ -144,9 +144,9 @@ def main():
     if not out['roster']:
         out['errors'].append('roster: no enabled mcbot@ units found')
     # the installed dependency tree (what fleet bots actually load; fleet deploys never run npm ci)
-    # Identity of the installed TREE (not a lock file): sha256 over every file's (relative path, size, mtime_ns).
-    # Cheap enough hourly; any reinstall, upgrade or edit changes it. The showcase's artifact capture then records a
-    # full CONTENT manifest and verifies the unpacked copy against it.
+    # CONTENT identity of the installed TREE (not a lock file): tree_digest() hashes every file's bytes and every
+    # symlink's target (~4 s hourly at idle priority). The showcase runs the same function on its copy and on every
+    # unpack, which must reproduce this digest.
     try:
         out['deps_digest'] = tree_digest(os.path.join(HARNESS, 'node_modules'))
     except OSError as e:

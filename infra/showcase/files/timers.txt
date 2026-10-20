@@ -1,0 +1,5 @@
+# name  OnCalendar   (provision-vm.sh writes one showcase-video-<name>.timer per line, each starting showcase-video@<name>)
+daily   *-*-* 00:20:00
+weekly  Mon *-*-* 00:40:00
+history *-*-* 01:00:00
+monthly *-*-01 01:20:00
