@@ -10508,8 +10508,8 @@ function townSearchEmpty (bot, needs, { missTtl = SEARCH_MISS_TTL_MS, tried = ne
 }
 
 /** Does the town search know a HOLDER of `need` (a tier-0 candidate: a fresh count > 0, the journal's or the index's)? */
-function townSearchHolder (bot, need) {
-  const view = townSearchView(bot, [need], new Set())
+function townSearchHolder (bot, need, tried = new Set()) {
+  const view = townSearchView(bot, [need], tried)
   return townSearchOrder(view.containers, [need], { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now }).some(o => o.tier === 0)
 }
 /** Has every container of the town been ruled out for a usable pickaxe (townSearchEmpty)? For townOrder. */
@@ -10568,7 +10568,7 @@ export function townKitIronMiss (bot) {
     // the stick chest left the only iron holder held back for an hour, and the gate issued no order with both in town)
     // ...only a KNOWN stick holder (a fresh count: the journal's or the index's), never mere unknown containers -- else a town
     // with no sticks at all would re-issue the order every backoff to look again (the base holds back until the skip expires)
-    if (kitSticksAtRisk(d, kitMeans(items, { tableNear }).sticksMakeable) && !(KITSTICKS.on && d.ingots > 0 && townSearchHolder(bot, 'stick'))) {
+    if (kitSticksAtRisk(d, kitMeans(items, { tableNear }).sticksMakeable) && !(KITSTICKS.on && d.ingots > 0 && townSearchHolder(bot, 'stick', kitStickSkipKeys(bot)))) {
       for (const [k, until] of bot.kitNoSticks ?? []) if (until > Date.now()) held.add(k)
     }
     return townSearchEmpty(bot, [kitIronNeed(d.ingots)], { tried: held })
@@ -10909,7 +10909,18 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
  * container with none is the ingredient miss withdraw_pick reads too. Its visits are its OWN list (the kit row's tried= and
  * maxrep= stay the iron search's). One `_kit_sticks` row.
  */
-async function kitSticksPass (ctx, signal, deadline, keep, want, ironWant = 0) {
+/** THE KIT'S STICK-SEARCH SKIP (indexsearch-01): containers whose stick take STOPPED (bag-side: no recount, no room) -- out of
+ *  this bot's KITSTICKS pre-draw and the kit gate's stick-holder check for SEARCH_FAIL_SKIP_MS, and nothing else. */
+function kitStickSkipSet (bot, k) {
+  bot.kitStickSkip ??= new Map()
+  bot.kitStickSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS)
+}
+function kitStickSkipKeys (bot) {
+  const out = new Set()
+  for (const [k, until] of bot.kitStickSkip ?? []) { if (until > Date.now()) out.add(k); else bot.kitStickSkip.delete(k) }
+  return out
+}
+async function kitSticksPass (ctx, signal, deadline, keep, want, ironWant = 0, acc = null) {
   const { bot } = ctx
   const t0 = Date.now()
   const spc = passClock(deadline, KIT_CRAFT_RESERVE_MS + KIT_STICK_IRON_RESERVE_MS)
@@ -10919,6 +10930,7 @@ async function kitSticksPass (ctx, signal, deadline, keep, want, ironWant = 0) {
     const n = kitStickTake(inChest, left)
     return n > 0 ? decideTakes([{ name: 'stick', count: n }], inChest, bag, chestEmpty, keep) : null
   }
+  for (const k of kitStickSkipKeys(bot)) passTried.add(k)
   let next = townSearchNext(bot, ['stick'], passTried)
   const head = indexSearchHead(next, 'stick')
   let hit = 0
@@ -10940,16 +10952,20 @@ async function kitSticksPass (ctx, signal, deadline, keep, want, ironWant = 0) {
         const keysSeen = halvesOf(bot, cb.position, v.double)
         if (short.includes(kitIronNeed(ironWant))) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, keysSeen, short))
       }
-      if (sstep === 'took') { const n = v.moved?.took?.stick ?? 0; took += n; left = Math.max(0, left - n); if (n > 0 && ixPick) hit = 1 }
+      if (sstep === 'took') {
+        const n = v.moved?.took?.stick ?? 0; took += n; left = Math.max(0, left - n); if (n > 0 && ixPick) hit = 1
+        if (acc) { acc.preSticks = took; acc.sticks = took }   // the kit row's sticks= from the first take on, whatever exit follows
+      }
       // A STOP THAT MOVED NOTHING is not the kit's end (Claude code r1 P3): the pre-draw stops, the iron search runs as
       // toolkit-03's would; only an unsettled cursor or an unverified move ends the run
       else if (sstep === 'stop') {
         if (v.result?.failClass === 'transfer_unsettled' || (v.moved && !v.verified)) unsettled = v.result
         else {
           stopped = v.result?.failClass ?? 'failed'
-          // a stick holder whose take stopped (no room, no recount...) leaves THIS bot's searches a while, so the kit gate's
-          // townSearchHolder does not re-issue the order for the same stop every backoff (Claude code r2 P3)
-          bot.withdrawSearchSkip ??= new Map(); bot.withdrawSearchSkip.set(containerKey(bot, cb.position), Date.now() + SEARCH_FAIL_SKIP_MS)
+          // a stick holder whose take stopped (no room, no recount...) leaves the KIT'S STICK SEARCH a while -- its own map, read
+          // only by this pre-draw and the kit gate's townSearchHolder, so the iron, pickaxe and coal searches still see it
+          // (Codex code r3 P2, Claude code r3 P3) -- and the gate does not re-issue the same stop every backoff (Claude r2 P3)
+          kitStickSkipSet(bot, containerKey(bot, cb.position))
         }
         break
       }
@@ -11037,7 +11053,7 @@ async function toolkit (ctx, args, signal) {
       // town container holds them (the town search for `stick`), so the iron may come from a container holding none
       if (KITSTICKS.on && draw.ingots > 0 && kitSticksAtRisk(draw, kitMeans(items(), { tableNear }).sticksMakeable)) {
         // only what the bag's wood cannot make (Claude code r1 P3): with the rest from planks, kitTakes asks the iron's container for none
-        const sp = await kitSticksPass(ctx, signal, deadline, keep, draw.sticks - kitMeans(items(), { tableNear }).sticksMakeable, draw.ingots)
+        const sp = await kitSticksPass(ctx, signal, deadline, keep, draw.sticks - kitMeans(items(), { tableNear }).sticksMakeable, draw.ingots, st)
         st.preSticks = sp.took; st.sticks = sp.took   // on every exit from here the row carries the pre-drawn sticks (Codex code r2 P3)
         if (sp.unsettled) { st.stop = 'stick_draw_unsettled'; return out('failed', 'draw_failed', sp.unsettled.detail, sp.unsettled.failClass ?? 'kit_draw') }
         if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn })   // the sticks are in the bag now: the iron's container need not hold them
@@ -11153,7 +11169,7 @@ async function toolkit (ctx, args, signal) {
       // (fakeworld: 15 of 30 after one click): the bag's own iron delta since the start, whichever is larger
       const took = e?.withdrawState?.took ?? {}
       st.drew = Math.max(st.drew, took.iron_ingot ?? 0, ingots() + st.used - ingotsAtStart)
-      if (!st.sticks && took.stick) st.sticks = took.stick
+      if (took.stick) st.sticks = Math.max(st.sticks ?? 0, (st.preSticks ?? 0) + took.stick)   // the pre-draw's, then this transfer's (Codex r3 P3)
       keepCredit()
       row(st.outcome === 'aborted' ? 'aborted' : 'failed')
     }
