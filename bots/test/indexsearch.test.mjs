@@ -325,27 +325,33 @@ await t('KITSTICKS: a pre-draw visit that STOPS without moving anything does not
   assert.notEqual(r.detail.includes('stick_draw_unsettled'), true)
 })
 
-// THE STICK-SEARCH SKIP (Codex r3 P2, Claude r3 P3): a pre-draw whose take at the ONLY stick holder stops on a bag-side fault
-// (no recount) puts that holder in the kit's own skip: the kit gate then holds back (no re-issue of the same stop), while the
-// IRON search and withdraw_pick still see the container
+// THE STICK-SEARCH SKIP (Codex r3 P2, Claude r3 P3 + r4 P3: by behaviour). STICKS is the town's ONLY iron holder and holds
+// sticks too; the bag has neither sticks nor wood. Run 1: the server's bag cannot be read -- the pre-draw's take at STICKS
+// stops (recount_unanswered) and the iron search stops too. Run 2 (the bag readable again, inside the skip's 30 min): the
+// stick pre-draw must NOT walk back to STICKS (the kit's stick skip), and the IRON search must still open it -- it draws the
+// iron and the sticks there and makes the kit. A global skip would hide STICKS from the iron search (no kit); no skip would
+// send the pre-draw straight back to STICKS.
 const stickSkip = async (S = S0) => {
   const w = k1Town()
-  w.stock(...STICKS, [stack('stick', 20), stack('iron_ingot', 20)])   // the stick holder is also an iron holder
+  w.stock(...IRON, [stack('dirt', 5)])                                  // no iron anywhere but STICKS
+  w.stock(...STICKS, [stack('stick', 20), stack('iron_ingot', 20)])
   seed(STICKS, { stick: [20, 1], iron_ingot: [20, 1] })
   const rec0 = w.bot.craftSync.recount
   let fail = true
   w.bot.craftSync.recount = async (...a) => (fail ? { source: 'none', items: null } : rec0(...a))
   const n0 = RECS.length
   await kit(S, w)
-  assert.match(rowsSince('_kit_sticks', n0)[0] ?? '', / stop=recount_unanswered /, 'positive control: the pre-draw stopped at the stick holder')
+  assert.match(rowsSince('_kit_sticks', n0)[0] ?? '', / stop=recount_unanswered tried=\[[^\]]*:recount_unanswered/, 'positive control: the pre-draw stopped at the stick holder')
   fail = false
-  const view = w.bot.withdrawSearchSkip?.get?.(kOf(STICKS)) ?? 0
-  assert.ok(!(view > Date.now()), 'not in the bot\'s global search skip')
-  assert.ok((w.bot.kitStickSkip?.get(kOf(STICKS)) ?? 0) > Date.now(), 'in the kit stick skip')
-  later(60_000)
-  assert.equal(S.townKitIronMiss(w.bot), false, 'the iron search still sees its holders (the skip is the stick search\'s only)')
+  later(K.TOOLKIT_COOLDOWN_MS + 60_000)                                // inside SEARCH_FAIL_SKIP_MS
+  const n1 = RECS.length
+  const r2 = await kit(S, w)
+  const sticksRow = rowsSince('_kit_sticks', n1)[0] ?? ''
+  assert.ok(!sticksRow.includes(kOf(STICKS)), `the stick pre-draw kept away from the stopped holder: ${sticksRow}`)
+  assert.equal(r2.status, 'success', `the iron search still opened STICKS and made the kit: ${r2.failClass} ${r2.detail}`)
+  assert.equal(count(w.containers.get(kOf(STICKS)).slots, 'iron_ingot'), 16)
 }
-await t('THE STICK-SEARCH SKIP: a pre-draw stop at a stick holder skips it for the kit\'s stick search only; the iron search still sees it (Codex r3 P2)', () => stickSkip())
+await t('THE STICK-SEARCH SKIP, by behaviour: after a stopped take at the only iron-and-stick holder, the next run\'s stick pre-draw keeps away from it while its iron search still opens it and makes the kit (Codex r3 P2, Claude r4 P3)', () => stickSkip())
 
 // ------------------------------------------------------------------------------------------------- the switch
 await t('INDEXSEARCH=off and KITSTICKS=off: the licence row says so (the one-setting rollbacks)', () => {
