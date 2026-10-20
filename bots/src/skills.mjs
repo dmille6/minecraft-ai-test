@@ -126,6 +126,7 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
          COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
+import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, noteProtectZone } from './protectzone.mjs'   // protectzone-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel, stepCells } from './minewell.mjs'
@@ -12359,9 +12360,11 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   // zone's own bearing filter with its walk-outs -- left mine with NO bearing (choice null) and undid each other's walks
   // (a well walk-off promises only > 12 from home; the town's square is 16). The zone off (no HOME_X/Y/Z): no town part.
   const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
+  const liveZones = () => { try { return bot.protectZones?.() ?? [] } catch { return [] } }
   const farmTown = () => {
     const farm = { forbid: null, bottom: null }   // no tree farm on this base (treefarm-02 composes its cells here)
-    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
+    // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one
+    return composeKeepOut(farm, townKeepOut(townHome(), nameAt), zoneKeepOut(liveZones()))
   }
   // ...AND THE COLUMN ABOVE EVERY LIVE FIRE SITE NEAR (keepout-01): the SAME plan checks the WHOLE stair against it before the
   // first dig (a descent from y 72 whose stair would meet a column at y 50 is refused at planning, not at y 50), the walk-off
@@ -12392,9 +12395,14 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
       }
       lavaFar.sort((a, b) => a.d - b.d)
     }
-    if (!kinds.includes('town')) return lavaFar
+    // protectzone-01: the town's far starts or a zone's (below); neither blocked -> the columns' only
+    if (!kinds.includes('town') && !kinds.includes('protected')) return lavaFar
     const y0 = Math.floor(bot.entity.position.y), out = []
-    for (const c of townExitColumns(bot.entity.position, townHome())) {
+    // protectzone-01: a zone's far starts are just beyond its sides (a zone is ~100 wide: no ring within FAR_RADIUS of a bot
+    // over its middle leaves it). The town's first when both blocked, as before.
+    const cols = [...(kinds.includes('town') ? townExitColumns(bot.entity.position, townHome()) : []),
+                  ...(kinds.includes('protected') ? zoneExitColumns(liveZones(), bot.entity.position) : [])]
+    for (const c of cols) {
       for (let dy = 0; dy <= 8; dy++) {
         const y = (dy === 0 ? [y0] : [y0 + dy, y0 - dy]).find(yy => canStand({ x: c.x, y: yy, z: c.z }))
         if (y != null) { out.push({ x: c.x, y, z: c.z }); break }
@@ -12409,6 +12417,7 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   // WHICH KEEP-OUT A PLAN MET (the farm's forbid answers true, the town's 'town'); `kinds` is every kind that blocked
   const keepKind = p => p?.kind ?? p?.hit?.kind ?? 'farm'
   const townIn = p => (p?.kinds ?? []).includes('town')
+  const zoneIn = p => (p?.kinds ?? []).includes('protected')   // protectzone-01
   // UNDER A ROOF, CLIMB FIRST WHEN THE TOWN'S GROUND BLOCKS (the zone, Claude code r2 P2; Codex code r4/r5 P2): a walk-off
   // at the bot's own depth would tunnel through town ground (transit: invisible to Z1). "Under" is a ROOF over the head,
   // not a depth relative to home; the climb is surface (which stops at sea level 63), then surface aimed at the column's
@@ -12452,6 +12461,7 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
     wellRow('relocate', wellPlan, ` try=${attempt + 1}`)
     if (townIn(wellPlan)) noteTownGround(bot, 'mine_walkout')
     if (lavaIn(wellPlan)) noteKeepout(bot, 'mine_walkout')
+    if (zoneIn(wellPlan)) noteProtectZone(bot, 'mine_walkout')
     const to = wellPlan.to
     lastTarget = to
     try {
@@ -12498,6 +12508,18 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
                        // ROOFED: the climb above already ran and failed, and a model `surface` stops at sea level (Codex comp P2): the
                        // walk is the remedy, and it is executable -- a path's digs through the roof are transit, which the zone allows
                        `${roofed() ? ' (the walk may dig its way out: a path\'s digs are transit)' : ''}` }
+    }
+    // A PROTECTED ZONE AMONG WHAT BLOCKS (protectzone-01): its own class, naming every keep-out that blocked and the walk out of
+    // the zone (the far starts above already tried the cells just beyond its sides)
+    if (zoneIn(wellPlan) && !wellPlan.inside) {
+      noteProtectZone(bot, 'mine_refused')
+      const f = bot.entity.position.floored()
+      const z = liveZones().find(q => f.x >= q.x0 - 3 && f.x <= q.x1 + 3 && f.z >= q.z0 - 3 && f.z <= q.z1 + 3) ?? liveZones()[0]
+      const others = (wellPlan.kinds ?? []).filter(k => k !== 'protected').map(k => (k === 'well' ? 'the junk well' : k === 'water' ? 'water' : keepOutLabel(k)))
+      return { status: 'failed', failClass: 'protected_zone',
+               detail: `reason=protected_zone walked=${lastTarget ? `${lastTarget.x},${lastTarget.y},${lastTarget.z}` : '-'}: no start near ${f.x},${f.y},${f.z} or just beyond ` +
+                       `${z?.label ?? 'the protected zone'} has a dry stair clear of it${others.length ? ` and ${others.join(' and ')}` : ''} -- ` +
+                       (z ? zoneRemedy(z, 'dig', f, bot.entity.position) : 'walk away from it') + ', then mine' }
     }
     const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
     const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
@@ -12730,6 +12752,14 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
                            `-- mine again (a start clear of it is planned, or it walks off first)` }
         }
         // THE TOWN'S GROUND (townzone-01): the zone's per-step refusal, now this one stop's -- same class, same words for the read
+        // A PROTECTED ZONE (protectzone-01): the stair stops before the zone's cell; the next plan walks off the zone
+        if (kind === 'protected') {
+          noteProtectZone(bot, 'mine_step_refused')
+          const z = zoneAtPos(liveZones(), pos)
+          return { status: 'failed', failClass: 'protected_zone',
+                   detail: `reason=protected_zone_step stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is in ${z?.label ?? 'a protected zone'} ` +
+                           `-- mine again (a clear start is planned, or it walks out first)` }
+        }
         if (kind === 'town') {
           noteTownGround(bot, 'mine_step_refused')
           return { status: 'failed', failClass: 'town_ground',
@@ -15315,6 +15345,7 @@ async function bucketSkill (ctx, args, signal) {
     }
   }
   const reasons = []
+  const bucketZone = q => { try { return zoneAtPos(bot.protectZones?.() ?? [], q) } catch { return null } }
   if (action === 'fill') {
     const hasEmpty = has('bucket')
     for (const c of near) {
@@ -15325,6 +15356,8 @@ async function bucketSkill (ctx, args, signal) {
         distance: c.d,
       })
       if (why) { reasons.push(why); continue }
+      // protectzone-01: never a scoop from a protected zone
+      { const z = bucketZone(p.offset(dx, dy, dz)); if (z) { reasons.push(zoneRemedy(z, 'use', p.offset(dx, dy, dz), p)); continue } }
       check(signal)
       const r = await scoopLiquid(bot, p.offset(dx, dy, dz))
       return r.ok
@@ -15341,6 +15374,8 @@ async function bucketSkill (ctx, args, signal) {
     const why = emptyRefusal({ hasWaterBucket: hasWater, target, distance: c.d,
                                standingIn: { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) } })
     if (why) { reasons.push(why); continue }
+    // protectzone-01: never a pour into a protected zone (the bucket is the model's own tool here, not a reflex's)
+    { const z = bucketZone(target.position); if (z) { reasons.push(zoneRemedy(z, 'place', target.position, p)); continue } }
     check(signal)
     const r = await pourLiquid(bot, p.offset(dx, dy, dz))
     return r.ok
