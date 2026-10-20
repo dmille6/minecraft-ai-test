@@ -164,9 +164,17 @@ def gates(ev):
                     out['P5_keep_breached'].append((b, str(r['t']), seen, drew, keep))
                 if drew >= PICK_INGOTS and f.get('made') != '1' and r['status'] != 'aborted' and not r.get('died_in'):
                     # served: any LATER row of the bot holds a covering pickaxe (the credited iron's retry, or any other way)
-                    if not any(x.get('cover') for x in rs[i + 1:]):
-                        retried = any(x['name'] == '_kit_ironpick' and x['status'] != 'aborted' for x in rs[i + 1:])
-                        (out['P2_drawn_unserved'] if retried else pending).append((b, str(r['t']), f.get('outcome')))
+                    # the obligation ENDS at the bot's next death (the drawn iron may be lost with it: Codex r2 P2); a retry counts
+                    # only before that death and only if the bot did not die in it (Claude r2 P3)
+                    later = rs[i + 1:]
+                    dk = next((j for j, x in enumerate(later) if x['name'] == '_death'), None)
+                    later = later if dk is None else later[:dk]
+                    if not any(x.get('cover') for x in later):
+                        retried = any(x['name'] == '_kit_ironpick' and x['status'] != 'aborted' and not x.get('died_in') for x in later)
+                        if retried:
+                            out['P2_drawn_unserved'].append((b, str(r['t']), f.get('outcome')))
+                        elif dk is None:
+                            pending.append((b, str(r['t']), f.get('outcome')))
             elif n in ('_town_deposit', '_deposit'):
                 for pn, pu in deposit_picks(d):
                     if pn == 'iron_pickaxe' and pu is not None and pu > TRIP and any(0 <= (r['t'] - m).total_seconds() <= FRESH_MIN * 60 for m in made_at):
@@ -222,6 +230,10 @@ def selftest():
     assert not g['P2_drawn_unserved'] and p, 'P2: no later kit run (left town, a gap): pending, never a verdict (Codex r1 P1)'
     g, p = gates(ev([R('_kit_ironpick', FAIL, cover=False)]))
     assert not g['P2_drawn_unserved'] and p, 'P2: silence after the draw is pending'
+    g, p = gates(ev([R('_kit_ironpick', FAIL, cover=False), R('_death', '', m=10), R('_kit_ironpick', RETRY_FAIL.replace('craft_failed', 'no_iron'), m=50, cover=False)]))
+    assert not g['P2_drawn_unserved'] and not p, 'P2: a death ends the obligation (the iron may be lost with it: Codex r2 P2)'
+    g, p = gates(ev([R('_kit_ironpick', FAIL, cover=False), R('_kit_ironpick', RETRY_FAIL, m=45, cover=False, died=True)]))
+    assert not g['P2_drawn_unserved'], 'P2: a retry the bot died in is no retry (Claude r2 P3)'
     g, _ = gates(ev([R('_kit_ironpick', FAIL, status='aborted', cover=False)]))
     assert not g['P2_drawn_unserved'], 'P2: an abort keeps its credit; not a verdict'
     g, _ = gates(ev([R('_kit_ironpick', FAIL, cover=False, died=True)]))
@@ -378,7 +390,7 @@ if __name__ == '__main__':
     dep_all = [r for r in rows if r['name'] in ('_town_deposit', '_deposit')]
     print('CONTROLS     deposit rows walked %d (banking a pickaxe, parsed: %d) | well_dispose rows walked %d (naming a pickaxe: %d) | kit rows walked %d'
           % (len(dep_all), sum(1 for r in dep_all if deposit_picks(r['detail'])), sum(1 for r in rows if r['name'] == '_well_dispose'),
-             sum(1 for r in rows if r['name'] == '_well_dispose' and welled_pick(r['detail'])),
+             sum(1 for r in rows if r['name'] == '_well_dispose' and welled_pick(r['detail'], r.get('args'))),
              sum(1 for r in rows if r['name'] == '_toolkit' and r['detail'].startswith('phase=kit '))))
     print('REPORTED     bots with >= %d pickaxes made inside %d min (deaths and wear replace copies: read by hand) %d %s' % (LOOP_N, LOOP_MIN, len(evd['loops']), evd['loops'][:3]))
     print('REPORTED     double trips (a withdraw_pick order took a pickaxe within %d min of a made=1 row) %d %s' % (DOUBLE_MIN, len(dbl), dbl[:3]))

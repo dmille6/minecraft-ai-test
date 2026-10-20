@@ -539,7 +539,8 @@ await t('MUTANTS: each removes one part of the kit search and a behaviour test a
     assert.ok(s.backoffUntil > 0, 'the streak is capped')
   }))
   kills.sticksFirst = await withMutant(TK_PATH, "  if (ingots > 0 && have < ingots + keep) return { takes: [], why: `holds ${have} iron_ingot, a kit draw needs ${ingots} + ${keep} kept`, ironHeld: have }\n", '', KK => killedBy(() => ironFirst(KK)))
-  kills.noStickHoldBack = await withMutant(SKILLS_PATH, 'if (atRisk) for (const k of bot.kitNoSticks.keys()) { kitTried.add(k); heldBack++ }', '', S => killedBy(async () => {
+  // re-anchored for ironpick-01 (the hold-back is now quantity-sensitive: kitStickHeld); the mutant still removes the whole line
+  kills.noStickHoldBack = await withMutant(SKILLS_PATH, 'if (atRisk) for (const k of bot.kitNoSticks.keys()) { if (!kitStickHeld(bot.kitNoSticksHad.get(k), draw, makeable)) continue; kitTried.add(k); heldBack++ }', '', S => killedBy(async () => {
     const w = farTown({ bag: [T('iron_pickaxe', 200), stack('crafting_table', 1)], rest: [stack('iron_ingot', 20)], far: [stack('iron_ingot', 20)] })
     await kit(S, w); later(TOOLKIT_COOLDOWN_MS + TOOLKIT_BACKOFF_MS)
     await kit(S, w)
