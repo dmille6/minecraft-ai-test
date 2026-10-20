@@ -397,6 +397,26 @@ class QuiesceTransitions(unittest.TestCase):
         self.assertIsNotNone(self.ack())
         self.assertIn('RESV run-b-2-200', self.ack())
 
+    def test_restart_during_a_handed_off_pause_never_unloads(self):
+        # Codex r8 repro: ack A -> the benchmark loads qwen -> the proxy RESTARTS with A still held.
+        self.probe_answer = (False, True)
+        self.write('run-a-1-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.mark_quiesced(now=1031.0)
+        self.assertIsNotNone(self.ack())
+        self.probe_answer = (True, True)                       # the benchmark's qwen
+        SP.STATE.clear()                                       # --- proxy restart: memory gone ---
+        SP.STATE.update({'inflight': 0})
+        self.assertTrue(SP.restore_handoff(SP.is_paused()), 'the handoff file restores the handoff')
+        SP.mark_quiesced(now=2000.0)
+        SP.mark_quiesced(now=2031.0)
+        self.assertEqual(self.unloads, [], 'a restart must never reopen unload eligibility')
+        self.assertIsNotNone(self.ack())
+        self.assertIn('RESV run-a-1-100', self.ack())
+        os.remove(self.resv)                                   # pause ends -> handoff file removed
+        SP.mark_quiesced(now=2100.0)
+        self.assertFalse(os.path.exists(SP.handoff_path()))
+
     def test_admitted_request_blocks_the_ack_and_paused_admission_refuses(self):
         SP.A.max_inflight = 4
         p, full, n = SP.admit()                                # a request admitted BEFORE the pause began

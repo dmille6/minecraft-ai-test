@@ -15,7 +15,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
-    ('showcaseproxy.py', "            STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None\n            withdraw_ack()\n",
+    ('showcaseproxy.py', "        STATE['handed_off'], STATE['epoch_unloaded'] = True, True\n        logline(status='handoff-restored'",
+     "        pass\n        logline(status='handoff-restored'", 'test_restart_during_a_handed_off_pause_never_unloads'),
+    ('showcaseproxy.py', "            STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None\n            save_handoff(False)\n            withdraw_ack()\n",
      "            pass\n", 'test_resumed_admission_ends_the_handoff'),
     ('showcaseproxy.py', "        STATE['handed_off'] = True\n", "        pass\n",
      'test_no_unload_after_a_handoff_that_needed_none'),

@@ -268,6 +268,7 @@ def mark_quiesced(now=None):
         if not p:
             # The pause is OVER: the next pause is a new epoch, with its own (single) unload.
             STATE['sig'], STATE['epoch_unloaded'], STATE['handed_off'] = None, False, False
+            save_handoff(False)
             withdraw_ack()
             return
         changed = sig != STATE.get('sig')
@@ -323,7 +324,43 @@ def publish_ack(sig, p):
         # so unload eligibility CLOSES here even if no unload was needed (Codex r6).
         STATE['epoch_unloaded'] = True
         STATE['handed_off'] = True
+        save_handoff(True)
     logline(status='quiesced', paused_by=p)
+
+
+def handoff_path():
+    return (A.quiesced_file + '.handoff') if A and A.quiesced_file else None
+
+
+def save_handoff(on):
+    """The handoff SURVIVES A PROXY RESTART: a file beside QUIESCED exists from the first ack of a pause until the
+    pause ends (or admission resumes). Without it, a restart mid-pause would forget that the GPU was handed over and
+    could unload a benchmark's model after the grace (Codex r8)."""
+    hp = handoff_path()
+    if not hp:
+        return
+    try:
+        if on:
+            with open(hp, 'w') as f:
+                f.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '\n')
+        elif os.path.exists(hp):
+            os.remove(hp)
+    except OSError:
+        pass
+
+
+def restore_handoff(paused_now):
+    """At startup: a handoff file + a pause still in place = the GPU is still handed over -> fail closed (never
+    unload; acknowledge new reservations at once). A handoff file with no pause = stale -> removed. Tested."""
+    hp = handoff_path()
+    if not hp or not os.path.exists(hp):
+        return False
+    if paused_now:
+        STATE['handed_off'], STATE['epoch_unloaded'] = True, True
+        logline(status='handoff-restored', paused_by=paused_now)
+        return True
+    save_handoff(False)
+    return False
 
 
 def admit():
@@ -338,6 +375,7 @@ def admit():
             # epoch and the old acknowledgement all end HERE, under the admission lock, so a reservation that appears
             # before the next poll gets a fresh grace and fresh probes (Codex r7).
             STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None
+            save_handoff(False)
             withdraw_ack()
         if not p and not full:
             STATE['inflight'] += 1
@@ -495,6 +533,8 @@ def main():
         A.log = os.path.expanduser(A.log)
     if A.timeout + A.fallback_timeout >= 45:
         raise SystemExit('timeout + fallback-timeout must stay under the bot LLM_TIMEOUT_MS (45 s)')
+    poll_bench_procs()
+    restore_handoff(is_paused())
     threading.Thread(target=quiesce_loop, daemon=True).start()
     host, port = A.listen.rsplit(':', 1)
     ThreadingHTTPServer((host, int(port)), H).serve_forever()
