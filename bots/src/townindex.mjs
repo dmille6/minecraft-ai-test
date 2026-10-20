@@ -48,6 +48,10 @@ export const TOWNINDEX = Object.freeze({ on: process.env.TOWNINDEX !== 'off' })
 export const INDEX_V = 1
 /** An observation older than this is `stale` (the stock journal's own OBS_TTL_MS, 6 h). */
 export const INDEX_STALE_MS = 6 * 60 * 60 * 1000
+/** A mutation's OPEN window (a `dirty` pre mark whose post mark never came: the writer crashed, or its post is not on disk yet)
+ *  keeps every observation captured inside it from making the container known, for this long after the pre mark. Longer than
+ *  any visit's clock (a skill is bounded at 180 s): a live writer has written its post mark long before. */
+export const OP_TTL_MS = 10 * 60 * 1000
 /** A generation past this many bytes is rotated (env TOWNINDEX_ROTATE_BYTES for the tests). */
 export const INDEX_ROTATE_BYTES = Number(process.env.TOWNINDEX_ROTATE_BYTES) > 0 ? Number(process.env.TOWNINDEX_ROTATE_BYTES) : 4 * 1024 * 1024
 /** A fold that would read more than this fails closed (an empty index: every container unknown, today's behaviour). */
@@ -90,11 +94,23 @@ export function supersedes (b, a) {
   return String(b.id ?? '') > String(a.id ?? '')
 }
 
-/** One record into an entry (copied, never mutated) -> the new entry. Pure. entry = { last: {t, at, id, bot, by}, obs } */
+/** One mutation's marks, joined (the earlier pre, the later post; order-free and idempotent). Pure. */
+const joinOp = (a, b) => ({ pre: [a?.pre, b?.pre].filter(Number.isFinite).reduce((m, v) => Math.min(m, v), Infinity),
+                            post: [a?.post, b?.post].filter(Number.isFinite).reduce((m, v) => Math.max(m, v), -Infinity) })
+const cleanOp = o => ({ pre: Number.isFinite(o.pre) ? o.pre : null, post: Number.isFinite(o.post) ? o.post : null })
+/**
+ * One record into an entry (copied, never mutated) -> the new entry. Pure. entry = { last: {t, at, id, bot, by}, obs, ops }:
+ * `ops` holds each mutation's pre and post marks by its operation id (Codex code r1 P1: another bot's open BETWEEN a writer's
+ * pre and post marks must not make the container known when that writer then crashes before its post mark).
+ */
 function mergeEntry (e, r) {
   const last = { t: r.t, at: num(r.at), id: r.id ?? null, bot: r.bot ?? null, by: r.by ?? null }
-  const out = { last: e?.last ?? null, obs: e?.obs ?? null }
+  const out = { last: e?.last ?? null, obs: e?.obs ?? null, ops: e?.ops ?? {} }
   if (supersedes(last, out.last)) out.last = last
+  if (r.t === 'dirty' && r.op != null && (r.phase === 'pre' || r.phase === 'post')) {
+    const mark = r.phase === 'pre' ? { pre: num(r.at) } : { post: num(r.at) }
+    out.ops = { ...out.ops, [r.op]: cleanOp(joinOp(out.ops[r.op], mark)) }
+  }
   if (r.t === 'obs' && supersedes({ t: 'obs', at: r.at, id: r.id }, out.obs ? { t: 'obs', at: out.obs.at, id: out.obs.id } : null)) {
     out.obs = { id: r.id ?? null, at: num(r.at), h: Array.isArray(r.h) ? r.h : [r.k], size: num(r.size), used: num(r.used), names: r.names ?? {}, bot: r.bot ?? null, by: r.by ?? null }
   }
@@ -104,10 +120,24 @@ function mergeEntry (e, r) {
 function joinEntries (a, b) {
   if (!a) return b
   if (!b) return a
-  let e = { last: a.last, obs: a.obs }
+  const e = { last: a.last, obs: a.obs, ops: { ...(a.ops ?? {}) } }
   if (b.last && supersedes(b.last, e.last)) e.last = b.last
   if (b.obs && (!e.obs || supersedes({ t: 'obs', at: b.obs.at, id: b.obs.id }, { t: 'obs', at: e.obs.at, id: e.obs.id }))) e.obs = b.obs
+  for (const [op, o] of Object.entries(b.ops ?? {})) e.ops[op] = cleanOp(joinOp(e.ops[op], o))
   return e
+}
+/** Is a mutation still OPEN at the observation's capture? (a pre mark at or before it, no post mark, inside OP_TTL_MS) Pure. */
+const openAt = (ops = {}, at) => Object.values(ops ?? {}).some(o => Number.isFinite(o?.pre) && o.post == null && o.pre <= at && at < o.pre + OP_TTL_MS)
+/** An entry for a CHECKPOINT: closed mutations and those no observation can fall inside any more are dropped. Pure. */
+export function compactEntry (e) {
+  if (!e) return e
+  const ops = {}
+  for (const [op, o] of Object.entries(e.ops ?? {})) {
+    if (o.post != null && o.pre != null) continue                                         // closed
+    if (o.post == null && Number.isFinite(o.pre) && e.obs && e.obs.at >= o.pre + OP_TTL_MS) continue   // the newest open is past it
+    ops[op] = o
+  }
+  return { last: e.last, obs: e.obs, ops }
 }
 
 /**
@@ -142,6 +172,7 @@ export function indexStateOf (entry, now = Date.now(), staleMs = INDEX_STALE_MS)
   if (!entry?.last) return 'unknown'
   if (entry.last.t === 'dirty') return 'dirty'
   if (!entry.obs) return 'unknown'
+  if (openAt(entry.ops, entry.obs.at)) return 'dirty'                 // captured while a mutation was under way
   return now - (entry.obs.at ?? -Infinity) < staleMs ? 'known' : 'stale'
 }
 
@@ -280,8 +311,11 @@ function readFile (f, from = 0, maxBytes = INDEX_MAX_READ_BYTES) {
  *  fold of gen-1 and gen (every world); gen-2 and older are deleted (nobody reads them: readers fold gen and gen+1). */
 export function rotateIndex (dir, hk, gen) {
   const next = indexFile(dir, hk, gen + 1)
-  let fd
-  try { fd = fs.openSync(next, 'wx') } catch { return false }
+  if (fs.existsSync(next)) return false
+  // THE CHECKPOINT IS WRITTEN PRIVATELY AND PUBLISHED WHOLE (Codex code r1 P1: a `wx` create published an EMPTY generation that
+  // another writer appended to before the checkpoint was written over its record): link() makes the new generation appear
+  // with its first line already in it, and fails if another rotator got there first
+  const tmp = `${next}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
   try {
     const recs = []
     for (const g of [gen - 1, gen]) {
@@ -290,8 +324,10 @@ export function rotateIndex (dir, hk, gen) {
       if (r && !r.missing) recs.push(...parseBuf(r.buf).records)
     }
     const f = foldIndex(recs)
-    fs.writeSync(fd, lineOf({ t: 'ckpt', v: INDEX_V, gen: gen + 1, at: Date.now(), worlds: f.worlds }))
-  } catch { /* an empty generation: readers still fold gen, which is kept */ } finally { try { fs.closeSync(fd) } catch { /* closed */ } }
+    const worlds = Object.fromEntries(Object.entries(f.worlds).map(([w, m]) => [w, Object.fromEntries(Object.entries(m).map(([k, e]) => [k, compactEntry(e)]))]))
+    fs.writeFileSync(tmp, lineOf({ t: 'ckpt', v: INDEX_V, gen: gen + 1, at: Date.now(), worlds }))
+    try { fs.linkSync(tmp, next) } catch { return false }
+  } catch { return false } finally { try { fs.unlinkSync(tmp) } catch { /* gone */ } }
   for (const g of indexGens(dir, hk)) if (g < gen) { try { fs.unlinkSync(indexFile(dir, hk, g)) } catch { /* gone */ } }
   return true
 }
@@ -320,7 +356,7 @@ export function appendIndex (dir, hk, world, rec, { rotateBytes = INDEX_ROTATE_B
 
 // THE READER'S CACHE (per process): the fold of generations N-1 and N up to the bytes read, continued from there on the next
 // read while N's file is the same inode and only grew. Any other change (a rotation, a truncation) folds again from disk.
-const CACHE = new Map()   // `${dir}|${hk}` -> { gen, ino, offset, fold }
+const CACHE = new Map()   // `${dir}|${hk}` -> { gen, files: { g: { ino, offset } }, fold }
 /** Forget the reader's cache (tests). */
 export const resetIndexCache = () => CACHE.clear()
 
@@ -334,31 +370,37 @@ export function readIndex (dir, hk, world = null) {
     const gens = indexGens(dir, hk)
     if (!gens.length) return { entries: {}, gen: 1, ok: true }
     const gen = gens.at(-1)
-    const f = indexFile(dir, hk, gen)
+    const both = [gen - 1, gen].filter(g => g >= 1)
     let c = CACHE.get(ck)
-    let st = null
-    try { st = fs.statSync(f) } catch { st = null }
-    if (c && st && c.gen === gen && c.ino === st.ino && st.size >= c.offset) {
-      if (st.size > c.offset) {
-        const r = readFile(f, c.offset)
+    // BOTH GENERATIONS ARE FOLLOWED (Codex code r1 P1: a stale writer's late record in N-1 was invisible to a cached reader):
+    // the cache continues each file from its own offset while it is the same inode and only grew; anything else folds again
+    const stats = Object.fromEntries(both.map(g => { try { const st = fs.statSync(indexFile(dir, hk, g)); return [g, { ino: st.ino, size: st.size }] } catch { return [g, null] } }))
+    const continues = c && c.gen === gen && both.every(g => {
+      const was = c.files[g], st = stats[g]
+      return was == null ? st == null : (st != null && st.ino === was.ino && st.size >= was.offset)
+    })
+    if (continues) {
+      for (const g of both) {
+        const was = c.files[g], st = stats[g]
+        if (!was || !st || st.size <= was.offset) continue
+        const r = readFile(indexFile(dir, hk, g), was.offset)
         if (!r || r.missing) { CACHE.delete(ck); return { entries: {}, gen, ok: false } }
         const p = parseBuf(r.buf)
-        c = { ...c, offset: c.offset + p.used, fold: foldIndex(p.records, { from: c.fold.worlds }) }
-        CACHE.set(ck, c)
+        c = { ...c, files: { ...c.files, [g]: { ino: was.ino, offset: was.offset + p.used } }, fold: foldIndex(p.records, { from: c.fold.worlds }) }
       }
+      CACHE.set(ck, c)
     } else {
       const recs = []
-      let ino = null, offset = 0
-      for (const g of [gen - 1, gen]) {
-        if (g < 1) continue
+      const files = {}
+      for (const g of both) {
         const r = readFile(indexFile(dir, hk, g))
         if (!r) { CACHE.delete(ck); return { entries: {}, gen, ok: false } }
         if (r.missing) continue
         const p = parseBuf(r.buf)
         recs.push(...p.records)
-        if (g === gen) { ino = r.ino; offset = p.used }
+        files[g] = { ino: r.ino, offset: p.used }
       }
-      c = { gen, ino, offset, fold: foldIndex(recs) }
+      c = { gen, files, fold: foldIndex(recs) }
       CACHE.set(ck, c)
     }
     return { entries: c.fold.worlds[wkey(world)] ?? {}, gen, ok: true }
