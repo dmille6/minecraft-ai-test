@@ -9939,7 +9939,7 @@ function holdUnsettled (bot, win, u, own) {
     done = true
     clearInterval(iv)
     bot.removeListener?.('end', onEnd)
-    try { win.ixHeld?.close() } catch { /* townindex-01: the held operation ends (its post mark) */ }
+    const ixHeldEnd = win.ixHeld   // townindex-01: the held operation ends -- its post mark AFTER the in-flight clicks drain
     win.ixHeld = null
     const held = carriedLocal()   // the client's view as the hold ended -- read BEFORE the close
     if (close && bot.currentWindow === win) own.close()
@@ -9952,6 +9952,7 @@ function holdUnsettled (bot, win, u, own) {
         logEvent({ kind: 'withdraw_settled', status: 'failed', snapshot: snapshot(bot),
                    detail: `how=drain_timeout after_ms=${Date.now() - since} a click was still in flight ${HOLD_TIMING.drainMs} ms after the close (invalidated: its send is dropped)` })
       }
+      try { ixHeldEnd?.close() } catch { /* advisory: a crash here leaves the operation to expire OP_TTL_MS past its last renewal */ }
       writeRow(how, how === 'settled' ? 'success' : 'no_effect', how !== 'disconnected', held, extra)
     })().catch(() => {})
   }
