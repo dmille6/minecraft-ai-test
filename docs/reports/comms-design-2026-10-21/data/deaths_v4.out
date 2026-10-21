@@ -1,0 +1,12 @@
+query 2026-10-12T20:00:00+00:00 .. 2026-10-21T20:00:00+00:00 ; judged 2026-10-14T20:00:00+00:00 .. 2026-10-21T20:00:00+00:00 (7.0 days)
+caveats:
+  10-19 23:16Z-00:00Z (disk flood stage) was BACKFILLED from the rotated files on 10-20 (infra/elk/flood-backfill.py: 41,978 skill + 4,689 llm docs, _id prefix fl261020-) and reconciled row-hash exact, file == ES for all 80 bots (docs/reports/es-flood-2026-10-20.md).
+  after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).
+  window crosses 9 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).
+_death rows 227 with position 227
+variant A: {'judged': 171, 'no_live_site': 158, 'fire_judged': 52, 'own_only': 2, 'site_with_another_bots_death': 11, 'fire_in_live_fire_site': 7, 'fire_in_confirmed_site': 4}
+   confirmed-site fire deaths: ['10-20 09:42 hive-b-Comet', '10-21 06:10 hive-b-Echo', '10-21 06:58 hive-b-Bravo', '10-21 08:35 hive-b-Alpha']
+   live fire sites at 2026-10-21T20:00:00+00:00 {'hive-a': 1, 'hive-d': 1, 'placebo-a': 1, 'hive-b': 2, 'hive-c': 1}
+variant B: {'judged': 171, 'no_live_site': 158, 'fire_judged': 52, 'own_only': 2, 'site_with_another_bots_death': 11, 'fire_in_live_fire_site': 7, 'fire_in_confirmed_site': 4}
+   confirmed-site fire deaths: ['10-20 09:42 hive-b-Comet', '10-21 06:10 hive-b-Echo', '10-21 06:58 hive-b-Bravo', '10-21 08:35 hive-b-Alpha']
+   live fire sites at 2026-10-21T20:00:00+00:00 {'hive-a': 1, 'hive-d': 1, 'placebo-a': 1, 'hive-b': 2, 'hive-c': 1}

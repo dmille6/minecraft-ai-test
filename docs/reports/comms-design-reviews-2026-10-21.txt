@@ -304,3 +304,84 @@ Claude P2-6 exposure / trigger                         | deaths_v3: 7 of 52 fire
      6 live fire sites in 5 towns at the end; v1 trigger = any live fire site (C3); draw rule = towns with one
 Claude P3-7..11                                        | applied (reconciler, crash wording, mid-staircase + whole-column
      check, furnaceSeen ranking, unreach-01 read now)
+
+=====================================================================================================================
+ROUND 3 on r3 (fe2d73b1)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 3 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+VERDICT: CHANGE
+
+- **P1 — §4.6, keepout remedies:** “End without digging; next decision runs” still permits endless reselection of the same gather/mine. Also, a strictly column-free route cannot start inside a column. Specify deterministic suppression/recovery after refusal and an escape-route rule permitting the initial exit segment. Test sustained progress or an explicit terminal recovery state.
+
+- **P2 — §2.3 / §0.2, death replay:** JS rounding is fixed, but decay-before-merge and excluding expired merge targets remain unlike production. Frequent writes do not prove equivalence; ignoring eviction can also change retained centres, so coverage is not necessarily an upper bound. Replay actual write ordering/caps, or label these counts approximate and provide sensitivity bounds. Anchor the window to explicit query bounds: `D[0] + 2 days` through the last death is not seven days.
+
+- **P2 — §6.1, award lifecycle:** Cancellation can land between the pre-click read and the click. An `op` id alone cannot prevent duplicate delivery after a crash between the transfer and its record. Add an atomic `awarded → delivering` claim, serialize termination against it, retain reservations until reconciliation, and define recovery for an uncertain transfer.
+
+- **P2 — §4.3, snapshots:** Begin/end plus count detects truncation but does not define ordering against concurrent updates or removal of subjects absent from the replacement snapshot. Specify generation membership, source revisions/cutoffs, replacement semantics and replay of newer updates; test deletion and concurrent mutation during reconciliation.
+
+- **P2 — §§4.4–4.6, furnace expiry:** The promised maximum 60-minute skip conflicts with skipping while **either** local six-hour memory or the ledger says empty. A peer’s nonempty open does not explicitly clear local memory. Define precedence and invalidate both caches on newer contrary evidence; test missed-load/crash recovery with local memory populated.
+
+- **P2 — §5.3, chat tests:** The dead-event branch cannot pass the authorized-status control or whitelist mutant. Specify injected-event handler tests alongside the Paper transport probe. Also, removing the output filter cannot make already-safe templates parse as commands: inject an unsafe candidate and require that mutant to expose it.
+
+- **P3 — §0.3 / §2.4:** Refresh denominators from `v3.out`: R16 own **8,515**, none **8,487**; R4 own **6,875**, none **11,251**.
+
+`done()` now matches the logger; rounding and the alternative-trigger calculation are correct within the replay’s assumptions. Fire-site authority, uncapped changed observations, restored reviews and controlled unreach-01 decision address their corresponding r2 findings.
+
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE ROUND 3 on r3 (fe2d73b1) -- VERDICT: CHANGE  (verbatim, condensed formatting)
+---------------------------------------------------------------------------------------------------------------------
+Most of round 2 is resolved (moves-out-only exemption; derived AWARD with a courier-created wx lease; awarded ->
+expired; idempotent op; exposure fields; chat probe first; overclaims corrected; alternative trigger adopted; P3s
+applied). v3 tools are right: jsround = floor(v + 0.5) matches JS Math.round for negative halves too; event rows use
+emission time; numbers move by <= 1 (v2.out vs v3.out). deaths_v3.out supports §0 (169 judged, 4 confirmed, 7 of 52
+fire deaths inside a live fire site, 6 live fire sites in 5 towns).
+P1-1 §4.6 a bot inside a column with no outward walk route: the refusal chain has no selected remedy -- and it is
+  Bravo's death (gather refused/ends without a dig; mine refused; explore blind steps refused -> the bot stands on the
+  ledge until it drops). "The escape and stranded ladder is exempt" only ALLOWS those moves; nothing STARTS them (a bot
+  on a walkable ledge is not "stranded" by today's detector). The walk-off's "column-free route" is impossible from
+  inside. Fix: inside, the route need only leave the column outward (lineHitsDeathSite's rule); with no outward walk,
+  keepout-01 deterministically starts the escape step (dig at/above foot level away from the centre, never below the
+  feet, or pillar; exempt). Paper: sealed ledge above the pool, all of gather/mine/explore refused -> outside within N s.
+P2-2 §8 #2: keepout's DiD has no valid control: control towns without a live fire site have 0 column digs by
+  construction, and the control build computes no columns. Fix: compute the primary host-side for both arms from
+  gather/mine dig positions vs the replayed live fire sites; restrict control to towns that also have one; with < 2
+  such control towns, close on Paper + deterministic gates, not a DiD.
+P2-3 §5.3: in the "chat does not fire" branch every unauthorized test passes trivially and the authorized control
+  fails. Fix: inject synthetic `chat` events on the bot object (handler tests) with the authorized control and both
+  mutants; say Paper then proves only that the channel is dead today.
+P3-4 fire_site disputes: name which skill does the full-disc lava read and when; say expiry is in practice the only exit.
+P3-5 §4.3: prune recon markers; snapshot entries carry the source's observed_at so live entries during a snapshot win.
+P3-6 §4.4: an L2 alarm (not a drop) for a flapping uncapped writer (> 10x expected per subject per hour).
+P3-7 §6.1: a derived winner that never creates the lease delays the next offer until its 10-min offer expires; the
+  request's 20-min until bounds it.
+P3-8 §8 #1: chatgate's exposure duplicates tier condition 3 -- honest, but say so.
+P3-9 §8 #7(b): unreach-01's canary needs a declared exposure field (attempt-count skips >= 20).
+P3-10 §0.2: "6 live fire sites" is at 10-21 19:51Z; one-death sites lapse in 36 h -- recompute the draw list at launch.
+
+=====================================================================================================================
+ROUND 3 -> r4: WHERE EACH FINDING IS ANSWERED
+=====================================================================================================================
+Codex P1 + Claude P1-1 inside a column, no remedy      | §4.6: `_keepout_exit` started deterministically by keepout-01:
+     outward-only first segment (lineHitsDeathSite's rule) -> exempt escape dig/pillar away from the centre, never below
+     the feet -> today's stranded ladder; outcome recorded. Outside a column: the refused (skill, block) gets a 10-min
+     deterministic cooldown (no reselection). Paper: sealed ledge with all three skills refused -> outside within 60 s
+Codex P2 replay ordering / window                      | deaths_v4.py: explicit query 10-12 20:00Z .. 10-21 20:00Z, judged
+     7.0 days; variant B lets a merge revive an unpruned site (write-order bound); A and B agree (171 / 13 / 11 / 7 of
+     52 / 4); labelled APPROXIMATE (cap not replayed; eviction could move centres), not an upper bound
+Codex P2 award: cancel between read and click; crash   | §6.1: atomic awarded -> delivering link with a recorded pre-count;
+     cancel/expire only onto awarded; uncertain transfer resolved by re-open vs pre-count (or by any reader after 30 min);
+     reservation held until then
+Codex P2 snapshot ordering / deletion                  | §4.3: gen membership, cutoff, source observed_at per entry,
+     replacement semantics (absent subjects removed), newer entries replayed over; deletion + concurrent-mutation tests
+Codex P2 furnace precedence                            | §4.5: newest evidence wins across own memory and station; any newer
+     contrary evidence clears both; town-caused skips <= 60 min; missed-load / crash tests
+Codex P2 + Claude P2-3 chat tests                      | §5.3: injected-event handler tests with an authorized control;
+     mutant 1 feeds an unsafe candidate; dead-event branch says Paper proves only a dead channel
+Claude P2-2 keepout control                            | §8 #2: host-side primary for both arms; control matched to towns with
+     a live fire site; < 2 -> Paper + gates, no DiD
+Codex P3 denominators                                  | §0.3 / §2.4 refreshed from v3.out
+Claude P3-4..10                                        | dispute read by keepout's refusal path, expiry the usual exit; marker
+     pruning + observed_at; flapping alarm; winner-never-leases bound; exposure honesty sentence; unreach-01 exposure
+     >= 20; draw list recomputed at launch
