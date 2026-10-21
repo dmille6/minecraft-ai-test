@@ -1,4 +1,4 @@
-# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r5)
+# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r6)
 
 homefix-01 (`a52d075e`, branch `homefix-on-9e7d998`) was REVERTED at 2026-10-21 00:57Z by gate v23: two canary deaths, one
 with a licensed `_watchdog_rescue` row. Both deaths were hive-d-Echo, and both were drownings. This document gives each
@@ -384,8 +384,17 @@ whole contract), H3 and H4 are unchanged**; every homefix-01 test still runs.
 chronic "submerged but alive" bots a problem: board-a-Comet and placebo-c-Bravo (§3.3), and the 09-04 nine re-seized
 every 32-37 s. Each round then needed a counter, a cap, a bypass latch, reset rules and exemptions. Codex r3 showed the
 latch still fails: the base's own air actions interrupt a bypassed run, and the stagnation judgement clears a shared
-counter between stranding verdicts. **r4 keys C3 on a drowning IN PROGRESS instead.** Every condition it refuses on ends
-by construction within a window. r5 adds only a simple per-kind cap (2 consecutive declines; Codex r4 P1), with no exemption and no latch. The base's air actions are left exactly as they are.
+counter between stranding verdicts. **r4 keys C3 on a drowning IN PROGRESS instead**, plus a running pocket rung.
+- **The liveness guarantee is the per-kind CAP** (r5, Codex r4 P1; r6 wording, Codex r5 P3): at most 2 `air_rescue`
+  declines per rescue kind since that kind's last start, then the next start is admitted. There is no exemption and
+  no latch.
+- **"Ends on its own" is the expectation, not the guarantee.** A drowning in progress ends in breath or death. A pocket
+  rung can hang on an unbounded await, and a recurring danger can coincide with verdicts. The cap covers both.
+- **"2 consecutive" means "2 since the last start of that kind"** (Claude r5 P3). There is no TTL, so a decline hours
+  ago plus one now reaches the cap, which is harmless.
+- **Only `air_rescue` declines count.** reserve_expired, body_held and runner_paused holds neither count nor reset.
+- **The watchdog is rebuilt on every connection** (index.mjs:1135), so the count also restarts at a reconnect.
+- The base's air actions are left exactly as they are.
 
 - **The air reflex publishes** `bot.airRescue = { danger, pocketing, airSeconds, headUnder, at }`.
   - **Every reflex tick writes it at the TOP of the tick**: before the `inventoryUnsettled.release` await (:1493;
@@ -476,7 +485,7 @@ by construction within a window. r5 adds only a simple per-kind cap (2 consecuti
 | C1 plan refuses packed/blue ice or a falling block over the head | same | entombed / flooded-pocket rungs (unchanged) | as today | unchanged |
 | C2: no dry target in 16 tries | a wet, steep or unloaded region | level-2 `home` now | yes: an executable walk to the town; if it fails, L3 (unchanged) | home meeting an engaged air rescue → C3a (capped) |
 | C2: a candidate rejected (wet / unknown / steep) | — | the next try | yes | → fallback above |
-| C3a: rescue admission during `danger` or a pocket rung | drowning in progress (head under, ≤ 5 s air, health falling), or the air-pocket / flooded-pocket rung running | the air reflex; level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **bounded by construction**: a drowning ends (breath or death) in ~100 s < the 180-s backoff; the rungs are budget-bounded with cooldowns; a breathing or healthy-submerged bot is never refused; the read reports the longest decline streak |
+| C3a: rescue admission during `danger` or a pocket rung | drowning in progress (head under, ≤ 5 s air, health falling), or the air-pocket / flooded-pocket rung running | the air reflex; level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **bounded by construction**: a drowning ends (breath or death) in ~100 s < the 180-s backoff; the rungs are budget-bounded with cooldowns; a breathing or healthy-submerged bot is never refused for `danger` (it can be for a running pocket rung); **the per-kind cap (2 since the last start) is the guarantee** |
 | C3b: a watchdog run during `danger` | drowning in progress | the air reflex | yes | the next verdict starts a new rescue (C3a applies); a climb-out interrupted this way is refunded at most twice per stranding episode |
 | H2 holds (unchanged): reserve_expired, body_held, runner_paused | — | as homefix-01 | as homefix-01 | `air_rescue` declines do not touch the reserve_expired streak |
 
@@ -496,8 +505,10 @@ licence_canary, readable, g3_unjoined and the controls. They keep their register
   fixtures, plus, for G5c, the same parser run over homefix-01's rows, which must find death 1's `up` route through
   ice. Missing required fields set **`g5_fields_missing` ≥ 1, which blocks KEEP**, so absence is never read as clean
   (Codex r1 P1-4).
-  - **G5a.** A watchdog `started` row whose admission fields (`air_danger`, `air_pocketing`, written by the runner
-    from `admit()`'s reading at the start) say 1: C3a let a rescue start into a drowning in progress.
+  - **G5a.** A watchdog `started` row whose admission fields (`air_danger`, `air_pocketing`, written by the runner from
+    `admit()`'s reading at the start) say 1 WITHOUT `air_capped = 1`: C3a let a rescue start into a drowning in
+    progress below the cap (Codex r5 P1-1). Capped starts are validated by G5g. Fixtures cover both a legitimate capped
+    start and a premature one.
   - **G5b.** A level-1 relocation `requested` row with no `target_x`/`dry_tries`, OR a `fallback` row whose
     `dry_tries` is not 16: C2 skipped.
   - **G5c (outcome, C1).** A `_drowning_route` row with `up` whose `head=` cell is not swimmable (ice, dirt, stone, ...):
@@ -512,12 +523,27 @@ licence_canary, readable, g3_unjoined and the controls. They keep their register
     - **The row.** While a watchdog run is current, the reflex writes a throttled `_air_danger` row (at most one per
       2 s) on `danger` ticks. The row carries `head_under`, `air_seconds`, `health`, `health_3s_max`, `owner` and
       `attempt`, so the read can recompute the predicate.
-    - **The defect.** An `_air_danger` row whose recomputed predicate is true, with `owner=watchdog` and no
-      `_air_rescue_yield` for that attempt within 1 s.
+    - **The defect** (Codex r5 P1-2). Two cases, each from an `_air_danger` row whose recomputed predicate is true,
+      with `owner=watchdog`:
+      - the row carries `interrupt_issued = 0`. The reflex ISSUES the interrupt before writing the row and records
+        the result, so every sampled danger tick proves its own call;
+      - the attempt's FIRST such row has no `_air_rescue_yield` for that attempt at or before 1 s after it. An earlier
+        yield counts.
+
+      A run that stays current through several danger samples while it unwinds is NOT a defect, as long as each row
+      has `interrupt_issued = 1`. The fixture covers that case.
     - **Report-only.** The earlier proxy from sparse reflex rows (ceilings, `_oxygen_critical_state`) is report-only,
       because those rows ride on the untrusted oxygen field and on health compared between rows.
-  - **G5g.** An attempt whose `started` row says `air_capped=1` after fewer than 2 consecutive `declined:air_rescue` of
-    its kind, OR 3 consecutive `declined:air_rescue` of one kind: the cap was broken.
+  - **G5g. The cap was broken** if either of these holds:
+    - a `started` row says `air_capped = 1` after fewer than 2 `declined:air_rescue` of its kind since that kind's
+      last start;
+    - 3 `declined:air_rescue` of one kind occur with no start of that kind between them.
+
+    The rules for counting (Claude r5 P2-1, P3-3):
+    - Only `air_rescue` declines count.
+    - The count is segmented at every connect: the spawn row `_cobblecap_mode`, which the watchdog's rebuild
+      accompanies.
+    - Fixtures cover decline, reconnect, decline, decline (NOT a defect), and interleaved reserve_expired holds.
 - **G6: verdict-adjacent drownings on both arms (DiD).** A drowning death within 180 s AFTER a `_stagnation` verdict and
   within 16 blocks of the verdict's position, deduplicated per death. Both builds write the verdict with a position,
   so the old code's pre-period is counted with the same instrument.
@@ -658,7 +684,8 @@ Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, dea
 | design r2 (1fc8f0cf) | CHANGE. P1: C3b defeats C3a's bypass (chronic bots killed on the next re-seizure); C2's region misses goto's ±6 vertical acceptance. P2: air TTL shorter than the stranding cadence (720 s); state stale behind the airPocketing early return; G5d keyed on a seizure row only written on `!rescuing`; G6's fixed baseline not portable to a new draw. P3: 11 v 10, 92 v 94 wording | CHANGE. P1: the same bypass/C3b dead end. P2: state stale during the ice dig; airClock only updated while losing. P3: `air_rescue` into RUNNER_DECLINED and the grant release; G6 λ = max(0.68, the drawn arm's rate); say the pickaxe rows were matched. F5 deferral accepted |
 | design r3 (af9a93ee) | CHANGE. P1: the base's own air actions (one-shot latch, air-pocket guard, re-seize goal clear) still kill a bypassed run; the shared counter is cleared by stagnation between stranding verdicts; the far-band exemption for capped water is unsound. P2: an exempt→interrupt transition is missed by G5d; the sizing is not a faithful replay | **APPROVE** (P2: region scan cost; P3: `danger` threshold text; cap the drowning refund; name the pocket rungs' interrupts; sim settings; G5f with the same predicate; which escalation zeroes reset the latch) |
 | design r4 (be37d952) | CHANGE. P1: the pocket rung can hang (unbounded equip) and danger episodes can recur at every verdict, so "bounded" needs a deterministic retry. P2: G5d' rides on untrusted proxies; G5d's 60 s is not the runner's guarantee; sizing is labelled faithful but is approximate | **APPROVE**. P2: G5d's deadline must be the hard-stop bound; G5d' report-only, or from exact tick rows; `danger` lags and flickers (use health fell within 3 s). P3: publish before the release await; name the recurrent magma case |
-| design r5 | | |
+| design r5 (c52a59e8) | CHANGE. P1: G5a condemns the cap's own capped starts; G5d' condemns a correctly interrupted run still unwinding (the yield row is once per attempt). P3: remove the superseded "bounded by construction" guarantees | **APPROVE**. P2: G5g must segment at reconnects (the watchdog is rebuilt per connection). P3: "consecutive" = since the last start; count only air_rescue declines |
+| design r6 | | |
 
 r2 answers every r1 finding:
 - **C3a:** keyed on the air reflex, checked at the runner's start, with its own streak, cap and bypass latch. C3b is
@@ -708,3 +735,10 @@ r5 answers r4:
 - **G5g** checks the cap.
 - **Sizing** is labelled approximate.
 - **The lag and the recurrent-magma case** are stated.
+
+r6 answers r5:
+- **G5a** exempts verified capped starts.
+- **G5d'** reads `interrupt_issued` on every sampled danger row (the reflex now issues the interrupt before it writes
+  the row), and the first-row yield rule accepts an earlier yield.
+- **G5g** is segmented at connects and counts only `air_rescue`.
+- **The cap is stated as the liveness guarantee throughout.**
