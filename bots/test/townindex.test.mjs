@@ -468,6 +468,50 @@ await t('A FOREIGN OPEN DURING THE CLICKS is superseded by the closing mark: the
   assert.equal(TI.indexStateOf(entries()[FAR.join(',')]), 'dirty')
 })
 
+// x ironpick-01 (this variant's base, 2d410985): the kit's IRON PICKAXE draw (7 ingots: pickaxe + axe + shovel) and its
+// narrowed pickaxe-only draw (args.n = 1) are the same withdraw visits -- observed at the open, dirty around the clicks; a
+// container looked in and left (the whole kit's 7 + 4 not there) stays KNOWN with what it held, the count indexsearch ranks on
+const pickWorld = (farIron = 20) => {
+  freshPool(); clearWithdrawHolds(); offset += 61 * 60_000
+  const T = (name, left) => { const c = tool(name); c.durabilityUsed = c.maxDurability - left; return c }
+  const w = withServer(fakeWorld({ bag: slotted([T('iron_pickaxe', 30), stack('stick', 9)]) }))   // 30 uses: at/below the trip line
+  for (const c of NEAR) { w.set(...c, 'chest'); w.stock(...c, [stack('dirt', 5)]) }
+  w.set(...FAR, 'chest'); w.stock(...FAR, [stack('iron_ingot', farIron)])
+  return w
+}
+const ironIn = (w, c) => w.containers.get(c.join(',')).slots.filter(Boolean).reduce((n, it) => n + (it.name === 'iron_ingot' ? it.count : 0), 0)
+const ironpickShape = async (S = S0) => {
+  const w = pickWorld()
+  const r = await kitRun(S, w)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.bag.filter(it => it?.name === 'iron_pickaxe').length, 2, 'the kit made an iron pickaxe (positive control: ironpick-01 is live on this base)')
+  assert.equal(ironIn(w, FAR), 13, 'the whole kit\'s 7 ingots came from FAR')
+  const e = entries()
+  assert.deepEqual(e[FAR.join(',')].obs.names, { iron_ingot: [20, 1] }, 'the observation is what FAR held BEFORE the pickaxe draw')
+  assert.equal(TI.indexStateOf(e[FAR.join(',')]), 'dirty', 'the container drawn from is dirty until it is opened again')
+  assert.deepEqual(records().filter(x => x.k === FAR.join(',')).map(x => `${x.t}:${x.phase ?? x.by}`), ['obs:withdraw', 'dirty:pre', 'dirty:post'])
+  return w
+}
+await t('x IRONPICK-01: the kit\'s iron-pickaxe draw (7 ingots) is indexed like any withdraw visit: obs -> dirty pre -> dirty post, DIRTY after', () => ironpickShape())
+await t('x IRONPICK-01: a whole-kit run that ends `narrow` leaves FAR KNOWN with its 8 ingots; the pickaxe-only run (n=1) then draws 3 there and leaves it DIRTY', async () => {
+  const w = pickWorld(8)
+  const r1 = await kitRun(S0, w)
+  assert.equal(r1.failClass, 'kit_search_narrow', r1.detail)
+  assert.equal(ironIn(w, FAR), 8, 'nothing drawn')
+  let e = entries()
+  assert.equal(TI.indexStateOf(e[FAR.join(',')]), 'known', 'looked in and left: known')
+  assert.deepEqual(e[FAR.join(',')].obs.names, { iron_ingot: [8, 1] })
+  const r2 = await S0.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, { n: 1 }, new AbortController().signal)
+  assert.equal(r2.status, 'success', r2.detail)
+  assert.equal(ironIn(w, FAR), 5, 'the pickaxe\'s 3 ingots only')
+  e = entries()
+  assert.equal(TI.indexStateOf(e[FAR.join(',')]), 'dirty')
+  assert.deepEqual(records().filter(x => x.k === FAR.join(',') && x.t === 'dirty').map(x => x.phase), ['pre', 'post'], 'one operation: the draw')
+})
+await t('x IRONPICK-01 MUTANT: without the withdraw visit\'s pre mark the pickaxe draw\'s shape fails (killed for the intended reason)', async () => {
+  assert.equal(await withMutant(SKILLS_PATH, "ixDirty = true; townIndexDirty(bot, cp, 'withdraw', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => ironpickShape(S))), true)
+})
+
 // COUNT_TOWN: the index's unknown containers fill what the stock keys leave of the visit's 3, after them
 const cobbleBag = () => slotted([stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 40), tool('stone_pickaxe', 10)])
 const countWorld = async () => {
