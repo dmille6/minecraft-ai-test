@@ -234,7 +234,9 @@ console.log('\npeer ingestion is retired; prompt kinds are an enum')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const SRC_DIR = new URL('../src/', import.meta.url)
 /** Every src file that attaches a chat-text listener (comments stripped: the comments quote the code). */
-const LISTEN = /\.(on|once|addListener|prependListener)\(\s*['"](chat|whisper|message|messagestr|playerChat|systemChat|unmatchedMessage|actionBar|profilelessChat)['"]/g
+// event names and the raw packet names (Claude r2 P3-3). A listener whose event name is in a VARIABLE (skills.mjs's
+// `bot.on(ev, fn)` for blockUpdate) is unreachable by a source grep: named here, not claimed.
+const LISTEN = /\.(on|once|addListener|prependListener)\(\s*['"](chat|whisper|message|messagestr|playerChat|systemChat|unmatchedMessage|actionBar|profilelessChat|system_chat|player_chat|profileless_chat|chat_message)['"]/g
 /** Every src file that attaches a chat-text listener, with the events it listens to (comments stripped). */
 const chatListeners = (files) => files.map(([f, src]) => [f, [...strip(src).matchAll(LISTEN)].map(m => m[2])]).filter(([, ev]) => ev.length).map(([f, ev]) => `${f}:${ev.join('+')}`)
 const srcFiles = () => readdirSync(SRC_DIR).filter(f => f.endsWith('.mjs')).map(f => [f, readFileSync(new URL(f, SRC_DIR), 'utf8')])
@@ -259,6 +261,7 @@ const { deathCauseText } = CMD
 await t('the death-cause listener takes no player line: a chat-position line is never a cause', () => {
   assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', 'system', 'hive-a-Alpha'), 'tried to swim in lava', 'positive control: the server\'s system line')
   assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', undefined, 'hive-a-Alpha'), 'tried to swim in lava', 'an unknown position is not refused (it never was)')
+  assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', 'game_info', 'hive-a-Alpha'), 'tried to swim in lava', 'game_info is server-authored too')
   assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', 'chat', 'hive-a-Alpha'), null, 'chat, /say, /me')
   assert.equal(deathCauseText('hive-a-Alpha joined the game', 'system', 'hive-a-Alpha'), null)
   assert.equal(deathCauseText('<griefer> hive-a-Alpha burned', 'system', 'hive-a-Alpha'), null)
@@ -268,10 +271,39 @@ await t('MUTANT KILLED: without the position test a player line becomes a death 
     assert.equal(mod.deathCauseText('hive-a-Alpha tried to swim in lava', 'chat', 'hive-a-Alpha'), 'tried to swim in lava')
   })
 })
+const forwardsPosition = src => (src.match(/const onMsg = \(jsonMsg, position\) =>/g) ?? []).length === 1 &&
+  (src.match(/deathCauseText\(text, position, config\.bot\.name, NOT_A_DEATH\)/g) ?? []).length === 1
 await t('STRUCTURAL: index.mjs passes the message position to deathCauseText', () => {
-  const src = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
-  assert.equal((src.match(/const onMsg = \(jsonMsg, position\) =>/g) ?? []).length, 1)
-  assert.equal((src.match(/deathCauseText\(text, position, config\.bot\.name, NOT_A_DEATH\)/g) ?? []).length, 1)
+  assert.equal(forwardsPosition(strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))), true)
+})
+await t('MUTANT KILLED: index.mjs dropping the position is caught by the structural check', () => {
+  const raw = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  const anchor = 'deathCauseText(text, position, config.bot.name, NOT_A_DEATH)'
+  assert.ok(raw.includes(anchor) && raw.split(anchor).length === 2, 'ANCHOR MISSING or not unique')
+  assert.equal(forwardsPosition(strip(raw.replace(anchor, 'deathCauseText(text, undefined, config.bot.name, NOT_A_DEATH)'))), false)
+})
+await t('the gate detaches with its bot: on `end` the listener and the timer go and the tail is flushed', () => {
+  const bot = new EventEmitter(); bot.username = 'hive-a-Alpha'; bot.chat = () => {}
+  const rows = []; let clock = 5_000_000
+  const g = CMD.attachCommands(bot, { describe: () => 'idle' }, { env: SHOW, emit: r => rows.push(r), now: () => clock, timers: true })
+  assert.equal(g.timerLive(), true, 'positive control: the real timer path is running')
+  assert.equal(bot.listenerCount('chat'), 1)
+  bot.emit('chat', 'griefer', '!stop')
+  bot.emit('end', 'reconnect')
+  assert.equal(g.timerLive(), false, 'the interval is cleared')
+  assert.equal(bot.listenerCount('chat'), 0, 'the listener is removed')
+  assert.match(rows.filter(r => r.kind === 'chat_ignored').at(-1)?.detail ?? '', /^ignored=1 addressed=1 /, 'the tail is flushed')
+  const n = rows.length; clock += 120_000; bot.emit('chat', 'griefer', '!stop')
+  assert.equal(rows.length, n, 'a detached gate writes nothing more')
+})
+await t('MUTANT KILLED: without the `end` hook the timer outlives its bot', async () => {
+  await withMutantsAll(CMD_URL, [["  try { bot.once?.('end', detach) } catch { /* a bot without events: the caller detaches */ }\n", '']], async mod => {
+    const bot = new EventEmitter(); bot.username = 'x'; bot.chat = () => {}
+    const g = mod.attachCommands(bot, { describe: () => 'idle' }, { env: SHOW, emit: () => {}, timers: true })
+    bot.emit('end', 'reconnect')
+    assert.equal(g.timerLive(), true, 'the mutant leaks the interval')
+    g.detach()
+  })
 })
 await t('a forged `[fleet]` hazard line reaches nothing: the only listener ignores the speaker', () => {
   const r = rig(CMD, SHOW)
