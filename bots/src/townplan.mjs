@@ -865,12 +865,15 @@ export function maintainPlan (plan, read, { now = Date.now(), containers = null,
     if (k) {
       if (!Number.isFinite(c.seenSince)) { c.seenSince = now; return { body: p, op: 'seen', why: `${c.kind} at ${c.at.join(',')} (an expired reservation)` } }
       if (!matured(c)) continue
-      c.state = 'placed'; delete c.seenSince; c.observed = true
+      c.state = 'placed'; delete c.seenSince; delete c.intentSet; c.observed = true
       return { body: p, op: 'observe', why: `${c.kind} at ${c.at.join(',')} (an expired reservation, read twice)` }
     }
     const at = c.at
     delete c.by; delete c.visit; delete c.until; delete c.seenSince
     c.state = 'free'
+    // the intent the expired reservation SET goes with it (skills planReserve marks it); an older intent stays
+    if (c.intentSet) { c.role = null; c.group = null }
+    delete c.intentSet
     p.transitions.push({ at, why: 'expired' })
     return { body: p, op: 'expire', why: `${c.kind} at ${at.join(',')}` }
   }
@@ -981,7 +984,10 @@ export function growPlan (plan, read, ctx = {}) {
     // JOINT ACCESS (spec 1.5(e)): the new cells reachable together with the plan's committed cells and the town's containers,
     // and none of them cutting an existing one off
     const ja = jointAccess(read, home, ok, { existing: ctx.existing ?? [], solid: rctx.solid })
-    const kept = ja.ok.filter(c => accessKept(read, home, p, [c.at], { existing: ctx.existing ?? [] }).ok)
+    // the WHOLE appended set judged together with the committed cells (reserved ones filled): a cell joins only if the set so
+    // far plus it still keeps every committed cell and container reachable (Codex code r2 P2: two cells could cut one jointly)
+    const kept = []
+    for (const c of ja.ok) if (accessKept(read, home, p, [...kept, c].map(e => e.at), { existing: ctx.existing ?? [] }).ok) kept.push(c)
     if (!kept.length) return null
     store.cells.push(...kept)
     return { body: p, op: 'extend', why: `${kept.length} extra annex cell(s)` }

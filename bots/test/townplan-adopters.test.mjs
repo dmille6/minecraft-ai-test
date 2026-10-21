@@ -172,6 +172,21 @@ await t('BUILDERS\' TEMPORARY TABLES (Claude code r1 P2): the composter\'s and t
   assert.ok(/wellTableCell\(\{ \.\.\.tableArgs, tableForbid: wellStrict \}\) \?\? wellTableCell\(\{ \.\.\.tableArgs, tableForbid: wellLoose \}\)/.test(src))
   assert.ok(/forbid: planStrict \}\) \?\?\s+tableCellFor\(\{ site, stand: \{ x: stand\.x, y: stand\.y, z: stand\.z \}, read, bodies: bodiesAround\(bot\), forbid: planLoose \}\)/.test(src))
 })
+await t('BUILDERS\' TABLES, LAST (Codex code r2 P2): place() with planTemp re-judges its EXPLICIT cell against the plan last -- a station reserved meanwhile is refused; without planTemp (placeIntoPlan\'s own reservation) it is placed', async () => {
+  const w = town([stack('crafting_table', 2)])
+  const PS = await import('../src/planstore.mjs')
+  const s0 = S.townPlanNow(w.bot).plan.plots.find(p => p.id === 'work').stations[0]
+  PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey(HOME), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'work').stations[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
+  S.townPlanHead(w.bot)
+  w.bot.entity.position = new Vec3(s0.at[0] - 0.5, 64, s0.at[2] + 0.5)
+  const r = await S.placeForTest({ bot: w.bot }, { item: 'crafting_table', x: s0.at[0], y: s0.at[1], z: s0.at[2] }, new AbortController().signal, { planTemp: true })
+  assert.notEqual(w.nameAt(...s0.at), 'crafting_table', JSON.stringify(r))
+  const r2 = await S.placeForTest({ bot: w.bot }, { item: 'crafting_table', x: s0.at[0], y: s0.at[1], z: s0.at[2] }, new AbortController().signal, {})
+  assert.equal(w.nameAt(...s0.at), 'crafting_table', JSON.stringify(r2))
+  const src = code('skills.mjs')
+  assert.ok(/placeWithin\(\{ item: 'crafting_table', x: cell\.x, y: cell\.y, z: cell\.z \}, \{ planTemp: true \}\)/.test(src), 'the composter builder')
+  assert.ok(/\{ wellOwn: site, by: 'build_well', planTemp: true \}/.test(src), 'the well builder')
+})
 console.log('townplan: the wiring (comments stripped)')
 await t('WIRED: the planner tick every PLAN_TICK_MS and both licence rows once per spawn (index.mjs)', () => {
   const src = code('index.mjs')

@@ -98,6 +98,25 @@ await t('THE FOUND SLOT (build spec 2.1): F1 first; F2 only with no container; F
   assert.equal(order({ leaseFree: false }).skip, 'lease_busy')
   assert.equal(order({ ready: () => false }).skip, 'nothing', 'an unready cell is never ordered')
 })
+await t('INTENT-COMPATIBLE CELLS (Claude/Codex code r2 P2): F3 takes its own group\'s cell first, then a cell with no intent, never another group\'s; F2 never a home cell', () => {
+  const p = plan0()
+  p.plots[1].stations.forEach(c => { c.state = 'placed' })
+  const ov = p.plots[0].cells[0]; ov.state = 'placed'
+  // a GONE/EXPIRED home of `wood` (free, intent kept) first in fill order, then a cell with no intent
+  p.plots[0].cells = [ov, { at: [9, 64, 2], kind: 'chest', role: 'home', group: 'wood', state: 'free' }, { at: [11, 64, -2], kind: 'chest', role: null, group: null, state: 'free' }]
+  const o = g => order({ plan: p, townContainer: true, bankGroups: [g] }).order
+  assert.equal(o('stone').args.at.join(), '11,64,-2', 'another group: the no-intent cell, never wood\'s')
+  assert.equal(o('wood').args.at.join(), '9,64,2', 'its own cell first')
+  // only conflicting cells free -> nothing (no order the walk would refuse)
+  p.plots[0].cells = [ov, { at: [9, 64, 2], kind: 'chest', role: 'home', group: 'wood', state: 'free' }]
+  assert.equal(order({ plan: p, townContainer: true, bankGroups: ['stone'] }).skip, 'nothing')
+  // F2: the overflow unready -> the no-intent cell, never a home cell
+  const q = plan0()
+  q.plots[0].cells = [{ at: [9, 64, -2], kind: 'chest', role: 'overflow', group: null, state: 'free' }, { at: [9, 64, 2], kind: 'chest', role: 'home', group: 'wood', state: 'free' }, { at: [11, 64, -2], kind: 'chest', role: null, group: null, state: 'free' }]
+  q.plots[1].stations.forEach(c => { c.state = 'placed' })
+  const r = F.foundOrder({ plan: q, items: [st('chest', 2)], ready: c => c.at.join() !== '9,64,-2', now: 1e9 })
+  assert.equal(r.order.args.step, 'F2'); assert.equal(r.order.args.at.join(), '11,64,-2')
+})
 await t('THE FOUND SLOT vs THE DEPOSIT (build spec 2.1): when the deposit would issue, only an F3 with a CARRIED chest goes first; room-safe crafting', () => {
   const p = plan0(); p.plots[1].stations[0].state = 'placed'; p.plots[1].stations[1].state = 'placed'
   assert.equal(order({ depositWouldIssue: true }).skip, 'deposit_first')
@@ -177,6 +196,28 @@ await t('F2 (dead end F2): the cell occupied on arrival -> unready, the reservat
   assert.equal(r.status, 'no_effect'); assert.match(r.detail, /no longer ready|could not be reserved/)
   const c = storeCells(w.bot)[0]
   assert.equal(c.state, 'free')
+})
+await t('THE CHAIN, intent kept (Claude/Codex code r2 P2): a free cell meant for `wood` -> F3 for `stone` picks the no-intent cell, the reserve is ACCEPTED and the chest lands; a released reservation keeps an older intent and drops the one it set', async () => {
+  const w = town([stack('chest', 3), stack('oak_log', 64)])
+  const cells = storeCells(w.bot)
+  await runSkill(w.bot, 'found_store', { at: cells[0].at, role: 'overflow', step: 'F2' })
+  // the next cell in fill order becomes wood's (a gone home: free, intent kept) -- a free cell's intent is the writer's to set
+  PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey({ x: 0, y: 64, z: 0 }), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'store').cells[1], { role: 'home', group: 'wood' }); return cur }, { by: 'Other' })
+  S.townPlanHead(w.bot)
+  const plan = S.townPlanNow(w.bot).plan
+  const noWork = JSON.parse(JSON.stringify(plan)); for (const c of noWork.plots.find(x => x.id === 'work').stations) c.state = 'placed'
+  const o = F.foundOrder({ plan: noWork, items: w.bot.inventory.items(), townContainer: true, bankGroups: ['stone'], ready: () => true, now: 1e9 }).order
+  assert.equal(o.args.step, 'F3'); assert.notEqual(o.args.at.join(), cells[1].at.join(), 'never wood\'s cell')
+  const r = await runSkill(w.bot, 'found_store', o.args)
+  assert.equal(r.status, 'success', r.detail)
+  const placed = storeCells(w.bot).find(c => c.at.join() === o.args.at.join())
+  assert.equal(placed.state, 'placed'); assert.equal(placed.group, 'stone'); assert.equal(placed.intentSet, undefined, 'the intent is the cell\'s now')
+  // a release keeps wood's older intent: occupy wood's cell, then try to found wood there -> unready -> released, still wood's
+  const woodCell = storeCells(w.bot)[1]
+  w.set(...woodCell.at, 'cobblestone')
+  await runSkill(w.bot, 'found_store', { at: woodCell.at, role: 'home', group: 'wood', step: 'F3' })
+  const after = storeCells(w.bot)[1]
+  assert.equal(after.state, 'free'); assert.equal(after.role, 'home'); assert.equal(after.group, 'wood')
 })
 await t('F8 (craft first, Codex spec r1 P1): the craft fails -> nothing was reserved, the cell is untouched', async () => {
   const w = town([stack('crafting_table', 1), stack('oak_log', 16), stack('cobblestone', 20)])
