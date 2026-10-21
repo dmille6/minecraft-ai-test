@@ -948,19 +948,22 @@ scenes.junkbank = async () => {
   const before = bag(NAME), chest0 = chestTotals()
   const bankRow = () => rowsOf(files.skillLog).find(r => r.name === '_junkout' && /^phase=bank /.test(r.detail))
   const bank = await waitFor(bankRow, 300000, 1000)
-  // a second look for the stone copies: the recount may land before or after the first tail run (reported, not a gate)
   await sleep(bank ? 8000 : 0)
   const after = bag(NAME), chest1 = chestTotals()
   const picks = b => Object.values(b.slots).filter(it => it.id === 'stone_pickaxe').length
   const tds = rowsOf(files.skillLog).filter(r => r.name === 'town_deposit').length
+  // the town's count of stone pickaxes (row P banks only under the target, so a count must come first): the recount order's run
+  const counted = rowsOf(files.skillLog).find(r => r.name === 'count_town' && r.status === 'success')
   await stopBot(); BRAIN_WANDER = false
   const junkIn = ['egg', 'flint', 'oak_sapling', 'leaf_litter'].filter(n => (chest1.totals[n] ?? 0) > (chest0.totals[n] ?? 0))
   const stationsLeft = ['chest', 'crafting_table', 'furnace'].map(n => [n, after.totals[n] ?? 0])
+  // the BASE-owned stacks stay (a tail run banks the rows only: Claude code r1 P3-4)
+  const baseChanged = unchanged(before, after, ['cobblestone', 'stick', 'egg', 'flint', 'oak_sapling', 'leaf_litter'])
   result({ scene: 'junkbank', root: BOT_ROOT, bag: { used: [before.used, after.used], before: before.totals, after: after.totals }, chest: { before: chest0.totals, after: chest1.totals },
-    bankRow: bank ? bank.detail : null, townDeposits: tds, picks: [picks(before), picks(after)], picksBanked: (chest1.totals.stone_pickaxe ?? 0) - (chest0.totals.stone_pickaxe ?? 0),
-    junkIntoChest: junkIn, stationsLeft, rows: joRows(files).slice(0, 24),
+    bankRow: bank ? bank.detail : null, townDeposits: tds, countedFirst: !!(counted && bank && counted.ts < bank.ts), picks: [picks(before), picks(after)], picksBanked: (chest1.totals.stone_pickaxe ?? 0) - (chest0.totals.stone_pickaxe ?? 0),
+    junkIntoChest: junkIn, stationsLeft, baseChanged, rows: joRows(files).slice(0, 24),
     CANDIDATE_PASS: !!(bank && (chest1.totals.torch ?? 0) === 11 && (chest1.totals.bone_meal ?? 0) === 30 && junkIn.length === 0 &&
-      stationsLeft.every(([, n]) => n >= 1) && picks(after) >= 3 && after.used < before.used),
+      stationsLeft.every(([, n]) => n >= 1) && baseChanged.length === 0 && picks(after) === 3 && (chest1.totals.stone_pickaxe ?? 0) - (chest0.totals.stone_pickaxe ?? 0) === 2 && after.used < before.used),
     BASE_SHAPE: !!(tds === 0 && chest1.used === 0 && after.used === before.used) })
 }
 // S3 (a fresh arena, a composter + a chest in town, peaceful): mushrooms, leaf litter and seeds go into the composter at a
@@ -971,7 +974,8 @@ scenes.junkcompost = async () => {
   const COMP = [[-4, 4], [4, 4], [-4, -4], [0, -6], [6, 0], [-6, 0]].map(([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz }))
     .find(c => Math.hypot(c.x - CHEST.x, c.z - CHEST.z) >= 3)
   rcon(`setblock ${COMP.x} ${COMP.y} ${COMP.z} minecraft:composter`)
-  const spec = [['brown_mushroom', 6], ['red_mushroom', 5], ['leaf_litter', 20], ['wheat_seeds', 7], ['oak_sapling', 20], ['spruce_sapling', 5], ['cobblestone', 20], ['bread', 3], ['stick', 4]]
+  // cooked_beef, not bread: the peaceful switch composts bread (peacefulkit.mjs PEACEFUL_COMPOST; Codex code r1 P2-4)
+  const spec = [['brown_mushroom', 6], ['red_mushroom', 5], ['leaf_litter', 20], ['wheat_seeds', 7], ['oak_sapling', 20], ['spruce_sapling', 5], ['cobblestone', 20], ['cooked_beef', 3], ['stick', 4]]
   const files = await startBot('junkcompost', spec, { pool: `sbxstock-${RUN}-junkcompost` })
   const before = bag(NAME)
   const visitRow = () => rowsOf(files.skillLog).find(r => r.name === '_junkout' && /^phase=compost /.test(r.detail))
@@ -982,7 +986,7 @@ scenes.junkcompost = async () => {
   await stopBot(); BRAIN_WANDER = false
   rcon(`setblock ${COMP.x} ${COMP.y} ${COMP.z} minecraft:air`)
   const gone = ['brown_mushroom', 'red_mushroom', 'leaf_litter', 'wheat_seeds'].filter(n => !(after.totals[n] ?? 0))
-  const kept = unchanged(before, after, ['oak_sapling', 'spruce_sapling', 'cobblestone', 'bread', 'stick'])
+  const kept = unchanged(before, after, ['oak_sapling', 'spruce_sapling', 'cobblestone', 'cooked_beef', 'stick'])
   result({ scene: 'junkcompost', root: BOT_ROOT, peaceful: /peaceful/i.test(r1('difficulty')), bag: { used: [before.used, after.used], before: before.totals, after: after.totals },
     visitRow: v ? v.detail : null, compostRuns: composts, gone, otherChanged: kept, rows: joRows(files).slice(0, 20),
     CANDIDATE_PASS: !!(v && /status=success/.test(v.detail) && gone.length === 4 && kept.length === 0),

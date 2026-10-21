@@ -3356,7 +3356,7 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
   })
   await t('junkout-01 MUTANT (cognitive): the loop\'s visit call removed -> the not-full bag of junk gets no well order (the defect the change fixes)', async () => {
     const src = readFileSync(CP, 'utf8')
-    const old = '      const visit = this.#visitOrder(milestone)\n'
+    const old = '      const visit = this.#visitOrder(milestone, { tickOnly: blocked })\n'
     assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
     const out = new URL(`./_mutant-cog-jo-${process.pid}.mjs`, import.meta.url)
     writeFileSync(out, src.replace(old, '      const visit = null\n').replace(/from '\.\//g, "from '../src/"))
