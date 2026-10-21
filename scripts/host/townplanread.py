@@ -169,7 +169,7 @@ def mark_refusal(c, n, nxt, k):
             return '%s changed while set' % mark
         if b is not None and b != nxt.get('at'):
             return '%s backdated' % mark
-        if c.get('state') == 'reserved' and not (nxt.get('at', 0) > c.get('until', 0) + EXPIRE_MARGIN_MS) and nxt.get('by') != c.get('by'):
+        if c.get('state') == 'reserved' and not ((nxt.get('at') or 0) > (c.get('until') or 0) + EXPIRE_MARGIN_MS) and nxt.get('by') != c.get('by'):
             return '%s on a live reservation by a non-holder' % mark
     target = n.get('state') or c.get('state')
     if n.get('seenSince') is not None and target == 'placed':
@@ -227,7 +227,7 @@ def transition_refusal(prev, nxt):
         if k in trans:
             return 'two transitions'
         trans[k] = t
-    at = nxt.get('at', 0)
+    at = (nxt.get('at') or 0)
     for k, (_, c) in before.items():
         n = after.get(k, (None, None))[1]
         if n is None:
@@ -240,7 +240,7 @@ def transition_refusal(prev, nxt):
         if mw:
             return mw
         t = trans.get(k)
-        late = at > c.get('until', 0) + EXPIRE_MARGIN_MS if c.get('state') == 'reserved' else False
+        late = at > (c.get('until') or 0) + EXPIRE_MARGIN_MS if c.get('state') == 'reserved' else False
 
         def observed(mark):
             v = c.get(mark)
@@ -267,9 +267,9 @@ def transition_refusal(prev, nxt):
                     return 'transition on a cell that stays reserved'
                 if n.get('by') != c.get('by') or n.get('visit') != c.get('visit'):
                     return 'live reservation taken'
-                if not n.get('until', 0) >= c.get('until', 0):
+                if not (n.get('until') or 0) >= (c.get('until') or 0):
                     return 'reservation shortened'
-                if n.get('until', 0) > c.get('until', 0) and nxt.get('by') != c.get('by'):
+                if (n.get('until') or 0) > (c.get('until') or 0) and nxt.get('by') != c.get('by'):
                     return 'renewed by a non-holder'
                 if not same_intent:
                     return 'reservation intent changed'
@@ -292,7 +292,7 @@ def transition_refusal(prev, nxt):
             continue
         if t:
             return 'transition on a free cell'
-        if n.get('state') == 'reserved' and (n.get('by') != nxt.get('by') or not n.get('until', 0) > at):
+        if n.get('state') == 'reserved' and (n.get('by') != nxt.get('by') or not (n.get('until') or 0) > at):
             return 'reservation not by the writer'
         if n.get('state') == 'reserved' and not intent_kept:
             return 'reservation changed its intent'
@@ -303,7 +303,7 @@ def transition_refusal(prev, nxt):
     for k, (_, n) in after.items():
         if k in before:
             continue
-        if n.get('state') == 'reserved' and (n.get('by') != nxt.get('by') or not n.get('until', 0) > nxt.get('at', 0)):
+        if n.get('state') == 'reserved' and (n.get('by') != nxt.get('by') or not (n.get('until') or 0) > (nxt.get('at') or 0)):
             return 'new cell reserved by another'
         if n.get('state') == 'placed':
             return 'new cell arrives placed'
