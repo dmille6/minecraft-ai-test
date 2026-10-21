@@ -143,7 +143,9 @@ export function foundOrder ({ plan = null, zonesKnown = true, items = [], wanted
   }
   // F2: the town's first container
   if (!townContainer && store && store.kind !== 'cluster') {
-    const cell = freeCells(store.cells).find(c => c.role === 'overflow' && ready(c)) ?? freeCells(store.cells).find(c => ready(c))
+    // the overflow cell, else a cell with NO intent: never a cell another group's home is meant for (a reservation may set an
+    // intent on a cell with none, never change one -- planstore; Claude/Codex code r2 P2)
+    const cell = freeCells(store.cells).find(c => c.role === 'overflow' && ready(c)) ?? freeCells(store.cells).find(c => (c.role ?? null) === null && ready(c))
     const m = chestMeans(items, means)
     if (cell && m.ok && (!m.craft || craftFits('chest'))) cands.push({ step: 'F2', skill: 'found_store', args: { at: cell.at, role: 'overflow', group: null, craft: m.craft }, why: `the town has no container: its first chest goes in the overflow cell (${m.why})` })
   }
@@ -159,7 +161,10 @@ export function foundOrder ({ plan = null, zonesKnown = true, items = [], wanted
     const m = chestMeans(items, means)
     if (g && !unassigned.length && m.ok && (!m.craft || craftFits('chest'))) {
       if (store.kind !== 'cluster') {
-        const cell = freeCells(store.cells).find(c => (c.role ?? null) !== 'overflow' && ready(c))
+        // THIS group's own cell first (a gone or expired home keeps its intent), then a cell with no intent; never one meant for
+        // the overflow or another group (Claude/Codex code r2 P2: the walk refuses changing an intent, so such a pick looped)
+        const free = freeCells(store.cells)
+        const cell = free.find(c => c.role === 'home' && c.group === g && ready(c)) ?? free.find(c => (c.role ?? null) === null && ready(c))
         if (cell) cands.push({ step: 'F3', skill: 'found_store', args: { at: cell.at, role: 'home', group: g, craft: m.craft, carried: !m.craft }, why: `the first stack of ${g} has no home: its chest goes in the next store cell (${m.why})` })
       } else if (plan.groups?.status === 'allocated' && !(plan.groups.drain ?? []).length && !(plan.groups.overflow ?? []).length) {
         cands.push({ step: 'F3', skill: 'found_store', args: { at: null, role: 'home', group: g, craft: m.craft, carried: !m.craft, cluster: true }, why: `the first stack of ${g} has no home and the town has no free container (${m.why})` })
