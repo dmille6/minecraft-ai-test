@@ -63,3 +63,5 @@ eval/
 env/
 # a test's mutant module (withMutant writes it next to the test and unlinks it; an interrupted run leaves it)
 bots/test/_mutant-*
+# the anchored-mutant helpers also write next to the package (homefix-02)
+bots/_mutant-*.mjs
