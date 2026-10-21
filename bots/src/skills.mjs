@@ -3590,8 +3590,22 @@ export function indexRecountKeys (bot, exclude = [], now = Date.now()) {
     const ents = townIndexEntries(bot)
     if (!ents) return []
     const ks = indexUnknownKeys((sc.keys ?? []).filter(k => !ex.has(k)), ents)
+    // protectzone-01 x townindex-01 (JIT 10-21b): NEVER AN EXTRA IN A PROTECTED ZONE -- the guard refuses its open, and the
+    // index can never learn it, so it would stay `unknown` and be walked to again after every backoff. The town search's
+    // rule (townSearchView): the scan's findBlocks never answers a zone cell, the journal's counted keys do; either half
+    // of a double shuts both. No zone loaded -> nothing changes.
+    let zonesNow = []
+    try { zonesNow = bot.protectZones?.() ?? [] } catch { zonesNow = [] }
+    const feet = bot.entity?.position ?? null
+    const zoneShut = k => {
+      if (!zonesNow.length) return false
+      try {
+        const p = keyVec(k), q = chestPartner(bot, p)
+        return [p, ...(q ? [q] : [])].some(c => !!blocked(zonesNow, c.x, c.y, c.z, feet))
+      } catch { return false }
+    }
     return cobbleReconcilable({ unknown: ks }, now).filter(k => /^-?\d+,-?\d+,-?\d+$/.test(k) && inTown(home, keyVec(k))
-      && !RECOUNT_SKIP.has(containerStatus(mem[k], now)) && recountMissStatus(misses[k], now) === 'ok')
+      && !RECOUNT_SKIP.has(containerStatus(mem[k], now)) && recountMissStatus(misses[k], now) === 'ok' && !zoneShut(k))
   } catch { return [] }
 }
 export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now() } = {}) {
