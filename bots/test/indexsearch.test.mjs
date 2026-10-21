@@ -279,6 +279,57 @@ await t('KITSTICKS with no sticks anywhere: the pre-draw finds none, the iron se
   assert.match(rowsSince('_kit_sticks', n0)[0] ?? '', /^want=6 took=0 left=6 /)
 })
 
+// x IRONPICK-01 (this variant's base, 2d410985): the kit draws up to 7 ingots (pickaxe + axe + shovel), and an order may carry a
+// PREFIX (args.n: the pickaxe alone, 3 ingots + 4 sticks) when the town cannot give the whole kit. Two compositions:
+//   (1) the KITSTICKS pre-draw's re-draw keeps the order's prefix -- a pickaxe-only run never widens into the whole kit;
+//   (2) the index ranks by the run's OWN draw size: kit_iron_3 (3 + 4 kept = 7) ranks an 8-ingot holder, kit_iron_7 (11) does not.
+const ipChain = async (S = S0) => {
+  freshPool(); clearWithdrawHolds(); offset += 61 * 60_000
+  const w = withServer(fakeWorld({ bag: slotted([T('iron_pickaxe', 30), stack('crafting_table', 1)]) }))   // worn: ironPickNeed; no sticks, no wood
+  for (const c of NEAR) { w.set(...c, 'chest'); w.stock(...c, [stack('dirt', 5)]) }
+  w.stock(...STICKS, [stack('stick', 20)])
+  w.set(...IRON, 'chest'); w.stock(...IRON, [stack('iron_ingot', 20)])
+  const n0 = RECS.length
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, { n: 1 }, new AbortController().signal)
+  assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+  assert.equal(count(w.bag, 'iron_pickaxe'), 2, 'the fresh pickaxe beside the worn copy')
+  assert.equal(count(w.bag, 'iron_axe') + count(w.bag, 'iron_shovel'), 0, 'the prefix only: no axe, no shovel')
+  assert.equal(count(w.containers.get(kOf(IRON)).slots, 'iron_ingot'), 17, 'the pickaxe\'s 3 ingots, from the container with no sticks')
+  assert.equal(count(w.containers.get(kOf(STICKS)).slots, 'stick'), 16, 'the pickaxe\'s 2 sticks + the 2 kept')
+  assert.match(rowsSince('_kit_sticks', n0)[0] ?? '', /^want=4 took=4 left=0 /)
+}
+await t('x IRONPICK-01: a pickaxe-only order (n=1) with no sticks and no wood -> KITSTICKS draws the pickaxe\'s 4 sticks, the re-draw KEEPS the prefix: 3 ingots, the pickaxe made, no axe', () => ipChain())
+const ipIndexPrefix = async (S = S0) => {
+  const bag = [T('stone_pickaxe', 100), stack('stick', 9), stack('crafting_table', 1)]
+  // CONTROL, the whole kit (7 ingots + 4 kept = 11): the far chest's 8 is not enough -- no index count, nothing first by the index
+  const w0 = farTown({ bag, far: [stack('iron_ingot', 8)] })
+  seed(FAR, { iron_ingot: [8, 1] })
+  let n0 = RECS.length
+  const r0 = await kit(S, w0)
+  assert.equal(r0.failClass, K.KIT_NARROW, `${r0.failClass}: ${r0.detail}`)
+  assert.match(rowsSince('_index_search', n0)[0] ?? '', /^by=toolkit need=kit_iron_7 town=10 cand=\d+ ix=0 first=near /)
+  // THE PREFIX (n=1: 3 + 4 kept = 7): the same 8-ingot entry is a count -- the far chest first, one visit
+  const w = farTown({ bag, far: [stack('iron_ingot', 8)] })
+  seed(FAR, { iron_ingot: [8, 1] })
+  n0 = RECS.length
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, { n: 1 }, new AbortController().signal)
+  assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+  assert.deepEqual(w.spy.opened, [kOf(FAR)], `the index's holder for the prefix's draw is opened first, and only it: ${w.spy.opened}`)
+  assert.match(rowsSince('_index_search', n0)[0] ?? '', /^by=toolkit need=kit_iron_3 town=10 cand=10 ix=1 first=ix visits=1 took=1 hit=1 /)
+  assert.equal(count(w.containers.get(kOf(FAR)).slots, 'iron_ingot'), 5)
+}
+/** The pure side of (2): the draw sizes ironpick-01's kitIronNeed names (1..7) against an 8-ingot KNOWN entry. */
+const prefixCounts = (I = IS) => {
+  const now = 10_000_000
+  const e = entriesOf([{ t: 'obs', id: 'o-far', k: 'far', at: now - 1000, size: 27, used: 1, names: { iron_ingot: [8, 1] }, w: null }])
+  const needs = [1, 2, 3, 4, 5, 6, 7].map(n => K.kitIronNeed(n))
+  assert.deepEqual(needs, ['kit_iron_1', 'kit_iron_2', 'kit_iron_3', 'kit_iron', 'kit_iron_5', 'kit_iron_6', 'kit_iron_7'], 'ironpick-01\'s need names (max 7)')
+  const c = I.indexSearchCounts(e, ['far'], needs, now)
+  assert.deepEqual(needs.filter(n => c[n].far), ['kit_iron_1', 'kit_iron_2', 'kit_iron_3', 'kit_iron'], 'n + 4 kept <= 8 only')
+}
+await t('x IRONPICK-01: kitIronNeed\'s draw sizes up to 7 each rank by n + the 4 kept (an 8-ingot entry counts for n <= 4 only)', () => prefixCounts())
+await t('x IRONPICK-01: the index ranks by the run\'s own draw -- an 8-ingot holder is no count for the whole kit (kit_iron_7: 11), and the first look for the pickaxe prefix (kit_iron_3: 7)', () => ipIndexPrefix())
+
 // THE STICKS BEYOND THE PRE-DRAW'S 4 VISITS (Codex r1 P2): run 1's pre-draw misses them, its iron search finds the iron holder
 // lacking sticks (held back for this bot) and ends no_sticks; the GATE must still issue the next order while a stick holder
 // is known, and run 2 fetches the sticks, then the iron
@@ -372,7 +423,11 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
   kills.noStickSkip = await withMutant(SKILLS_PATH, '          kitStickSkipSet(bot, containerKey(bot, cb.position))\n', '\n', S => killedBy(() => stickSkip(S)))
   kills.skipIsGlobal = await withMutant(SKILLS_PATH, '  bot.kitStickSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS)\n', '  bot.kitStickSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS); bot.withdrawSearchSkip ??= new Map(); bot.withdrawSearchSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS)\n', S => killedBy(() => stickSkip(S)))
   kills.futureCounts = await withMutant(IS_PATH, 'if (h && h.n >= spec.min && h.at <= now + FUTURE_SLACK_MS)', 'if (h && h.n >= spec.min)', I => killedBy(() => pureCounts(I)))
-  kills.noRedraw = await withMutant(SKILLS_PATH, '        if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn })', '        if (false) draw = kitDraw(items(), { credit: creditIn })', S => killedBy(() => k1Chain(S)))
+  kills.noRedraw = await withMutant(SKILLS_PATH, '        if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn, limit: drawLimit })', '        if (false) draw = kitDraw(items(), { credit: creditIn, limit: drawLimit })', S => killedBy(() => k1Chain(S)))
+  // x ironpick-01: the re-draw that drops the order's prefix widens a pickaxe-only run into the whole kit
+  kills.redrawWidens = await withMutant(SKILLS_PATH, '        if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn, limit: drawLimit })', '        if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn })', S => killedBy(() => ipChain(S)))
+  // x ironpick-01: an index that cannot count a prefix's draw size (kit_iron_<n>) never ranks for it
+  kills.noPrefixNeed = await withMutant(IS_PATH, "  if (m) return { match: x => x === 'iron_ingot', min: Math.max(1, Number(m[1])) + keep }", "  if (false) return { match: x => x === 'iron_ingot', min: Math.max(1, Number(m[1])) + keep }", I => killedBy(() => prefixCounts(I)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
