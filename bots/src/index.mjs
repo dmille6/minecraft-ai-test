@@ -56,6 +56,7 @@ import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence
 import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
+import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -330,6 +331,8 @@ function connect() {
       logEvent({ kind: 'townplan_mode', status: 'success', snapshot: snapshot(bot), detail: townPlanModeDetail({ seed: sd.use ? 'ok' : `${sd.ok ? '' : 'bad:'}${sd.why}`, zones: z.known ? `${z.zones.length}` : `unknown:${z.why}` }) })
     } catch {}
     if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
+    // junkout-01: the licence row, once per spawn -- `_junkout_mode`, a kind the base cannot write (bagallowance.mjs junkoutModeDetail)
+    try { logEvent({ kind: 'junkout_mode', status: 'success', snapshot: snapshot(bot), detail: junkoutModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {

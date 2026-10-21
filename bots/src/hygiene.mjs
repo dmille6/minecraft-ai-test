@@ -18,6 +18,9 @@
 // would take (settle-before-seal, Paper's cross-wall merging, trap holes) -- that is Phase 2, a separate change.
 
 import { spentStoneKept, TOOLKIT } from './toolkit.mjs'
+// junkout-01 (its own statement): the owner's "at most 2 spare stone pickaxes beyond the best working pickaxe" at the wear-out
+import { ALLOWANCE, BAG_ALLOWANCE } from './bagallowance.mjs'
+import { FLOOR, tier } from './toolfor.mjs'
 
 /** Worth nothing to this fleet in any quantity: never walked to by pickupNearbyItems. */
 export const NEVER_KEEP = new Set([
@@ -46,10 +49,10 @@ const usesLeft = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUse
  *   tools  the spent copies (<= 1 use) to destroy: every spent axe/shovel/hoe, and every spent pickaxe beyond
  *          the SPENT_PICKAXES_KEPT most-worn-last. Empty below TRIGGER_SLOTS. A tool with 2+ uses is never listed.
  */
-export function wearOutPlan (items = [], { toolkit = TOOLKIT.on } = {}) {
+export function wearOutPlan (items = [], { toolkit = TOOLKIT.on, allowance = BAG_ALLOWANCE.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const slots = list.length
-  if (slots < TRIGGER_SLOTS) return { slots, tools: [], toolkit: 0 }
+  if (slots < TRIGGER_SLOTS) return { slots, tools: [], toolkit: 0, junkout: 0 }
   // EXACTLY 1 use. A copy the client still shows at 0 has already broken on the server (durability lags); it is
   // not real, so it is neither worn out nor counted toward the three last-swing keeps (both reviews: the old
   // ascending sort KEPT the phantom 0-use copies and wore out working 1-use ones).
@@ -62,8 +65,28 @@ export function wearOutPlan (items = [], { toolkit = TOOLKIT.on } = {}) {
   const stoneOut = spentStoneKept(list, SPENT_PICKAXES_KEPT, toolkit) === 0 ? picks.filter(it => it.name === 'stone_pickaxe') : []
   const rest = picks.filter(it => !stoneOut.includes(it))
   const base = picks.slice(SPENT_PICKAXES_KEPT)
-  const tools = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...rest.slice(SPENT_PICKAXES_KEPT)].slice(0, MAX_PER_ORDER)
-  return { slots, tools, toolkit: tools.filter(it => stoneOut.includes(it) && !base.includes(it)).length }
+  // THE SPARES CAP (junkout-01, design section 3 D): with a WORKING pickaxe in the bag, the spent copies last-swing keeps count
+  // against the owner's two spares -- so a bag never holds the best + 2 stone + 3 spent. Without a working pickaxe the three
+  // stay (last-swing's own job: three spent swings mine the three cobblestone of the next stone pickaxe).
+  const keepSpent = allowance ? spentKeptUnderSpares(list) : SPENT_PICKAXES_KEPT
+  const restOut = rest.slice(keepSpent), restBase = rest.slice(SPENT_PICKAXES_KEPT)
+  const tools = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...restOut].slice(0, MAX_PER_ORDER)
+  return { slots, tools, toolkit: tools.filter(it => stoneOut.includes(it) && !base.includes(it)).length,
+           junkout: tools.filter(it => restOut.includes(it) && !restBase.includes(it)).length }
+}
+
+/**
+ * SPENT PICKAXES LAST-SWING MAY KEEP UNDER THE OWNER'S SPARES (junkout-01) -> a number. Pure. With a working pickaxe (> FLOOR
+ * uses, any tier) in the bag: min(SPENT_PICKAXES_KEPT, max(0, ALLOWANCE.stoneSpares - the stone copies with >= 2 uses other
+ * than the best working one)). With none: SPENT_PICKAXES_KEPT, unchanged. A 1-use copy counts toward no reserve (toolfor
+ * depositSurvivors and the escape reserve count copies above HARD_STOP), so wearing it out spends no reserve.
+ */
+export function spentKeptUnderSpares (items = []) {
+  const picks = (Array.isArray(items) ? items : []).filter(it => it?.name && it.name.endsWith('_pickaxe'))
+  const best = picks.filter(it => usesLeft(it) > FLOOR).sort((a, b) => tier(b.name) - tier(a.name) || usesLeft(b) - usesLeft(a) || (a.slot ?? 0) - (b.slot ?? 0))[0]
+  if (!best) return SPENT_PICKAXES_KEPT
+  const spares = picks.filter(it => it !== best && it.name === 'stone_pickaxe' && usesLeft(it) >= 2).length
+  return Math.min(SPENT_PICKAXES_KEPT, Math.max(0, ALLOWANCE.stoneSpares - spares))
 }
 
 /**

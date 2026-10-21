@@ -99,15 +99,21 @@ await t('craftArrived: a tool counts only as a NEW full-durability copy; a stack
   assert.equal(craftArrived([item('oak_planks', 10)], [item('oak_planks', 10)], planks), false)
 })
 
+// THE DEPLOYED RULE (BAG_ALLOWANCE=off): junkout-01's spares cap changes which copy is 'spent' (junkout.test.mjs pins it)
+const OFF = { allowance: false }
 await t('craftRoomRemedy: a spent axe first; a pickaxe craft may wear ONE spent pickaxe below the kept three; nothing else', () => {
   const PK = item('iron_pickaxe', 1, { left: 200 })
-  assert.equal(craftRoomRemedy(bagOf(36, [PK, spent('stone_axe'), spent('stone_pickaxe')]), 'stone_pickaxe').tool.name, 'stone_axe')
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, spent('stone_axe'), spent('stone_pickaxe')]), 'stone_pickaxe', OFF).tool.name, 'stone_axe')
   const three = bagOf(36, [PK, spent('stone_pickaxe'), spent('wooden_pickaxe'), spent('stone_pickaxe')])
-  const r = craftRoomRemedy(three, 'stone_pickaxe')
+  const r = craftRoomRemedy(three, 'stone_pickaxe', OFF)
   assert.equal(r.why, 'replaced'); assert.equal(r.tool.name, 'wooden_pickaxe', 'lowest tier first')
-  assert.equal(craftRoomRemedy(three, 'oak_planks'), null, 'planks replace no pickaxe: the three stay')
-  assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 0 })]), 'stone_pickaxe'), null, 'a 0-use phantom is not real')
-  assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe'), null, 'two uses is not spent')
+  assert.equal(craftRoomRemedy(three, 'oak_planks', OFF), null, 'planks replace no pickaxe: the three stay')
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 0 })]), 'stone_pickaxe', OFF), null, 'a 0-use phantom is not real')
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe', OFF), null, 'two uses is not spent')
+  // junkout-01 ON: with a working (iron) pickaxe and no stone spare, the owner's two spares leave room for TWO spent copies,
+  // so the third is the hygiene plan's own pick ('spent') before any 'replaced' -- still one spent copy, still lowest tier first
+  const on = craftRoomRemedy(three, 'stone_pickaxe', { allowance: true })
+  assert.equal(on.why, 'spent'); assert.ok(/_pickaxe$/.test(on.tool.name))
 })
 
 await t('craftRoomRemedy PROTECTS THE LAST DIGGING TOOL: no pickaxe is worn out unless a pickaxe with 2+ uses survives it', () => {
@@ -496,7 +502,9 @@ await t('make room: wears out the spent pickaxe the craft replaces (below the ke
     spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe')]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail)
-  assert.match(r.detail, /made room by wearing out a spent stone_pickaxe on stone \(the copy this craft replaces\)/)
+  // junkout-01 (design 3 D): with a working pickaxe in the bag the spares cap makes the copy the hygiene plan's own pick, so
+  // the suffix is said only under the deployed rule; the wear-out itself is the same
+  assert.match(r.detail, /made room by wearing out a spent stone_pickaxe on stone( \(the copy this craft replaces\))?/)
   assert.equal(digs.length, 1); assert.equal(digs[0].with, 'stone_pickaxe')
   const copies = slots.filter(s => s?.name === 'stone_pickaxe')
   assert.equal(copies.filter(s => s.durabilityUsed === s.maxDurability - 1).length, 2, 'exactly one spent copy gone')
