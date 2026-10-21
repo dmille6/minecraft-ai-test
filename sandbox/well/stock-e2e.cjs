@@ -1087,6 +1087,74 @@ async function ixScene (scene, { sticks = false } = {}) {
       (!sticks || ((stickChest?.stick ?? 0) === 14 && kst.some(d => /^want=6 took=6 /.test(d)) && ix.some(d => /^by=kit_sticks .* first=ix visits=1 took=1 hit=1 /.test(d))))),
     BASE_SHAPE: !!(licence === 0 && ix.length === 0 && (sticks ? (kit.every(r => /outcome=no_sticks /.test(r.detail)) && (after.far.iron_ingot ?? 0) === 20) : (crafted && visits > 1))) })
 }
+// IXPICK (indexsearch-01 x ironpick-01, the composition on base 2d410985): a WORN iron pickaxe (30 uses: the kit makes the
+// pickaxe too), no sticks and no wood; 20 sticks in a near chest (+10, +4); FAR holds 8 ingots -- enough for the pickaxe's draw
+// (3 + 4 kept), not the whole kit's (7 + 4). The index is seeded with FAR and the stick chest (the live bot's world).
+//   CANDIDATE: run 1 (whole kit) -- KITSTICKS draws the whole kit's 8 sticks first; the iron search for kit_iron_7 finds no
+//            container with 11 and ends `narrow`; run 2 (the bot restarted in the same pool with run 1's bag: the cooldown is
+//            the loop's memory) is the prefix, n=1, kit_iron_3: FAR is the index's holder -- first, one visit -- 3 ingots
+//            drawn, the pickaxe made. FAR 8 -> 5, sticks 20 -> 12.
+//   BASE (townindex-01 on ironpick-01): no stick pre-draw -- FAR has no sticks and the bag none: no run makes the pickaxe
+//            (run 1 narrows or backs off; a run 2 is refused for sticks); FAR still 8.
+async function ixPickScene (scene) {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  const near = [...IX_NEAR.slice(0, 8), IX_STICKS]
+  for (const c of near) setChest(c === IX_STICKS ? [['stick', 20]] : [['dirt', 5]], at(c))
+  const far = at(TS_FAR)
+  setChest([['iron_ingot', 8]], far)
+  const pool = `sbxix-${RUN}-${scene}`
+  const before = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const bagSpec = [['iron_pickaxe[minecraft:damage=220]', 1], ['crafting_table', 1], ...TORCH(2)]
+  let seeded = 0, world = null
+  const files = await startBot(scene, bagSpec, { pool, onSpawn: async ({ skillLog, poolDir }) => {
+    const row = await waitFor(() => rowsOf(skillLog).find(r => r.name === '_plinth_mode'), 30000, 250)
+    world = ((row?.detail ?? '').match(/ w=(\S+)/) || [])[1] ?? null
+    if (!world || world === '-') throw new Error('no world identity in the bot\'s _plinth_mode row')
+    fs.mkdirSync(poolDir, { recursive: true })
+    seeded = await seedIndex(poolDir, [far, at(IX_STICKS)], world)
+  } })
+  const t0 = Date.now()
+  const kitRowsOf = f => rowsOf(f.skillLog).filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail))
+  const keep = f => rowsOf(f.skillLog).filter(r => /^(_toolkit|_kit_search|_index_search|_kit_sticks|_indexsearch_mode|_kit_ironpick)$/.test(r.name))
+  await waitFor(() => kitRowsOf(files).length >= 1, 300000, 1000)
+  await sleep(3000)
+  let rows = keep(files)
+  // RUN 2 (only after a `narrow`). The toolkit's 10-minute cooldown is in the cognitive loop's memory; in the sandbox's first
+  // try the idle bot's livelock escape walked it off the slab in those 10 minutes (the run never came). So the bot is restarted
+  // in the SAME pool (the town memory's misses and the index are on disk) with the bag run 1 left it -- the worn pickaxe, the
+  // table, the torches and whatever sticks run 1 drew -- and its first order is the kit's again: the prefix (n=1)
+  if (/outcome=narrow /.test(kitRowsOf(files)[0]?.detail ?? '')) {
+    const sticks1 = bag(NAME).totals.stick ?? 0
+    await stopBot()
+    const spec2 = [...bagSpec, ...(sticks1 > 0 ? [['stick', sticks1]] : [])]
+    const files2 = await startBot(`${scene}2`, spec2, { pool })
+    await waitFor(() => kitRowsOf(files2).length >= 1, 300000, 1000)
+    await sleep(3000)
+    rows = [...rows, ...keep(files2)]
+  }
+  const after = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const b = bag(NAME)
+  const freshN = Number(/count: (\d+)/.exec(r1(`execute if items entity ${NAME} container.* minecraft:iron_pickaxe[minecraft:damage=0]`))?.[1] ?? 0)
+  const wornN = Number(/count: (\d+)/.exec(r1(`execute if items entity ${NAME} container.* minecraft:iron_pickaxe[minecraft:damage=220]`))?.[1] ?? 0)
+  await stopBot(); BRAIN_WANDER = false
+  const kit = rows.filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail)).map(r => r.detail)
+  const licence = rows.filter(r => r.name === '_indexsearch_mode').length
+  const ix = rows.filter(r => r.name === '_index_search').map(r => r.detail)
+  const kst = rows.filter(r => r.name === '_kit_sticks').map(r => r.detail)
+  const nearDirtSame = near.every((c, i) => c === IX_STICKS || JSON.stringify(after.near[i]) === JSON.stringify({ dirt: 5 }))
+  const stickChest = after.near[near.indexOf(IX_STICKS)]
+  result({ scene, root: BOT_ROOT, ms: Date.now() - t0, seeded, world, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.name} ${r.status} ${r.detail.slice(0, 200)}`),
+    world: { bag: b.totals, freshIronPick: freshN, wornIronPick: wornN, farBefore: before.far, farAfter: after.far, nearDirtSame, stickChest }, licence, ix, kitSticks: kst, kit,
+    CANDIDATE_PASS: !!(licence >= 1 && /outcome=narrow /.test(kit[0] ?? '') && /^phase=kit outcome=crafted needs=iron_pickaxe drew=3 /.test(kit[1] ?? '') &&
+      freshN === 1 && wornN === 1 && (after.far.iron_ingot ?? 0) === 5 && (stickChest?.stick ?? 0) === 12 && nearDirtSame &&
+      kst.some(d => /^want=8 took=8 /.test(d)) && ix.some(d => /^by=toolkit need=kit_iron_3 .* first=ix visits=1 took=1 hit=1 /.test(d))),
+    // BASE: no index rows, no pickaxe made, FAR untouched (run 1 may narrow or back off; run 2, if any, is refused for sticks)
+    BASE_SHAPE: !!(licence === 0 && ix.length === 0 && kst.length === 0 && kit.length >= 1 && kit.every(d => !/outcome=crafted /.test(d)) && freshN === 0 && (after.far.iron_ingot ?? 0) === 8) })
+}
+scenes.ixpick = () => ixPickScene('ixpick')
 scenes.ixkit = () => ixScene('ixkit')
 scenes.ixsticks = () => ixScene('ixsticks', { sticks: true })
 scenes.townsearch = () => townSearchScene('townsearch')
