@@ -63,7 +63,6 @@ import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
-import { startComms } from './comms.mjs'
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -76,7 +75,6 @@ let stopReflexes = null
 let pickupFinal = null
 // The `_dig_town` instrument's final summary (digtown.mjs), for the same reason.
 let digTownFinal = null
-let stopComms = null
 let worldFacts = null
 let cognitive = null
 let lessons = null
@@ -1227,7 +1225,9 @@ function connect() {
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
     // See evictor.mjs: the radius is a CORRECTNESS bound, not a memory knob.
     startChunkEvictor(bot)
-    stopComms = startComms(bot, worldFacts)
+    // PEER CHAT INGESTION IS RETIRED (chatgate-01; comms design 5.3, owner C7): it ingested 0 lines in 24 h in 12 journals
+    // while the server carried them, it is redundant with world-facts on one host, and it believed any name with the
+    // fleet's hyphen count. The `[fleet]` announcements (comms.mjs announce*) stay, as visible lines.
     stopDeathWatch = watchForDeathCause(bot)
     // Sample height on a slow timer. Cheap, and it is the only way to know
     // afterwards how far a bot fell -- position at the moment of death tells
@@ -1247,13 +1247,14 @@ function connect() {
         peakY -= Math.min(0.35, (peakY - y) * 0.06)
       }
     }, 1000)
+    // CHATGATE-01 (commands.mjs): commands only from OWNER_CHAT_NAMES (empty: none), read-only verbs only
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
     log('info', 'spawned', {
       pos: s.bot.pos, health: s.bot.health, food: s.bot.hunger, dimension: s.game.dimension,
     })
-    bot.chat(`${config.bot.name} online (${config.bot.role}) — say "${config.bot.name} help"`)
+    bot.chat(`${config.bot.name} online (${config.bot.role})`)
 
     if (config.viewer.enabled) {
       // A DEBUG VIEWER MUST NOT BE ABLE TO KILL THE AGENT.
@@ -1411,7 +1412,6 @@ function connect() {
 
   bot.on('end', reason => {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
-    if (stopComms) { stopComms(); stopComms = null }
     if (stopDeathWatch) { stopDeathWatch(); stopDeathWatch = null }
     clearInterval(peakTimer)
     if (cognitive) { cognitive.stop(); cognitive = null }
