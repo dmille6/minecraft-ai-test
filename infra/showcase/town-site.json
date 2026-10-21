@@ -1,0 +1,261 @@
+{
+ "version": 1,
+ "world": "showcase",
+ "seed": 1020202620,
+ "hashed_seed": "1292467317:1056448044",
+ "home": [
+  0,
+  70,
+  0
+ ],
+ "board": [
+  3,
+  70,
+  0
+ ],
+ "border_radius": 5000,
+ "builds_core": true,
+ "town_plan": {
+  "template": "ring@1",
+  "orientation": "W",
+  "s": 70,
+  "avoid": [
+   {
+    "id": "trial-chambers",
+    "box": [
+     -16,
+     -43,
+     69,
+     84,
+     27,
+     160
+    ],
+    "why": "the trial chambers under the SE of town (protectzone-01 left them ASK): no digging plot over them"
+   }
+  ]
+ },
+ "plots": [
+  {
+   "id": "core",
+   "kind": "plaza",
+   "min": [
+    -6,
+    -6
+   ],
+   "max": [
+    6,
+    6
+   ],
+   "y": 70
+  },
+  {
+   "id": "store",
+   "kind": "storehouse",
+   "min": [
+    -15,
+    -4
+   ],
+   "max": [
+    -7,
+    4
+   ],
+   "y": 70,
+   "cells": [
+    {
+     "at": [
+      -9,
+      71,
+      2
+     ],
+     "kind": "chest",
+     "role": "overflow"
+    },
+    {
+     "at": [
+      -9,
+      71,
+      -2
+     ],
+     "kind": "chest",
+     "role": null
+    },
+    {
+     "at": [
+      -11,
+      71,
+      2
+     ],
+     "kind": "chest",
+     "role": null
+    },
+    {
+     "at": [
+      -11,
+      71,
+      -2
+     ],
+     "kind": "chest",
+     "role": null
+    },
+    {
+     "at": [
+      -13,
+      71,
+      0
+     ],
+     "kind": "chest",
+     "role": null
+    },
+    {
+     "at": [
+      -13,
+      71,
+      2
+     ],
+     "kind": "chest",
+     "role": null
+    },
+    {
+     "at": [
+      -13,
+      71,
+      -2
+     ],
+     "kind": "chest",
+     "role": null
+    }
+   ]
+  },
+  {
+   "id": "work",
+   "kind": "workshop",
+   "min": [
+    -11,
+    -8
+   ],
+   "max": [
+    -7,
+    -6
+   ],
+   "y": 70,
+   "stations": [
+    {
+     "at": [
+      -7,
+      71,
+      -7
+     ],
+     "kind": "crafting_table"
+    },
+    {
+     "at": [
+      -8,
+      71,
+      -7
+     ],
+     "kind": "furnace"
+    },
+    {
+     "at": [
+      -9,
+      71,
+      -7
+     ],
+     "kind": "furnace"
+    },
+    {
+     "at": [
+      -10,
+      71,
+      -7
+     ],
+     "kind": "crafting_table"
+    },
+    {
+     "at": [
+      -11,
+      71,
+      -7
+     ],
+     "kind": "furnace"
+    }
+   ]
+  },
+  {
+   "id": "well",
+   "kind": "well",
+   "sector": "E"
+  },
+  {
+   "id": "farm",
+   "kind": "farm",
+   "sector": "S",
+   "composter": [
+    -1,
+    71,
+    9
+   ]
+  },
+  {
+   "id": "gate",
+   "kind": "gate",
+   "sector": "N"
+  },
+  {
+   "id": "shaft",
+   "kind": "shaft",
+   "sector": "NE"
+  },
+  {
+   "id": "monument",
+   "kind": "monument",
+   "sector": "NW"
+  },
+  {
+   "id": "pavilion",
+   "kind": "pavilion",
+   "sector": "SE"
+  },
+  {
+   "id": "hall",
+   "kind": "hall",
+   "sector": "SW"
+  }
+ ],
+ "paths": [
+  {
+   "id": "p-well",
+   "to": "well",
+   "width": 2,
+   "seg": [
+    7,
+    0,
+    9,
+    1
+   ]
+  },
+  {
+   "id": "p-farm",
+   "to": "farm",
+   "width": 2,
+   "seg": [
+    0,
+    7,
+    1,
+    9
+   ]
+  },
+  {
+   "id": "p-gate",
+   "to": "gate",
+   "width": 2,
+   "seg": [
+    0,
+    -44,
+    1,
+    -7
+   ]
+  }
+ ],
+ "source": "bots/scripts/townplan-offline.mjs over the showcase region files copied read-only 10-21 (bots/test/fixtures/townplan-showcase-dump.json); infra/showcase/town-plan-preview.json is its full output"
+}
