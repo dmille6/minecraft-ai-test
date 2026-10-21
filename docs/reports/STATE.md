@@ -101,6 +101,24 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-21 04:45Z — toolkit-03 +180 NOT_YET (3 pools; strong mechanism); homefix-02 QUEUED (after toolkit-03, HELD); gap plan
+
+- **toolkit-03 +180 04:23Z NOT_YET** (3 pools -> no tier-2 KEEP; exposure met): kit "no iron" per attempt canary 17/24 -> 0/11 vs
+  control 56/76 -> 62/88 (DiD -0.676); kits crafted per bot-h 0.111 -> 0.244 (DiD +0.123); smelt ingots 104 -> 152 vs control
+  172 -> 80; D1-D3 0, toolkit defects 0, C1-C3 0. Deaths 2 v 5 (held); one rung-linked `entombed` (hive-b-Comet 01:42:36,
+  v14c report-only; operator to review). +360 ~07:11Z.
+- **homefix-02 READY + QUEUED after toolkit-03, HELD for the gap** (owner X9 + 10-21 01:20Z "yes"): canary 08b237f7 on
+  homefix02-on-9e7d998 (records homefix02-records-1021 634ecb7e); both engines APPROVE (design r6, code r3); 274/274; Paper:
+  ice-head trap base died 3/3 vs homefix-02 lived 3/3; relocation over a frozen river 3/3 dry landings (homefix-01 3/3 on ice);
+  home rescue dropped into the trap lived 2/2. Diagnosis: death 1 = the drowning route scan never read the head cell (answered
+  `up` under ice; 10 of 92 old-code drownings in 7 d had this signature, all hive-d); death 2 = a magma/bubble-column pool,
+  not linked (follow-up F1). Licence `_relocate_landed`; read homefix2read.py (G5a-g defect gates, G6 rescue-adjacent drownings:
+  1 blocks KEEP, 2 + DiD + p<.05 REVERT). JIT variant on toolkit-03's 34d3e5e9 being built (jit-1021/homefix-02.entry.json).
+- **Gap after toolkit-03 closes (holds: homefix-02, ironpick-01, protectzone-01):** (1) OWNER: ~/dmove.sh --apply (20 *-d bots
+  -> 5080 primary, 3090 fallback) + endpoint check; (2) isolated-b pilot: isolated2shared-direct.sh with --quiet 240
+  --accept-contamination owner (owner 01:30Z: 240 min, towns only); (3) release homefix-02 (verify head = homefix-02, variant
+  matches the fleet sha), keep ironpick/protectzone behind it.
+
 ## 10-21 01:40Z — OWNER answered the 22-item list (memory owner-decisions-1021-list); toolkit-03 LIVE (3 pools); protectzone-01 queued + held
 
 - toolkit-03 `34d3e5e9` LIVE 01:11:13Z on board-a, placebo-a, hive-b (3 pools: no tier-2 +180 KEEP; reads on to +360 ~07:11Z).
