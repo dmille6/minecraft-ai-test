@@ -13,6 +13,7 @@
 // Everything here is PURE so the decisions can be tested as behaviour; skills.mjs does the acting.
 
 import { wearOutPlan, wearRank } from './hygiene.mjs'
+import { BAG_ALLOWANCE } from './bagallowance.mjs'   // junkout-01 (design 3 D): the hygiene plan the remedy reads
 import { TOOL_RE, tier, remaining } from './toolfor.mjs'
 import { inPickupBox } from './pickupbox.mjs'
 import { isCobble } from './bankable.mjs'
@@ -267,10 +268,10 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  * review round 2).
  */
 export const MIN_SURVIVOR_USES = 2
-export function craftRoomRemedy (items = [], item = '') {
+export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= MIN_SURVIVOR_USES)
-  const planned = wearOutPlan(list).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
+  const planned = wearOutPlan(list, { allowance }).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
   if (planned) return { tool: planned, why: 'spent' }
   if (/_pickaxe$/.test(String(item))) {
     const spent = list.filter(it => /_pickaxe$/.test(it.name) && remaining(it) === 1 && survives(it))
