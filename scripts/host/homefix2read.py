@@ -8,6 +8,9 @@
 #   G5a  a watchdog `started` row with air_danger=1 or air_pocketing=1 and NOT air_capped=1               (defect)
 #   G5b  a level-1 relocation `requested` row without target_x / dry_tries; a fallback row with dry_tries != 16 (defect)
 #   G5c  a `_drowning_route` `up` row whose head= cell is not swimmable                                   (defect)
+#        -- a SELF-CONSISTENCY check: the scan's own predicate on the scan's own head read (Claude code r2 P3-3); it
+#        catches a code regression, not an outcome. The outcome evidence for C1 is Paper S1/S3. A route row that does
+#        not parse (no head=/head_box=) is missing evidence.
 #   G5d  an `_air_rescue_yield` whose attempt has no terminal within the 230-s hard-stop bound of its start (defect;
 #        > 60 s reported)
 #   G5d' an `_air_danger` row (recomputed predicate true, owner watchdog) with interrupt_issued=0, or the attempt's FIRST
@@ -120,6 +123,7 @@ def deadline_for(pools):
 
 KEEP_EVENTS = {'_watchdog_rescue', '_stagnation', '_stagnation_reconnect', '_death', SPAWN_MARK, '_stranded', '_stranded_underground',
                '_air_danger', '_air_rescue_yield', '_relocate_landed', '_air_pocket_start', '_air_pocket', '_air_drowning_observed',
+               '_water_surface', '_water_no_air_route',
                '_stranded_unrecoverable', '_drowning', '_low_health', '_trap'}
 
 
@@ -416,9 +420,9 @@ def g5a_eval(rr):
     d = miss = 0; ex = []
     for aid, x in rr.items():
         a = x['start']
-        if a is None or a.get('level') is None:
+        if a is None:
             continue
-        if any(k not in a for k in ('air_danger', 'air_pocketing', 'air_capped')):
+        if any(k not in a for k in ('level', 'air_danger', 'air_pocketing', 'air_capped')):
             miss += 1; continue
         if (int(a.get('air_danger') or 0) or int(a.get('air_pocketing') or 0)) and not int(a.get('air_capped') or 0):
             d += 1; ex.append(('G5a', aid, a))
@@ -454,17 +458,17 @@ def head_swimmable(name, box):
 def g5c_eval(rows):
     """-> (opportunities, defects, ex). A `_drowning_route` `up` with a non-swimmable head cell; routes without head= are
     old-build rows (counted as missing by the caller)."""
-    o = d = 0; ex = []
+    o = d = miss = 0; ex = []
     for r in rows:
         if r['name'] != '_drowning_route':
             continue
         m = ROUTE_RE.search(r.get('detail') or '')
         if not m:
-            continue
+            miss += 1; continue          # a route row this build cannot have written: missing evidence (Codex code r2 P2-1)
         o += 1
         if m.group(1) == 'up' and not head_swimmable(m.group(3), m.group(4)):
             d += 1; ex.append(('G5c', r['t'].isoformat(), r.get('detail')))
-    return o, d, ex
+    return o, d, ex, miss
 
 
 HEAD_ROW_RE = re.compile(r'head(?: block)? ([a-z_]+)')
@@ -622,8 +626,9 @@ def g5_fixtures_ok():
         rr = rescue_rows([R(0, 'a', 'requested', kind='stagnation'), R(1, 'a', 'started', air_danger=1, air_pocketing=0, air_capped=0),
                           R(10, 'b', 'requested', kind='stagnation'), R(11, 'b', 'started', air_danger=1, air_pocketing=0, air_capped=1),
                           R(20, 'c', 'requested', kind='stagnation'), R(21, 'c', 'started'),
-                          R(30, 'e', 'requested', kind='stagnation'), R(31, 'e', 'started', air_danger=0)])
-        ok.append(g5a_eval(rr)[:2] == (1, 2))
+                          R(30, 'e', 'requested', kind='stagnation'), R(31, 'e', 'started', air_danger=0),
+                          R(40, 'f', 'requested', kind='stagnation'), {'t': _m(41), 'name': '_watchdog_rescue', 'args': {'attempt': 'f', 'phase': 'started', 'air_danger': 0, 'air_pocketing': 0, 'air_capped': 0}}])
+        ok.append(g5a_eval(rr)[:2] == (1, 3))
         # G5b: an L1 requested row without its target; a fallback with 16 tries is fine
         rr = rescue_rows([R(0, 'a', 'requested', target_x=1, dry_tries=2), R(5, 'b', 'requested'),
                           R(9, 'c', 'requested', level=2, remedy='home', fallback='no_dry_relocation', dry_tries=16)])
@@ -633,7 +638,7 @@ def g5_fixtures_ok():
                 {'t': _m(1), 'name': '_drowning_route', 'detail': 'up dist=1 at 0,60,0 scoop=dry head=water head_box=empty'},
                 {'t': _m(2), 'name': '_drowning_route', 'detail': 'up dist=2 at 0,60,0 scoop=dry head=oak_sign head_box=empty'},
                 {'t': _m(3), 'name': '_drowning_route', 'detail': 'sealed dist=-1 at -15,61,54 scoop=dry axes=+x:ice@1 head=ice head_box=block cap=head'}]
-        ok.append(g5c_eval(rows)[:2] == (4, 1))
+        ok.append(g5c_eval(rows)[:2] == (4, 1) and g5c_eval(rows + [{'t': _m(4), 'name': '_drowning_route', 'detail': 'up dist=1 head_box=block'}])[3] == 1)
         old = [{'t': _m(0), 'name': '_air_drowning_observed', 'detail': 'oxygen 8, head block ice, health 20'},
                {'t': _m(2), 'name': '_drowning_route', 'detail': 'up dist=1 at -15,61,54 scoop=dry'},
                {'t': _m(10), 'name': '_water_surface', 'detail': 'afloat and unowned — surface (head water, health 20)'},
@@ -1076,7 +1081,7 @@ for b in can_bots:
     rr = rescue_rows(post)
     d, miss, e = g5a_eval(rr); G5['g5a'] += d; G5['missing'] += miss; ex5 += e
     d, e = g5b_eval(rr); G5['g5b'] += d; ex5 += e
-    o, d, e = g5c_eval(post); G5['g5c_opps'] += o; G5['g5c'] += d; ex5 += e
+    o, d, e, miss = g5c_eval(post); G5['g5c_opps'] += o; G5['g5c'] += d; G5['missing'] += miss; ex5 += e
     G5['route_rows'] += sum(1 for r in post if r['name'] == '_drowning_route')
     n, d, over, cens, e = g5d_eval(post, rr, END, spawns); G5['g5d_yields'] += n; G5['g5d'] += d; G5['g5d_over60'] += over; G5['g5d_censored'] += cens; ex5 += e
     n, d, miss, e = g5dp_eval(post); G5['g5dp_rows'] += n; G5['g5dp'] += d; G5['missing'] += miss; ex5 += e
@@ -1089,8 +1094,6 @@ for b in can_bots:
     G5['relocations'] += sum(1 for x in rr.values() if str((x['req'] or {}).get('remedy')) == 'relocate')
     G5['air_pocket_ice_head'] += sum(1 for r in post if r['name'] == '_air_pocket_start' and 'kind=ice' in (r.get('detail') or ''))
     G5['route_cap_head'] += sum(1 for r in post if r['name'] == '_drowning_route' and 'cap=head' in (r.get('detail') or ''))
-# a route row with no head= field on the canary build is a missing field (the build writes it on every route)
-G5['missing'] += sum(1 for b in can_bots for r in per[b]['post'] if r['name'] == '_drowning_route' and ' head_box=' not in (r.get('detail') or ''))
 g5_defects = G5['g5a'] + G5['g5b'] + G5['g5c'] + G5['g5d'] + G5['g5dp'] + G5['g5g']        # G5f is reported only
 g5_fix_ok, _parts = g5_fixtures_ok()
 

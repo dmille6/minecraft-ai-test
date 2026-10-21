@@ -160,6 +160,31 @@ await t('C1 death 1 composed: head ice -> the scan says SEALED (not up) -> the t
   assert.equal(r.ok, true, r.why); assert.equal(r.cell, '100,61,100', 'the head cell itself is dug')
 })
 
+// The §7 C1 regressions as COMPOSED DECISIONS (the real 500-ms tick is not driven in unit tests here -- repo precedent
+// escape-stair.test.mjs:651-666, "a test that elaborate tends to prove itself"; the real tick is Paper S1/S3: 3 candidate
+// trials of the full bot in the ice trap and 2 home_ice runs, all alive, the ice dug at the head cell).
+const { drownRescueSuppressed } = await import('../src/reflex.mjs')
+const { airPocketPreempt } = await import('../src/airpocket.mjs')
+await t('C2 prior ceiling failures do not stop the dig: health falling un-suppresses the rescue, and a sealed route triggers at once', () => {
+  assert.equal(drownRescueSuppressed({ failures: 4, movedBlocks: 0, healthDropped: true, sealedHere: true }), false)
+  assert.equal(airPocketTrigger({ rescuing: true, routeDir: null, routeSealed: true, heldMs: 0 }), true)
+})
+await t('C3 flat health in a sealed pocket keeps the suppression across a move (the escape ramp keeps the body)', () => {
+  assert.equal(drownRescueSuppressed({ failures: 2, movedBlocks: 2.8, healthDropped: false, sealedHere: true }), true)
+})
+await t('C4 a DIRT head: the plan refuses, so no pre-empt stops an escape -- the entombed handler keeps it', () => {
+  const B = n => ({ name: n, boundingBox: /^(air|water)$/.test(n) ? 'empty' : 'block' })
+  const at = (dx, dy, dz) => B(({ '0,0,0': 'water', '0,1,0': 'dirt', '0,2,0': 'air' })[`${dx},${dy},${dz}`] ?? 'stone')
+  const plan = airPocketPlan(at)
+  assert.equal(plan.ok, false)
+  assert.equal(airPocketPreempt({ rescuing: true, routeDir: null, routeSealed: true, escaping: true, stepWouldRun: () => plan.ok }), false)
+})
+await t('C5 a refused admission takes the refusal cooldown: the trigger stays quiet until it lapses', () => {
+  const now = 1000
+  assert.equal(airPocketTrigger({ rescuing: true, routeDir: null, routeSealed: true, heldMs: 0, now, cooldownUntil: now + 5000 }), false)
+  assert.equal(airPocketTrigger({ rescuing: true, routeDir: null, routeSealed: true, heldMs: 0, now: now + 5001, cooldownUntil: now + 5000 }), true)
+})
+
 // ======================================================================================================== D. the C2 + C3 chain
 console.log('-- D. no dry target -> home -> air declines -> capped start -> level 3 --')
 const savedWatch = { ...config.watchdog }, savedTimeout = config.skills.defaultTimeoutMs
@@ -201,6 +226,51 @@ await t('D1 an all-water world: L1 finds no dry target -> ONE level-2 home reque
   assert.ok(rows.some(r => r.skill.name === '_stagnation' && Number(r.skill.args?.escalation) >= 3), 'and the ladder reached level 3')
   // level 3's runner rescue is a NEW kind-count after the start: it may be declined again (the count restarted), never stuck
   assert.ok(req.some(r => Number(r.skill.args.level) >= 3), 'a level-3 request was made')
+})
+/** One L1 relocation on a dry meadow through the real Runner + watchdog (WatchdogClass from the module under test). */
+async function oneRelocation (WatchdogClass) {
+  const savedGoto = SKILLS.goto
+  const gotos = []
+  const bot = { entity: { position: V(0.5, 70, 0.5), onGround: true, velocity: V(0, 0, 0), isInWater: false }, health: 20, food: 20, version: '1.21.8',
+    registry: { blocksByName: {}, itemsByName: {}, blocks: {} }, inventory: { items: () => [] },
+    blockAt: p => (p.y < 70 ? STONE : AIR),                                                   // a dry meadow, ground at 69
+    findBlock: () => null, findBlocks: () => [], entities: {}, players: {}, time: { day: 1, age: 1 }, game: { dimension: 'overworld' },
+    assertNav: () => {}, chat: () => {}, clearControlStates: () => {}, setControlState: () => {}, quit () {},
+    pathfinder: { movements: {}, setMovements () {}, stop () {}, setGoal () {}, goto: async () => {}, getPathTo: () => ({ status: 'success', path: [1] }) } }
+  SKILLS.goto = { run: async (_c, args) => { gotos.push(args); bot.entity.position = V(args.x + 0.5, args.y, args.z + 0.5); await sleep(30); return { status: 'success', detail: 'arrived' } } }
+  SKILLS.__relocStuck = { run: (_c, _a, signal) => new Promise((_r, rej) => signal.addEventListener('abort', () => setTimeout(() => { const e = new Error('aborted'); e.aborted = true; rej(e) }, 10), { once: true })) }
+  const runner = new Runner(bot)
+  const wd = new WatchdogClass(bot, runner, { running: true, milestones: { allDone: false } }); wd.reserveMs = 250; runner.watchdog = wd
+  const timer = setInterval(() => { wd.check().catch(() => {}) }, 100)
+  const rows = []
+  const untap = tapRecords(r => { if (/^_(watchdog_rescue|relocate_landed)$/.test(r?.skill?.name ?? '')) rows.push(r) })
+  try {
+    const brain = runner.run('__relocStuck', {}, { trigger: 'llm:idle' })
+    await until(() => gotos.length > 0, 10000, 'the relocation')
+    await brain.catch(() => {})
+    await until(() => !wd.pending, 6000, 'the rescue to end')
+  } finally { clearInterval(timer); untap(); SKILLS.goto = savedGoto }
+  return { gotos, rows }
+}
+await t('D2 the L1 SUCCESS path: goto to the SURFACE y; the requested row carries target_x/y/z + dry_tries/dry_reasons/dry_ms; one `_relocate_landed` row', async () => {
+  const { gotos, rows } = await oneRelocation(StagnationWatchdog)
+  assert.equal(gotos[0].y, 70, 'feet on the surface (ground 69)')
+  const req = rows.find(r => r.skill.name === '_watchdog_rescue' && r.skill.args.phase === 'requested')?.skill.args
+  assert.equal(req.level, 1)
+  assert.deepEqual([req.target_x, req.target_y, req.target_z], [gotos[0].x, gotos[0].y, gotos[0].z])
+  assert.equal(req.dry_tries, 1); assert.equal(typeof req.dry_reasons, 'string'); assert.ok(Number.isFinite(req.dry_ms))
+  const landed = rows.filter(r => r.skill.name === '_relocate_landed')
+  assert.equal(landed.length, 1)
+  const L = landed[0].skill.args
+  assert.deepEqual([L.status, L.in_region, L.wet, L.region_dry_now], ['success', 1, 0, 1])
+})
+await t('D2 MUTANT KILLED: dropping `...rowExtra` from the requested row loses the fields G5b reads', async () => {
+  await withMutant(new URL('../src/watchdog.mjs', import.meta.url), "logRescueRow(this.bot, pd.rescue, 'requested', { skill, kind: pd.kind, ...rowExtra })",
+    "logRescueRow(this.bot, pd.rescue, 'requested', { skill, kind: pd.kind })", async m => {
+      const { rows } = await oneRelocation(m.StagnationWatchdog)
+      const req = rows.find(r => r.skill.name === '_watchdog_rescue' && r.skill.args.phase === 'requested')?.skill.args
+      assert.equal(req.target_x, undefined, 'the mutant reproduces the missing fields')
+    })
 })
 config.watchdog.windowMs = savedWatch.windowMs; config.watchdog.sampleMs = savedWatch.sampleMs; config.skills.defaultTimeoutMs = savedTimeout
 

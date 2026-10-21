@@ -766,3 +766,14 @@ r6 answers r5:
    reflex row at most 5 s before (Claude code r1 P3-4).
 6. **Near the world floor every candidate is `unknown`.** The volume reaches below y = -64, so such a bot always falls
    back to home. It shows in `dry_reasons` (Claude code r1 P3-6).
+7. **The real 500-ms reflex tick is not driven in unit tests** (Codex code r2 P2-2, Claude code r2 P3-2). This follows
+   the repo precedent at bots/test/escape-stair.test.mjs:651-666: a test that elaborate tends to prove itself.
+   - **In unit tests:** the §7 C1 regressions are tested as composed decisions (homefix2-chain C1-C5: prior ceilings
+     with health falling still dig; flat health keeps the suppression; a dirt head is refused, so no pre-empt stops the
+     entombed escape; a refused admission's cooldown keeps the trigger quiet). The tick's wiring (publishAir first) is a
+     structural check with a mutant.
+   - **On Paper:** the real tick ran with the full bot. S1 had 3 candidate trials in the ice trap and all lived; the base
+     died in 3 of 3. S3 ran the home_ice scene twice, and the bot lived both times.
+8. **G5c is a self-consistency check** (Claude code r2 P3-3). The read applies the scan's predicate to the scan's own
+   head read, so it catches a code regression; the outcome evidence is Paper. Any route row that does not parse counts
+   as missing evidence (Codex code r2 P2-1).
