@@ -744,7 +744,7 @@ export class CognitiveLoop {
    * latches are TICKED HERE ON EVERY DECISION (Codex design r1 P1-1: a latch updated only when its order gets a turn misses
    * the departures it re-arms on); the first order that issues wins this decision. Every read is lazy and guarded.
    */
-  #visitOrder(milestone) {
+  #visitOrder(milestone, { tickOnly = false } = {}) {
     try {
       const bot = this.bot
       const now = Date.now()
@@ -754,7 +754,7 @@ export class CognitiveLoop {
       this.wellVisitState = visitLatchTick(this.wellVisitState ?? {}, { now, atTown: inZone, stayMs: VISIT_STAY_MS })
       this.compostVisitState = visitLatchTick(this.compostVisitState ?? {}, { now, atTown: inZone, stayMs: VISIT_STAY_MS })
       this.tailState = visitLatchTick(this.tailState ?? {}, { now, atTown: inZone, stayMs: TD_STAY_REARM_MS })
-      if (!inZone) return null
+      if (!inZone || tickOnly) return null
       const items = bot.inventory?.items?.() ?? []
       const distHome = Math.hypot(home.x - p.x, home.z - p.z), dy = p.y - home.y
       let wanted = null
@@ -764,9 +764,9 @@ export class CognitiveLoop {
       const well = () => (w ??= townWellState(bot))
       const rw = wellVisitOrder({
         now, slots: items.length, inZone, distHome, dy,
-        visitJunkStacks: disposePlan(items, { keep: wantedNow() }).junkStacks,
+        visitJunkStacks: () => disposePlan(items, { keep: wantedNow() }).junkStacks,
         well, distWell: () => { const c = well()?.cap; return c ? Math.hypot(c.x + 0.5 - p.x, c.z + 0.5 - p.z) : null },
-        inside: () => insideTownWell(bot), keep: wantedNow(),
+        inside: () => insideTownWell(bot), keep: wantedNow,
         depth: skill => wellOutOfReach({ feetY: p.y, standY: townWellStandY(bot, skill) ?? config.world.homeY }),
         state: this.wellVisitState, wellState: this.wellState ?? {}, myName: bot.username ?? '',
       })
@@ -776,7 +776,7 @@ export class CognitiveLoop {
       const peaceful = foodSkipNow(bot).active
       const rc = compostVisitOrder({
         now, slots: items.length, inZone, distHome, dy,
-        visitStacks: compostVisitStacks(items, { apples: peaceful, plants: peaceful }),
+        visitStacks: () => compostVisitStacks(items, { apples: peaceful, plants: peaceful }),
         storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
         distComposter: () => { const c = findTownComposter(bot)?.position; return c ? Math.hypot(c.x + 0.5 - p.x, c.z + 0.5 - p.z) : null },
         state: this.compostVisitState, townState: this.townState ?? {}, myName: bot.username ?? '',
@@ -981,8 +981,11 @@ export class CognitiveLoop {
     // the whole visit) -- bounded: one well, one compost and one tail run per visit, each on its own cooldown. The latches
     // are ticked on every decision, whatever wins it.
     {
-      const visit = this.#visitOrder(milestone)
-      if (visit && (!order || !['town_deposit', 'build_plinth', 'count_town'].includes(order.skill))) order = visit
+      // code r1 (both engines): an order that cannot win this decision is never ISSUED (issuing latches the visit and charges
+      // the well's / composter's cooldown) -- the latches are only ticked
+      const blocked = !!order && ['town_deposit', 'build_plinth', 'count_town'].includes(order.skill)
+      const visit = this.#visitOrder(milestone, { tickOnly: blocked })
+      if (visit) order = visit
     }
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
@@ -1290,7 +1293,11 @@ export class CognitiveLoop {
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       // junkout-01: the tail's outcome lands in ITS state (Claude design r1 P2-2), never in the full-bag deposit's backoff
       if (admitted.skill === 'town_deposit') {
-        if (admitted.args?.tail === true) this.tailState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.tailState ?? {})
+        if (admitted.args?.tail === true) {
+          this.tailState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.tailState ?? {})
+          // a DECLINED tail never ran: the visit is not spent and the reason that armed it stands again (code r1, both engines)
+          if (RUNNER_DECLINED.has(r.failClass ?? null)) this.tailState = visitLatchDeclined(this.tailState)
+        }
         else this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       }
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)

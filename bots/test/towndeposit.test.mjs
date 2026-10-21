@@ -1372,10 +1372,10 @@ test('junkout-01 TAIL CHAIN (real loop): the chests in reach are FULL -> the tai
 test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag deposit\'s state -> a full chest backs off the FULL-bag deposit (killed)', async () => {
   const CPU = new URL('../src/cognitive.mjs', import.meta.url)
   const src = fs.readFileSync(CPU, 'utf8')
-  const old = "        if (admitted.args?.tail === true) this.tailState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.tailState ?? {})\n        else this.townDepositState"
+  const old = "        if (admitted.args?.tail === true) {\n"
   assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
   const out = new URL(`./_mutant-cog-tail-${process.pid}.mjs`, import.meta.url)
-  fs.writeFileSync(out, src.replace(old, '        this.townDepositState').replace(/from '\.\//g, "from '../src/"))
+  fs.writeFileSync(out, src.replace(old, '        if (false) {\n').replace(/from '\.\//g, "from '../src/"))
   try {
     const { CognitiveLoop: M } = await import(out.href)
     const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
@@ -1397,4 +1397,100 @@ test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag d
 test('junkout-01 TAIL CHAIN, BAG_ALLOWANCE off (the order\'s own switch): no tail order; the bag rides on', () => {
   const r = TD.tailOrder({ now: 1e7, slots: 12, pos: { x: 3, y: 70, z: 0 }, home: { x: 0, y: 70, z: 0 }, plan: { freed: 2, steps: [{ allowance: 'torch' }] }, container: true, state: {}, on: false })
   assert.equal(r.order, null)
+})
+// junkout-01 code r1 (both engines): (1) a visit order that cannot win the decision is never ISSUED -- the recount holds the
+// first decision, and the tail still comes in the same stay; (2) a DECLINED tail restores the reason that armed it (J5).
+test('junkout-01 CHAIN (code r1): the town recount wins the first decision -> the tail is NOT spent behind it; it comes on a later decision of the same stay', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+  const CC = await import('../src/cobblecap.mjs')
+  CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+  bot.findBlock = ({ maxDistance = 64 } = {}) => { const ps = bot.findBlocks({ maxDistance }); return ps.length ? bot.blockAt(ps[0]) : null }
+  try {
+    const { ran } = await decisions(bot, 6, { real: ['count_town'] })
+    assert.equal(ran[0]?.skill, 'count_town', JSON.stringify(ran.map(x => x.skill)))
+    assert.ok(ran.some(x => x.skill === 'town_deposit'), `the tail came after the recount: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.equal(sumOf(chest.items, 'torch'), 8, 'banked by the tail')
+  } finally { done() }
+})
+test('junkout-01 CHAIN (code r1): a DECLINED tail un-latches and keeps the reason that armed it (out:...), so the retry carries it', async () => {
+  const bot = tailBot()
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    ran.push({ skill, args })
+    if (skill === 'town_deposit') return { status: 'failed', failClass: 'runner_busy', detail: 'declined', delta: {} }
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
+  const loop = new CognitiveLoop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.tailState = { armed: 'out:abc-def' }
+  loop.start()
+  for (let i = 0; i < 200 && !ran.some(x => x.skill === 'town_deposit'); i++) await new Promise(r => setTimeout(r, 30))
+  await new Promise(r => setTimeout(r, 100))
+  loop.stop()
+  const td = ran.find(x => x.skill === 'town_deposit')
+  assert.equal(td?.args?.armed, 'out:abc-def', JSON.stringify(td))
+  assert.equal(loop.tailState.latched, false, 'declined: the stay is not spent')
+  assert.equal(loop.tailState.armed, 'out:abc-def', 'the retry carries the reason that armed the declined order')
+})
+
+// the two code-r1 fixes, each killed by its mutant through the same chains
+async function withCogMutant (old, neu, fn) {
+  const CPU = new URL('../src/cognitive.mjs', import.meta.url)
+  const src = fs.readFileSync(CPU, 'utf8')
+  assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+  const out = new URL(`./_mutant-cog-jo-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  try { return await fn((await import(out.href)).CognitiveLoop) } finally { try { fs.unlinkSync(out) } catch {} }
+}
+test('junkout-01 MUTANT (cognitive): a blocked visit order issued and discarded (the r1 code) -> the tail never comes in the stay (killed)', async () => {
+  await withCogMutant('      const visit = this.#visitOrder(milestone, { tickOnly: blocked })\n      if (visit) order = visit\n',
+    '      const visit = this.#visitOrder(milestone)\n      if (visit && !blocked) order = visit\n', async M => {
+      const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+      const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+      const now = Date.now()
+      const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+      const CC = await import('../src/cobblecap.mjs')
+      CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+      bot.findBlock = ({ maxDistance = 64 } = {}) => { const ps = bot.findBlocks({ maxDistance }); return ps.length ? bot.blockAt(ps[0]) : null }
+      const ran = []
+      const runner = { isBusy: () => false, run: async (skill, args) => {
+        const r = ['count_town', 'town_deposit'].includes(skill) ? await SKILLS[skill].run({ bot }, args ?? {}, null) : { status: 'success', detail: 'ok', contractEvidence: [`${skill}: probe 1`] }
+        ran.push(skill); return { ...r, delta: { counted: Number(r.counted ?? 0) } }
+      } }
+      const loop = new M(bot, runner, freshLessons(), null)
+      loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+      loop.milestones.cycle = 540
+      try {
+        loop.start()
+        for (let i = 0; i < 200 && ran.length < 6; i++) await new Promise(r => setTimeout(r, 30))
+        loop.stop()
+        assert.equal(ran[0], 'count_town', JSON.stringify(ran))
+        assert.ok(!ran.includes('town_deposit'), `mutant inert: ${JSON.stringify(ran)}`)
+      } finally { done() }
+    })
+})
+test('junkout-01 MUTANT (cognitive): the declined tail\'s restore removed -> the retry would say first (killed)', async () => {
+  await withCogMutant('          if (RUNNER_DECLINED.has(r.failClass ?? null)) this.tailState = visitLatchDeclined(this.tailState)\n', '', async M => {
+    const bot = tailBot()
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => {
+      ran.push(skill)
+      if (skill === 'town_deposit') return { status: 'failed', failClass: 'runner_busy', detail: 'declined', delta: {} }
+      return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+    } }
+    const loop = new M(bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    loop.tailState = { armed: 'out:abc-def' }
+    loop.start()
+    for (let i = 0; i < 200 && !ran.includes('town_deposit'); i++) await new Promise(r => setTimeout(r, 30))
+    await new Promise(r => setTimeout(r, 100))
+    loop.stop()
+    assert.ok(ran.includes('town_deposit'), 'positive control: the tail was ordered')
+    assert.notEqual(loop.tailState.armed, 'out:abc-def', 'mutant inert')
+  })
 })
