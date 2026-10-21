@@ -281,3 +281,46 @@ by a test (junkout.test.mjs row P: the iron is the best, the two stone copies wi
 the decision log's snapshots as J5 position samples -- the read uses the skill and event rows (a decision that runs no skill
 writes neither); a J5 trip names the missing sample, and the selftest's must-not-trip fixture is the start-stamp/end-position
 shape the reviewer named.
+
+**Code r1 (e9cdb4e5).** Codex CHANGE: P2 a visit order discarded behind count_town / build_plinth still latched the visit and
+charged the cooldown; P2 a declined tail retry lost its `out:` reason (J5 false trip); P2 an aborted town deposit wrote no bank
+row (nor the early refusals); P2 the compost scene kept bread (a peaceful compost input); P2 the bank scene did not prove two
+pickaxes banked. Claude CHANGE: P1 the same declined-tail point; P2 the same discarded-order and abort points; P3s (junkbank's
+base-owned stacks, lazy counts, J5 samples from the decision log, J4 blind to a wanted name, telemetry with the switches off).
+ALL P1/P2 TAKEN in 15f35b7d (tickOnly; visitLatchDeclined on a declined tail; bankRows once from the loop's finally and the
+early refusals; lazy counts; cooked beef; 2 banked / 3 kept, base-owned stacks unchanged) with chain tests and mutants.
+**Code r2 (15f35b7d): Codex APPROVE, Claude APPROVE.** P3s taken in a050ef30: the counts read after the cheap gates and once;
+an aborted run's clicked-but-unverified names on the bank row (`try=`, J1 reads them); the blocked-order mutant waits for its
+six decisions. Left as notes: J5 samples from the decision log; J4 cannot see a goal-wanted name thrown (the plan never lists
+one: `disposePlan keep`); the bank row is written with the switches off too (behaviour unchanged, telemetry not).
+
+## 11. Tests, lint, Paper, read, registration
+
+- `npm test` (`node scripts/run-tests.mjs`, the only runner): **271/271 files passed** at 8ca1823a, at 15f35b7d, and
+  **271/271 at a050ef30 (the registered code)**. junkout.test.mjs (29 pure tests, 8 anchored mutants), the chains through the real CognitiveLoop in
+  well.test.mjs (visit dispose; latch ticked outside; breached well; cognitive mutant) and towndeposit.test.mjs (tail ahead of
+  the rung, once; full chest in the tail's state; recount wins first, tail later; declined tail restores `armed`; three cognitive
+  mutants), the visit fill in composter.test.mjs (+ mutant). Deployed-rule tests pinned with `allowance: false` / `tail: false`;
+  two mutant anchors re-anchored (well.test swordsAllowed, the inside refusal now unique). Fillers changed from torch to ladder
+  in three towndeposit chains (torch is a row now).
+- eslint no-undef on bots/src: exactly ONE hit, the pre-existing reflex.mjs:2384 `withinBody` (it caught a missing
+  `visitId` import before the first commit).
+- Paper (sandbox3; base 34d3e5e9 vs candidate 15f35b7d -- a050ef30 changes no behaviour a scene sees; lock on 10.0.0.31
+  taken 21:59:43Z, released 22:22:35Z; driver sandbox/well/stock-e2e.cjs; every result read from the WORLD by RCON; raw rows
+  docs/reports/junkout-01-paper-results-2026-10-21.jsonl):
+
+| scene | base (34d3e5e9) | candidate | verdict |
+|---|---|---|---|
+| junkbank (8 chests, 3 tables, furnace, 5 usable stone pickaxes, torch 11, bone meal 30, egg, flint, saplings, leaf litter; a chest, no well) | no town deposit in 300 s; chest empty | the recount first, then `town_deposit {tail}`: 16 -> 12 slots; chest +torch 11 +bone meal 30 +2 stone pickaxes (3 kept: best + 2); no junk in the chest; chests 8 / tables 3 / furnace 1 stay (one stack each); cobble, sticks, junk unchanged | CANDIDATE_PASS, BASE_SHAPE |
+| junkcompost (mushrooms, leaf litter, seeds, saplings; a composter + a chest; peaceful) | no compost run in 240 s; compost names unchanged (the bot planted 1 sapling) | `compost {visit}` 9 -> 6 slots: mushrooms, leaf litter, seeds gone; saplings 20 + 5 kept; 2 bone meal | CANDIDATE_PASS; base: no order (strict unchanged-bag shape false only for the planted sapling) |
+| build (natural well, PLINTH_FIRST=0 for this bot) | built 1308,119,1314 | built 1308,119,1314 | both built |
+| junkwell (egg, flint, ink sac, glass + cobble, logs, bread, pickaxe, torch, bone meal; no chest, no composter) | no dispose in 240 s; listed junk kept (the bot placed 6 cobble) | `dispose_well {visit}` 10 -> 6 slots: 61 items in the shaft, 0 outside; every non-listed name unchanged | CANDIDATE_PASS; base: no order |
+| junkwelloff (candidate, JUNK_VISIT=off BAG_ALLOWANCE=off) | -- | licence visit=0 allowance=0; no dispose; listed junk kept (1 cobble placed) | the base's shape |
+
+  A first base run (21:53Z) stopped on a SCENE bug (bag() reports totals only); fixed, rerun from scratch.
+- Read `scripts/host/junkoutread.py`, installed ~/mcai-analysis/junkoutread.py (md5 below): `--selftest` passes (every gate fails
+  on its fixture and passes its control; J5's legitimate start-stamp/end-position crossing, restart and decline-retry fixtures
+  do not trip), and with `JS_CHECK` its lists equal the bots' in both directions. Dry run 10-21 on the base fleet (hive-b,
+  hive-c, placebo-a, board-a pretend canary, 180 min, 380,178 rows): every defect 0, licence 0, instrument ok.
+- Pre-deploy checks 10-21 22:28-22:30Z: licencecheck (`_junkout_mode` baseline 0 rows / 384,830), changerowcheck (`junkout`
+  baseline silent), drawexposure (11 of 11 drawable pools hold a working well) -- all PASS.

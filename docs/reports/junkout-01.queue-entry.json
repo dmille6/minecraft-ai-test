@@ -1,0 +1,23 @@
+{
+ "run": "junkout-01",
+ "after": [],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "NEW (OWNER 2026-10-21 ~20:30Z 'yes build it, i approve of your recommendations'). TIER 2 small fix (the registration carries \"tier\": 2, no class). Junk out at every town visit -- the well (listed junk only, never a wanted name) and the composter (compost junk + the peaceful plants, never a sapling), in the town deposit zone and within 20 of the well / composter, once per visit, ahead of the rung -- and the slim bag allowance at the town deposit at ANY bag size (stations 1, torch 0, bone meal 0, usable stone copies beyond the best working pickaxe + 2 spares; junk never a chest's), plus the wear-out spares cap. JUNK_VISIT=off + BAG_ALLOWANCE=off = the rollback. No list additions (the consumer check: docs/reports/junkout-01-design-2026-10-21.md section 2). Read ~/mcai-analysis/junkoutread.py (NEW; scripts/host/junkoutread.py on the branch; md5 below) + immobiledid. Install the drawn variant's registration as ~/mcai-analysis/registrations/junkout-01.json. Record: docs/reports/junkout-01-design-2026-10-21.md (design r3, both engines APPROVE; code reviews, tests and Paper in its section 11). Overlaps: homefix-02 (cognitive/skills; the d014ec2c variant below), ironpick-01 (composter townOrder signature, textual), bamboo-03 (none). NOT APPLIED -- a reviewer adds it with `queue add` after approval.",
+ "variants": {
+  "34d3e5e9629a45bcdb54c0e88870dacf09b8a22b": {
+   "registration": "/home/mike/mcai-analysis/junkout-01.a050ef30.json",
+   "approved": "junkout-01 agent 2026-10-21: junkout-on-34d3e5e @ a050ef30 on the fleet sha 34d3e5e9 (toolkit-03). Design r3 Codex APPROVE + Claude APPROVE; code Codex r2 APPROVE + Claude r2 APPROVE (15f35b7d; a050ef30 takes their P3s). npm test 271/271 at a050ef30; eslint no-undef only reflex.mjs:2384 withinBody. PAPER sandbox3 10-21 21:59-22:22Z, server read-back: junkbank / junkcompost / junkwell CANDIDATE_PASS, base 34d3e5e9 no order in each, junkwelloff (switches off) the base shape. licencecheck / changerowcheck / drawexposure (11 pools eligible) PASS 10-21 22:28-22:30Z. Read dry run on the base: every defect 0, instrument ok. TIER 2.",
+   "canary_sha": "a050ef3079a3ace1cfa2f556d43f22dc28eb0202",
+   "branch": "junkout-on-34d3e5e",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "junkoutread": "458437767e9adf1c188921c45676144f",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "c051c7e34e743f54e3239fc457a78f6799f24054967f6fb5b33d977caba38b43 (docs/reports/junkout-01.registration-34d3e5e9.json as committed = ~/mcai-analysis/junkout-01.a050ef30.json)"
+  }
+ },
+ "junkoutread_md5": "458437767e9adf1c188921c45676144f"
+}
