@@ -1,4 +1,4 @@
-# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r3)
+# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r4)
 
 homefix-01 (`a52d075e`, branch `homefix-on-9e7d998`) was REVERTED at 2026-10-21 00:57Z by gate v23: two canary deaths, one
 with a licensed `_watchdog_rescue` row. Both deaths were hive-d-Echo, and both were drownings. This document gives each
@@ -55,11 +55,12 @@ for reading. The files are the live state at ~01:10Z.
      ICE block that has air above it. This is the existing ice branch at dy = 1. The bug is old; it is fixed here because
      homefix sends more bots into hive-d's river.
    - **C2:** a relocation goes only to a dry, standable surface cell whose whole ARRIVAL REGION is dry. That means no
-     water, ice or lava within Chebyshev 5 at dy -3..+2, which covers goto's ≤ 3 arrival tolerance plus 2. The floor may
-     not be ice, magma or leaves. If no such target turns up in 16 tries, the rescue goes straight to level-2 `home`.
-   - **C3:** no runner rescue STARTS while the air reflex is engaged. This is checked by the runner at the moment the
-     run would start, and capped at 2 in a row. A running watchdog rescue is interrupted on every tick that the air
-     reflex holds the body.
+     water, ice or lava anywhere within Chebyshev 5 at dy -8..+7. That is goto's whole accepted arrival volume (≤ 3
+     horizontally, |dy| ≤ 6) plus 2. The floor may not be ice, magma or leaves. If no such target turns up in 16 tries, the rescue goes straight to level-2 `home`.
+   - **C3:** no watchdog rescue STARTS during a drowning in progress (`danger`: head under, ≤ 5 s of air, health
+     falling) or while an air-pocket/flooded-pocket rung runs. The runner checks this at the moment the run would start.
+     A running watchdog rescue is interrupted on every tick of `danger`. A chronic submerged bot at full health never
+     reads `danger`, so it needs no counter (r4).
 
    H1-H4 are untouched. Tier 3, reads as homefix-01. New lines:
    - **G5:** defect lines on the build's invariants, using fields it now writes, plus two outcome checks from reflex rows.
@@ -334,26 +335,38 @@ whole contract), H3 and H4 are unchanged**; every homefix-01 test still runs.
   3. The floor is not ice, packed, blue or frosted ice, not magma, **and not leaves** (Claude r1 P3: `columnSurface`
      can stop on a canopy).
   4. The cell over the head (`f + 3`) is not liquid.
-  5. **goto's whole ACCEPTED arrival region is dry** (Codex r1 P1-2, r2 P2). goto grades `success` within 3
-     horizontally and |dy| ≤ 6 (`arrivedAt`, skills.mjs:392). With 2 of margin, the region is **Chebyshev 5** around
-     the target column, from dy -8 to +7 of the target's feet, checked in two bands:
-     - **near band, dy -3..+2:** no water, lava, bubble column, waterlogged block, powder snow or ice at all;
-     - **far band, dy -8..-4 and +3..+7:** no such cell whose cell ABOVE is not solid. That is an exposed surface or an
-       open body, a place a body could arrive into. Water sealed under rock or dirt (solid directly above) cannot be
-       arrived into, so it does not refuse.
-  6. **Every cell in both bands is readable.** A null (unloaded) cell refuses the candidate (`unknown`); it is never
+  5. **goto's whole ACCEPTED arrival volume is dry** (Codex r1 P1-2, r2 P2, r3 P1-3). goto grades `success` within 3
+     horizontally and |dy| ≤ 6 (`arrivedAt`, skills.mjs:392). With 2 of margin the volume is **Chebyshev 5** around the
+     target column, **from dy -8 to +7** of the target's feet. Any cell in it that is water, lava, a bubble column, a
+     waterlogged block, an underwater plant, powder snow or ice refuses the candidate.
+     - **No exemption for capped water** (r3's far-band exception is withdrawn): a 1-high layer under a cap is exactly
+       the trap C1 is about.
+     - The near band (dy -3..+2) is scanned first, and every scan returns on the first wet or unknown cell (Claude r3 P2).
+  6. **Every cell of the volume is readable.** A null (unloaded) cell refuses the candidate (`unknown`); it is never
      taken as dry.
 - **The goto target becomes the surface cell** `{x, y: f + 1, z}`, not `(x, p.y, z)`.
 - **The `requested` row carries** `target_x/y/z`, `dry_tries` and `dry_reasons` (`no_surface:3,water:2`; reasons are
   counted per try).
-- **A landing check** after the relocation run. One `_relocate_landed` row records `attempt`, `dry` (0/1), feet and
-  below at the final position. After a SUCCESS the region rule makes a wet landing impossible on the cells it read, so
-  **G5f: a success with `dry=0` is a defect**, unless the world changed under the bot. The landing row re-runs the
-  region check at the target (`region_dry_now`), and a region that now reads wet exempts the landing, which is reported. A
+- **A landing check** after the relocation run, using the SAME volume function as the picker (`landingCheck`; Claude
+  r3 P3-6). One `_relocate_landed` row records `in_region`, `wet` (feet or head), `feet`, `head` and
+  `region_dry_now`, where `region_dry_now` re-scans the target's volume.
+  - **G5f:** a SUCCESS with `in_region = 1`, `wet = 1` and `region_dry_now = 1` is a defect, because the volume promised
+    exactly that cell dry.
+  - A region that now reads wet (the world changed) exempts the landing, and so does a landing outside the volume. Both
+    are reported. A
   FAILED relocation stops wherever its leg stopped. That is a guard, not a defect: the path may cross water, and
   swimming is travel.
-- **Sizing with the full region** (sim4.py, saved worlds): canary L1 verdicts 215 of 224 (96.0%, mean 3.8 tries);
-  shared pools 92-100% (hive-d 56 of 61, hive-b 79 of 85).
+- **Sizing with the final predicate** (sim5.py, a faithful Python mirror). It uses R=5 and dy -8..+7 with any wet
+  cell refusing, leaves/magma/ice floors and powder snow, and was run as `python3 sim5.py starts.jsonl` on 10.0.0.30
+  `~/hf2-read` against the saved worlds.
+  - Canary L1 verdicts: **207 of 224 (92.4%)**, mean 4.4 tries.
+  - Shared pools: 84-100% (placebo-d 42 of 50, hive-b 79 of 85, hive-d 56 of 61).
+  - **So the fallback to `home` is roughly 5-16%.**
+  - The r1-r3 figures used looser predicates (sim.py R=2; sim4.py R=5 near -2..+2 by default, far exposed-only) and are
+    superseded.
+- **Cost** (Claude r3 P2). A full scan is 11 × 11 × 16 = 1,936 `blockAt` reads; most candidates exit early on the first
+  wet cell. `pickRelocationTargetAsync` yields (`setImmediate`) between tries, so one stretch of the event loop holds at
+  most one candidate. The requested row logs `dry_ms`, and a unit test bounds 16 worst-case scans.
 - **No dry target in 16 tries: level 2 now.** The bot is in a wet, steep or unreadable place. The remedy it can still
   perform is `home`. Home is an executable attempt, not guaranteed reachable terrain (Codex r1 P2-6); if it fails,
   level 3 follows as today.
@@ -364,68 +377,66 @@ whole contract), H3 and H4 are unchanged**; every homefix-01 test still runs.
     says level 2.
 - **It does not check the WAY.** The path may cross water: swimming is travel. Levels 2 and 3 are unchanged.
 
-### C3 — no rescue starts into an active air rescue; a running rescue yields to it (runner.mjs, watchdog.mjs, reflex.mjs)
+### C3 — a watchdog rescue never starts into, or keeps running through, a drowning in progress (runner.mjs, watchdog.mjs, reflex.mjs)
 
-- **The air reflex publishes its state** as `bot.airRescue = { rescuing, owning, airSeconds, headUnder, danger, at }`.
-  - **Every reflex tick writes it, BEFORE the tick's early returns** (Claude r2 P2, Codex r2 P4). The tick returns at
-    reflex.mjs:1504 while the air-pocket step digs, for up to about 30 s.
-  - **`owning`** is true while `rescuing`, while the air-pocket step runs (`airPocketing`) or while the flooded-pocket
-    rung runs (`pocketing`). It never depends on sensor freshness.
-  - **`airSeconds`** comes from a SEPARATE publication clock (`makeAirClock()`) updated every tick. The rescue's own
-    `airClock` is updated only while `air.losing` (:2135) and is not touched, so the rescue's own behaviour does not
-    change.
-  - **`danger`** = the head is under AND `airSeconds ≤ CRITICAL_SECONDS` (2.5) AND health fell this tick. This is
-    `airEmergency`'s own healthFalling arm.
-  - **Freshness.** State older than 1.5 s, with `owning` false, reads as not engaged.
-  - Nothing is re-derived from geometry elsewhere (Claude r1 P1-1).
+**r4 simplification** (Codex r3 P1-1, P1-2). r2-r3 keyed C3 on "the air reflex holds the body". That made the
+chronic "submerged but alive" bots a problem: board-a-Comet and placebo-c-Bravo (§3.3), and the 09-04 nine re-seized
+every 32-37 s. Each round then needed a counter, a cap, a bypass latch, reset rules and exemptions. Codex r3 showed the
+latch still fails: the base's own air actions interrupt a bypassed run, and the stagnation judgement clears a shared
+counter between stranding verdicts. **r4 keys C3 on a drowning IN PROGRESS instead.** Every condition it refuses on ends
+by construction within a window, so no counter is needed, and the base's air actions are left exactly as they are.
+
+- **The air reflex publishes** `bot.airRescue = { danger, pocketing, airSeconds, headUnder, at }`.
+  - **Every reflex tick writes it, BEFORE the tick's early returns** (reflex.mjs:1504, while the air-pocket step digs).
+  - **`danger`** = the head is under AND `airSeconds ≤ LOW_SECONDS` (5 s) AND health fell since the previous tick. This
+    is exactly `airEmergency`'s healthFalling arm (air.mjs:113; Claude r3 P3).
+    - `airSeconds` comes from a SEPARATE publication clock updated every tick. The rescue's own `airClock`, updated only
+      while `air.losing` (:2135), is untouched.
+    - Health is the server's value.
+    - **A chronic submerged bot at 20/20 HP never reads `danger`.** Peaceful heals, and nothing hurts it.
+  - **`pocketing`** = the air-pocket step (`airPocketing`) or the flooded-pocket rung (`pocketing`) is running. It is
+    independent of freshness.
+  - **Freshness.** State older than 1.5 s reads `danger` false. `pocketing` is held by the flags themselves.
 - **C3a, the admission.**
-  - **Where it runs.** `Runner.run(skill, args, { owner: 'watchdog', admit })` calls `admit()` **after the reservation
-    wait and the body acquisition, immediately before `this.current` is installed**. There is no await between the
-    check and the install (Codex r1 P1-1). A refusal releases the reservation AND, with the arbiter on, the grant
-    (Claude r2 P3).
-  - **What it refuses.** The watchdog's `admit` refuses when `airEngaged(bot.airRescue)` is true: `owning`, OR the head
-    under with `airSeconds ≤ LOW_SECONDS` (5 s). A bot that is merely wet, or bobbing at the surface with air (death 2's
-    00:42-00:45 shape), is NOT refused. Its rescue runs, and that relocation may be its only way out.
-  - **The refusal.** The runner writes `declined:air_rescue` (fields `air_seconds`, `owning`) and returns
-    `{status: 'failed', failClass: 'air_rescue'}`. `air_rescue` joins `RUNNER_DECLINED` (declined.mjs), so no outcome
-    handler treats it as a failure (Claude r2 P3).
-  - **The ladder.** `rescueLevelStep` treats `failClass: 'air_rescue'` as a hold: the level held, one window of backoff,
-    and **the reserve_expired streak untouched** (Codex r1 P2-5, Claude r1 P2-4). The air counter is its own pure
-    function, `airDeclineStep`:
-    - +1 per `air_rescue` decline.
-    - **No TTL** (Codex r2 P3: stranding verdicts are about 720 s apart, longer than the reserve TTL of 590 s).
-    - It resets to 0 only on a real **progress reset**: the stagnation judgement finds the bot not stagnant
-      (`escalation = 0`), or the stranding judgement finds it not stranded (`strandWindows = 0`). It also resets on a
-      rescue that started **without** bypass.
-    - **At the cap (2) the bypass latches**: every following attempt is admitted with `air_bypass: 1` until one of those
-      resets. A bypassed start does NOT reset the counter.
-
-    Stagnation and stranding share the counter (one rescue at a time).
-  - **Why the cap is right.** A drowning ends in about 100 s in peaceful (83-90 s after the air runs out). An air rescue
-    still engaged two verdicts later (≥ 6 min for stagnation, ≥ 12 min for stranding) is not a drowning in progress. It
-    is the chronic "submerged but alive" class (board-a-Comet, placebo-c-Bravo, §3.3, and the 09-04 nine, re-seized
-    every 32-37 s).
-- **C3b, level-triggered, honouring the bypass** (Claude r2 P1, Codex r2 P1).
-  - **What it does.** On every reflex tick where `owning` is true and the runner's current run belongs to the watchdog
-    (`current.owner === 'watchdog'`; the runner's `current` gains `owner`, `rescue` and `airBypass`):
-    - **a run admitted normally** is interrupted with `runner.interrupt('drowning')`;
-    - **a run admitted with `air_bypass`** (the chronic handoff) is left alone UNLESS `danger` is true, i.e. genuine
-      renewed danger (head under, ≤ 2.5 s of air, health falling).
-  - **Without that exemption**, the chronic class would cycle decline → decline → bypassed start → killed on the next
-    re-seizure, while each "start" climbed the ladder (Claude r2 P1).
-  - **The rows.** One `_air_rescue_overlap` row per attempt the first time an overlap is seen (fields `attempt`,
-    `bypass`, `danger`, `action` = interrupt|exempt). This is the independent observation G5d reads (Codex r2 P5).
-  - **A stranding climb-out interrupted this way** (`interrupted:drowning`) is refunded like one that never started
-    (watchdog.mjs:285; Codex r2 P1).
-  - **Why level-triggered.** The existing one-shot `if (mayAct) runner.interrupt(air.kind)` (reflex.mjs ~2103-2117)
-    fires only on the first latched tick, and the latch clears on `bot.oxygenLevel` (:2360), which the code calls
-    untrustworthy. That one-shot is why death 1's `home` sat 52 s inside the drowning.
-  - **Brain-started runs are NOT interrupted by C3b.** Interrupting every run whenever the air reflex holds the body
-    would bring back the 09-04 pathology: 9 bots held in permanent rescues at full health burned about 17% of fleet
-    throughput. Death 2's 3.7-HP `explore` (00:50:27) ran alongside the rescue, with the bot already beyond saving.
-    That is F5, and both reviewers accepted the deferral at r2.
-- **Exposure, measured live by the read:** `declined:air_rescue`, `air_bypass`, `_air_rescue_overlap` by action, and
-  `interrupted:drowning`.
+  - **Where it runs.** `Runner.run(skill, args, { owner: 'watchdog', admit })` calls `admit()` after the reservation wait
+    and the body acquisition, with no await before `this.current` is installed (Codex r1 P1-1).
+  - **What it refuses:** `danger || pocketing`.
+  - **The refusal.** The runner writes `declined:air_rescue` with `air_danger` and `air_pocketing` fields, releases the
+    reservation and (with the arbiter on) the grant, and returns `{status: 'failed', failClass: 'air_rescue'}`.
+    `air_rescue` joins `RUNNER_DECLINED` (declined.mjs). The `started` row carries the same two fields, read at
+    admission. That is G5a's input.
+  - **The ladder.** `rescueLevelStep` treats `air_rescue` as a hold: the level held, one window (180 s) of backoff, and
+    the reserve_expired streak untouched. A declined climb-out is refunded, as an unstarted one is today
+    (watchdog.mjs:285).
+  - **No counter, because no refusal can persist** (CLAUDE.md "a refusal must name a remedy"):
+    - **`danger`** is a drowning in progress. In peaceful it ends in breath or death within about 100 s, i.e. 83-90 s
+      after the air runs out (airpocket design, Paper sandbox2). That is shorter than the one-window backoff, so the
+      next verdict meets a different bot.
+    - **`pocketing`** is bounded: the step by its health budget (≤ about 30 s) with a 60-s fail cooldown, and the rung
+      by its own budget with a 10-min cooldown.
+    - **The remedy named is the air reflex**, already acting, and executable from the cell: swim up/out, the C1 ice
+      dig, the flooded-pocket rung.
+    - **The read reports the longest consecutive `air_rescue` streak per bot.** A streak ≥ 3 would contradict this
+      argument and is named in the read.
+- **C3b, level-triggered on `danger` only.**
+  - **What it does.** On every reflex tick where `danger` is true and the runner's current run belongs to the watchdog
+    (`current.owner === 'watchdog'`; the runner's `current` gains `owner` and `rescue`), the reflex calls
+    `runner.interrupt('drowning')`. The FIRST interrupt decision per attempt writes one `_air_rescue_yield` row
+    (`attempt`, `air_seconds`, `health`). That row starts G5d's deadline (Codex r3 P2-4).
+  - **Why level-triggered.** The base's one-shot `if (mayAct) runner.interrupt(air.kind)` (reflex.mjs ~2103-2117) fires
+    only on the first latched tick, and its latch clears on the untrustworthy `oxygenLevel` (:2360). That one-shot is
+    why death 1's `home` sat 52 s inside the drowning. With C3b, death 1's `home` is interrupted at about 20:18:09, the
+    first tick with air out and health falling (20 → 19).
+  - **Everything else the air reflex already does is unchanged.** That covers the seizure's `setGoal(null)`, the
+    one-shot latch, the air-pocket step's interrupt and guard (reflex.mjs:1415-1417), and the flooded-pocket rung's
+    `takeBody`. These may still end a watchdog run as `interrupted:air_pocket` or `interrupted:<air kind>`, as on the
+    base. The read reports those, and they are not C3b defects (Claude r3 P3-4).
+  - **Brain-started runs are untouched** (F5; both reviewers accepted the deferral at r2).
+- **The stranding refund is capped** (Claude r3 P3-3). A climb-out declined `air_rescue` never started, so it is
+  refunded like any unstarted one. A climb-out that started and was ended `interrupted:drowning` is refunded at most
+  twice per stranding episode (`AIR_REFUND_CAP`), and the count resets with `strandWindows = 0`. The refund
+  count is in the `_stranded_underground` detail. After the cap, the attempts count toward `stranded_unrecoverable`
+  as today.
 
 ### Not changed (named so nobody reads them as fixed)
 
@@ -450,14 +461,15 @@ whole contract), H3 and H4 are unchanged**; every homefix-01 test still runs.
 | C1 plan refuses packed/blue ice or a falling block over the head | same | entombed / flooded-pocket rungs (unchanged) | as today | unchanged |
 | C2: no dry target in 16 tries | a wet, steep or unloaded region | level-2 `home` now | yes: an executable walk to the town; if it fails, L3 (unchanged) | home meeting an engaged air rescue → C3a (capped) |
 | C2: a candidate rejected (wet / unknown / steep) | — | the next try | yes | → fallback above |
-| C3a: rescue admission while the air rescue is engaged | head under with air ≤ 5 s, or the air reflex owning the body (rescue, air-pocket dig, flooded-pocket rung) | the air reflex; level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **cap 2, no TTL**: after two declines the bypass latches until progress resets it; a bypassed run is exempt from C3b unless `danger`; a breathing bot is never refused |
-| C3b: a watchdog run while the air reflex owns the body | head under | the air reflex | yes | the next verdict starts a new rescue (C3a applies); a bypassed run is left alone unless `danger` (the chronic handoff); an interrupted climb-out is refunded |
-| H2 holds (unchanged): reserve_expired, body_held, runner_paused | — | as homefix-01 | as homefix-01 | `air_rescue` declines do not touch the reserve_expired streak, and vice versa; each cap stands on its own counter |
+| C3a: rescue admission during `danger` or a pocket rung | drowning in progress (head under, ≤ 5 s air, health falling), or the air-pocket / flooded-pocket rung running | the air reflex; level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **bounded by construction**: a drowning ends (breath or death) in ~100 s < the 180-s backoff; the rungs are budget-bounded with cooldowns; a breathing or healthy-submerged bot is never refused; the read reports the longest decline streak |
+| C3b: a watchdog run during `danger` | drowning in progress | the air reflex | yes | the next verdict starts a new rescue (C3a applies); a climb-out interrupted this way is refunded at most twice per stranding episode |
+| H2 holds (unchanged): reserve_expired, body_held, runner_paused | — | as homefix-01 | as homefix-01 | `air_rescue` declines do not touch the reserve_expired streak |
 
 The composed dead end that killed death 1: route `up` (wrong), so no ice dig; ceiling; yield; no rung; re-seize; and
 round again. With C1 the same position reads `out` (the hole home dug at -15,62,55, `AIRUP@1`) or `sealed`, which
 triggers the ice dig. Both are executable from the cell. The level-2 `home` that sat inside the drowning is interrupted
-by C3b on the first tick the air rescue holds the body.
+by C3b on the first tick of `danger` (about 20:18:09), or earlier by the air-pocket step's own guard once C1 makes
+the route `sealed`.
 
 ## 6. The read: `homefix2read.py` (homefixread.py + the new gates)
 
@@ -469,21 +481,21 @@ licence_canary, readable, g3_unjoined and the controls. They keep their register
   fixtures, plus, for G5c, the same parser run over homefix-01's rows, which must find death 1's `up` route through
   ice. Missing required fields set **`g5_fields_missing` ≥ 1, which blocks KEEP**, so absence is never read as clean
   (Codex r1 P1-4).
-  - **G5a.** A watchdog `started` row whose admission fields (`air_engaged`, written by the runner from `admit()`'s
-    reading at the start) say engaged, with no `air_bypass = 1`: C3a admitted into an engaged air rescue below the
-    cap.
+  - **G5a.** A watchdog `started` row whose admission fields (`air_danger`, `air_pocketing`, written by the runner
+    from `admit()`'s reading at the start) say 1: C3a let a rescue start into a drowning in progress.
   - **G5b.** A level-1 relocation `requested` row with no `target_x`/`dry_tries`, OR a `fallback` row whose
     `dry_tries` is not 16: C2 skipped.
   - **G5c (outcome, C1).** A `_drowning_route` row with `up` whose `head=` cell is not swimmable (ice, dirt, stone, ...):
     the route answered through a solid head cell. homefix-01's 20:17:49 row is the positive control. Its head
     (`_air_drowning_observed`, 2 s earlier) was ice, so the old code shows the defect.
-  - **G5d (outcome, C3b).** An `_air_rescue_overlap` row with `action=interrupt` whose attempt has no terminal phase
-    within 60 s means C3b's interrupt did not take. 60 s is above the measured unwind p99 of 47.6 s (h11); the read
-    also reports the overlap→terminal times.
-    - **The overlap row is the independent observation** (Codex r2 P5). It is written by the reflex the first time it
-      sees air ownership overlapping a watchdog run, whether or not the rescue seized during that run. So a run that
-      STARTS inside an existing rescue is seen too; the fixture puts the seizure before the run.
-    - An overlap row with `action=exempt` is a bypassed run without `danger`. It is not a defect and is reported.
+  - **G5d (outcome, C3b).** An `_air_rescue_yield` row (the FIRST interrupt decision per attempt) whose attempt has
+    no terminal phase within 60 s: C3b's interrupt did not take. 60 s is above the measured unwind p99 of 47.6 s (h11),
+    and the read reports the yield→terminal times.
+    - The independent half is **G5d'**: a tick-level observation from the read itself. It flags a watchdog attempt
+      started and not terminal while the same bot's reflex rows show a drowning in progress (`_drowning_ceiling_no_air`
+      or `_oxygen_critical_state` with health below the previous row's), with no `_air_rescue_yield` for that attempt
+      within 2 s. It is reported, and it becomes a defect when the attempt's terminal is not `interrupted:*`.
+    - A yield row cut by the read boundary (< 60 s before it) is censored, not counted.
 - **G6: verdict-adjacent drownings on both arms (DiD).** A drowning death within 180 s AFTER a `_stagnation` verdict and
   within 16 blocks of the verdict's position, deduplicated per death. Both builds write the verdict with a position,
   so the old code's pre-period is counted with the same instrument.
@@ -525,9 +537,11 @@ licence_canary, readable, g3_unjoined and the controls. They keep their register
   - **Reported alongside:** G6r, the attempt-anchored version, canary only (a death within 180 s of a terminal row, or
     during a started attempt, within 16 blocks of its last snapshot).
 - **Guards (reported, never a verdict).**
-  - `_relocate_landed dry=0` per relocation.
+  - `_relocate_landed wet=1` per relocation, by success or failure and by `in_region`.
   - Water reflex rows within 30 s of `completed:success`, canary v control. homefix-01: 15.1% v 11.4% at 120 s.
-  - The `declined:air_rescue`, `air_bypass`, `interrupted:drowning` and `fallback` counts, with the `dry_reasons` mix.
+  - The `declined:air_rescue`, `_air_rescue_yield`, `interrupted:drowning` (and `interrupted:air_pocket` /
+    `interrupted:<air kind>` from the base's own air actions) and `fallback` counts. Also the `dry_reasons` mix and
+    `dry_ms` (p50/p99), the longest consecutive `air_rescue` streak per bot (≥ 3 named), and the refunds.
   - C1 exposure: `_drowning_route ... cap=head` and `_air_pocket_start kind=ice` at the head cell.
   - Deaths within 120 s of a rescue start, as homefix-01 reported them.
 - **Change rows:** `change_rows: ["watchdog_rescue"]` WITHOUT the underscore (verdict.py compares `lstrip('_')`).
@@ -569,27 +583,23 @@ Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, dea
   - `no_dry_target` → ONE level-2 `requested` row with `fallback`.
   - fallback → home declined (`air_rescue`) → retry → L3 (Codex r1 P2-6).
 - **C3a.**
-  - `airEngaged` (pure): owning (rescue, airPocketing, pocketing), air ≤ 5 with the head under, stale state without
-    owning, and a breathing swimmer, who is NOT engaged (death 2's shape: the relocation runs).
-  - `airDeclineStep` (pure): below the cap; the latch at the cap; a bypassed start keeps the latch; a progress reset and
-    a non-bypassed start clear it; no TTL. Production-clock spacing is included: stranding verdicts 720 s apart still
-    latch (Codex r2 P3).
-  - **The race, through the real Runner** (Codex r1 P1-1): a dry request → a skill unwinding for 3 s → the air rescue
-    engages during the unwind → `declined:air_rescue`, and nothing starts. Plus admission during a multi-second
-    air-pocket step (`owning` with stale sensor state) → declined (Codex r2 P4).
-  - **Interleavings** (Codex r1 P2-5, Claude r1 P2-4), in both stagnation and stranding, with the stranding refund
-    preserved:
-    - reserve_expired → air_rescue → reserve_expired reaches the reserve cap (L3);
-    - air_rescue → reserve_expired → air_rescue reaches the air cap.
-  - **Composed** (Claude r2 P1, Codex r2 P1): decline, decline, then a bypassed run under a reflex that re-seizes every
-    few seconds. The run survives to its own terminal phase, and stranding's attempt count is right. A bypassed run with
-    `danger` IS interrupted.
+  - `airDanger` (pure): head under + ≤ 5 s + health fell → true. A chronic submerged bot at 20/20 → false, and so is a
+    breathing swimmer (death 2's shape: the relocation runs). Stale state → false. `pocketing` → refused regardless of
+    freshness.
+  - **The race, through the real Runner** (Codex r1 P1-1): a dry request → a skill unwinding for 3 s → `danger` begins
+    during the unwind → `declined:air_rescue`, and nothing starts. Admission during a multi-second air-pocket step →
+    declined.
+  - **The ladder:** an `air_rescue` decline holds the level and leaves the reserve_expired streak untouched, in both
+    stagnation and stranding. A declined climb-out is refunded, with the cap of 2 per episode.
+  - **Composed, the chronic case** (Codex r2-r3 P1): a seagrass-head bot at full health, re-seized by the air reflex
+    every few seconds, gets its watchdog rescue admitted. C3b never interrupts it, so the run reaches its terminal. The
+    base's own air actions are not changed and are not asserted beyond today's behaviour.
 - **C3b.**
-  - A watchdog-owned run is interrupted on a later owning tick, not only the first.
-  - A run that STARTS while the rescue already holds the body gets an overlap row and an interrupt.
+  - A watchdog-owned run is interrupted on a LATER `danger` tick, not only the first.
+  - A run that starts while `danger` is already true is refused by C3a.
   - A brain-owned run is left alone.
-  - One `_air_rescue_overlap` row per attempt.
-  - An interrupted climb-out is refunded.
+  - One `_air_rescue_yield` row per attempt.
+  - An interrupted climb-out is refunded, at most twice.
 - **Read.**
   - G5a-f fixtures.
   - G5c on homefix-01's death-1 rows = 1.
@@ -611,8 +621,9 @@ Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, dea
   - **Candidate:** every target is dry and standable in its region, read back by RCON `execute if block`.
   - **Base:** some targets on ice or water.
 - **S3 (C3).**
-  - (a) A stagnant bot whose air rescue is engaged at the verdict: **candidate** `declined:air_rescue`, and the 3rd
-    verdict is bypassed.
+  - (a) A stagnant bot in a drowning in progress at the verdict (capped water, air out, health falling): **candidate**
+    `declined:air_rescue`, and the air reflex keeps the body.
+  - (a') A healthy bot with its head in seagrass, stagnant: **candidate** the rescue STARTS (no `danger`).
   - (b) A bot whose L2 `home` is running when it meets an air emergency: **candidate** `interrupted:drowning` within a
     tick or two, and the air rescue proceeds.
 - **S4: regression.** homefix-01's P1 (home 24 out) and P0 (2-s unwind + livelock rung) on the candidate.
@@ -623,7 +634,8 @@ Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, dea
 |---|---|---|
 | design r1 (73019074) | CHANGE. P1: C3 admission race (check before reserve, edge-triggered C3b); C2 checks the target, not goto's ≤3/≤6 arrival region; G6's null population ≠ its event definition; G5/C1 telemetry contract unwritten (rows, axes dropped). P2: decline caps not independent (rescueLevelStep resets the streak); C2 limits overstated (columnSurface, sim approximations); C1 composed regressions. P3: wording (no observed DiD excess; denominators 92 v 94) | CHANGE. P1: a head-geometry decline starves breathing swimmers (death 2's shape) — key on the air reflex; G6's REVERT rests on a narrower null — anchor on verdicts or block-only. P2: bare-handed ice pricing (pickaxes?); caps not independent; C3b edge-triggered and the one-shot latch; 0/223 v 24/723 sizing unexplained; G5 self-consistency only — add outcome checks. P3: drown-route-truth fixtures default the head cell to stone; dy=1 confirm vacuous at full HP; leaves/powder snow; fallback row shape; 92 v 94 |
 | design r2 (1fc8f0cf) | CHANGE. P1: C3b defeats C3a's bypass (chronic bots killed on the next re-seizure); C2's region misses goto's ±6 vertical acceptance. P2: air TTL shorter than the stranding cadence (720 s); state stale behind the airPocketing early return; G5d keyed on a seizure row only written on `!rescuing`; G6's fixed baseline not portable to a new draw. P3: 11 v 10, 92 v 94 wording | CHANGE. P1: the same bypass/C3b dead end. P2: state stale during the ice dig; airClock only updated while losing. P3: `air_rescue` into RUNNER_DECLINED and the grant release; G6 λ = max(0.68, the drawn arm's rate); say the pickaxe rows were matched. F5 deferral accepted |
-| design r3 | | |
+| design r3 (af9a93ee) | CHANGE. P1: the base's own air actions (one-shot latch, air-pocket guard, re-seize goal clear) still kill a bypassed run; the shared counter is cleared by stagnation between stranding verdicts; the far-band exemption for capped water is unsound. P2: an exempt→interrupt transition is missed by G5d; the sizing is not a faithful replay | **APPROVE** (P2: region scan cost; P3: `danger` threshold text; cap the drowning refund; name the pocket rungs' interrupts; sim settings; G5f with the same predicate; which escalation zeroes reset the latch) |
+| design r4 | | |
 
 r2 answers every r1 finding:
 - **C3a:** keyed on the air reflex, checked at the runner's start, with its own streak, cap and bypass latch. C3b is
@@ -650,3 +662,16 @@ r3 answers every r2 finding:
 - **G6.** A per-pool baseline registered before the draw (es_g6pool.py). The probabilities are labelled as
   conditional.
 - **Smaller items.** `RUNNER_DECLINED` and the grant release; the wording; the pickaxe matching.
+
+r4 answers r3:
+- **C3 re-keyed on a drowning in progress** (`danger` = head under, ≤ 5 s of air, health falling), or on a pocket rung
+  running. Each condition is bounded by construction, which removes the counter, the bypass, its latch and its reset
+  rules (Codex r3 P1-1, P1-2). This also moots Claude r3 P3-7.
+- **The base's air actions are unchanged**, and §4 names them (Claude r3 P3-4).
+- **C2 rejects any wet cell in the whole accepted volume** (Codex r3 P1-3). Sizing from a faithful mirror (sim5.py) is
+  92.4%.
+- **Scan cost:** early exit, the near band first, a yield between tries, `dry_ms` and a timing test (Claude r3 P2).
+- **G5f** uses the picker's own volume.
+- **G5d** is keyed on the first interrupt decision, with a reflex-row cross-check, G5d'.
+- **The drowning refund is capped at 2.**
+- **`danger`** uses LOW_SECONDS, matching airEmergency's arm.
