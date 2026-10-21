@@ -16,7 +16,8 @@ import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
 import { announceHazard } from './comms.mjs'
 import { isNight, snapshot, inventorySummary } from './state.mjs'
-import { breathable, makeAirClock, airEmergency } from './air.mjs'
+import { breathable, makeAirClock, airEmergency, headBlock as airHeadBlock } from './air.mjs'
+import { airDanger, airYieldsRun, healthFellWithin, AIR_HEALTH_WINDOW_MS } from './airstate.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary, overheadBreakRisk,
@@ -942,9 +943,20 @@ export function scanBreathableRoute ({ at = () => null, maxUp = 32, maxOut = 8,
   let unknown = false                 // any null cell: we did not SEE a wall
   let capped = false                  // up ended on something solid
 
-  for (let dy = 1; dy <= maxUp; dy++) {
+  // THE HEAD CELL ITSELF CAN BE THE CAP (homefix-02 C1, docs/reports/homefix-02-design-2026-10-21.md §1.3). The up scan
+  // started at dy 1 and never read dy 0, so a bot in hive-d's 1-high water layer under a frozen river (head cell ICE,
+  // air above the ice) read `up dist=1` for 93 s while it drowned (hive-d-Echo 10-20 20:19Z) -- and so did all 10
+  // old-code ice drownings in the week before. `up` through a solid head cell is never an answer: the head cell caps it,
+  // the sideways scan below runs as before, and an all-closed answer is `sealed` (which lets the air-pocket ice dig run).
+  // A null head cell is `unknown` (never sealed); a swimmable one changes nothing.
+  const headCell = at(0, 0, 0)
+  let headCap = null
+  if (headCell == null) unknown = true
+  else if (!swimmable(headCell)) { headCap = String(headCell.name ?? 'solid'); capped = true }
+
+  for (let dy = 1; !headCap && dy <= maxUp; dy++) {
     const b = at(0, dy, 0)
-    if (isAir(b)) return { dir: 'up', offset: [0, dy, 0], dist: dy, sealed: false }
+    if (isAir(b)) return { dir: 'up', offset: [0, dy, 0], dist: dy, sealed: false, headCap: null }
     if (!swimmable(b)) { capped = true; if (b == null) unknown = true; break }
   }
 
@@ -983,7 +995,7 @@ export function scanBreathableRoute ({ at = () => null, maxUp = 32, maxOut = 8,
     }
     if (!closed) { allClosed = false; axes.push(`${tag}:RAN${maxOut}`) }
   }
-  return { ...best, axes,
+  return { ...best, axes, headCap,
            sealed: best.dir == null && capped && allClosed && !unknown }
 }
 
@@ -1000,6 +1012,9 @@ export function breathableRoute(bot, { maxUp = 32, maxOut = 8 } = {}) {
     target: r.offset ? head.offset(r.offset[0], r.offset[1], r.offset[2]) : null,
     dist: r.dist,
     sealed: r.sealed,
+    // forwarded (homefix-02 C1, Codex r1 P1-4): the `_drowning_route` row prints them, so the read can see a head cap
+    axes: r.axes ?? null,
+    headCap: r.headCap ?? null,
   }
   return best
 }
@@ -1288,6 +1303,58 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let holdStartState = null
   // Air the local wildlife cannot edit. See air.mjs.
   const airClock = makeAirClock()
+  // homefix-02 C3: the PUBLICATION clock (bot.airRescue), updated every tick; the rescue's own clock above is not touched
+  const pubAirClock = makeAirClock()
+  const pubHealth = []           // [{t, h}] over the last AIR_HEALTH_WINDOW_MS
+  let airYieldLoggedFor = null   // the runner `current` whose C3b interrupt has been logged
+  let airDangerRowAt = 0
+  /**
+   * THE AIR STATE, PUBLISHED EVERY TICK (homefix-02 C3, airstate.mjs): `bot.airRescue` for the watchdog's admission,
+   * read by the runner at the instant a rescue would start. Its clock is a SEPARATE publication clock -- the rescue's
+   * own airClock (updated only while `air.losing`) is untouched, so the rescue behaves exactly as before. `pocketing`
+   * is held by the rungs' own flags, independent of freshness.
+   * C3b, LEVEL-TRIGGERED: on every tick of a drowning in progress a WATCHDOG-owned run is interrupted (death 1's level-2
+   * `home` sat 52 s inside the drowning: the base's one-shot mayAct latch had fired on an observe-only tick). Brain-
+   * started runs are not touched (F5 in the design). Rows: `_air_rescue_yield` once per run (read G5d), and a throttled
+   * `_air_danger` with the predicate's exact inputs while a watchdog run is current (read G5d').
+   */
+  function publishAir () {
+    try {
+      const now = Date.now()
+      const hb = airHeadBlock(bot)
+      const headUnder = hb != null && !breathable(hb)
+      const airSeconds = pubAirClock.update(bot, now)
+      const h = bot.health ?? null
+      if (h != null) pubHealth.push({ t: now, h })
+      while (pubHealth.length && now - pubHealth[0].t > AIR_HEALTH_WINDOW_MS) pubHealth.shift()
+      const healthFell = healthFellWithin(pubHealth, now)
+      const danger = airDanger({ headUnder, airSeconds, healthFell })
+      bot.airRescue = { danger, pocketing: airPocketing || pocketing, airSeconds, headUnder, at: now }
+      const cur = runner?.current
+      const yields = !!cur && airYieldsRun({ danger, owner: cur.owner })
+      // the interrupt is ISSUED before the sample row, and the row says so (read G5d': every sampled danger tick of a
+      // watchdog run must carry interrupt_issued=1 -- Codex r5 P1-2)
+      const issued = yields ? runner.interrupt('drowning') === true : false
+      if (danger && cur?.owner === 'watchdog' && now - airDangerRowAt >= 2000) {
+        airDangerRowAt = now
+        logEvent({ kind: 'air_danger', status: 'no_effect',
+                   detail: `a drowning in progress while the watchdog's ${cur.skill} runs`,
+                   args: { attempt: String(cur.rescue?.attempt ?? ''), owner: 'watchdog', head_under: headUnder ? 1 : 0,
+                           air_seconds: Math.round(airSeconds * 10) / 10, health: h,
+                           health_3s_max: Math.max(...pubHealth.map(s => s.h)), interrupt_issued: issued ? 1 : 0 },
+                   snapshot: snapshot(bot) })
+      }
+      if (yields) {
+        if (airYieldLoggedFor !== cur) {
+          airYieldLoggedFor = cur
+          logEvent({ kind: 'air_rescue_yield', status: 'success',
+                     detail: `a drowning in progress (${airSeconds.toFixed(1)} s air, health ${h}): the watchdog's ${cur.skill} is interrupted`,
+                     args: { attempt: String(cur.rescue?.attempt ?? ''), skill: String(cur.skill), air_seconds: Math.round(airSeconds * 10) / 10, health: h },
+                     snapshot: snapshot(bot) })
+        }
+      }
+    } catch { /* publishing must never break the reflex tick */ }
+  }
   let lastAirDist = Infinity
   let lastClosingAt = 0          // AIRPOCKET: when the rescue last closed on air (a working swim is never cut off)
   let lastReleaseAt = 0
@@ -1487,6 +1554,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (!bot.entity) return
 
     try {
+      // THE AIR STATE + C3b, FIRST THING IN THE TICK (homefix-02 C3; before the release await below and every early
+      // return -- Claude r2 P2 / r4 P3-4, Codex r2 P4). See publishAir.
+      publishAir()
       // --- a cursor held over a chest is never worth a death (withdraw, skills.mjs holdUnsettled) -------------------
       // While held, equip and the rest refuse; a survival situation releases the hold first: one last settle, then the
       // close, with a row. Movement-only reflexes below run either way.
@@ -2258,7 +2328,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                       // costs one pure function over blocks already being read.
                       ` scoop=${scoopWouldHelp(bot)}` +
                       // WHICH AXIS KEPT THIS FROM READING `sealed`.
-                      `${route.axes ? ' axes=' + route.axes.join(',') : ''}`,
+                      `${route.axes ? ' axes=' + route.axes.join(',') : ''}` +
+                      // THE HEAD CELL (homefix-02 C1 / read G5c): an `up` answer with a solid head here is the defect C1
+                      // removes; `cap=head` marks the scans the head cell capped.
+                      ` head=${bot.blockAt?.(bot.entity.position.offset(0, 1, 0))?.name ?? 'unknown'}` +
+                      `${route.headCap ? ' cap=head' : ''}`,
               snapshot: snapshot(bot),
             })
           }
