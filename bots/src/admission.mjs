@@ -9,6 +9,7 @@
 // "the model is unreliable" into a distribution over specific, fixable causes
 // you can query in Kibana.
 
+import { cooldownHit, KEEPOUT_COOLDOWN_MS, KEEPOUT_COOLDOWN_NEAR } from './keepout.mjs'
 import { SKILLS, actionKey, foodSkipNow, stockRefusedRow } from './skills.mjs'
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
@@ -283,6 +284,19 @@ export class AdmissionControl {
       const n = Number(args.count)
       if (!Number.isFinite(n) || n <= 0 || n > 128) {
         return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..128` }
+      }
+    }
+
+    // KEEPOUT-01: A REFUSED (gather, block) OR mine IS SUPPRESSED NEAR THE COLUMN (keepout.mjs cooldownHit; design 4.6 rows 2-3).
+    // The run that met the column ended without a dig and charged a 10-min cooldown; within 32 blocks of the column the same
+    // proposal is refused HERE, so the next decision is a different one. The remedy is a move the bot can make from here.
+    if ((skill === 'gather' || skill === 'mine') && Array.isArray(bot?.keepoutCooldowns) && bot.keepoutCooldowns.length) {
+      const hit = cooldownHit(bot.keepoutCooldowns, { skill, block: skill === 'gather' ? args.block : null, pos: bot.entity?.position })
+      if (hit) {
+        return { ok: false, reason: 'keepout_cooldown',
+                 detail: `${skill}${skill === 'gather' ? ` ${args.block}` : ''} was refused ${Math.round((Date.now() - (hit.until - KEEPOUT_COOLDOWN_MS)) / 1000)}s ago here: ` +
+                         `every candidate near is in the column above a marked lava pool (${hit.site.x},${hit.site.y},${hit.site.z}); ` +
+                         `walk ${KEEPOUT_COOLDOWN_NEAR}+ blocks from it, or do something else (${Math.ceil((hit.until - Date.now()) / 1000)}s left)` }
       }
     }
 

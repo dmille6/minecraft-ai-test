@@ -26,7 +26,10 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
-import { attachDigTown } from './digtown.mjs'
+import { attachDigTown, digPurpose, currentDigScope } from './digtown.mjs'
+// keepout-01: no dig in the column above a live fire death site (keepout.mjs)
+import { keepoutOn, keepoutModeDetail, fireSites, columnAt, routeForbids, coversTown, disputeScan, siteKey, keepoutCounters, noteKeepout,
+         KEEPOUT_DISPUTE_MS, townYieldOn, scopeHolds, keepoutDigGuard } from './keepout.mjs'
 import { townGroundCounters, configuredHome } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
@@ -303,6 +306,8 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
+    // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
+    try { logEvent({ kind: 'keepout_mode', status: 'success', snapshot: snapshot(bot), detail: keepoutModeDetail(process.env) }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -549,9 +554,29 @@ function connect() {
     // callback (Codex pass 2: a file read inside an A* step). The callback only scans the cached array.
     const deathSitesTimer = setInterval(refreshDeathSites, 20_000); deathSitesTimer.unref?.()
     bot.once('end', () => clearInterval(deathSitesTimer))
-    const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block)
+    const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block) + keepoutStepPenalty(block)   // + keepout-01's route (0 outside a keep-out scope)
     bot.deathSitesNow = () => deathSites
     bot.refreshDeathSites = refreshDeathSites
+    // KEEPOUT-01 (keepout.mjs). THE FIRE SITES that keep bots out, from the same 20 s cache (live, class fire, not disputed).
+    // KEEPOUT=0 -> none: the bot behaves exactly as the base.
+    const KO_ON = keepoutOn(process.env)
+    bot.fireSitesNow = () => (KO_ON ? fireSites(deathSites) : [])
+    // THE COLUMN-FREE ROUTE AND THE BREAK VETO are live ONLY while a keep-out scope is set (skills.mjs withKeepout: gather,
+    // mine and `_keepout_exit` set `bot.keepoutRoute` around their own runs), and only while that run still holds the body:
+    // a reflex that takes the body (a drowning rescue, an escape, the scaffold) plans as if keep-out did not exist. Transit
+    // outside those runs is untouched (the town zone's lesson: a path-wide veto is a pit trap). 101 deletes the move
+    // (mineflayer-pathfinder discards cost > 100). Hot path: a null check, then the scope's few sites.
+    const koHeld = (kr) => scopeHolds(kr, { reflex: stopReflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null, arbiter: !!config.reflex.arbiter })
+    const keepoutStepPenalty = (block) => {
+      const kr = bot.keepoutRoute
+      if (!kr || !kr.sites.length || !block?.position || !koHeld(kr)) return 0
+      return routeForbids(kr.sites, bot.entity?.position, block.position) ? 101 : 0
+    }
+    const keepoutBreakPenalty = (block) => {
+      const kr = bot.keepoutRoute
+      if (!kr || !kr.sites.length || !block?.position || !koHeld(kr)) return 0
+      return columnAt(kr.sites, block.position) ? 101 : 0
+    }
     // THE TOWN JUNK WELL IS NO PLACE TO STAND (well.mjs): its column, cap to ten above, costs 1000 on EVERY profile, so no
     // node stands on, in or over it (open or closed, whatever the goal; sandbox: a goal on the cell fell in 2/2), and its
     // walls, floor and underground ring are never a path's or gather's dig. Cells come from a 20 s cache (the town's
@@ -634,6 +659,9 @@ function connect() {
     // one thing the observer cannot log, because a bot that dies mid-walk
     // never reaches the log line.
     gatherMoves.dontCreateFlow = true
+    // KEEPOUT-01: the dig-capable approach (and the ore tunnel built from it) never breaks a cell in a fire column while a
+    // keep-out scope holds the body -- its OWN array (a copy), so the walk, ascent, descent and water profiles never see it
+    gatherMoves.exclusionAreasBreak = [...moves.exclusionAreasBreak, (block) => keepoutBreakPenalty(block)]
     bot.gatherMovements = gatherMoves
     // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
@@ -1059,6 +1087,77 @@ function connect() {
       tgTimer.unref?.()
       bot.once('end', () => clearInterval(tgTimer))
     } catch (e) { log('warn', 'dig town instrument not attached', { err: e?.message }) }
+    // KEEPOUT-01: THE DIG GUARD (the backstop under gather's and mine's own refusals). Wraps bot.dig OUTSIDE the `_dig_town`
+    // instrument, so a refused dig is never sent and never counted as one. Refused: a TARGET dig (gather, mine, the ore
+    // tunnel's profile: digtown.mjs digPurpose) of a cell in a live fire column. Never refused: survival (a reflex holding
+    // the body, the reflex tick), transit, lids, every other skill's digs, and `_keepout_exit`'s own escape digs.
+    try {
+      const inner = bot.dig
+      if (KO_ON && typeof inner === 'function' && !inner.__keepout) {
+        const reflexes = stopReflexes
+        bot.dig = keepoutDigGuard(inner, {
+          sitesNow: () => bot.fireSitesNow(),
+          purposeOf: () => {
+            let mining = false, tag = null
+            try { mining = !!bot.pathfinder?.isMining?.(); tag = bot.pathfinder?.movements?.digPurpose ?? null } catch { /* plugin absent */ }
+            return digPurpose({ scope: currentDigScope(), pathfinderMining: mining, movementsPurpose: tag, skill: runner.current?.skill ?? null,
+              args: runner.current?.args ?? null, reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }).purpose
+          },
+          onRefuse: () => noteKeepout(bot, 'dig_refused'),
+        })
+      }
+    } catch (e) { log('warn', 'keepout dig guard not attached', { err: e?.message }) }
+    // KEEPOUT-01: THE TOWN A COLUMN COVERS (C12; owner 2026-10-22 "yes"): a column over a town chest, furnace or home yields for
+    // town jobs there. Cached per site for 5 min (a column scan is ~1,500 block reads); a yielding column is named once an hour
+    // per bot in a `_keepout_yield` row -- the read reports the town.
+    const yieldCache = new Map(), yieldSaid = new Map()
+    bot.keepoutYields = (site) => {
+      if (!site || !townYieldOn(process.env)) return false
+      const k = siteKey(site), now = Date.now(), hit = yieldCache.get(k)
+      if (hit && now - hit.at < 5 * 60_000) return hit.v.yields
+      const nameAt = (x, y, z) => bot.blockAt?.(new Vec3(x, y, z))?.name ?? null
+      let v
+      try { v = coversTown(site, { home: configuredHome(config.world), nameAt }) } catch { v = { yields: false } }
+      yieldCache.set(k, { at: now, v })
+      if (v.yields && now - (yieldSaid.get(k) ?? -Infinity) >= 60 * 60_000) {
+        yieldSaid.set(k, now)
+        try { logEvent({ kind: 'keepout_yield', status: 'success', snapshot: snapshot(bot), detail: `site=${k} pool=${config.memory.pool} home=${v.home ? 1 : 0} containers=${v.containers} furnaces=${v.furnaces} -- a live fire column covers this town's ${[v.home && 'home', v.containers && 'chests', v.furnaces && 'furnaces'].filter(Boolean).join(' and ')}: keep-out yields for town jobs there (owner C12)` }) } catch { /* telemetry */ }
+      }
+      return v.yields
+    }
+    // KEEPOUT-01: THE LAVA READ (design 4.2): taken on keep-out's own refusal path, at most once per site per 10 min per bot, and
+    // only when the whole disc is loaded. Clear -> the site is disputed (kept, no longer keeping anyone out).
+    const disputedAt = new Map()
+    bot.keepoutDispute = (site) => {
+      try {
+        if (!site || !worldFacts?.disputeFireSite) return null
+        const k = siteKey(site), now = Date.now()
+        if (now - (disputedAt.get(k) ?? -Infinity) < KEEPOUT_DISPUTE_MS) return null
+        disputedAt.set(k, now)
+        const v = disputeScan(site, (x, y, z) => bot.blockAt?.(new Vec3(x, y, z))?.name ?? null)
+        if (v !== 'clear') return v
+        const s = worldFacts.disputeFireSite(site)
+        refreshDeathSites()
+        noteKeepout(bot, 'disputed')
+        logEvent({ kind: 'keepout_dispute', status: 'success', snapshot: snapshot(bot), detail: `site=${k} read=clear stored=${s ? 1 : 0} -- no lava in the disc (every cell loaded): the site no longer keeps bots out until the next fire death there` })
+        return v
+      } catch { return null }
+    }
+    // KEEPOUT-01: THE LIVENESS ROW (`_keepout`): what keep-out did in the last minute, only when it did anything (the read's exposure).
+    bot.keepoutStats = keepoutCounters()
+    try {
+      const koTimer = setInterval(() => {
+        try {
+          const c = bot.keepoutStats ?? {}
+          if (!Object.values(c).some(v => v > 0)) return
+          logEvent({ kind: 'keepout', status: 'success', snapshot: snapshot(bot), args: { ...c },
+                     detail: Object.entries(c).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ') })
+          bot.keepoutStats = keepoutCounters()
+        } catch { /* telemetry */ }
+      }, 60_000)
+      koTimer.unref?.()
+      bot.once('end', () => clearInterval(koTimer))
+    } catch { /* telemetry */ }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
