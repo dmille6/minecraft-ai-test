@@ -154,6 +154,19 @@ export function lockOwned (lock, token) { try { return fs.readFileSync(lock, 'ut
 /** Release the lock only if it is still ours (a broken-and-retaken lock belongs to someone else now). */
 export function unlockIfOwned (lock, token) { if (lockOwned(lock, token)) { try { fs.unlinkSync(lock) } catch { /* gone */ } } }
 
+// THE PROMPT SHOWS ONLY KNOWN HAZARD KINDS (chatgate-01, comms design 5.3). A hazard's `kind` reached the model's prompt
+// verbatim, and until chatgate-01 a peer's `[fleet]` line could write any 24 characters of it. Every kind this code writes
+// is listed here: the reflexes' `entombed` and the air reflex's `drowning` / `suffocating` (reflex.mjs), and a death
+// site's `death:<class>` for every class index.mjs deathClass returns. Anything else on file is never displayed.
+export const PROMPT_HAZARD_KINDS = new Set(['entombed', 'drowning', 'suffocating'])
+export const PROMPT_DEATH_CLASSES = new Set(['fall', 'suffocation', 'drowning', 'fire', 'mob', 'starvation', 'unknown', 'other'])
+/** May this hazard kind be shown in a prompt line? Pure. */
+export function promptHazardKind (kind) {
+  if (typeof kind !== 'string') return false
+  if (kind.startsWith(DEATH_KIND_PREFIX)) return PROMPT_DEATH_CLASSES.has(kind.slice(DEATH_KIND_PREFIX.length))
+  return PROMPT_HAZARD_KINDS.has(kind)
+}
+
 export class WorldFacts {
   constructor(file) {
     this.file = file
@@ -491,7 +504,7 @@ export class WorldFacts {
       out.push(`${r.kind} seen at x=${r.x} y=${r.y ?? Math.round(pos.y)} z=${r.z} ` +
                `(${d} blocks away, reported by ${r.by.join(' and ')})`)
     }
-    for (const s of this.hazardsNear(pos, 60).slice(0, limit)) {
+    for (const s of this.hazardsNear(pos, 60).filter(s => promptHazardKind(s.kind)).slice(0, limit)) {
       const who = s.by.filter(n => n !== config.bot.name)
       if (!who.length) continue                     // already in my own lessons
       out.push(`${who.join(' and ')} hit ${s.kind} ${s.count}x near ${s.x},${s.y},${s.z} — avoid it`)
