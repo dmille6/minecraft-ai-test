@@ -101,6 +101,17 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-21 18:15Z — isolated-b pilot +180 clean; hold released (240 min, owner); homefix-02 LIVE 18:05:53Z (4 pools)
+
+- **isolated-b pilot tripwire** +15/+60/+180: config right on 5/5; one shared well cap (357,74,160), 0 new wells; deaths 0 in
+  17.6 bh; furnace sessions 46, 0 overlapping; smelt jobs 44 (0 before the switch; smelt_town_ok 0 -> 1.0/bh); +180 reads
+  BLIND only because no junk-well disposal happened in 3 h (exposure), not a breach. Convert isolated-a/c/d after homefix-02.
+- **Tool bug:** the claim recorded quiet_min 420 (computed) although the owner-accepted 240 was journalled
+  (contamination-accepted 13:53:20Z), so `--release` refused until 20:54Z. Operator set HOLD.json quiet_min 240 under
+  rollout.lock (backup HOLD.json.bak-17xxZ, note in the file) and released 17:54:55Z. Fix the claim path before phase 2.
+- **homefix-02 LIVE 18:05:53Z on placebo-d, hive-a, board-c, board-b** (variant on 34d3e5e9 -> canary d014ec2c; tier 3).
+- toolkit-03 merged to main c009771a (272/272, clean re-run after an invalid mixed-checkout run).
+
 ## 10-21 14:00Z — FLEET 34d3e5e9 (toolkit-03 KEPT +720, promoted 13:37Z); all 80 bots on the 5080; isolated-b pilot APPLIED
 
 - **toolkit-03 KEEP +720 13:28Z, promoted 13:37:52Z.** Deaths 7 / 180 bh (0.039) v 12 / 540 (0.022): 1.75x, LB 0.69x (held).
