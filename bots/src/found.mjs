@@ -16,9 +16,8 @@ import path from 'node:path'
 import { LOGS, PLANKS, COBBLE, PLANKS_MEANS } from './towndeposit.mjs'
 import { scaffoldKeep } from './bankable.mjs'
 
-// THE SWITCH. townplan-01 ships this code DORMANT (on only with FOUND=on: the plan alone is that canary's single variable);
-// found-01 is the commit that makes it default-on (FOUND=off its rollback).
-export const FOUND = Object.freeze({ on: process.env.FOUND === 'on' })
+// THE SWITCH. townplan-01 shipped this code DORMANT (FOUND=on only); found-01 makes it default-on. FOUND=off is its rollback.
+export const FOUND = Object.freeze({ on: process.env.FOUND !== 'off' })
 /** Per bot, after any found order was issued. */
 export const FOUND_COOLDOWN_MS = 10 * 60 * 1000
 /** The town-wide found lease and the reservation's TTL (design 4.6: the found lease, 4 min). */
