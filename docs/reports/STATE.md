@@ -101,6 +101,24 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-21 14:00Z — FLEET 34d3e5e9 (toolkit-03 KEPT +720, promoted 13:37Z); all 80 bots on the 5080; isolated-b pilot APPLIED
+
+- **toolkit-03 KEEP +720 13:28Z, promoted 13:37:52Z.** Deaths 7 / 180 bh (0.039) v 12 / 540 (0.022): 1.75x, LB 0.69x (held).
+  Operator promised the owner a look before rollout; the loop auto-promotes ~10 min after a KEEP -- told the owner plainly.
+  WATCH 24 h fleet-wide: y<20 time share and underground deaths v the days before (canary arm went 3% -> 14% at y<20); roll
+  back to 9e7d9980 if the pattern appears fleet-wide.
+- **5080 move DONE 13:38-13:42Z** (~/dmove.sh --apply, backups *.bak-dmove-20261021T1338Z): the 20 *-d bots now 10.0.0.72
+  primary, .16 fallback. 13:42-13:52Z: d-pools 297 decisions on .72, 0 on .16; all 80 bots on .72 p50 1,987 ms, p95 3,460 ms
+  (60 bots before: 1,469 / 2,808). .16 must leave every endpoint list before the first training round (learning loop M3).
+- **isolated-b -> shared town APPLIED 13:53:20Z** (isolated2shared-direct.sh, owner flags --quiet 240 --accept-contamination;
+  scope private; backup /var/backups/mcai-isolated2shared/20261021T135320Z-isolated-b; plinth cap 357,74,160 shared; 20
+  containers merged). INSTALL-HOLD isolated2shared-01 until 18:53Z; `--release operator-claude` allowed after 17:53Z.
+  Tripwire at +15/+60/+180 (operator ~/bin/i2strip.sh). homefix-02 queue hold RELEASED: it launches when the install-hold
+  is released (variants 9e7d9980 + 34d3e5e9 -> d014ec2c).
+- **Learning loop:** owner answered a-h (memory owner-learning-loop-1021); both API keys installed on the Mac
+  (~/.config/mcai/*.key, 600; both verified with free model-list calls; owner set spending limits); operator may promote a
+  KEPT model onto .72 (owner: automated).
+
 ## 10-21 07:40Z — toolkit-03 +360 NOT_YET (reads to its registered +720 ~13:11Z); deaths 5 v 6 (2.50x, LB 0.75x); deep-time WATCH
 
 - **toolkit-03 +360 07:22Z NOT_YET**: registration reads [180, 360, 720] -> the decision is at +720 (~13:11Z, 8:11 CDT), so
