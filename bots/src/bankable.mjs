@@ -33,13 +33,13 @@ import { groupOf, targetOf, isToolGroup, roomUnder } from './stocktarget.mjs'
 // that would inflate a co-primary endpoint without meaning anything.
 
 /** Ballast: things a bot accumulates that no goal ever asked for. */
-const NEVER_BANKABLE = new Set([
+export const NEVER_BANKABLE = new Set([
   'leaf_litter', 'brown_egg', 'egg', 'oak_sapling', 'short_grass', 'dead_bush',
   'seagrass', 'vine', 'poppy', 'dandelion', 'pointed_dripstone', 'rail', 'bamboo',
 ])
 
 /** Always worth keeping in the town chest, whatever the current rung asks for. */
-const STANDING_TARGETS = new Set([
+export const STANDING_TARGETS = new Set([
   'oak_log', 'birch_log', 'jungle_log', 'oak_planks', 'stick', 'cobblestone',
   'cobbled_deepslate', 'stone', 'coal', 'raw_iron', 'iron_ingot', 'diamond',
 ])

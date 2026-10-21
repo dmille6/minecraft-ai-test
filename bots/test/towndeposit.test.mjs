@@ -233,7 +233,7 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
     ['raw_iron', 5], ['iron_ingot', 3], ['coal', 20], ['stick', 40], ['oak_planks', 20], ['leaf_litter', 30], ['torch', 20],
     ...filler(12)])
   assert.equal(items.length, 36)
-  const p = townDepositPlan(items)
+  const p = townDepositPlan(items, { tail: false })   // the BASE plan; junkout-01's rows (bone meal, torch ...) are junkout.test.mjs's
   const names = p.steps.map(s => s.name)
   for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
     assert.ok(!names.includes(n), `${n} must stay`)
@@ -1035,8 +1035,9 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
   } finally { untap(); done() }
 })
 test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
-  // filler: torches (never bankable, never junk, never compost) -- wool would be the well's junk, and the valve rightly waits for the well
-  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['torch', 1 + (i % 3)])])
+  // filler: ladders (never bankable, never junk, never compost, on no bag-allowance row) -- wool would be the well's junk, and the
+  // valve rightly waits for the well; torches were the filler until junkout-01 made them a bag-allowance row (they bank now)
+  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['ladder', 1 + (i % 3)])])
   // the town really holds its 16 usable stone pickaxes (the bot's own count at the open must agree with the seed)
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 16 ? item('stone_pickaxe', 1) : null)) })
   const now = Date.now()
@@ -1141,7 +1142,7 @@ test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2
 // next deposit is judged on the count -- under target it BANKS. CONTROL (the dead end, today's 34-slot rule): with the
 // recount held off, the same deposit is refused at admission as not yet counted, and the chest is unchanged.
 const fencedTown = async () => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['ladder', 8]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
   const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
@@ -1174,7 +1175,7 @@ test('RECOUNT CHAIN (stocktarget-02): a fenced town, a bag of 7 slots, the model
   } finally { done() }
 })
 test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recount held off -> every deposit is refused at admission as not yet counted; the chest is unchanged', async () => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['ladder', 8]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
   const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
@@ -1214,7 +1215,7 @@ async function asSharedTown (fn) {
 }
 const plinthFencedTown = (Loop = CognitiveLoop) => asSharedTown(() => plinthFencedTown0(Loop))
 const plinthFencedTown0 = async (Loop = CognitiveLoop) => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8],
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['ladder', 8],
     ['cobblestone', 64], ['cobblestone', 64]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
@@ -1319,4 +1320,81 @@ test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (
     const CC = await import('../src/cobblecap.mjs')
     assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'nowell'), 'under a nowell claim')
   } finally { done() }
+})
+
+// ==================================================================================================================
+// junkout-01 (docs/reports/junkout-01-design-2026-10-21.md section 3 C): THE SLIM BAG ALLOWANCE AT A NOT-FULL VISIT, through
+// the REAL CognitiveLoop and the REAL town_deposit. A 12-slot bag at town with torches, bone meal, junk and a CRAFT-READY rung
+// (the stone pickaxe): the tail order comes AHEAD of the rung, once; the chest gets the torches and the bone meal, never the
+// junk; the rung gets the next decisions. A full chest lands in the TAIL's backoff, never the full-bag deposit's.
+const tailBot = ({ chest = chestAt(2) } = {}) => {
+  // chainBot's bag (the stone pickaxe rung craft-ready), NOT full, plus the rows' names and junk
+  const items = bag([['dirt', 16], ['oak_log', 64], ['oak_log', 64], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
+    ['wooden_pickaxe', 1, 50], ['stick', 8], ['furnace', 1], ['raw_copper', 5], ['torch', 11], ['bone_meal', 30], ['egg', 12], ['flint', 9], ['oak_sapling', 20], ['chest', 8]])
+  const { bot } = world({ items, containers: [chest], botAt: new Vec3(3, 70, 0) })
+  Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
+    recipesFor: id => (id === mcData.itemsByName.stone_pickaxe.id ? [{ delta: [] }] : []), recipesAll: () => [],
+    findBlock: () => null, clearControlStates: () => {}, players: {}, entities: {}, experience: { level: 0 }, username: 'TownBot' })
+  return bot
+}
+test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit {tail} ahead of the ready rung, ONCE -> torch + bone meal banked, junk never, the stations stay', async () => {
+  const chest = chestAt(2)
+  const bot = tailBot({ chest })
+  const slots0 = bot.inventory.items().length
+  const jrows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_junkout') jrows.push(r.skill.detail) })
+  let ran, loop
+  try { ({ ran, loop } = await decisions(bot, 5)) } finally { untap() }
+  // the bank row the read's J1/J2 parse: complete, mode=tail, the start count : the server-verified banked, the order's dh/dy
+  const bank = jrows.filter(d => /^phase=bank /.test(d))
+  assert.equal(bank.length, 1, jrows.join(' | '))
+  assert.match(bank[0], /^phase=bank v=TownBot\.\w+ mode=tail armed=first dh=3 dy=0 peaceful=\d stacks=2 banked=41 slots=17->15 keep_picks=0 rows=bone_meal:1,torch:1 part=1\/1 allow=bone_meal=30:30 allow=torch=11:11$/)
+  const td = ran.filter(x => x.skill === 'town_deposit')
+  assert.equal(td.length, 1, `one tail run in the stay: ${JSON.stringify(ran.map(x => x.skill))}`)
+  assert.equal(ran[0].skill, 'town_deposit', 'ahead of the craft-ready rung (bounded: once per stay)')
+  assert.ok(td[0].slots < 34 && td[0].slots === slots0, `a not-full bag: ${td[0].slots}`)
+  assert.equal(td[0].status, 'success', td[0].detail)
+  assert.equal(sumOf(chest.items, 'torch'), 11); assert.equal(sumOf(chest.items, 'bone_meal'), 30)
+  for (const n of ['egg', 'flint', 'oak_sapling', 'cobblestone', 'chest', 'crafting_table', 'wooden_pickaxe', 'stick', 'dirt', 'oak_log', 'raw_copper', 'furnace']) assert.equal(sumOf(chest.items, n), 0, `${n} never banked by the tail`)
+  assert.equal(sumOf(bot.inventory.items(), 'chest'), 8, 'one stack of chests is one station slot: it stays')
+  assert.ok(ran.slice(1).some(x => x.skill === 'craft'), `the rung gets its turns after: ${JSON.stringify(ran.map(x => x.skill))}`)
+  assert.equal(loop.tailState.latched, true); assert.equal(loop.townDepositState?.lastIssuedAt, undefined, 'the full-bag deposit was never issued')
+})
+test('junkout-01 TAIL CHAIN (real loop): the chests in reach are FULL -> the tail run fails town_storage_full and backs off ITS state; the full-bag deposit\'s state is untouched', async () => {
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
+  const bot = tailBot({ chest })
+  const { ran, loop } = await decisions(bot, 3)
+  const td = ran.find(x => x.skill === 'town_deposit')
+  assert.equal(td?.status, 'failed', JSON.stringify(ran)); assert.match(td.detail, /waits for a town chest with room -- keep working/)
+  assert.ok(loop.tailState.backoffUntil > Date.now(), 'the tail backs off')
+  assert.equal(loop.townDepositState?.backoffUntil, undefined, 'the full-bag deposit does not')
+})
+test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag deposit\'s state -> a full chest backs off the FULL-bag deposit (killed)', async () => {
+  const CPU = new URL('../src/cognitive.mjs', import.meta.url)
+  const src = fs.readFileSync(CPU, 'utf8')
+  const old = "        if (admitted.args?.tail === true) this.tailState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.tailState ?? {})\n        else this.townDepositState"
+  assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+  const out = new URL(`./_mutant-cog-tail-${process.pid}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '        this.townDepositState').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const { CognitiveLoop: M } = await import(out.href)
+    const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
+    const bot = tailBot({ chest })
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => {
+      if (skill === 'town_deposit') { const r = await SKILLS[skill].run({ bot }, args ?? {}, null); ran.push(skill); return { ...r, delta: {} } }
+      ran.push(skill); return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+    } }
+    const loop = new M(bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    loop.start()
+    for (let i = 0; i < 200 && ran.length < 3; i++) await new Promise(r => setTimeout(r, 30))
+    loop.stop()
+    assert.ok(loop.townDepositState?.backoffUntil > Date.now(), 'mutant inert')
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
+test('junkout-01 TAIL CHAIN, BAG_ALLOWANCE off (the order\'s own switch): no tail order; the bag rides on', () => {
+  const r = TD.tailOrder({ now: 1e7, slots: 12, pos: { x: 3, y: 70, z: 0 }, home: { x: 0, y: 70, z: 0 }, plan: { freed: 2, steps: [{ allowance: 'torch' }] }, container: true, state: {}, on: false })
+  assert.equal(r.order, null)
 })

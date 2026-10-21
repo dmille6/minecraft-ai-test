@@ -69,7 +69,7 @@ await t('wearOutPlan: with iron + a usable stone spare, EVERY 1-use stone copy i
   assert.equal(p.tools.length, 3); assert.ok(p.tools.every(x => x.name === 'stone_pickaxe' && x.maxDurability - x.durabilityUsed === 1))
   assert.equal(p.toolkit, 3)
   // POSITIVE CONTROL: the deployed rule keeps all three (SPENT_PICKAXES_KEPT) -- the same bag with the switch off
-  const off = wearOutPlan(bag, { toolkit: false })
+  const off = wearOutPlan(bag, { toolkit: false, allowance: false })   // the deployed rule (junkout-01's cap off too)
   assert.equal(off.tools.length, 0); assert.equal(off.toolkit, 0)
   assert.equal(SPENT_PICKAXES_KEPT, 3)
 })
@@ -77,16 +77,17 @@ await t('wearOutPlan: no iron, no usable spare, or below 34 slots -> exactly the
   const ones = [T('stone_pickaxe', 1), T('stone_pickaxe', 1), T('stone_pickaxe', 1), T('stone_pickaxe', 1)]
   for (const [why, tools] of [['no iron', [T('stone_pickaxe', 90), ...ones]], ['no usable spare', [T('iron_pickaxe', 200), T('stone_pickaxe', 9), ...ones]]]) {
     const bag = fullOf(tools)
-    assert.deepEqual(wearOutPlan(bag).tools, wearOutPlan(bag, { toolkit: false }).tools, why)
-    assert.equal(wearOutPlan(bag).tools.length, 1, `${why}: four 1-use copies, three kept`)
-    assert.equal(wearOutPlan(bag).toolkit, 0)
+    const D = { allowance: false }   // the deployed rule; junkout-01's spares cap is junkout.test.mjs's
+    assert.deepEqual(wearOutPlan(bag, D).tools, wearOutPlan(bag, { toolkit: false, ...D }).tools, why)
+    assert.equal(wearOutPlan(bag, D).tools.length, 1, `${why}: four 1-use copies, three kept`)
+    assert.equal(wearOutPlan(bag, D).toolkit, 0)
   }
   assert.equal(wearOutPlan(fullOf([T('iron_pickaxe', 200), T('stone_pickaxe', 90), ...ones], 33)).tools.length, 0, 'below TRIGGER_SLOTS nothing')
 })
 await t('wearOutPlan: other tiers keep the deployed three; a phantom 0-use copy is never listed; axes/shovels/hoes first, at most 4', () => {
   const bag = fullOf([T('iron_pickaxe', 200), T('stone_pickaxe', 90), T('stone_pickaxe', 1), T('stone_pickaxe', 0),
     T('wooden_pickaxe', 1), T('wooden_pickaxe', 1), T('wooden_pickaxe', 1), T('wooden_pickaxe', 1), T('stone_axe', 1)])
-  const p = wearOutPlan(bag)
+  const p = wearOutPlan(bag, { allowance: false })   // the deployed three (junkout-01's spares cap: junkout.test.mjs)
   assert.deepEqual(p.tools.map(x => `${x.name}@${x.maxDurability - x.durabilityUsed}`), ['stone_axe@1', 'stone_pickaxe@1', 'wooden_pickaxe@1'],
     'the axe, the stone copy (toolkit), then the 4th wooden copy beyond the three kept')
   assert.equal(p.toolkit, 1, 'the 1-use stone copy would have been one of the three kept')
