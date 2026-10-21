@@ -412,9 +412,15 @@ export function spiral (home) {
  * the highest replaceable cell on a solid floor between home.y+8 and home.y-8; the first column whose surface passes
  * siteRefusal wins. Any UNKNOWN read on the way returns no site (an unloaded chunk must not make two bots disagree).
  */
-export function canonicalComposterSite ({ home, read } = {}) {
+export function canonicalComposterSite ({ home, read, prefer = null, forbid = null } = {}) {
   if (!home || typeof read !== 'function') return { site: null, why: 'no home' }
   const hy = Math.floor(home.y ?? 64)
+  // THE TOWN PLAN (townplan-01 / found-01 F5), only when given: the plan's `farm.composter` cell first when it passes this
+  // module's own siteRefusal; `forbid(site)` refuses a cell the plan keeps for itself
+  if (prefer && Number.isFinite(prefer.x) && !(typeof forbid === 'function' && forbid(prefer))) {
+    const why = siteRefusal(read, prefer, home)
+    if (!why) return { site: { x: prefer.x, y: prefer.y, z: prefer.z }, why: null, planned: true }
+  }
   for (const { x, z } of spiral(home)) {
     let surface = null
     for (let y = hy + COLUMN_UP; y >= hy - COLUMN_DOWN; y--) {
@@ -426,6 +432,7 @@ export function canonicalComposterSite ({ home, read } = {}) {
     if (townDistance(home, surface) > ADOPT_RADIUS) continue
     const why = siteRefusal(read, surface, home)
     if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${surface.y},${z}` }
+    if (!why && typeof forbid === 'function' && forbid(surface)) continue
     if (!why) return { site: surface, why: null }
   }
   return { site: null, why: `no valid cell within ${CANONICAL_RADIUS} of home` }
