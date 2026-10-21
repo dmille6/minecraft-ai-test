@@ -1,0 +1,84 @@
+# comms design 2026-10-21, part 2: the furnace repeat without the drain's own session as a refill (query fix),
+# gather split four ways, and whether a heading at a shared sighting ends in a harvest there.
+import json, glob, os, re, collections, bisect, math, sys
+D = os.path.expanduser('~/commsdesign-1021/out')
+towns = {}
+for f in sorted(glob.glob(D + '/*.jsonl')):
+    towns[os.path.basename(f)[:-6]] = sorted((json.loads(l) for l in open(f)), key=lambda r: r['t'])
+XYZ = re.compile(r'(-?\d+),(-?\d+),(-?\d+)')
+def dur_s(r): return (r.get('dur') or 0) / 1000.0
+def dist(a, b): return math.hypot(a[0] - b[0], a[2] - b[2])
+
+# A. furnace_drain "is empty" repeated by another bot for the SAME furnace within 60 min, with no load of that furnace
+#    in between (a _furnace_session by smelt / smelt_town on it). The drain's own session (by=drain) is NOT a refill:
+#    the first version counted it as one and printed 0 (a query bug caught by its own 'own repeat 0' line).
+tot = rep = own = 0; rep_s = 0.0; gaps = []
+for pool, rows in towns.items():
+    loads = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == '_furnace_session' and 'by=drain' not in r['d']:
+            m = re.search(r'furnace=(-?\d+,-?\d+,-?\d+)', r['d'])
+            if m: loads[m.group(1)].append(r['t'])
+    last = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] != 'furnace_drain' or 'is empty' not in r['d']: continue
+        m = XYZ.search(r['d']); k = m.group(0) if m else '?'
+        tot += 1
+        prev = [p for p in last[k] if r['t'] - p[0] <= 3600]
+        if prev:
+            pt, pb = prev[-1]
+            ls = loads[k]; j = bisect.bisect_right(ls, pt)
+            if not (j < len(ls) and ls[j] < r['t']):
+                if pb != r['bot']: rep += 1; rep_s += dur_s(r); gaps.append(r['t'] - pt)
+                else: own += 1
+        last[k].append((r['t'], r['bot']))
+gaps.sort()
+print(f'[A] furnace_drain "is empty": {tot}; same furnace, ANOTHER bot within 60 min, no load between: {rep} '
+      f'({100*rep/max(tot,1):.1f}%, {rep_s/3600:.2f} bot-h; median gap {gaps[len(gaps)//2]/60 if gaps else 0:.0f} min); same bot again: {own}')
+
+# B. gather, four-way: prior failure of the same block within 16 blocks / 30 min by a peer only, own only, both, none.
+def blk(r):
+    try: return json.loads(r.get('a') or '{}').get('block')
+    except Exception: return None
+cells = collections.Counter()
+for pool, rows in towns.items():
+    g = [r for r in rows if r['k'] == 'gather' and r['s'] in ('success', 'failed') and r.get('p') and blk(r)]
+    for i, r in enumerate(g):
+        peer = own = False
+        for q in reversed(g[max(0, i - 400):i]):
+            if r['t'] - q['t'] > 1800: break
+            if q['s'] != 'failed' or blk(q) != blk(r) or dist(q['p'], r['p']) > 16: continue
+            if q['bot'] != r['bot']: peer = True
+            else: own = True
+        cls = 'both' if peer and own else 'peer_only' if peer else 'own_only' if own else 'none'
+        cells[(cls, r['s'])] += 1
+print('[B] gather by prior same-block failure within 16 blocks / 30 min:')
+for cls in ('peer_only', 'own_only', 'both', 'none'):
+    s, f = cells[(cls, 'success')], cells[(cls, 'failed')]
+    print(f'    {cls:10s} n={s+f:6d} failed {f:6d} ({100*f/max(s+f,1):.1f}%)')
+
+# C. shared sightings: after "heading for <kind> at x,y,z", does the same bot harvest that kind within 24 blocks of
+#    the sighting in the next 20 min? (gather success with block ~ kind, or mine success; position = row snapshot)
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+heads = hit = 0; kinds = collections.Counter(); hitk = collections.Counter(); uniq = set()
+for pool, rows in towns.items():
+    per = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] in ('gather', 'mine') and r['s'] == 'success' and r.get('p'):
+            per[r['bot']].append(r)
+    for r in rows:
+        if r['k'] != '_explore_toward_known': continue
+        m = HEAD.search(r['d'])
+        if not m: continue
+        kind = m.group(1); tgt = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+        key = (pool, r['bot'], kind, tgt)
+        if key in uniq: continue          # one judgement per bot per sighting (headings repeat every leg)
+        uniq.add(key); heads += 1; kinds[kind] += 1
+        root = kind.replace('_ore', '').replace('deepslate_', '').replace('_log', '')
+        for q in per[r['bot']]:
+            if q['t'] < r['t'] or q['t'] - r['t'] > 1200: continue
+            b = (blk(q) or '') + ' ' + q['d'][:60]
+            if root in b and dist(q['p'], tgt) <= 24:
+                hit += 1; hitk[kind] += 1; break
+print(f'[C] distinct (bot, sighting) headings: {heads}; harvested that kind within 24 blocks in 20 min: {hit} ({100*hit/max(heads,1):.1f}%)')
+for k, n in kinds.most_common(6): print(f'    {k:14s} {n:5d} hit {hitk[k]:4d} ({100*hitk[k]/n:.1f}%)')

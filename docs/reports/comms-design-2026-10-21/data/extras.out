@@ -1,0 +1,8 @@
+[E1] iron harvest rows (gather/mine success with iron in args): {'gather': 314}
+[E1] R=24 W=20min: distinct (bot, sighting) headings 2983, then an iron gather there 14 (0.5%); iron gathers 314, after a heading there 41 (13.1%)
+[E1] R=48 W=60min: distinct (bot, sighting) headings 2983, then an iron gather there 119 (4.0%); iron gathers 314, after a heading there 190 (60.5%)
+[E2] explore runs 15028 (100.4 bot-h); heading rows 15042; distinct sightings 1336; bots per sighting [(1, 550), (2, 305), (3, 206), (4, 170), (5, 105)]; legs at sightings chased by >= 2 bots 13571; kinds Counter({'iron_ore': 1336})
+[E3] distress episodes (bot, 30 min) 952 {'_entombed_unrecoverable': 676, '_stranded_unrecoverable': 93, '_recovery_exhausted': 183}; townmate within 32 blocks / 16 y 256 (26.9%); uniform-time control 1438/4754 (30.2%); died within 30 min 9
+[E4] smelt_town overlap: 165 runs, no_effect 85 (51.5%), success 60
+[E4] smelt_town alone: 1933 runs, no_effect 1404 (72.6%), success 341
+[E5] project/claim-like kinds: [('_plinth_mode', 296), ('_plinth021_mode', 296), ('_plinthfirst_mode', 296), ('_board_post', 29), ('board', 24), ('_board_read', 17), ('_plinth_step', 12), ('_board_adopt', 8), ('_board_expire', 6), ('build_plinth', 2), ('_plinth', 2), ('build', 1), ('build_composter', 1)]

@@ -1,0 +1,159 @@
+# comms design 2026-10-21: measured opportunities in 24 h of rows, 12 shared towns (read-only).
+# Every count prints its denominator; every "repeat" test prints a matched control.
+import json, glob, os, re, collections, bisect, random, sys, math
+D = os.path.expanduser('~/commsdesign-1021/' + (sys.argv[1] if len(sys.argv) > 1 else 'out'))
+PROMOTE = 1792590000  # placeholder, replaced below by the toolkit-03 promotion time 10-21 13:37:52Z
+import datetime as dt
+PROMOTE = dt.datetime(2026, 10, 21, 13, 38, tzinfo=dt.timezone.utc).timestamp()
+random.seed(1021)
+
+towns = {}
+for f in sorted(glob.glob(D + '/*.jsonl')):
+    pool = os.path.basename(f)[:-6]
+    towns[pool] = [json.loads(l) for l in open(f)]
+    towns[pool].sort(key=lambda r: r['t'])
+allrows = sum(len(v) for v in towns.values())
+T0 = min(r['t'] for v in towns.values() for r in v); T1 = max(r['t'] for v in towns.values() for r in v)
+bots = {r['bot'] for v in towns.values() for r in v}
+print(f'WINDOW {dt.datetime.utcfromtimestamp(T0):%m-%d %H:%M}Z .. {dt.datetime.utcfromtimestamp(T1):%m-%d %H:%M}Z  '
+      f'rows {allrows:,}  towns {len(towns)}  bots {len(bots)}  bot-h ~{len(bots)*(T1-T0)/3600:.0f}')
+
+def dur_s(r): return (r.get('dur') or 0) / 1000.0
+def end(r): return r['t'] + dur_s(r)
+def dist(a, b): return math.hypot(a[0] - b[0], a[2] - b[2])
+XYZ = re.compile(r'(-?\d+),(-?\d+),(-?\d+)')
+
+# ---------- 0. positive controls / trust boundary ----------
+trig = collections.Counter(r.get('trg') for v in towns.values() for r in v)
+print('\n[0] triggers recorded:', len(trig), 'distinct; trigger=="chat" rows:', trig.get('chat', 0),
+      '| top:', trig.most_common(4))
+crossed = sum(1 for v in towns.values() for r in v if r['k'] == '_death_site_route_crossed')
+skipped = sum(1 for v in towns.values() for r in v if r['k'] == '_explore_target_skipped_death_site')
+print(f'[0] shared death sites are READ today: _death_site_route_crossed {crossed}, _explore_target_skipped_death_site {skipped}')
+
+# ---------- 1. "looked, none" repeats in town searches ----------
+# A repeat = a different bot of the same town reports the same negative within W, with no change in between that
+# could have refilled it (any successful deposit / town_deposit / smelt_town / _furnace_session there).
+def refill_times(rows, kinds):
+    return sorted(r['t'] for r in rows if r['k'] in kinds and r['s'] == 'success')
+
+def repeats(name, pred, W, refill_kinds, key=None, since=None):
+    tot = rep = 0; rep_s = all_s = 0.0; selfrep = 0; ctrl_tot = ctrl_hit = 0
+    for pool, rows in towns.items():
+        neg = [r for r in rows if pred(r) and (since is None or r['t'] >= since)]
+        fills = refill_times(rows, refill_kinds)
+        last = {}  # key -> list of (t, bot)
+        for r in neg:
+            tot += 1; all_s += dur_s(r)
+            k = key(r) if key else '*'
+            prev = [p for p in last.get(k, []) if r['t'] - p[0] <= W]
+            hit = False
+            for (pt, pb) in reversed(prev):
+                j = bisect.bisect_right(fills, pt)
+                if j < len(fills) and fills[j] < r['t']:
+                    continue          # something refilled it in between
+                if pb != r['bot']:
+                    hit = True; break
+                else:
+                    selfrep += 1; break
+            if hit:
+                rep += 1; rep_s += dur_s(r)
+            last.setdefault(k, []).append((r['t'], r['bot']))
+    print(f'[1] {name}: {tot} negatives ({all_s/3600:.2f} bot-h); repeat of ANOTHER bot within {W//60} min, no refill between: '
+          f'{rep} ({100*rep/max(tot,1):.1f}%, {rep_s/3600:.2f} bot-h); own repeat first: {selfrep}')
+    return tot, rep, rep_s
+
+DEPS = {'deposit', 'town_deposit', 'smelt_town', '_furnace_session', 'dispose_well'}
+furn = lambda r: (XYZ.search(r['d']) or [None]) and (XYZ.search(r['d']).group(0) if XYZ.search(r['d']) else '?')
+repeats('furnace_drain "is empty"', lambda r: r['k'] == 'furnace_drain' and 'is empty' in r['d'], 3600,
+        {'_furnace_session', 'smelt_town', 'smelt'}, key=furn)
+repeats('smelt_town "no raw copper"', lambda r: r['k'] == 'smelt_town' and 'no raw copper' in r['d'], 7200, DEPS)
+repeats('smelt_town "no coal"', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d'], 7200, DEPS)
+repeats('toolkit "no iron" (after 13:38Z promotion)', lambda r: r['k'] == 'toolkit' and r.get('fc') == 'kit_no_iron', 3600, DEPS, since=PROMOTE)
+repeats('toolkit "no iron" (whole 24 h)', lambda r: r['k'] == 'toolkit' and r.get('fc') == 'kit_no_iron', 3600, DEPS)
+repeats('withdraw_pick "no usable pickaxe"', lambda r: r['k'] == 'withdraw_pick' and 'no usable pickaxe' in r['d'], 3600, DEPS)
+# dur distribution of the town negatives (are they trips or instant prechecks?)
+for nm, pred in [('furnace_drain empty', lambda r: r['k'] == 'furnace_drain' and 'is empty' in r['d']),
+                 ('smelt_town no copper', lambda r: r['k'] == 'smelt_town' and 'no raw copper' in r['d']),
+                 ('smelt_town no coal', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d']),
+                 ('toolkit no iron', lambda r: r['k'] == 'toolkit' and r.get('fc') == 'kit_no_iron')]:
+    ds = sorted(dur_s(r) for v in towns.values() for r in v if pred(r))
+    if ds:
+        print(f'    {nm}: n={len(ds)} dur p50 {ds[len(ds)//2]:.1f}s p90 {ds[int(len(ds)*.9)]:.1f}s sum {sum(ds)/3600:.2f} bot-h')
+
+# ---------- 2. gather: would a peer's "unreachable here" claim have predicted my failure? ----------
+def blk(r):
+    try: return json.loads(r.get('a') or '{}').get('block')
+    except Exception: return None
+R, W = 16, 1800
+cells = collections.Counter()
+fail_s_peer = 0.0
+for pool, rows in towns.items():
+    g = [r for r in rows if r['k'] == 'gather' and r['s'] in ('success', 'failed') and r.get('p') and blk(r)]
+    for i, r in enumerate(g):
+        peer = own = False
+        for q in reversed(g[max(0, i - 400):i]):
+            if r['t'] - q['t'] > W: break
+            if q['s'] != 'failed' or blk(q) != blk(r) or dist(q['p'], r['p']) > R: continue
+            if q['bot'] != r['bot']: peer = True
+            else: own = True
+        cls = 'peer_failed_near' if peer else ('own_failed_near' if own else 'no_prior_fail_near')
+        cells[(cls, r['s'])] += 1
+        if peer and r['s'] == 'failed': fail_s_peer += dur_s(r)
+print(f'\n[2] gather outcome by prior failure of the SAME block within {R} blocks / {W//60} min (success+failed rows only):')
+for cls in ('peer_failed_near', 'own_failed_near', 'no_prior_fail_near'):
+    s, f = cells[(cls, 'success')], cells[(cls, 'failed')]
+    print(f'    {cls:20s} n={s+f:6d}  failed {f:6d} ({100*f/max(s+f,1):.1f}%)  success {s}')
+print(f'    bot-h in failures that followed a peer failure nearby: {fail_s_peer/3600:.2f}')
+print(f'    successes a peer "unreachable here" veto would have BLOCKED: {cells[("peer_failed_near","success")]}')
+
+# ---------- 3. duplicate jobs: two bots of one town in the same town job at once ----------
+print('\n[3] overlap: a run that starts while another bot of the town is inside the same job (same target where named)')
+for kind, tkey in [('smelt_town', None), ('furnace_drain', furn), ('dispose_well', None), ('toolkit', None),
+                   ('withdraw_pick', None), ('town_deposit', None), ('compost', None), ('count_town', None),
+                   ('build_plinth', None), ('deposit', furn)]:
+    tot = ov = 0; ov_s = 0.0
+    for pool, rows in towns.items():
+        rs = [r for r in rows if r['k'] == kind]
+        for i, r in enumerate(rs):
+            tot += 1
+            for q in rs[max(0, i - 50):i]:
+                if q['bot'] != r['bot'] and q['t'] <= r['t'] < end(q) and (tkey is None or tkey(q) == tkey(r)):
+                    ov += 1; ov_s += dur_s(r); break
+    if tot:
+        print(f'    {kind:14s} runs {tot:5d}  overlapping {ov:4d} ({100*ov/tot:.1f}%)  {ov_s/3600:.2f} bot-h')
+
+# ---------- 4. needs vs offers: at a town shortage, did a townmate carry it? (time-uniform control) ----------
+def latest_bags(rows):
+    per = collections.defaultdict(list)
+    for r in rows:
+        if 'inv' in r: per[r['bot']].append((r['t'], r['inv'], r.get('p')))
+    return per
+def mate_has(per, me, t, item_keys, n, win=900):
+    for b, lst in per.items():
+        if b == me: continue
+        j = bisect.bisect_right([x[0] for x in lst], t) - 1
+        if j >= 0 and t - lst[j][0] <= win and sum(lst[j][1].get(k, 0) for k in item_keys) >= n:
+            return True
+    return False
+for nm, pred, keys, n, since in [
+        ('toolkit no iron (post 13:38Z)', lambda r: r['k'] == 'toolkit' and r.get('fc') == 'kit_no_iron', ('iron_ingot',), 3, PROMOTE),
+        ('smelt_town no coal', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d'], ('coal', 'charcoal'), 1, None),
+        ('smelt_town no coal (>=8)', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d'], ('coal', 'charcoal'), 8, None)]:
+    ev = hit = 0; ctl = ctlhit = 0
+    for pool, rows in towns.items():
+        per = latest_bags(rows)
+        idx = {b: [x[0] for x in lst] for b, lst in per.items()}
+        for r in rows:
+            if pred(r) and (since is None or r['t'] >= since):
+                ev += 1; hit += mate_has(per, r['bot'], r['t'], keys, n)
+        lo = since or T0
+        for _ in range(200):          # uniform-time control moments, a random bot of the same town
+            t = random.uniform(lo, T1); me = random.choice(list(per))
+            ctl += 1; ctlhit += mate_has(per, me, t, keys, n)
+    print(f'[4] {nm}: at {ev} shortages a townmate carried >= {n}: {hit} ({100*hit/max(ev,1):.1f}%); '
+          f'uniform-time control: {ctlhit}/{ctl} ({100*ctlhit/max(ctl,1):.1f}%)')
+
+# ---------- 5. deaths in this window at a death site already on file (24 h view; ES gives 7 d) ----------
+deaths = [(pool, r) for pool, rows in towns.items() for r in rows if r['k'] == '_death' and r.get('p')]
+print(f'\n[5] deaths {len(deaths)} (24 h, 12 towns); by class', collections.Counter(r.get('fc') for _, r in deaths))

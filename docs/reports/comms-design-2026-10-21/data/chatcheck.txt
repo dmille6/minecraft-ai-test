@@ -1,0 +1,30 @@
+comms design r2 -- chat channel checks, 2026-10-21 ~21:05Z (read-only)
+
+1. Bot journals, 24 h, one bot per shared town (10.0.0.31):
+   for each <town>-Alpha: journalctl -u mcbot@<town>-Alpha --since "24 hours ago" -o cat | count
+     "chat command"   (commands.mjs logs every parsed command, including stop/resume/help, which write no skill row)
+     "INFO"           (positive control: the same journal carries ordinary info lines)
+     "peer reported hazard|peer gave up"   (comms.mjs ingestion log lines)
+   mcbot@board-a-Alpha chat_command=0 INFO=4006 peer_ingest=0
+   mcbot@board-b-Alpha chat_command=0 INFO=3687 peer_ingest=0
+   mcbot@board-c-Alpha chat_command=0 INFO=3906 peer_ingest=0
+   mcbot@board-d-Alpha chat_command=0 INFO=3413 peer_ingest=0
+   mcbot@hive-a-Alpha chat_command=0 INFO=3898 peer_ingest=0
+   mcbot@hive-b-Alpha chat_command=0 INFO=3720 peer_ingest=0
+   mcbot@hive-c-Alpha chat_command=0 INFO=2668 peer_ingest=0
+   mcbot@hive-d-Alpha chat_command=0 INFO=3329 peer_ingest=0
+   mcbot@placebo-a-Alpha chat_command=0 INFO=3690 peer_ingest=0
+   mcbot@placebo-b-Alpha chat_command=0 INFO=4327 peer_ingest=0
+   mcbot@placebo-c-Alpha chat_command=0 INFO=4194 peer_ingest=0
+   mcbot@placebo-d-Alpha chat_command=0 INFO=3723 peer_ingest=0
+
+2. Positive control for the ingestion zero -- the server DID carry peer lines (10.0.0.30, Paper log since 00:00:01Z):
+   grep -a "\[fleet\]" /srv/block2/hive-a/logs/latest.log
+     19 lines today; senders: hive-a-Alpha 2, Bravo 3, Comet 3, Delta 2, Echo 9
+     e.g. [17:13:04] <hive-a-Echo> [fleet] hive-a hazard entombed 409 -31 161 x2
+   hive-b: 9 lines today.
+   So hive-a-Alpha's server delivered 17 peer [fleet] lines today and its journal logged 0 ingestions in 24 h:
+   comms.mjs ingestion is not working (cause not diagnosed here; the 'chat' event, which commands.mjs also uses,
+   may not fire for these "[Not Secure] <name>" lines). It is redundant with the shared file on one host.
+   Whether commands.mjs's listener fires is therefore UNKNOWN; the gate is still needed (one library or format change
+   re-arms it).

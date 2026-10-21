@@ -1,0 +1,63 @@
+# comms design 2026-10-21 r4: death-site replay with EXPLICIT query bounds and a sensitivity bound for write ordering.
+# Production (worldfacts.mjs reportDeath + #prune, deathsites.mjs effectiveCount): a death merges into a same-class site
+# within 3 blocks / 3 y of its kept centre (+4 weight, deaths+1), else a new site (weight 4, JS Math.round centre).
+# The file is pruned (decay applied, weight < 1 dropped) on EVERY write; world facts is written every few seconds, so a
+# decayed site is normally gone before the next death -- variant A (decay, then merge only into live sites).
+# Variant B bounds the other case (no write between the decay and the death): a merge may revive a site whose decayed
+# weight is 0 if it had not been pruned yet -- here: any site seen in the last 72 h. The 120-site cap (shared with
+# hazards) is NOT replayed: eviction could change which centres survive, so both variants are APPROXIMATE, not bounds
+# on production. Read-only.
+import sys, os, json, math, collections, glob, datetime as dt
+sys.path.insert(0, os.path.expanduser('~/estel/scripts'))
+from lib.estelemetry import EsEvents
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd']
+H = 3600; DECAY = 12 * H
+UNTIL = dt.datetime(2026, 10, 21, 20, 0, tzinfo=dt.timezone.utc)
+SINCE = UNTIL - dt.timedelta(days=9); JUDGE_FROM = SINCE + dt.timedelta(days=2)
+ev = EsEvents.load(stream='skill', since=SINCE.isoformat(), until=UNTIL.isoformat(), pools=POOLS)
+print('query', SINCE.isoformat(), '..', UNTIL.isoformat(), '; judged', JUDGE_FROM.isoformat(), '..', UNTIL.isoformat(), '(7.0 days)')
+print('caveats:', *ev.caveats, sep='\n  ')
+rows = list(ev.rows(kind='_death', fields=['@timestamp', 'bot.name', 'bot.pos', 'exp.pool', 'skill.fail_class']))
+def ts(s): return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+D = sorted(({'t': ts(r['@timestamp']), 'bot': r['bot']['name'], 'pool': r['exp']['pool'],
+             'p': (r['bot']['pos']['x'], r['bot']['pos']['y'], r['bot']['pos']['z']),
+             'fc': (r.get('skill') or {}).get('fail_class') or 'unknown'} for r in rows if (r.get('bot') or {}).get('pos')), key=lambda d: d['t'])
+print('_death rows', len(rows), 'with position', len(D))
+def jsround(v): return math.floor(v + 0.5)
+def weight(s, now):
+    ref = max(s['last'], s.get('dec', 0)); per = int((now - ref) // DECAY) if now > ref else 0
+    return s['count'] // (2 ** per)
+def run(variant):
+    sites = collections.defaultdict(list); res = collections.Counter(); conf = []
+    tj = JUDGE_FROM.timestamp()
+    for d in D:
+        S = sites[d['pool']]
+        live = [s for s in S if weight(s, d['t']) >= 1]
+        cover = [s for s in live if math.hypot(s['x'] - d['p'][0], s['z'] - d['p'][2]) <= 6 and abs(s['y'] - d['p'][1]) <= 6]
+        if d['t'] >= tj:
+            res['judged'] += 1
+            if not cover: res['no_live_site'] += 1
+            elif any(set(s['by']) - {d['bot']} for s in cover): res['site_with_another_bots_death'] += 1
+            else: res['own_only'] += 1
+            if d['fc'] == 'fire':
+                res['fire_judged'] += 1
+                if [s for s in cover if s['fc'] == 'fire']: res['fire_in_live_fire_site'] += 1
+                if [s for s in cover if s['fc'] == 'fire' and s['deaths'] >= 2 and len(set(s['by'])) >= 2]:
+                    res['fire_in_confirmed_site'] += 1; conf.append(f"{dt.datetime.fromtimestamp(d['t'], dt.timezone.utc):%m-%d %H:%M} {d['bot']}")
+        def near(s): return s['fc'] == d['fc'] and math.hypot(s['x'] - d['p'][0], s['z'] - d['p'][2]) <= 3 and abs(s['y'] - d['p'][1]) <= 3
+        if variant == 'A': cands = [s for s in S if near(s) and weight(s, d['t']) >= 1]
+        else: cands = [s for s in S if near(s) and d['t'] - s['last'] <= 72 * H]
+        m = cands[0] if cands else None
+        if m:
+            m['count'] = weight(m, d['t']) + 4; m['dec'] = 0; m['deaths'] += 1; m['last'] = d['t']; m['by'].append(d['bot'])
+        else:
+            S.append({'fc': d['fc'], 'x': jsround(d['p'][0]), 'y': jsround(d['p'][1]), 'z': jsround(d['p'][2]),
+                      'count': 4, 'deaths': 1, 'last': d['t'], 'by': [d['bot']]})
+    end = UNTIL.timestamp()
+    livefire = {p: sum(1 for s in S if s['fc'] == 'fire' and weight(s, end) >= 1) for p, S in sites.items()}
+    return res, conf, livefire
+for v in ('A', 'B'):
+    res, conf, lf = run(v)
+    print(f'variant {v}:', dict(res))
+    print('   confirmed-site fire deaths:', conf)
+    print('   live fire sites at', UNTIL.isoformat(), {p: n for p, n in lf.items() if n})

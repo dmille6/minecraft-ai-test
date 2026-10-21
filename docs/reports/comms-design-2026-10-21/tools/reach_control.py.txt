@@ -1,0 +1,62 @@
+# comms design 2026-10-21 r6: the positive control for keepout-01's primary, reproducible.
+# Instrument: `_reach_probe` rows' `hit=x,y,z` (the gather candidate chosen). Column of a fire site: horizontal distance
+# <= 6 from the site centre and site.y <= y <= site.y + 12. Sites: TIME-VARYING, replayed from ES `_death` rows with
+# deaths_v5's variant-A rules (stored-count merge-before-prune, pruned before every death); a candidate at time t is
+# judged against the fire sites live at t in its own pool. Rows: the 24 h compact extract ~/commsdesign-1021/out
+# (10-20 20:31Z .. 10-21 20:33Z). Windows below are HALF-OPEN [start, end) in UTC. Read-only.
+import sys, os, json, math, re, glob, collections, bisect, datetime as dt
+sys.path.insert(0, os.path.expanduser('~/estel/scripts'))
+from lib.estelemetry import EsEvents
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd']
+DECAY = 12 * 3600
+UNTIL = dt.datetime(2026, 10, 21, 21, 0, tzinfo=dt.timezone.utc); SINCE = UNTIL - dt.timedelta(days=4)
+ev = EsEvents.load(stream='skill', since=SINCE.isoformat(), until=UNTIL.isoformat(), pools=POOLS)
+rows = list(ev.rows(kind='_death', fields=['@timestamp', 'bot.name', 'bot.pos', 'exp.pool', 'skill.fail_class']))
+def ts(s): return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+D = sorted(({'t': ts(r['@timestamp']), 'bot': r['bot']['name'], 'pool': r['exp']['pool'], 'p': (r['bot']['pos']['x'], r['bot']['pos']['y'], r['bot']['pos']['z']),
+             'fc': (r.get('skill') or {}).get('fail_class') or 'unknown'} for r in rows if (r.get('bot') or {}).get('pos')), key=lambda d: d['t'])
+def jsround(v): return math.floor(v + 0.5)
+def weight(s, now):
+    ref = max(s['last'], s.get('dec', 0)); per = int((now - ref) // DECAY) if now > ref else 0
+    return s['count'] // (2 ** per)
+def prune(S, now):
+    keep = []
+    for s in S:
+        ref = max(s['last'], s.get('dec', 0)); per = int((now - ref) // DECAY) if now > ref else 0
+        if per > 0: s['count'] //= 2 ** per; s['dec'] = ref + per * DECAY
+        if s['count'] >= 1: keep.append(s)
+    S[:] = keep
+# replay, keeping a history of site states per pool: list of (t, [copies of sites])
+hist = collections.defaultdict(list); sites = collections.defaultdict(list)
+for d in D:
+    S = sites[d['pool']]; prune(S, d['t'])
+    m = next((s for s in S if s['fc'] == d['fc'] and math.hypot(s['x'] - d['p'][0], s['z'] - d['p'][2]) <= 3 and abs(s['y'] - d['p'][1]) <= 3), None)
+    if m: m['count'] += 4; m['deaths'] += 1; m['last'] = d['t']
+    else: S.append({'fc': d['fc'], 'x': jsround(d['p'][0]), 'y': jsround(d['p'][1]), 'z': jsround(d['p'][2]), 'count': 4, 'deaths': 1, 'last': d['t']})
+    prune(S, d['t'])
+    hist[d['pool']].append((d['t'], [dict(s) for s in S]))
+def fire_live_at(pool, t):
+    h = hist.get(pool) or []
+    j = bisect.bisect_right([x[0] for x in h], t) - 1
+    if j < 0: return []
+    return [s for s in h[j][1] if s['fc'] == 'fire' and weight(s, t) >= 1]
+HIT = re.compile(r'hit=(-?\d+),(-?\d+),(-?\d+)')
+per_pool = collections.Counter(); per_bot = collections.Counter(); win = collections.Counter(); n = 0
+W = {('hive-b-Echo', '06:00', '06:10'), ('hive-b-Alpha', '08:25', '08:35')}
+for f in sorted(glob.glob(os.path.expanduser('~/commsdesign-1021/out/*.jsonl'))):
+    pool = os.path.basename(f)[:-6]
+    for l in open(f):
+        if '"k": "_reach_probe"' not in l: continue
+        r = json.loads(l); n += 1
+        m = HIT.search(r['d'])
+        if not m: continue
+        x, y, z = map(int, m.groups())
+        if any(math.hypot(x - s['x'], z - s['z']) <= 6 and s['y'] <= y <= s['y'] + 12 for s in fire_live_at(pool, r['t'])):
+            per_pool[pool] += 1; per_bot[r['bot']] += 1
+            hm = dt.datetime.fromtimestamp(r['t'], dt.timezone.utc).strftime('%H:%M')
+            for b, a, e in W:
+                if r['bot'] == b and a <= hm < e: win[f'{b} [{a}, {e})'] += 1
+print('_reach_probe rows read (12 towns, 24 h):', n)
+print('hit= candidates inside a live fire column, by town:', dict(per_pool), 'total', sum(per_pool.values()))
+print('hive-b by bot:', {b: c for b, c in per_bot.items() if b.startswith('hive-b')})
+print('half-open windows before the deaths:', dict(win))

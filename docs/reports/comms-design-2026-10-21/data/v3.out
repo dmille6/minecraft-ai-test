@@ -1,0 +1,32 @@
+[G] gather by prior COMPLETED same-block failure near my PRE-ACTION position (dy<=8); success+failed rows
+  R=4 W=10min: peer_only 32/92 (34.8%); own_only 4671/6875 (67.9%); both 58/128 (45.3%); none 4396/11251 (39.1%); no_pre_pos 6/9 (66.7%)
+  R=8 W=30min: peer_only 112/348 (32.2%); own_only 5259/7870 (66.8%); both 175/475 (36.8%); none 3611/9653 (37.4%); no_pre_pos 6/9 (66.7%)
+  R=16 W=30min: peer_only 182/574 (31.7%); own_only 5543/8515 (65.1%); both 253/770 (32.9%); none 3179/8487 (37.5%); no_pre_pos 6/9 (66.7%)
+     block dirt           peer_only 154/541 (28%); own_only 1776/4486 (40%); none 1682/6063 (28%)
+     block sand           peer_only 16/16 (100%); own_only 1553/1635 (95%); none 652/740 (88%)
+     block iron_ore       peer_only 10/14 (71%); own_only 636/750 (85%); none 459/653 (70%)
+     block oak_log        peer_only 2/3 (67%); own_only 911/932 (98%); none 198/476 (42%)
+     block stone          peer_only 0/0 (0%); own_only 185/200 (92%); none 55/200 (28%)
+     a veto on any peer failure (this rule) would have refused 909 gathers that succeeded
+  R=32 W=60min: peer_only 540/1628 (33.2%); own_only 5417/8084 (67.0%); both 913/2517 (36.3%); none 2287/6117 (37.4%); no_pre_pos 6/9 (66.7%)
+[S] iron-sighting episodes with a full 60-min follow-up; outcome = iron gather within R and dy<=16
+  R=24: no_completed_peer_episode 14/2221 (0.6%); after_peer_fruitless 18/2856 (0.6%); after_peer_harvest 0/15 (0.0%); excluded (incomplete follow-up) 224
+  R=48: no_completed_peer_episode 54/2221 (2.4%); after_peer_fruitless 66/2819 (2.3%); after_peer_harvest 3/52 (5.8%); excluded (incomplete follow-up) 224
+[X] explore runs 15028 (100.4 bot-h); runs containing >=1 known-sighting heading 15028 (100.4 bot-h)
+[R] furnace_drain "is empty" (same furnace, 60 min): 922; nearest clean predecessor is ANOTHER bot 391 (42.4%, 1.07 bot-h); any clean peer predecessor 393 (42.6%)
+[R] smelt_town "no raw copper" (2 h): 1240; nearest clean predecessor is ANOTHER bot 754 (60.8%, 2.43 bot-h); any clean peer predecessor 938 (75.6%)
+[R] smelt_town "no coal" (2 h): 247; nearest clean predecessor is ANOTHER bot 150 (60.7%, 0.74 bot-h); any clean peer predecessor 186 (75.3%)
+[R] toolkit kit_no_iron (60 min): 188; nearest clean predecessor is ANOTHER bot 103 (54.8%, 0.14 bot-h); any clean peer predecessor 113 (60.1%)
+[R] withdraw_pick "no usable pickaxe" (60 min): 231; nearest clean predecessor is ANOTHER bot 46 (19.9%, 0.11 bot-h); any clean peer predecessor 64 (27.7%)
+[O] overlap (complete sweep): a run that starts while another bot of the town is inside the same job
+   smelt_town     165/2098 (7.9%)
+   furnace_drain  0/1726 (0.0%)
+   dispose_well   0/121 (0.0%)
+   toolkit        4/416 (1.0%)
+   withdraw_pick  2/389 (0.5%)
+   town_deposit   0/136 (0.0%)
+   compost        0/68 (0.0%)
+   deposit        4/442 (0.9%)
+[N] smelt_town no coal: townmate with >= 1 at 121/247 (49.0%); town-matched control 560/1235 (45.3%)
+[N] smelt_town no coal: townmate with >= 8 at 0/247 (0.0%); town-matched control 15/1235 (1.2%)
+[P] distress episodes 952: townmate within 32/16y 244 (25.6%); town-matched control 1399/4713 (29.7%)

@@ -1,0 +1,40 @@
+/home/mike/commsdesign-1021/opps.py:18: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+  print(f'WINDOW {dt.datetime.utcfromtimestamp(T0):%m-%d %H:%M}Z .. {dt.datetime.utcfromtimestamp(T1):%m-%d %H:%M}Z  '
+WINDOW 10-20 20:31Z .. 10-21 20:33Z  rows 1,145,782  towns 12  bots 60  bot-h ~1441
+
+[0] triggers recorded: 29 distinct; trigger=="chat" rows: 0 | top: [('reflex', 1081738), ('llm:idle', 44925), ('interrupt:entombed', 5814), ('llm:entombed', 3074)]
+[0] shared death sites are READ today: _death_site_route_crossed 1219, _explore_target_skipped_death_site 63
+[1] furnace_drain "is empty": 922 negatives (2.57 bot-h); repeat of ANOTHER bot within 60 min, no refill between: 0 (0.0%, 0.00 bot-h); own repeat first: 0
+[1] smelt_town "no raw copper": 1240 negatives (4.05 bot-h); repeat of ANOTHER bot within 120 min, no refill between: 332 (26.8%, 1.16 bot-h); own repeat first: 51
+[1] smelt_town "no coal": 247 negatives (1.33 bot-h); repeat of ANOTHER bot within 120 min, no refill between: 58 (23.5%, 0.26 bot-h); own repeat first: 15
+[1] toolkit "no iron" (after 13:38Z promotion): 2 negatives (0.00 bot-h); repeat of ANOTHER bot within 60 min, no refill between: 0 (0.0%, 0.00 bot-h); own repeat first: 0
+[1] toolkit "no iron" (whole 24 h): 188 negatives (0.27 bot-h); repeat of ANOTHER bot within 60 min, no refill between: 21 (11.2%, 0.06 bot-h); own repeat first: 6
+[1] withdraw_pick "no usable pickaxe": 231 negatives (0.64 bot-h); repeat of ANOTHER bot within 60 min, no refill between: 2 (0.9%, 0.00 bot-h); own repeat first: 7
+    furnace_drain empty: n=922 dur p50 8.7s p90 20.7s sum 2.57 bot-h
+    smelt_town no copper: n=1240 dur p50 2.8s p90 33.9s sum 4.05 bot-h
+    smelt_town no coal: n=247 dur p50 11.6s p90 50.7s sum 1.33 bot-h
+    toolkit no iron: n=188 dur p50 1.9s p90 10.7s sum 0.27 bot-h
+
+[2] gather outcome by prior failure of the SAME block within 16 blocks / 30 min (success+failed rows only):
+    peer_failed_near     n=  2580  failed    859 (33.3%)  success 1721
+    own_failed_near      n=  8577  failed   5570 (64.9%)  success 3007
+    no_prior_fail_near   n=  7198  failed   2734 (38.0%)  success 4464
+    bot-h in failures that followed a peer failure nearby: 6.84
+    successes a peer "unreachable here" veto would have BLOCKED: 1721
+
+[3] overlap: a run that starts while another bot of the town is inside the same job (same target where named)
+    smelt_town     runs  2098  overlapping  165 (7.9%)  2.12 bot-h
+    furnace_drain  runs  1726  overlapping    0 (0.0%)  0.00 bot-h
+    dispose_well   runs   121  overlapping    0 (0.0%)  0.00 bot-h
+    toolkit        runs   416  overlapping    4 (1.0%)  0.03 bot-h
+    withdraw_pick  runs   389  overlapping    2 (0.5%)  0.01 bot-h
+    town_deposit   runs   136  overlapping    0 (0.0%)  0.00 bot-h
+    compost        runs    68  overlapping    0 (0.0%)  0.00 bot-h
+    count_town     runs    27  overlapping    0 (0.0%)  0.00 bot-h
+    build_plinth   runs     2  overlapping    0 (0.0%)  0.00 bot-h
+    deposit        runs   442  overlapping    0 (0.0%)  0.00 bot-h
+[4] toolkit no iron (post 13:38Z): at 2 shortages a townmate carried >= 3: 2 (100.0%); uniform-time control: 2314/2400 (96.4%)
+[4] smelt_town no coal: at 247 shortages a townmate carried >= 1: 121 (49.0%); uniform-time control: 1357/2400 (56.5%)
+[4] smelt_town no coal (>=8): at 247 shortages a townmate carried >= 8: 0 (0.0%); uniform-time control: 13/2400 (0.5%)
+
+[5] deaths 33 (24 h, 12 towns); by class Counter({'drowning': 12, 'other': 7, 'fire': 7, 'fall': 5, 'suffocation': 2})

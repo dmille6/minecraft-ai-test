@@ -1,0 +1,10 @@
+caveats:
+  10-19 23:16Z-00:00Z (disk flood stage) was BACKFILLED from the rotated files on 10-20 (infra/elk/flood-backfill.py: 41,978 skill + 4,689 llm docs, _id prefix fl261020-) and reconciled row-hash exact, file == ES for all 80 bots (docs/reports/es-flood-2026-10-20.md).
+  after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).
+  window crosses 9 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).
+  window ends within 240 s of now: ingest lag (median ~6 s, max ~3 min observed) can leave the newest minutes short.
+_death rows 226 with position 226
+judged deaths (7 d after a 2-day warm-up): 169 {'no_live_site': 156, 'site_from_own_deaths_only': 2, 'site_with_another_bots_death': 11}
+  of which inside a CONFIRMED fire site (>=2 deaths by >=2 bots, live): 4 ['10-20 09:42 hive-b-Comet', '10-21 06:10 hive-b-Echo', '10-21 06:58 hive-b-Bravo', '10-21 08:35 hive-b-Alpha']
+  classes judged: {'fire': 52, 'fall': 23, 'suffocation': 14, 'drowning': 64, 'other': 16}
+reconcile: file deaths 33, ES deaths in the same window 33; in file not ES 0; in ES not file 0

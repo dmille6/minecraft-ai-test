@@ -1,0 +1,23 @@
+import json, glob, os, collections, re, sys
+D = os.path.expanduser('~/commsdesign-1021/' + (sys.argv[1] if len(sys.argv) > 1 else 'out'))
+kinds = collections.Counter(); st = collections.Counter(); trig = collections.Counter()
+fails = collections.defaultdict(collections.Counter)
+rows = 0; bots = set(); tmin = 1e20; tmax = 0
+JOBS = re.compile(r'^(toolkit|smelt_town|withdraw_pick|_withdraw_pick|count_town|deposit|town_deposit|_town_deposit|furnace_drain|compost|dispose_well|withdraw|gather|explore|mine|craft|smelt|home|_smelt_job_skip|_toolkit|_kit.*|death.*|_death.*|died|_died.*|build.*|_plinth.*|treefarm.*|_treefarm.*|plant.*|_lid_clear)$')
+for f in sorted(glob.glob(D + '/*.jsonl')):
+    for line in open(f):
+        r = json.loads(line); rows += 1; bots.add(r['bot']); tmin = min(tmin, r['t']); tmax = max(tmax, r['t'])
+        k = r['k']; kinds[k] += 1; st[(k, r['s'])] += 1; trig[r.get('trg')] += 1
+        if JOBS.match(k) and r['s'] not in ('success',):
+            d = re.sub(r'-?\d+(\.\d+)?', '#', r['d'])[:90]
+            fails[k][(r['s'], d)] += 1
+print('rows', rows, 'bots', len(bots), 'hours', round((tmax - tmin) / 3600, 2))
+print('triggers', trig.most_common(20))
+print('death-like kinds', [(k, c) for k, c in kinds.items() if 'death' in k or 'died' in k or 'kill' in k])
+for k, c in kinds.most_common(120):
+    ss = {s: n for (kk, s), n in st.items() if kk == k}
+    print(f'{k:32s} {c:7d} {ss}')
+for k in sorted(fails):
+    print('==', k)
+    for (s, d), n in fails[k].most_common(8):
+        print(f'   {n:6d} {s} {d}')

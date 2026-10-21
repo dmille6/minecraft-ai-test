@@ -1,0 +1,26 @@
+# comms design 2026-10-21: sensitivity of the gather peer-failure test (opps2 [B]) to radius, window and a vertical band.
+# Same 24 h extract. Run on 10.0.0.31 from ~/commsdesign-1021 with nice -n 19. Output: data/gather_sens.out
+import json, glob, math, collections
+def blk(r):
+    try: return json.loads(r.get("a") or "{}").get("block")
+    except Exception: return None
+def dist(a, b): return math.hypot(a[0] - b[0], a[2] - b[2])
+towns = {f: sorted((json.loads(l) for l in open(f) if "\"k\": \"gather\"" in l), key=lambda r: r["t"]) for f in glob.glob("out/*.jsonl")}
+for R, W in ((4, 600), (8, 1800), (16, 1800), (32, 3600)):
+    cells = collections.Counter()
+    for rows in towns.values():
+        g = [r for r in rows if r["s"] in ("success", "failed") and r.get("p") and blk(r)]
+        for i, r in enumerate(g):
+            peer = own = False
+            for q in reversed(g[max(0, i - 400):i]):
+                if r["t"] - q["t"] > W: break
+                if q["s"] != "failed" or blk(q) != blk(r) or dist(q["p"], r["p"]) > R or abs(q["p"][1] - r["p"][1]) > 8: continue
+                if q["bot"] != r["bot"]: peer = True
+                else: own = True
+            c = "both" if peer and own else "peer_only" if peer else "own_only" if own else "none"
+            cells[(c, r["s"])] += 1
+    out = []
+    for c in ("peer_only", "own_only", "both", "none"):
+        s, f = cells[(c, "success")], cells[(c, "failed")]
+        out.append(f"{c} {f}/{s+f} ({100*f/max(s+f,1):.1f}%)")
+    print(f"R={R} W={W//60}min dy<=8:", "; ".join(out))

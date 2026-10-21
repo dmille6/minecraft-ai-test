@@ -1,0 +1,20 @@
+comms design r2 -- the live reachability-sharing path: milestone give-ups (24 h extract, 12 shared towns)
+
+milestones.mjs ~950: const peers = worldFacts.unreachableBy(m.id, me, pos)  // a townmate gave up within 64 blocks
+                     const budget = peers ? 8 : 25                              // attempts before this bot skips
+
+_milestone_skipped rows, 24 h: 687
+  by the detail's leading phrase:
+    "8 serving attempts failed ..."    347   <- the PEER-SHORTENED budget
+    "25 serving attempts failed ..."    27   <- the bot's own full budget
+    "no serving progress ..."          312   (time-based skip; budget not involved)
+    other                                1
+  => of the 374 attempt-count skips, 347 (92.8%) used the budget a townmate's give-up shortened.
+  top milestones skipped: gather_sand_8 199, patrol 189, return 138, deposit_surplus 34, stockpile_wood 31,
+  gather_dirt_16 27, gather_iron_ore_3 27, stockpile_stone 17
+
+Not measured here: whether those skips were wrong (would the bot have succeeded within 25 attempts?). That needs
+the §2.4 test on milestone attempts (unreach-01's read), before any change.
+
+Command used: grep -h '"k": "_milestone_skipped"' out/*.jsonl | python3 (regex '^(\d+) serving attempts failed' and
+'skip #\d+ of (\S+?)\)').

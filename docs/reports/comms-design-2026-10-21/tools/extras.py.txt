@@ -1,0 +1,96 @@
+# comms design 2026-10-21, part 4: the smaller checks behind the design's numbers, in one re-runnable file
+# (each was first run inline; this file reproduces them on the same 24 h extract). Read-only.
+import json, glob, re, math, collections, bisect, random, os
+D = os.path.expanduser('~/commsdesign-1021/out')
+towns = {os.path.basename(f)[:-6]: sorted((json.loads(l) for l in open(f)), key=lambda r: r['t'])
+         for f in sorted(glob.glob(D + '/*.jsonl'))}
+def dist(a, b): return math.hypot(a[0] - b[0], a[2] - b[2])
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+
+# E1 positive control for the iron-harvest predicate, and the sighting conversion at two radii
+c = collections.Counter()
+for rows in towns.values():
+    for r in rows:
+        if r['k'] in ('gather', 'mine') and r['s'] == 'success' and 'iron' in (r.get('a') or ''): c[r['k']] += 1
+print('[E1] iron harvest rows (gather/mine success with iron in args):', dict(c))
+for R, W in ((24, 1200), (48, 3600)):
+    heads = hit = iron = att = 0
+    for rows in towns.values():
+        H = collections.defaultdict(list); G = collections.defaultdict(list)
+        for r in rows:
+            if r['k'] == '_explore_toward_known':
+                m = HEAD.search(r['d'])
+                if m and 'iron' in m.group(1): H[r['bot']].append((r['t'], (int(m.group(2)), int(m.group(3)), int(m.group(4)))))
+            if r['k'] == 'gather' and r['s'] == 'success' and 'iron' in (r.get('a') or '') and r.get('p'): G[r['bot']].append(r)
+        for b, gs in G.items():
+            for g in gs:
+                iron += 1; att += any(0 <= g['t'] - t <= W and dist(g['p'], p) <= R for t, p in H[b])
+        seen = set()
+        for b, hs in H.items():
+            for t, p in hs:
+                if (b, p) in seen: continue
+                seen.add((b, p)); heads += 1
+                hit += any(0 <= g['t'] - t <= W and dist(g['p'], p) <= R for g in G[b])
+    print(f'[E1] R={R} W={W//60}min: distinct (bot, sighting) headings {heads}, then an iron gather there {hit} '
+          f'({100*hit/heads:.1f}%); iron gathers {iron}, after a heading there {att} ({100*att/iron:.1f}%)')
+
+# E2 bots per shared sighting, and explore time
+per = collections.defaultdict(set); legs = collections.Counter(); ex_n = 0; ex_s = 0.0
+for pool, rows in towns.items():
+    for r in rows:
+        if r['k'] == '_explore_toward_known':
+            m = HEAD.search(r['d'])
+            if m: k = (pool,) + m.groups(); per[k].add(r['bot']); legs[k] += 1
+        if r['k'] == 'explore': ex_n += 1; ex_s += (r.get('dur') or 0) / 1000
+nb = collections.Counter(len(v) for v in per.values())
+print(f'[E2] explore runs {ex_n} ({ex_s/3600:.1f} bot-h); heading rows {sum(legs.values())}; distinct sightings {len(per)}; '
+      f'bots per sighting {sorted(nb.items())}; legs at sightings chased by >= 2 bots {sum(legs[k] for k, v in per.items() if len(v) >= 2)}; '
+      f'kinds {collections.Counter(k[1] for k in per)}')
+
+# E3 distress episodes, a townmate nearby, and the uniform-time control
+K = {'_stranded_unrecoverable', '_recovery_exhausted', '_entombed_unrecoverable'}
+eps = near = died = 0; kinds = collections.Counter(); random.seed(3); cn = cnear = 0
+def mate_near(pos, me, t, p0):
+    for b, lst in pos.items():
+        if b == me: continue
+        ts = [x[0] for x in lst]; j = bisect.bisect_right(ts, t) - 1
+        if j >= 0 and t - lst[j][0] <= 300:
+            p = lst[j][1]
+            if dist(p, p0) <= 32 and abs(p[1] - p0[1]) <= 16: return True
+    return False
+for rows in towns.values():
+    pos = collections.defaultdict(list); deaths = collections.defaultdict(list)
+    for r in rows:
+        if r.get('p'): pos[r['bot']].append((r['t'], r['p']))
+        if r['k'] == '_death': deaths[r['bot']].append(r['t'])
+    last = {}
+    for r in rows:
+        if r['k'] in K and r.get('p'):
+            if r['bot'] in last and r['t'] - last[r['bot']] < 1800: continue
+            last[r['bot']] = r['t']; eps += 1; kinds[r['k']] += 1
+            died += any(0 <= d - r['t'] <= 1800 for d in deaths[r['bot']])
+            near += mate_near(pos, r['bot'], r['t'], r['p'])
+    T = [x[0] for lst in pos.values() for x in lst]; lo, hi = min(T), max(T); bots = list(pos)
+    for _ in range(400):
+        t = random.uniform(lo, hi); me = random.choice(bots)
+        ts = [x[0] for x in pos[me]]; j = bisect.bisect_right(ts, t) - 1
+        if j < 0 or t - ts[j] > 300: continue
+        cn += 1; cnear += mate_near(pos, me, t, pos[me][j][1])
+print(f'[E3] distress episodes (bot, 30 min) {eps} {dict(kinds)}; townmate within 32 blocks / 16 y {near} '
+      f'({100*near/eps:.1f}%); uniform-time control {cnear}/{cn} ({100*cnear/cn:.1f}%); died within 30 min {died}')
+
+# E4 smelt_town overlap: are overlapping runs more futile than solo runs?
+c = collections.Counter()
+for rows in towns.values():
+    rs = [r for r in rows if r['k'] == 'smelt_town']
+    for i, r in enumerate(rs):
+        ov = any(q['bot'] != r['bot'] and q['t'] <= r['t'] < q['t'] + (q.get('dur') or 0) / 1000 for q in rs[max(0, i - 50):i])
+        c[('overlap' if ov else 'alone', r['s'])] += 1
+for tag in ('overlap', 'alone'):
+    n = sum(v for (t, s), v in c.items() if t == tag)
+    print(f'[E4] smelt_town {tag}: {n} runs, no_effect {c[(tag, "no_effect")]} ({100*c[(tag, "no_effect")]/n:.1f}%), success {c[(tag, "success")]}')
+
+# E5 multi-bot project rows (expected none on the fleet) with the same regex finding plinth/board kinds
+pat = re.compile(r'monument|project|zigg|yard|shaft|treefarm|blueprint|build|plinth|lease|claim|board', re.I)
+c = collections.Counter(r['k'] for rows in towns.values() for r in rows if pat.search(r['k']))
+print('[E5] project/claim-like kinds:', sorted(c.items(), key=lambda x: -x[1]))

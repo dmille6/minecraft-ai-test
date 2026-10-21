@@ -1,0 +1,208 @@
+# comms design 2026-10-21, r3 re-analysis (v2 + the logEvent timestamp fix) after review round 1 (Codex P1-5, P2-9, P2-10). Read-only.
+# Timing rule used throughout: a row's @timestamp is the skill's START (logger.mjs startedAt); its bot.pos and
+# bot.inventory are the snapshot at COMPLETION (runner). So: a fact from row q is AVAILABLE at q.t + q.dur;
+# q's position/bag belong to that time; the PRE-ACTION position of a row r is the bot's newest snapshot strictly before r.t.
+import json, glob, os, re, math, collections, bisect, random, sys
+D = os.path.expanduser('~/commsdesign-1021/out')
+towns = {os.path.basename(f)[:-6]: sorted((json.loads(l) for l in open(f)), key=lambda r: r['t'])
+         for f in sorted(glob.glob(D + '/*.jsonl'))}
+T_END = max(r['t'] for rows in towns.values() for r in rows)
+# r3 (Codex r2 P2): logSkill rows (no leading underscore) stamp the START, so their snapshot is at t + dur;
+# logEvent rows (leading underscore, e.g. _toolkit, _kit_search) stamp the EMISSION, so their snapshot is at t.
+def done(r): return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+def hd(a, b): return math.hypot(a[0] - b[0], a[2] - b[2])
+def blk(r):
+    try: return json.loads(r.get('a') or '{}').get('block')
+    except Exception: return None
+XYZ = re.compile(r'(-?\d+),(-?\d+),(-?\d+)')
+random.seed(1021)
+
+def snapshots(rows):
+    """bot -> sorted [(snapshot_time, pos, inv)] using completion times."""
+    per = collections.defaultdict(list)
+    for r in rows:
+        if r.get('p'): per[r['bot']].append((done(r), r['p'], r.get('inv')))
+    for b in per: per[b].sort(key=lambda x: x[0])
+    return per
+def at(per, bot, t, maxage=300):
+    lst = per.get(bot) or []
+    ts = [x[0] for x in lst]; j = bisect.bisect_left(ts, t) - 1      # strictly before t
+    return lst[j] if j >= 0 and t - lst[j][0] <= maxage else None
+
+# ---- G. gather: does a townmate's COMPLETED failure nearby predict my failure? (pre-action position, dy <= 8)
+print('[G] gather by prior COMPLETED same-block failure near my PRE-ACTION position (dy<=8); success+failed rows')
+for R, W in ((4, 600), (8, 1800), (16, 1800), (32, 3600)):
+    cells = collections.Counter(); byblk = collections.Counter()
+    for rows in towns.values():
+        per = snapshots(rows)
+        g = [r for r in rows if r['k'] == 'gather' and r['s'] in ('success', 'failed') and r.get('p') and blk(r)]
+        fails = sorted((done(q), q) for q in g if q['s'] == 'failed')
+        fts = [x[0] for x in fails]
+        for r in g:
+            pre = at(per, r['bot'], r['t'])
+            if not pre: cells[('no_pre_pos', r['s'])] += 1; continue
+            p0 = pre[1]; peer = own = False
+            j = bisect.bisect_right(fts, r['t'])            # failures completed before my start
+            k = j - 1
+            while k >= 0 and r['t'] - fts[k] <= W:
+                q = fails[k][1]; k -= 1
+                if blk(q) != blk(r) or hd(q['p'], p0) > R or abs(q['p'][1] - p0[1]) > 8: continue
+                if q['bot'] != r['bot']: peer = True
+                else: own = True
+            c = 'both' if peer and own else 'peer_only' if peer else 'own_only' if own else 'none'
+            cells[(c, r['s'])] += 1
+            if R == 16: byblk[(blk(r), c, r['s'])] += 1
+    out = []
+    for c in ('peer_only', 'own_only', 'both', 'none', 'no_pre_pos'):
+        s, f = cells[(c, 'success')], cells[(c, 'failed')]
+        out.append(f'{c} {f}/{s+f} ({100*f/max(s+f,1):.1f}%)')
+    print(f'  R={R} W={W//60}min: ' + '; '.join(out))
+    if R == 16:
+        top = collections.Counter(); [top.update({b: v}) for (b, c, s), v in byblk.items()]
+        for b, _ in top.most_common(5):
+            row = []
+            for c in ('peer_only', 'own_only', 'none'):
+                s, f = byblk[(b, c, 'success')], byblk[(b, c, 'failed')]
+                row.append(f'{c} {f}/{s+f} ({100*f/max(s+f,1):.0f}%)')
+            print(f'     block {b:14s} ' + '; '.join(row))
+        peer_s = cells[('peer_only', 'success')] + cells[('both', 'success')]
+        print(f'     a veto on any peer failure (this rule) would have refused {peer_s} gathers that succeeded')
+
+# ---- S. iron sightings: complete follow-up only; class from the MOST RECENT completed peer episode
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+print('[S] iron-sighting episodes with a full 60-min follow-up; outcome = iron gather within R and dy<=16')
+for R in (24, 48):
+    W = 3600; n = collections.Counter(); h = collections.Counter(); excluded = 0
+    for rows in towns.values():
+        G = collections.defaultdict(list)
+        for r in rows:
+            if r['k'] == 'gather' and r['s'] == 'success' and 'iron' in (r.get('a') or '') and r.get('p'):
+                G[r['bot']].append((done(r), r['p']))
+        eps = []; last = {}
+        for r in rows:
+            if r['k'] != '_explore_toward_known': continue
+            m = HEAD.search(r['d'])
+            if not m or 'iron' not in m.group(1): continue
+            s = (int(m.group(2)), int(m.group(3)), int(m.group(4))); key = (r['bot'], s)
+            if key in last and r['t'] - last[key]['t0'] <= W: continue
+            ep = {'bot': r['bot'], 's': s, 't0': r['t']}; last[key] = ep; eps.append(ep)
+        for ep in eps:
+            ep['hit'] = any(0 <= t - ep['t0'] <= W and hd(p, ep['s']) <= R and abs(p[1] - ep['s'][1]) <= 16 for t, p in G[ep['bot']])
+        by_s = collections.defaultdict(list)
+        for ep in eps: by_s[ep['s']].append(ep)
+        for ep in eps:
+            if ep['t0'] + W > T_END: excluded += 1; continue
+            prior = [o for o in by_s[ep['s']] if o['bot'] != ep['bot'] and o['t0'] + W <= ep['t0']]
+            if prior:
+                latest = max(prior, key=lambda o: o['t0'])
+                c = 'after_peer_harvest' if latest['hit'] else 'after_peer_fruitless'
+            else:
+                c = 'no_completed_peer_episode'
+            n[c] += 1; h[c] += ep['hit']
+    print(f'  R={R}: ' + '; '.join(f'{c} {h[c]}/{n[c]} ({100*h[c]/max(n[c],1):.1f}%)' for c in
+          ('no_completed_peer_episode', 'after_peer_fruitless', 'after_peer_harvest')) + f'; excluded (incomplete follow-up) {excluded}')
+
+# ---- X. explore runs joined to headings
+runs = with_h = 0; sec = sec_h = 0.0
+for rows in towns.values():
+    H = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == '_explore_toward_known': H[r['bot']].append(r['t'])
+    for b in H: H[b].sort()
+    for r in rows:
+        if r['k'] != 'explore': continue
+        runs += 1; d = done(r) - r['t']; sec += d
+        hs = H[r['bot']]; j = bisect.bisect_left(hs, r['t'])
+        if j < len(hs) and hs[j] <= done(r): with_h += 1; sec_h += d
+print(f'[X] explore runs {runs} ({sec/3600:.1f} bot-h); runs containing >=1 known-sighting heading {with_h} ({sec_h/3600:.1f} bot-h)')
+
+# ---- R. town repeats: nearest-predecessor vs any-peer; refills = deposit/town_deposit successes only (containers),
+#        loads = non-drain _furnace_session on that furnace (furnace). Availability = predecessor's completion.
+def repeat_stats(name, pred, W, keyf, refills):
+    tot = near = anyp = 0; s_near = 0.0
+    for pool, rows in towns.items():
+        neg = [r for r in rows if pred(r)]
+        rf = refills(rows)
+        hist = collections.defaultdict(list)
+        for r in neg:
+            tot += 1; k = keyf(r)
+            prev = [(done(q), q['bot']) for q in hist[k] if 0 <= r['t'] - done(q) <= W]
+            def clean(pt):
+                lst = rf.get(k, rf.get('*', [])); j = bisect.bisect_right(lst, pt)
+                return not (j < len(lst) and lst[j] < r['t'])
+            prev = [p for p in prev if clean(p[0])]
+            if prev:
+                if max(prev)[1] != r['bot']: near += 1; s_near += (r.get('dur') or 0) / 1000
+                if any(b != r['bot'] for _, b in prev): anyp += 1
+            hist[k].append(r)
+    print(f'[R] {name}: {tot}; nearest clean predecessor is ANOTHER bot {near} ({100*near/max(tot,1):.1f}%, {s_near/3600:.2f} bot-h); '
+          f'any clean peer predecessor {anyp} ({100*anyp/max(tot,1):.1f}%)')
+def dep_refills(rows):
+    return {'*': sorted(done(r) for r in rows if r['k'] in ('deposit', 'town_deposit') and r['s'] == 'success')}
+def furnace_loads(rows):
+    out = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == '_furnace_session' and 'by=drain' not in r['d']:
+            m = re.search(r'furnace=(-?\d+,-?\d+,-?\d+)', r['d'])
+            if m: out[m.group(1)].append(r['t'])
+    for k in out: out[k].sort()
+    return out
+fkey = lambda r: (XYZ.search(r['d']).group(0) if XYZ.search(r['d']) else '?')
+repeat_stats('furnace_drain "is empty" (same furnace, 60 min)', lambda r: r['k'] == 'furnace_drain' and 'is empty' in r['d'], 3600, fkey, furnace_loads)
+repeat_stats('smelt_town "no raw copper" (2 h)', lambda r: r['k'] == 'smelt_town' and 'no raw copper' in r['d'], 7200, lambda r: '*', dep_refills)
+repeat_stats('smelt_town "no coal" (2 h)', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d'], 7200, lambda r: '*', dep_refills)
+repeat_stats('toolkit kit_no_iron (60 min)', lambda r: r['k'] == 'toolkit' and r.get('fc') == 'kit_no_iron', 3600, lambda r: '*', dep_refills)
+repeat_stats('withdraw_pick "no usable pickaxe" (60 min)', lambda r: r['k'] == 'withdraw_pick' and 'no usable pickaxe' in r['d'], 3600, lambda r: '*', dep_refills)
+
+# ---- O. overlap: complete interval sweep
+print('[O] overlap (complete sweep): a run that starts while another bot of the town is inside the same job')
+for kind, tk in [('smelt_town', None), ('furnace_drain', fkey), ('dispose_well', None), ('toolkit', None),
+                 ('withdraw_pick', None), ('town_deposit', None), ('compost', None), ('deposit', None)]:
+    tot = ov = 0
+    for rows in towns.values():
+        rs = [r for r in rows if r['k'] == kind]
+        for i, r in enumerate(rs):
+            tot += 1
+            if any(q['bot'] != r['bot'] and q['t'] <= r['t'] < done(q) and (tk is None or tk(q) == tk(r)) for q in rs[:i] if done(q) > r['t']):
+                ov += 1
+    print(f'   {kind:14s} {ov}/{tot} ({100*ov/max(tot,1):.1f}%)')
+
+# ---- N. needs: town-matched control (one control moment per event, same town, uniform time, random bot)
+def mate_has(per, me, t, keys, n):
+    for b in per:
+        if b == me: continue
+        s = at(per, b, t, 900)
+        if s and s[2] and sum(s[2].get(k, 0) for k in keys) >= n: return True
+    return False
+for nm, pred, keys, n in [('smelt_town no coal', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d'], ('coal', 'charcoal'), 1),
+                          ('smelt_town no coal', lambda r: r['k'] == 'smelt_town' and 'no coal' in r['d'], ('coal', 'charcoal'), 8)]:
+    ev = hit = cn = ch = 0
+    for rows in towns.values():
+        per = snapshots(rows); bots = list(per); lo = rows[0]['t']; hi = rows[-1]['t']
+        for r in rows:
+            if not pred(r): continue
+            ev += 1; hit += mate_has(per, r['bot'], r['t'], keys, n)
+            for _ in range(5):
+                cn += 1; ch += mate_has(per, random.choice(bots), random.uniform(lo, hi), keys, n)
+    print(f'[N] {nm}: townmate with >= {n} at {hit}/{ev} ({100*hit/max(ev,1):.1f}%); town-matched control {ch}/{cn} ({100*ch/max(cn,1):.1f}%)')
+
+# ---- P. distress proximity, town-matched control, pre-action-free (the distress row's own completion snapshot)
+K = {'_stranded_unrecoverable', '_recovery_exhausted', '_entombed_unrecoverable'}
+ev = hit = cn = ch = 0
+def near_mate(per, me, t, p0):
+    for b in per:
+        if b == me: continue
+        s = at(per, b, t, 300)
+        if s and hd(s[1], p0) <= 32 and abs(s[1][1] - p0[1]) <= 16: return True
+    return False
+for rows in towns.values():
+    per = snapshots(rows); bots = list(per); lo = rows[0]['t']; hi = rows[-1]['t']; last = {}
+    for r in rows:
+        if r['k'] in K and r.get('p'):
+            if r['bot'] in last and r['t'] - last[r['bot']] < 1800: continue
+            last[r['bot']] = r['t']; ev += 1; hit += near_mate(per, r['bot'], done(r) + 1, r['p'])
+            for _ in range(5):
+                me = random.choice(bots); t = random.uniform(lo, hi); s = at(per, me, t, 300)
+                if not s: continue
+                cn += 1; ch += near_mate(per, me, t, s[1])
+print(f'[P] distress episodes {ev}: townmate within 32/16y {hit} ({100*hit/max(ev,1):.1f}%); town-matched control {ch}/{cn} ({100*ch/max(cn,1):.1f}%)')
