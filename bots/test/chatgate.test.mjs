@@ -45,14 +45,15 @@ async function withMutantsAll (url, pairs, fn) {
 }
 
 /** A bot and a runner that record every call a command could make. Nothing here moves. */
-function rig (mod, env = {}) {
+function rig (mod, env = {}, { username = 'hive-a-Alpha', parse = undefined } = {}) {
   const bot = new EventEmitter()
-  bot.username = 'hive-a-Alpha'
+  bot.username = username
   bot.health = 20; bot.food = 18
   bot.entity = { position: { x: 10.4, y: 70, z: -3.2 } }
   bot.inventory = { items: () => [{ name: 'dirt', count: 3 }] }
-  const said = []
-  bot.chat = text => said.push(text)
+  const said = [], whispered = [], broadcast = []
+  bot.chat = text => { said.push(text); broadcast.push(text) }
+  bot.whisper = (to, text) => { said.push(text); whispered.push([to, text]) }
   const calls = []
   const runner = {
     cancel: (...a) => { calls.push(['cancel', ...a]); return true },
@@ -63,10 +64,11 @@ function rig (mod, env = {}) {
   }
   const rows = []
   let clock = 1_000_000
-  const g = mod.attachCommands(bot, runner, { env, emit: r => rows.push(r), now: () => clock })
+  const g = mod.attachCommands(bot, runner, { env, emit: r => rows.push(r), now: () => clock, timers: false, ...(parse ? { parse } : {}) })
   const say = (who, text) => bot.emit('chat', who, text)
-  return { bot, runner, said, calls, rows, g, say, tick: ms => { clock += ms } }
+  return { bot, runner, said, whispered, broadcast, calls, rows, g, say, tick: ms => { clock += ms } }
 }
+const SHOW = { OWNER_CHAT_NAMES: 'mike' }
 const STEERING = ['!stop', '!resume', '!goto 10 70 10', '!come', '!follow 30', '!gather 4 dirt', '!home', '!deposit dirt', 'hive-a-Alpha stop', 'hive-a-Alpha goto 1 2 3']
 
 console.log('the allowlist (parseOwnerChatNames)')
@@ -82,16 +84,23 @@ await t('only GRANTABLE verbs survive; steering verbs are dropped and reported',
   const p = parseOwnerChatNames('mike:status|stop|goto|resume, ops:come')
   assert.deepEqual([...p.grants.get('mike')], ['status'])
   assert.equal(p.grants.has('ops'), false, 'a name granted only steering verbs has no grant')
-  assert.deepEqual(p.dropped.sort(), ['mike:goto', 'mike:resume', 'mike:stop', 'ops:come'])
-  assert.match(chatgateModeDetail(p), /grants=mike:status dropped=mike:goto,mike:resume,mike:stop,ops:come/)
+  assert.equal(p.droppedVerbs, 4); assert.equal(p.droppedEntries, 0)
+  assert.match(chatgateModeDetail(p), /grants=mike:status dropped_entries=0 dropped_verbs=4 /)
 })
-await t('a malformed name is dropped, never half-trusted; names compare case-insensitively', () => {
-  const p = parseOwnerChatNames('bad name:status,way_too_long_name_xx,Mike:help|status')
+await t('a malformed entry is dropped whole, never half-trusted; names compare case-insensitively', () => {
+  const p = parseOwnerChatNames('bad name:status,way_too_long_name_xx,Mike:help|status,mike:status:stop,ops:,person@example.com:status')
   assert.deepEqual([...p.grants.keys()], ['mike'])
+  assert.equal(p.droppedEntries, 5, 'a space, 17 chars, two colons, no verbs, an e-mail')
+  assert.deepEqual([...p.grants.get('mike')].sort(), ['help', 'status'], 'the extra-colon entry added nothing')
   assert.equal(authorized(p.grants, 'MIKE', 'status'), true)
   assert.equal(authorized(p.grants, 'mike', 'stop'), false)
   assert.equal(authorized(p.grants, 'griefer', 'status'), false)
   assert.equal(authorized(new Map(), 'mike', 'status'), false)
+})
+await t('the env text never reaches telemetry: counts and validated names only', () => {
+  const d = chatgateModeDetail(parseOwnerChatNames('person@example.com:status, mike:status|rm -rf, x y:help'))
+  assert.match(d, /grants=mike:status dropped_entries=2 dropped_verbs=1 /)
+  assert.ok(!/@|example|rm|x y/.test(d), d)
 })
 await t('addressed: `!verb` and `<bot> verb` only', () => {
   assert.deepEqual(addressed('!Status', 'hive-a-Alpha'), { verb: 'status', rest: [] })
@@ -119,7 +128,7 @@ await t('the licence row says the gate is on and grants nothing', () => {
   const r = rig(CMD, {})
   const lic = r.rows.filter(x => x.kind === 'chatgate_mode')
   assert.equal(lic.length, 1)
-  assert.match(lic[0].detail, /^phase=mode commands=none grants=- dropped=- grantable=status\|help peer_ingest=retired$/)
+  assert.match(lic[0].detail, /^phase=mode commands=none grants=- dropped_entries=0 dropped_verbs=0 grantable=status\|help peer_ingest=retired$/)
 })
 await t('ignored lines are counted into one `_chat_ignored` row per minute, not one per line', () => {
   const r = rig(CMD, {})
@@ -128,16 +137,39 @@ await t('ignored lines are counted into one `_chat_ignored` row per minute, not 
   r.tick(IGNORED_ROW_MS + 1); r.say('griefer', '!goto 1 2 3')
   const ig = r.rows.filter(x => x.kind === 'chat_ignored')
   assert.equal(ig.length, 1)
-  assert.match(ig[0].detail, /^ignored=4 addressed=2 last_from=griefer /)
+  assert.match(ig[0].detail, /^ignored=4 addressed=2 secs=60$/)
+  r.say('griefer', 'one more'); r.g.detach()
+  assert.match(r.rows.filter(x => x.kind === 'chat_ignored').at(-1).detail, /^ignored=1 addressed=0 /, 'detach flushes the tail')
+})
+await t('an unlisted line never reaches the command parser (ignored BEFORE parsing)', () => {
+  const seen = []
+  const spy = (m, n) => { seen.push(m); return CMD.addressed(m, n) }
+  const r = rig(CMD, SHOW, { parse: spy })
+  for (const line of STEERING) r.say('griefer', line)
+  r.say('hive-a-Bravo', '!status')
+  assert.deepEqual(seen, [], 'the parser was never called for an unlisted speaker')
+  r.say('mike', '!status')
+  assert.deepEqual(seen, ['!status'], 'positive control: a listed speaker\'s line is parsed')
+  assert.equal(r.said.length, 1)
+})
+await t('MUTANT KILLED: without the gate-first line an unlisted line reaches the parser', async () => {
+  await withMutantsAll(CMD_URL, [["if (!grants.has(String(username ?? '').toLowerCase())) {", 'if (false) {']], async mod => {
+    const seen = []
+    const r = rig(mod, SHOW, { parse: (m, n) => { seen.push(m); return mod.addressed(m, n) } })
+    r.say('griefer', '!stop')
+    assert.deepEqual(seen, ['!stop'], 'the mutant parsed it')
+    assert.deepEqual(r.calls, [], 'and still could not steer (no steering verb has a handler)')
+  })
 })
 
 console.log('\nthe handler, showcase (OWNER_CHAT_NAMES=mike: status only)')
-const SHOW = { OWNER_CHAT_NAMES: 'mike' }
 await t('POSITIVE CONTROL: mike `!status` is answered, from state', () => {
   const r = rig(CMD, SHOW)
   r.say('mike', '!status')
   assert.equal(r.said.length, 1)
   assert.match(r.said[0], /^hp 20 food 18 at 10,70,-3 \| 1 stacks \| task: idle$/)
+  assert.deepEqual(r.whispered.map(w => w[0]), ['mike'], 'whispered to the asker')
+  assert.deepEqual(r.broadcast, [], 'never broadcast')
   r.tick(REPLY_GAP_MS + 1); r.say('Mike', 'hive-a-Alpha status')
   assert.equal(r.said.length, 2, 'the addressed form and any case of the name')
 })
@@ -167,7 +199,7 @@ await t('a granted steering verb in the env is still refused (the env cannot wid
   r.say('mike', '!stop'); r.say('mike', '!goto 1 70 1')
   await new Promise(res => setImmediate(res))
   assert.deepEqual(r.calls, [])
-  assert.match(r.rows.find(x => x.kind === 'chatgate_mode').detail, /dropped=mike:stop,mike:goto/)
+  assert.match(r.rows.find(x => x.kind === 'chatgate_mode').detail, /dropped_verbs=2 /)
   r.say('mike', '!status'); assert.equal(r.said.length, 1)
 })
 await t('replies are rate-limited: a flood of status gets one line per REPLY_GAP_MS', () => {
@@ -184,22 +216,32 @@ await t('help lists only the speaker\'s own grants', () => {
   const s = rig(CMD, SHOW); s.say('mike', '!help')
   assert.deepEqual(s.said, [], 'help not granted to a bare name')
 })
-await t('the bot ignores its own echo', () => {
-  const r = rig(CMD, { OWNER_CHAT_NAMES: 'hive-a-Alpha' })
-  r.say('hive-a-Alpha', '!status')
+await t('the bot ignores its own echo (its name listed, so only the echo line can refuse it)', () => {
+  const r = rig(CMD, { OWNER_CHAT_NAMES: 'Alpha01,mike' }, { username: 'Alpha01' })
+  r.say('Alpha01', '!status')
   assert.deepEqual(r.said, [])
+  r.say('mike', '!status'); assert.equal(r.said.length, 1, 'positive control')
+})
+await t('MUTANT KILLED: without the echo line a listed bot answers itself', async () => {
+  await withMutantsAll(CMD_URL, [['      if (username === bot.username) return\n', '']], async mod => {
+    const r = rig(mod, { OWNER_CHAT_NAMES: 'Alpha01' }, { username: 'Alpha01' })
+    r.say('Alpha01', '!status')
+    assert.equal(r.said.length, 1)
+  })
 })
 
 console.log('\npeer ingestion is retired; prompt kinds are an enum')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const SRC_DIR = new URL('../src/', import.meta.url)
 /** Every src file that attaches a chat-text listener (comments stripped: the comments quote the code). */
-const chatListeners = (files) => files.filter(([, src]) => /\.(on|once|addListener|prependListener)\(\s*['"](chat|whisper|messagestr|playerChat)['"]/.test(strip(src))).map(([f]) => f)
+const LISTEN = /\.(on|once|addListener|prependListener)\(\s*['"](chat|whisper|message|messagestr|playerChat|systemChat|unmatchedMessage|actionBar|profilelessChat)['"]/g
+/** Every src file that attaches a chat-text listener, with the events it listens to (comments stripped). */
+const chatListeners = (files) => files.map(([f, src]) => [f, [...strip(src).matchAll(LISTEN)].map(m => m[2])]).filter(([, ev]) => ev.length).map(([f, ev]) => `${f}:${ev.join('+')}`)
 const srcFiles = () => readdirSync(SRC_DIR).filter(f => f.endsWith('.mjs')).map(f => [f, readFileSync(new URL(f, SRC_DIR), 'utf8')])
-await t('nothing in src/ listens to chat but commands.mjs, and startComms is gone', () => {
+await t('nothing in src/ listens to chat text but commands.mjs (chat) and index.mjs (message: the death cause), and startComms is gone', () => {
   const files = srcFiles()
   assert.ok(files.length > 50, 'positive control: the walk saw the source tree')
-  assert.deepEqual(chatListeners(files), ['commands.mjs'], 'positive control: commands.mjs IS found by the same test')
+  assert.deepEqual(chatListeners(files).sort(), ['commands.mjs:chat', 'index.mjs:message'], 'positive control: the two known listeners ARE found by the same test')
   for (const [f, src] of files) assert.ok(!/\bstartComms\b/.test(strip(src)), `${f} still names startComms`)
 })
 await t('MUTANT KILLED: a chat listener re-attached in comms.mjs is caught by the listener walk', () => {
@@ -207,8 +249,29 @@ await t('MUTANT KILLED: a chat listener re-attached in comms.mjs is caught by th
   const i = files.findIndex(([f]) => f === 'comms.mjs')
   const anchor = 'let lastSaid = 0\n'
   assert.ok(files[i][1].includes(anchor) && files[i][1].split(anchor).length === 2, 'ANCHOR MISSING or not unique')
-  files[i] = ['comms.mjs', files[i][1].replace(anchor, anchor + "export function startPeers (bot) { bot.on('chat', () => {}) }\n")]
-  assert.deepEqual(chatListeners(files).sort(), ['commands.mjs', 'comms.mjs'])
+  for (const ev of ['chat', 'message', 'messagestr']) {
+    const f2 = files.slice()
+    f2[i] = ['comms.mjs', files[i][1].replace(anchor, anchor + `export function startPeers (bot) { bot.on('${ev}', () => {}) }\n`)]
+    assert.deepEqual(chatListeners(f2).sort(), ['commands.mjs:chat', `comms.mjs:${ev}`, 'index.mjs:message'], ev)
+  }
+})
+const { deathCauseText } = CMD
+await t('the death-cause listener takes no player line: a chat-position line is never a cause', () => {
+  assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', 'system', 'hive-a-Alpha'), 'tried to swim in lava', 'positive control: the server\'s system line')
+  assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', undefined, 'hive-a-Alpha'), 'tried to swim in lava', 'an unknown position is not refused (it never was)')
+  assert.equal(deathCauseText('hive-a-Alpha tried to swim in lava', 'chat', 'hive-a-Alpha'), null, 'chat, /say, /me')
+  assert.equal(deathCauseText('hive-a-Alpha joined the game', 'system', 'hive-a-Alpha'), null)
+  assert.equal(deathCauseText('<griefer> hive-a-Alpha burned', 'system', 'hive-a-Alpha'), null)
+})
+await t('MUTANT KILLED: without the position test a player line becomes a death cause', async () => {
+  await withMutantsAll(CMD_URL, [["  if (position === 'chat') return null\n", '']], async mod => {
+    assert.equal(mod.deathCauseText('hive-a-Alpha tried to swim in lava', 'chat', 'hive-a-Alpha'), 'tried to swim in lava')
+  })
+})
+await t('STRUCTURAL: index.mjs passes the message position to deathCauseText', () => {
+  const src = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+  assert.equal((src.match(/const onMsg = \(jsonMsg, position\) =>/g) ?? []).length, 1)
+  assert.equal((src.match(/deathCauseText\(text, position, config\.bot\.name, NOT_A_DEATH\)/g) ?? []).length, 1)
 })
 await t('a forged `[fleet]` hazard line reaches nothing: the only listener ignores the speaker', () => {
   const r = rig(CMD, SHOW)
@@ -255,7 +318,7 @@ await t('MUTANT KILLED: allow every name -> an unlisted speaker gets status (the
   })
 })
 await t('MUTANT KILLED: status through the runner is caught (a status that takes the runner can block a decision)', async () => {
-  await withMutantsAll(CMD_URL, [["if (reply(statusLine(bot, runner))) stats.answered++", "runner.run('status', {}, { trigger: 'chat' }); if (reply(statusLine(bot, runner))) stats.answered++"]], async mod => {
+  await withMutantsAll(CMD_URL, [["if (reply(username, statusLine(bot, runner))) stats.answered++", "runner.run('status', {}, { trigger: 'chat' }); if (reply(username, statusLine(bot, runner))) stats.answered++"]], async mod => {
     const r = rig(mod, SHOW)
     r.say('mike', '!status')
     assert.deepEqual(r.calls.map(c => c[0]), ['run'])
