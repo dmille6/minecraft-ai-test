@@ -1,4 +1,4 @@
-# junkout-01 — junk out at every town visit, and a slim bag allowance (design) — 2026-10-21 (r2)
+# junkout-01 — junk out at every town visit, and a slim bag allowance (design) — 2026-10-21 (r3)
 
 OWNER 2026-10-21 ~20:30Z: "yes build it, i approve of your recommendations". Base: the fleet sha `34d3e5e9` (toolkit-03,
 manifest declared_code_version 10-21 18:05Z). Branch `junkout-on-34d3e5e`. A variant on homefix-02's canary `d014ec2c` if
@@ -14,6 +14,11 @@ counted). Listed well junk in the newest bags, counting the guarded raw stones (
 cobblestone) whole stacks above the 64-stone guard as the well does: **151 slots on 57 bots** (85 + 66 guarded). Filled
 buckets held twice: 0. Stone pickaxes: 168 copies; beyond best + 2: 25 copies in 18 bags, all spent. The r1 tables below
 are kept for the record; where they differ, these numbers win.
+
+**r3 reach check (Claude r2 P3-2):** the same walk, 10-20 21:00Z -> 10-21 20:46Z (1,481,043 rows, 80 bots): of 3,421 zone
+visits with listed junk below 34, **3,366 (by 71 bots, 1.77 per bot-hour) had a row within 20 blocks of a spot where a bot
+of that pool stood to dispose** (16 pools have one) -- the well reach gate costs ~2% of the exposure; 2,535 compost-junk
+visits all had a row within 20 of a spot where a bot composted (16 pools).
 
 Window 10-20 21:00Z -> 10-21 20:19Z (23.3 h): **1,454,453 rows, 80 bots**. Positive controls in the same walk: 160
 `dispose_well`, 129 `_well_dispose`, 88 `compost`, 175 `town_deposit` rows. The lists were dumped from the bots' own modules
@@ -56,13 +61,18 @@ So part 3 is not a constant change and there is nothing to ship on the setting f
 (leaf litter and mushrooms out of the bags) is delivered by the composter's visit order below.
 
 
-## 3. The design (r2)
+## 3. The design (r2; r3 changes marked)
 
 Three VISIT orders and one change to the full-bag rules. Each visit order is ONCE PER VISIT: a latch charged when the order
 is ISSUED (a skip or a failure spends the visit too: no loop), re-armed only after >= 60 s of decisions outside the town
 deposit zone or after the stay window (20 min well / composter, 15 min tail: the town deposit's TD_STAY_REARM_MS). The latch
 is TICKED ON EVERY DECISION by cognitive.mjs (Codex r1 P1-1: an order that never gets a turn must still see the bot leave).
-A runner decline (busy, paused, body held: it never ran) un-latches. Switches: `JUNK_VISIT=off` turns A and B off,
+A runner decline (busy, paused, body held: it never ran) un-latches. The latch records WHY it is open (`armed`: `first` --
+nothing issued yet in this process; `out:<first>-<last>` -- the outside decisions that re-armed it, ms in base 36; `stay`),
+every visit order carries it, and a decline restores the reason that armed the declined order (r3, Claude r2 P2-1). Each
+visit order keeps its OWN scan stamp (30 s), separate from wellOrder's and townOrder's, so a visit scan never delays a
+full-bag order's scan (Claude r2 P3-3). The tail order needs a rows-only plan that frees >= 1 slot before it issues, so a
+stay's latch is never spent on a no-op plan (Claude r2 P3-5). Switches: `JUNK_VISIT=off` turns A and B off,
 `BAG_ALLOWANCE=off` turns C and D off; both default on; the licence row says which.
 
 WHERE THEY RUN IN THE DECISION (Codex r1 P1-1): after the plinth order, the full-bag town deposit and the town recount, and
@@ -91,7 +101,9 @@ build, the full-bag deposit or a recount.
 - **saplings are NOT part of the visit** (Claude r1 P2-5: under the switch every species but oak and birch keeps 0, and
   planting needs > 8 of one species -- composting them every visit would stop those species' planting); the skill runs with
   `saplings: false` for a visit; saplings still go at 34+ exactly as today;
-- order `compost {visit, dh, vid}`; a not-full bag always has room for the bone meal (`fillDecision` only inserts, ripens,
+- the bot within VISIT_COMPOST_REACH (20, horizontal) of the town composter (r3, Claude r2 P3-1: a composter within 16 of
+  home and a bot within 16 of home can be 32 apart);
+- order `compost {visit, armed, dh, dy, dc, vid}`; a not-full bag always has room for the bone meal (`fillDecision` only inserts, ripens,
   harvests).
 
 ### C. The slim bag allowance (bagbudget-02's tail; `bagallowance.mjs`, `towndeposit.mjs`)
@@ -125,8 +137,10 @@ order takes it) and its keep-constant consolidation.
 
 ### D. Spare spent pickaxes at the wear-out (`hygiene.mjs wearOutPlan`; Claude r1 P2-6)
 last-swing keeps up to 3 spent pickaxes for good (SPENT_PICKAXES_KEPT), which is how a bag holds best + 2 stone + 3 spent.
-Under the allowance, the spent copies last-swing keeps count against the owner's 2 spares: kept spent = min(3, max(0, 2 -
-the stone copies with >= 2 uses other than the best working pickaxe)). Only at the wear-out's own trigger (>= 34 slots,
+Under the allowance, WITH A WORKING PICKAXE (> FLOOR uses, any tier) in the bag, the spent copies last-swing keeps count
+against the owner's 2 spares: kept spent = min(3, max(0, 2 - the stone copies with >= 2 uses other than the best working
+pickaxe)). WITHOUT a working pickaxe the three stay (r3, Codex r2 P2-1: three last swings are the recovery's material for the
+next stone pickaxe; `hygiene.mjs spentKeptUnderSpares`). Only at the wear-out's own trigger (>= 34 slots,
 anywhere -- the existing order; never at town for its own sake, because wear_out digs the natural block beside the bot and
 does not read the town-ground zone). The toolkit's rule (none kept beside a usable iron + stone spare) is unchanged and
 runs first. The craft's make-room remedy reads the same plan (as in bagbudget-01). `_junkout phase=wear` names the copies
@@ -184,15 +198,23 @@ bone meal across 16 towns, then torch 0.79 + bone meal 0.56 items per bot-day (b
   `--selftest`):
   J1 `breach_junk_chest`: a canary `_junkout phase=bank` row banked a junk name (the read's lists held to the bots' by
      `JS_CHECK`); `j1_incomplete` (a run whose parts are not all present) BLOCKS KEEP. The same check on the CONTROL's
-     town_deposit details is printed as a null.
+     town_deposit details is printed as a null; a base-equal pattern in that null (a goal-wanted listed name the base plan
+     banks) is not a defect (Claude r2 P3-4).
   J2 `breach_below_allowance`: a bank row leaves a station below 1, or (mode=tail) stone_pickaxe below min(start,
      keep_picks).
-  J3 `breach_dedicated_trip`: a canary visit row with dh > 16 (well, compost, tail) or dw > 20 (well).
+  J3 `breach_dedicated_trip`: a canary visit row with dh > 16 or |dy| > 12 (well, compost, tail: the ISSUE-time position,
+     carried in the order's args -- r3, Codex r2 P2-3) or dw > 20 (well).
   J4 `breach_visit_offlist`: a canary `phase=well` row with offlist, swords, cobble or stock > 0.
-  J5 `breach_reissue` (Codex r1 P2-5, Claude r1 P1-2): two canary visit orders of the SAME kind by one bot with no >= 45 s
-     run of out-of-zone rows between them and less than the stay window apart (20 min well/compost, 15 tail) -- the
-     latch's own arithmetic, judged from positions, not from the bot's word. A legitimate zone crossing is a selftest
-     fixture that must NOT trip.
+  J5 `breach_reissue` (Codex r1 P2-5 / r2 P2-2, Claude r1 P1-2 / r2 P2-1): consecutive canary visit RUNS of the SAME kind
+     by one bot (`_junkout` rows only: a declined order never ran and writes none), timed by their ISSUE times (carried in
+     the `vid` / `v` id), less than the stay window apart (20 min well/compost, 15 tail). The second run's `armed` must
+     explain its re-arm: `first` only with a `_junkout_mode` row (a process start) between the two issues; `stay` never
+     (impossible inside the window); `out:a-b` only with first issue < a, b < second issue, b - a >= 55 s, and at least one
+     position sample OUT of the zone inside [a - 10 s, b + 10 s] -- event rows at their own time, skill rows at
+     `@timestamp + duration_ms` (a skill row is stamped at its START with the END position: Claude r2 P2-1). Anything else
+     trips. Selftest fixtures that must NOT trip: a legitimate crossing in the start-stamp/end-position shape, a restart
+     between, a decline then a retry, a re-issue after the stay window; and fixtures that must trip: a re-issue with
+     `armed=first` and no restart, an `out:` claim with no out-of-zone sample.
 - EXPOSURE (declared): canary `phase=well` runs with n > 0 >= 10, canary `phase=compost` runs with n > 0 >= 3, canary
   `phase=bank mode=tail` runs (unique `v=`) with banked > 0 >= 3; plus canary zone visits with listed junk >= 20.
 - PRIMARY (DiD, reported): slots per bot; listed-junk slots per bag; torch + bone meal slots per bag; share at >= 34;
@@ -200,7 +222,9 @@ bone meal across 16 towns, then torch 0.79 + bone meal 0.56 items per bot-day (b
 - POSITIVE CONTROLS: control `dispose_well` >= 1, control `town_deposit` >= 1, control zone visits with junk >= 1.
 - `change_rows`: `junkout` ONLY (Claude r1 P1-1: gate v36.1 refuses a change row the baseline already emits).
 TIER 2 (`"tier": 2`, no class), on the Paper scenes below (base vs candidate, sandbox); a run missing any early-KEEP
-condition reads on as tier 3. PAPER SCENES: (S1) a not-full bag with listed junk passing town at a well: junk to the well,
+condition reads on as tier 3. Section 3 D (the wear-out spares cap) has no Paper scene: its unit and chain tests are its
+evidence (a pure plan over the bag; the wear-out skill is unchanged) -- said here as a tier-2 condition (Claude r2 P3-6).
+PAPER SCENES: (S1) a not-full bag with listed junk passing town at a well: junk to the well,
 nothing else changes; (S2) 8 chests + 3 tables + 4 spare pickaxes (+ torches, bone meal) at the town deposit: banks down to
 the allowance, no junk in the chest; (S3) mushrooms + leaf litter go to the composter, saplings stay; plus the candidate
 with `JUNK_VISIT=off BAG_ALLOWANCE=off` shows the base shape.
@@ -241,5 +265,12 @@ not first, in PIT_COVER_BLOCKS. Claude CHANGE: P1 change_rows must be `junkout` 
 radius makes a cross-town walk; P2 tail outcome routing; P2 stale wants in the tail run; P2 the measure left out the guarded
 stones; P2 visit composting saplings stops planting; P2 last-swing's spent keeps break "at most 2 spare"; P2 tier 2 needs
 named scenes; P3 the no-well row, the switch name, J4 pairing, a J1 null, the tail slot, wanted names, filled buckets, cites.
-ALL TAKEN in r2 except: Codex P1-2 is answered (the model's deposit verb is unchanged and banks only what the goal wants;
+**Design r2 (5e5073cc), Claude CHANGE:** P2 J5's position test could trip on a legitimate re-arm (skill rows are stamped at
+the start with the end position); P2 D could leave a bot with no working pickaxe two last swings (the same point as Codex
+P2-1); P3 the composter reach, the exposure by the well reach, separate scan stamps, J1's base-equal null, the tail's
+freed >= 1, D's evidence. ALL TAKEN in r3 (the `armed` reason and the end-time sampling; the working-pickaxe condition;
+VISIT_COMPOST_REACH 20; the r3 reach check above; sections 3, 6).
+**Design r2 (5e5073cc), Codex CHANGE:** P2 D's formula took the third last-swing copy with no working pickaxe; P2 J5 counted
+declined orders and process restarts; P2 J3 did not see the vertical zone bound. ALL TAKEN in r3 (sections 3 D, 6).
+Round-1: ALL TAKEN in r2 except: Codex P1-2 is answered (the model's deposit verb is unchanged and banks only what the goal wants;
 J1 covers every town-deposit chest admission, and a control null), and Codex P1-3 is answered as a ceiling (section 3 C).
