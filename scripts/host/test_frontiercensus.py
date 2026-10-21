@@ -195,6 +195,74 @@ def cases(m, chk=None):
           any(x.startswith('FrontierPublishStale') for x in chk.assess_publish(os.path.join(td, 'out'), td, now)[0]))
         m.create_gen(os.path.join(td, '_pool-p'), 'frontier-1_2_3', doc)
         c('checker: once published (same digest) it is quiet', chk.assess_publish(os.path.join(td, 'out'), td, now)[0] == [])
+    # ---- pools whose status changes (isolated -> shared, 10-21) and the pools that are not the bench
+    c('cpool: an isolated bot\'s own pool folds into its world; a shared pool and None pass through',
+      (m.cpool('self-isolated-b-Alpha'), m.cpool('board-a'), m.cpool('isolated-b'), m.cpool(None))
+      == ('isolated-b', 'board-a', 'isolated-b', None))
+    H2 = {'fx': m.FX_HOME}
+    iso = [dict(r, pool='self-fx-A', bot='a') for r in m.fixture_rows()[:60] if r.get('x') is not None] + \
+          [dict(r, pool='self-fx-B', bot='b') for r in m.fixture_rows()[:60] if r.get('x') is not None]
+    fr = m.fold_rows(iso, H2)
+    c('fold: two isolated bots of one world fold into ONE census pool (bot-minutes add: one bot per self- pool)',
+      (sorted(fr['regions']), fr['regions']['fx'][m.rkey(16, 0)][:2], fr['bots']['a'][0]) == (['fx'], [12, 2], 'fx'))
+    c('parse_q1: the self- buckets of one world merge exactly as the reference fold does',
+      m.parse_q1(m.fake_q1(iso, ['self-fx-A', 'self-fx-B']), H2) == {'fx': fr['regions']['fx']})
+    have1 = {H: {'es_counts': [5, 1], 'homes': {'a': [1, 2, 3], 'z': [0, 0, 0]}}}
+    c('plan: a pool absent now (dropped or retired) refolds nothing; the same homes refold nothing',
+      m.plan_folds({H: [5, 1]}, have1, {'a': [1, 2, 3]}) == [])
+    c('plan: a pool the record lacks (newly folded) refolds the hour',
+      [w.split(' ')[0] for _, w in m.plan_folds({H: [5, 1]}, have1, {'a': [1, 2, 3], 'b': [4, 5, 6]})] == ['homes'])
+    with tempfile.TemporaryDirectory() as td:
+        def mk(d, *files):
+            os.makedirs(os.path.join(td, d), exist_ok=True)
+            for f in files:
+                open(os.path.join(td, d, f), 'w').close()
+        mk('_pool-a', 'town-chest-1_2_3.cobble.jsonl')
+        mk('_pool-self-iso-Alpha', 'town-chest-7_8_9.cobble.jsonl', 'junkwell-site-7_8_9.g1.json')
+        mk('_pool-self-iso-Bravo', 'town-chest-7_8_9.cobble.jsonl')
+        mk('_pool-self-iso-Comet')                                        # a bot dir with no town state yet: no vote
+        mk('_pool-self-jso-Alpha', 'town-chest-7_8_9.cobble.jsonl')
+        mk('_pool-self-jso-Bravo', 'town-chest-1_1_1.cobble.jsonl')       # two homes in one isolated world: refused
+        mk('_pool-conv', 'town-chest-5_5_5.cobble.jsonl')                 # converted: shared now on a NEW home
+        mk('_pool-self-conv-Alpha', 'town-chest-4_4_4.cobble.jsonl')
+        mk('_pool-rs', 'town-chest-2_2_2.cobble.jsonl')
+        mk('_pool-rs.pre-reseed-20261012T101500Z')                        # reseeded inside the window
+        mk('_pool-old', 'town-chest-3_3_3.cobble.jsonl')
+        mk('_pool-old.pre-reseed-20260927T130943Z')                       # before the window: harmless
+        mk('_pool-showcase', 'town-chest-6_6_6.cobble.jsonl')             # never the bench
+        fold, shared, probs, iprobs = m.census_pools(td)
+        c('pools: shared towns publish; an isolated world with one home is folded only; showcase never',
+          (shared, sorted(fold)) == (['a', 'conv', 'old'], ['a', 'conv', 'iso', 'old']))
+        c('pools: a converted pool takes its SHARED home, not its old per-bot one', fold.get('conv') == (5, 5, 5))
+        c('pools: a reseed inside the window leaves the town out and says so; one before it does not',
+          ('rs' in probs and 'reseeded 20261012T101500Z' in probs['rs'], 'old' in probs) == (True, False))
+        c('pools: an isolated world naming two homes is refused (informational), not guessed',
+          'jso' in iprobs and 'jso' not in fold and 'jso' not in probs)
+    # ---- the tick's status word and the parity rule
+    ts = m.tick_status
+    c('status: an instrument failure outranks everything; ES blind is VOID, never idle; a backlog is behind',
+      (ts(True, False, True, 3, 3, 1, 'x'), ts(False, False, True, 0, 0, 0, None), ts(False, True, False, 0, 0, 0, None),
+       ts(False, False, False, 4, 4, 0, None), ts(False, False, False, 4, 1, 2, None), ts(False, False, False, 0, 0, 0, 'w'),
+       ts(False, False, False, 2, 0, 0, None), ts(False, False, False, 0, 0, 0, None))
+      == ('instrument', 'void', 'void', 'void', 'behind', 'behind', 'ok', 'idle'))
+    now_p = m.ms_of('2026-10-22T12:00:00Z')
+    fresh = {'ok': True, 'at': '2026-10-22T01:00:00Z'}
+    c('parity: none during the first backfill is not an alarm; none after it is; a failed or 37-h-old one is',
+      (m.parity_alarm(None, now_p, 5), m.parity_alarm(None, now_p, 0), m.parity_alarm(fresh, now_p, 0),
+       m.parity_alarm(dict(fresh, ok=False), now_p, 5), m.parity_alarm(dict(fresh, at='2026-10-20T23:00:00Z'), now_p, 0))
+      == (False, True, False, True, True))
+    # ---- the atomic write never follows a symlinked directory
+    with tempfile.TemporaryDirectory() as td:
+        real, link = os.path.join(td, 'real'), os.path.join(td, 'link')
+        os.makedirs(real)
+        os.symlink(real, link)
+        try:
+            m.create_gen(link, 'frontier-1_2_3', {'a': 1})
+            refused = False
+        except OSError:
+            refused = True
+        c('generations: a pool dir that is a symlink is refused (O_NOFOLLOW), and nothing lands behind it',
+          (refused, os.listdir(real)) == (True, []))
     return out
 
 
@@ -271,8 +339,22 @@ MUTANTS = [
     ('void ticks extend the warm-up', "if st not in ('ok', 'idle', 'behind'):", "if st not in ('ok', 'idle', 'behind', 'void'):"),
     ('a new version keeps the warm-up', "or r.get('version') != ver:", ":"),
     ('parity ignores bot-minutes', "if A.get(k) != B.get(k):", "if (A.get(k) or [0])[0] != (B.get(k) or [0])[0]:"),
-    ('unpositioned rows folded', "if r.get('x') is None or r.get('z') is None:\n            continue\n        b = bots",
-     "if False:\n            continue\n        b = bots"),
+    ('unpositioned rows folded', "if r.get('x') is None or r.get('z') is None:\n            continue\n        r = dict(r, pool",
+     "if False:\n            continue\n        r = dict(r, pool"),
+    ('isolated rows keep their self- pool', "return m.group(1) if m else p", "return p"),
+    ('a second self- pool overwrites the first', "if o is None:\n                    regs[rkey(i, j)] = g",
+     "if True:\n                    regs[rkey(i, j)] = g"),
+    ('plan compares the whole homes dict', "moved = sorted(p for p, h in want_homes.items() if (r.get('homes') or {}).get(p) != h)",
+     "moved = ['all'] if r.get('homes') != want_homes else []"),
+    ('a converted pool keeps its isolated home', "if p in roster:\n            continue", "if False:\n            continue"),
+    ('reseeds ignored', "if t > since_ms:", "if False:"),
+    ('the showcase is a town', "and p not in EXCLUDE_POOLS:", "and True:"),
+    ('ES blind reads idle', "if no_records or blind or (folded and void == folded):", "if no_records:"),
+    ('a backlog reads ok', "if backlog or withheld:\n        return 'behind'", "if withheld:\n        return 'behind'"),
+    ('parity never alarms when missing', "if par is None and backlog:\n        return False",
+     "if par is None:\n        return False"),
+    ('the pool dir is followed through a symlink', "return os.open(dir_, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)",
+     "return os.open(dir_, os.O_RDONLY | os.O_DIRECTORY)"),
 ]
 
 

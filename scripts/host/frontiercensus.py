@@ -2,7 +2,7 @@
 r"""frontiercensus.py -- E0, the FRONTIER CENSUS (expansion plan 2026-10-19, section 4). READ ONLY on the fleet.
 
 Design: docs/reports/expansion-plan-2026-10-19.md section 4 (and 1.1-1.3 for the numbers its controls reproduce).
-Results and controls: docs/reports/frontier-census-2026-10-20.md. Per SHARED town it keeps:
+Results and controls: docs/reports/frontier-census-2026-10-21.md. Per SHARED town it keeps:
 
   visit map   a 64 x 64 region grid (ABSOLUTE: region (i, j) is x in [64i, 64i+64), z in [64j, 64j+64), the grid section
               1.1 measured on, aligned to chunk boundaries) out to 1,000 blocks from home (region centre), inside the world
@@ -25,6 +25,13 @@ Results and controls: docs/reports/frontier-census-2026-10-20.md. Per SHARED tow
                           (scanned land, then unknown, then water), then the half-plane facing away from the world origin
                           (explore's preference: skills.mjs explore heads away from 0,0), then 64-block distance step
                           from 300, then alignment with that bearing
+  pools       SHARED towns (`_pool-<pool>` dirs) get a frontier file and the baselines. ISOLATED pools (`_pool-self-<pool>-
+              <Bot>` dirs, rows logged as exp.pool `self-<pool>-<Bot>`) are folded under <pool> when their bots' dirs
+              agree on one home, and never published: when one becomes a shared town (isolated2shared; isolated-b on
+              10-21 13:53Z) its history is already on record, because neither the world nor the home moves. A town
+              reseeded inside the window (`_pool-<pool>.pre-reseed-<stamp>`) is left out and alarmed (two worlds). The
+              showcase (10.0.0.40) is never read: its rows go to mcai-*-showcase, not mcai-skill-agents, and the name
+              is refused here as well
   hazards     death sites from world-facts-<pool>.json `sites` (kind death:*) and `_death` rows; a region within 32
               blocks of one in the last 7 days is marked
   water       NOT visible from positions alone. A region is labelled by `_region_scan` rows (STUB for expedition-01:
@@ -70,7 +77,7 @@ Runs on 10.0.0.31 (ES read-only key; /var/lib/mcai). --tick writes ONLY under --
 named frontier-<home>.g<N>.json (and its own .tmp) inside existing _pool-<pool> dirs, never follows a symlink, and
 prunes only its own generations (single writer under the census lock, so a pruned number cannot be re-created).
 
-CRON (installed 2026-10-20 from ~/frontiercensus, a stable copy; never /opt/minecraft-ai):
+CRON on 10.0.0.31, mike's crontab (from ~/frontiercensus, a stable copy; never /opt/minecraft-ai):
   */5 * * * * cd /home/mike/frontiercensus && /usr/bin/nice -n 19 /usr/bin/python3 -B scripts/host/frontiercensus.py --tick --out-dir /home/mike/frontiercensus/out >> /home/mike/frontiercensus/out/tick.log 2>&1; /usr/bin/sudo -n /usr/bin/nice -n 19 /usr/bin/python3 -B /home/mike/frontiercensus/scripts/host/frontiercensus.py --publish --out-dir /home/mike/frontiercensus/out >> /home/mike/frontiercensus/out/publish.log 2>&1
   3,33 * * * * /usr/bin/python3 -B /home/mike/frontiercensus/scripts/host/check-frontiercensus.py --dir /home/mike/frontiercensus/out >> /home/mike/frontiercensus/out/check.log 2>&1
 """
@@ -235,6 +242,17 @@ def alignment(home, cx, cz):
 
 
 # ---------------------------------------------------------------------------------------------- row helpers (pure)
+SELF_POOL = re.compile(r'^self-(.+)-[^-]+$')
+
+
+def cpool(p):
+    """The CENSUS pool of a row's exp.pool. An isolated bot logs its own pool, `self-<pool>-<Bot>` (fleetstatus
+    pool_group); its world is <pool>, so it folds there. After isolated2shared the bots log <pool> itself (isolated-b
+    from 10-21 13:53Z), so one town's history is the union of both names. Pure."""
+    m = SELF_POOL.match(p) if isinstance(p, str) else None
+    return m.group(1) if m else p
+
+
 def slots(inv):
     n = 0
     for k, v in (inv or {}).items():
@@ -317,6 +335,7 @@ def fold_rows(rows, homes):
     for r in rows:
         if r.get('x') is None or r.get('z') is None:
             continue
+        r = dict(r, pool=cpool(r['pool']))
         b = bots.setdefault(r['bot'], [r['pool'], 0, set()])
         b[1] += 1
         minute = r['t'] - r['t'] % MIN_MS
@@ -379,9 +398,10 @@ def parse_q1(resp, homes):
     P = resp['aggregations']['p']
     _complete(P, 'q1 pools')
     for pb in P['buckets']:
-        if pb['key'] not in homes:
+        cp = cpool(pb['key'])
+        if cp not in homes:
             continue
-        regs = {}
+        regs = out.setdefault(cp, {})
         for xb in pb['x']['buckets']:
             for zb in xb['z']['buckets']:
                 if not zb['doc_count']:
@@ -392,9 +412,14 @@ def parse_q1(resp, homes):
                 _complete(pc['w'], 'q1 water')
                 water = sum(w['doc_count'] for w in pc['w']['buckets'])
                 wet = sum(w['doc_count'] for w in pc['w']['buckets'] if num(w['key'], 99) <= WET_DIST)
-                regs[rkey(i, j)] = [zb['doc_count'], sum(len(bb['m']['buckets']) for bb in zb['b']['buckets']),
-                                    int(zb['first']['value']), int(zb['last']['value']), pc['doc_count'], wet, water]
-        out[pb['key']] = regs
+                g = [zb['doc_count'], sum(len(bb['m']['buckets']) for bb in zb['b']['buckets']),
+                     int(zb['first']['value']), int(zb['last']['value']), pc['doc_count'], wet, water]
+                o = regs.get(rkey(i, j))
+                if o is None:
+                    regs[rkey(i, j)] = g
+                else:       # a second ES pool of the same census pool: each self- pool is ONE bot, so bot-minutes add
+                    regs[rkey(i, j)] = [o[0] + g[0], o[1] + g[1], min(o[2], g[2]), max(o[3], g[3]), o[4] + g[4],
+                                        o[5] + g[5], o[6] + g[6]]
     return out
 
 
@@ -406,7 +431,7 @@ def parse_q2(resp, homes):
     for pb in P['buckets']:
         _complete(pb['b'], 'q2 bots')
         for bb in pb['b']['buckets']:
-            bots[bb['key']] = [pb['key'], bb['doc_count'], len(bb['m']['buckets'])]
+            bots[bb['key']] = [cpool(pb['key']), bb['doc_count'], len(bb['m']['buckets'])]
             for mb in bb['m']['buckets']:
                 hits = mb['top']['hits']['hits']
                 if not hits:
@@ -414,7 +439,7 @@ def parse_q2(resp, homes):
                 p = (hits[0]['_source'].get('bot') or {}).get('pos') or {}
                 if p.get('x') is None:
                     continue
-                newest.append({'pool': pb['key'], 'bot': bb['key'], 'x': p['x'], 'y': p.get('y', 0), 'z': p['z'],
+                newest.append({'pool': cpool(pb['key']), 'bot': bb['key'], 'x': p['x'], 'y': p.get('y', 0), 'z': p['z'],
                                't': int(mb['key'])})
     return presence_from_newest(newest, homes), bots
 
@@ -435,7 +460,7 @@ def fold_events(rows, homes, prev_pos):
     for r in rows:
         sk = r.get('skill') or {}
         kind = sk.get('name')
-        pool = (r.get('exp') or {}).get('pool')
+        pool = cpool((r.get('exp') or {}).get('pool'))
         h = homes.get(pool)
         if h is None:
             continue
@@ -489,7 +514,7 @@ def sample_rows(latest):
         p = bo.get('pos') or {}
         if p.get('x') is None:
             continue
-        out.append([b, (r.get('exp') or {}).get('pool'), p['x'], p.get('y'), p['z'], slots(bo.get('inventory')),
+        out.append([b, cpool((r.get('exp') or {}).get('pool')), p['x'], p.get('y'), p['z'], slots(bo.get('inventory')),
                     good_pick(bo.get('tools')), has_axe(bo.get('tools')), bo.get('health')])
     return out
 
@@ -655,6 +680,9 @@ def frontier(pool, home, records, cov, now_ms, data_until, sites=(), border_r=BO
         'window': {'since': iso(since), 'until': iso(until), 'hours_folded': len(recs),
                    'void_hours': sum(1 for r in recs if r.get('void'))},
         'covered': covered, 'uncovered_days': uncovered, 'town_uncovered_days': town_days,
+        # informational, NOT used for any status: the start of the window's covered tail (the day after the last
+        # uncovered day), so a reader can see how much of the window a lost day costs; the statuses use the whole window
+        'covered_tail_since': (iso(ms_of(max(uncovered) + 'T00:00:00Z') + DAY_MS) if uncovered else iso(since)),
         'hazard_sources_ok': not sites_error,
         'ranking_withheld': (f'world-facts-{pool}.json unreadable ({sites_error}): the death sites are unknown, so no '
                              f'region is offered' if sites_error else None),
@@ -998,17 +1026,66 @@ def read_gen(dir_, key):
 
 
 # ---------------------------------------------------------------------------------------------- host state
+EXCLUDE_POOLS = ('showcase',)   # the showcase world (10.0.0.40) is not the bench: it has its own state dir and its own ES
+#                                 streams (mcai-*-showcase), so it can never appear here; refused by name all the same
+
+
 def pool_roster(state_dir):
+    """The SHARED towns: `_pool-<pool>` directories (not a symlink, not a `.pre-reseed-*` archive, not a per-bot
+    `_pool-self-*` dir, never the showcase)."""
     out = []
     for d in glob.glob(os.path.join(state_dir, '_pool-*')):
         p = os.path.basename(d)[len('_pool-'):]
-        if os.path.isdir(d) and not os.path.islink(d) and '.' not in p and not p.startswith('self-'):
+        if os.path.isdir(d) and not os.path.islink(d) and '.' not in p and not p.startswith('self-') \
+                and p not in EXCLUDE_POOLS:
             out.append(p)
     return sorted(out)
 
 
+def isolated_dirs(state_dir):
+    """{pool: [per-bot state dir]} from `_pool-self-<pool>-<Bot>`: an ISOLATED pool keeps one town state per bot (the
+    bots share one world and, measured 10-21 on all 20, one home coordinate). Pure listing."""
+    out = defaultdict(list)
+    for d in glob.glob(os.path.join(state_dir, '_pool-self-*')):
+        rest = os.path.basename(d)[len('_pool-self-'):]
+        if '-' not in rest or '.' in rest or not os.path.isdir(d) or os.path.islink(d):
+            continue
+        p = rest.rsplit('-', 1)[0]
+        if p not in EXCLUDE_POOLS:
+            out[p].append(d)
+    return {p: sorted(v) for p, v in out.items()}
+
+
+RESEED_RE = re.compile(r'^_pool-(.+)\.pre-reseed-(\d{8}T\d{6}Z)$')
+
+
+def reseeds(state_dir, since_ms):
+    """{pool: stamp} of reseeds (`_pool-<pool>.pre-reseed-<stamp>`) after since_ms: visits before one are ANOTHER
+    world, so such a pool is left out (and alarmed) rather than mapped across two worlds."""
+    out = {}
+    for d in glob.glob(os.path.join(state_dir, '_pool-*.pre-reseed-*')):
+        m = RESEED_RE.match(os.path.basename(d))
+        if not m:
+            continue
+        t = int(dt.datetime.strptime(m.group(2), '%Y%m%dT%H%M%SZ').replace(tzinfo=UTC).timestamp() * 1000)
+        if t > since_ms:
+            out[m.group(1)] = max(out.get(m.group(1), ''), m.group(2))
+    return out
+
+
 HOME_SOURCES = (r'town-chest-(-?\d+)_(-?\d+)_(-?\d+)\.cobble\.jsonl$', r'junkwell-site-(-?\d+)_(-?\d+)_(-?\d+)\.g\d+\.json$',
                 r'junkwell-plinth-(-?\d+)_(-?\d+)_(-?\d+)\.json$', r'composter-site-(-?\d+)_(-?\d+)_(-?\d+)\.g\d+\.json$')
+
+
+def homes_in(d):
+    """Counter of the homes a state dir's own file keys name (raises OSError when unreadable)."""
+    seen = Counter()
+    for f in os.listdir(d):
+        for rx in HOME_SOURCES:
+            m = re.match(rx, f)
+            if m:
+                seen[tuple(int(v) for v in m.groups())] += 1
+    return seen
 
 
 def pool_homes(state_dir, pools):
@@ -1016,23 +1093,50 @@ def pool_homes(state_dir, pools):
     is left out and listed as a conflict (never guessed). -> (homes, problems)."""
     homes, problems = {}, {}
     for p in pools:
-        d = os.path.join(state_dir, f'_pool-{p}')
-        seen = Counter()
         try:
-            names = os.listdir(d)
+            seen = homes_in(os.path.join(state_dir, f'_pool-{p}'))
         except OSError as e:
             problems[p] = f'unreadable: {e}'
             continue
-        for f in names:
-            for rx in HOME_SOURCES:
-                m = re.match(rx, f)
-                if m:
-                    seen[tuple(int(v) for v in m.groups())] += 1
         if len(seen) == 1:
             homes[p] = next(iter(seen))
         else:
             problems[p] = 'no home file' if not seen else f'conflicting homes {sorted(seen)}'
     return homes, problems
+
+
+def census_pools(state_dir):
+    """What the census folds and what it publishes. -> (fold_homes, shared, problems, isolated_problems).
+    shared      the shared towns with one home (pool_homes): a frontier file and the baselines are theirs only
+    fold_homes  shared + every ISOLATED pool whose per-bot dirs all name one home. An isolated pool is folded (never
+                published) so that when it becomes a shared town (isolated2shared, 10-21: isolated-b; a/c/d to follow)
+                its visit history is already on record: the world and the home coordinate do not change, so nothing
+                is refolded. If the shared home differs from the isolated one, plan_folds refolds that pool.
+    problems    {pool: why} for a shared town left out (no single home, or reseeded inside the window): alarmed
+    isolated_problems  the same for an isolated pool (informational: it has no frontier anyway)"""
+    roster = pool_roster(state_dir)
+    shared_h, problems = pool_homes(state_dir, roster)
+    rs = reseeds(state_dir, ms_of(WINDOW_START))
+    for p in sorted(set(rs) & set(shared_h)):
+        del shared_h[p]
+        problems[p] = f'reseeded {rs[p]} inside the window: its visits before that are another world'
+    fold, iso_problems = dict(shared_h), {}
+    for p, dirs in sorted(isolated_dirs(state_dir).items()):
+        if p in roster:
+            continue                           # a shared town now: its own _pool-<pool> dir names the home
+        seen = Counter()
+        for d in dirs:
+            try:
+                seen.update(set(homes_in(d)))  # one vote per bot dir
+            except OSError:
+                continue
+        if p in rs:
+            iso_problems[p] = f'reseeded {rs[p]} inside the window'
+        elif len(seen) == 1:
+            fold[p] = next(iter(seen))
+        else:
+            iso_problems[p] = 'no home file' if not seen else f'conflicting homes {sorted(seen)}'
+    return fold, sorted(shared_h), problems, iso_problems
 
 
 def read_sites(state_dir, pool):
@@ -1045,22 +1149,22 @@ def read_sites(state_dir, pool):
 
 
 # ---------------------------------------------------------------------------------------------- ES
-def _ev(since_ms, until_ms, pools=None):
+def _ev(since_ms, until_ms):
     from lib.estelemetry import EsEvents
-    return EsEvents.load('skill', since=iso(since_ms), until=iso(until_ms), pools=pools)
+    return EsEvents.load('skill', since=iso(since_ms), until=iso(until_ms))     # mcai-skill-agents: never the showcase
 
 
-def es_hour_counts(since_ms, until_ms, pools):
-    """{hour_ms: [positioned docs (every pool), event-kind docs (the shared pools' gather / mine / _death / home and the
-    stub kinds, positioned or not)]} for every hour in [since, until), one histogram ([0, 0] where ES holds nothing).
-    A change in EITHER count refolds the hour, so a late unpositioned event row is not lost (Codex r1 P1)."""
+def es_hour_counts(since_ms, until_ms):
+    """{hour_ms: [positioned docs (every pool), event-kind docs (gather / mine / _death / home and the stub kinds, every
+    pool, positioned or not)]} for every hour in [since, until), one histogram ([0, 0] where ES holds nothing).
+    A change in EITHER count refolds the hour, so a late unpositioned event row is not lost (Codex r1 P1). Not filtered
+    by pool: an isolated bot's rows carry `self-<pool>-<Bot>` (cpool), and the pull below is unfiltered the same way."""
     ev = _ev(since_ms, until_ms)
     r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'h': {'date_histogram': {
         'field': '@timestamp', 'fixed_interval': '1h', 'min_doc_count': 0,
         'extended_bounds': {'min': iso(since_ms), 'max': iso(until_ms - 1)}}, 'aggs': {
             'pos': {'filter': {'exists': {'field': 'bot.pos.x'}}},
-            'evk': {'filter': {'bool': {'filter': [{'terms': {'skill.name': list(ROW_KINDS + STUB_KINDS)}},
-                                                   {'terms': {'exp.pool': sorted(pools)}}]}}}}}}})
+            'evk': {'filter': {'terms': {'skill.name': list(ROW_KINDS + STUB_KINDS)}}}}}}})
     out = {h: [0, 0] for h in range(since_ms, until_ms, HOUR_MS)}
     for b in r['aggregations']['h']['buckets']:
         if since_ms <= int(b['key']) < until_ms:
@@ -1092,7 +1196,7 @@ def q2_body(q):
 def es_fold_hour(h0, homes, log=lambda *a: None):
     """One hour -> its record. Aggregations for the map and presence; a bounded row pull for the event kinds."""
     h1 = h0 + HOUR_MS
-    counts = es_hour_counts(h0, h1, homes)[h0]           # counted FIRST, with the sweep's own definition: a row
+    counts = es_hour_counts(h0, h1)[h0]           # counted FIRST, with the sweep's own definition: a row
     ev = _ev(h0, h1)                                     # arriving after this only causes one more refold
     q = ev._query()
     q['bool']['filter'].append({'exists': {'field': 'bot.pos.x'}})
@@ -1112,13 +1216,12 @@ def es_fold_hour(h0, homes, log=lambda *a: None):
     if n1 != n2 or n1 != counts[0]:    # late ingest between the queries: never trusted, never staged, refolded next tick
         rec['es_counts'] = None
         rec['unstable'] = True
-    pools = sorted(homes)
-    evp = _ev(h0, h1, pools=pools)
     fields = ['@timestamp', 'bot.name', 'exp.pool', 'bot.pos', 'skill.name', 'skill.status', 'skill.duration_ms',
               'skill.args', 'skill.inventory_delta', 'skill.fail_class', 'trigger']
-    rows = list(evp.rows(fields=fields, match={'skill.name': list(ROW_KINDS)}, allow_zero=True, max_rows=200_000))
-    if evp._count(evp._query(match={'skill.name': list(STUB_KINDS)})):     # positioned or not (Codex r1 P2)
-        rows += list(evp.rows(fields=fields + ['skill.detail'], match={'skill.name': list(STUB_KINDS)}, allow_zero=True,
+    rows = list(ev.rows(fields=fields,  # every pool: fold_events keeps the census pools (cpool)
+                     match={'skill.name': list(ROW_KINDS)}, allow_zero=True, max_rows=200_000))
+    if ev._count(ev._query(match={'skill.name': list(STUB_KINDS)})):     # positioned or not (Codex r1 P2)
+        rows += list(ev.rows(fields=fields + ['skill.detail'], match={'skill.name': list(STUB_KINDS)}, allow_zero=True,
                               max_rows=50_000))
 
     def prev_pos(bot, t):
@@ -1269,8 +1372,7 @@ def render(fr_by_pool, base, cov, ctl, label=''):
 
 # ---------------------------------------------------------------------------------------------- modes
 def compute(out, state_dir, now_ms, border_r=BORDER_R, records=None):
-    roster = pool_roster(state_dir)
-    homes, problems = pool_homes(state_dir, roster)
+    homes, shared, problems, iso_problems = census_pools(state_dir)
     records = load_records(out) if records is None else records
     good = [r for r in records if not r.get('void')]
     data_until = max((r['h0'] + HOUR_MS for r in records), default=None)
@@ -1280,22 +1382,25 @@ def compute(out, state_dir, now_ms, border_r=BORDER_R, records=None):
     cov = coverage(records, since, until)
     measured_until = max((r['h0'] + HOUR_MS for r in good if since <= r['h0'] < until), default=None)
     frs, site_err = {}, {}
-    for p, h in sorted(homes.items()):
+    for p in shared:                                   # a frontier (and a file) for the SHARED towns only
         sites, err = read_sites(state_dir, p)
         if err:
             site_err[p] = err
-        frs[p] = frontier(p, h, records, cov, now_ms, data_until, sites, border_r, sites_error=err)
-    base7 = baselines(records, sorted(homes), homes, max(since, data_until - 7 * DAY_MS), data_until)
+        frs[p] = frontier(p, homes[p], records, cov, now_ms, data_until, sites, border_r, sites_error=err)
+    base7 = baselines(records, shared, homes, max(since, data_until - 7 * DAY_MS), data_until)
     ctl = control_subset(records, since, until, homes)
     unstable = sorted(r['hour'] for r in records_in(records, since, until) if r.get('unstable'))
-    return {'roster': roster, 'homes': homes, 'home_problems': problems, 'records': records, 'cov': cov, 'frs': frs,
+    return {'shared': shared, 'homes': homes, 'home_problems': problems, 'isolated_problems': iso_problems,
+            'records': records, 'cov': cov, 'frs': frs,
             'base7': base7, 'ctl': ctl, 'data_until': data_until, 'measured_until': measured_until,
             'site_errors': site_err, 'since': since, 'unstable': unstable}
 
 
 def plan_folds(counts, have, want_homes):
     """Which hours to (re)fold, oldest first. -> [(h0, why)]. Pure. An hour is refolded when either of its ES counts
-    changed since it was folded, when it was unstable, or when the homes changed; the hour AFTER a refolded one is
+    changed since it was folded, when it was unstable, or when a pool it must fold is missing from it or has another
+    home (per pool: a town dropped for a tick, or an isolated pool becoming shared on the same home, refolds nothing); the
+    hour AFTER a refolded one is
     refolded too, because its first `home` rows join a start row that may sit in the changed hour (Codex r1 P1)."""
     todo = {}
     for h0, n in sorted(counts.items()):
@@ -1304,8 +1409,10 @@ def plan_folds(counts, have, want_homes):
             todo[h0] = 'new'
         elif r.get('es_counts') != n:
             todo[h0] = f'count {r.get("es_counts")} -> {n}'
-        elif r.get('homes') != want_homes:
-            todo[h0] = 'homes changed'
+        else:
+            moved = sorted(p for p, h in want_homes.items() if (r.get('homes') or {}).get(p) != h)
+            if moved:             # a pool added or re-homed; a pool merely absent now (dropped) needs no refold
+                todo[h0] = f'homes changed {moved[:4]}'
     for h0, why in list(todo.items()):
         nxt = h0 + HOUR_MS
         if why != 'new' and nxt in counts and nxt not in todo and nxt in have:
@@ -1316,14 +1423,14 @@ def plan_folds(counts, have, want_homes):
 def run_tick(a):
     t_start = time.time()
     now = int(time.time() * 1000)
-    roster = pool_roster(a.state_dir)
-    homes, problems = pool_homes(a.state_dir, roster)
-    if not homes:
+    homes, shared, problems, iso_problems = census_pools(a.state_dir)
+    if not shared:
         from lib.estelemetry import ZeroLooksWrong
-        raise ZeroLooksWrong(f'no shared town with a home under {a.state_dir} (roster {roster}, problems {problems})')
+        raise ZeroLooksWrong(f'no shared town with a home under {a.state_dir} (roster {pool_roster(a.state_dir)}, '
+                             f'problems {problems})')
     settled = floor_hour(now - SETTLE_MS)                  # hours ending at or before this are foldable
     since = max(ms_of(WINDOW_START), settled - WINDOW_DAYS * DAY_MS)
-    counts = es_hour_counts(since, settled, homes)
+    counts = es_hour_counts(since, settled)
     if not any(n[0] for n in counts.values()):
         from lib.estelemetry import ZeroLooksWrong
         raise ZeroLooksWrong(f'ES holds no positioned document in {iso(since)}..{iso(settled)}: the instrument, not the fleet')
@@ -1346,20 +1453,21 @@ def run_tick(a):
     backlog = len(todo) - folded
     C = compute(a.out_dir, a.state_dir, now, records=sorted(have.values(), key=lambda r: r['h0']))
     staged, instrument, withheld = [], [], None
+    wu = warmup(read_heartbeat_lines(a.out_dir), now)     # from the ticks BEFORE this one
     if C:
         if C['ctl']['missing_n']:
             instrument.append(f'{C["ctl"]["missing_n"]} sampled rows fall in regions the fold lacks')
-        par = None
         if not backlog and time.time() - t_start < a.budget_s:
             par = maybe_parity(a.out_dir, C['records'], C['homes'], now)
-        if not parity_fresh(par, now):
+        else:
+            par = last_parity(a.out_dir)
+        if parity_alarm(par, now, backlog):
             instrument.append(f'no passing agg-vs-rows parity in {PARITY_MAX_AGE_H} h (last: '
                               f'{ {k: par.get(k) for k in ("at", "hour", "diffs", "raw_positioned_rows")} if par else None})')
         if backlog or C['unstable']:
             # a part-folded or mixed window is never staged, so it can never be published (Codex r1 P1)
             withheld = f'backlog {backlog} hours, unstable {C["unstable"][:5]}'
         else:
-            wu = warmup(read_heartbeat_lines(a.out_dir), now)
             for p, F in C['frs'].items():
                 path = os.path.join(a.out_dir, 'publish', p, f'{gen_key(C["homes"][p])}.json')
                 doc = dict(F, generated_at=iso(now), data_until=iso(C['data_until']),
@@ -1379,16 +1487,7 @@ def run_tick(a):
         daily(a.out_dir, C, touched)
     newest_h = max(counts)
     blind = not counts[newest_h][0]
-    if instrument:
-        status = 'instrument'
-    elif C is None or blind or (folded and void == folded):
-        status = 'void'
-    elif backlog or withheld:
-        status = 'behind'
-    elif folded:
-        status = 'ok'
-    else:
-        status = 'idle'
+    status = tick_status(bool(instrument), C is None, blind, folded, void, backlog, withheld)
     blind_since = None
     if blind:
         h = newest_h
@@ -1397,13 +1496,35 @@ def run_tick(a):
         blind_since = iso(h)
     mu = C['measured_until'] if C else None
     return {'status': status, 'hours_folded': folded, 'refolded': refolded, 'void_hours_folded': void,
-            'backlog_hours': backlog, 'fold_reasons': dict(reasons), 'towns': len(homes), 'home_problems': problems,
+            'backlog_hours': backlog, 'fold_reasons': dict(reasons), 'towns': len(shared), 'home_problems': problems,
+            'isolated_folded': sorted(set(homes) - set(shared)), 'isolated_problems': iso_problems,
             'staged': len(staged), 'withheld': withheld, 'instrument': instrument,
             'data_until': iso(C['data_until']) if C else None, 'newest_measured_hour_end': iso(mu) if mu else None,
             'window_void_hours': sum(1 for n in counts.values() if not n[0]), 'es_blind_since': blind_since,
             'uncovered_days': C['cov']['uncovered_days'] if C else None,
             'site_errors': C['site_errors'] if C else None,
-            'subset_missing': C['ctl']['missing_n'] if C else None}
+            'subset_missing': C['ctl']['missing_n'] if C else None,
+            'warmup': {k: wu.get(k) for k in ('run_start', 'complete', 'complete_at')}}
+
+
+def parity_alarm(par, now_ms, backlog):
+    """Is the agg-vs-rows parity an instrument failure? Yes when the newest result failed or is older than 36 h. A
+    first backfill has none yet: that is `behind` (nothing is staged while a backlog remains), not a failure. Pure."""
+    if par is None and backlog:
+        return False
+    return not parity_fresh(par, now_ms)
+
+
+def tick_status(instrument, no_records, blind, folded, void, backlog, withheld):
+    """The tick's one status word, in priority order: instrument > void > behind > ok > idle. VOID (ES blind for the
+    newest settled hour, nothing on record, or every hour folded this tick empty) is never a quiet `idle`. Pure."""
+    if instrument:
+        return 'instrument'
+    if no_records or blind or (folded and void == folded):
+        return 'void'
+    if backlog or withheld:
+        return 'behind'
+    return 'ok' if folded else 'idle'
 
 
 def digest_since(path, digest, now):
@@ -1428,7 +1549,7 @@ def daily(out, C, touched=()):
         if n < 24 or (os.path.exists(path) and day not in touched):
             continue
         d0 = ms_of(day + 'T00:00:00Z')
-        base = baselines(C['records'], sorted(C['homes']), C['homes'], d0, d0 + DAY_MS)
+        base = baselines(C['records'], C['shared'], C['homes'], d0, d0 + DAY_MS)
         ctl = control_subset(C['records'], d0 + HOUR_MS, d0 + DAY_MS, C['homes'])
         txt = render(C['frs'], base, C['cov'], ctl, label=f'-- daily {day} (baselines: that day; frontier: window '
                                                           f'{iso(C["since"])} .. {iso(C["data_until"])}; written '
@@ -1496,7 +1617,11 @@ def run_publish(a):
         if cur and cur.get('digest') == doc.get('digest'):
             same += 1
             continue
-        g = create_gen(d, key, doc)
+        try:
+            g = create_gen(d, key, doc)
+        except OSError as e:
+            refused.append(f'{pool}: cannot write ({type(e).__name__}: {e})')
+            continue
         if g is None:
             refused.append(f'{pool}: generation {n + 1} was taken by another writer')
         else:
@@ -1517,17 +1642,18 @@ def run_report(a):
 
 def run_control(a):
     t0, t1 = ms_of(a.control[0]), ms_of(a.control[1])
-    roster = pool_roster(a.state_dir)
-    homes, _ = pool_homes(a.state_dir, roster)
+    homes, shared, _, _ = census_pools(a.state_dir)
     recs = load_records(a.out_dir)
-    sh = control_shares(recs, t0, t1, homes)
+    sh = control_shares(recs, t0, t1, homes, pools=shared)
+    sh_all = control_shares(recs, t0, t1, homes)
     sub = control_subset(recs, t0, t1, homes)
     per = control_per_pool(recs, t0, t1, homes)
     pr = control_presence(recs, t0, t1, homes)
-    base = baselines(recs, sorted(homes), homes, t0, t1)        # section 1.2's e4 window is [t0, t1) in hours
+    base = baselines(recs, shared, homes, t0, t1)               # section 1.2's e4 window is [t0, t1) in hours
     keep = ('log_gathers', 'log_ok_pct', 'log_body_h', 'log_got', 'log_per_body_h', 'ore_gathers', 'ore_ok_pct',
             'ore_body_h', 'ore_got', 'ore_per_body_h', 'bot_h', 'deaths', 'deaths_per_1k_bot_h')
-    print(json.dumps({'window': [iso(t0), iso(t1)], 'shares': sh, 'subset': sub, 'presence_vs_samples': pr,
+    print(json.dumps({'window': [iso(t0), iso(t1)], 'shared': shared, 'shares': sh, 'shares_all_pools': sh_all,
+                      'subset': sub, 'presence_vs_samples': pr,
                       'per_pool': per, 'gather_baseline_hours': base['hours'],
                       'gather_baseline': {b: {k: v[k] for k in keep} for b, v in base['bands'].items()},
                       'home_by_start_band': {k: v for k, v in base['home'].items() if k.endswith('|*')},
@@ -1572,11 +1698,7 @@ def parity_check(h0, homes):
 def maybe_parity(out, records, homes, now_ms, force=False):
     """Once a day: parity on the newest measured hour that ended >= 2 h ago. -> the newest result (or None)."""
     path = os.path.join(out, 'parity.json')
-    try:
-        with open(path) as f:
-            last = json.load(f)
-    except (OSError, ValueError):
-        last = None
+    last = last_parity(out)
     if last and not force and now_ms - ms_of(last['at']) < 24 * HOUR_MS:
         return last
     cands = [r['h0'] for r in records if not r.get('void') and r['h0'] + 3 * HOUR_MS <= now_ms]
@@ -1589,14 +1711,21 @@ def maybe_parity(out, records, homes, now_ms, force=False):
     return res
 
 
+def last_parity(out):
+    try:
+        with open(os.path.join(out, 'parity.json')) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
 def parity_fresh(res, now_ms):
     return bool(res) and res.get('ok') and now_ms - ms_of(res['at']) <= PARITY_MAX_AGE_H * HOUR_MS
 
 
 def run_parity(a):
     h0 = floor_hour(ms_of(a.parity))
-    roster = pool_roster(a.state_dir)
-    homes, _ = pool_homes(a.state_dir, roster)
+    homes, _, _, _ = census_pools(a.state_dir)
     res = parity_check(h0, homes)
     print(json.dumps(res, indent=1, default=list))
     return {'status': 'ok' if res['ok'] else 'instrument', 'parity_diffs': res['diffs']}

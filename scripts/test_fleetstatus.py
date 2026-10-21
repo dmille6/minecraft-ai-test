@@ -276,6 +276,75 @@ def t_opsaudit_line_opens_the_report():
     assert 'opsaudit' in rep and out.getvalue().splitlines()[2].startswith(('ops audit', '!! ops audit')), out.getvalue()[:400]
 
 
+FNOW = dt.datetime(2026, 10, 22, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def _hb(**kw):
+    """A heartbeat.json as frontiercensus.py --tick writes it; kw overrides. None -> no file at all."""
+    d = tempfile.mkdtemp(); p = os.path.join(d, 'heartbeat.json')
+    if kw.get('_absent'):
+        return p
+    hb = {'mode': 'tick', 'at': '2026-10-22T11:57:00Z', 'status': 'idle', 'newest_measured_hour_end': '2026-10-22T11:00:00Z',
+          'towns': 13, 'isolated_folded': ['isolated-a', 'isolated-c', 'isolated-d'], 'backlog_hours': 0,
+          'home_problems': {}, 'site_errors': {}, 'uncovered_days': [],
+          'warmup': {'run_start': '2026-10-22T00:00:00Z', 'complete': False, 'complete_at': '2026-10-24T00:00:00Z'}}
+    hb.update(kw)
+    with open(p, 'w') as fh:
+        fh.write(kw['_raw'] if '_raw' in kw else json.dumps(hb))
+    return p
+
+
+def t_frontier_healthy_line_names_its_denominators():
+    line = FS.frontier_line(FNOW, path=_hb())
+    assert line.startswith('frontier census (E0): idle, tick 3 min ago, 13 towns (+3 isolated folded), measured to 11:00Z'), line
+    assert 'warm-up ends 2026-10-24T00:00Z' in line and '!!' not in line, line
+
+
+def t_frontier_missing_heartbeat_is_an_alarm_not_silence():
+    line = FS.frontier_line(FNOW, path=_hb(_absent=True))
+    assert line.startswith('!! frontier census (E0): NO HEARTBEAT (FileNotFoundError)'), line
+
+
+def t_frontier_unreadable_heartbeat_is_an_alarm():
+    line = FS.frontier_line(FNOW, path=_hb(_raw='{"at": '))
+    assert line.startswith('!! frontier census (E0): NO HEARTBEAT (JSONDecodeError)'), line
+
+
+def t_frontier_stale_tick_is_an_alarm():
+    line = FS.frontier_line(FNOW, path=_hb(at='2026-10-22T11:40:00Z'))
+    assert line.startswith('!! ') and 'STALE: newest tick 20 min old' in line, line
+
+
+def t_frontier_void_reads_void_never_zero():
+    line = FS.frontier_line(FNOW, path=_hb(status='void', es_blind_since='2026-10-22T10:00:00Z'))
+    assert line.startswith('!! ') and 'VOID: ES blind since 2026-10-22T10:00:00Z' in line, line
+
+
+def t_frontier_error_instrument_behind_and_towns_are_alarms():
+    for kw, want in (({'status': 'error', 'error': 'EsError: x'}, 'ERROR: EsError: x'),
+                     ({'status': 'selftest_failed'}, 'SELFTEST_FAILED'),
+                     ({'status': 'instrument', 'instrument': ['3 sampled rows fall in regions the fold lacks']}, 'INSTRUMENT: 3'),
+                     ({'newest_measured_hour_end': '2026-10-22T09:00:00Z'}, 'BEHIND: newest measured hour ended 09:00Z'),
+                     ({'newest_measured_hour_end': None}, 'BEHIND: no measured hour'),
+                     ({'home_problems': {'hive-c': 'conflicting homes'}}, 'towns left out'),
+                     ({'site_errors': {'hive-c': 'OSError'}}, 'hazards unread')):
+        line = FS.frontier_line(FNOW, path=_hb(**kw))
+        assert line.startswith('!! frontier census (E0): ') and want in line, (kw, line)
+
+
+def t_frontier_warm_and_behind_by_backlog_are_quiet():
+    line = FS.frontier_line(FNOW, path=_hb(status='behind', backlog_hours=40,
+                                            warmup={'complete': True, 'complete_at': '2026-10-21T00:00:00Z'}))
+    assert line.startswith('frontier census (E0): behind') and 'backlog 40 h' in line and 'warm-up complete' in line, line
+
+
+def t_frontier_line_is_in_the_header():
+    out = io.StringIO()
+    rep = run(fleet_docs(), stdout=out)
+    head = out.getvalue().splitlines()[:5]
+    assert 'frontier' in rep and any(x.startswith(('frontier census (E0)', '!! frontier census (E0)')) for x in head), head
+
+
 def t_showcase_block_never_raises():
     """docs/reports/showcase-2026-10-20.md s.4: the SHOWCASE block reads only its own streams and NEVER takes the
     fleet report down: an ES that refuses everything yields one line per part, no exception."""
