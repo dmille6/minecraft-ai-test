@@ -566,3 +566,22 @@ With r6 the planner fits ring@1 on the showcase ground: orientation W, s 70, 12 
 | Codex P2 mud and soul sand pass chestLidBlocked | the lid is refused by chestLidBlocked OR serverLidBlocks (1.5); negative fixtures beside the leaves/glass positives |
 | Claude P2 the audit's lid would REVERT chests under leaves | the audit's `lid` is READY's own lid rule (1.9); a self-test with a chest under spruce leaves (not lid) and under stone (lid) |
 | Claude P3 no Paper placement in the new READY cases | FOUND-CANOPY (3) |
+
+## 7. Build notes (the code against this spec; not a design change)
+
+- **The adopters' fields (1.6/1.9).** `_deposit_new_chest` carries `tier= plan_refused= gen=` as specified. The well, plinth and
+  composter rows are owned by older reads (wellsiteread, plinthread, composter reads) and are cut at 300 characters with their
+  parsed fields first, so a NEW site decided under a plan writes its own row instead: `_townplan_adopt what=well|plinth|composter
+  at= tier= plan_refused= gen= never=` (one per decision, deduped per process; `never=` the decision's own cells on a NEVER cell
+  of that generation). The natural well's `_well_refused reason=no_site` row gains ` plan_refused= gen=` after `rec=` (tally
+  stays first); the plinth's `stage=none` refusal gains ` gen=`. townplanread.py's D3 judges `_deposit_new_chest` and
+  `_townplan_adopt` against the plan files' own generation; P10 counts `plan_refused >= 1` on the recovery's and the well's
+  no_site rows.
+- **D1 in the read** is "the writer logged a generation `result=accepted` that the port's walk of the same files rejects" -- a
+  writer/port disagreement. (The walk cannot accept a step its own rules reject, so re-judging accepted steps would be a
+  tautology.)
+- **The planner tick** is a 30 s interval installed once per spawn after craftsync's install (craftsync's wiring test reads
+  the nearest open handler before `installCraftSync`), cleared on `end`.
+- **Re-anchored tests of other suites** (the order chain gained the found slot between the raised well and the deposit; the
+  well's compute calls `planWellSearch`): plinth-skill (chain needle + its mutant), lidclear (chain regex), towndeposit
+  (the recount guard's anchor and mutant), well (the plinth-first compute mutant). Each still guards the invariant it named.
