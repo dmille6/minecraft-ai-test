@@ -1,4 +1,4 @@
-# Learning loop for the bot brain: continuous fine-tuning (design, 2026-10-21, round 3)
+# Learning loop for the bot brain: continuous fine-tuning (design, 2026-10-21, round 4)
 
 **Status:** DESIGN + offline prototype only. Nothing was trained or served. No fleet, queue, scheduler, manifest, env file
 or endpoint was changed. 10.0.0.72 was never contacted: every 5080 number below comes from the bots' own decision rows.
@@ -18,6 +18,7 @@ No paid API was called.
 |---|---|---|
 | 1 | CHANGE (12 P1) | CHANGE (3 P1) |
 | 2 | CHANGE (3 P1, all in the bench statistics) | APPROVE (3 P2) |
+| 3 | CHANGE (2 P1: null provenance, inactivity as missing data) | APPROVE (P3 only) |
 
 Every point from both rounds is taken; s.10 maps each finding to the section that answers it.
 
@@ -60,10 +61,12 @@ Every point from both rounds is taken; s.10 maps each finding to the section tha
 - Schedule: one AB/BA crossover with 72 h periods and a 6 h washout.
 - Primary: **gross gathered items/bot-h** (no transfers, no conversions). It is tested by a stratified re-randomization
   test, and that test was simulated end to end on 13 days of the fleet's own null.
-- Under the null it rejects 3.5% of the time (nominal 5%).
-- Minimum detectable effect at 80% power: **20% of the mean**.
-- Comparison, as a planning approximation: a 10 v 10 parallel split needs ~40%; a whole-world crossover is close to the
-  within-world one (19% vs 18%), and within-world is kept for coverage.
+- Under the null it rejects 3-6% of the time (nominal 5%).
+- Minimum detectable effect at 80% power, on a canary-excluded planning baseline: **~25-30% of the mean**. The binding
+  figure is an **A/A power gate** (≥ 0.80 at +25%), measured on the bench itself.
+- Comparison, as a planning approximation: a 10 v 10 parallel split needs ~60%.
+- A whole-world crossover on 4 worlds has only 6 assignments, so it cannot reach p < 0.05 and is not a fallback. The
+  fallback is the canary rung.
 
 **The 3090 move.** This is a **conditional hypothesis**, not a verdict.
 - The evidence is favourable:
@@ -102,7 +105,7 @@ stamped at the decision start, before inference. Each row carries:
 | complete prompt | `saw_end:` in the last 40 chars and under the cap | 151,549 of 151,549 model rows |
 | response matches the prompt | the response's `saw_end` equals the prompt's nonce | 151,467 of 151,549; the other 82 are the gate's `truncation sentinel mismatch` refusals |
 | system prompt text | rebuilt from `src/prompt.mjs` at the row's code version, matched by hash (`/tmp/brain01-sysprompt.mjs`) | **3 of 3 hashes of the day rebuilt from BOTH 9e7d9980 and adbec4f4**; board a953f82c, shared/isolated bcc44f92, checkpoint 695b8935; 4.2-4.3k chars, 15-16 skills |
-| the executed skill row | `skill-<bot>.jsonl`; the runner stamps its row at execution start, AFTER inference. Join rule: same name; trigger `llm:*`/`interrupt:*`; start in [t − 1 s, t + latency + 30 s] (the −1 s absorbs millisecond stamp skew); each row used once; status equal; first 120 detail chars equal (both come from one result object) | **70,581 of 81,031 admitted decisions joined uniquely on status + detail; only these count as joined.** 10 were ambiguous (flagged, not counted). 5 matched on status alone; their decisions say "paused", so they are false joins and are labelled `void`, which shows status-only matching is not trustworthy. **All 10,435 misses are `failed`:** 10,127 say "paused after repeated failures" and 303 say "busy with X". In both cases the runner returns before `logSkill` (runner.mjs 169-185), so no row can exist. The other 5 are real misses (2 unreachable gathers, 3 explores) and are reported. |
+| the executed skill row | `skill-<bot>.jsonl`; the runner stamps its row at execution start, AFTER inference. Join rule: same name; trigger `llm:*`/`interrupt:*`; start in [t − 1 s, t + latency + 30 s] (the −1 s absorbs millisecond stamp skew); each row used once; status equal; first 120 detail chars equal (both come from one result object) | **Exact-only join** (round 3): status-only candidates are counted and never used. **70,586 of 81,031 admitted decisions joined uniquely on status + detail**, plus 10 ambiguous (flagged, not counted as clean). **All 10,435 misses are `failed` and runner-refused:** 10,128 say "paused after repeated failures" and 307 say "busy with X". The runner returns before `logSkill` (runner.mjs 169-185), so no row can exist, and **0 misses are unexplained**. In round 2 the greedy join used 5 status-only matches: a paused decision took the NEXT decision's row, which produced 5 "real misses". Exact-only removed both. |
 | the bot's evidence value | computed in `cognitive.mjs` but dropped by the logger's allowlist. Recovered from the next decision row's `RECENT EVENTS` line (`<skill> -> <status> (<value>)`), reading past midnight | line found for 80,658 of 81,031; values: valuable 31,716, neutral 3,457, costly 63, line-without-value (failures) 45,422; 373 not found |
 | outcome windows | skill rows. Items are counted when a skill ENDS in the window: an end-time index (bisect), so a skill that started long before the window still counts. Deaths, stagnation and milestones are counted by their own stamp. A window is `observed` only if the bot has rows at or after its end | 0 censored on 10-20; lookahead runs 1 h past midnight, the back-read 2 h before; the longest skill that day ran 211 s, well inside both |
 
@@ -141,7 +144,7 @@ The definitions are brainread's:
 
 | label | rule |
 |---|---|
-| **void** | admitted, but the runner refused to start ("paused after repeated failures" / "busy with X"). The action never ran, so this is no evidence about it (cognitive.mjs treats it the same way). **Never a negative example** and never in the pilot's failure strata; for teacher filtering it counts as a transient failure |
+| **void** | admitted, but the runner refused to start ("paused after repeated failures" / "busy with X"; 10,435 on 10-20). The action never ran, so this is no evidence about it (cognitive.mjs treats it the same way). **Never a negative example** and never in the pilot's failure strata; for teacher filtering it counts as a transient failure |
 | **bad** | refused; OR executed `failed` / `aborted`; OR a death or stagnation event within 120 s |
 | **good** | executed `success` AND (own value `valuable` OR own skill gained items OR a milestone within 120 s) AND no death within 600 s AND the 600 s window observed |
 | neutral | everything else: success with no durable evidence, `unknown`, `no_effect`, censored |
@@ -202,7 +205,7 @@ example, 36 deaths sit inside the 600 s windows of many decisions.
     its 200 bot-h exposure.
 - model-tier-01 (qwen2.5:72b, 09-13) gives no evidence either way. It ran 5 bots for 6 h, items -38%, bootstrap
   [-70%, +69%], and the placebo screen failed.
-- **Neither result shows a better brain cannot raise output. Neither shows it can.** The bench (s.4c) is sized to see 20%.
+- **Neither result shows a better brain cannot raise output. Neither shows it can.** The bench (s.4c) is planned to see ~25-30%, gated by its own A/A.
 - Training labels are re-weighted toward durable progress (gathered items in 600 s, milestones).
 - They are stratified by skill, because good shares differ widely:
 
@@ -243,12 +246,12 @@ The 16 worlds each produced 8,312-10,956 model decisions.
 **Clean outcomes.**
 - All 70,518 refusals carry a gate reason.
 - Of the admitted decisions:
-  - 70,581 have a unique exact join (s.1.1);
-  - 10,430 are void (the runner never started), plus 5 status-only joins that are also void;
-  - 5 are real misses;
-  - 10 are ambiguous.
-- Lower bound for a clean outcome (exact join and value line found): 70,581 + 80,658 − 81,031 = 70,208. Adding the
-  refusals gives **140,726 of 151,549, i.e. 92.9%**.
+  - 70,586 have a unique exact join (s.1.1);
+  - 10,435 are void (the runner never started);
+  - 10 are ambiguous;
+  - 0 are unexplained misses.
+- Lower bound for a clean outcome (exact join and value line found): 70,586 + 80,658 − 81,031 = 70,213. Adding the
+  refusals gives **140,731 of 151,549, i.e. 92.9%**.
 
 **Duplicates.**
 - Same prompt (nonce normalised): 6,548 (4.3%).
@@ -665,7 +668,8 @@ Each rung must pass before the next one runs, and each has a positive control.
 - Period 2 is 72 h.
 - **Total 150 h.**
 - Both sequences use the same calendar windows.
-- Exposure is active bot-hours from decision rows, not calendar time.
+- **Exposure is active bot-hours:** inter-decision gaps capped at 10 min (Codex r3). Decisions run about every 40 s on a
+  live bot, so an outage between two decisions is not counted as exposure.
 
 *Primary.* **Gross gathered items/bot-h.**
 - Definition: positive `inventory_delta` on skill rows, excluding transfer skills (withdraws, town draws, deposits) and
@@ -682,9 +686,22 @@ Each rung must pass before the next one runs, and each has a positive control.
 d = period-1 value − period-2 value per bot.
 - It cancels a common period effect for **any** group sizes (Codex r2). The earlier pooled signed mean did not when bots
   dropped out.
-- **Usable bot:** at least 36 active bot-h (50%) in each period.
-- **A read is INCONCLUSIVE** if either sequence has fewer than 7 usable bots.
-- The identical rule runs in the simulation and in the live read.
+- **Inactivity is an outcome, not missing data** (Codex r3). A candidate can stall, crash-loop or stop emitting decisions,
+  and dropping those bots would drop its worst outcomes. So:
+  - **Infrastructure loss** is excluded:
+    - only when an outage is recorded independently of the bots (world server down, Paper crash, VM or host down, the
+      3090 unreachable);
+    - and only when it hits **both arms of that world** over the same interval.
+    - The excluded interval is removed for every bot in the world.
+  - **Any other inactivity is kept (intention to treat).** The primary for that bot-period is computed per **scheduled**
+    bot-hour (72), so a silent candidate bot contributes the output it actually produced.
+  - **A liveness gate:**
+    - a candidate-arm bot with no decision for 30 min while ≥ 1 control-arm bot in its world decides is a breach;
+    - 2 breaches in one period, or 1 lasting over 2 h, is **REVERT** (a defect, as brain-01's G8).
+- **Coverage** (for recorded infrastructure exclusions only):
+  - a bot needs ≥ 36 active bot-h (50%) left in each period after the excluded intervals;
+  - a read is INCONCLUSIVE if either sequence has fewer than 7 such bots.
+- Re-randomizations use the same rule. The simulation applies it, and reports the permutations it drops: 0.
 
 *Test: a stratified re-randomization test.*
 - Re-draw the AB/BA labels within each world, keeping its 3/2 count. That gives 10^4 = 10,000 assignments.
@@ -714,7 +731,7 @@ excludes transfers. The canary rung, which uses whole pools, is the check.
   - It is evaluated at fixed polls (+24/+48/+72 h of each period) on per-arm, per-period exposure.
   - Deaths are attributed to the arm the bot is on at the time of death. A death within 30 min after the swap is reported
     for both arms.
-  - The kept null runs 0.0211 deaths/bot-h, about 5.1 deaths per 10-bot arm per day.
+  - The planning baseline runs 0.0246 deaths/bot-h, about 5.9 deaths per 10-bot arm per day.
   - A trip stops the candidate arm and the read is REVERT.
 - **Liveness:** ≥ 95% of candidate-arm decisions are served by the candidate, and schema-valid ≥ the other arm's −1 pp.
 
@@ -722,68 +739,74 @@ excludes transfers. The canary rung, which uses whole pools, is the check.
 passes only if all of these hold:
 1. the test does not reject (p ≥ 0.05);
 2. **Variance check.** The A/A's own re-randomization SD of τ lies within 0.5-2× the simulated null SD for the primary
-   (the Part 1 null). A "central 95%" check alone cannot see inflated variance;
+   (4.11 items/bot-h on the planning baseline, 25% rule). A "central 95%" check alone cannot see inflated variance;
 3. residency and latency gates are met by both arms;
 4. 0 bench rows reach any fleet read.
+
+**Power gate** (concrete, Codex r3), using the A/A's own data:
+- re-run Part 1 on the A/A cells: the same estimator, test, exposure rule and injected effects;
+- **go:** conditional power ≥ 0.80 at a +25% effect on the primary, AND ≥ 90% of draws usable;
+- **otherwise, redesign once:** 96 h periods, or 6 worlds × 5 bots on the same VM. Then re-run the A/A. If the gate still
+  fails, the bench rung is dropped.
 
 **On failure:** the bench is not used for any candidate. The cause is diagnosed and recorded (fresh-world drift,
 serving inequality, a leak), then the A/A is re-run once. A second failure is recorded INCONCLUSIVE, the bench rung is
 dropped, and candidates go to the canary rung with its own power.
 
-*Power* (Codex r2: simulate the registered test, not a pooled null). Source: `scripts/learnloop/bench_power.py`, output
-`bench_power-13d-v3.txt`.
+*Power: a planning baseline. The binding figure comes from the A/A power gate above.*
+Source: `scripts/learnloop/bench_power.py`. Outputs: `bench_power-13d-v4.txt` (the registered 50% rule) and
+`bench_power-13d-v4-frac25.txt` (a planning sensitivity).
 
-**Null population.** 13 days (10-08..10-20), 80 bots, 52 6-h windows. Kept: 3,043 of 4,160 bot-windows. Excluded:
-- 622 with any row on a **minority build**, one seen on fewer than half the bots in that window (a canary pool or its
-  restart-lag rows). A fleet-wide promotion is a common change, and a crossover cancels it.
-- 465 post-intervention windows: the bot's next window after such a cell.
-- 30 with a non-qwen decision (brain-01).
+**What the fleet history can and cannot supply** (Codex r3). It cannot supply a clean same-treatment null over 150 h.
+- Canaries cover about half of all bot-time. The deployment journal (`~/canary-journal.jsonl`, 72 intervals) puts **2,090
+  of 4,160 bot-windows** inside a canary interval, counting the pool from `deployed` to the first `torn-down` /
+  `promoted` + 6 h. That rule also catches env-only canaries (Claude r3).
+- Fleet-wide promotions land every 1-2 days. They are kept as common changes, so this is a **heterogeneous planning
+  baseline**, not a same-treatment null.
+- Kept: 2,040 bot-windows; 969,168 decisions, 300 deaths, 12,208 active bot-h (gaps capped at 10 min); 0.0246 deaths/bot-h,
+  about 5.9 per 10-bot arm per day.
 
-Kept volume: 1,442,544 decisions, 385 deaths, 18,211 bot-h.
+**Part 1, the registered test, simulated on that baseline.**
+- 400 draws × 400 re-randomizations.
+- Effects injected two ways: **ADD** = +δ × the null mean on the treated period; **MULT** = the treated-period value
+  × (1 + δ), which is more realistic given per-bot output from p10 0.1 to p90 69.
+- "Power" is conditional on a usable draw.
+- Every rejection at δ > 0 had τ > 0, so two-sided power equals the one-sided power KEEP needs.
 
-**Part 1, the registered test, simulated.**
-- 400 draws of 4 of 16 worlds × a time offset (28 distinct).
-- 400 re-randomizations each.
-- Effects injected additively into each bot's treated period.
+| metric (baseline mean) | usable rule | usable draws | size (δ = 0) | ADD: power at 15 / 20 / 25 / 30% | MULT: power at 15 / 20 / 25 / 30% | MDE80 |
+|---|---|---|---|---|---|---|
+| **gross gathered/bot-h (47.6)** | 50% (registered) | 28 | 0.04 | 0.64 / 0.75 / 0.89 / 0.93 | 0.57 / 0.71 / 0.75 / 0.86 | **ADD 25%, MULT 30%** |
+| **gross gathered/bot-h** | 25% (planning) | 99 | 0.05 | 0.53 / 0.68 / 0.80 / 0.88 | 0.46 / 0.60 / 0.72 / 0.79 | **ADD 25-30%, MULT ~30%** |
+| stagnation/bot-h (2.95) | 25% | 101 | 0.06 | 0.40 / 0.57 / 0.72 / 0.83 | 0.33 / 0.48 / 0.61 / 0.68 | ~30% |
+| success share (0.227) | 25% | 111 | 0.06 | 0.41 / 0.51 / 0.64 / 0.77 | 0.36 / 0.46 / 0.58 / 0.69 | > 30% |
+| refused share (0.440) | 25% | 106 | 0.04 | 0.77 / 0.90 / 0.96 / 1.00 | 0.74 / 0.87 / 0.95 / 0.99 | 20% |
 
-| metric (null mean) | rejection at δ = 0 | power at 10% / 15% / 20% / 25% / 30% of the mean | **MDE80** |
-|---|---|---|---|
-| **gross gathered/bot-h (49.98)** | 0.035 | 0.38 / 0.63 / 0.83 / 0.89 / 0.96 | **20%** |
-| stagnation/bot-h (3.16) | 0.054 | 0.37 / 0.62 / 0.82 / 0.92 / 0.98 | 20% |
-| success share (0.239) | 0.043 | 0.32 / 0.51 / 0.69 / 0.83 / 0.90 | 25% (~6 pp) |
-| refused share (0.445) | 0.048 | 0.66 / 0.90 / 0.99 / 1.00 / 1.00 | 15% (~6.7 pp) |
+- **Size holds** at 3-6% on every row.
+- **Coverage.** Most draws were INCONCLUSIVE on coverage: 301 of 400 at 25%, 372 at 50%.
+  - *Every* unusable bot traced to canary-excluded cells, and **none** to low activity alone (Claude r3 asked).
+  - A bench has no canaries, so its coverage is an A/A measurement, gated at ≥ 90% usable draws.
+- **Unconditional rejection** (all 400 draws) is low for the same reason: 0.20 at +25% on the 25% rule. It is printed
+  per row in the output.
+- **The null SD of τ** for the primary is 4.11 items/bot-h, 8.6% of the mean (25% rule). The A/A variance check compares
+  against that figure, within 0.5-2×.
+- **Simulation error.** With 28-111 usable draws, each power figure carries about ±0.05-0.09.
 
-**Reading Part 1:**
-- **The test holds its size:** rejection under the null is 3.5-5.4%, against a nominal 5%.
-- **It detects a 20% change in gross gathered output with 80% power.**
-- These power figures rest on 115-130 usable draws per metric, ±~0.04.
-- The other 270-285 draws were INCONCLUSIVE on coverage. In the fleet null, canary exclusions knock bots below the
-  50%-of-hours floor. That is a property of the fleet null (16 pools sharing a canary lane), not of the bench, which has
-  no canaries.
-- Most usable draws were left unbalanced by the exposure rule (93 of 115 for the primary), and the size still held. That
-  is the 2×2 estimator doing its job.
-
-**Part 2, design comparison on the same schedule.** A planning approximation: MDE ≈ 2.8 × null SD, as % of the mean.
+**Part 2: design comparison on the same baseline.** A planning approximation: MDE ≈ 2.8 × null SD, as % of the mean, 25%
+rule.
 
 | metric | within-world parallel | whole-world parallel | **within-world crossover** | whole-world crossover |
 |---|---|---|---|---|
-| gross gathered/bot-h | 40% | 60% | **18%** | 19% |
-| stagnation/bot-h | 39% | 52% | 19% | 21% |
-| refused share | 26% | 33% | 11% | 13% |
+| gross gathered/bot-h | 60% | 92% | **23%** | n/a (coverage) |
+| stagnation/bot-h | 57% | 76% | 26% | n/a |
+| refused share | 38% | 44% | 14% | n/a |
 
-**What Part 2 shows:**
-- **10 v 10 in parallel cannot see an output change under ~40%.** It sees brain-01-sized moves in decision shares.
-- Crossover is what buys the power.
-- Within-world and whole-world crossover are close on the primary: 18% vs 19%.
-- Within-world is kept because whole-world crossover more often fails the 7-per-sequence coverage rule (n/a on two
-  metrics), and a world outage would remove a fifth of a sequence. Interference is the price of within-world, so
-  whole-world crossover is the fallback design if the A/A shows within-world interference.
-
-**Caveats.**
-- 28 distinct time offsets underlie the 72 h figures, and they overlap.
-- The null is a mature fleet. Fresh bench worlds drift faster ("fresh worlds buy one week"), which is what the A/A and
-  its variance check measure.
-- **These power figures are re-derived on the A/A data before any candidate is read.**
+**Reading the power:**
+- **Plan for detecting a ~25-30% change in gross gathered output, not 20%.**
+  - Round 2's 20% came from a build-only exclusion that missed env-only canaries and their +6 h tails.
+  - The canary rung's own power is separate.
+- A 10 v 10 parallel split cannot see under ~60% on this baseline. The crossover is what makes the bench worth building.
+- The A/A power gate (≥ 0.80 at +25%) is the binding check. It is calculated on bench data, with no canary gaps and on
+  fresh worlds.
 
 **(d) Promotion through the main lane: a model-env canary, brain-01 style.**
 - **Registration.** `class: model-env`, tier 3, `draw_k: 2`, `canary_env: OLLAMA_MODEL=cand-…` with the 3090 as the
@@ -902,7 +925,7 @@ a 20-vs-60 DiD.
 - **Decision quality may not be what limits output.** The kill rule is operational.
   - If the first two candidates that reach the bench both fail to show the pre-registered benefit, the loop stops at the
     bench. "Fail" means the gathered primary is not significant, or is negative.
-  - What gets recorded: "these candidates did not demonstrate the pre-specified benefit; a bench that detects a 20% change with 80% power". If the A/A re-derived a weaker power, that figure is recorded instead.
+  - What gets recorded: "these candidates did not demonstrate the pre-specified benefit; the bench's A/A-measured power at +25% was X". The X recorded is the A/A's figure, not a planning number.
   - That is not "the model is not the constraint". Weak labels, ineffective training, interference or carryover would look
     the same.
   - The 3090 then returns to being a spare.
@@ -1036,7 +1059,7 @@ prompts.
 | `extract_triples.py --day 2026-10-20` | 80 bots in 3 min 4 s, peak 0.84 GB; output `triples-summary-20261020.json` |
 | `label_check.py` | s.1.3-1.4 |
 | `endpoint_load.py 2026-10-20` | s.5.1 |
-| `bench_power.py --days 13` | s.4c; output `bench_power-13d-v3.txt`, cache `cells-13d-v3.json` |
+| `bench_power.py --days 13 [--usable-frac 0.25]` | s.4c; outputs `bench_power-13d-v4.txt` (registered 50% rule) and `bench_power-13d-v4-frac25.txt` (planning), cache `cells-13d-v4.json` |
 | system-prompt rebuild | `sp/` (9e7d9980 and adbec4f4 × 4 scopes) |
 
 **10.0.0.61.** It answers ping, but nothing listens on 11434, 1234, 8000 or 8080. Memory `inference-vram-measured` says it
@@ -1050,8 +1073,8 @@ is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is avai
 |---|---|
 | join can pick the wrong row; misses unexplained (Codex P1-1; Claude P2-10) | s.1.1: start in [t, t + latency + 30 s], one use per row, status + detail equality; quality counted; all misses are `failed`, 97% "paused" |
 | windows attribute by start; censoring; midnight (Codex P1-2) | s.1.1/1.2: end-attributed items, `items_other`, `observed`, 1 h lookahead, next prompt read past midnight |
-| crossover vs whole-world comparison unfair (Codex P1-3) | s.4c: all four designs on the same schedule; whole-world crossover 28% vs within-world 17% |
-| null contaminated by interventions (Codex P1-4; Claude P3-5) | s.4c: off-majority-build and non-qwen bot-windows excluded and counted |
+| crossover vs whole-world comparison unfair (Codex P1-3) | s.4c: all four designs on the same schedule (round-1 figures 28% / 17% are SUPERSEDED; see rounds 2-3) |
+| null contaminated by interventions (Codex P1-4; Claude P3-5) | SUPERSEDED by round 3: journal canary intervals + non-qwen exclusion, heterogeneous planning baseline |
 | schedule, washout, carryover (Codex P1-5; Claude P2-2, P2-6) | s.4c: one 150 h schedule, washout simulated, period-1 and washout sensitivity, carryover named |
 | bootstrap by world invalid; A/A (Codex P1-6; Claude P1-3, P2-4) | s.4c: stratified re-randomization (10^4 assignments); A/A through the full schedule with pass criteria; simulated MDE |
 | promotion and death-gate rules undefined (Codex P1-7; Claude P3-6) | s.4c: one primary; harm margin; fleet death rule with fixed polls and attribution |
@@ -1079,7 +1102,7 @@ is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is avai
 | finding (engine) | answer |
 |---|---|
 | mixed-build cells survive the exclusion (Codex r2 P1-1) | `bench_power.py`: a cell with ANY row on a minority (canary) build is excluded, plus the next window. A promotion is a common change and stays in. Version reader fixed for 7-char shas, with a blind-reader assert |
-| 17% is not power for the registered test (Codex r2 P1-2) | s.4c Part 1: the re-randomization test is simulated under the null (size 3.5-5.4%) and under injected effects; MDE80 20%; CI by test inversion; kill-rule wording now cites the A/A-re-derived power |
+| 17% is not power for the registered test (Codex r2 P1-2) | s.4c Part 1: the re-randomization test is simulated under the null and under injected effects; CI by test inversion; kill-rule wording cites the A/A-measured power (round 3 revised the figures, below) |
 | exclusions break crossover balance (Codex r2 P1-3; Claude r2 P3) | s.4c: the standard 2×2 estimator (cancels a common period effect for any group sizes), usable = 36 bot-h per period, < 7 per sequence = INCONCLUSIVE; imbalance counted (size still holds) |
 | sensitivity checks have no consequence (Codex r2 P2-4) | s.4c: a period-1 sign reversal beyond its null SD, or a sign change across washouts, means INCONCLUSIVE |
 | end-attributed windows can miss long skills (Codex r2 P2-5; Claude r2 P3) | `extract_triples.py`: an end-time index (bisect); longest skill 211 s, inside the 2 h back-read; evidence regenerated from this code |
@@ -1093,3 +1116,16 @@ is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is avai
 | ledger vs all-four arms (Claude r2 P3) | s.2.4: B + C fit; all four do not in one month |
 | ES query and hash rebuild not committed (Claude r2 P3) | `es_crosscheck-20261020.txt`, `sp_hash_rebuild.txt` |
 | sandbox fixture not in owner decisions (Claude r2 P3) | s.7 decision 8 |
+
+**Round 3.**
+
+| finding (engine) | answer |
+|---|---|
+| minority-build rule is not a same-treatment null (Codex r3 P1-1); env-only canaries invisible (Claude r3 P3) | `bench_power.py`: canary exposure from the deployment journal (pool × [deployed, first torn-down/promoted + 6 h], 72 intervals, 2,090 bot-windows) + non-qwen; the result is labelled a **heterogeneous planning baseline** (promotions stay in as common changes); the binding power is the A/A power gate |
+| missing data can remove candidate-induced failures (Codex r3 P1-2) | s.4c: inactivity is an outcome (intention to treat, per scheduled bot-hour); only recorded infrastructure outages hitting both arms are excluded; a liveness gate for silent candidate bots (REVERT); dropped permutations counted (0) |
+| active hours were first-to-last spans (Codex r3 P2-3) | gaps capped at 10 min in `bench_power.py`; the doc defines exposure the same way |
+| power is conditional; the A/A gate is unspecified; null SD not reported (Codex r3 P2-4) | s.4c: conditional and unconditional rejection printed, coverage reasons printed, null SD of τ reported (4.11, 8.6%); A/A power gate ≥ 0.80 at +25% with ≥ 90% usable draws, else one redesign (96 h or 6 worlds), else drop the rung |
+| stale round-1 figures; label_check "joined" (Codex r3 P3-5; Claude r3 P3) | round-1 rows marked SUPERSEDED; `label_check.py` prints exact / ambiguous / none separately |
+| status-only joins steal the next row (Claude r3 P3) | exact-only join; 70,586 exact, 0 unexplained misses (s.1.1) |
+| whole-world fallback cannot reach p < 0.05 (Claude r3 P3) | s.4c: dropped as a fallback; the canary rung is the fallback |
+| coverage reasons; multiplicative effects; one-sided (Claude r3 P3) | s.4c Part 1: reasons (all canary-excluded, 0 low-activity), a MULT grid, and positive-τ power reported (equal to two-sided at δ > 0) |

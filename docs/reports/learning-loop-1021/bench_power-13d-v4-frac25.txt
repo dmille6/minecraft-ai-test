@@ -1,0 +1,28 @@
+canary intervals read from the journal: 72
+NOTE: a HETEROGENEOUS PLANNING BASELINE, not a same-treatment null: fleet-wide promotions (common changes) stay in.
+positive control: bots 80, worlds 16, 6h windows 52 (2026-10-08T00 .. 2026-10-20T18); bot-windows kept 2040 of 4160; excluded {'bot-windows inside a journal canary interval (+6 h)': 2090, 'bot-windows with a non-qwen decision': 30}; model decisions kept 969168, deaths 300, bot-h 12208; draws 400, perms 400; period 72 h, washout 6 h
+
+== PART 1: the registered test (within-world 3/2 AB/BA, stratified re-randomization, two-sided 5%), 28 distinct time offsets; usable = >= 25% of each period active
+   effects: ADD = +delta x null mean on the treated period; MULT = treated-period value x (1 + delta). power = conditional on a
+   usable draw; "uncond" divides by all draws; "pos" counts only rejections with tau > 0 (what KEEP needs)
+gathered_per_bot_h  null mean 47.614 | draws 400: usable 99 (unbalanced 83), INCONCLUSIVE 301; unusable-bot reasons {'bot unusable: has excluded (canary/off-build) cells': 4170}; permutations dropped by the 7-per-sequence rule 0 of 39600; null SD of tau 4.110 (8.6% of the mean)
+   ADD  0%: 0.05 (uncond 0.01, pos 0.03) | 10%: 0.28 (uncond 0.07, pos 0.28) | 15%: 0.53 (uncond 0.13, pos 0.53) | 20%: 0.68 (uncond 0.17, pos 0.68) | 25%: 0.80 (uncond 0.20, pos 0.80) | 30%: 0.88 (uncond 0.22, pos 0.88) | MDE80 (conditional) 30%
+   MULT 10%: 0.26 (uncond 0.07, pos 0.26) | 15%: 0.46 (uncond 0.12, pos 0.46) | 20%: 0.60 (uncond 0.15, pos 0.60) | 25%: 0.72 (uncond 0.18, pos 0.72) | 30%: 0.79 (uncond 0.20, pos 0.79) | MDE80 (conditional) > 30%
+stagnant_per_bot_h  null mean 2.949 | draws 400: usable 101 (unbalanced 88), INCONCLUSIVE 299; unusable-bot reasons {'bot unusable: has excluded (canary/off-build) cells': 4240}; permutations dropped by the 7-per-sequence rule 0 of 40400; null SD of tau 0.258 (8.7% of the mean)
+   ADD  0%: 0.06 (uncond 0.01, pos 0.02) | 10%: 0.20 (uncond 0.05, pos 0.20) | 15%: 0.40 (uncond 0.10, pos 0.40) | 20%: 0.57 (uncond 0.14, pos 0.57) | 25%: 0.72 (uncond 0.18, pos 0.72) | 30%: 0.83 (uncond 0.21, pos 0.83) | MDE80 (conditional) 30%
+   MULT 10%: 0.19 (uncond 0.05, pos 0.19) | 15%: 0.33 (uncond 0.08, pos 0.33) | 20%: 0.48 (uncond 0.12, pos 0.48) | 25%: 0.61 (uncond 0.15, pos 0.61) | 30%: 0.68 (uncond 0.17, pos 0.68) | MDE80 (conditional) > 30%
+success_share       null mean 0.227 | draws 400: usable 111 (unbalanced 93), INCONCLUSIVE 289; unusable-bot reasons {'bot unusable: has excluded (canary/off-build) cells': 4050}; permutations dropped by the 7-per-sequence rule 0 of 44400; null SD of tau 0.025 (11.2% of the mean)
+   ADD  0%: 0.06 (uncond 0.02, pos 0.03) | 10%: 0.29 (uncond 0.08, pos 0.29) | 15%: 0.41 (uncond 0.11, pos 0.41) | 20%: 0.51 (uncond 0.14, pos 0.51) | 25%: 0.64 (uncond 0.18, pos 0.64) | 30%: 0.77 (uncond 0.21, pos 0.77) | MDE80 (conditional) > 30%
+   MULT 10%: 0.28 (uncond 0.08, pos 0.28) | 15%: 0.36 (uncond 0.10, pos 0.36) | 20%: 0.46 (uncond 0.13, pos 0.46) | 25%: 0.58 (uncond 0.16, pos 0.58) | 30%: 0.69 (uncond 0.19, pos 0.69) | MDE80 (conditional) > 30%
+refused_share       null mean 0.440 | draws 400: usable 106 (unbalanced 93), INCONCLUSIVE 294; unusable-bot reasons {'bot unusable: has excluded (canary/off-build) cells': 4120}; permutations dropped by the 7-per-sequence rule 0 of 42400; null SD of tau 0.023 (5.3% of the mean)
+   ADD  0%: 0.04 (uncond 0.01, pos 0.01) | 10%: 0.57 (uncond 0.15, pos 0.57) | 15%: 0.77 (uncond 0.20, pos 0.77) | 20%: 0.90 (uncond 0.24, pos 0.90) | 25%: 0.96 (uncond 0.26, pos 0.96) | 30%: 1.00 (uncond 0.27, pos 1.00) | MDE80 (conditional) 20%
+   MULT 10%: 0.49 (uncond 0.13, pos 0.49) | 15%: 0.74 (uncond 0.20, pos 0.74) | 20%: 0.87 (uncond 0.23, pos 0.87) | 25%: 0.95 (uncond 0.25, pos 0.95) | 30%: 0.99 (uncond 0.26, pos 0.99) | MDE80 (conditional) 20%
+
+== PART 2: design comparison on the same schedule (planning approximation: MDE ~ 2.8 x null SD, %% of the mean)
+gathered_per_bot_h  mean  47.614 | within_par 60% | world_par 92% | within_xo 23% | world_xo n/a
+items_per_bot_h     mean  48.855 | within_par 59% | world_par 92% | within_xo 25% | world_xo n/a
+stagnant_per_bot_h  mean   2.949 | within_par 57% | world_par 76% | within_xo 26% | world_xo n/a
+success_share       mean   0.227 | within_par 73% | world_par 75% | within_xo 27% | world_xo n/a
+refused_share       mean   0.440 | within_par 38% | world_par 44% | within_xo 14% | world_xo n/a
+
+deaths: 0.0246/bot-h in the kept null population -> 5.9 expected per 10-bot arm per 24 h

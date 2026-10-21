@@ -30,10 +30,13 @@
  },
  "max_skill_duration_s": 211,
  "join": {
-  "exact": 70581,
+  "exact": 70586,
   "none": 10435,
-  "ambiguous": 10,
-  "status": 5
+  "ambiguous": 10
+ },
+ "status_only_rejected": {
+  "gather": 2,
+  "explore": 3
  },
  "join_miss_skill": {
   "gather": 3970,
@@ -55,11 +58,8 @@
   "http://10.0.0.16:11434": 2966
  },
  "join_miss_why": {
-  "paused (runner refused to start)": 10127,
-  "busy (runner refused to start)": 303,
-  "OTHER: dirt found but unreachable after # attempts [probe: success#": 2,
-  "OTHER: could not explore: explored # blocks to # in # legs": 2,
-  "OTHER: could not explore: explored # blocks to # in # legs (some le": 1
+  "paused (runner refused to start)": 10128,
+  "busy (runner refused to start)": 307
  },
  "value": {
   "none": 45422,

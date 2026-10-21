@@ -29,6 +29,8 @@ from datetime import datetime, timedelta, timezone
 ap = argparse.ArgumentParser(); ap.add_argument('--days', type=int, default=13); ap.add_argument('--cache')
 ap.add_argument('--draws', type=int, default=400); ap.add_argument('--perms', type=int, default=400)
 ap.add_argument('--period', type=int, default=72); ap.add_argument('--washout', type=int, default=6)
+ap.add_argument('--usable-frac', type=float, default=0.5, help='registered live rule 0.5; a lower value is a PLANNING sensitivity '
+               'for the fleet null only, where canary exclusions (absent on a bench) remove bot-time')
 a = ap.parse_args()
 now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 start = now - timedelta(days=a.days); S0 = start.strftime('%Y-%m-%dT%H'); S1 = now.strftime('%Y-%m-%dT%H')
@@ -84,8 +86,10 @@ else:
                             x['items'] += g
                             if n not in TRANSFER: x['gathered'] += g
         for k, x in c.items():
-            ts = sorted(span[k])
-            h = (datetime.fromisoformat(ts[-1].replace('Z', '+00:00')) - datetime.fromisoformat(ts[0].replace('Z', '+00:00'))).total_seconds() / 3600 if len(ts) > 1 else 0.0
+            ts = [datetime.fromisoformat(t.replace('Z', '+00:00')).timestamp() for t in sorted(span[k])]
+            # ACTIVE hours (Codex r3): inter-decision gaps capped at 10 min, so an outage between two decisions is not
+            # counted as exposure. Decisions run ~every 40 s on a live bot.
+            h = sum(min(b2 - b1, 600) for b1, b2 in zip(ts, ts[1:])) / 3600
             raw['%s|%s' % (b, k)] = dict(x, bot_h=h, vers=dict(vers[k]))
     if a.cache: json.dump(raw, open(a.cache, 'w'))
 
@@ -101,6 +105,25 @@ for (b, w), v in allc.items():
     for ver in v['vers']: seen[w][ver] += 1
 assert all(seen[w] for w in wins), 'a window with no build on any row: the version reader is blind'
 fleetb = {w: {ver for ver, k in seen[w].items() if k >= 0.5 * nb[w]} for w in wins}
+# CANARY EXPOSURE FROM THE DEPLOYMENT JOURNAL (Codex r3): pool x [deployed, first torn-down/promoted after it + 6 h].
+# This also catches env/config-only canaries on the same sha, which a build-based rule cannot see (Claude r3).
+JOURNAL = os.path.expanduser('~/canary-journal.jsonl'); expo = []
+if os.path.exists(JOURNAL):
+    J = []
+    for line in open(JOURNAL, errors='replace'):
+        try: J.append(json.loads(line))
+        except ValueError: pass
+    for i, r in enumerate(J):
+        if r.get('phase') != 'deployed': continue
+        pools = (r.get('note') or '').split(' ')[0].split(',')
+        t0 = datetime.fromisoformat(r['ts'].replace('Z', '+00:00'))
+        end = next((datetime.fromisoformat(q['ts'].replace('Z', '+00:00')) for q in J[i + 1:]
+                    if q.get('run') == r.get('run') and q.get('phase') in ('torn-down', 'promoted')), now)
+        expo.append((set(pools), t0, end + timedelta(hours=6)))
+wstart = lambda w: datetime.strptime(w, '%Y-%m-%dT%H').replace(tzinfo=timezone.utc)
+def journal_exposed(b, w):
+    a0 = wstart(w); a1 = a0 + timedelta(hours=W); pool = b.rsplit('-', 1)[0]
+    return any(pool in ps and t0 < a1 and a0 < t1 for ps, t0, t1 in expo)
 ex = collections.Counter(); cells = {}
 for b in bots0:
     prev_off = False
@@ -109,6 +132,7 @@ for b in bots0:
         if v is None: prev_off = False; continue
         off = any(ver not in fleetb[w] for ver in v['vers'])
         if v.get('nonqwen'): ex['bot-windows with a non-qwen decision'] += 1
+        elif journal_exposed(b, w): ex['bot-windows inside a journal canary interval (+6 h)'] += 1
         elif off: ex['bot-windows with any row on a minority (canary) build'] += 1
         elif prev_off: ex['post-intervention bot-windows (the one after an off-build cell)'] += 1
         else: cells[(b, w)] = v
@@ -116,6 +140,8 @@ for b in bots0:
 bots = sorted({b for b, _ in cells})
 world = lambda b: b.rsplit('-', 1)[0]
 worlds = sorted({world(b) for b in bots0})
+print('canary intervals read from the journal: %d' % len(expo))
+print('NOTE: a HETEROGENEOUS PLANNING BASELINE, not a same-treatment null: fleet-wide promotions (common changes) stay in.')
 print('positive control: bots %d, worlds %d, 6h windows %d (%s .. %s); bot-windows kept %d of %d; excluded %s; '
       'model decisions kept %d, deaths %d, bot-h %.0f; draws %d, perms %d; period %d h, washout %d h'
       % (len(bots0), len(worlds), len(wins), wins[0], wins[-1], len(cells), len(allc), dict(ex),
@@ -152,7 +178,7 @@ def periods(i):
 
 
 def usable(b, p):
-    return agg([b], p)['bot_h'] >= 0.5 * a.period
+    return agg([b], p)['bot_h'] >= a.usable_frac * a.period
 
 
 def draw_worlds():
@@ -173,35 +199,57 @@ def tau(dv, AB):
     return (st.mean(xa) - st.mean(xb)) / 2
 
 
-print('\n== PART 1: the registered test (within-world 3/2 AB/BA, stratified re-randomization, two-sided 5%%), %d distinct time offsets' % len(offs))
+print('\n== PART 1: the registered test (within-world 3/2 AB/BA, stratified re-randomization, two-sided 5%%), %d distinct time offsets; usable = >= %.0f%% of each period active' % (len(offs), 100 * a.usable_frac))
+print('   effects: ADD = +delta x null mean on the treated period; MULT = treated-period value x (1 + delta). power = conditional on a')
+print('   usable draw; "uncond" divides by all draws; "pos" counts only rejections with tau > 0 (what KEEP needs)')
 GRID = (0.0, 0.10, 0.15, 0.20, 0.25, 0.30)
+
+
+def excluded_any(b, ps):
+    return any((b, w) not in cells and (b, w) in allc for w in ps)
+
+
 for m in ('gathered_per_bot_h', 'stagnant_per_bot_h', 'success_share', 'refused_share'):
-    f = METRICS[m]; base = f(fleet); rej = collections.Counter(); valid = 0; inconclusive = 0; unbal = 0
+    f = METRICS[m]; base = f(fleet); rej = collections.Counter(); pos = collections.Counter(); valid = 0; inconclusive = 0; unbal = 0
+    why = collections.Counter(); dropped_perms = 0; null_tau = []
     for _ in range(a.draws):
         i = rng.choice(offs); p1, p2 = periods(i); ws, counts = draw_worlds(); AB = assign(ws, counts)
-        dv = {}
+        dv, x12 = {}, {}
         for w in ws:
             for b in [b for b in bots0 if world(b) == w]:
                 if usable(b, p1) and usable(b, p2):
                     x1, x2 = f(agg([b], p1)), f(agg([b], p2))
-                    if x1 is not None and x2 is not None: dv[b] = x1 - x2
+                    if x1 is not None and x2 is not None: dv[b] = x1 - x2; x12[b] = (x1, x2)
+                else:
+                    why['bot unusable: has excluded (canary/off-build) cells' if excluded_any(b, p1 + p2) else 'bot unusable: < 36 active bot-h, no excluded cell'] += 1
         if tau(dv, AB) is None: inconclusive += 1; continue
         valid += 1; unbal += (sum(b in AB for b in dv) != sum(b not in AB for b in dv))
-        perm = [AB2 for AB2 in (assign(ws, counts) for _ in range(a.perms))]
-        for g in GRID:
-            eff = g * base
-            d2 = {b: (d + eff if b in AB else d - eff) for b, d in dv.items()}   # treated period gets +eff
-            t_obs = tau(d2, AB)
-            ts = [tau(d2, P) for P in perm]; ts = [x for x in ts if x is not None]
-            p = (1 + sum(1 for x in ts if abs(x) >= abs(t_obs))) / (1 + len(ts))
-            rej[g] += (p < 0.05)
+        perm = [assign(ws, counts) for _ in range(a.perms)]
+        for kind in ('ADD', 'MULT'):
+            for g in GRID:
+                if kind == 'MULT' and g == 0.0: continue
+                if kind == 'ADD':
+                    eff = g * base; d2 = {b: (d + eff if b in AB else d - eff) for b, d in dv.items()}
+                else:
+                    d2 = {b: (d + g * x12[b][0] if b in AB else d - g * x12[b][1]) for b, d in dv.items()}
+                t_obs = tau(d2, AB)
+                ts = [tau(d2, P) for P in perm]; ok = [x for x in ts if x is not None]
+                if kind == 'ADD' and g == 0.0: dropped_perms += len(ts) - len(ok); null_tau.append(t_obs)
+                p = (1 + sum(1 for x in ok if abs(x) >= abs(t_obs))) / (1 + len(ok))
+                rej[(kind, g)] += (p < 0.05); pos[(kind, g)] += (p < 0.05 and t_obs > 0)
     if not valid:
         print('%-19s no usable draw (every draw INCONCLUSIVE on coverage: %d)' % (m, inconclusive)); continue
-    pw = {g: rej[g] / valid for g in GRID}
-    mde = next((g for g in GRID[1:] if pw.get(g, 0) >= 0.8), None)
-    print('%-19s null mean %.3f | usable draws %d (of them unbalanced after the exposure rule %d), INCONCLUSIVE (coverage) %d | rejection at delta=0: %.3f | power: %s | MDE80 %s'
-          % (m, base, valid, unbal, inconclusive, pw.get(0.0, float('nan')),
-             ', '.join('%d%% %.2f' % (round(100 * g), pw[g]) for g in GRID[1:]), ('%d%% of the mean' % round(100 * mde)) if mde else '> 30%'))
+    tot_d = valid + inconclusive
+    print('%-19s null mean %.3f | draws %d: usable %d (unbalanced %d), INCONCLUSIVE %d; unusable-bot reasons %s; permutations dropped '
+          'by the 7-per-sequence rule %d of %d; null SD of tau %.3f (%.1f%% of the mean)'
+          % (m, base, tot_d, valid, unbal, inconclusive, dict(why), dropped_perms, valid * a.perms, st.pstdev(null_tau), 100 * st.pstdev(null_tau) / base))
+    for kind in ('ADD', 'MULT'):
+        row = []
+        for g in GRID:
+            if (kind, g) not in rej and not (kind == 'ADD' and g == 0.0): continue
+            row.append('%d%%: %.2f (uncond %.2f, pos %.2f)' % (round(100 * g), rej[(kind, g)] / valid, rej[(kind, g)] / tot_d, pos[(kind, g)] / valid))
+        mde = next((g for g in GRID[1:] if rej[(kind, g)] / valid >= 0.8), None)
+        print('   %-4s %s | MDE80 (conditional) %s' % (kind, ' | '.join(row), ('%d%%' % round(100 * mde)) if mde else '> 30%'))
 
 print('\n== PART 2: design comparison on the same schedule (planning approximation: MDE ~ 2.8 x null SD, %% of the mean)')
 

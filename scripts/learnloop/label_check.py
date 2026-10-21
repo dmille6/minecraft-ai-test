@@ -19,7 +19,7 @@ summ = json.load(open(os.path.join(D, 'summary.json')))
 lab = collections.defaultdict(collections.Counter); n_lab = collections.Counter(); cens = collections.Counter()
 bot = collections.defaultdict(collections.Counter)
 world = collections.Counter(); ver = collections.Counter(); hard = collections.Counter(); hard_n = 0
-miss = collections.Counter(); joined = collections.Counter()
+miss = collections.Counter(); joined = collections.Counter(); jq = collections.Counter()
 for f in sorted(glob.glob(os.path.join(D, 'triples', '*.jsonl.gz'))):
     b = os.path.basename(f)[:-9]
     for line in gzip.open(f, 'rt'):
@@ -29,6 +29,7 @@ for f in sorted(glob.glob(os.path.join(D, 'triples', '*.jsonl.gz'))):
         world[r['world']] += 1; ver[r['code_version']] += 1
         if not r['gate']['refused']:
             (joined if r['outcome']['join'] != 'none' else miss)[r['outcome']['status']] += 1
+            jq[r['outcome']['join']] += 1
         if r['prompt_complete'] and L != 'void' and (r['gate']['refused'] or r['outcome']['status'] in ('failed', 'aborted')):
             hard[r['action']['skill']] += 1; hard_n += 1
         if not w['600']['observed']:
@@ -80,7 +81,8 @@ for prod in ('items_all', 'items_gathered'):
         boots.sort()
         print('  rho(%-7s share, %s/bot-h) = %+.2f  [%+.2f, %+.2f] world-cluster bootstrap' % (k, prod, est, boots[25], boots[975]))
 print('\n== join of admitted decisions to their executed skill row, by outcome status')
-print('joined', dict(joined.most_common())); print('missed', dict(miss.most_common()))
+print('join quality (exact = unique status+detail match; ambiguous = >1 exact, earliest taken; none = no exact match):', dict(jq))
+print('joined (exact or ambiguous) by status', dict(joined.most_common())); print('missed by status', dict(miss.most_common()))
 print('\n== decisions per world (pool unit for held-out splits)'); print(dict(sorted(world.items())))
 print('== per code version', dict(ver.most_common()))
 print('\n== hard decisions (complete prompt, refused or failed/aborted, void excluded): %d' % hard_n); print(dict(hard.most_common(12)))

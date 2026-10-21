@@ -19,7 +19,8 @@ A TRIPLE is one model decision (llm.latency_ms > 0) stamped in the day:
             [t, t + latency + 30 s] (the runner stamps its start AFTER inference; the decision row stamps BEFORE it),
             not already used by an earlier decision. Quality: `exact` = status equal AND the first 120 chars of the
             detail equal (both come from the same result object), `status` = status equal only, `ambiguous` = more
-            than one exact candidate (the earliest is taken and flagged), `none`.
+            than one exact candidate (the earliest is taken and flagged), `none`. Status-only candidates are counted and
+            never used (round 3).
   value   = the bot's own evidence value (valuable/neutral/costly; the llm log drops it), parsed back from the next
             decision row's RECENT EVENTS line `<skill> -> <status> (<value>)`; next rows are read past midnight.
             Failures carry no value (recorded as 'none' = line found, no value).
@@ -190,10 +191,13 @@ def main():
                     if sk.get('status') == ost:
                         if (sk.get('detail') or '')[:120] == (o.get('detail') or '')[:120]: exact.append(k)
                         else: stat.append(k)
-                pick = exact or stat
-                if pick:
-                    own = pick[0]; used.add(own)
-                    quality = 'ambiguous' if len(exact) > 1 else ('exact' if exact else 'status')
+                # EXACT-ONLY (Claude r3): a status-only pick was shown false (the decision said "paused") and it consumed
+                # the NEXT decision's row; such candidates are counted, never used.
+                if exact:
+                    own = exact[0]; used.add(own)
+                    quality = 'ambiguous' if len(exact) > 1 else 'exact'
+                elif stat:
+                    quality = 'none'; C['status_only_rejected'][skill] += 1
                 S['admitted'] += 1; C['join'][quality] += 1
                 if quality == 'none':
                     C['join_miss_skill'][skill] += 1; C['join_miss_endpoint'][ep] += 1
@@ -274,7 +278,7 @@ def main():
                                  'roster_bots_without_rows': S['roster_bots_without_rows']},
             'rows': {k: S[k] for k in ('model_rows', 'deterministic_rows', 'admitted', 'prompt_complete',
                                        'response_present', 'nonce_ok', 'schema_valid', 'dup_prompt', 'dup_prompt_action')},
-            'max_skill_duration_s': round(S['max_skill_duration_s']), 'join': dict(C['join']), 'join_miss_skill': dict(C['join_miss_skill'].most_common(12)),
+            'max_skill_duration_s': round(S['max_skill_duration_s']), 'join': dict(C['join']), 'status_only_rejected': dict(C['status_only_rejected']), 'join_miss_skill': dict(C['join_miss_skill'].most_common(12)),
             'join_miss_endpoint': dict(C['join_miss_endpoint']), 'join_miss_why': dict(C['join_miss_why'].most_common()), 'value': {str(k): v for k, v in C['value'].items()},
             'labels': dict(C['labels']), 'labels_by_skill': lxs,
             'actions': {str(k): v for k, v in C['actions'].most_common()}, 'refused_by_reason': dict(C['refused'].most_common()),

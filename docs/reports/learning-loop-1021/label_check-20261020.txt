@@ -17,8 +17,9 @@ items_gathered/bot-h: median 49.6, p10 0.1, p90 69.3
   rho(bad     share, items_gathered/bot-h) = -0.28  [-0.55, -0.00] world-cluster bootstrap
 
 == join of admitted decisions to their executed skill row, by outcome status
-joined {'success': 35353, 'failed': 24320, 'aborted': 6152, 'unknown': 3247, 'no_effect': 1524}
-missed {'failed': 10435}
+join quality (exact = unique status+detail match; ambiguous = >1 exact, earliest taken; none = no exact match): {'exact': 70586, 'none': 10435, 'ambiguous': 10}
+joined (exact or ambiguous) by status {'success': 35353, 'failed': 24320, 'aborted': 6152, 'unknown': 3247, 'no_effect': 1524}
+missed by status {'failed': 10435}
 
 == decisions per world (pool unit for held-out splits)
 {'board-a': 9056, 'board-b': 8978, 'board-c': 8312, 'board-d': 10956, 'hive-a': 9246, 'hive-b': 9922, 'hive-c': 9339, 'hive-d': 9355, 'isolated-a': 9219, 'isolated-b': 10167, 'isolated-c': 10462, 'isolated-d': 9808, 'placebo-a': 8741, 'placebo-b': 8823, 'placebo-c': 9709, 'placebo-d': 9456}
