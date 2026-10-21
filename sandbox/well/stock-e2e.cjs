@@ -950,7 +950,7 @@ scenes.junkbank = async () => {
   const bank = await waitFor(bankRow, 300000, 1000)
   await sleep(bank ? 8000 : 0)
   const after = bag(NAME), chest1 = chestTotals()
-  const picks = b => Object.values(b.slots).filter(it => it.id === 'stone_pickaxe').length
+  const picks = b => b.totals.stone_pickaxe ?? 0   // one per copy (a tool does not stack); bag() reports totals only
   const tds = rowsOf(files.skillLog).filter(r => r.name === 'town_deposit').length
   // the town's count of stone pickaxes (row P banks only under the target, so a count must come first): the recount order's run
   const counted = rowsOf(files.skillLog).find(r => r.name === 'count_town' && r.status === 'success')

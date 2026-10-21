@@ -1469,6 +1469,7 @@ test('junkout-01 MUTANT (cognitive): a blocked visit order issued and discarded 
         for (let i = 0; i < 200 && ran.length < 6; i++) await new Promise(r => setTimeout(r, 30))
         loop.stop()
         assert.equal(ran[0], 'count_town', JSON.stringify(ran))
+        assert.ok(ran.length >= 6, `the six decisions ran (else the poll expired): ${JSON.stringify(ran)}`)
         assert.ok(!ran.includes('town_deposit'), `mutant inert: ${JSON.stringify(ran)}`)
       } finally { done() }
     })
