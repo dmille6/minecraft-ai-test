@@ -1,0 +1,22 @@
+positive control: bots 80, worlds 16, 6h windows 28 (2026-10-14T00 .. 2026-10-20T18), model decisions 1068460, deaths 259, bot-h 13406
+complete windows (>= 90% of bots with > 3 bot-h): 28
+
+== window T = 6 h after (and 6 h before for DiD)
+success_share       fleet mean    0.237 | A_within sd 0.051 MDE80 0.142 (60%) | B_world sd 0.057 MDE80 0.159 (67%) | C_crossover sd 0.026 MDE80 0.074 (31%) |
+refused_share       fleet mean    0.453 | A_within sd 0.067 MDE80 0.186 (41%) | B_world sd 0.068 MDE80 0.190 (42%) | C_crossover sd 0.032 MDE80 0.090 (20%) |
+items_per_bot_h     fleet mean   50.346 | A_within sd 13.657 MDE80 38.238 (76%) | B_world sd 13.597 MDE80 38.072 (76%) | C_crossover sd 6.678 MDE80 18.700 (37%) |
+stagnant_per_bot_h  fleet mean    3.063 | A_within sd 0.783 MDE80 2.191 (72%) | B_world sd 0.807 MDE80 2.259 (74%) | C_crossover sd 0.378 MDE80 1.057 (35%) |
+
+== window T = 24 h after (and 24 h before for DiD)
+success_share       fleet mean    0.237 | A_within sd 0.036 MDE80 0.101 (43%) | B_world sd 0.042 MDE80 0.117 (49%) | C_crossover sd 0.018 MDE80 0.051 (21%) |
+refused_share       fleet mean    0.453 | A_within sd 0.042 MDE80 0.119 (26%) | B_world sd 0.045 MDE80 0.126 (28%) | C_crossover sd 0.021 MDE80 0.059 (13%) |
+items_per_bot_h     fleet mean   50.346 | A_within sd 7.846 MDE80 21.970 (44%) | B_world sd 8.440 MDE80 23.633 (47%) | C_crossover sd 4.018 MDE80 11.250 (22%) |
+stagnant_per_bot_h  fleet mean    3.063 | A_within sd 0.479 MDE80 1.340 (44%) | B_world sd 0.474 MDE80 1.327 (43%) | C_crossover sd 0.240 MDE80 0.671 (22%) |
+
+== window T = 72 h after (and 72 h before for DiD)
+success_share       fleet mean    0.237 | A_within sd 0.036 MDE80 0.100 (42%) | B_world sd 0.041 MDE80 0.114 (48%) | C_crossover sd 0.016 MDE80 0.044 (18%) |
+refused_share       fleet mean    0.453 | A_within sd 0.042 MDE80 0.117 (26%) | B_world sd 0.056 MDE80 0.158 (35%) | C_crossover sd 0.019 MDE80 0.054 (12%) |
+items_per_bot_h     fleet mean   50.346 | A_within sd 6.850 MDE80 19.180 (38%) | B_world sd 11.518 MDE80 32.250 (64%) | C_crossover sd 3.486 MDE80 9.762 (19%) |
+stagnant_per_bot_h  fleet mean    3.063 | A_within sd 0.401 MDE80 1.122 (37%) | B_world sd 0.537 MDE80 1.505 (49%) | C_crossover sd 0.191 MDE80 0.535 (17%) |
+
+deaths: fleet 0.0193/bot-h -> expected 4.6 per 10-bot arm per 24 h; the two-death floor needs ~10 h at that rate

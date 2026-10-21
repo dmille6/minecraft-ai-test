@@ -1,0 +1,18 @@
+== per label (denominator = model decisions with that label)
+good     n=  32714  items/dec 120s 3.98 600s 12.51 | deaths/1k (600s) 0.00 | stagnation/1k (120s) 0.0 | milestones/1k (120s) 363.3
+neutral  n=   4146  items/dec 120s 2.27 600s 11.36 | deaths/1k (600s) 26.05 | stagnation/1k (120s) 0.0 | milestones/1k (120s) 100.8
+bad      n= 114689  items/dec 120s 1.18 600s 6.38 | deaths/1k (600s) 2.59 | stagnation/1k (120s) 103.5 | milestones/1k (120s) 74.9
+
+== per bot (n=80 bots with > 6 h of decisions); outcome = items gained by its own admitted skills per hour
+items/bot-h: median 44.7, p10 1.5, p90 63.8
+rho(good    share, items/bot-h) = +0.28   (share median 0.239)
+rho(success share, items/bot-h) = +0.30   (share median 0.264)
+rho(refused share, items/bot-h) = -0.30   (share median 0.436)
+rho(bad     share, items/bot-h) = -0.30   (share median 0.728)
+
+== decisions per world (pool unit for held-out splits)
+{'board-a': 9056, 'board-b': 8978, 'board-c': 8312, 'board-d': 10956, 'hive-a': 9246, 'hive-b': 9922, 'hive-c': 9339, 'hive-d': 9355, 'isolated-a': 9219, 'isolated-b': 10167, 'isolated-c': 10462, 'isolated-d': 9808, 'placebo-a': 8741, 'placebo-b': 8823, 'placebo-c': 9709, 'placebo-d': 9456}
+== per code version {'9e7d9980': 76558, 'adbec4f4': 59267, 'a52d075e': 7011, '31416ee5': 5226, '78fa19d9': 3487}
+
+== hard decisions (complete prompt, refused or failed/aborted): 111425
+{'gather': 32904, 'explore': 30348, 'goto': 24168, 'deposit': 13074, 'mine': 5111, 'craft': 3111, 'surface': 991, 'place': 476, 'home': 409, 'bucket': 382, 'smelt': 212, None: 82}

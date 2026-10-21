@@ -1,0 +1,295 @@
+{
+ "day": "2026-10-20",
+ "positive_control": {
+  "bots": 80,
+  "roster": 80,
+  "bots_without_rows": 0,
+  "llm_rows": 160559,
+  "skill_rows": 1491978,
+  "first": "2026-10-20T00:00:00.866Z",
+  "last": "2026-10-20T23:59:59.831Z",
+  "skill_kinds_found": {
+   "_stagnation": 5070,
+   "_milestone_complete": 9769,
+   "_stagnation_reconnect": 192,
+   "_death": 36
+  }
+ },
+ "rows": {
+  "llm_rows": 160559,
+  "model_rows": 151549,
+  "deterministic_rows": 9010,
+  "admitted": 81031,
+  "own_row_joined": 70699,
+  "prompt_complete": 151549,
+  "response_present": 151549,
+  "schema_valid": 151467,
+  "value_recovered": 80605
+ },
+ "exact_duplicate_prompts": 6548,
+ "distinct_prompts": 145001,
+ "prompt_tokens": {
+  "p50": 2494,
+  "p95": 2739,
+  "n": 151549,
+  "sum": 376181262
+ },
+ "completion_tokens": {
+  "p50": 57,
+  "p95": 88,
+  "n": 151549,
+  "sum": 9155859
+ },
+ "labels": {
+  "neutral": 4146,
+  "bad": 114689,
+  "good": 32714
+ },
+ "actions": {
+  "gather": 44223,
+  "explore": 42918,
+  "goto": 31956,
+  "deposit": 13215,
+  "mine": 12395,
+  "craft": 3353,
+  "surface": 1243,
+  "home": 563,
+  "place": 532,
+  "bucket": 382,
+  "smelt": 310,
+  "status": 229,
+  "eat": 114,
+  "null": 82,
+  "withdraw": 25,
+  "board": 9
+ },
+ "refused_by_reason": {
+  "repeat_loop": 32987,
+  "learned_avoid": 8920,
+  "cooldown": 8604,
+  "deposit_nothing_to_bank": 8386,
+  "unreachable_elevation": 5671,
+  "bad_args": 2745,
+  "deposit_not_worth_it": 2439,
+  "deposit_item_missing": 350,
+  "redundant_craft": 332,
+  "truncation sentinel mismatch (expected END-D5WVAB, got >END-D5WVAB)": 1,
+  "truncation sentinel mismatch (expected END-XJYQ6A, got >END-XJYQ6A)": 1,
+  "truncation sentinel mismatch (expected END-OMGAWV, got END-OMGWV)": 1,
+  "truncation sentinel mismatch (expected END-8ZJMJW, got END-8ZMJWJ)": 1,
+  "truncation sentinel mismatch (expected END-UFFEVQ, got UFFEVQ)": 1,
+  "truncation sentinel mismatch (expected END-GUWEHY, got >GUWEHY)": 1,
+  "truncation sentinel mismatch (expected END-RYUZDU, got END-RYZDU)": 1,
+  "truncation sentinel mismatch (expected END-DMISHP, got END-DMISH)": 1,
+  "truncation sentinel mismatch (expected END-EDZVG0, got EDZVG0)": 1,
+  "truncation sentinel mismatch (expected END-ONOEM4, got ONOEM4)": 1,
+  "truncation sentinel mismatch (expected END-FFAIK9, got FFA)": 1,
+  "truncation sentinel mismatch (expected END-6KOU7R, got 6KOU7R)": 1,
+  "truncation sentinel mismatch (expected END-SEO5N5, got SEO5N5)": 1,
+  "truncation sentinel mismatch (expected END-5JIGFO, got 5JIGFO)": 1,
+  "truncation sentinel mismatch (expected END-9QNZ8Z, got 9QNZ8Z)": 1,
+  "truncation sentinel mismatch (expected END-5GZW9Q, got 5GZW9Q)": 1,
+  "truncation sentinel mismatch (expected END-5JMBQ1, got 5JMBQ1)": 1,
+  "truncation sentinel mismatch (expected END-O7FSUI, got O7FSUI)": 1,
+  "truncation sentinel mismatch (expected END-FDOCEG, got FDOCEG)": 1,
+  "truncation sentinel mismatch (expected END-34FJ3T, got 34FJ3T)": 1,
+  "truncation sentinel mismatch (expected END-IEH8YA, got IEH8YA)": 1,
+  "truncation sentinel mismatch (expected END-UNWEWB, got UNW)": 1,
+  "truncation sentinel mismatch (expected END-1PNZZY, got 1PNZZY)": 1,
+  "truncation sentinel mismatch (expected END-WSHVEK, got WSHVEK)": 1,
+  "truncation sentinel mismatch (expected END-PRWAHN, got PRW)": 1,
+  "truncation sentinel mismatch (expected END-RR6P6W, got RR6P6W)": 1,
+  "truncation sentinel mismatch (expected END-7KHC63, got 7KHC63)": 1,
+  "truncation sentinel mismatch (expected END-ODDLF4, got ODDLF4)": 1,
+  "truncation sentinel mismatch (expected END-BSGQSF, got END-BSG)": 1,
+  "truncation sentinel mismatch (expected END-6H47PF, got 6H47PF)": 1,
+  "truncation sentinel mismatch (expected END-NDMHZS, got ND)": 1,
+  "truncation sentinel mismatch (expected END-4OEDLY, got 4OEDLY)": 1,
+  "truncation sentinel mismatch (expected END-RLQ78O, got RLQ78O)": 1,
+  "truncation sentinel mismatch (expected END-TRYHJN, got TRYHJN)": 1,
+  "truncation sentinel mismatch (expected END-ILEAX7, got ILEAX7)": 1,
+  "truncation sentinel mismatch (expected END-4WEDIP, got 4WEDIP)": 1,
+  "truncation sentinel mismatch (expected END-9X97KH, got 9X97KH)": 1,
+  "truncation sentinel mismatch (expected END-1WNG9P, got 1WNG9P)": 1,
+  "truncation sentinel mismatch (expected END-KE5YEE, got KE5)": 1,
+  "truncation sentinel mismatch (expected END-9CH8RW, got 9CH8RW)": 1,
+  "truncation sentinel mismatch (expected END-EP4VQH, got END-EP4VH)": 1,
+  "truncation sentinel mismatch (expected END-6L4NI3, got 6L4NI3)": 1,
+  "truncation sentinel mismatch (expected END-WT0QOE, got WT0QOE)": 1,
+  "truncation sentinel mismatch (expected END-BYRA38, got BYRA38)": 1,
+  "truncation sentinel mismatch (expected END-7MG8EI, got 7MG8EI)": 1,
+  "truncation sentinel mismatch (expected END-TCQPO4, got TCQPO4)": 1,
+  "truncation sentinel mismatch (expected END-19Y4VW, got 19Y4VW)": 1,
+  "truncation sentinel mismatch (expected END-HPWB41, got HPWB41)": 1,
+  "truncation sentinel mismatch (expected END-55JKHB, got 55JKHB)": 1,
+  "truncation sentinel mismatch (expected END-9PP9J2, got 9PP9J2)": 1,
+  "truncation sentinel mismatch (expected END-6KQX1T, got 6KQX1T)": 1,
+  "truncation sentinel mismatch (expected END-1FM5UL, got 1FM5UL)": 1,
+  "truncation sentinel mismatch (expected END-2LSOT2, got 2LSOT2)": 1,
+  "truncation sentinel mismatch (expected END-EXHMP5, got EXHMP5)": 1,
+  "truncation sentinel mismatch (expected END-ZKT70C, got ZKT70C)": 1,
+  "truncation sentinel mismatch (expected END-KE0G2E, got KE0G)": 1,
+  "truncation sentinel mismatch (expected END-NOV70Z, got NOV70Z)": 1,
+  "truncation sentinel mismatch (expected END-D4MNQ5, got END-D4MNQ55)": 1,
+  "truncation sentinel mismatch (expected END-5564OK, got END-5564)": 1,
+  "truncation sentinel mismatch (expected END-EGGGOE, got END-EGGOE)": 1,
+  "truncation sentinel mismatch (expected END-IONGEM, got ENDINGEM)": 1,
+  "truncation sentinel mismatch (expected END-FUMURN, got END-FURNUM)": 1,
+  "no_filled_bucket": 1,
+  "truncation sentinel mismatch (expected END-8JHHRH, got END-8JHRH)": 1,
+  "truncation sentinel mismatch (expected END-QTXSH1, got :END-QTXSH1)": 1,
+  "truncation sentinel mismatch (expected END-1PMYOP, got END-1PMOYP)": 1,
+  "truncation sentinel mismatch (expected END-PWMN0J, got END-PWN0J)": 1,
+  "truncation sentinel mismatch (expected END-7YQKCW, got END-7YKCW)": 1,
+  "truncation sentinel mismatch (expected END-SX0D93, got >END-SX0D93)": 1,
+  "truncation sentinel mismatch (expected END-QM8J0Y, got :END-QM8J0Y)": 1,
+  "truncation sentinel mismatch (expected END-BN1EY5, got END-BN1E5)": 1,
+  "truncation sentinel mismatch (expected END-3VUJJ2, got END-3VJJ2)": 1,
+  "truncation sentinel mismatch (expected END-LBNBCS, got >>> END-LBNBCS)": 1,
+  "truncation sentinel mismatch (expected END-5S2JQW, got END-5S2JWQ)": 1,
+  "truncation sentinel mismatch (expected END-BYOOQX, got END-BOOQX)": 1,
+  "truncation sentinel mismatch (expected END-H4URD3, got H4URD3)": 1,
+  "truncation sentinel mismatch (expected END-SMEXLF, got SMEXLF)": 1,
+  "no_empty_bucket": 1,
+  "truncation sentinel mismatch (expected END-YND2HG, got YND2HG)": 1,
+  "truncation sentinel mismatch (expected END-H1RH7Z, got H1RH7Z)": 1,
+  "truncation sentinel mismatch (expected END-BOVECC, got END-OVECC)": 1,
+  "truncation sentinel mismatch (expected END-AFNN2P, got END-AFNK2P)": 1,
+  "truncation sentinel mismatch (expected END-9XZJDI, got END-9XJDI)": 1,
+  "truncation sentinel mismatch (expected END-J4MCRP, got END-J4AMCRP)": 1
+ },
+ "admitted_status": {
+  "success": 35353,
+  "failed": 34755,
+  "aborted": 6152,
+  "unknown": 3247,
+  "no_effect": 1524
+ },
+ "labels_by_skill": {
+  "gather": {
+   "bad": 34369,
+   "good": 9735,
+   "neutral": 119
+  },
+  "explore": {
+   "good": 10989,
+   "bad": 30725,
+   "neutral": 1204
+  },
+  "goto": {
+   "neutral": 1620,
+   "good": 5720,
+   "bad": 24616
+  },
+  "deposit": {
+   "bad": 13079,
+   "good": 136
+  },
+  "mine": {
+   "good": 5475,
+   "bad": 5962,
+   "neutral": 958
+  },
+  "craft": {
+   "bad": 3154,
+   "good": 189,
+   "neutral": 10
+  },
+  "surface": {
+   "bad": 1032,
+   "good": 198,
+   "neutral": 13
+  },
+  "home": {
+   "bad": 414,
+   "good": 143,
+   "neutral": 6
+  },
+  "place": {
+   "good": 48,
+   "bad": 484
+  },
+  "bucket": {
+   "bad": 382
+  },
+  "smelt": {
+   "bad": 231,
+   "good": 77,
+   "neutral": 2
+  },
+  "status": {
+   "neutral": 147,
+   "bad": 82
+  },
+  "eat": {
+   "bad": 47,
+   "neutral": 67
+  },
+  "null": {
+   "bad": 82
+  },
+  "withdraw": {
+   "bad": 23,
+   "good": 2
+  },
+  "board": {
+   "bad": 7,
+   "good": 2
+  }
+ },
+ "per_pool": {
+  "board-a": 9056,
+  "board-b": 8978,
+  "board-c": 8312,
+  "board-d": 10956,
+  "hive-a": 9246,
+  "hive-b": 9922,
+  "hive-c": 9339,
+  "hive-d": 9355,
+  "self-isolated-a-Alpha": 1916,
+  "self-isolated-a-Bravo": 1877,
+  "self-isolated-a-Comet": 1769,
+  "self-isolated-a-Delta": 1887,
+  "self-isolated-a-Echo": 1770,
+  "self-isolated-b-Alpha": 2104,
+  "self-isolated-b-Bravo": 1926,
+  "self-isolated-b-Comet": 1869,
+  "self-isolated-b-Delta": 2151,
+  "self-isolated-b-Echo": 2117,
+  "self-isolated-c-Alpha": 2693,
+  "self-isolated-c-Bravo": 2032,
+  "self-isolated-c-Comet": 1830,
+  "self-isolated-c-Delta": 1838,
+  "self-isolated-c-Echo": 2069,
+  "self-isolated-d-Alpha": 1861,
+  "self-isolated-d-Bravo": 2531,
+  "self-isolated-d-Comet": 1807,
+  "self-isolated-d-Delta": 1858,
+  "self-isolated-d-Echo": 1751,
+  "placebo-a": 8741,
+  "placebo-b": 8823,
+  "placebo-c": 9709,
+  "placebo-d": 9456
+ },
+ "per_endpoint": {
+  "http://10.0.0.72:11434": 110325,
+  "http://127.0.0.1:11611": 3483,
+  "http://10.0.0.16:11434": 37741
+ },
+ "models": {
+  "qwen2.5:7b-instruct": 148066,
+  "gemma4:26b": 3483
+ },
+ "code_versions": {
+  "adbec4f4": 59267,
+  "9e7d9980": 76558,
+  "78fa19d9": 3487,
+  "a52d075e": 7011,
+  "31416ee5": 5226
+ },
+ "system_hashes": {
+  "a953f82c5f203717": 37302,
+  "bcc44f92948c715d": 77518,
+  "695b8935e81062f9": 36729
+ }
+}
