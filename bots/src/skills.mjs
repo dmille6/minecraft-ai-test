@@ -10761,12 +10761,21 @@ function townSearchView (bot, needs, tried = new Set()) {
     : need === SMELT_JOB_FUEL ? mem?.[COAL_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
   const missAt = (h, need) => need === 'trippick' ? Math.max(missOf(h, 'pick') ?? -Infinity, missOf(h, 'trippick') ?? -Infinity) : missOf(h, need)
   const latest = vals => vals.reduce((a, v) => (Number.isFinite(v) && v > a ? v : a), -Infinity)
+  // protectzone-01 x toolkit-03 (JIT 10-21b): A CONTAINER IN A PROTECTED ZONE IS NOT IN THE TOWN'S SEARCH. The scan's findBlocks
+  // never answers a zone cell, but the journal's counted keys re-add containers the scan cannot see; the guard refuses their
+  // open (container_open ends the order) and the kit's 30-min backoff outlasts the 30-min visit skip, so every run returned
+  // to the same refused container and never drew from the ones outside (test/protectzone-townsearch-compose.test.mjs).
+  // Either half of a double chest in a zone shuts both (the window is the 54 slots). No zone loaded -> nothing changes.
+  let zonesNow = []
+  try { zonesNow = bot.protectZones?.() ?? [] } catch { zonesNow = [] }
+  const zoneShut = q => { try { return zonesNow.length > 0 && !!blocked(zonesNow, q.x, q.y, q.z, me ?? null) } catch { return false } }
   for (const k of sc.keys ?? []) {
     const p = keyVec(k)
     const b = bot.blockAt?.(p)
     if (!b || !CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) continue
     const partner = chestPartner(bot, p)
     const halves = partner ? [k, posKey(partner)] : [k]
+    if (halves.some(h => zoneShut(keyVec(h)))) continue
     byKey.set(k, b)
     containers.push({ k, d: me ? me.distanceTo(p) : Infinity })
     const failUntil = bot.withdrawSearchSkip?.get?.(k)
