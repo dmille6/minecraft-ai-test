@@ -26,7 +26,7 @@ import time
 import datetime as dt
 
 MIN_MS = 60_000
-KEEP_GENS = 48
+KEEP_GENS = 12                    # ~12 h of history (a new generation when the content changes, ~hourly); 13 towns x 12 x ~140 KB
 BUNDLE_MAX_AGE_MS = 20 * MIN_MS
 MAX_BUNDLE_BYTES = 64 << 20
 POOL_RE = re.compile(r'^[a-z][a-z0-9]*(-[a-z0-9]+)*$')
