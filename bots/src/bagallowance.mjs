@@ -154,7 +154,7 @@ export function junkoutModeDetail (allowance = BAG_ALLOWANCE, visit = JUNK_VISIT
  *   mode       'tail' (the not-full visit order) | 'full' (rows appended to a full bag's town deposit)
  *   keepPicks  stone pickaxe copies the plan kept (the best working one + the spares), or null when it had none to judge
  */
-export function junkoutBankDetails ({ planned = [], heldBefore = {}, banked = {}, slotsBefore = null, slotsAfter = null, peaceful = null, visit = null, mode = 'tail', keepPicks = null, dh = null, dy = null, armed = null } = {}) {
+export function junkoutBankDetails ({ planned = [], heldBefore = {}, banked = {}, slotsBefore = null, slotsAfter = null, peaceful = null, visit = null, mode = 'tail', keepPicks = null, dh = null, dy = null, armed = null, attempted = {} } = {}) {
   const allow = [...new Set(planned.map(s => s.name))].sort()
   const rows = {}
   for (const s of planned) rows[s.row] = (rows[s.row] ?? 0) + 1
@@ -163,7 +163,10 @@ export function junkoutBankDetails ({ planned = [], heldBefore = {}, banked = {}
   const other = Object.keys(banked ?? {}).filter(k => n(banked[k]) > 0 && !allow.includes(k)).sort()
   const head = `phase=bank v=${visit ?? '-'} mode=${mode} armed=${armed ?? '-'} dh=${dh ?? '?'} dy=${dy ?? '?'} peaceful=${peaceful == null ? '?' : peaceful ? 1 : 0} stacks=${planned.length} banked=${got} ` +
     `slots=${slotsBefore ?? '?'}->${slotsAfter ?? '?'} keep_picks=${keepPicks ?? '-'} rows=${Object.entries(rows).sort().map(([k, v]) => `${k}:${v}`).join(',') || '-'}`
-  const tokens = [...allow.map(k => `allow=${k}=${n(heldBefore?.[k])}:${n(banked?.[k])}`), ...other.map(k => `other=${k}:${n(banked[k])}`)]
+  // try= a name CLICKED into a chest this run beyond what the server verified (an abort, an unverified re-open): it may be there
+  const tried = Object.keys(attempted ?? {}).filter(k => n(attempted[k]) > n(banked?.[k])).sort()
+  const tokens = [...allow.map(k => `allow=${k}=${n(heldBefore?.[k])}:${n(banked?.[k])}`), ...other.map(k => `other=${k}:${n(banked[k])}`),
+    ...tried.map(k => `try=${k}:${n(attempted[k]) - n(banked?.[k])}`)]
   const parts = [[]]
   const len = p => `${head} part=99/99 ${p.join(' ')}`.length
   for (const t of tokens) {

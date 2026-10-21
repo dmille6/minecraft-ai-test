@@ -7737,7 +7737,7 @@ async function townDeposit (ctx, _args, signal) {
     try {
       const visit = _args?.vid ?? visitId(bot.username, Date.now())
       for (const detail of junkoutBankDetails({ planned: allowPlanned, heldBefore, banked, slotsBefore, slotsAfter, peaceful: foodSkipNow(bot).active, visit,
-                                                mode: tail ? 'tail' : 'full', keepPicks: startPlan.keepPicks, dh: _args?.dh ?? null, dy: _args?.dy ?? null, armed: _args?.armed ?? null }))
+                                                mode: tail ? 'tail' : 'full', keepPicks: startPlan.keepPicks, dh: _args?.dh ?? null, dy: _args?.dy ?? null, armed: _args?.armed ?? null, attempted }))
         logEvent({ kind: 'junkout', status: n > 0 ? 'success' : 'failed', snapshot: snapshot(bot), detail })
     } catch { /* telemetry */ }
   }

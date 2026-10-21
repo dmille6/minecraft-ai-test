@@ -121,10 +121,11 @@ def bank_tokens(detail):
             s, _, b = sb.partition(':')
             if s.isdigit() and b.isdigit():
                 allow[name] = (int(s), int(b))
-        elif tok.startswith('other='):
-            name, _, n = tok[6:].partition(':')
+        elif tok.startswith('other=') or tok.startswith('try='):
+            # try= a name clicked into a chest beyond what the server verified (an abort): J1 judges it like a banked name
+            name, _, n = tok.split('=', 1)[1].partition(':')
             if n.isdigit():
-                other[name] = int(n)
+                other[name] = other.get(name, 0) + int(n)
     return allow, other
 
 
@@ -412,6 +413,7 @@ def selftest():
     J = lambda extra, **k: judge(good + extra + ctl, {}, None, k.get('samples', {}), vis)
     # J1
     assert J([BANK(other='egg:6', mins=200)])['breach_junk_chest'] == 1, 'J1: an egg'
+    assert J([R('_junkout', 'phase=bank v=hive-a-Alpha.zz mode=tail armed=first dh=4 dy=0 peaceful=1 stacks=1 banked=0 slots=17->17 keep_picks=0 rows=torch:1 part=1/1 allow=torch=11:0 try=egg:4', mins=200)])['breach_junk_chest'] == 1, 'J1: an aborted run clicked an egg (try=)'
     assert J([BANK(other='oak_sapling:9', mins=200)])['breach_junk_chest'] == 1, 'J1: a sapling'
     assert J([BANK(other='brown_mushroom:3', mins=200)])['breach_junk_chest'] == 1, 'J1: a peaceful plant in a peaceful world'
     assert J([BANK(other='brown_mushroom:3', peaceful=0, mins=200)])['breach_junk_chest'] == 0, 'J1 control: outside peaceful, not junk'
