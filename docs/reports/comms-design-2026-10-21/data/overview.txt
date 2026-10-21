@@ -1,0 +1,286 @@
+395M	out
+rows 1145782 bots 60 hours 24.02
+triggers [('reflex', 1081738), ('llm:idle', 44925), ('interrupt:entombed', 5814), ('llm:entombed', 3074), ('interrupt:stagnation', 2026), ('livelock_escape', 1973), ('llm:stagnation', 1097), ('interrupt:stuck', 1071), ('watchdog_relocate', 977), ('llm:liveness_restart', 847), ('livelock_escape_dig', 755), ('llm:stuck', 482), ('interrupt:timeout', 368), ('llm:startup', 222), ('llm:timeout', 127), ('watchdog_home', 74), ('watchdog_stranded_underground', 68), ('death', 33), ('interrupt:danger_block', 21), ('interrupt:low_health', 19)]
+death-like kinds [('_skill_versions_reconciled', 70), ('_skill_abort_ignored', 68), ('_death_site_route_crossed', 1219), ('_death_site_recorded', 33), ('_death', 33), ('_explore_target_skipped_death_site', 63)]
+_path_reset                       212237 {'success': 212237}
+_affordance_scan                  119423 {'success': 119230, 'no_effect': 193}
+_path_noPath                       86284 {'success': 86284}
+_scaffold_pick                     78726 {'success': 78726}
+_reach_probe                       71195 {'no_effect': 9902, 'success': 61293}
+_path_no_legal_move                47430 {'failed': 47430}
+_water_float                       46847 {'success': 46847}
+_water_float_ended                 46810 {'success': 46483, 'failed': 327}
+_pickup_skipped                    41620 {'success': 41620}
+_path_failure_shapes               35032 {'failed': 35032}
+_path_timeout                      31506 {'success': 31506}
+_dig_town_sum                      29471 {'success': 29471}
+_pickups                           21661 {'success': 21661}
+gather                             20521 {'success': 9192, 'aborted': 2076, 'failed': 9163, 'unknown': 90}
+_explore_toward_known              15042 {'success': 15042}
+explore                            15028 {'no_effect': 747, 'failed': 3846, 'success': 8990, 'aborted': 1445}
+goto                               14154 {'failed': 3760, 'aborted': 1522, 'unknown': 1884, 'success': 6988}
+_water_surface                     13574 {'success': 13574}
+_water_surface_ended               13560 {'success': 13434, 'failed': 126}
+_chunks_evicted                    12470 {'success': 12470}
+_livelock_not_fixated              11307 {'no_effect': 11307}
+_inventory_mutation                10282 {'success': 10282}
+_entombed                           8777 {'failed': 8777}
+_plant_spot                         8337 {'success': 8337}
+_milestone_complete                 8288 {'success': 8288}
+_work_order                         7476 {'success': 7476}
+_town_ground                        7029 {'success': 7029}
+_rule_contradicted                  6589 {'failed': 6589}
+_marooned                           6078 {'failed': 6078}
+mine                                5904 {'success': 4191, 'failed': 1094, 'unknown': 614, 'aborted': 5}
+_smelt_job_tally                    4789 {'success': 4789}
+_fall_path                          4315 {'no_effect': 4299, 'failed': 16}
+_stock_refused                      4293 {'success': 4293}
+_gather_via_source                  3691 {'success': 3691}
+_stagnation                         3627 {'failed': 3627}
+_dig_approach                       3439 {'aborted': 302, 'success': 2351, 'fail': 786}
+_stranded_escape_try                2957 {'success': 2957}
+_stranded_escape_result             2955 {'failed': 2899, 'success': 56}
+_explore_blind_step_refused         2885 {'no_effect': 2885}
+_veto_faces                         2839 {'no_effect': 2839}
+_livelock_escape                    2773 {'failed': 1160, 'success': 1525, 'no_effect': 88}
+_furnace_session                    2650 {'success': 2650}
+_climb_flood_guard                  2172 {'failed': 2172}
+_smelt_town                         2099 {'no_effect': 1489, 'aborted': 217, 'success': 374, 'failed': 19}
+smelt_town                          2098 {'no_effect': 1489, 'failed': 168, 'success': 401, 'unknown': 12, 'aborted': 28}
+_smelt_job_skip                     1838 {'no_effect': 1838}
+_furnace_drain                      1726 {'failed': 680, 'no_effect': 922, 'aborted': 123, 'success': 1}
+furnace_drain                       1726 {'failed': 680, 'no_effect': 922, 'aborted': 122, 'success': 2}
+_loop_restart                       1441 {'failed': 1441}
+_goto_dig_retry                     1409 {'success': 899, 'failed': 510}
+_prereq_adopted                     1320 {'failed': 1320}
+_death_site_route_crossed           1219 {'no_effect': 1219}
+_watchdog_rescue                    1159 {'no_effect': 842, 'failed': 194, 'success': 123}
+_mine_stair_step_failed             1124 {'failed': 1124}
+_prereq_satisfied                   1113 {'success': 1113}
+_worn_first                         1077 {'success': 1077}
+_reflex_stuck                       1073 {'success': 1073}
+_lava_corridor                      1070 {'no_effect': 1070}
+_craft_room                         1054 {'success': 943, 'refused': 108, 'made_room': 2, 'unverified': 1}
+_maroon_climb_refused               1026 {'failed': 1026}
+_junk_pickup                        1023 {'success': 1023}
+_craft_sync                         1015 {'failed': 72, 'success': 943}
+_entombed_unrecoverable              894 {'failed': 894}
+_config_drift                        866 {'failed': 866}
+_toolkit                             780 {'success': 529, 'failed': 226, 'aborted': 25}
+_dig_collision                       779 {'failed': 779}
+craft                                736 {'aborted': 95, 'failed': 181, 'success': 452, 'unknown': 8}
+_climb_flood_ramp                    715 {'failed': 557, 'success': 158}
+_craft_admit                         709 {'success': 709}
+_milestone_skipped                   687 {'failed': 687}
+_stranded_underground                586 {'failed': 586}
+_climb_flood_refused                 555 {'failed': 555}
+surface                              532 {'failed': 323, 'success': 110, 'aborted': 43, 'unknown': 56}
+smelt                                498 {'success': 322, 'aborted': 62, 'failed': 100, 'unknown': 6, 'no_effect': 8}
+_tool_spent                          468 {'no_effect': 468}
+_tool_broke                          456 {'no_effect': 456}
+deposit                              442 {'success': 143, 'failed': 289, 'unknown': 1, 'aborted': 9}
+toolkit                              416 {'success': 195, 'failed': 218, 'aborted': 2, 'unknown': 1}
+_withdraw_pick                       399 {'failed': 110, 'no_effect': 173, 'success': 116}
+withdraw_pick                        389 {'failed': 92, 'no_effect': 173, 'success': 115, 'unknown': 5, 'aborted': 4}
+place                                337 {'success': 306, 'failed': 31}
+_dig_town                            321 {'success': 321}
+_milestone_skip_reset                311 {'success': 311}
+_stranded_unrecoverable              304 {'failed': 304}
+_cobblecap_mode                      296 {'success': 296}
+_lidclear_mode                       296 {'success': 296}
+_townsearch_mode                     296 {'success': 296}
+_plinth_mode                         296 {'success': 296}
+_plinth021_mode                      296 {'success': 296}
+_plinthfirst_mode                    296 {'success': 296}
+_wellcare_mode                       296 {'success': 296}
+_cobblekeep_mode                     296 {'success': 296}
+_tool_hygiene                        296 {'success': 296}
+_ore_tunnel                          288 {'success': 160, 'failed': 128}
+home                                 279 {'aborted': 124, 'failed': 77, 'success': 66, 'unknown': 12}
+_spent_swing                         277 {'success': 277}
+_water_no_air_route                  274 {'success': 274}
+_water_no_air_route_ended            269 {'failed': 267, 'success': 2}
+_exit_reserve_abort                  262 {'failed': 262}
+_entombed_ramp_cut                   254 {'failed': 254}
+_entombed_needs_blocks               254 {'failed': 254}
+_recovery_exhausted                  241 {'failed': 241}
+_mine_bearing_turned                 240 {'success': 240}
+_drowning_route                      238 {'success': 238}
+bucket                               232 {'failed': 232}
+_well_deep                           223 {'refused': 223}
+_drowning_up                         220 {'success': 220}
+_toolkit_search_mode                 217 {'success': 217}
+_air_drowning_observed               207 {'success': 207}
+_oxygen_critical_state               200 {'failed': 200}
+_progress_restored                   197 {'success': 197}
+_food_skip                           196 {'success': 196}
+_peaceful_kit                        196 {'success': 196}
+_prereq_abandoned                    188 {'failed': 188}
+_redundant_craft                     187 {'no_effect': 187}
+_table_retaken                       179 {'failed': 55, 'success': 97, 'left': 18, 'gone': 9}
+status                               172 {'no_effect': 172}
+_pathfinder_wedged                   144 {'failed': 144}
+_town_deposit                        136 {'no_effect': 25, 'success': 109, 'failed': 2}
+town_deposit                         136 {'no_effect': 25, 'success': 109, 'failed': 2}
+== _death
+        3 failed fell from a high place after falling # blocks; was running gather | leading up: gather->su
+        2 failed was impaled on a stalagmite after falling # blocks; was running explore | leading up: gath
+        2 failed tried to swim in lava after falling # blocks; idle at the moment of death | leading up: ga
+        1 failed was impaled on a stalagmite after falling # blocks; idle at the moment of death | leading 
+        1 failed was impaled on a stalagmite after falling # blocks; was running goto | leading up: explore
+        1 failed drowned; idle at the moment of death | leading up: gather->failed, explore->success, mine-
+        1 failed drowned; idle at the moment of death | leading up: gather->success, smelt->success, explor
+        1 failed was impaled on a stalagmite after falling # blocks; was running gather | leading up: explo
+== _death_site_route_crossed
+      708 no_effect death:drowning x# at #,#,#; the planned route passes #,#,# (# nodes)
+      155 no_effect death:suffocation x# at #,#,#; the planned route passes #,#,# (# nodes)
+      141 no_effect death:fall x# at #,#,#; the planned route passes #,#,# (# nodes)
+      129 no_effect death:fire x# at #,#,#; the planned route passes #,#,# (# nodes)
+       86 no_effect death:other x# at #,#,#; the planned route passes #,#,# (# nodes)
+== _kit_search
+        6 aborted outcome=aborted need=kit_iron town=# cand=# visits=# vfail=# maxrep=# left=# tried=[#,#,#:
+        3 failed outcome=more need=kit_iron_# town=# cand=# visits=# vfail=# maxrep=# left=# tried=[#,#,#:n
+        3 failed outcome=more need=kit_iron_# town=# cand=# visits=# vfail=# maxrep=# left=# tried=[#,#,#:c
+        2 failed outcome=no_iron need=kit_iron_# town=# cand=# visits=# vfail=# maxrep=# left=# tried=[#,#,
+        2 aborted outcome=aborted need=kit_iron_# town=# cand=# visits=# vfail=# maxrep=# left=# tried=[#,#,
+        2 failed outcome=more need=kit_iron town=# cand=# visits=# vfail=# maxrep=# left=# tried=[#,#,#:non
+== _smelt_job_skip
+     1384 no_effect why=town_has_none free=# copper=# fuel=#
+      409 no_effect why=nothing_to_drain free=# copper=# fuel=#
+       45 no_effect why=room free=# copper=# fuel=#
+== _toolkit
+      139 failed phase=kit outcome=no_iron needs=iron_shovel drew=# sticks=# used=# crafted=- credit=#-># s
+       47 failed phase=kit outcome=no_iron needs=iron_axe+iron_shovel drew=# sticks=# used=# crafted=- cred
+       16 failed phase=wear outcome=none listed=# worn=# stop=no_safe_block_within_reach_[#_cells:_not_natu
+       16 aborted phase=kit outcome=aborted needs=iron_axe+iron_shovel drew=# sticks=# used=# crafted=- cred
+       10 failed phase=wear outcome=none listed=# worn=# stop=stone_pickaxe_not_confirmed_destroyed_after_t
+        7 aborted phase=kit outcome=aborted needs=iron_shovel drew=# sticks=# used=# crafted=- credit=#-># s
+        6 failed phase=kit outcome=more needs=iron_shovel drew=# sticks=# used=# crafted=- credit=#-># town
+        3 failed phase=wear outcome=none listed=# worn=# stop=could_not_hold_a_spent_stone_pickaxe before=i
+== _town_deposit
+       25 no_effect slots #-># stacks #/# clicked # bagdelta # tools - stock #/# counted # banked - stop count
+        2 failed slots #-># stacks #/# clicked # bagdelta # tools - banked - stop full containers #,#,#=ful
+== _withdraw_pick
+      161 no_effect outcome=has_ingredients need=none uses=- verification=server verb=withdraw_pick line=trip 
+       41 failed outcome=short need=stick:# uses=- verification=server verb=withdraw_pick line=trip town=# 
+       38 failed outcome=error need=trip_pickaxe uses=- verification=- verb=withdraw_pick line=trip town=# 
+       10 no_effect outcome=has_ingredients need=none uses=- verification=- verb=withdraw_pick line=trip town=
+        9 failed outcome=short need=stick:# uses=- verification=- verb=withdraw_pick line=trip town=# cand=
+        8 failed outcome=short need=stick:# uses=- verification=server verb=withdraw_pick line=any town=# c
+        3 failed outcome=error need=stick:# uses=- verification=- verb=withdraw_pick line=trip town=# cand=
+        2 failed outcome=chest_unreachable need=oak_log:# uses=- verification=- cursor=- err=- chest_room=-
+== build
+        1 failed pillar at #,#,#: #/# in place (# new, # already, # failed)
+== build_plinth
+        1 no_effect planned the town's raised junk well at #,#,#: # block(s) and # leaf clear(s), built over t
+== compost
+        7 failed the town composter at #,#,# could not be reached
+        1 aborted entombed
+== craft
+       47 aborted aborted
+       35 aborted entombed
+       18 failed crafting_table is # blocks away and could not be reached — stone_pickaxe needs one within 
+       15 failed cannot craft torch -- short #x coal for the whole tree (you have #x coal, #x torch, #x cob
+       14 failed crafting_table is # blocks away and could not be reached — ladder needs one within # block
+       13 aborted stagnation
+       13 failed cannot craft iron_pickaxe -- short #x iron_ingot for the whole tree (you have #x iron_ingo
+       13 failed home -- then deposit stone_shovel: banking is refused out here (no usable chest in reach) 
+== deposit
+      206 failed could not reach the chest at #,#,#: No path to the goal!
+       18 failed The goal was changed before it could be completed!
+       18 failed could not reach the chest at #,#,#: The goal was changed before it could be completed!
+       13 failed could not reach the chest at #,#,#: No path to the goal! (the walk ended # blocks from the
+       13 failed could not reach the chest at #,#,#: Took to long to decide path to goal!
+        9 failed deposit at the town chest -- the chests here are full or closed, and new chests are only m
+        5 aborted stagnation
+        5 failed no chest nearby; walking home to the town chest failed: no route exists toward #,# — after
+== dispose_well
+       28 failed could not reach the junk well's standing cell at #,#,# (the bot is at #,#,#); the next tow
+        1 aborted entombed
+        1 failed the throw was refused from here: # from the well's centre (must be ##); the next visit sta
+        1 no_effect nothing thrown: placebo-d-Comet came within # of the well
+== explore
+     2392 failed could not explore: explored # blocks to #,# in # legs
+     1283 failed could not explore: explored # blocks to #,# in # legs (some legs blocked: No path to the g
+     1023 aborted entombed
+      313 aborted stagnation
+      275 no_effect explored # blocks to #,# in # legs (some legs blocked: pathfinding exceeded #ms) — barely 
+      260 no_effect explored # blocks to #,# in # legs (some legs blocked: No path to the goal!) — barely move
+      145 no_effect explored # blocks to #,# in # legs (some legs blocked: Took to long to decide path to goal
+       79 aborted stuck
+== furnace_drain
+      922 no_effect the furnace at #,#,# is empty
+      680 failed the furnace at #,#,# is # blocks away and could not be reached
+       58 aborted entombed
+       39 aborted stuck
+       25 aborted stagnation
+== gather
+     2471 failed dirt found but unreachable after # attempts [probe: success, slate #, A* reached a candida
+     1673 failed sand found but all # candidates are beside water or under falling blocks — digging them wo
+     1159 aborted entombed
+      650 aborted stagnation
+      545 failed oak_log found but all # candidates are beside water or under falling blocks — digging them
+      493 failed iron_ore: all # candidate(s) in range refused — could not stand within reach of any of the
+      406 failed oak_log found but unreachable after # attempts [probe: noPath, slate #, A* reached none] [
+      312 failed dirt found but unreachable after # attempts [collect said: arrived_out_of_reach: [pathfind
+== home
+       69 aborted stagnation
+       31 aborted stuck
+       20 failed The goal was changed before it could be completed!
+       18 aborted entombed
+       17 failed no route exists toward #,# — after # leg(s), still # blocks short
+       16 failed closed # blocks toward home, # still to go — run home again to continue
+       11 failed pathfinder returned an empty path from #,#,# — no route out of here even with digging allo
+        6 failed a competing goal replaced the route to #,# — after # leg(s), still # blocks short
+== mine
+      413 failed stopped at y=#: water in the tread ahead — and in every other direction from here, so mini
+      366 failed will not dig down within # blocks of home — the base floor is not a resource; walk out at 
+      324 unknown stopped at y=#: cut a step but could not stand in it (moved # blocks, wrong cell). The sha
+      290 unknown reached y=# — but nothing changed that mine exists to change (expected inventory_gain|posi
+      224 failed stopped at y=# to keep an exit: # pickaxe swings left against a #-block climb out (need # 
+       37 failed stopped at y=# to keep an exit: # scaffold blocks against a #-block climb out (need # with
+       20 failed stopped at y=#: water beside the ceiling cell ahead — opening it would let it in
+       11 failed stopped at y=#: water in the tread ahead
+== smelt
+       75 failed no raw_iron to smelt — gather raw_iron first
+       50 aborted entombed
+       14 failed the furnace is # blocks away and could not be reached — smelting needs one within # blocks
+        8 no_effect the furnace produced no iron_ingot; the raw_iron and fuel are back in your inventory
+        7 aborted stagnation
+        5 unknown the furnace was still burning when this call's #s ran out; the raw_iron and fuel are back 
+        5 aborted stuck
+        4 failed no coal_ore to smelt — gather coal_ore first
+== smelt_town
+     1192 no_effect no raw copper in the bag or in the town containers looked in (each is remembered for # h);
+      247 no_effect no coal in the town containers looked in; the job does not burn the bag's own fuel, so the
+      133 failed The goal was changed before it could be completed!
+       47 no_effect no raw copper in the # town container(s) looked in yet; others are not yet looked in -- th
+       18 aborted stuck
+       15 failed No path to the goal!
+       12 unknown pathfinding exceeded #ms
+       11 failed the town smelt job stopped: No path to the goal!
+== toolkit
+      186 failed no town container in reach holds # iron ingot(s) with # to spare (# tried); the town's iro
+       22 failed The goal was changed before it could be completed!
+        8 failed no iron drawn yet: # town container(s) looked in, # not yet -- the next kit run continues 
+        2 failed no town container holds # iron ingot(s) with # to spare (# looked in, the rest known short
+        1 aborted stuck
+        1 aborted stagnation
+        1 unknown pathfinding exceeded #ms
+== town_deposit
+       23 no_effect counted # town container(s); nothing to bank (the town holds its stock of what is carried,
+        2 failed the town chests in reach are full; deposit (no item) tries other chests and can build a ne
+        2 no_effect nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) o
+== withdraw
+        4 failed could not reach the chest at #,#,#
+        1 failed stick is not in the # container(s) tried here -- they hold #,#: #x cobblestone, #x oak_log
+        1 aborted entombed (threw GoalChanged: The goal was changed before it could be completed!)
+        1 failed no chest nearby; walking home to the town chest failed: cannot go home yet: no route up fr
+        1 aborted entombed
+        1 failed no chest nearby; walking home to the town chest failed: pathfinder returned an empty path 
+== withdraw_pick
+      173 no_effect no usable pickaxe in the town chests looked at, and the bag already holds what one stone p
+       58 failed no usable pickaxe and none of stick:# in the # container(s) tried here
+       34 failed The goal was changed before it could be completed!
+        5 unknown pathfinding exceeded #ms
+        4 aborted stuck (threw GoalChanged: The goal was changed before it could be completed!)

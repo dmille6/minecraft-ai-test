@@ -1,0 +1,49 @@
+# comms design 2026-10-21, part 3: does a PEER's fruitless visit to a shared iron sighting predict mine?
+# Unit: a (bot, sighting) episode = the bot's first heading at the sighting in a 60-min run of headings.
+# Outcome: an iron gather success within 48 blocks of the sighting within 60 min of the episode start.
+# Class: 'peer_fruitless' = another bot of the town had an episode at the same sighting that ENDED >= 0 s before this
+# one started (its 60 min elapsed) with no harvest; 'peer_harvested' = another bot harvested there earlier; 'fresh'.
+import json, glob, re, math, collections, bisect, os
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+def dist(a, b): return math.hypot(a[0] - b[0], a[2] - b[2])
+R, W = 48, 3600
+cls_n = collections.Counter(); cls_hit = collections.Counter(); cls_s = collections.Counter()
+for f in sorted(glob.glob(os.path.expanduser('~/commsdesign-1021/out/*.jsonl'))):
+    rows = sorted((json.loads(l) for l in open(f)), key=lambda r: r['t'])
+    G = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == 'gather' and r['s'] == 'success' and 'iron' in (r.get('a') or '') and r.get('p'):
+            G[r['bot']].append((r['t'], r['p']))
+    # explore run time per bot, to charge each episode the explore seconds spent while heading at it
+    E = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == 'explore': E[r['bot']].append((r['t'], r['t'] + (r.get('dur') or 0) / 1000))
+    eps = []; last = {}
+    for r in rows:
+        if r['k'] != '_explore_toward_known': continue
+        m = HEAD.search(r['d'])
+        if not m or 'iron' not in m.group(1): continue
+        s = (int(m.group(2)), int(m.group(3)), int(m.group(4))); key = (r['bot'], s)
+        if key in last and r['t'] - last[key]['t0'] <= W:
+            last[key]['legs'].append(r['t']); continue
+        ep = {'bot': r['bot'], 's': s, 't0': r['t'], 'legs': [r['t']]}
+        last[key] = ep; eps.append(ep)
+    for ep in eps:
+        ep['hit'] = any(0 <= t - ep['t0'] <= W and dist(p, ep['s']) <= R for t, p in G[ep['bot']])
+        ep['hit_t'] = min((t for t, p in G[ep['bot']] if 0 <= t - ep['t0'] <= W and dist(p, ep['s']) <= R), default=None)
+        # explore seconds in runs that contain one of this episode's legs
+        sec = 0.0
+        for a, b in E[ep['bot']]:
+            if any(a <= t <= b for t in ep['legs']): sec += b - a
+        ep['sec'] = sec
+    by_s = collections.defaultdict(list)
+    for ep in eps: by_s[ep['s']].append(ep)
+    for ep in eps:
+        others = [o for o in by_s[ep['s']] if o['bot'] != ep['bot'] and o['t0'] < ep['t0']]
+        if any(o['hit_t'] is not None and o['hit_t'] < ep['t0'] for o in others): c = 'peer_harvested'
+        elif any(o['t0'] + W <= ep['t0'] and not o['hit'] for o in others): c = 'peer_fruitless'
+        else: c = 'fresh'
+        cls_n[c] += 1; cls_hit[c] += ep['hit']; cls_s[c] += ep['sec']
+print(f'iron-sighting episodes (bot, sighting, 60 min): {sum(cls_n.values())}')
+for c in ('fresh', 'peer_fruitless', 'peer_harvested'):
+    print(f'  {c:15s} n={cls_n[c]:5d}  harvested {cls_hit[c]:4d} ({100*cls_hit[c]/max(cls_n[c],1):.1f}%)  explore bot-h {cls_s[c]/3600:.1f}')

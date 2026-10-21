@@ -1,0 +1,37 @@
+# Compact extract of N minutes of skill rows per shared town (read-only). comms design 2026-10-21.
+import sys, json, os
+sys.path.insert(0, os.path.expanduser('~/commsdesign-1021'))
+from lib.telemetry import Events
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd']
+KEEP_INV = ('iron_ingot', 'raw_iron', 'coal', 'charcoal', 'raw_copper', 'copper_ingot', 'stick',
+            'cobblestone', 'torch', 'bone_meal', 'iron_pickaxe', 'stone_pickaxe')
+mins = int(sys.argv[1]) if len(sys.argv) > 1 else 1440
+tag = sys.argv[2] if len(sys.argv) > 2 else 'out'
+os.makedirs(os.path.expanduser(f'~/commsdesign-1021/{tag}'), exist_ok=True)
+tot = {}
+for pool in POOLS:
+    ev = Events.load(paths=f'/var/log/mcai/{pool}-*/skill-*.jsonl*', since_minutes=mins)
+    n = 0
+    with open(os.path.expanduser(f'~/commsdesign-1021/{tag}/{pool}.jsonl'), 'w') as out:
+        for r in ev.rows:
+            d = r['raw']; b = d.get('bot') or {}; sk = d.get('skill') or {}
+            inv = b.get('inventory') or {}
+            rec = {'t': r['t'].timestamp(), 'bot': b.get('name'), 'k': r['name'], 's': sk.get('status'),
+                   'fc': sk.get('fail_class') or sk.get('failClass'), 'dur': sk.get('duration_ms'),
+                   'd': (sk.get('detail') or '')[:400], 'trg': d.get('trigger'),
+                   'v': ((d.get('code') or {}).get('version') or '')[:8], 'run': d.get('run_id'),
+                   'hp': b.get('health')}
+            if sk.get('args'):
+                rec['a'] = json.dumps(sk.get('args'))[:200]
+            p = b.get('pos')
+            if p:
+                rec['p'] = [round(p.get('x', 0), 1), round(p.get('y', 0), 1), round(p.get('z', 0), 1)]
+            if inv:
+                rec['inv'] = {k: v for k, v in inv.items() if k in KEEP_INV}
+                rec['slots'] = len(inv)
+            out.write(json.dumps(rec) + '\n'); n += 1
+    bots = sorted({(r['bot'] or {}).get('name') for r in ev.rows})
+    tot[pool] = (n, len(bots), round(ev.span, 2))
+    print(pool, n, bots, round(ev.span, 2), flush=True)
+    del ev
+print(json.dumps(tot))

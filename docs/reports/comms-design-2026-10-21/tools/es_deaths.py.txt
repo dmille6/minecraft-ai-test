@@ -1,0 +1,64 @@
+# comms design 2026-10-21: deaths at a death site already on file (ES, 7 d, 12 shared towns; read-only).
+# Control: the share of bot-time (24 h file positions, uniform-time samples) spent inside a live death disc.
+import sys, os, json, math, collections, random, bisect, glob, datetime as dt
+sys.path.insert(0, os.path.expanduser('~/estel/scripts'))
+from lib.estelemetry import EsEvents
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd']
+ev = EsEvents.load(stream='skill', since_minutes=7 * 1440, pools=POOLS)
+print('caveats:', *ev.caveats, sep='\n  ')
+tot = ev.total()
+print('docs in window (positive control):', tot)
+rows = list(ev.rows(kind='_death', fields=['@timestamp', 'bot.name', 'bot.pos', 'exp.pool', 'skill.fail_class', 'skill.detail']))
+print('_death rows:', len(rows))
+def ts(s): return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+D = []
+for r in rows:
+    p = (r.get('bot') or {}).get('pos')
+    if not p: continue
+    D.append({'t': ts(r['@timestamp']), 'bot': r['bot']['name'], 'pool': r['exp']['pool'], 'p': (p['x'], p['y'], p['z']),
+              'fc': (r.get('skill') or {}).get('fail_class'), 'd': ((r.get('skill') or {}).get('detail') or '')[:80]})
+D.sort(key=lambda d: d['t'])
+print('deaths with a position:', len(D), 'of', len(rows))
+LIVE = 36 * 3600   # weight 4, halving every 12 h -> 0 after 36 h without a new hit
+t_lo = min(d['t'] for d in D) + LIVE   # only judge deaths with a full 36 h of history inside the window
+def near(a, b, R=6, DY=6): return math.hypot(a[0] - b[0], a[2] - b[2]) <= R and abs(a[1] - b[1]) <= DY
+out = collections.Counter(); judged = 0; examples = []
+for R in (6, 12, 24):
+    c = collections.Counter(); judged = 0
+    for i, d in enumerate(D):
+        if d['t'] < t_lo: continue
+        judged += 1
+        prior = [q for q in D[:i] if q['pool'] == d['pool'] and d['t'] - q['t'] <= LIVE and near(q['p'], d['p'], R, 6 if R == 6 else 12)]
+        if not prior: c['no_site_on_file'] += 1
+        elif any(q['bot'] != d['bot'] for q in prior):
+            c['site_from_another_bot'] += 1
+            if R == 6 and len(examples) < 12: examples.append((d, [q for q in prior if q['bot'] != d['bot']][-1]))
+        else: c['site_from_own_death'] += 1
+    print(f'R={R:2d}: judged {judged} deaths (with 36 h history):', dict(c))
+for d, q in examples:
+    f = lambda x: f"{dt.datetime.fromtimestamp(x['t'], dt.timezone.utc):%m-%d %H:%M} {x['bot']} {x['fc']} {tuple(round(v) for v in x['p'])}"
+    print('   ', f(d), '<- prior', f(q))
+# control: share of bot-time inside a live R=6 disc, from the 24 h compact files (uniform-time samples per bot)
+F = os.path.expanduser('~/commsdesign-1021/out')
+inside = n = 0; deaths24 = in24 = 0
+random.seed(7)
+for f in sorted(glob.glob(F + '/*.jsonl')):
+    pool = os.path.basename(f)[:-6]
+    rs = [json.loads(l) for l in open(f)]
+    sites = [d for d in D if d['pool'] == pool]
+    per = collections.defaultdict(list)
+    for r in rs:
+        if r.get('p'): per[r['bot']].append((r['t'], r['p']))
+    for b, lst in per.items():
+        lst.sort(); tl = [x[0] for x in lst]
+        for _ in range(400):
+            t = random.uniform(tl[0], tl[-1]); j = bisect.bisect_right(tl, t) - 1
+            if j < 0 or t - tl[j] > 300: continue
+            n += 1; p = lst[j][1]
+            if any(0 < t - s['t'] <= LIVE and near(s['p'], p) for s in sites): inside += 1
+    for d in sites:
+        if d['t'] >= rs[0]['t']:
+            deaths24 += 1
+            if any(0 < d['t'] - s['t'] <= LIVE and near(s['p'], d['p']) for s in sites if s is not d): in24 += 1
+print(f'control (24 h): bot-time samples inside a live R=6 death disc: {inside}/{n} ({100*inside/max(n,1):.2f}%); '
+      f'deaths in the same 24 h inside one: {in24}/{deaths24}')

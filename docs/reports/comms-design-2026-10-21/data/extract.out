@@ -1,0 +1,13 @@
+board-a 98968 ['board-a-Alpha', 'board-a-Bravo', 'board-a-Comet', 'board-a-Delta', 'board-a-Echo'] 24.0
+board-b 89002 ['board-b-Alpha', 'board-b-Bravo', 'board-b-Comet', 'board-b-Delta', 'board-b-Echo'] 24.0
+board-c 82304 ['board-c-Alpha', 'board-c-Bravo', 'board-c-Comet', 'board-c-Delta', 'board-c-Echo'] 24.0
+board-d 176957 ['board-d-Alpha', 'board-d-Bravo', 'board-d-Comet', 'board-d-Delta', 'board-d-Echo'] 24.0
+hive-a 94800 ['hive-a-Alpha', 'hive-a-Bravo', 'hive-a-Comet', 'hive-a-Delta', 'hive-a-Echo'] 24.0
+hive-b 93527 ['hive-b-Alpha', 'hive-b-Bravo', 'hive-b-Comet', 'hive-b-Delta', 'hive-b-Echo'] 24.0
+hive-c 88036 ['hive-c-Alpha', 'hive-c-Bravo', 'hive-c-Comet', 'hive-c-Delta', 'hive-c-Echo'] 24.0
+hive-d 76905 ['hive-d-Alpha', 'hive-d-Bravo', 'hive-d-Comet', 'hive-d-Delta', 'hive-d-Echo'] 24.0
+placebo-a 84373 ['placebo-a-Alpha', 'placebo-a-Bravo', 'placebo-a-Comet', 'placebo-a-Delta', 'placebo-a-Echo'] 24.0
+placebo-b 77568 ['placebo-b-Alpha', 'placebo-b-Bravo', 'placebo-b-Comet', 'placebo-b-Delta', 'placebo-b-Echo'] 24.0
+placebo-c 92513 ['placebo-c-Alpha', 'placebo-c-Bravo', 'placebo-c-Comet', 'placebo-c-Delta', 'placebo-c-Echo'] 24.0
+placebo-d 90829 ['placebo-d-Alpha', 'placebo-d-Bravo', 'placebo-d-Comet', 'placebo-d-Delta', 'placebo-d-Echo'] 24.0
+{"board-a": [98968, 5, 24.0], "board-b": [89002, 5, 24.0], "board-c": [82304, 5, 24.0], "board-d": [176957, 5, 24.0], "hive-a": [94800, 5, 24.0], "hive-b": [93527, 5, 24.0], "hive-c": [88036, 5, 24.0], "hive-d": [76905, 5, 24.0], "placebo-a": [84373, 5, 24.0], "placebo-b": [77568, 5, 24.0], "placebo-c": [92513, 5, 24.0], "placebo-d": [90829, 5, 24.0]}

@@ -1,0 +1,8 @@
+[A] furnace_drain "is empty": 922; same furnace, ANOTHER bot within 60 min, no load between: 390 (42.3%, 1.07 bot-h; median gap 17 min); same bot again: 17
+[B] gather by prior same-block failure within 16 blocks / 30 min:
+    peer_only  n=  1175 failed    367 (31.2%)
+    own_only   n=  8577 failed   5570 (64.9%)
+    both       n=  1405 failed    492 (35.0%)
+    none       n=  7198 failed   2734 (38.0%)
+[C] distinct (bot, sighting) headings: 2983; harvested that kind within 24 blocks in 20 min: 14 (0.5%)
+    iron_ore        2983 hit   14 (0.5%)

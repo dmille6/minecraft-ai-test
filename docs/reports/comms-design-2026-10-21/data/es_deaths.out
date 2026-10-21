@@ -1,0 +1,21 @@
+caveats:
+  10-19 23:16Z-00:00Z (disk flood stage) was BACKFILLED from the rotated files on 10-20 (infra/elk/flood-backfill.py: 41,978 skill + 4,689 llm docs, _id prefix fl261020-) and reconciled row-hash exact, file == ES for all 80 bots (docs/reports/es-flood-2026-10-20.md).
+  after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).
+  window crosses 7 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).
+  window ends within 240 s of now: ingest lag (median ~6 s, max ~3 min observed) can leave the newest minutes short.
+docs in window (positive control): 7868713
+_death rows: 170
+deaths with a position: 170 of 170
+R= 6: judged 130 deaths (with 36 h history): {'no_site_on_file': 120, 'site_from_own_death': 1, 'site_from_another_bot': 9}
+R=12: judged 130 deaths (with 36 h history): {'no_site_on_file': 111, 'site_from_another_bot': 15, 'site_from_own_death': 4}
+R=24: judged 130 deaths (with 36 h history): {'no_site_on_file': 102, 'site_from_another_bot': 22, 'site_from_own_death': 6}
+    10-18 04:18 placebo-a-Alpha fire (344, -56, -142) <- prior 10-17 13:09 placebo-a-Delta fire (349, -55, -141)
+    10-18 15:08 hive-c-Echo drowning (-58, 57, -73) <- prior 10-18 15:07 hive-c-Bravo drowning (-58, 57, -73)
+    10-20 09:33 hive-b-Delta fire (336, 38, 154) <- prior 10-19 04:16 hive-b-Comet fire (337, 38, 154)
+    10-20 09:42 hive-b-Comet fire (336, 38, 155) <- prior 10-20 09:33 hive-b-Delta fire (336, 38, 154)
+    10-21 06:10 hive-b-Echo fire (334, 39, 154) <- prior 10-20 09:42 hive-b-Comet fire (336, 38, 155)
+    10-21 06:58 hive-b-Bravo fire (335, 38, 154) <- prior 10-21 06:10 hive-b-Echo fire (334, 39, 154)
+    10-21 08:35 hive-b-Alpha fire (335, 39, 154) <- prior 10-21 06:58 hive-b-Bravo fire (335, 38, 154)
+    10-21 12:26 hive-a-Echo fall (410, 1, 174) <- prior 10-20 17:18 hive-a-Comet fall (406, -2, 173)
+    10-21 16:21 board-c-Delta other (386, 11, 158) <- prior 10-21 12:52 board-c-Bravo fall (384, 6, 157)
+control (24 h): bot-time samples inside a live R=6 death disc: 33/23769 (0.14%); deaths in the same 24 h inside one: 5/31
