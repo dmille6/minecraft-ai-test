@@ -332,10 +332,39 @@ def t_frontier_error_instrument_behind_and_towns_are_alarms():
         assert line.startswith('!! frontier census (E0): ') and want in line, (kw, line)
 
 
-def t_frontier_warm_and_behind_by_backlog_are_quiet():
-    line = FS.frontier_line(FNOW, path=_hb(status='behind', backlog_hours=40,
+def t_frontier_backlog_is_quiet_while_warming_and_an_alarm_once_warm():
+    """Claude r2 P2-3: a backlog during the warm-up (the first backfill) is expected; a warm census that has not staged
+    for 30 min because of one is not."""
+    line = FS.frontier_line(FNOW, path=_hb(status='behind', backlog_hours=40))
+    assert line.startswith('frontier census (E0): behind') and 'backlog 40 h' in line and 'warm-up ends' in line, line
+    line = FS.frontier_line(FNOW, path=_hb(status='behind', backlog_hours=40, last_staged_at='2026-10-22T10:00:00Z',
+                                            withheld='backlog 40 hours, unstable []',
+                                            last_publish={'at': '2026-10-22T11:57:30Z', 'status': 'ok'},
                                             warmup={'complete': True, 'complete_at': '2026-10-21T00:00:00Z'}))
-    assert line.startswith('frontier census (E0): behind') and 'backlog 40 h' in line and 'warm-up complete' in line, line
+    assert line.startswith('!! ') and 'NOT STAGING since 2026-10-22T10:00:00Z (withheld: backlog 40' in line, line
+
+
+def t_frontier_malformed_heartbeat_never_raises():
+    for raw in ('[1, 2]', '{"at": "2026-10-22T11:57:00"}', '{"at": "2026-10-22T11:57:00Z", "warmup": 5}',
+                '{"at": "2026-10-22T11:57:00Z", "newest_measured_hour_end": 7}'):
+        line = FS.frontier_line(FNOW, path=_hb(_raw=raw))
+        assert line.startswith('!! frontier census (E0): '), (raw, line)
+
+
+def t_frontier_warm_census_that_stops_staging_or_publishing_alarms():
+    warm = {'run_start': '2026-10-20T00:00:00Z', 'complete': True, 'complete_at': '2026-10-22T00:00:00Z'}
+    okp = {'at': '2026-10-22T11:57:30Z', 'status': 'ok', 'published': 13}
+    line = FS.frontier_line(FNOW, path=_hb(warmup=warm, last_staged_at='2026-10-22T11:57:00Z', last_publish=okp))
+    assert line.startswith('frontier census (E0): idle') and 'warm-up complete' in line, line
+    for kw, want in (({'last_staged_at': '2026-10-22T11:00:00Z', 'last_publish': okp}, 'NOT STAGING'),
+                     ({'last_staged_at': None, 'last_publish': okp}, 'NOT STAGING'),
+                     ({'last_staged_at': '2026-10-22T11:57:00Z', 'last_publish': None}, 'PUBLISHER silent'),
+                     ({'last_staged_at': '2026-10-22T11:57:00Z', 'last_publish': dict(okp, at='2026-10-22T11:30:00Z')},
+                      'PUBLISHER ok at 2026-10-22T11:30:00Z'),
+                     ({'last_staged_at': '2026-10-22T11:57:00Z',
+                       'last_publish': dict(okp, status='refused', why='running as root')}, 'PUBLISHER refused')):
+        line = FS.frontier_line(FNOW, path=_hb(warmup=warm, **kw))
+        assert line.startswith('!! ') and want in line, (kw, line)
 
 
 def t_frontier_line_is_in_the_header():

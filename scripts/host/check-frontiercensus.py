@@ -18,9 +18,17 @@ positioned rows for) ended at most ~75 min ago.
   6b. the newest tick left a town out (home conflict) or read fewer towns than
       within the last 24 h                                                     -> FrontierTownMissing
   6c. a town's world-facts file is unreadable (its ranking is withheld)        -> FrontierHazardUnread
-  7. a staged frontier whose warm-up is complete is not the newest published
-     generation 15 min after that CONTENT was first staged (digest_since)      -> FrontierPublishStale
+  6d. warm-up complete (the heartbeat's own) and nothing staged for 30 min     -> FrontierNotStaging
+  6e. warm-up complete and the publisher's newest result (publish.log, carried
+      in the heartbeat) is missing, older than 15 min, or not `ok`             -> FrontierPublisher
+  7. warm-up complete and a bundle entry is not the newest published
+     generation 15 min after that CONTENT was first staged (digest_since), or
+     a town's newest published generation is older than 135 min, or the
+     bundle itself is missing                                                   -> FrontierPublishStale
   8. the file cannot be read                                                   -> FrontierMissing
+
+A town that disappears (its `_pool-<pool>` dir gone, or swapped for another of the same count) is named by the tick
+itself in home_problems ("gone: ...", from out/expected-towns.json) -> FrontierTownMissing.
 
 Self-contained (no imports from frontiercensus.py), so a broken census cannot break its own alarm. Its cases are
 exercised by `frontiercensus.py --selftest`. Exit 0 healthy, 1 alarm.
@@ -31,13 +39,15 @@ sys.dont_write_bytecode = True
 
 import argparse  # noqa: E402
 import datetime as dt  # noqa: E402
-import glob  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
 import re  # noqa: E402
 import time  # noqa: E402
 
 BAD = ('error', 'selftest_failed')
+NOT_STAGING_MIN = 30.0
+PUBLISHER_MAX_AGE_MIN = 15.0
+PUBLISHED_MAX_AGE_MIN = 135.0
 
 
 def _t(stamp):
@@ -95,32 +105,53 @@ def assess(lines, now, max_age_min=15.0, behind_min=135.0):
         alarms.append(f'FrontierTownMissing: the newest tick read {last["towns"]} towns, {most} within the last 24 h')
     if last.get('site_errors'):
         alarms.append(f'FrontierHazardUnread: world-facts unreadable, ranking withheld: {last["site_errors"]}')
+    wu = last.get('warmup') if isinstance(last.get('warmup'), dict) else {}
+    if wu.get('complete'):
+        ls = last.get('last_staged_at')
+        try:
+            lag = (now - _t(ls)) / 60 if ls else None
+        except ValueError:
+            lag = None
+        if lag is None or lag > NOT_STAGING_MIN:
+            alarms.append(f'FrontierNotStaging: warm-up complete but nothing staged since {ls} (withheld: '
+                          f'{str(last.get("withheld"))[:160]})')
+        lp = last.get('last_publish') if isinstance(last.get('last_publish'), dict) else None
+        try:
+            page = (now - _t(lp['at'])) / 60 if lp and lp.get('at') else None
+        except ValueError:
+            page = None
+        if lp is None or page is None or page > PUBLISHER_MAX_AGE_MIN or lp.get('status') != 'ok':
+            alarms.append(f'FrontierPublisher: warm-up complete but the publisher\'s newest result is '
+                          f'{json.dumps(lp)[:240] if lp else "missing"}'
+                          + (f' ({page:.0f} min old)' if page is not None else ''))
+        notes.append('warm-up complete')
+    elif wu.get('complete_at'):
+        notes.append(f'warm-up ends {wu["complete_at"]}')
     return alarms, notes
 
 
-def assess_publish(out_dir, state_dir, now, grace_min=15.0):
-    """Staged frontier files whose warm-up is complete must be the newest published generation. -> (alarms, notes)."""
+def assess_publish(out_dir, state_dir, now, warm, grace_min=15.0):
+    """The bundle's entries must be the newest published generations once the census is warm (warm comes from the
+    HEARTBEAT, never from the staged docs: Claude r2 P2-3). -> (alarms, notes)."""
     alarms, notes = [], []
-    staged = sorted(glob.glob(os.path.join(out_dir, 'publish', '*', 'frontier-*.json')))
-    warm = pub = 0
-    for f in staged:
-        pool = os.path.basename(os.path.dirname(f))
-        key = os.path.basename(f)[:-len('.json')]
-        try:
-            with open(f) as fh:
-                doc = json.load(fh)
-        except (OSError, ValueError) as e:
-            alarms.append(f'FrontierPublishStale: {pool}: staged file unreadable ({type(e).__name__})')
-            continue
-        if not (doc.get('warmup') or {}).get('complete'):
-            continue
-        warm += 1
+    if not warm:
+        return alarms, ['warm-up not complete: nothing published yet (by design)']
+    path = os.path.join(out_dir, 'publish', 'bundle.json')
+    try:
+        with open(path) as fh:
+            b = json.load(fh)
+        entries = b['entries']
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return [f'FrontierPublishStale: warm, but the bundle {path} is unreadable ({type(e).__name__})'], notes
+    pub = 0
+    for e in entries:
+        pool, key, doc = e.get('pool'), e.get('key'), e.get('doc') or {}
         d = os.path.join(state_dir, f'_pool-{pool}')
-        rx = re.compile(rf'^{re.escape(key)}\.g(\d+)\.json$')
+        rx = re.compile(rf'^{re.escape(str(key))}\.g(\d+)\.json$')
         try:
             gens = sorted(int(m.group(1)) for m in (rx.match(x) for x in os.listdir(d)) if m)
-        except OSError as e:
-            alarms.append(f'FrontierPublishStale: {pool}: cannot list {d} ({type(e).__name__})')
+        except OSError as ex:
+            alarms.append(f'FrontierPublishStale: {pool}: cannot list {d} ({type(ex).__name__})')
             continue
         cur = None
         if gens:
@@ -129,19 +160,51 @@ def assess_publish(out_dir, state_dir, now, grace_min=15.0):
                     cur = json.load(fh)
             except (OSError, ValueError):
                 cur = None
-        if cur and cur.get('digest') == doc.get('digest'):
+        try:                    # the publisher's own clock: a generation this old means it has stopped
+            cage = (now - _t(cur['generated_at'])) / 60 if cur else None
+        except (KeyError, TypeError, ValueError):
+            cage = None
+        if cur is None or cage is None or cage > PUBLISHED_MAX_AGE_MIN:
+            alarms.append(f'FrontierPublishStale: {pool}: the newest published generation '
+                          f'g{gens[-1] if gens else 0} is ' + (f'{cage:.0f} min old' if cage is not None else 'missing'))
+            continue
+        if cur.get('digest') == doc.get('digest'):
             pub += 1
             continue
         try:                    # since this CONTENT was first staged (re-stamping every tick does not reset it)
             age = (now - _t(doc.get('digest_since') or doc['generated_at'])) / 60
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, TypeError):
             age = 1e9
         if age > grace_min:
             alarms.append(f'FrontierPublishStale: {pool}: the frontier staged {age:.0f} min ago (data to '
-                          f'{doc.get("data_until")}) is not published (newest generation g{gens[-1] if gens else 0})')
-    notes.append(f'published current {pub} of {warm} warm staged towns' if warm else 'warm-up not complete: nothing '
-                 'published yet (by design)')
+                          f'{doc.get("data_until")}) is not published (newest generation g{gens[-1]})')
+    notes.append(f'published current {pub} of {len(entries)} staged towns'
+                 + (f' (bundle withheld: {str(b.get("withheld"))[:120]})' if b.get('withheld') else ''))
     return alarms, notes
+
+
+def warm_of(lines):
+    """Is the standing census warm, by its NEWEST tick line's own warm-up? Pure."""
+    for ln in reversed(lines):
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if isinstance(r, dict) and r.get('mode') == 'tick':
+            return bool((r.get('warmup') or {}).get('complete')) if isinstance(r.get('warmup'), dict) else False
+    return False
+
+
+def tail_lines(path, n=600, tail_bytes=1 << 20):
+    """The newest n lines, read from the end (the file grows by a line every 5 min; never read it whole)."""
+    with open(path, 'rb') as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - tail_bytes))
+        data = f.read().decode('utf-8', 'replace').split('\n')
+    if size > tail_bytes:
+        data = data[1:]
+    return [ln for ln in data if ln][-n:]
 
 
 def main():
@@ -153,13 +216,14 @@ def main():
     a = ap.parse_args()
     path = os.path.join(a.dir, 'heartbeat.jsonl')
     now = time.time()
+    warm = False
     try:
-        with open(path) as f:
-            lines = f.readlines()[-500:]
+        lines = tail_lines(path)
         alarms, notes = assess(lines, now, a.max_age_min, a.behind_min)
+        warm = warm_of(lines)
     except OSError as e:
         alarms, notes = [f'FrontierMissing: cannot read {path} ({type(e).__name__}: {e})'], []
-    pa, pn = assess_publish(a.dir, a.state_dir, now)
+    pa, pn = assess_publish(a.dir, a.state_dir, now, warm)
     alarms += pa
     notes += pn
     stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())

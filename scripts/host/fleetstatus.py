@@ -98,6 +98,8 @@ def opsaudit_line(now, path=None):
 FRONTIER_HB = '~/frontiercensus/out/heartbeat.json'
 FRONTIER_STALE = dt.timedelta(minutes=15)       # cron 5 min; a tick may run 4 min
 FRONTIER_BEHIND = dt.timedelta(minutes=135)     # whole hours fold 10 min after they end: healthy is <= ~75 min
+FRONTIER_NOT_STAGING = dt.timedelta(minutes=30)
+FRONTIER_PUBLISHER = dt.timedelta(minutes=15)   # the publisher runs right after every tick
 
 
 def _ts(s):
@@ -105,14 +107,25 @@ def _ts(s):
 
 
 def frontier_line(now, path=None):
-    """One header line for the frontier census. Never raises: missing, unreadable, stale, VOID, error, instrument,
-    behind or a town left out is an alarm line ('!! '); a healthy census says so with its denominators."""
+    """One header line for the frontier census. NEVER raises (a malformed heartbeat is an alarm line too): missing,
+    unreadable, stale, VOID, error, instrument, behind, a town left out or gone, unread hazards, and -- once warm --
+    nothing staged for 30 min or a publisher that has not reported `ok` within 15 min are '!! ' lines; a healthy census
+    says so with its denominators."""
     p = os.path.expanduser(path or FRONTIER_HB)
+    try:
+        return _frontier_line(now, p)
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! frontier census (E0): UNREADABLE heartbeat ({type(e).__name__}: {str(e)[:80]}) at {p}'
+
+
+def _frontier_line(now, p):
     try:
         with open(p) as fh:
             hb = json.load(fh)
         at = _ts(hb['at'])
-    except (OSError, ValueError, KeyError, TypeError) as e:
+        if at.tzinfo is None:
+            raise ValueError('timestamp without a zone')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
         return f'!! frontier census (E0): NO HEARTBEAT ({type(e).__name__}) at {p} -- not a quiet census, an absent one'
     bad = []
     age = now - at
@@ -141,6 +154,14 @@ def frontier_line(now, path=None):
     if hb.get('site_errors'):
         bad.append(f'hazards unread (ranking withheld) {hb["site_errors"]}')
     wu = hb.get('warmup') or {}
+    if wu.get('complete'):
+        ls = hb.get('last_staged_at')
+        if not ls or now - _ts(ls) > FRONTIER_NOT_STAGING:
+            bad.append(f'NOT STAGING since {ls} (withheld: {str(hb.get("withheld"))[:80]})')
+        lp = hb.get('last_publish') or {}
+        if not lp.get('at') or now - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') != 'ok':
+            bad.append(f'PUBLISHER {lp.get("status") or "silent"} at {lp.get("at")}: '
+                       f'{str(lp.get("why") or lp.get("error") or lp.get("refused") or "")[:100]}')
     warm = ('warm-up complete' if wu.get('complete') else
             f'warm-up ends {wu["complete_at"][:16]}Z (nothing published before)' if wu.get('complete_at') else
             'warm-up not started')
