@@ -11,8 +11,10 @@
 //   body_held        a reflex holds the body (arbiter)
 //   runner_reserved  the watchdog reserved the runner for its rescue (Runner.reserve; <= 20 s): "not now"
 //   reserve_expired  (the reserving owner only) the reservation ran out with the old skill still unwinding
+//   air_rescue       (the watchdog only, homefix-02 C3a) a drowning was in progress, or an air-pocket rung ran, at the
+//                    instant the rescue would have started: the air reflex owns the body
 
-export const RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held', 'runner_reserved', 'reserve_expired'])
+export const RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held', 'runner_reserved', 'reserve_expired', 'air_rescue'])
 
 /** Did the runner decline this run (it never started)? Accepts a result object or a bare fail class. Pure. */
 export function runnerDeclined (r) {

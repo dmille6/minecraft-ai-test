@@ -191,10 +191,10 @@ export class Runner {
 
   cancel(reason = 'cancelled') { return this.interrupt(reason) }
 
-  async run(skillName, args = {}, { trigger = 'chat', owner = null, rescue = null, onStart = null } = {}) {
+  async run(skillName, args = {}, { trigger = 'chat', owner = null, rescue = null, onStart = null, admit = null } = {}) {
     const def = SKILLS[skillName]
     // A rescue run's decline is an attempt row too (declined:<class>), written here so the watchdog does not grade itself.
-    const declined = r => { logRescueRow(this.bot, rescue, `declined:${r.failClass}`, { skill: skillName }); return r }
+    const declined = (r, extra = {}) => { logRescueRow(this.bot, rescue, `declined:${r.failClass}`, { skill: skillName, ...extra }); return r }
     // These three refusals never ran anything, so they carry a class that says
     // "the runner declined", not one that says anything about the world. Named
     // rather than left blank because nothing downstream may guess any more.
@@ -293,18 +293,34 @@ export class Runner {
       }
       this.grant = grant
     }
+    // THE OWNER'S ADMISSION, AT THE INSTANT OF THE START (homefix-02 C3a, Codex r1 P1-1): after the reservation wait and
+    // the body acquisition, with no await between this check and `this.current = mine` -- a check made before
+    // reserve() goes stale during a 20-s unwind. A refusal never ran anything: its class is in RUNNER_DECLINED.
+    let admission = null
+    if (typeof admit === 'function') {
+      try { admission = admit() } catch { admission = null }
+      if (admission?.refuse) {
+        if (this.grant) { try { this.arb.release(this.grant, 'the owner refused its own start') } catch {} this.grant = null }
+        if (myGen != null) this.releaseReservation(myGen)
+        // the one admission today is the watchdog's air gate (airstate.mjs airAdmission), so the class is that one
+        return declined({ status: 'failed', failClass: 'air_rescue', detail: admission.detail ?? 'the owner refused its own start' },
+                        admission.fields ?? {})
+      }
+    }
     const invBefore = inventorySummary(this.bot)
     const posBefore = this.bot.entity?.position?.clone()
     const hpBefore = this.bot.health
     const foodBefore = this.bot.food
-    const mine = { skill: skillName, args, controller, startedAt }
+    // `owner` and `rescue` ride on `current` (homefix-02 C3b): the air reflex interrupts a watchdog-owned run during a
+    // drowning in progress, and names the attempt in its row.
+    const mine = { skill: skillName, args, controller, startedAt, owner, rescue }
     this.current = mine
     this.interruptedReason = null
     // The owner's run has started: the reservation is consumed. `started` is the RUNNER's row (H2 item 8), so the
     // watchdog never grades its own attempt; onStart lets it reset its window at the rescue's start (item 5).
     if (myGen != null) this.releaseReservation(myGen)
     let terminalWritten = !rescue
-    if (rescue) logRescueRow(this.bot, rescue, 'started', { skill: skillName, run_started: new Date(startedAt).toISOString() })
+    if (rescue) logRescueRow(this.bot, rescue, 'started', { skill: skillName, run_started: new Date(startedAt).toISOString(), ...(admission?.fields ?? {}) })
     try { onStart?.(mine) } catch { /* a callback must never stop the skill */ }
 
     // `current` IS ALWAYS CLEARED (H2 item 3): everything from here to the return is the protected body; the OUTER

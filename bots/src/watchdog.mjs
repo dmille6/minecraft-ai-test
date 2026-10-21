@@ -22,6 +22,9 @@ import { snapshot, inventorySummary } from './state.mjs'
 import { config } from './config.mjs'
 import { HARD_STOP_GRACE_MS } from './hard-stop.mjs'
 import { logRescueRow } from './rescuerow.mjs'
+import { airAdmission, airDeclineNext } from './airstate.mjs'
+import { pickRelocationTargetAsync, landingCheck, reasonsLabel } from './relocate.mjs'
+import { Vec3 } from 'vec3'
 
 // ---------------------------------------------------------------------------
 // THE RESCUE CONTRACT (homefix-01, docs/reports/expansion-plan-2026-10-19.md §2 H2a/H2b, "The H2 fix, as one contract").
@@ -45,6 +48,8 @@ export const RESCUE_OWNER = 'watchdog'
 export const RESCUE_RESERVE_MS = 20_000
 /** Consecutive `reserve_expired` declines after which the level is no longer held (item 4). */
 export const RESERVE_EXPIRED_CAP = 2
+/** Stranding climb-outs refunded per episode when the air reflex interrupted them (homefix-02 C3b). */
+export const AIR_REFUND_CAP = 2
 
 /**
  * WHAT A RESCUE'S OUTCOME DOES TO THE LADDER -> { streak, hold, jump }. Pure (H2 item 4).
@@ -55,6 +60,9 @@ export const RESERVE_EXPIRED_CAP = 2
 export function rescueLevelStep ({ started = false, failClass = null, level = 0, streak = 0, cap = RESERVE_EXPIRED_CAP,
                                    sinceLastMs = 0, ttlMs = Infinity } = {}) {
   if (started) return { streak: 0, hold: false, jump: false }
+  // A DROWNING IN PROGRESS DECLINED THE START (homefix-02 C3a): held like any rescue that did not start, and it is NOT
+  // wedge evidence -- the reserve_expired streak is left exactly as it was (Codex r1 P2-5, Claude r1 P2-4).
+  if (failClass === 'air_rescue') return { streak, hold: true, jump: false }
   // CONSECUTIVE MEANS RECENT (Claude code r1 P3-4): a streak of 1 left from hours ago is not half of a wedge, so an old
   // reserve_expired does not count toward the cap -- only one inside `ttlMs` of this one (the watchdog passes two windows,
   // the held level's backoff and the next verdict's window, plus the pending bound: 590 s at production clocks).
@@ -116,6 +124,8 @@ export class StagnationWatchdog {
     this.strandHistory = []    // { t, y, items, milestone }
     this.strandWindows = 0     // consecutive WINDOWS (not ticks) meeting the condition
     this.surfaceAttempts = 0   // climb-outs tried since the last real progress
+    this.airRefunds = 0        // climb-outs refunded because the air reflex took them (homefix-02 C3b), this episode
+    this.airDeclines = { stagnation: 0, stranding: 0 }   // consecutive `air_rescue` declines per rescue kind (C3a cap)
     this.lastStrandJudgedAt = 0
 
     // THE RESCUE CONTRACT's state (see the header). `pending` = { attempt, kind, level, at, startedAt, tickSeen, gen,
@@ -174,17 +184,21 @@ export class StagnationWatchdog {
    * Run one rescue skill through the runner: `requested` row, cancel-and-reserve, then the owner's run. Returns
    * { r, started }. A runner without reserve() (the unit fakes) gets the old cancel.
    */
-  async #runRescue (pd, { level, remedy, skill, args, trigger, reason }) {
+  async #runRescue (pd, { level, remedy, skill, args, trigger, reason, rowExtra = {} }) {
     pd.level = level
     pd.rescue = { attempt: pd.attempt, level, remedy }
-    logRescueRow(this.bot, pd.rescue, 'requested', { skill, kind: pd.kind })
+    logRescueRow(this.bot, pd.rescue, 'requested', { skill, kind: pd.kind, ...rowExtra })
     if (typeof this.runner.reserve === 'function') pd.gen = this.runner.reserve(RESCUE_OWNER, this.reserveMs, reason).gen
     else this.runner.cancel(reason)
     this.runner.resume()        // a stagnant agent must not also be paused
     const r = await this.runner.run(skill, args, {
       trigger, owner: RESCUE_OWNER, rescue: pd.rescue,
       onStart: () => { pd.startedAt = Date.now(); this.reserveExpiredStreak = 0; this.#resetWindow() },
+      // homefix-02 C3a: asked by the runner at the instant of the start (after the unwind), never before reserve(); the
+      // per-kind decline count caps it (airstate.mjs AIR_DECLINE_CAP)
+      admit: () => airAdmission(this.bot?.airRescue ?? null, Date.now(), { declines: this.airDeclines[pd.kind] ?? 0 }),
     })
+    this.airDeclines[pd.kind] = airDeclineNext(this.airDeclines[pd.kind] ?? 0, { started: pd.startedAt != null, failClass: r?.failClass ?? null })
     return { r: r ?? null, started: pd.startedAt != null }
   }
 
@@ -251,6 +265,7 @@ export class StagnationWatchdog {
       }
       this.strandWindows = 0
       this.surfaceAttempts = 0
+      this.airRefunds = 0
       return
     }
 
@@ -270,7 +285,8 @@ export class StagnationWatchdog {
       kind: 'stranded_underground', status: 'failed',
       detail: `y=${y}, ${Math.round(v.altitudeGain)}b net gain over ` +
               `${Math.round((v.window[v.window.length - 1].t - v.window[0].t) / 60000)}m, ` +
-              `no milestone change, no inventory change; climb-out attempt ${this.surfaceAttempts}`,
+              `no milestone change, no inventory change; climb-out attempt ${this.surfaceAttempts}` +
+              `${this.airRefunds ? `; air refunds ${this.airRefunds}` : ''}`,
       snapshot: snapshot(this.bot),
     })
 
@@ -283,6 +299,9 @@ export class StagnationWatchdog {
         level: 0, remedy: 'climb_out', skill: 'surface', args: {}, trigger: 'watchdog_stranded_underground', reason: 'stranded' }))
       // A climb-out that never started was not an attempt: it does not use up one of the two.
       if (out && !out.started) this.surfaceAttempts--
+      // ONE THE AIR REFLEX TOOK (homefix-02 C3b: interrupted during a drowning in progress) is refunded too -- at most
+      // AIR_REFUND_CAP times per stranding episode, so a flooded cave still reaches `stranded_unrecoverable` (Claude r3 P3-3).
+      else if (out && out.r?.interruptedBy === 'drowning' && this.airRefunds < AIR_REFUND_CAP) { this.surfaceAttempts--; this.airRefunds++ }
       // Do NOT clear strandWindows here. The next window decides whether it
       // worked, and altitude is what answers that -- not the fact that a rescue
       // ran. A rescue that reports success while the bot stays at y=-42 is the
@@ -531,13 +550,32 @@ export class StagnationWatchdog {
     const p = this.bot.entity.position
     if (this.escalation >= 3) return this.#levelThree(pd)
     let plan
+    let target = null
     if (this.escalation === 1) {
-      // Move decisively further than a reflex nudge would.
-      const ang = Math.random() * Math.PI * 2
-      const d = 45 + Math.random() * 25
-      const x = Math.round(p.x + Math.cos(ang) * d), z = Math.round(p.z + Math.sin(ang) * d)
-      log('warn', 'watchdog: forcing relocation', { to: `${x},${z}` })
-      plan = { level: 1, remedy: 'relocate', skill: 'goto', args: { x, y: Math.round(p.y), z }, trigger: 'watchdog_relocate', reason: 'stagnation' }
+      // Move decisively further than a reflex nudge would -- TO SOMEWHERE DRY (homefix-02 C2, relocate.mjs): a standable
+      // surface cell whose whole goto arrival volume reads dry. The old target was a random point at the bot's own y;
+      // in hive-d it was often a frozen river's ice sheet (death 1).
+      const t0 = Date.now()
+      const read = (x, y, z) => this.bot.blockAt?.(new Vec3(x, y, z)) ?? null
+      const pick = await pickRelocationTargetAsync({ p, read })
+      const dryMs = Date.now() - t0
+      const rowExtra = { dry_tries: pick.tries, dry_reasons: reasonsLabel(pick.reasons), dry_ms: dryMs }
+      if (pick.ok) {
+        target = { x: pick.x, y: pick.y, z: pick.z }
+        log('warn', 'watchdog: forcing relocation', { to: `${pick.x},${pick.y},${pick.z}`, tries: pick.tries })
+        plan = { level: 1, remedy: 'relocate', skill: 'goto', args: { ...target }, trigger: 'watchdog_relocate', reason: 'stagnation',
+                 rowExtra: { ...rowExtra, target_x: pick.x, target_y: pick.y, target_z: pick.z } }
+      } else {
+        // NO DRY TARGET IN 16 TRIES: the bot is in a wet, steep or unreadable place, and the one remedy it can still
+        // perform is home (an executable walk; level 3 follows if it fails). ONE requested row, level 2, with the
+        // fallback named -- that attempt's `_stagnation` row says escalation 1 (Claude r1 P3-11).
+        log('warn', 'watchdog: no dry relocation target; returning home now', { tries: pick.tries, reasons: rowExtra.dry_reasons })
+        this.escalation = 2
+        // the cancel reason stays the verdict's ('stagnation'): the cancelled skill's row reads interrupt:stagnation as
+        // for any rescue (G3 and every reader key on it); the fallback is named on the requested row only
+        plan = { level: 2, remedy: 'home', skill: 'home', args: {}, trigger: 'watchdog_home', reason: 'stagnation',
+                 rowExtra: { ...rowExtra, fallback: 'no_dry_relocation' } }
+      }
     } else {
       // Still stuck after a relocation: the local area is the problem. Go home,
       // which is known-reachable terrain by construction.
@@ -545,6 +583,21 @@ export class StagnationWatchdog {
       plan = { level: 2, remedy: 'home', skill: 'home', args: {}, trigger: 'watchdog_home', reason: 'stagnation' }
     }
     const { r, started } = await this.#runRescue(pd, plan)
+    if (target && started) {
+      // THE LANDING (homefix-02 C2, read G5f), judged with the target's own volume (relocate.mjs landingCheck)
+      try {
+        const q = this.bot.entity?.position
+        if (q) {
+          const read = (x, y, z) => this.bot.blockAt?.(new Vec3(x, y, z)) ?? null
+          const L = landingCheck(read, q, target)
+          logEvent({ kind: 'relocate_landed', status: L.wet ? 'failed' : 'success',
+                     detail: `attempt ${pd.attempt}: ${r?.status ?? '?'} ${L.wet ? 'WET' : 'dry'} feet=${L.feet} head=${L.head} in_region=${L.in_region} region_now=${L.region_now}`,
+                     args: { attempt: String(pd.attempt), status: String(r?.status ?? ''), ...L,
+                             target_x: target.x, target_y: target.y, target_z: target.z },
+                     snapshot: snapshot(this.bot) })
+        }
+      } catch { /* a row must never break the ladder */ }
+    }
     return this.#afterRescue(pd, r, started)
   }
 

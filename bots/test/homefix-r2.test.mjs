@@ -56,7 +56,8 @@ function fakeBot ({ at = V(0, 70, 0), pf = {}, extra = {} } = {}) {
     health: 20, food: 20, version: '1.21.8', username: 'HomefixR2Bot',
     registry: { blocksByName: {}, itemsByName: {}, blocks: {} },
     inventory: { items: () => [] },
-    blockAt: () => ({ name: 'stone', boundingBox: 'block' }),
+    // homefix-02 C2: dry ground under the bot wherever it stands (a relocation target needs a standable dry surface)
+    blockAt (p) { return p.y < Math.floor(this.entity.position.y) ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' } },
     findBlock: () => null, findBlocks: () => [], entities: {}, players: {},
     time: { day: 1, age: 1 }, game: { dimension: 'overworld' },
     assertNav: () => {}, chat: () => {}, clearControlStates: () => {}, setControlState: () => {},

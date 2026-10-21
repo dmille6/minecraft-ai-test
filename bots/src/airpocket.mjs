@@ -65,12 +65,25 @@ const isSolid = b => !!b && b.boundingBox === 'block'
  *   - POCKET: solid, diggable, not a falling block, with no liquid / falling block / unknown on its four sides or
  *     above it, so the dug cell stays air; or
  *   - ICE:    plain ice with AIR directly above it (breaking it opens a water column one cell from the air).
+ * Or the HEAD cell itself is plain ice with air directly above it (homefix-02 C1): kind 'ice', dy 1.
  * @returns {{ ok: boolean, why: string|null, kind: 'pocket'|'ice'|null, dy: number|null, name: string|null }}
  */
 export function airPocketPlan (at) {
   const refuse = (why, extra = {}) => ({ ok: false, why, kind: null, dy: null, name: null, ...extra })
   const feet = at(0, 0, 0), head = at(0, 1, 0)
   if (feet == null || head == null) return refuse('own cells unknown')
+  // THE HEAD CELL IS THE ICE (homefix-02 C1, docs/reports/homefix-02-design-2026-10-21.md §1.3, §4 C1): hive-d's frozen
+  // rivers are ice at y 62 over ONE cell of water; a bot under the sheet is in the swimming pose with its head cell = the
+  // ice (the phase-2 report's 21 "head cell solid" sites). Breaking plain ice over water leaves water, with the air above
+  // it one cell up -- exactly the ice branch below, one cell lower. Packed/blue ice and every other solid head still refuse.
+  if (ICE.test(head.name || '')) {
+    if (!AP_ICE_ENABLED) return refuse('ice branch disabled', { dy: 1, name: head.name })
+    if (!isWater(feet) && !isAir(feet)) return refuse(`feet cell is ${feet.name}`)
+    const top = at(0, 2, 0)
+    if (top == null) return refuse('above the ice unknown', { dy: 1, name: head.name })
+    if (!isAir(top)) return refuse(`head ice with ${top.name} above, not air`, { dy: 1, name: head.name })
+    return { ok: true, why: null, kind: 'ice', dy: 1, name: head.name }
+  }
   if (!isWater(head)) return refuse(`head cell is ${head.name}, not water`)
   if (!isWater(feet) && !isAir(feet)) return refuse(`feet cell is ${feet.name}`)
   for (const dy of [2, 3]) {
