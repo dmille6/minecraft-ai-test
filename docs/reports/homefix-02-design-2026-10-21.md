@@ -485,7 +485,7 @@ counter between stranding verdicts. **r4 keys C3 on a drowning IN PROGRESS inste
 | C1 plan refuses packed/blue ice or a falling block over the head | same | entombed / flooded-pocket rungs (unchanged) | as today | unchanged |
 | C2: no dry target in 16 tries | a wet, steep or unloaded region | level-2 `home` now | yes: an executable walk to the town; if it fails, L3 (unchanged) | home meeting an engaged air rescue → C3a (capped) |
 | C2: a candidate rejected (wet / unknown / steep) | — | the next try | yes | → fallback above |
-| C3a: rescue admission during `danger` or a pocket rung | drowning in progress (head under, ≤ 5 s air, health falling), or the air-pocket / flooded-pocket rung running | the air reflex; level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **bounded by construction**: a drowning ends (breath or death) in ~100 s < the 180-s backoff; the rungs are budget-bounded with cooldowns; a breathing or healthy-submerged bot is never refused for `danger` (it can be for a running pocket rung); **the per-kind cap (2 since the last start) is the guarantee** |
+| C3a: rescue admission during `danger` or a pocket rung | drowning in progress (head under, ≤ 5 s air, health falling), or the air-pocket / flooded-pocket rung running | the air reflex; level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **the per-kind cap is the guarantee**: at most 2 `air_rescue` declines per kind since that kind's last start, then the start is admitted (no exemption); a drowning usually ends first (breath or death in ~100 s), but a pocket rung can hang, so that is not relied on; a breathing or healthy-submerged bot is never refused for `danger` |
 | C3b: a watchdog run during `danger` | drowning in progress | the air reflex | yes | the next verdict starts a new rescue (C3a applies); a climb-out interrupted this way is refunded at most twice per stranding episode |
 | H2 holds (unchanged): reserve_expired, body_held, runner_paused | — | as homefix-01 | as homefix-01 | `air_rescue` declines do not touch the reserve_expired streak |
 
@@ -532,6 +532,9 @@ licence_canary, readable, g3_unjoined and the controls. They keep their register
 
       A run that stays current through several danger samples while it unwinds is NOT a defect, as long as each row
       has `interrupt_issued = 1`. The fixture covers that case.
+    - **G5d' and G5d are a pair** (Claude r6 P3). `interrupt_issued` is the reflex reporting on itself. The
+      independent outcome check is G5d: a terminal phase within the 230-s hard-stop bound. Neither alone proves the
+      interrupt took.
     - **Report-only.** The earlier proxy from sparse reflex rows (ceilings, `_oxygen_critical_state`) is report-only,
       because those rows ride on the untrusted oxygen field and on health compared between rows.
   - **G5g. The cap was broken** if either of these holds:
@@ -685,7 +688,7 @@ Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, dea
 | design r3 (af9a93ee) | CHANGE. P1: the base's own air actions (one-shot latch, air-pocket guard, re-seize goal clear) still kill a bypassed run; the shared counter is cleared by stagnation between stranding verdicts; the far-band exemption for capped water is unsound. P2: an exempt→interrupt transition is missed by G5d; the sizing is not a faithful replay | **APPROVE** (P2: region scan cost; P3: `danger` threshold text; cap the drowning refund; name the pocket rungs' interrupts; sim settings; G5f with the same predicate; which escalation zeroes reset the latch) |
 | design r4 (be37d952) | CHANGE. P1: the pocket rung can hang (unbounded equip) and danger episodes can recur at every verdict, so "bounded" needs a deterministic retry. P2: G5d' rides on untrusted proxies; G5d's 60 s is not the runner's guarantee; sizing is labelled faithful but is approximate | **APPROVE**. P2: G5d's deadline must be the hard-stop bound; G5d' report-only, or from exact tick rows; `danger` lags and flickers (use health fell within 3 s). P3: publish before the release await; name the recurrent magma case |
 | design r5 (c52a59e8) | CHANGE. P1: G5a condemns the cap's own capped starts; G5d' condemns a correctly interrupted run still unwinding (the yield row is once per attempt). P3: remove the superseded "bounded by construction" guarantees | **APPROVE**. P2: G5g must segment at reconnects (the watchdog is rebuilt per connection). P3: "consecutive" = since the last start; count only air_rescue declines |
-| design r6 | | |
+| design r6 (08e10bb3) | **APPROVE** (P3: residual "bounded by construction" wording in the §5 table) | **APPROVE** (P3: name the G5d/G5d' pairing) |
 
 r2 answers every r1 finding:
 - **C3a:** keyed on the air reflex, checked at the runner's start, with its own streak, cap and bypass latch. C3b is
@@ -742,3 +745,5 @@ r6 answers r5:
   the row), and the first-row yield rule accepts an earlier yield.
 - **G5g** is segmented at connects and counts only `air_rescue`.
 - **The cap is stated as the liveness guarantee throughout.**
+
+**Design APPROVED by both engines at r6 (08e10bb3).** Both P3s were applied in the next commit (wording only).
