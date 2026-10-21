@@ -385,3 +385,72 @@ Codex P3 denominators                                  | §0.3 / §2.4 refreshed
 Claude P3-4..10                                        | dispute read by keepout's refusal path, expiry the usual exit; marker
      pruning + observed_at; flapping alarm; winner-never-leases bound; exposure honesty sentence; unreach-01 exposure
      >= 20; draw list recomputed at launch
+
+=====================================================================================================================
+ROUND 4 on r4 (730565dc)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 4 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+VERDICT: CHANGE
+
+- **P2 — §2.3 / §0.2, deaths_v4:** B still computes `weight(m, t) + 4`. Production adds 4 to the **stored** count and resets `last` before pruning: after 13 hours without writes, stored 4 becomes 8, whereas B produces 6. B also retains expired targets across intervening death writes and invents a 72-hour merge limit. Implement actual merge-before-prune semantics, prune on every simulated write, and rerun. Remove the surviving “upper bound” claim. Explicit query bounds, JS rounding and alternative-trigger selection are correct; agreement between A/B does not establish the claimed bound.
+
+- **P2 — §6.1, uncertain delivery:** Shared-container counts cannot identify a transfer: another deposit can falsely confirm delivery; a withdrawal can hide a successful one. The 30-minute reader takeover also needs to fence a still-running courier. Use attributable transfer evidence with fenced recovery, or terminate as **unknown**, without claiming delivery or automatically retrying. Test concurrent deposits/withdrawals and a courier resuming after takeover.
+
+- **P2 — §8 #2, keepout primary:** Existing rows do not contain all gather/mine dig positions. `_dig_town` records individual coordinates only for town-ground cells; elsewhere its summaries lack positions. Add common telemetry to both arms before baseline, or restrict the estimand explicitly to observable cells and prove coverage. Host-side replay alone cannot recover missing coordinates.
+
+- **P2 — §4.6, refusal recovery:** The new cooldown covers gather, but the mine row still ends without digging when every bearing and walk-off fails, permitting immediate reselection. Apply deterministic suppression/recovery to mine too, with a sustained repeated-decision test. Specify how “before anything else” `_keepout_exit` yields to the promised home/town-job exception; test completion of a job inside a column.
+
+- **P2 — §4.3, snapshot ordering:** Observation timestamps are not source commit revisions. An observation made before the cutoff but committed after the source read is discarded by the replacement protocol; equal-millisecond updates are also unspecified. Capture a source revision with the snapshot and replay subsequent committed mutations, including deletions. Test delayed writes and timestamp ties.
+
+- **P3 — §2.3:** Death-class counts still total **169**, against the revised **171** judged deaths. Regenerate the class breakdown.
+
+The r3 timing fix, refreshed gather denominators, fire-site authority, uncapped transitions, furnace precedence and injected chat-handler tests are addressed. Unreach-01 retains the required controlled decision.
+
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE ROUND 4 on r4 (730565dc) -- VERDICT: CHANGE  (verbatim, condensed formatting)
+---------------------------------------------------------------------------------------------------------------------
+All of round 3 is resolved (_keepout_exit starts on its own; sealed-ledge scene; 10-min cooldown; keepout control
+host-side, matched; injected-event chat tests with an unsafe-line mutant; P3s applied). deaths_v4 is right: explicit
+window (7.0 judged days); both write-order variants give 171 / 158 / 11 / 2, 7 of 52 fire, 4 confirmed, as §0 and §2.3
+say; calling it approximate rather than an upper bound is correct (cap not replayed).
+P2-1 §8 #2: keepout's host-side primary names no instrument that can see the killing digs. "Gather and mine dig
+  positions (from the rows)": _dig_approach has only 4 rows inside the hive-b column in 24 h (of 321 in hive-b) and
+  none at Echo's or Alpha's deaths; gather rows carry no dug cell -- a blind primary reads 0 v 0. _reach_probe does see
+  them: its hit= field holds the chosen candidate cell; Echo's rows show 335,43,154 / 334,43,154 / 334,42,154 between
+  06:09 and 06:10, inside the column. Fix: primary = _reach_probe hit= candidates inside a live fire column + mine's
+  planned-dig cells per bot-h; pin a positive control (the replay must find Echo's 06:09-06:10 and Alpha's 08:34-08:35
+  candidates in the hive-b column on the 10-21 rows).
+P3-2 §4.6: _keepout_exit vs C12's town yield must compose: the exit must not start inside a yielded town column; add
+  it to the furnace-in-column fixture.
+P3-3 §4.6: a pillar leaves the column only above site y + 12 and needs blocks; a pillar that cannot reach the top (no
+  blocks, ceiling) is `failed` -> stranded ladder.
+P3-4 §6.1 uncertain transfer: the container count is confounded by other bots (coal chests are busy); use the
+  courier's own bag change vs its pre-delivery bag as primary, the container count as a cross-check; say what a reader
+  settling an abandoned delivery uses (it cannot see the bag); say whether op = reconciled counts toward "deliveries
+  without a verifying re-open: 0".
+P3-5 §11: label "13 of 169" as the r2/r3 window next to r4's 171.
+
+=====================================================================================================================
+ROUND 4 -> r5: WHERE EACH FINDING IS ANSWERED
+=====================================================================================================================
+Codex P2 replay merge-before-prune                     | deaths_v5.py: reportDeath reads STORED sites, +4 to the stored count,
+     last reset, then #prune; two write-order extremes (A pruned before every death; C pruned only by death writes)
+     give identical counts 171 / 158 / 11 / 2 / 7 of 52 / 4; "upper bound" removed; class breakdown regenerated
+     (drowning 65, fire 52, fall 24, other 16, suffocation 14 = 171); live fire sites 6-8 in 5-7 towns by write order
+Codex P2 + Claude P3-4 uncertain delivery              | §6.1: ends as `unknown`; courier's own bag evidence (attributable)
+     -> `delivered (bag_evidence)`; container count a cross-check only; others may write only `unknown`, after
+     delivering.until + 5 min; a resuming courier stops; reservation released; tests for concurrent deposits/withdrawals
+     and resume-after-takeover; §6.3 gate counts bag_evidence/unknown separately, never as verified
+Codex P2 + Claude P2-1 keepout instrument              | §8 #2: primary restricted to `_reach_probe hit=` candidates (both arms,
+     today's code); positive control data/reach_probe_control.txt (86 in hive-b in 24 h; Echo 16 in 06:00-06:10,
+     Alpha 10 in 08:25-08:35); mine covered by Paper + a canary-arm deterministic gate, not by the DiD
+Codex P2 mine suppression; town-job yield              | §4.6: mine gets the 10-min cooldown + a sustained 30-min test;
+     _keepout_exit does not start in a yielded town column during the town job; the drain job completes in the fixture
+Codex P2 snapshot ordering                             | §4.3: ordering by ledger byte offset; snapshot_begin appended before
+     the source read; every mirror entry (incl. `removed`) after that offset replayed over the snapshot; journal sources
+     record their own offset; delayed-write and equal-timestamp tests
+Codex P3 class breakdown                               | regenerated (above)
+Claude P3-3 pillar                                     | §4.6: a pillar that cannot pass site y + 12 is `failed` -> stranded
+Claude P3-5                                            | §11 labelled
