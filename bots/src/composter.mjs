@@ -688,16 +688,19 @@ export function compostVisitOrder ({ now = 0, slots = 0, visitStacks = 0, inZone
   const none = () => ({ order: null, state: s })
   // THE TOWN DEPOSIT'S ZONE (16 h / 12 v: the caller's inTownZone; the composter is within 16 of home): never a walk across town
   if (!on || !inZone || !(distHome <= TOWN_RADIUS) || s.latched) return none()
-  if (!(slots < TRIGGER_SLOTS) || !(lazy(visitStacks) >= 1)) return none()
+  if (!(slots < TRIGGER_SLOTS)) return none()   // a full bag is the 34-slot order's
   if (now - (townState?.lastCompostAt ?? -Infinity) < COMPOST_COOLDOWN_MS || now < (townState?.compostBackoffUntil ?? 0)) return none()
   if (now - (s.lastScanAt ?? -Infinity) < TOWN_SCAN_MS) return none()
   s.lastScanAt = now
+  // the bag's fill plan is built only here, after the cheap gates, and once (Codex code r2 P3)
+  const stacks = lazy(visitStacks)
+  if (!(stacks >= 1)) return none()
   if (!lazy(storageNear)) return none()
   const dc = lazy(distComposter)   // null: no town composter (the build order's)
   if (!(Number.isFinite(dc) && dc <= VISIT_COMPOST_REACH)) return none()
   const dh = Math.round(distHome)
   return { order: { skill: 'compost', args: { visit: true, armed: visitArmed(s), dh, dy: Number.isFinite(dy) ? Math.round(dy) : null, dc: Math.round(dc), vid: visitId(myName, now) },
-                    why: `at town (${dh} from home) with ${lazy(visitStacks)} stack(s) the composter takes whole and ${slots} of 36 slots used: composted on this visit` },
+                    why: `at town (${dh} from home) with ${stacks} stack(s) the composter takes whole and ${slots} of 36 slots used: composted on this visit` },
            state: visitLatchIssue(s, now) }
 }
 
