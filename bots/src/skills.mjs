@@ -7726,7 +7726,13 @@ async function townDeposit (ctx, _args, signal) {
   const allowPlanned = startPlan.steps.filter(st => st.allowance).map(st => ({ name: st.name, row: st.allowance }))
   // THE BANK ROWS, written for EVERY run that planned a row or banked anything (the read's J1 sees every name a town deposit
   // put into a chest, whatever the mode), complete in parts
+  // ONCE per run, whatever the ending -- an early refusal, an abort or interrupt thrown out of the container loop (written
+  // from its finally, with what the server verified so far), or the normal end (code r1, both engines: J1 must see every
+  // name a town deposit put into a chest, and a run that planned rows and banked nothing is a run too)
+  let bankRowsDone = false
   const bankRows = (n, slotsAfter) => {
+    if (bankRowsDone) return
+    bankRowsDone = true
     if (!allowPlanned.length && !(n > 0)) return
     try {
       const visit = _args?.vid ?? visitId(bot.username, Date.now())
@@ -7751,10 +7757,10 @@ async function townDeposit (ctx, _args, signal) {
     stop = counted != null ? 'counted the town; nothing to bank above the keeps' : 'nothing to bank above the keeps'; row('no_effect')
     return { status: 'no_effect', detail: counted ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)` : 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' }
   }
-  if (bot.cobbleOpenPending) { stop = 'a counting open in flight'; row('no_effect'); return { status: 'no_effect', detail: 'a town container has not answered an earlier open yet; the town deposit waits for it' } }
-  if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
+  if (bot.cobbleOpenPending) { stop = 'a counting open in flight'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'a town container has not answered an earlier open yet; the town deposit waits for it' } }
+  if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
   const containers = townContainers(bot)
-  if (!containers.length) { stop = 'no town container'; row('no_effect'); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
+  if (!containers.length) { stop = 'no town container'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
   const left = () => deadline - TD_SETTLE_MS - Date.now()
   const openMs = () => Math.max(1000, Math.min(TD_OPEN_MS, left()))
@@ -7829,6 +7835,7 @@ async function townDeposit (ctx, _args, signal) {
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    bankRows(Object.values(banked).reduce((a, b) => a + b, 0), items().length)   // an abort too (the verified so far)
   }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
