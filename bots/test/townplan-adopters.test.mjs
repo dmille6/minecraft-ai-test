@@ -1,0 +1,190 @@
+// TOWNPLAN-01, THE ADOPTERS (build spec 1.6, both engines APPROVE r7): the natural well's NEW-cap search, the raised well's plan,
+// the composter's site and the full-town recovery search OUTSIDE the plan first, then SOFT, then a committed BOX -- NEVER a plan
+// cell or stand -- and an existing well is never re-judged by the plan. Then the wiring the behaviour cannot reach (comments
+// stripped; each with an anchored mutant).
+import assert from 'node:assert'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+
+process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-tpad-logs-'))
+process.env.BOT_NAME = 'PlanBot'
+process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
+process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
+process.env.LOG_LEVEL = 'error'
+process.env.MEMORY_SCOPE = 'board'
+process.env.PLINTH_FIRST = '0'
+process.env.SKILL_TIMEOUT_MS = '180000'
+const freshPool = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-tpad-pool-')); process.env.POOL_STATE_DIR = d; return d }
+freshPool()
+
+const S = await import('../src/skills.mjs')
+const T = await import('../src/townplan.mjs')
+const W = await import('../src/well.mjs')
+const C = await import('../src/composter.mjs')
+const CF = await import('../src/chestfull.mjs')
+const { fakeWorld, stack } = await import('./fakeworld.mjs')
+const { Vec3 } = await import('vec3')
+const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
+
+const { tapRecords } = await import('../src/logger.mjs')
+const RECS = []
+tapRecords(r => RECS.push(r))
+const rowsOf = (kind, n0 = 0) => RECS.slice(n0).filter(r => r.skill?.name === `_${kind}` || r.skill?.name === kind).map(r => r.skill?.detail ?? '')
+let pass = 0, fail = 0
+const t = async (name, fn) => {
+  try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 5).join('\n        ')}`) }
+}
+async function withMutant (p, old, neu, fn) {
+  const src = readFileSync(p, 'utf8')
+  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))} is not in ${p.pathname}. A mutant that was never written reads as killed.`)
+  assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+async function killedBy (fn) { try { await fn(); return false } catch { return true } }
+/** Source with comments stripped (this codebase's comments quote the code they explain: CLAUDE.md). */
+const code = f => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+
+/** A greenfield town with its root plan (the planner tick), flat grass, home 0,64,0. */
+function town (bag = [], at = [2.5, 64, 0.5]) {
+  freshPool(); S.resetPlanZones()
+  const w = fakeWorld({ bag, at })
+  Object.assign(w.bot, { worldId: 'w', username: 'PlanBot', players: {} })
+  const r = S.townPlanTick(w.bot, { now: Date.now() })
+  assert.equal(r.result, 'accepted', JSON.stringify(r))
+  return w
+}
+const HOME = { x: 0, y: 64, z: 0 }
+const readOf = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, shapes: b.shapes, hardness: b.hardness, props: null } : null }
+
+console.log('townplan: the permanent adopters')
+await t('NATURAL WELL (a NEW cap): no plan -> the base\'s spiral answer exactly; under a plan -> never a NEVER cell, the plan\'s well sector first, outside before soft', () => {
+  const w0 = fakeWorld({ bag: [] }); Object.assign(w0.bot, { worldId: 'w' })
+  const base = W.canonicalWellSite({ home: HOME, read: readOf(w0.bot), avoid: [] })
+  assert.deepEqual(S.planWellSearch(w0.bot, { home: HOME, read: readOf(w0.bot), avoid: [] }).site, base.site, 'no plan: the base exactly')
+  const w = town()
+  const tp = S.townPlanNow(w.bot)
+  const r = S.planWellSearch(w.bot, { home: HOME, read: readOf(w.bot), avoid: [] })
+  assert.ok(r.site, r.why)
+  assert.equal(T.footprintTier(tp.ko, r.site), null, 'pass 1: outside the plan')
+  const sec = tp.plan.plots.find(p => p.id === 'well').sector
+  assert.equal(T.sectorCard(HOME, r.site.x, r.site.z), sec, 'the well sector first')
+  for (const c of tp.plan.plots.find(p => p.id === 'store').cells) assert.ok(Math.hypot(r.site.x - c.at[0], r.site.z - c.at[2]) >= 7, 'WELL_HOME_CLEARANCE from every planned store chest')
+})
+await t('ADOPT ROWS: a NEW well site under a plan writes ONE _townplan_adopt row (tier= plan_refused= gen= never=0); the same answer again writes none; no plan writes none', () => {
+  const w = town()
+  const tp = S.townPlanNow(w.bot)
+  const n0 = RECS.length
+  const r = S.planWellSearch(w.bot, { home: HOME, read: readOf(w.bot), avoid: [] })
+  S.planWellSearch(w.bot, { home: HOME, read: readOf(w.bot), avoid: [] })
+  const rows = rowsOf('townplan_adopt', n0)
+  assert.equal(rows.length, 1, JSON.stringify(rows))
+  assert.match(rows[0], new RegExp(`^what=well at=${r.site.x},${r.site.y},${r.site.z} tier=outside plan_refused=\\d+ gen=${tp.gen} never=0$`))
+  const w0 = fakeWorld({ bag: [] }); Object.assign(w0.bot, { worldId: 'w' })
+  freshPool(); S.resetPlanZones()
+  const n1 = RECS.length
+  S.planWellSearch(w0.bot, { home: HOME, read: readOf(w0.bot), avoid: [] })
+  assert.equal(rowsOf('townplan_adopt', n1).length, 0)
+  // never= is the decision's own cells on a NEVER cell: a plan cell handed in as the site counts 1
+  const w2 = town()
+  const c = S.townPlanNow(w2.bot).plan.plots.find(p => p.id === 'store').cells[0].at
+  const n2 = RECS.length
+  assert.equal(S.planAdoptRow(w2.bot, 'test', { x: c[0], y: c[1], z: c[2] }), true)
+  assert.match(rowsOf('townplan_adopt', n2)[0], / never=1$/)
+})
+await t('NATURAL WELL: the re-check of a RECORDED site is the base\'s (the plan never re-judges an existing well, Claude spec r1 P1)', () => {
+  const src = code('skills.mjs')
+  const fn = src.slice(src.indexOf('export function townWellSite'), src.indexOf('function readCapRefused'))
+  assert.ok(/compute: \(\) => \(searched = first \? plinthFirstSearch\(planWellSearch\(bot,/.test(fn), 'the compute is the plan\'s search')
+  const refuse = fn.slice(fn.indexOf('refuse: site =>'))
+  assert.ok(!/planWellSearch|townPlanNow|planTierAt|planWellAvoid/.test(refuse), 'the refuse path never reads the plan')
+})
+await t('COMPOSTER: the plan\'s farm.composter first when the composter\'s own rules pass; never a NEVER cell', () => {
+  const w = town()
+  const tp = S.townPlanNow(w.bot)
+  const fc = tp.plan.plots.find(p => p.id === 'farm').composter
+  const r = S.planComposterSite(w.bot, { home: HOME, read: readOf(w.bot) })
+  assert.ok(r.site); assert.deepEqual([r.site.x, r.site.y, r.site.z], fc)
+  // the farm cell refused (a chest in its clearance): the spiral, still off the plan's cells
+  w.set(fc[0] + 1, fc[1], fc[2], 'chest')
+  const r2 = S.planComposterSite(w.bot, { home: HOME, read: readOf(w.bot) })
+  assert.ok(r2.site); assert.notDeepEqual([r2.site.x, r2.site.y, r2.site.z], fc)
+  assert.notEqual(tp.ko.tier(r2.site.x, r2.site.y, r2.site.z), 'never')
+})
+await t('RAISED WELL: the plinth planner\'s keep-outs carry every NEVER cell in every pass, the committed boxes in passes 1-2, soft boxes and paths in pass 1 only', () => {
+  const w = town()
+  const tp = S.townPlanNow(w.bot)
+  const p1 = S.planPlinthKeepOut(w.bot, 1), p2 = S.planPlinthKeepOut(w.bot, 2), p3 = S.planPlinthKeepOut(w.bot, 3)
+  const never = tp.ko.neverCells.length
+  assert.equal(p3.length, never, 'pass 3: NEVER only')
+  assert.ok(p1.length > p2.length && p2.length >= p3.length)
+  for (const [x, y, z] of tp.ko.neverCells) assert.ok(p3.some(e => e.x === x && e.y === y && e.z === z && e.r === 0))
+})
+await t('RECOVERY (retrofit, no store cell): the first pass takes a cell OUTSIDE the plan; a base-valid cell the plan refused is counted plan_refused', async () => {
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
+  // a full chest on the core (the cluster): rings around it reach into the soft core and the workshop
+  const tp = S.townPlanNow(w.bot)
+  w.set(3, 64, 0, 'chest'); w.fill(3, 64, 0)
+  // retrofit-like: no free READY store cell for the recovery (all reserved by another bot)
+  const key = (await import('../src/planstore.mjs')).planKey(HOME)
+  const PS = await import('../src/planstore.mjs')
+  PS.publishPlan(process.env.POOL_STATE_DIR, key, 'w', cur => { for (const c of cur.plots.find(p => p.id === 'store').cells) Object.assign(c, { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
+  S.townPlanHead(w.bot)
+  const r = await S.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+  const placed = w.spy.placed.map(k => k.split(',').map(Number))
+  assert.ok(placed.length >= 1, `a chest was placed (${r.status}: ${r.detail})`)
+  const ko = S.townPlanNow(w.bot).ko
+  for (const p of placed) assert.notEqual(ko.tier(...p), 'never', `never a NEVER cell (${p})`)
+  assert.equal(ko.tier(...placed[0]), null, 'the first pass: outside the plan')
+  assert.ok(tp)
+})
+
+console.log('townplan: the wiring (comments stripped)')
+await t('WIRED: the planner tick every PLAN_TICK_MS and both licence rows once per spawn (index.mjs)', () => {
+  const src = code('index.mjs')
+  assert.ok(/setInterval\(\(\) => \{ try \{ townPlanTick\(bot\) \} catch \{\} \}, PLAN_TICK_MS\)/.test(src))
+  assert.ok(/kind: 'townplan_mode'/.test(src)); assert.ok(/kind: 'found_mode'/.test(src))
+})
+await t('WIRED: the found slot sits between the raised well and the town deposit; the recount never displaces a found order (cognitive.mjs)', () => {
+  const src = code('cognitive.mjs')
+  assert.ok(/order = this\.#plinthOrder\(\) \?\? this\.#foundOrder\(milestone\) \?\? this\.#townDepositOrder\(milestone\) \?\? order/.test(src))
+  assert.ok(/order\.skill !== 'found_store' && order\.skill !== 'found_work'\)\) order = this\.#recountOrder\(\)/.test(src))
+})
+await t('WIRED: found_store / found_work are housekeeping, registered, chatOnly, with a world_change contract', async () => {
+  const { HOUSEKEEPING } = await import('../src/hygiene.mjs')
+  for (const k of ['found_store', 'found_work']) {
+    assert.ok(HOUSEKEEPING.has(k)); assert.ok(S.SKILLS[k]?.chatOnly); assert.deepEqual(S.SKILL_CONTRACTS[k].expects, ['world_change'])
+  }
+})
+await t('MUTANT KILLED: placeSites without the plan skip (a temporary table on a reserved station cell)', async () => {
+  const k = await withMutant(SKILLS_PATH, "      if (pc) { planSkip.n++; if (pc === 'plan' && STATION_ITEMS.has(item)) planLater.push({ ref: under, face: UP }); continue }\n", '', async M => killedBy(async () => {
+    freshPool(); M.resetPlanZones()
+    const w = fakeWorld({ bag: [stack('crafting_table', 1)], at: [2.5, 64, 0.5] })
+    Object.assign(w.bot, { worldId: 'w', username: 'PlanBot', players: {} })
+    M.townPlanTick(w.bot, { now: Date.now() })
+    const PS = await import('../src/planstore.mjs')
+    const s0 = M.townPlanHead(w.bot).head.plan.plots.find(p => p.id === 'work').stations[0]
+    PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey(HOME), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'work').stations[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
+    M.townPlanHead(w.bot)
+    // the bot stands so that the reserved station is its FIRST candidate (dx +1 at the floor level)
+    w.bot.entity.position = new Vec3(s0.at[0] - 0.5, 64, s0.at[2] + 0.5)
+    await M.SKILLS.place.run({ bot: w.bot }, { item: 'crafting_table' }, new AbortController().signal)
+    assert.notEqual(w.nameAt(...s0.at), 'crafting_table')
+  }))
+  assert.ok(k, 'the mutant survived')
+})
+await t('MUTANT KILLED: the recovery\'s first pass allowed into SOFT cells', async () => {
+  const k = await withMutant(new URL('../src/chestfull.mjs', import.meta.url), "        if (tier && !(rank[tier] < pass)) { planRefused++; bump(`town plan (${tier})`); continue }", "        if (tier === 'never') { planRefused++; bump(`town plan (${tier})`); continue }", async CFM => killedBy(() => {
+    // a ring cell inside a soft box: pass 1 must refuse it
+    const read = (x, y, z) => ({ name: y <= 63 ? 'grass_block' : 'air', boundingBox: y <= 63 ? 'block' : 'empty' })
+    const p = CFM.pickChestSite({ read, anchor: { x: 10, y: 64, z: 10 }, home: { x: 0, y: 64, z: 0 }, tierOf: () => 'soft', pass: 1 })
+    assert.equal(p.site, null)
+  }))
+  assert.ok(k, 'the mutant survived')
+})
+
+console.log(`\ntownplan-adopters: ${pass} passed, ${fail} failed`)
+process.exit(fail ? 1 : 0)

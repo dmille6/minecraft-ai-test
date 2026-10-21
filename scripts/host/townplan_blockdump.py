@@ -7,9 +7,9 @@ planner (bots/src/townplan.mjs, pure over a `read(x, y, z)`) can be run OFFLINE 
 the showcase's founding plan is then computed by the same code that will write it, and a Paper arena can be rebuilt from the
 same cells. Stdlib only.
 
-Output: { box: [x0, z0, x1, z1], y: [y0, y1], palette: [name, ...], cells: "<base64 of uint16 LE palette index, x fastest,
-then z, then y>", missing: [[cx, cz], ...] }. A name carries `[waterlogged]` when its state says waterlogged=true (the planner
-reads that as liquid). A chunk that is absent from the files is listed in `missing` and its cells are `?` (index 0): the
+Output: { box: [x0, z0, x1, z1], y: [y0, y1], palette: [name, ...], bits: 8|16, cells: "<base64 of the palette index per cell (uint8, or
+uint16 LE past 256 names), x fastest, then z, then y>", missing: [[cx, cz], ...] }. A name carries `[waterlogged]` when its state says waterlogged=true (the planner
+reads that as liquid), and a snow layer `snow[layers=N]`. A chunk that is absent from the files is listed in `missing` and its cells are `?` (index 0): the
 planner reads `?` as UNKNOWN, never as air.
 """
 import argparse, base64, json, os, struct, sys, zlib
@@ -84,7 +84,9 @@ def section_values(bs):
 
 def name_of(entry):
     n = entry.get('Name', '?').replace('minecraft:', '')
-    if (entry.get('Properties') or {}).get('waterlogged') == 'true': n += '[waterlogged]'
+    props = entry.get('Properties') or {}
+    if n == 'snow': n += '[layers=%s]' % props.get('layers', '?')   # a snow layer is replaceable only at one layer
+    if props.get('waterlogged') == 'true': n += '[waterlogged]'
     return n
 
 
@@ -124,8 +126,9 @@ def main():
                             nm = pal[vals[(ly * 16 + lz) * 16 + lx]] if vals is not None else (pal[0] if pal else 'air')
                             if nm not in index: index[nm] = len(palette); palette.append(nm)
                             cells[((y - y0) * nz + (z - z0)) * nx + (x - x0)] = index[nm]
-    buf = struct.pack('<%dH' % len(cells), *cells)
-    out = {'box': [x0, z0, x1, z1], 'y': [y0, y1], 'palette': palette, 'cells': base64.b64encode(buf).decode('ascii'), 'missing': missing}
+    bits = 8 if len(palette) <= 256 else 16
+    buf = bytes(cells) if bits == 8 else struct.pack('<%dH' % len(cells), *cells)
+    out = {'box': [x0, z0, x1, z1], 'y': [y0, y1], 'bits': bits, 'palette': palette, 'cells': base64.b64encode(buf).decode('ascii'), 'missing': missing}
     s = json.dumps(out)
     if a.out:
         open(a.out, 'w').write(s)
