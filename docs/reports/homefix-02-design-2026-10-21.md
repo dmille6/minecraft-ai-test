@@ -1,4 +1,4 @@
-# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r4)
+# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r5)
 
 homefix-01 (`a52d075e`, branch `homefix-on-9e7d998`) was REVERTED at 2026-10-21 00:57Z by gate v23: two canary deaths, one
 with a licensed `_watchdog_rescue` row. Both deaths were hive-d-Echo, and both were drownings. This document gives each
@@ -60,7 +60,7 @@ for reading. The files are the live state at ~01:10Z.
    - **C3:** no watchdog rescue STARTS during a drowning in progress (`danger`: head under, ≤ 5 s of air, health
      falling) or while an air-pocket/flooded-pocket rung runs. The runner checks this at the moment the run would start.
      A running watchdog rescue is interrupted on every tick of `danger`. A chronic submerged bot at full health never
-     reads `danger`, so it needs no counter (r4).
+     reads `danger`. A per-kind cap of 2 consecutive declines guarantees the ladder proceeds (r5).
 
    H1-H4 are untouched. Tier 3, reads as homefix-01. New lines:
    - **G5:** defect lines on the build's invariants, using fields it now writes, plus two outcome checks from reflex rows.
@@ -265,8 +265,8 @@ arrival cell (-14.5,63,54.5) reads `below ice, ice_over_water`.
   - **Arrival region R = 5, dy -3..+2 (the r2 rule):** canary L1 verdicts 215 of 224 (96.0%), mean 3.7 tries. By pool,
     the shared pools are 94-100% (hive-d 58 of 61, hive-b 81 of 85).
   - **R = 2 (the r1 rule):** 221 of 224.
-  - **So the fallback to `home` is about 4-6%.** These are saved-world reads with block names approximating shapes
-    (sim.py), not a live-client estimate. The build logs each rejection reason (`dry_reasons`), so the read measures
+  - These looser r2 figures are superseded by §4 C2's final predicate. The final figure is 92.4%, an approximate
+    saved-world estimate. The sim infers collision from block names and reads saved, not client-loaded, cells. The build logs each rejection reason (`dry_reasons`), so the read measures
     the live rate. Isolated pools were not classified: their pool names do not map to a world dir.
 - **A naive "head under" decline would starve chronic cases.** Under the r1 predicate (head not breathable and wet)
   control verdicts read submerged 24 of 723 at L1 and the canary 0 of 224. Both reviews flagged that P(0) ≈ 0.0006 at an
@@ -356,7 +356,8 @@ whole contract), H3 and H4 are unchanged**; every homefix-01 test still runs.
     are reported. A
   FAILED relocation stops wherever its leg stopped. That is a guard, not a defect: the path may cross water, and
   swimming is travel.
-- **Sizing with the final predicate** (sim5.py, a faithful Python mirror). It uses R=5 and dy -8..+7 with any wet
+- **Sizing with the final predicate** (sim5.py, an APPROXIMATE saved-world mirror: collision is inferred from block
+  names, where production uses `boundingBox`, and saved cells stand in for client-loaded ones; Codex r4 P2-4). It uses R=5 and dy -8..+7 with any wet
   cell refusing, leaves/magma/ice floors and powder snow, and was run as `python3 sim5.py starts.jsonl` on 10.0.0.30
   `~/hf2-read` against the saved worlds.
   - Canary L1 verdicts: **207 of 224 (92.4%)**, mean 4.4 tries.
@@ -384,12 +385,15 @@ chronic "submerged but alive" bots a problem: board-a-Comet and placebo-c-Bravo 
 every 32-37 s. Each round then needed a counter, a cap, a bypass latch, reset rules and exemptions. Codex r3 showed the
 latch still fails: the base's own air actions interrupt a bypassed run, and the stagnation judgement clears a shared
 counter between stranding verdicts. **r4 keys C3 on a drowning IN PROGRESS instead.** Every condition it refuses on ends
-by construction within a window, so no counter is needed, and the base's air actions are left exactly as they are.
+by construction within a window. r5 adds only a simple per-kind cap (2 consecutive declines; Codex r4 P1), with no exemption and no latch. The base's air actions are left exactly as they are.
 
 - **The air reflex publishes** `bot.airRescue = { danger, pocketing, airSeconds, headUnder, at }`.
-  - **Every reflex tick writes it, BEFORE the tick's early returns** (reflex.mjs:1504, while the air-pocket step digs).
-  - **`danger`** = the head is under AND `airSeconds ≤ LOW_SECONDS` (5 s) AND health fell since the previous tick. This
-    is exactly `airEmergency`'s healthFalling arm (air.mjs:113; Claude r3 P3).
+  - **Every reflex tick writes it at the TOP of the tick**: before the `inventoryUnsettled.release` await (:1493;
+    Claude r4 P3-4) and before every early return (:1504, while the air-pocket step digs).
+  - **`danger`** = the head is under AND `airSeconds ≤ LOW_SECONDS` (5 s) AND health fell within the last 3 s. This is
+    `airEmergency`'s healthFalling arm (air.mjs:113) with a 3-s hold (Claude r4 P2-3). A peaceful drowning loses health
+    in 2-HP steps against regeneration, so "fell since the previous 500-ms tick" would be true on only about half of
+    its ticks.
     - `airSeconds` comes from a SEPARATE publication clock updated every tick. The rescue's own `airClock`, updated only
       while `air.losing` (:2135), is untouched.
     - Health is the server's value.
@@ -408,16 +412,27 @@ by construction within a window, so no counter is needed, and the base's air act
   - **The ladder.** `rescueLevelStep` treats `air_rescue` as a hold: the level held, one window (180 s) of backoff, and
     the reserve_expired streak untouched. A declined climb-out is refunded, as an unstarted one is today
     (watchdog.mjs:285).
-  - **No counter, because no refusal can persist** (CLAUDE.md "a refusal must name a remedy"):
-    - **`danger`** is a drowning in progress. In peaceful it ends in breath or death within about 100 s, i.e. 83-90 s
-      after the air runs out (airpocket design, Paper sandbox2). That is shorter than the one-window backoff, so the
-      next verdict meets a different bot.
-    - **`pocketing`** is bounded: the step by its health budget (≤ about 30 s) with a 60-s fail cooldown, and the rung
-      by its own budget with a 10-min cooldown.
-    - **The remedy named is the air reflex**, already acting, and executable from the cell: swim up/out, the C1 ice
-      dig, the flooded-pocket rung.
-    - **The read reports the longest consecutive `air_rescue` streak per bot.** A streak ≥ 3 would contradict this
-      argument and is named in the read.
+  - **Why a refusal cannot persist, and the cap that guarantees it anyway** (Codex r4 P1).
+    - **`danger` ends on its own:** a drowning in progress ends in breath or death in about 100 s in peaceful, which is
+      shorter than the 180-s hold.
+    - **The pocket rungs are budget-bounded, with cooldowns.** But Codex r4 found an unbounded `equip` await inside the
+      flooded-pocket rung (reflex.mjs ~5262-5294), and a recurrent danger episode (a non-lethal damage source
+      underwater, such as death 2's magma pool floor; Claude r4 P3-5) could coincide with every verdict.
+    - **So a simple per-kind cap makes it deterministic:** `airDeclines[kind]` (stagnation, stranding) is +1 per
+      `air_rescue` decline, resets to 0 ONLY when a rescue of that kind STARTS, and has no TTL. At 2 consecutive declines
+      the next admission ignores `danger`/`pocketing` (`air_capped: 1` on the started row).
+    - **No exemption follows the cap.** C3b still interrupts that run on any `danger` tick. If danger persists, the run
+      starts and is interrupted. That counts as a start, so the ladder moves on exactly as on the base: at most 2 held
+      verdicts per kind, never a dead end.
+    - **The remedy named is the air reflex**, already acting, and executable from the cell: swim up/out, the C1 ice dig,
+      the flooded-pocket rung.
+    - **The read reports the longest decline streak per bot** (the cap makes 3 impossible: a 3 is a defect, G5g). It
+      also names magma/bubble-column positions, so a recurring `danger` there is not read as a broken bound.
+  - **The lag, stated** (Claude r4 P2-3). In peaceful, health stays flat for about 20-30 s after the air runs out: death
+    1 was seized at 20:17:49 and health first fell at 20:18:09. Through that window C3a admits and C3b does not
+    interrupt, so a watchdog goto and the air reflex can both steer, exactly as on the base. In a SEALED cell (death 1
+    with C1), the air-pocket step's own guard (reflex.mjs:1415-1417) interrupts the run from the first sealed tick; C3
+    adds coverage from the first `danger` tick.
 - **C3b, level-triggered on `danger` only.**
   - **What it does.** On every reflex tick where `danger` is true and the runner's current run belongs to the watchdog
     (`current.owner === 'watchdog'`; the runner's `current` gains `owner` and `rescue`), the reflex calls
@@ -488,14 +503,21 @@ licence_canary, readable, g3_unjoined and the controls. They keep their register
   - **G5c (outcome, C1).** A `_drowning_route` row with `up` whose `head=` cell is not swimmable (ice, dirt, stone, ...):
     the route answered through a solid head cell. homefix-01's 20:17:49 row is the positive control. Its head
     (`_air_drowning_observed`, 2 s earlier) was ice, so the old code shows the defect.
-  - **G5d (outcome, C3b).** An `_air_rescue_yield` row (the FIRST interrupt decision per attempt) whose attempt has
-    no terminal phase within 60 s: C3b's interrupt did not take. 60 s is above the measured unwind p99 of 47.6 s (h11),
-    and the read reports the yield→terminal times.
-    - The independent half is **G5d'**: a tick-level observation from the read itself. It flags a watchdog attempt
-      started and not terminal while the same bot's reflex rows show a drowning in progress (`_drowning_ceiling_no_air`
-      or `_oxygen_critical_state` with health below the previous row's), with no `_air_rescue_yield` for that attempt
-      within 2 s. It is reported, and it becomes a defect when the attempt's terminal is not `interrupted:*`.
-    - A yield row cut by the read boundary (< 60 s before it) is censored, not counted.
+  - **G5d (outcome, C3b), keyed on the runner's own guarantee** (Codex r4 P2-3, Claude r4 P2-1). Take an
+    `_air_rescue_yield` row (the first interrupt decision per attempt). It is a defect if the attempt has no terminal
+    phase by the runner's hard-stop bound, counted from the attempt's `started`: `defaultTimeoutMs` 180 s +
+    `HARD_STOP_GRACE_MS` 30 s + 20 s margin = 230 s (`pendingBoundMs`). A yield → terminal time above 60 s is REPORTED
+    as a guard, not a defect. Bounds cut by the read window are censored.
+  - **G5d' (C3b fired on every danger tick), from the exact inputs** (Codex r4 P2-2, Claude r4 P2-2).
+    - **The row.** While a watchdog run is current, the reflex writes a throttled `_air_danger` row (at most one per
+      2 s) on `danger` ticks. The row carries `head_under`, `air_seconds`, `health`, `health_3s_max`, `owner` and
+      `attempt`, so the read can recompute the predicate.
+    - **The defect.** An `_air_danger` row whose recomputed predicate is true, with `owner=watchdog` and no
+      `_air_rescue_yield` for that attempt within 1 s.
+    - **Report-only.** The earlier proxy from sparse reflex rows (ceilings, `_oxygen_critical_state`) is report-only,
+      because those rows ride on the untrusted oxygen field and on health compared between rows.
+  - **G5g.** An attempt whose `started` row says `air_capped=1` after fewer than 2 consecutive `declined:air_rescue` of
+    its kind, OR 3 consecutive `declined:air_rescue` of one kind: the cap was broken.
 - **G6: verdict-adjacent drownings on both arms (DiD).** A drowning death within 180 s AFTER a `_stagnation` verdict and
   within 16 blocks of the verdict's position, deduplicated per death. Both builds write the verdict with a position,
   so the old code's pre-period is counted with the same instrument.
@@ -635,7 +657,8 @@ Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, dea
 | design r1 (73019074) | CHANGE. P1: C3 admission race (check before reserve, edge-triggered C3b); C2 checks the target, not goto's ≤3/≤6 arrival region; G6's null population ≠ its event definition; G5/C1 telemetry contract unwritten (rows, axes dropped). P2: decline caps not independent (rescueLevelStep resets the streak); C2 limits overstated (columnSurface, sim approximations); C1 composed regressions. P3: wording (no observed DiD excess; denominators 92 v 94) | CHANGE. P1: a head-geometry decline starves breathing swimmers (death 2's shape) — key on the air reflex; G6's REVERT rests on a narrower null — anchor on verdicts or block-only. P2: bare-handed ice pricing (pickaxes?); caps not independent; C3b edge-triggered and the one-shot latch; 0/223 v 24/723 sizing unexplained; G5 self-consistency only — add outcome checks. P3: drown-route-truth fixtures default the head cell to stone; dy=1 confirm vacuous at full HP; leaves/powder snow; fallback row shape; 92 v 94 |
 | design r2 (1fc8f0cf) | CHANGE. P1: C3b defeats C3a's bypass (chronic bots killed on the next re-seizure); C2's region misses goto's ±6 vertical acceptance. P2: air TTL shorter than the stranding cadence (720 s); state stale behind the airPocketing early return; G5d keyed on a seizure row only written on `!rescuing`; G6's fixed baseline not portable to a new draw. P3: 11 v 10, 92 v 94 wording | CHANGE. P1: the same bypass/C3b dead end. P2: state stale during the ice dig; airClock only updated while losing. P3: `air_rescue` into RUNNER_DECLINED and the grant release; G6 λ = max(0.68, the drawn arm's rate); say the pickaxe rows were matched. F5 deferral accepted |
 | design r3 (af9a93ee) | CHANGE. P1: the base's own air actions (one-shot latch, air-pocket guard, re-seize goal clear) still kill a bypassed run; the shared counter is cleared by stagnation between stranding verdicts; the far-band exemption for capped water is unsound. P2: an exempt→interrupt transition is missed by G5d; the sizing is not a faithful replay | **APPROVE** (P2: region scan cost; P3: `danger` threshold text; cap the drowning refund; name the pocket rungs' interrupts; sim settings; G5f with the same predicate; which escalation zeroes reset the latch) |
-| design r4 | | |
+| design r4 (be37d952) | CHANGE. P1: the pocket rung can hang (unbounded equip) and danger episodes can recur at every verdict, so "bounded" needs a deterministic retry. P2: G5d' rides on untrusted proxies; G5d's 60 s is not the runner's guarantee; sizing is labelled faithful but is approximate | **APPROVE**. P2: G5d's deadline must be the hard-stop bound; G5d' report-only, or from exact tick rows; `danger` lags and flickers (use health fell within 3 s). P3: publish before the release await; name the recurrent magma case |
+| design r5 | | |
 
 r2 answers every r1 finding:
 - **C3a:** keyed on the air reflex, checked at the runner's start, with its own streak, cap and bypass latch. C3b is
@@ -675,3 +698,13 @@ r4 answers r3:
 - **G5d** is keyed on the first interrupt decision, with a reflex-row cross-check, G5d'.
 - **The drowning refund is capped at 2.**
 - **`danger`** uses LOW_SECONDS, matching airEmergency's arm.
+
+r5 answers r4:
+- **C3 cap:** a per-kind cap of 2 consecutive `air_rescue` declines, reset only by a start of that kind. After it the
+  admission ignores danger, and there is no C3b exemption, so the ladder proceeds as on the base.
+- **`danger`** uses a 3-s health window and is published at the top of the tick.
+- **G5d** is keyed on the 230-s hard-stop bound, with 60 s reported.
+- **G5d'** comes from exact `_air_danger` tick rows; the old proxy is report-only.
+- **G5g** checks the cap.
+- **Sizing** is labelled approximate.
+- **The lag and the recurrent-magma case** are stated.
