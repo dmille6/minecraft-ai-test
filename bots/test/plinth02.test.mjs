@@ -165,8 +165,10 @@ await t('NOTHING IN REACH: a plinth hanging over a void with its ring top taken 
 await t('BUILD_WELL WIRING (structural, comments stripped): the table cell comes from wellTableCell with the town start and box, and the refusal names the carried-trapdoor remedy', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const c = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  const line = 'const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy, tableForbid })'
+  // townplan-01 (re-anchored): the same wellTableCell arguments, asked twice -- the plan's strict tier, then its loose tier
+  const line = 'const tableArgs = { site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy }'
   assert.equal(c.split(line).length, 2, 'ANCHOR MISSING or not unique')
+  assert.equal(c.split('const cell = wellTableCell({ ...tableArgs, tableForbid: wellStrict }) ?? wellTableCell({ ...tableArgs, tableForbid: wellLoose })').length, 2, 'the call')
   assert.ok(!/tableCellFor\(\{ site: \{ x: site\.x, y: stand\.y, z: site\.z \}/.test(c), 'the old call is gone')
   assert.match(c, /carry \$\{need\} wooden trapdoor\(s\), crafted at any table in town/)
 })
