@@ -893,9 +893,14 @@ scenes.townindex = async () => {
   if (put.some(x => /Unknown|Incorrect|Cannot|not loaded/i.test(x.reply))) throw new Error('double chest: ' + JSON.stringify(put))
   const key = p => `${p.x},${p.y},${p.z}`
   const conts = { N1: [at(TI_N.N1)], N3: [at(TI_N.N3)], FAR: [at(TI_N.FAR)], OUT: [at(TI_N.OUT)], DBL: [dl, dr] }
-  // the bag: BAG_MIX (bagbudget-01's measured full bag: the town deposit banks its allowance rows) with an iron axe and no
-  // shovel (the toolkit draws 1 ingot from a container keeping 4: FAR is the only one)
-  const spec = [...BAG_MIX]; while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
+  // the bag: a full bag (bagbudget-01's measured BAG_MIX, restated here: that driver constant came with bagbudget-01, which this
+  // base does not carry) with an iron axe and no shovel (the toolkit draws 1 ingot from a container keeping 4: FAR is the only
+  // one). On this base the town deposit banks what the base's plan banks (no allowance rows); the scene's CANDIDATE_PASS still
+  // needs one town_deposit that banked -- NOT re-run on Paper for this variant
+  const TI_BAG = [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 50], ['bucket', 1], ['furnace', 1], ['crafting_table', 2], ['chest', 12],
+    ['torch', 11], ['ladder', 4], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 35], ['oak_log', 64], ['oak_sapling', 9], ['birch_sapling', 7], ['bone_meal', 32],
+    ['bamboo', 64], ['bamboo', 30], ['apple', 7], ['cooked_beef', 5], ['salmon', 3], ['egg', 6], ['flint', 4], ['amethyst_block', 4], ['iron_axe', 1], ['stick', 6]]
+  const spec = [...TI_BAG]; while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
   const pool = `sbxti-${RUN}`
   const files = await startBot('townindex', spec, { pool })
   const t0 = Date.now()
