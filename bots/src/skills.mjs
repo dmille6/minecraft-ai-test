@@ -4401,7 +4401,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
       return { status: 'no_effect', failClass: null, detail: 'nothing banked: the town holds its stock target of what is left -- the chest is not placed (town stock target)' }
     }
     const pr = await placeIntoPlan(ctx, { at: planCell.at, kind: 'chest', role: null, signal })
-    try { logEvent({ kind: 'found_recovery', status: pr.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `cell=section at=${planCell.at.join(',')} gen=${tpRec?.gen ?? '-'} outcome=${pr.outcome ?? pr.status} ${String(pr.detail ?? '').slice(0, 120)}` }) } catch { /* telemetry */ }
+    try { logEvent({ kind: 'found_recovery', status: pr.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `cell=${planCell.extra ? 'extra' : 'section'} at=${planCell.at.join(',')} gen=${tpRec?.gen ?? '-'} outcome=${pr.outcome ?? pr.status} ${String(pr.detail ?? '').slice(0, 120)}` }) } catch { /* telemetry */ }
     if (pr.status === 'success') planPlaced = new Vec3(planCell.at[0], planCell.at[1], planCell.at[2])
     else { planCell = null; pick = pickAt() }
     if (!planPlaced && !pick?.site) {
@@ -6396,7 +6396,7 @@ function placeSites(bot, item = null) {
       if (zoneRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // protectzone-01
       if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
       const pc = planCls(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))
-      if (pc) { planSkip.n++; if (pc === 'plan' && STATION_ITEMS.has(item)) planLater.push({ ref: under, face: UP }); continue }
+      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push({ ref: under, face: UP }); continue }   // only craft's own temporary table (Claude code r1 P3)
       ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
     }
   }
@@ -6488,7 +6488,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   // you are standing on.
   const UP = new Vec3(0, 1, 0)
   let candidates = []
-  if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
+  const explicitXYZ = [x, y, z].every(v => Number.isFinite(Number(v)))
+  const planCls = p => { try { return planPlaceClass(bot, p) } catch { return null } }
+  if (explicitXYZ) {
     assertInsideBorder(Number(x), Number(z))
     if (onContainerLid(bot, { x: Number(x), y: Number(y), z: Number(z) })) {
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is on top of a container, which would stop it opening -- place it beside the container` }
@@ -6664,6 +6666,15 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // during the equip, the look or an earlier candidate's attempt is honoured by this one
       { const tgt = ref.position.offset(face.x, face.y, face.z), wk = stationRefusalAt(bot, tgt, { own: wellOwn })
         if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}: step 3+ blocks away from the well and place again`); continue } }
+      // THE PLAN READ AGAIN, LAST (townplan-01; Codex code r1 P2): a SCANNED spot that became a reserved or placed plan cell (or
+      // a stand) during the equip, the look or an earlier candidate's attempt is not taken. Explicit coordinates are the
+      // caller's own decision (placeIntoPlan places into its OWN reservation through them) and are not re-judged here.
+      if (!explicitXYZ && townPlanNow(bot)) {
+        const tgt = ref.position.offset(face.x, face.y, face.z)
+        try { townPlanHead(bot) } catch { /* the last head serves */ }
+        const pc = planCls(tgt)
+        if (pc === 'never' || (pc === 'plan' && item !== 'crafting_table')) { failures.push(`${tgt} became a town plan cell: place again`); continue }
+      }
       // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
       // never arrive. Unbounded, one silent spot consumed the whole skill budget
       // and the remaining candidates were never reached -- the same open-loop
@@ -7959,9 +7970,13 @@ async function buildComposter (ctx, _args, signal) {
         if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
         // NEVER INTO A BODY: the bot's own and every other's (items aside) are kept out of the table's cell.
         const wellFree = c => !!stationRefusalAt(bot, c)   // wellcare-01: never on a junk well's cells
-        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: wellFree })
+        // THE TOWN PLAN'S TWO TIERS for a temporary table (townplan-01 build spec 1.6 row 5; Claude code r1 P2): a non-plan cell
+        // first, then a free unmarked plan cell; a NEVER cell never
+        const [planStrict, planLoose] = planTableForbids(bot, wellFree)
+        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: planStrict }) ??
+                     tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: planLoose })
         if (!cell) {
-          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, forbid: wellFree })) {
+          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, forbid: planLoose })) {
             return fail('composter_unreachable', `wait for the cells beside the composter's standing cell at ${stand.x},${stand.y},${stand.z} to clear: ` +
                         `every cell where the crafting table could go has someone standing in it`)
           }
@@ -9258,7 +9273,10 @@ async function buildWell (ctx, _args, signal) {
         const tableWhy = {}
         // wellcare-01: the table never takes another well's cell, a stand, the shaft or a plinth stair (its own ring is the builder's)
         const tableForbid = c => !!stationRefusalAt(bot, c, { own: site })
-        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy, tableForbid })
+        // townplan-01 (build spec 1.6 row 5; Claude code r1 P2): a non-plan cell first, then a free unmarked plan cell; NEVER never
+        const [wellStrict, wellLoose] = planTableForbids(bot, tableForbid)
+        const tableArgs = { site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy }
+        const cell = wellTableCell({ ...tableArgs, tableForbid: wellStrict }) ?? wellTableCell({ ...tableArgs, tableForbid: wellLoose })
         if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table (table=${tableWhy.why ?? '-'}); carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
@@ -14832,12 +14850,24 @@ export function townPlanCtx (bot, read, zonesView = townPlanZones(bot), seedView
     containers, existing, wells, farm: treeFarmCells(), solid, cellForbid, composter, wellCap,
     wellRef: wellCap ? 'junkwell-site' : null,
     zones: [...(zonesView?.zones ?? []), ...avoid], seed: seedView?.use ?? null,
-    seedInfo: seedView?.use ? { why: seedView.why } : null,
+    // the seed's avoid boxes are RECORDED in the plan (Claude code r1 P2): the read's D4 judges every plan cell against them
+    seedInfo: seedView?.use ? { why: seedView.why, avoid: seedView.use.avoid ?? [] } : null,
     zoneInfo: { n: zonesView?.zones?.length ?? 0, avoid: avoid.length, why: zonesView?.why ?? 'absent' },
     allocate: allocateHomes, fixed: fixedSectors(),
   }
 }
 
+/** THE CONTEXT FOR A PER-CELL CHECK (READY in founding, ACCESS for an adopter's candidate), kept PLAN_CTX_MEMO_MS per bot (Claude
+ *  code r1 P3: a findBlocks of up to 512 blocks per cell otherwise; F2 asks for up to 7 cells in one decision). The tick and
+ *  the fits always build it fresh. */
+const PLAN_CTX_MEMO_MS = 2000
+function planCtxMemo (bot, read) {
+  const m = bot.planCtxMemo
+  if (m && Date.now() - m.at < PLAN_CTX_MEMO_MS) return m.ctx
+  const ctx = townPlanCtx(bot, read)
+  bot.planCtxMemo = { at: Date.now(), ctx }
+  return ctx
+}
 // THE ROWS: `_townplan` per publish attempt; a no-plan reason once per 10 min per bot; `_townplan_audit` every 10 min in town
 const PLAN_SAY_MS = 10 * 60 * 1000
 function planRow (bot, status, fields, sayKey = null) {
@@ -14932,7 +14962,7 @@ function planAccessKept (bot, cells) {
   if (!tp) return true
   try {
     const read = planReader(bot)
-    const ctx = townPlanCtx(bot, read)
+    const ctx = planCtxMemo(bot, read)
     const r = accessKept(read, planHomeP(), tp.plan, cells, { existing: ctx.existing })
     bot.planAccessMs = r.ms
     return r.ok
@@ -14948,6 +14978,12 @@ export function planPlaceClass (bot, p) {
   const cell = tp.plan.plots.flatMap(pl => [...(pl.cells ?? []), ...(pl.stations ?? [])]).find(c => c.at[0] === x && c.at[1] === y && c.at[2] === z)
   return cell && cell.state === 'free' && !Number.isFinite(cell.seenSince) ? 'plan' : 'never'
 }
+/** A TEMPORARY TABLE'S TWO TIERS over a base forbid ({x,y,z} -> truthy): [no plan cell at all, no NEVER cell]. No plan: the base
+ *  twice (the second pass is the first's answer again, so a picker's result is the base's exactly). */
+export function planTableForbids (bot, base = () => false) {
+  if (!townPlanNow(bot)) return [base, base]
+  return [c => !!base(c) || planPlaceClass(bot, c) !== null, c => !!base(c) || planPlaceClass(bot, c) === 'never']
+}
 /** THE GREENFIELD RECOVERY'S CELL (build spec 2.2): the next free, unmarked, READY store cell in fill order, or null. */
 function recoveryPlanCell (bot) {
   const tp = townPlanNow(bot)
@@ -14960,7 +14996,7 @@ function recoveryPlanCell (bot) {
 }
 /** READY's context for a live re-check (zones, wells, the plan's own cells). */
 function foundReadyCtx (bot, read, plan) {
-  const ctx = townPlanCtx(bot, read)
+  const ctx = planCtxMemo(bot, read)
   const planned = new Set((plan?.plots ?? []).flatMap(p => [...(p.cells ?? []), ...(p.stations ?? [])]).map(c => c.at.join(',')))
   return { zones: ctx.zones, home: planHomeP(), planned, wells: ctx.wells, farm: ctx.farm, solid: ctx.solid, cellForbid: ctx.cellForbid }
 }
@@ -15211,6 +15247,21 @@ export function foundBankGroups (bot, wanted = []) {
   } catch { /* nothing known */ }
   return [...out]
 }
+/** A HOMELESS GROUP TAKES AN UNASSIGNED PLACED STORE CELL (found.mjs foundAssign) -> the publish's result. The cell must still be
+ *  placed with role null in the head the mutate sees (a race with another bot's assignment publishes nothing). */
+export function foundAssignHome (bot, at, group) {
+  try {
+    return planPublish(bot, 'assign', head => {
+      const c = (head.plots.find(p => p.id === 'store')?.cells ?? []).find(x => x.at[0] === at[0] && x.at[1] === at[1] && x.at[2] === at[2])
+      if (!c || c.state !== 'placed' || (c.role ?? null) !== null) return null
+      const out = JSON.parse(JSON.stringify(head))
+      const n = out.plots.find(p => p.id === 'store').cells.find(x => x.at[0] === at[0] && x.at[1] === at[1] && x.at[2] === at[2])
+      Object.assign(n, { role: 'home', group })
+      out.transitions = []
+      return out
+    }, Date.now())
+  } catch { return { result: 'error' } }
+}
 /** Room-safe founding: a slot for the product and one for an intermediate (planks from logs). */
 export function foundCraftFits (bot, item) {
   try { const items = bot.inventory?.items?.() ?? []; return roomForOne(items, item) && items.length <= BAG_SLOTS - 2 } catch { return false }
@@ -15289,21 +15340,28 @@ export function planPlinthKeepOut (bot, pass) {
 }
 /** THE RAISED WELL'S PLAN under a plan (a generator, as planPlinthSteps): three passes; a plan whose placements would cut a
  *  committed cell off (ACCESS) is not taken in passes 2-3. No plan: exactly planPlinthSteps. */
+const PLINTH_ACCESS_RETRIES = 3
 function * planPlinthPasses (bot, opts) {
   const tp = townPlanNow(bot)
   if (!tp) return yield * planPlinthSteps(opts)
   let last = null
   for (const pass of [1, 2, 3]) {
-    const r = yield * planPlinthSteps({ ...opts, avoid: [...(opts.avoid ?? []), ...planWellAvoid(bot)], keepOut: [...(opts.keepOut ?? []), ...planPlinthKeepOut(bot, pass)] })
-    if (r.plan) {
-      const cells = (r.plan.steps ?? []).filter(st => st.op === 'place' && Array.isArray(st.c)).map(st => st.c)
-      if (pass >= 2 && !planAccessKept(bot, cells)) { last = { ...r, plan: null, why: 'plan_access' }; continue }
-      const tier = ['outside', 'soft', 'box'][pass - 1]
-      planAdoptRow(bot, 'plinth', r.plan.cap, { tier, cells: [[r.plan.cap.x, r.plan.cap.y, r.plan.cap.z], ...cells] })
-      return { ...r, tier }
+    // a candidate refused by ACCESS is avoided and the SAME pass planned again, up to PLINTH_ACCESS_RETRIES times (Codex code
+    // r1 P2: the cheapest inaccessible cap would otherwise win every remaining pass and hide a legal alternative)
+    const cut = []
+    for (let tries = 0; tries <= PLINTH_ACCESS_RETRIES; tries++) {
+      const r = yield * planPlinthSteps({ ...opts, avoid: [...(opts.avoid ?? []), ...planWellAvoid(bot), ...cut], keepOut: [...(opts.keepOut ?? []), ...planPlinthKeepOut(bot, pass)] })
+      if (r.plan) {
+        const cells = (r.plan.steps ?? []).filter(st => st.op === 'place' && Array.isArray(st.c)).map(st => st.c)
+        if (pass >= 2 && !planAccessKept(bot, cells)) { last = { ...r, plan: null, why: 'plan_access' }; cut.push({ x: r.plan.cap.x, z: r.plan.cap.z, r: 1, what: 'plan_access' }); continue }
+        const tier = ['outside', 'soft', 'box'][pass - 1]
+        planAdoptRow(bot, 'plinth', r.plan.cap, { tier, cells: [[r.plan.cap.x, r.plan.cap.y, r.plan.cap.z], ...cells] })
+        return { ...r, tier }
+      }
+      if (r.why === 'unknown') return r
+      last = r
+      break
     }
-    if (r.why === 'unknown') return r
-    last = r
   }
   return last
 }

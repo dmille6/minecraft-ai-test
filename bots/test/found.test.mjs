@@ -133,6 +133,18 @@ const head = bot => S.townPlanHead(bot).head.plan
 const storeCells = bot => head(bot).plots.find(p => p.id === 'store').cells
 const stations = bot => head(bot).plots.find(p => p.id === 'work').stations
 const runSkill = (bot, skill, args) => S.SKILLS[skill].run({ bot }, args, new AbortController().signal)
+await t('THE FOUND LEASE, TORN (Claude code r1 P2): an unparseable newest generation is busy only until it is older than any lease; then another bot takes the next generation', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-found-torn-'))
+  fs.writeFileSync(path.join(dir, 'k.found-lease.g1.json'), '{"holder":"A","at":')   // a kill inside the write
+  const t0 = fs.statSync(path.join(dir, 'k.found-lease.g1.json')).mtimeMs
+  assert.equal(F.foundLeaseState(dir, 'k', t0 + 1000).live, true, 'fresh: busy (it may be a write in flight)')
+  assert.equal(F.takeFoundLease(dir, 'k', 'B', { now: t0 + 1000 }).ok, false)
+  assert.equal(F.foundLeaseState(dir, 'k', t0 + F.FOUND_LEASE_MS + 1).live, false, 'older than any lease: not live')
+  const r = F.takeFoundLease(dir, 'k', 'B', { now: t0 + F.FOUND_LEASE_MS + 1 })
+  assert.ok(r.ok && r.gen === 2, JSON.stringify(r))
+  assert.equal(F.foundLeaseLive({ rec: null, mtimeMs: 0, now: F.FOUND_LEASE_MS - 1 }), true)
+  assert.equal(F.foundLeaseLive({ rec: null, released: true, mtimeMs: 0, now: 1 }), false)
+})
 await t('FOUND-FLAT F1 (found_work): the bot with 2 tables puts one in station 0 through the reservation protocol; the plan says placed; the lease is released', async () => {
   const w = town([stack('crafting_table', 2)])
   const s0 = stations(w.bot)[0]
@@ -194,6 +206,32 @@ await t('THE RECOVERY, greenfield (build spec 2.2): the overflow chest full -> t
   assert.equal(next.state, 'placed')
   assert.equal(PS.planGens(process.env.POOL_STATE_DIR, PS.planKey({ x: 0, y: 64, z: 0 })).length > 2, true)
   assert.equal(fs.readdirSync(process.env.POOL_STATE_DIR).filter(f => /town-chest-.*\.c\d+\.json$/.test(f)).length, 0, 'no recovery claim: the section cap, not the budget')
+})
+await t('GREENFIELD F3 AFTER A RECOVERY CHEST (Claude/Codex code r1 P2): the recovery-placed role:null chest is taken by the bag\'s homeless group (a plan-only publish), and F3 can found the next home', async () => {
+  const w = town([stack('chest', 1), stack('oak_log', 64)])
+  const cells = storeCells(w.bot)
+  await runSkill(w.bot, 'found_store', { at: cells[0].at, role: 'overflow', step: 'F2' })
+  w.fill(...cells[0].at, 'stone')
+  w.bag.push(stack('chest', 1))
+  await S.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+  const plan1 = S.townPlanNow(w.bot).plan
+  const un = F.storeHomes(plan1).unassigned
+  assert.equal(un.length, 1, 'the recovery chest is unassigned')
+  // the pure rule: before, F3 waits (an unassigned container exists); foundAssign names it for the bag's homeless group
+  const noWork = pl => { const q = JSON.parse(JSON.stringify(pl)); for (const c of q.plots.find(x => x.id === 'work').stations) c.state = 'placed'; return q }
+  assert.equal(order({ plan: noWork(plan1), townContainer: true, bankGroups: ['stone'] }).skip, 'nothing')
+  const as = F.foundAssign({ plan: plan1, bankGroups: ['stone'] })
+  assert.deepEqual(as, { at: un[0].at, group: 'stone' })
+  assert.equal(F.foundAssign({ plan: plan1, bankGroups: [] }), null, 'no homeless group: nothing to assign')
+  // the publish: the cell keeps its state, takes role home / group stone (a placed cell's role set once from null)
+  const r = S.foundAssignHome(w.bot, as.at, as.group)
+  assert.equal(r.result, 'accepted', JSON.stringify(r))
+  const plan2 = S.townPlanNow(w.bot).plan
+  const c = plan2.plots.find(p => p.id === 'store').cells.find(x => x.at.join() === as.at.join())
+  assert.equal(c.state, 'placed'); assert.equal(c.role, 'home'); assert.equal(c.group, 'stone')
+  assert.equal(S.foundAssignHome(w.bot, as.at, 'wood').result, 'nothing', 'never re-assigned')
+  // F3 again: the next homeless group gets the next store cell
+  assert.equal(order({ plan: noWork(plan2), townContainer: true, bankGroups: ['stone', 'wood'] }).order?.args?.step, 'F3')
 })
 await t('TEMPORARY TABLES (build spec 1.6): craft\'s own spot search never puts a table on a NEVER plan cell; a free plan cell only when nothing else is left; a non-station never', async () => {
   const w = town([stack('crafting_table', 1), stack('cobblestone', 4)])

@@ -1,23 +1,52 @@
 // SANDBOX-ONLY end-to-end proof of THE TOWN PLAN (townplan-01) and FOUNDING (found-01). Build spec
 // docs/reports/townplan-found-spec-2026-10-21.md section 3. Derived from sandbox/well/stock-e2e.cjs (its arena, its RCON, its
 // loopback brain, its startBot). The REAL bot (src/index.mjs from <botRoot>, unmodified) runs its own planner tick and its own
-// deterministic town orders; the scene reads back the SERVER (every plan cell, every pre-existing block, every container's
-// items) and the plan files the bots wrote.
+// deterministic town orders; the scene reads back the SERVER (plan cells, pre-existing blocks, container items) and the plan
+// files the bots wrote (with the build's own walk).
 //
 //   WELL_REPO=<checkout with sandbox/run-bot.sh> LOCK_OWNER=townplan node sandbox/townplan/townplan-e2e.cjs <botRoot> <scenes> [server]
-//   scenes:
-//     tpgreen    TP-GREEN  a bare flat town, one bot carrying nothing to found with: the root plan is greenfield, every plan cell
-//                          is air over a solid floor on the server, inside the ground, and its stands are reachable cells
-//     tpretro    TP-RETRO + TP-ZONES  a bench-like town (6 chests with items, a table and a furnace, a dirt wall) and a
-//                          protected zone over its north side: the root plan is retrofit, NO plan cell is in the zone or on a
-//                          pre-existing block, and after the run every pre-existing block and every container's items are
-//                          exactly as set (nothing torn down, every container still usable: its lid cell air)
-//     foundbare  FOUND-BARE + FOUND-HOUR1  the bare town, THREE bots each with 16 oak logs and 32 cobblestone (one found order per
-//                          bot per visit): the workshop table goes in station 0, the town's first chest in the overflow cell, the
-//                          furnace in station 1 -- read back on the server, and the plan says each is `placed`
-//     foundretro FOUND-RETRO the bench town (no zone), two bots with logs and cobble: the new table and furnace go into the
-//                          retrofit workshop's station cells; every pre-existing block and item unchanged
-//   Each scene prints CANDIDATE_PASS (the built shape) and BASE_SHAPE (the base: no plan, no found rows, nothing placed).
+//
+// SCENES (spec section 3 name -> scene id). Each result line carries CANDIDATE_PASS (the built shape) and BASE_SHAPE (what the
+// base does: no plan, no found rows); a scene the base cannot discriminate says so (base: null).
+//   TP-GREEN    tpgreen     the SHOWCASE ground (the 93x93 dump rebuilt at an offset, the showcase zones and the seed's avoid box
+//                           shifted with it): the root plan equals the offline planner's plan for the same ground; no cell in a
+//                           zone or avoid box; every free cell air over a solid floor
+//   TP-RETRO    tpretro     a bench-like town on a platform: 12 chests (one double) with items, two tables, two furnaces, a junk
+//                           well beside the free strip; the bot's own counts: `waiting` then `allocated`; the workshop strip off
+//                           every container's stand and >= 3 from the cap; every container OPENED by the bot after the root (the
+//                           town index records it); a dispose_well afterwards succeeds; nothing torn down
+//   TP-CAS      tpcas       three bots arriving together: ONE root; every generation accepted (none rejected); no `invalid`; a
+//                           bot SIGKILLed and restarted writes no second root and its next generation chains
+//   TP-ZONES    tpzones     a zones file over the E pad: E never chosen; mid-run a malformed file: the last good list kept (no
+//                           re-fit, no invalid); a fresh pool started with the malformed file: no root and no found row until
+//                           the file is good, then a root
+//   TP-TEMP     tptemp      a bot crafting (its own temporary table) while it stands beside the free station 0 with every other
+//                           neighbour walled: the table never on a NEVER cell; the craft succeeds; station 0 not `placed`
+//   FOUND-FLAT  foundflat   3 bots with chests, spare tables and furnaces and a bag of stacks: first container in the overflow
+//                           cell; group homes in store cells; table/furnace in stations 0/1; 0 containers outside plots; 0 lids
+//   FOUND-BARE  foundbare   bags EMPTY on a ground with trees and a stone patch: the bots gather, then table/chest/furnace into
+//                           their cells (a long scene: the gather is the bots' own milestone orders)
+//   FOUND-HOUR1 foundhour1  16 logs, 20 cobblestone, 1 crafting table: founding from these; the givers still craft a wooden and a
+//                           stone pickaxe afterwards
+//   FOUND-ROUGH foundrough  holes, a slope and a pond around home: a qualifying fit; no placement on an unready cell
+//   FOUND-CANOPY foundcanopy store cells under spruce leaves, in large_fern / tall_grass, beside a trunk; one cell with 2 snow
+//                           layers, one with mud above: chests placed into the fern/grass/leaf cells and OPENED; the snow-2 and
+//                           mud-lid cells never chosen
+//   FOUND-NOFIT foundnofit  arenas with exactly 1..5 READY cells (a walkway out to radius 7): the annex, the table first; 1: a
+//                           table and `store: unplaced`; 2-5: a table and containers
+//   FOUND-NONE  foundnone   home on a pillar in water: `found` places nothing; a named work row succeeds
+//   FOUND-KILL  foundkill   SIGKILL between `reserved` and `placed`, and between the placement and its publication: no duplicate,
+//                           no stuck reservation; the orphan placement observed `placed` with its intent after until + 60 s + 10 min
+//   FOUND-RETRO foundretro  TP-RETRO's town, bots carrying tables and furnaces: table and furnace in the strip's stations; nothing
+//                           removed; the giver still holds a table and crafts a stone pickaxe afterwards
+//   FOUND-SOFT  foundsoft   greenfield, every store cell placed and full: the recovery's chest lands outside the plan (or soft, or
+//                           the committed box), never on a NEVER cell; every placed cell still reachable; no new `no_site`
+//   FOUND-BOX   foundbox    the only valid recovery cell inside the committed storehouse box: the base places there; the candidate
+//                           too (tier=box), never a NEVER cell
+//   FOUND-ACCESS foundaccess a committed storehouse whose only approach is one cell wide, the recovery's cheapest BOX candidate that
+//                           cell: the candidate skips it (ACCESS) and places elsewhere; every container then opened by the bot
+//   (FOUND-PLINTH: see the result's `note`: the raised well's planner composition is proven in the fake world
+//    (townplan-adopters RAISED WELL + plinth-skill), not built on Paper here.)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -` (ports 25599-25602). Sandbox servers and sandbox-*
 // names only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names LOCK_OWNER (default townplan).
@@ -37,12 +66,14 @@ const RES = `${OUT}/results.jsonl`
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const T0 = Date.now()
 const P = (...a) => { const s = `[${((Date.now() - T0) / 1000).toFixed(1)}] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' '); fs.appendFileSync(`${OUT}/driver.log`, s + '\n'); console.log(s) }
+const SHA = (() => { try { return fs.readFileSync(path.join(BOT_ROOT, '.sha'), 'utf8').trim() } catch { return 'unknown' } })()
+const req = m => require(require.resolve(m, { paths: [path.join(BOT_ROOT, 'bots')] }))
 
 const SSH = ['-o', 'ControlMaster=auto', '-o', `ControlPath=${process.env.HOME}/.ssh/cm-townplan-%C`, '-o', 'ControlPersist=600', 'mike@10.0.0.30']
 function rcon (...cmds) {
   const out = []
-  for (let i = 0; i < cmds.length; i += 200) {   // bounded batches: one ssh per 200 commands
-    const o = execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.slice(i, i + 200).join('\n') + '\n', encoding: 'utf8', timeout: 120000 })
+  for (let i = 0; i < cmds.length; i += 250) {   // bounded batches: one ssh per 250 commands
+    const o = execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.slice(i, i + 250).join('\n') + '\n', encoding: 'utf8', timeout: 180000, maxBuffer: 64 << 20 })
     let cur = null
     for (const line of o.split('\n')) { if (line.startsWith('> ')) { cur = { cmd: line.slice(2), reply: '' }; out.push(cur) } else if (cur) cur.reply += (cur.reply ? '\n' : '') + line }
   }
@@ -50,46 +81,64 @@ function rcon (...cmds) {
 }
 const r1 = c => rcon(c)[0]?.reply ?? ''
 const passed = rep => /Test passed/.test(rep || '')
+const bad = rs => rs.filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many|out of the world/i.test(x.reply))
+const must = (rs, what) => { const b = bad(rs); if (b.length) throw new Error(`${what}: ` + b.slice(0, 3).map(x => x.cmd + ' => ' + x.reply).join('; ')); return rs }
 
-// ---------------------------------------------------------------- the arena: a dirt slab 7 deep at y 113..119, +-24 of home
-// (FIT_R 20 and the store pad's u 15 fit inside it; outside it is air: never READY)
+// ---------------------------------------------------------------- arenas
+// THE FLAT ARENA: a dirt slab 7 deep at y 113..119 around HOME (+-24): FIT_R 20 and the store pad's u 15 fit inside it
 const HOME = { x: 1515, y: 120, z: 1515 }
-const A = { x0: HOME.x - 24, x1: HOME.x + 24, z0: HOME.z - 24, z1: HOME.z + 24 }
 const G = 119
-function buildArena () {
-  const c = [`kill @e[type=!player,x=${A.x0},y=100,z=${A.z0},dx=${A.x1 - A.x0},dy=40,dz=${A.z1 - A.z0}]`,
-    `fill ${A.x0} 112 ${A.z0} ${A.x1} 123 ${A.z1} minecraft:air`, `fill ${A.x0} 124 ${A.z0} ${A.x1} 135 ${A.z1} minecraft:air`,
-    `fill ${A.x0} 113 ${A.z0} ${A.x1} ${G} ${A.z1} minecraft:dirt`]
-  const r = rcon(...c)
-  const bad = r.filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
-  if (bad.length) throw new Error('arena: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; '))
+const box = (h, r) => ({ x0: h.x - r, x1: h.x + r, z0: h.z - r, z1: h.z + r })
+const A = box(HOME, 24)
+const at = ([dx, dz], dy = 0, h = HOME) => ({ x: h.x + dx, y: h.y + dy, z: h.z + dz })
+const ARENA_SEL = b => `@e[type=item,x=${b.x0},y=40,z=${b.z0},dx=${b.x1 - b.x0},dy=100,dz=${b.z1 - b.z0}]`
+function fillChunks (b, y0, y1, name) {   // fill in <= 32768-block pieces
+  const c = []
+  for (let x = b.x0; x <= b.x1; x += 16) for (let z = b.z0; z <= b.z1; z += 16) {
+    const xe = Math.min(b.x1, x + 15), ze = Math.min(b.z1, z + 15)
+    for (let y = y0; y <= y1; y += 64) c.push(`fill ${x} ${y} ${z} ${xe} ${Math.min(y1, y + 63)} ${ze} minecraft:${name}`)
+  }
+  return c
 }
-const ARENA_SEL = `@e[type=item,x=${A.x0},y=105,z=${A.z0},dx=${A.x1 - A.x0},dy=30,dz=${A.z1 - A.z0}]`
+function buildArena ({ ground = 'dirt' } = {}) {
+  must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air'), ...fillChunks(A, 113, G, ground)), 'arena')
+}
 const parseItem = seg => { const id = (seg.match(/id: "minecraft:([a-z0-9_]+)"/) || [])[1]; return id ? { id, count: +((seg.match(/count: (\d+)/) || [])[1] || 1) } : null }
-function chestTotals (at) {
-  const cmds = []; for (let s = 0; s < 27; s++) cmds.push(`data get block ${at.x} ${at.y} ${at.z} Items[{Slot:${s}b}]`)
+function chestTotals (p) {
+  const cmds = []; for (let s = 0; s < 27; s++) cmds.push(`data get block ${p.x} ${p.y} ${p.z} Items[{Slot:${s}b}]`)
   const r = rcon(...cmds); const t = {}
   for (let s = 0; s < 27; s++) { const it = /has the following block data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) t[it.id] = (t[it.id] || 0) + it.count }
   return t
 }
-/** the block NAME at each cell (one `execute if block` per candidate; small replies only) */
-function blockIs (cells, name) { return rcon(...cells.map(([x, y, z]) => `execute if block ${x} ${y} ${z} minecraft:${name}`)).map(x => passed(x.reply)) }
-function countIn (name, y = HOME.y, r = 22) {
-  const cells = []; for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) cells.push([HOME.x + dx, y, HOME.z + dz])
+function bagOf (name) {
+  const cmds = []; for (let s = 0; s < 36; s++) cmds.push(`data get entity ${name} Inventory[{Slot:${s}b}]`)
+  const r = rcon(...cmds); const t = {}
+  for (let s = 0; s < 36; s++) { const it = /has the following entity data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) t[it.id] = (t[it.id] || 0) + it.count }
+  return t
+}
+const blockIs = (cells, name) => rcon(...cells.map(([x, y, z]) => `execute if block ${x} ${y} ${z} minecraft:${name}`)).map(x => passed(x.reply))
+function standing (name, h = HOME, r = 22, ys = [h.y]) {
+  const cells = []
+  for (const y of ys) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) cells.push([h.x + dx, y, h.z + dz])
   const hit = blockIs(cells, name)
-  return cells.filter((_, i) => hit[i])
+  return cells.filter((_, i) => hit[i]).map(c => c.join(','))
+}
+function setChest (p, stacks = [], { type = 'single', facing = 'north' } = {}) {
+  const c = [`setblock ${p.x} ${p.y} ${p.z} minecraft:air`, `setblock ${p.x} ${p.y} ${p.z} minecraft:chest[facing=${facing},type=${type}]`]
+  stacks.forEach(([id, n], i) => c.push(`item replace block ${p.x} ${p.y} ${p.z} container.${i} with minecraft:${id} ${n}`))
+  must(rcon(...c), 'chest')
 }
 
 // ---------------------------------------------------------------- the bot and its logs
 const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
 const rowsOf = file => lines(file).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(r => r && r.skill)
-  .map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || '') }))
-async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
+  .map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || ''), args: r.skill.args ?? null }))
+async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = await pred(); if (v) return v; await sleep(step) } return null }
 
-// the loopback brain: short walks WEST of home (away from every orientation's E-first store pad), never `status` for ever
-// (the livelock breaker relocates the bot off the arena)
-let brainN = 0
-const WANDER = [{ x: HOME.x - 4, y: HOME.y, z: HOME.z - 1 }, { x: HOME.x - 5, y: HOME.y, z: HOME.z + 1 }]
+// THE LOOPBACK BRAIN: a queue of model verbs per bot (by the sentinel-free request: round-robin is fine, one queue for all), else
+// short walks WEST of home -- never `status` for ever (the livelock breaker relocates the bot off the arena)
+let brainN = 0, brainHome = HOME
+const brainQueue = []
 const brain = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
   req.on('end', () => {
@@ -98,20 +147,22 @@ const brain = http.createServer((req, res) => {
     let msgs = []; try { msgs = JSON.parse(body).messages || [] } catch {}
     const sentinel = (msgs.map(m => String(m.content || '')).join('\n').match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
     let decision = { skill: 'status', args: {} }
-    if (brainN++ % 2) { const c = WANDER[(brainN >> 1) % 2]; decision = { skill: 'goto', args: { x: c.x, y: c.y, z: c.z } } }
+    const q = brainQueue.shift()
+    if (q) decision = q
+    else if (brainN++ % 2) { const w = [{ x: brainHome.x - 4, y: brainHome.y, z: brainHome.z - 1 }, { x: brainHome.x - 5, y: brainHome.y, z: brainHome.z + 1 }][(brainN >> 1) % 2]; decision = { skill: 'goto', args: w } }
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox: idle', saw_end: sentinel }) },
+    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox: scripted', saw_end: sentinel }) },
       done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
   })
 })
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 const procs = {}
-async function stopBots () {
-  for (const [n, p] of Object.entries(procs)) { try { p.kill('SIGTERM') } catch {} delete procs[n] }
-  await waitFor(() => !/sandbox-Plan/.test(r1('list')), 30000, 1000)
+async function stopBots (names = Object.keys(procs), sig = 'SIGTERM') {
+  for (const n of names) { const p = procs[n]; if (!p) continue; try { p.kill(sig) } catch {} delete procs[n] }
+  await waitFor(() => { const l = r1('list'); return !names.some(n => l.includes(n)) }, 30000, 1000)
 }
-async function startBot (scene, slotsSpec, { pool, name = NAMES[0], at = HOME, onSpawn = null } = {}) {
-  const tag = `${RUN}-${scene}-${name}`
+async function startBot (scene, slotsSpec, { pool, name = NAMES[0], home = HOME, standAt = null, env: extra = {}, onSpawn = null } = {}) {
+  const tag = `${RUN}-${scene}-${name}-${Date.now() % 100000}`
   const logRel = `./sandbox/log/townplan-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/townplan-e2e/${tag}/skill-${name}.jsonl`
   const botOut = `${OUT}/bot-${tag}.out`
@@ -120,22 +171,24 @@ async function startBot (scene, slotsSpec, { pool, name = NAMES[0], at = HOME, o
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', name); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/townplan-e2e-${tag}`); set('MEMORY_POOL', pool)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
-  for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
+  for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, home[a.toLowerCase()]); set(`BOARD_${a}`, home[a.toLowerCase()]) }
+  for (const [k, v] of Object.entries(extra)) set(k, v)
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   const bo = fs.openSync(botOut, 'a')
   const proc = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT }, stdio: ['ignore', bo, bo] })
   procs[name] = proc
-  if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBots(); throw new Error('no spawn ' + name) }
-  rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
-  await sleep(8000)
+  if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBots([name]); throw new Error('no spawn ' + name) }
+  const st = standAt ?? home
+  rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${st.x + 0.5} ${st.y} ${st.z + 0.5}`)
+  await sleep(6000)
   const poolDir = path.join(R, 'sandbox/state', `_pool-${pool}`)
   if (onSpawn) await onSpawn({ skillLog, poolDir })
-  const c = [`tp ${name} ${at.x + 0.5} ${at.y} ${at.z + 0.5}`]
+  const c = [`tp ${name} ${st.x + 0.5} ${st.y} ${st.z + 0.5}`]
   let s = 0
   for (const [id, n] of slotsSpec) c.push(`item replace entity ${name} container.${s++} with minecraft:${id} ${n}`)
   rcon(...c)
-  await sleep(1500)
-  return { skillLog, botOut, name, pool, poolDir }
+  await sleep(1000)
+  return { skillLog, botOut, name, pool, poolDir, proc }
 }
 const worldOf = async skillLog => {
   const row = await waitFor(() => rowsOf(skillLog).find(r => r.name === '_plinth_mode'), 30000, 250)
@@ -143,201 +196,666 @@ const worldOf = async skillLog => {
   if (!w || w === '-') throw new Error('no world identity in the bot\'s _plinth_mode row')
   return w
 }
-const result = r => { fs.appendFileSync(RES, JSON.stringify({ at: new Date().toISOString(), root: BOT_ROOT, ...r }) + '\n'); P('RESULT', r) }
+const result = r => { fs.appendFileSync(RES, JSON.stringify({ at: new Date().toISOString(), sha: SHA, root: BOT_ROOT, ...r }) + '\n'); P('RESULT', JSON.stringify({ scene: r.scene, CANDIDATE_PASS: r.CANDIDATE_PASS, BASE_SHAPE: r.BASE_SHAPE })) }
 const rowsAll = files => files.flatMap(f => rowsOf(f.skillLog).map(r => ({ ...r, bot: f.name }))).sort((a, b) => a.ts - b.ts)
-const fmt = r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.bot ?? ''} ${r.name} ${r.status} ${r.detail.slice(0, 200)}`
+const fmt = r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.bot ?? ''} ${r.name} ${r.status} ${r.detail.slice(0, 180)}`
+const rootRow = files => rowsAll(files).find(r => r.name === '_townplan' && /op=root result=accepted/.test(r.detail))
+const licence = (files, kind) => rowsAll(files).filter(r => r.name === kind).length
 
 // ---------------------------------------------------------------- the plan, as the bots wrote it (the build's own walk)
-async function planOf (poolDir, world) {
+async function planOf (poolDir, world, home = HOME) {
   try {
     const PS = await import(path.join(BOT_ROOT, 'bots/src/planstore.mjs'))
-    const key = PS.planKey({ x: HOME.x, y: HOME.y, z: HOME.z })
+    const key = PS.planKey(home)
     const h = PS.planHead(poolDir, key, world, { fresh: true })
     const files = fs.existsSync(poolDir) ? fs.readdirSync(poolDir).filter(f => f.startsWith(key + '.g')) : []
-    return { ok: h.ok, head: h.head ?? null, gens: files.length, rejected: (h.rejected ?? []).length }
-  } catch (e) { return { ok: false, head: null, gens: 0, err: String(e.message).slice(0, 120) } }
+    return { ok: h.ok, head: h.head ?? null, gens: files.length, accepted: h.accepted ?? [], rejected: h.rejected ?? [] }
+  } catch (e) { return { ok: false, head: null, gens: 0, accepted: [], rejected: [], err: String(e.message).slice(0, 120) } }
 }
 const cellsOf = plan => (plan?.plots ?? []).flatMap(p => [...(p.cells ?? []), ...(p.stations ?? [])].map(c => ({ ...c, plot: p.id })))
-const inArena = ([x, , z]) => x >= A.x0 && x <= A.x1 && z >= A.z0 && z <= A.z1
-
-// ---------------------------------------------------------------- the bench-like town (TP-RETRO, FOUND-RETRO)
-// six single chests two apart east of home with items; a table and a furnace south-west; a 5-long dirt wall (a structure)
-const BENCH = {
-  chests: [[3, 3, [['cobblestone', 64], ['cobblestone', 20]]], [5, 3, [['oak_log', 30]]], [7, 3, [['dirt', 64]]],
-           [3, -3, [['iron_ingot', 5], ['coal', 12]]], [5, -3, [['oak_sapling', 9]]], [7, -3, [['stick', 20], ['oak_planks', 16]]]],
-  table: [-3, 3], furnace: [-3, 5],
-  wall: [[-6, -6], [-5, -6], [-4, -6], [-3, -6], [-2, -6]],
+const storeCells = plan => (plan?.plots?.find(p => p.id === 'store')?.cells ?? [])
+const stations = plan => (plan?.plots?.find(p => p.id === 'work')?.stations ?? [])
+const K = a => a.join(',')
+const inBox3 = (b, a) => b[0] <= a[0] && a[0] <= b[3] && b[1] <= a[1] && a[1] <= b[4] && b[2] <= a[2] && a[2] <= b[5]
+const NEVER = plan => {
+  const s = new Set()
+  for (const c of cellsOf(plan)) { s.add(K(c.at)); if ((c.state === 'reserved' || c.state === 'placed') && Array.isArray(c.stand)) { s.add(K(c.stand)); s.add(K([c.stand[0], c.stand[1] + 1, c.stand[2]])) } }
+  return s
 }
-const at = ([dx, dz], dy = 0) => ({ x: HOME.x + dx, y: HOME.y + dy, z: HOME.z + dz })
-function buildBench () {
-  const c = []
-  for (const [dx, dz, stacks] of BENCH.chests) {
-    const p = at([dx, dz])
-    c.push(`setblock ${p.x} ${p.y} ${p.z} minecraft:chest[facing=north,type=single]`)
-    stacks.forEach(([id, n], i) => c.push(`item replace block ${p.x} ${p.y} ${p.z} container.${i} with minecraft:${id} ${n}`))
-  }
-  const t = at(BENCH.table), f = at(BENCH.furnace)
-  c.push(`setblock ${t.x} ${t.y} ${t.z} minecraft:crafting_table`, `setblock ${f.x} ${f.y} ${f.z} minecraft:furnace[facing=north]`)
-  for (const w of BENCH.wall) { const p = at(w); c.push(`setblock ${p.x} ${p.y} ${p.z} minecraft:cobblestone`, `setblock ${p.x} ${p.y + 1} ${p.z} minecraft:cobblestone`) }
-  const bad = rcon(...c).filter(x => /Unknown|Incorrect|Cannot|not loaded/i.test(x.reply))
-  if (bad.length) throw new Error('bench: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; '))
+/** The plan's FREE cells on the server: air over a solid floor. */
+function cellTruth (plan, inside = () => true) {
+  const cs = cellsOf(plan).filter(c => c.state === 'free' && c.ready !== false)
+  if (!cs.length) return { n: 0, allAir: true, allFloor: true, allInside: true, notAir: [], noFloor: [] }
+  const air = rcon(...cs.map(c => `execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply))
+  const floor = rcon(...cs.map(c => `execute unless block ${c.at[0]} ${c.at[1] - 1} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply))
+  return { n: cs.length, allAir: air.every(Boolean), allFloor: floor.every(Boolean), allInside: cs.every(c => inside(c.at)),
+    notAir: cs.filter((_, i) => !air[i]).map(c => K(c.at)).slice(0, 6), noFloor: cs.filter((_, i) => !floor[i]).map(c => K(c.at)).slice(0, 6) }
 }
-function benchTruth () {
-  const chests = BENCH.chests.map(([dx, dz]) => { const p = at([dx, dz]); return { at: [p.x, p.y, p.z], items: chestTotals(p) } })
-  const cells = [...BENCH.chests.map(([dx, dz]) => ['chest', at([dx, dz])]), ['crafting_table', at(BENCH.table)], ['furnace', at(BENCH.furnace)],
-    ...BENCH.wall.flatMap(w => [['cobblestone', at(w)], ['cobblestone', at(w, 1)]])]
-  const ok = rcon(...cells.map(([n, p]) => `execute if block ${p.x} ${p.y} ${p.z} minecraft:${n}`)).map(x => passed(x.reply))
-  const lids = blockIs(BENCH.chests.map(([dx, dz]) => { const p = at([dx, dz], 1); return [p.x, p.y, p.z] }), 'air')
-  return { chests, blocksIntact: ok.every(Boolean), missing: cells.filter((_, i) => !ok[i]).map(([n, p]) => `${n}@${p.x},${p.y},${p.z}`), lidsAir: lids.every(Boolean) }
+function zonesFile (poolDir, world, zones) {
+  fs.mkdirSync(poolDir, { recursive: true })
+  fs.writeFileSync(path.join(poolDir, 'protected-zones.json'), JSON.stringify({ version: 1, hashed_seed: world, zones }))
 }
-const PRE_CELLS = () => new Set([...BENCH.chests.map(([dx, dz]) => at([dx, dz])), at(BENCH.table), at(BENCH.furnace), ...BENCH.wall.flatMap(w => [at(w), at(w, 1)])].map(p => `${p.x},${p.y},${p.z}`))
-
-// ---------------------------------------------------------------- scenes
-const scenes = {}
 const IDLE_BAG = [['stone_pickaxe', 1], ['torch', 16]]
 const FOUND_BAG = [['stone_pickaxe', 1], ['oak_log', 16], ['cobblestone', 32], ['torch', 8]]
+const scenes = {}
 
-/** The plan's cells read on the server: air over a solid floor, inside the ground. */
-function cellTruth (plan) {
-  const cs = cellsOf(plan).filter(c => c.state === 'free')
-  const air = blockIs(cs.map(c => c.at), 'air')
-  const floor = rcon(...cs.map(c => `execute unless block ${c.at[0]} ${c.at[1] - 1} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply))
-  return { n: cs.length, allAir: air.every(Boolean), allFloor: floor.every(Boolean), allInArena: cs.every(c => inArena(c.at)),
-    notAir: cs.filter((_, i) => !air[i]).map(c => c.at.join(',')).slice(0, 6), noFloor: cs.filter((_, i) => !floor[i]).map(c => c.at.join(',')).slice(0, 6) }
+// ================================================================ TP-GREEN: the showcase ground
+const SHOW = { dx: -1200, dz: 1200 }
+const SHOW_HOME = { x: SHOW.dx, y: 70, z: SHOW.dz }
+const STONE_BELOW = 64   // the rebuild puts stone below y 64 (ores and caves are not the fit's business); the offline read does too
+function showDump () {
+  const d = JSON.parse(fs.readFileSync(path.join(BOT_ROOT, 'bots/test/fixtures/townplan-showcase-dump.json'), 'utf8'))
+  const [x0, z0, x1, z1] = d.box, [y0, y1] = d.y
+  const nx = x1 - x0 + 1, nz = z1 - z0 + 1
+  const buf = Buffer.from(d.cells, 'base64')
+  const cells = d.bits === 8 ? new Uint8Array(buf.buffer, buf.byteOffset, buf.length) : new Uint16Array(buf.buffer, buf.byteOffset, buf.length / 2)
+  const nameAt = (x, y, z) => { if (x < x0 || x > x1 || z < z0 || z > z1 || y < y0 || y > y1) return null; const n = d.palette[cells[((y - y0) * nz + (z - z0)) * nx + (x - x0)]]; return n === '?' ? null : (y < STONE_BELOW ? 'stone' : n) }
+  return { d, x0, x1, z0, z1, y0, y1, nameAt }
 }
-
+function setName (n, below) {
+  if (n === 'spruce_leaves' || /_leaves$/.test(n)) return `${n}[persistent=true]`
+  if (n === 'large_fern' || n === 'tall_grass') return `${n}[half=${below === n ? 'upper' : 'lower'}]`
+  return n
+}
+function rebuildShowcase () {
+  const S = showDump()
+  const b = { x0: S.x0 + SHOW.dx, x1: S.x1 + SHOW.dx, z0: S.z0 + SHOW.dz, z1: S.z1 + SHOW.dz }
+  must(rcon(`forceload add ${b.x0} ${b.z0} ${b.x1} ${b.z1}`, `kill ${ARENA_SEL(b)}`, ...fillChunks(b, S.y0, 110, 'air'), ...fillChunks(b, 40, STONE_BELOW - 1, 'stone')), 'showcase base')
+  const cmds = []
+  for (let x = S.x0; x <= S.x1; x++) for (let z = S.z0; z <= S.z1; z++) {
+    let y = STONE_BELOW
+    while (y <= S.y1) {
+      const n = S.nameAt(x, y, z)
+      if (!n || n === 'air') { y++; continue }
+      const plant = /fern|grass|bush|mushroom|lichen|leaves/.test(n)
+      if (plant) { cmds.push(`setblock ${x + SHOW.dx} ${y} ${z + SHOW.dz} minecraft:${setName(n, S.nameAt(x, y - 1, z))}`); y++; continue }
+      let e = y; while (e + 1 <= S.y1 && S.nameAt(x, e + 1, z) === n) e++
+      cmds.push(`fill ${x + SHOW.dx} ${y} ${z + SHOW.dz} ${x + SHOW.dx} ${e} ${z + SHOW.dz} minecraft:${n}`)
+      y = e + 1
+    }
+  }
+  P(`showcase rebuild: ${cmds.length} commands`)
+  // logs/solids first, plants after (a plant needs its floor)
+  const solid = cmds.filter(c => c.startsWith('fill')), plants = cmds.filter(c => c.startsWith('setblock'))
+  const rs = rcon(...solid, ...plants)
+  const b2 = bad(rs)
+  P(`showcase rebuild done: ${rs.length} replies, ${b2.length} refused ${b2.slice(0, 2).map(x => x.cmd + ' => ' + x.reply).join('; ')}`)
+  return { box: b, S }
+}
+async function offlinePlan (S, zones, seedAvoid, world) {
+  const T = await import(path.join(BOT_ROOT, 'bots/src/townplan.mjs'))
+  const mcData = req('minecraft-data')('1.21.8')
+  const read = (x, y, z) => {
+    const n = S.nameAt(x - SHOW.dx, y, z - SHOW.dz)
+    if (n === null && (x - SHOW.dx < S.x0 || x - SHOW.dx > S.x1 || z - SHOW.dz < S.z0 || z - SHOW.dz > S.z1)) return null
+    const name = n ?? 'air'
+    return { name, boundingBox: mcData.blocksByName[name]?.boundingBox ?? 'block' }
+  }
+  const all = [...zones, ...seedAvoid]
+  return T.fitTown(read, SHOW_HOME, { containers: [], existing: [], zones: all, seed: { avoid: seedAvoid }, seedInfo: { why: 'ok', avoid: seedAvoid }, zoneInfo: { n: zones.length, avoid: seedAvoid.length, why: 'ok' } })
+}
+const shiftBox = b => [b[0] + SHOW.dx, b[1], b[2] + SHOW.dz, b[3] + SHOW.dx, b[4], b[5] + SHOW.dz]
 scenes.tpgreen = async () => {
-  buildArena(); rcon(`kill ${ARENA_SEL}`)
+  const { S } = rebuildShowcase()
+  const pz = JSON.parse(fs.readFileSync(path.join(BOT_ROOT, 'bots/test/fixtures/protected-zones.showcase.json'), 'utf8'))
+  const zones = pz.zones.map(z => ({ ...z, box: shiftBox(z.box) }))
+  const avoid = [{ id: 'trial-chambers', box: shiftBox([-16, -43, 69, 84, 27, 160]) }]
   const pool = `sbxtp-${RUN}-green`
   let world = null
-  const f = await startBot('tpgreen', IDLE_BAG, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })
-  const root = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_townplan' && /op=root result=accepted/.test(r.detail)), 150000, 1000)
-  await sleep(root ? 65000 : 1000)   // two more ticks: nothing else is written to a bare town
+  brainHome = SHOW_HOME
+  const f = await startBot('tpgreen', IDLE_BAG, { pool, home: SHOW_HOME, onSpawn: async ({ skillLog, poolDir }) => {
+    world = await worldOf(skillLog)
+    zonesFile(poolDir, world, zones)
+    fs.writeFileSync(path.join(poolDir, 'town-site.json'), JSON.stringify({ version: 1, hashed_seed: world, home: [SHOW_HOME.x, SHOW_HOME.y, SHOW_HOME.z], town_plan: { template: 'ring@1', avoid } }))
+  } })
+  const root = await waitFor(() => rootRow([f]), 180000, 1000)
+  await sleep(root ? 65000 : 1000)
   const rows = rowsAll([f]).filter(r => /^_townplan/.test(r.name))
-  await stopBots()
-  const pl = await planOf(f.poolDir, world)
+  await stopBots(); brainHome = HOME
+  const pl = await planOf(f.poolDir, world, SHOW_HOME)
   const plan = pl.head?.plan
-  const store = plan?.plots?.find(p => p.id === 'store'), work = plan?.plots?.find(p => p.id === 'work')
+  const off = await offlinePlan(S, zones, avoid, world)
+  const geo = p => (p?.plots ?? []).map(x => ({ id: x.id, kind: x.kind, box: x.box ?? null, sector: x.sector ?? null, cells: (x.cells ?? []).map(c => K(c.at)), stations: (x.stations ?? []).map(c => `${c.kind}@${K(c.at)}`) }))
+  const same = !!plan && JSON.stringify(geo(plan)) === JSON.stringify(geo(off.body)) && plan.orientation === off.body?.orientation && plan.s === off.body?.s
+  const zoneHits = cellsOf(plan).filter(c => [...zones, ...avoid].some(z => inBox3(z.box, c.at))).map(c => K(c.at))
   const ct = plan ? cellTruth(plan) : null
-  const licence = rows.filter(r => r.name === '_townplan_mode').length
-  result({ scene: 'tpgreen', world, rows: rows.map(fmt), plan: plan ? { gen: pl.head.gen, gens: pl.gens, mode: plan.mode, orientation: plan.orientation, s: plan.s,
-    store: store && { kind: store.kind, box: store.box, cells: store.cells.length }, work: work && { box: work.box, stations: (work.stations ?? []).map(c => `${c.kind}@${c.at.join(',')}`) },
-    sectors: (plan.plots ?? []).filter(p => p.sector).map(p => `${p.id}:${p.sector}`) } : null, cells: ct, rejected: pl.rejected,
-    CANDIDATE_PASS: !!(licence >= 1 && root && pl.ok && plan && plan.mode === 'greenfield' && store?.cells?.length === 7 && (work?.stations ?? []).length === 5 &&
-      ct.allAir && ct.allFloor && ct.allInArena && !rows.some(r => /result=invalid/.test(r.detail))),
-    BASE_SHAPE: !!(licence === 0 && rows.length === 0 && pl.gens === 0) })
+  const lic = rows.filter(r => r.name === '_townplan_mode').length
+  result({ scene: 'tpgreen', world, rows: rows.map(fmt).slice(0, 30), plan: plan ? { gen: pl.head.gen, gens: pl.gens, mode: plan.mode, orientation: plan.orientation, s: plan.s, plots: geo(plan) } : null,
+    offline: off.body ? { mode: off.body.mode, orientation: off.body.orientation, s: off.body.s, why: off.why } : null, same, zoneHits, cells: ct,
+    CANDIDATE_PASS: !!(lic >= 1 && root && pl.ok && plan?.mode === 'greenfield' && same && !zoneHits.length && ct.allAir && ct.allFloor && !rows.some(r => /result=invalid/.test(r.detail))),
+    BASE_SHAPE: !!(lic === 0 && rows.length === 0 && pl.gens === 0) })
 }
 
-async function retroScene (scene, { zone = false, bots = 1, bag = IDLE_BAG, wait = 150000 } = {}) {
-  buildArena(); rcon(`kill ${ARENA_SEL}`)
-  buildBench()
-  const before = benchTruth()
-  const pool = `sbxtp-${RUN}-${scene}`
-  // THE ZONE: the north side of town (z <= home - 8), a protected-zones.json under the LIVE bot's world identity, written
-  // before the planner's first tick (30 s after spawn)
-  const zoneBox = [A.x0, 100, A.z0, A.x1, 140, HOME.z - 8]
-  let world = null
-  const files = []
-  files.push(await startBot(scene, bag, { pool, onSpawn: async ({ skillLog, poolDir }) => {
-    world = await worldOf(skillLog)
-    if (zone) {
-      fs.mkdirSync(poolDir, { recursive: true })
-      fs.writeFileSync(path.join(poolDir, 'protected-zones.json'), JSON.stringify({ version: 1, hashed_seed: world, zones: [{ id: 'scene-north', kind: 'village', box: zoneBox }] }))
-    }
-  } }))
-  for (let i = 1; i < bots; i++) files.push(await startBot(scene, bag, { pool, name: NAMES[i], at: at([-2 - i, 0]) }))
-  const root = await waitFor(() => rowsAll(files).find(r => r.name === '_townplan' && /op=root result=accepted/.test(r.detail)), 150000, 1000)
-  return { files, world, root, before, zoneBox, pool, wait }
+// ================================================================ the bench-like town (TP-RETRO, FOUND-RETRO)
+// a cobblestone platform (r 9); 11 single chests and one double chest east and north of home with items; two tables and two
+// furnaces south-west; a junk well (an RCON-built natural well: closed top trapdoor, floor trapdoor, dirt floor) south-east
+const BENCH = {
+  chests: [[3, 3, [['cobblestone', 64], ['cobblestone', 20]]], [5, 3, [['oak_log', 30]]], [7, 3, [['dirt', 64]]], [3, -3, [['iron_ingot', 5], ['coal', 12]]],
+           [5, -3, [['oak_sapling', 9]]], [7, -3, [['stick', 20], ['oak_planks', 16]]], [3, 6, [['wheat_seeds', 10]]], [5, 6, [['andesite', 40]]],
+           [7, 6, [['granite', 40]]], [3, -6, [['bread', 4]]], [5, -6, [['torch', 30]]]],
+  double: [[8, -6], [8, -5]],
+  tables: [[-3, 3], [-5, 3]], furnaces: [[-3, 5], [-5, 5]],
+  well: [6, 9],
 }
+function buildBench ({ well = true } = {}) {
+  const c = [`fill ${HOME.x - 9} ${G} ${HOME.z - 9} ${HOME.x + 9} ${G} ${HOME.z + 9} minecraft:cobblestone`]
+  must(rcon(...c), 'platform')
+  for (const [dx, dz, stacks] of BENCH.chests) setChest(at([dx, dz]), stacks)
+  const [l, r] = BENCH.double
+  must(rcon(`setblock ${at(l).x} ${HOME.y} ${at(l).z} minecraft:chest[facing=west,type=right]`, `setblock ${at(r).x} ${HOME.y} ${at(r).z} minecraft:chest[facing=west,type=left]`,
+    `item replace block ${at(l).x} ${HOME.y} ${at(l).z} container.0 with minecraft:cobblestone 64`), 'double')
+  for (const t of BENCH.tables) { const p = at(t); must(rcon(`setblock ${p.x} ${p.y} ${p.z} minecraft:crafting_table`), 'table') }
+  for (const f of BENCH.furnaces) { const p = at(f); must(rcon(`setblock ${p.x} ${p.y} ${p.z} minecraft:furnace[facing=north]`), 'furnace') }
+  if (well) {
+    const w = at(BENCH.well)
+    must(rcon(`setblock ${w.x} ${G} ${w.z} minecraft:oak_trapdoor[half=top,open=false,facing=north]`, `setblock ${w.x} ${G - 1} ${w.z} minecraft:oak_trapdoor[half=bottom,open=false,facing=north]`,
+      `setblock ${w.x} ${G - 2} ${w.z} minecraft:dirt`), 'well')
+  }
+}
+const benchContainers = () => [...BENCH.chests.map(([dx, dz]) => at([dx, dz])), ...BENCH.double.map(d => at(d))]
+function benchTruth () {
+  const cells = [...BENCH.chests.map(([dx, dz]) => ['chest', at([dx, dz])]), ...BENCH.double.map(d => ['chest', at(d)]), ...BENCH.tables.map(t => ['crafting_table', at(t)]),
+    ...BENCH.furnaces.map(f => ['furnace', at(f)])]
+  const ok = rcon(...cells.map(([n, p]) => `execute if block ${p.x} ${p.y} ${p.z} minecraft:${n}`)).map(x => passed(x.reply))
+  const items = benchContainers().map(p => chestTotals(p))
+  return { intact: ok.every(Boolean), missing: cells.filter((_, i) => !ok[i]).map(([n, p]) => `${n}@${p.x},${p.y},${p.z}`), items }
+}
+const PRE = () => new Set([...benchContainers(), ...BENCH.tables.map(t => at(t)), ...BENCH.furnaces.map(f => at(f))].map(p => `${p.x},${p.y},${p.z}`))
+/** The bot's own opens after `t`: the town index's observation records (townindex-01) per container key. */
+async function opensAfter (poolDir, t, home = HOME) {
+  try {
+    const TI = await import(path.join(BOT_ROOT, 'bots/src/townindex.mjs'))
+    return new Set(TI.indexRecords(poolDir, TI.indexHomeKey(home)).filter(r => r.t === 'obs' && r.at >= t && r.bot !== 'sandbox-scene').flatMap(r => r.h ?? [r.k]))
+  } catch { return new Set() }
+}
+// a full bag of mixed stacks: the town deposit counts the town first (its count step) and banks; then dispose_well takes junk
+const DEPOSIT_BAG = [['stone_pickaxe', 1], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 64], ['dirt', 64], ['andesite', 64], ['granite', 64], ['diorite', 64],
+  ['oak_log', 20], ['flint', 64], ['egg', 16], ['egg', 16], ['clay_ball', 64], ['iron_ingot', 4], ['wheat_seeds', 20], ['bread', 6]]
+const fillBag = (spec, n = 36) => { const o = [...spec]; const rocks = ['andesite', 'diorite', 'granite', 'calcite']; let i = 0; while (o.length < n) o.push([rocks[i++ % 4], 64]); return o }
 
 scenes.tpretro = async () => {
-  const s = await retroScene('tpretro', { zone: true })
-  await sleep(s.root ? 65000 : 1000)
-  const rows = rowsAll(s.files).filter(r => /^_townplan|^_zone|^_dig_town/.test(r.name))
+  buildArena(); buildBench()
+  const before = benchTruth()
+  const pool = `sbxtp-${RUN}-retro`
+  let world = null
+  const f = await startBot('tpretro', fillBag(DEPOSIT_BAG), { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })
+  const root = await waitFor(() => rootRow([f]), 150000, 1000)
+  const tRoot = root?.ts ?? Date.now()
+  // the bot's own deposits and counts: wait for `alloc`, then a dispose_well
+  const alloc = await waitFor(() => rowsAll([f]).find(r => r.name === '_townplan' && /op=alloc result=accepted/.test(r.detail)), 900000, 5000)
+  const disp = await waitFor(() => rowsAll([f]).find(r => r.name === '_well_dispose' && r.status === 'success'), 600000, 5000)
+  await sleep(5000)
+  const rows = rowsAll([f]).filter(r => /^_townplan|^_town_deposit|^_well_dispose|^_stock_recount|^_dig_town/.test(r.name))
   await stopBots()
   const after = benchTruth()
-  const pl = await planOf(s.files[0].poolDir, s.world)
+  const pl = await planOf(f.poolDir, world)
   const plan = pl.head?.plan
-  const cells = cellsOf(plan)
-  const pre = PRE_CELLS()
-  const onPre = cells.filter(c => c.state === 'free' && pre.has(c.at.join(',')))
-  const inZone = cells.filter(c => c.at[0] >= s.zoneBox[0] && c.at[0] <= s.zoneBox[3] && c.at[2] >= s.zoneBox[2] && c.at[2] <= s.zoneBox[5])
+  const pre = PRE()
+  const onPre = cellsOf(plan).filter(c => c.state === 'free' && pre.has(K(c.at))).map(c => K(c.at))
   const ct = plan ? cellTruth(plan) : null
-  const licence = rows.filter(r => r.name === '_townplan_mode').length
-  const itemsSame = JSON.stringify(after.chests) === JSON.stringify(s.before.chests)
-  const store = plan?.plots?.find(p => p.id === 'store')
-  result({ scene: 'tpretro', world: s.world, rows: rows.map(fmt), plan: plan ? { gen: pl.head.gen, gens: pl.gens, mode: plan.mode, store: store && { kind: store.kind, cells: (store.cells ?? []).map(c => `${c.state}@${c.at.join(',')}`) },
-    work: plan.plots.find(p => p.id === 'work')?.stations?.map(c => `${c.kind}@${c.at.join(',')}`), groups: plan.groups?.status, zones: (plan.zones ?? plan.seed?.avoid ?? null) } : null,
-    cells: ct, onPre: onPre.map(c => c.at.join(',')), inZone: inZone.map(c => c.at.join(',')), world2: { before: s.before, after },
-    CANDIDATE_PASS: !!(licence >= 1 && s.root && pl.ok && plan?.mode === 'retrofit' && ct.allAir && ct.allFloor && onPre.length === 0 && inZone.length === 0 &&
-      after.blocksIntact && after.lidsAir && itemsSame),
-    BASE_SHAPE: !!(licence === 0 && pl.gens === 0 && after.blocksIntact && itemsSame) })
+  const st = stations(plan)
+  const cap = at(BENCH.well, -1)
+  const wellD = st.length ? Math.min(...st.map(c => Math.max(Math.abs(c.at[0] - cap.x), Math.abs(c.at[2] - cap.z)))) : null
+  // a station on a container's stand: the stands are the walkable cells beside each container; a strip cell ADJACENT (side) to a
+  // container that has no other open side would cut it off -- read as: every container still opened by the bot after the root
+  const opened = await opensAfter(f.poolDir, tRoot)
+  const conts = benchContainers().map(p => `${p.x},${p.y},${p.z}`)
+  const unopened = conts.filter(k => !opened.has(k))
+  const lic = rows.filter(r => r.name === '_townplan_mode').length
+  const itemsMoved = JSON.stringify(after.items) !== JSON.stringify(before.items)
+  result({ scene: 'tpretro', world, rows: rows.map(fmt).slice(-50), plan: plan ? { gen: pl.head.gen, gens: pl.gens, rejected: pl.rejected.length, mode: plan.mode, groups: plan.groups?.status,
+    store: plan.plots.find(p => p.id === 'store')?.kind, work: st.map(c => `${c.kind}@${K(c.at)}`) } : null, cells: ct, onPre, wellD, opened: [...opened].length, unopened,
+    world2: { intact: after.intact, missing: after.missing, itemsMoved }, alloc: !!alloc, dispose: disp?.detail?.slice(0, 120) ?? null,
+    CANDIDATE_PASS: !!(lic >= 1 && root && plan?.mode === 'retrofit' && alloc && plan.groups?.status === 'allocated' && ct.allAir && ct.allFloor && !onPre.length &&
+      (wellD === null || wellD >= 3) && after.intact && !unopened.length && disp && pl.rejected.length === 0),
+    BASE_SHAPE: !!(lic === 0 && pl.gens === 0 && after.intact) })
 }
 
-function wantFromPlan (poolDir, world, kinds) {
-  // the plan's cells for each wanted kind (read live from the bots' files each poll)
-  return async () => {
-    const pl = await planOf(poolDir, world)
-    const plan = pl.head?.plan
-    if (!plan) return null
-    const work = plan.plots.find(p => p.id === 'work'), store = plan.plots.find(p => p.id === 'store')
-    const pick = { crafting_table: (work?.stations ?? []).find(c => c.kind === 'crafting_table'), furnace: (work?.stations ?? []).find(c => c.kind === 'furnace'),
-      chest: (store?.cells ?? []).find(c => c.role === 'overflow') ?? (store?.cells ?? [])[0] }
-    return kinds.map(k => ({ kind: k, cell: pick[k], state: pick[k]?.state }))
-  }
-}
-async function foundScene (scene, { retro = false, bots = 3, kinds = ['crafting_table', 'chest', 'furnace'], ms = 900000 } = {}) {
-  let s
-  if (retro) s = await retroScene(scene, { bots, bag: FOUND_BAG })
-  else {
-    buildArena(); rcon(`kill ${ARENA_SEL}`)
-    const pool = `sbxtp-${RUN}-${scene}`
-    let world = null
-    const files = [await startBot(scene, FOUND_BAG, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
-    for (let i = 1; i < bots; i++) files.push(await startBot(scene, FOUND_BAG, { pool, name: NAMES[i], at: at([-2 - i, 0]) }))
-    const root = await waitFor(() => rowsAll(files).find(r => r.name === '_townplan' && /op=root result=accepted/.test(r.detail)), 150000, 1000)
-    s = { files, world, root, before: null, pool }
-  }
-  const poolDir = s.files[0].poolDir
-  const live = wantFromPlan(poolDir, s.world, kinds)
-  let snap = null
-  const t0 = Date.now()
-  while (s.root && Date.now() - t0 < ms) {
-    snap = await live()
-    if (snap && snap.every(x => x.cell)) {
-      const on = rcon(...snap.map(x => `execute if block ${x.cell.at[0]} ${x.cell.at[1]} ${x.cell.at[2]} minecraft:${x.kind}`)).map(x => passed(x.reply))
-      snap.forEach((x, i) => { x.on = on[i] })
-      if (snap.every(x => x.on && x.state === 'placed')) break
-    }
-    await sleep(15000)
-  }
-  await sleep(5000)
-  const rows = rowsAll(s.files).filter(r => /^_found|^_townplan$|^_townplan_mode$|^craft$|^_craft_room$/.test(r.name))
+// ================================================================ TP-CAS: three writers, a kill and a restart
+scenes.tpcas = async () => {
+  buildArena()
+  const pool = `sbxtp-${RUN}-cas`
+  let world = null
+  // all three in town before the first tick (each ticks every 30 s from its own spawn)
+  const files = [await startBot('tpcas', IDLE_BAG, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
+  for (let i = 1; i < 3; i++) files.push(await startBot('tpcas', IDLE_BAG, { pool, name: NAMES[i], standAt: at([-2 - i, 0]) }))
+  const root = await waitFor(() => rootRow(files), 150000, 1000)
+  await sleep(90000)
+  // SIGKILL the third and restart it (its walk starts from the files)
+  await stopBots([NAMES[2]], 'SIGKILL')
+  const gBefore = (await planOf(files[0].poolDir, world)).gens
+  files.push(await startBot('tpcas-restart', IDLE_BAG, { pool, name: NAMES[2], standAt: at([-5, 0]) }))
+  await sleep(120000)
+  const rows = rowsAll(files).filter(r => /^_townplan$/.test(r.name))
   await stopBots()
-  const pl = await planOf(poolDir, s.world)
-  const plan = pl.head?.plan
-  const final = await live()
-  if (final) {
-    const on = rcon(...final.filter(x => x.cell).map(x => `execute if block ${x.cell.at[0]} ${x.cell.at[1]} ${x.cell.at[2]} minecraft:${x.kind}`)).map(x => passed(x.reply))
-    final.filter(x => x.cell).forEach((x, i) => { x.on = on[i] })
-  }
-  // everything of those kinds standing in town (a stray placement off the plan would show here)
-  const standing = { chest: countIn('chest').map(c => c.join(',')), crafting_table: countIn('crafting_table').map(c => c.join(',')), furnace: countIn('furnace').map(c => c.join(',')) }
-  const planCells = new Set(cellsOf(plan).map(c => c.at.join(',')))
-  const pre = retro ? PRE_CELLS() : new Set()
-  const stray = Object.entries(standing).flatMap(([k, cs]) => cs.filter(c => !planCells.has(c) && !pre.has(c)).map(c => `${k}@${c}`))
-  const after = retro ? benchTruth() : null
-  const placedRows = rows.filter(r => r.name === '_found' && /outcome=placed/.test(r.detail))
-  const licence = rows.filter(r => r.name === '_found_mode').length
-  const allIn = !!final && final.every(x => x.on && x.state === 'placed')
-  result({ scene, world: s.world, rows: rows.map(fmt).slice(-60), want: final?.map(x => ({ kind: x.kind, at: x.cell?.at?.join(','), state: x.state, on: x.on })), standing, stray,
-    plan: plan ? { gen: pl.head.gen, gens: pl.gens, mode: plan.mode, rejected: pl.rejected } : null, world2: after && { intact: after.blocksIntact, missing: after.missing, lidsAir: after.lidsAir, itemsSame: JSON.stringify(after.chests) === JSON.stringify(s.before.chests) },
-    CANDIDATE_PASS: !!(licence >= 1 && s.root && allIn && placedRows.length >= kinds.length && stray.length === 0 && pl.rejected === 0 &&
-      (!retro || (after.blocksIntact && after.lidsAir && JSON.stringify(after.chests) === JSON.stringify(s.before.chests)))),
-    BASE_SHAPE: !!(licence === 0 && rows.filter(r => /^_found|^_townplan/.test(r.name)).length === 0 && (!retro || after.blocksIntact)) })
+  const pl = await planOf(files[0].poolDir, world)
+  const roots = rows.filter(r => /op=root result=accepted/.test(r.detail)).length
+  const invalid = rows.filter(r => /result=invalid/.test(r.detail)).length
+  const PS = await import(path.join(BOT_ROOT, 'bots/src/planstore.mjs'))
+  const rootsOnDisk = PS.planGens(files[0].poolDir, PS.planKey(HOME)).filter(g => { try { return JSON.parse(fs.readFileSync(path.join(files[0].poolDir, `${PS.planKey(HOME)}.g${g}.json`), 'utf8')).prev === null } catch { return false } }).length
+  result({ scene: 'tpcas', world, rows: rows.map(fmt).slice(-30), roots, rootsOnDisk, invalid, gens: pl.gens, accepted: pl.accepted.length, rejected: pl.rejected, gBefore,
+    CANDIDATE_PASS: !!(root && roots === 1 && rootsOnDisk === 1 && invalid === 0 && pl.rejected.length === 0 && pl.accepted.length === pl.gens),
+    BASE_SHAPE: !!(rows.length === 0 && pl.gens === 0) })
 }
-scenes.foundbare = () => foundScene('foundbare')
-scenes.foundretro = () => foundScene('foundretro', { retro: true, bots: 2, kinds: ['crafting_table', 'furnace'] })
+
+// ================================================================ TP-ZONES
+scenes.tpzones = async () => {
+  buildArena()
+  const T = await import(path.join(BOT_ROOT, 'bots/src/townplan.mjs'))
+  // the E orientation's store pad (u 7..15, v -4..4) under a zone
+  const ePad = [HOME.x + 7, 100, HOME.z - 4, HOME.x + 15, 140, HOME.z + 4]
+  const pool = `sbxtp-${RUN}-zones`
+  let world = null
+  const files = [await startBot('tpzones', IDLE_BAG, { pool, onSpawn: async ({ skillLog, poolDir }) => { world = await worldOf(skillLog); zonesFile(poolDir, world, [{ id: 'epad', kind: 'village', box: ePad }]) } })]
+  const root = await waitFor(() => rootRow(files), 150000, 1000)
+  const pl1 = await planOf(files[0].poolDir, world)
+  // MID-RUN: a malformed file -- the last good list kept: no re-fit, nothing invalid, the plan unchanged
+  fs.writeFileSync(path.join(files[0].poolDir, 'protected-zones.json'), '{"version": 1, "zones": [ {"id": broken')
+  await sleep(75000)
+  const pl2 = await planOf(files[0].poolDir, world)
+  const midRows = rowsAll(files).filter(r => /^_townplan$/.test(r.name) && r.ts > (root?.ts ?? 0))
+  await stopBots()
+  // A FRESH POOL STARTED WITH THE MALFORMED FILE: no root, no found row; then the good file -> a root
+  const pool2 = `sbxtp-${RUN}-zones2`
+  let world2 = null
+  const f2 = await startBot('tpzones2', FOUND_BAG, { pool: pool2, onSpawn: async ({ skillLog, poolDir }) => { world2 = await worldOf(skillLog); fs.mkdirSync(poolDir, { recursive: true }); fs.writeFileSync(path.join(poolDir, 'protected-zones.json'), '{"version": 1, "zones": [ {"id": broken') } })
+  await sleep(100000)
+  const blocked = { root: !!rootRow([f2]), found: rowsAll([f2]).filter(r => r.name === '_found' && /outcome=placed/.test(r.detail)).length, mode: rowsAll([f2]).find(r => r.name === '_townplan_mode')?.detail ?? null }
+  zonesFile(f2.poolDir, world2, [{ id: 'epad', kind: 'village', box: ePad }])
+  const root2 = await waitFor(() => rootRow([f2]), 120000, 1000)
+  await stopBots()
+  const pl3 = await planOf(f2.poolDir, world2)
+  void T
+  result({ scene: 'tpzones', world, orient1: pl1.head?.plan?.orientation ?? null, gen1: pl1.head?.gen, gen2: pl2.head?.gen, midRows: midRows.map(fmt).slice(-10), blocked, root2: !!root2, orient3: pl3.head?.plan?.orientation ?? null,
+    CANDIDATE_PASS: !!(root && pl1.head?.plan?.orientation && pl1.head.plan.orientation !== 'E' && !midRows.some(r => /result=invalid|op=refit/.test(r.detail)) &&
+      JSON.stringify(pl2.head?.plan?.plots) === JSON.stringify(pl1.head?.plan?.plots) && !blocked.root && blocked.found === 0 && /zones=unknown/.test(blocked.mode ?? '') && root2 && pl3.head?.plan?.orientation !== 'E'),
+    BASE_SHAPE: !!(!root && !root2) })
+}
+
+// ================================================================ TP-TEMP: craft's own temporary table beside the free station 0
+scenes.tptemp = async () => {
+  buildArena()
+  const pool = `sbxtp-${RUN}-temp`
+  let world = null
+  const a = await startBot('tptemp', IDLE_BAG, { pool, env: { FOUND: 'off' }, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })
+  const root = await waitFor(() => rootRow([a]), 150000, 1000)
+  const plan0 = (await planOf(a.poolDir, world)).head?.plan
+  const s0 = stations(plan0)[0]
+  if (!s0) { await stopBots(); result({ scene: 'tptemp', CANDIDATE_PASS: false, BASE_SHAPE: !root, why: 'no station 0 (base: no plan)' }); return }
+  // the crafter stands west of station 0; every other neighbour walled (feet and head), so station 0 is the only floor spot left
+  // and the station 0's own stand side stays open
+  const bx = s0.at[0] - 1, bz = s0.at[2]
+  const walls = []
+  for (const [dx, dz] of [[-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) walls.push(`setblock ${bx + dx} ${HOME.y} ${bz + dz} minecraft:stone`, `setblock ${bx + dx} ${HOME.y + 1} ${bz + dz} minecraft:stone`)
+  must(rcon(...walls), 'walls')
+  const b = await startBot('tptemp', [['oak_planks', 12], ['stick', 4]], { pool, name: NAMES[1], env: { FOUND: 'off' }, standAt: { x: bx, y: HOME.y, z: bz } })
+  brainQueue.push({ skill: 'craft', args: { item: 'wooden_pickaxe', count: 1 } }, { skill: 'craft', args: { item: 'wooden_pickaxe', count: 1 } })
+  const crafted = await waitFor(() => rowsOf(b.skillLog).find(r => r.name === 'craft' && r.status === 'success'), 180000, 1000)
+  await sleep(3000)
+  const rows = rowsAll([a, b]).filter(r => /^craft$|^_townplan_place$|^_station|^_table/.test(r.name))
+  await stopBots()
+  const pl = await planOf(a.poolDir, world)
+  const never = NEVER(pl.head?.plan)
+  const tables = standing('crafting_table', HOME, 22, [HOME.y, HOME.y + 1])
+  const onNever = tables.filter(t => never.has(t) && t !== K(s0.at))
+  const s0now = stations(pl.head?.plan)[0]
+  const bagB = crafted ? null : null
+  void bagB
+  result({ scene: 'tptemp', world, rows: rows.map(fmt).slice(-20), tables, onNever, s0: K(s0.at), s0state: s0now?.state, crafted: !!crafted,
+    // station 0 was FREE: the second tier may use it (a temporary table), but the plan must not call it placed without a table there
+    CANDIDATE_PASS: !!(root && crafted && !onNever.length && !(s0now?.state === 'placed' && !tables.includes(K(s0.at)))),
+    BASE_SHAPE: null })
+}
+
+// ================================================================ the found scenes
+async function plannedTown (scene, { bags = [FOUND_BAG, FOUND_BAG, FOUND_BAG], pool = `sbxtp-${RUN}-${scene}`, onRoot = null, env = {} } = {}) {
+  let world = null
+  const files = [await startBot(scene, bags[0], { pool, env, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
+  for (let i = 1; i < bags.length; i++) files.push(await startBot(scene, bags[i], { pool, env, name: NAMES[i], standAt: at([-2 - i, 0]) }))
+  const root = await waitFor(() => rootRow(files), 150000, 1000)
+  if (onRoot && root) await onRoot({ files, world })
+  return { files, world, root, pool, poolDir: files[0].poolDir }
+}
+/** Wait until the plan says each wanted cell is placed AND the server has its block (or ms passes). */
+async function untilPlaced (s, want, ms) {
+  let last = null
+  await waitFor(async () => {
+    const plan = (await planOf(s.poolDir, s.world)).head?.plan
+    if (!plan) return false
+    const cells = want(plan)
+    if (!cells.length || cells.some(c => !c)) return false
+    const on = rcon(...cells.map(c => `execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${c.kind === 'chest' ? 'chest' : c.kind}`)).map(x => passed(x.reply))
+    last = cells.map((c, i) => ({ kind: c.kind, at: K(c.at), state: c.state, role: c.role ?? null, group: c.group ?? null, on: on[i] }))
+    return last.every(x => x.on && x.state === 'placed')
+  }, ms, 15000)
+  return last
+}
+function strayOf (plan, pre = new Set(), h = HOME) {
+  const planCells = new Set(cellsOf(plan).map(c => K(c.at)))
+  const st = { chest: standing('chest', h), crafting_table: standing('crafting_table', h), furnace: standing('furnace', h) }
+  return { standing: st, stray: Object.entries(st).flatMap(([k, cs]) => cs.filter(c => !planCells.has(c) && !pre.has(c)).map(c => `${k}@${c}`)) }
+}
+function lidsOf (cells) {
+  if (!cells.length) return []
+  const r = rcon(...cells.map(c => `execute unless block ${c.at[0]} ${c.at[1] + 1} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply))
+  return cells.filter((_, i) => r[i]).map(c => K(c.at))
+}
+const want3 = plan => [stations(plan).find(c => c.kind === 'crafting_table'), storeCells(plan).find(c => c.role === 'overflow') ?? storeCells(plan)[0], stations(plan).find(c => c.kind === 'furnace')]
+function foundSummary (s, rows, extra = {}) {
+  return { world: s.world, rows: rows.map(fmt).slice(-50), licence: rows.filter(r => r.name === '_found_mode').length,
+    placed: rows.filter(r => r.name === '_found' && /outcome=placed/.test(r.detail)).length, ...extra }
+}
+const foundRows = files => rowsAll(files).filter(r => /^_found|^_townplan$|^_townplan_mode$|^craft$|^_deposit_new_chest$|^_town_deposit$/.test(r.name))
+
+scenes.foundflat = async () => {
+  buildArena()
+  const bag = [['chest', 3], ['crafting_table', 2], ['furnace', 2], ['stone_pickaxe', 1], ['cobblestone', 64], ['oak_log', 32], ['iron_ingot', 6], ['wheat_seeds', 20], ['coal', 16]]
+  const s = await plannedTown('foundflat', { bags: [bag, bag, bag] })
+  const last = await untilPlaced(s, want3, 900000)
+  // group homes: a second wave -- every bot's bag full of stacks (the deposit wants homes for their groups: F3)
+  await sleep(60000)
+  const rows = foundRows(s.files)
+  await stopBots()
+  const plan = (await planOf(s.poolDir, s.world)).head?.plan
+  const { standing: st, stray } = strayOf(plan)
+  const placedStore = storeCells(plan).filter(c => c.state === 'placed')
+  const lids = lidsOf(placedStore)
+  const homes = placedStore.filter(c => c.role === 'home').map(c => `${c.group}@${K(c.at)}`)
+  const sum = foundSummary(s, rows, { want: last, standing: st, stray, lids, homes })
+  result({ scene: 'foundflat', ...sum,
+    CANDIDATE_PASS: !!(s.root && sum.licence >= 1 && last?.every(x => x.on && x.state === 'placed') && last[1].role === 'overflow' && !stray.length && !lids.length),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0) })
+}
+
+scenes.foundhour1 = async () => {
+  buildArena()
+  const bag = [['oak_log', 16], ['cobblestone', 20], ['crafting_table', 1]]
+  const s = await plannedTown('foundhour1', { bags: [bag, bag, bag] })
+  const last = await untilPlaced(s, want3, 1200000)
+  // afterwards: the givers' own pickaxe rungs (the ladder crafts wooden then stone)
+  const picks = await waitFor(() => { const r = rowsAll(s.files).filter(x => x.name === 'craft' && x.status === 'success'); return ['wooden_pickaxe', 'stone_pickaxe'].every(n => r.some(x => (x.args?.item ?? '') === n || x.detail.includes(n))) && r }, 900000, 10000)
+  const rows = foundRows(s.files)
+  const bags = NAMES.map(n => bagOf(n))
+  await stopBots()
+  const plan = (await planOf(s.poolDir, s.world)).head?.plan
+  const { stray } = strayOf(plan)
+  const sum = foundSummary(s, rows, { want: last, stray, bags, picks: !!picks })
+  result({ scene: 'foundhour1', ...sum,
+    CANDIDATE_PASS: !!(s.root && sum.licence >= 1 && last?.every(x => x.on && x.state === 'placed') && !stray.length && picks),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0) })
+}
+
+scenes.foundbare = async () => {
+  buildArena({ ground: 'grass_block' })
+  // a few trees and a stone patch west of home (outside every orientation's E/S/N pads... the W pad keeps trees within r 16)
+  const trees = [[-12, -12], [-14, 10], [-10, 14], [12, -14], [14, 12]]
+  const c = [`fill ${HOME.x - 20} ${G - 3} ${HOME.z - 2} ${HOME.x - 17} ${G} ${HOME.z + 2} minecraft:stone`]
+  for (const [dx, dz] of trees) { const p = at([dx, dz]); c.push(`fill ${p.x} ${p.y} ${p.z} ${p.x} ${p.y + 4} ${p.z} minecraft:oak_log`, `fill ${p.x - 2} ${p.y + 3} ${p.z - 2} ${p.x + 2} ${p.y + 5} ${p.z + 2} minecraft:oak_leaves[persistent=true] keep`) }
+  must(rcon(...c), 'trees')
+  const s = await plannedTown('foundbare', { bags: [[], [], []] })
+  const last = await untilPlaced(s, want3, 2400000)
+  const rows = foundRows(s.files)
+  await stopBots()
+  const plan = (await planOf(s.poolDir, s.world)).head?.plan
+  const { stray } = strayOf(plan)
+  const sum = foundSummary(s, rows, { want: last, stray, gathers: rowsAll(s.files).filter(r => /^(gather|mine)$/.test(r.name) && r.status === 'success').length })
+  result({ scene: 'foundbare', ...sum,
+    CANDIDATE_PASS: !!(s.root && sum.licence >= 1 && last?.every(x => x.on && x.state === 'placed') && !stray.length),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0) })
+}
+
+scenes.foundrough = async () => {
+  buildArena()
+  // holes, a slope and a pond: a 3x3 hole NE, a slope W (steps up), a pond S
+  const c = [`fill ${HOME.x + 3} ${G - 2} ${HOME.z - 6} ${HOME.x + 5} ${G} ${HOME.z - 4} minecraft:air`,
+    `fill ${HOME.x - 3} ${G - 1} ${HOME.z + 5} ${HOME.x + 2} ${G} ${HOME.z + 9} minecraft:water`]
+  for (let i = 0; i < 5; i++) c.push(`fill ${HOME.x - 16 + i * 2} ${G + 1} ${HOME.z - 6} ${HOME.x - 15 + i * 2} ${G + 1 + (4 - i) % 3} ${HOME.z + 6} minecraft:dirt`)
+  for (let i = 0; i < 6; i++) c.push(`setblock ${HOME.x + 8 + i} ${G} ${HOME.z + (i % 2 ? 1 : -1)} minecraft:air`)
+  must(rcon(...c), 'rough')
+  const s = await plannedTown('foundrough')
+  const last = await untilPlaced(s, want3, 900000)
+  const rows = foundRows(s.files)
+  await stopBots()
+  const pl = await planOf(s.poolDir, s.world)
+  const plan = pl.head?.plan
+  // no placement on an unready cell: every placed plan cell sits on a solid floor with no liquid next to it
+  const placed = cellsOf(plan).filter(c => c.state === 'placed')
+  const floor = placed.length ? rcon(...placed.map(c => `execute unless block ${c.at[0]} ${c.at[1] - 1} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply)) : []
+  const { stray } = strayOf(plan)
+  const sum = foundSummary(s, rows, { want: last, orient: plan?.orientation, mode: plan?.mode, floorOk: floor.every(Boolean), stray })
+  result({ scene: 'foundrough', ...sum,
+    CANDIDATE_PASS: !!(s.root && plan?.mode === 'greenfield' && plan.orientation && floor.every(Boolean) && !stray.length && last?.some(x => x.on)),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0) })
+}
+
+scenes.foundcanopy = async () => {
+  buildArena()
+  // the plan first (FOUND off), then the store cells dressed, then founders (FOUND on)
+  const pool = `sbxtp-${RUN}-canopy`
+  const p0 = await plannedTown('foundcanopy-plan', { bags: [IDLE_BAG], pool, env: { FOUND: 'off' } })
+  await stopBots()
+  const plan0 = (await planOf(p0.poolDir, p0.world)).head?.plan
+  const sc = storeCells(plan0)
+  if (sc.length < 7) { result({ scene: 'foundcanopy', CANDIDATE_PASS: false, BASE_SHAPE: !p0.root, why: 'no 7-cell store (base: no plan)' }); return }
+  // fill order: overflow(0), then 1..6. 0: large fern; 1: tall grass; 2: under spruce leaves; 3: beside a spruce trunk (side);
+  // 4: TWO snow layers (not READY); 5: MUD above (a lid: not READY); 6: plain
+  const [c0, c1, c2, c3, c4, c5] = sc.map(c => c.at)
+  const cmd = [
+    `setblock ${c0[0]} ${c0[1]} ${c0[2]} minecraft:large_fern[half=lower]`, `setblock ${c0[0]} ${c0[1] + 1} ${c0[2]} minecraft:large_fern[half=upper]`,
+    `setblock ${c1[0]} ${c1[1]} ${c1[2]} minecraft:tall_grass[half=lower]`, `setblock ${c1[0]} ${c1[1] + 1} ${c1[2]} minecraft:tall_grass[half=upper]`,
+    `setblock ${c2[0]} ${c2[1] + 1} ${c2[2]} minecraft:spruce_leaves[persistent=true]`,
+    `setblock ${c3[0]} ${c3[1]} ${c3[2] + (c3[2] > c2[2] ? 1 : -1)} minecraft:spruce_log`,
+    `setblock ${c4[0]} ${c4[1]} ${c4[2]} minecraft:snow[layers=2]`,
+    `setblock ${c5[0]} ${c5[1] + 1} ${c5[2]} minecraft:mud`]
+  must(rcon(...cmd), 'canopy')
+  const bag = [['chest', 4], ['stone_pickaxe', 1], ['oak_log', 16], ['cobblestone', 32], ['iron_ingot', 4], ['wheat_seeds', 20], ['coal', 16], ['flint', 30], ['oak_sapling', 10]]
+  let world = p0.world
+  const files = [await startBot('foundcanopy', bag, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
+  for (let i = 1; i < 3; i++) files.push(await startBot('foundcanopy', bag, { pool, name: NAMES[i], standAt: at([-2 - i, 0]) }))
+  const s = { files, world, root: true, poolDir: files[0].poolDir }
+  const tStart = Date.now()
+  await untilPlaced(s, plan => [storeCells(plan)[0], storeCells(plan)[1], storeCells(plan)[2]], 1500000)
+  await sleep(30000)
+  const rows = foundRows(files)
+  await stopBots()
+  const plan = (await planOf(s.poolDir, world)).head?.plan
+  const cells = storeCells(plan)
+  const on = blockIs(cells.map(c => c.at), 'chest')
+  const opened = await opensAfter(s.poolDir, tStart)
+  const status = cells.map((c, i) => ({ at: K(c.at), state: c.state, chest: on[i], opened: opened.has(K(c.at)) }))
+  const sum = foundSummary(s, rows, { status, base: !p0.root })
+  result({ scene: 'foundcanopy', ...sum,
+    CANDIDATE_PASS: !!(p0.root && [0, 1, 2].every(i => status[i].chest && status[i].state === 'placed' && status[i].opened) && !status[4].chest && !status[5].chest),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0) })
+}
+
+scenes.foundnofit = async () => {
+  const out = []
+  for (const n of [1, 2, 3, 4, 5]) {
+    // an air arena; home on a 3x3 dirt pad; a 1-wide walkway east to x+6; n ground cells at radius 7 (x+7, z 0, +1, -1, +2, -2)
+    must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
+    const c = [`fill ${HOME.x - 1} ${G - 2} ${HOME.z - 1} ${HOME.x + 1} ${G} ${HOME.z + 1} minecraft:dirt`, `fill ${HOME.x + 2} ${G - 2} ${HOME.z} ${HOME.x + 6} ${G} ${HOME.z} minecraft:dirt`]
+    const zs = [0, 1, -1, 2, -2].slice(0, n)
+    for (const z of zs) c.push(`fill ${HOME.x + 7} ${G - 2} ${HOME.z + z} ${HOME.x + 7} ${G} ${HOME.z + z} minecraft:dirt`)
+    must(rcon(...c), 'nofit')
+    const bag = [['chest', 3], ['crafting_table', 2], ['furnace', 2], ['stone_pickaxe', 1]]
+    const s = await plannedTown(`foundnofit${n}`, { bags: [bag, bag] })
+    await sleep(240000)
+    const rows = foundRows(s.files)
+    await stopBots()
+    const plan = (await planOf(s.poolDir, s.world)).head?.plan
+    const store = plan?.plots?.find(p => p.id === 'store')
+    const { standing: st, stray } = strayOf(plan, new Set(), HOME)
+    out.push({ n, store: store?.kind ?? null, cells: (store?.cells ?? []).map(x => `${x.state}@${K(x.at)}`), work: stations(plan).map(x => `${x.kind}:${x.state}`), standing: st, stray,
+      table: st.crafting_table.length, chests: st.chest.length, placedRows: rows.filter(r => r.name === '_found' && /outcome=placed/.test(r.detail)).length, licence: rows.filter(r => r.name === '_found_mode').length })
+  }
+  const ok = out.every(o => !o.stray.length && o.table >= 1 && (o.n === 1 ? o.store === 'unplaced' && o.chests === 0 : o.chests >= 1))
+  result({ scene: 'foundnofit', arenas: out, CANDIDATE_PASS: ok, BASE_SHAPE: out.every(o => o.licence === 0 && o.placedRows === 0) })
+}
+
+scenes.foundnone = async () => {
+  // home on a 1x1 dirt pillar in water (no READY cell anywhere); the bot keeps working: a named work row (craft) succeeds
+  must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air'), ...fillChunks(A, 113, G - 1, 'dirt'), ...fillChunks(A, G, G, 'water'), `setblock ${HOME.x} ${G} ${HOME.z} minecraft:dirt`), 'pillar')
+  const s = await plannedTown('foundnone', { bags: [[['chest', 2], ['crafting_table', 2], ['oak_log', 16], ['stone_pickaxe', 1]]] })
+  brainQueue.push({ skill: 'craft', args: { item: 'oak_planks', count: 4 } }, { skill: 'craft', args: { item: 'stick', count: 4 } })
+  await sleep(180000)
+  const rows = foundRows(s.files)
+  await stopBots()
+  const plan = (await planOf(s.poolDir, s.world)).head?.plan
+  const { standing: st } = strayOf(plan)
+  const work = rows.filter(r => r.name === 'craft' && r.status === 'success').length
+  const sum = foundSummary(s, rows, { store: plan?.plots?.find(p => p.id === 'store')?.kind ?? null, standing: st, work })
+  result({ scene: 'foundnone', ...sum,
+    CANDIDATE_PASS: !!(sum.placed === 0 && !st.chest.length && !st.furnace.length && work >= 1 && (!plan || plan.plots.find(p => p.id === 'store')?.kind === 'unplaced')),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0 && work >= 1) })
+}
+
+scenes.foundkill = async () => {
+  buildArena()
+  const pool = `sbxtp-${RUN}-kill`
+  // a WATCHER (FOUND off: never founds) keeps ticking the plan; a FOUNDER is SIGKILLed the moment its reservation appears (case A),
+  // then a second founder the moment its block stands but the plan still says reserved (case B)
+  const w = await plannedTown('foundkill-watch', { bags: [IDLE_BAG], pool, env: { FOUND: 'off' } })
+  const watch = async (name, standAt, bag, killWhen) => {
+    const f = await startBot('foundkill', bag, { pool, name, standAt })
+    let killed = null
+    await waitFor(async () => {
+      const plan = (await planOf(w.poolDir, w.world)).head?.plan
+      const r = cellsOf(plan).find(c => c.state === 'reserved' && c.by === name)
+      if (!r) return false
+      if (killWhen === 'reserved') { procs[name].kill('SIGKILL'); delete procs[name]; killed = { at: K(r.at), kind: r.kind, role: r.role ?? null, until: r.until }; return true }
+      if (passed(r1(`execute if block ${r.at[0]} ${r.at[1]} ${r.at[2]} minecraft:${r.kind}`))) { procs[name].kill('SIGKILL'); delete procs[name]; killed = { at: K(r.at), kind: r.kind, role: r.role ?? null, until: r.until }; return true }
+      return false
+    }, 420000, 150)   // B may wait out A's found lease (4 min) after A's kill
+    return killed
+  }
+  const kA = await watch(NAMES[1], at([-3, 0]), [['crafting_table', 2], ['stone_pickaxe', 1]], 'reserved')
+  await sleep(5000)
+  const kB = await watch(NAMES[2], at([-4, 0]), [['chest', 2], ['stone_pickaxe', 1]], 'placed')
+  // wait out until + 60 s + 10 min + a tick for the orphans to resolve (expired, or observed placed with the intent)
+  const deadline = Math.max(kA?.until ?? 0, kB?.until ?? 0) + 60_000 + 10 * 60_000 + 90_000
+  await waitFor(() => Date.now() > deadline, 1800000, 10000)
+  await sleep(60000)
+  const rows = rowsAll(w.files).filter(r => /^_townplan$/.test(r.name))
+  await stopBots()
+  const plan = (await planOf(w.poolDir, w.world)).head?.plan
+  const cellAt = k => cellsOf(plan).find(c => K(c.at) === k)
+  const a = kA && cellAt(kA.at), b = kB && cellAt(kB.at)
+  const stuck = cellsOf(plan).filter(c => c.state === 'reserved').map(c => K(c.at))
+  const st = { chest: standing('chest'), crafting_table: standing('crafting_table') }
+  result({ scene: 'foundkill', world: w.world, killedA: kA, killedB: kB, cellA: a && { state: a.state, role: a.role ?? null, seen: a.seenSince ?? null }, cellB: b && { state: b.state, role: b.role ?? null }, stuck, standing: st,
+    rows: rows.map(fmt).slice(-20),
+    CANDIDATE_PASS: !!(kA && kB && a?.state === 'free' && b?.state === 'placed' && (b.role ?? null) === (kB.role ?? null) && !stuck.length && st.chest.length === 1),
+    BASE_SHAPE: !!(!w.root) })
+}
+
+scenes.foundretro = async () => {
+  buildArena(); buildBench({ well: false })
+  const before = benchTruth()
+  const bag = [['crafting_table', 1], ['furnace', 1], ['oak_log', 16], ['cobblestone', 32], ['stone_pickaxe', 1]]
+  const s = await plannedTown('foundretro', { bags: [bag, bag] })
+  const last = await untilPlaced(s, plan => [stations(plan).find(c => c.kind === 'crafting_table'), stations(plan).find(c => c.kind === 'furnace')], 900000)
+  await sleep(30000)
+  const rows = foundRows(s.files)
+  const bags = NAMES.slice(0, 2).map(n => bagOf(n))
+  await stopBots()
+  const after = benchTruth()
+  const plan = (await planOf(s.poolDir, s.world)).head?.plan
+  const { stray } = strayOf(plan, PRE())
+  const sum = foundSummary(s, rows, { want: last, mode: plan?.mode, stray, bags, intact: after.intact, missing: after.missing, itemsSame: JSON.stringify(after.items) === JSON.stringify(before.items) })
+  result({ scene: 'foundretro', ...sum,
+    CANDIDATE_PASS: !!(s.root && plan?.mode === 'retrofit' && last?.every(x => x.on && x.state === 'placed') && after.intact && !stray.length && bags.every(b => (b.crafting_table ?? 0) >= 1)),
+    BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0 && after.intact) })
+}
+
+/** Greenfield with every store cell placed and FULL (chests set by RCON, then observed by the watcher: two reads 10 min apart). */
+async function fullStore (scene, pool) {
+  const w = await plannedTown(`${scene}-watch`, { bags: [IDLE_BAG], pool, env: { FOUND: 'off' } })
+  const plan0 = (await planOf(w.poolDir, w.world)).head?.plan
+  const sc = storeCells(plan0)
+  for (const c of sc) setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, () => ['cobblestone', 64]))
+  await waitFor(async () => storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed'), 1500000, 20000)
+  return { w, sc }
+}
+scenes.foundsoft = async () => {
+  buildArena()
+  const pool = `sbxtp-${RUN}-soft`
+  const { w } = await fullStore('foundsoft', pool)
+  const observed = storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed')
+  const f = await startBot('foundsoft', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64], ['wheat_seeds', 30]]), { pool, name: NAMES[1], standAt: at([-3, 0]) })
+  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && / tier=/.test(r.detail) && /placed=1/.test(r.detail)), 600000, 3000)
+  await sleep(10000)
+  const rows = rowsAll([w.files[0], f]).filter(r => /^_deposit_new_chest$|^_town_deposit$|^deposit$/.test(r.name))
+  await stopBots()
+  const plan = (await planOf(w.poolDir, w.world)).head?.plan
+  const T = await import(path.join(BOT_ROOT, 'bots/src/townplan.mjs'))
+  const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
+  const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
+  const never = NEVER(plan)
+  const mcData = req('minecraft-data')('1.21.8')
+  void mcData
+  const reach = rcon(...storeCells(plan).map(c => `execute if block ${c.at[0]} ${c.at[1] + 1} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply))
+  const noSite = rows.filter(r => r.name === '_deposit_new_chest' && /site=none/.test(r.detail)).length
+  result({ scene: 'foundsoft', world: w.world, observed, rows: rows.map(fmt).slice(-20), dep: dep?.detail?.slice(0, 200) ?? null, cell: cell && K(cell), tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null, onNever: cell ? never.has(K(cell)) : null, lidsClear: reach.every(Boolean), noSite,
+    note: 'every placed cell reachable: read as lids clear + the walk the recovery itself ran (ACCESS on soft/box); FOUND-ACCESS opens them',
+    // a SECTION placement is the recovery's own reservation of a plan (extra) cell -- legitimate; anything else never a NEVER cell
+    CANDIDATE_PASS: !!(observed && dep && cell && (/ tier=section /.test(dep.detail) || !never.has(K(cell))) && reach.every(Boolean) && noSite === 0),
+    BASE_SHAPE: !!(!w.root && dep) })
+  void T
+}
+scenes.foundbox = async () => {
+  // the only ground: home, a 1-wide walkway east, and the E storehouse box (u 7..15, v -4..4) -- the recovery's rings around the
+  // full store chests find valid cells only inside the box
+  must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
+  must(rcon(`fill ${HOME.x - 2} ${G - 2} ${HOME.z - 2} ${HOME.x + 2} ${G} ${HOME.z + 2} minecraft:dirt`, `fill ${HOME.x + 3} ${G - 2} ${HOME.z} ${HOME.x + 6} ${G} ${HOME.z} minecraft:dirt`,
+    `fill ${HOME.x + 6} ${G - 2} ${HOME.z - 5} ${HOME.x + 16} ${G} ${HOME.z + 5} minecraft:dirt`, `fill ${HOME.x - 2} ${G - 2} ${HOME.z + 3} ${HOME.x + 2} ${G} ${HOME.z + 7} minecraft:dirt`), 'box ground')
+  const pool = `sbxtp-${RUN}-box`
+  const { w } = await fullStore('foundbox', pool)
+  const f = await startBot('foundbox', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool, name: NAMES[1], standAt: at([-1, 0]) })
+  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 600000, 3000)
+  await sleep(10000)
+  await stopBots()
+  const plan = (await planOf(w.poolDir, w.world)).head?.plan
+  const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
+  const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
+  const sb = plan?.plots?.find(p => p.id === 'store')?.box
+  const inBox = !!(cell && sb && cell[0] >= sb[0] - 1 && cell[0] <= sb[2] + 1 && cell[2] >= sb[1] - 1 && cell[2] <= sb[3] + 1)
+  const never = NEVER(plan)
+  result({ scene: 'foundbox', world: w.world, plan: plan ? { orient: plan.orientation, box: sb } : null, dep: dep?.detail?.slice(0, 220) ?? null, cell: cell && K(cell), inBox, tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null, onNever: cell ? never.has(K(cell)) : null,
+    CANDIDATE_PASS: !!(dep && cell && !never.has(K(cell)) && / tier=box /.test(dep.detail) && inBox),
+    // the base (no plan): it places in the same ground (the only valid cells)
+    BASE_SHAPE: !!(!w.root && dep && /placed=1/.test(dep.detail)) })
+}
+scenes.foundaccess = async () => {
+  // as foundbox, but the E box reached from home only through ONE cell (the walkway end at x+6, z 0), and that cell is the cheapest
+  // recovery candidate: ACCESS must refuse it
+  must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
+  must(rcon(`fill ${HOME.x - 2} ${G - 2} ${HOME.z - 2} ${HOME.x + 2} ${G} ${HOME.z + 2} minecraft:dirt`, `fill ${HOME.x + 3} ${G - 2} ${HOME.z} ${HOME.x + 6} ${G} ${HOME.z} minecraft:dirt`,
+    `fill ${HOME.x + 7} ${G - 2} ${HOME.z - 5} ${HOME.x + 16} ${G} ${HOME.z + 5} minecraft:dirt`), 'access ground')
+  const pool = `sbxtp-${RUN}-access`
+  const { w } = await fullStore('foundaccess', pool)
+  const f = await startBot('foundaccess', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool, name: NAMES[1], standAt: at([-1, 0]) })
+  const tStart = Date.now()
+  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 600000, 3000)
+  // every store container still REACHABLE by the bot: a model `goto` to each one's own stand cell, read by goto's own rows
+  const plan1 = (await planOf(w.poolDir, w.world)).head?.plan
+  const goals = storeCells(plan1).filter(c => Array.isArray(c.stand)).map(c => ({ x: c.stand[0], y: c.stand[1], z: c.stand[2] }))
+  for (const g of goals) brainQueue.push({ skill: 'goto', args: g })
+  const tGo = Date.now()
+  await waitFor(() => rowsOf(f.skillLog).filter(r => r.name === 'goto' && r.ts >= tGo).length >= goals.length, 400000, 3000)
+  const gotos = rowsOf(f.skillLog).filter(r => r.name === 'goto' && r.ts >= tGo)
+  await stopBots()
+  const plan = (await planOf(w.poolDir, w.world)).head?.plan
+  const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
+  const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
+  void tStart
+  const reached = gotos.filter(r => r.status === 'success').length
+  const unopened = gotos.filter(r => r.status !== 'success').map(r => r.detail.slice(0, 80))
+  const neck = `${HOME.x + 6},${HOME.y},${HOME.z}`
+  result({ scene: 'foundaccess', world: w.world, dep: dep?.detail?.slice(0, 220) ?? null, cell: cell && K(cell), neck, onNeck: cell ? K(cell) === neck : null, goals: goals.length, reached, unreached: unopened, gen: plan?.gen,
+    CANDIDATE_PASS: !!(dep && cell && K(cell) !== neck && /placed=1/.test(dep.detail) && goals.length && reached === goals.length),
+    BASE_SHAPE: !!(!w.root && dep) })
+}
 
 async function main () {
   const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
@@ -345,17 +863,22 @@ async function main () {
   if (!new RegExp(owner).test(lock)) throw new Error(`the sandbox lock is not held for ${owner}: ` + lock.trim().slice(0, 160))
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })
-  P(`root=${BOT_ROOT} sha=${(() => { try { return fs.readFileSync(path.join(BOT_ROOT, '.sha'), 'utf8').trim() } catch { return 'unknown' } })()} server=${SERVER} scenes=${SCENES_S}`)
+  P(`root=${BOT_ROOT} sha=${SHA} server=${SERVER} scenes=${SCENES_S}`)
   rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`)
-  for (const s of SCENES_S.split(',')) { P('=== scene', s); await scenes[s]() }
+  for (const s of SCENES_S.split(',')) {
+    P('=== scene', s)
+    try { await scenes[s]() } catch (e) { P('SCENE FAILED', s, e.stack || e.message); result({ scene: s, error: String(e.message).slice(0, 300), CANDIDATE_PASS: false, BASE_SHAPE: false }); await stopBots().catch(() => {}) }
+    brainQueue.length = 0
+  }
 }
 async function cleanup () {
   await stopBots().catch(() => {})
   try { brain.close() } catch {}
   for (const n of NAMES) { try { fs.unlinkSync(`${R}/sandbox/.env.townplan-e2e-${n}`) } catch {} }
   try {
-    P('cleanup', rcon(`kill ${ARENA_SEL}`, `fill ${A.x0} 112 ${A.z0} ${A.x1} 123 ${A.z1} minecraft:air`, `fill ${A.x0} 124 ${A.z0} ${A.x1} 135 ${A.z1} minecraft:air`,
-      `forceload remove ${A.x0} ${A.z0} ${A.x1} ${A.z1}`, 'list').map(x => `${x.cmd.slice(0, 40)} => ${x.reply.slice(0, 80)}`))
+    const sb = { x0: SHOW.dx - 46, x1: SHOW.dx + 46, z0: SHOW.dz - 46, z1: SHOW.dz + 46 }
+    P('cleanup', rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air'), `forceload remove ${A.x0} ${A.z0} ${A.x1} ${A.z1}`, `forceload remove ${sb.x0} ${sb.z0} ${sb.x1} ${sb.z1}`, 'list')
+      .slice(-3).map(x => `${x.cmd.slice(0, 40)} => ${x.reply.slice(0, 80)}`))
   } catch (e) { P('cleanup failed', e.message) }
 }
 let cleaning = false

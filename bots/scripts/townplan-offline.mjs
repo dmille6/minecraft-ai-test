@@ -60,7 +60,7 @@ for (let x = home.x - 20; x <= home.x + 20; x++) for (let z = home.z - 20; z <= 
   if (/^(chest|trapped_chest|barrel)$/.test(b.name) && Math.hypot(x - home.x, z - home.z) <= 16 && Math.abs(y - home.y) <= 12) containers.push({ k: `${x},${y},${z}`, halves: 1, at: [x, y, z], obs: null })
 }
 const t0 = Date.now()
-const r = fitTown(read, home, { containers, existing, zones: all, seed: seed.use, seedInfo: seed.use ? { why: seed.why } : null, zoneInfo: { n: zones.zones.length, avoid: seed.use?.avoid?.length ?? 0, why: zones.why } })
+const r = fitTown(read, home, { containers, existing, zones: all, seed: seed.use, seedInfo: seed.use ? { why: seed.why, avoid: seed.use.avoid ?? [] } : null, zoneInfo: { n: zones.zones.length, avoid: seed.use?.avoid?.length ?? 0, why: zones.why } })
 const ms = Date.now() - t0
 if (!r.body) { console.error(`NO PLAN: ${r.why}`); process.exit(4) }
 const plan = { v: 1, ...r.body, gen: 1, prev: null, prevSha: null, world, at: 0, by: 'offline', code: 'townplan-offline', transitions: [] }

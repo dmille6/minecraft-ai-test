@@ -133,8 +133,12 @@ await t('RECOVERY (retrofit, no store cell): the first pass takes a cell OUTSIDE
   const PS = await import('../src/planstore.mjs')
   PS.publishPlan(process.env.POOL_STATE_DIR, key, 'w', cur => { for (const c of cur.plots.find(p => p.id === 'store').cells) Object.assign(c, { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
   S.townPlanHead(w.bot)
+  const n0 = RECS.length
   const r = await S.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
   const placed = w.spy.placed.map(k => k.split(',').map(Number))
+  // the row says what the plan cost: a base-valid ring cell (in the soft core around the full chest) refused in pass 1
+  const row = rowsOf('deposit_new_chest', n0).find(d => / tier=/.test(d)) ?? ''
+  assert.match(row, / tier=outside plan_refused=[1-9]\d* gen=\d+/, row)
   assert.ok(placed.length >= 1, `a chest was placed (${r.status}: ${r.detail})`)
   const ko = S.townPlanNow(w.bot).ko
   for (const p of placed) assert.notEqual(ko.tier(...p), 'never', `never a NEVER cell (${p})`)
@@ -142,6 +146,32 @@ await t('RECOVERY (retrofit, no store cell): the first pass takes a cell OUTSIDE
   assert.ok(tp)
 })
 
+await t('BUILDERS\' TEMPORARY TABLES (Claude code r1 P2): the composter\'s and the well\'s table pickers take a non-plan cell first, a free plan cell second, a NEVER cell never; no plan: the base exactly', async () => {
+  const w = town()
+  const tp = S.townPlanNow(w.bot)
+  const st = tp.plan.plots.find(p => p.id === 'work').stations
+  const free = { x: st[0].at[0], y: st[0].at[1], z: st[0].at[2] }
+  const PS = await import('../src/planstore.mjs')
+  PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey(HOME), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'work').stations[1], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
+  S.townPlanHead(w.bot)
+  const never = { x: st[1].at[0], y: st[1].at[1], z: st[1].at[2] }
+  const outside = { x: 30, y: 64, z: 30 }
+  const [strict, loose] = S.planTableForbids(w.bot, () => false)
+  assert.equal(strict(outside), false); assert.equal(loose(outside), false)
+  assert.equal(strict(free), true, 'a free plan cell: refused in the first tier'); assert.equal(loose(free), false, '...taken in the second')
+  assert.equal(strict(never), true); assert.equal(loose(never), true, 'a NEVER cell: refused in both')
+  const base = c => c.x === 30
+  const [s2, l2] = S.planTableForbids(w.bot, base)
+  assert.equal(s2(outside), true); assert.equal(l2(outside), true, 'the base forbid still applies')
+  const w0 = fakeWorld({ bag: [] }); freshPool(); S.resetPlanZones()
+  const [b1, b2] = S.planTableForbids(w0.bot, base)
+  assert.equal(b1, base); assert.equal(b2, base, 'no plan: the base forbid itself, twice')
+  const src = code('skills.mjs')
+  assert.equal(src.split('planTableForbids(bot, wellFree)').length, 2, 'the composter builder')
+  assert.equal(src.split('planTableForbids(bot, tableForbid)').length, 2, 'the well builder')
+  assert.ok(/wellTableCell\(\{ \.\.\.tableArgs, tableForbid: wellStrict \}\) \?\? wellTableCell\(\{ \.\.\.tableArgs, tableForbid: wellLoose \}\)/.test(src))
+  assert.ok(/forbid: planStrict \}\) \?\?\s+tableCellFor\(\{ site, stand: \{ x: stand\.x, y: stand\.y, z: stand\.z \}, read, bodies: bodiesAround\(bot\), forbid: planLoose \}\)/.test(src))
+})
 console.log('townplan: the wiring (comments stripped)')
 await t('WIRED: the planner tick every PLAN_TICK_MS and both licence rows once per spawn (index.mjs)', () => {
   const src = code('index.mjs')
@@ -159,24 +189,62 @@ await t('WIRED: found_store / found_work are housekeeping, registered, chatOnly,
     assert.ok(HOUSEKEEPING.has(k)); assert.ok(S.SKILLS[k]?.chatOnly); assert.deepEqual(S.SKILL_CONTRACTS[k].expects, ['world_change'])
   }
 })
-await t('MUTANT KILLED: placeSites without the plan skip (a temporary table on a reserved station cell)', async () => {
-  const k = await withMutant(SKILLS_PATH, "      if (pc) { planSkip.n++; if (pc === 'plan' && STATION_ITEMS.has(item)) planLater.push({ ref: under, face: UP }); continue }\n", '', async M => killedBy(async () => {
-    freshPool(); M.resetPlanZones()
-    const w = fakeWorld({ bag: [stack('crafting_table', 1)], at: [2.5, 64, 0.5] })
-    Object.assign(w.bot, { worldId: 'w', username: 'PlanBot', players: {} })
-    M.townPlanTick(w.bot, { now: Date.now() })
-    const PS = await import('../src/planstore.mjs')
-    const s0 = M.townPlanHead(w.bot).head.plan.plots.find(p => p.id === 'work').stations[0]
+/** A temporary table offered a reserved station as its FIRST candidate; `race` reserves it only DURING the look (after the scan). */
+async function tableScene (M, { race = false } = {}) {
+  freshPool(); M.resetPlanZones()
+  const w = fakeWorld({ bag: [stack('crafting_table', 1)], at: [2.5, 64, 0.5] })
+  Object.assign(w.bot, { worldId: 'w', username: 'PlanBot', players: {} })
+  M.townPlanTick(w.bot, { now: Date.now() })
+  const PS = await import('../src/planstore.mjs')
+  const s0 = M.townPlanHead(w.bot).head.plan.plots.find(p => p.id === 'work').stations[0]
+  const reserve = () => {
     PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey(HOME), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'work').stations[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
-    M.townPlanHead(w.bot)
-    // the bot stands so that the reserved station is its FIRST candidate (dx +1 at the floor level)
-    w.bot.entity.position = new Vec3(s0.at[0] - 0.5, 64, s0.at[2] + 0.5)
-    await M.SKILLS.place.run({ bot: w.bot }, { item: 'crafting_table' }, new AbortController().signal)
-    assert.notEqual(w.nameAt(...s0.at), 'crafting_table')
+  }
+  if (!race) { reserve(); M.townPlanHead(w.bot) } else {
+    const look = w.bot.lookAt?.bind(w.bot)
+    let once = false
+    w.bot.lookAt = async (...a) => { if (!once) { once = true; reserve() } return look ? look(...a) : undefined }
+  }
+  // the bot stands so that the station is its FIRST candidate (dx +1 at the floor level)
+  w.bot.entity.position = new Vec3(s0.at[0] - 0.5, 64, s0.at[2] + 0.5)
+  // RACE: every other spot around the bot walled at feet and head level, so the station (a FREE plan cell at the scan: the
+  // second tier) is the only candidate -- and it is reserved during the look, after the scan
+  if (race) {
+    const bx = s0.at[0] - 1, bz = s0.at[2]
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      if (bx + dx === s0.at[0] && bz + dz === s0.at[2]) continue
+      w.set(bx + dx, 64, bz + dz, 'stone'); w.set(bx + dx, 65, bz + dz, 'stone')
+    }
+  }
+  await M.SKILLS.place.run({ bot: w.bot }, { item: 'crafting_table' }, new AbortController().signal)
+  return { onStation: w.nameAt(...s0.at) === 'crafting_table', placed: w.spy.placed.length }
+}
+const SCAN_SKIP = "      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push({ ref: under, face: UP }); continue }   // only craft's own temporary table (Claude code r1 P3)\n"
+const LATE_SKIP = "        if (pc === 'never' || (pc === 'plan' && item !== 'crafting_table')) { failures.push(`${tgt} became a town plan cell: place again`); continue }\n"
+await t('TEMPORARY TABLE: a reserved station cell is skipped at the scan and, when reserved during the look, at the last re-read; the table goes elsewhere', async () => {
+  const a = await tableScene(S), b = await tableScene(S, { race: true })
+  assert.ok(!a.onStation && a.placed >= 1, JSON.stringify(a))
+  assert.ok(!b.onStation, JSON.stringify(b))
+})
+await t('MUTANT KILLED: placeSites without the scan skip AND the late re-read (a temporary table on a reserved station cell)', async () => {
+  const src = readFileSync(SKILLS_PATH, 'utf8')
+  assert.equal(src.split(SCAN_SKIP).length, 2, 'SCAN anchor missing or not unique')
+  assert.equal(src.split(LATE_SKIP).length, 2, 'LATE anchor missing or not unique')
+  const out = new URL(`./_mutant-${process.pid}-both.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(SCAN_SKIP, '').replace(LATE_SKIP, '').replace(/from '\.\//g, "from '../src/"))
+  try { const M = await import(out.href); assert.equal((await tableScene(M)).onStation, true, 'the mutant must put the table on the station') } finally { try { unlinkSync(out) } catch {} }
+})
+await t('MUTANT KILLED: the late re-read removed -> a station reserved during the look still takes the table (Codex code r1 P2)', async () => {
+  const k = await withMutant(SKILLS_PATH, LATE_SKIP, '', async M => killedBy(async () => {
+    assert.equal((await tableScene(M, { race: true })).onStation, false)
   }))
   assert.ok(k, 'the mutant survived')
 })
 await t('MUTANT KILLED: the recovery\'s first pass allowed into SOFT cells', async () => {
+  // the unmutated pass 1 refuses the soft ring cell (the same body, the real module: a kill is not an unrelated throw)
+  { const read = (x, y, z) => ({ name: y <= 63 ? 'grass_block' : 'air', boundingBox: y <= 63 ? 'block' : 'empty' })
+    assert.equal(CF.pickChestSite({ read, anchor: { x: 10, y: 64, z: 10 }, home: { x: 0, y: 64, z: 0 }, tierOf: () => 'soft', pass: 1 }).site, null)
+    assert.ok(CF.pickChestSite({ read, anchor: { x: 10, y: 64, z: 10 }, home: { x: 0, y: 64, z: 0 }, tierOf: () => 'soft', pass: 2 }).site, 'pass 2 takes it: the scene can place') }
   const k = await withMutant(new URL('../src/chestfull.mjs', import.meta.url), "        if (tier && !(rank[tier] < pass)) { planRefused++; bump(`town plan (${tier})`); continue }", "        if (tier === 'never') { planRefused++; bump(`town plan (${tier})`); continue }", async CFM => killedBy(() => {
     // a ring cell inside a soft box: pass 1 must refuse it
     const read = (x, y, z) => ({ name: y <= 63 ? 'grass_block' : 'air', boundingBox: y <= 63 ? 'block' : 'empty' })
