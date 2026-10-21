@@ -11,7 +11,8 @@
 #   _found_recovery   the full-town recovery's chest redirected into the next free store cell (cell=section)
 #
 # GATES (deterministic; each has a failing fixture and a passing control in --selftest)
-#   G1 found_lost      a found placement (`_found outcome=placed at=`) later read gone: a `gone` transition on its cell in an
+#   G1 found_lost      a found placement (`_found outcome=placed at=`, or the greenfield recovery's `_found_recovery outcome=placed`)
+#                      later read gone: a `gone` transition on its cell in an
 #                      accepted plan generation, or a later `_townplan_audit` naming it missing:/other
 #   G2 off_plan        a found placement whose cell is not a cell of the plan generation recorded in its row
 #   G3 lid_unreach     a later audit naming a found container lid: or unreachable: -- the REVERT stands whatever caused it
@@ -19,7 +20,8 @@
 #                      placement broke ACCESS: its own defect), and calls an unrelated one unrelated
 #   G4 shared_side     two found chests sharing a side (a double chest the plan never asked for)
 #   G5 zone            a found placement inside a protected zone or the plan's seed avoid box
-#   ARMS               control `_found*` rows after the deploy (must be 0)
+#   ARMS               control `_found*` rows after the deploy (must be 0). found_store/found_work are chatOnly: a player chatting
+#                      one to a CONTROL bot would write `_found outcome=off` -- read that row before calling it a leak
 #   LIVENESS           canary `_found_mode` rows >= 1 and canary `_found` rows >= 1
 #   EXPOSURE           canary found placements >= 1 (F1 / F3b fire on the bench: bench bots carry tables and furnaces, read as
 #                      real exposure). Store placements are reported apart: rare on the bench (design section 9 row 4), so an
@@ -50,10 +52,14 @@ def xyz_of(s):
 
 
 def audit_names(detail):
-    """`first=a;b;c` -> [(class, 'x,y,z')] with class missing | other | lid | unreachable."""
+    """`first=a;b;c` -> [(class, 'x,y,z')] with class missing | other | lid | unreachable. A detail cut at 300 characters may
+    end inside a name (`...@9,64,-23` cut to `...@9,64,-2` would name ANOTHER cell): the last name of a cut detail is dropped."""
     m = re.search(r'(?:^| )first=(\S+)', detail or '')
+    names = m.group(1).split(';') if m else []
+    if len(detail or '') >= 300 and names:
+        names = names[:-1]
     out = []
-    for n in (m.group(1).split(';') if m else []):
+    for n in names:
         q = NAME_RE.match(n)
         if not q:
             continue
@@ -100,6 +106,12 @@ def judge(rows, plans_by_pool, zones_by_pool):
                     found.append((r['t'], pool, at, f.get('kind', '?'), f.get('gen'), r['bot']))
             if name == '_found_recovery':
                 out['recovery_%s' % f.get('cell', '?')] += 1
+                # the greenfield recovery's chest in a plan cell IS a found placement: judged by every gate (Claude/Codex
+                # code r2 P2: townplanread's D3 hands it here)
+                at = xyz_of(f.get('at'))
+                if f.get('outcome') == 'placed' and at:
+                    found.append((r['t'], pool, at, 'chest', f.get('gen'), r['bot']))
+                    out['recovery_placed'] += 1
             if name in ('_deposit_new_chest', '_townplan_adopt') and f.get('tier') in ('soft', 'box'):
                 a = xyz_of(f.get('at'))
                 if a:
@@ -243,6 +255,24 @@ def selftest():
     assert combine(*judge(base, plans, {'board-a': [[9, -64, -2, 9, 90, -2]]}))['zone'] == 1
     # arms
     assert combine(*judge(base + [R('_found', 'order=F1 outcome=refused', arm='control', bot='hive-b-Alpha')], plans, {}))['arms_breach'] == 1
+    # the RECOVERY's section placement is judged too: on its plan cell -> clean; off it -> G2; lost in a later audit -> G1
+    rec_ok = R('_found_recovery', 'cell=section at=9,64,2 gen=1 outcome=placed placed_the_chest', s=40)
+    rr0 = combine(*judge(base + [rec_ok], plans, {}))
+    assert rr0['recovery_placed'] == 1 and rr0['off_plan'] == 0 and rr0['found_placed'] == 2, rr0
+    rr1 = combine(*judge(base + [R('_found_recovery', 'cell=section at=30,64,30 gen=1 outcome=placed x', s=40)], plans, {}))
+    assert rr1['off_plan'] == 1, rr1
+    rr2 = combine(*judge(base + [rec_ok, R('_townplan_audit', 'gen=1 placed=2 missing=1 first=missing:chest@9,64,2', s=900)], plans, {}))
+    assert rr2['found_lost'] == 1, rr2
+    assert combine(*judge(base + [R('_found_recovery', 'cell=section at=9,64,2 gen=1 outcome=lost_reservation x', s=40)], plans, {})).get('recovery_placed', 0) == 0
+    # a CUT audit detail (300 characters) drops its last name: `@9,64,-23` cut to `@9,64,-2` is not the found cell
+    tail = ';missing:chest@9,64,-2'
+    long_ = ('gen=1 placed=1 missing=1 first=' + ';'.join(['missing:chest@50,64,%d' % (100 + i) for i in range(12)]))[:300 - len(tail)] + tail
+    assert len(long_) == 300 and long_.endswith('9,64,-2')
+    assert combine(*judge(base + [R('_townplan_audit', long_, s=900)], plans, {}))['found_lost'] == 0, 'a name at the cut is never trusted'
+    assert combine(*judge(base + [R('_townplan_audit', 'gen=1 placed=1 missing=1 first=missing:chest@9,64,-2', s=900)], plans, {}))['found_lost'] == 1, 'positive control'
+    # G5 over the plan's own seed avoid box (recorded by the writer)
+    g1s = plan(1, 0, [c1, c2]); g1s['seed'] = {'why': 'ok', 'avoid': [{'id': 'tc', 'box': [9, -64, -2, 9, 90, -2]}]}
+    assert combine(*judge(base, {'board-a': [(1, g1s)]}, {}))['zone'] == 1
     # no-harm: a rung collapse with enough rows -> DOWN; few rows -> UNEXPOSED
     rows = []
     for arm, per, ok, n in (('canary', 'pre', 9, 10), ('canary', 'post', 2, 10), ('control', 'pre', 9, 10), ('control', 'post', 9, 10)):
