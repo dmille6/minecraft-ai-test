@@ -1,0 +1,173 @@
+{
+ "read": "brainread",
+ "sha": "78fa19d99c5eafbb574bd8a99e2b469ac5cfef7f",
+ "pools": "board-c,hive-d",
+ "run_id": "brain-01",
+ "declared_at": "2026-10-19T16:43:21.281930Z",
+ "window_min": 720,
+ "registration_sha256": "d5438be34517643e313a511f69ea238a772b85e68692fe4cdb6d9c2411d5a5db",
+ "emitted_at": "2026-10-20T04:47:23.571473+00:00",
+ "fields": {
+  "pools": [
+   "board-c",
+   "hive-d"
+  ],
+  "declared": "2026-10-19T16:43:21.281930Z",
+  "minutes": 720.0,
+  "control_bots": 45,
+  "gates": {
+   "G1_liveness": {
+    "value": 0.9982330074213688,
+    "denominator": 8489,
+    "pass": true
+   },
+   "G2_fallback": {
+    "value": 0.0010601955471787018,
+    "denominator": 8489,
+    "pass": true
+   },
+   "G3_nothing_served_per_bot_h": {
+    "value": 0.0,
+    "control": 0.0,
+    "pass": true
+   },
+   "G4_schema_valid": {
+    "value": 1.0,
+    "control": 0.999389844297304,
+    "denominator": 8474,
+    "pass": true
+   },
+   "G5_decision_time_p95_s": {
+    "value": 4.757,
+    "control": 4.07,
+    "pass": true
+   },
+   "G6_model_mismatch_rows": {
+    "value": 0,
+    "pass": true
+   },
+   "G7_brain_config": {
+    "bots_with_gemma4_first": 10,
+    "of": 10,
+    "pass": true
+   },
+   "G8_every_bot_on_gemma4": {
+    "floor_model_decisions": 72,
+    "failing_bots": {},
+    "of": 10,
+    "pass": true
+   }
+  },
+  "primary": {
+   "decisions_per_bot_h": {
+    "did": -5.651107883814106,
+    "canary_after_before_control_after_before": [
+     76.28439626232407,
+     82.7312739941186,
+     86.75078589387938,
+     87.5465557418598
+    ]
+   },
+   "refused": {
+    "did": -0.24148195477017798,
+    "canary_after_before_control_after_before": [
+     0.25821651549063496,
+     0.5033918380531927,
+     0.4761022349777406,
+     0.47979560277012034
+    ]
+   },
+   "success": {
+    "did": 0.16116480037069827,
+    "canary_after_before_control_after_before": [
+     0.3971021321710449,
+     0.22483040809734037,
+     0.22440170843596755,
+     0.2132947847329613
+    ]
+   },
+   "stagnant": {
+    "did": -0.7913595805142646,
+    "canary_after_before_control_after_before": [
+     1.968414336093208,
+     3.0041616540127793,
+     2.539987960817567,
+     2.7843756982228736
+    ]
+   },
+   "items": {
+    "did": -4.080683785451846,
+    "canary_after_before_control_after_before": [
+     49.302106528165055,
+     56.3029963322895,
+     41.292417418488206,
+     44.21262343716081
+    ]
+   },
+   "deaths": {
+    "did": 0.003693276804825221,
+    "canary_after_before_control_after_before": [
+     0.025022216136778068,
+     0.025034680450106494,
+     0.014832046486525937,
+     0.018537787604679584
+    ]
+   },
+   "craft:stone_pickaxe": {
+    "did": 0.011055786666525055,
+    "canary_after_before_control_after_before": [
+     0.12511108068389035,
+     0.09179382831705715,
+     0.1316344125679177,
+     0.10937294686760955
+    ]
+   },
+   "craft:iron_pickaxe": {
+    "did": -0.00093458036466775,
+    "canary_after_before_control_after_before": [
+     0.016681477424518712,
+     0.008344893483368832,
+     0.018540058108157422,
+     0.009268893802339792
+    ]
+   }
+  },
+  "denominators": {
+   "canary_after": {
+    "rows": 9146,
+    "model": 8489,
+    "brain:order": 657,
+    "unserved": 0,
+    "mismatch": 0,
+    "brain:gemma4": 8474,
+    "refused": 2192,
+    "success": 3371,
+    "g_valid": 8474,
+    "g_n": 8474,
+    "valid": 8489,
+    "items": 5911,
+    "stagnant": 236,
+    "craft:iron_pickaxe": 2,
+    "craft:stone_pickaxe": 15,
+    "brain:local": 9,
+    "deaths": 3,
+    "brain:absent": 6,
+    "bot_h": 119.89345722222222,
+    "p95_s": 4.757
+   },
+   "control_after": {
+    "rows": 46791,
+    "model": 44251,
+    "bot_h": 539.3726352777778
+   }
+  },
+  "below_floor_bots": [],
+  "all_gates_pass": true,
+  "gates_failed": 0,
+  "liveness_gemma4_share": 0.9982330074213688,
+  "model_mismatch_rows": 0,
+  "canary_model_decisions": 8489,
+  "canary_bot_h": 119.9,
+  "exposure_ready": 0
+ }
+}
