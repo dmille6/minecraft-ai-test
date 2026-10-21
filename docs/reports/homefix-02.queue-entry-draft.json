@@ -1,0 +1,24 @@
+{
+ "run": "homefix-02",
+ "after": [
+  "toolkit-03"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "DRAFT for the coordinator (NOT queued by the homefix-02 agent). OWNER APPROVED 2026-10-21 ~01:20Z (the X1 exception extended to homefix-02). TIER 3 (registration has NO tier field and NO class), as homefix-01. homefix-01 (a52d075e) REVERTED 10-21 00:57Z; this is homefix-01 (H1-H4 unchanged) + C1 (the drowning route reads its own head cell: no `up` through ice; the air-pocket ice dig at dy 1), C2 (a level-1 relocation only to a standable surface cell whose whole goto arrival volume is dry, else level-2 home now), C3 (no watchdog rescue starts into a drowning in progress or a running pocket rung, capped at 2 declines per kind; a running watchdog rescue is interrupted on every danger tick). Design docs/reports/homefix-02-design-2026-10-21.md (both engines APPROVE r6; build record section 11). Reads 180/360, extension 540/720/1080, read's arm-size deadline +540 at 4 pools (exposure_ready). Read ~/mcai-analysis/homefix2read.py (NEW name; scripts/host/homefix2read.py on the branch; md5 below) + immobiledid. Install the variant's registration as ~/mcai-analysis/registrations/homefix-02.json. Licence kind `_relocate_landed` (only homefix-02 writes it; licencecheck 04:30Z baseline 0 rows / 6 h) -- NOT `_watchdog_rescue`, which homefix-01 wrote until its 01:03Z teardown (licencecheck refused it: 391 baseline rows). change_rows ['watchdog_rescue'] bare on purpose (changerowcheck 04:27Z: baseline silent; 387 rows from build a52d075 reported, not counted). drawexposure 04:3xZ: 11 pools eligible. G6 (verdict-adjacent drownings) BLOCKS KEEP at 1 (policy tripwire; P(block | no better than old code) ~0.25 at +540) and REVERTS only at >= 2 with a positive DiD and Poisson p < 0.05 vs the registered per-pool baseline -- the owner may make it report-only. If toolkit-03 (34d3e5e9) is KEPT and promoted first, this variant needs a re-stack onto the new fleet sha (no variant for it yet). after=['toolkit-03'] is a placeholder; the coordinator decides the order.",
+ "variants": {
+  "9e7d998003aeead7a2763958f1147f76e3b4a3f3": {
+   "registration": "/home/mike/mcai-analysis/homefix-02.08b237f7.json",
+   "approved": "homefix-02 agent 2026-10-21: homefix02-on-9e7d998 @ 08b237f7. DESIGN: Codex r1 CHANGE -> r2 CHANGE -> r3 CHANGE -> r4 CHANGE -> r5 CHANGE -> r6 APPROVE; Claude r1 CHANGE -> r2 CHANGE -> r3 APPROVE -> r4 APPROVE -> r5 APPROVE -> r6 APPROVE. CODE: Codex r1 CHANGE -> r2 CHANGE -> r3 APPROVE; Claude r1 CHANGE -> r2 APPROVE -> r3 APPROVE (stray generated mutant removed at 08b237f7). npm test 274/274 at 08b237f7; eslint no-undef only the pre-existing reflex.mjs withinBody; homefix2read --selftest 10/10; read dry run on homefix-01's window: G5b 223 (positive control), G6 counts death 1 not death 2. PAPER 10-21 03:26-03:55Z (sandbox, sandbox3): S1 hive-d ice-head trap base 9e7d9980 died 3/3, candidate lived 3/3 (ice dug at the head cell); S2 relocation over a frozen river homefix-01 3/3 targets on ice, candidate 0/3; S3 home rescue into the ice trap homefix-01 health floor (death 1 reproduced), candidate 2/2 lived (interrupted:drowning + the C1 dig). docs/reports/homefix-02-paper-results-2026-10-21.jsonl. TIER 3 (no tier, no class). USE if the fleet is 9e7d9980.",
+   "canary_sha": "08b237f735e3a47559eb31ccbc8afa720c72b086",
+   "branch": "homefix02-on-9e7d998",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "homefix2read": "5d24bed95235a3c55ed14503e031a466",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "16b8e36c46e711060135a9c3a6cf00eeef1798af7cb68e3b6df4017335e313a3"
+  }
+ }
+}

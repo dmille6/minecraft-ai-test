@@ -69,8 +69,8 @@ reg = {
               '(P(G1 by then) = 0.42: it would close a correct fix INCONCLUSIVE by design). Fleet-wide, skill_error counts for other skills fall (H3): a '
               'classification change, not an effect.') % (base[:8], branch, sha[:8]),
     'lint': 'eslint no-undef on bots/src: exactly ONE hit, the pre-existing reflex.mjs:2384 withinBody (as on the base).',
-    'licence': {'class': 'kind', 'kind': '_watchdog_rescue', 'min_rows': 1,
-                'note': 'Only the homefix builds write _watchdog_rescue (rescuerow.mjs logRescueRow). homefix-01 is torn down (10-21 01:03Z, 20 on 9e7d998), so the baseline is silent again; run licencecheck before the draw. homefix-02-only rows (_relocate_landed, _air_danger, _air_rescue_yield) are read by G5.'},
+    'licence': {'class': 'kind', 'kind': '_relocate_landed', 'min_rows': 1,
+                'note': 'Only homefix-02 writes _relocate_landed (watchdog.mjs, after every level-1 relocation to a dry target; ~170 per 5.6 h at 20 bots on homefix-01 volume). NOT _watchdog_rescue: homefix-01 wrote it until its teardown 10-21 01:03Z, so licencecheck refused it at 04:27Z (391 baseline rows in 6 h, all build a52d075). The read still requires canary _watchdog_rescue rows (licence_canary) and no control ones (rows_control).'},
     'reads': ['homefix2read', 'immobiledid'],
     'read_minutes': [180, 360],
     'deadline_min': 1140,
