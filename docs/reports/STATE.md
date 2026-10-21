@@ -101,6 +101,19 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-21 01:15Z — homefix-01 REVERTED (v23: 2 deaths, one licensed watchdog_rescue); R11 continued; toolkit-03 launching
+
+- **homefix-01 `a52d075e` REVERT 00:57Z (poll, +0).** +180 had G2/G3/G4 complete with 0 defects (G1 1 of 2). Deaths, both
+  hive-d-Echo, both drowning: 20:19:20Z -- ~2.5 min after a level-1 relocation (a rescue the old code never started) left it in
+  wet ground; mine refused (water every direction); level-2 home rescue aborted `stuck`; the drowning rescue yielded twice and it
+  died at y=61.4. 00:50:35Z -- drowned in explore at y=48 after explore aborted x3. v23 floor met + a licensed change row ->
+  REVERT, legitimately (not a read bug). Torn down 01:03Z (20 on 9e7d998, 0 drop-ins). Teardown note "placebo-b-Charlie
+  restart-failed" is the stale `-Charlie` name (no env file; pools are Alpha/Bravo/Comet/Delta/Echo); reset-failed; 80/80 run.
+- **R11 continued 01:10Z** (operator, deaths reviewed; toolkit-03 does not touch watchdog/relocation/home). toolkit-03 launches.
+- **homefix-02** being diagnosed + designed (agent; branch homefix02-on-<base>): dry/standable relocation destinations; a home
+  rescue meeting water hands off to the drowning/escape path; whatever death 2's chain shows. NOT queued -- owner decides
+  (X1 lifted the stuck-hunt rule for homefix-01 only).
+
 ## 10-20 19:30Z — GAP: bagbudget-01 CLOSED INCONCLUSIVE; gate v36.1 installed; worlds VM 201 RAM 48 -> 80 GB; homefix-01 LIVE (4 pools)
 
 - **bagbudget-01 `31416ee5` INCONCLUSIVE at +360** (owner 10-15 early-close rule: unexposed). Canary full-bag bank runs 0 in 6 h:
