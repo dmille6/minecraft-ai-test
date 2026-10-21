@@ -1,4 +1,4 @@
-# townplan-01 and found-01: the build specification (2026-10-21, r6)
+# townplan-01 and found-01: the build specification (2026-10-21, r7)
 
 Pieces 3 and 4 of the town plan (`docs/reports/town-plan-2026-10-20.md`, both engines APPROVE r9; OWNER 10-20 "yes, lets do
 this"; OWNER 10-21: first pieces next in the lane, signs as labels, the bench storehouse = the sorted chest cluster, no
@@ -8,7 +8,7 @@ design's. r2 took round 1 (Codex CHANGE 6 P1 / 10 P2; Claude CHANGE 2 P1 / 10 P2
 5 P1 / 7 P2; Claude CHANGE 1 P1 / 4 P2 / 6 P3); r4 took round 3 (Codex CHANGE 3 P1 / 2 P2; Claude CHANGE 3 P2 / 2 P3);
 r5 took round 4 (Codex CHANGE 4 P2; Claude APPROVE with 5 P3); r6 takes round 5 (Codex CHANGE 1 P2 / 2 P3; Claude APPROVE with
 5 P3) and four READY refinements found by running the planner offline on the SHOWCASE ground (section 6, "The showcase
-ground"). Section 6 has every disposition.
+ground"); r7 takes round 6 (Codex CHANGE 2 P2; Claude CHANGE 1 P2 / 2 P3). Section 6 has every disposition.
 
 Base: the expected stack at their turn is indexsearch-01's tip (townindex-01 + indexsearch-01 re-varianted on the fleet's
 34d3e5e9 / ironpick-01 2d410985). That re-variant was not on origin when this was built, so the build base is a LOCAL stack:
@@ -156,9 +156,11 @@ sapling, with a passable, plant, tree or liquid cell above.
 - (x, s, z) a SOLID FULL block (one full-cube shape; not a container, station, leaves, ice, slab, stairs, path, farmland,
   door, trapdoor, fence, wall, pane, glass, bed, lectern, bell, scaffolding, shulker, hopper);
 - (x, s+1, z) REPLACEABLE: vanilla's replaceable plants -- air, cave_air, short_grass, tall_grass, fern, large_fern,
-  dead_bush, snow (the layer), vine, glow_lichen (a placement replaces them; nothing is dug);
-- (x, s+2, z) not liquid and never a LID (lidrule's own `chestLidBlocked`: leaves and glass open a chest, a full solid
-  block does not);
+  dead_bush, vine, glow_lichen, and snow ONLY at `layers == 1` (a deeper snow layer is not replaced by a placement; a snow
+  cell whose depth cannot be read is not READY: Codex/Claude r6);
+- (x, s+2, z) not liquid and never a LID: refused when lidrule's `chestLidBlocked` OR its `serverLidBlocks` says so (leaves
+  and glass open a chest; a full solid block, mud and soul sand do not: Codex r6 P2). The SAME rule is the audit's `lid`
+  (1.9, Claude r6 P2);
 - no liquid (incl. waterlogged) in the 3x3x3 around (x, s+1, z);
 - not in a protected zone or seed `avoid` box (the cell or its floor); not the home column;
 - no furniture within 1 UNLESS that cell is one of THIS plan's own cells; no SAPLING within 1 (it grows into the cell; a
@@ -274,7 +276,7 @@ their own adoption lands with them.
   observe|missing|gone|expire|extend|refit result=accepted|lost|invalid|error|no_plan gen prev mode orient store work ready
   access zones why`.
 - `_townplan_audit` (every 10 min per bot in town): `gen placed present missing other unknown free occupied lid unreachable
-  gens bytes walk_ms` (a placed container whose lid cell is solid; a placed cell no stand of which the walk reaches; the files
+  gens bytes walk_ms` (a placed container whose lid cell blocks it by READY's own lid rule -- leaves and glass never do; a placed cell no stand of which the walk reaches; the files
   and the walk's cost, so the read sees growth: Claude r4 P3) with the first names (an `occupied` free store cell is named:
   Claude r4 P3).
 - The adopters' rows (`_deposit_new_chest`, well and plinth site rows, `_composter_site`) add `tier= plan_refused= gen=`
@@ -406,6 +408,7 @@ Every "keeps working" claim names a productive row that must succeed; every "usa
 | FOUND-BARE | found | the same arena with a few trees and a stone patch; bags EMPTY | the bots gather; a table in station 0 (the giver keeps one); a chest crafted and placed in the overflow cell; a furnace crafted at station 0 into station 1 |
 | FOUND-HOUR1 | found | bags as at hour 1 of a fresh world: 16 logs, 20 cobblestone, 1 crafting table | founding from these (the founding floor), not after 64; the giver still crafts a wooden and a stone pickaxe afterwards |
 | FOUND-ROUGH | found | holes, a slope, a pond around home | a qualifying orientation; no placement on an unready cell |
+| FOUND-CANOPY | found | store cells under spruce leaves, in large_fern and tall_grass, beside a trunk; one cell with 2 snow layers and one with mud above (base control: the same arena) | chests placed into the fern/grass cells and under the leaves, read back over RCON and OPENED by the bot; the 2-layer snow cell and the mud-lid cell never chosen |
 | FOUND-NOFIT | found | arenas with exactly 1, 2, 3, 4, 5 READY cells; bare bags | the annex, the table first; 1: a table and `store: unplaced`; 2-5: a table and containers |
 | FOUND-NONE | found | home on a water-surrounded pillar | `found:no_site`, no placement, a named work row succeeds |
 | FOUND-KILL | found | SIGKILL during the craft; between `reserved` and `placed`; between the placement and its publication | no duplicate container; no stuck reservation; the placement observed with its intent (role) after `until + 60 s` and 10 min |
@@ -554,3 +557,12 @@ fit: the planner fell back to a 4-cell annex. The diagnosis per orientation name
 
 With r6 the planner fits ring@1 on the showcase ground: orientation W, s 70, 12 of 12 cells READY and reachable, a clear pad
 (4).
+
+### Round 6
+
+| finding | disposition |
+|---|---|
+| Codex P2 / Claude P3 snow at any depth | snow only at `layers == 1`; an unreadable depth is not READY; READY tests for layers 1 and 2 (1.5) |
+| Codex P2 mud and soul sand pass chestLidBlocked | the lid is refused by chestLidBlocked OR serverLidBlocks (1.5); negative fixtures beside the leaves/glass positives |
+| Claude P2 the audit's lid would REVERT chests under leaves | the audit's `lid` is READY's own lid rule (1.9); a self-test with a chest under spruce leaves (not lid) and under stone (lid) |
+| Claude P3 no Paper placement in the new READY cases | FOUND-CANOPY (3) |
