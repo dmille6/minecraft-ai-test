@@ -14,7 +14,7 @@
 //   node sandbox/home/homefix2-e2e.mjs <botRoot> <label> <scene,scene,...> [server]
 //   scenes: reloc_wet   (C2) a frozen river (ice over 1 water) covering 3/4 of the relocation ring; where do targets go?
 //           home_ice    (C3+C1) the L2 home rescue starts; the bot is dropped into hive-d's 1-high water layer under ice
-//           home_pocket (C3) the same into a 1x1x2 water pocket under stone (the base's air-pocket step handles the air)
+//           home_pocket (C3) the same into a 3x3x2 water room under a stone roof (the base air-pocket step handles the air)
 // Refuses unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `homefix02`. World edits on its arenas only.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -55,6 +55,7 @@ const { Runner } = await import(path.join(BOT_ROOT, 'bots/src/runner.mjs'))
 const { StagnationWatchdog } = await import(path.join(BOT_ROOT, 'bots/src/watchdog.mjs'))
 const { startReflexes } = await import(path.join(BOT_ROOT, 'bots/src/reflex.mjs'))
 const { installOxygenGuard } = await import(path.join(BOT_ROOT, 'bots/src/oxygen.mjs'))
+const { attachDifficulty } = await import(path.join(BOT_ROOT, 'bots/src/foodskip.mjs'))
 const { tapRecords } = await import(path.join(BOT_ROOT, 'bots/src/logger.mjs'))
 let sha = process.env.HF_SHA || ''; try { sha = sha || execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim() } catch { sha = sha || 'unknown' }
 // THE SYNTHETIC CLOCKS (said so in every result row)
@@ -105,7 +106,8 @@ const T = { x: H.x - 40, z: H.z }
 function trapCmds (kind) {
   const c = [`fill ${T.x - 4} 112 ${T.z - 4} ${T.x + 4} 124 ${T.z + 4} minecraft:stone`]
   if (kind === 'ice') c.push(`setblock ${T.x} 117 ${T.z} minecraft:water`, `setblock ${T.x} 118 ${T.z} minecraft:ice`, `fill ${T.x - 1} 119 ${T.z - 1} ${T.x + 1} 121 ${T.z + 1} minecraft:air`)
-  else c.push(`fill ${T.x} 117 ${T.z} ${T.x} 118 ${T.z} minecraft:water`)
+  // POCKET: a 3x3 room (not 1x1: the entombment reflex owns a 1x1 tomb and took the first run before any drowning)
+  else c.push(`fill ${T.x - 1} 117 ${T.z - 1} ${T.x + 1} 118 ${T.z + 1} minecraft:water`)
   return c
 }
 
@@ -113,6 +115,9 @@ function trapCmds (kind) {
 let bot = null; let stopReflex = null
 async function connect ({ resistance = true } = {}) {
   bot = mineflayer.createBot({ host: '10.0.0.30', port: PORTS[SERVER], username: NAME, auth: 'offline', version: '1.21.8' })
+  // the server's difficulty, recorded as index.mjs does (the air-pocket admission's envelope reads it: without it the
+  // step prices 2 HP/s, not peaceful's 0.5 -- the first home_pocket run hit exactly that)
+  try { attachDifficulty(bot) } catch (e) { P_('difficulty recorder', e.message) }
   await new Promise((resolve, reject) => { bot.once('spawn', resolve); bot.once('kicked', r => reject(new Error('kicked ' + r))); bot.once('error', reject) })
   bot.loadPlugin(pathfinder)
   try { installOxygenGuard(bot) } catch (e) { P_('oxygen guard', e.message) }

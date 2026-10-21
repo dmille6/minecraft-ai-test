@@ -12,7 +12,8 @@
 #        > 60 s reported)
 #   G5d' an `_air_danger` row (recomputed predicate true, owner watchdog) with interrupt_issued=0, or the attempt's FIRST
 #        such row with no yield at or before +1 s                                                        (defect)
-#   G5f  a relocation SUCCESS landing in_region=1, wet=1 while region_dry_now=1                          (defect)
+#   G5f  a relocation SUCCESS landing in_region=1, wet=1 while region_dry_now=1      (REPORTED consistency check: the
+#        landing re-reads the volume in the same call, so wet feet inside it read the volume wet -- Claude code r1 P3-1)
 #   G5g  air_capped=1 after < 2 air_rescue declines of its kind since that kind's last start, or 3 such declines with no
 #        start between (segmented at each connect: the `_cobblecap_mode` spawn row)                       (defect)
 #   g5_fields_missing  a row this build must write without its fields                                     (blocks KEEP)
@@ -361,7 +362,9 @@ G6_RATE_FLOOR = 0.68 / 1000
 G6_BASELINE = {'board-a': (0, 3059), 'board-b': (0, 2491), 'board-c': (1, 2717), 'board-d': (2, 1786), 'hive-a': (2, 2791),
                'hive-b': (0, 3405), 'hive-c': (2, 2794), 'hive-d': (2, 2046), 'placebo-a': (0, 2322), 'placebo-b': (1, 2159),
                'placebo-c': (0, 2532), 'placebo-d': (2, 1899), 'isolated': (3, 9424)}
-SWIMMABLE_HEAD = re.compile(r'^(water|air|cave_air|void_air|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass|glow_lichen|unknown)$')
+# G5c reproduces the scan's own predicate (reflex.mjs scanBreathableRoute `swimmable`): not lava AND (water OR an empty
+# bounding box) -- from the head= and head_box= fields the route row writes (Codex code r1 P1-2: a name list misjudges
+# empty-box blocks like signs)
 LOW_SECONDS = 5
 
 
@@ -415,7 +418,7 @@ def g5a_eval(rr):
         a = x['start']
         if a is None or a.get('level') is None:
             continue
-        if 'air_danger' not in a:
+        if any(k not in a for k in ('air_danger', 'air_pocketing', 'air_capped')):
             miss += 1; continue
         if (int(a.get('air_danger') or 0) or int(a.get('air_pocketing') or 0)) and not int(a.get('air_capped') or 0):
             d += 1; ex.append(('G5a', aid, a))
@@ -438,7 +441,14 @@ def g5b_eval(rr):
     return d, ex
 
 
-ROUTE_RE = re.compile(r'^(up|out|sealed|unscanned) dist=(-?\d+).*? head=([a-z_]+)')
+ROUTE_RE = re.compile(r'^(up|out|sealed|unscanned) dist=(-?\d+).*? head=([a-z_]+) head_box=([a-z]+)')
+
+
+def head_swimmable(name, box):
+    """The scan's predicate on the logged head cell. Pure."""
+    if name == 'unknown' or box == 'unknown':
+        return True                       # an unreadable head is `unknown` to the scan, never a cap
+    return name != 'lava' and (name == 'water' or box == 'empty')
 
 
 def g5c_eval(rows):
@@ -452,9 +462,32 @@ def g5c_eval(rows):
         if not m:
             continue
         o += 1
-        if m.group(1) == 'up' and not SWIMMABLE_HEAD.match(m.group(3)):
+        if m.group(1) == 'up' and not head_swimmable(m.group(3), m.group(4)):
             d += 1; ex.append(('G5c', r['t'].isoformat(), r.get('detail')))
     return o, d, ex
+
+
+HEAD_ROW_RE = re.compile(r'head(?: block)? ([a-z_]+)')
+EMPTY_BOX_NAMES = re.compile(r'^(air|cave_air|void_air|water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass|glow_lichen)$')
+
+
+def g5c_proxy_eval(rows):
+    """OLD-BUILD POSITIVE CONTROL for G5c (rows without head=): an `up` `_drowning_route` row whose nearest prior
+    `_air_drowning_observed` / `_water_surface` row (<= 5 s) names a head block that is plainly solid (ice, stone, dirt...).
+    -> (opportunities, defects). Reported, never a verdict (Claude code r1 P3-4)."""
+    heads = [(r['t'], (HEAD_ROW_RE.search(r.get('detail') or '') or [None, None])[1]) for r in rows
+             if r['name'] in ('_air_drowning_observed', '_water_surface', '_water_no_air_route')]
+    o = d = 0
+    for r in rows:
+        if r['name'] != '_drowning_route' or not str(r.get('detail') or '').startswith('up '):
+            continue
+        prior = [h for t, h in heads if h and 0 <= (r['t'] - t).total_seconds() <= 5]
+        if not prior:
+            continue
+        o += 1
+        if not EMPTY_BOX_NAMES.match(prior[-1]):
+            d += 1
+    return o, d
 
 
 def g5d_eval(rows, rr, end, spawns=()):
@@ -494,9 +527,12 @@ def g5dp_eval(rows):
         if r['name'] != '_air_danger':
             continue
         a = args_of(r)
-        if 'interrupt_issued' not in a or 'health_3s_max' not in a:
+        if any(k not in a for k in ('interrupt_issued', 'health_3s_max', 'head_under', 'air_seconds', 'health', 'owner', 'attempt')):
             miss += 1; continue
-        pred = int(a.get('head_under') or 0) == 1 and float(a.get('air_seconds', 99)) <= LOW_SECONDS and float(a.get('health', 20)) < float(a.get('health_3s_max', 0))
+        try:
+            pred = int(a.get('head_under') or 0) == 1 and float(a['air_seconds']) <= LOW_SECONDS and float(a['health']) < float(a['health_3s_max'])
+        except (TypeError, ValueError):
+            miss += 1; continue          # a null / non-numeric input is a missing field, never a crash (Claude code r1 P3-2)
         if not pred or a.get('owner') != 'watchdog':
             continue
         n += 1
@@ -512,17 +548,20 @@ def g5dp_eval(rows):
 
 
 def g5f_eval(rows):
-    """-> (landings, defects, wet_reported, ex)."""
-    n = d = wet = 0; ex = []
+    """-> (landings, defects, wet_reported, ex, missing)."""
+    n = d = wet = miss = 0; ex = []
     for r in rows:
         if r['name'] != '_relocate_landed':
             continue
-        a = args_of(r); n += 1
+        a = args_of(r)
+        if any(k not in a for k in ('status', 'in_region', 'wet', 'region_dry_now', 'attempt')):
+            miss += 1; continue
+        n += 1
         if int(a.get('wet') or 0):
             wet += 1
             if str(a.get('status')) == 'success' and int(a.get('in_region') or 0) and int(a.get('region_dry_now') or 0):
                 d += 1; ex.append(('G5f', a.get('attempt'), a))
-    return n, d, wet, ex
+    return n, d, wet, ex, miss
 
 
 def g5g_eval(rows, rr):
@@ -582,17 +621,24 @@ def g5_fixtures_ok():
         # G5a: a start into danger below the cap is a defect; a capped one is not; a start without the fields is missing
         rr = rescue_rows([R(0, 'a', 'requested', kind='stagnation'), R(1, 'a', 'started', air_danger=1, air_pocketing=0, air_capped=0),
                           R(10, 'b', 'requested', kind='stagnation'), R(11, 'b', 'started', air_danger=1, air_pocketing=0, air_capped=1),
-                          R(20, 'c', 'requested', kind='stagnation'), R(21, 'c', 'started')])
-        ok.append(g5a_eval(rr)[:2] == (1, 1))
+                          R(20, 'c', 'requested', kind='stagnation'), R(21, 'c', 'started'),
+                          R(30, 'e', 'requested', kind='stagnation'), R(31, 'e', 'started', air_danger=0)])
+        ok.append(g5a_eval(rr)[:2] == (1, 2))
         # G5b: an L1 requested row without its target; a fallback with 16 tries is fine
         rr = rescue_rows([R(0, 'a', 'requested', target_x=1, dry_tries=2), R(5, 'b', 'requested'),
                           R(9, 'c', 'requested', level=2, remedy='home', fallback='no_dry_relocation', dry_tries=16)])
         ok.append(g5b_eval(rr)[0] == 1)
         # G5c: homefix-01's 20:17:49 route (`up dist=1`, head ice) is the defect; an `up` with a water head is not
-        rows = [{'t': _m(0), 'name': '_drowning_route', 'detail': 'up dist=1 at -15,61,54 scoop=dry head=ice'},
-                {'t': _m(1), 'name': '_drowning_route', 'detail': 'up dist=1 at 0,60,0 scoop=dry head=water'},
-                {'t': _m(2), 'name': '_drowning_route', 'detail': 'sealed dist=-1 at -15,61,54 scoop=dry axes=+x:ice@1 head=ice cap=head'}]
-        ok.append(g5c_eval(rows)[:2] == (3, 1))
+        rows = [{'t': _m(0), 'name': '_drowning_route', 'detail': 'up dist=1 at -15,61,54 scoop=dry head=ice head_box=block'},
+                {'t': _m(1), 'name': '_drowning_route', 'detail': 'up dist=1 at 0,60,0 scoop=dry head=water head_box=empty'},
+                {'t': _m(2), 'name': '_drowning_route', 'detail': 'up dist=2 at 0,60,0 scoop=dry head=oak_sign head_box=empty'},
+                {'t': _m(3), 'name': '_drowning_route', 'detail': 'sealed dist=-1 at -15,61,54 scoop=dry axes=+x:ice@1 head=ice head_box=block cap=head'}]
+        ok.append(g5c_eval(rows)[:2] == (4, 1))
+        old = [{'t': _m(0), 'name': '_air_drowning_observed', 'detail': 'oxygen 8, head block ice, health 20'},
+               {'t': _m(2), 'name': '_drowning_route', 'detail': 'up dist=1 at -15,61,54 scoop=dry'},
+               {'t': _m(10), 'name': '_water_surface', 'detail': 'afloat and unowned — surface (head water, health 20)'},
+               {'t': _m(11), 'name': '_drowning_route', 'detail': 'up dist=1 at 0,60,0 scoop=dry'}]
+        ok.append(g5c_proxy_eval(old) == (2, 1))
         # G5d: a yield whose attempt ends in time is fine; one never ending past the bound is a defect; inside: censored
         rr = rescue_rows([R(0, 'a', 'requested'), R(1, 'a', 'started'), R(40, 'a', 'interrupted:drowning'),
                           R(100, 'b', 'requested'), R(101, 'b', 'started')])
@@ -603,11 +649,13 @@ def g5_fixtures_ok():
         D = lambda sec, aid, iss: {'t': _m(sec), 'name': '_air_danger', 'args': {'attempt': aid, 'owner': 'watchdog', 'head_under': 1, 'air_seconds': 0, 'health': 15, 'health_3s_max': 17, 'interrupt_issued': iss}}
         good = [{'t': _m(9.5), 'name': '_air_rescue_yield', 'args': {'attempt': 'a'}}, D(10, 'a', 1), D(12, 'a', 1), D(14, 'a', 1)]
         bad1 = [D(10, 'b', 0)]
+        partial = [{'t': _m(10), 'name': '_air_danger', 'args': {'attempt': 'p', 'owner': 'watchdog', 'interrupt_issued': 1, 'health_3s_max': 17}}]
         bad2 = [D(10, 'c', 1), {'t': _m(13), 'name': '_air_rescue_yield', 'args': {'attempt': 'c'}}]
-        ok.append(g5dp_eval(good)[1] == 0 and g5dp_eval(bad1)[1] == 1 and g5dp_eval(bad2)[1] == 1)
+        ok.append(g5dp_eval(good)[1] == 0 and g5dp_eval(bad1)[1] == 1 and g5dp_eval(bad2)[1] == 1 and g5dp_eval(partial)[2] == 1)
         # G5f
         L = lambda st, inr, wet, dry: {'t': _m(0), 'name': '_relocate_landed', 'args': {'attempt': 'x', 'status': st, 'in_region': inr, 'wet': wet, 'region_dry_now': dry}}
-        ok.append(g5f_eval([L('success', 1, 1, 1), L('success', 1, 1, 0), L('failed', 0, 1, 1), L('success', 0, 1, 1)])[:3] == (4, 1, 4))
+        ok.append(g5f_eval([L('success', 1, 1, 1), L('success', 1, 1, 0), L('failed', 0, 1, 1), L('success', 0, 1, 1),
+                            {'t': _m(0), 'name': '_relocate_landed', 'args': {'attempt': 'y'}}]) == (4, 1, 4, [('G5f', 'x', {'attempt': 'x', 'status': 'success', 'in_region': 1, 'wet': 1, 'region_dry_now': 1})], 1))
         # G5g: decline, decline, capped start = fine; decline, reconnect, decline, decline = fine (segmented);
         # 3 declines with no start = defect; a capped start after 1 decline = defect; reserve_expired does not count
         G = lambda sec, aid, ph, **kw: R(sec, aid, ph, kind='stagnation', **kw)
@@ -1032,7 +1080,8 @@ for b in can_bots:
     G5['route_rows'] += sum(1 for r in post if r['name'] == '_drowning_route')
     n, d, over, cens, e = g5d_eval(post, rr, END, spawns); G5['g5d_yields'] += n; G5['g5d'] += d; G5['g5d_over60'] += over; G5['g5d_censored'] += cens; ex5 += e
     n, d, miss, e = g5dp_eval(post); G5['g5dp_rows'] += n; G5['g5dp'] += d; G5['missing'] += miss; ex5 += e
-    n, d, wet, e = g5f_eval(post); G5['g5f_landings'] += n; G5['g5f'] += d; G5['landed_wet'] += wet; ex5 += e
+    n, d, wet, e, miss = g5f_eval(post); G5['g5f_landings'] += n; G5['g5f'] += d; G5['landed_wet'] += wet; G5['missing'] += miss
+    o, d = g5c_proxy_eval(per[b]['pre'] + post); G5['g5c_proxy_opps'] += o; G5['g5c_proxy'] += d
     d, mx, cap, e = g5g_eval(post, rr); G5['g5g'] += d; G5['air_streak_max'] = max(G5['air_streak_max'], mx); G5['air_capped'] += cap; ex5 += e
     G5['air_rescue_declines'] += sum(1 for r in post if r['name'] == '_watchdog_rescue' and str(args_of(r).get('phase')) == 'declined:air_rescue')
     G5['interrupted_drowning'] += sum(1 for r in post if r['name'] == '_watchdog_rescue' and str(args_of(r).get('phase')) == 'interrupted:drowning')
@@ -1041,8 +1090,8 @@ for b in can_bots:
     G5['air_pocket_ice_head'] += sum(1 for r in post if r['name'] == '_air_pocket_start' and 'kind=ice' in (r.get('detail') or ''))
     G5['route_cap_head'] += sum(1 for r in post if r['name'] == '_drowning_route' and 'cap=head' in (r.get('detail') or ''))
 # a route row with no head= field on the canary build is a missing field (the build writes it on every route)
-G5['missing'] += sum(1 for b in can_bots for r in per[b]['post'] if r['name'] == '_drowning_route' and ' head=' not in (r.get('detail') or ''))
-g5_defects = G5['g5a'] + G5['g5b'] + G5['g5c'] + G5['g5d'] + G5['g5dp'] + G5['g5f'] + G5['g5g']
+G5['missing'] += sum(1 for b in can_bots for r in per[b]['post'] if r['name'] == '_drowning_route' and ' head_box=' not in (r.get('detail') or ''))
+g5_defects = G5['g5a'] + G5['g5b'] + G5['g5c'] + G5['g5d'] + G5['g5dp'] + G5['g5g']        # G5f is reported only
 g5_fix_ok, _parts = g5_fixtures_ok()
 
 G6 = {}
@@ -1096,6 +1145,8 @@ print('G5  homefix-02 invariants: G5a %d  G5b %d  G5c %d (route rows %d, with he
       % (G5['g5a'], G5['g5b'], G5['g5c'], G5['route_rows'], G5['g5c_opps'], G5['g5d'], G5['g5d_yields'], G5['g5d_over60'], G5['g5d_censored'],
          G5['g5dp'], G5['g5dp_rows'], G5['g5f'], G5['g5f_landings'], G5['landed_wet'], G5['g5g'], G5['air_streak_max'], G5['air_capped'],
          G5['missing'], 'OK' if g5_fix_ok else 'VOID'))
+print('G5c CONTROL (old-build proxy: `up` with a solid head named by the reflex row <= 5 s before; reported): %d of %d up routes'
+      % (G5['g5c_proxy'], G5['g5c_proxy_opps']))
 print('C2/C3 exposure: relocations %d, fallback home %d, declined air_rescue %d, interrupted:drowning %d, air-pocket ice starts %d, head-capped routes %d'
       % (G5['relocations'], G5['fallback'], G5['air_rescue_declines'], G5['interrupted_drowning'], G5['air_pocket_ice_head'], G5['route_cap_head']))
 print('G6  verdict-adjacent drownings (<= %d s after a verdict, <= %d b): canary pre %s post %s | control pre %s post %s | DiD %+.3f per 1,000 | lambda %.3f (rate %.2f/1000 drawn pools) P(X>=%d) %.3f -> block %d revert %d'
@@ -1140,7 +1191,7 @@ try:
         'relocations': G5['relocations'], 'fallback_home': G5['fallback'], 'landed_wet': G5['landed_wet'],
         'air_pocket_ice_head': G5['air_pocket_ice_head'], 'route_cap_head': G5['route_cap_head'],
         'g6_canary': g6_n, 'g6_canary_verdicts': G6[('canary', 'post')][0], 'g6_did_per_1000': r3(g6_did), 'g6_lambda': r3(g6_lambda),
-        'g6_p': r3(g6_p), 'g6_revert': g6_revert,
+        'g6_p': r3(g6_p), 'g6_revert': g6_revert, 'g5c_proxy_defects': G5['g5c_proxy'], 'g5c_proxy_opps': G5['g5c_proxy_opps'],
     })
 except Exception as e:
     print('emit failed:', e)
