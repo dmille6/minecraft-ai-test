@@ -101,6 +101,20 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-21 07:40Z — toolkit-03 +360 NOT_YET (reads to its registered +720 ~13:11Z); deaths 5 v 6 (2.50x, LB 0.75x); deep-time WATCH
+
+- **toolkit-03 +360 07:22Z NOT_YET**: registration reads [180, 360, 720] -> the decision is at +720 (~13:11Z, 8:11 CDT), so
+  the gap (5080 move, isolated-b pilot, homefix-02 release) moves to after that. Death gate held: 5 canary deaths / 90 bh
+  (0.056) v 6 / 270 (0.022); deaths: hive-b-Comet drowned idle 01:42; hive-b-Alpha 26-block fall in gather 03:47; hive-b-Echo
+  lava idle 06:10 at (334,39,154); board-a-Alpha stalagmite fall y=4.7 while mining 06:57 (rung-linked `entombed`, v14c
+  report); hive-b-Bravo lava after an 8-block fall 06:58 at (335,38,155) -- two lava deaths at ONE hive-b spot.
+- **WATCH (operator, ES 6 h pre v post, bot.pos rows):** canary share of rows at y<20 3.2% -> 13.9% (control 5.1% -> 5.4%);
+  y<50 36.8% -> 49.8% (control 32.6% -> 31.0%). Concentrated: hive-b-Bravo 0.00 -> 0.74, hive-b-Comet 0 -> 0.28, board-a-Bravo
+  0 -> 0.18, hive-b-Echo 0 -> 0.17, board-a-Delta 0.03 -> 0.13; placebo-a went DOWN. Very-deep rows are mostly _path_reset /
+  _water_surface / _path_noPath (bots stuck in deep water/caves). No mechanism in toolkit-03 (kit search + smelt fuel) that
+  moves bots is known; could be chance (2 of 3 pools) or more iron tools enabling deeper trips. Weigh at +720 (owner 10-07:
+  exposure deaths are not mechanism deaths); consider a mining-exposure line before any KEEP.
+
 ## 10-21 04:45Z — toolkit-03 +180 NOT_YET (3 pools; strong mechanism); homefix-02 QUEUED (after toolkit-03, HELD); gap plan
 
 - **toolkit-03 +180 04:23Z NOT_YET** (3 pools -> no tier-2 KEEP; exposure met): kit "no iron" per attempt canary 17/24 -> 0/11 vs
