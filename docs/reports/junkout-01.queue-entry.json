@@ -17,6 +17,18 @@
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    },
    "registration_sha256": "c051c7e34e743f54e3239fc457a78f6799f24054967f6fb5b33d977caba38b43 (docs/reports/junkout-01.registration-34d3e5e9.json as committed = ~/mcai-analysis/junkout-01.a050ef30.json)"
+  },
+  "d014ec2cbd8b6b429db4c2750e3e23e93e2fe241": {
+   "registration": "/home/mike/mcai-analysis/junkout-01.5506a384.json",
+   "approved": "junkout-01 agent 2026-10-21: junkout-on-d014ec2 @ 5506a384 = the 34d3e5e9 variant's seven commits cherry-picked onto homefix-02 d014ec2c (two hand-resolved conflicts; Codex read-only rebase review APPROVE, no findings). npm test 277/277. The design / code reviews, Paper and read of the primary variant stand. USE ONLY if homefix-02 is kept and promoted. TIER 2.",
+   "canary_sha": "5506a3844bde9d0a3a86b2bef8d73a3de073f77a",
+   "branch": "junkout-on-d014ec2",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "junkoutread": "458437767e9adf1c188921c45676144f",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "771d791403b4d33fbaa691f634ee3efdd4b18e1fa562d003981aa9339db798b0 (docs/reports/junkout-01.registration-d014ec2c.json as committed = ~/mcai-analysis/junkout-01.5506a384.json)"
   }
  },
  "junkoutread_md5": "458437767e9adf1c188921c45676144f"
