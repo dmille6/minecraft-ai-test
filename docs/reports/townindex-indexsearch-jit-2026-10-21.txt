@@ -1,0 +1,68 @@
+townindex-01 + indexsearch-01: just-in-time variants on the bases that can ship (2026-10-21, claude agent jit-1021)
+
+WHY: the reviewed originals (townindex-on-35d805a @ e5ce173f, indexsearch-on-e5ce173 @ 8f811303; record
+docs/reports/townindex-indexsearch-reviews-2026-10-20.txt) sit on toolkit-03 x bagbudget-01 35d805a7; bagbudget-01 was
+NOT kept. The fleet is 34d3e5e9 (toolkit-03 x cobblekeep-01); homefix-02 d014ec2c is the live canary; ironpick-01
+2d410985 is queued. Owner order after homefix-02: ironpick-01, protectzone-01, townindex-01, indexsearch-01.
+
+VARIANTS (fleet sha it is for -> canary sha, branch):
+  townindex-01   34d3e5e9 -> db148fb3  townindex-on-34d3e5e
+                 2d410985 -> 630a0cb7  townindex-on-2d41098   (27c0421f: composed tests with ironpick-01)
+                 d014ec2c -> 1b0cca7c  townindex-on-d014ec2
+  indexsearch-01 db148fb3 -> cb8fc5f3  indexsearch-on-db148fb
+                 630a0cb7 -> e2836195  indexsearch-on-630a0cb (e2836195: the composition with ironpick-01)
+                 1b0cca7c -> d0a27a5e  indexsearch-on-1b0cca7
+  Records and sandbox-only commits sit after each indexsearch canary sha.
+
+CONFLICTS AND RESOLUTIONS
+  townindex (all three): bagbudget-01's `fullBag, rows` dropped from bankInto's signature and town_deposit's call;
+    onMutate kept. The changed-line set of bots/src is otherwise the original's exactly (checked line by line, all
+    three). db148fb3/630a0cb7/1b0cca7c (sandbox only): the `townindex` Paper scene read BAG_MIX, a bagbudget-01 driver
+    constant undefined on these bases -- the bag is restated in the scene. d014ec2c: no conflict.
+  indexsearch on db148fb3 and 1b0cca7c: bot code identical to the original; the sandbox header and startBot's
+    `at`/`onSpawn` merged as the original had them.
+  indexsearch on 630a0cb7 (ironpick-01): bots/src/skills.mjs --
+    - the kit's draw: ironpick-01's args.n prefix is `drawLimit`, and the KITSTICKS pre-draw's re-draw keeps it.
+      Without that, a pickaxe-only order whose sticks were pre-drawn re-drew the whole kit and ended kit_no_sticks with
+      the sticks carried (mutant redrawWidens, killed by ipChain);
+    - townKitIronMiss: KITSTICKS's known-stick-holder exemption (with kitStickSkipKeys) AND ironpick-01's hold-back by
+      quantity (kitStickHeld) in one condition;
+    - the stop exit: KITSTICKS's pre-drawn sticks in sticks= AND ironpick-01's iron_seen.
+    Tests: indexsearch.test ipChain (pickaxe-only order, no sticks/wood: 4 sticks pre-drawn, 3 ingots, no axe),
+    prefixCounts (kitIronNeed 1..7 rank by n + 4 kept), ipIndexPrefix (an 8-ingot holder is no count for kit_iron_7,
+    the first look for kit_iron_3); mutants redrawWidens, noPrefixNeed; the noRedraw anchor follows the kept limit.
+    ironpick.test: stickQty SURVIVED after the port -- the KITSTICKS pre-draw puts the holder's sticks in the bag in
+    stickNarrowScene, so that scene no longer reaches the hold-back by quantity (its outcome is unchanged: the pickaxe
+    is made). Re-anchored to stickGateScene, the gate with no known stick holder (whole kit held back, prefix not).
+  townindex on 2d410985: composed tests -- the kit's iron-pickaxe draw (7 ingots) and its narrowed n=1 draw are
+    indexed like any withdraw visit; a `narrow` run leaves the looked-in container KNOWN with what it held. Mutant on the
+    withdraw visit's pre mark kills the shape.
+  Not composed (no shared path): homefix-02 changes goto/home/surface budgets, reflexes and the runner's declines.
+
+TESTS (`node scripts/run-tests.mjs` from bots/, exit 0, each in a clean exported tree of the commit):
+  townindex-on-34d3e5e 271/271 (1f03ba37; db148fb3 adds the sandbox driver only)   townindex-on-2d41098 272/272 (27c0421f)
+  townindex-on-d014ec2 277/277 (1b0cca7c)       indexsearch-on-db148fb 272/272 (7d442593 = cb8fc5f3 + records)
+  indexsearch-on-630a0cb 273/273 (268cab7f = e2836195 + records)   indexsearch-on-1b0cca7 278/278 (87fda48a = d0a27a5e + records)
+  eslint no-undef, every variant: exactly the pre-existing reflex.mjs withinBody hit (line 2384; 2417 on homefix-02).
+
+REBASE REVIEWS (one prompt covering all six ports, D = indexsearch x ironpick the focus):
+  Codex (codex exec --sandbox read-only): APPROVE, no findings (changed-line sets verified; the stickQty re-anchoring
+    honest; room, miss notes, narrow and index thresholds compose).
+  Claude subagent: APPROVE, P3s only: (1) the stick pre-draw plans room for the sticks alone -- if the bag fills
+    between the order and the run, the iron visit can stop `room` with the sticks carried (a named remedy, no dead end;
+    watch `room` outcomes in the read); (2) composition not on Paper -> run below; (3) the sandbox startBot's first tp
+    still uses HOME (no caller passes `at`; pre-existing); (4) stickGateScene's pool -- not taken: town() starts a
+    fresh pool.
+
+PAPER (sandbox3, driver + bot on the controller, RCON over ssh to 10.0.0.30; global lock /tmp/mcai-sandbox.lock on
+10.0.0.31 taken only while scenes ran: 21:00-21:02Z (no spawn: sandbox/craft/trace.cjs absent from the export),
+21:03-21:07Z, 21:14-21:43Z, 21:45-21:48Z). BASE 630a0cb7 (townindex on ironpick) vs CANDIDATE e2836195:
+  ixkit     BASE_SHAPE (10 visits, nearest first)     CANDIDATE_PASS (FAR first, 1 visit, first=ix hit=1; FAR 20 -> 16)
+  ixsticks  BASE_SHAPE (kit_no_sticks, FAR 20)        CANDIDATE_PASS (_kit_sticks took 6 first=ix; iron 1 visit; kit made)
+  ixpick    (NEW, the composition) BASE_SHAPE: run 1 narrow, run 2 (n=1) kit_no_sticks, no pickaxe, FAR 8.
+            CANDIDATE_PASS: run 1 _kit_sticks want=8 took=8 (first=ix), kit_iron_7 ix=0 -> narrow; run 2 kit_iron_3
+            first=ix visits=1 hit=1, drew=3, crafted=iron_pickaxe; world: fresh pickaxe 1 + worn 1, FAR 8 -> 5,
+            sticks 20 -> 12, near chests untouched. Run 2 is a restart in the same pool with run 1's bag (the first try
+            waited out the 10-min in-memory cooldown and the idle bot's livelock escape walked it off the slab).
+  The scenes of the 34d3e5e9 and d014ec2c variants were not re-run: their conflicts touched no search, withdraw or
+  count code (the bankInto signature only), so the 10-20 Paper of the originals stands.
