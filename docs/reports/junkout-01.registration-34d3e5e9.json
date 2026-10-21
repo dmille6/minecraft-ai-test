@@ -1,0 +1,87 @@
+{
+ "run_id": "junkout-01",
+ "sha": "SHA_TBD",
+ "registered_at": "REGISTERED_TBD",
+ "tier": 2,
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[junkout-01 on toolkit-03 34d3e5e9 (the fleet sha): branch junkout-on-34d3e5e @ SHA_TBD] OWNER 2026-10-21 ~20:30Z 'yes build it, i approve of your recommendations'. MEASURED 10-21 (files, 24 h, 1.47 M rows, 80 bots; docs/reports/junkout-01-design-2026-10-21.md): listed well junk 151 slots on 57 bots, torch 72 on 68, bone meal 83 on 77, compost junk + peaceful plants 66 -- carried out of town again because the well and the composter run only at >= 34 slots and torch / bone meal had no exit; 3,366 town-zone visits with listed junk below 34 within 20 of a well (1.77 per bot-h). THE CHANGE: (A) the well at every town visit below 34 (the town deposit zone 16 h / 12 v, within 20 of the well, >= 1 whole listed stack, listed junk only, never a goal-wanted name; once per visit, the well's cooldown/backoff); (B) the composter at every visit (compost junk + the peaceful plants, never a sapling; within 20 of the composter); (C) the slim bag allowance at the town deposit at ANY bag size (stations 1 each, torch 0, bone meal 0, usable stone pickaxes beyond the best working pickaxe + 2 spares; junk, saplings, compost inputs never a chest's; a not-full bag gets a rows-only tail order once per stay); (D) with a working pickaxe, last-swing's spent keeps count against the two spares at the wear-out. The visit orders go after plinth / full-bag deposit / recount and ahead of the rung, each once per visit; the latches tick on every decision. JUNK_VISIT=off (A, B) and BAG_ALLOWANCE=off (C, D) are the rollbacks. List additions: NONE (leaf litter already the composter's; dripstone_block and gravel have consumers -- rescue/pillar/pit-cover blocks; smooth_basalt already listed; mushrooms already composted under the peaceful switch). Reviews: design Codex r1/r2 CHANGE -> r3 APPROVE, Claude r1/r2 CHANGE -> r3 APPROVE; code REVIEWS_TBD. npm test TESTS_TBD. PAPER PAPER_TBD. TIER 2: deterministic defect gates on rows only this build writes; a run missing any early-KEEP condition (the death rate above control's included) reads on as tier 3.]",
+ "lint": "LINT_TBD",
+ "licence": {
+  "class": "kind",
+  "kind": "_junkout_mode",
+  "min_rows": 1,
+  "note": "Only a junkout-01 build writes _junkout_mode (phase=mode visit=1 allowance=1 rows=station:1,torch:0,bone_meal:0,stone_spares:2), once per spawn (per connect) in index.mjs. Proves the build is live, not the effect."
+ },
+ "reads": [
+  "junkoutread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1080,
+ "change_rows": [
+  "junkout"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 24,
+  "require": [
+   {
+    "name": "a usable town well in the pool (the well's own disposal rows)",
+    "kind": "well_dispose",
+    "min": 2
+   }
+  ],
+  "note": "DRAW_TBD"
+ },
+ "exposure": {
+  "read": "junkoutread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": ">= 10 canary visit well runs that threw (n > 0), >= 3 visit compost runs that composted, >= 3 tail bank runs (unique v) that banked, and >= 20 canary zone visits with listed junk below 34 (snapshot walk). Measured 10-21: 1.77 such visits per bot-h fleet-wide, so a 20-bot arm passes the visit floor in the first hour."
+ },
+ "own_lines": [
+  {"read": "junkoutread", "field": "breach_junk_chest", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "J1: a canary bank run (any town deposit that banked) banked a junk name -- the well's list and decorations, the guarded stones, NEVER_KEEP, the bank's ballast, saplings, bamboo; on peaceful=1 rows also the composter's peaceful plants, apples and swords. The read's lists are held to the bots' by --selftest with JS_CHECK (both directions)."},
+  {"read": "junkoutread", "field": "j1_incomplete", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "J1 coverage: a bank run whose parts (part=i/n, one visit id v=) are not all present. BLOCKS KEEP."},
+  {"read": "junkoutread", "field": "breach_below_allowance", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "J2: a station left below 1 (start >= 1, start - banked < 1), or on a mode=tail run stone_pickaxe left below min(start, keep_picks) (the best working + 2 spares)."},
+  {"read": "junkoutread", "field": "breach_dedicated_trip", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "J3: a canary visit run issued outside its gate -- dh > 16 or |dy| > 12 from home, or > 20 from the well / composter (well, compost), dh > 16 or |dy| > 12 (tail) -- at the ISSUE-time position the order carried. Impossible by construction: a trip would be a defect."},
+  {"read": "junkoutread", "field": "breach_visit_offlist", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "J4: a canary visit well run that threw anything but listed junk (offlist, swords, cobble or stock > 0, as the server named the thrown entities)."},
+  {"read": "junkoutread", "field": "breach_reissue", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "J5 (the loop gate): consecutive canary runs of ONE kind by one bot inside the stay window (20 min well/compost, 15 tail) whose second run's armed reason does not explain the re-arm (first needs a connect between; stay never; out:a-b needs >= 55 s and an out-of-zone position sample inside the claim, skill rows timed at their end). Declined orders write no run row."},
+  {"read": "junkoutread", "field": "rows_control", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "ARMS: a control _junkout or _junkout_mode row after the deploy. BLOCKS KEEP."},
+  {"read": "junkoutread", "field": "licence_canary", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "LIVENESS: >= 1 canary _junkout_mode row. BLOCKS KEEP (INCONCLUSIVE)."},
+  {"read": "junkoutread", "field": "instrument_control", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control dispose_well >= 1, control _town_deposit >= 1, control zone visits with listed junk >= 1. BLOCKS KEEP."}
+ ],
+ "primary": {
+  "read": "junkoutread",
+  "field": "listed_mean_did",
+  "note": "REPORTED: listed-junk slots per bag DiD (should FALL), torch + bone meal slots per bag DiD (should FALL), slots per bot DiD, share >= 34 DiD, gather success DiD; well items thrown per canary bot-h; the J1 control null; harm_storage_full (canary town_storage_full >= 3 and > 2x control per bot-h) printed as HARM."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control (immobiledid). The visit orders are inside town (the town deposit zone, within 20 of the well / composter / a chest); each runs at most once per visit. change_rows: `junkout` (every visit run, every bank run, every wear row); the baseline cannot write it."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The change edits nothing in the world. Rollback without a canary: JUNK_VISIT=off and BAG_ALLOWANCE=off."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Tier 2: KEEP at +180 when exposed (exactly 4 pools, >= 48 bot-h, no WATCH/HOLD, kind licence, death rate <= control, clean baseline); extend only for exposure."
+ },
+ "requires": "The fleet on 34d3e5e9 (toolkit-03 kept and promoted 10-21 13:37Z). If homefix-02 is kept and promoted first, use the d014ec2c variant."
+}

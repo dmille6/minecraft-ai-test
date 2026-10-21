@@ -274,3 +274,10 @@ VISIT_COMPOST_REACH 20; the r3 reach check above; sections 3, 6).
 declined orders and process restarts; P2 J3 did not see the vertical zone bound. ALL TAKEN in r3 (sections 3 D, 6).
 Round-1: ALL TAKEN in r2 except: Codex P1-2 is answered (the model's deposit verb is unchanged and banks only what the goal wants;
 J1 covers every town-deposit chest admission, and a control null), and Codex P1-3 is answered as a ceiling (section 3 C).
+
+**Design r3 (3e5ee66f): Codex APPROVE, Claude APPROVE.** Claude's P3s, taken in the code: `first` means a CONNECT (the mode
+row and the latch are per connection, index.mjs); a low-durability iron pickaxe (11 uses) beside healthy stone copies is pinned
+by a test (junkout.test.mjs row P: the iron is the best, the two stone copies with most uses are the spares). Not taken (P3):
+the decision log's snapshots as J5 position samples -- the read uses the skill and event rows (a decision that runs no skill
+writes neither); a J5 trip names the missing sample, and the selftest's must-not-trip fixture is the start-stamp/end-position
+shape the reviewer named.
