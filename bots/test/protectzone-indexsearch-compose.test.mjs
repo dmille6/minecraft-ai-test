@@ -132,7 +132,19 @@ await t('MUTANT KILLED: without the town search\'s zone rule the index\'s pick i
     const refused = guarded(w, OVER_IX)
     const r = await oneOrder(S, w)
     assert.ok(!isKit(w), `the mutant made the kit: ${r.status} ${r.failClass}`)
-    assert.ok(refused.some(x => x.op === 'open' && x.at?.x === IX[0] && x.at?.z === IX[2]), JSON.stringify(refused))
+    // the FIRST open the search asks for is the index's pick (Claude rebase P3: else a nearest-first walk reaching IX last
+    // would also be "killed" without the index mattering)
+    assert.equal(refused.length, 1, JSON.stringify(refused))
+    assert.deepEqual([refused[0].op, refused[0].at?.x, refused[0].at?.y, refused[0].at?.z], ['open', ...IX], JSON.stringify(refused))
+    assert.deepEqual(w.spy.opened, [], `nothing opened before the refused pick: ${w.spy.opened}`)
+  })
+})
+await t('MUTANT KILLED (the ranking control, in the suite): without the index ranking the control\'s first open is not the index\'s holder', async () => {
+  await withMutant(SKILLS_PATH, '  if (INDEXSEARCH.on) {\n    try { Object.assign(counts, mergeSearchCounts(', '  if (false) {\n    try { Object.assign(counts, mergeSearchCounts(', async S => {
+    const w = scene()
+    guarded(w, [])
+    await oneOrder(S, w)
+    assert.notEqual(w.spy.opened[0], kOf(IX), `the mutant still opens IX first: ${w.spy.opened}`)
   })
 })
 
