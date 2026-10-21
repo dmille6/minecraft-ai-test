@@ -777,3 +777,66 @@ r6 answers r5:
 8. **G5c is a self-consistency check** (Claude code r2 P3-3). The read applies the scan's predicate to the scan's own
    head read, so it catches a code regression; the outcome evidence is Paper. Any route row that does not parse counts
    as missing evidence (Codex code r2 P2-1).
+
+## 11. Build record (2026-10-21)
+
+Branch `homefix02-on-9e7d998`. The base is **9e7d9980**, the fleet sha in /srv/mcbots/trial-manifest.json at 01:35Z.
+toolkit-03 (`34d3e5e9`) is a canary on board-a, placebo-a and hive-b. If it is KEPT and promoted before homefix-02
+launches, homefix-02 needs a re-stack.
+
+### Code reviews (design approved r6 by both)
+
+| round | sha | Codex | Claude |
+|---|---|---|---|
+| code r1 | c537d91a | CHANGE: P1 snapshot `pocketing` (admission race); P1 G5c name whitelist; P2 missing fields pass gates; P2 composed tests absent, refund tested by regex | CHANGE: P1 §7 tests missing; P1 G5c whitelist; P2 snapshot pocketing; P2 head= read after an await; P3 G5f cannot fire, null crash, C3b relabels, synthetic controls, fallback reason, world floor |
+| code r2 | 3fde36e9 | CHANGE: P2 fields not validated before filters; P2 composed C1 not on the real tick | **APPROVE**: P2 L1 success path untested at the watchdog; P3 proxy kinds, C1 tick cases, G5c wording |
+| code r3 | 12a141dd | **APPROVE**: P3 a stray generated mutant file tracked | **APPROVE**: P1 the same stray mutant (do not deploy that sha) |
+
+The stray mutant (`bots/test/_mutant-12125-*.mjs`, from a test run in flight during `git add`) is removed in the
+following commit, and `.gitignore` now names `bots/test/_mutant-*.mjs` and `bots/_mutant-*.mjs`.
+
+### Paper (sandbox only; the lock was held 03:26-03:55Z and released; RCON on 10.0.0.30 sandbox servers 25599 and 25601)
+
+Results: `docs/reports/homefix-02-paper-results-2026-10-21.jsonl` (15 rows).
+
+**S1, C1: hive-d's frozen-river trap.** `sandbox/drown/hf2-ab.cjs` runs the full bot (index.mjs on 10.0.0.31; the real
+reflex tick, peaceful, a stone pickaxe). The arena is a stone floor at 39, the feet in 1 water at 40, ICE in the head
+cell at 41, and air above.
+
+| scene | base 9e7d9980 | candidate (c537d91a tree) |
+|---|---|---|
+| FH (head cell ice) | **died 2/2** at 103.2 and 104.2 s. Each time: `up dist=1` x5, 4 ceilings, 2 yields, death. Death 1 reproduced | **lived 2/2**. `_air_pocket` success kind=ice, cell 700,41,700 (the head cell), dig 953-955 ms, health 20 |
+| FH1 (a hole beside) | **died** at 105.2 s | **lived**. `_drowning_to_air`, then the ice dug at the head cell, health 19 |
+
+**S2, C2: relocation over a frozen river.** `sandbox/home/homefix2-e2e.mjs` (real Runner and StagnationWatchdog, synthetic
+30-s window). The arena is an ice sheet over 1 water covering 3/4 of the 45-70 ring.
+
+| | homefix-01 a52d075e | candidate |
+|---|---|---|
+| targets on ice over water | **3/3** | **0/3** (3/3 on grass in the dry quarter) |
+| arrival ended on ice | 3/3 | 0/3 (`_relocate_landed` wet=0, in_region=1, region_dry_now=1) |
+| dry pick | — | 2-3 tries, 6-8 ms |
+
+**S3, C3 + C1: a level-2 home rescue that meets water.** Same driver, with the real reflexes. The home rescue starts, and
+the bot is dropped into the trap at once (death 1's shape).
+
+| scene | homefix-01 a52d075e | candidate |
+|---|---|---|
+| home_ice (1-high water under ice) | route `up dist=1` x3; home `stranded` until `interrupt:low_health`; **health floor, scene stopped at 4.8 HP**. Death 1 reproduced | **2/2 lived**. `_air_rescue_yield` at the first danger tick (16 s after the drop), home `interrupted:drowning`, the ice dug (kind=ice, the head cell), breathing at 39.8-52.7 s, min HP 18 |
+| home_pocket (3x3 water room under stone) | lived: the base air-pocket step dug the stone roof; home failed `stranded` | lived: the same (no danger tick before the dig, so C3b had nothing to do; the base air actions are unchanged) |
+
+The first home_pocket runs (1x1 pocket; driver without the difficulty recorder) priced the dig at 2 HP/s. That was a
+harness defect, and the entombment reflex took the run. They are kept in the record and labelled.
+
+### Tests and lint
+
+- `node scripts/run-tests.mjs` (bots/): 273/273 at 79281ebe, before the review rounds. The final full run is below.
+- eslint no-undef: exactly one hit, the pre-existing reflex.mjs `withinBody`.
+- New suites: homefix2-relocate, homefix2-c3, homefix2-chain. Additions: drown-route-truth F1-F6 and airpocket
+  A10/A10b/A10c/F3b. Every mechanism has an anchored mutant.
+- `homefix2read.py --selftest`: 10/10.
+- Read dry run on homefix-01's own window (+336 min, 1.84 M rows, 134 s, 462 MB):
+  - **G5b finds 223.** homefix-01's relocations carry no dry fields: a positive control.
+  - **G6 counts death 1 and not death 2:** canary post 1 of 242 verdicts, λ 0.165, P 0.15. That would block KEEP and
+    not revert.
+  - **G5c old-build proxy:** 4 of 54 `up` routes had a solid head in the 5 s before.
