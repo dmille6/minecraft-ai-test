@@ -110,6 +110,9 @@ export function statusLine (bot, runner) {
  * never a death cause, whatever their text. -> the cause text after "<name> ", or null. Pure.
  */
 export function deathCauseText (text, position, name, notADeath = /^(joined|left) the game$/i) {
+  // ONLY 'chat' IS REFUSED, on purpose (Claude r2 P3-4): 'system' and 'game_info' are server-authored, and a chat plugin that
+  // re-renders player chat as system lines still cannot author one that STARTS with this bot's name. Never narrow this to
+  // an allowlist of positions: it would drop the server's death message on some build and lose the cause.
   if (position === 'chat') return null
   const t = String(text ?? '')
   if (!name || !t.startsWith(`${name} `)) return null
@@ -181,12 +184,16 @@ export function attachCommands (bot, runner, { env = process.env, emit = null, n
     }
   }
   bot.on('chat', handler)
-  return {
-    grants, stats,
-    detach: () => {
-      try { bot.removeListener('chat', handler) } catch { /* already gone */ }
-      if (timer) clearInterval(timer)
-      try { flushIgnored(now(), true) } catch { /* telemetry */ }
-    },
+  let detached = false
+  const detach = () => {
+    if (detached) return
+    detached = true
+    try { bot.removeListener('chat', handler) } catch { /* already gone */ }
+    if (timer) clearInterval(timer)
+    try { flushIgnored(now(), true) } catch { /* telemetry */ }
   }
+  // THE GATE GOES WITH ITS BOT (Codex r2 P2-1, Claude r2 P2-1): index.mjs reconnects in-process, and the `_chat_ignored`
+  // timer's closure holds this bot (its world, its inventory) through the row writer. Detached on `end`, never leaked.
+  try { bot.once?.('end', detach) } catch { /* a bot without events: the caller detaches */ }
+  return { grants, stats, detach, timerLive: () => !detached && timer != null }
 }
