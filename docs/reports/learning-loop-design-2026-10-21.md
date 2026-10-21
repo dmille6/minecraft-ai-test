@@ -1,4 +1,4 @@
-# Learning loop for the bot brain: continuous fine-tuning (design, 2026-10-21, round 4)
+# Learning loop for the bot brain: continuous fine-tuning (design, 2026-10-21, round 5, APPROVED by both engines)
 
 **Status:** DESIGN + offline prototype only. Nothing was trained or served. No fleet, queue, scheduler, manifest, env file
 or endpoint was changed. 10.0.0.72 was never contacted: every 5080 number below comes from the bots' own decision rows.
@@ -20,6 +20,7 @@ No paid API was called.
 | 2 | CHANGE (3 P1, all in the bench statistics) | APPROVE (3 P2) |
 | 3 | CHANGE (2 P1: null provenance, inactivity as missing data) | APPROVE (P3 only) |
 | 4 | CHANGE (1 P1: the ITT rule vs coverage and the simulator; P2: gate effect model; P3: MDE rounding) | APPROVE (1 P2: the same ITT half-fix; P3s) |
+| 5 | **APPROVE** (2 P3, doc labels; fixed) | (round 4 APPROVE stands) |
 
 Every point from both rounds is taken; s.10 maps each finding to the section that answers it.
 
@@ -813,8 +814,8 @@ which does **not** pass.
   - A bench has no canaries, so its coverage is an A/A measurement, gated at ≥ 90% usable draws.
 - **Unconditional rejection** (all 400 draws) is low for the same reason: 0.20 at +25% on the 25% rule. It is printed
   per row in the output.
-- **The null SD of τ** for the primary is 4.11 items/bot-h, 8.6% of the mean (25% rule). The A/A variance check compares
-  against that figure, within 0.5-2×.
+- **The null SD of τ** for the primary is 4.11 items/bot-h, 8.6% of the mean, on the 25% rule. It is shown for scale.
+  The A/A variance check compares against the **ITT simulator's** bench-schedule null SD, within 0.5-2× (see above).
 - **Simulation error.** With 28-111 usable draws, each power figure carries about ±0.05-0.09.
 
 **Part 2: design comparison on the same baseline.** A planning approximation: MDE ≈ 2.8 × null SD, as % of the mean, 25%
@@ -1149,7 +1150,7 @@ is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is avai
 |---|---|
 | minority-build rule is not a same-treatment null (Codex r3 P1-1); env-only canaries invisible (Claude r3 P3) | `bench_power.py`: canary exposure from the deployment journal (pool × [deployed, first torn-down/promoted + 6 h], 72 intervals, 2,090 bot-windows) + non-qwen; the result is labelled a **heterogeneous planning baseline** (promotions stay in as common changes); the binding power is the A/A power gate |
 | missing data can remove candidate-induced failures (Codex r3 P1-2) | s.4c: inactivity is an outcome (intention to treat, per scheduled bot-hour); only recorded infrastructure outages hitting both arms are excluded; a liveness gate for silent candidate bots (REVERT); dropped permutations counted (0) |
-| active hours were first-to-last spans (Codex r3 P2-3) | gaps capped at 10 min in `bench_power.py`; the doc defines exposure the same way |
+| active hours were first-to-last spans (Codex r3 P2-3) | gaps capped at 10 min in `bench_power.py` (planning approximation). Round 4 superseded the exposure definition: eligible scheduled hours, with an M6 ITT simulator |
 | power is conditional; the A/A gate is unspecified; null SD not reported (Codex r3 P2-4) | s.4c: conditional and unconditional rejection printed, coverage reasons printed, null SD of τ reported (4.11, 8.6%); A/A power gate ≥ 0.80 at +25% with ≥ 90% usable draws, else one redesign (96 h or 6 worlds), else drop the rung |
 | stale round-1 figures; label_check "joined" (Codex r3 P3-5; Claude r3 P3) | round-1 rows marked SUPERSEDED; `label_check.py` prints exact / ambiguous / none separately |
 | status-only joins steal the next row (Claude r3 P3) | exact-only join; 70,586 exact, 0 unexplained misses (s.1.1) |

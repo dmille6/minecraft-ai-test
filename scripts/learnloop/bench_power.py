@@ -9,13 +9,16 @@ the SAME build. Cells are per bot x 6 h window (brainread's metric definitions).
   * a bot-window with ANY row (llm or skill stream) on a MINORITY build: one seen on < 50% of the bots in that window
     (a canary or its restart-lag rows; a fleet-wide promotion is a common change and stays in);
   * the bot's NEXT window after such a cell (post-intervention: restarts and gate-state reset after a teardown).
-The protocol simulated is the registered one: period 1 of T h, washout W h (excluded), period 2 of T h; usable bot =
+PLANNING APPROXIMATION of the registered protocol (design s.4c; round 4). The registered read uses ELIGIBLE SCHEDULED hours
+(scheduled minus recorded infrastructure intervals) and keeps inactive bots (ITT); that reader/simulator is an M6
+prerequisite. Here, on the canary-gapped fleet, eligibility is approximated by ACTIVE hours. Schedule: period 1 of T h,
+washout W h (excluded), period 2 of T h; usable bot =
 >= 50% of each period's hours active (decision rows); a read is INCONCLUSIVE (counted) if either sequence has < 7
 usable bots. Estimator for every crossover: the standard 2x2 one, tau = (mean_AB(d) - mean_BA(d)) / 2 with
 d = period1 - period2 per bot -- it cancels a common period effect for ANY group sizes (Codex r2: the earlier
 pooled signed mean did not when bots dropped out).
 
-PART 1 (the registered test, design C): within-world 3/2 split; the test is a stratified re-randomization test that
+PART 1 (the registered TEST statistic, design C, under the planning exposure approximation): within-world 3/2 split; the test is a stratified re-randomization test that
 re-draws the AB/BA labels within each world keeping its 3/2 count (10^4 assignments; --perms sampled), two-sided.
 Its rejection rate is SIMULATED under the null (should be ~5%) and under injected effects: an additive effect delta
 (as a share of the metric's null mean) on the bot's treated period. Power = rejection share. MDE80 = the smallest
@@ -29,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 ap = argparse.ArgumentParser(); ap.add_argument('--days', type=int, default=13); ap.add_argument('--cache')
 ap.add_argument('--draws', type=int, default=400); ap.add_argument('--perms', type=int, default=400)
 ap.add_argument('--period', type=int, default=72); ap.add_argument('--washout', type=int, default=6)
-ap.add_argument('--usable-frac', type=float, default=0.5, help='registered live rule 0.5; a lower value is a PLANNING sensitivity '
+ap.add_argument('--usable-frac', type=float, default=0.5, help='0.5 mirrors the registered 36 h coverage floor; a lower value is a PLANNING sensitivity '
                'for the fleet null only, where canary exclusions (absent on a bench) remove bot-time')
 a = ap.parse_args()
 now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -201,7 +204,7 @@ def tau(dv, AB):
     return (st.mean(xa) - st.mean(xb)) / 2
 
 
-print('\n== PART 1: the registered test (within-world 3/2 AB/BA, stratified re-randomization, two-sided 5%%), %d distinct time offsets; usable = >= %.0f%% of each period active' % (len(offs), 100 * a.usable_frac))
+print('\n== PART 1: the registered test statistic, planning exposure approximation (within-world 3/2 AB/BA, stratified re-randomization, two-sided 5%%), %d distinct time offsets; usable = >= %.0f%% of each period active' % (len(offs), 100 * a.usable_frac))
 print('   effects: ADD = +delta x null mean on the treated period; MULT = treated-period value x (1 + delta). power = conditional on a')
 print('   usable draw; "uncond" divides by all draws; "pos" counts only rejections with tau > 0 (what KEEP needs)')
 GRID = (0.0, 0.10, 0.15, 0.20, 0.25, 0.30)
