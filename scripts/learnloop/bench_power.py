@@ -119,11 +119,13 @@ if os.path.exists(JOURNAL):
         t0 = datetime.fromisoformat(r['ts'].replace('Z', '+00:00'))
         end = next((datetime.fromisoformat(q['ts'].replace('Z', '+00:00')) for q in J[i + 1:]
                     if q.get('run') == r.get('run') and q.get('phase') in ('torn-down', 'promoted')), now)
-        expo.append((set(pools), t0, end + timedelta(hours=6)))
+        known = {x.rsplit('-', 1)[0] for x in os.listdir('/var/log/mcai') if '-' in x}
+        assert pools and all(p in known for p in pools), 'journal note does not parse to pool names: %r' % r.get('note')
+        expo.append((set(pools), t0, end + timedelta(hours=6), end == now))
 wstart = lambda w: datetime.strptime(w, '%Y-%m-%dT%H').replace(tzinfo=timezone.utc)
 def journal_exposed(b, w):
     a0 = wstart(w); a1 = a0 + timedelta(hours=W); pool = b.rsplit('-', 1)[0]
-    return any(pool in ps and t0 < a1 and a0 < t1 for ps, t0, t1 in expo)
+    return any(pool in ps and t0 < a1 and a0 < t1 for ps, t0, t1, _ in expo)
 ex = collections.Counter(); cells = {}
 for b in bots0:
     prev_off = False
@@ -140,7 +142,7 @@ for b in bots0:
 bots = sorted({b for b, _ in cells})
 world = lambda b: b.rsplit('-', 1)[0]
 worlds = sorted({world(b) for b in bots0})
-print('canary intervals read from the journal: %d' % len(expo))
+print('canary intervals read from the journal: %d (open-ended, end = now: %d)' % (len(expo), sum(1 for e in expo if e[3])))
 print('NOTE: a HETEROGENEOUS PLANNING BASELINE, not a same-treatment null: fleet-wide promotions (common changes) stay in.')
 print('positive control: bots %d, worlds %d, 6h windows %d (%s .. %s); bot-windows kept %d of %d; excluded %s; '
       'model decisions kept %d, deaths %d, bot-h %.0f; draws %d, perms %d; period %d h, washout %d h'

@@ -19,6 +19,7 @@ No paid API was called.
 | 1 | CHANGE (12 P1) | CHANGE (3 P1) |
 | 2 | CHANGE (3 P1, all in the bench statistics) | APPROVE (3 P2) |
 | 3 | CHANGE (2 P1: null provenance, inactivity as missing data) | APPROVE (P3 only) |
+| 4 | CHANGE (1 P1: the ITT rule vs coverage and the simulator; P2: gate effect model; P3: MDE rounding) | APPROVE (1 P2: the same ITT half-fix; P3s) |
 
 Every point from both rounds is taken; s.10 maps each finding to the section that answers it.
 
@@ -62,8 +63,10 @@ Every point from both rounds is taken; s.10 maps each finding to the section tha
 - Primary: **gross gathered items/bot-h** (no transfers, no conversions). It is tested by a stratified re-randomization
   test, and that test was simulated end to end on 13 days of the fleet's own null.
 - Under the null it rejects 3-6% of the time (nominal 5%).
-- Minimum detectable effect at 80% power, on a canary-excluded planning baseline: **~25-30% of the mean**. The binding
-  figure is an **A/A power gate** (≥ 0.80 at +25%), measured on the bench itself.
+- Minimum detectable effect at 80% power, on a canary-excluded planning baseline: **25-30% of the mean** (additive), and
+  **≥ 30%** (multiplicative).
+- The binding figure is an **A/A power gate**, measured on the bench itself: ≥ 0.80 at +25%, multiplicative, on an
+  intention-to-treat simulator built as an M6 prerequisite.
 - Comparison, as a planning approximation: a 10 v 10 parallel split needs ~60%.
 - A whole-world crossover on 4 worlds has only 6 assignments, so it cannot reach p < 0.05 and is not a fallback. The
   fallback is the canary rung.
@@ -668,8 +671,10 @@ Each rung must pass before the next one runs, and each has a positive control.
 - Period 2 is 72 h.
 - **Total 150 h.**
 - Both sequences use the same calendar windows.
-- **Exposure is active bot-hours:** inter-decision gaps capped at 10 min (Codex r3). Decisions run about every 40 s on a
-  live bot, so an outage between two decisions is not counted as exposure.
+- **Exposure for the primary, coverage and the death gate is ELIGIBLE scheduled hours** (Codex r4, Claude r4): scheduled
+  hours minus recorded infrastructure intervals.
+- **Active bot-hours** (inter-decision gaps capped at 10 min) are a secondary denominator only, for decision rates and
+  diagnostics.
 
 *Primary.* **Gross gathered items/bot-h.**
 - Definition: positive `inventory_delta` on skill rows, excluding transfer skills (withdraws, town draws, deposits) and
@@ -698,10 +703,21 @@ d = period-1 value − period-2 value per bot.
   - **A liveness gate:**
     - a candidate-arm bot with no decision for 30 min while ≥ 1 control-arm bot in its world decides is a breach;
     - 2 breaches in one period, or 1 lasting over 2 h, is **REVERT** (a defect, as brain-01's G8).
-- **Coverage** (for recorded infrastructure exclusions only):
-  - a bot needs ≥ 36 active bot-h (50%) left in each period after the excluded intervals;
+- **Eligible exposure** (Codex r4) = scheduled hours (72 per period) minus the bot's recorded infrastructure intervals.
+  It is used for **both** the primary's denominator **and** coverage. A bot that is merely inactive stays in with its full
+  eligible exposure.
+- **Coverage:**
+  - a bot needs ≥ 36 h of eligible exposure in each period;
   - a read is INCONCLUSIVE if either sequence has fewer than 7 such bots.
-- Re-randomizations use the same rule. The simulation applies it, and reports the permutations it drops: 0.
+  - Only infrastructure intervals can make a bot ineligible.
+- Re-randomizations use the same eligibility, which does not depend on the labels.
+- **The current simulator is planning-only.** `bench_power.py` approximates eligibility on the canary-gapped fleet with
+  active hours (gaps capped at 10 min), because the fleet has no infrastructure record per bot.
+  - **An intention-to-treat bench reader and simulator are an M6 prerequisite.** They must implement exactly the rule
+    above (scheduled hours, the infrastructure interval file, the liveness gate) and must pass a synthetic test before the
+    A/A gate is evaluated:
+    - a silent candidate bot lowers τ;
+    - an infrastructure-excluded bot does not.
 
 *Test: a stratified re-randomization test.*
 - Re-draw the AB/BA labels within each world, keeping its 3/2 count. That gives 10^4 = 10,000 assignments.
@@ -738,14 +754,17 @@ excludes transfers. The canary rung, which uses whole pools, is the check.
 *A/A first, through the complete schedule.* Both arms run qwen2.5 for 150 h, read with exactly the procedure above. It
 passes only if all of these hold:
 1. the test does not reject (p ≥ 0.05);
-2. **Variance check.** The A/A's own re-randomization SD of τ lies within 0.5-2× the simulated null SD for the primary
-   (4.11 items/bot-h on the planning baseline, 25% rule). A "central 95%" check alone cannot see inflated variance;
+2. **Variance check.** The A/A's own re-randomization SD of τ lies within 0.5-2× the null SD that the **ITT simulator**
+   derives for the bench schedule. The planning figures are 4.11 at the 25% rule and 3.18 at the 50% rule; they are
+   shown for scale only. A "central 95%" check alone cannot see inflated variance;
 3. residency and latency gates are met by both arms;
 4. 0 bench rows reach any fleet read.
 
 **Power gate** (concrete, Codex r3), using the A/A's own data:
 - re-run Part 1 on the A/A cells: the same estimator, test, exposure rule and injected effects;
-- **go:** conditional power ≥ 0.80 at a +25% effect on the primary, AND ≥ 90% of draws usable;
+- **go:** under the **MULT** effect model (the treated-period value × 1.25; the more realistic and the more conservative
+  of the two in the planning runs), the **unrounded** fraction of usable draws rejecting with τ > 0 is ≥ 0.80, AND ≥ 90%
+  of draws are usable;
 - **otherwise, redesign once:** 96 h periods, or 6 worlds × 5 bots on the same VM. Then re-run the A/A. If the gate still
   fails, the bench rung is dropped.
 
@@ -761,6 +780,10 @@ Source: `scripts/learnloop/bench_power.py`. Outputs: `bench_power-13d-v4.txt` (t
 - Canaries cover about half of all bot-time. The deployment journal (`~/canary-journal.jsonl`, 72 intervals) puts **2,090
   of 4,160 bot-windows** inside a canary interval, counting the pool from `deployed` to the first `torn-down` /
   `promoted` + 6 h. That rule also catches env-only canaries (Claude r3).
+  - Every deployed note parses to known pool names (asserted).
+  - 4 of the 72 intervals have no `torn-down` / `promoted` record and run to "now". One is the live toolkit-03; the
+    others closed through a different path. This over-excludes, which for a planning baseline only removes data.
+  - Quote the result as "~25-30%", never 25% alone: the registered row rests on 28 usable draws (about ±0.09).
 - Fleet-wide promotions land every 1-2 days. They are kept as common changes, so this is a **heterogeneous planning
   baseline**, not a same-treatment null.
 - Kept: 2,040 bot-windows; 969,168 decisions, 300 deaths, 12,208 active bot-h (gaps capped at 10 min); 0.0246 deaths/bot-h,
@@ -775,11 +798,14 @@ Source: `scripts/learnloop/bench_power.py`. Outputs: `bench_power-13d-v4.txt` (t
 
 | metric (baseline mean) | usable rule | usable draws | size (δ = 0) | ADD: power at 15 / 20 / 25 / 30% | MULT: power at 15 / 20 / 25 / 30% | MDE80 |
 |---|---|---|---|---|---|---|
-| **gross gathered/bot-h (47.6)** | 50% (registered) | 28 | 0.04 | 0.64 / 0.75 / 0.89 / 0.93 | 0.57 / 0.71 / 0.75 / 0.86 | **ADD 25%, MULT 30%** |
-| **gross gathered/bot-h** | 25% (planning) | 99 | 0.05 | 0.53 / 0.68 / 0.80 / 0.88 | 0.46 / 0.60 / 0.72 / 0.79 | **ADD 25-30%, MULT ~30%** |
-| stagnation/bot-h (2.95) | 25% | 101 | 0.06 | 0.40 / 0.57 / 0.72 / 0.83 | 0.33 / 0.48 / 0.61 / 0.68 | ~30% |
+| **gross gathered/bot-h (47.6)** | 50% (registered) | 28 | 0.04 | 0.64 / 0.75 / 0.89 / 0.93 | 0.57 / 0.71 / 0.75 / 0.86 | **ADD 25%, MULT 30%** (grid) |
+| **gross gathered/bot-h** | 25% (planning) | 99 | 0.05 | 0.53 / 0.68 / 0.798 (79/99) / 0.88 | 0.46 / 0.60 / 0.72 / 0.79 | **ADD 30%, MULT > 30%** (grid) |
+| stagnation/bot-h (2.95) | 25% | 101 | 0.06 | 0.40 / 0.57 / 0.72 / 0.83 | 0.33 / 0.48 / 0.61 / 0.68 | ADD 30%, MULT > 30% |
 | success share (0.227) | 25% | 111 | 0.06 | 0.41 / 0.51 / 0.64 / 0.77 | 0.36 / 0.46 / 0.58 / 0.69 | > 30% |
 | refused share (0.440) | 25% | 106 | 0.04 | 0.77 / 0.90 / 0.96 / 1.00 | 0.74 / 0.87 / 0.95 / 0.99 | 20% |
+
+MDE80 is the first grid point whose **unrounded** power is ≥ 0.80. At +25% on the 25% rule, ADD power is 79/99 = 0.798,
+which does **not** pass.
 
 - **Size holds** at 3-6% on every row.
 - **Coverage.** Most draws were INCONCLUSIVE on coverage: 301 of 400 at 25%, 372 at 50%.
@@ -801,7 +827,7 @@ rule.
 | refused share | 38% | 44% | 14% | n/a |
 
 **Reading the power:**
-- **Plan for detecting a ~25-30% change in gross gathered output, not 20%.**
+- **Plan for detecting a ~25-30% change in gross gathered output (ADD), and ≥ 30% under MULT. Not 20%.**
   - Round 2's 20% came from a build-only exclusion that missed env-only canaries and their +6 h tails.
   - The canary rung's own power is separate.
 - A 10 v 10 parallel split cannot see under ~60% on this baseline. The crossover is what makes the bench worth building.
@@ -1129,3 +1155,13 @@ is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is avai
 | status-only joins steal the next row (Claude r3 P3) | exact-only join; 70,586 exact, 0 unexplained misses (s.1.1) |
 | whole-world fallback cannot reach p < 0.05 (Claude r3 P3) | s.4c: dropped as a fallback; the canary rung is the fallback |
 | coverage reasons; multiplicative effects; one-sided (Claude r3 P3) | s.4c Part 1: reasons (all canary-excluded, 0 low-activity), a MULT grid, and positive-τ power reported (equal to two-sided at δ > 0) |
+
+**Round 4.**
+
+| finding (engine) | answer |
+|---|---|
+| ITT conflicts with active-hour coverage and the simulator (Codex r4 P1-1) | s.4c: eligible exposure = scheduled hours minus recorded infrastructure intervals, for both the denominator and coverage; the current simulator is labelled planning-only; an ITT bench reader + simulator with a synthetic test is an M6 prerequisite before the A/A gate |
+| the power gate does not pick an effect model (Codex r4 P2-2) | s.4c: MULT governs, unrounded positive-τ fraction ≥ 0.80 at +25% |
+| MDE table rounding (Codex r4 P3-3) | s.4c: grid MDEs copied from the output; 79/99 = 0.798 shown as not passing |
+| ITT half-applied: schedule bullet and death-gate exposure (Claude r4 P2) | s.4c: eligible scheduled hours for the primary, coverage and the death gate; active hours are secondary only |
+| variance check reference; open-ended journal intervals; precision (Claude r4 P3) | s.4c: compare against the ITT simulator's null SD (4.11 / 3.18 shown for scale only); journal pool names asserted, 4 open-ended intervals reported; "~25-30%" kept |
