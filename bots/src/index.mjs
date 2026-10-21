@@ -33,7 +33,7 @@ import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { installAirTrace } from './air-trace.mjs'
 import { startChunkEvictor } from './evictor.mjs'
-import { attachCommands } from './commands.mjs'
+import { attachCommands, deathCauseText } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
 import { TOOLKIT, kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
@@ -103,12 +103,13 @@ const HP_MAX = 12
 const NOT_A_DEATH = /^(joined|left) the game$/i
 
 function watchForDeathCause(bot) {
-  const onMsg = jsonMsg => {
+  const onMsg = (jsonMsg, position) => {
     try {
       const text = typeof jsonMsg?.toString === 'function' ? jsonMsg.toString() : String(jsonMsg)
-      if (!text.startsWith(`${config.bot.name} `)) return
-      const rest = text.slice(config.bot.name.length + 1).trim()
-      if (!rest || rest.length >= 160 || NOT_A_DEATH.test(rest)) return
+      // A PLAYER'S LINE IS NEVER A DEATH CAUSE (chatgate-01, Codex r1 P2-3): chat, /say and /me arrive as position 'chat';
+      // the server's death message is a system message (commands.mjs deathCauseText)
+      const rest = deathCauseText(text, position, config.bot.name, NOT_A_DEATH)
+      if (rest == null) return
       // Timestamped, and only trusted within a few seconds of the death event.
       // A stale message from minutes ago must never be presented as the cause.
       lastDeathCause = { text: rest, at: Date.now() }

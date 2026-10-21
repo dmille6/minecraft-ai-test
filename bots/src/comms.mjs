@@ -13,20 +13,9 @@ import { config } from './config.mjs'
 const TAG = '[fleet]'
 const MIN_GAP_MS = 20_000          // per-bot floor between announcements
 
-// EVERY ANNOUNCEMENT NAMES ITS POOL, AND INGESTION IS SCOPED TO IT.
-//
-// Chat is global: the server delivers every line to every bot regardless of
-// experiment arm. Before exp-001 that was the point -- one fleet, one memory.
-// Under the experiment it was a leak: a shared-arm bot giving up on a goal
-// broadcast that belief, and ISOLATED bots ingested it into their world model
-// (tagged 'reported over chat', so block-1 contamination is quantifiable).
-// "Unreachable" claims are the exact false-belief object this lab studies, so
-// the control arm was receiving a dilute dose of the treatment.
-//
-// The rule now mirrors the memory design exactly: chat may only carry a fact
-// between bots whose MEMORY_POOL matches, and an isolated bot ingests nothing
-// from anyone -- that is what isolated means. Announcing stays unrestricted:
-// speech is free, belief is scoped.
+// EVERY ANNOUNCEMENT NAMES ITS POOL. Chat is global: the server delivers every line to every bot regardless of town. When
+// peers' lines were still ingested (until chatgate-01) belief was scoped to the sender's pool, and an isolated bot ingested
+// nothing; nothing is ingested now, and the pool stays in the line so a human reading chat can tell the towns apart.
 const POOL = String(config.memory.pool ?? 'hive').replace(/\s+/g, '_').slice(0, 24)
 
 /** `[fleet] hive-b hazard entombed -1 70 5 x6` */
