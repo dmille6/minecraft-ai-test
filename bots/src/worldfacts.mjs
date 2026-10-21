@@ -277,6 +277,9 @@ export class WorldFacts {
       if (near) {
         near.count += DEATH_WEIGHT; near.deaths = (near.deaths ?? 1) + 1; near.last = Date.now()
         if (!near.by.includes(by)) near.by.push(by)
+        // THE NEXT DEATH CLEARS A DISPUTE (keepout-01, design 4.2): a lava read that found the disc clear is outranked by a
+        // fire death there -- the site keeps bots out again
+        delete near.disputed
         site = near
       } else {
         site = { kind, x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z), count: DEATH_WEIGHT, deaths: 1, last: Date.now(), by: [by] }
@@ -284,6 +287,22 @@ export class WorldFacts {
       }
     })
     return site
+  }
+
+  /**
+   * A LAVA READ FOUND THIS FIRE SITE'S DISC CLEAR (keepout-01, design 4.2 `fire_site` disproof): every cell of the disc,
+   * loaded, and no lava. The site is KEPT (its price on paths and its prompt line are unchanged) and marked `disputed`, so
+   * keepout-01 stops keeping bots out of its column; the next fire death there clears the mark (reportDeath). -> the
+   * stored site, or null when no live fire site sits at that centre.
+   */
+  disputeFireSite(at, by = config.bot.name) {
+    if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y) || !Number.isFinite(at.z)) return null
+    let hit = null
+    this.#update(d => {
+      const s = d.sites.find(q => q.kind === `${DEATH_KIND_PREFIX}fire` && q.x === at.x && q.y === at.y && q.z === at.z)
+      if (s && !s.disputed) { s.disputed = { at: Date.now(), by }; hit = s }
+    })
+    return hit
   }
 
   /** Every death site on file (the cache; re-read every 20 s). Cheap enough for the pathfinder's per-node price. */

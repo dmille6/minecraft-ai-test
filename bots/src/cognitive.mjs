@@ -9,6 +9,8 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
+import { exitDecision, townYieldOn, noteKeepout, siteKey, KEEPOUT_EXIT_BACKOFF_MS } from './keepout.mjs'
+import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
@@ -851,6 +853,21 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
+  #keepoutExitOrder(order) {
+    try {
+      const bot = this.bot
+      const sites = bot.fireSitesNow?.() ?? []
+      if (!sites.length || !bot.entity?.position) return null
+      const d = exitDecision({ sites, pos: bot.entity.position, home: configuredHome(config.world), skill: order?.skill ?? null,
+        yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
+      if (d.why === 'town_job') noteKeepout(bot, 'yield_town_job')
+      else if (d.why === 'home') noteKeepout(bot, 'yield_home')
+      if (!d.start) return null
+      return { skill: 'keepout_exit', args: {}, why: `inside the column above a marked lava pool (fire death site ${siteKey(d.site)}): leaving it first${order ? ` (instead of ${order.skill})` : ''}` }
+    } catch { return null }
+  }
+
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
@@ -1188,6 +1205,11 @@ export class CognitiveLoop {
                    snapshot: snap })
       }
     }
+    // KEEPOUT-01: A BODY INSIDE A FIRE COLUMN LEAVES IT BEFORE ANYTHING ELSE (keepout.mjs exitDecision; design 4.6 row 4). LAST
+    // in the chain on purpose, so it overrides every order above -- except a town job inside a column that covers the town
+    // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
+    // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
+    { const ko = this.#keepoutExitOrder(order); if (ko) order = ko }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
@@ -1266,6 +1288,8 @@ export class CognitiveLoop {
       if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
+      // KEEPOUT-01: a failed exit backs off (the stranded ladder owns the body); anything else re-arms it at once
+      if (!declined && admitted.skill === 'keepout_exit') this.keepoutExitBackoffUntil = r.status === 'failed' || r.status === 'unknown' ? Date.now() + KEEPOUT_EXIT_BACKOFF_MS : 0
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
