@@ -1,3 +1,4 @@
-hive-b _reach_probe rows (24 h): 6821
-hit= candidates inside a fire column, by bot: {'hive-b-Alpha': 15, 'hive-b-Bravo': 20, 'hive-b-Comet': 18, 'hive-b-Echo': 33} total 86
-in the minutes before the deaths: {'Alpha 08:25-08:35': 10, 'Echo 06:00-06:10': 16}
+_reach_probe rows read (12 towns, 24 h): 71195
+hit= candidates inside a live fire column, by town: {'hive-b': 86} total 86
+hive-b by bot: {'hive-b-Alpha': 15, 'hive-b-Bravo': 20, 'hive-b-Comet': 18, 'hive-b-Echo': 33}
+half-open windows before the deaths: {'hive-b-Alpha [08:25, 08:35)': 9, 'hive-b-Echo [06:00, 06:10)': 13}

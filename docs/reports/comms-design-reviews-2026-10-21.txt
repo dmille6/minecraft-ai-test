@@ -454,3 +454,60 @@ Codex P2 snapshot ordering                             | §4.3: ordering by ledg
 Codex P3 class breakdown                               | regenerated (above)
 Claude P3-3 pillar                                     | §4.6: a pillar that cannot pass site y + 12 is `failed` -> stranded
 Claude P3-5                                            | §11 labelled
+
+=====================================================================================================================
+ROUND 5 on r5 (7e05e9e3)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 5 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+VERDICT: CHANGE
+
+- **P2 — §4.3, snapshots:** Ledger offsets do not establish source commit order. After `snapshot_begin`, mirror X can append, source Y can commit without its mirror, and the snapshot can read Y; replaying X then restores stale state. Use source revisions on snapshots **and mutations**, replaying only revisions beyond the captured cutoff; serialize non-journal sources equivalently. Test this interleaving.
+
+- **P2 — §6.1, bag evidence:** Missing inventory does not prove delivery: death, disposal or another deposit can remove it. Resolve uncertain transfers as `unknown` unless durable evidence attributes the exact transfer to this operation and destination. Add death/intervening-inventory-change tests and include `unknown` explicitly in legal transitions.
+
+- **P2 — §6.1, takeover fencing:** “Stops after a later generation exists” still permits suspension after the courier’s check, takeover/release, then a resumed transfer. Fence the actual transfer against takeover, or establish that the old executor cannot resume before releasing its reservation. Test suspension immediately before the click.
+
+- **P2 — §8 #2, mine gate:** `_keepout_refused` rows cannot prove that **allowed/executed** mine digs never enter columns. Record permitted planned/dig cells in the canary and check those independently. Require a bypassed-guard mutant to fail this gate.
+
+- **P3 — §8 #2, positive control:** Commit the query producing `reach_probe_control.txt`, including exact bounds and time-varying site reconstruction. The three output lines alone do not establish reproducibility.
+
+The r4 replay finding is resolved: stored-count merge-before-prune, A/C ordering, timing, rounding, alternative trigger and judged window check out. §0’s numerical claims match stored outputs. Mine cooldown, town-job yield, fire-site authority, crash/cap wording and chat tests address their findings; unreach-01 retains a controlled decision. The restricted `_reach_probe` estimand is reasonable.
+
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE ROUND 5 on r5 (7e05e9e3) -- VERDICT: APPROVE  (verbatim, condensed formatting)
+---------------------------------------------------------------------------------------------------------------------
+All five of my round-4 findings are resolved: keepout's primary uses only _reach_probe hit= candidates with a required
+positive control (I re-ran it read-only on 10.0.0.31 with a 6-block disc from site y to y + 12 around both hive-b sites
+and get the same 86 in-column candidates in 24 h; leaving mine out of the DiD and covering it with Paper plus a
+canary-arm gate is the honest call); _keepout_exit does not start inside a yielded town column and the fixture asserts
+the drain completes; a pillar that cannot pass y + 12 is `failed`; an uncertain transfer ends `unknown` on the
+courier's own bag, others may write only `unknown` after until + 5 min, a resuming courier stops, neither counts as
+verified; "13 of 169" labelled. deaths_v5 is consistent with §0 and §2.3 (171 / 158 / 11 / 7 of 52 / 4; classes
+65/52/24/16/14; 6-8 live fire sites in 5-7 towns matches A and C). No new P1 or P2.
+P3: reach_probe_control.txt gives Echo 16 / Alpha 10; with half-open minute windows I get 13 and 9 -- print exact
+  bounds and the column definition. P3: in the canary arm keep-out refuses in-column candidates by construction, so
+  the candidate DiD mostly shows the code ran -- name it, keep deaths as the tripwire. P3: offsets restart per sealed
+  generation -- read "after snapshot_begin's offset" within one generation; a snapshot crossing a rotation is
+  incomplete and redone.
+
+=====================================================================================================================
+ROUND 5 -> r6: WHERE EACH FINDING IS ANSWERED
+=====================================================================================================================
+Codex P2 snapshot vs source commit order               | §4.3: no live mirror entries for world facts / town memory /
+     townindex at all (snapshot-only; deciding consumers read the sources directly); claims are live mirrors carrying
+     the lease generation (source revision), highest generation wins; snapshot_begin records source_revision; L1
+     compares each complete snapshot with a host-side read of the source. No snapshot/live interleaving remains
+Codex P2 bag evidence                                  | §6.1: delivered only on the attributable townindex transfer record
+     (op = this request, this destination); otherwise `unknown`; bag/container are cross-checks; `unknown` in the legal
+     transitions; death / intervening-inventory tests
+Codex P2 takeover fencing                              | §6.1: takeover only after the courier's restart (a newer `spawned`
+     row); a restart discards in-memory skills so the old executor cannot resume; staleness never permits takeover;
+     SIGSTOP-before-click test
+Codex P2 mine gate                                     | §8 #2: canary-only `_mine_plan` (permitted planned cells) and
+     `_mine_dig` (executed cells) rows; gate = 0 inside a live fire column; bypassed-guard mutant must fail on Paper
+Codex P3 + Claude P3 control reproducibility           | tools/reach_control.py.txt: time-varying replayed sites, exact column
+     definition, half-open windows -> 86 total (hive-b only), Echo 13 in [06:00, 06:10), Alpha 9 in [08:25, 08:35)
+Claude P3 candidate DiD is a mechanism check           | §8 #2 says so; deaths stay the tripwire
+Claude P3 offsets per generation                       | §4.3: a snapshot counts only within one ledger generation

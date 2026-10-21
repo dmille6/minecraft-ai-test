@@ -1,4 +1,4 @@
-# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r5)
+# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r6)
 
 OWNER 2026-10-21 ~21:10Z: "i would like ... to integrate some kind of communication into our platform where bots are
 sharing information and communicating". Then "yes" to a staged plan:
@@ -126,8 +126,8 @@ pre-action positions (`data/v3.out`):**
 - **Writes:**
   - transitions such as a release, a disproof, a cancel or a delivery are never dropped;
   - repeated observations are coalesced, with a durable refresh every 10 min.
-- **First canary, ledger-01:** observe-only. Its gate is that the ledger's view must match the stores it mirrors, after
-  their cap and merge rules are replayed.
+- **First canary, ledger-01:** observe-only. Its gate is that every complete snapshot of a mirrored store equals a
+  host-side read of that store.
 
 **5. Stage 2 is plain-language chat for the owner and the showcase (§5).**
 - **Wording:** lines are made from ledger events by templates. A cheap LLM may only *choose among* pre-written phrasings,
@@ -412,13 +412,13 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 
 | type | authority | written by (automatic) | evidence | adopted when | disproved by (outranks quorum) | expires | consumer |
 |---|---|---|---|---|---|---|---|
-| `death` | world facts (mirrored) | the death handler | the server's death event, with position and class | always (an immutable event) | never (it is a past event) | display: 7 d | stage 2; keepout reads world facts directly |
-| `hazard` (inferred: entombed, drowning spot, lava seen) | world facts (mirrored) | reflexes, at 2 personal hits (today) | own reflex rows | as today | lava: a read of the hazard's recorded cells, all loaded, showing no lava. Other kinds: none defined (expiry only) | as today (halves every 12 h) | prompt lines (today) |
+| `death` | world facts (snapshot mirror, §4.3) | the death handler | the server's death event, with position and class | always (an immutable event) | never (it is a past event) | display: 7 d | stage 2; keepout reads world facts directly |
+| `hazard` (inferred: entombed, drowning spot, lava seen) | world facts (snapshot mirror) | reflexes, at 2 personal hits (today) | own reflex rows | as today | lava: a read of the hazard's recorded cells, all loaded, showing no lava. Other kinds: none defined (expiry only) | as today (halves every 12 h) | prompt lines (today) |
 | `fire_site` (derived; **fire/lava deaths only**) | **world facts**: a pure function in deathsites.mjs (`fireSites(sites)`) plus a `disputed` field on the site, written by the lava read. keepout-01 and the ledger mirror both read this one component | — | any live fire death site: a death is a server event, so 1 is enough. `confirmed` (≥ 2 deaths by ≥ 2 bots) is reported as a stratum, not a gate | derived | a lava read of the site's 6-block disc, every cell loaded, showing no lava → `disputed` (kept; the next fire death clears the dispute). It is taken by keepout-01's own refusal path, when the refusing bot is within loaded range of the disc. Keep-out keeps bots away, so **in practice expiry is the usual exit** | while the site is live | keepout-01. **Water, falls, other and unknown never qualify** ("water is terrain") |
-| `stock` | **townindex-01** (mirrored) | townindex's observation at each open | the server window | as townindex | as townindex (`dirty`, newer observation) | as townindex (`stale` at 6 h) | the foreman's input (later) |
-| `checked` (container C has none of X) | **town memory** (mirrored) | the search that opened C | the server window | as today | a deposit into C (`took`), or an observation of C holding X | 60 min / 2 h (today) | the searches keep reading town memory |
+| `stock` | **townindex-01** (snapshot mirror) | townindex's observation at each open | the server window | as townindex | as townindex (`dirty`, newer observation) | as townindex (`stale` at 6 h) | the foreman's input (later) |
+| `checked` (container C has none of X) | **town memory** (snapshot mirror) | the search that opened C | the server window | as today | a deposit into C (`took`), or an observation of C holding X | 60 min / 2 h (today) | the searches keep reading town memory |
 | `station` (furnace F's input, fuel and output) | **the ledger** | every furnace open (drain, smelt, smelt_town) | the server window | 1 | a later open of F; any load session on F | 60 min, refreshed by each open | furnaceseen-01 |
-| `claim` | **the lease file** (mirrored): found, monument segment, furnace lease, plinth, tree farm | the project, when it takes or loses its lease | the lease write | the lease protocol decides (CAS, `link()`, `wx`) | `released`, or lease expiry | the lease TTL | stage 2; the foreman; the duplicate-claim gate |
+| `claim` | **the lease file** (live mirror carrying the lease generation, §4.3): found, monument segment, furnace lease, plinth, tree farm | the project, when it takes or loses its lease | the lease write | the lease protocol decides (CAS, `link()`, `wx`) | `released`, or lease expiry | the lease TTL | stage 2; the foreman; the duplicate-claim gate |
 | `progress` | **the ledger** | builders, after a server-witnessed placement | placement read-back | 1 | — | display: 24 h | stage 2, captions, the foreman |
 | `discovery` | **the ledger** (E0 keeps its own frontier file) | expedition region scans; a structure seen | world read | 1 for display; 2 different bots before a planner uses it | a later scan of that region | 7 d | E0, expedition targets, stage 2 |
 | `need` (derived) | the fold | — | `stock` + a project's bill of materials | derived | `stock` shows it met | when met, or 2 h | the foreman's SUPPLY role (stage 3a) |
@@ -453,32 +453,30 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
   - a report observed *after* a disproof re-opens the fact (the board's "disputed is not deletion");
   - expiry is per type (table above), from `observed_at` for freshness and from the newest report for shelf life.
 - **Size:** one line is at most 1 KB; anything bigger is refused and counted.
-- **Bootstrap and reconciliation (for the mirrored types):**
+- **Mirrors, two kinds, so that no ordering between a snapshot and a live mirror entry ever has to be decided:**
+  - **Snapshot-only mirrors: world facts, town memory, townindex.**
+    - No live mirror entries are written for these stores. The mirror's view is exactly the latest *complete* snapshot.
+    - Consumers that decide anything read the source itself: keepout reads world facts, and the searches read town memory
+      and the index. So a mirror up to 30 min stale affects only display and parity.
+  - **Live mirrors carrying the source's revision: claims.**
+    - Every claim entry carries its lease file's generation number.
+    - The fold keeps the highest generation per lease, so order of arrival never matters.
+- **Snapshots** (for the snapshot-only mirrors):
   - **Who:** one reconciler per town per 30-min window. It claims the window with a `wx` marker
     `ledger-<home>.recon.<window>`; the other bots skip it.
-  - **What it writes:** a `snapshot_begin {gen}` entry, then one bounded entry per subject (each under 1 KB), then
+  - **What it writes:** `snapshot_begin {gen, source_revision}`, then one bounded entry per subject (each under 1 KB), then
     `snapshot_end {gen, n}`.
-  - **Ordering is by ledger append order (byte offset), never by timestamps.**
-    - `snapshot_begin` is appended **before** the source is read.
-    - Each snapshot entry carries the snapshot's `gen`.
-    - Journal sources (townindex) also record their own revision, the byte offset read up to.
+    - `source_revision` is the source's content hash, plus its byte offset for a journal (townindex).
   - **How it is read:**
-    - the fold uses a snapshot only when its end marker is present with the right count. An interrupted snapshot is
-      ignored, and the next window redoes it.
-    - a complete snapshot **replaces** the mirror's view of that store as of `snapshot_begin`'s offset. Subjects absent from
-      it are removed.
-    - every mirror entry appended **after** `snapshot_begin`'s offset is then replayed over it in offset order. That
-      includes `removed` entries, whatever their `observed_at`, because such an entry may have been committed after the
-      source was read. Entries before that offset are superseded.
-    - equal timestamps never decide anything: offset order does.
+    - a snapshot counts only when its end marker is present with the right count, **within one ledger generation**. A
+      snapshot that crosses a rotation, or is interrupted, is incomplete and is redone next window.
+    - a complete snapshot replaces that mirror's whole view: subjects absent from it are removed.
   - **Tests:**
     - a reconciler killed mid-snapshot leaves the previous complete one in force;
     - a subject deleted at the source disappears at the next complete snapshot;
-    - a mutation, or a deletion, appended during the snapshot survives it;
-    - a delayed write (observed before the cutoff, appended after it) survives;
-    - two entries with equal timestamps fold in offset order.
+    - a snapshot spanning a rotation is ignored;
+    - a claim entry arriving out of order (a lower generation after a higher one) changes nothing.
   - **Marker pruning:** markers older than the last 4 windows are deleted.
-  - The mirror is therefore exact at complete snapshots and approximate between them.
 - **Why a file and not chat:**
   1. Every world's bots share one host.
   2. Chat ingestion is dead today (§2.7).
@@ -534,13 +532,13 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 | over the observation cap | the observation is dropped and counted; transitions are never dropped | consumers fall back to their own reads for observations | a cap test with a pending release |
 
 ### 4.7 Read and gates for ledger-01
-- **L1, parity.** At each 30-min reconciliation, the mirror's live view equals its source:
-  - death sites: the fold replays `reportDeath`'s merge and decay **and** world facts' 120-site cap. A site evicted by the
-    cap is listed, not counted as a mismatch;
-  - town memory's live misses;
-  - townindex's live entries.
-  - A difference names its writer. The fixtures are an eviction, a merged long-lived site, and a restart between
-    reconciliations.
+- **L1, parity.** Every complete snapshot equals a host-side read of its source.
+  - The gate script reads the source file itself and checks the hash against the snapshot's `source_revision`. It then
+    compares each subject: world facts' sites, including evictions and merged long-lived sites; town memory's misses; and
+    the index's entries.
+  - Claims: the fold's highest generation per lease equals the lease file's head.
+  - A difference names its writer. The fixtures are an eviction, a merged long-lived site, a restart between windows,
+    and an out-of-order claim entry.
 - **L2, integrity.** Unparsed lines other than torn tails: 0. Size refusals: 0. A dropped transition: 0. `_ledger_drop`
   at most 1% of observations.
 - **L3, cost.** Append p95 under 5 ms. Under 2 MB per town per day before rotation. Fold from the checkpoint p95 under
@@ -693,8 +691,8 @@ lines). The probe decides what chatgate-01 is:
 | DELIVER | the courier, in order: re-check eligibility and bag **fresh**; check that `deliver_to` exists and has room (townindex); **link the generation `awarded → delivering`**, recording the container's pre-count of the item from a fresh open (this is the atomic claim); then the existing verified town deposit; then link `delivered` with the `op` | `{req, op}`: the townindex transfer record, with its pre-state and verifying re-open | `delivering` is linked only onto a live `awarded` generation, and only one generation can win a `link()` |
 | CANCEL / EXPIRE | either side (reason enum), or the clock | | transitions are never dropped (§4.4) |
 
-- **Legal transitions:** open → offered → awarded → delivering → delivered or cancelled. awarded → cancelled or
-  expired. Open and offered can also expire.
+- **Legal transitions:** open → offered → awarded → delivering → delivered, cancelled or **unknown**. awarded →
+  cancelled or expired. Open and offered can also expire.
   - **awarded → expired** is derived from the lease's `until`, which is `eta + 5 min`. Any reader may write the expired
     generation.
   - Anything else is refused. Only the named writer of each step may write it. The requester or the foreman may cancel
@@ -704,17 +702,28 @@ lines). The probe decides what chatgate-01 is:
 - **Serialization:**
   - Cancellation and expiry may be linked only onto `awarded`. Once `delivering` is linked, only the courier ends it:
     `delivered`, or `cancelled` with a reason. So a cancel can no longer land between the claim and the click.
-  - **An uncertain transfer** (a crash after `delivering`, with no `delivered` written) **ends as `unknown`.** It is never
-    claimed as delivered and never retried automatically. A shared container's count cannot attribute a transfer, since
-    other bots deposit and withdraw.
-    - **The courier, on restart:** compares its own bag with the pre-delivery bag recorded in `delivering`. This is
-      attributable evidence. If the items left its bag, it links `delivered (bag_evidence)`; otherwise `unknown`. The
-      container count is logged as a cross-check only.
-    - **Anyone else:** may link only `unknown`, and only after `delivering.until` (the skill's clock, about 3 min) plus
-      5 min. A courier that resumes after a later generation exists stops, and writes nothing.
-    - **The reservation** is released at `unknown`. The requester's need is recomputed from `stock`, so reality (the
-      index's next open) decides whether to ask again.
-    - **Tests:** concurrent deposits and withdrawals of the item during the delivery; a courier resuming after a takeover.
+  - **An uncertain transfer** (a crash after `delivering`, with no `delivered` written) is decided only by **durable,
+    attributable evidence**: the townindex transfer record whose `op` names this request and this destination. The
+    verified deposit writes that record, with its pre-state and verifying re-open.
+    - The record exists: link `delivered`.
+    - It does not: link **`unknown`**. Never `delivered`, and never retried automatically.
+    - The courier's bag and the container's count are logged as cross-checks only. Items can leave a bag by death,
+      disposal or another deposit, and other bots move items in and out of a shared container.
+  - **Takeover only after a restart:** another reader may write `unknown` only once the courier bot has restarted, shown
+    by a `spawned` row newer than the `delivering` generation.
+    - A restart discards every in-memory skill, so the old executor cannot resume a transfer.
+    - Staleness alone never permits a takeover. While the courier process lives, its own skill clock ends the delivery
+      as `delivered` or `cancelled`.
+    - A unit that never comes back is restarted by the operator, and that restart creates the row.
+  - **The reservation** is released at `unknown`. The requester's need is recomputed from `stock`, so the index's next
+    open decides whether to ask again.
+  - **Tests:**
+    - concurrent deposits and withdrawals of the item during the delivery;
+    - a courier death mid-delivery;
+    - an intervening inventory change;
+    - a courier suspended immediately before the click (SIGSTOP; heartbeat stale; no restart) → no takeover. On resume it
+      finishes or cancels under its own lease;
+    - a restart → `unknown` unless the transfer record exists.
   - **A derived winner that never creates the lease** (it crashed or moved on): the next offer becomes the winner only
     when the first winner's 10-min offer expires. The request's 20-min `until` bounds the whole wait.
 - **No bilateral trade in v1.** A swap is two linked requests with an atomic pairing rule; it is designed separately, if
@@ -754,8 +763,7 @@ lines). The probe decides what chatgate-01 is:
   - requests expired unfilled, awards abandoned, deliveries sniped.
 - **Deterministic gates:**
   - duplicate awards per request: 0;
-  - deliveries without a verifying re-open: 0 (`delivered (bag_evidence)` and `unknown` are reported separately and never
-    counted as verified);
+  - deliveries without a verifying re-open: 0 (`unknown` is reported separately and never counted as verified);
   - deaths within 120 s of a request, award or deliver row are named, with the two-death floor.
 - **Exposure:** at least 10 offers in the canary arm, or the read closes INCONCLUSIVE early (owner 10-15 rule). Offers
   are near-empty under today's keep rules (§2.5).
@@ -803,7 +811,7 @@ lines). The probe decides what chatgate-01 is:
 |---|---|---|---|---|---|
 | 0 | **chat-event probe** | one Paper scene: does mineflayer's `chat` fire for "[Not Secure] <name>" lines? | sandbox, no slot | — | day 1 |
 | 1 | **chatgate-01** | commands whitelist; comms ingestion retired; enum prompt kinds; TALK code shipped **off** | **tier 2** (a small fix with strong Paper evidence: §5.3's tests and mutants). Registration: 4 pools; licence not `rate`; **exposure field: canary bot-h with the gate active, read from a `_chatgate_mode` startup row (like the other `_*_mode` rows), at least 48.** This duplicates tier condition 3 (48 bot-h), and that is honest: nothing can be exposed on the bench, since chat commands run 0 times a day; KEEP at +180 with T6, no harm and the licence row. An owner-direct rollout would be an **exception to the tier policy** the owner must grant (C4) | 0 | build 1-2 days; the next free slot; **before the showcase bots start** (add to its start gate) |
-| 2 | **keepout-01** | dig and gather candidates in the column above a live **fire** site refused, whatever the body's position (v1). Drop-landing pricing is a separate later variant | **tier 3**, the underground-safety lane. **Draw: towns with a live fire site,** recomputed at launch (at 10-21 20:00Z: 6-8 live fire sites in 5-7 towns by write order -- hive-a, hive-b ×2, hive-c, hive-d, placebo-a, and possibly board-a, board-d). Paper is the main evidence (the hive-b starts and the sealed ledge). Exposure field: gather and mine candidates refused for a column, at least 20. **Primary, computed host-side for both arms, restricted to the cells today's rows can see:** `_reach_probe` `hit=` gather candidates inside a column of a live fire site (sites replayed with `deaths_v5`'s rules), per bot-h. Both arms write that row on today's code. **Positive control (required before the read counts):** the same query finds 86 in-column candidates in hive-b in 24 h, including 16 of Echo's in 06:00-06:10 and 10 of Alpha's in 08:25-08:35 before their deaths (`data/reach_probe_control.txt`). Mine descents have no positioned dig row in the control build, so they are covered by Paper and a canary-arm deterministic gate (`_keepout_refused` rows, mine planned-dig cells in a column = 0), **not** by the difference-in-differences. The control build computes no columns itself. **The control is restricted to towns that also have a live fire site** (the null must match the drawn stratum). If fewer than 2 such control towns exist, the read closes on Paper plus the deterministic gates, with no difference-in-differences. Early INCONCLUSIVE if the drawn sites lapse unexposed. Deaths are a tripwire | its own design with both engines (C3) | weeks 1-3 |
+| 2 | **keepout-01** | dig and gather candidates in the column above a live **fire** site refused, whatever the body's position (v1). Drop-landing pricing is a separate later variant | **tier 3**, the underground-safety lane. **Draw: towns with a live fire site,** recomputed at launch (at 10-21 20:00Z: 6-8 live fire sites in 5-7 towns by write order -- hive-a, hive-b ×2, hive-c, hive-d, placebo-a, and possibly board-a, board-d). Paper is the main evidence (the hive-b starts and the sealed ledge). Exposure field: gather and mine candidates refused for a column, at least 20. **Primary, computed host-side for both arms, restricted to the cells today's rows can see:** `_reach_probe` `hit=` gather candidates inside a column of a live fire site (sites replayed with `deaths_v5`'s rules), per bot-h. Both arms write that row on today's code. **Positive control (required before the read counts):** the same query finds 86 in-column candidates in hive-b in 24 h, including 13 of Echo's in [06:00, 06:10) and 9 of Alpha's in [08:25, 08:35) before their deaths. The sites are replayed over time, and **no other town had an in-column candidate in the 24 h**, so exposure is concentrated (`tools/reach_control.py.txt`, `data/reach_probe_control.txt`). In the canary arm keep-out refuses these candidates by construction, so this difference-in-differences mostly shows **that the code ran**. It is a mechanism and exposure check, not a safety outcome; deaths stay the tripwire beside it. Mine descents have no positioned dig row in the control build, so they are covered by Paper and a canary-arm deterministic gate, **not** by the difference-in-differences. The gate is on what was *permitted*, not what was refused: a canary-only `_mine_plan` row lists the planned dig cells of each descent that was allowed, and `_mine_dig` rows give the executed cells. The gate requires 0 of either inside a live fire column. A **bypassed-guard mutant** (the column check removed) must fail it on Paper. The control build computes no columns itself. **The control is restricted to towns that also have a live fire site** (the null must match the drawn stratum). If fewer than 2 such control towns exist, the read closes on Paper plus the deterministic gates, with no difference-in-differences. Early INCONCLUSIVE if the drawn sites lapse unexposed. Deaths are a tripwire | its own design with both engines (C3) | weeks 1-3 |
 | 3 | **ledger-01** | journal, fold, mirrors + `station` / `claim` / `progress` writers; no reader | **tier 2** on its own registration, or as a **newly reviewed combined variant** with townindex-01 (both observe-only). Licence not `rate`. Exposure field: ledger entries written per drawn town, at least 200. Gates L1-L4 | townindex-01's variant on the live tip | with townindex-01: weeks 1-2 |
 | 4 | **TALK on (showcase)** + markers + captions | showcase config; host scripts on the showcase VM | showcase owner-direct (owner 10-21: counts as kept); T1-T5 + exposure | 1, 3; jar check (§5.2); C5-C8 | when the showcase bots start (week 2+) |
 | 5 | **furnaceseen-01** | drain skips the walk to a live-empty furnace | tier 2. Licence not `rate`. Exposure field: drain walks skipped, at least 20. Gate: 0 drain walks to a live-empty furnace. Repeats per bot-h, as difference-in-differences. Guard: furnace output not waiting longer; smelt ingots not lower | 3 promoted | weeks 2-3, folded with the next smelt or drain change |
@@ -895,10 +903,20 @@ and indexsearch-01.
 - **Round 4 (r4): Codex CHANGE (5 P2, 1 P3); Claude CHANGE (1 P2, 4 P3). No P1 from either.**
   - **Replay:** deaths_v5 replays merge-before-prune on stored counts at both write-order extremes (identical counts); the
     class breakdown is regenerated for 171; "upper bound" is removed.
-  - **Uncertain delivery:** ends as `unknown`, on bag evidence, with fenced takeover.
+  - **Uncertain delivery:** ends as `unknown`, with fenced takeover. In r6, delivery is decided by the transfer record
+    only; bag evidence is a cross-check.
   - **keepout primary:** restricted to the observable `_reach_probe hit=` candidates, with a positive control (86 in
     hive-b; Echo 16, Alpha 10 before their deaths). Mine is covered by Paper and a deterministic gate only.
   - **mine:** gets the 10-min cooldown and a sustained test.
   - **`_keepout_exit`:** yields inside a town column during the town job; a failed pillar is `failed`.
   - **Snapshots:** ordered by ledger offset, with delayed-write and tie tests.
-- **Round 5:** pending.
+- **Round 5 (r5): Claude APPROVE (3 P3); Codex CHANGE (4 P2, 1 P3).**
+  - **Mirrors:** world facts, town memory and the index are snapshot-only. Claims are live with the lease generation as
+    the source revision. Snapshots count only within one ledger generation.
+  - **Uncertain deliveries:** decided only by the attributable transfer record, otherwise `unknown`. `unknown` is a legal
+    transition.
+  - **Takeover:** only after the courier's restart, with a SIGSTOP test.
+  - **The mine gate:** checks permitted and executed cells, with a bypassed-guard mutant.
+  - **The reach-probe control:** committed as a reproducible tool, with time-varying sites and half-open windows (13 and
+    9; only hive-b exposed). The candidate difference-in-differences is named a mechanism check.
+- **Round 6:** pending.
