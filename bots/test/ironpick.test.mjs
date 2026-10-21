@@ -318,6 +318,22 @@ async function stickNarrowScene (S = S0) {
   assert.equal(count(chestOf(w), 'iron_ingot'), 8); assert.equal(count(chestOf(w), 'stick'), 0)
 }
 await t('SKILL, STICKS SHORT FOR THE WHOLE KIT (Codex r2 P2): no_sticks for 8 narrows to the pickaxe (4), which the next order draws and makes', () => stickNarrowScene())
+// x indexsearch-01: KITSTICKS's pre-draw now takes the holder's 4 sticks into the bag in stickNarrowScene's run 1, so the prefix
+// draw is no longer at risk there and the gate's hold-back by quantity is never reached by that scene. The gate itself, with
+// the holder's stick count recorded and NO known stick holder in town (the KITSTICKS exemption off the table: nothing has
+// counted sticks), is what this scene pins: held back from the whole kit's 8, not from the pickaxe's 4.
+function stickGateScene (S = S0) {
+  const w = withServer(town([T('stone_pickaxe', 100), stack('crafting_table', 1)], [stack('iron_ingot', 11), stack('stick', 4)]))
+  w.bot.kitNoSticks = new Map([['5,64,0', Date.now() + 3_600_000]])
+  w.bot.kitNoSticksHad = new Map([['5,64,0', 4]])
+  const items = w.bag.filter(Boolean)
+  const whole = K.kitDraw(items), prefix = K.kitDraw(items, { limit: 1 })
+  assert.equal(whole.needs.length, 3); assert.deepEqual(prefix.needs, ['iron_pickaxe'])
+  assert.ok(whole.sticks > 4 && prefix.sticks <= 4, `the whole kit needs more sticks than the holder had, the pickaxe no more (${whole.sticks}, ${prefix.sticks})`)
+  assert.equal(S.townKitIronMiss(w.bot, whole), true, 'the whole kit: the only holder is held back (it had 4 of the 8)')
+  assert.equal(S.townKitIronMiss(w.bot, prefix), false, 'the pickaxe prefix: the holder had its sticks -- not held back')
+}
+await t('x INDEXSEARCH-01: THE GATE\'S HOLD-BACK BY QUANTITY with no known stick holder (KITSTICKS cannot help): whole kit held back, the pickaxe prefix not', () => stickGateScene())
 async function creditNoSticksScene (S = S0) {
   // Claude r4 P3: the credit covers the pickaxe's iron (3 ingots), the whole kit still needs town iron; no sticks anywhere, no
   // wood: the run ends no_sticks and BACKS OFF -- the pickaxe prefix is not meetable (its 4 sticks cannot be had), so no narrow
@@ -499,7 +515,9 @@ await t('MUTANTS: each removes one part of ironpick-01 and a behaviour test abov
   // the narrow outcome gone: the whole-kit miss backs off 30 min although the pickaxe's draw is there
   kills.noNarrow = await withMutant(SKILLS_PATH, "        if (narrow) {\n          return out('failed', 'narrow',", "        if (false) {\n          return out('failed', 'narrow',", S => killedBy(() => narrowScene(S)))
   // the hold-back by quantity gone (any recorded holder held back): the pickaxe prefix never sees the 4-stick holder
-  kills.stickQty = await withMutant(SKILLS_PATH, 'if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)', 'if (until > Date.now()) held.add(k)', S => killedBy(() => stickNarrowScene(S)))
+  // (x indexsearch-01: the KITSTICKS pre-draw masks it in stickNarrowScene -- the sticks are in the bag by run 2 -- so the kill is
+  // on the gate scene with no known stick holder)
+  kills.stickQty = await withMutant(SKILLS_PATH, 'if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)', 'if (until > Date.now()) held.add(k)', S => killedBy(() => stickGateScene(S)))
   // the credit-funded prefix counted meetable without its sticks: a narrow that cannot be met
   kills.creditSticks = await withMutant(SKILLS_PATH, 'p1.ingots === 0 ? p1.sticks <= kitMeans(items(), { tableNear }).sticksMakeable :', 'p1.ingots === 0 ? true :', S => killedBy(() => creditNoSticksScene(S)))
   // iron_seen on a sticks-only draw
