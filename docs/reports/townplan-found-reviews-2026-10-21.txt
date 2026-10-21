@@ -1,0 +1,55 @@
+townplan-01 + found-01: the review record (2026-10-21)
+=====================================================
+
+Reviewers: Codex (codex exec, read-only sandbox) and an independent Claude subagent, every round, on the same input.
+
+SPEC (docs/reports/townplan-found-spec-2026-10-21.md; every finding and its disposition is in the spec's section 6)
+  r1  Codex CHANGE 6 P1 / 10 P2          Claude CHANGE 2 P1 / 10 P2 / 4 P3
+  r2  Codex CHANGE 5 P1 / 7 P2           Claude CHANGE 1 P1 / 4 P2 / 6 P3
+  r3  Codex CHANGE 3 P1 / 2 P2           Claude CHANGE 3 P2 / 2 P3
+  r4  Codex CHANGE 4 P2                  Claude APPROVE with 5 P3
+  r5  Codex CHANGE 1 P2 / 2 P3           Claude APPROVE + 5 P3
+  r6  Codex CHANGE 2 P2                  Claude CHANGE 1 P2 / 2 P3
+  r7  Codex APPROVE                      Claude APPROVE                      (spec 841c8942; re-stacked as 931b680b)
+
+CODE ROUND 1 (townplan-01 aa24b10c on d0a27a5e; found-01's code dormant in it; foundread.py from 7cc73703)
+  Codex CHANGE (7 P2)   Claude CHANGE (8 P2, 8 P3)
+
+  finding                                                                   disposition (code r2)
+  Claude P2  a torn found-lease file blocks founding for good                foundLeaseLive: a torn record is live only until it is older than
+                                                                            the TTL (furnacelease's rule); test THE FOUND LEASE, TORN
+  Claude P2  the composter's and the well's temporary tables ignore the plan planTableForbids: a non-plan cell first, a free plan cell second,
+                                                                            NEVER never, wired into tableCellFor (composter) and wellTableCell
+                                                                            (build_well); test BUILDERS' TEMPORARY TABLES
+  Codex P2   placement re-checks the well after the awaits, not the plan     place(): the head re-read and the plan class re-judged last, for
+                                                                            scanned spots (explicit coordinates are the caller's own); test
+                                                                            TEMPORARY TABLE race + two mutants (scan+late, late alone)
+  Claude P2  D5 false REVERT on a greenfield ground bump                     the audit counts `occupied` only on cells the fit judged READY;
+                                                                            townplan.test AUDIT extended
+  Claude+Codex P2  D3 flags the recovery's own section placement             the read skips tier=section (foundread's G2 judges it); selftest
+  Claude P2  D4's avoid half can never fire                                 the writer records seed.avoid in the plan; selftest positive control
+  Claude+Codex P2  greenfield F3 starves after a recovery chest (role null)  found.mjs foundAssign + skills foundAssignHome: the bag's homeless
+                                                                            group takes the unassigned placed store cell (a plan-only publish)
+                                                                            before foundOrder; test GREENFIELD F3 AFTER A RECOVERY CHEST
+  Claude P2 / Codex P2  growth's extra cells skip READY/access; side-by-side growPlan (e): READY's whole context (solid, cellForbid), every annex
+                                                                            cell a chest never beside another, joint access + accessKept;
+                                                                            townplan.test GROWTH extended
+  Claude+Codex P2  the walk accepts an adoption that changes the intent;     JS walk and Python port: a reservation may set an intent from none,
+             a new reserved cell with a dead until                          never change it; an adoption keeps it exactly; a new reserved cell
+                                                                            needs until > at; planstore tests + an anchored mutant; port selftest
+  Claude P3  seenSince carried into the adopting step froze the plan         refused at that step (seenSince never on a placed cell)
+  Codex P2   plinth ACCESS rejection discards the pass                       the cap refused by ACCESS is avoided and the same pass replanned
+                                                                            (<= 3 times)
+  Claude+Codex P2  the Paper scenes mostly unbuilt                           sandbox/townplan/townplan-e2e.cjs now carries 17 scenes (FOUND-PLINTH
+                                                                            named as fake-world only: see its header); run results below
+  Claude P3  PLAN_MAX_READ_BYTES 32 MB vs the spec's 64                      64 MB
+  Claude P3  the second tier admits any STATION_ITEMS                        crafting_table only (craft's own temporary table)
+  Claude P3  _found_recovery always cell=section                             cell=extra for an extra cell
+  Claude P3  the per-cell READY/ACCESS context cost                          planCtxMemo: 2 s per bot for per-cell checks; the tick builds fresh
+  Claude P3  tests: plan_refused never asserted; mutants without a positive  asserted from the row; positive runs added to the SOFT mutant;
+                                                                            the table mutants rebuilt on a scene that runs unmutated first
+  Claude P3  _gen_index/_rejected keyed (pool, gen); D4 judges stands        kept: one home per pool on the bench (noted); stands are plan cells'
+                                                                            neighbours inside the plot box, a zone over them is still a defect
+  Claude P3  planPlinthKeepOut tiles boxes at s+1 +- 2 only                  kept: the keep-out is 3-D Chebyshev r 2 at the pad level, which
+                                                                            covers s-1..s+3; a plinth cell outside that span is not on the
+                                                                            plan's ground (noted for r2)

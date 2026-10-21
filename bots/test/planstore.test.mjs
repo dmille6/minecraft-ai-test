@@ -200,7 +200,8 @@ await t('PLACED: the holder publishes its own placement at once (keeping the int
   const dir = dirOf()
   pub(dir, () => body())
   pub(dir, cur => { Object.assign(cellOf(cur, C1), { state: 'reserved', by: 'A', visit: 'va', until: 900_000, role: 'overflow', group: null }); return cur }, 'A', 2000)
-  const place = (by, visit) => cur => { Object.assign(cellOf(cur, C1), { state: 'placed', by, visit }); return cur }
+  // the adopting step clears seenSince (a placed cell never carries it: maintainPlan does the same)
+  const place = (by, visit) => cur => { Object.assign(cellOf(cur, C1), { state: 'placed', by, visit }); delete cellOf(cur, C1).seenSince; return cur }
   assert.equal(pub(dir, place('B', 'vb'), 'B', 3000).result, 'invalid', 'another bot, before the expiry')
   assert.equal(pub(dir, place('B', 'vb'), 'B', 900_000 + 61_000).result, 'invalid', 'another bot after the expiry, but with ONE read')
   // the first read: seenSince (any writer); the adoption 10 min later
@@ -261,6 +262,19 @@ await t('TRANSITION RULES, one minimal violation each (transitionRefusal)', () =
   // free -> reserved only by the writer, with a live until
   assert.match(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'Z', visit: 'z', until: 99_999 }) })), /not by the writer/)
   assert.equal(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999 }) })), null)
+  // INTENT (Claude/Codex code r1 P2): a reservation may set an intent on a cell with none, never change one; an adoption keeps
+  // it exactly; a placed cell never carries seenSince, also not on the adopting step
+  const i0 = JSON.parse(JSON.stringify(base)); Object.assign(i0.plots[1].cells[1], { role: 'overflow' })
+  const ix = f => { const n = JSON.parse(JSON.stringify(i0)); n.gen = 3; n.prev = 2; f(n); return n }
+  assert.match(PS.transitionRefusal(i0, ix(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, role: 'home', group: 'metal' }) })), /changed its intent/)
+  assert.equal(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, role: 'home', group: 'metal' }) })), null, 'set from none')
+  const i1 = JSON.parse(JSON.stringify(i0)); i1.plots[1].cells[1].seenSince = 1000
+  const iy = f => { const n = JSON.parse(JSON.stringify(i1)); n.gen = 3; n.prev = 2; n.at = 1000 + 11 * 60_000; f(n); return n }
+  assert.match(PS.transitionRefusal(i1, iy(n => { const c = n.plots[1].cells[1]; c.state = 'placed'; delete c.seenSince; c.role = 'home'; c.group = 'metal' })), /adoption .* changed its intent/)
+  assert.equal(PS.transitionRefusal(i1, iy(n => { const c = n.plots[1].cells[1]; c.state = 'placed'; delete c.seenSince })), null, 'the intent kept: accepted')
+  assert.match(PS.transitionRefusal(i1, iy(n => { n.plots[1].cells[1].state = 'placed' })), /seenSince on placed/)
+  // a NEW cell reserved by the writer must carry a live until
+  assert.match(PS.transitionRefusal(base, nx(n => { n.plots[1].cells.push({ at: [111, 70, 98], kind: 'chest', stand: [111, 70, 99], role: null, group: null, state: 'reserved', by: 'A', visit: 'v', until: 10 }) })), /reserved by another \(or already expired\)/)
   // a COMMITTED plot may only APPEND (Codex spec r1 P1): a new store cell is accepted, a moved free one is not
   assert.equal(PS.transitionRefusal(base, nx(n => { n.plots[1].cells.push({ at: [111, 70, 98], kind: 'chest', stand: [111, 70, 99], role: null, group: null, state: 'free' }) })), null)
   assert.match(PS.transitionRefusal(base, nx(n => { n.plots[1].cells[1].at = [109, 70, 103] })), /of committed plot store dropped/)
@@ -414,6 +428,20 @@ await t('MUTANT KILLED: a continued walk that ignores a late lower number keeps 
   const k = await withMutant(PS_PATH, 'gens.every(g => g > lastWalked || prior.set.has(g))', 'true', async P => killedBy(() => {
     const { after, full } = lateLower(P)
     assert.equal(after.head.gen, full.head.gen)
+  }))
+  assert.ok(k, 'the mutant survived')
+})
+await t('MUTANT KILLED: an adoption that changes the cell\'s intent (Claude/Codex code r1 P2)', async () => {
+  const mk = P => {
+    const prev = { ...body(), v: 1, gen: 2, prev: 1, prevSha: 'a'.repeat(64), world: W, at: 1000, by: 'A', transitions: [] }
+    Object.assign(prev.plots[1].cells[1], { role: 'overflow', seenSince: 1000 })
+    const next = JSON.parse(JSON.stringify(prev)); next.gen = 3; next.prev = 2; next.at = 1000 + 11 * 60_000
+    const c = next.plots[1].cells[1]; c.state = 'placed'; delete c.seenSince; c.role = 'home'; c.group = 'metal'
+    return P.transitionRefusal(prev, next)
+  }
+  assert.match(mk(PS), /changed its intent/, 'the unmutated walk refuses it')
+  const k = await withMutant(PS_PATH, "    if (n.state === 'placed' && !sameIntent(c, n)) return `adoption of ${k} changed its intent`\n", '', async P => killedBy(() => {
+    assert.ok(mk(P))
   }))
   assert.ok(k, 'the mutant survived')
 })

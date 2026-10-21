@@ -846,8 +846,9 @@ export const OBSERVE_DELAY_MS = 10 * 60_000
  *   (d) the marks: a free cell reading its kind -> `seenSince`, matured -> `placed` (intent kept); a free marked cell reading
  *       otherwise -> cleared; a placed cell reading otherwise -> `missingSince`, matured -> free + `gone` (intent kept); a
  *       placed marked cell reading its kind -> cleared; unknown changes nothing;
- *   (a) retrofit `waiting` and nothing unknown -> allocate; (b) retrofit: a new container -> drain; a pending group -> an
- *       unassigned placed store cell, else the emptiest observed drain container.
+ *   (a) retrofit `waiting` and nothing unknown -> allocate; (b) retrofit: a new container -> drain; a pending group -> the
+ *       emptiest observed drain container. (Greenfield: an unassigned placed store cell is given a homeless group by the
+ *       found slot itself -- found.mjs foundAssign, skills.mjs foundAssignHome -- not here.)
  * A reservation that has not expired is its holder's (only its holder touches it).
  */
 export function maintainPlan (plan, read, { now = Date.now(), containers = null, allocate = null, margin = 60_000 } = {}) {
@@ -940,7 +941,8 @@ export function growPlan (plan, read, ctx = {}) {
   p.transitions = []
   const anyCommitted = p.plots.some(plotCommitted)
   const planned = new Set(p.plots.flatMap(cellsOfPlot).map(c => kOf(c.at)))
-  const rctx = { zones: ctx.zones ?? [], home, planned, wells: ctx.wells ?? [], farm: ctx.farm ?? null }
+  // READY's whole context (Claude code r1 P2): the well rules, plinth shells and stairs (solid), the per-kind refusals
+  const rctx = { zones: ctx.zones ?? [], home, planned, wells: ctx.wells ?? [], farm: ctx.farm ?? null, solid: ctx.solid ?? null, cellForbid: ctx.cellForbid ?? null }
   const store = p.plots.find(x => x.id === 'store')
   if (!anyCommitted) {
     // (f) does the plan still qualify? 4 READY chest cells and the first two stations
@@ -962,19 +964,31 @@ export function growPlan (plan, read, ctx = {}) {
     const extras = store.cells.filter(c => c.extra).length
     if (readyFree.length || extras >= EXTRA_MAX) return null
     const ko = keepouts(p)
-    const a = fitAnnex(read, home, { zones: rctx.zones, wells: rctx.wells, farm: rctx.farm, keepout: (x, z) => ko.tier(x, home.y, z) !== null || ko.boxAt(x, z) })
-    const add = (a.cells ?? []).filter(c => !planned.has(kOf(c.at))).slice(0, EXTRA_MAX - extras)
-      .map(c => ({ at: c.at, kind: 'chest', stand: c.stand ?? null, role: null, group: null, state: 'free', extra: true }))
-    // chests never side by side with an existing store chest
+    const a = fitAnnex(read, home, { zones: rctx.zones, wells: rctx.wells, farm: rctx.farm, solid: rctx.solid, cellForbid: rctx.cellForbid,
+                                     keepout: (x, z) => ko.tier(x, home.y, z) !== null || ko.boxAt(x, z) })
+    // EVERY annex cell becomes a CHEST here (the annex picked a table and a furnace too): chests never side by side -- with an
+    // existing store chest OR with each other (Codex code r1 P2: the table's cell beside the first chest) -- and each READY as a
+    // chest under READY's whole context
     const near = (a1, b1) => a1[1] === b1[1] && Math.abs(a1[0] - b1[0]) + Math.abs(a1[2] - b1[2]) === 1
-    const ok = add.filter(c => !store.cells.some(e => near(e.at, c.at)))
+    const ok = []
+    for (const c of a.cells ?? []) {
+      if (ok.length >= EXTRA_MAX - extras) break
+      if (planned.has(kOf(c.at)) || store.cells.some(e => near(e.at, c.at)) || ok.some(e => near(e.at, c.at))) continue
+      if (readyCell(read, c.at, { ...rctx, planned: new Set([...planned, ...ok.map(e => kOf(e.at))]) }, 'chest')) continue
+      ok.push({ at: c.at, kind: 'chest', stand: c.stand ?? null, role: null, group: null, state: 'free', extra: true })
+    }
     if (!ok.length) return null
-    store.cells.push(...ok)
-    return { body: p, op: 'extend', why: `${ok.length} extra annex cell(s)` }
+    // JOINT ACCESS (spec 1.5(e)): the new cells reachable together with the plan's committed cells and the town's containers,
+    // and none of them cutting an existing one off
+    const ja = jointAccess(read, home, ok, { existing: ctx.existing ?? [], solid: rctx.solid })
+    const kept = ja.ok.filter(c => accessKept(read, home, p, [c.at], { existing: ctx.existing ?? [] }).ok)
+    if (!kept.length) return null
+    store.cells.push(...kept)
+    return { body: p, op: 'extend', why: `${kept.length} extra annex cell(s)` }
   }
   if (store.kind === 'unplaced' && !plotCommitted(store)) {
     const ko = keepouts(p)
-    const a = fitAnnex(read, home, { zones: rctx.zones, wells: rctx.wells, farm: rctx.farm, keepout: (x, z) => ko.tier(x, home.y, z) !== null })
+    const a = fitAnnex(read, home, { zones: rctx.zones, wells: rctx.wells, farm: rctx.farm, solid: rctx.solid, cellForbid: rctx.cellForbid, keepout: (x, z) => ko.tier(x, home.y, z) !== null })
     const chests = (a.cells ?? []).filter(c => c.kind === 'chest' && !planned.has(kOf(c.at)))
     if (!chests.length) return null
     store.kind = 'annex'; store.keepout = true
@@ -1002,7 +1016,9 @@ export function auditPlan (plan, read, { home = null, existing = [] } = {}) {
       } else if (replaceableCell(b) || nm(b) === 'air') { out.missing++; out.names.push(`missing:${c.kind}@${c.at.join(',')}`) } else { out.other++; out.names.push(`${nm(b)}@${c.at.join(',')}`) }
     } else if (c.state === 'free') {
       out.free++
-      if (b && !replaceableCell(b) && nm(b) !== 'air' && !(KIND_BLOCK[c.kind] ?? /^$/).test(nm(b))) { out.occupied++; out.names.push(`${nm(b)}@${c.at.join(',')}`) }
+      // OCCUPIED counts only cells the fit judged READY (Claude code r1 P2): a greenfield cell written ready:false over a ground
+      // bump is terrain the fit already knew, not a structure or furniture on a planned cell
+      if (c.ready !== false && b && !replaceableCell(b) && nm(b) !== 'air' && !(KIND_BLOCK[c.kind] ?? /^$/).test(nm(b))) { out.occupied++; out.names.push(`${nm(b)}@${c.at.join(',')}`) }
     }
   }
   if (home && placedCells.length) {
