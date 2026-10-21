@@ -66,6 +66,8 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+// junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
+import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
@@ -6626,6 +6628,10 @@ async function wearOut(ctx, _args, signal) {
     logEvent({ kind: 'toolkit', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot), durationMs: Date.now() - wearT0,
                detail: toolkitRow(fields), args: toolkitArgs(fields) })
   }
+  // junkout-01 (design 3 D): the spent pickaxes listed only because the owner's two spares already cover last-swing's keeps
+  if (plan.junkout > 0) {
+    try { logEvent({ kind: 'junkout', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot), detail: `phase=wear listed=${plan.junkout} worn=${destroyed.length} of=${plan.tools.length} slots=${plan.slots}->${after}` }) } catch { /* telemetry */ }
+  }
   logEvent({ kind: 'wear_out', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot),
              detail: `${plan.slots} -> ${after} slots: ${destroyed.length} of ${plan.tools.length} spent tool(s) worn out` +
                      `${destroyed.length ? ` (${destroyed.join(', ')})` : ''}${stopped ? `; stopped: ${stopped}` : ''}`.slice(0, 300) })
@@ -6900,8 +6906,18 @@ async function compost(ctx, _args, signal) {
   // visit's items= list can pass that, so the read gates on args.items (name -> verified count), never on cut prose.
   // `peaceful` is the switch's reading for this visit (set below, before any insert).
   let peaceful = null
-  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful, ...(f?.inflight ? { incomplete: 1, inflight: f.inflight } : {}) },
-                                        detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
+  // junkout-01: the TOWN-VISIT order (composter.mjs compostVisitOrder) also writes `_junkout phase=compost`, once, beside every row
+  const visit = _args?.visit === true
+  const row = (status, f) => {
+    logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful, ...(f?.inflight ? { incomplete: 1, inflight: f.inflight } : {}) },
+               detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
+    if (visit) {
+      try {
+        logEvent({ kind: 'junkout', status, snapshot: snapshot(bot), detail: junkoutVisitDetail({ phase: 'compost', vid: _args?.vid ?? null, armed: _args?.armed ?? null, dh: _args?.dh ?? null, dy: _args?.dy ?? null, dw: _args?.dc ?? null, slotsBefore,
+          slotsAfter: items().length, n: Object.values(f?.items ?? {}).reduce((t, v) => t + (Number(v) || 0), 0), status, stop: f?.stop ?? null }) })
+      } catch { /* telemetry */ }
+    }
+  }
   const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
   // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
   if (bot.controlState?.sneak) return skip('sneaking (held by another subsystem); composting waits for another visit')
@@ -6914,7 +6930,9 @@ async function compost(ctx, _args, signal) {
   // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07), the same decision: so do its plants.
   const apples = foodSkipNow(bot).active, plants = apples
   peaceful = apples ? 1 : 0
-  if (!compostPlan(items(), { apples, plants }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
+  // junkout-01's visit fill never takes a sapling (planting needs > 8 of a species: Claude r1 P2-5)
+  const saplings = !visit
+  if (!compostPlan(items(), { apples, plants, saplings }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
@@ -6975,7 +6993,7 @@ async function compost(ctx, _args, signal) {
       check(signal)
       if (Date.now() > deadline) { stop = 'budget'; break }
       const room = boneMealRoom(items())
-      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples, plants }) : null
+      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples, plants, saplings }) : null
       const act = fillDecision({ level: composterLevel(at()), room, smallest: next?.n ?? 0 })
       if (act === 'done') break
       if (act === 'gone') { stop = 'composter gone'; break }
@@ -7117,9 +7135,9 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [] } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], tail = null } = {}) {
   const bag = windowBag(bot, win)
-  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve })
+  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail })
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   const done = []
@@ -7199,11 +7217,15 @@ async function townDeposit (ctx, _args, signal) {
   const { bot } = ctx
   // THE COUNT STEP (stocktarget design 3.7): the order asked to count the town first -- up to three containers whose count
   // the stock targets need (unknown, or older than the floor's hour for a group the bag holds surplus of)
+  // junkout-01: the NOT-FULL visit's tail order (towndeposit.mjs tailOrder) banks the bag allowance's rows ONLY -- no base
+  // plan, no count step, no valve; every plan of the run reads the same mode
+  const tail = _args?.tail === true ? 'only' : null
   let counted = null
-  if (_args?.recount) {
+  if (_args?.recount && !tail) {
     const keys = stockCountKeys(bot, bot.inventory?.items?.() ?? [], { floor: true })
     if (keys.length) {
-      const until = Date.now() + TD_BUDGET_MS
+      // a rows-only plan counts in a THIRD of the budget, so count + deposit stays near the contract's 60 s (bagbudget-01)
+      const until = Date.now() + (_args?.count === 'allowance_only' ? Math.floor(TD_BUDGET_MS / 3) : TD_BUDGET_MS)
       const rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys)
       counted = rc.counted
     } else counted = 0
@@ -7219,8 +7241,22 @@ async function townDeposit (ctx, _args, signal) {
   // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target keeps out of this visit, named
   stockRefusedRow(bot, 'town_deposit', before, { wants: wanted, noSwords: foodSkipNow(bot).active })
   // THE VALVE: only with the proof, re-taken here (design 3.2)
-  const valve = !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length && valveProof(bot, before)
-  const planned = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve }).steps.length
+  const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length && valveProof(bot, before)
+  const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail })
+  const planned = startPlan.steps.length
+  // the allowance rows' own stacks at the start (junkout-01's bank row: what they planned, and what the server showed banked)
+  const allowPlanned = startPlan.steps.filter(st => st.allowance).map(st => ({ name: st.name, row: st.allowance }))
+  // THE BANK ROWS, written for EVERY run that planned a row or banked anything (the read's J1 sees every name a town deposit
+  // put into a chest, whatever the mode), complete in parts
+  const bankRows = (n, slotsAfter) => {
+    if (!allowPlanned.length && !(n > 0)) return
+    try {
+      const visit = _args?.vid ?? visitId(bot.username, Date.now())
+      for (const detail of junkoutBankDetails({ planned: allowPlanned, heldBefore, banked, slotsBefore, slotsAfter, peaceful: foodSkipNow(bot).active, visit,
+                                                mode: tail ? 'tail' : 'full', keepPicks: startPlan.keepPicks, dh: _args?.dh ?? null, dy: _args?.dy ?? null, armed: _args?.armed ?? null }))
+        logEvent({ kind: 'junkout', status: n > 0 ? 'success' : 'failed', snapshot: snapshot(bot), detail })
+    } catch { /* telemetry */ }
+  }
   const stock = { claims: 0, refused: 0, valve: 0, counted }
   // `attempted` is what this visit MOVED (the client's clicks) and spends the cap; `banked` is what the server showed in
   // a chest on the re-open. A stack another bot takes out before the re-open is attempted but not banked -- and must
@@ -7272,7 +7308,7 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, tail })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
@@ -7303,13 +7339,14 @@ async function townDeposit (ctx, _args, signal) {
       }
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       if (!v.ok) { stop = 'unverified'; break }
-      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active }).steps.length) break
+      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
   }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
+  bankRows(n, slotsAfter)
   // A HELD CURSOR OUTRANKS AN EARLIER SUCCESS (Codex round 2): the window is still open and owned; the row keeps the
   // verified tally of the containers before it.
   if (unsettled) {
@@ -7327,16 +7364,20 @@ async function townDeposit (ctx, _args, signal) {
     row('failed')
     return { status: 'failed', failClass: 'town_deposit_unverified', detail: 'moved stacks into the town chest but could not open it again to confirm them; the town deposit waits' }
   }
+  // A ROWS-ONLY PLAN HAS NO DEPOSIT-VERB REMEDY (bagbudget-01, Claude design r1 P2-5): the verb never banks the rows
+  // (depositPlan never sees them), so its advice would send the bot to a chest for nothing
+  const allowOnly = startPlan.steps.length > 0 && startPlan.steps.every(st => st.allowance)
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
     row('failed')
     return { status: 'failed', failClass: 'town_storage_full',
-             detail: 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
+             detail: allowOnly ? 'the town chests in reach are full; what is over the bag allowance waits for a town chest with room -- keep working'
+               : 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
   }
   stop = stop ?? (clicked ? 'not confirmed by the server' : 'nothing moved')
   row('failed')
   return { status: 'failed', failClass: 'town_deposit_failed',
-           detail: `banked nothing at the town chests (${tried.map(t => t.result).join(', ') || 'none tried'}); deposit (no item) walks to the chest and tries others` }
+           detail: `banked nothing at the town chests (${tried.map(t => t.result).join(', ') || 'none tried'}); ${allowOnly ? 'what is over the bag allowance waits for the next town visit -- keep working' : 'deposit (no item) walks to the chest and tries others'}` }
 }
 
 // ------------------------------------------------------ build_composter -----
@@ -7822,7 +7863,7 @@ export function insideTownWell (bot) {
 export function townWellState (bot) {
   const w = findTownWell(bot)
   if (!w) return null
-  return { open: w.open, attended: !!wellAdmission({ players: playersSeen(bot), cap: w.cap, me: bot.username }), breached: !!w.breach }
+  return { open: w.open, attended: !!wellAdmission({ players: playersSeen(bot), cap: w.cap, me: bot.username }), breached: !!w.breach, cap: w.cap }
 }
 /** The recorded site when it is an OPEN PIT, for the scheduler (wellOrder's `pit`): someone at it? can this bot cover it? */
 export function townPitState (bot) {
@@ -8280,7 +8321,7 @@ const wellRefused = (bot, order, reason, said) => {
  * releases the bag, then judges where the throws went, retakes misses and asks the server again.
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
-async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null }) {
+async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null }) {
   const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsKept: 0, swordsAllowed: false, cobble: 0, cobbleLeft: null, cobbleAllowed: false, pruned: pruned ? { ...pruned } : null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
@@ -8300,10 +8341,11 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       before = await serverBag(bot, tick)
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
-      out.swordsAllowed = !pit && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
-      out.cap = pit ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
-      out.stock = pit ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock })   // the bag AS THE SERVER HOLDS IT
+      // junkout-01's VISIT dispose (`listedOnly`): the owner's list only -- no swords, no cobble at the cap, no at-target stock
+      out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
+      out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
+      out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       out.acc.cobbleAllowed = out.cap === 'at_cap'
@@ -8402,12 +8444,22 @@ async function disposeWell (ctx, _args, signal) {
   // `_args.pruned` (name -> count): what THIS bot's prune_town just took out of a town chest (stocktarget design 3.5);
   // never the model's (chatOnly), and never more than the server-verified take
   const pruned = _args?.pruned && typeof _args.pruned === 'object' ? _args.pruned : null
+  // junkout-01: the TOWN-VISIT order (well.mjs wellVisitOrder): listed junk only, and its own row (`_junkout phase=well`)
+  const visit = _args?.visit === true && !pruned
+  const keep = visit && Array.isArray(_args?.keep) ? _args.keep.filter(n => typeof n === 'string') : null   // the goal's wanted names
   const { bot } = ctx
   wellClickedLast = new Set()   // THIS visit's clicks only (Codex r2: a visit that aborts before its throw is graded on none)
   const items = () => bot.inventory?.items?.() ?? []
   const slotsBefore = items().length
-  const skip = (reason, why) => { wellRefused(bot, 'dispose', reason, why); return { status: 'no_effect', detail: why } }
-  const fail = (failClass, reason, why) => { wellRefused(bot, 'dispose', reason, why); return { status: 'failed', failClass, detail: why } }
+  // THE VISIT'S ROW, written once for every way the skill ends (junkout-01's read: J3 dh, J4 what the throws were)
+  let visitRowDone = false
+  const visitRow = (status, f = {}) => {
+    if (!visit || visitRowDone) return
+    visitRowDone = true
+    try { logEvent({ kind: 'junkout', status, snapshot: snapshot(bot), detail: junkoutVisitDetail({ phase: 'well', vid: _args?.vid ?? null, armed: _args?.armed ?? null, dh: _args?.dh ?? null, dy: _args?.dy ?? null, dw: _args?.dw ?? null, slotsBefore, slotsAfter: items().length, status, ...f }) }) } catch { /* telemetry */ }
+  }
+  const skip = (reason, why) => { wellRefused(bot, 'dispose', reason, why); visitRow('no_effect', { stop: reason }); return { status: 'no_effect', detail: why } }
+  const fail = (failClass, reason, why) => { wellRefused(bot, 'dispose', reason, why); visitRow('failed', { stop: reason }); return { status: 'failed', failClass, detail: why } }
   const well = findTownWell(bot)
   if (!well) return skip('no_well', 'no junk well in town yet: the next town visit with 2 logs (or 6 planks) of one wood builds one')
   const { cap, facing } = well
@@ -8424,7 +8476,8 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  if (!disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
+  if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
@@ -8446,7 +8499,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true
@@ -8461,19 +8514,25 @@ async function disposeWell (ctx, _args, signal) {
   if (ph.refused === 'nothing_listed') {
     if (closedOnly) {
       logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail: wellDisposeDetail({ slotsBefore, slotsAfter: items().length, closedOpen: true, stop: 'closed_only', at: cap, capEnd: capEndOf(bot, cap) }) })
+      visitRow('success', { listed: entryPlan.junkStacks, stop: 'closed_only' })
       return { status: 'success', placed: 1, detail: 'found the town junk well open and closed it' }
     }
     return skip('nothing_listed', 'the server\'s bag holds nothing on the junk list')
   }
   const stop = ph.stop ?? 'done'
   const detail = phaseDetail(ph, cap, stop, capEndOf(bot, cap))
-  if (ph.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail }); throw ph.aborted }
+  // what this visit's throws were, as the server named them (junkout-01's J4) -- on every row after a throw phase
+  const phF = { listed: entryPlan.junkStacks, n: ph.account?.n ?? 0, offlist: ph.thrown?.offlist ?? 0, swords: ph.acc?.swords ?? 0,
+                cobble: ph.acc?.cobble ?? 0, stock: ph.acc?.stockThrown ?? 0, slotsBefore: ph.slotsBefore ?? slotsBefore, stop }
+  if (ph.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail }); visitRow('aborted', phF); throw ph.aborted }
   const n = ph.account.n
   if (n > 0 && !/^error: /.test(stop)) {
     logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail })
+    visitRow('success', phF)
     return { status: 'success', lost: { ...(ph.account.lost ?? {}) }, detail: `threw ${n} junk item(s) down the town well (${ph.slotsBefore} -> ${ph.slotsAfter} slots)${ph.misses ? `; ${ph.misses} missed, ${ph.retaken} retaken` : ''}${ph.stop ? `; stopped: ${ph.stop}` : ''}` }
   }
   logEvent({ kind: 'well_dispose', status: ph.acc.tossed || /^error: /.test(stop) ? 'failed' : 'no_effect', snapshot: snapshot(bot), detail })
+  visitRow(ph.acc.tossed || /^error: /.test(stop) ? 'failed' : 'no_effect', phF)
   if (!ph.acc.tossed && /came within/.test(stop)) return { status: 'no_effect', detail: `nothing thrown: ${stop}` }
   if (!ph.acc.tossed && /^breached: /.test(stop)) return { status: 'no_effect', detail: `nothing thrown: the town junk well read unsealed at the click (${stop.slice(10)}); the next town visit with wood builds a new one` }
   return { status: 'failed', failClass: 'well_toss_failed', detail: `${n ? `threw ${n} item(s), then` : 'nothing went down the town well:'} ${stop}` }
