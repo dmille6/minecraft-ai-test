@@ -1,4 +1,4 @@
-# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r1)
+# homefix-02: why homefix-01 drowned two bots, and the targeted fix (2026-10-21, design r2)
 
 homefix-01 (`a52d075e`, branch `homefix-on-9e7d998`) was REVERTED at 2026-10-21 00:57Z by gate v23: two canary deaths, one
 with a licensed `_watchdog_rescue` row. Both deaths were hive-d-Echo, and both were drownings. This document gives each
@@ -21,39 +21,50 @@ for reading. The files are the live state at ~01:10Z.
    the ice, and held `jump` into the ice for 93 s. That one wrong answer switches off both rungs that could have helped:
    the air-pocket dig never triggers on an `up` route, and its plan refuses a head cell that is not water. The
    "yield at 17.5 HP" was a 0.5-s gap, not the cause (§1.3).
-2. **This is a base-code killer, not a homefix-01 invention.** Over 7 d (10-14..10-21, ES), 92 drowning deaths on the
-   old code included **11 with the head cell under ice**. All 11 were hive-d bots at y = 61.2-61.4 under the same river
-   sheets, and the route read `up` in each. That is 11 of hive-d's 18 old-code drownings that week.
+2. **This is a base-code killer, not a homefix-01 invention.** Over 7 d (10-14 00Z .. 10-21 01Z, ES), the old code had
+   **92 drowning deaths**, or 94 with the two homefix-01 deaths. **10 of them had the head cell under ice**, and death 1
+   makes 11. All were hive-d bots at y = 61.2-61.4 under the same river sheets, and the route read `up` in every one.
+   That is 10 of hive-d's 18 old-code drownings. **Every one of the 10 carried a stone or iron pickaxe with 8 or more
+   uses left**, so the dig C1 adds is admissible for them (§4 C1).
 3. **Death 2 (00:50:35Z) is not linked to homefix-01.** The brain's `explore` walked off a ledge into a pool whose magma
    floor drives downward bubble columns. The bot was dragged to y≈45 under single placed blocks (dirt, cobble, granite)
    that earlier bots' escape reflexes left in the pool. The route scan read `unscanned` (capped above, open water for 8
    on every side). The air-pocket dig was refused ("water beside the roof cell would fill the pocket"), and the bot
    drowned. No rescue or stagnation cancel was involved. The last rescue was a relocation that failed after 1.8 s,
    5.5 min earlier. **The same pool killed two old-code bots** (hive-d-Bravo 10-17 11:19 and 10-20 11:13).
-4. **DiD: no drowning excess.** The four canary pools drown 2.5x as often as the control pools on the old code (0.0126
-   v 0.0050 per bot-h, 7 d). Against its own baseline the canary saw 2 drownings where 1.41 were expected. The control
-   saw 3 where 1.69 were expected. The ratio of ratios is 0.80. The revert was legitimate under gate v23, which applies
-   the two-death floor plus a licensed change row. On a difference-in-differences reading the deaths are hive-d's
-   terrain, with one real mechanism link: death 1's relocation.
+4. **DiD: no excess observed, and it is very uncertain.** On the old code the four canary pools drown 2.5x as often as
+   the control pools (0.0126 v 0.0050 per bot-h, 7 d). Against its own baseline the canary saw 2 drownings where 1.41
+   were expected. The control saw 3 where 1.69 were expected. The ratio of ratios is 0.80. Counts this small establish
+   neither an excess nor independence. The revert was legitimate under gate v23 (the two-death floor plus a licensed
+   change row). There is one demonstrated mechanism link, death 1's relocation, and death 2 has none.
 5. **Risk.** homefix-01 runs about 3.6x as many relocations per verdict (98% v 27%, H2a working as designed).
    - **The old relocation target is blind to terrain:** a random point 45-70 blocks away at the bot's current y.
    - **Canary relocations, where they ended.** Successful ones ended wet (in water, on ice, or within 2 blocks of either)
      in 16 of 85 (18.8%). That is about the canary's ambient rate of 19.8% (245/1240 bot-snapshots).
    - **Ice sheets in hive-d.** 4 of 26 hive-d relocation successes ended **on an ice sheet over water** (15.4%), against
      4.3% ambient there.
-   - **Rescue-adjacent drownings on the old code.** A drowning within 180 s and 16 blocks of an uninterrupted watchdog
-     rescue's end happened in 8 of 92 drownings (8.7%). That is 0.84 per 1,000 rescues (8 / 9,498).
+   - **Rescue-adjacent drownings on the old code.**
+     - **By rescue.** A drowning within 180 s and 16 blocks of an uninterrupted watchdog rescue's end happened in 8 of 92
+       drownings. That is 0.84 per 1,000 rescues (8 / 9,498 rows), a lower bound, because the trigger is lost on
+       interrupted rows.
+     - **By verdict.** A drowning within 180 s and 16 blocks AFTER a `_stagnation` verdict happened 6 times per 8,821
+       verdicts in the canary pools (0.68 per 1,000) and 9 per 30,604 in control (0.29 per 1,000). homefix-01's canary
+       counted 1 of 243 (death 1).
 6. **homefix-02 makes three changes.**
    - **C1:** the route scan reads the head cell. A solid head cell caps `up`, and the air-pocket rung may break a head-cell
      ICE block that has air above it. This is the existing ice branch at dy = 1. The bug is old; it is fixed here because
      homefix sends more bots into hive-d's river.
-   - **C2:** a relocation goes only to a dry, standable surface cell. That means no ice floor, no water or ice within 2,
-     and no liquid overhead. If no such target turns up in 16 tries, the rescue goes straight to level-2 `home`.
-   - **C3:** no runner rescue starts while the bot is submerged. The decline is capped at 2 in a row. A running watchdog
-     rescue gives way when the air reflex seizes the body.
+   - **C2:** a relocation goes only to a dry, standable surface cell whose whole ARRIVAL REGION is dry. That means no
+     water, ice or lava within Chebyshev 5 at dy -3..+2, which covers goto's ≤ 3 arrival tolerance plus 2. The floor may
+     not be ice, magma or leaves. If no such target turns up in 16 tries, the rescue goes straight to level-2 `home`.
+   - **C3:** no runner rescue STARTS while the air reflex is engaged. This is checked by the runner at the moment the
+     run would start, and capped at 2 in a row. A running watchdog rescue is interrupted on every tick that the air
+     reflex holds the body.
 
-   H1-H4 are untouched. Tier 3, reads as homefix-01. A new defect gate G5 checks the mechanism's own invariants, and a
-   new G6 counts rescue-adjacent drownings (1 blocks KEEP, 2 REVERT).
+   H1-H4 are untouched. Tier 3, reads as homefix-01. New lines:
+   - **G5:** defect lines on the build's invariants, using fields it now writes, plus two outcome checks from reflex rows.
+   - **G6:** drownings within 180 s / 16 blocks after a verdict, on both arms. One blocks KEEP. REVERT needs two or more
+     AND a positive DiD AND p < 0.05 against the registered baseline.
 
 ## 1. Death 1 — hive-d-Echo, 20:19:20Z, (-14.5, 61.4, 54.3), "drowned; idle"
 
@@ -98,9 +109,13 @@ cell (67,64,69) and plain water at the death-2 pool.
 
 ### 1.3 Why the rescue never recovered (the code, `reflex.mjs` on a52d075e = base)
 
-- `headBlock(bot)` is the cell at feet+1. At y 61.4 that is (-15,62,54): **ice**, four readings in 93 s.
-  Server-side, the bot fits in the 1-high water gap only in the swimming pose, so its eye is in water and it drowns.
-  The client believes it stands at 61.4.
+- `headBlock(bot)` is the cell at feet+1. At y 61.4 that is (-15,62,54): **ice**, four readings in 93 s. These
+  readings come from the client's live world, while the bot was alive. That settles the phase-2 report's open class
+  (underground-safety-phase2-2026-10-07.md §2.1: "21 head cell solid sites ... the hive-d bots at y 61.4 under ice at 62
+  would have had their eyes in air"). The answer is the **pose**. A 1-high water gap (cell 61, between a dirt floor at
+  60 and ice at 62) fits a player only in the swimming pose, which is 0.6 tall with the eye 0.4 up. The server's eye is
+  therefore at about 61.8, in water, and the bot drowns. The phase-2 screen computed the eye at standing height (1.62),
+  and so did my first reading. mineflayer models no poses.
 - `scanBreathableRoute` starts at `dy = 1` **above the head cell** and never tests the head cell itself. At(0,1,0) is
   (-15,63,54): air, so it returns `{dir: 'up', dist: 1}`. `drowningControls` then holds `jump`, which pushes into the ice.
 - `airPocketTrigger` returns false for `routeDir === 'up'`. `airPocketPlan` would have refused anyway: "head cell is
@@ -189,8 +204,13 @@ out of the deep water.
     control expected 1.69 in 336 bh and saw 3. The ratio of ratios is 0.80.
 - **The head-cell evidence in the 180 s before each drowning.** The reflex rows print it: `_air_drowning_observed`,
   `_water_surface` and `_water_no_air_route`.
+  - This count was run over the window to 10-21 00Z, which includes death 1, so it is 92 drownings = 91 old code + death 1.
   - **Water only:** 80.
-  - **Under ice: 11**, all hive-d, all at y 61.2-61.4, all with `_drowning_route up` (dist 1).
+  - **Under ice: 11** = 10 old-code + death 1. All were hive-d, all at y 61.2-61.4, and every one had
+    `_drowning_route up` (dist 1).
+    - **Pickaxes.** At each of the 10 old-code ice deaths, the last inventory row within 180 s held a stone or iron
+      pickaxe with 8 or more uses left. Uses left per death (es_g6verdict.py): 130, 120 + iron 8, 93 + iron 8, 104, 29,
+      131, 130, 17 + iron 1, 131 + iron 10, 86 + iron 19.
   - **Under dirt:** 1 (placebo-d-Bravo 10-17).
   - **Population:** 94,925 `_water_surface` rows, of which 58 read "(head ice", and 9,017 `_air_drowning_observed` rows,
     of which 22 read "head block ice". So ice heads are rare and lethal.
@@ -198,6 +218,13 @@ out of the deep water.
   blocks of its end). The old code had **8** drownings plus 2 lava deaths, out of **9,498** such rows (8,593 relocate,
   905 home). Per 1,000 rescues that is 0.84 drownings. The trigger is lost on interrupted rows, so this is a lower
   bound.
+  - **This population does not match homefix's attempt rows** (both reviews r1): it has no interrupted rescues and no
+    in-flight ones. So G6 anchors on the `_stagnation` VERDICT instead, which both builds write with a position.
+- **Verdict-adjacent drownings** (death within 180 s AFTER a `_stagnation` row, within 16 blocks of its position;
+  es_g6verdict.py):
+  - **Canary pools: 6 of 8,821 old-code verdicts (0.68 per 1,000).** Control: 9 of 30,604 (0.29 per 1,000).
+  - homefix-01's canary: **1 of 243 verdicts** (death 1, 100 s after the 20:17:40 L2 verdict, 0 blocks). Death 2 is 333 s
+    after its last verdict, so it is not counted. At the old canary-pool rate 0.17 were expected, P(≥1) = 0.15.
 
 ### 3.2 Where homefix-01's rescues ended v where the bots stand (files, 19:21:21Z .. 00:57Z, 338,016 rows, 80 bots)
 
@@ -232,15 +259,20 @@ arrival cell (-14.5,63,54.5) reads `below ice, ice_over_water`.
 
 ### 3.3 Sizing C2 and C3 on the same starts (sim.py, read-only on the saved worlds)
 
-- **C2 finds a dry target within 16 tries for almost every verdict.** Canary L1 verdicts: 221 of 224 (98.7%), at a mean
-  of 3.0 tries. Shared control pools: 451-469 of 476-486. hive-b is lowest at 81 of 85; hive-d is 61 of 61. The
-  fallback to `home` is therefore about 1-5%. Isolated pools were not classified: their pool names do not map to a
-  world dir.
-- **C3a would decline, as "submerged":**
-  - **Canary L1:** 0 of 223 requested rescues. Positive control: control L1 verdicts 24 of 723 (3.3%).
-  - **Canary L2:** 2 of 16, one of them death 1's.
-  - **Control L2:** 9 of 123.
-  - **Control L3:** 6 of 45.
+- **C2 finds a dry target within 16 tries for almost every verdict.**
+  - **Arrival region R = 5, dy -3..+2 (the r2 rule):** canary L1 verdicts 215 of 224 (96.0%), mean 3.7 tries. By pool,
+    the shared pools are 94-100% (hive-d 58 of 61, hive-b 81 of 85).
+  - **R = 2 (the r1 rule):** 221 of 224.
+  - **So the fallback to `home` is about 4-6%.** These are saved-world reads with block names approximating shapes
+    (sim.py), not a live-client estimate. The build logs each rejection reason (`dry_reasons`), so the read measures
+    the live rate. Isolated pools were not classified: their pool names do not map to a world dir.
+- **A naive "head under" decline would starve chronic cases.** Under the r1 predicate (head not breathable and wet)
+  control verdicts read submerged 24 of 723 at L1 and the canary 0 of 224. Both reviews flagged that P(0) ≈ 0.0006 at an
+  equal rate. **The gap is clustering, not a reading artefact.** 34 of the 40 control hits come from TWO bots:
+  board-a-Comet (23) and placebo-c-Bravo (11), chronically "submerged" bots that are alive. A decline keyed on head
+  geometry would have denied those two their rescues for hours. So r2 keys C3a on the AIR REFLEX being engaged, not on
+  geometry (§4 C3). Its live rate is measured by the read (`declined:air_rescue`); death 1's 20:17:40 L2 verdict came 9 s
+  BEFORE the air rescue seized, so C3a would not have declined it. C3b covers that case.
 
 ## 4. homefix-02 — the changes
 
@@ -251,175 +283,289 @@ whole contract), H3 and H4 are unchanged**; every homefix-01 test still runs.
 
 ### C1 — the drowning rescue reads its own head cell (reflex.mjs, airpocket.mjs)
 
-- **`scanBreathableRoute`** gets `at(0,0,0)`, the head cell. A head cell that is **not swimmable** (solid: ice,
-  dirt, ...) caps the up scan at dy 0, so **`up` is never answered through a solid head cell**. The sideways scan runs
-  unchanged. With all four sides closed the answer is `sealed`, which is what lets the air-pocket rung fire at once.
-  A null head cell sets `unknown`, as any null cell does, so it is never `sealed`. A swimmable head cell gives exactly
-  today's answer, and a test pins that.
-- **`airPocketPlan`** gains one case. If the HEAD cell is plain `ice`/`frosted_ice` (the existing `ICE` regex: not
-  packed or blue ice, which do not melt) with **air directly above it**, the plan returns `{ok, kind: 'ice', dy: 1}`.
-  The feet cell must be water or air, as today. Everything after the plan is the existing ice branch:
+- **`scanBreathableRoute`** reads `at(0,0,0)`, the head cell, first.
+  - A head cell that is **not swimmable** (ice, dirt, any solid: `swimmable()` false) caps the up scan at dy 0. So
+    **`up` is never answered through a solid head cell**.
+  - The sideways scan runs unchanged. With all four sides closed the answer is `sealed`, which lets the air-pocket rung
+    fire at once.
+  - A null head cell sets `unknown`, like any null cell, so it is never `sealed`.
+  - A swimmable head cell gives exactly today's answer.
+  - The result carries `headCap: <name>`. `breathableRoute` forwards `axes` and `headCap`, which it drops today
+    (reflex.mjs:998, Codex r1). `_drowning_route` prints `head=<name>`, `cap=head` and the axes, so the read can see C1.
+- **`airPocketPlan`** gains one case. When the HEAD cell is plain `ice`/`frosted_ice` (the existing `ICE` regex; packed
+  and blue ice do not melt) with **air directly above it**, the plan returns `{ok, kind: 'ice', dy: 1}`. The feet cell
+  must be water or air, as today. Everything after the plan is the existing, Paper-proven ice branch
+  (airpocket-03-paper: ice broke in 4.7 s, breathing at about 17-19.5 s, lived):
   - the health-budget admission;
-  - the bounded equip, then the dig;
-  - `opened` = water or air (breaking ice over water leaves water);
+  - the bounded equip, then the dig at `cellPos = fy + 1` (airpocket.mjs:249);
+  - `opened` = water or air (:316);
   - the rise and confirm;
-  - `standInPocket` with `airY = fy + 2`, i.e. one block placed under the bot so it stands with its eye in air.
-
-  Packed or blue ice and every other solid head cell keep refusing. They are left to the entombed and suffocation
-  handlers, which own a solid head.
-- Why this is safe:
-  - The air-pocket gates are unchanged: never on `up`, admission by the health envelope, a 60-s fail cooldown, and
-    `airPocketPreempt` only on `sealed`.
-  - The only rescues whose answer changes are those with a non-swimmable head cell. That is 83 of 106,268 reflex
-    head-block readings in 7 d: 81 ice, 2 dirt. glow_lichen (6) is swimmable and unchanged.
-  - Breaking ice from below in Java turns it into water only when a solid or liquid block is under it, and here water
-    is under it. Paper scene S1 confirms this on 1.21.8.
+  - `standInPocket` with `airY = fy + 2`, so one block is placed under the bot (:409-410).
+- **Why the dig is admissible here, against the review's pricing concern** (Claude r1 P2-3).
+  - The step prices floating and in water. Bare-handed ice would need 18.75 s × 1.5 + 3 = 31 s, which is over budget
+    below about 19.6 HP. With a stone pickaxe it is 4.7 s × 1.5 + 3 ≈ 10 s, admitted at HP ≥ 9 (peaceful, 0.5 HP/s).
+  - **All 10 old-code ice deaths held a stone or iron pickaxe with ≥ 8 uses left** (§3.1), and so did death 1.
+  - `airPocketTools` drops a worn copy only when a healthier copy of the same kind exists (toolhygiene composition).
+  - No on-ground re-pricing is added. A client that prices on-ground while the server sees a swimming body would send
+    "finished" early, and the server would refuse the dig: ghost air, the failure the step's worst-case pricing exists
+    to avoid.
+- **The confirm after a dy=1 dig is not proof by itself** (Claude r1 P3-9). The step's eye test uses standing height
+  (`pos.y + 1.62`, :320). Once the ice is gone the column is 2-3 cells high, so the server's pose is standing again and
+  the test is meaningful. But at full health `airPocketConfirmed` passes the moment the eye cell is air. So the read
+  does not count `_air_pocket success kind=ice` as proof that C1 works. Paper S1 reads the server's `Air` by RCON.
+- **What changes for other rescues.** Only rescues whose head cell is not swimmable change: 83 of 106,268 reflex
+  head-block readings in 7 d (81 ice, 2 dirt). For those, `sealed` instead of `up` also makes the ceiling suppression
+  persist across movement while still sealed (`drownRescueSuppressed` sealedHere, reflex.mjs:1179), and health loss
+  still overrides it. `airPocketPreempt` stops an escape only when `stepWouldRun()` is true (airpocket.mjs:182), so a
+  dirt head (plan refused) never cancels an escape. Composed regression tests cover these cases (§7).
+- **Breaking ice from below gives water.** In Java, ice broken without silk touch becomes water when the block under
+  it blocks motion or is liquid, as water does here. Paper S1 confirms this on 1.21.8.
 
 ### C2 — a relocation goes somewhere dry (relocate.mjs, new and pure; watchdog.mjs)
 
-- **`pickRelocationTarget({ p, read, rand, tries = 16, minD = 45, maxD = 70, radius = 2 })`** → `{ ok, x, y, z, tries }`
-  or `{ ok: false, why: 'no_dry_target', reasons }`. Each try picks the old bearing and distance. The candidate passes
-  only when all of these hold:
-  1. `columnSurface(read, x, z, round(p.y))` (plinth.mjs; the surface within ±8 of the bot's y) is a floor `f`, so
-     the feet are at `f + 1`;
-  2. `standable(read, x, f + 1, z)` (plinth.mjs: feet and head passable and not liquid, floor solid);
-  3. the floor is not ice, packed, blue or frosted ice, nor magma;
-  4. the cell over the head (`f + 3`) is not liquid;
-  5. **no water, lava, bubble column, waterlogged block or ice within Chebyshev `radius` = 2 at dy -2..+1** of the feet;
-  6. **every one of those cells is readable.** A null (unloaded) cell refuses the candidate; it is never taken as dry.
-- **The goto target becomes the surface cell** `{x, y: f + 1, z}`, not `(x, p.y, z)`. The requested row records
-  `target`, `dry_tries` and `fallback`.
-- **No dry target in 16 tries, so go to level 2 now.** The bot is in a wet region (ocean, swamp, river delta). The
-  remedy it can still perform is `home`, which is known terrain. The watchdog sets `escalation = 2` and runs the
-  level-2 plan with `reason: 'no_dry_relocation'`, written as one `requested` row with `level: 2, remedy: 'home',
-  fallback: 'no_dry_relocation'`. Measured at about 1-5% of L1 verdicts (§3.3).
-- **What it does not do.**
-  - It does not check the WAY. The pathfinder may still cross water: swimming is travel.
-  - It does not check where a FAILED relocation stops. A failed goto ends wherever its leg stopped. G6 measures that
-    outcome.
-  - Level 2 (`home`) and level 3 are unchanged.
+- **`pickRelocationTarget({ p, read, rand, tries = 16, minD = 45, maxD = 70, region = 5, dy0 = -3, dy1 = 2 })`**
+  returns `{ ok, x, y, z, tries, reasons }` or `{ ok: false, why: 'no_dry_target', tries, reasons }`. Each try uses the
+  old bearing and distance draw. A candidate passes only when ALL of these hold:
+  1. `columnSurface(read, x, z, round(p.y))` (plinth.mjs) returns a floor `f` (not null or undefined). The feet are at
+     `f + 1`. This is the highest open-over-solid cell within ±8 of the bot's y: a cave floor underground, the ground
+     at the surface. A hill or ravine outside ±8 is a reject (`no_surface`).
+  2. `standable(read, x, f + 1, z)` (plinth.mjs: feet and head passable and not liquid, floor solid).
+  3. The floor is not ice, packed, blue or frosted ice, not magma, **and not leaves** (Claude r1 P3: `columnSurface`
+     can stop on a canopy).
+  4. The cell over the head (`f + 3`) is not liquid.
+  5. **The arrival region is dry** (Codex r1 P1-2). goto grades `success` within 3 horizontally (`arrivedAt`,
+     skills.mjs:392), and its legs end on GoalNear nodes within 2 in 3-D (:525). So no water, lava, bubble column,
+     waterlogged block, powder snow or ice may lie within **Chebyshev 5** horizontally (3 of arrival + 2 of margin) at
+     **dy -3..+2** of the target's feet.
+  6. **Every cell in that region is readable.** A null (unloaded) cell refuses the candidate (`unknown`); it is never
+     taken as dry.
+- **The goto target becomes the surface cell** `{x, y: f + 1, z}`, not `(x, p.y, z)`.
+- **The `requested` row carries** `target_x/y/z`, `dry_tries` and `dry_reasons` (`no_surface:3,water:2`; reasons are
+  counted per try).
+- **A landing check** after the relocation run. One `_relocate_landed` row records `attempt`, `dry` (0/1), feet,
+  below, and the nearest water within 2 at the final position. It is a guard, never a defect: a vertical arrival
+  beyond the region (arrivedAt allows |dy| ≤ 6) or a failed goto can still end wet.
+- **No dry target in 16 tries: level 2 now.** The bot is in a wet, steep or unreadable place. The remedy it can still
+  perform is `home`. Home is an executable attempt, not guaranteed reachable terrain (Codex r1 P2-6); if it fails,
+  level 3 follows as today.
+  - The watchdog sets `escalation = 2` and runs the level-2 plan with `reason: 'no_dry_relocation'`.
+  - It writes **one** `requested` row with `level: 2, remedy: 'home', fallback: 'no_dry_relocation'`, so homefixread's
+    G4 lifecycle (one requested, one terminal) holds.
+  - **Row-shape note** (Claude r1 P3-11): that attempt's `_stagnation` row says escalation 1 while its `requested` row
+    says level 2.
+- **It does not check the WAY.** The path may cross water: swimming is travel. Levels 2 and 3 are unchanged.
 
-### C3 — a rescue does not take a submerged body; a running rescue gives way to the air reflex (watchdog.mjs, reflex.mjs, runner.mjs)
+### C3 — no rescue starts into an active air rescue; a running rescue yields to it (runner.mjs, watchdog.mjs, reflex.mjs)
 
-- **C3a.** Before `reserve()`, `#runRescue` asks `submergedNow(bot)`. The answer is true when the head cell is not
-  `breathable()` AND the bot is in water, which means `entity.isInWater`, a wet feet or head cell, or an ice head cell
-  over a wet feet cell.
-  - **When submerged:** log `declined:submerged` with the head block's name and return `started: false`. The existing
-    ladder holds the level and backs off one window.
-  - **The cap.** A pure `submergedDecline({ submerged, streak, sinceLastMs, ttlMs, cap: 2 })` lets the 3rd consecutive
-    submerged verdict (within the same TTL as reserve_expired) through. That covers a bot that has been "submerged" for
-    2+ windows (6+ min). Such a bot is not drowning, since a drowning ends in about 100 s in peaceful. Its head is in
-    seagrass or kelp, or it is a misread. It gets its rescue rather than a dead end.
-  - **Scope.** It applies to every runner-based rescue: L1, L2, L3 `surface`/`mine`, and the stranding climb-out (a
-    climb-out that does not start is not one of its two attempts, as today). The L3 reconnect needs no runner and is
-    unchanged.
-- **C3b.** When the air reflex SEIZES the body and the runner's current run belongs to the watchdog (`current.owner ===
-  'watchdog'`, one field added to `current`), it calls `runner.interrupt('drowning')`. The rescue's terminal row reads
-  `interrupted:drowning`, the pending rescue clears, and the next verdict is judged on the bot's own window. Today such
-  a run sits inside the drowning: death 1's `home` sat there 52 s until `_reflex_stuck` cut it. Skills the brain
-  started are untouched. Whether the reflex should also interrupt those is a different, unmeasured question.
+- **The air reflex publishes its state** on `bot.airRescue = { rescuing, airSeconds, headUnder, at }`, written every
+  reflex tick. Nothing is re-derived from geometry elsewhere (Claude r1 P1-1).
+- **C3a, the admission.**
+  - **Where it runs.** `Runner.run(skill, args, { owner: 'watchdog', admit })` calls `admit()` **after the reservation
+    wait and the body acquisition, immediately before `this.current` is installed** (Codex r1 P1-1: a check before
+    `reserve()` can go stale during the 20-s unwind).
+  - **What it refuses.** The watchdog's `admit` refuses when `airEngaged(bot.airRescue)` is true: the air rescue is
+    `rescuing`, OR the head is under with `airSeconds ≤ LOW_SECONDS` (5 s). The data is no older than 1.5 s, and older
+    data reads not-engaged. A bot that is merely wet, or bobbing at the surface with air (death 2's 00:42-00:45 shape),
+    is NOT refused. Its rescue runs, and that relocation may be its only way out (Claude r1 P1-1).
+  - **The refusal.** The runner writes `declined:air_rescue` (with `air_seconds` and `rescuing` fields) and returns
+    `{status: 'failed', failClass: 'air_rescue'}`. Nothing was reserved past this point; the reservation is released.
+  - **The ladder** (Codex r1 P2-5, Claude r1 P2-4). `rescueLevelStep` gets `failClass: 'air_rescue'`: hold the level,
+    back off one window, and **leave the reserve_expired streak untouched**. Its own pure counter is
+    `airDeclineStep({ declined, started, streak, sinceLastMs, ttlMs, cap: 2 })`:
+    - +1 per `air_rescue` decline;
+    - reset to 0 ONLY by an actual rescue start;
+    - an old streak lapses after the same TTL as reserve_expired (2 windows + the pending bound);
+    - at the cap the next attempt's `admit` is BYPASSED (`air_bypass: 1` on its `started` row) and stays bypassed until
+      a rescue starts.
+
+    Stagnation and stranding share the counter (one rescue at a time). The stranding climb-out keeps its refund of an
+    unstarted attempt (watchdog.mjs:285).
+  - **Why the cap is right.** A drowning ends in about 100 s in peaceful (83-90 s after the air runs out), so an air
+    rescue still engaged 2 windows (≥ 6 min) later is not a drowning in progress. It is the chronic "submerged but
+    alive" class (board-a-Comet, placebo-c-Bravo, §3.3). Such a bot gets its rescue instead of a dead end.
+- **C3b, level-triggered.**
+  - **What it does.** On EVERY reflex tick while the air rescue is `rescuing` and the runner's current run belongs to the
+    watchdog (`current.owner === 'watchdog'`, one field added to the runner's `current`), the reflex calls
+    `runner.interrupt('drowning')` and writes one `_air_rescue_yield` row per run. The terminal row reads
+    `interrupted:drowning`. A run that starts later is refused by C3a's admission (Claude r1 P2-5a).
+  - **Why level-triggered.** The existing one-shot `if (mayAct) runner.interrupt(air.kind)` (reflex.mjs ~2103-2117)
+    fires only on the first latched tick. The latch clears on `bot.oxygenLevel` (:2360), which the code itself calls
+    untrustworthy. That one-shot is why death 1's `home` sat 52 s inside the drowning.
+  - **Brain-started runs are NOT interrupted by C3b.** This is deliberate (Claude r1 P2-5b proposed repairing the latch
+    for every run). Interrupting every run whenever `rescuing` is true would bring back the 09-04 pathology: 9 bots held
+    in permanent rescues at full health burned about 17% of fleet throughput. Brain runs would be cut on every
+    seagrass-head tick, and the suppression only lets go after two ceilings. Death 2's 3.7-HP `explore` (00:50:27) did
+    run alongside the rescue, but the bot was already beyond saving. That is F5 below, with the death named; it is not
+    folded into this canary.
+- **Exposure, measured live by the read:** `declined:air_rescue`, `air_bypass` and `interrupted:drowning` counts.
 
 ### Not changed (named so nobody reads them as fixed)
 
-- **F1, death 2's pool.** Fixing it needs a 3-D breathable route search (BFS through swimmable cells to the nearest air
-  within N). Today's scan is "straight up, or 8 cardinal cells at head height". The fix also needs a stop on escape
-  reflexes placing blocks while submerged in open water. Both are drowning-rescue redesigns outside this canary.
-- **F2.** `gather`/`dig_approach` digs ice that has water under it, the way 2 of the 11 ice deaths and death 1 got under
-  the sheet. The fix would be a dig veto for ice over water, in its own canary. C1 makes the consequence survivable.
+- **F1, death 2's pool.** Fixing it needs a 3-D breathable-route search (BFS through swimmable cells to the nearest air
+  within N), where today's scan is "straight up, or 8 cardinal cells at head height". It also needs a stop on escape
+  reflexes placing blocks while submerged in open water. Both are drowning-rescue redesigns, out of this canary.
+- **F2.** `gather`/`dig_approach` digs ice that has water under it. That is how death 1 and at least 2 of the 10 ice deaths
+  got under the sheet. The fix is a dig veto for ice over water, in its own canary. C1 makes the consequence survivable.
 - **F3.** `drownRescueSuppressed`'s health reference is re-stamped at each expiry, so the yield's "no harm" is always
-  true on that tick. The effect is a 0.5-s gap (§1.3). Fix the stamp or the message, separately.
-- **F4.** `_death_site_route_crossed` is report-only, and explore's leg still walks through a recorded drowning site.
+  true on that tick. On its own that is a 0.5-s gap (§1.3). But a yield is also a window in which the brain can start a
+  run (F5). Fix the stamp, separately.
+- **F4.** `_death_site_route_crossed` is report-only. Explore legs still walk through a recorded drowning site.
+- **F5.** The one-shot `mayAct` interrupt latch (reflex.mjs ~2103-2117, cleared by `oxygenLevel` at :2360) can leave a
+  brain run alongside an air rescue: death 2's 3.7-HP explore. Repairing it touches every skill, so it is a separate
+  change with its own measurement.
 
 ## 5. The refusal chain: every decline names a remedy the bot can perform from where it is
 
 | refusal / guard | where the bot is | the remedy it names | executable from here? | composed with |
 |---|---|---|---|---|
-| C1: `up` capped by a solid head cell | in water, head in ice/solid | sideways `out` swim if air is within 8 (incl. one up); else `sealed` → air-pocket ice dig (C1) at once | yes: swim needs no tool; ice (hardness 0.5) is 3.75 s bare-handed standing in water, ~19 s bare-handed floating, ~0.9 s / ~4.7 s with a stone pickaxe -- `airPocketAdmit` prices the actual tool and position against the health budget (peaceful 0.5 HP/s) and refuses what does not fit | if admission refuses (budget), the existing ceiling → yield → entombed/maroon handlers (unchanged); a solid non-ice head → entombed handler (as today) |
+| C1: `up` capped by a solid head cell | in water, head in ice/solid | sideways `out` swim if air is within 8 (incl. one up); else `sealed` → air-pocket ice dig (C1) at once | yes: swim needs no tool; ice is about 4.7 s floating with a stone pickaxe (every observed ice victim held one), 18.75 s bare-handed. `airPocketAdmit` prices the actual tool and position against the health budget and refuses what does not fit | admission refused: the existing ceiling → yield → entombed/maroon handlers (unchanged); a solid non-ice head → entombed handler (as today) |
 | C1 plan refuses packed/blue ice or a falling block over the head | same | entombed / flooded-pocket rungs (unchanged) | as today | unchanged |
-| C2: no dry target in 16 tries | anywhere, usually a wet region | level-2 `home` now | yes: home is the town, reachable by construction; if it fails, L3 (unchanged) | home in water → C3a declines at most twice; then runs |
-| C2: a candidate in an unloaded chunk | — | the next try (16) | yes | → fallback above |
-| C3a: rescue requested while submerged | head under | the air reflex (already holds the body or will); level held, one window | yes: the air reflex's rungs (swim up/out, C1 dig, flooded pocket) | **cap 2**: the 3rd consecutive submerged verdict runs the rescue, so a never-surfacing bot is not left without one |
-| C3b: a running rescue meets the air reflex | head under, emergency | the air reflex | yes | the watchdog's next verdict, on the bot's own window, starts a new rescue (C3a applies) |
-| H2 holds (unchanged): reserve_expired, body_held, runner_paused | — | as homefix-01 | as homefix-01 | the two caps are independent counters; either reaching its cap lets the next rescue through |
+| C2: no dry target in 16 tries | a wet, steep or unloaded region | level-2 `home` now | yes: an executable walk to the town; if it fails, L3 (unchanged) | home meeting an engaged air rescue → C3a (capped) |
+| C2: a candidate rejected (wet / unknown / steep) | — | the next try | yes | → fallback above |
+| C3a: rescue admission while the air rescue is engaged | head under, air ≤ 5 s or the air rescue holding the body | the air reflex (holds the body); level held, one window | yes: its rungs (swim up/out, C1 ice dig, flooded pocket) | **cap 2**: the 3rd consecutive refusal is bypassed until a rescue starts; a breathing bot is never refused |
+| C3b: a watchdog run while the air rescue holds the body | head under | the air reflex | yes | the next verdict, on the bot's own window, starts a new rescue (C3a applies) |
+| H2 holds (unchanged): reserve_expired, body_held, runner_paused | — | as homefix-01 | as homefix-01 | `air_rescue` declines do not touch the reserve_expired streak, and vice versa; each cap stands on its own counter |
 
-The composed dead end that killed death 1 was: route `up` (wrong), so no ice dig; ceiling; yield; no rung; re-seize, and
-round again. With C1 the same position reads `out` (the hole home dug at -15,62,55) or `sealed`, which brings the ice dig.
-Both are executable from the cell. The level-2 rescue that started into the water was the second guard in that chain;
-C3a declines it, and C3b would have handed the body back when the air reflex seized.
+The composed dead end that killed death 1: route `up` (wrong), so no ice dig; ceiling; yield; no rung; re-seize; and
+round again. With C1 the same position reads `out` (the hole home dug at -15,62,55, `AIRUP@1`) or `sealed`, which
+triggers the ice dig. Both are executable from the cell. The level-2 `home` that sat inside the drowning is interrupted
+by C3b on the first tick the air rescue holds the body.
 
 ## 6. The read: `homefix2read.py` (homefixread.py + the new gates)
 
 Every homefix-01 gate and line is kept: G1, G1b, G2, G3, G4 and the reserve_expired Wilson line, plus rows_control,
 licence_canary, readable, g3_unjoined and the controls. They keep their registered D and arm-size deadline (+540 at
-4 pools, +720 at 3, +1080 at 2). New:
+4 pools, +720 at 3, +1080 at 2). `declined:air_rescue` is a terminal phase for G4 (`declined:*`, as today). New:
 
-- **G5: the mechanism's own invariants (evidence=defect, REVERT on any).** These are correctness checks on rows this
-  build writes. Old-code rows cannot have them, so their positive controls are fixtures:
-  - **G5a.** A `_watchdog_rescue started` row whose own `requested` row says `submerged=1` without
-    `submerged_cap=1` (C3a let a submerged rescue through below the cap).
-  - **G5b.** An L1 relocation `requested` row with no `target`/`dry_tries` and no `fallback` (C2 skipped).
-- **G6: rescue-adjacent drownings (own line; 1 BLOCKS KEEP, 2 REVERT with evidence=defect).** A canary drowning death
-  within 180 s after a `_watchdog_rescue` terminal row, or while a started rescue has no terminal row, AND within 16
-  blocks of that rescue's last snapshot.
-  - **Null.** The old code shows 0.84 per 1,000 rescues (§3.1). At homefix-01's measured volume (~45 rescues per 20
-    bots per hour) a +540 read sees ~400 rescues. A fix no safer per rescue than the old code expects 0.34. P(≥1) = 0.29,
-    which is why one event only blocks KEEP. P(≥2) = 0.046, which is the REVERT line.
-  - **Positive control.** The reader on homefix-01's own rows (19:21Z-00:57Z, read from the files) counts death 1 (1) and
-    not death 2. It also gets fixtures.
-  - **Guard.** The control arm's equivalent (old-code `trigger: watchdog_*` rows), reported as DiD.
+- **G5: the build's own invariants and two outcome checks (evidence=defect, REVERT on any).** Positive controls are
+  fixtures, plus, for G5c, the same parser run over homefix-01's rows, which must find death 1's `up` route through
+  ice. Missing required fields set **`g5_fields_missing` ≥ 1, which blocks KEEP**, so absence is never read as clean
+  (Codex r1 P1-4).
+  - **G5a.** A watchdog `started` row with `air_engaged = 1` and no `air_bypass = 1`: C3a admitted into an engaged air
+    rescue below the cap.
+  - **G5b.** A level-1 relocation `requested` row with no `target_x`/`dry_tries`, OR a `fallback` row whose
+    `dry_tries` is not 16: C2 skipped.
+  - **G5c (outcome, C1).** A `_drowning_route` row with `up` whose `head=` cell is not swimmable (ice, dirt, stone, ...):
+    the route answered through a solid head cell. homefix-01's 20:17:49 row is the positive control. Its head
+    (`_air_drowning_observed`, 2 s earlier) was ice, so the old code shows the defect.
+  - **G5d (outcome, C3b).** A `_drowning_route` seizure row while a watchdog attempt is started and not terminal, with
+    no `_air_rescue_yield` row for that attempt within 2 s. That means C3b did not fire. The yield row is written when
+    the interrupt is sent, so the skill's unwind time (p90 10 s) does not enter.
+- **G6: verdict-adjacent drownings on both arms (DiD).** A drowning death within 180 s AFTER a `_stagnation` verdict and
+  within 16 blocks of the verdict's position, deduplicated per death. Both builds write the verdict with a position,
+  so the old code's pre-period counts with the same instrument.
+  - **`g6_canary` ≥ 1 BLOCKS KEEP.** This is a conservative policy tripwire, not statistical evidence (Codex r1 P1-3): a
+    human reads that death.
+  - **REVERT (evidence=defect) only when all three hold:** `g6_canary` ≥ 2; the DiD per 1,000 verdicts (canary post −
+    canary pre) − (control post − control pre) is positive; and P(X ≥ g6 | λ = 0.68/1,000 × canary verdicts) < 0.05.
+  - **The baseline is registered, with its population stated.** 0.68/1,000 is the old code's canary-pool rate, the
+    highest group (§3.1; control is 0.29/1,000).
+  - **Expected trip rates for a fix that is no safer than the old code.** At ~430 verdicts in a +540 read (homefix-01
+    issued 243 in 5.6 h), λ ≈ 0.29: P(block) ≈ 0.25 and P(revert at 2) ≈ 0.03. In the control pools' rate the block
+    probability is about 0.12. **Stated plainly: a quarter of correct-but-not-better runs would end INCONCLUSIVE on this
+    line. That is the cost of the owner's ask** ("consider declaring rescue-adjacent drownings a defect gate"), and the
+    owner can choose to make it report-only.
+  - **Positive control.** The reader on homefix-01's rows counts death 1 and not death 2 (fixture from the real rows).
+  - **Reported alongside:** G6r, the attempt-anchored version, canary only (a death within 180 s of a terminal row, or
+    during a started attempt, within 16 blocks of its last snapshot).
 - **Guards (reported, never a verdict).**
-  - L1 relocation ends that are wet by rows: a water reflex row within 30 s of `completed:success`. Canary v control
-    per rescue; homefix-01 measured 15.1% v 11.4% at 120 s.
-  - `declined:submerged` count and rate.
-  - `fallback: no_dry_relocation` count and rate.
-  - `interrupted:drowning` count.
-  - C1 exposure: `_drowning_route` rows whose detail has `axes=` with a head-cell cap, and `_air_pocket_start kind=ice
-    cell=<head>`.
+  - `_relocate_landed dry=0` per relocation.
+  - Water reflex rows within 30 s of `completed:success`, canary v control. homefix-01: 15.1% v 11.4% at 120 s.
+  - The `declined:air_rescue`, `air_bypass`, `interrupted:drowning` and `fallback` counts, with the `dry_reasons` mix.
+  - C1 exposure: `_drowning_route ... cap=head` and `_air_pocket_start kind=ice` at the head cell.
   - Deaths within 120 s of a rescue start, as homefix-01 reported them.
-- **Change rows.** `change_rows: ["watchdog_rescue"]` WITHOUT the underscore (verdict.py compares `lstrip('_')`).
-  Licence kind `_watchdog_rescue`. These are the same as homefix-01: only this build line writes them.
-- **Draw.** As homefix-01: stagnation ≥ 20 and home ≥ 5 per 12 h. C1's exposure exists only if hive-d is drawn. That is
-  not a requirement (G1-G6 do not need it), and it is stated so that nobody reads "C1 unexposed" as "C1 worked".
+- **Change rows:** `change_rows: ["watchdog_rescue"]` WITHOUT the underscore (verdict.py compares `lstrip('_')`).
+  Licence kind `_watchdog_rescue`. Both are the same as homefix-01.
+- **Draw:** as homefix-01 (stagnation ≥ 20 and home ≥ 5 per 12 h). C1's exposure exists only if hive-d is drawn. That
+  is not a requirement, and it is stated so that nobody reads "C1 unexposed" as "C1 worked".
 
 Tier 3 (no `tier`, no `class`); reads 180 / 360, extension 540 / 720 / 1080, deadline_min 1140, as homefix-01.
 
 ## 7. Tests (node scripts/run-tests.mjs only; every mechanism with an anchored mutant)
 
 - **C1, `scanBreathableRoute`.**
-  - Head ice under air → not `up`. Sealed when the four sides are ice; `out` when one side is water with air one up.
-  - Head water under air → `up dist=1`, unchanged. A null head cell → never sealed.
+  - Head ice under air → not `up`, with `headCap` set. Sealed when the four sides are ice. `out` when one side is water
+    with air one up (death 1 after home's float-dig).
+  - Head water under air → `up dist=1` (unchanged).
+  - A null head cell → never sealed.
+  - **Existing fixtures.** drown-route-truth.test.mjs's `around()` defaults the head cell to STONE (:96-98), so ":158-165
+    water and open air conduct the scan" and the up-scan mutant fixture (:463-466) set `'0,0,0': WATER` explicitly.
+    They are NOT weakened, and their anchored mutants are re-run.
 - **C1, `airPocketPlan`.**
-  - Head ice with air above → `{kind: 'ice', dy: 1}`.
-  - Head packed_ice, head ice under water, head ice under stone → refused.
+  - Head ice + air above → `{kind: 'ice', dy: 1}`. Head packed ice, head ice under water, head ice under stone, and a
+    head dirt → refused. A10 (the old "head cell ice refused") becomes the dy=1 acceptance.
   - The dy 2-3 cases are unchanged.
-- **C1, through the real rescue tick** (a fake bot over a 1-deep water layer under ice): the air pocket starts on the
-  first sealed tick and digs the head cell.
+- **C1, composed** (Codex r1 P2-7), through the real reflex tick on a fake bot in a 1-high water layer under ice:
+  - the air pocket starts on the first sealed tick and digs the head cell;
+  - with two prior ceiling failures at the spot, it still digs (sealed + not suppressed while health falls);
+  - with flat health and movement inside the sealed pocket, suppression holds and the escape handlers run;
+  - for a non-ice solid head (dirt), no dig, and the entombed handler is reachable;
+  - with admission refused (no tool, low HP), the cooldown applies and the ceiling/yield path is unchanged.
 - **C2, `pickRelocationTarget`.**
-  - An ice-river fixture: every candidate over the sheet is refused (ice floor or water near), and a bank 3 off the
-    water is accepted.
-  - An unloaded cell refuses. A wet world returns `no_dry_target` after exactly 16 tries.
-  - The rand stream is consumed deterministically.
-- **C2, watchdog.** The L1 plan uses the target's surface y, and `no_dry_target` → a level-2 `home` plan with the
-  fallback field. Both go through the real Runner.
-- **C3a.** `submergedDecline` (pure: below cap, at cap, TTL). Through the real Runner, a submerged bot gets
-  `declined:submerged`, the level is held, and nothing is reserved or cancelled. The 3rd consecutive verdict runs.
-- **C3b.** The reflex seizure interrupts a watchdog-owned run and leaves a brain-owned run alone.
-- **Read.** G5a/G5b/G6 fixtures; G6 on a replay of homefix-01's death 1 rows = 1, death 2 = 0.
+  - Ice-river fixture: every candidate over the sheet or within 5 of it is refused, and a bank 6 off the water is
+    accepted.
+  - An unloaded cell refuses. A canopy floor refuses. Powder snow is wet.
+  - A wet world → `no_dry_target` after exactly 16 tries.
+  - Deterministic rand consumption.
+  - A dry-bank target with a wet accepted endpoint (Codex r1 P1-2) is refused by the region rule.
+- **C2, watchdog, through the real Runner.**
+  - The L1 plan uses the target's surface y, and the requested row carries the fields.
+  - `no_dry_target` → ONE level-2 `requested` row with `fallback`.
+  - fallback → home declined (`air_rescue`) → retry → L3 (Codex r1 P2-6).
+- **C3a.**
+  - `airEngaged` (pure): rescuing; air ≤ 5 with head under; stale state; and a breathing swimmer, who is NOT engaged
+    (death 2's shape: the relocation runs).
+  - `airDeclineStep` (pure): below cap, at cap, bypass latched until a start, and the TTL.
+  - **The race, through the real Runner** (Codex r1 P1-1): a dry request → a skill unwinding for 3 s → the air rescue
+    engages during the unwind → `declined:air_rescue`, and nothing starts.
+  - **Interleavings** (Codex r1 P2-5, Claude r1 P2-4): reserve_expired → air_rescue → reserve_expired reaches the
+    reserve cap (L3), and air_rescue → reserve_expired → air_rescue reaches the air cap. Both in stagnation and in
+    stranding. The stranding refund is preserved.
+- **C3b.** A watchdog-owned run is interrupted on a later rescuing tick, not only the first. A brain-owned run is left
+  alone. One `_air_rescue_yield` row per run.
+- **Read.**
+  - G5a-d fixtures.
+  - G5c on homefix-01's death-1 rows = 1.
+  - G6 on homefix-01's rows: death 1 counted, death 2 not.
+  - Missing fields → `g5_fields_missing`.
+  - The DiD + Poisson line.
 
 ## 8. Paper scenes (sandbox, base 9e7d9980 v candidate; outcomes from RCON `data get entity` and the runner's rows)
 
-- **S1 (C1): a bot in a 1-deep water layer under an ice sheet, head cell ice.** Base: route `up dist=1`; it drowns, or
-  the scene is stopped at a health floor. Candidate: `sealed`, the air-pocket ice dig, breathing confirmed, and Air
-  back to 300.
-- **S1b: the same with a hole dug one cell to the side.** Candidate: `out dist=1`, and it swims into the hole.
-- **S2 (C2): a stagnant bot beside a frozen river or lake.** Relocation targets are logged for N verdicts. Candidate:
-  every target is dry and standable, read back by RCON `execute if block`. Base: some targets on ice or water.
-- **S3 (C3): a stagnant bot whose L2 home would start while it is submerged** (in water under a 1-block cap).
-  Candidate: `declined:submerged`, the air reflex keeps the body, and the 3rd verdict runs. Plus a run started dry
-  that then walks into an air emergency: `interrupted:drowning`.
+- **S1 (C1): a 1-high water layer under an ice sheet, head cell ice.** Rebuild hive-d's river: dirt floor, 1 water,
+  ice, air. The bot is placed in the gap by RCON `tp` on the sandbox only, where the server forces the swimming pose.
+  - **Base:** route `up dist=1`, and the bot drowns, or the scene is stopped at a health floor.
+  - **Candidate:** `sealed`, the air-pocket ice dig at the head cell, the server's `Air` back to 300 (RCON), and it
+    lives. Run once with a stone pickaxe and once bare-handed at 20 HP; the bare-handed run should be admitted at
+    20 HP and refused at 15 HP.
+- **S1b:** the same with a hole one cell to the side. **Candidate:** `out dist=1`, and it swims into the hole and
+  breathes.
+- **S2 (C2): a stagnant bot beside a frozen river or lake.** Relocation targets are logged for N verdicts.
+  - **Candidate:** every target is dry and standable in its region, read back by RCON `execute if block`.
+  - **Base:** some targets on ice or water.
+- **S3 (C3).**
+  - (a) A stagnant bot whose air rescue is engaged at the verdict: **candidate** `declined:air_rescue`, and the 3rd
+    verdict is bypassed.
+  - (b) A bot whose L2 `home` is running when it meets an air emergency: **candidate** `interrupted:drowning` within a
+    tick or two, and the air rescue proceeds.
 - **S4: regression.** homefix-01's P1 (home 24 out) and P0 (2-s unwind + livelock rung) on the candidate.
 
 ## 9. Reviews
 
-Design r1 → Codex (`codex exec --sandbox read-only`) and an independent Claude subagent. Verdicts and rounds are appended
-below as they land.
+| round | Codex | Claude |
+|---|---|---|
+| design r1 (73019074) | CHANGE. P1: C3 admission race (check before reserve, edge-triggered C3b); C2 checks the target, not goto's ≤3/≤6 arrival region; G6's null population ≠ its event definition; G5/C1 telemetry contract unwritten (rows, axes dropped). P2: decline caps not independent (rescueLevelStep resets the streak); C2 limits overstated (columnSurface, sim approximations); C1 composed regressions. P3: wording (no observed DiD excess; denominators 92 v 94) | CHANGE. P1: a head-geometry decline starves breathing swimmers (death 2's shape) — key on the air reflex; G6's REVERT rests on a narrower null — anchor on verdicts or block-only. P2: bare-handed ice pricing (pickaxes?); caps not independent; C3b edge-triggered and the one-shot latch; 0/223 v 24/723 sizing unexplained; G5 self-consistency only — add outcome checks. P3: drown-route-truth fixtures default the head cell to stone; dy=1 confirm vacuous at full HP; leaves/powder snow; fallback row shape; 92 v 94 |
+| design r2 | | |
+
+r2 answers every r1 finding:
+- **C3a:** keyed on the air reflex, checked at the runner's start, with its own streak, cap and bypass latch. C3b is
+  level-triggered.
+- **C2:** the arrival region R = 5, dy -3..+2; leaves and powder snow; `dry_reasons`; the landing row.
+- **G6:** verdict-anchored, with a DiD + Poisson REVERT and a one-death KEEP block named as policy.
+- **G5:** the fields contract, `g5_fields_missing`, and the outcome checks G5c/G5d.
+- **C1 pricing:** answered with the pickaxe counts.
+- **Fixtures, wording and denominators:** fixed.
+- **Not taken:** Claude's "interrupt every run on seize", deferred to F5 with its reason.
+
+The expansion-plan spec lives on origin/main (`git show origin/main:docs/reports/expansion-plan-2026-10-19.md`). It is
+not on this branch's base (Codex r1 P3).
