@@ -130,7 +130,10 @@ TOWN_R, TOWN_DY = 48, 12     # at town (treefarm.mjs farmOrder; section 1.3)
 HAZARD_R = 32
 HAZARD_MS = 7 * DAY_MS
 COVER_SHARE = 0.8
-FOLD_SCHEMA = 3              # an hour record folded by another fold schema is refolded (Claude r2 P2-8)
+TOWN_FLOOR = 0.3             # ... and a town-day below 30% of the FLEET median is uncovered whatever its own median says
+#                              (Claude r3 P1-1: a loss longer than half the window becomes the town's own median)
+TOWN_GATE_MIN_H = 12         # the per-town 80% test needs >= 12 hours of the day (edge part days are noise)
+FOLD_SCHEMA = 4              # an hour record folded by another fold schema is refolded (Claude r2 P2-8)
 NOT_STAGING_MS = 30 * MIN_MS     # warm and nothing staged this long -> alarm (Claude r2 P2-3)
 PARITY_MAX_AGE_H = 36        # a staged frontier needs a passing agg-vs-rows parity this recent
 WARMUP_H = 48
@@ -347,6 +350,8 @@ def fold_rows(rows, homes):
             continue
         r = dict(r, pool=cpool(r['pool']))
         b = bots.setdefault(r['bot'], [r['pool'], 0, set()])
+        if b[0] is None:
+            b[0] = r['pool']
         if b[0] != r['pool'] and None not in (b[0], r['pool']):
             raise TwoPools(f'bot {r["bot"]} logged under census pools {sorted((b[0], r["pool"]))} in one hour')
         b[1] += 1
@@ -605,9 +610,19 @@ def coverage(records, since, until):
         out[day] = {'ratio': None if ratio is None else round(ratio, 3), 'hours': n, 'folded': D['folded'],
                     'void_hours': D['void'],
                     'covered': ratio is not None and ratio >= COVER_SHARE and D['void'] == 0 and D['folded'] == n,
-                    'towns': towns, 'towns_vs_fleet': towns_fleet}
+                    'towns': towns, 'towns_vs_fleet': towns_fleet,
+                    'towns_uncovered': sorted(p for p in by_pool if town_day_uncovered(towns[p], towns_fleet[p], n))}
     return {'fleet_median_bot_day': M, 'days': out, 'town_median_bot_day': own,
             'uncovered_days': [d for d, v in out.items() if not v['covered']]}
+
+
+def town_day_uncovered(own_ratio, fleet_ratio, hours):
+    """Is this town's day an instrument loss for that town? Below 80% of its OWN median (on a day of >= 12 hours: a
+    shorter edge part day is noise), or below 30% of the FLEET median on any day (a loss so long it became the town's
+    own median, Claude r3 P1-1). An undefined ratio is a loss. Pure."""
+    if own_ratio is None or fleet_ratio is None:
+        return True
+    return (hours >= TOWN_GATE_MIN_H and own_ratio < COVER_SHARE) or fleet_ratio < TOWN_FLOOR
 
 
 def sum_regions(records, pool):
@@ -680,8 +695,8 @@ def frontier(pool, home, records, cov, now_ms, data_until, sites=(), border_r=BO
     turns = [t for r in recs for t in (r.get('turnbacks') or []) if t[1] == pool]
     unr = unreached(turns, data_until)
     hz = hazard_points(deaths, sites, pool, now_ms)          # WALL clock: a fresh world-facts death counts now
-    town_days = [d for d, D in cov['days'].items()
-                 if D.get('towns') is not None and (D['towns'].get(pool) or 0.0) < COVER_SHARE]
+    town_days = [d for d, D in cov['days'].items() if pool in (D.get('towns_uncovered') or ())
+                 or (D.get('towns') is not None and pool not in D['towns'])]
     uncovered = sorted(set(cov['uncovered_days']) | set(town_days))
     covered = not uncovered and bool(cov['days'])
     out_regions, cands = [], []
@@ -953,11 +968,12 @@ def control_presence(records, t0, t1, homes):
             'sample_share': {b: round(100 * samp[b] / ts, 1) if ts else None for b in BAND_NAMES}}
 
 
-def warmup(lines, now_ms):
+def warmup(lines, now_ms, version=None):
     """The live run's start from heartbeat lines. Live = a tick whose self-test passed and that MEASURED (ok / idle /
     behind); void and locked ticks neither extend nor break the run, but a gap > 30 min between live ticks restarts it
     (so 30 min of ES blindness restarts it), as do a failed self-test and a new script version (48 h for THIS code).
-    -> {run_start, complete, complete_at, version}. Pure."""
+    version: the running code's; when the newest live tick ran other code, there is no run yet (Codex r3 P2: the first
+    tick of a new version must not inherit the old one's warm-up). -> {run_start, complete, complete_at, version}. Pure."""
     start = last = ver = None
     for ln in lines:
         try:
@@ -976,7 +992,7 @@ def warmup(lines, now_ms):
         if last is None or t - last > WARMUP_GAP_MIN * MIN_MS or r.get('version') != ver:
             start = t
         last, ver = t, r.get('version')
-    if start is None or last is None or now_ms - last > WARMUP_GAP_MIN * MIN_MS:
+    if start is None or last is None or now_ms - last > WARMUP_GAP_MIN * MIN_MS or (version is not None and ver != version):
         return {'run_start': None, 'complete': False, 'complete_at': None}
     return {'run_start': iso(start), 'complete': now_ms - start >= WARMUP_H * HOUR_MS,
             'complete_at': iso(start + WARMUP_H * HOUR_MS), 'version': ver}
@@ -1325,7 +1341,8 @@ def script_version():
 def heartbeat(out, rec):
     rec = dict(rec, at=iso(int(time.time() * 1000)), version=script_version())
     append_line(os.path.join(out, 'heartbeat.jsonl'), json.dumps(rec, sort_keys=True))
-    write_json_atomic(os.path.join(out, 'heartbeat.json'), rec)
+    if rec.get('status') != 'locked':     # a tick that never ran must not look like a fresh one (Claude r3 P2-1)
+        write_json_atomic(os.path.join(out, 'heartbeat.json'), rec)
 
 
 def read_heartbeat_lines(out, n=20000, tail_bytes=8 << 20):
@@ -1434,8 +1451,9 @@ def plan_folds(counts, have, want_homes):
       - a pool it must fold is missing from it or has another home (per pool: a town dropped for a tick, or an isolated
         pool becoming shared on the same home, refolds nothing);
       - the hour BEFORE it was refolded after it was: its first `home` rows join a start row in that hour (Codex r1
-        P1). Recorded, not remembered: each record stores the folded_at of the hour before it as it was when it was
-        folded (prev_folded_at), so a tick that ends between the two folds cannot lose the second (Codex r2 P1)."""
+        P1). Recorded, not remembered: each record stores the ES counts the hour before it had when it was folded
+        (prev_es_counts), so a tick that ends between the two folds cannot lose the second (Codex r2 P1), and a refold
+        that changed nothing upstream does not cascade down the window (Claude r3 P3-1)."""
     todo = {}
     for h0, n in sorted(counts.items()):
         r = have.get(h0)
@@ -1451,7 +1469,7 @@ def plan_folds(counts, have, want_homes):
                 todo[h0] = f'homes changed {moved[:4]}'
             else:
                 prev = have.get(h0 - HOUR_MS)
-                if prev is not None and h0 - HOUR_MS in counts and r.get('prev_folded_at') != prev.get('folded_at'):
+                if prev is not None and h0 - HOUR_MS in counts and r.get('prev_es_counts') != prev.get('es_counts'):
                     todo[h0] = 'after a refold'
     for h0, why in list(todo.items()):
         nxt = h0 + HOUR_MS
@@ -1481,8 +1499,11 @@ def stage_entries(C, now, instrument, wu, par, census_version, prior):
                    census={'script': 'scripts/host/frontiercensus.py', 'version': census_version}, warmup=wu,
                    coverage={'fleet_median_bot_day': C['cov']['fleet_median_bot_day'],
                              'town_median_bot_day': C['cov']['town_median_bot_day'].get(p),
-                             'days': {d: {k: v for k, v in D.items() if k not in ('towns', 'towns_vs_fleet')}
-                                      | {'town': D['towns'].get(p)} for d, D in C['cov']['days'].items()}},
+                             'days': {d: {k: v for k, v in D.items() if k not in ('towns', 'towns_vs_fleet',
+                                                                                    'towns_uncovered')}
+                                      | {'town': D['towns'].get(p), 'town_vs_fleet': D['towns_vs_fleet'].get(p),
+                                         'town_covered': p not in D['towns_uncovered']}
+                                      for d, D in C['cov']['days'].items()}},
                    baselines_7d=C['base7'],
                    parity={k: par.get(k) for k in ('at', 'hour', 'diffs', 'raw_positioned_rows', 'ok')} if par else None)
         doc['digest'] = content_digest(doc)
@@ -1516,14 +1537,26 @@ def last_publish(out, tail_bytes=1 << 16):
         except ValueError:
             continue
         if isinstance(r, dict) and r.get('mode') == 'publish':
-            return {k: r.get(k) for k in ('at', 'status', 'published', 'unchanged', 'offered', 'refused', 'why', 'error')}
+            return {k: r.get(k) for k in ('at', 'status', 'published', 'unchanged', 'offered', 'refused', 'why', 'error',
+                                          'usable', 'unusable')}
     return None
+
+
+def invalidate_bundle(out, now, why):
+    """Before anything that can fail: the bundle offers nothing until this tick finishes (Codex r3 P1), so a tick that
+    raises can never leave an older bundle for the publisher (which the cron line also skips unless the tick exited
+    0 or 4)."""
+    write_json_atomic(os.path.join(out, 'publish', 'bundle.json'),
+                      {'schema': 1, 'generated_at': iso(now), 'warmup': {'complete': False}, 'withheld': why, 'entries': []})
 
 
 def run_tick(a):
     t_start = time.time()
     now = int(time.time() * 1000)
     safe_dir(a.out_dir)
+    bundle_path = os.path.join(a.out_dir, 'publish', 'bundle.json')
+    old = read_json(bundle_path) or {}                  # the previous bundle: only its digest clocks are carried
+    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)')
     pools = census_pools(a.state_dir, now)
     homes, shared, problems, iso_problems = pools
     exp_path = os.path.join(a.out_dir, 'expected-towns.json')
@@ -1548,8 +1581,13 @@ def run_tick(a):
     for h0, why in todo:
         if time.time() - t_start > a.budget_s:
             break
-        rec = es_fold_hour(h0, homes)
-        rec['prev_folded_at'] = (have.get(h0 - HOUR_MS) or {}).get('folded_at')
+        try:
+            rec = es_fold_hour(h0, homes)
+        except TwoPools as e:             # an instrument failure for THIS hour: recorded, refolded next tick, alarmed
+            rec = {'hour': hour_key(h0), 'h0': h0, 'folded_at': f'{time.time():.6f}', 'es_counts': None,
+                   'schema': FOLD_SCHEMA, 'homes': {p: list(h) for p, h in homes.items()}, 'unstable': True,
+                   'two_pools': str(e)[:300], 'void': False}
+        rec['prev_es_counts'] = (have.get(h0 - HOUR_MS) or {}).get('es_counts')
         write_json_atomic(os.path.join(hours_dir(a.out_dir), f'{hour_key(h0)}.json'), rec)
         have[h0] = rec
         folded += 1
@@ -1562,15 +1600,17 @@ def run_tick(a):
     backlog = len(todo) - folded
     C = compute(a.out_dir, a.state_dir, now, records=sorted(have.values(), key=lambda r: r['h0']), pools=pools)
     instrument, withheld, entries = [], None, []
-    wu = warmup(read_heartbeat_lines(a.out_dir), now)     # from the ticks BEFORE this one
+    wu = warmup(read_heartbeat_lines(a.out_dir), now, script_version())     # the ticks BEFORE this one, THIS code
     prev_hb = read_json(os.path.join(a.out_dir, 'heartbeat.json')) or {}
-    bundle_path = os.path.join(a.out_dir, 'publish', 'bundle.json')
-    old = read_json(bundle_path) or {}
     prior = {e.get('pool'): ((e.get('doc') or {}).get('digest'), (e.get('doc') or {}).get('digest_since'))
              for e in old.get('entries') or [] if isinstance(e, dict)}
     if C:
         if C['ctl']['missing_n']:
             instrument.append(f'{C["ctl"]["missing_n"]} sampled rows fall in regions the fold lacks')
+        tp = [r for r in C['records'] if r.get('two_pools')]
+        if tp:
+            instrument.append(f'{len(tp)} hours with a bot under two census pools, e.g. {tp[-1]["hour"]}: '
+                              f'{tp[-1]["two_pools"][:160]}')
         if not backlog and time.time() - t_start < a.budget_s:
             par = maybe_parity(a.out_dir, C['records'], C['homes'], now)
         else:
@@ -1659,14 +1699,48 @@ def daily(out, C, touched=()):
         write_text_atomic(path, txt + '\n')
 
 
+def record_problems(records, h0s, pools):
+    """The ONE validity rule for stored hours, shared by the tick, --report and --control (Codex r3 P1): for each wanted
+    hour, is it present, measured (not VOID), stable, of this FOLD_SCHEMA, folded for every wanted pool, and does it
+    carry its hourly sample? -> {kind: [hours]} for the failures only (empty dict = valid). Pure."""
+    by = {r['h0']: r for r in records}
+    out = defaultdict(list)
+    for h in h0s:
+        r = by.get(h)
+        k = hour_key(h)
+        if r is None:
+            out['missing'].append(k)
+            continue
+        if r.get('void'):
+            out['void'].append(k)
+        if r.get('unstable'):
+            out['unstable'].append(k)
+        if r.get('schema') != FOLD_SCHEMA:
+            out['old_schema'].append(k)
+        if any(p not in (r.get('homes') or {}) for p in pools):
+            out['pool_not_folded'].append(k)
+        if not (r.get('sample') or {}).get('at'):
+            out['no_sample'].append(k)
+    return dict(out)
+
+
 def report_staleness(C, now_ms):
-    """Why the stored fold is not CURRENT, or None: a report printed from it would read as today's frontier. Pure."""
+    """Why the stored fold is not CURRENT and VALID, or None: a report printed from it would read as today's
+    frontier. Pure."""
     if C is None:
         return 'no folded hour on record'
     mu = C['measured_until']
     if mu is None or now_ms - mu > STALE_AFTER_MS:
         return (f'the newest measured hour ended {iso(mu) if mu else "never"}, more than '
                 f'{STALE_AFTER_MS // HOUR_MS} h ago: the census is not ticking or ES is blind')
+    if C['unstable']:
+        return f'unstable hours in the window: {C["unstable"][:5]}'
+    if C['ctl']['missing_n']:
+        return f'{C["ctl"]["missing_n"]} sampled rows fall in regions the fold lacks'
+    probs = {k: v for k, v in record_problems(C['records'], [r['h0'] for r in C['records'] if C['since'] <= r['h0']],
+                                              C['shared']).items() if k in ('old_schema', 'pool_not_folded')}
+    if probs:
+        return f'hours not folded by this code for every town: { {k: v[:3] for k, v in probs.items()} }'
     return None
 
 
@@ -1684,16 +1758,17 @@ def run_report(a):
     return {'status': 'void' if why else 'ok', 'why': why}
 
 
-def control_completeness(records, t0, t1):
+def control_completeness(records, t0, t1, pools=()):
     """The record hours the controls at sample times t0..t1 need ([t0 - 1 h, t1), the sample at H sits in hour H - 1's
-    record) -> {expected, present, void, missing: [...] (first 10), complete}. A control over a window the census has
-    not folded must never print as a result (Codex r2 P1). Pure."""
+    record), judged by record_problems: present, measured, stable, this schema, folded for every pool asked about,
+    sampled. -> {expected, present, void, problems, complete}. A control over a window the census has not validly
+    folded must never print as a result (Codex r2 P1, r3 P1). Pure."""
     want = list(range(floor_hour(t0) - HOUR_MS, t1, HOUR_MS))
-    by = {r['h0']: r for r in records}
-    missing = [hour_key(h) for h in want if h not in by]
-    void = [hour_key(h) for h in want if h in by and by[h].get('void')]
-    return {'expected': len(want), 'present': len(want) - len(missing), 'void': len(void), 'missing': missing[:10],
-            'void_hours': void[:10], 'complete': not missing and not void}
+    probs = record_problems(records, want, pools)
+    missing = probs.get('missing', [])
+    return {'expected': len(want), 'present': len(want) - len(missing), 'void': len(probs.get('void', [])),
+            'missing': missing[:10], 'void_hours': probs.get('void', [])[:10],
+            'problems': {k: {'n': len(v), 'first': v[:5]} for k, v in probs.items()}, 'complete': not probs}
 
 
 def run_control(a):
@@ -1707,7 +1782,7 @@ def run_control(a):
             return {'status': 'refused'}
         shared = want
     recs = load_records(a.out_dir)
-    comp = control_completeness(recs, t0, t1)
+    comp = control_completeness(recs, t0, t1, sorted(set(shared) | set(homes)))
     sh = control_shares(recs, t0, t1, homes, pools=shared)
     sh_all = control_shares(recs, t0, t1, homes)
     sub = control_subset(recs, t0, t1, homes)
@@ -2096,41 +2171,8 @@ def selftest(verbose=True):
           iso(T + 51 * 5 * MIN_MS))
     check('warm-up: a dead census (last tick 40 min ago) is not warm', warmup(lines, T + 48 * HOUR_MS + 45 * MIN_MS)['complete'],
           False)
-    # the generation protocol
-    import tempfile
-    with tempfile.TemporaryDirectory() as td:
-        g1 = create_gen(td, 'frontier-1_2_3', {'a': 1})
-        g2 = create_gen(td, 'frontier-1_2_3', {'a': 2})
-        n, cur = read_gen(td, 'frontier-1_2_3')
-        check('generations: g1, g2, the reader takes the highest', (g1, g2, n, cur), (1, 2, 2, {'a': 2}))
-        with open(os.path.join(td, 'frontier-1_2_3.g3.json'), 'w') as fh:
-            fh.write('{"other": 1}')
-        lost = create_gen(td, 'frontier-1_2_3', {'a': 3}, n=3)          # a racing writer that read N = 2
-        with open(os.path.join(td, 'frontier-1_2_3.g3.json')) as fh:
-            g3 = json.load(fh)
-        check('generations: a number another writer took is never overwritten (link fails -> None)', (lost, g3),
-              (None, {'other': 1}))
-        check('generations: the next writer takes g4', create_gen(td, 'frontier-1_2_3', {'a': 4}), 4)
-        for _ in range(KEEP_GENS + 2):
-            create_gen(td, 'frontier-1_2_3', {'a': 0})
-        left = sorted(int(re.search(r'g(\d+)', f).group(1)) for f in os.listdir(td) if f.startswith('frontier-1_2_3.g'))
-        check('generations: pruned to the newest KEEP_GENS, no tmp left', (len(left), left[-1],
-                                                                          any(f.endswith('.tmp') for f in os.listdir(td))),
-              (KEEP_GENS, 4 + KEEP_GENS + 2, False))
-        open(os.path.join(td, 'other.g9.json'), 'w').write('{}')
-        check('generations: another key is never touched', os.path.exists(os.path.join(td, 'other.g9.json')), True)
-    # homes
-    with tempfile.TemporaryDirectory() as td:
-        for p, files in (('a', ['town-chest-1_2_3.cobble.jsonl', 'junkwell-site-1_2_3.g1.json']),
-                         ('b', ['town-chest-1_2_3.cobble.jsonl', 'composter-site-4_5_6.g1.json']), ('c', [])):
-            os.makedirs(os.path.join(td, f'_pool-{p}'))
-            for f in files:
-                open(os.path.join(td, f'_pool-{p}', f), 'w').close()
-        os.makedirs(os.path.join(td, '_pool-self-isolated-a-Alpha'))
-        os.makedirs(os.path.join(td, '_pool-a.pre-reseed-1'))
-        H, P = pool_homes(td, pool_roster(td))
-        check('homes: sources agree -> the home; disagree -> left out; none -> left out; isolated/reseed not towns',
-              (H, sorted(P), pool_roster(td)), ({'a': (1, 2, 3)}, ['b', 'c'], ['a', 'b', 'c']))
+    # (the generation protocol, the pool-dir reading and the publisher are tested on temp dirs by
+    # test_frontiercensus.py: the self-test every live mode runs is PURE and writes nothing, Codex r3 P2)
     # the checker
     chk = load_checker()
     now_s = ms_of('2026-10-20T12:00:00Z') / 1000
@@ -2177,6 +2219,9 @@ def main():
     ap.add_argument('--pace-s', type=float, default=0.5, help='sleep between hour folds (be gentle with ES)')
     ap.add_argument('--pools', help='--control only: the comma-separated "shared" set to report (default: today\'s)')
     a = ap.parse_args()
+    if os.geteuid() == 0:            # before the self-test and before any write, heartbeat included (Codex r3 P2)
+        print('refusing to run as root: the census reads only; its publisher runs as the bots\' user (frontierpublish.py)')
+        return 5
     if a.selftest:
         return 0 if selftest() else 1
     mode = next(m for m in ('tick', 'report', 'control', 'parity') if getattr(a, m))
@@ -2188,11 +2233,6 @@ def main():
             rec.update(status='selftest_failed', error='the fixture self-test failed: no live reading was made')
             print('SELFTEST FAILED -- refusing to read the fleet; run --selftest for the list')
             return 2
-        if os.geteuid() == 0:
-            rec.update(status='error', error='refusing to run as root: the census reads only; its publisher runs as the '
-                                             'bots\' user (frontierpublish.py)')
-            print(rec['error'])
-            return 5
         if mode == 'tick':
             safe_dir(a.out_dir)
             lock = os.fdopen(os.open(os.path.join(a.out_dir, '.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644), 'r+')
@@ -2202,7 +2242,8 @@ def main():
                 rec.update(status='locked', error='another tick holds the lock')
                 return 3
         rec.update({'tick': run_tick, 'report': run_report, 'control': run_control, 'parity': run_parity}[mode](a))
-        return 0 if rec.get('status') not in ('instrument',) else 4
+        return {'instrument': 4, 'void': 6, 'incomplete': 6, 'refused': 6}.get(rec.get('status'), 0) \
+            if mode != 'tick' or rec.get('status') == 'instrument' else 0
     except Exception as e:
         rec.update(status='error', error=f'{type(e).__name__}: {e}'[:400])
         print(f'ERROR {type(e).__name__}: {e}', file=sys.stderr)

@@ -68,6 +68,14 @@ def assess(lines, now, max_age_min=15.0, behind_min=135.0):
     if not recs:
         return ['FrontierMissing: no heartbeat from the standing census (mode=tick) -- it has never run, or its '
                 'heartbeat file is elsewhere'], notes
+    locked = 0
+    while recs and recs[-1].get('status') == 'locked':      # a tick that found the lock held never ran: judge the
+        recs.pop()                                          # newest tick that did (Claude r3 P2-1)
+        locked += 1
+    if locked:
+        notes.append(f'{locked} newest ticks found the lock held')
+    if not recs:
+        return ['FrontierStale: every recent tick found the lock held -- a tick is hung'], notes
     last = recs[-1]
     try:
         age = (now - _t(last['at'])) / 60
@@ -99,13 +107,16 @@ def assess(lines, now, max_age_min=15.0, behind_min=135.0):
     if last.get('backlog_hours'):
         notes.append(f'backlog {last["backlog_hours"]} hours (catching up)')
     if last.get('home_problems'):
-        alarms.append(f'FrontierTownMissing: towns left out (no single home): {last["home_problems"]}')
+        alarms.append(f'FrontierTownMissing: towns left out: {last["home_problems"]}')
     most = max((r.get('towns') or 0 for r in recs[-288:]), default=0)
     if last.get('towns') is not None and last['towns'] < most:
         alarms.append(f'FrontierTownMissing: the newest tick read {last["towns"]} towns, {most} within the last 24 h')
     if last.get('site_errors'):
         alarms.append(f'FrontierHazardUnread: world-facts unreadable, ranking withheld: {last["site_errors"]}')
     wu = last.get('warmup') if isinstance(last.get('warmup'), dict) else {}
+    lp0 = last.get('last_publish') if isinstance(last.get('last_publish'), dict) else {}
+    if lp0.get('unusable'):                 # the publisher's rehearsal, during warm-up too (Claude r3 P2-3)
+        alarms.append(f'FrontierPublisher: pool dirs the publisher cannot write: {json.dumps(lp0["unusable"])[:240]}')
     if wu.get('complete'):
         ls = last.get('last_staged_at')
         try:
@@ -190,7 +201,7 @@ def warm_of(lines):
             r = json.loads(ln)
         except ValueError:
             continue
-        if isinstance(r, dict) and r.get('mode') == 'tick':
+        if isinstance(r, dict) and r.get('mode') == 'tick' and r.get('status') != 'locked':
             return bool((r.get('warmup') or {}).get('complete')) if isinstance(r.get('warmup'), dict) else False
     return False
 

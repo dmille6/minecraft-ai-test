@@ -327,7 +327,9 @@ def t_frontier_error_instrument_behind_and_towns_are_alarms():
                      ({'newest_measured_hour_end': '2026-10-22T09:00:00Z'}, 'BEHIND: newest measured hour ended 09:00Z'),
                      ({'newest_measured_hour_end': None}, 'BEHIND: no measured hour'),
                      ({'home_problems': {'hive-c': 'conflicting homes'}}, 'towns left out'),
-                     ({'site_errors': {'hive-c': 'OSError'}}, 'hazards unread')):
+                     ({'site_errors': {'hive-c': 'OSError'}}, 'hazards unread'),
+                     ({'last_publish': {'at': '2026-10-22T11:57:30Z', 'status': 'warmup',
+                                        'unusable': {'hive-c': 'not writable'}}}, 'PUBLISHER cannot write')):
         line = FS.frontier_line(FNOW, path=_hb(**kw))
         assert line.startswith('!! frontier census (E0): ') and want in line, (kw, line)
 

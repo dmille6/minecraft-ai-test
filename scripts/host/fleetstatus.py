@@ -154,6 +154,8 @@ def _frontier_line(now, p):
     if hb.get('site_errors'):
         bad.append(f'hazards unread (ranking withheld) {hb["site_errors"]}')
     wu = hb.get('warmup') or {}
+    if (hb.get('last_publish') or {}).get('unusable'):
+        bad.append(f'PUBLISHER cannot write {hb["last_publish"]["unusable"]}')
     if wu.get('complete'):
         ls = hb.get('last_staged_at')
         if not ls or now - _ts(ls) > FRONTIER_NOT_STAGING:

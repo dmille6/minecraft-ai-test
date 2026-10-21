@@ -3,16 +3,19 @@
 frontier-<home>.g<N>.json (the blueprint link() protocol). Standard library only, self-contained.
 
 It runs as the BOTS' user, never as root (Codex r2 P1: a root process that imports or self-tests code from mike's home
-is a root process running mike's code). mike's crontab runs it right after the tick:
+is a root process running mike's code). frontiercensus-cron.sh runs it right after a tick that finished:
 
-    /usr/bin/sudo -n -u mcbot /usr/bin/python3 -B -c "$(cat .../frontierpublish.py)" --state-dir /var/lib/mcai \\
-        < .../out/publish/bundle.json
+    { wc -c < frontierpublish.py; cat frontierpublish.py bundle.json; } | sudo -n -u mcbot python3 -I -B -c "$BOOT" \
+        --state-dir /var/lib/mcai
 
-so the program text and the bundle both arrive on mike's side of the boundary (mcbot cannot read /home/mike), and the
-only process with mcbot's rights is this one. It writes NOTHING but `frontier-<x>_<y>_<z>.g<N>.json` (and its own
-`.tmp`, unlinked) inside an EXISTING `_pool-<pool>` directory, opened relative to a pinned, no-follow /var/lib/mcai
-fd; it never creates a directory; it prunes only its own key's generations. Its one line of output (JSON) goes to
-mike's publish.log through the cron redirect.
+BOOT (one line, in the cron script) reads the byte count, compiles that many bytes as this program and runs it; the
+program then reads the bundle from the rest of stdin. So the program text and the bundle both come from mike's side of
+the boundary (mcbot cannot read /home/mike), sudo logs a short command line, and the only process with mcbot's rights
+is this one. It writes NOTHING but `frontier-<x>_<y>_<z>.g<N>.json` (and its own `.tmp`, unlinked) inside an EXISTING
+`_pool-<pool>` directory it owns, opened relative to a pinned, no-follow state-dir fd; it never creates a directory;
+it prunes only its own key's generations. Before the warm-up ends it writes nothing and REHEARSES instead (read-only:
+can it open and write each offered pool dir?). Its one line of output (JSON) goes to mike's publish.log through the
+cron redirect.
 
 What it publishes is exactly the bundle's entries: the tick writes the bundle every tick with only the towns that are
 eligible NOW (shared, one home, not reseeded, instrument checks passed), so a town the census dropped is never
@@ -70,8 +73,8 @@ def create_gen(dir_, key, body, keep=KEEP_GENS, n=None):
     """The blueprint protocol (blueprint.mjs createGen): write a tmp file, link() it to <key>.g<N+1>.json -- link fails
     if the name exists, so exactly one writer wins each N -- then unlink the tmp. -> the generation created, or None.
     dir_ is a path or an open directory fd; everything is relative to one pinned directory fd; the tmp is created
-    O_EXCL | O_NOFOLLOW; only this key's generations at or below N - keep are pruned (a single writer under the census
-    lock, so no slow writer can re-create a pruned number)."""
+    O_EXCL | O_NOFOLLOW; only this key's generations at or below N - keep are pruned (one writer: the publisher runs
+    only from frontiercensus-cron.sh, under its flock, so no slow writer can re-create a pruned number)."""
     def go(dfd):
         nn = n
         if nn is None:
@@ -155,14 +158,52 @@ def bundle_refusal(b, now):
     return None
 
 
+def rehearse(bundle, state_dir, euid):
+    """READ-ONLY: would each offered town's pool dir take a write? (the state dir opens no-follow; each _pool-<pool>
+    opens no-follow, is owned by euid and writable). -> (usable, {pool: why}). Run during the warm-up too, so the 48 h
+    are also a rehearsal of the real path (Claude r3 P2-3). Writes nothing."""
+    usable, bad = [], {}
+    try:
+        sfd = open_dir(state_dir)
+    except OSError as e:
+        return [], {'*': f'state dir {state_dir}: {type(e).__name__}'}
+    try:
+        for e in bundle.get('entries') or []:
+            pool = (e or {}).get('pool')
+            if not isinstance(pool, str) or not POOL_RE.match(pool):
+                bad[str(pool)] = 'not a pool name'
+                continue
+            try:
+                pfd = open_dir(f'_pool-{pool}', dir_fd=sfd)
+            except OSError as ex:
+                bad[pool] = f'_pool-{pool}: {type(ex).__name__}'
+                continue
+            try:
+                if os.fstat(pfd).st_uid != euid:
+                    bad[pool] = 'not owned by the publishing user'
+                elif not os.access(f'_pool-{pool}', os.W_OK, dir_fd=sfd):
+                    bad[pool] = 'not writable'
+                else:
+                    usable.append(pool)
+            finally:
+                os.close(pfd)
+    finally:
+        os.close(sfd)
+    return usable, bad
+
+
 def publish(bundle, state_dir, now, euid=None):
     """bundle -> result dict. Writes only through create_gen into existing _pool-<pool> dirs of state_dir."""
-    why = bundle_refusal(bundle, now)
-    if why:
-        return {'status': 'refused' if 'warm-up' not in why else 'warmup', 'why': why, 'published': 0}
     euid = os.geteuid() if euid is None else euid
     if euid == 0:
         return {'status': 'refused', 'why': 'running as root: the publisher runs as the bots\' user only', 'published': 0}
+    why = bundle_refusal(bundle, now)
+    if why:
+        if 'warm-up' in why and isinstance(bundle, dict):
+            usable, bad = rehearse(bundle, state_dir, euid)
+            return {'status': 'warmup', 'why': why, 'published': 0, 'usable': len(usable), 'unusable': bad,
+                    'offered': len(bundle.get('entries') or [])}
+        return {'status': 'refused', 'why': why, 'published': 0}
     pub, refused, same = [], [], 0
     sfd = open_dir(state_dir)
     try:
