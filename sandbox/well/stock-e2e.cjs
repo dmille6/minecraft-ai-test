@@ -10,6 +10,7 @@
 //           ironbank (cobblekeep-01: 3 ingots stay, raw iron and coal bank; no well needed)
 //           cobbleband (cobblekeep-01: a town at 984 of the 1000 cap, a full bag of cobble -> the well takes it; after `build`)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
+//           kitsearch smeltcoal (toolkit-03: the far chest of iron / of coal; no well needed; LOCK_OWNER=kitsearch)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -839,6 +840,76 @@ async function townSearchScene (scene, { orders = 1, wait = 300000 } = {}) {
     CANDIDATE_PASS: !!((b.totals.stone_pickaxe ?? 0) === 1 && !after.far.stone_pickaxe && (after.far.stick ?? 0) === 20 && nearUnchanged && licence >= 1 &&
       rows.some(r => /^outcome=took_pick /.test(r.detail))),
     BASE_SHAPE: !!(!(b.totals.stone_pickaxe ?? 0) && (after.far.stone_pickaxe ?? 0) === 1 && licence === 0 && rows.length >= 1 && rows.every(r => !/^outcome=took_pick /.test(r.detail))) })
+}
+// KITSEARCH (toolkit-03): 10 single chests, 9 near home with 5 dirt, ONE 13.9 from home with 20 iron ingots; the bot holds a
+// full iron pickaxe (no pickaxe order), 9 sticks and a crafting table (the craft's table), no axe and no shovel. Its own
+// toolkit town order runs. BASE: opens the 3 nearest home, `no_iron`, the far chest keeps its 20. CANDIDATE: the search reaches
+// the far chest, takes 4, crafts the iron axe and the iron shovel; every near chest still 5 dirt; licence _toolkit_search_mode.
+scenes.kitsearch = async () => {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  const near = TS_NEAR.slice(0, 9)
+  for (const c of near) setChest([['dirt', 5]], at(c))
+  const far = at(TS_FAR)
+  setChest([['iron_ingot', 20]], far)
+  const before = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const pool = `sbxks-${RUN}`
+  const files = await startBot('kitsearch', [['iron_pickaxe', 1], ['stick', 9], ['crafting_table', 1], ...TORCH(2)], { pool })
+  const t0 = Date.now()
+  const kitRows = () => rowsOf(files.skillLog).filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail))
+  await waitFor(() => kitRows().length >= 1, 300000, 1000)
+  await sleep(3000)
+  const rows = kitRows()
+  const after = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const b = bag(NAME)
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_toolkit_search_mode').length
+  const skillEnd = lines(files.botOut).filter(l => /skill toolkit ->/.test(l)).map(l => l.slice(0, 220))
+  const tools = rcon(`execute if items entity ${NAME} container.* minecraft:iron_axe[minecraft:damage=0]`, `execute if items entity ${NAME} container.* minecraft:iron_shovel[minecraft:damage=0]`)
+  await stopBot(); BRAIN_WANDER = false
+  const nearUnchanged = after.near.every(t => JSON.stringify(t) === JSON.stringify({ dirt: 5 }))
+  result({ scene: 'kitsearch', root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.status} ${r.detail}`), skillEnd,
+    world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearUnchanged, nearAfter: after.near, freshTools: tools.map(x => x.reply) }, licence,
+    CANDIDATE_PASS: !!((b.totals.iron_axe ?? 0) === 1 && (b.totals.iron_shovel ?? 0) === 1 && (after.far.iron_ingot ?? 0) === 16 && nearUnchanged && licence >= 1 &&
+      rows.some(r => /^phase=kit outcome=crafted /.test(r.detail))),
+    BASE_SHAPE: !!(!(b.totals.iron_axe ?? 0) && !(b.totals.iron_shovel ?? 0) && (after.far.iron_ingot ?? 0) === 20 && licence === 0 && rows.length >= 1 &&
+      rows.every(r => /^phase=kit outcome=no_iron /.test(r.detail))) })
+}
+// SMELTCOAL (toolkit-03, the smelt job's part): 10 single chests; the one nearest home (2.2 away, uniquely nearest: run 1 put
+// it among four chests 3 away and the base's tie-break never opened it) holds 8 raw copper, 8 hold dirt, the far one (13.9
+// from home) holds the town's ONLY coal; a furnace beside home. The bot holds the full kit (iron pickaxe, axe,
+// shovel: no toolkit or pickaxe order) and no fuel. BASE: copper taken, 3 containers looked in, no coal -> no_fuel, the copper
+// back. CANDIDATE: the coal pass reaches the far chest, the job smelts 8 and banks the ingots; the far chest loses 1 coal.
+scenes.smeltcoal = async () => {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  const near = [[1, 2], ...TS_NEAR.slice(0, 8)]
+  near.forEach((c, i) => setChest(i === 0 ? [['raw_copper', 8]] : [['dirt', 5]], at(c)))
+  const far = at(TS_FAR)
+  setChest([['coal', 4]], far)
+  const fur = at([2, -2])
+  rcon(`setblock ${fur.x} ${fur.y} ${fur.z} minecraft:air`, `setblock ${fur.x} ${fur.y} ${fur.z} minecraft:furnace[facing=south]`)
+  const before = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const pool = `sbxsc-${RUN}`
+  const files = await startBot('smeltcoal', [['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ...TORCH(2)], { pool })
+  const t0 = Date.now()
+  const jobRows = () => rowsOf(files.skillLog).filter(r => r.name === '_smelt_town')
+  await waitFor(() => jobRows().length >= 1, 420000, 1000)
+  await sleep(3000)
+  const rows = jobRows()
+  const after = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const b = bag(NAME)
+  const skillEnd = lines(files.botOut).filter(l => /skill smelt_town ->/.test(l)).map(l => l.slice(0, 220))
+  await stopBot(); BRAIN_WANDER = false
+  const townIngots = after.near.reduce((n, t) => n + (t.copper_ingot ?? 0), 0) + (after.far.copper_ingot ?? 0)
+  const townRaw = after.near.reduce((n, t) => n + (t.raw_copper ?? 0), 0) + (after.far.raw_copper ?? 0)
+  result({ scene: 'smeltcoal', root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.status} ${r.detail}`), skillEnd,
+    world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearAfter: after.near, townIngots, townRaw },
+    CANDIDATE_PASS: !!(rows.some(r => /^stop=done .* smelted=8 /.test(r.detail)) && townIngots === 8 && townRaw === 0 && (after.far.coal ?? 0) === 3),
+    BASE_SHAPE: !!(rows.length >= 1 && rows.every(r => /^stop=no_fuel /.test(r.detail)) && townRaw === 8 && townIngots === 0 && (after.far.coal ?? 0) === 4) })
 }
 scenes.townsearch = () => townSearchScene('townsearch')
 scenes.townsearch2 = () => townSearchScene('townsearch2', { orders: 2, wait: 1700000 })   // two orders (the second ~20 min later)

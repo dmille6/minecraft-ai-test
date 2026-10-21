@@ -52,9 +52,11 @@ import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete, containerIngredientMiss,
-  townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally } from './withdrawpick.mjs'
+  townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
 // The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
-import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag } from './toolkit.mjs'
+import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag,
+  KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS, kitVisitStep, kitSearchEnd, kitSearchRow, kitIronNeed, kitIronMissNeeds, kitSticksAtRisk,
+  KIT_NO_STICKS_SKIP_MS } from './toolkit.mjs'
 import { setWithdrawHold, withdrawHolds, releaseWithdrawHold, swapWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete, PICK_MISS_KEY, containerItemMiss, noteItemMisses, townItemMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
@@ -120,7 +122,9 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
-         copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns } from './smeltjob.mjs'
+         copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
+         SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
+         COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
@@ -10128,8 +10132,8 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
 /** The containers to look in: nearest first, a double chest's other half never counted twice, none the town's memory
  *  knows is unusable or has a blocked lid (chestfull.mjs containerStatus), and -- for a pickaxe -- none that showed no
  *  usable copy within PICK_MISS_TTL_MS and has taken nothing since (per container: both reviews). Since townsearch-01 the
- *  town pickaxe order searches with townSearchOrder; this sweep is the model's `withdraw` verb's, the toolkit's draw and the
- *  smelt job's (missKey/missTtl). */
+ *  town pickaxe order searches with townSearchOrder, and since toolkit-03 the toolkit's draw too; this sweep is the model's
+ *  `withdraw` verb's and the smelt job's (missKey/missTtl). */
 function withdrawSweep (bot, { pick = false, town = false, missKey = null, missTtl = 0 } = {}) {
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
   const tried = new Set()
@@ -10295,10 +10299,10 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
  * (townSearchOrder over townSearchView), so townOrder's gates agree with the search (Codex r1 P2: a newer count showing a
  * pickaxe re-opens the order, as it re-opens the search).
  */
-function townSearchEmpty (bot, needs) {
-  const view = townSearchView(bot, needs)
+function townSearchEmpty (bot, needs, { missTtl = SEARCH_MISS_TTL_MS, tried = new Set() } = {}) {
+  const view = townSearchView(bot, needs, tried)
   if (!view.coverage || !view.containers.length) return false
-  return townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now }).length === 0
+  return townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now, missTtl }).length === 0
 }
 
 /** Has every container of the town been ruled out for a usable pickaxe (townSearchEmpty)? For townOrder. */
@@ -10337,26 +10341,23 @@ export function townIngredientMiss (bot) {
   } catch { return false }
 }
 
-/** THE TOWN'S CONTAINERS, for coverage -> their keys, or null when the scan may be TRUNCATED. The boundary is inside the
- *  matcher (a scan capped before an inTown filter let 63 deep barrels crowd out a town chest -- Codex on e897d44).
- *  townsearch-02 replaced withdraw_pick's use of it with townSearchView, and its diff deleted it; two guards still call it --
- *  toolkit's townKitIronMiss and smeltjob's townCopperMiss -- and without it each threw a ReferenceError inside its try and
- *  answered false for ever (both guards dead; eslint no-undef). Restored verbatim (F1 of toolkit's 534aeec0 rebase). */
-const TOWN_KEYS_CAP = 256
-function townContainerKeys (bot, home, isContainer) {
-  const found = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: TOWN_KEYS_CAP,
-    matching: b => isContainer(b) && (!b.position || inTown(home, b.position)) }) ?? []
-  return found.length >= TOWN_KEYS_CAP ? null : found.map(posKey)
-}
+// townContainerKeys (the old complete-coverage key list) is gone: toolkit-03 moved its last two callers -- toolkit's
+// townKitIronMiss and smeltjob's townCopperMiss -- onto townSearchEmpty, the rule their draws now search by.
 
-/** Has every town container recently held too little iron for a kit draw (toolkit.mjs; complete coverage)? For the order. */
+/** Would the kit's town search find NO candidate for its iron (townSearchEmpty over KIT_IRON_NEED: complete coverage, every
+ *  town container a live `kit_iron` miss, out of this bot's search, or shut)? For the order (toolkit.mjs toolkitOrder).
+ *  toolkit-03: the SAME rule the draw searches by -- the old gate judged every findBlocks key (both halves, shut containers
+ *  the draw never opens) while the draw opened 3, so the two could disagree in both directions. */
 export function townKitIronMiss (bot) {
   try {
-    const home = homeVec()
-    const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
-    const keys = townContainerKeys(bot, home, isContainer)
-    if (keys == null) return false   // more town containers than one scan returns: coverage cannot be complete
-    return townIngredientMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), keys, [KIT_IRON_NEED])
+    const items = bot.inventory?.items?.() ?? []
+    const d = kitDraw(items, { credit: bot.kitCredit ?? 0 })
+    // the holders this bot's search holds back for want of sticks (bot.kitNoSticks), while its bag cannot make them: the
+    // search's own rule, so the gate does not issue an order that opens nothing (Claude r2 P3-2)
+    const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: 32 })
+    const held = new Set()
+    if (kitSticksAtRisk(d, kitMeans(items, { tableNear }).sticksMakeable)) for (const [k, until] of bot.kitNoSticks ?? []) if (until > Date.now()) held.add(k)
+    return townSearchEmpty(bot, [kitIronNeed(d.ingots)], { tried: held })
   } catch { return false }
 }
 
@@ -10480,7 +10481,9 @@ function townSearchView (bot, needs, tried = new Set()) {
   const counts = Object.fromEntries(needs.map(n => [n, {}])), misses = Object.fromEntries(needs.map(n => [n, {}]))
   // a pickaxe miss (no usable copy at all) is a trip miss too: the later of the two rules a container out for 'trippick'
   // (Claude trip review P3: otherwise trip-line bots reopen containers already known to hold no pickaxe)
-  const missOf = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
+  // smeltjob's copper miss is its own map (COPPER_MISS_KEY, 2 h): toolkit-03 routes the job's draw through this search too
+  const missOf = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : need === SMELT_JOB_INPUT ? mem?.[COPPER_MISS_KEY]?.[h]
+    : need === SMELT_JOB_FUEL ? mem?.[COAL_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
   const missAt = (h, need) => need === 'trippick' ? Math.max(missOf(h, 'pick') ?? -Infinity, missOf(h, 'trippick') ?? -Infinity) : missOf(h, need)
   const latest = vals => vals.reduce((a, v) => (Number.isFinite(v) && v > a ? v : a), -Infinity)
   for (const k of sc.keys ?? []) {
@@ -10508,9 +10511,9 @@ function townSearchView (bot, needs, tried = new Set()) {
 }
 /** The next container to look in for `needs` -> { block, order, view } (block null: none left). Re-ranked from where the
  *  bot stands now, after every visit. */
-function townSearchNext (bot, needs, tried, want = {}) {
+function townSearchNext (bot, needs, tried, want = {}, { missTtl = SEARCH_MISS_TTL_MS } = {}) {
   const view = townSearchView(bot, needs, tried)
-  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now })
+  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl })
   return { block: order.length ? view.byKey.get(order[0].k) : null, order, view }
 }
 /** A visit that could not look inside: this container leaves THIS bot's search for SEARCH_FAIL_SKIP_MS. A window that
@@ -10655,8 +10658,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
 /**
  * toolkit -- the town order (toolkit.mjs toolkitOrder; chatOnly, housekeeping). The bag has no usable iron axe and/or no
  * usable iron shovel, the bot is in town:
- *   1. THE DRAW: town containers in reach, nearest first, up to WITHDRAW_CONTAINERS opened (a container that recently held
- *      too little iron is passed over: the town memory's `kit_iron` miss), ONE container giving all the ingots the kit
+ *   1. THE DRAW: the town search (toolkit-03; withdraw_pick's townSearchOrder): EVERY town container, nearest the bot first,
+ *      up to KIT_SEARCH_VISITS opened per run and never inside the crafts' reserve (a container that recently held too little
+ *      iron is passed over -- the town memory's `kit_iron` miss -- so the next run continues), ONE container giving all the ingots the kit
  *      still needs (kitDraw: never the bag's own iron) while it keeps TOWN_IRON_KEEP (kitTakes), plus the sticks the bag
  *      is short of when that container has them. withdraw's own visit does it: the room plan, the stock targets' draw
  *      claim for sticks, the transfer verified against the SERVER's bag, the withdraw hold (deposit never banks it back).
@@ -10680,15 +10684,28 @@ async function toolkit (ctx, args, signal) {
   // an abort included -- so a later order never draws them again (the loop's state could not see a thrown run).
   const creditIn = Math.max(0, Math.min(Number(bot.kitCredit ?? args?.credit) || 0, ingots()))
   const tried = []
-  const st = { needs: [], drew: 0, sticks: 0, used: 0, crafted: [], creditOut: creditIn, stop: '-', outcome: 'nothing' }
+  const st = { needs: [], drew: 0, sticks: 0, used: 0, crafted: [], creditOut: creditIn, stop: '-', outcome: 'nothing', search: null }
   const keepCredit = () => { st.creditOut = creditAfter(creditIn, st.drew, st.used, ingots()); bot.kitCredit = st.creditOut }
   // THE KIT'S OWN IRON (Codex r1 P2-2): what this run may spend is its credit plus what it verifiably drew, never the bag's
   // other (ladder) ingots -- a draw that moved less than asked crafts only what it funded
   const funded = () => creditIn + st.drew - st.used
   const ingotsAtStart = ingots()
   let written = false
+  // THE SEARCH'S OWN ROW (toolkit-03): a kind the base cannot write, spanning the search's walks -- the change row a death
+  // linkage can use (townsearch-02 had none: "LINKAGE UNAVAILABLE"). Written the moment the search ENDS, so its timestamp is
+  // the search's end and timestamp - duration its start (Codex r1 P3: written after the crafts it pointed at the wrong
+  // seconds); an exit that cuts the search (an abort, an exception) writes it then. Once per run.
+  let searchWritten = false
+  const searchRow = (status, outcome) => {
+    if (searchWritten || !st.search || st.searchT0 == null) return
+    searchWritten = true
+    if (st.searchT1 == null) { Object.assign(st.search, searchTally(tried), { left: -1 }); st.searchT1 = Date.now() }
+    logEvent({ kind: 'kit_search', status, snapshot: snapshot(bot), durationMs: Math.max(0, st.searchT1 - st.searchT0),
+      detail: kitSearchRow({ outcome, ...st.search, tried }) })
+  }
   const row = status => {
     written = true
+    searchRow(status, st.outcome)   // a search an exit cut short (its counters from the visits so far; candidates left -1)
     const fields = { phase: 'kit', ...st, creditIn, before, after: toolsTag(items()), tried }
     logEvent({ kind: 'toolkit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: toolkitRow(fields), args: toolkitArgs(fields) })
   }
@@ -10705,11 +10722,9 @@ async function toolkit (ctx, args, signal) {
     if (!draw.needs.length) return out('no_effect', 'nothing', 'already carrying a usable iron axe and a usable iron shovel')
     // ---- 1. the draw
     if (draw.ingots > 0 || draw.sticks > 0) {
-      const { deadline, msLeft } = withdrawClock(ctx)
+      const { deadline } = withdrawClock(ctx)
       // the room plan keeps the goal's wants, the stone-pickaxe ingredients and the iron (withdrawpick roomKeep)
       const keep = [...roomKeep(bot.currentWants ?? []), 'iron_ingot']
-      let mem = {}
-      try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) } catch { mem = {} }
       const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: 32 })
       const decide = (inChest, bag, { chestEmpty }) => {
         // the sticks this container cannot give must be makeable from the bag's wood (kitMeans): never iron for a dead end
@@ -10720,43 +10735,87 @@ async function toolkit (ctx, args, signal) {
         if (!k.takes.length || (draw.ingots > 0 && !k.takes.some(t => t.name === 'iron_ingot'))) return null
         return decideTakes(k.takes, inChest, bag, chestEmpty, keep)
       }
-      const sweep = withdrawSweep(bot, { town: true })
-      let got = null
-      for (let looked = 0; looked < 64 && tried.length < WITHDRAW_CONTAINERS; looked++) {
+      // THE TOWN SEARCH (toolkit-03; withdraw_pick's, townsearch-01/02): EVERY town container in townSearchOrder's order --
+      // nearest the bot first (no journal group counts iron), never one opened already this run, a live miss for THIS draw's
+      // size (kitIronNeed), one this bot could not look inside lately (withdrawSearchSkip), one that lately had the iron but
+      // not the sticks this bag cannot make (bot.kitNoSticks), or one the town shut -- re-ranked after every visit, at most
+      // KIT_SEARCH_VISITS, and never inside the crafts' reserve of the clock. A draw of sticks only (the credit covers the
+      // iron) searches for sticks, which the journal counts.
+      const need = draw.ingots > 0 ? kitIronNeed(draw.ingots) : 'stick'
+      const pc = passClock(deadline, KIT_CRAFT_RESERVE_MS)
+      const kitTried = new Set()
+      // the holders that lacked only the sticks, while this bag still cannot make them (kitSticksAtRisk): out of this search
+      const atRisk = kitSticksAtRisk(draw, kitMeans(items(), { tableNear }).sticksMakeable)
+      bot.kitNoSticks ??= new Map()
+      for (const [k, until] of bot.kitNoSticks) if (!(until > Date.now())) bot.kitNoSticks.delete(k)
+      let heldBack = 0
+      if (atRisk) for (const k of bot.kitNoSticks.keys()) { kitTried.add(k); heldBack++ }
+      let got = null, noSticks = heldBack > 0, progressed = false
+      st.searchT0 = Date.now()
+      let next = townSearchNext(bot, [need], kitTried)
+      st.search = { need, town: next.view.containers.length, cand: next.order.length, visits: 0, vfail: 0, maxrep: 0, left: next.order.length }
+      for (let n = 0; n < KIT_SEARCH_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
         check(signal)
-        const cb = sweep.any(STORAGE_NEAR)
-        if (!cb) break
-        sweep.mark(cb.position, false)
-        // a container that recently held too little iron (and has taken nothing since) is passed over
-        if (draw.ingots > 0 && containerIngredientMiss(mem, posKey(cb.position), KIT_IRON_NEED)) continue
-        const v = await withdrawVisit(ctx, cb, decide, signal, msLeft, deadline - 2_000)
-        if (v.double) sweep.mark(cb.position, true)
+        const cb = next.block
+        const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+        // ONE ENTRY PER CONTAINER, opened or not: a double chest's other half is the same container (the view keys it once,
+        // and its partner comes from the block state -- the old sweep marked it only after a window opened, so a walled-in
+        // or lidded double chest spent two of the three tries)
+        const keys = halvesOf(bot, cb.position, true)
+        for (const k of keys) kitTried.add(k)
         tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
-        if (v.result?.status === 'success') { got = v.moved; break }
-        // A CONTAINER THIS BOT CANNOT REACH, or a stock claim the journal could not confirm, moved nothing: the next container
-        // (withdraw_pick's own rule; Claude r1 P3-1 -- one walled-in nearest chest ended every run)
-        // ...and since lidclear-01 a lid the visit could not clear (container_blocked: openForWithdraw clears the lids it may and
-        // refuses the rest) -- it moved nothing either
-        if (v.result && ['chest_unreachable', 'stock_unconfirmed', 'container_blocked'].includes(v.result.failClass)) continue
-        if (v.result) {
+        const step = kitVisitStep(v)
+        if (v.result && step !== 'took') searchFailSkip(bot, cb, v.result.failClass)
+        if (step === 'took') { got = v.moved; break }
+        if (step === 'next' && SEARCH_FAIL_SKIP.has(v.result.failClass)) progressed = true   // left out of the next run's search
+        if (step === 'stop') {
           st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
-          return out('failed', v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed', v.result.detail, v.result.failClass ?? 'kit_draw')
+          Object.assign(st.search, searchTally(tried), { left: -1 }); st.searchT1 = Date.now()
+          const oc = v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed'
+          searchRow('failed', oc)
+          return out('failed', oc, v.result.detail, v.result.failClass ?? 'kit_draw')
         }
-        if (!v.skip && draw.ingots > 0) {
-          updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, sweep.halves(cb.position, v.double), [KIT_IRON_NEED]))
+        if (step === 'skip' && v.skip === 'no_sticks') {
+          noSticks = true; progressed = true
+          bot.kitNoSticks.set(containerKey(bot, cb.position), Date.now() + KIT_NO_STICKS_SKIP_MS)
         }
+        // looked inside and too little of the need: remembered for this container (both halves), so the next run continues
+        // with the rest -- for iron a miss for EVERY draw size the count it held cannot give (kitIronMissNeeds), for sticks
+        // the ingredient miss withdraw_pick reads too (a true fact)
+        if (step === 'miss' && draw.ingots > 0) {
+          const ironSeen = (v.saw ?? []).reduce((t, it) => t + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
+          updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), kitIronMissNeeds(ironSeen)))
+          progressed = true
+        } else if (step === 'miss' && ingredientNeedsAbsent(v.saw ?? []).includes('stick')) {
+          updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), ['stick']))
+          progressed = true
+        }
+        next = townSearchNext(bot, [need], kitTried)
       }
+      const last = got ? null : townSearchNext(bot, [need], kitTried)
+      Object.assign(st.search, searchTally(tried), { left: got ? 0 : last.order.length }); st.searchT1 = Date.now()
       st.drew = got?.took?.iron_ingot ?? 0
       st.sticks = got?.took?.stick ?? 0
       keepCredit()
-      if (draw.ingots > 0 && !got && tried.some(x => x.endsWith(':no_sticks'))) {
-        st.stop = `${tried.length} container(s) tried`
-        return out('failed', 'no_sticks', `no iron drawn: the town container(s) holding it have no sticks and the bag has no wood to make ${draw.sticks}; carry 1 log (it makes 8 sticks) or ${draw.sticks} sticks to town`, 'kit_no_sticks')
-      }
       if (draw.ingots > 0 && !got) {
-        st.stop = `${tried.length} container(s) tried`
-        return out('failed', 'no_iron', `no town container in reach holds ${draw.ingots} iron ingot(s) with ${TOWN_IRON_KEEP} to spare (${tried.length} tried); the town's iron is passed over for a while`, 'kit_no_iron')
+        const end = kitSearchEnd({ left: st.search.left, noSticks, progressed, coverage: !!last.view.coverage })
+        st.stop = `${tried.length}_of_${st.search.cand}_candidate(s)_tried`
+        searchRow('failed', end.outcome)
+        if (end.outcome === 'more') {
+          return out('failed', 'more', `no iron drawn yet: ${tried.length} town container(s) looked in, ${st.search.left} not yet -- the next kit run continues the search`, end.failClass)
+        }
+        if (end.outcome === 'stalled') {
+          return out('failed', 'stalled', `no iron drawn: ${tried.length} town container(s) looked in taught this search nothing new and ${st.search.left} are not yet looked in; the kit waits`, end.failClass)
+        }
+        if (end.outcome === 'no_sticks') {
+          return out('failed', 'no_sticks', `no iron drawn: the town container(s) holding it have no sticks and the bag has no wood to make ${draw.sticks}; carry 1 log (it makes 8 sticks) or ${draw.sticks} sticks to town`, end.failClass)
+        }
+        if (end.outcome === 'unseen') {
+          return out('failed', 'unseen', `no iron drawn: every town container in view is known short of ${draw.ingots} + ${TOWN_IRON_KEEP} ingots, but the town is not wholly in view (the scan was cut or a column is not loaded); the kit waits`, end.failClass)
+        }
+        return out('failed', 'no_iron', `no town container holds ${draw.ingots} iron ingot(s) with ${TOWN_IRON_KEEP} to spare (${tried.length} looked in, the rest known short); the town's iron is passed over for a while`, end.failClass)
       }
+      searchRow('success', got ? 'took' : 'none')
     }
     // ---- 2. the crafts, in KIT order
     for (const name of draw.needs) {
@@ -10830,6 +10889,7 @@ async function toolkit (ctx, args, signal) {
 // bot standing at a furnace, which is correct: drowning outranks an ingot.
 const SMELT_DEADLINE_MS = 150_000       // inside config.skills.defaultTimeoutMs (180s)
 const SMELT_RECOVERY_MS = 12_000        // reserved to empty the furnace and close it
+const SMELT_BANK_RESERVE_MS = 20_000    // smelt_town: the bank after the smelt (two deposits at the town chest) keeps this
 const SMELT_POLL_MS     = 500           // how often the wait checks the abort signal
 const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event forever
 
@@ -11042,7 +11102,8 @@ export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir 
 
 async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   const { bot } = ctx
-  const deadline = Date.now() + SMELT_DEADLINE_MS
+  // the caller's deadline, when it gives one (smelt_town, toolkit-03), else this call's own SMELT_DEADLINE_MS
+  const deadline = Math.min(Date.now() + SMELT_DEADLINE_MS, Number.isFinite(session.opts?.deadline) ? session.opts.deadline : Infinity)
   // THE JOB'S FUEL ALLOW-LIST (Claude code r1 P2-2): with opts.fuels the plan sees only the input and those fuels, so a
   // town job never burns the bag's planks, logs, bamboo or sticks (the wood stockpile and the ladder's keeps).
   const allowFuels = Array.isArray(session.opts?.fuels) ? new Set(session.opts.fuels) : null
@@ -11069,7 +11130,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   // to a furnace spends the decision to learn something the inventory already
   // knew, and travel is where 80% of this fleet's deposit failures went.
   const dry = smeltPlan({ held: heldFor(), item, count,
-                          budgetMs: SMELT_DEADLINE_MS, hasFurnace: true })
+                          budgetMs: Math.max(0, deadline - Date.now()), hasFurnace: true })
   if (!dry.ok && dry.reason === 'not_smeltable') {
     return { status: 'failed', failClass: 'bad_target',
              detail: `${dry.detail}; gather or craft it instead` }
@@ -11132,7 +11193,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   }
   if (!block) {
     const noStation = smeltPlan({ held: heldFor(), item, count,
-                                  budgetMs: SMELT_DEADLINE_MS, hasFurnace: false })
+                                  budgetMs: Math.max(0, deadline - Date.now()), hasFurnace: false })
     return { status: 'failed', failClass: 'needs_station', gap: 'furnace',
              need: noStation.need,
              detail: 'no furnace within 32 blocks and none in your inventory — ' +
@@ -11466,15 +11527,18 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
 // THE TOWN SMELT JOB AND THE FURNACE DRAIN. The decisions are smeltjob.mjs's (pure); these only walk, open, click and
 // measure. Both are HOUSEKEEPING (chatOnly): the model can never choose them, and they never feed the milestone give-up.
 
-/** EVERY reachable town container has shown no raw copper recently (COMPLETE coverage) -> true. For the order. */
+/** Would the job's copper search find NO candidate (townSearchEmpty over raw_copper, its 2 h miss: complete coverage, every
+ *  town container a live copper miss, out of this bot's search, or shut)? For the order. toolkit-03: the SAME rule the job
+ *  searches by (the old gate judged every findBlocks key while the sweep skipped shut ones: an order that opened nothing). */
 export function townCopperMiss (bot) {
-  try {
-    const home = homeVec()
-    const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
-    const keys = townContainerKeys(bot, home, isContainer)
-    if (keys == null) return false
-    return townItemMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)
-  } catch { return false }
+  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }
+}
+
+/** Would the job's COAL search find no candidate (townSearchEmpty over coal, its own 2 h miss)? The precheck before any
+ *  copper is taken (toolkit-03). A deposit of coal into a container -- cobblekeep-01's town deposit banks coal a bot has
+ *  nothing of its own to smelt with -- ends that container's miss ('took'), so banked coal re-opens the search. */
+export function townCoalMiss (bot) {
+  try { return townSearchEmpty(bot, [SMELT_JOB_FUEL], { missTtl: { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS } }) } catch { return false }
 }
 
 /** The furnaces within DRAIN_RADIUS of home -> [{ k, pos, dist, lit }] (lit from the block state: no window needed). */
@@ -11506,47 +11570,82 @@ export function furnaceLeasedNow (k) {
 const copperIn = held => (held[SMELT_JOB_INPUT] ?? 0) + (held[SMELT_JOB_OUTPUT] ?? 0)
 
 /**
- * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, chest, unsettled, looked }. Town containers only (withdrawSweep
- * town), nearest first, never one the town's memory says showed no raw copper in the last 2 h and has taken nothing
- * since; up to WITHDRAW_CONTAINERS. Each container that holds none is remembered (the order's complete-coverage miss).
+ * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, chest, unsettled, looked, misses, more, coalMore, tried }. The town
+ * search (toolkit-03; withdraw_pick's townSearchOrder over townSearchView): the COPPER pass first -- every town container
+ * not a live copper miss (2 h), nearest the bot, each once, up to SMELT_COPPER_VISITS, inside its clock -- taking the coal
+ * alongside when a copper container has it; then, with copper in hand and no coal yet, the COAL pass, coal as its own need
+ * (its own 60 min miss, NEVER skipped for lacking copper), up to SMELT_COAL_VISITS. Every opened container's facts are
+ * remembered: no raw copper (the copper miss), no coal (the coal miss). `more` / `coalMore`: that pass ran out of budget or
+ * clock with candidates left (the caller's stop is then search_more, never town_has_none / no_fuel).
  */
 async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
   const { bot } = ctx
-  const { deadline, msLeft } = withdrawClock(ctx)
-  const out = { took: {}, chest: null, unsettled: false, looked: 0, misses: 0 }
-  const sweep = withdrawSweep(bot, { town: true, missKey: copper > 0 ? COPPER_MISS_KEY : null, missTtl: COPPER_MISS_TTL_MS })
+  const { deadline } = withdrawClock(ctx)
+  const out = { took: {}, chest: null, unsettled: false, looked: 0, misses: 0, more: false, coalMore: false, noCoal: false, tried: [], progressed: false }
   const keep = roomKeep(bot.currentWants ?? [])
   let needCopper = copper, needCoal = coal
   // FUEL ONLY WITH COPPER IN HAND (Claude code r2 P3): a look that finds no copper must not carry town coal away (the town
   // deposit never banks coal back) -- coal is taken from a container only once the bag holds copper or this one has it
   let copperInHand = copper <= 0
-  for (let n = 0; n < WITHDRAW_CONTAINERS && (needCopper > 0 || needCoal > 0); n++) {
-    check(signal)
-    const cb = sweep.next(TOWN_SCAN_RADIUS)
-    if (!cb) break
-    const decide = (inChest, bag, { chestEmpty }) => {
-      const takes = []
-      const cu = Math.min(needCopper, haveIn(inChest, SMELT_JOB_INPUT))
-      if (cu > 0) takes.push({ name: SMELT_JOB_INPUT, count: cu })
-      const fuel = needCoal > 0 && (copperInHand || cu > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
-      if (fuel) takes.push({ name: fuel, count: 1 })
-      return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
-    }
-    const v = await withdrawVisit(ctx, cb, decide, signal, msLeft, deadline - 2_000)
-    sweep.mark(cb.position, v.double)
-    out.looked++
-    const keys = sweep.halves(cb.position, v.double)
-    if (copper > 0 && !(v.saw ?? []).some(it => it.name === SMELT_JOB_INPUT) && v.saw) {
-      out.misses++
-      try { updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteItemMisses(e, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)) } catch { /* advisory */ }
-    }
-    if (v.result?.failClass === 'transfer_unsettled') { out.unsettled = true; break }
-    const took = v.verified ? (v.moved?.took ?? {}) : {}
-    for (const [k, c] of Object.entries(took)) out.took[k] = (out.took[k] ?? 0) + c
-    if (took[SMELT_JOB_INPUT]) { needCopper = Math.max(0, needCopper - took[SMELT_JOB_INPUT]); out.chest = posKey(cb.position); copperInHand = true }
-    if (JOB_FUELS.some(f => took[f])) needCoal = 0
-    if (v.result && !v.verified && v.moved) { out.unsettled = true; break }
+  const decide = (inChest, bag, { chestEmpty }) => {
+    const takes = []
+    const cu = Math.min(needCopper, haveIn(inChest, SMELT_JOB_INPUT))
+    if (cu > 0) takes.push({ name: SMELT_JOB_INPUT, count: cu })
+    const fuel = needCoal > 0 && (copperInHand || cu > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
+    if (fuel) takes.push({ name: fuel, count: 1 })
+    return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
   }
+  const COPPER_TTL = { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, COAL_TTL = { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS }
+  // ONE PASS: `need` the search's need, `want` -> true while this pass still wants something
+  const pass = async (need, visits, reserveMs, want, missTtl) => {
+    const pc = passClock(deadline, reserveMs)
+    const passTried = new Set()
+    let next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+    for (let n = 0; n < visits && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
+      check(signal)
+      const cb = next.block
+      const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+      for (const k of halvesOf(bot, cb.position, true)) passTried.add(k)
+      out.looked++
+      out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
+      if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
+      // PROGRESS (Codex r2 P2): something the next job's search uses -- a miss for this pass's need, or a container left out
+      if (v.result && SEARCH_FAIL_SKIP.has(v.result.failClass)) out.progressed = true
+      if (v.saw && (need === SMELT_JOB_INPUT ? !v.saw.some(it => it.name === SMELT_JOB_INPUT) : !v.saw.some(it => JOB_FUELS.includes(it.name)))) out.progressed = true
+      // WHAT IT HELD, remembered for both halves: no raw copper -> the copper miss; no coal -> the coal's own miss
+      if (v.saw) {
+        const keys = halvesOf(bot, cb.position, v.double)
+        const noCu = !v.saw.some(it => it.name === SMELT_JOB_INPUT), noCoal = !v.saw.some(it => JOB_FUELS.includes(it.name))
+        if (noCu) out.misses++
+        if (noCu || noCoal) {
+          try {
+            updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {
+              if (noCu) noteItemMisses(e, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)
+              if (noCoal) noteItemMisses(e, COAL_MISS_KEY, COAL_MISS_TTL_MS, keys)
+            })
+          } catch { /* advisory */ }
+        }
+      }
+      if (v.result?.failClass === 'transfer_unsettled') { out.unsettled = true; return }
+      const took = v.verified ? (v.moved?.took ?? {}) : {}
+      for (const [k, c] of Object.entries(took)) out.took[k] = (out.took[k] ?? 0) + c
+      if (took[SMELT_JOB_INPUT]) { needCopper = Math.max(0, needCopper - took[SMELT_JOB_INPUT]); out.chest = posKey(cb.position); copperInHand = true }
+      if (JOB_FUELS.some(f => took[f])) needCoal = 0
+      if (v.result && !v.verified && v.moved) { out.unsettled = true; return }
+      next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+    }
+    return want() && next.order.length > 0   // cut with candidates left
+  }
+  // 0. NO COAL ANYWHERE IN TOWN (the coal search has no candidate: every container a live coal miss, out of this bot's search,
+  //    or shut, over a town wholly in view): no copper is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
+  if (needCoal > 0 && townCoalMiss(bot)) { out.noCoal = true; return out }
+  // 1. THE COPPER (the bag's own first: copper 0 skips it)
+  if (needCopper > 0) out.more = !!(await pass(SMELT_JOB_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => needCopper > 0, COPPER_TTL))
+  if (out.unsettled) return out
+  // only the copper still wanted keeps `more` meaningful: some copper in hand is a job to run
+  if (copperInHand) out.more = false
+  // 2. THE COAL, as its own need -- with copper in hand only
+  if (needCoal > 0 && copperInHand && !out.unsettled) out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COAL_TTL))
   return out
 }
 
@@ -11617,8 +11716,14 @@ async function smeltTown (ctx, _args, signal) {
     fuelName = JOB_FUELS.find(n => (w.took[n] ?? 0) > 0) ?? null
     fuelBag0 = fuelName ? (held0[fuelName] ?? 0) : 0
     f.chest = w.chest ?? '-'
+    f.looked = w.looked; f.more = w.more ? 'cu' : w.coalMore ? 'coal' : '-'
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from the town chest could not be confirmed; the job stops until the bag settles' }) }
     const have = heldMap(bot)[SMELT_JOB_INPUT] ?? 0
+    // THE TOWN HAS NO COAL (jobWithdraw step 0): nothing was taken; with carried copper the fuel check below says the same
+    if (w.noCoal && have < 1 && !((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) > 0)) {
+      f.stop = 'no_fuel'
+      return (result = { status: 'no_effect', detail: 'no coal in any town container (each looked in lately); the job does not burn the bag\'s own fuel, so it takes no copper and waits' })
+    }
     if (have < 1) {
       // NOTHING TO SMELT -- BUT INGOTS IN THE BAG ARE BANKED (Codex code r2: the deterministic carry return). An earlier job
       // interrupted after its smelt, or a deposit that found the chest full, leaves ingots; the order fires on them and
@@ -11630,12 +11735,20 @@ async function smeltTown (ctx, _args, signal) {
           ? { status: 'success', detail: `no raw copper to smelt; banked ${f.depI} copper ingots carried from an earlier job` }
           : { status: 'no_effect', detail: 'no raw copper to smelt, and the carried ingots could not be banked here now' })
       }
+      // A COPPER SEARCH CUT WITH CANDIDATES LEFT is no answer about the town (toolkit-03): search_more, no strike
+      if (w.more) {
+        f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED
+        return (result = { status: 'no_effect', detail: `no raw copper in the ${w.looked} town container(s) looked in yet; others are not yet looked in -- the next job continues the search` })
+      }
       f.stop = 'town_has_none'
       return (result = { status: 'no_effect', detail: 'no raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt' })
     }
     // NO TOWN FUEL: the job does not burn the bot's own (the iron ladder's keep) -- the copper goes back and the job waits.
     if (f.coal < 1) {
-      f.stop = 'no_fuel'
+      // a coal search cut with candidates left: search_more (the copper goes back either way; the next job continues)
+      // (the copper's deposit back ends that container's coal miss: the next job looks there once more -- no re-note, which
+      // could hide a coal another bot put there meanwhile (Codex r2 P2); the 6-in-a-row pause bounds the repeat)
+      f.stop = w.coalMore ? (w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED) : 'no_fuel'
       await bankCopper()
       return (result = { status: 'no_effect', detail: 'no coal in the town containers looked in; the job does not burn the bag\'s own fuel, so the copper goes back and the job waits' })
     }
@@ -11663,8 +11776,17 @@ async function smeltTown (ctx, _args, signal) {
     check(signal)
     // the job's smelt: town furnaces only (never one more than TOWN_DY above or below home: Claude code r1 P2-3), coal or
     // charcoal only, and a lease that could be recorded (fail closed)
+    // THE SMELT ENDS INSIDE THE JOB'S CLOCK (Codex r2 P2): its own 150 s cap counts from its start, and the job's search now
+    // may spend up to 65 s first -- so the job hands it the skill's deadline less the bank's reserve, and does not start it at
+    // all with less than SMELT_MIN_SMELT_MS of that left (Codex r3 P2: the furnace walk and open have their own caps)
+    const smeltDeadline = withdrawClock(ctx).deadline - SMELT_BANK_RESERVE_MS
+    if (smeltDeadline - Date.now() < SMELT_MIN_SMELT_MS) {
+      f.stop = SMELT_LATE
+      await bankCopper()
+      return (result = { status: 'no_effect', detail: `the town search used the job's clock (${Math.round((smeltDeadline - Date.now()) / 1000)} s left for the smelt); the copper and coal go back and the next job smelts` })
+    }
     const r = await smelt(ctx, { item: SMELT_JOB_INPUT, count: f.n }, signal,
-      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town' })
+      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town', deadline: smeltDeadline })
     f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'
     f.prior = (r.prior?.[SMELT_JOB_OUTPUT] ?? 0) + (r.prior?.[SMELT_JOB_INPUT] ?? 0)
     f.smelted = Math.max(0, ((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) - ingots0) - (r.prior?.[SMELT_JOB_OUTPUT] ?? 0))
