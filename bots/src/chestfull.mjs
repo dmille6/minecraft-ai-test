@@ -560,10 +560,16 @@ export function chestSiteColumns (anchor, rings = SITE_RINGS) {
  * column is skipped, not fatal: a chest needs no town-wide agreement on its cell -- the claim ledger keeps the count.
  * `skip` lists cells already refused this call.
  */
-export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], wells = [], rings = SITE_RINGS, skip = [] } = {}) {
+export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], wells = [], rings = SITE_RINGS, skip = [],
+                                tierOf = null, pass = 3, accept = null } = {}) {
   const refused = {}
   const bump = k => { refused[k] = (refused[k] ?? 0) + 1 }
-  if (typeof read !== 'function' || !anchor) return { site: null, stand: null, why: 'no anchor', refused }
+  // THE TOWN PLAN'S TIERS (townplan-01, build spec 1.6), only when a plan is given: `tierOf(site)` -> 'never' | 'box' | 'soft' |
+  // null; pass 1 takes OUTSIDE only, pass 2 adds SOFT, pass 3 adds BOX; NEVER never. A base-valid cell the plan refused (by its
+  // tier, or by `accept` -- the ACCESS check on soft and box cells) is counted in `planRefused`. With no tierOf: the base exactly.
+  let planRefused = 0
+  const rank = { soft: 1, box: 2, never: 3 }
+  if (typeof read !== 'function' || !anchor) return { site: null, stand: null, why: 'no anchor', refused, planRefused }
   for (const { x, z } of chestSiteColumns(anchor, rings)) {
     let surface = null
     for (let y = anchor.y + 2; y >= anchor.y - 2; y--) {
@@ -574,11 +580,19 @@ export function pickChestSite ({ read, anchor, home = null, composterSites = [],
     if (!surface) { bump('no surface'); continue }
     if ((skip ?? []).some(q => q.x === surface.x && q.y === surface.y && q.z === surface.z)) { bump('tried'); continue }
     const why = chestSiteRefusal(read, surface, { home, composterSites, bodies, wells })
-    if (!why) return { site: surface, stand: standableBeside(read, surface), why: null, refused }
+    if (!why) {
+      if (typeof tierOf === 'function') {
+        const tier = tierOf(surface)
+        if (tier && !(rank[tier] < pass)) { planRefused++; bump(`town plan (${tier})`); continue }
+        if (tier && typeof accept === 'function' && !accept(surface)) { planRefused++; bump('town plan (access)'); continue }
+        return { site: surface, stand: standableBeside(read, surface), why: null, refused, planRefused, tier: tier ?? 'outside' }
+      }
+      return { site: surface, stand: standableBeside(read, surface), why: null, refused }
+    }
     bump(why.replace(/ at -?\d+,-?\d+,-?\d+$/, ''))
   }
   const top = Object.entries(refused).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k} x${n}`).join(', ')
-  return { site: null, stand: null, why: `no cell within ${rings} of the full chest can take one (${top || 'nothing readable'})`, refused }
+  return { site: null, stand: null, why: `no cell within ${rings} of the full chest can take one (${top || 'nothing readable'})`, refused, planRefused }
 }
 
 // ---- the bank pauses for a while ------------------------------------------------------------------------------------

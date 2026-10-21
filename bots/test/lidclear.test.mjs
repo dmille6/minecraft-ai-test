@@ -412,8 +412,8 @@ await t('PLINTH FUNDING: the plinth\'s chest draw is the `withdraw` skill -- at 
 await t('PLINTH ORDER CHAIN (structural, comments stripped): build_plinth > town_deposit > count_town is unchanged by this diff -- the recount still yields to both, and its lid clear runs on the next decision', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const c = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
-  assert.match(c, /order = this\.#plinthOrder\(\) \?\? this\.#townDepositOrder\(milestone\) \?\? order/)
-  assert.match(c, /if \(!order \|\| \(order\.skill !== 'town_deposit' && order\.skill !== 'build_plinth'\)\) order = this\.#recountOrder\(\) \?\? order/)
+  assert.match(c, /order = this\.#plinthOrder\(\) \?\? this\.#foundOrder\(milestone\) \?\? this\.#townDepositOrder\(milestone\) \?\? order/)   // found-01 re-anchor
+  assert.match(c, /if \(!order \|\| \(order\.skill !== 'town_deposit' && order\.skill !== 'build_plinth' && order\.skill !== 'found_store' && order\.skill !== 'found_work'\)\) order = this\.#recountOrder\(\) \?\? order/)
 })
 await t('WIRING (structural, comments stripped): the deposit, the withdraw and the recount each call the one actuator', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')

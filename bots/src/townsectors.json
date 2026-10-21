@@ -1,0 +1,114 @@
+{
+ "v": 1,
+ "source": "docs/reports/zig-z0m0-2026-10-15.json (Z0 ziggurat centres and M0 shaft origins from read-only region copies, 10-15); sectors from home by townplan.mjs sectorOf",
+ "pools": {
+  "board-a": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "monument": "NW",
+   "shaft": "SE"
+  },
+  "board-b": {
+   "home": {
+    "x": -249,
+    "y": 65,
+    "z": 144
+   },
+   "monument": "NW",
+   "shaft": "NW"
+  },
+  "board-c": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "monument": "NW",
+   "shaft": "SE"
+  },
+  "board-d": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "monument": "NW",
+   "shaft": "NE"
+  },
+  "hive-a": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "monument": "NW",
+   "shaft": "SE"
+  },
+  "hive-b": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "monument": "NW",
+   "shaft": "SE"
+  },
+  "hive-c": {
+   "home": {
+    "x": -68,
+    "y": 68,
+    "z": -68
+   },
+   "monument": "NE",
+   "shaft": "W"
+  },
+  "hive-d": {
+   "home": {
+    "x": 68,
+    "y": 65,
+    "z": 68
+   },
+   "monument": "NE",
+   "shaft": "NW"
+  },
+  "placebo-a": {
+   "home": {
+    "x": 249,
+    "y": 75,
+    "z": -144
+   },
+   "monument": "SW",
+   "shaft": "W"
+  },
+  "placebo-b": {
+   "home": {
+    "x": 282,
+    "y": 65,
+    "z": -388
+   },
+   "monument": "W",
+   "shaft": "NW"
+  },
+  "placebo-c": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "monument": "NW",
+   "shaft": "NE"
+  },
+  "placebo-d": {
+   "home": {
+    "x": 177,
+    "y": 75,
+    "z": 73
+   },
+   "monument": "NE",
+   "shaft": "W"
+  }
+ }
+}
