@@ -1,49 +1,140 @@
 {
  "day": "2026-10-20",
  "positive_control": {
-  "bots": 80,
   "roster": 80,
-  "bots_without_rows": 0,
-  "llm_rows": 160559,
-  "skill_rows": 1491978,
+  "bots_with_rows": 80,
   "first": "2026-10-20T00:00:00.866Z",
   "last": "2026-10-20T23:59:59.831Z",
-  "skill_kinds_found": {
-   "_stagnation": 5070,
+  "llm_rows": 160559,
+  "skill_rows_in_day": 1491978,
+  "event_rows_in_day": {
+   "stagnation": 5262,
    "_milestone_complete": 9769,
-   "_stagnation_reconnect": 192,
    "_death": 36
-  }
+  },
+  "reader_rejects": {},
+  "roster_bots_without_log_dir": 0,
+  "roster_bots_without_rows": 0
  },
  "rows": {
-  "llm_rows": 160559,
   "model_rows": 151549,
   "deterministic_rows": 9010,
   "admitted": 81031,
-  "own_row_joined": 70699,
   "prompt_complete": 151549,
   "response_present": 151549,
+  "nonce_ok": 151467,
   "schema_valid": 151467,
-  "value_recovered": 80605
+  "dup_prompt": 6548,
+  "dup_prompt_action": 5560
  },
- "exact_duplicate_prompts": 6548,
- "distinct_prompts": 145001,
- "prompt_tokens": {
-  "p50": 2494,
-  "p95": 2739,
-  "n": 151549,
-  "sum": 376181262
+ "join": {
+  "exact": 70581,
+  "none": 10435,
+  "ambiguous": 10,
+  "status": 5
  },
- "completion_tokens": {
-  "p50": 57,
-  "p95": 88,
-  "n": 151549,
-  "sum": 9155859
+ "join_miss_skill": {
+  "gather": 3970,
+  "explore": 3014,
+  "mine": 1319,
+  "goto": 1158,
+  "craft": 328,
+  "surface": 236,
+  "deposit": 90,
+  "bucket": 83,
+  "status": 71,
+  "place": 61,
+  "home": 40,
+  "eat": 36
+ },
+ "join_miss_endpoint": {
+  "http://10.0.0.72:11434": 7244,
+  "http://127.0.0.1:11611": 225,
+  "http://10.0.0.16:11434": 2966
+ },
+ "value": {
+  "none": 45422,
+  "valuable": 31716,
+  "neutral": 3457,
+  "None": 373,
+  "costly": 63
  },
  "labels": {
-  "neutral": 4146,
+  "neutral": 4134,
   "bad": 114689,
-  "good": 32714
+  "good": 32726
+ },
+ "labels_by_skill": {
+  "goto": {
+   "neutral": 1619,
+   "good": 5721,
+   "bad": 24616
+  },
+  "gather": {
+   "bad": 34369,
+   "good": 9737,
+   "neutral": 117
+  },
+  "explore": {
+   "good": 10998,
+   "bad": 30725,
+   "neutral": 1195
+  },
+  "mine": {
+   "good": 5475,
+   "bad": 5962,
+   "neutral": 958
+  },
+  "surface": {
+   "bad": 1032,
+   "good": 198,
+   "neutral": 13
+  },
+  "craft": {
+   "bad": 3154,
+   "good": 189,
+   "neutral": 10
+  },
+  "smelt": {
+   "bad": 231,
+   "good": 77,
+   "neutral": 2
+  },
+  "deposit": {
+   "bad": 13079,
+   "good": 136
+  },
+  "board": {
+   "bad": 7,
+   "good": 2
+  },
+  "home": {
+   "bad": 414,
+   "good": 143,
+   "neutral": 6
+  },
+  "place": {
+   "good": 48,
+   "bad": 484
+  },
+  "withdraw": {
+   "bad": 23,
+   "good": 2
+  },
+  "eat": {
+   "bad": 47,
+   "neutral": 67
+  },
+  "status": {
+   "neutral": 147,
+   "bad": 82
+  },
+  "None": {
+   "bad": 82
+  },
+  "bucket": {
+   "bad": 382
+  }
  },
  "actions": {
   "gather": 44223,
@@ -59,7 +150,7 @@
   "smelt": 310,
   "status": 229,
   "eat": 114,
-  "null": 82,
+  "None": 82,
   "withdraw": 25,
   "board": 9
  },
@@ -73,90 +164,9 @@
   "deposit_not_worth_it": 2439,
   "deposit_item_missing": 350,
   "redundant_craft": 332,
-  "truncation sentinel mismatch (expected END-D5WVAB, got >END-D5WVAB)": 1,
-  "truncation sentinel mismatch (expected END-XJYQ6A, got >END-XJYQ6A)": 1,
-  "truncation sentinel mismatch (expected END-OMGAWV, got END-OMGWV)": 1,
-  "truncation sentinel mismatch (expected END-8ZJMJW, got END-8ZMJWJ)": 1,
-  "truncation sentinel mismatch (expected END-UFFEVQ, got UFFEVQ)": 1,
-  "truncation sentinel mismatch (expected END-GUWEHY, got >GUWEHY)": 1,
-  "truncation sentinel mismatch (expected END-RYUZDU, got END-RYZDU)": 1,
-  "truncation sentinel mismatch (expected END-DMISHP, got END-DMISH)": 1,
-  "truncation sentinel mismatch (expected END-EDZVG0, got EDZVG0)": 1,
-  "truncation sentinel mismatch (expected END-ONOEM4, got ONOEM4)": 1,
-  "truncation sentinel mismatch (expected END-FFAIK9, got FFA)": 1,
-  "truncation sentinel mismatch (expected END-6KOU7R, got 6KOU7R)": 1,
-  "truncation sentinel mismatch (expected END-SEO5N5, got SEO5N5)": 1,
-  "truncation sentinel mismatch (expected END-5JIGFO, got 5JIGFO)": 1,
-  "truncation sentinel mismatch (expected END-9QNZ8Z, got 9QNZ8Z)": 1,
-  "truncation sentinel mismatch (expected END-5GZW9Q, got 5GZW9Q)": 1,
-  "truncation sentinel mismatch (expected END-5JMBQ1, got 5JMBQ1)": 1,
-  "truncation sentinel mismatch (expected END-O7FSUI, got O7FSUI)": 1,
-  "truncation sentinel mismatch (expected END-FDOCEG, got FDOCEG)": 1,
-  "truncation sentinel mismatch (expected END-34FJ3T, got 34FJ3T)": 1,
-  "truncation sentinel mismatch (expected END-IEH8YA, got IEH8YA)": 1,
-  "truncation sentinel mismatch (expected END-UNWEWB, got UNW)": 1,
-  "truncation sentinel mismatch (expected END-1PNZZY, got 1PNZZY)": 1,
-  "truncation sentinel mismatch (expected END-WSHVEK, got WSHVEK)": 1,
-  "truncation sentinel mismatch (expected END-PRWAHN, got PRW)": 1,
-  "truncation sentinel mismatch (expected END-RR6P6W, got RR6P6W)": 1,
-  "truncation sentinel mismatch (expected END-7KHC63, got 7KHC63)": 1,
-  "truncation sentinel mismatch (expected END-ODDLF4, got ODDLF4)": 1,
-  "truncation sentinel mismatch (expected END-BSGQSF, got END-BSG)": 1,
-  "truncation sentinel mismatch (expected END-6H47PF, got 6H47PF)": 1,
-  "truncation sentinel mismatch (expected END-NDMHZS, got ND)": 1,
-  "truncation sentinel mismatch (expected END-4OEDLY, got 4OEDLY)": 1,
-  "truncation sentinel mismatch (expected END-RLQ78O, got RLQ78O)": 1,
-  "truncation sentinel mismatch (expected END-TRYHJN, got TRYHJN)": 1,
-  "truncation sentinel mismatch (expected END-ILEAX7, got ILEAX7)": 1,
-  "truncation sentinel mismatch (expected END-4WEDIP, got 4WEDIP)": 1,
-  "truncation sentinel mismatch (expected END-9X97KH, got 9X97KH)": 1,
-  "truncation sentinel mismatch (expected END-1WNG9P, got 1WNG9P)": 1,
-  "truncation sentinel mismatch (expected END-KE5YEE, got KE5)": 1,
-  "truncation sentinel mismatch (expected END-9CH8RW, got 9CH8RW)": 1,
-  "truncation sentinel mismatch (expected END-EP4VQH, got END-EP4VH)": 1,
-  "truncation sentinel mismatch (expected END-6L4NI3, got 6L4NI3)": 1,
-  "truncation sentinel mismatch (expected END-WT0QOE, got WT0QOE)": 1,
-  "truncation sentinel mismatch (expected END-BYRA38, got BYRA38)": 1,
-  "truncation sentinel mismatch (expected END-7MG8EI, got 7MG8EI)": 1,
-  "truncation sentinel mismatch (expected END-TCQPO4, got TCQPO4)": 1,
-  "truncation sentinel mismatch (expected END-19Y4VW, got 19Y4VW)": 1,
-  "truncation sentinel mismatch (expected END-HPWB41, got HPWB41)": 1,
-  "truncation sentinel mismatch (expected END-55JKHB, got 55JKHB)": 1,
-  "truncation sentinel mismatch (expected END-9PP9J2, got 9PP9J2)": 1,
-  "truncation sentinel mismatch (expected END-6KQX1T, got 6KQX1T)": 1,
-  "truncation sentinel mismatch (expected END-1FM5UL, got 1FM5UL)": 1,
-  "truncation sentinel mismatch (expected END-2LSOT2, got 2LSOT2)": 1,
-  "truncation sentinel mismatch (expected END-EXHMP5, got EXHMP5)": 1,
-  "truncation sentinel mismatch (expected END-ZKT70C, got ZKT70C)": 1,
-  "truncation sentinel mismatch (expected END-KE0G2E, got KE0G)": 1,
-  "truncation sentinel mismatch (expected END-NOV70Z, got NOV70Z)": 1,
-  "truncation sentinel mismatch (expected END-D4MNQ5, got END-D4MNQ55)": 1,
-  "truncation sentinel mismatch (expected END-5564OK, got END-5564)": 1,
-  "truncation sentinel mismatch (expected END-EGGGOE, got END-EGGOE)": 1,
-  "truncation sentinel mismatch (expected END-IONGEM, got ENDINGEM)": 1,
-  "truncation sentinel mismatch (expected END-FUMURN, got END-FURNUM)": 1,
+  "truncation sentinel mismatch": 82,
   "no_filled_bucket": 1,
-  "truncation sentinel mismatch (expected END-8JHHRH, got END-8JHRH)": 1,
-  "truncation sentinel mismatch (expected END-QTXSH1, got :END-QTXSH1)": 1,
-  "truncation sentinel mismatch (expected END-1PMYOP, got END-1PMOYP)": 1,
-  "truncation sentinel mismatch (expected END-PWMN0J, got END-PWN0J)": 1,
-  "truncation sentinel mismatch (expected END-7YQKCW, got END-7YKCW)": 1,
-  "truncation sentinel mismatch (expected END-SX0D93, got >END-SX0D93)": 1,
-  "truncation sentinel mismatch (expected END-QM8J0Y, got :END-QM8J0Y)": 1,
-  "truncation sentinel mismatch (expected END-BN1EY5, got END-BN1E5)": 1,
-  "truncation sentinel mismatch (expected END-3VUJJ2, got END-3VJJ2)": 1,
-  "truncation sentinel mismatch (expected END-LBNBCS, got >>> END-LBNBCS)": 1,
-  "truncation sentinel mismatch (expected END-5S2JQW, got END-5S2JWQ)": 1,
-  "truncation sentinel mismatch (expected END-BYOOQX, got END-BOOQX)": 1,
-  "truncation sentinel mismatch (expected END-H4URD3, got H4URD3)": 1,
-  "truncation sentinel mismatch (expected END-SMEXLF, got SMEXLF)": 1,
-  "no_empty_bucket": 1,
-  "truncation sentinel mismatch (expected END-YND2HG, got YND2HG)": 1,
-  "truncation sentinel mismatch (expected END-H1RH7Z, got H1RH7Z)": 1,
-  "truncation sentinel mismatch (expected END-BOVECC, got END-OVECC)": 1,
-  "truncation sentinel mismatch (expected END-AFNN2P, got END-AFNK2P)": 1,
-  "truncation sentinel mismatch (expected END-9XZJDI, got END-9XJDI)": 1,
-  "truncation sentinel mismatch (expected END-J4MCRP, got END-J4AMCRP)": 1
+  "no_empty_bucket": 1
  },
  "admitted_status": {
   "success": 35353,
@@ -165,131 +175,611 @@
   "unknown": 3247,
   "no_effect": 1524
  },
- "labels_by_skill": {
-  "gather": {
-   "bad": 34369,
-   "good": 9735,
-   "neutral": 119
-  },
-  "explore": {
-   "good": 10989,
-   "bad": 30725,
-   "neutral": 1204
-  },
-  "goto": {
-   "neutral": 1620,
-   "good": 5720,
-   "bad": 24616
-  },
-  "deposit": {
-   "bad": 13079,
-   "good": 136
-  },
-  "mine": {
-   "good": 5475,
-   "bad": 5962,
-   "neutral": 958
-  },
-  "craft": {
-   "bad": 3154,
-   "good": 189,
-   "neutral": 10
-  },
-  "surface": {
-   "bad": 1032,
-   "good": 198,
-   "neutral": 13
-  },
-  "home": {
-   "bad": 414,
-   "good": 143,
-   "neutral": 6
-  },
-  "place": {
-   "good": 48,
-   "bad": 484
-  },
-  "bucket": {
-   "bad": 382
-  },
-  "smelt": {
-   "bad": 231,
-   "good": 77,
-   "neutral": 2
-  },
-  "status": {
-   "neutral": 147,
-   "bad": 82
-  },
-  "eat": {
-   "bad": 47,
-   "neutral": 67
-  },
-  "null": {
-   "bad": 82
-  },
-  "withdraw": {
-   "bad": 23,
-   "good": 2
-  },
-  "board": {
-   "bad": 7,
-   "good": 2
-  }
- },
- "per_pool": {
-  "board-a": 9056,
-  "board-b": 8978,
-  "board-c": 8312,
-  "board-d": 10956,
-  "hive-a": 9246,
-  "hive-b": 9922,
-  "hive-c": 9339,
-  "hive-d": 9355,
-  "self-isolated-a-Alpha": 1916,
-  "self-isolated-a-Bravo": 1877,
-  "self-isolated-a-Comet": 1769,
-  "self-isolated-a-Delta": 1887,
-  "self-isolated-a-Echo": 1770,
-  "self-isolated-b-Alpha": 2104,
-  "self-isolated-b-Bravo": 1926,
-  "self-isolated-b-Comet": 1869,
-  "self-isolated-b-Delta": 2151,
-  "self-isolated-b-Echo": 2117,
-  "self-isolated-c-Alpha": 2693,
-  "self-isolated-c-Bravo": 2032,
-  "self-isolated-c-Comet": 1830,
-  "self-isolated-c-Delta": 1838,
-  "self-isolated-c-Echo": 2069,
-  "self-isolated-d-Alpha": 1861,
-  "self-isolated-d-Bravo": 2531,
-  "self-isolated-d-Comet": 1807,
-  "self-isolated-d-Delta": 1858,
-  "self-isolated-d-Echo": 1751,
-  "placebo-a": 8741,
-  "placebo-b": 8823,
-  "placebo-c": 9709,
-  "placebo-d": 9456
- },
- "per_endpoint": {
+ "endpoint": {
   "http://10.0.0.72:11434": 110325,
   "http://127.0.0.1:11611": 3483,
   "http://10.0.0.16:11434": 37741
  },
- "models": {
+ "model": {
   "qwen2.5:7b-instruct": 148066,
   "gemma4:26b": 3483
  },
- "code_versions": {
+ "code_version": {
   "adbec4f4": 59267,
   "9e7d9980": 76558,
   "78fa19d9": 3487,
   "a52d075e": 7011,
   "31416ee5": 5226
  },
- "system_hashes": {
+ "system_hash": {
   "a953f82c5f203717": 37302,
   "bcc44f92948c715d": 77518,
   "695b8935e81062f9": 36729
+ },
+ "per_bot": {
+  "board-a-Alpha": {
+   "items_all": 1850,
+   "items_gathered": 1819,
+   "bot_h": 23.979410555555553,
+   "world": "board-a",
+   "model": 1629
+  },
+  "board-a-Bravo": {
+   "items_all": 1423,
+   "items_gathered": 1395,
+   "bot_h": 23.986868055555558,
+   "world": "board-a",
+   "model": 1736
+  },
+  "board-a-Comet": {
+   "items_all": 0,
+   "items_gathered": 0,
+   "bot_h": 23.992909722222223,
+   "world": "board-a",
+   "model": 2310
+  },
+  "board-a-Delta": {
+   "items_all": 1441,
+   "items_gathered": 1423,
+   "bot_h": 23.985644166666667,
+   "world": "board-a",
+   "model": 1710
+  },
+  "board-a-Echo": {
+   "items_all": 1455,
+   "items_gathered": 1444,
+   "deaths": 2,
+   "bot_h": 23.99418777777778,
+   "world": "board-a",
+   "model": 1671
+  },
+  "board-b-Alpha": {
+   "items_all": 1309,
+   "items_gathered": 1291,
+   "bot_h": 23.97268138888889,
+   "world": "board-b",
+   "model": 1799
+  },
+  "board-b-Bravo": {
+   "items_all": 1159,
+   "items_gathered": 1137,
+   "bot_h": 23.982860555555554,
+   "world": "board-b",
+   "model": 1816
+  },
+  "board-b-Comet": {
+   "items_all": 1220,
+   "items_gathered": 1204,
+   "bot_h": 23.990680833333332,
+   "world": "board-b",
+   "model": 1899
+  },
+  "board-b-Delta": {
+   "items_all": 985,
+   "items_gathered": 971,
+   "bot_h": 23.995636666666666,
+   "world": "board-b",
+   "model": 1756
+  },
+  "board-b-Echo": {
+   "items_all": 1943,
+   "items_gathered": 1919,
+   "bot_h": 23.983550555555556,
+   "world": "board-b",
+   "model": 1708
+  },
+  "board-c-Alpha": {
+   "items_all": 1100,
+   "items_gathered": 1095,
+   "bot_h": 23.98218361111111,
+   "world": "board-c",
+   "model": 1542
+  },
+  "board-c-Bravo": {
+   "items_all": 1517,
+   "items_gathered": 1508,
+   "bot_h": 23.9761175,
+   "world": "board-c",
+   "model": 1654
+  },
+  "board-c-Comet": {
+   "items_all": 1687,
+   "items_gathered": 1650,
+   "bot_h": 23.973377777777777,
+   "world": "board-c",
+   "model": 1728
+  },
+  "board-c-Delta": {
+   "items_all": 1197,
+   "items_gathered": 1184,
+   "deaths": 1,
+   "bot_h": 23.977552777777777,
+   "world": "board-c",
+   "model": 1718
+  },
+  "board-c-Echo": {
+   "items_all": 1114,
+   "items_gathered": 1101,
+   "bot_h": 23.988009722222223,
+   "world": "board-c",
+   "model": 1670
+  },
+  "board-d-Alpha": {
+   "items_all": 0,
+   "items_gathered": 0,
+   "bot_h": 23.989685555555557,
+   "world": "board-d",
+   "model": 2511
+  },
+  "board-d-Bravo": {
+   "items_all": 0,
+   "items_gathered": 0,
+   "bot_h": 23.998699722222224,
+   "world": "board-d",
+   "model": 2554
+  },
+  "board-d-Comet": {
+   "items_all": 4,
+   "items_gathered": 4,
+   "bot_h": 23.98540555555556,
+   "world": "board-d",
+   "model": 2518
+  },
+  "board-d-Delta": {
+   "items_all": 1244,
+   "items_gathered": 1227,
+   "deaths": 2,
+   "bot_h": 23.988010555555558,
+   "world": "board-d",
+   "model": 1741
+  },
+  "board-d-Echo": {
+   "items_all": 1313,
+   "items_gathered": 1300,
+   "bot_h": 23.98603138888889,
+   "world": "board-d",
+   "model": 1632
+  },
+  "hive-a-Alpha": {
+   "items_all": 935,
+   "items_gathered": 931,
+   "bot_h": 23.990955833333334,
+   "world": "hive-a",
+   "model": 1825
+  },
+  "hive-a-Bravo": {
+   "items_all": 1433,
+   "items_gathered": 1420,
+   "bot_h": 23.98853111111111,
+   "world": "hive-a",
+   "model": 1720
+  },
+  "hive-a-Comet": {
+   "items_all": 1408,
+   "items_gathered": 1389,
+   "deaths": 2,
+   "bot_h": 23.980249166666667,
+   "world": "hive-a",
+   "model": 1824
+  },
+  "hive-a-Delta": {
+   "items_all": 1387,
+   "items_gathered": 1374,
+   "bot_h": 23.99762888888889,
+   "world": "hive-a",
+   "model": 1923
+  },
+  "hive-a-Echo": {
+   "items_all": 1785,
+   "items_gathered": 1771,
+   "bot_h": 23.974284166666667,
+   "world": "hive-a",
+   "model": 1954
+  },
+  "hive-b-Alpha": {
+   "items_all": 987,
+   "items_gathered": 981,
+   "bot_h": 23.98364972222222,
+   "world": "hive-b",
+   "model": 1959
+  },
+  "hive-b-Bravo": {
+   "items_all": 1779,
+   "items_gathered": 1754,
+   "bot_h": 23.984770555555556,
+   "world": "hive-b",
+   "model": 2102
+  },
+  "hive-b-Comet": {
+   "items_all": 980,
+   "items_gathered": 960,
+   "deaths": 1,
+   "bot_h": 23.977126944444446,
+   "world": "hive-b",
+   "model": 1938
+  },
+  "hive-b-Delta": {
+   "items_all": 1685,
+   "items_gathered": 1671,
+   "deaths": 1,
+   "bot_h": 23.99764611111111,
+   "world": "hive-b",
+   "model": 1947
+  },
+  "hive-b-Echo": {
+   "items_all": 962,
+   "items_gathered": 954,
+   "deaths": 1,
+   "bot_h": 23.987953055555554,
+   "world": "hive-b",
+   "model": 1976
+  },
+  "hive-c-Alpha": {
+   "items_all": 1276,
+   "items_gathered": 1227,
+   "deaths": 1,
+   "bot_h": 23.993865555555555,
+   "world": "hive-c",
+   "model": 1853
+  },
+  "hive-c-Bravo": {
+   "items_all": 1397,
+   "items_gathered": 1365,
+   "bot_h": 23.993185555555552,
+   "world": "hive-c",
+   "model": 1603
+  },
+  "hive-c-Comet": {
+   "items_all": 900,
+   "items_gathered": 882,
+   "bot_h": 23.968253611111113,
+   "world": "hive-c",
+   "model": 2186
+  },
+  "hive-c-Delta": {
+   "items_all": 1315,
+   "items_gathered": 1198,
+   "bot_h": 23.976701666666667,
+   "world": "hive-c",
+   "model": 1913
+  },
+  "hive-c-Echo": {
+   "items_all": 1611,
+   "items_gathered": 1592,
+   "bot_h": 23.983461388888887,
+   "world": "hive-c",
+   "model": 1784
+  },
+  "hive-d-Alpha": {
+   "items_all": 824,
+   "items_gathered": 810,
+   "bot_h": 23.9832325,
+   "world": "hive-d",
+   "model": 1740
+  },
+  "hive-d-Bravo": {
+   "items_all": 1820,
+   "items_gathered": 1787,
+   "deaths": 1,
+   "bot_h": 23.992015833333333,
+   "world": "hive-d",
+   "model": 1717
+  },
+  "hive-d-Comet": {
+   "items_all": 25,
+   "items_gathered": 25,
+   "bot_h": 23.989294444444447,
+   "world": "hive-d",
+   "model": 2462
+  },
+  "hive-d-Delta": {
+   "items_all": 1597,
+   "items_gathered": 1568,
+   "bot_h": 23.992695833333332,
+   "world": "hive-d",
+   "model": 1773
+  },
+  "hive-d-Echo": {
+   "items_all": 1349,
+   "items_gathered": 1322,
+   "deaths": 1,
+   "bot_h": 23.992816944444446,
+   "world": "hive-d",
+   "model": 1663
+  },
+  "isolated-a-Alpha": {
+   "items_all": 979,
+   "items_gathered": 976,
+   "bot_h": 23.988770555555554,
+   "world": "isolated-a",
+   "model": 1916
+  },
+  "isolated-a-Bravo": {
+   "items_all": 958,
+   "items_gathered": 956,
+   "deaths": 1,
+   "bot_h": 23.9939825,
+   "world": "isolated-a",
+   "model": 1877
+  },
+  "isolated-a-Comet": {
+   "items_all": 1402,
+   "items_gathered": 1400,
+   "deaths": 3,
+   "bot_h": 23.975995833333336,
+   "world": "isolated-a",
+   "model": 1769
+  },
+  "isolated-a-Delta": {
+   "items_all": 1485,
+   "items_gathered": 1481,
+   "deaths": 3,
+   "bot_h": 23.95491277777778,
+   "world": "isolated-a",
+   "model": 1887
+  },
+  "isolated-a-Echo": {
+   "items_all": 948,
+   "items_gathered": 946,
+   "deaths": 1,
+   "bot_h": 23.9715525,
+   "world": "isolated-a",
+   "model": 1770
+  },
+  "isolated-b-Alpha": {
+   "items_all": 1231,
+   "items_gathered": 1219,
+   "bot_h": 23.993459444444444,
+   "world": "isolated-b",
+   "model": 2104
+  },
+  "isolated-b-Bravo": {
+   "items_all": 945,
+   "items_gathered": 935,
+   "bot_h": 23.980204722222222,
+   "world": "isolated-b",
+   "model": 1926
+  },
+  "isolated-b-Comet": {
+   "items_all": 952,
+   "items_gathered": 942,
+   "bot_h": 23.984742777777775,
+   "world": "isolated-b",
+   "model": 1869
+  },
+  "isolated-b-Delta": {
+   "items_all": 1435,
+   "items_gathered": 1435,
+   "bot_h": 23.99383,
+   "world": "isolated-b",
+   "model": 2151
+  },
+  "isolated-b-Echo": {
+   "items_all": 1339,
+   "items_gathered": 1339,
+   "bot_h": 23.98723222222222,
+   "world": "isolated-b",
+   "model": 2117
+  },
+  "isolated-c-Alpha": {
+   "items_all": 0,
+   "items_gathered": 0,
+   "bot_h": 23.98914388888889,
+   "world": "isolated-c",
+   "model": 2693
+  },
+  "isolated-c-Bravo": {
+   "items_all": 1441,
+   "items_gathered": 1431,
+   "bot_h": 23.9920625,
+   "world": "isolated-c",
+   "model": 2032
+  },
+  "isolated-c-Comet": {
+   "items_all": 1481,
+   "items_gathered": 1454,
+   "bot_h": 23.972930555555557,
+   "world": "isolated-c",
+   "model": 1830
+  },
+  "isolated-c-Delta": {
+   "items_all": 1370,
+   "items_gathered": 1356,
+   "deaths": 1,
+   "bot_h": 23.97218666666667,
+   "world": "isolated-c",
+   "model": 1838
+  },
+  "isolated-c-Echo": {
+   "items_all": 1643,
+   "items_gathered": 1641,
+   "deaths": 1,
+   "bot_h": 23.979980555555553,
+   "world": "isolated-c",
+   "model": 2069
+  },
+  "isolated-d-Alpha": {
+   "items_all": 861,
+   "items_gathered": 850,
+   "deaths": 2,
+   "bot_h": 23.990347500000002,
+   "world": "isolated-d",
+   "model": 1861
+  },
+  "isolated-d-Bravo": {
+   "items_all": 10,
+   "items_gathered": 10,
+   "bot_h": 23.991738333333334,
+   "world": "isolated-d",
+   "model": 2531
+  },
+  "isolated-d-Comet": {
+   "items_all": 1646,
+   "items_gathered": 1629,
+   "deaths": 2,
+   "bot_h": 23.98646638888889,
+   "world": "isolated-d",
+   "model": 1807
+  },
+  "isolated-d-Delta": {
+   "items_all": 828,
+   "items_gathered": 818,
+   "deaths": 2,
+   "bot_h": 23.99354138888889,
+   "world": "isolated-d",
+   "model": 1858
+  },
+  "isolated-d-Echo": {
+   "items_all": 1193,
+   "items_gathered": 1187,
+   "deaths": 1,
+   "bot_h": 23.969935555555555,
+   "world": "isolated-d",
+   "model": 1751
+  },
+  "placebo-a-Alpha": {
+   "items_all": 1286,
+   "items_gathered": 1271,
+   "bot_h": 23.993589166666666,
+   "world": "placebo-a",
+   "model": 1804
+  },
+  "placebo-a-Bravo": {
+   "items_all": 2046,
+   "items_gathered": 2030,
+   "bot_h": 23.976965277777776,
+   "world": "placebo-a",
+   "model": 1766
+  },
+  "placebo-a-Comet": {
+   "items_all": 1046,
+   "items_gathered": 1038,
+   "deaths": 1,
+   "bot_h": 23.977555277777775,
+   "world": "placebo-a",
+   "model": 1622
+  },
+  "placebo-a-Delta": {
+   "items_all": 766,
+   "items_gathered": 734,
+   "bot_h": 23.96560416666667,
+   "world": "placebo-a",
+   "model": 1663
+  },
+  "placebo-a-Echo": {
+   "items_all": 1296,
+   "items_gathered": 1285,
+   "bot_h": 23.976891666666667,
+   "world": "placebo-a",
+   "model": 1886
+  },
+  "placebo-b-Alpha": {
+   "items_all": 1358,
+   "items_gathered": 1310,
+   "bot_h": 23.97615583333333,
+   "world": "placebo-b",
+   "model": 1910
+  },
+  "placebo-b-Bravo": {
+   "items_all": 389,
+   "items_gathered": 340,
+   "bot_h": 23.973769722222222,
+   "world": "placebo-b",
+   "model": 1614
+  },
+  "placebo-b-Comet": {
+   "items_all": 994,
+   "items_gathered": 982,
+   "bot_h": 23.98465638888889,
+   "world": "placebo-b",
+   "model": 1645
+  },
+  "placebo-b-Delta": {
+   "items_all": 946,
+   "items_gathered": 886,
+   "bot_h": 23.98777388888889,
+   "world": "placebo-b",
+   "model": 1639
+  },
+  "placebo-b-Echo": {
+   "items_all": 1115,
+   "items_gathered": 1110,
+   "bot_h": 23.99312638888889,
+   "world": "placebo-b",
+   "model": 2015
+  },
+  "placebo-c-Alpha": {
+   "items_all": 2113,
+   "items_gathered": 2015,
+   "bot_h": 23.98461,
+   "world": "placebo-c",
+   "model": 1918
+  },
+  "placebo-c-Bravo": {
+   "items_all": 0,
+   "items_gathered": 0,
+   "bot_h": 23.957311111111114,
+   "world": "placebo-c",
+   "model": 2273
+  },
+  "placebo-c-Comet": {
+   "items_all": 1171,
+   "items_gathered": 1128,
+   "bot_h": 23.995112777777777,
+   "world": "placebo-c",
+   "model": 1908
+  },
+  "placebo-c-Delta": {
+   "items_all": 1423,
+   "items_gathered": 1400,
+   "bot_h": 23.981248333333333,
+   "world": "placebo-c",
+   "model": 1774
+  },
+  "placebo-c-Echo": {
+   "items_all": 1103,
+   "items_gathered": 1063,
+   "deaths": 2,
+   "bot_h": 23.962381666666666,
+   "world": "placebo-c",
+   "model": 1836
+  },
+  "placebo-d-Alpha": {
+   "items_all": 1708,
+   "items_gathered": 1690,
+   "deaths": 1,
+   "bot_h": 23.996000277777778,
+   "world": "placebo-d",
+   "model": 1831
+  },
+  "placebo-d-Bravo": {
+   "items_all": 1721,
+   "items_gathered": 1692,
+   "bot_h": 23.992929444444446,
+   "world": "placebo-d",
+   "model": 1698
+  },
+  "placebo-d-Comet": {
+   "items_all": 1163,
+   "items_gathered": 1148,
+   "deaths": 2,
+   "bot_h": 23.98977222222222,
+   "world": "placebo-d",
+   "model": 1600
+  },
+  "placebo-d-Delta": {
+   "items_all": 37,
+   "items_gathered": 37,
+   "bot_h": 23.987458888888888,
+   "world": "placebo-d",
+   "model": 2519
+  },
+  "placebo-d-Echo": {
+   "items_all": 1611,
+   "items_gathered": 1585,
+   "bot_h": 23.98912861111111,
+   "world": "placebo-d",
+   "model": 1808
+  }
  }
 }
