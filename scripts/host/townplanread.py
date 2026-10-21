@@ -172,7 +172,7 @@ def mark_refusal(c, n, nxt, k):
         if c.get('state') == 'reserved' and not (nxt.get('at', 0) > c.get('until', 0) + EXPIRE_MARGIN_MS) and nxt.get('by') != c.get('by'):
             return '%s on a live reservation by a non-holder' % mark
     target = n.get('state') or c.get('state')
-    if n.get('seenSince') is not None and target == 'placed' and c.get('state') == 'placed':
+    if n.get('seenSince') is not None and target == 'placed':
         return 'seenSince on placed'
     if n.get('missingSince') is not None and target != 'placed':
         return 'missingSince off placed'
@@ -294,12 +294,16 @@ def transition_refusal(prev, nxt):
             return 'transition on a free cell'
         if n.get('state') == 'reserved' and (n.get('by') != nxt.get('by') or not n.get('until', 0) > at):
             return 'reservation not by the writer'
+        if n.get('state') == 'reserved' and not intent_kept:
+            return 'reservation changed its intent'
         if n.get('state') == 'placed' and not observed('seenSince'):
             return 'free placed without two reads'
+        if n.get('state') == 'placed' and not same_intent:
+            return 'adoption changed its intent'
     for k, (_, n) in after.items():
         if k in before:
             continue
-        if n.get('state') == 'reserved' and n.get('by') != nxt.get('by'):
+        if n.get('state') == 'reserved' and (n.get('by') != nxt.get('by') or not n.get('until', 0) > nxt.get('at', 0)):
             return 'new cell reserved by another'
         if n.get('state') == 'placed':
             return 'new cell arrives placed'
@@ -507,7 +511,9 @@ def judge_rows(rows, cut, gen_index, rejected=None):
             except ValueError:
                 pass
         # D3: an adopter's placement on a NEVER cell of the generation recorded in its row
-        if name in ('_deposit_new_chest', '_townplan_adopt') and arm == 'canary' and per == 'post' and f.get('gen') not in (None, '-'):
+        # tier=section is the greenfield recovery's OWN reservation-backed placement into a plan cell (found-01, placeIntoPlan):
+        # by construction a plan cell, judged by foundread (G2), never a NEVER-cell breach (Claude/Codex code r1 P2)
+        if name in ('_deposit_new_chest', '_townplan_adopt') and arm == 'canary' and per == 'post' and f.get('gen') not in (None, '-') and f.get('tier') != 'section':
             at = f.get('at')
             try:
                 gen = int(f['gen']); a = [int(v) for v in at.split(',')]
@@ -618,6 +624,13 @@ def selftest():
     assert transition_refusal(g1, g6) == 'seenSince backdated'
     g7 = json.loads(b2); g7.update(gen=3, prev=2, at=3000, by='B'); g7['plots'][0]['cells'][0].update(state='placed', by='B', visit='vb')
     assert transition_refusal(g2, g7) == 'placed by another before expiry and observation'
+    # the port refuses an adoption that changes the cell's intent (JS parity, code r1), and accepts the same with it kept
+    g8 = json.loads(b1); g8['plots'][0]['cells'][0]['seenSince'] = 1000
+    g9 = json.loads(json.dumps(g8)); g9.update(gen=2, prev=1, at=1000 + 11 * 60_000); c9 = g9['plots'][0]['cells'][0]
+    c9.update(state='placed', role='home', group='metal'); c9.pop('seenSince')
+    assert transition_refusal(g8, g9) == 'adoption changed its intent', transition_refusal(g8, g9)
+    c9.update(role='overflow', group=None)
+    assert transition_refusal(g8, g9) is None, transition_refusal(g8, g9)
     # judge_plans: D1 zero on a clean chain; a zone over the cell -> D4
     tmp = '/tmp/_tpread_selftest_%d' % os.getpid()
     d = os.path.join(tmp, '_pool-board-a'); os.makedirs(d, exist_ok=True)
@@ -629,6 +642,12 @@ def selftest():
     json.dump({'version': 1, 'hashed_seed': W_, 'zones': [{'id': 'z', 'box': [9, -64, -2, 9, 90, -2]}]}, open(os.path.join(d, 'protected-zones.json'), 'w'))
     assert judge_plans(read_plans(tmp), {'board-a'}, 0)['zone_cells'] == 1
     os.remove(os.path.join(d, 'protected-zones.json'))
+    # the plan's own seed avoid box (recorded by the writer since code r1) over the same cell -> D4 too
+    d2 = os.path.join(tmp, '_pool-hive-a'); os.makedirs(d2, exist_ok=True)
+    open(os.path.join(d2, 'townplan-0_64_0.g1.json'), 'wb').write(gfile(base(gen=1, prev=None, prevSha=None, at=1000, seed={'why': 'ok', 'avoid': [{'id': 'tc', 'box': [9, -64, -2, 9, 90, -2]}]})))
+    assert judge_plans(read_plans(tmp), {'hive-a'}, 0)['zone_cells'] == 1
+    import shutil as _sh
+    _sh.rmtree(d2)
     # a control pool writing after the deploy -> arms
     dc = os.path.join(tmp, '_pool-hive-b'); os.makedirs(dc, exist_ok=True)
     open(os.path.join(dc, 'townplan-0_64_0.g1.json'), 'wb').write(gfile(base(gen=1, prev=None, prevSha=None, at=10_000)))
@@ -653,6 +672,8 @@ def selftest():
     assert rw3['chain_invalid'] == 1, rw3
     rw5, _ = judge_rows([R('_well_refused', 'order=build reason=no_site tally=cols:3 rec=ok plan_refused=2 gen=4 w=x')], t0, gi)
     assert rw5['plan_only_nosite'] == 1 and rw5['wellns_post_canary'] == 1, rw5
+    rw6, _ = judge_rows([R('_deposit_new_chest', 'decision=craft at=10,64,-1 tier=section plan_refused=0 gen=4 placed=1')], t0, gi)
+    assert rw6['never_hits'] == 0, rw6
     # positive control for D3: the same row on a cell that is NOT a NEVER cell -> 0
     rw2, _ = judge_rows([R('_deposit_new_chest', 'decision=craft at=30,64,30 tier=outside plan_refused=0 gen=4 placed=1')], t0, gi)
     assert rw2['never_hits'] == 0 and rw2['adopt_rows_canary'] == 1

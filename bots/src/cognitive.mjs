@@ -30,8 +30,8 @@ import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel,
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
 // FOUNDING (found-01): the found slot's decision and readings
-import { FOUND, foundOrder, foundIssued, foundVisit } from './found.mjs'
-import { townPlanNow, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits } from './skills.mjs'
+import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign } from './found.mjs'
+import { townPlanNow, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -784,12 +784,17 @@ export class CognitiveLoop {
       if (!tp) return null
       const items = bot.inventory?.items?.() ?? []
       const wanted = [...(this.#wantedItems(milestone) ?? [])]
+      const bankGroups = foundBankGroups(bot, wanted)
+      // a homeless group takes an unassigned container first: a plan-only publish (no skill, no cooldown, no visit)
+      const as = foundAssign({ plan: tp.plan, bankGroups })
+      if (as) foundAssignHome(bot, as.at, as.group)
+      const tp2 = townPlanNow(bot) ?? tp
       const r = foundOrder({
-        plan: tp.plan, zonesKnown: townPlanZones(bot).known, items,
+        plan: tp2.plan, zonesKnown: townPlanZones(bot).known, items,
         wanted: Object.fromEntries(wanted.filter(n => typeof n === 'string').map(n => [n, 64])),
         townContainer: foundTownContainer(bot), ready: cell => foundCellReady(bot, cell), leaseFree: foundLeaseFree(bot),
         depositWouldIssue: !!this.#townDepositOrder(milestone, { dry: true }),
-        bankGroups: foundBankGroups(bot, wanted), craftFits: item => foundCraftFits(bot, item),
+        bankGroups, craftFits: item => foundCraftFits(bot, item),
         state: this.foundState, now: Date.now(),
       })
       if (!r.order) return null
