@@ -633,12 +633,16 @@ export function wellSpiral (home) {
  * passes wellSiteRefusal wins. Any UNKNOWN read returns no site.
  *   avoid  [{ x, z, r? }]: places bots stand (the composter, bank containers); the cap stays r (default 3) away
  */
-export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
+export function canonicalWellSite ({ home, read, avoid = [], forbid = null, order = null } = {}) {
   if (!home || typeof read !== 'function') return { site: null, why: 'no home', exhausted: false, tally: null }
   const hy = Math.floor(home.y ?? 64)
   const tally = { cols: 0 }
   const count = k => { tally[k] = (tally[k] ?? 0) + 1 }
-  for (const { x, z } of wellSpiral(home)) {
+  // THE TOWN PLAN (townplan-01, build spec 1.6), only when given: `forbid(cap)` -> true refuses a cap the plan keeps for itself
+  // (counted `plan`, and `planRefused` when the base would have taken it); `order` re-sorts the spiral (the well sector first)
+  let planRefused = 0
+  const cols = typeof order === 'function' ? order(wellSpiral(home)) : wellSpiral(home)
+  for (const { x, z } of cols) {
     tally.cols++
     let cap = null
     for (let y = hy + COLUMN_UP; y >= hy - COLUMN_DOWN; y--) {
@@ -649,13 +653,16 @@ export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
     if (!cap) { count('nocap'); continue }
     if (townDistance(home, { x, y: cap.y + 1, z }) > ADOPT_RADIUS) { count('beyond'); continue }
     const why = wellSiteRefusal(read, cap, home, { avoid })
-    if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${cap.y},${z}`, exhausted: false, tally }
-    if (!why) return { site: cap, why: null, exhausted: false, tally }
+    if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${cap.y},${z}`, exhausted: false, tally, planRefused }
+    if (!why) {
+      if (typeof forbid === 'function' && forbid(cap)) { count('plan'); planRefused++; continue }
+      return { site: cap, why: null, exhausted: false, tally, planRefused }
+    }
     count(refusalClass(why))
   }
   // EXHAUSTED: every column of the search was READ and refused -- the only no-site answer that is a fact about the
   // town's ground rather than about what this bot has loaded (wellsite-01: only this one backs the build order off).
-  return { site: null, why: NO_VALID_CELL, exhausted: true, tally }
+  return { site: null, why: NO_VALID_CELL, exhausted: true, tally, planRefused }
 }
 export const NO_VALID_CELL = 'no valid cell for a well near home'
 

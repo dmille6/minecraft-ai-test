@@ -29,6 +29,9 @@ import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
+// FOUNDING (found-01): the found slot's decision and readings
+import { FOUND, foundOrder, foundIssued, foundVisit } from './found.mjs'
+import { townPlanNow, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits } from './skills.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -215,6 +218,8 @@ export const LIVELOCK_LATCH_MS = 600_000
 export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
+  // found-01: found_store / found_work charge the cooldown AND the visit at issue (found.mjs foundIssued); a declined run refunds both
+  if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: -Infinity, visitUsed: false } }
   if (!at || !st[at[0]]) return {}
   return { [at[0]]: { ...st[at[0]], [at[1]]: -Infinity } }
 }
@@ -733,7 +738,7 @@ export class CognitiveLoop {
     } catch { return null }   // an inventory or world read must never break the decision loop
   }
 
-  #townDepositOrder(milestone) {
+  #townDepositOrder(milestone, { dry = false } = {}) {
     try {
       const bot = this.bot
       const items = bot.inventory?.items?.() ?? []
@@ -753,10 +758,42 @@ export class CognitiveLoop {
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
         // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
-        plan, container: () => !bankClosed(bot) && townContainers(bot).length > 0, state: this.townDepositState ?? {},
+        plan, container: () => !bankClosed(bot) && townContainers(bot).length > 0,
+        // DRY (found-01's slot asks whether the deposit WOULD issue now): its state copied, the 30 s scan throttle ignored, kept nowhere
+        state: dry ? { ...(this.townDepositState ?? {}), lastScanAt: -Infinity } : this.townDepositState ?? {},
       })
+      if (dry) return r.order
       this.townDepositState = r.state
       if (r.order) bot.townDepositWanted = wanted ?? []
+      return r.order
+    } catch { return null }
+  }
+
+  /** THE FOUND SLOT (found-01; found.mjs foundOrder decides, this supplies the readings and keeps the per-bot state) -> an order or
+   *  null. Only in town, only with a plan of this world; the visit and the 10-min cooldown are charged when an order is issued. */
+  #foundOrder(milestone) {
+    try {
+      const bot = this.bot
+      if (!FOUND.on) return null
+      const p = bot.entity?.position
+      const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+      const inT = !!p && inTown(home, p)
+      this.foundState = foundVisit(this.foundState ?? {}, inT)
+      if (!inT) return null
+      const tp = townPlanNow(bot)
+      if (!tp) return null
+      const items = bot.inventory?.items?.() ?? []
+      const wanted = [...(this.#wantedItems(milestone) ?? [])]
+      const r = foundOrder({
+        plan: tp.plan, zonesKnown: townPlanZones(bot).known, items,
+        wanted: Object.fromEntries(wanted.filter(n => typeof n === 'string').map(n => [n, 64])),
+        townContainer: foundTownContainer(bot), ready: cell => foundCellReady(bot, cell), leaseFree: foundLeaseFree(bot),
+        depositWouldIssue: !!this.#townDepositOrder(milestone, { dry: true }),
+        bankGroups: foundBankGroups(bot, wanted), craftFits: item => foundCraftFits(bot, item),
+        state: this.foundState, now: Date.now(),
+      })
+      if (!r.order) return null
+      this.foundState = foundIssued(this.foundState, Date.now())
       return r.order
     } catch { return null }
   }
@@ -933,13 +970,16 @@ export class CognitiveLoop {
     // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
     // THE RAISED JUNK WELL GOES BEFORE THE DEPOSIT (plinth.mjs plinthOrder; design 3.4): at town, a funded bot's surplus
     // stone builds the town's well before any of it is banked; one builder per town (the lease), on its own cooldown.
-    order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
+    // FOUNDING (found-01, found.mjs foundOrder): the found slot between the raised well and the town deposit -- a town's first
+    // chest (the deposit can bank nothing without one), its workshop table and furnace, a homeless group's chest; it yields to a
+    // deposit that would issue now except for an F3 with a carried chest (build spec 2.1)
+    order = this.#plinthOrder() ?? this.#foundOrder(milestone) ?? this.#townDepositOrder(milestone) ?? order
     // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
     // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
     // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
     // rung re-issues every decision and would starve it. The town deposit and the plinth build keep their turn (both are
     // bounded and on their own cooldowns; the recount comes on the next decision).
-    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order
+    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.

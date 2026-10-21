@@ -3251,7 +3251,7 @@ await t('THE RAISE LADDER IN THE REAL build_plinth (Claude r4 P2-1): a none writ
     })
 })
 await t('MUTANT (skills): the natural search back in plinth-first\'s compute -> the viable natural site is built', async () => {
-  await withMutant(SP, '    compute: () => (searched = first ? plinthFirstSearch(canonicalWellSite({ home, read, avoid })) : canonicalWellSite({ home, read, avoid })),\n',
+  await withMutant(SP, '    compute: () => (searched = first ? plinthFirstSearch(planWellSearch(bot, { home, read, avoid })) : planWellSearch(bot, { home, read, avoid })),\n',
     '    compute: () => (searched = canonicalWellSite({ home, read, avoid })),\n', async m => {
       await withFirst(async () => {
         const town = kitTown()

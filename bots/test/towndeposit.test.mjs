@@ -1246,10 +1246,10 @@ test('PLINTH x RECOUNT CHAIN (plinth-01 on 8cd0bc62): a no-site town, a funded b
 })
 test('PLINTH x RECOUNT CHAIN, MUTANT: the recount guard yields only to the town deposit -> count_town takes the plinth\'s turn (the test sees the order)', async () => {
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8')
-  const old = "if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order"
+  const old = "if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order"   // found-01 re-anchor
   assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
   const out = new URL(`./_mutant-cog-${process.pid}.mjs`, import.meta.url)
-  fs.writeFileSync(out, src.replace(old, "if (!order || order.skill !== 'town_deposit') order = this.#recountOrder() ?? order").replace(/from '\.\//g, "from '../src/"))
+  fs.writeFileSync(out, src.replace(old, "if (!order || (order.skill !== 'town_deposit' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order").replace(/from '\.\//g, "from '../src/"))
   try {
     const { CognitiveLoop: M } = await import(out.href)
     const ran = await plinthFencedTown(M)

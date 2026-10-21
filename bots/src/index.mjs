@@ -48,6 +48,9 @@ import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
+import { townPlanModeDetail, PLAN_TICK_MS } from './townplan.mjs'   // townplan-01's licence row and tick
+import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
+import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { indexSearchModeDetail } from './indexsearch.mjs'   // indexsearch-01's licence row (its own statement)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
@@ -309,11 +312,21 @@ function connect() {
     try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
     // indexsearch-01: the licence row, once per spawn -- `_indexsearch_mode`, a kind the base cannot write (indexsearch.mjs)
     try { logEvent({ kind: 'indexsearch_mode', status: 'success', snapshot: snapshot(bot), detail: indexSearchModeDetail() }) } catch {}
+    // townplan-01 / found-01: the licence rows, once per spawn -- `_townplan_mode` and `_found_mode`, kinds the base cannot write
+    try {
+      const z = townPlanZones(bot), sd = townPlanSeed(bot)
+      logEvent({ kind: 'townplan_mode', status: 'success', snapshot: snapshot(bot), detail: townPlanModeDetail({ seed: sd.use ? 'ok' : `${sd.ok ? '' : 'bad:'}${sd.why}`, zones: z.known ? `${z.zones.length}` : `unknown:${z.why}` }) })
+    } catch {}
+    if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
       log('warn', 'craftsync not installed', { error: e.message })
     }
+    // THE PLANNER TICK (townplan-01, build spec 1.5): every PLAN_TICK_MS while in town -- at most one publish, never throws
+    const planTimer = setInterval(() => { try { townPlanTick(bot) } catch {} }, PLAN_TICK_MS)
+    planTimer.unref?.()
+    bot.once('end', () => clearInterval(planTimer))   // after installCraftSync: craftsync's wiring test reads the nearest open handler
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
