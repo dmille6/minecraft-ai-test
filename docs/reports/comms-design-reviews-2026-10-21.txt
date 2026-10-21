@@ -51,6 +51,41 @@ ROUND 1 on r1 (7b07c3b6)
 ---------------------------------------------------------------------------------------------------------------------
 CODEX ROUND 1 -- codex exec --sandbox read-only (verbatim final answer)
 ---------------------------------------------------------------------------------------------------------------------
+[restored in r3: the r2 append captured an empty scratch file; text below is the verbatim answer as received]
+VERDICT: CHANGE
+
+Findings refer to `docs/reports/comms-design-2026-10-21.md` unless otherwise named.
+
+- **P1 — §§1, 4.3, 5.3: chatgate does not close the stated trust boundary.** `comms.mjs` accepts arbitrary hazard `what` text, a sender-asserted pool and a fleet-shaped username; `worldfacts.promptLines()` interpolates that text into the cognitive prompt. It also ingests `unreachable`, contradicting the proposed central rule. `OWNER_CHAT_NAMES` protects only `commands.mjs`. **Fix:** specify authenticated/scoped peer identities, enumerated fact fields and safe prompt rendering; explicitly retain or retire legacy reachability sharing. Test both handlers and the resulting prompt, including forged peers. The current parser also has no `death` or `confirmed_hazard` message support, so the proposed cross-host mirror requires a new protocol.
+
+- **P1 — §§4.4, 4.6–4.7: dropping updates can preserve false actionable state.** An empty-furnace observation followed within 60 seconds by a load can lose its invalidation to the per-subject cap. The consumer still sees *live empty*, so “falls back to its own reads” does not apply. Suppressing identical observations also prevents durable freshness refreshes, unlike existing stores. **Fix:** make invalidations, releases and safety events reliable; coalesce ordinary observations with bounded durable refreshes. Test empty→load, claim→release, repeated observation and restart. Define parity only after specifying bootstrap, refresh and reconciliation.
+
+- **P1 — §4.2: disproof and confirmation do not consistently mean server-observed world state.** Two deaths need not share a cause; personal entombment/drowning hits are not observations of a persistent obstacle. No lava/water within two blocks cannot disprove a fall, suffocation or unknown-cause hazard. A negative survey near a sighting also does not establish that its recorded cell—or its 24-block merged resource region—is gone. **Fix:** separate immutable death events from inferred hazards; require cause-specific evidence and complete loaded-cell coverage for disproof. Preserve unknown when coverage is incomplete. Generic water must not become forbidden terrain.
+
+- **P1 — §4.6: the keep-out remedies are not composed.** “Walk N blocks … then mine” assumes a surface route and relies on the next model choice. Mining can refuse underground. A random explore bearing can itself fail the existing lava/death-site checks; `lineHitsDeathSite()` only permits particular outward paths, not arbitrary escape through overlapping discs. **Fix:** require deterministic, executable fallback selection and Paper chains covering underground all-bearing refusal, overlapping discs, no safe random bearing, and climb-cell filtering versus entombment/escape. Printing a remedy is insufficient.
+
+- **P1 — §§0, 2.4; `tools/opps*.py.txt`, `sight.py.txt`: the central empirical conclusion is overstated.** `logger.mjs` timestamps skills at start, while `runner.mjs` captures positions at completion. Gather grouping therefore uses outcome-dependent locations and can count a peer failure that had not completed before the current attempt. Distance is horizontal only; the 400-row cutoff is unvalidated. Sightings use 48-block horizontal outcome matching, permanently prioritize any earlier harvest over later fruitless visits, and include episodes without a full remaining outcome window. **Fix:** use observation-availability times, pre-action/target coordinates, vertical matching, complete follow-up and sensitivity analyses stratified by block, location and bot. Until then, label the rule a conservative design choice—not proof that peer failure predicts nothing or that a deployable veto would block exactly 1,721 successes.
+
+- **P1 — §§1, 2.3, 4.7; `tools/es_deaths.py.txt`: reconstructed sites do not match production sites.** `reportDeath()` adds weight to merged sites; repeated deaths can keep them alive beyond 36 hours. Production also retains merged centers and caps/prunes sites. The script instead creates a 36-hour disc around every death. Thus “on file,” the claimed parity and the opportunity estimate are not established. The controls additionally disagree: files report **33 deaths**, ES reports **31**, and the ES comparison lacks an extract-end cutoff. **Fix:** replay production merge/decay semantics with sufficient initial state, reconcile identical windows, and distinguish merely known sites from sites already satisfying the proposed confirmation quorum. Replace “100 times as deadly” and “1.7 deaths/day opportunity” with qualified descriptive estimates until corrected.
+
+- **P1 — §§4.5, 8–9: owner-direct deployment is misclassified.** CLAUDE.md reserves tier 1 for a constant. A command authorization change and a new journal/fold are not constants; observe-only does not make them tier 1. **Fix:** use reviewed tier-2/3 registrations with their required exposure and gates, or explicitly request an exception to the tier policy. Combining ledger-01 with townindex-01 requires a newly reviewed combined variant and registration.
+
+- **P1 — §§6.1, 6.4: the contract protocol does not yet enforce “peers inform.”** An award naming `deliver_to` effectively creates a courier job unless an existing eligible planner independently selects it. A `gen` field alone does not fence concurrent awards, stale deliveries or offers spending the same surplus across requests. “The guard’s own remedy applies” does not prove cancellation returns to baseline. **Fix:** define legal transitions and authorized writers, atomic award fencing, quantity commitments, fresh courier eligibility and authoritative destination validation. Add composed cancellation/starvation tests and attributable delivery proofs. Specify bilateral exchange separately if “trades” remain in scope.
+
+- **P2 — §§2.1–2.2; `tools/opps.py.txt`, `opps2.py.txt`: repeat and duplication headlines exceed the measurements.** Container resets are town-wide and include `_furnace_session`, omitted from the prose definition; a session is not necessarily a refill. Furnace resets similarly treat every non-drain session as a load. Repeat classification stops at the latest same-bot negative, missing earlier peer observations. Overlap tests inspect only 50 prior runs and measure concurrency, not duplicate output. **Fix:** use witnessed mutations keyed to container/item, report nearest-predecessor versus any-peer repeats separately, and use a complete interval sweep. Relabel 2.55 bot-hours as a proxy, and replace “duplicate jobs: none” with measured overlap rates. Smelt overlap is a useful positive control, but does not prove leases caused the zeros.
+
+- **P2 — §§0, 2.4–2.6; `tools/extras.py.txt`, `opps.py.txt`: controls need matched exposure and timestamps.** Needs and proximity tests backdate end-of-skill bags/positions; uniform controls weight towns equally while shortage events do not. Inventory possession is not eligible surplus or deliverability. Also, 15,042 heading rows versus 15,028 explore runs does not prove every run—or all 100.4 hours—used a sighting. **Fix:** timestamp snapshots when captured, match controls by town/bot/time and observation coverage, evaluate actual offer eligibility, and join heading events to individual runs. Report missing coverage and unresolved episodes explicitly.
+
+- **P2 — §§2.7, 5.6, 8: chat gates can pass for the wrong reason.** `stop`, `resume` and `help` do not create chat-triggered skill rows, so zero such rows does not mean zero commands. The proposed unauthorized `!goto` test omits coordinates; existing argument validation already prevents movement. **Fix:** test valid unauthorized commands and assert runner cancellation/resumption as well as skill dispatch; use authorized equivalents as positive controls. Require minimum `_say` exposure and failing fixtures for T1–T5. Decide whether spectator `mike` should have fleet-wide stop/resume authority.
+
+- **P2 — §§6.3, 8: cooperation gates diverge from the referenced plans.** The overseer’s corrected primary includes **all randomized town-hours over a fixed horizon**, including completion and stalls—not only project-open hours. Its S1 is Paper testing, S2 shadow, and S3 the canary. The model bench uses within-world 3/2 assignment and a gathered-output primary; joint project output cannot simply inherit that estimator. **Fix:** preserve S0–S3 prerequisites and the fixed denominator; preregister a cooperation-specific estimator, interference treatment, exposure and power calculation.
+
+- **P2 — §5.1: the rewording validator cannot guarantee “no new facts.”** Allowed names, items and numbers can be rearranged into false ownership, negated hazards or invented completion claims. **Fix:** keep templates authoritative; permit only enumerated paraphrases preserving actor, relation, polarity and quantities, or explicitly label unrestricted rewording as unverified. Apply command/peer rejection to final LLM output too.
+
+- **P2 — §§4.3, 4.7: board reuse needs an explicit adaptation.** `board.quorumState()` recognizes `worked` versus failure reports; it does not implement this table’s per-type rules. Its shelf-life clock starts at posting, unlike the proposed observation-based freshness. **Fix:** specify a typed adoption/expiry adapter, ordering of disproof versus renewed evidence, and behavioral fixtures for every type. Keep the cobble journal’s generation/retry protocol intact.
+
+- **P3 — §5.2: make the BlueMap integration concrete.** Official CLI source supports config-derived markers and a `--markers` update path; an arbitrary web-root `markers.json` is not a demonstrated fallback. **Fix:** verify the pinned showcase jar, document the supported update command and served endpoint, and test escaped labels plus visible marker removal. [BlueMap CLI source](https://raw.githubusercontent.com/BlueMap-Minecraft/BlueMap/master/implementations/cli/src/main/java/de/bluecolored/bluemap/cli/BlueMapCLI.java)
+
 ---------------------------------------------------------------------------------------------------------------------
 CLAUDE (independent subagent) ROUND 1 on r1 (7b07c3b6) -- VERDICT: CHANGE  (verbatim)
 ---------------------------------------------------------------------------------------------------------------------
@@ -165,3 +200,107 @@ Data found while answering round 1:
   - comms.mjs peer ingestion is NOT working: hive-a's Paper log carries 17 [fleet] lines from 4 peers today; 0
     ingestion lines in 12 journals in 24 h (data/chatcheck.txt). Cause not diagnosed (possibly the 'chat' event for
     "[Not Secure] <name>" lines). Retired by chatgate-01 rather than fixed: it is redundant with the file on one host.
+
+=====================================================================================================================
+ROUND 2 on r2 (ab8a2ed6)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 2 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+VERDICT: CHANGE
+
+- **P1 — §4.6, keepout exemption:** Exempting any body inside the column disables protection for Echo/Alpha already standing above the lava in `hiveb_chain.out`. Restrict exemptions to specific escape actions; ordinary gathering/descent must remain guarded. Require those recorded starting positions to reject the dangerous action.
+
+- **P1 — §4.6, deterministic remedies:** “Every candidate refused → nearest candidate outside” assumes an outside candidate exists and is reachable. The four-bearing walk-off has the same gap. Specify bounded search, verified safe routing, and an executable fallback when neither succeeds; test enclosed terrain and overlapping columns.
+
+- **P2 — §2.3 / §0.2, death replay:** `deaths_v2.py.txt` still differs from production: Python `round(336.5)` gives 336 versus JavaScript’s 337; replay decays before merging and excludes expired entries, whereas `reportDeath` merges stored entries before pruning. Intervening world-fact writes therefore matter. Use production rounding and write-order semantics, anchor the judged window explicitly, and regenerate coverage/confirmation counts. Ignoring the cap alone does not establish that this replay is an upper bound.
+
+- **P2 — timing rule / `v2.py.txt`:** `done()` adds duration to every row, but `logEvent` timestamps events at emission, including nonzero-duration `_toolkit`, `_kit_search`, and craft events. Their completion snapshots become artificially delayed and can later masquerade as newer positions/inventories. Distinguish `logSkill` from `logEvent` timestamps and rerun the affected measurements.
+
+- **P2 — §§4.4–4.6, invalidations:** Changed furnace observations remain subject to the observation cap, despite §4.6 promising that opens/loads clear stale emptiness without being dropped. Explicitly classify invalidating observations and load events as uncapped transitions; test cap exhaustion followed by empty→loaded/nonempty, including restart. The round-1 invalidation issue is not fully closed.
+
+- **P2 — §§4.2, 4.5, authority:** Lava disproof marks the ledger fold’s `confirmed_hazard` disputed, but keepout bypasses that fold and reads world facts directly. No specified path makes keepout honor the disproof. Put confirmation/dispute state in one authoritative component consumed by both keepout and the mirror.
+
+- **P2 — §4.3, bootstrap:** One snapshot entry per mirrored store conflicts with the 1 KB entry limit: a populated world-facts store cannot fit. Specify bounded per-subject records with a complete-generation marker; reconcile only complete snapshots and test interrupted bootstrap.
+
+- **P2 — §§6.1, 6.4, stage-3 lifecycle:** Award expiry is promised but forbidden by the legal transition list. A generation check alone also cannot distinguish an active award from a cancelled/expired award whose file remains. Define awarded→expired, reservation ownership through delivery/termination, and serialization of cancellation/expiry against delivery, with crash recovery and idempotent transfer reconciliation.
+
+- **P2 — §8, unreach-01:** Applying §2.4’s observational test to milestone attempts misses outcomes already censored by the eight-attempt cutoff. Specify how the read handles those missing attempts; a null association among surviving attempts cannot establish that the cutoff is useless. Require controlled evidence before a KEEP/retire conclusion.
+
+- **P3 — §0.1 / §2.1:** The 2.6–4.5 bot-hour range compares r1 with r2’s nearest-predecessor estimate, not the two r2 repeat definitions. `v2.out` supplies counts, not durations, for “any peer.” Relabel the range or calculate those durations.
+
+- **P3 — review record:** “CODEX ROUND 1” contains no verbatim findings. Restore them for an auditable finding-by-finding closure. The remaining mapped fixes appear addressed at design level; the items above prevent full closure.
+
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE ROUND 2 on r2 (ab8a2ed6) -- VERDICT: CHANGE  (verbatim, condensed formatting)
+---------------------------------------------------------------------------------------------------------------------
+Almost all of round 1 is resolved (milestone cut named with unreach-01; keep-out fire/lava only; L1 replays cap and
+merge; keepout off the ledger and first; walk-off deterministic; new dead-end rows; transitions never dropped;
+ingestion retired; TALK off; deliver_to own town; stock mirrors townindex). §0's numbers match v2.out, deaths_v2.out,
+milestone_skips.txt and chatcheck.txt. v2.py is sound (availability at completion, pre-action position = newest
+snapshot before start, 9 rows without one; "nearest" = latest predecessor; complete overlap sweep; 909 adds up;
+controls matched by town). deaths_v2.py follows reportDeath (same-class merge within 3 of the kept centre, +4,
+whole-period halvings, live at >= 1, judged before the current death merges, by de-duplicated).
+P1-1 §4.6 "a bot inside the column": the exemption cancels the fix on the deaths it targets -- Echo and Alpha were
+  already inside the column when their dirt gathers chose and dug the floor. Fix: exempt moving out only (escape,
+  drowning, entombment, respawn, walk-off); refuse dig/gather candidates in the column whatever the body's position; a
+  body inside runs the walk-off first. Paper: a bot at y 43 above the pool told to gather dirt -> no dig, walk-off runs.
+P2-2 §8: three tier-2 registrations cannot KEEP at +180 as written: tierrule.keep_early needs a numeric exposure field;
+  "exposure = the Paper suite" is not a fleet read. Fix: chatgate-01 a numeric field (canary bot-h with startComms
+  detached from a startup row) or tier 3; ledger-01 entries per town; furnaceseen-01 walks skipped. Say each licence is
+  not `rate`.
+P2-3 §2.7/§5.3: find out whether mineflayer's `chat` event fires at all before building chatgate-01; if not, the
+  authorized-status control fails, and chatgate-01 is either a listener fix (re-enabling commands for whitelisted names,
+  a behaviour change C4 must state) or `mike status` never works. One Paper probe first.
+P2-4 §6.1/§6.4: no awarded -> expired transition although §6.4 expires awards; AWARD is "the requester's rule" but the
+  requester has gone back to baseline. Fix: add awarded -> expired (derived from the lease); name who creates the wx
+  award lease (e.g. the fold derives the winner and the winning courier creates the lease; requester and foreman the
+  only cancellers).
+P2-5 §0.2/§2.3 overclaims: Echo had no fall (its gather took it to y 38); Bravo had blind-step refusals, not route
+  crossings, stood ~2.5 min above the pool and fell without its own dig. v1 targets 2 of the 3 in-window deaths;
+  Comet's 10-20 mechanism is unread. "The price worked on the route" -> "the price was paid, not avoided".
+P2-6 §8 #2: keepout-01 will very likely run unexposed (one confirmed site in 7 d fleet-wide, now lapsed). Report the
+  alternative trigger from the same replay (fire deaths inside any live fire site with >= 1 death); take it for v1 if it
+  gives exposure, or record that the slot buys Paper evidence alone.
+P3-7 §4.3: one reconciler per town per window (a wx marker). P3-8 §4.4: "never dropped" = by the cap; a crash can lose a
+  station transition; recovery via lease files/reconciliation; stale empty <= 60 min. P3-9 §4.6 mine: mid-staircase
+  case; check the whole planned descent column before the first dig. P3-10 furnaceseen-01: how the 60-min station ranks
+  against bot.furnaceSeen's 6-h memory (cleared on "seen lit"). P3-11 C11: run unreach-01's host read now.
+
+=====================================================================================================================
+ROUND 2 -> r3: WHERE EACH FINDING IS ANSWERED
+=====================================================================================================================
+Codex P1 + Claude P1-1 exemption cancels the fix       | §4.6: exemption = moving out only; digs/gathers refused wherever
+     the body stands; walk-off first; Paper scene from Echo's/Alpha's starts
+Codex P1 walk-off assumes an outside candidate         | §4.6: bounded search (32), a column-free planned route, and an
+     executable no-dig fallback; tests for enclosed terrain and overlapping columns
+Codex P2 replay != production (rounding, write order)  | deaths_v3.py: JavaScript rounding, explicit judged window
+     (10-14 22:22Z .. 10-21 19:51Z). Merge-before-prune: world facts is rewritten every few seconds (sightings), so
+     pruning lags a death by seconds; the replay's decay-before-merge is that case (named as an approximation). Counts
+     unchanged: 169 / 13 / 11 / 4. The cap is named; "upper bound" is kept only for the cap's effect
+Codex P2 logEvent timestamps                           | v3.py: event rows ('_' kinds) use the emission time; numbers
+     unchanged to the row or within 1 (data/v3.out)
+Codex P2 invalidating observations capped              | §4.4: any state-changing observation is uncapped; crash
+     recovery named; cap-exhaustion and restart tests
+Codex P2 dispute authority split                       | §4.2: fireSites() + a `disputed` field live in world facts; keepout
+     and the mirror read the same component
+Codex P2 bootstrap vs 1 KB                             | §4.3: snapshot_begin / per-subject entries / snapshot_end with a
+     count; incomplete snapshots ignored; one reconciler per window (wx marker)
+Codex P2 + Claude P2-4 award lifecycle                 | §6.1: awarded -> expired; the fold derives the winner and the courier
+     creates the wx lease; later states as linked generations; reservation ownership; pre-click lease re-read; op id
+     makes delivery idempotent; crash reconciliation
+Codex P2 unreach-01 censoring                          | §8 #7 / C11: the host read sizes it only; the decision is a
+     controlled canary (canary arm keeps 25)
+Codex P3 range label                                   | §0.1 / §2.1 relabelled (r1 conservative .. r3 nearest); "any peer"
+     is counts only
+Codex P3 review record                                 | CODEX ROUND 1 restored verbatim (the first append captured an empty
+     file: a scratch output of the same name was overwritten by another session's run; scratch files are now unique)
+Claude P2-2 exposure fields                            | §8: chatgate-01 `_chatgate_mode` bot-h >= 48; keepout refusals >= 20;
+     ledger-01 entries per town >= 200; furnaceseen-01 walks skipped >= 20; licences not `rate`
+Claude P2-3 chat-event probe                           | §5.3 + §8 #0; C4 says the listener is not fixed inside chatgate-01
+Claude P2-5 overclaims                                 | §0.2 table, §2.3 chain and reading corrected; v1 targets the gather
+     share (Echo, Alpha); Bravo's drop needs the second variant; Comet unread
+Claude P2-6 exposure / trigger                         | deaths_v3: 7 of 52 fire deaths inside a live fire site (>= 1 death);
+     6 live fire sites in 5 towns at the end; v1 trigger = any live fire site (C3); draw rule = towns with one
+Claude P3-7..11                                        | applied (reconciler, crash wording, mid-staircase + whole-column
+     check, furnaceSeen ranking, unreach-01 read now)

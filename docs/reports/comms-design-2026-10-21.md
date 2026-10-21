@@ -1,4 +1,4 @@
-# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r2)
+# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r3)
 
 OWNER 2026-10-21 ~21:10Z: "i would like ... to integrate some kind of communication into our platform where bots are
 sharing information and communicating". Then "yes" to a staged plan:
@@ -21,13 +21,15 @@ showcase file was touched.
   - one bot's journal per town;
   - two Paper logs on 10.0.0.30.
 - **Where everything is:** the scripts are in `docs/reports/comms-design-2026-10-21/tools/` (as `.py.txt`), and their
-  outputs are in `data/`. Round 2 re-measured everything the reviews questioned (`v2.py.txt`, `deaths_v2.py.txt`); the
-  r1 numbers are kept in `data/` for comparison. The reviews are in `docs/reports/comms-design-reviews-2026-10-21.txt`.
+  outputs are in `data/`. Rounds 2 and 3 re-measured everything the reviews questioned (`v3.py.txt`, `deaths_v3.py.txt`;
+  v3 = v2 plus the logEvent timestamp fix and JavaScript rounding, and its numbers equal v2's to the row or within 1);
+  the r1 numbers are kept in `data/` for comparison. The reviews are in `docs/reports/comms-design-reviews-2026-10-21.txt`.
 
 **Timing rule for every measurement.**
-- A row's `@timestamp` is its skill's start (logger.mjs `startedAt`).
-- Its `bot.pos` and `bot.inventory` are the snapshot at completion.
-- So a fact from row q is available from q's *completion*.
+- A skill row (`logSkill`, no leading underscore) stamps its skill's start (`startedAt`), and its `bot.pos` and
+  `bot.inventory` are the snapshot at completion (start + duration).
+- An event row (`logEvent`, leading underscore, e.g. `_toolkit`) stamps its emission, and its snapshot is at that time.
+- So a fact from row q is available from q's *completion* (skill rows) or emission (event rows).
 - A row's pre-action position is the bot's newest snapshot before the row started.
 
 **What the window contains.**
@@ -51,8 +53,8 @@ runs on one host and shares the town's state directory. The shared stores are:
 - the cobble journal.
 
 None of these goes through the model. **What is left that a shared fact could save (§2):**
-- **Repeated "looked, none" in town:** 2.6-4.5 bot-h a day out of 1,441 (0.18-0.31%). The range spans the two repeat
-  definitions in §2.1.
+- **Repeated "looked, none" in town:** 2.6-4.5 bot-h a day out of 1,441 (0.18-0.31%). The low end is r1's conservative
+  count and the high end r3's nearest-predecessor count (§2.1).
   - The one class that is not shared today is a furnace found empty again by another bot within an hour: 391 of 922
     drain checks, 1.07 bot-h.
   - Kit iron is solved: after toolkit-03's promotion, 2 of 81 toolkit runs failed for want of iron.
@@ -68,17 +70,28 @@ None of these goes through the model. **What is left that a shared fact could sa
     at (335-337, 38, 154). That pool had 6 deaths by 5 bots from 10-19 to 10-21.
 - **The site's centre had been shared and was being read:**
   - 1,219 `_death_site_route_crossed` rows in 24 h;
-  - the hive-b rows show each bot's route paying the site's price minutes before it died.
-- **The mechanism, from the rows:** three of the four confirmed deaths fall inside the 24 h window (Echo, Bravo, Alpha).
-  In each, the bot was at y 43-45 directly above the pool and fell 6-9 blocks into the lava. Two were gathering dirt and
-  one was exploring after its blind steps had been refused.
+  - Alpha's and Echo's routes paid the site's price in the minute before they died. The price was paid, not avoided:
+    their dirt gathers' targets were inside the disc.
+- **The mechanism, from the rows:** three of the four confirmed deaths fall inside the 24 h window.
+
+  | death | what the bot was doing | how it reached the lava |
+  |---|---|---|
+  | Echo | a dirt gather from y 43 | the gather carried it down to y 38 (no fall row) |
+  | Alpha | a dirt gather at the pit edge | fell 6 blocks just after |
+  | Bravo | standing above the pool about 2.5 min after reaching a goal | fell 9 blocks without a dig of its own |
+
   - The pathfinder never prices a drop-down landing cell (`deathsites.mjs` says so).
-  - Nothing stops a dig in the column above the pool.
-- **So the fix is a safety change** (keepout-01, §8): refuse dig and gather candidates in the column above a confirmed
-  lava site. It reads world facts directly and needs no ledger.
+  - Nothing stops a gather or dig in the column above the pool.
+  - Comet's 10-20 death is outside the rows read here.
+- **So the fix is a safety change** (keepout-01, §8): refuse dig and gather candidates in the column above a live
+  **fire** death site, wherever the bot stands.
+  - It directly targets **2 of those 3** (Echo, Alpha). Bravo's unpowered fall needs the separate drop-landing variant.
+  - Triggered by any live fire site, it would have covered 7 of the 52 fire deaths in 7 days, against 4 for the "2 deaths
+    by 2 bots" rule. At the replay's end there were 6 live fire sites in 5 towns.
+  - It reads world facts directly and needs no ledger.
 
 **3. Sharing one bot's failure to *reach* something spreads errors. Measured with completion-time availability and
-pre-action positions (`data/v2.out`):**
+pre-action positions (`data/v3.out`):**
 - **Gather:** after a townmate's completed failure of the same block within 16 blocks (dy ≤ 8) in the last 30 min, a
   bot's gather failed 31.7% of the time (n = 574). After no prior failure it failed 37.5% (n = 8,488). After its *own*
   failure it failed 65.1% (n = 8,514).
@@ -139,7 +152,7 @@ pre-action positions (`data/v2.out`):**
   cooperation itself must be read at the town level in the canary lane.
 
 **7. Build order:**
-1. chatgate-01, with TALK off;
+1. a Paper probe of the chat event, then chatgate-01 with TALK off;
 2. keepout-01 (safety; no ledger needed);
 3. ledger-01, with or after townindex-01;
 4. the showcase's TALK switch, plus its markers and captions;
@@ -181,7 +194,7 @@ Tiers and timing are in §8; owner decisions C1-C12 are in §9.
 
 ## 2. What was measured (denominators first; every zero has its positive control)
 
-### 2.1 Repeated "looked, none" in town (`data/v2.out` [R]; r1 in `opps.out`)
+### 2.1 Repeated "looked, none" in town (`data/v3.out` [R]; r1 in `opps.out`)
 **Definitions.**
 - A *repeat* is a negative whose clean predecessor was reported by another bot of the same town. A clean predecessor is
   a negative completed within the window, with no refill completed between the two.
@@ -206,10 +219,11 @@ Tiers and timing are in §8; owner decisions C1-C12 are in §9.
 - **A query bug caught by its own control.** The r1 furnace query first printed 0 repeats and 0 own repeats: it counted
   the drain's own session (`by=drain`) as a refill. The overseer census found the same class at 316 of 764 (41.4%) on
   10-19.
-- **Size:** the median negative lasts 2-12 s. In total the repeats cost 2.6-4.5 bot-h a day of 1,441. This is a
-  **proxy**: it is the time in repeats, not proven avoidable time.
+- **Size:** the median negative lasts 2-12 s. In total the repeats cost 2.6 bot-h a day (r1, conservative) to 4.5
+  (nearest-predecessor) of 1,441. This is a **proxy**: it is the time in repeats, not proven avoidable time. The
+  "any peer" column is a count only.
 
-### 2.2 Concurrent town jobs (`v2.out` [O], complete interval sweep)
+### 2.2 Concurrent town jobs (`v3.out` [O], complete interval sweep)
 A run counts as an overlap when it starts while another bot of the town is inside the same job (on the same furnace, for
 the drain):
 
@@ -230,7 +244,7 @@ the drain):
 - **Multi-bot projects:** 0 rows matching monument, project, ziggurat, yard, shaft, tree farm or blueprint. The same regex
   finds `_plinth_step` 12, `build_plinth` 2 and `board` 24.
 
-### 2.3 Deaths at a known site (`data/deaths_v2.out`; ES, 9 d = 2-day warm-up + 7 judged)
+### 2.3 Deaths at a known site (`data/deaths_v3.out`; ES, 9 d = 2-day warm-up + 7 judged)
 **The replay follows production:**
 - a same-class merge within 3 blocks / 3 y, +4 per death, and one halving per 12 h;
 - live while the weight is at least 1;
@@ -256,15 +270,19 @@ its control's own window.
     y 44-48 and paid its price. `_fall_path`: "fell 8 ... ended by goal_reached 2s ago (liqdrop=true)", then "tried to
     swim in lava after falling 6 blocks".
   - **Echo 06:10:** gathering dirt at y 43, then the lava corridor refused the leg ("lava below at 334,38,154"), then
-    another dirt gather took it to y 38, where it died.
-  - **Bravo 06:58:** explore. Its blind steps were refused ("lava below"), then "fell 9", then death.
+    another dirt gather took it down to y 38, where it died. There is no fall row.
+  - **Bravo 06:58:** explore. Its goal had been reached about 152 s earlier above the pool. Its blind steps were refused
+    ("lava below"), then it "fell 9", then died, without a dig of its own.
 - **Reading:**
-  - The site was on file and read, and the price worked on the route.
-  - The killing moves are a dig or gather in the column above the pool, and an unpriced drop.
-  - Opportunity: 4 confirmed-site deaths in 7 days, at one pool, for a fix that targets confirmed lava sites. 11 deaths at
-    any site with another bot's death in it.
+  - The site was on file and read. The price was paid, not avoided: the gather targets were inside the disc.
+  - The killing moves are a gather or dig in the column above the pool (Echo, Alpha), and an unpowered drop (Bravo).
+  - **Opportunity, by trigger** (`data/deaths_v3.out`):
+    - 4 deaths in 7 days at a site with at least 2 deaths by 2 bots, all at one pool;
+    - **7 of 52 fire deaths** inside a live fire site with at least 1 death;
+    - 11 deaths of any class at a site holding another bot's death.
+  - **v1 (dig and gather refusal) targets the gather share of these.** The drop share needs the second variant.
 
-### 2.4 Does a townmate's failure predict mine? (decides what stage 1 must NOT share; `v2.out` [G] [S])
+### 2.4 Does a townmate's failure predict mine? (decides what stage 1 must NOT share; `v3.out` [G] [S])
 **Gather** (success and failed rows). A prior failure counts only if it *completed* before the current gather started,
 was of the same block, and is within R blocks and 8 y of the bot's *pre-action* position:
 
@@ -309,7 +327,7 @@ sightings. That is a target-choice problem for the expansion lane; a message wou
 **The live exception:** milestone give-ups (`data/milestone_skips.txt`). 347 of 374 attempt-count skips used the
 peer-shortened budget of 8. Whether those skips were wrong is not measured; that is unreach-01's read (C11).
 
-### 2.5 Needs and offers (`v2.out` [N]; one town-matched control moment per event × 5)
+### 2.5 Needs and offers (`v3.out` [N]; one town-matched control moment per event × 5)
 | shortage | at the event | town-matched control |
 |---|---:|---:|
 | smelt_town "no coal" (n = 247): a townmate's bag held at least 1 coal or charcoal | 49.0% | 45.3% |
@@ -318,7 +336,7 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 - Holding is not surplus: the keep rules (IRON_LADDER) hold coal for the bag's own use.
 - The overseer census reached the same reading (C4, C7): a banking rule takes this more cheaply than a message.
 
-### 2.6 Distress (`v2.out` [P])
+### 2.6 Distress (`v3.out` [P])
 - 952 episodes in 24 h, counting one per bot per 30 min: `_entombed_unrecoverable` 676, `_recovery_exhausted` 183,
   `_stranded_unrecoverable` 93.
 - A townmate was within 32 blocks and 16 y in 25.6% of them, against 29.7% at town-matched control moments.
@@ -389,7 +407,7 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 |---|---|---|---|---|---|---|---|
 | `death` | world facts (mirrored) | the death handler | the server's death event, with position and class | always (an immutable event) | never (it is a past event) | display: 7 d | stage 2; keepout reads world facts directly |
 | `hazard` (inferred: entombed, drowning spot, lava seen) | world facts (mirrored) | reflexes, at 2 personal hits (today) | own reflex rows | as today | lava: a read of the hazard's recorded cells, all loaded, showing no lava. Other kinds: none defined (expiry only) | as today (halves every 12 h) | prompt lines (today) |
-| `confirmed_hazard` (derived; v1 = **fire/lava only**) | the fold, from world facts' death sites | — | a live fire death site with `deaths` ≥ 2 by ≥ 2 distinct bots (fields world facts already keeps) | derived | a lava read of the site's 6-block disc, every cell loaded, showing no lava → `disputed` (kept; the next fire death re-confirms it) | while the site is live | keepout-01. **Water, falls, other and unknown are never confirmed** ("water is terrain") |
+| `fire_site` (derived; **fire/lava deaths only**) | **world facts**: a pure function in deathsites.mjs (`fireSites(sites)`) plus a `disputed` field on the site, written by the lava read. keepout-01 and the ledger mirror both read this one component | — | any live fire death site: a death is a server event, so 1 is enough. `confirmed` (≥ 2 deaths by ≥ 2 bots) is reported as a stratum, not a gate | derived | a lava read of the site's 6-block disc, every cell loaded, showing no lava → `disputed` (kept; the next fire death clears the dispute) | while the site is live | keepout-01. **Water, falls, other and unknown never qualify** ("water is terrain") |
 | `stock` | **townindex-01** (mirrored) | townindex's observation at each open | the server window | as townindex | as townindex (`dirty`, newer observation) | as townindex (`stale` at 6 h) | the foreman's input (later) |
 | `checked` (container C has none of X) | **town memory** (mirrored) | the search that opened C | the server window | as today | a deposit into C (`took`), or an observation of C holding X | 60 min / 2 h (today) | the searches keep reading town memory |
 | `station` (furnace F's input, fuel and output) | **the ledger** | every furnace open (drain, smelt, smelt_town) | the server window | 1 | a later open of F; any load session on F | 60 min, refreshed by each open | furnaceseen-01 |
@@ -429,9 +447,14 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
   - expiry is per type (table above), from `observed_at` for freshness and from the newest report for shelf life.
 - **Size:** one line is at most 1 KB; anything bigger is refused and counted.
 - **Bootstrap and reconciliation (for the mirrored types):**
-  - at the first start after deploy, a `snapshot` entry per mirrored store records that store's live view at that moment;
-  - every 30 min the mirror re-reads its source and writes the differences.
-  - The mirror is therefore exact at those points and stays approximate between them.
+  - **Who:** one reconciler per town per 30-min window. It claims the window with a `wx` marker
+    `ledger-<home>.recon.<window>`; the other bots skip it.
+  - **What it writes:** a `snapshot_begin {gen}` entry, then one bounded entry per subject (each under 1 KB), then
+    `snapshot_end {gen, n}`.
+  - **How it is read:** the fold uses a snapshot only when its end marker is present with the right count. An interrupted
+    snapshot is ignored, and the next window redoes it.
+  - **Test:** a reconciler killed mid-snapshot leaves the previous complete one in force.
+  - The mirror is therefore exact at complete snapshots and approximate between them.
 - **Why a file and not chat:**
   1. Every world's bots share one host.
   2. Chat ingestion is dead today (§2.7).
@@ -442,11 +465,19 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
   now.
 
 ### 4.4 Rate (anti-spam), without dropping state
-- **Never dropped:** transitions and safety events (released, disproved, cancel, award, deliver, expire, death). They are
-  written synchronously and their failures are retried at the next tick.
-- **Coalesced:** repeated identical observations update the writer's in-memory `last`, and are appended at most once per
-  (subject) per 10 min as a durable refresh. So freshness survives a restart. The affordance survey re-sees the same
-  iron every 20 s; it must not append every 20 s.
+- **Never dropped by the cap:** transitions and safety events (released, disproved, cancel, award, deliver, expire,
+  death), and **every observation whose state differs from the last one written for that subject** (empty → loaded, a
+  load session). They are written synchronously and a failed write is retried at the next tick.
+- **A crash** between an action and its append can still lose a transition. Recovery then comes from the source:
+  - the lease files for claims and awards;
+  - the reconciliation for mirrors;
+  - the next open for `station`.
+
+  A stale `empty` therefore lasts at most its 60-min expiry.
+- **Coalesced:** only *identical* repeated observations. They update the writer's in-memory `last`, and are appended at
+  most once per subject per 10 min as a durable refresh, so freshness survives a restart. The affordance survey re-sees
+  the same iron every 20 s; it must not append every 20 s.
+- **Tests:** cap exhausted, then empty → loaded (written); cap exhausted, then a restart, then an open (written).
 - **Capped (observations only):** at most 120 observation entries per bot per hour. Over the cap, the entry is dropped and
   an `_ledger_drop` row counts it.
 - **Expected volume:** the town jobs in §2 are about 5,400 runs a day across 12 towns, about 19 per town per hour.
@@ -457,8 +488,8 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 | consumer | what changes | measured value today | needs the ledger? |
 |---|---|---|---|
 | ledger-01 | nothing reads; mirror + new types written | — (gate: parity) | is it |
-| **keepout-01** (§8) | gather and mine refuse dig candidates in the column above a confirmed lava site (6-block disc, from the site's y up to +12). Second variable, separate: price drop-down landing cells in the disc | 4 confirmed-site deaths in 7 d (one pool) | **no**: reads world facts' death sites |
-| **furnaceseen-01** | the drain order skips the walk to F while `station` says empty; an open by an adjacent bot still happens | 391 repeats a day, 1.07 bot-h (12 towns) | yes (`station`) |
+| **keepout-01** (§8) | gather and mine refuse dig candidates in the column above a live fire site (6-block disc, from the site's y up to +12), **whatever the body's position**. Second variable, separate: price drop-down landing cells in the disc | 7 of 52 fire deaths in 7 d were inside a live fire site (4 of them at a site with 2 deaths by 2 bots) | **no**: reads world facts' `fireSites` |
+| **furnaceseen-01** | the drain order skips the walk to F while either the bot's own `bot.furnaceSeen` (6 h, cleared when F is seen lit) or the town's `station` (60 min) says empty. Seeing F lit, or any load, clears both. An open by an adjacent bot still happens | 391 repeats a day by *other* bots, 1.07 bot-h (12 towns); the bot's own memory already stops its own repeats (17) | yes (`station`) |
 | claims mirror | none (visibility + a duplicate-claim gate) | 0 today | yes |
 | needs → SUPPLY | the foreman's lease reorder (stage 3a) | needs a live project | yes |
 
@@ -469,10 +500,11 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 | the ledger is missing, corrupt or another world's | behaves as today | every consumer's default is today's path | a fold of a corrupt file followed by a write |
 | a stale `empty` furnace fact while F holds output | the drain skips the walk for at most 60 min; any open or load clears it; never dropped (§4.4) | a furnace keeps its output; it waits at most 60 min | empty → load → the order is eligible again; empty → restart → state from the checkpoint |
 | a claim whose holder dies or disconnects | the lease TTL frees it; the `released` / `expired` entry is never dropped | as the lease designs | claim → release; claim → crash → expiry |
-| keepout-01 refuses every gather candidate of a block | gather refuses deterministically: "every candidate is above a marked lava pool". The same skill then **moves its search centre** to the nearest candidate outside the column, inside its own budget (a deterministic step, not advice) | the bot is beside the pool, not in it, and can walk | gather dirt with all candidates in the column → the next candidate is outside it within the same run; repeated refusals at one spot ≤ 2 (a gate) |
-| keepout-01 refuses a mine descent | `mine` turns its bearing (today's `_mine_bearing_turned`). If all four are refused it walks off deterministically to the nearest cell outside the column before descending, inside the same run | the bot is above or beside the column | four bearings refused → a walk-off, then a descent outside; never a printed remedy only |
-| **a bot inside the column** (falling, entombed, marooned, respawned) | keep-out does not apply to escape, drowning, entombment or respawn paths, and a body inside the column is exempt from its own refusal (the junk well's "the well this body is inside" rule) | survival reflexes outrank keep-out | **the hive-b chain on Paper:** a dirt gather beside the pool; a marooned climb; a fall from a reached goal; overlapping discs; no safe explore bearing |
-| a town chest, furnace, home or respawn inside a confirmed column | keep-out yields for town-job targets and home cells. The read names the town as a finding, for an owner decision | town jobs must stay possible | a fixture with a furnace inside a column |
+| keepout-01 refuses every gather candidate of a block | gather refuses deterministically: "every candidate is above a marked lava pool". The same skill then **moves its search centre**, inside its own budget, to the nearest candidate outside every column. The search is bounded at 32 blocks and needs a route the pathfinder plans without entering a column. It is a deterministic step, not advice | the bot can walk on its own level | gather dirt with all candidates in the column → the next candidate is outside it within the same run; repeated refusals at one spot ≤ 2 (a gate) |
+| no outside candidate, or no safe route to one (enclosed terrain, overlapping columns) | gather ends **without a dig** ("no safe candidate within 32"). The bot's next decision runs; the escape and stranded ladder below is exempt | ending a skill with no dig is always executable; moving out is never refused | enclosed pocket above a pool → no dig in the column, and the next decision is not the same gather at the same spot |
+| keepout-01 refuses a mine descent | **the whole planned descent column is checked before the first dig.** `mine` turns its bearing (today's `_mine_bearing_turned`). If all four are refused, it walks off deterministically (bounded at 32 blocks, a column-free route) to a cell outside before descending, inside the same run. With none, it ends without digging | the bot is above or beside the column | four bearings refused → a walk-off, then a descent outside; **mid-staircase:** a descent from y 72 whose plan meets a column at y 50 is refused at planning, not at y 50 |
+| **a bot inside the column** (it walked in, respawned there, or fell in) | **the exemption covers moving out only**: escape, drowning, entombment, respawn and walk-off moves. Dig and gather candidates in the column are refused **whatever the body's position**; a body inside runs the walk-off before any dig | survival moves outrank keep-out, and a walk-off is a move out | **Paper:** a bot standing at y 43 above the pool and told to gather dirt → no dig in the column, and the walk-off runs (Echo's and Alpha's starts). Also: a marooned climb; a fall from a reached goal; overlapping columns; no safe explore bearing; entombed inside a column (the escape digs are exempt) |
+| a town chest, furnace, home or respawn inside a live fire column | keep-out yields for town-job targets and home cells. The read names the town as a finding, for an owner decision | town jobs must stay possible | a fixture with a furnace inside a column |
 | over the observation cap | the observation is dropped and counted; transitions are never dropped | consumers fall back to their own reads for observations | a cap test with a pending release |
 
 ### 4.7 Read and gates for ledger-01
@@ -509,7 +541,7 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
   | event | line |
   |---|---|
   | `death` | "Lost one at 335,38,154: lava." |
-  | `confirmed_hazard` | "That lava pool at 335,38,154 has taken 3 of us. Marking it." |
+  | `fire_site` (2 or more deaths) | "That lava pool at 335,38,154 has taken 3 of us. Marking it." |
   | `station` empty | "The furnace by the storehouse is empty." |
   | `progress` | "Placed the last block of the monument's north-east corner (14/14)." |
   | `discovery` | "Village about 120 blocks east. On the map." |
@@ -573,6 +605,14 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 
 **Measured cost of closing:** 0 commands (journals) and 0 ingestions in 24 h (§2.7).
 
+**First, a Paper probe of the chat event** (one scene, before chatgate-01 is built). Peer ingestion is dead while the
+server carried the lines, so mineflayer's `chat` event may not fire on Paper 1.21.8 offline-mode ("[Not Secure]"
+lines). The probe decides what chatgate-01 is:
+- **If `chat` fires:** the gate as above. The authorized `status` is the positive control.
+- **If it does not:** chatgate-01 *is* the gate, and nothing changes behaviour today. A whitelisted `mike status` would
+  then need a listener fix (for example `messagestr`). That would switch chat commands back on for whitelisted names: a
+  behaviour change, stated in C4, with its own Paper tests.
+
 ### 5.4 Rate
 - At most **1 line per bot per 2 min** and **1 per town per 20 s**, by priority: death and confirmed hazard first, then
   progress and discovery, then claim and need.
@@ -618,13 +658,21 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 |---|---|---|---|
 | REQUEST | a job whose own need is blocked: a project's bill-of-materials shortfall, a kit short of iron, a smelt short of coal | `{req, from, item (registry name), qty, deliver_to (a container key in the requester's town, existing in townindex), until ≤ now + 20 min, reason (enum)}` | one live request per (bot, item) |
 | OFFER | a townmate whose **bag policy** shows a surplus beyond its keep rules for that item, and that is eligible now (no ready rung, health over 10, no trap or drowning flag, no full-bag or spent-tool order pending: the foreman's validator) | `{req, from, qty, eta}` | **the quantity is reserved**: the bag policy subtracts live offers from surplus, so the same items cannot be offered twice. At most 1 live offer per bot |
-| AWARD | the requester's rule (nearest eligible offer), or the foreman for project jobs | `{req, to, qty, gen}` | **an award lease file `award-<req>.json` created `wx`**: exactly one award per request; a stale award cannot be overwritten |
-| DELIVER | the courier: re-checks eligibility and bag **fresh**, then `deliver_to` exists and has room (townindex), then the existing verified town deposit into it | `{req, op}`: the townindex transfer record, with its pre-state and verifying re-open | the award lease's generation, checked before the click |
+| AWARD | **derived in the fold**: the earliest eligible offer by `observed_at`, ties by id. The foreman instead names the winner for project jobs. **The winning courier creates the award lease**, because the requester has gone back to baseline and is not waiting | `{req, to, qty, gen, state: awarded, until}` | **an award lease file `award-<req>.json` created `wx`**: exactly one award per request. Later states are new generations linked onto it (`link()`, the siting-file protocol), so a cancelled or expired award can never be mistaken for a live one |
+| DELIVER | the courier, in order: re-check eligibility and bag **fresh**; check that `deliver_to` exists and has room (townindex); **re-read the award lease immediately before the click, which must be `awarded` and unexpired** (cobblecap's "confirm before you mutate"); then the existing verified town deposit | `{req, op}`: the townindex transfer record, with its pre-state and verifying re-open. The `op` id makes the delivery idempotent: after a crash the courier reconciles from the transfer records, and never deposits twice | the lease generation, checked before the click |
 | CANCEL / EXPIRE | either side (reason enum), or the clock | | transitions are never dropped (§4.4) |
 
-- **Legal transitions:** open → offered → awarded → delivered or cancelled. Open or offered can also expire.
-  - Anything else is refused.
-  - Only the named writer of each step may write it.
+- **Legal transitions:** open → offered → awarded → delivered, cancelled or expired. Open and offered can also expire.
+  - **awarded → expired** is derived from the lease's `until`, which is `eta + 5 min`. Any reader may write the expired
+    generation.
+  - Anything else is refused. Only the named writer of each step may write it: the requester or the foreman may cancel,
+    and the courier may deliver or cancel.
+- **The reservation** belongs to the courier's offer from OFFER until delivered, cancelled or expired. After that, the bag
+  policy releases it.
+- **Serialization:**
+  - Cancellation and expiry race delivery only through the lease generations. A delivery whose pre-click re-read sees
+    `cancelled` or `expired` does not click.
+  - A delivery that clicked before a cancellation still records its `op`, and the requester's withdraw finds the items.
 - **No bilateral trade in v1.** A swap is two linked requests with an atomic pairing rule; it is designed separately, if
   ever.
 - **Split builds** are monument-01's segment leases plus the foreman's BUILD and SUPPLY role leases. The ledger mirrors
@@ -708,13 +756,14 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 
 | # | step | what | tier / read (CLAUDE.md "Deploys") | needs | rough timing |
 |---|---|---|---|---|---|
-| 1 | **chatgate-01** | commands whitelist; comms ingestion retired; enum prompt kinds; TALK code shipped **off** | **tier 2** (a small fix with strong Paper evidence: §5.3's tests and mutants). Registration: 4 pools, KEEP at +180 with T6 and no-harm, exposure = the Paper suite (behaviour cannot be exposed on the bench: 0 commands a day). An owner-direct rollout would be an **exception to the tier policy** the owner must grant (C4) | — | build 1-2 days; the next free slot; **before the showcase bots start** (add to its start gate) |
-| 2 | **keepout-01** | dig and gather candidates in a confirmed lava column refused (v1). Drop-landing pricing is a separate later variant, if needed | **tier 3**, the underground-safety lane. Draw: towns with a live confirmed site. **The hive-b site lapses about 36 h or more after its last death (10-21 08:35), so plan for an unexposed run:** Paper is the main evidence (the hive-b chain), with an early INCONCLUSIVE close if no drawn pool has a confirmed site. Primary: entries into confirmed columns per bot-h (DiD). Deaths are a tripwire | its own design with both engines (C3) | weeks 1-3 |
-| 3 | **ledger-01** | journal, fold, mirrors + `station` / `claim` / `progress` writers; no reader | **tier 2** on its own registration, or as a **newly reviewed combined variant** with townindex-01 (both observe-only). Gates L1-L4 | townindex-01's variant on the live tip | with townindex-01: weeks 1-2 |
+| 0 | **chat-event probe** | one Paper scene: does mineflayer's `chat` fire for "[Not Secure] <name>" lines? | sandbox, no slot | — | day 1 |
+| 1 | **chatgate-01** | commands whitelist; comms ingestion retired; enum prompt kinds; TALK code shipped **off** | **tier 2** (a small fix with strong Paper evidence: §5.3's tests and mutants). Registration: 4 pools; licence not `rate`; **exposure field: canary bot-h with the gate active, read from a `_chatgate_mode` startup row (like the other `_*_mode` rows), at least 48**; KEEP at +180 with T6, no harm and the licence row. An owner-direct rollout would be an **exception to the tier policy** the owner must grant (C4) | 0 | build 1-2 days; the next free slot; **before the showcase bots start** (add to its start gate) |
+| 2 | **keepout-01** | dig and gather candidates in the column above a live **fire** site refused, whatever the body's position (v1). Drop-landing pricing is a separate later variant | **tier 3**, the underground-safety lane. **Draw: towns with a live fire site** (6 in 5 towns at the replay's end: hive-a, hive-b ×2, hive-c, hive-d, placebo-a). Paper is the main evidence (the hive-b starts). Exposure field: gather and mine candidates refused for a column, at least 20. An early INCONCLUSIVE close if the drawn sites lapse unexposed. Primary: digs in columns per bot-h, as difference-in-differences. Deaths are a tripwire | its own design with both engines (C3) | weeks 1-3 |
+| 3 | **ledger-01** | journal, fold, mirrors + `station` / `claim` / `progress` writers; no reader | **tier 2** on its own registration, or as a **newly reviewed combined variant** with townindex-01 (both observe-only). Licence not `rate`. Exposure field: ledger entries written per drawn town, at least 200. Gates L1-L4 | townindex-01's variant on the live tip | with townindex-01: weeks 1-2 |
 | 4 | **TALK on (showcase)** + markers + captions | showcase config; host scripts on the showcase VM | showcase owner-direct (owner 10-21: counts as kept); T1-T5 + exposure | 1, 3; jar check (§5.2); C5-C8 | when the showcase bots start (week 2+) |
-| 5 | **furnaceseen-01** | drain skips the walk to a live-empty furnace | tier 2. Gate: 0 drain walks to a live-empty furnace. Repeats per bot-h DiD. Guard: furnace output not waiting longer; smelt ingots not lower | 3 promoted | weeks 2-3, folded with the next smelt or drain change |
+| 5 | **furnaceseen-01** | drain skips the walk to a live-empty furnace | tier 2. Licence not `rate`. Exposure field: drain walks skipped, at least 20. Gate: 0 drain walks to a live-empty furnace. Repeats per bot-h, as difference-in-differences. Guard: furnace output not waiting longer; smelt ingots not lower | 3 promoted | weeks 2-3, folded with the next smelt or drain change |
 | 6 | claims mirror | found-01, monument-01 and furnace leases → ledger | inside those canaries (a duplicate-claim gate) | 3 | with found-01 / monument-01 |
-| 7 | **unreach-01** (measure first) | §2.4's test on milestone attempts after a peer give-up. Then, if the peer signal does not predict, retire the 25 → 8 budget cut | read: host-side, no slot. Change: tier 2 | — | the read any time; the change after it (C11) |
+| 7 | **unreach-01** | **(a) the read, now:** sizes the peer-shortened skips by milestone and how often a skipped milestone later succeeds for the same bot. It cannot settle the question, because the cutoff at 8 censors the attempts that would show the answer. **(b) the decision:** a controlled canary in which the canary arm keeps the full 25 (the cut off), read on milestone completions per bot-h and time-to-complete, as difference-in-differences | (a) host-side, no slot; (b) tier 2 | — | (a) now; (b) after it (C11) |
 | 8 | **stage 3a** | `need` + REQUEST / OFFER / AWARD / DELIVER for project supply | tier 3 with the foreman's S1-S3 on monument-01 (§6.3) | monument-01 KEPT; foreman S0 passed | weeks 4-6+ |
 | 9 | bench `request` verb | a brain verb (no extra call) | model bench (learning loop, after M6) | bench VM | 4+ weeks |
 | 10 | rescue census | host, read-only | no slot | homefix-02 decided | any time |
@@ -730,16 +779,16 @@ and indexsearch-01.
 |---|---|---|---|
 | C1 | Build stage 1 as a substrate (bench payoff today: about 1 bot-h a day from the furnace fact), not a standalone "sharing" canary | **yes** | §2: the cheap sharing exists; the coming projects need claims and needs; talk must come from facts |
 | C2 | ledger-01 as its own tier-2 run, or as a reviewed combined variant with townindex-01 | **combined, if townindex-01's live-tip variant is not yet built** | both observe-only; one slot |
-| C3 | keepout-01 (fire/lava only) in the underground-safety lane, ahead of expedition-01 and of TALK | **yes** | hive-b: 6 deaths by 5 bots in 3 days at a shared, priced site; 4 met the confirmation rule |
-| C4 | chatgate-01 at tier 2, or an owner-direct exception; the bench whitelist empty; showcase `mike` gets `status` (and `stop`/`resume`?) | **tier 2; `mike`: `status` only** (a stop typed by accident halts all 10 showcase bots; the operator has the units) | today any name commands every bot on that town's server |
+| C3 | keepout-01 (fire/lava only; triggered by any live fire site) in the underground-safety lane, ahead of expedition-01 and of TALK | **yes, trigger = any live fire site** | hive-b: 6 deaths by 5 bots in 3 days at a shared, priced site. 7 of 52 fire deaths were inside a live fire site; v1 targets the gather share |
+| C4 | chatgate-01 at tier 2, or an owner-direct exception; the bench whitelist empty; showcase `mike` gets `status` (and `stop`/`resume`?). If the probe shows the `chat` event is dead, whether to fix the listener for whitelisted names (a behaviour change) | **tier 2; `mike`: `status` only** (a stop typed by accident halts all 10 showcase bots; the operator has the units). **Do not fix the listener in chatgate-01**; that would be its own change | today any name commands every bot on that town's server, if the event fires |
 | C5 | TALK on the showcase only; the bench stays quiet | **yes** | talk is for the owner; the bench measures behaviour |
 | C6 | Templates only, or plus an LLM choice among fixed phrasings | **templates first**; the LLM choice later, if wanted | free rewording cannot be verified |
 | C7 | Retire comms.mjs's chat *ingestion* (dead and forgeable); keep the `[fleet]` announcements | **yes** | §2.7 |
 | C8 | Timelapse caption strip at video build | **yes** | frames untouched |
 | C9 | Stage 3 v1 = item requests through town containers + split builds through the foreman; no trades; rescue behind a census | **yes** | §2.5-2.6 |
 | C10 | Bench brains never author messages in v1; a `request` verb is a model-bench experiment, requester-side only | **yes** | optional model-chosen comms go unused (the board); prose costs 15% or more (MineCollab) |
-| C11 | Measure the milestone peer give-up (25 → 8 attempts) before keeping or retiring it | **measure (unreach-01), then decide** | it is reachability sharing, live in 93% of attempt skips; §2.4 says peer failures do not predict elsewhere |
-| C12 | A confirmed lava site covering a town chest, furnace or home | **yield for town jobs and report the town** | town jobs must stay possible; the owner decides any relocation |
+| C11 | The milestone peer give-up (25 → 8 attempts): run unreach-01's host read now, then decide by a controlled canary | **read now; decide by the canary** | it is reachability sharing, live in 93% of attempt skips; §2.4 says peer failures do not predict elsewhere; an observational read cannot see past the censoring |
+| C12 | A live fire site covering a town chest, furnace or home | **yield for town jobs and report the town** | town jobs must stay possible; the owner decides any relocation |
 
 ---
 
@@ -768,4 +817,19 @@ and indexsearch-01.
   - slot-preserving phrasings only;
   - stage 3 is a fenced state machine with reserved quantities;
   - the cooperation estimand is town-level, and bench interference is named.
-- **Round 2:** pending.
+- **Round 2 (r2): Codex CHANGE (2 P1, 7 P2, 2 P3); Claude CHANGE (1 P1, 5 P2, 5 P3).**
+  - **Both P1s:** keep-out's body-inside exemption cancelled the fix for Echo and Alpha. Now digs and gathers in a column
+    are refused wherever the bot stands, and only moves out are exempt.
+  - **Codex's second P1:** walk-offs now have a bounded search, a column-free route, and an executable no-dig fallback.
+  - **The other changes in r3:**
+    - the logEvent timestamp fix and JavaScript rounding (numbers unchanged);
+    - one authority for fire-site disputes (world facts);
+    - changed observations are uncapped;
+    - complete-snapshot bootstrap and a single reconciler;
+    - the award lifecycle (awarded → expired, the courier creates the lease, linked generations, idempotent op);
+    - exposure fields for the tier-2 runs;
+    - the chat-event probe first;
+    - keepout overclaims corrected (v1 targets the gather share);
+    - the alternative trigger (7 of 52) adopted;
+    - unreach-01 decided by a controlled canary.
+- **Round 3:** pending.
