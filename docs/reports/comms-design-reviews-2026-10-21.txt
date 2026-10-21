@@ -1,4 +1,5 @@
 COMMS DESIGN 2026-10-21 -- REVIEW RECORD
+FINAL: r7 APPROVED by Codex (round 7) and Claude (rounds 5, 6, 7); r7.1 applies P3 notes only.
 Design: docs/reports/comms-design-2026-10-21.md (branch comms-design-1021). Data and tools: docs/reports/comms-design-2026-10-21/.
 
 =====================================================================================================================
@@ -561,3 +562,35 @@ Codex P2 spawned != restart                            | §6.1: a per-process `i
 Codex P3 stale counts in §11                           | §11 now gives both: 16/10 inclusive (r5), 13/9 half-open (r6)
 Claude P3 C3 expectation                               | C3: expect Paper to carry keepout-01 (only hive-b exposed in 24 h)
 Claude P3 hung-process bound                           | §6.1: named; reservations held over 30 min are reported
+
+=====================================================================================================================
+ROUND 7 on r7 (b83c0fd5)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 7 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+VERDICT: APPROVE
+
+- **P3 — §4.3 / §4.7 L1:** Explicitly retain the capture time, directory listing/release-marker presence, and file mtimes alongside lease bytes. Recompute `leaseLive()` at capture time; test expiry between capture and gate read.
+- **P3 — §0 #4:** Update the parity summary from “host-side read of that store” to “independent parse of the retained source revision.”
+
+Round-6 findings are resolved at design level. No remaining P1/P2 found. `deaths_v5` matches production’s stored-count merge-before-prune semantics for A/C; timing, JavaScript rounding, judged window, alternative trigger and §0 numbers match the committed evidence. Reach-control output supports 86 total, Echo 13, Alpha 9. Raw host queries were not rerun.
+
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE ROUND 7 on r7 (b83c0fd5) -- VERDICT: APPROVE  (verbatim, condensed formatting)
+---------------------------------------------------------------------------------------------------------------------
+The APPROVE still holds. r7 adds no new P1 or P2. Claims as snapshot-only closes the last ordering question; reading
+each lease kind by its own liveness rule (the furnace .released marker via leaseLive()) is the right source, and
+keeping claim events speech-only means a lost or reversed event cannot change state; the two tests are the right ones.
+L1 on the retained .src bytes removes the capture/gate race; the fixture set is complete. Takeover on a different
+incarnation plus the old pid gone handles the reconnect case. C3 and the hung-process bound are stated plainly.
+P3: the duplicate-claim gate should read the lease files directly, not the (up to 30 min stale) snapshot mirror.
+P3: a new process reusing the old pid makes kill -0 succeed and blocks takeover -- fails safe; say so in the bound.
+P3: the .src copies need the same 4-window pruning as the markers.
+
+=====================================================================================================================
+ROUND 7 RESULT: Codex APPROVE, Claude APPROVE on r7 (b83c0fd5). P3 notes applied in r7.1:
+  lease revisions keep capture time + listing + .released markers + mtimes, leaseLive() recomputed at capture (an
+  expiry between capture and gate read is a fixture); .src copies pruned with the markers; duplicate-claim / award gates
+  read lease files directly; pid reuse fails safe and is reported; §0 parity wording updated.
+=====================================================================================================================

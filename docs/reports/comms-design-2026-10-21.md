@@ -1,4 +1,4 @@
-# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r7)
+# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r7.1: r7 approved by both engines; P3 notes applied after)
 
 OWNER 2026-10-21 ~21:10Z: "i would like ... to integrate some kind of communication into our platform where bots are
 sharing information and communicating". Then "yes" to a staged plan:
@@ -115,10 +115,11 @@ pre-action positions (`data/v3.out`):**
 
 **4. Stage 1 is a typed town ledger (§4).** Skills write it as part of their work; the model is never involved.
 - **What it holds:**
-  - *authoritative* for the facts no store holds today: furnace state, claims of project jobs, progress, discoveries,
-    needs, and the stage-3 messages;
-  - a *mirror* (with a pointer) of the facts that already have an owner: townindex's stock, town memory's misses, world
-    facts' deaths and hazards.
+  - *authoritative* for the facts no store holds today: furnace state, progress, discoveries, needs, and the stage-3
+    messages;
+  - a *snapshot mirror* (with a pointer) of the facts that already have an owner: townindex's stock, town memory's
+    misses, world facts' deaths and hazards, and the lease files' claims. Claim events are appended only for stage 2 to
+    speak from.
 - **Fact types:** each has its own evidence, adoption, disproof and expiry rule.
   - Disproof is a world read that covers the cells it is about.
   - Missing coverage means *unknown*, never *gone*.
@@ -126,8 +127,8 @@ pre-action positions (`data/v3.out`):**
 - **Writes:**
   - transitions such as a release, a disproof, a cancel or a delivery are never dropped;
   - repeated observations are coalesced, with a durable refresh every 10 min.
-- **First canary, ledger-01:** observe-only. Its gate is that every complete snapshot of a mirrored store equals a
-  host-side read of that store.
+- **First canary, ledger-01:** observe-only. Its gate is that every complete snapshot of a mirrored store equals an
+  independent parse of the retained source revision it was taken from.
 
 **5. Stage 2 is plain-language chat for the owner and the showcase (§5).**
 - **Wording:** lines are made from ledger events by templates. A cheap LLM may only *choose among* pre-written phrasings,
@@ -473,8 +474,12 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
     `snapshot_end {gen, n}`.
     - `source_revision` is the content hash of the exact bytes the reconciler read, plus the byte offset for a journal
       (townindex).
-    - **Those bytes are retained**, as `ledger-<home>.recon.<window>.src`, for the last 4 windows. Sources are small:
-      world facts is about 40 KB, the containers file about 5 KB, and a journal is retained as its offset only.
+    - **Those bytes are retained**, as `ledger-<home>.recon.<window>.src`, for the last 4 windows, and pruned with the
+      markers. Sources are small: world facts is about 40 KB and the containers file about 5 KB. A journal is retained
+      as its offset only.
+    - **For lease sources** the retained revision also holds the capture time, the directory listing with each
+      `.released` marker's presence, and the file mtimes. `leaseLive()` is recomputed *at the capture time*, so a lease
+      that expires between capture and gate read still passes. That case is a fixture.
   - **How it is read:**
     - a snapshot counts only when its end marker is present with the right count, **within one ledger generation**. A
       snapshot that crosses a rotation, or is interrupted, is incomplete and is redone next window.
@@ -735,7 +740,9 @@ lines). The probe decides what chatgate-01 is:
     - Staleness alone never permits a takeover. While the courier process lives, its own skill clock ends the delivery
       as `delivered` or `cancelled`.
     - **The bound:** a hung process that is still alive holds the reservation until the operator restarts it.
-      systemd's `Restart=always` covers crashes, not hangs. The read reports any reservation held over 30 min.
+      systemd's `Restart=always` covers crashes, not hangs. The read reports any reservation held over 30 min. If a
+      new process reuses the old pid, `kill -0` succeeds and blocks the takeover: that fails safe, and it lands in the
+      same report.
   - **The reservation** is released at `unknown`. The requester's need is recomputed from `stock`, so the index's next
     open decides whether to ask again.
   - **Tests:**
@@ -784,7 +791,8 @@ lines). The probe decides what chatgate-01 is:
   - need fill time (open → met);
   - requests expired unfilled, awards abandoned, deliveries sniped.
 - **Deterministic gates:**
-  - duplicate awards per request: 0;
+  - duplicate awards per request: 0, and duplicate live claims on a cell: 0. Both are read **from the lease files
+    directly**, never from the snapshot mirror, which can be 30 min stale;
   - deliveries without a verifying re-open: 0 (`unknown` is reported separately and never counted as verified);
   - deaths within 120 s of a request, award or deliver row are named, with the two-death floor.
 - **Exposure:** at least 10 offers in the canary arm, or the read closes INCONCLUSIVE early (owner 10-15 rule). Offers
@@ -948,4 +956,11 @@ and indexsearch-01.
   - **L1:** compares against the exact retained source bytes.
   - **Takeover:** needs a new process incarnation *and* the old pid gone; a reconnect is not a restart.
   - **Also:** C3 says Paper will likely carry keepout-01, and the hung-process bound is named.
-- **Round 7:** pending.
+- **Round 7 (r7): Codex APPROVE (2 P3); Claude APPROVE (3 P3).** Both engines approve r7. The P3 notes are applied in
+  r7.1:
+  - lease revisions keep the capture time, the listing, the markers and the mtimes, and `leaseLive()` is recomputed at
+    capture;
+  - the `.src` copies are pruned;
+  - the duplicate-claim and award gates read the lease files directly;
+  - the pid-reuse case fails safe and is reported;
+  - §0's parity wording is updated.
