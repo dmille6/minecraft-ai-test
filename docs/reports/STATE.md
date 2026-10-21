@@ -101,6 +101,22 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-21 01:40Z — OWNER answered the 22-item list (memory owner-decisions-1021-list); toolkit-03 LIVE (3 pools); protectzone-01 queued + held
+
+- toolkit-03 `34d3e5e9` LIVE 01:11:13Z on board-a, placebo-a, hive-b (3 pools: no tier-2 +180 KEEP; reads on to +360 ~07:11Z).
+- **Owner 01:30Z:** isolated->shared hold 240 min/phase + scope towns only (MEMORY_SCOPE private) -> pilot isolated-b in the gap
+  after toolkit-03 closes, `--quiet 240 --accept-contamination owner`; town plan: first pieces next, signs, cluster-as-storehouse
+  (building only hive-a/b), no table pickup yet, farhome yes, furnace_drain later, tree felling after the site survey, showcase
+  starts after Paper + a no-harm bench read; showcase: 15-min capture, owner-direct counts as kept, map/timelapse on its VM, pause
+  during brain tests, seed kept; trial chambers PROTECTED (zone added 01:17Z to /var/lib/mcai/_pool-showcase/protected-zones.json,
+  backup .bak-20261021-trial; parseZones: 8 zones, 0 bad), mineshaft NOT; protectzone-01 after ironpick-01; "mike" whitelisted on
+  the showcase + root cron sets him spectator each minute (no password stored -- offline mode needs none).
+- **10.0.0.40 vs DHCP:** DHCP server 10.0.0.1 (UniFi); .40 is probably inside the default .6-.254 range; asked the owner to set a
+  UniFi Fixed IP for MAC BC:24:11:09:66:76 (operator may not use the UniFi API). Same for the other static VMs.
+- **protectzone-01 QUEUED after ironpick-01, HELD:** before release install the bench test strip
+  (`sudo python3 ~/mcai-analysis/protectzone-fixture.py --install`) and rebuild the variant on the then-fleet sha (only 9e7d9980
+  exists). townindex-01 / indexsearch-01 to be queued after it once JIT variants exist (their variants were keyed on bagbudget).
+
 ## 10-21 01:15Z — homefix-01 REVERTED (v23: 2 deaths, one licensed watchdog_rescue); R11 continued; toolkit-03 launching
 
 - **homefix-01 `a52d075e` REVERT 00:57Z (poll, +0).** +180 had G2/G3/G4 complete with 0 defects (G1 1 of 2). Deaths, both
