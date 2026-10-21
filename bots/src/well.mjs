@@ -1119,10 +1119,13 @@ export function wellVisitOrder ({ now = 0, slots = 0, visitJunkStacks = 0, inZon
   const none = () => ({ order: null, state: s })
   // THE TOWN DEPOSIT'S ZONE (16 h / 12 v of home: the caller's inTownZone), not the well orders' 48: never a walk across town
   if (!on || !inZone || !(distHome <= TOWN_RADIUS) || s.latched) return none()
-  if (!(slots < TRIGGER_SLOTS) || !(lazy(visitJunkStacks) >= JUNK_VISIT_MIN_STACKS)) return none()
+  if (!(slots < TRIGGER_SLOTS)) return none()   // a full bag is the 34-slot order's
   if (now - (wellState?.lastDisposeAt ?? -Infinity) < DISPOSE_COOLDOWN_MS || now < (wellState?.disposeBackoffUntil ?? 0)) return none()
   if (now - (s.lastScanAt ?? -Infinity) < VISIT_SCAN_MS) return none()
   s.lastScanAt = now
+  // the bag's plan is built only here, after the cheap gates, and once (Codex code r2 P3)
+  const stacks = lazy(visitJunkStacks)
+  if (!(stacks >= JUNK_VISIT_MIN_STACKS)) return none()
   if (lazy(inside)) return none()   // never from inside a well (wellOrder's own rule)
   const w = lazy(well)
   if (!w || w.breached || w.open) return none()   // an open well is close_well's (wellOrder), a missing one the build's
@@ -1137,7 +1140,6 @@ export function wellVisitOrder ({ now = 0, slots = 0, visitJunkStacks = 0, inZon
   const vid = visitId(myName, now)
   const kp = lazy(keep)
   const keepNames = [...new Set((Array.isArray(kp) ? kp : []).filter(n => typeof n === 'string' && WELL_JUNK.has(n)))]
-  const stacks = lazy(visitJunkStacks)
   return { order: { skill: 'dispose_well', args: { visit: true, armed: visitArmed(s), dh, dy: Number.isFinite(dy) ? Math.round(dy) : null, dw: Math.round(dw), vid, ...(keepNames.length ? { keep: keepNames } : {}) },
                     why: `at town (${dh} from home) with ${stacks} stack(s) of listed junk and ${slots} of 36 slots used: the junk well takes it on this visit` },
            state: visitLatchIssue(s, now) }

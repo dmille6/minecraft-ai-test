@@ -165,7 +165,7 @@ await t('well visit: the visit counts LISTED stacks only (disposePlan, no option
   assert.ok(W.disposePlan(items, { swords: true, cobbleAtCap: true }).junkStacks > 1, 'positive control: the full-bag options take more')
 })
 await t('MUTANT (well): the visit order without its 34-slot bound -> a full bag gets a visit order too (killed)', async () => {
-  await withMutant(W_P, '  if (!(slots < TRIGGER_SLOTS) || !(lazy(visitJunkStacks) >= JUNK_VISIT_MIN_STACKS)) return none()', '  if (!(lazy(visitJunkStacks) >= JUNK_VISIT_MIN_STACKS)) return none()', async m => {
+  await withMutant(W_P, "  if (!(slots < TRIGGER_SLOTS)) return none()   // a full bag is the 34-slot order's\n  if (now - (wellState", '  if (now - (wellState', async m => {
     assert.ok(m.wellVisitOrder(visitArgs({ slots: 36 })).order, 'mutant inert')
   })
 })
@@ -393,6 +393,8 @@ await t('rows: the visit row leads with vid, armed, dh, dy, dw and the throw cla
   parts.forEach((p, i) => assert.match(p, new RegExp(`^phase=bank v=b\\.x2 mode=tail armed=first dh=4 dy=0 peaceful=1 stacks=30 banked=90 slots=30->10 keep_picks=3 rows=station:30 part=${i + 1}/${parts.length} `)))
   const toks = parts.flatMap(p => p.split(' ').filter(x => /^(allow|other)=/.test(x)))
   assert.equal(toks.length, 31, 'every planned name and every other banked name is on some part')
+  const ab = BA.junkoutBankDetails({ planned: [{ name: 'torch', row: 'torch' }], heldBefore: { torch: 11 }, banked: {}, attempted: { torch: 11, egg: 4 }, visit: 'b.x3' })
+  assert.match(ab[0], / allow=torch=11:0 try=egg:4 try=torch:11$/, 'an aborted run names what it clicked and the server did not verify')
 })
 
 console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)
