@@ -1,4 +1,4 @@
-# townplan-01 and found-01: the build specification (2026-10-21, r5)
+# townplan-01 and found-01: the build specification (2026-10-21, r6)
 
 Pieces 3 and 4 of the town plan (`docs/reports/town-plan-2026-10-20.md`, both engines APPROVE r9; OWNER 10-20 "yes, lets do
 this"; OWNER 10-21: first pieces next in the lane, signs as labels, the bench storehouse = the sorted chest cluster, no
@@ -6,7 +6,9 @@ stray-table pickup, "no rush, lets do it the right way"). This note CONFIRMS tha
 needs. The approved behaviour stands unless a row of section 6 says what changed and why. Section numbers `§x` are the
 design's. r2 took round 1 (Codex CHANGE 6 P1 / 10 P2; Claude CHANGE 2 P1 / 10 P2 / 4 P3); r3 took round 2 (Codex CHANGE
 5 P1 / 7 P2; Claude CHANGE 1 P1 / 4 P2 / 6 P3); r4 took round 3 (Codex CHANGE 3 P1 / 2 P2; Claude CHANGE 3 P2 / 2 P3);
-r5 takes round 4 (Codex CHANGE 4 P2; Claude APPROVE with 5 P3). Section 6 has every disposition.
+r5 took round 4 (Codex CHANGE 4 P2; Claude APPROVE with 5 P3); r6 takes round 5 (Codex CHANGE 1 P2 / 2 P3; Claude APPROVE with
+5 P3) and four READY refinements found by running the planner offline on the SHOWCASE ground (section 6, "The showcase
+ground"). Section 6 has every disposition.
 
 Base: the expected stack at their turn is indexsearch-01's tip (townindex-01 + indexsearch-01 re-varianted on the fleet's
 34d3e5e9 / ironpick-01 2d410985). That re-variant was not on origin when this was built, so the build base is a LOCAL stack:
@@ -68,6 +70,8 @@ Isolated memory scope: off (O8).
   `{ at, why: 'expired' }` with `next.at > until + 60 s`. A placement keeps the reservation's intent (role, group).
 - **Observations take two reads 10 min apart** (Codex/Claude r2 P1: craft puts its own table down for seconds and takes it
   back; a one-read adoption made a station `placed` for ever with nothing there). The marks are validator rules (Claude r3 P2):
+  - a cell's KIND is a family (Claude r5 P3): chest = chest or trapped_chest; furnace = furnace in any lit state; table =
+    crafting_table.
   - each mark has its own states (Codex r4 P2): `seenSince` lives on a free cell, or a reserved one past `until + 60 s`: SET
     when the cell reads its kind and has no mark; CONSUMED by the adoption (`placed` removes it); CLEARED when the cell reads
     anything that is not its kind. `missingSince` lives on a placed cell: SET when the cell reads anything that is not its kind
@@ -151,11 +155,14 @@ sapling, with a passable, plant, tree or liquid cell above.
 **READY** (`readyCell`), for a container or station at (x, s+1, z):
 - (x, s, z) a SOLID FULL block (one full-cube shape; not a container, station, leaves, ice, slab, stairs, path, farmland,
   door, trapdoor, fence, wall, pane, glass, bed, lectern, bell, scaffolding, shulker, hopper);
-- (x, s+1, z) placeable-into (air, cave_air, short_grass, fern, dead_bush); (x, s+2, z) passable (nothing is dug);
+- (x, s+1, z) REPLACEABLE: vanilla's replaceable plants -- air, cave_air, short_grass, tall_grass, fern, large_fern,
+  dead_bush, snow (the layer), vine, glow_lichen (a placement replaces them; nothing is dug);
+- (x, s+2, z) not liquid and never a LID (lidrule's own `chestLidBlocked`: leaves and glass open a chest, a full solid
+  block does not);
 - no liquid (incl. waterlogged) in the 3x3x3 around (x, s+1, z);
 - not in a protected zone or seed `avoid` box (the cell or its floor); not the home column;
-- no furniture within 1 UNLESS that cell is one of THIS plan's own cells; no sapling within 1; no log/leaves within 1 at or
-  below the cell;
+- no furniture within 1 UNLESS that cell is one of THIS plan's own cells; no SAPLING within 1 (it grows into the cell; a
+  standing trunk or leaves do not);
 - WELLS (Codex/Claude r2): every well cap, recorded well site and plinth cap: no cell AND no stand within Chebyshev 3 (the
   plinth shell is cap +-2); chest cells also pass chestfull's `wellKeepout` (WELL_HOME_CLEARANCE 7 horizontally, the well's
   reserved cells): a chest there would refuse the recorded well site; station cells and their stands also pass skills'
@@ -171,7 +178,8 @@ refused whole.
 
 **Greenfield fit** (no plan, no town container in `inTown`): each orientation E, S, W, N and workshop side +1, -1: `s` = the
 most common ground level of the 9x9 pad (ties lower; a seed's `s` for its orientation); READY; joint access. Qualifies when the
-first 4 chests in fill order and stations 0 and 1 are kept. Best: most kept cells, then a clear pad (no TERRAIN at s+1..s+3 on
+ANY 4 chest cells and stations 0 and 1 are kept (found fills the next READY cell in fill order, so an unready overflow cell
+costs nothing). Best: most kept cells, then a clear pad (no TERRAIN at s+1..s+3 on
 the 9x9: else `building: needs_terrain:<n>` for storehouse-01), then E, S, W, N, +1, -1. A seed's `orientation` wins when that
 fit qualifies. None qualifies -> the ANNEX (cells with Chebyshev >= 7 inside `inTown`, off keep-outs and paths, ring by ring
 then x then z; READY at the most common READY height; chests never sharing a side; joint access; the TABLE first, then up to 4
@@ -215,11 +223,16 @@ every adopter):
   except:
 - ACCESS (Codex r4 P2): a SOFT or BOX candidate is taken only if, with it filled, every committed plan cell and every existing
   container, table and furnace that was reachable from home before still has a reachable stand (the same walk as 1.5); a
-  candidate that would cut one off is skipped like a NEVER cell.
+  candidate that would cut one off is skipped like a NEVER cell. Cost (Claude r5 P3): the walk runs only on candidates that
+  already pass the base rule, in search order, stopping at the first that passes; the row logs `access_ms`.
 - NEVER (hard): every plan cell (container or station, any state) and every reserved or placed cell's stand (feet and head):
   at most ~25 cells + their heads per town.
 - ACCOUNTING (Codex r4 P2): each adopter's search also runs its BASE rule on the candidates the plan refused (NEVER, or cut
-  off by ACCESS), so its row says `plan_refused=<n base-valid candidates the plan refused>` and `tier=outside|soft|box|none`.
+  off by ACCESS), so its row says `plan_refused=<n base-valid candidates the plan refused>`, `tier=outside|soft|box|none` and
+  `gen=<plan gen>` -- ONE field set on every adopter row (Claude r5 P3), and the read's HARD-cell defect keys on it.
+- The natural well's `exhausted` (wellsite-01: it backs the build order off) means ALL THREE passes read and refused every
+  column; a pass that stopped on an unknown read is not exhausted (Claude r5 P3; a fixture with pass 1 exhausted and pass 2
+  unknown).
   A `no_site` with `plan_refused >= 1` is a PLAN-INDUCED refusal (`keepout=plan_only`, P10), counted in the read's no_site DiD
   whatever the terrain refused alongside; the temporary-station adopter counts its plan skips the same way.
 
@@ -264,8 +277,8 @@ their own adoption lands with them.
   gens bytes walk_ms` (a placed container whose lid cell is solid; a placed cell no stand of which the walk reaches; the files
   and the walk's cost, so the read sees growth: Claude r4 P3) with the first names (an `occupied` free store cell is named:
   Claude r4 P3).
-- The adopters' rows (`_deposit_new_chest`, well and plinth site rows, `_composter_site`) add `keepout=<class> gen=<N>`: the
-  class at decision time under the generation in force, so a claim is judged against that generation, not a later one.
+- The adopters' rows (`_deposit_new_chest`, well and plinth site rows, `_composter_site`) add `tier= plan_refused= gen=`
+  (1.6): the class at decision time under the generation in force, so a claim is judged against that generation.
 - The read (`scripts/host/townplanread.py`, `--selftest` seeding a defect for every gate, including a backdated mark and an
   early mark on a reserved cell): per canary town the plan files re-walked by a Python port of the acceptance rules (the mark
   rules included); plan bytes per town printed and alarmed at 16 MB. Exposure: an accepted plan in every canary town AND >= 1 accepted
@@ -280,15 +293,15 @@ their own adoption lands with them.
 
 | # | meets | what happens | next legal move |
 |---|---|---|---|
-| P1 | a NEW well or plinth cap wants a plot cell | soft: tried last; hard: refused | another cap; `no site` where every outside and soft candidate fails too |
+| P1 | a NEW well or plinth cap wants a plot cell | three passes: outside, soft, box; NEVER refused; ACCESS on soft and box | another cap; `no site` where all three passes fail (P10 counts a plan-induced one) |
 | P2 | a mine or gather wants a plot cell inside 16 | townzone refuses target digs of town ground (kept) | mine's walk-off; gather's search reaches past |
 | P3 | a plot cell would need a dig | never planned | -- |
 | P4 | link() of max+1 fails 3 times | give up this tick | the next tick (30 s) |
 | P5 | the highest file is invalid | skipped; writers still use max+1 | no freeze |
-| P6 | the recovery's rings meet keep-outs | the next free store cell first (greenfield); then every anchor and the annex scan outside soft; then soft | a cell, or the base's own `no_site` refusal ("keep working and deposit later") when only hard cells remain anywhere in the town circle |
+| P6 | the recovery's rings meet keep-outs | the next free store cell first (greenfield); then three passes (outside, soft, box) over every anchor and the annex scan; NEVER refused; ACCESS on soft and box | a cell, or the base's own `no_site` refusal ("keep working and deposit later"); a plan-induced one is P10 |
 | P7 | zones unknown at spawn | fitting and founding suspended; the accepted plan's keep-outs serve | every other order as today; the next good read resumes |
 | P8 | a bench town with an unknown container | `groups: waiting` | count_town visits it; the next tick allocates |
-| P9 | a temporary table's spot search meets plan cells | non-plan cells, then free plan cells | craft as today; `needs_station` only where every one of the 24 spots is a NEVER cell |
+| P9 | a temporary table's spot search meets plan cells | non-plan cells, then free unmarked plan cells; NEVER refused; plan skips counted | craft as today; a `needs_station` with plan skips is counted plan-induced (P10's accounting) |
 | P10 | (named, measured) a recovery, well or plinth search ends `no_site` with `plan_refused >= 1` (a base-valid candidate the plan refused: NEVER, or cut off by ACCESS) | the base's own `no_site` refusal ("keep working and deposit later" / the well's hold) | as the base; counted `keepout=plan_only` in the read's no_site DiD |
 
 ---
@@ -314,7 +327,7 @@ home that went unused) is a FREE container; a homeless group takes it (tick (b))
 | order | eligible when (always: inTown; a plan of this world; zones known; the found lease free; this bot's 10-min cooldown passed; no found order yet this visit) | does |
 |---|---|---|
 | `found_work` F1 | station 0 (table) free and READY; the station rule can be met | craft the spare (if needed) -> reserve station 0 -> walk to its stand -> re-check lease, head (the reservation ours), READY and bodies IMMEDIATELY before the click -> place -> read back -> publish `placed` |
-| `found_store` F2 | NO town container in `inTown`; a free READY store cell (the overflow cell first); the bot carries a chest or can craft one (8 planks above the floor) | craft FIRST (at station 0 when it is placed: walk to its stand; else where the bot stands, as craft does today -- its temporary table never on a plan cell, 1.6) -> reserve (intent `role: 'overflow'`) -> walk -> re-check immediately before the click -> place -> read back -> open once (the index observes it) -> publish `placed` |
+| `found_store` F2 | NO town container in `inTown`; a free READY store cell (the overflow cell first); the bot carries a chest or can craft one (8 planks above the floor) | craft FIRST (at station 0 when it is placed: walk to its stand; else where the bot stands, as craft does today -- its temporary table by 1.6's two tiers, never a NEVER cell) -> reserve (intent `role: 'overflow'`) -> walk -> re-check immediately before the click -> place -> read back -> open once (the index observes it) -> publish `placed` |
 | `found_work` F3b | station 0 placed; station 1 (furnace) free and READY; the station rule can be met (for a furnace) | as F1, for the furnace |
 | `found_store` F3 | greenfield: a free READY store cell; no free (unassigned placed) container; the bag holds a stack EITHER deposit path would bank (`townDepositPlan`'s banked stacks or `depositPlan`'s, each with its own keeps) whose group has no home; a chest carried, or the craft fits. Retrofit: groups `allocated`; the same bag test; NO free container, no drain container, no overflow | greenfield: the next free cell in fill order, intent `role: 'home', group: g`. Retrofit (cluster): the recovery's own siting (`pickChestSite` anchored at the cluster's nearest home container, the keep-outs, the recovery's claim ledger and budget: 4 a day, 12 standing), appended to the cluster as `role: 'home', group: g` |
 
@@ -340,7 +353,8 @@ reservation's `until` = now + 4 min, renewed in the plan only once more than hal
   search. Retrofit: 1.6's search (the cluster is not a keep-out).
 - **The composter (F5)**, **the well (F6)**: 1.6.
 - **craft:** it walks to the nearest table in reach and takes back only tables IT placed (`retakeTables` reads `placedHere`),
-  so the workshop table is used while in reach and never retaken; its own temporary table never lands on a plan cell (1.6).
+  so the workshop table is used while in reach and never retaken; its own temporary table follows 1.6's two tiers (never a
+  NEVER cell).
 
 ### 2.3 Dead ends (§8 F1-F6, W1, refined)
 
@@ -367,9 +381,10 @@ reservation's `until` = now + 4 min, renewed in the plan only once more than hal
 - The read (`scripts/host/foundread.py`, `--selftest` seeding every defect): exposure = found placements on the canary (F1 and
   F3b fire on the bench -- bench bots carry tables and furnaces -- and are read as real exposure; store placements are rare there,
   §9 row 4: INCONCLUSIVE on them is expected and the FOUND scenes are their gate). Defects (REVERT): a found chest `missing` or
-  `other` in a later audit; a found placement outside a plan cell; a lid-blocked or unreachable found container (an
-  `unreachable` one is first attributed to a BOX-tier placement in the same box after it, which is reported instead: Claude r4
-  P3); two found chests sharing a side; a found placement in a zone. No-harm (WATCH, DiD): craft success, tool-rung crafts (wooden/stone/iron
+  `other` in a later audit; a found placement outside a plan cell; a lid-blocked or unreachable found container -- the
+  REVERT stands whatever caused it (Codex r5 P2); the read ALSO names the responsible adopter when a SOFT/BOX placement in the
+  same box preceded it (that placement broke ACCESS: its own defect), and reports an unrelated later one as unrelated; two
+  found chests sharing a side; a found placement in a zone. No-harm (WATCH, DiD): craft success, tool-rung crafts (wooden/stone/iron
   pickaxe), deposit / town_deposit success, deaths.
 
 ---
@@ -397,7 +412,7 @@ Every "keeps working" claim names a productive row that must succeed; every "usa
 | FOUND-RETRO | found | TP-RETRO's town; bots carrying tables and furnaces | nothing removed (every pre-existing block still there); table and furnace in the strip's stations; the giver still holds a table and crafts a stone pickaxe afterwards |
 | FOUND-SOFT | found | greenfield, every store cell placed and full, the rings around them hard | the recovery's chest lands outside the plan (or soft, or the committed box), never on a NEVER cell; every placed cell still reachable afterwards; no new `no_site` |
 | FOUND-BOX | found | (base control and candidate) a town where the ONLY valid recovery cell is inside the committed storehouse box | the base places there; the candidate places there too (BOX tier), records `building: obstructed`, never a NEVER cell |
-| FOUND-PLINTH | found | greenfield, a plinth-first well whose cheapest candidate meets the committed storehouse; and (ONLY-BOX, base control and candidate) a town where the only feasible plinth lies in the committed box | the plinth planned elsewhere, the storehouse box untouched; ONLY-BOX: the base plans it there, the candidate too (pass 2), never on a NEVER cell, every committed cell still reachable |
+| FOUND-PLINTH | found | greenfield, a plinth-first well whose cheapest candidate meets the committed storehouse; and (ONLY-BOX, base control and candidate) a town where the only feasible plinth lies in the committed box | the plinth planned elsewhere, the storehouse box untouched; ONLY-BOX: the base plans it there, the candidate too (pass 3, `tier=box`), never on a NEVER cell, every committed cell still reachable |
 | FOUND-ACCESS | found | a committed storehouse whose only approach is one cell wide, and a recovery whose cheapest BOX candidate is that cell (base control and candidate) | the candidate skips it (ACCESS), places elsewhere; every container is then opened by the bot |
 
 Unit and behaviour tests (anchored mutants on every guard): `bots/test/townplan.test.mjs` (READY, the furniture and well rules,
@@ -511,3 +526,31 @@ townplan-01, found-01, sortdeposit-01 (shas when they are kept). With the waiver
 | Claude P3 BOX placements and found's unreachable | attributed before a REVERT (2.4) |
 | Claude P3 a failed walk must write nothing | stated in the tick (1.5) |
 | Claude P3 the walk's cost | `gens bytes walk_ms` on the audit row (1.9) |
+
+### Round 5
+
+| finding | disposition |
+|---|---|
+| Codex P2 a later BOX placement suppressed the unreachable REVERT | the REVERT stands; the read names a preceding SOFT/BOX placement as the responsible adopter (its own defect), and an unrelated later one as unrelated; self-tests for both (2.4) |
+| Codex P3 ONLY-BOX "pass 2" | pass 3, `tier=box` (3) |
+| Codex P3 stale summaries (P1, P6, P9, F2, 2.2) | aligned with 1.6 |
+| Claude P3 ACCESS cost | only base-valid candidates, stop at the first pass, `access_ms` (1.6) |
+| Claude P3 a cell's kind | a family: chest/trapped_chest, furnace lit or not (1.2) |
+| Claude P3 two field sets | one: `tier plan_refused gen` (1.6, 1.9) |
+| Claude P3 P6 stale | aligned (1.10) |
+| Claude P3 the natural well's exhausted across passes | all three passes read and refused (1.6) |
+
+### The showcase ground (found by the offline planner, 10-21; not a review finding)
+
+`bots/scripts/townplan-offline.mjs` over the showcase's block dump (read-only region copies) first found NO qualifying ring@1
+fit: the planner fell back to a 4-cell annex. The diagnosis per orientation named four rules stricter than the design needs:
+
+| rule (r5) | what it refused on the showcase ground | r6 |
+|---|---|---|
+| the cell must be air, short grass, fern or dead bush | large ferns and tall grass under the spruce | vanilla's replaceable plants (a placement replaces them) |
+| the cell above must be passable | spruce leaves over a cell | never a LID (lidrule's own test): leaves and glass open a chest |
+| no log or leaves within 1 | a spruce trunk beside a cell | only SAPLINGS within 1 (they grow; a trunk does not) |
+| the FIRST 4 chests in fill order must be ready | the S fit's overflow cell was one block low | ANY 4 chest cells (found takes the next READY cell anyway) |
+
+With r6 the planner fits ring@1 on the showcase ground: orientation W, s 70, 12 of 12 cells READY and reachable, a clear pad
+(4).
