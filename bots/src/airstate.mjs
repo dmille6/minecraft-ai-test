@@ -11,7 +11,7 @@
 // after AIR_DECLINE_CAP consecutive declines of one rescue kind the next start is admitted, with no exemption from C3b.
 // A bot merely wet, swimming, or chronically "submerged" at full health (seagrass heads; board-a-Comet, placebo-c-Bravo)
 // never reads `danger`: its rescue runs.
-import { LOW_SECONDS } from './air.mjs'
+import { LOW_SECONDS, makeAirClock, headBlock, breathable } from './air.mjs'
 
 /** Published state older than this reads `danger` false (the reflex tick is 500 ms). */
 export const AIR_STATE_FRESH_MS = 1500
@@ -62,4 +62,53 @@ export function airDeclineNext (declines = 0, { started = false, failClass = nul
 /** C3b: should the reflex interrupt this run now? Only a watchdog-owned run, only on a `danger` tick. Pure. */
 export function airYieldsRun ({ danger = false, owner = null } = {}) {
   return danger === true && owner === 'watchdog'
+}
+
+/**
+ * THE AIR STATE PUBLISHER (reflex.mjs calls the returned `publish()` FIRST in every reflex tick, before the
+ * inventoryUnsettled release await and every early return -- Claude r2 P2 / r4 P3-4, Codex r2 P4).
+ *   - `bot.airRescue` = { danger, pocketing (a LIVE getter over the rungs' own flags: a rung that starts between ticks is
+ *     seen by the very next admission -- Codex code r1 P1-1), airSeconds, headUnder, at }
+ *   - its air clock is a SEPARATE publication clock; the rescue's own airClock (updated only while `air.losing`) is
+ *     untouched, so the rescue behaves exactly as before
+ *   - C3b, LEVEL-TRIGGERED: on every `danger` tick a WATCHDOG-owned current run is interrupted ('drowning'); the
+ *     interrupt is ISSUED before the sampled `_air_danger` row, which records the result (read G5d'); one
+ *     `_air_rescue_yield` per run (read G5d). Brain-started runs are not touched (F5 in the design).
+ * `log(event)` writes a row (the caller adds the snapshot).
+ */
+export function makeAirPublisher ({ bot, runner, isPocketing = () => false, log = () => {}, now = () => Date.now(),
+                                    clock = makeAirClock(), dangerRowMs = 2000 } = {}) {
+  const health = []          // [{t, h}] over the last AIR_HEALTH_WINDOW_MS
+  let yieldLoggedFor = null  // the runner `current` whose interrupt has been logged
+  let dangerRowAt = -Infinity
+  return function publish () {
+    const t = now()
+    const hb = headBlock(bot)
+    const headUnder = hb != null && !breathable(hb)
+    const airSeconds = clock.update(bot, t)
+    const h = bot?.health ?? null
+    if (h != null) health.push({ t, h })
+    while (health.length && t - health[0].t > AIR_HEALTH_WINDOW_MS) health.shift()
+    const danger = airDanger({ headUnder, airSeconds, healthFell: healthFellWithin(health, t) })
+    bot.airRescue = { danger, get pocketing () { return isPocketing() === true }, airSeconds, headUnder, at: t }
+    const cur = runner?.current ?? null
+    const yields = !!cur && airYieldsRun({ danger, owner: cur.owner })
+    // a run something else already interrupted (air_pocket, stuck, a hard stop) keeps ITS reason: the interrupt is not
+    // re-issued and the reason is not overwritten (Claude code r1 P3-3); it counts as issued -- the run is ending
+    const issued = yields ? (runner.isInterrupted?.() === true || runner.interrupt('drowning') === true) : false
+    if (danger && cur?.owner === 'watchdog' && t - dangerRowAt >= dangerRowMs) {
+      dangerRowAt = t
+      log({ kind: 'air_danger', status: 'no_effect', detail: `a drowning in progress while the watchdog's ${cur.skill} runs`,
+            args: { attempt: String(cur.rescue?.attempt ?? ''), owner: 'watchdog', head_under: headUnder ? 1 : 0,
+                    air_seconds: Math.round(airSeconds * 10) / 10, health: h,
+                    health_3s_max: Math.max(...health.map(s => s.h)), interrupt_issued: issued ? 1 : 0 } })
+    }
+    if (yields && yieldLoggedFor !== cur) {
+      yieldLoggedFor = cur
+      log({ kind: 'air_rescue_yield', status: 'success',
+            detail: `a drowning in progress (${airSeconds.toFixed(1)} s air, health ${h}): the watchdog's ${cur.skill} is interrupted`,
+            args: { attempt: String(cur.rescue?.attempt ?? ''), skill: String(cur.skill), air_seconds: Math.round(airSeconds * 10) / 10, health: h } })
+    }
+    return { danger, issued }
+  }
 }

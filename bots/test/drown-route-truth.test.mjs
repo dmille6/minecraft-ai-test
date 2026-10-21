@@ -491,8 +491,8 @@ await t('MUTANT KILLED: letting the scan swim through lava routes a bot into it'
 
 await t('MUTANT KILLED: collapsing `sealed` back onto `dir === null` suppresses in open water', async () => {
   await withMutant(REFLEX_PATH,
-    'return { ...best, axes, headCap,\n           sealed: best.dir == null && capped && allClosed && !unknown }',   // re-anchored for homefix-02 C1 (headCap)
-    'return { ...best, axes, headCap, sealed: best.dir == null }',
+    'return { ...best, axes, headCap, headName, headBox,\n           sealed: best.dir == null && capped && allClosed && !unknown }',   // re-anchored for homefix-02 C1 (head fields)
+    'return { ...best, axes, headCap, headName, headBox, sealed: best.dir == null }',
     async mod => {
       const deepOcean = (dx, dy, dz) => (dy > 40 ? AIR : WATER)
       const r = mod.scanBreathableRoute({ at: deepOcean, maxUp: 32, maxOut: 8 })
@@ -554,6 +554,7 @@ await t('F1 death 1: head cell ICE under air is NOT `up`; with ice all round at 
     '1,0,0': ICE_B, '-1,0,0': ICE_B, '0,0,1': ICE_B, '0,0,-1': ICE_B }) })
   assert.notEqual(r.dir, 'up', `answered ${r.dir} dist=${r.dist} through the ice`)
   assert.equal(r.headCap, 'ice')
+  assert.deepEqual([r.headName, r.headBox], ['ice', 'block'], 'the head cell as THIS scan read it (the route row prints these)')
   assert.equal(r.sealed, true, 'sealed is what lets the air-pocket ice dig run at once')
 })
 await t('F2 death 1 after home float-dug the ice beside the head: `out dist=1` into the hole (AIRUP)', () => {

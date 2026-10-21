@@ -17,7 +17,7 @@ process.env.LOG_LEVEL ??= 'error'
 const { withMutant } = await import('./helpers/mutant.mjs')
 const { SKILLS } = await import('../src/skills.mjs')
 const { Runner } = await import('../src/runner.mjs')
-const { StagnationWatchdog, rescueLevelStep, AIR_REFUND_CAP } = await import('../src/watchdog.mjs')
+const { StagnationWatchdog, rescueLevelStep, AIR_REFUND_CAP, strandRefund } = await import('../src/watchdog.mjs')
 const { airDanger, healthFellWithin, airAdmission, airDeclineNext, airYieldsRun, AIR_DECLINE_CAP } = await import('../src/airstate.mjs')
 const { RUNNER_DECLINED, runnerDeclined } = await import('../src/declined.mjs')
 const { config } = await import('../src/config.mjs')
@@ -212,12 +212,25 @@ await t('MUTANT KILLED: without the cap the rescue is declined forever (the dead
     for (let d = 0; d < 10; d++) assert.equal(m.airAdmission(DANGER(), Date.now(), { declines: d }).refuse, true)
   })
 })
-await t('the stranding refund for interrupted:drowning is capped at AIR_REFUND_CAP per episode', async () => {
+await t('the stranding refund (strandRefund, behaviour): unstarted always; interrupted:drowning at most AIR_REFUND_CAP times; nothing else', () => {
   assert.equal(AIR_REFUND_CAP, 2)
+  assert.deepEqual(strandRefund({ out: { started: false, r: { failClass: 'air_rescue' } }, refunds: 5 }), { refund: true, refunds: 5 })
+  let n = 0, refunded = 0
+  for (let i = 0; i < 4; i++) { const r = strandRefund({ out: { started: true, r: { interruptedBy: 'drowning' } }, refunds: n }); n = r.refunds; refunded += r.refund }
+  assert.equal(refunded, 2, 'two of four drowning-interrupted climb-outs refunded'); assert.equal(n, 2)
+  assert.deepEqual(strandRefund({ out: { started: true, r: { interruptedBy: 'stagnation' } }, refunds: 0 }), { refund: false, refunds: 0 })
+  assert.deepEqual(strandRefund({ out: null, refunds: 1 }), { refund: false, refunds: 1 })
+})
+await t('MUTANT KILLED: an uncapped drowning refund keeps refunding (stranded_unrecoverable never reached)', async () => {
+  await withMutant(WATCHDOG_PATH, "  if (out.r?.interruptedBy === 'drowning' && refunds < cap) return { refund: true, refunds: refunds + 1 }",
+    "  if (out.r?.interruptedBy === 'drowning') return { refund: true, refunds: refunds + 1 }", async m => {
+      assert.equal(m.strandRefund({ out: { started: true, r: { interruptedBy: 'drowning' } }, refunds: 2 }).refund, true)
+    })
+})
+await t('WIRED (structural, comments stripped): judgeStranding asks strandRefund and the episode reset clears the refunds', () => {
   const src = fs.readFileSync(WATCHDOG_PATH, 'utf8').replace(/\/\/[^\n]*/g, '')
-  assert.ok(/out\.r\?\.interruptedBy === 'drowning' && this\.airRefunds < AIR_REFUND_CAP\) \{ this\.surfaceAttempts--; this\.airRefunds\+\+ \}/.test(src),
-            'the capped refund is wired into judgeStranding')
-  assert.ok(/this\.surfaceAttempts = 0\s*\n\s*this\.airRefunds = 0/.test(src), 'and resets with the episode')
+  assert.ok(/const rf = strandRefund\(\{ out, refunds: this\.airRefunds \}\)\s*\n\s*if \(rf\.refund\) this\.surfaceAttempts--\s*\n\s*this\.airRefunds = rf\.refunds/.test(src))
+  assert.ok(/this\.surfaceAttempts = 0\s*\n\s*this\.airRefunds = 0/.test(src))
 })
 
 config.watchdog.windowMs = savedWatch.windowMs; config.watchdog.sampleMs = savedWatch.sampleMs

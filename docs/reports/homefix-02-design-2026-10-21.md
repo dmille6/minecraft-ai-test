@@ -747,3 +747,22 @@ r6 answers r5:
 - **The cap is stated as the liveness guarantee throughout.**
 
 **Design APPROVED by both engines at r6 (08e10bb3).** Both P3s were applied in the next commit (wording only).
+
+## 10. Build deviations from the approved text (each taken from a code review)
+
+1. **C2 fallback cancel reason.** The level-2 fallback cancels with reason `'stagnation'`, not `'no_dry_relocation'`.
+   The cancelled skill's row must read `interrupt:stagnation`, as for every rescue, because G3 and the other readers key
+   on it. The fallback is named on the `requested` row only. Found by `watchdog-busy` and `smeltjob`. Claude code r1
+   P3-5 accepted the rationale.
+2. **G5f is a REPORTED consistency check, not a defect** (Claude code r1 P3-1). `landingCheck` re-reads the volume in
+   the same call, so wet feet inside it make `region_dry_now = 0` by construction, and the gate could not fire.
+3. **The route row's `head=` / `head_box=` come from the scan's own read** of the head cell (Claude code r1 P2-2), not
+   from a re-read after the seizure's `await`. G5c reproduces the scan's predicate from them: not lava, and water or an
+   empty box. That replaces the name list (Codex code r1 P1-2).
+4. **`bot.airRescue.pocketing` is a live getter** over the two rungs' flags (Codex code r1 P1-1, Claude code r1 P2-1).
+   The publisher is `airstate.mjs makeAirPublisher`, tested by behaviour. A run something else already interrupted keeps
+   its reason (Claude code r1 P3-3).
+5. **G5c's positive control on old-build rows** is a reported proxy: an `up` route joined to the head named by the
+   reflex row at most 5 s before (Claude code r1 P3-4).
+6. **Near the world floor every candidate is `unknown`.** The volume reaches below y = -64, so such a bot always falls
+   back to home. It shows in `dry_reasons` (Claude code r1 P3-6).

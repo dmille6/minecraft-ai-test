@@ -52,6 +52,19 @@ export const RESERVE_EXPIRED_CAP = 2
 export const AIR_REFUND_CAP = 2
 
 /**
+ * DOES THIS CLIMB-OUT COUNT AS ONE OF THE TWO? -> { refund, refunds }. Pure. A climb-out that never started (any decline,
+ * `air_rescue` included) is refunded, as before homefix-02. One the air reflex interrupted during a drowning in progress
+ * (`interruptedBy === 'drowning'`, C3b) is refunded at most `cap` times per stranding episode, so a flooded cave still
+ * reaches `stranded_unrecoverable` (Claude r3 P3-3).
+ */
+export function strandRefund ({ out = null, refunds = 0, cap = AIR_REFUND_CAP } = {}) {
+  if (!out) return { refund: false, refunds }
+  if (!out.started) return { refund: true, refunds }
+  if (out.r?.interruptedBy === 'drowning' && refunds < cap) return { refund: true, refunds: refunds + 1 }
+  return { refund: false, refunds }
+}
+
+/**
  * WHAT A RESCUE'S OUTCOME DOES TO THE LADDER -> { streak, hold, jump }. Pure (H2 item 4).
  *   started            the rescue ran: nothing held, the decline streak ends (the window was reset at its start)
  *   not started        held: the level goes back one and backs off one window ...
@@ -297,11 +310,11 @@ export class StagnationWatchdog {
       // cancel-and-reserve, attempt rows. Level 0 in the rows names the stranding ladder.
       const out = await this.#rescue('stranding', pd => this.#runRescue(pd, {
         level: 0, remedy: 'climb_out', skill: 'surface', args: {}, trigger: 'watchdog_stranded_underground', reason: 'stranded' }))
-      // A climb-out that never started was not an attempt: it does not use up one of the two.
-      if (out && !out.started) this.surfaceAttempts--
-      // ONE THE AIR REFLEX TOOK (homefix-02 C3b: interrupted during a drowning in progress) is refunded too -- at most
-      // AIR_REFUND_CAP times per stranding episode, so a flooded cave still reaches `stranded_unrecoverable` (Claude r3 P3-3).
-      else if (out && out.r?.interruptedBy === 'drowning' && this.airRefunds < AIR_REFUND_CAP) { this.surfaceAttempts--; this.airRefunds++ }
+      // A climb-out that never started was not an attempt: it does not use up one of the two. ONE THE AIR REFLEX TOOK
+      // (homefix-02 C3b) is refunded too, at most AIR_REFUND_CAP times per episode (strandRefund).
+      const rf = strandRefund({ out, refunds: this.airRefunds })
+      if (rf.refund) this.surfaceAttempts--
+      this.airRefunds = rf.refunds
       // Do NOT clear strandWindows here. The next window decides whether it
       // worked, and altitude is what answers that -- not the fact that a rescue
       // ran. A rescue that reports success while the bot stays at y=-42 is the
