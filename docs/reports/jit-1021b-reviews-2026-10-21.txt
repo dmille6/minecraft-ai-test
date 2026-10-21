@@ -1,0 +1,100 @@
+JIT-1021b REBASE REVIEWS (2026-10-21 ~22:00-23:30Z) -- ironpick-01, protectzone-01, townindex-01, indexsearch-01 variants
+
+Brief: the variant table and the five new commits (2719ee0e, 5e4f4189, 51764523, fab4329b, dcf87a2c) as sent to both
+engines (one prompt). Every cherry-pick applied without a conflict; every variant's +/- lines byte-identical to its reviewed
+source (checked mechanically; Codex re-checked all 13; Claude spot-checked).
+
+After the reviews: cfa723d5 (test-only, on the four indexsearch variants; Claude P3 item 5) and the fixture's floor_y
+(scripts/host/protectzone-fixture.py, records only, above the protectzone canaries; Codex P1 / Claude P2 FIXTURE).
+Codex's CHANGE verdicts are on the fixture alone ("they do not reject the two new production filters").
+
+==================================================================== CODEX (codex exec --sandbox read-only), r1
+The five new commits look sound on static review. **The fixture’s missing deep exemption blocks launch as currently specified**, including the downstream variants that inherit protectzone.
+
+I independently confirmed the cherry-picked `+/-` lines match their sources for all 13 variants. Syntax checks passed for every changed JavaScript file in the five new commits. I did not execute the suites: they create temporary state and mutant files, which conflicts with this read-only session.
+
+1. **2719ee0e — no P1/P2 finding.** Keeping the narrow streak across declines is correct. `bots/src/toolkit.mjs:400` treats a decline as an unstarted attempt; resetting the streak would let interrupted sequences evade `KIT_MORE_MAX`. Refunding issue time while preserving the streak also correctly keeps the prefix eligible and `withdraw_pick` deferred. The CognitiveLoop test exercises outcome propagation, though its runner supplies synthetic decline results.
+
+2. **5e4f4189 — no P1/P2 finding; P3 gate/telemetry semantics.** The filter is a small, appropriate composition fix and belongs in this JIT. It removes protected journal candidates before ranking, addressing the refusal/backoff cycle without changing persistent observations.
+
+   Excluding both halves is correct for a shared inventory, even though the existing guard checks only the opened block. Passing the bot’s feet to `blocked` matches the guard’s deep exemption.
+
+   **P3:** At `bots/src/skills.mjs:10548–10551` on `5e7a8756`, excluding every container leaves `townSearchEmpty` returning **false**, not true. Consequently, `townKitIronMiss`, `townPickMiss`, and the copper-miss gate do not establish exhaustion in that case. Other admission gates/backoffs must suppress futile attempts. With eligible containers remaining, exhaustion is evaluated over those containers. `_kit_search town=` now means eligible containers, not all physical town containers. The smelt draws receive the same exclusion.
+
+   The retry mutant’s timing is sound: it advances beyond the actual outcome backoff, allowing the visit skip to expire, and asserts repeated `container_open` failures. Its evidence is a simulated order/run/outcome sequence, not a live-fleet reproduction.
+
+3. **51764523 — no new P1/P2 finding; P3 test scope.** The test correctly checks the planned ice cell against the real guard and purpose resolver. It demonstrates survival allowance and transit refusal. It does **not** execute the complete reflex or watchdog recovery sequence; its refusal assertion must not be interpreted as evidence that the bot can subsequently escape.
+
+4. **fab4329b — no P1/P2 finding.** The `indexRecountKeys` filter correctly removes protected index-unknown extras, including doubles, using the same feet-based exemption. It leaves observations intact and does not change stock recount candidates or town-search gates. This is appropriately scoped to the new extras behavior; it does not guarantee that every other `count_town` candidate path avoids protected containers.
+
+5. **dcf87a2c — no P1/P2 finding.** The known index entry cannot reintroduce the excluded container: `indexSearchCounts` receives only `containers.map(c => c.k)` (`bots/src/skills.mjs:10783` on `5e7a8756`). The positive control establishes that index ranking matters in the scene; removing the filter exposes the refused selection.
+
+6. **P1 — fixture launch blocker, pre-existing:** `scripts/host/protectzone-fixture.py:45` creates a world-bottom column without `floor_y`. `bots/src/protectzone.mjs:120–124` therefore provides no deep exemption. A bot in a dry underground pocket with no walkable exit cannot excavate through transit rescues; reconnecting does not change its position or terrain. Survival-only allowance does not rescue an otherwise healthy, stranded bot.
+
+   Fix the fixture data before launch: supply a terrain-appropriate `floor_y` and verify a below-floor sideways escape while surface protection remains enforced. This needs coordinator action, but **is not merely an informational note**. The downstream CHANGE verdicts inherit this launch blocker; they do not reject the two new production filters.
+
+VERDICT ironpick 1: APPROVE  
+VERDICT protectzone 2a-2d: CHANGE  
+VERDICT townindex 3a-3d: CHANGE  
+VERDICT indexsearch 4a-4d: CHANGE
+
+==================================================================== CLAUDE
+CLAUDE SUBAGENT REBASE REVIEW r1 (independent, read-only), 2026-10-21
+
+No P1 in the five new commits. Ironpick, townindex and indexsearch approved; protectzone's bot code approved, the bench
+zone file has one P2 to fix before it is installed. All five new test files pass on every tip they reach (2719ee0e,
+5e4f4189, bd835418, fab4329b, dcf87a2c, 5e7a8756); ironpick.test.mjs 29/29 on 2719ee0e. Each new commit's +/- lines are
+identical across its sibling variants; d014ec2c..4d30df49 vs 34d3e5e9..2d410985 byte-identical.
+
+1. 2719ee0e (ironpick x homefix, test-only): composition correct (toolkit.mjs:400 returns before the streak is touched;
+   resetting would let alternating declines evade KIT_MORE_MAX; the reset mutant is killed).
+   P3: the real-loop case drives air_rescue / reserve_expired, which only reach the reserving owner (the watchdog,
+   runner.mjs:219/:306); a loop-dispatched skill can only get runner_reserved (runner.mjs:207/:276), which the real-loop
+   case lacks. The unit case covers every class.
+2. 5e4f4189 (townSearchView zone exclusion): correct and minimal; the guard's own blocked() with the same feet; inert with
+   no zone and on both installed zone files; fine to ship. The loop claim holds (the skip is set before the backoff, so it
+   has always expired by the next order; mutant: 4/4 runs failed:container_open, one refusal each).
+   Out of `containers` vs in `skip`: same gate answers except a covered town whose EVERY container is in a zone
+   (townSearchEmpty false -> the order issues, opens nothing, backs off: the same as an empty town today). _kit_search
+   town= and withdraw_pick's search.town drop zone containers; the smelt job's copper/coal gates and draws get the same rule.
+   P3: zone containers in `skip` would close the gates in the all-zone case.
+   P3: both halves judged is right as policy but stricter than the guard (which judges only the opened block): deposit,
+   count_town's base keys and pruneTarget (skills.mjs:10596) can still open a double straddling a zone edge from its outside
+   half; base count_town keys and prune still reach zone containers counted before the zone (recount misses bound the base
+   keys; prune not covered). Follow-up: the guard judges chestPartner, or one filter at townCobbleScan's journal re-add.
+   P3: the new rule records no noteProtectZone counter.
+3. 51764523 (test-only): sound, matches the wiring (index.mjs:1089-1092; activeReflexOf -> drown_rescue). P3: it checks the
+   surface refusal, not the chain after it.
+4. fab4329b (indexRecountKeys): correct (skills.mjs:3593-3608). The extras use indexCountFailed (10-min backoff,
+   remember:false) and never record recount misses, so without the filter a zone container is walked to and refused every
+   10 min forever. Rule matches the town search's incl. the partner; both mutants killed (the key normalises to 8,64,3).
+   Same P3 as 2: base stockRecountKeys unfiltered.
+5. dcf87a2c (test-only): claim holds (indexSearchCounts asked only about containers.map(c => c.k), skills.mjs:10740).
+   P3: with INDEXSEARCH=off the zone-rule mutant is still "killed" (nearest-first reaches IX on the 10th visit); pin the
+   mutant to the index's pick, and put the hand-checked ranking control in the suite.  [APPLIED: cfa723d5]
+FIXTURE: a real dead end, not blocking the variant shas; P2 for the coordinator before --install. The fixture is the whole
+   column from -64 with no floor_y (the showcase file has floor_y on every zone). A bot dropping into a cave under the strip
+   can still move locally (maroonState none, no reflex); surface/goto rescues are refused, the pathfinder prices breaks/places
+   at 100, no deep exemption -> stuck indefinitely in peaceful. Fix: floor_y (~home.y - 3), data only, no canary sha change.
+   [APPLIED: protectzone-fixture.py floor_y = home.y - 4]
+
+VERDICT ironpick: APPROVE
+VERDICT protectzone: APPROVE
+VERDICT townindex: APPROVE
+VERDICT indexsearch: APPROVE
+
+==================================================================== CODEX r2 (the fixture's floor_y)
+- **P1: Closed.** The generated fixtures pass the real `parseZones` and `zoneDecision` checks at all four home heights: floors **61, 64, 69, 71**. All 36 decisions passed, including deep escape, floor-boundary refusal, outside-entry refusal, surface protection, and the old-fixture control.
+- **P2: None.** Depth **4 is reasonable** for this open-ground fixture. Depth 3 reduces the residual band by one block; depth 8 enlarges it without a demonstrated need. Surface protection remains exercised at depth 4, and exposure still requires protection events plus bot-minutes. Retain Z1 as the residual trapping tripwire.
+- **P3: Documentation precision.** “At most FLOOR_DEPTH deep” assumes the strip’s surface matches home height. On higher terrain, the residual band is larger. Say “four blocks below home.y; depth below local surface varies with terrain.” Nonblocking.
+
+The diff against `bd835418` contains only the stated floor constant, zone field, output, and documentation changes. No other fixture issues found. Read-only review; nothing installed.
+
+The group verdicts carry forward the r1 approvals with the fixture blocker now closed:
+
+VERDICT fixture: APPROVE  
+VERDICT ironpick 1: APPROVE  
+VERDICT protectzone 2a-2d: APPROVE  
+VERDICT townindex 3a-3d: APPROVE  
+VERDICT indexsearch 4a-4d: APPROVE
+[P3 applied: the docstring says the floor is FLOOR_DEPTH below home.y and the band varies with the terrain.]
