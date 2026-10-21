@@ -156,6 +156,12 @@ def _frontier_line(now, p):
     wu = hb.get('warmup') or {}
     if (hb.get('last_publish') or {}).get('unusable'):
         bad.append(f'PUBLISHER cannot write {hb["last_publish"]["unusable"]}')
+    if not wu.get('complete'):              # the publisher must be alive during the warm-up too (Claude r4 P2-1)
+        lp = hb.get('last_publish') or {}
+        if not lp.get('at') or now - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') not in ('warmup', 'ok') \
+                or (lp.get('usable') or 0) < (lp.get('offered') or 0):
+            bad.append(f'PUBLISHER {lp.get("status") or "silent"} at {lp.get("at")} during the warm-up '
+                       f'(usable {lp.get("usable")} of {lp.get("offered")})')
     if wu.get('complete'):
         ls = hb.get('last_staged_at')
         if not ls or now - _ts(ls) > FRONTIER_NOT_STAGING:

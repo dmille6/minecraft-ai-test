@@ -181,7 +181,8 @@ def rehearse(bundle, state_dir, euid):
             try:
                 if os.fstat(pfd).st_uid != euid:
                     bad[pool] = 'not owned by the publishing user'
-                elif not os.access(f'_pool-{pool}', os.W_OK, dir_fd=sfd):
+                elif not os.access(f'_pool-{pool}', os.W_OK, dir_fd=sfd,
+                                   **({'follow_symlinks': False} if os.access in os.supports_follow_symlinks else {})):
                     bad[pool] = 'not writable'
                 else:
                     usable.append(pool)

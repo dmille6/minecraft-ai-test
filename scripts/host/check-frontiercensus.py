@@ -117,6 +117,16 @@ def assess(lines, now, max_age_min=15.0, behind_min=135.0):
     lp0 = last.get('last_publish') if isinstance(last.get('last_publish'), dict) else {}
     if lp0.get('unusable'):                 # the publisher's rehearsal, during warm-up too (Claude r3 P2-3)
         alarms.append(f'FrontierPublisher: pool dirs the publisher cannot write: {json.dumps(lp0["unusable"])[:240]}')
+    if not wu.get('complete'):              # ... and its liveness: a publisher that never runs must not stay silent
+        try:                                # for 48 h (Claude r4 P2-1)
+            wage = (now - _t(lp0['at'])) / 60 if lp0.get('at') else None
+        except ValueError:
+            wage = None
+        if wage is None or wage > PUBLISHER_MAX_AGE_MIN or lp0.get('status') not in ('warmup', 'ok') \
+                or (lp0.get('usable') or 0) < (lp0.get('offered') or 0):
+            alarms.append(f'FrontierPublisher: during the warm-up the publisher\'s newest result is '
+                          f'{json.dumps(lp0)[:200] if lp0 else "missing"}'
+                          + (f' ({wage:.0f} min old)' if wage is not None else ''))
     if wu.get('complete'):
         ls = last.get('last_staged_at')
         try:

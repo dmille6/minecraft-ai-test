@@ -411,7 +411,11 @@ def presence_from_newest(newest_rows, homes):
 
 class TwoPools(RuntimeError):
     """A bot logged under two CENSUS pools in one hour: bot.name is assumed unique fleet-wide (the bot-minute merge and
-    the home-start join both rely on it), so this is an instrument failure, never a guess."""
+    the home-start join both rely on it), so this is an instrument failure, never a guess. Bot names carry their world
+    (`<pool>-<Name>`, kept through isolated2shared, where both names map to one census pool), so it means a bot's
+    exp.pool was set to another world. The hour is recorded unstable and EVERY town is withheld while it is in the
+    window (up to 14 days). REMEDY (operator): correct that bot's pool, then move the hour file out of out/hours so
+    the next tick refolds it from ES."""
 
 
 def bot_pool(bb):
@@ -1505,9 +1509,11 @@ def stage_entries(C, now, instrument, wu, par, census_version, prior):
                                          'town_covered': p not in D['towns_uncovered']}
                                       for d, D in C['cov']['days'].items()}},
                    baselines_7d=C['base7'],
+                   withdrawal='none yet: a town that drops out is not tombstoned; a reader MUST treat a file past its '
+                              'stale_after as VOID (deferred to before the first reader, Claude r3 P2-4)',
                    parity={k: par.get(k) for k in ('at', 'hour', 'diffs', 'raw_positioned_rows', 'ok')} if par else None)
         doc['digest'] = content_digest(doc)
-        pd, ps = prior.get(p, (None, None))
+        pd, ps = (list(prior.get(p) or []) + [None, None])[:2]
         doc['digest_since'] = ps if (pd == doc['digest'] and ps) else iso(now)
         out.append({'pool': p, 'key': key, 'doc': doc})
     return out
@@ -1542,12 +1548,13 @@ def last_publish(out, tail_bytes=1 << 16):
     return None
 
 
-def invalidate_bundle(out, now, why):
+def invalidate_bundle(out, now, why, clocks=None):
     """Before anything that can fail: the bundle offers nothing until this tick finishes (Codex r3 P1), so a tick that
     raises can never leave an older bundle for the publisher (which the cron line also skips unless the tick exited
     0 or 4)."""
     write_json_atomic(os.path.join(out, 'publish', 'bundle.json'),
-                      {'schema': 1, 'generated_at': iso(now), 'warmup': {'complete': False}, 'withheld': why, 'entries': []})
+                      {'schema': 1, 'generated_at': iso(now), 'warmup': {'complete': False}, 'withheld': why, 'entries': [],
+                       'clocks': clocks or {}})
 
 
 def run_tick(a):
@@ -1556,7 +1563,10 @@ def run_tick(a):
     safe_dir(a.out_dir)
     bundle_path = os.path.join(a.out_dir, 'publish', 'bundle.json')
     old = read_json(bundle_path) or {}                  # the previous bundle: only its digest clocks are carried
-    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)')
+    prior = dict((old.get('clocks') or {}) if isinstance(old.get('clocks'), dict) else {})
+    prior.update({e.get('pool'): [(e.get('doc') or {}).get('digest'), (e.get('doc') or {}).get('digest_since')]
+                  for e in old.get('entries') or [] if isinstance(e, dict)})
+    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)', prior)
     pools = census_pools(a.state_dir, now)
     homes, shared, problems, iso_problems = pools
     exp_path = os.path.join(a.out_dir, 'expected-towns.json')
@@ -1602,8 +1612,6 @@ def run_tick(a):
     instrument, withheld, entries = [], None, []
     wu = warmup(read_heartbeat_lines(a.out_dir), now, script_version())     # the ticks BEFORE this one, THIS code
     prev_hb = read_json(os.path.join(a.out_dir, 'heartbeat.json')) or {}
-    prior = {e.get('pool'): ((e.get('doc') or {}).get('digest'), (e.get('doc') or {}).get('digest_since'))
-             for e in old.get('entries') or [] if isinstance(e, dict)}
     if C:
         if C['ctl']['missing_n']:
             instrument.append(f'{C["ctl"]["missing_n"]} sampled rows fall in regions the fold lacks')
@@ -1618,7 +1626,10 @@ def run_tick(a):
         if parity_alarm(par, now, backlog):
             instrument.append(f'no passing agg-vs-rows parity in {PARITY_MAX_AGE_H} h (last: '
                               f'{ {k: par.get(k) for k in ("at", "hour", "diffs", "raw_positioned_rows")} if par else None})')
-        withheld = stage_withheld(backlog, C['unstable'], instrument)
+        win = [h for h in sorted(have) if C['since'] <= h < C['data_until']]
+        cross = {k: v for k, v in record_problems(C['records'], win, C['shared']).items()
+                 if k in ('unstable', 'old_schema', 'pool_not_folded', 'no_sample')}
+        withheld = stage_withheld(backlog, sorted(set(C['unstable']) | {h for v in cross.values() for h in v}), instrument)
         if withheld is None:
             entries = stage_entries(C, now, instrument, wu, par, script_version(), prior)
         daily(a.out_dir, C, touched)
@@ -1626,8 +1637,9 @@ def run_tick(a):
         withheld = 'no folded hour on record'
     # EVERY tick rewrites the bundle with only the towns eligible NOW: a town dropped this tick is never published
     # from an older staging (Codex r2 P1); a withheld tick offers nothing
+    clocks = dict(prior, **{e['pool']: [e['doc']['digest'], e['doc']['digest_since']] for e in entries})
     write_json_atomic(bundle_path, {'schema': 1, 'generated_at': iso(now), 'warmup': wu, 'withheld': withheld,
-                                    'entries': entries})
+                                    'entries': entries, 'clocks': clocks})
     last_staged = iso(now) if entries else prev_hb.get('last_staged_at')
     newest_h = max(counts)
     blind = not counts[newest_h][0]
@@ -1738,9 +1750,9 @@ def report_staleness(C, now_ms):
     if C['ctl']['missing_n']:
         return f'{C["ctl"]["missing_n"]} sampled rows fall in regions the fold lacks'
     probs = {k: v for k, v in record_problems(C['records'], [r['h0'] for r in C['records'] if C['since'] <= r['h0']],
-                                              C['shared']).items() if k in ('old_schema', 'pool_not_folded')}
+                                              C['shared']).items() if k in ('old_schema', 'pool_not_folded', 'no_sample')}
     if probs:
-        return f'hours not folded by this code for every town: { {k: v[:3] for k, v in probs.items()} }'
+        return f'hours not validly folded (this code, every town, sampled): { {k: v[:3] for k, v in probs.items()} }'
     return None
 
 
@@ -1791,7 +1803,10 @@ def run_control(a):
     base = baselines(recs, shared, homes, t0, t1)               # section 1.2's e4 window is [t0, t1) in hours
     keep = ('log_gathers', 'log_ok_pct', 'log_body_h', 'log_got', 'log_per_body_h', 'ore_gathers', 'ore_ok_pct',
             'ore_body_h', 'ore_got', 'ore_per_body_h', 'bot_h', 'deaths', 'deaths_per_1k_bot_h')
-    print(json.dumps({'window': [iso(t0), iso(t1)], 'status': 'ok' if comp['complete'] else 'INCOMPLETE',
+    valid = comp['complete'] and not sub['missing_n']
+    print(json.dumps({'window': [iso(t0), iso(t1)], 'status': 'ok' if valid else 'INCOMPLETE',
+                      'invalid_because': ([] if comp['complete'] else ['completeness']) +
+                                         ([f'{sub["missing_n"]} sampled rows in regions the fold lacks'] if sub['missing_n'] else []),
                       'completeness': comp, 'shared': shared, 'shares': sh, 'shares_all_pools': sh_all,
                       'subset': sub, 'presence_vs_samples': pr,
                       'per_pool': per, 'gather_baseline_hours': base['hours'],
@@ -1799,7 +1814,7 @@ def run_control(a):
                       'gather_baseline': {b: {k: v[k] for k in keep} for b, v in base['bands'].items()},
                       'home_by_start_band': {k: v for k, v in base['home'].items() if k.endswith('|*')},
                       'bag': base['bag']}, indent=1, default=list))
-    return {'status': 'ok' if comp['complete'] else 'incomplete'}
+    return {'status': 'ok' if valid else 'incomplete'}
 
 
 def parity_diffs(ref, rec):
@@ -2178,8 +2193,8 @@ def selftest(verbose=True):
     now_s = ms_of('2026-10-20T12:00:00Z') / 1000
 
     def hbc(at, st='ok', **kw):
-        return json.dumps(dict({'mode': 'tick', 'at': at, 'status': st, 'newest_measured_hour_end': '2026-10-20T11:00:00Z'},
-                               **kw))
+        return json.dumps(dict({'mode': 'tick', 'at': at, 'status': st, 'newest_measured_hour_end': '2026-10-20T11:00:00Z',
+                                'last_publish': {'at': '2026-10-20T11:58:30Z', 'status': 'warmup'}}, **kw))
     check('checker: a healthy tick', chk.assess([hbc('2026-10-20T11:58:00Z')], now_s)[0], [])
     check('checker: no heartbeat', chk.assess([], now_s)[0][0].startswith('FrontierMissing'), True)
     check('checker: 40-min-old tick is stale', any(x.startswith('FrontierStale') for x in chk.assess(

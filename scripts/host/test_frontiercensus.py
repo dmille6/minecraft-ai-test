@@ -320,9 +320,11 @@ def cases(m):
     # ---- the checker
     now_s = m.ms_of('2026-10-20T12:00:00Z') / 1000
     tick = lambda at, **kw: json.dumps(dict({'mode': 'tick', 'at': at, 'status': 'idle',             # noqa: E731
-                                             'newest_measured_hour_end': '2026-10-20T11:00:00Z', 'towns': 12}, **kw))
+                                             'newest_measured_hour_end': '2026-10-20T11:00:00Z', 'towns': 12,
+                                             'last_publish': {'at': '2026-10-20T11:58:30Z', 'status': 'warmup'}}, **kw))
     c('checker: a tick 40 min old is stale', any(x.startswith('FrontierStale') for x in chk.assess([tick('2026-10-20T11:20:00Z')], now_s)[0]))
-    c('checker: a healthy idle tick is quiet', chk.assess([tick('2026-10-20T11:58:00Z')], now_s)[0] == [])
+    c('checker: a healthy idle tick is quiet', chk.assess([tick('2026-10-20T11:58:00Z', last_publish={
+        'at': '2026-10-20T11:58:30Z', 'status': 'warmup'})], now_s)[0] == [])
     c('checker: a town left out alarms', any(x.startswith('FrontierTownMissing') for x in chk.assess(
         [tick('2026-10-20T11:58:00Z', home_problems={'q': 'conflicting homes'}, towns=11)], now_s)[0]))
     c('checker: fewer towns than earlier today alarms', any(x.startswith('FrontierTownMissing') for x in chk.assess(
@@ -350,6 +352,13 @@ def cases(m):
     c('checker: a pool dir the publisher cannot write alarms during the warm-up too',
       any('cannot write' in x for x in chk.assess([tick('2026-10-20T11:58:00Z', last_publish={
           'at': '2026-10-20T11:58:30Z', 'status': 'warmup', 'unusable': {'hive-c': 'not writable'}})], now_s)[0]))
+    wp = lambda **kw: dict({'at': '2026-10-20T11:58:30Z', 'status': 'warmup', 'usable': 13, 'offered': 13}, **kw)  # noqa: E731
+    c('checker: during the warm-up a live rehearsing publisher is quiet; a silent, stale, failing or short one alarms '
+      '(Claude r4 P2-1)',
+      (chk.assess([tick('2026-10-20T11:58:00Z', last_publish=wp())], now_s)[0],
+       [any(x.startswith('FrontierPublisher') for x in chk.assess([tick('2026-10-20T11:58:00Z', last_publish=lp)], now_s)[0])
+        for lp in (None, wp(at='2026-10-20T11:00:00Z'), wp(status='error'), wp(usable=12))])
+      == ([], [True, True, True, True]))
     c('checker: warm comes from the newest tick line', (chk.warm_of([tick('x', warmup=W)]), chk.warm_of([tick('x')]))
       == (True, False))
     with tempfile.TemporaryDirectory() as td:
@@ -534,10 +543,12 @@ def cases(m):
     c('report: a fold whose newest measured hour is 4 h old is VOID, not today\'s frontier (Codex r2 P1)',
       (bool(m.report_staleness(dict(Cok, measured_until=now_p - 4 * m.HOUR_MS), now_p)), m.report_staleness(Cok, now_p),
        bool(m.report_staleness(None, now_p))) == (True, None, True))
-    c('report: an unstable hour, a subset miss or an old-schema hour make the report NOT VALID (Codex r3 P1)',
+    c('report: an unstable hour, a subset miss, an old-schema or an unsampled hour make the report NOT VALID (Codex r3 '
+      'P1, r4 P2)',
       (bool(m.report_staleness(dict(Cok, unstable=['2026-10-22T09']), now_p)),
        bool(m.report_staleness(dict(Cok, ctl={'missing_n': 2}), now_p)),
-       bool(m.report_staleness(dict(Cok, records=[dict(Cok['records'][0], schema=1)]), now_p))) == (True, True, True))
+       bool(m.report_staleness(dict(Cok, records=[dict(Cok['records'][0], schema=1)]), now_p)),
+       bool(m.report_staleness(dict(Cok, records=[dict(Cok['records'][0], sample={})]), now_p))) == (True, True, True, True))
     h = m.FX_H0
     good_r = lambda k, **kw: dict({'h0': h + k * m.HOUR_MS, 'schema': m.FOLD_SCHEMA, 'homes': {'fx': [1, 2, 3]},  # noqa: E731
                                    'sample': {'at': 'x'}}, **kw)
@@ -626,8 +637,9 @@ def cases(m):
         finally:
             m.es_fold_hour, m.es_hour_counts = saved
         b7 = json.load(open(os.path.join(o7, 'publish', 'bundle.json')))
-        c('tick: a tick that fails leaves NO publishable bundle behind (Codex r3 P1)',
-          (died, b7['entries'], 'in progress' in (b7['withheld'] or '')) == (True, [], True))
+        c('tick: a tick that fails leaves NO publishable bundle behind (Codex r3 P1), but keeps the publisher-lag clocks '
+          '(Claude r4 P3-5)', (died, b7['entries'], 'in progress' in (b7['withheld'] or ''), sorted(b7.get('clocks') or {}))
+          == (True, [], True, ['a']))
         o8 = os.path.join(td, 'out8')
         os.makedirs(o8)
         m.heartbeat(o8, {'mode': 'tick', 'status': 'ok'})
@@ -844,6 +856,14 @@ MUTANTS = [
      "        if False:\n            out['old_schema']", 'record_problems: unstable, old schema'),
     ('a None first pool pins the bot', "        if b[0] is None:\n            b[0] = r['pool']", "        if False:\n            b[0] = r['pool']",
      'a first row without a pool'),
+    ('the report ignores unsampled hours', "k in ('old_schema', 'pool_not_folded', 'no_sample')}",
+     "k in ('old_schema', 'pool_not_folded')}", 'or an unsampled hour make the report NOT VALID'),
+    ('the checker ignores a silent publisher during warm-up',
+     "if wage is None or wage > PUBLISHER_MAX_AGE_MIN or lp0.get('status') not in ('warmup', 'ok') \\",
+     "if False and (wage is None or wage > PUBLISHER_MAX_AGE_MIN or lp0.get('status') not in ('warmup', 'ok')) \\",
+     'a silent, stale, failing or short one alarms', 'checker'),
+    ('a failed tick drops the clocks', "    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)', prior)",
+     "    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)')", 'keeps the publisher-lag clocks'),
     ('a dropped town stays in the bundle', "if p not in shared and p not in problems}", "if False}", 'named "gone"'),
     ('the report ignores staleness', "if mu is None or now_ms - mu > STALE_AFTER_MS:", "if mu is None:",
      'a fold whose newest measured hour is 4 h old'),

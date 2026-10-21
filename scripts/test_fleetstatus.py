@@ -285,6 +285,7 @@ def _hb(**kw):
     if kw.get('_absent'):
         return p
     hb = {'mode': 'tick', 'at': '2026-10-22T11:57:00Z', 'status': 'idle', 'newest_measured_hour_end': '2026-10-22T11:00:00Z',
+          'last_publish': {'at': '2026-10-22T11:57:30Z', 'status': 'warmup', 'usable': 13, 'offered': 13},
           'towns': 13, 'isolated_folded': ['isolated-a', 'isolated-c', 'isolated-d'], 'backlog_hours': 0,
           'home_problems': {}, 'site_errors': {}, 'uncovered_days': [],
           'warmup': {'run_start': '2026-10-22T00:00:00Z', 'complete': False, 'complete_at': '2026-10-24T00:00:00Z'}}
@@ -367,6 +368,15 @@ def t_frontier_warm_census_that_stops_staging_or_publishing_alarms():
                        'last_publish': dict(okp, status='refused', why='running as root')}, 'PUBLISHER refused')):
         line = FS.frontier_line(FNOW, path=_hb(warmup=warm, **kw))
         assert line.startswith('!! ') and want in line, (kw, line)
+
+
+def t_frontier_publisher_silent_during_warmup_alarms():
+    """Claude r4 P2-1: the 48 h warm-up must not hide a publisher that never runs."""
+    for lp, want in ((None, 'PUBLISHER silent'), ({'at': '2026-10-22T11:00:00Z', 'status': 'warmup'}, 'during the warm-up'),
+                     ({'at': '2026-10-22T11:57:30Z', 'status': 'error'}, 'PUBLISHER error'),
+                     ({'at': '2026-10-22T11:57:30Z', 'status': 'warmup', 'usable': 12, 'offered': 13}, 'usable 12 of 13')):
+        line = FS.frontier_line(FNOW, path=_hb(last_publish=lp))
+        assert line.startswith('!! ') and want in line, (lp, line)
 
 
 def t_frontier_line_is_in_the_header():

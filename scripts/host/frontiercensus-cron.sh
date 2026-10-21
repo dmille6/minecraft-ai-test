@@ -24,6 +24,9 @@ RC=$?
 B="$D/out/publish/bundle.json"
 S="$D/scripts/host/frontierpublish.py"
 [ -f "$B" ] && [ -f "$S" ] || exit 0
+SNAP=$(mktemp "$D/out/.publisher.XXXXXX") || exit 8         # one snapshot: the count and the bytes sent are the same
+trap 'rm -f "$SNAP"' EXIT                                   # file, even if $S is re-copied meanwhile (Claude r4 P3-1)
+cat "$S" > "$SNAP" || exit 8
 cd / || exit 9
-{ wc -c < "$S"; cat "$S" "$B"; } | /usr/bin/sudo -n -u mcbot /usr/bin/nice -n 19 /usr/bin/python3 -I -B -c "$BOOT" \
+{ wc -c < "$SNAP"; cat "$SNAP" "$B"; } | /usr/bin/sudo -n -u mcbot /usr/bin/nice -n 19 /usr/bin/python3 -I -B -c "$BOOT" \
     --state-dir /var/lib/mcai >> "$D/out/publish.log" 2>&1
