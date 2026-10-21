@@ -28,3 +28,7 @@ comms design r2 -- chat channel checks, 2026-10-21 ~21:05Z (read-only)
    may not fire for these "[Not Secure] <name>" lines). It is redundant with the shared file on one host.
    Whether commands.mjs's listener fires is therefore UNKNOWN; the gate is still needed (one library or format change
    re-arms it).
+
+3. Fleet-wide (the slow first query, finished after r7.1): journalctl -u "mcbot@*" --since "24 hours ago" over all 81
+   units: "chat command" 0, "peer reported hazard" 0, "peer gave up" 0; positive control "spawned" 379.
+   Same reading as the 12-journal check above, now over every bot.
