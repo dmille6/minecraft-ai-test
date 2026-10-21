@@ -29,7 +29,7 @@ for f in sorted(glob.glob(os.path.join(D, 'triples', '*.jsonl.gz'))):
         world[r['world']] += 1; ver[r['code_version']] += 1
         if not r['gate']['refused']:
             (joined if r['outcome']['join'] != 'none' else miss)[r['outcome']['status']] += 1
-        if r['prompt_complete'] and (r['gate']['refused'] or r['outcome']['status'] in ('failed', 'aborted')):
+        if r['prompt_complete'] and L != 'void' and (r['gate']['refused'] or r['outcome']['status'] in ('failed', 'aborted')):
             hard[r['action']['skill']] += 1; hard_n += 1
         if not w['600']['observed']:
             cens[L] += 1; continue
@@ -39,8 +39,9 @@ for f in sorted(glob.glob(os.path.join(D, 'triples', '*.jsonl.gz'))):
         c['death600'] += w['600']['deaths'] > 0; c['stag120'] += w['120']['stagnation'] > 0; c['ms120'] += w['120']['milestones'] > 0
 
 print('== per label: decisions with an OBSERVED 600 s window (censored, excluded: %s)' % dict(cens))
-for L in ('good', 'neutral', 'bad'):
+for L in ('good', 'neutral', 'bad', 'void'):
     n = n_lab[L]; c = lab[L]
+    if not n: continue
     print('%-8s n=%7d | items/dec 120s %.2f (other %.2f) 600s %.2f (other %.2f) | per 1k decisions followed by: death<=600s %.1f, '
           'stagnation<=120s %.0f, milestone<=120s %.0f' % (L, n, c['items120'] / n, c['items_other120'] / n, c['items600'] / n,
                                                            c['items_other600'] / n, 1000 * c['death600'] / n, 1000 * c['stag120'] / n, 1000 * c['ms120'] / n))
@@ -82,4 +83,4 @@ print('\n== join of admitted decisions to their executed skill row, by outcome s
 print('joined', dict(joined.most_common())); print('missed', dict(miss.most_common()))
 print('\n== decisions per world (pool unit for held-out splits)'); print(dict(sorted(world.items())))
 print('== per code version', dict(ver.most_common()))
-print('\n== hard decisions (complete prompt, refused or failed/aborted): %d' % hard_n); print(dict(hard.most_common(12)))
+print('\n== hard decisions (complete prompt, refused or failed/aborted, void excluded): %d' % hard_n); print(dict(hard.most_common(12)))

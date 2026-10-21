@@ -31,7 +31,7 @@ Per-bot totals (independent of the joins): items_all = brainread's items (positi
 started in the day), items_gathered = the same minus transfer skills (withdraws, town smelt/toolkit draws), bot_h from
 decision rows. Every count in summary.json carries its denominator; the positive control is printed first.
 """
-import argparse, collections, glob, gzip, hashlib, json, os, re, sys
+import argparse, bisect, collections, glob, gzip, hashlib, json, os, re, sys
 from datetime import datetime, timedelta, timezone
 
 P = lambda s: datetime.fromisoformat(s.replace('Z', '+00:00'))
@@ -40,8 +40,11 @@ NONCE_P = re.compile(r'saw_end:\s*(END-[A-Z0-9]+)')
 NONCE_R = re.compile(r'"saw_end"\s*:\s*"([^"]*)"')
 NORM = re.compile(r'(saw_end:\s*)END-[A-Z0-9]+')
 EVENT = re.compile(r'^\s*- (\w+) -> (\w+)(?: \((\w+)\))?:')
+# NOT PRODUCTION (Claude r2): moves items between bag and chest (transfers) or turns items into other items
+# (conversions: 1 log -> +4 planks counts as a positive delta). On 10-20 these were 3.6% of all positive gains (3,367 of 92,826);
+# gather 48.0%, mine 32.3%, goto 12.3%, surface 2.8% carry the rest. Underscore event rows carry no inventory_delta.
 TRANSFER = {'withdraw', 'withdraw_pick', 'toolkit', 'smelt_town', 'furnace_drain', 'town_deposit', 'deposit',
-            '_withdraw_pick', '_toolkit', '_smelt_town', '_furnace_drain', '_town_deposit'}
+            'craft', 'smelt', 'compost', 'wear_out', 'dispose_well', 'count_town'}
 BAD = collections.Counter()
 
 
@@ -125,7 +128,10 @@ def main():
         for r in K:
             sk = r.get('skill') or {}; st = P(r['@timestamp']).timestamp()
             kt.append((st, st + (sk.get('duration_ms') or 0) / 1000, r, sk))
-        ends = sorted(range(len(kt)), key=lambda i: kt[i][1])
+        # COMPLETIONS BY END TIME (Codex r2): a skill that started long before t but ended inside the window must count
+        ends = sorted((kt[i][1], i) for i in range(len(kt)) if not kt[i][3].get('name', '').startswith('_'))
+        end_t = [e for e, _ in ends]
+        S['max_skill_duration_s'] = max(S['max_skill_duration_s'], max([kt[i][1] - kt[i][0] for i in range(len(kt))] or [0]))
         # per-bot independent production (brainread items) over rows STARTED in the day
         pb = collections.Counter()
         for st, en, r, sk in kt:
@@ -134,7 +140,9 @@ def main():
             pb['items_all'] += g
             if n not in TRANSFER: pb['items_gathered'] += g
             if n == '_death': events_day['_death'] += 1; pb['deaths'] += 1
-            elif n.startswith('_stagnation') or 'STAGNANT' in (sk.get('detail') or ''): events_day['stagnation'] += 1
+            elif n.startswith('_stagnation') or 'STAGNANT' in (sk.get('detail') or ''):
+                events_day['stagnation_broad (_stagnation*, or STAGNANT in detail)'] += 1
+                if n == '_stagnation': events_day['_stagnation (exact kind)'] += 1
             elif n == '_milestone_complete': events_day['_milestone_complete'] += 1
             S['skill_rows_in_day'] += 1
         pb['bot_h'] = (P(L[-1]['@timestamp']) - P(L[0]['@timestamp'])).total_seconds() / 3600
@@ -187,7 +195,12 @@ def main():
                     own = pick[0]; used.add(own)
                     quality = 'ambiguous' if len(exact) > 1 else ('exact' if exact else 'status')
                 S['admitted'] += 1; C['join'][quality] += 1
-                if quality == 'none': C['join_miss_skill'][skill] += 1; C['join_miss_endpoint'][ep] += 1
+                if quality == 'none':
+                    C['join_miss_skill'][skill] += 1; C['join_miss_endpoint'][ep] += 1
+                    dd = o.get('detail') or ''
+                    why = 'paused (runner refused to start)' if dd.startswith('paused after repeated failures') else \
+                          'busy (runner refused to start)' if dd.startswith('busy with ') else 'OTHER: ' + re.sub(r'[0-9,.-]+', '#', dd)[:60]
+                    C['join_miss_why'][why] += 1
             ownsk = kt[own][3] if own is not None else {}
             # ---- value from the next decision row (any row, read past midnight)
             value = None
@@ -203,21 +216,24 @@ def main():
             win = {}
             for w in W:
                 g = go = d = sg = ms = 0
-                for k in range(max(0, j - 400), len(kt)):
+                for _, k in ends[bisect.bisect_left(end_t, t):bisect.bisect_left(end_t, t + w)]:   # ended in [t, t+w)
+                    gg = gain(kt[k][3].get('inventory_delta')); g += gg
+                    if k != own: go += gg
+                for k in range(j, len(kt)):                                                        # events stamped in [t, t+w)
                     st, en, rk, sk = kt[k]
                     if st >= t + w: break
+                    if st < t: continue
                     n = sk.get('name', '')
-                    if st >= t:
-                        if n == '_death': d += 1
-                        elif n.startswith('_stagnation') or 'STAGNANT' in (sk.get('detail') or ''): sg += 1
-                        elif n == '_milestone_complete': ms += 1
-                    if not n.startswith('_') and t <= en < t + w:
-                        gg = gain(sk.get('inventory_delta')); g += gg
-                        if k != own: go += gg
+                    if n == '_death': d += 1
+                    elif n.startswith('_stagnation') or 'STAGNANT' in (sk.get('detail') or ''): sg += 1
+                    elif n == '_milestone_complete': ms += 1
                 win[str(w)] = {'items': g, 'items_other': go, 'deaths': d, 'stagnation': sg, 'milestones': ms,
                                'observed': last_seen_t >= t + w}
             w0, w1 = win[str(W[0])], win[str(W[-1])]
-            if refused or ost in ('failed', 'aborted') or w0['deaths'] or w0['stagnation']:
+            dd0 = o.get('detail') or ''
+            if not refused and ost == 'failed' and (dd0.startswith('paused after repeated failures') or dd0.startswith('busy with ')):
+                lab = 'void'      # the runner refused to start: no evidence about the action (Claude r2); never a negative
+            elif refused or ost in ('failed', 'aborted') or w0['deaths'] or w0['stagnation']:
                 lab = 'bad'
             elif ost == 'success' and (value == 'valuable' or gain(ownsk.get('inventory_delta')) > 0 or w0['milestones']) \
                     and not w1['deaths'] and w1['observed']:
@@ -258,8 +274,8 @@ def main():
                                  'roster_bots_without_rows': S['roster_bots_without_rows']},
             'rows': {k: S[k] for k in ('model_rows', 'deterministic_rows', 'admitted', 'prompt_complete',
                                        'response_present', 'nonce_ok', 'schema_valid', 'dup_prompt', 'dup_prompt_action')},
-            'join': dict(C['join']), 'join_miss_skill': dict(C['join_miss_skill'].most_common(12)),
-            'join_miss_endpoint': dict(C['join_miss_endpoint']), 'value': {str(k): v for k, v in C['value'].items()},
+            'max_skill_duration_s': round(S['max_skill_duration_s']), 'join': dict(C['join']), 'join_miss_skill': dict(C['join_miss_skill'].most_common(12)),
+            'join_miss_endpoint': dict(C['join_miss_endpoint']), 'join_miss_why': dict(C['join_miss_why'].most_common()), 'value': {str(k): v for k, v in C['value'].items()},
             'labels': dict(C['labels']), 'labels_by_skill': lxs,
             'actions': {str(k): v for k, v in C['actions'].most_common()}, 'refused_by_reason': dict(C['refused'].most_common()),
             'admitted_status': dict(C['admitted_status'].most_common()), 'endpoint': {str(k): v for k, v in C['endpoint'].items()},

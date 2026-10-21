@@ -8,7 +8,8 @@
   "llm_rows": 160559,
   "skill_rows_in_day": 1491978,
   "event_rows_in_day": {
-   "stagnation": 5262,
+   "stagnation_broad (_stagnation*, or STAGNANT in detail)": 5262,
+   "_stagnation (exact kind)": 5070,
    "_milestone_complete": 9769,
    "_death": 36
   },
@@ -27,6 +28,7 @@
   "dup_prompt": 6548,
   "dup_prompt_action": 5560
  },
+ "max_skill_duration_s": 211,
  "join": {
   "exact": 70581,
   "none": 10435,
@@ -52,6 +54,13 @@
   "http://127.0.0.1:11611": 225,
   "http://10.0.0.16:11434": 2966
  },
+ "join_miss_why": {
+  "paused (runner refused to start)": 10127,
+  "busy (runner refused to start)": 303,
+  "OTHER: dirt found but unreachable after # attempts [probe: success#": 2,
+  "OTHER: could not explore: explored # blocks to # in # legs": 2,
+  "OTHER: could not explore: explored # blocks to # in # legs (some le": 1
+ },
  "value": {
   "none": 45422,
   "valuable": 31716,
@@ -61,79 +70,95 @@
  },
  "labels": {
   "neutral": 4134,
-  "bad": 114689,
-  "good": 32726
+  "bad": 104254,
+  "good": 32726,
+  "void": 10435
  },
  "labels_by_skill": {
   "goto": {
    "neutral": 1619,
    "good": 5721,
-   "bad": 24616
+   "bad": 23458,
+   "void": 1158
   },
   "gather": {
-   "bad": 34369,
+   "bad": 30399,
+   "void": 3970,
    "good": 9737,
    "neutral": 117
   },
   "explore": {
    "good": 10998,
-   "bad": 30725,
+   "void": 3014,
+   "bad": 27711,
    "neutral": 1195
   },
   "mine": {
    "good": 5475,
-   "bad": 5962,
-   "neutral": 958
+   "bad": 4643,
+   "neutral": 958,
+   "void": 1319
   },
   "surface": {
-   "bad": 1032,
+   "bad": 796,
+   "void": 236,
    "good": 198,
    "neutral": 13
   },
   "craft": {
-   "bad": 3154,
+   "void": 328,
+   "bad": 2826,
    "good": 189,
    "neutral": 10
   },
   "smelt": {
-   "bad": 231,
+   "bad": 211,
    "good": 77,
-   "neutral": 2
+   "neutral": 2,
+   "void": 20
   },
   "deposit": {
-   "bad": 13079,
-   "good": 136
+   "bad": 12989,
+   "good": 136,
+   "void": 90
   },
   "board": {
-   "bad": 7,
+   "bad": 6,
+   "void": 1,
    "good": 2
   },
   "home": {
-   "bad": 414,
+   "bad": 374,
    "good": 143,
+   "void": 40,
    "neutral": 6
   },
   "place": {
    "good": 48,
-   "bad": 484
+   "bad": 423,
+   "void": 61
   },
   "withdraw": {
-   "bad": 23,
+   "bad": 15,
+   "void": 8,
    "good": 2
   },
   "eat": {
-   "bad": 47,
-   "neutral": 67
+   "void": 36,
+   "neutral": 67,
+   "bad": 11
   },
   "status": {
    "neutral": 147,
-   "bad": 82
+   "void": 71,
+   "bad": 11
   },
   "None": {
    "bad": 82
   },
   "bucket": {
-   "bad": 382
+   "bad": 299,
+   "void": 83
   }
  },
  "actions": {
@@ -199,14 +224,14 @@
  "per_bot": {
   "board-a-Alpha": {
    "items_all": 1850,
-   "items_gathered": 1819,
+   "items_gathered": 1774,
    "bot_h": 23.979410555555553,
    "world": "board-a",
    "model": 1629
   },
   "board-a-Bravo": {
    "items_all": 1423,
-   "items_gathered": 1395,
+   "items_gathered": 1365,
    "bot_h": 23.986868055555558,
    "world": "board-a",
    "model": 1736
@@ -220,14 +245,14 @@
   },
   "board-a-Delta": {
    "items_all": 1441,
-   "items_gathered": 1423,
+   "items_gathered": 1389,
    "bot_h": 23.985644166666667,
    "world": "board-a",
    "model": 1710
   },
   "board-a-Echo": {
    "items_all": 1455,
-   "items_gathered": 1444,
+   "items_gathered": 1429,
    "deaths": 2,
    "bot_h": 23.99418777777778,
    "world": "board-a",
@@ -235,63 +260,63 @@
   },
   "board-b-Alpha": {
    "items_all": 1309,
-   "items_gathered": 1291,
+   "items_gathered": 1271,
    "bot_h": 23.97268138888889,
    "world": "board-b",
    "model": 1799
   },
   "board-b-Bravo": {
    "items_all": 1159,
-   "items_gathered": 1137,
+   "items_gathered": 1123,
    "bot_h": 23.982860555555554,
    "world": "board-b",
    "model": 1816
   },
   "board-b-Comet": {
    "items_all": 1220,
-   "items_gathered": 1204,
+   "items_gathered": 1185,
    "bot_h": 23.990680833333332,
    "world": "board-b",
    "model": 1899
   },
   "board-b-Delta": {
    "items_all": 985,
-   "items_gathered": 971,
+   "items_gathered": 966,
    "bot_h": 23.995636666666666,
    "world": "board-b",
    "model": 1756
   },
   "board-b-Echo": {
    "items_all": 1943,
-   "items_gathered": 1919,
+   "items_gathered": 1884,
    "bot_h": 23.983550555555556,
    "world": "board-b",
    "model": 1708
   },
   "board-c-Alpha": {
    "items_all": 1100,
-   "items_gathered": 1095,
+   "items_gathered": 1070,
    "bot_h": 23.98218361111111,
    "world": "board-c",
    "model": 1542
   },
   "board-c-Bravo": {
    "items_all": 1517,
-   "items_gathered": 1508,
+   "items_gathered": 1484,
    "bot_h": 23.9761175,
    "world": "board-c",
    "model": 1654
   },
   "board-c-Comet": {
    "items_all": 1687,
-   "items_gathered": 1650,
+   "items_gathered": 1609,
    "bot_h": 23.973377777777777,
    "world": "board-c",
    "model": 1728
   },
   "board-c-Delta": {
    "items_all": 1197,
-   "items_gathered": 1184,
+   "items_gathered": 1172,
    "deaths": 1,
    "bot_h": 23.977552777777777,
    "world": "board-c",
@@ -299,7 +324,7 @@
   },
   "board-c-Echo": {
    "items_all": 1114,
-   "items_gathered": 1101,
+   "items_gathered": 1094,
    "bot_h": 23.988009722222223,
    "world": "board-c",
    "model": 1670
@@ -320,14 +345,14 @@
   },
   "board-d-Comet": {
    "items_all": 4,
-   "items_gathered": 4,
+   "items_gathered": 0,
    "bot_h": 23.98540555555556,
    "world": "board-d",
    "model": 2518
   },
   "board-d-Delta": {
    "items_all": 1244,
-   "items_gathered": 1227,
+   "items_gathered": 1213,
    "deaths": 2,
    "bot_h": 23.988010555555558,
    "world": "board-d",
@@ -335,28 +360,28 @@
   },
   "board-d-Echo": {
    "items_all": 1313,
-   "items_gathered": 1300,
+   "items_gathered": 1282,
    "bot_h": 23.98603138888889,
    "world": "board-d",
    "model": 1632
   },
   "hive-a-Alpha": {
    "items_all": 935,
-   "items_gathered": 931,
+   "items_gathered": 906,
    "bot_h": 23.990955833333334,
    "world": "hive-a",
    "model": 1825
   },
   "hive-a-Bravo": {
    "items_all": 1433,
-   "items_gathered": 1420,
+   "items_gathered": 1405,
    "bot_h": 23.98853111111111,
    "world": "hive-a",
    "model": 1720
   },
   "hive-a-Comet": {
    "items_all": 1408,
-   "items_gathered": 1389,
+   "items_gathered": 1369,
    "deaths": 2,
    "bot_h": 23.980249166666667,
    "world": "hive-a",
@@ -364,35 +389,35 @@
   },
   "hive-a-Delta": {
    "items_all": 1387,
-   "items_gathered": 1374,
+   "items_gathered": 1288,
    "bot_h": 23.99762888888889,
    "world": "hive-a",
    "model": 1923
   },
   "hive-a-Echo": {
    "items_all": 1785,
-   "items_gathered": 1771,
+   "items_gathered": 1729,
    "bot_h": 23.974284166666667,
    "world": "hive-a",
    "model": 1954
   },
   "hive-b-Alpha": {
    "items_all": 987,
-   "items_gathered": 981,
+   "items_gathered": 973,
    "bot_h": 23.98364972222222,
    "world": "hive-b",
    "model": 1959
   },
   "hive-b-Bravo": {
    "items_all": 1779,
-   "items_gathered": 1754,
+   "items_gathered": 1727,
    "bot_h": 23.984770555555556,
    "world": "hive-b",
    "model": 2102
   },
   "hive-b-Comet": {
    "items_all": 980,
-   "items_gathered": 960,
+   "items_gathered": 946,
    "deaths": 1,
    "bot_h": 23.977126944444446,
    "world": "hive-b",
@@ -400,7 +425,7 @@
   },
   "hive-b-Delta": {
    "items_all": 1685,
-   "items_gathered": 1671,
+   "items_gathered": 1636,
    "deaths": 1,
    "bot_h": 23.99764611111111,
    "world": "hive-b",
@@ -408,7 +433,7 @@
   },
   "hive-b-Echo": {
    "items_all": 962,
-   "items_gathered": 954,
+   "items_gathered": 946,
    "deaths": 1,
    "bot_h": 23.987953055555554,
    "world": "hive-b",
@@ -416,7 +441,7 @@
   },
   "hive-c-Alpha": {
    "items_all": 1276,
-   "items_gathered": 1227,
+   "items_gathered": 1190,
    "deaths": 1,
    "bot_h": 23.993865555555555,
    "world": "hive-c",
@@ -424,42 +449,42 @@
   },
   "hive-c-Bravo": {
    "items_all": 1397,
-   "items_gathered": 1365,
+   "items_gathered": 1349,
    "bot_h": 23.993185555555552,
    "world": "hive-c",
    "model": 1603
   },
   "hive-c-Comet": {
    "items_all": 900,
-   "items_gathered": 882,
+   "items_gathered": 823,
    "bot_h": 23.968253611111113,
    "world": "hive-c",
    "model": 2186
   },
   "hive-c-Delta": {
    "items_all": 1315,
-   "items_gathered": 1198,
+   "items_gathered": 1181,
    "bot_h": 23.976701666666667,
    "world": "hive-c",
    "model": 1913
   },
   "hive-c-Echo": {
    "items_all": 1611,
-   "items_gathered": 1592,
+   "items_gathered": 1571,
    "bot_h": 23.983461388888887,
    "world": "hive-c",
    "model": 1784
   },
   "hive-d-Alpha": {
    "items_all": 824,
-   "items_gathered": 810,
+   "items_gathered": 792,
    "bot_h": 23.9832325,
    "world": "hive-d",
    "model": 1740
   },
   "hive-d-Bravo": {
    "items_all": 1820,
-   "items_gathered": 1787,
+   "items_gathered": 1736,
    "deaths": 1,
    "bot_h": 23.992015833333333,
    "world": "hive-d",
@@ -467,21 +492,21 @@
   },
   "hive-d-Comet": {
    "items_all": 25,
-   "items_gathered": 25,
+   "items_gathered": 2,
    "bot_h": 23.989294444444447,
    "world": "hive-d",
    "model": 2462
   },
   "hive-d-Delta": {
    "items_all": 1597,
-   "items_gathered": 1568,
+   "items_gathered": 1545,
    "bot_h": 23.992695833333332,
    "world": "hive-d",
    "model": 1773
   },
   "hive-d-Echo": {
    "items_all": 1349,
-   "items_gathered": 1322,
+   "items_gathered": 1300,
    "deaths": 1,
    "bot_h": 23.992816944444446,
    "world": "hive-d",
@@ -489,14 +514,14 @@
   },
   "isolated-a-Alpha": {
    "items_all": 979,
-   "items_gathered": 976,
+   "items_gathered": 969,
    "bot_h": 23.988770555555554,
    "world": "isolated-a",
    "model": 1916
   },
   "isolated-a-Bravo": {
    "items_all": 958,
-   "items_gathered": 956,
+   "items_gathered": 938,
    "deaths": 1,
    "bot_h": 23.9939825,
    "world": "isolated-a",
@@ -504,7 +529,7 @@
   },
   "isolated-a-Comet": {
    "items_all": 1402,
-   "items_gathered": 1400,
+   "items_gathered": 1378,
    "deaths": 3,
    "bot_h": 23.975995833333336,
    "world": "isolated-a",
@@ -512,7 +537,7 @@
   },
   "isolated-a-Delta": {
    "items_all": 1485,
-   "items_gathered": 1481,
+   "items_gathered": 1455,
    "deaths": 3,
    "bot_h": 23.95491277777778,
    "world": "isolated-a",
@@ -520,7 +545,7 @@
   },
   "isolated-a-Echo": {
    "items_all": 948,
-   "items_gathered": 946,
+   "items_gathered": 938,
    "deaths": 1,
    "bot_h": 23.9715525,
    "world": "isolated-a",
@@ -528,35 +553,35 @@
   },
   "isolated-b-Alpha": {
    "items_all": 1231,
-   "items_gathered": 1219,
+   "items_gathered": 1189,
    "bot_h": 23.993459444444444,
    "world": "isolated-b",
    "model": 2104
   },
   "isolated-b-Bravo": {
    "items_all": 945,
-   "items_gathered": 935,
+   "items_gathered": 922,
    "bot_h": 23.980204722222222,
    "world": "isolated-b",
    "model": 1926
   },
   "isolated-b-Comet": {
    "items_all": 952,
-   "items_gathered": 942,
+   "items_gathered": 926,
    "bot_h": 23.984742777777775,
    "world": "isolated-b",
    "model": 1869
   },
   "isolated-b-Delta": {
    "items_all": 1435,
-   "items_gathered": 1435,
+   "items_gathered": 1413,
    "bot_h": 23.99383,
    "world": "isolated-b",
    "model": 2151
   },
   "isolated-b-Echo": {
    "items_all": 1339,
-   "items_gathered": 1339,
+   "items_gathered": 1305,
    "bot_h": 23.98723222222222,
    "world": "isolated-b",
    "model": 2117
@@ -570,21 +595,21 @@
   },
   "isolated-c-Bravo": {
    "items_all": 1441,
-   "items_gathered": 1431,
+   "items_gathered": 1409,
    "bot_h": 23.9920625,
    "world": "isolated-c",
    "model": 2032
   },
   "isolated-c-Comet": {
    "items_all": 1481,
-   "items_gathered": 1454,
+   "items_gathered": 1410,
    "bot_h": 23.972930555555557,
    "world": "isolated-c",
    "model": 1830
   },
   "isolated-c-Delta": {
    "items_all": 1370,
-   "items_gathered": 1356,
+   "items_gathered": 1338,
    "deaths": 1,
    "bot_h": 23.97218666666667,
    "world": "isolated-c",
@@ -592,7 +617,7 @@
   },
   "isolated-c-Echo": {
    "items_all": 1643,
-   "items_gathered": 1641,
+   "items_gathered": 1617,
    "deaths": 1,
    "bot_h": 23.979980555555553,
    "world": "isolated-c",
@@ -600,7 +625,7 @@
   },
   "isolated-d-Alpha": {
    "items_all": 861,
-   "items_gathered": 850,
+   "items_gathered": 840,
    "deaths": 2,
    "bot_h": 23.990347500000002,
    "world": "isolated-d",
@@ -608,14 +633,14 @@
   },
   "isolated-d-Bravo": {
    "items_all": 10,
-   "items_gathered": 10,
+   "items_gathered": 2,
    "bot_h": 23.991738333333334,
    "world": "isolated-d",
    "model": 2531
   },
   "isolated-d-Comet": {
    "items_all": 1646,
-   "items_gathered": 1629,
+   "items_gathered": 1526,
    "deaths": 2,
    "bot_h": 23.98646638888889,
    "world": "isolated-d",
@@ -623,7 +648,7 @@
   },
   "isolated-d-Delta": {
    "items_all": 828,
-   "items_gathered": 818,
+   "items_gathered": 810,
    "deaths": 2,
    "bot_h": 23.99354138888889,
    "world": "isolated-d",
@@ -631,7 +656,7 @@
   },
   "isolated-d-Echo": {
    "items_all": 1193,
-   "items_gathered": 1187,
+   "items_gathered": 1172,
    "deaths": 1,
    "bot_h": 23.969935555555555,
    "world": "isolated-d",
@@ -639,21 +664,21 @@
   },
   "placebo-a-Alpha": {
    "items_all": 1286,
-   "items_gathered": 1271,
+   "items_gathered": 1240,
    "bot_h": 23.993589166666666,
    "world": "placebo-a",
    "model": 1804
   },
   "placebo-a-Bravo": {
    "items_all": 2046,
-   "items_gathered": 2030,
+   "items_gathered": 1989,
    "bot_h": 23.976965277777776,
    "world": "placebo-a",
    "model": 1766
   },
   "placebo-a-Comet": {
    "items_all": 1046,
-   "items_gathered": 1038,
+   "items_gathered": 1030,
    "deaths": 1,
    "bot_h": 23.977555277777775,
    "world": "placebo-a",
@@ -661,56 +686,56 @@
   },
   "placebo-a-Delta": {
    "items_all": 766,
-   "items_gathered": 734,
+   "items_gathered": 727,
    "bot_h": 23.96560416666667,
    "world": "placebo-a",
    "model": 1663
   },
   "placebo-a-Echo": {
    "items_all": 1296,
-   "items_gathered": 1285,
+   "items_gathered": 1252,
    "bot_h": 23.976891666666667,
    "world": "placebo-a",
    "model": 1886
   },
   "placebo-b-Alpha": {
    "items_all": 1358,
-   "items_gathered": 1310,
+   "items_gathered": 1270,
    "bot_h": 23.97615583333333,
    "world": "placebo-b",
    "model": 1910
   },
   "placebo-b-Bravo": {
    "items_all": 389,
-   "items_gathered": 340,
+   "items_gathered": 329,
    "bot_h": 23.973769722222222,
    "world": "placebo-b",
    "model": 1614
   },
   "placebo-b-Comet": {
    "items_all": 994,
-   "items_gathered": 982,
+   "items_gathered": 960,
    "bot_h": 23.98465638888889,
    "world": "placebo-b",
    "model": 1645
   },
   "placebo-b-Delta": {
    "items_all": 946,
-   "items_gathered": 886,
+   "items_gathered": 867,
    "bot_h": 23.98777388888889,
    "world": "placebo-b",
    "model": 1639
   },
   "placebo-b-Echo": {
    "items_all": 1115,
-   "items_gathered": 1110,
+   "items_gathered": 1055,
    "bot_h": 23.99312638888889,
    "world": "placebo-b",
    "model": 2015
   },
   "placebo-c-Alpha": {
    "items_all": 2113,
-   "items_gathered": 2015,
+   "items_gathered": 1969,
    "bot_h": 23.98461,
    "world": "placebo-c",
    "model": 1918
@@ -724,21 +749,21 @@
   },
   "placebo-c-Comet": {
    "items_all": 1171,
-   "items_gathered": 1128,
+   "items_gathered": 1106,
    "bot_h": 23.995112777777777,
    "world": "placebo-c",
    "model": 1908
   },
   "placebo-c-Delta": {
    "items_all": 1423,
-   "items_gathered": 1400,
+   "items_gathered": 1383,
    "bot_h": 23.981248333333333,
    "world": "placebo-c",
    "model": 1774
   },
   "placebo-c-Echo": {
    "items_all": 1103,
-   "items_gathered": 1063,
+   "items_gathered": 1018,
    "deaths": 2,
    "bot_h": 23.962381666666666,
    "world": "placebo-c",
@@ -746,7 +771,7 @@
   },
   "placebo-d-Alpha": {
    "items_all": 1708,
-   "items_gathered": 1690,
+   "items_gathered": 1664,
    "deaths": 1,
    "bot_h": 23.996000277777778,
    "world": "placebo-d",
@@ -754,14 +779,14 @@
   },
   "placebo-d-Bravo": {
    "items_all": 1721,
-   "items_gathered": 1692,
+   "items_gathered": 1657,
    "bot_h": 23.992929444444446,
    "world": "placebo-d",
    "model": 1698
   },
   "placebo-d-Comet": {
    "items_all": 1163,
-   "items_gathered": 1148,
+   "items_gathered": 1130,
    "deaths": 2,
    "bot_h": 23.98977222222222,
    "world": "placebo-d",
@@ -769,14 +794,14 @@
   },
   "placebo-d-Delta": {
    "items_all": 37,
-   "items_gathered": 37,
+   "items_gathered": 0,
    "bot_h": 23.987458888888888,
    "world": "placebo-d",
    "model": 2519
   },
   "placebo-d-Echo": {
    "items_all": 1611,
-   "items_gathered": 1585,
+   "items_gathered": 1559,
    "bot_h": 23.98912861111111,
    "world": "placebo-d",
    "model": 1808

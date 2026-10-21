@@ -1,0 +1,3 @@
+window 2026-10-20T00:00:00+00:00 2026-10-21T00:00:00+00:00 (lib/estelemetry.py, read-only key; key never printed)
+skill total 1491973 | _death 36 | _stagnation (exact kind) 5070 | _milestone_complete 9769
+llm total 160559

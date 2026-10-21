@@ -1,4 +1,4 @@
-# Learning loop for the bot brain: continuous fine-tuning (design, 2026-10-21, round 2)
+# Learning loop for the bot brain: continuous fine-tuning (design, 2026-10-21, round 3)
 
 **Status:** DESIGN + offline prototype only. Nothing was trained or served. No fleet, queue, scheduler, manifest, env file
 or endpoint was changed. 10.0.0.72 was never contacted: every 5080 number below comes from the bots' own decision rows.
@@ -12,8 +12,14 @@ No paid API was called.
 - Scripts: `scripts/learnloop/`. They are read-only and ran on 10.0.0.31 under `nice -n 19 ionice -c3`; the largest peaked at
   0.84 GB RSS.
 
-**Round 1 reviews:** Codex returned CHANGE (12 P1) and Claude returned CHANGE (3 P1). Every point is taken; s.10 maps each
-finding to the section that answers it.
+**Reviews so far:**
+
+| round | Codex | Claude |
+|---|---|---|
+| 1 | CHANGE (12 P1) | CHANGE (3 P1) |
+| 2 | CHANGE (3 P1, all in the bench statistics) | APPROVE (3 P2) |
+
+Every point from both rounds is taken; s.10 maps each finding to the section that answers it.
 
 ## 0. The answer in brief
 
@@ -52,9 +58,12 @@ finding to the section that answers it.
 
 **Model bench.** 4 worlds × 5 bots, each world split 3/2.
 - Schedule: one AB/BA crossover with 72 h periods and a 6 h washout.
-- Primary: net gathered items/bot-h. It is tested by a stratified re-randomization test.
-- Minimum detectable effect at 80% power, simulated on 13 days of the fleet's own null: **17% of the mean**.
-- Comparison: a 10 v 10 parallel split needs 35%, and a whole-world crossover needs 28%.
+- Primary: **gross gathered items/bot-h** (no transfers, no conversions). It is tested by a stratified re-randomization
+  test, and that test was simulated end to end on 13 days of the fleet's own null.
+- Under the null it rejects 3.5% of the time (nominal 5%).
+- Minimum detectable effect at 80% power: **20% of the mean**.
+- Comparison, as a planning approximation: a 10 v 10 parallel split needs ~40%; a whole-world crossover is close to the
+  within-world one (19% vs 18%), and within-world is kept for coverage.
 
 **The 3090 move.** This is a **conditional hypothesis**, not a verdict.
 - The evidence is favourable:
@@ -62,8 +71,8 @@ finding to the section that answers it.
   - decode, the larger share of GPU time, would average ~2.2 requests at once (today 1.97);
   - the 5080 carried all 80 bots until 09-11, alongside the same honeypot.
 - `NUM_PARALLEL` and free VRAM on the 5080 are unknown here. **The operator reads them; no agent touches .72.**
-- Method: one 80-bot env transaction (.16 removed everywhere), in a canary gap, with absolute fleet-wide latency gates and
-  a full rollback.
+- Method: one 80-bot env transaction (.16 removed everywhere), under the installer protocol (flock +
+  `canary-sched.py install-hold`), with absolute fleet-wide latency gates and a full rollback.
 
 **Kill rule.** If two candidates in a row show no benefit on the pre-registered primary, the loop stops. That records
 "these candidates did not show the benefit", not "the model is not the constraint".
@@ -93,9 +102,9 @@ stamped at the decision start, before inference. Each row carries:
 | complete prompt | `saw_end:` in the last 40 chars and under the cap | 151,549 of 151,549 model rows |
 | response matches the prompt | the response's `saw_end` equals the prompt's nonce | 151,467 of 151,549; the other 82 are the gate's `truncation sentinel mismatch` refusals |
 | system prompt text | rebuilt from `src/prompt.mjs` at the row's code version, matched by hash (`/tmp/brain01-sysprompt.mjs`) | **3 of 3 hashes of the day rebuilt from BOTH 9e7d9980 and adbec4f4**; board a953f82c, shared/isolated bcc44f92, checkpoint 695b8935; 4.2-4.3k chars, 15-16 skills |
-| the executed skill row | `skill-<bot>.jsonl`; the runner stamps its row at execution start, AFTER inference. Join rule: same name; trigger `llm:*`/`interrupt:*`; start in [t, t + latency + 30 s]; each row used once; status equal; first 120 detail chars equal (both come from one result object) | 70,591 of 81,031 admitted decisions joined with status+detail equal (70,581 unique + 10 ambiguous, flagged), plus 5 with status only. **All 10,435 misses are `failed`; 10,127 of them say "paused after repeated failures", and 300 say "busy with X". The skill never ran, so no row exists.** |
+| the executed skill row | `skill-<bot>.jsonl`; the runner stamps its row at execution start, AFTER inference. Join rule: same name; trigger `llm:*`/`interrupt:*`; start in [t − 1 s, t + latency + 30 s] (the −1 s absorbs millisecond stamp skew); each row used once; status equal; first 120 detail chars equal (both come from one result object) | **70,581 of 81,031 admitted decisions joined uniquely on status + detail; only these count as joined.** 10 were ambiguous (flagged, not counted). 5 matched on status alone; their decisions say "paused", so they are false joins and are labelled `void`, which shows status-only matching is not trustworthy. **All 10,435 misses are `failed`:** 10,127 say "paused after repeated failures" and 303 say "busy with X". In both cases the runner returns before `logSkill` (runner.mjs 169-185), so no row can exist. The other 5 are real misses (2 unreachable gathers, 3 explores) and are reported. |
 | the bot's evidence value | computed in `cognitive.mjs` but dropped by the logger's allowlist. Recovered from the next decision row's `RECENT EVENTS` line (`<skill> -> <status> (<value>)`), reading past midnight | line found for 80,658 of 81,031; values: valuable 31,716, neutral 3,457, costly 63, line-without-value (failures) 45,422; 373 not found |
-| outcome windows | skill rows, with items counted when a skill ENDS in the window (start + duration). Deaths, stagnation and milestones are counted by their own stamp. A window is `observed` only if the bot has rows at or after its end | 0 censored on 10-20 (lookahead 1 h past midnight) |
+| outcome windows | skill rows. Items are counted when a skill ENDS in the window: an end-time index (bisect), so a skill that started long before the window still counts. Deaths, stagnation and milestones are counted by their own stamp. A window is `observed` only if the bot has rows at or after its end | 0 censored on 10-20; lookahead runs 1 h past midnight, the back-read 2 h before; the longest skill that day ran 211 s, well inside both |
 
 **Reader.** `lib/telemetry.Events.load()` cannot read the decision stream: it drops rows without `skill.name` (memory
 `the-decision-stream-is-a-separate-file`).
@@ -132,6 +141,7 @@ The definitions are brainread's:
 
 | label | rule |
 |---|---|
+| **void** | admitted, but the runner refused to start ("paused after repeated failures" / "busy with X"). The action never ran, so this is no evidence about it (cognitive.mjs treats it the same way). **Never a negative example** and never in the pilot's failure strata; for teacher filtering it counts as a transient failure |
 | **bad** | refused; OR executed `failed` / `aborted`; OR a death or stagnation event within 120 s |
 | **good** | executed `success` AND (own value `valuable` OR own skill gained items OR a milestone within 120 s) AND no death within 600 s AND the 600 s window observed |
 | neutral | everything else: success with no durable evidence, `unknown`, `no_effect`, censored |
@@ -141,13 +151,18 @@ The definitions are brainread's:
   brain-01's control arm over 10-19/20 showed 47.6% and 22.4%, using the same definitions on a neighbouring window.
 - **Elasticsearch, 10-20.**
 
+  Committed as `es_crosscheck-20261020.txt`. ES and the files use the same predicates, exact kind names.
+
   | stream | Elasticsearch | files |
   |---|---|---|
   | llm | 160,559 | 160,559 |
   | `_death` | 36 | 36 |
-  | `_stagnation` | 5,070 | 5,070 |
+  | `_stagnation`, exact kind | 5,070 | 5,070 |
   | `_milestone_complete` | 9,769 | 9,769 |
   | skill rows | 1,491,973 | 1,491,978 (5 lost to the rotation race) |
+
+  The extractor's label rule uses a **broader** stagnation predicate: any `_stagnation*` kind, or STAGNANT in a
+  detail. That gives 5,262 = 5,070 `_stagnation` + 192 `_stagnation_reconnect`. Both counts are in the summary.
 
 **Per decision.** From `label_check-20261020.txt`. The denominator is model decisions with that label, all windows observed.
 Windows overlap, so each "per 1k" figure counts decisions *followed by* the event, not the events themselves. For
@@ -157,7 +172,8 @@ example, 36 deaths sit inside the 600 s windows of many decisions.
 |---|---|---|---|---|---|---|
 | good | 32,726 | 3.16 (1.30) | 11.86 (9.79) | 0 (by rule) | 0 | 295 |
 | neutral | 4,134 | 1.65 (1.53) | 10.68 (10.56) | 25.2 (by rule: success, then a death 120-600 s later) | 0 | 85 |
-| bad | 114,689 | 0.85 (0.74) | 5.95 (5.83) | 2.6 | 96 | 69 |
+| bad | 104,254 | 0.87 (0.74) | 5.93 (5.80) | 2.6 | 100 | 71 |
+| void | 10,435 | 0.72 (0.72) | 6.11 (6.11) | 2.4 | 53 | 44 |
 
 - The non-circular columns ("other rows only") exclude the decision's own skill row.
 - On those columns, good vs bad is **1.8x at 120 s and 1.7x at 600 s**.
@@ -165,14 +181,16 @@ example, 36 deaths sit inside the 600 s windows of many decisions.
 **Per bot.** Production here is independent of the joins: brainread's items over every skill row per decision-hour, and
 "gathered" without the transfer skills.
 
-| share | vs items_all/bot-h | vs gathered/bot-h |
+| share | vs items_all/bot-h | vs gross gathered/bot-h (no transfers, no conversions) |
 |---|---|---|
-| good | rho +0.24 [-0.06, +0.50] | +0.24 [-0.07, +0.50] |
+| good | rho +0.24 [-0.06, +0.50] | +0.24 [-0.06, +0.50] |
 | success | +0.26 [-0.02, +0.50] | +0.26 [-0.04, +0.51] |
 | refused | -0.27 [-0.51, +0.01] | -0.27 [-0.53, +0.05] |
+| bad | -0.29 [-0.54, -0.01] | -0.28 [-0.55, -0.00] |
 
 - n = 80 bots in 16 worlds. Intervals are a world-cluster bootstrap with 1,000 resamples.
-- **Every interval touches 0.** One day cannot establish that a bot's label shares track its output.
+- **The good-share interval touches 0.** One day cannot establish that a bot's label shares track its output.
+- Bad share is the only one whose interval just clears 0.
 
 **What this means.** The labels are a training signal. The scoreboard is output, measured by DiD.
 - brain-01 is the reference case (`brain-01-brainread-{360,720}.json`, committed):
@@ -184,7 +202,7 @@ example, 36 deaths sit inside the 600 s windows of many decisions.
     its 200 bot-h exposure.
 - model-tier-01 (qwen2.5:72b, 09-13) gives no evidence either way. It ran 5 bots for 6 h, items -38%, bootstrap
   [-70%, +69%], and the placebo screen failed.
-- **Neither result shows a better brain cannot raise output. Neither shows it can.** The bench (s.4c) is sized to see 17%.
+- **Neither result shows a better brain cannot raise output. Neither shows it can.** The bench (s.4c) is sized to see 20%.
 - Training labels are re-weighted toward durable progress (gathered items in 600 s, milestones).
 - They are stratified by skill, because good shares differ widely:
 
@@ -224,14 +242,19 @@ The 16 worlds each produced 8,312-10,956 model decisions.
 
 **Clean outcomes.**
 - All 70,518 refusals carry a gate reason.
-- Every admitted decision that executed has its row (s.1.1).
-- Lower bound for a clean outcome: >= 70,518 + 70,591 - 373 = **140,736, i.e. 92.9%**.
+- Of the admitted decisions:
+  - 70,581 have a unique exact join (s.1.1);
+  - 10,430 are void (the runner never started), plus 5 status-only joins that are also void;
+  - 5 are real misses;
+  - 10 are ambiguous.
+- Lower bound for a clean outcome (exact join and value line found): 70,581 + 80,658 − 81,031 = 70,208. Adding the
+  refusals gives **140,726 of 151,549, i.e. 92.9%**.
 
 **Duplicates.**
 - Same prompt (nonce normalised): 6,548 (4.3%).
 - Same prompt AND same action: 5,560 (3.7%).
 
-**Labels.** good 32,726 (21.6%), neutral 4,134 (2.7%), bad 114,689 (75.7%).
+**Labels.** good 32,726 (21.6%), neutral 4,134 (2.7%), bad 104,254 (68.8%), void 10,435 (6.9%).
 
 **Actions.**
 
@@ -268,7 +291,7 @@ The 16 worlds each produced 8,312-10,956 model decisions.
 - 10-07 is partial.
 - **Retention on 10.0.0.31 is 14 generations**, so anything not archived is gone after two weeks.
 
-**Pilot pool.** 111,425 hard decisions (complete prompt, refused or failed/aborted).
+**Pilot pool.** 100,990 hard decisions: complete prompt, refused or failed/aborted, void excluded.
 
 ### 1.5 Dedupe, splits, retention
 
@@ -316,8 +339,8 @@ Train on the fleet's own good decisions.
 A stronger model proposes the action for a bad decision. Its answer is kept only if all of these hold:
 - it passes the fleet's grammar;
 - it passes `bench/models/score.py`'s hard check;
-- it is not the action that was just refused or failed. The exception is a failure class marked transient (`busy`,
-  `paused`, `timeout`), where a retry can be correct;
+- it is not the action that was just refused or failed. The exception is a failure class marked transient (void, i.e.
+  `busy` / `paused`, or `timeout`), where a retry can be correct;
 - it does not repeat a vetoed action after a veto. brain-01's sandbox saw gemma4 do that 76-85% of the time.
 
 The teacher is **gemma4:26b on the Studio**, which is local and free.
@@ -367,16 +390,21 @@ trained on gemma4 labels vs paid labels, compared in the bench. That test is gat
 
 **Scores.** Blind condition, paired by item, with uncertainty by world-day cluster.
 
-1. **Grammar and hard check.** Pass share, judged **non-inferior** to gemma4 with a margin of 2 pp. Gemma4 already passes
-   98.6% of items, so superiority is not a sensible test here.
-2. **Known-failure avoidance.** Per failure class:
-   - for non-transient refusals and failures, the share that re-chooses the logged action or a vetoed one;
-   - for transient ones, reported only.
-   - Compared to gemma4 with a paired McNemar test.
-3. **Blind pairwise judging (mandatory).** The owner, or a person the owner names, judges 200 items: arm vs gemma4, order
-   randomized, model names hidden. Pre-registered rule: a paid arm is preferred if it wins >= 60% of non-tie pairs. The
-   one-sided binomial test at 200 pairs detects about a 10 pp preference. **There is no LLM judge**: a model would be
-   grading its own family.
+1. **Grammar and hard check.** Pass share, judged **non-inferior** to gemma4: the paired 95% lower bound of
+   (arm − gemma4) must be above −2 pp. Gemma4 already passes 98.6% of items, so superiority is not a sensible test here.
+2. **Known-failure avoidance.**
+   - For non-transient refusals and failures, measure the share that re-chooses the logged action or a vetoed one.
+   - It is judged **non-inferior** to gemma4 when the paired 95% upper bound of (arm − gemma4) is below +2 pp, with
+     McNemar for the paired difference.
+   - Transient classes, void included, are reported only.
+3. **Blind pairwise judging (mandatory).**
+   - The owner, or a person the owner names, judges 200 items: the paid arm against gemma4, in random order, with model
+     names hidden.
+   - **Pre-registered rule:** at least 100 non-tie pairs, AND a one-sided exact binomial test of the arm's win share
+     against 50% with p < 0.05.
+   - With 200 informative pairs, the threshold is a win share of about 56%, and power at a true 60% is about 87%.
+   - **Fewer than 100 non-ties means no advancement.**
+   - **There is no LLM judge**: a model would be grading its own family.
 4. **Reported only, never a decision:**
    - hindsight agreement with a later success from a near-identical state, with coverage reported;
    - the outcome predictor's score (s.4a). It is off-policy, and teacher actions may lie outside its support.
@@ -427,6 +455,9 @@ worse, and (3) prefers it. Otherwise gemma4 stays the teacher and paid spend sta
    - Record actual usage from every response.
    - Never retry into a 429.
    - Large arms are split into batches of ≤ $10, so arm E ($57.5) can run inside a $100 cap.
+   - **The two paid arms, B + C (~$42 with the informed condition), fit in one month under both caps.**
+   - The all-four-arms option does not: OpenAI C + E with the informed condition is ~$83, over the 80% ledger line. It
+     would run E in the following month, or the owner raises the cap.
    - Keys stay wherever the owner puts them. They never go on a command line or into a log, the same rule as the ES key.
 
 **Output-use terms.** These are quoted, not interpreted. No legal conclusion is drawn; **the owner (or counsel) decides.**
@@ -633,82 +664,132 @@ Each rung must pass before the next one runs, and each has a positive control.
 - Then one swap and a 6 h washout, which is excluded.
 - Period 2 is 72 h.
 - **Total 150 h.**
+- Both sequences use the same calendar windows.
 - Exposure is active bot-hours from decision rows, not calendar time.
 
-*A/A first, through the complete schedule.* Both arms run qwen2.5 for 150 h. It passes if:
-- the crossover estimate on the primary lies inside the central 95% of the simulated null below;
-- residency and latency gates are met by both arms;
-- 0 bench rows reach any fleet read.
-
-*Primary.* **Gathered items/bot-h**, i.e. brainread's items without transfer skills.
-- Withdrawing from a shared chest moves items; it does not make them. Two arms sharing a town could otherwise trade items
-  and show a difference that is not production.
+*Primary.* **Gross gathered items/bot-h.**
+- Definition: positive `inventory_delta` on skill rows, excluding transfer skills (withdraws, town draws, deposits) and
+  conversion skills (craft, smelt, compost, toolkit, wear_out, well).
+- On 10-20 those exclusions were 3.6% of all positive gains (3,367 of 92,826). Gather (48.0%), mine (32.3%), goto (12.3%) and surface (2.8%)
+  make up the rest.
+- It is **gross**: tool wear, death losses and junk are not subtracted.
+  - The registered estimand is items acquired from the world per bot-hour.
+  - A net or value-weighted metric (the bag-fix gate's) is reported as a secondary, not the primary.
 - One primary means no multiplicity correction.
 - Secondary (reported): stagnation/bot-h, success and refused shares, decisions/bot-h, stone/iron pickaxe crafts.
 
+*Estimator and missing data.* The standard 2×2 crossover estimator: τ = (mean_AB(d) − mean_BA(d)) / 2, with
+d = period-1 value − period-2 value per bot.
+- It cancels a common period effect for **any** group sizes (Codex r2). The earlier pooled signed mean did not when bots
+  dropped out.
+- **Usable bot:** at least 36 active bot-h (50%) in each period.
+- **A read is INCONCLUSIVE** if either sequence has fewer than 7 usable bots.
+- The identical rule runs in the simulation and in the live read.
+
 *Test: a stratified re-randomization test.*
-- Re-draw the sequences within each world, keeping its 3/2 split and the global 10/10 balance.
-- That gives 10^4 = 10,000 assignments, enough for an exact p-value at the 5% level.
-- A two-sided p < 0.05 with a positive estimate earns **KEEP-to-canary**.
-- The fleet-derived null SD is reported beside it as a cross-check.
+- Re-draw the AB/BA labels within each world, keeping its 3/2 count. That gives 10^4 = 10,000 assignments.
+- The statistic is τ, two-sided.
+- p < 0.05 with τ > 0 earns **KEEP-to-canary**, subject to the rules below.
+- **Confidence interval:** inversion of the same test. It is the set of additive shifts δ that the test does not reject
+  when δ is removed from the treated periods.
 - World-level bootstrap is **not** used: 4 worlds give only 35 distinct resamples.
 
-*Sensitivity, registered.*
-- A period-1-only parallel estimate, which is free of carryover.
-- Washout 0 / 6 / 12 h.
+*Carryover and sensitivity, with consequences (Codex r2).*
+- **Period-1-only estimate.** A parallel comparison of the AB and BA arms in period 1, which is free of carryover.
+  - If its sign is opposite to τ and its magnitude exceeds its own simulated null SD, the read is **INCONCLUSIVE**.
+  - A whole-pool canary then decides (rung d), not the bench.
+- **Washout 0 / 6 / 12 h.** Period 2 starts 0, 6 or 12 h after the swap.
+  - If τ changes sign across the three, the read is INCONCLUSIVE.
 - Carryover is not assumed away: LESSONS FROM PAST RUNS, inventories and town state persist across the swap.
 
 *Interference.* The arms share chests, trees, ore and a board, and the bias **can go either way**. That is why the primary
 excludes transfers. The canary rung, which uses whole pools, is the check.
 
-*Harm.*
-- **KEEP-to-canary also requires** the gathered estimate's 95% lower bound > -15%, in addition to the death gate and the
-  liveness gates.
+*Harm.* **KEEP-to-canary also requires all of the following:**
+- **Stagnation:** the stagnation/bot-h τ's upper 95% bound, by test inversion, below +15% of the null mean.
 - **Death gate.** This is the installed fleet rule applied to the bench arms:
   - at least two candidate-arm deaths;
   - a rate above 1.25× the other arm's;
   - the lower 95% bound clearing 1.25×.
   - It is evaluated at fixed polls (+24/+48/+72 h of each period) on per-arm, per-period exposure.
-  - Deaths are attributed to the arm the bot is on at the time of death; a death within 30 min after the swap counts for
-    both arms' sensitivity readout.
-  - The kept null runs 0.0206 deaths/bot-h, about 4.9 deaths per 10-bot arm per day.
-  - A trip stops the candidate arm.
-- **Liveness.** ≥ 95% of candidate-arm decisions are served by the candidate, and schema-valid ≥ the other arm's -1 pp.
+  - Deaths are attributed to the arm the bot is on at the time of death. A death within 30 min after the swap is reported
+    for both arms.
+  - The kept null runs 0.0211 deaths/bot-h, about 5.1 deaths per 10-bot arm per day.
+  - A trip stops the candidate arm and the read is REVERT.
+- **Liveness:** ≥ 95% of candidate-arm decisions are served by the candidate, and schema-valid ≥ the other arm's −1 pp.
 
-*Power.* Source: `scripts/learnloop/bench_power.py`, output in `bench_power-13d.txt`.
-- It is simulated on the registered schedule.
-- **Null population:** 13 days (10-08..10-20), 80 bots, 52 6-h windows.
-- **Kept:** 3,657 of 4,160 bot-windows. Exclusions:
-  - 473 bot-windows not on that window's majority build (canary pools);
-  - 30 bot-windows with non-qwen decisions (brain-01).
-- **Volume kept:** 1,728,343 decisions, 451 deaths, 21,886 bot-h.
-- **Draws:** 2,000 draws of 4 of 16 worlds.
-- **MDE80** is read from the simulated null itself: the smallest shift that clears its 95th-percentile |estimate| in 80%
-  of draws. It agrees with 2.8 × SD within 3%.
+*A/A first, through the complete schedule.* Both arms run qwen2.5 for 150 h, read with exactly the procedure above. It
+passes only if all of these hold:
+1. the test does not reject (p ≥ 0.05);
+2. **Variance check.** The A/A's own re-randomization SD of τ lies within 0.5-2× the simulated null SD for the primary
+   (the Part 1 null). A "central 95%" check alone cannot see inflated variance;
+3. residency and latency gates are met by both arms;
+4. 0 bench rows reach any fleet read.
 
-| metric (null mean) | within-world parallel, 72 h | whole-world parallel, 72 h | **within-world crossover, 72 h** | whole-world crossover, 72 h | within-world crossover, 24 h |
-|---|---|---|---|---|---|
-| **gathered/bot-h (51.7)** | 35% | 56% | **17%** | 28% | 23% |
-| items/bot-h (51.9) | 35% | 58% | 18% | 29% | 24% |
-| stagnation/bot-h (3.19) | 31% | 48% | 16% | 24% | 23% |
-| success share (0.241) | 10.1 pp | 12.0 pp | 4.2 pp | 5.2 pp | 5.3 pp |
-| refused share (0.445) | 11.1 pp | 13.3 pp | 5.2 pp | 6.3 pp | 6.5 pp |
+**On failure:** the bench is not used for any candidate. The cause is diagnosed and recorded (fresh-world drift,
+serving inequality, a leak), then the A/A is re-run once. A second failure is recorded INCONCLUSIVE, the bench rung is
+dropped, and candidates go to the canary rung with its own power.
 
-- **What 10 v 10 in parallel can see.** It detects brain-01-sized moves in decision shares, but it **cannot see an output
-  change under ~35%**. Hence the crossover.
-- **What this schedule can see.** The within-world crossover at 72 h sees 17%, against 28% for whole-world crossover
-  (Codex r1 asked for that comparison).
-- **Caveats.**
-  - 28 distinct time offsets underlie the 72 h figures. The bootstrap range on the SD is narrow, but the offsets overlap,
-    so it understates the uncertainty.
-  - The null comes from a mature fleet. Fresh bench worlds drift faster ("fresh worlds buy one week"), and that is what the
-    A/A measures.
+*Power* (Codex r2: simulate the registered test, not a pooled null). Source: `scripts/learnloop/bench_power.py`, output
+`bench_power-13d-v3.txt`.
+
+**Null population.** 13 days (10-08..10-20), 80 bots, 52 6-h windows. Kept: 3,043 of 4,160 bot-windows. Excluded:
+- 622 with any row on a **minority build**, one seen on fewer than half the bots in that window (a canary pool or its
+  restart-lag rows). A fleet-wide promotion is a common change, and a crossover cancels it.
+- 465 post-intervention windows: the bot's next window after such a cell.
+- 30 with a non-qwen decision (brain-01).
+
+Kept volume: 1,442,544 decisions, 385 deaths, 18,211 bot-h.
+
+**Part 1, the registered test, simulated.**
+- 400 draws of 4 of 16 worlds × a time offset (28 distinct).
+- 400 re-randomizations each.
+- Effects injected additively into each bot's treated period.
+
+| metric (null mean) | rejection at δ = 0 | power at 10% / 15% / 20% / 25% / 30% of the mean | **MDE80** |
+|---|---|---|---|
+| **gross gathered/bot-h (49.98)** | 0.035 | 0.38 / 0.63 / 0.83 / 0.89 / 0.96 | **20%** |
+| stagnation/bot-h (3.16) | 0.054 | 0.37 / 0.62 / 0.82 / 0.92 / 0.98 | 20% |
+| success share (0.239) | 0.043 | 0.32 / 0.51 / 0.69 / 0.83 / 0.90 | 25% (~6 pp) |
+| refused share (0.445) | 0.048 | 0.66 / 0.90 / 0.99 / 1.00 / 1.00 | 15% (~6.7 pp) |
+
+**Reading Part 1:**
+- **The test holds its size:** rejection under the null is 3.5-5.4%, against a nominal 5%.
+- **It detects a 20% change in gross gathered output with 80% power.**
+- These power figures rest on 115-130 usable draws per metric, ±~0.04.
+- The other 270-285 draws were INCONCLUSIVE on coverage. In the fleet null, canary exclusions knock bots below the
+  50%-of-hours floor. That is a property of the fleet null (16 pools sharing a canary lane), not of the bench, which has
+  no canaries.
+- Most usable draws were left unbalanced by the exposure rule (93 of 115 for the primary), and the size still held. That
+  is the 2×2 estimator doing its job.
+
+**Part 2, design comparison on the same schedule.** A planning approximation: MDE ≈ 2.8 × null SD, as % of the mean.
+
+| metric | within-world parallel | whole-world parallel | **within-world crossover** | whole-world crossover |
+|---|---|---|---|---|
+| gross gathered/bot-h | 40% | 60% | **18%** | 19% |
+| stagnation/bot-h | 39% | 52% | 19% | 21% |
+| refused share | 26% | 33% | 11% | 13% |
+
+**What Part 2 shows:**
+- **10 v 10 in parallel cannot see an output change under ~40%.** It sees brain-01-sized moves in decision shares.
+- Crossover is what buys the power.
+- Within-world and whole-world crossover are close on the primary: 18% vs 19%.
+- Within-world is kept because whole-world crossover more often fails the 7-per-sequence coverage rule (n/a on two
+  metrics), and a world outage would remove a fifth of a sequence. Interference is the price of within-world, so
+  whole-world crossover is the fallback design if the A/A shows within-world interference.
+
+**Caveats.**
+- 28 distinct time offsets underlie the 72 h figures, and they overlap.
+- The null is a mature fleet. Fresh bench worlds drift faster ("fresh worlds buy one week"), which is what the A/A and
+  its variance check measure.
+- **These power figures are re-derived on the A/A data before any candidate is read.**
 
 **(d) Promotion through the main lane: a model-env canary, brain-01 style.**
 - **Registration.** `class: model-env`, tier 3, `draw_k: 2`, `canary_env: OLLAMA_MODEL=cand-…` with the 3090 as the
   endpoint. These are the host patches installed on 10-19. The bench is idle during the canary.
 - **Reads.** Gates as brainread's (liveness, fallback, unserved, schema, decision time, mismatch, config, every bot),
-  plus immobiledid. Exposure ≥ 200 canary bot-h. The primary is gathered/bot-h, which goes to the owner.
+  plus immobiledid. Exposure ≥ 200 canary bot-h. The primary is gross gathered/bot-h, which goes to the owner.
 - **Close.** KEEP / REVERT / INCONCLUSIVE is recorded, then the **teardown**, three steps plus the env check:
   1. remove the drop-ins;
   2. clear `canary_pool`;
@@ -779,10 +860,17 @@ Every number is computed from llm rows with the shared reader. 10.0.0.72 was not
 - Option B keeps .16 as a last fallback. It is rejected for the training period, because a fallback would land on the
   training GPU and could only be flagged afterwards.
 
-**When.** In a canary gap, as its own restart.
-- All 80 bots restart, 12 s apart, ~16 min in all.
-- It is not bundled with a promotion, so neither read confounds the other.
-- The next canary's pre-window starts ≥ 90 min after the last restart.
+**When.** In a canary gap, as its own restart. The gap is held by a mechanism, not by timing (Claude r2): the move runs
+under the installer protocol (CLAUDE.md, "Deploys"), because `canary-sched.py` launches the queue head into any empty slot
+every 5 min.
+- **Acquire the gap.**
+  - `flock -n /tmp/mcai-canary.lock` for the whole run, refusing on a declared manifest or any drop-in.
+  - `canary-sched.py install-hold <owner> <minutes>`, which exits 2 unless the slot is free.
+  - The hold runs until the +360 read is recorded **and** the 90-min clean pre-window after the last restart has passed.
+- **Restart.** All 80 bots, 12 s apart, ~16 min in all.
+  - It is not bundled with a promotion, so neither read confounds the other.
+- **Release.** `canary-sched.py install-release` once the +360 read is recorded (or the rollback is complete). It is logged in
+  `~/digest/gate-installs.log` like any install.
 
 **Mechanical exclusion before training starts on .16:**
 - (i) 0 fleet rows on .16 for 24 h;
@@ -796,7 +884,7 @@ a 20-vs-60 DiD.
 |---|---|
 | +60 | every fleet model row served by .72; 0 on .16; 0 model rows with no endpoint |
 | +60 and +360 | fleet p50 ≤ 2.5 s; p95 ≤ 5 s (the existing tripwire); p99 ≤ 10 s; `retry_count > 0` ≤ 3× today's rate (215/day) |
-| +360, reported only | decisions/bot-h and gathered/bot-h, moved 20 vs 60, as a DiD on 6 h windows that skip the first 30 min |
+| +360, reported only | decisions/bot-h and gross gathered/bot-h, moved 20 vs 60, as a DiD on 6 h windows that skip the first 30 min |
 
 **Rollback.**
 - Restore all 80 files from the backup and restart all 80, 12 s apart.
@@ -814,7 +902,7 @@ a 20-vs-60 DiD.
 - **Decision quality may not be what limits output.** The kill rule is operational.
   - If the first two candidates that reach the bench both fail to show the pre-registered benefit, the loop stops at the
     bench. "Fail" means the gathered primary is not significant, or is negative.
-  - What gets recorded: "these candidates did not demonstrate the pre-specified benefit; the bench could detect ≥ 17%".
+  - What gets recorded: "these candidates did not demonstrate the pre-specified benefit; a bench that detects a 20% change with 80% power". If the A/A re-derived a weaker power, that figure is recorded instead.
   - That is not "the model is not the constraint". Weak labels, ineffective training, interference or carryover would look
     the same.
   - The 3090 then returns to being a spare.
@@ -881,11 +969,13 @@ Durations use the slow planning figure (235 tok/s) and are replaced by measureme
    - arms B + C (D/E optional);
    - **answers to the terms questions (i)-(iii)** (s.2.4);
    - a named person for the 200 blind judgments.
-4. **Bench:** VM on pve1 (resources), the 150 h schedule, and gathered/bot-h as the one primary.
+4. **Bench:** VM on pve1 (resources), the 150 h schedule, and gross gathered/bot-h as the one primary.
 5. **NAS share** for training data, about 45 GB a year.
 6. **Kill rule** as written (s.6).
 7. **Fleet promotion of a KEPT model onto 10.0.0.72:** an owner/operator step.
-8. Optional:
+8. **Sandbox fixture (s.4b):** whether restoring and initializing sandbox worlds (spawn, time, difficulty) is acceptable
+   test setup under "do not change the world to fix a bot". If not, rung (b) is dropped.
+9. Optional:
    - log `outcome.value` and a decision id (ES mapping first);
    - whether to spend a bench cycle on attribution (tuned vs untuned Qwen3).
 
@@ -946,13 +1036,15 @@ prompts.
 | `extract_triples.py --day 2026-10-20` | 80 bots in 3 min 4 s, peak 0.84 GB; output `triples-summary-20261020.json` |
 | `label_check.py` | s.1.3-1.4 |
 | `endpoint_load.py 2026-10-20` | s.5.1 |
-| `bench_power.py --days 13` | s.4c; cache `cells-13d.json` |
+| `bench_power.py --days 13` | s.4c; output `bench_power-13d-v3.txt`, cache `cells-13d-v3.json` |
 | system-prompt rebuild | `sp/` (9e7d9980 and adbec4f4 × 4 scopes) |
 
 **10.0.0.61.** It answers ping, but nothing listens on 11434, 1234, 8000 or 8080. Memory `inference-vram-measured` says it
 is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is available today.**
 
-## 10. Round-1 review → where it is answered
+## 10. Reviews → where each finding is answered
+
+**Round 1.**
 
 | finding (engine) | answer |
 |---|---|
@@ -981,3 +1073,23 @@ is the owner's MacBook, not infrastructure. **No 96 GB analysis endpoint is avai
 | ledger vs arm E; Haiku price (Claude P3-8) | s.2.4: 80% rule in ≤ $10 batches; Haiku from the pricing page only |
 | schedule mismatch (Codex P3-19) | s.0, s.7: one dependency-based schedule |
 | draw count; ES 5-row gap (Claude P3-4, P3-7) | printed in the outputs; s.0, s.1.3 |
+
+**Round 2.**
+
+| finding (engine) | answer |
+|---|---|
+| mixed-build cells survive the exclusion (Codex r2 P1-1) | `bench_power.py`: a cell with ANY row on a minority (canary) build is excluded, plus the next window. A promotion is a common change and stays in. Version reader fixed for 7-char shas, with a blind-reader assert |
+| 17% is not power for the registered test (Codex r2 P1-2) | s.4c Part 1: the re-randomization test is simulated under the null (size 3.5-5.4%) and under injected effects; MDE80 20%; CI by test inversion; kill-rule wording now cites the A/A-re-derived power |
+| exclusions break crossover balance (Codex r2 P1-3; Claude r2 P3) | s.4c: the standard 2×2 estimator (cancels a common period effect for any group sizes), usable = 36 bot-h per period, < 7 per sequence = INCONCLUSIVE; imbalance counted (size still holds) |
+| sensitivity checks have no consequence (Codex r2 P2-4) | s.4c: a period-1 sign reversal beyond its null SD, or a sign change across washouts, means INCONCLUSIVE |
+| end-attributed windows can miss long skills (Codex r2 P2-5; Claude r2 P3) | `extract_triples.py`: an end-time index (bisect); longest skill 211 s, inside the 2 h back-read; evidence regenerated from this code |
+| clean count includes ambiguous joins; 8 misses unexplained; t−1 (Codex r2 P2-6) | s.1.1/1.4: only the 70,581 unique exact joins count; misses = 10,127 paused + 303 busy + 5 real (listed); the 5 status-only joins shown false; [t − 1 s, …] documented |
+| human judging has tiny effective samples; NI margin missing (Codex r2 P2-7; Claude r2 P3) | s.2.4: ≥ 100 non-ties and an exact one-sided binomial at p < 0.05; paired NI bounds of ±2 pp for both checks |
+| "net" is gross; conversions count as gains (Codex r2 P2-8; Claude r2 P2-2) | s.0/4c: renamed **gross gathered**; craft, smelt, compost, toolkit, wear_out and well excluded with transfers; underscore names dropped from the set; a net metric is secondary |
+| stagnation reconciliation; MDE approximation statement (Codex r2 P3-9) | s.1.3: exact-kind 5,070 (= ES) vs broad 5,262, both reported; Part 2 is labelled an approximation |
+| runner-refused "failed" labelled bad (Claude r2 P2-1) | s.1.3: label `void` (10,435), never a negative; the pilot pool excludes it (100,990) |
+| 3090 move "canary gap" has no mechanism (Claude r2 P2-3) | s.5.2: flock + `canary-sched.py install-hold`, held through +360 and the 90-min pre-window, then `install-release` |
+| harm margin redundant; A/A on failure; variance check (Claude r2 P3) | s.4c: the margin moves to stagnation (upper bound < +15%); A/A variance check 0.5-2×; failure procedure |
+| ledger vs all-four arms (Claude r2 P3) | s.2.4: B + C fit; all four do not in one month |
+| ES query and hash rebuild not committed (Claude r2 P3) | `es_crosscheck-20261020.txt`, `sp_hash_rebuild.txt` |
+| sandbox fixture not in owner decisions (Claude r2 P3) | s.7 decision 8 |

@@ -1,19 +1,20 @@
 == per label: decisions with an OBSERVED 600 s window (censored, excluded: {})
 good     n=  32726 | items/dec 120s 3.16 (other 1.30) 600s 11.86 (other 9.79) | per 1k decisions followed by: death<=600s 0.0, stagnation<=120s 0, milestone<=120s 295
 neutral  n=   4134 | items/dec 120s 1.65 (other 1.53) 600s 10.68 (other 10.56) | per 1k decisions followed by: death<=600s 25.2, stagnation<=120s 0, milestone<=120s 85
-bad      n= 114689 | items/dec 120s 0.85 (other 0.74) 600s 5.95 (other 5.83) | per 1k decisions followed by: death<=600s 2.6, stagnation<=120s 96, milestone<=120s 69
+bad      n= 104254 | items/dec 120s 0.87 (other 0.74) 600s 5.93 (other 5.80) | per 1k decisions followed by: death<=600s 2.6, stagnation<=120s 100, milestone<=120s 71
+void     n=  10435 | items/dec 120s 0.72 (other 0.72) 600s 6.11 (other 6.11) | per 1k decisions followed by: death<=600s 2.4, stagnation<=120s 53, milestone<=120s 44
 
 == per bot: n=80 bots with > 6 h of decisions, 16 worlds; production from ALL skill rows (independent of the joins)
 items_all/bot-h: median 52.5, p10 1.5, p90 71.7
   rho(good    share, items_all/bot-h) = +0.24  [-0.06, +0.50] world-cluster bootstrap
   rho(success share, items_all/bot-h) = +0.26  [-0.02, +0.50] world-cluster bootstrap
   rho(refused share, items_all/bot-h) = -0.27  [-0.51, +0.01] world-cluster bootstrap
-  rho(bad     share, items_all/bot-h) = -0.25  [-0.51, +0.02] world-cluster bootstrap
-items_gathered/bot-h: median 51.0, p10 1.5, p90 70.5
-  rho(good    share, items_gathered/bot-h) = +0.24  [-0.07, +0.50] world-cluster bootstrap
+  rho(bad     share, items_all/bot-h) = -0.29  [-0.54, -0.01] world-cluster bootstrap
+items_gathered/bot-h: median 49.6, p10 0.1, p90 69.3
+  rho(good    share, items_gathered/bot-h) = +0.24  [-0.06, +0.50] world-cluster bootstrap
   rho(success share, items_gathered/bot-h) = +0.26  [-0.04, +0.51] world-cluster bootstrap
   rho(refused share, items_gathered/bot-h) = -0.27  [-0.53, +0.05] world-cluster bootstrap
-  rho(bad     share, items_gathered/bot-h) = -0.25  [-0.51, +0.04] world-cluster bootstrap
+  rho(bad     share, items_gathered/bot-h) = -0.28  [-0.55, -0.00] world-cluster bootstrap
 
 == join of admitted decisions to their executed skill row, by outcome status
 joined {'success': 35353, 'failed': 24320, 'aborted': 6152, 'unknown': 3247, 'no_effect': 1524}
@@ -23,5 +24,5 @@ missed {'failed': 10435}
 {'board-a': 9056, 'board-b': 8978, 'board-c': 8312, 'board-d': 10956, 'hive-a': 9246, 'hive-b': 9922, 'hive-c': 9339, 'hive-d': 9355, 'isolated-a': 9219, 'isolated-b': 10167, 'isolated-c': 10462, 'isolated-d': 9808, 'placebo-a': 8741, 'placebo-b': 8823, 'placebo-c': 9709, 'placebo-d': 9456}
 == per code version {'9e7d9980': 76558, 'adbec4f4': 59267, 'a52d075e': 7011, '31416ee5': 5226, '78fa19d9': 3487}
 
-== hard decisions (complete prompt, refused or failed/aborted): 111425
-{'gather': 32904, 'explore': 30348, 'goto': 24168, 'deposit': 13074, 'mine': 5111, 'craft': 3111, 'surface': 991, 'place': 476, 'home': 409, 'bucket': 382, 'smelt': 212, None: 82}
+== hard decisions (complete prompt, refused or failed/aborted, void excluded): 100990
+{'gather': 28934, 'explore': 27334, 'goto': 23010, 'deposit': 12984, 'mine': 3792, 'craft': 2783, 'surface': 755, 'place': 415, 'home': 369, 'bucket': 299, 'smelt': 192, None: 82}
