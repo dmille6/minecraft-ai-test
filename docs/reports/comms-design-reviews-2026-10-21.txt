@@ -511,3 +511,53 @@ Codex P3 + Claude P3 control reproducibility           | tools/reach_control.py.
      definition, half-open windows -> 86 total (hive-b only), Echo 13 in [06:00, 06:10), Alpha 9 in [08:25, 08:35)
 Claude P3 candidate DiD is a mechanism check           | §8 #2 says so; deaths stay the tripwire
 Claude P3 offsets per generation                       | §4.3: a snapshot counts only within one ledger generation
+
+=====================================================================================================================
+ROUND 6 on r6 (4f2314fe)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 6 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+VERDICT: CHANGE
+
+- **P2 — §4.3 / §4.7, claim revisions:** Furnace release writes a `.released` marker without advancing the lease generation (`furnacelease.mjs`). Highest-generation ordering therefore cannot distinguish acquisition from release; claims also lack snapshot reconciliation after a missed append. Define within-generation release precedence and source reconciliation. Test reversed acquisition/release arrival and crash-before-release-append.
+
+- **P2 — §4.7 L1:** A correct snapshot can differ from a later host-side read because the source changed. Hash comparison detects that race but cannot establish parity. Retain the exact source revision for independent comparison, or explicitly retry concurrent changes; test mutation between snapshot capture and gate read.
+
+- **P2 — §6.1, takeover:** `spawned` does **not** prove process restart: `index.mjs` reconnects through `connect()` in the same process and emits it again. Require a process-incarnation identifier plus confirmed termination of the delivering incarnation before takeover releases reservations. Test reconnect separately from process restart.
+
+- **P3 — §11:** Replace the stale Echo 16 / Alpha 10 control counts with 13 / 9.
+
+The replay’s stored-count merge/prune ordering, timing correction, JS rounding, judged window, alternative trigger and §0 numerical summary check out. Transfer-record-only recovery, the mine gate, and the committed control address their other round-5 findings.
+
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE ROUND 6 on r6 (4f2314fe) -- VERDICT: APPROVE  (verbatim, condensed formatting)
+---------------------------------------------------------------------------------------------------------------------
+The APPROVE holds; r6 adds no new P1 or P2 and answers my three round-5 P3s. tools/reach_control.py.txt replays the
+sites over time, uses half-open windows and the column definition (within 6 blocks, site y .. site y + 12); it
+reproduces my count: 86, all in hive-b; Echo 13 in [06:00, 06:10); Alpha 9 in [08:25, 08:35). The candidate DiD is
+named a mechanism/exposure check with deaths as the tripwire. "Within one ledger generation" covers rotation; making
+world facts, town memory and the index snapshot-only while deciding consumers read the sources removes the ordering
+question; claims folded by highest lease generation. Uncertain delivery decided only by the attributable transfer
+record, else unknown; takeover only after a newer spawned row, SIGSTOP-tested; the mine gate checks permitted and
+executed cells with a bypassed-guard mutant.
+P3: the 24 h control finds in-column candidates only in hive-b; with an exposure floor of 20 refusals, any draw without
+  hive-b likely closes INCONCLUSIVE -- say so in C3 so the owner expects Paper to carry keepout-01.
+P3: takeover depends on a restart; Restart=always covers crashes, but a hung live process holds the reservation until
+  the operator restarts it -- name that bound.
+
+=====================================================================================================================
+ROUND 6 -> r7: WHERE EACH FINDING IS ANSWERED
+=====================================================================================================================
+Codex P2 claim revisions (furnace .released marker)    | §4.3: claims are snapshot-only like the other mirrors; lease
+     snapshots record each kind's own liveness rule (leaseLive(), the .released marker); claim events are speech-only and
+     never fold into state; reversed-arrival and crash-before-release tests
+Codex P2 L1 race                                       | §4.3/§4.7: the reconciler retains the exact source bytes it read
+     (.src, last 4 windows; journals by offset); L1 re-parses those bytes; fixtures for a mutation between capture and
+     gate read (must pass) and a corrupted snapshot entry (must fail)
+Codex P2 spawned != restart                            | §6.1: a per-process `incarnation` id (pool file
+     incarnation-<bot>.json with pid + heartbeat; not an ES field); delivering records incarnation + pid; takeover needs
+     a different incarnation AND the old pid gone (kill -0, same host, same user); reconnect-vs-restart tests
+Codex P3 stale counts in §11                           | §11 now gives both: 16/10 inclusive (r5), 13/9 half-open (r6)
+Claude P3 C3 expectation                               | C3: expect Paper to carry keepout-01 (only hive-b exposed in 24 h)
+Claude P3 hung-process bound                           | §6.1: named; reservations held over 30 min are reported

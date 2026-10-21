@@ -1,4 +1,4 @@
-# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r6)
+# Bot-to-bot communication in three stages, measured first (2026-10-21, design only, r7)
 
 OWNER 2026-10-21 ~21:10Z: "i would like ... to integrate some kind of communication into our platform where bots are
 sharing information and communicating". Then "yes" to a staged plan:
@@ -418,7 +418,7 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 | `stock` | **townindex-01** (snapshot mirror) | townindex's observation at each open | the server window | as townindex | as townindex (`dirty`, newer observation) | as townindex (`stale` at 6 h) | the foreman's input (later) |
 | `checked` (container C has none of X) | **town memory** (snapshot mirror) | the search that opened C | the server window | as today | a deposit into C (`took`), or an observation of C holding X | 60 min / 2 h (today) | the searches keep reading town memory |
 | `station` (furnace F's input, fuel and output) | **the ledger** | every furnace open (drain, smelt, smelt_town) | the server window | 1 | a later open of F; any load session on F | 60 min, refreshed by each open | furnaceseen-01 |
-| `claim` | **the lease file** (live mirror carrying the lease generation, §4.3): found, monument segment, furnace lease, plinth, tree farm | the project, when it takes or loses its lease | the lease write | the lease protocol decides (CAS, `link()`, `wx`) | `released`, or lease expiry | the lease TTL | stage 2; the foreman; the duplicate-claim gate |
+| `claim` | **the lease file** (snapshot mirror using each lease kind's liveness rule, plus speech-only claim events, §4.3): found, monument segment, furnace lease, plinth, tree farm | the project, when it takes or loses its lease | the lease write | the lease protocol decides (CAS, `link()`, `wx`) | `released`, or lease expiry | the lease TTL | stage 2; the foreman; the duplicate-claim gate |
 | `progress` | **the ledger** | builders, after a server-witnessed placement | placement read-back | 1 | — | display: 24 h | stage 2, captions, the foreman |
 | `discovery` | **the ledger** (E0 keeps its own frontier file) | expedition region scans; a structure seen | world read | 1 for display; 2 different bots before a planner uses it | a later scan of that region | 7 d | E0, expedition targets, stage 2 |
 | `need` (derived) | the fold | — | `stock` + a project's bill of materials | derived | `stock` shows it met | when met, or 2 h | the foreman's SUPPLY role (stage 3a) |
@@ -453,20 +453,28 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
   - a report observed *after* a disproof re-opens the fact (the board's "disputed is not deletion");
   - expiry is per type (table above), from `observed_at` for freshness and from the newest report for shelf life.
 - **Size:** one line is at most 1 KB; anything bigger is refused and counted.
-- **Mirrors, two kinds, so that no ordering between a snapshot and a live mirror entry ever has to be decided:**
-  - **Snapshot-only mirrors: world facts, town memory, townindex.**
-    - No live mirror entries are written for these stores. The mirror's view is exactly the latest *complete* snapshot.
-    - Consumers that decide anything read the source itself: keepout reads world facts, and the searches read town memory
-      and the index. So a mirror up to 30 min stale affects only display and parity.
-  - **Live mirrors carrying the source's revision: claims.**
-    - Every claim entry carries its lease file's generation number.
-    - The fold keeps the highest generation per lease, so order of arrival never matters.
-- **Snapshots** (for the snapshot-only mirrors):
+- **Every mirror is snapshot-only, so no ordering between a snapshot and a live entry ever has to be decided.** That
+  covers world facts, town memory, townindex, **and the lease files behind claims**.
+  - No live mirror state is written. A mirror's view is exactly its latest *complete* snapshot.
+  - Consumers that decide anything read the source itself: keepout reads world facts; the searches read town memory and
+    the index; the projects and the foreman read their lease files. So a mirror up to 30 min stale affects only display
+    and parity.
+  - **Lease snapshots read each source's own liveness rule.** Furnace leases, for example, are released by a `.released`
+    marker without a new generation (`furnacelease.mjs`), so the snapshot records `leaseLive()`'s answer, not a
+    generation number.
+  - **Claim *events*** (taken, released) are still appended when a lease changes, but only for stage 2 to speak from. The
+    fold never builds state from them. Their arrival order, or a lost one, cannot change any claim's state.
+  - **Tests:** an acquisition and a release arriving reversed; a crash before the release event is appended. The next
+    snapshot is right in both, and the state never depended on the events.
+- **Snapshots:**
   - **Who:** one reconciler per town per 30-min window. It claims the window with a `wx` marker
     `ledger-<home>.recon.<window>`; the other bots skip it.
   - **What it writes:** `snapshot_begin {gen, source_revision}`, then one bounded entry per subject (each under 1 KB), then
     `snapshot_end {gen, n}`.
-    - `source_revision` is the source's content hash, plus its byte offset for a journal (townindex).
+    - `source_revision` is the content hash of the exact bytes the reconciler read, plus the byte offset for a journal
+      (townindex).
+    - **Those bytes are retained**, as `ledger-<home>.recon.<window>.src`, for the last 4 windows. Sources are small:
+      world facts is about 40 KB, the containers file about 5 KB, and a journal is retained as its offset only.
   - **How it is read:**
     - a snapshot counts only when its end marker is present with the right count, **within one ledger generation**. A
       snapshot that crosses a rotation, or is interrupted, is incomplete and is redone next window.
@@ -532,13 +540,17 @@ peer-shortened budget of 8. Whether those skips were wrong is not measured; that
 | over the observation cap | the observation is dropped and counted; transitions are never dropped | consumers fall back to their own reads for observations | a cap test with a pending release |
 
 ### 4.7 Read and gates for ledger-01
-- **L1, parity.** Every complete snapshot equals a host-side read of its source.
-  - The gate script reads the source file itself and checks the hash against the snapshot's `source_revision`. It then
-    compares each subject: world facts' sites, including evictions and merged long-lived sites; town memory's misses; and
-    the index's entries.
-  - Claims: the fold's highest generation per lease equals the lease file's head.
-  - A difference names its writer. The fixtures are an eviction, a merged long-lived site, a restart between windows,
-    and an out-of-order claim entry.
+- **L1, parity.** Every complete snapshot equals an independent parse of **the exact source bytes it was taken from**.
+  - The gate script re-parses the retained `.src` copy, checks its hash against `source_revision`, and compares each
+    subject: world facts' sites, including evictions and merged long-lived sites; town memory's misses; the index's
+    entries (re-read from the journal up to the recorded offset); and the leases' liveness.
+  - So a source that changed after the snapshot cannot fail parity, and a wrong snapshot cannot pass it.
+  - A difference names its writer. The fixtures are:
+    - an eviction;
+    - a merged long-lived site;
+    - a restart between windows;
+    - **a mutation between the snapshot's capture and the gate's read**, which must still pass;
+    - a corrupted snapshot entry, which must fail.
 - **L2, integrity.** Unparsed lines other than torn tails: 0. Size refusals: 0. A dropped transition: 0. `_ledger_drop`
   at most 1% of observations.
 - **L3, cost.** Append p95 under 5 ms. Under 2 MB per town per day before rotation. Fold from the checkpoint p95 under
@@ -709,12 +721,21 @@ lines). The probe decides what chatgate-01 is:
     - It does not: link **`unknown`**. Never `delivered`, and never retried automatically.
     - The courier's bag and the container's count are logged as cross-checks only. Items can leave a bag by death,
       disposal or another deposit, and other bots move items in and out of a shared container.
-  - **Takeover only after a restart:** another reader may write `unknown` only once the courier bot has restarted, shown
-    by a `spawned` row newer than the `delivering` generation.
-    - A restart discards every in-memory skill, so the old executor cannot resume a transfer.
+  - **Takeover only after the delivering process has ended.** A `spawned` row is not proof: `index.mjs` reconnects
+    inside the same process and emits it again.
+    - **Incarnation.** Each bot process draws an `incarnation` id once at process start (never on reconnect). It writes
+      the id, its pid and a heartbeat to `/var/lib/mcai/_pool-<pool>/incarnation-<bot>.json`. This is a pool file, not
+      an ES field, because an unmapped field rejects whole documents.
+    - **`delivering`** records the courier's incarnation and pid.
+    - **A takeover needs both:**
+      - the bot's incarnation file names a *different* incarnation;
+      - the recorded pid is no longer running. All bots run on one host as one user, so the reader checks this with
+        `kill -0`.
+    - Only then is the old executor provably gone, and only then may another reader write `unknown`.
     - Staleness alone never permits a takeover. While the courier process lives, its own skill clock ends the delivery
       as `delivered` or `cancelled`.
-    - A unit that never comes back is restarted by the operator, and that restart creates the row.
+    - **The bound:** a hung process that is still alive holds the reservation until the operator restarts it.
+      systemd's `Restart=always` covers crashes, not hangs. The read reports any reservation held over 30 min.
   - **The reservation** is released at `unknown`. The requester's need is recomputed from `stock`, so the index's next
     open decides whether to ask again.
   - **Tests:**
@@ -723,7 +744,8 @@ lines). The probe decides what chatgate-01 is:
     - an intervening inventory change;
     - a courier suspended immediately before the click (SIGSTOP; heartbeat stale; no restart) → no takeover. On resume it
       finishes or cancels under its own lease;
-    - a restart → `unknown` unless the transfer record exists.
+    - **a reconnect in the same process** (same incarnation, a new `spawned` row) → no takeover;
+    - **a process restart** (new incarnation, old pid gone) → `unknown` unless the transfer record exists.
   - **A derived winner that never creates the lease** (it crashed or moved on): the next offer becomes the winner only
     when the first winner's 10-min offer expires. The request's 20-min `until` bounds the whole wait.
 - **No bilateral trade in v1.** A swap is two linked requests with an atomic pairing rule; it is designed separately, if
@@ -832,7 +854,7 @@ and indexsearch-01.
 |---|---|---|---|
 | C1 | Build stage 1 as a substrate (bench payoff today: about 1 bot-h a day from the furnace fact), not a standalone "sharing" canary | **yes** | §2: the cheap sharing exists; the coming projects need claims and needs; talk must come from facts |
 | C2 | ledger-01 as its own tier-2 run, or as a reviewed combined variant with townindex-01 | **combined, if townindex-01's live-tip variant is not yet built** | both observe-only; one slot |
-| C3 | keepout-01 (fire/lava only; triggered by any live fire site) in the underground-safety lane, ahead of expedition-01 and of TALK | **yes, trigger = any live fire site** | hive-b: 6 deaths by 5 bots in 3 days at a shared, priced site. 7 of 52 fire deaths were inside a live fire site; v1 targets the gather share |
+| C3 | keepout-01 (fire/lava only; triggered by any live fire site) in the underground-safety lane, ahead of expedition-01 and of TALK. **Expect Paper to carry it:** the 24 h control found in-column candidates only in hive-b, so a draw without hive-b will likely close early as INCONCLUSIVE | **yes, trigger = any live fire site** | hive-b: 6 deaths by 5 bots in 3 days at a shared, priced site. 7 of 52 fire deaths were inside a live fire site; v1 targets the gather share |
 | C4 | chatgate-01 at tier 2, or an owner-direct exception; the bench whitelist empty; showcase `mike` gets `status` (and `stop`/`resume`?). If the probe shows the `chat` event is dead, whether to fix the listener for whitelisted names (a behaviour change) | **tier 2; `mike`: `status` only** (a stop typed by accident halts all 10 showcase bots; the operator has the units). **Do not fix the listener in chatgate-01**; that would be its own change | today any name commands every bot on that town's server, if the event fires |
 | C5 | TALK on the showcase only; the bench stays quiet | **yes** | talk is for the owner; the bench measures behaviour |
 | C6 | Templates only, or plus an LLM choice among fixed phrasings | **templates first**; the LLM choice later, if wanted | free rewording cannot be verified |
@@ -906,7 +928,8 @@ and indexsearch-01.
   - **Uncertain delivery:** ends as `unknown`, with fenced takeover. In r6, delivery is decided by the transfer record
     only; bag evidence is a cross-check.
   - **keepout primary:** restricted to the observable `_reach_probe hit=` candidates, with a positive control (86 in
-    hive-b; Echo 16, Alpha 10 before their deaths). Mine is covered by Paper and a deterministic gate only.
+    hive-b; Echo 16 and Alpha 10 in r5's inclusive windows, 13 and 9 in r6's reproducible half-open ones, before their
+    deaths). Mine is covered by Paper and a deterministic gate only.
   - **mine:** gets the 10-min cooldown and a sustained test.
   - **`_keepout_exit`:** yields inside a town column during the town job; a failed pillar is `failed`.
   - **Snapshots:** ordered by ledger offset, with delayed-write and tie tests.
@@ -919,4 +942,10 @@ and indexsearch-01.
   - **The mine gate:** checks permitted and executed cells, with a bypassed-guard mutant.
   - **The reach-probe control:** committed as a reproducible tool, with time-varying sites and half-open windows (13 and
     9; only hive-b exposed). The candidate difference-in-differences is named a mechanism check.
-- **Round 6:** pending.
+- **Round 6 (r6): Claude APPROVE (2 P3); Codex CHANGE (3 P2, 1 P3).**
+  - **Claims:** snapshot-only too. Lease snapshots use each source's own liveness rule (the furnace `.released` marker).
+    Claim events are speech-only.
+  - **L1:** compares against the exact retained source bytes.
+  - **Takeover:** needs a new process incarnation *and* the old pid gone; a reconnect is not a restart.
+  - **Also:** C3 says Paper will likely carry keepout-01, and the hung-process bound is named.
+- **Round 7:** pending.
