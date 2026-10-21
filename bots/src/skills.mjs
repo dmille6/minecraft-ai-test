@@ -4177,7 +4177,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
       return { status: 'no_effect', failClass: null, detail: 'nothing banked: the town holds its stock target of what is left -- the chest is not placed (town stock target)' }
     }
     const pr = await placeIntoPlan(ctx, { at: planCell.at, kind: 'chest', role: null, signal })
-    try { logEvent({ kind: 'found_recovery', status: pr.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `cell=${planCell.extra ? 'extra' : 'section'} at=${planCell.at.join(',')} gen=${tpRec?.gen ?? '-'} outcome=${pr.outcome ?? pr.status} ${String(pr.detail ?? '').slice(0, 120)}` }) } catch { /* telemetry */ }
+    try { logEvent({ kind: 'found_recovery', status: pr.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `cell=${planCell.extra ? 'extra' : 'section'} at=${planCell.at.join(',')} gen=${pr.gen ?? tpRec?.gen ?? '-'} outcome=${pr.outcome ?? pr.status} ${String(pr.detail ?? '').slice(0, 120)}` }) } catch { /* telemetry */ }
     if (pr.status === 'success') planPlaced = new Vec3(planCell.at[0], planCell.at[1], planCell.at[2])
     else { planCell = null; pick = pickAt() }
     if (!planPlaced && !pick?.site) {
@@ -6201,7 +6201,7 @@ function placeSites(bot, item = null) {
   return candidates
 }
 
-async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null } = {}) {
+async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null, planTemp = false } = {}) {
   const { bot } = ctx
   // wellcare-01 fix 3: the `_station_well` guard row (a cell refused for the well) -- the read's liveness for this fix
   const wellRow = (action, kind, n = 1, at = null) => { try { logEvent({ kind: 'station_well', status: 'refused', snapshot: snapshot(bot), detail: stationWellDetail({ action, item, kind, at, n, by: by ?? '-' }) }) } catch { /* a row never breaks a place */ } }
@@ -6415,10 +6415,11 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // during the equip, the look or an earlier candidate's attempt is honoured by this one
       { const tgt = ref.position.offset(face.x, face.y, face.z), wk = stationRefusalAt(bot, tgt, { own: wellOwn })
         if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}: step 3+ blocks away from the well and place again`); continue } }
-      // THE PLAN READ AGAIN, LAST (townplan-01; Codex code r1 P2): a SCANNED spot that became a reserved or placed plan cell (or
-      // a stand) during the equip, the look or an earlier candidate's attempt is not taken. Explicit coordinates are the
-      // caller's own decision (placeIntoPlan places into its OWN reservation through them) and are not re-judged here.
-      if (!explicitXYZ && townPlanNow(bot)) {
+      // THE PLAN READ AGAIN, LAST (townplan-01; Codex code r1/r2 P2): a SCANNED spot -- or a builder's TEMPORARY table at its own
+      // explicit coordinates (planTemp: the composter's and the well's) -- that became a reserved or placed plan cell (or a
+      // stand) during the walk, the equip or the look is not taken. placeIntoPlan's explicit coordinates are its OWN reservation
+      // and pass no planTemp.
+      if ((!explicitXYZ || planTemp) && townPlanNow(bot)) {
         const tgt = ref.position.offset(face.x, face.y, face.z)
         try { townPlanHead(bot) } catch { /* the last head serves */ }
         const pc = planCls(tgt)
@@ -7650,11 +7651,11 @@ async function buildComposter (ctx, _args, signal) {
   }
   // place() gets its OWN signal, aborted when the order's is or when the bound runs out, so a timed-out place stops at
   // its next check instead of putting the block down after the order has given up on it.
-  const placeWithin = async args => {
+  const placeWithin = async (args, opts = {}) => {
     const ac = new AbortController()
     const relay = () => ac.abort()
     try { signal?.addEventListener?.('abort', relay, { once: true }) } catch { /* plain-object signal */ }
-    try { return await g.bound(place(ctx, args, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } finally {
+    try { return await g.bound(place(ctx, args, ac.signal, opts), HK_CRAFT_MS, 'place', { controller: ac }) } finally {
       try { signal?.removeEventListener?.('abort', relay) } catch { /* plain-object signal */ }
     }
   }
@@ -7732,7 +7733,7 @@ async function buildComposter (ctx, _args, signal) {
           return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
         }
         let put
-        try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, { planTemp: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('composter_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
       }
@@ -9029,7 +9030,7 @@ async function buildWell (ctx, _args, signal) {
         if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table (table=${tableWhy.why ?? '-'}); carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
-        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal, { wellOwn: site, by: 'build_well' }), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal, { wellOwn: site, by: 'build_well', planTemp: true }), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('well_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
         // THE BAG CATCHES UP BEFORE THE NEXT CRAFT (sandbox 10-05): place() returns on the BLOCK update, and the server's
@@ -14582,7 +14583,11 @@ function planReserve (bot, at, { visit, role = null, group = null, append = null
       c = cellIn(cur, at)
     }
     if (!c || c.state !== 'free' || Number.isFinite(c.seenSince)) return null
+    // an intent SET by this reservation is marked, so a release or an expiry clears only what the reservation set (Claude code
+    // r2 P3: a gone home keeps its intent for its next placement)
+    const sets = (c.role ?? null) === null && (role ?? null) !== null
     Object.assign(c, { state: 'reserved', by: bot.username ?? 'bot', visit, until: tNow + FOUND_LEASE_MS, role: role ?? c.role ?? null, group: group ?? c.group ?? null })
+    if (sets) c.intentSet = true
     return cur
   }, tNow)
   return { ok: r.result === 'accepted', gen: r.gen, why: r.result === 'nothing' ? 'the cell is no longer free' : r.why }
@@ -14609,7 +14614,7 @@ function planPlaced (bot, at, visit) {
   return planPublish(bot, 'placed', cur => {
     const c = cur && cellIn(cur, at)
     if (!c || c.state !== 'reserved' || c.by !== (bot.username ?? 'bot') || c.visit !== visit) return null
-    c.state = 'placed'; delete c.until; delete c.seenSince
+    c.state = 'placed'; delete c.until; delete c.seenSince; delete c.intentSet   // the intent is the cell's now
     return cur
   }, tNow)
 }
@@ -14622,7 +14627,8 @@ function planRelease (bot, at, visit) {
     const by = c.by
     delete c.by; delete c.visit; delete c.until; delete c.seenSince
     c.state = 'free'
-    if (c.role === 'home') { c.role = null; c.group = null }   // a home that was not made: the cell is unassigned again
+    if (c.intentSet) { c.role = null; c.group = null }   // the intent this reservation set goes with it; an older one stays
+    delete c.intentSet
     cur.transitions = [{ at, why: 'released', by, visit }]
     return cur
   }, tNow)
@@ -14678,12 +14684,16 @@ async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal
       } catch { /* the index reads it at the next open */ }
     }
     const pub = planPlaced(bot, at, visit)
-    if (pub.result !== 'accepted') return { status: 'success', outcome: 'placed', at, detail: `placed the ${kind} at ${at.join(',')}; the plan will observe it (${pub.result})` }
+    // the cell exists from the RESERVE's generation on (an appended cluster cell): the read judges the placement against it
+    if (pub.result !== 'accepted') return { status: 'success', outcome: 'placed', at, gen: res.gen, detail: `placed the ${kind} at ${at.join(',')}; the plan will observe it (${pub.result})` }
     return { status: 'success', outcome: 'placed', at, gen: pub.gen, detail: `placed the ${kind} in its plan cell at ${at.join(',')}` }
   } finally {
     if (!placed) { try { planRelease(bot, at, visit) } catch { /* it lapses at its until */ } }
   }
 }
+
+/** place() with its options (the tests: a builder's planTemp late re-check is only reachable through the builders otherwise). */
+export const placeForTest = (ctx, args, signal, opts) => place(ctx, args, signal, opts)
 
 /** found_store / found_work -- the town orders (found.mjs foundOrder; chatOnly, housekeeping). One `_found` row per run, ALWAYS. */
 async function foundStore (ctx, args, signal) { return foundRun(ctx, { ...args, kind: 'chest' }, signal, 'store') }
