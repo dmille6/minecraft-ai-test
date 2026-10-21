@@ -1,0 +1,45 @@
+=== DEATH 10-21 08:35:15 hive-b-Alpha [334.7, 39.1, 154.5] tried to swim in lava after falling 6 blocks; idle at the moment of death | leading up: gather->success, gather->failed, smelt_town->no_effect, mine->success, gather->aborted, gather->success | hp 11->0 over 3s | dropped: oak_log 
+   08:34:57 _death_site_route_crossed no_effect [339.6, 48.2, 150.7]  death:fire x4 at 337,38,154; the planned route passes 338.5,44,153.5 (4 nodes)
+   08:35:04 _death_site_route_crossed no_effect [338.5, 44.8, 153.5]  death:fire x1 at 334,39,154; the planned route passes 338,45,153 (8 nodes)
+   08:35:09 _death_site_route_crossed no_effect [338.5, 45.3, 153.5]  death:fire x1 at 334,39,154; the planned route passes 334,43,154 (5 nodes)
+   08:35:12 _lava_corridor no_effect [334.5, 38, 154.5]  lava_corridor: lava beside at 333,38,154 after 1 samples; the leg is refused
+   08:35:12 _path_noPath success [334.5, 38, 154.5]  noPath after 211 nodes, 38ms
+   08:35:12 _reflex_danger_block success [334.5, 38, 154.5]  lava
+   08:34:45 gather success [334.5, 38, 154.5] {"block": "dirt", "count": 12, "x": 353, "y": 72, "z": 147,  danger_block — but inventory_gain: dirt +2 and cost: health -4, which is what gather is for, so it worked
+   08:35:12 _rule_contradicted failed None  gather:{"block":"dirt","count":12} disproved after 1 recorded failure(s), stood 489m; reporters=hive-b-Delta+hive-b-Echo; CORRECTED BY A BOT THAT NEVER OBSERVED THE FAILU
+   08:35:12 _fall_path no_effect [334.5, 38, 154.5]  candidate damage: fell 8, hp -3; descent 14s ago: path ACTIVE; path 3s old, ended by goal_reached 2s ago (success 5n walk mdd=6 liqdrop=true): max 3, 0>6, water 0, lava 0
+   08:35:14 _reflex_low_health success [334.5, 38, 154.5]  health 6
+   08:35:15 _reflex_danger_block success [334.5, 38, 154.5]  lava
+   08:35:15 _fall_path failed [334.7, 39.1, 154.5]  death (fire): fell 6; descent 3s ago: path none; path 7s old, ended by goal_reached 5s ago (success 5n walk mdd=6 liqdrop=true): max 3, 0>6, water 0, lava 0, unk 0 [3a@33
+   08:35:15 _death_site_recorded success [334.7, 39.1, 154.5]  death:fire x5 at 337,38,154 (after a 6-block fall; 6 sites on file)
+   08:35:15 _death failed [334.7, 39.1, 154.5]  tried to swim in lava after falling 6 blocks; idle at the moment of death | leading up: gather->success, gather->failed, smelt_town->no_effect, mine->success, gather->abo
+=== DEATH 10-21 06:58:43 hive-b-Bravo [334.6, 38.1, 154.5] tried to swim in lava after falling 8 blocks; idle at the moment of death | leading up: smelt_town->no_effect, furnace_drain->no_effect, gather->success, craft->success, explore->failed, explore->aborted | hp 14->0 over 2s | dropp
+   06:58:39 _explore_blind_step_refused no_effect [334.5, 43.9, 154.5]  blind_step: lava below at 334,38,154: the fallback walk is refused
+   06:58:40 _path_noPath success [334.5, 38.4, 154.5]  noPath after 187 nodes, 37ms
+   06:58:40 _explore_blind_step_refused no_effect [334.5, 38.4, 154.5]  blind_step: lava beside at 335,38,154: the fallback walk is refused
+   06:58:40 _explore_blind_step_refused no_effect [334.5, 38.4, 154.5]  blind_step: lava beside at 334,38,154: the fallback walk is refused
+   06:58:40 _explore_blind_step_refused no_effect [334.5, 38.4, 154.5]  blind_step: lava beside at 334,38,154: the fallback walk is refused
+   06:58:40 _explore_blind_step_refused no_effect [334.5, 38.4, 154.5]  blind_step: lava beside at 334,38,154: the fallback walk is refused
+   06:58:40 _reflex_danger_block success [334.5, 38, 154.5]  lava
+   06:58:35 explore aborted [334.5, 38, 154.5] {"blocks": 60} danger_block
+   06:58:40 _fall_path no_effect [334.5, 38, 154.5]  candidate damage: fell 9, hp -4; descent: path unknown; path 153s old, ended by goal_reached 152s ago (success 2n walk mdd=6 liqdrop=true): max 2, 0>6, water 0, lava 0, u
+   06:58:41 _reflex_low_health success [334.5, 38, 154.5]  health 8
+   06:58:42 _reflex_danger_block success [334.5, 38, 154.5]  lava
+   06:58:43 _fall_path failed [334.6, 38.1, 154.5]  death (fire): fell 8; descent: path unknown; path 155s old, ended by goal_reached 155s ago (success 2n walk mdd=6 liqdrop=true): max 2, 0>6, water 0, lava 0, unk 0 [2a@33
+   06:58:43 _death_site_recorded success [334.6, 38.1, 154.5]  death:fire x4 at 337,38,154 (after a 8-block fall; 6 sites on file)
+   06:58:43 _death failed [334.6, 38.1, 154.5]  tried to swim in lava after falling 8 blocks; idle at the moment of death | leading up: smelt_town->no_effect, furnace_drain->no_effect, gather->success, craft->success, 
+=== DEATH 10-21 06:10:30 hive-b-Echo [333.9, 38.8, 154.3] tried to swim in lava; idle at the moment of death | leading up: gather->success, gather->failed, gather->success, goto->failed, gather->success, gather->success | hp 15->0 over 3s | dropped: bamboo x81, cobblestone x66, oak_log x
+   06:09:45 _death_site_route_crossed no_effect [335.7, 43, 154.5]  death:fire x3 at 337,38,154; the planned route passes 335,44,154 (1 nodes)
+   06:09:50 _lava_corridor no_effect [335.7, 43, 154.5]  lava_corridor: lava below at 336,38,154 after 6 samples; the leg is refused
+   06:09:51 _death_site_route_crossed no_effect [336.5, 43, 155.2]  death:fire x3 at 337,38,154; the planned route passes 335.5,43,154.5 (1 nodes)
+   06:09:43 gather success [335.5, 43, 154.5] {"block": "dirt", "count": 8, "x": 353, "y": 72, "z": 147} collected 1/8 dirt; dirt found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect threw nothing -- it returned without gathering]
+   06:09:52 _rule_contradicted failed None  gather:{"block":"dirt","count":8} disproved after 239 recorded failure(s), stood 711m; reporters=hive-b-Alpha+hive-b-Bravo+hive-b-Comet+hive-b-Delta+hive-b-Echo; self-cor
+   06:10:25 _path_noPath success [335.4, 43, 154.5]  noPath after 148 nodes, 32ms
+   06:10:25 _lava_corridor no_effect [335.4, 43, 154.5]  lava_corridor: lava below at 334,38,154 after 1 samples; the leg is refused
+   06:10:27 _reflex_danger_block success [334.5, 38, 154.5]  lava
+   06:10:23 gather success [334.5, 38, 154.5] {"block": "dirt", "count": 8, "x": 353, "y": 72, "z": 147, " danger_block — but inventory_gain: dirt +2 and cost: health -4, which is what gather is for, so it worked
+   06:10:27 _rule_contradicted failed None  gather:{"block":"dirt","count":8} disproved after 238 recorded failure(s), stood 712m; reporters=hive-b-Alpha+hive-b-Bravo+hive-b-Comet+hive-b-Delta+hive-b-Echo; self-cor
+   06:10:29 _reflex_low_health success [334.5, 38, 154.5]  health 6
+   06:10:29 _reflex_danger_block success [334.5, 38, 154.5]  lava
+   06:10:30 _death_site_recorded success [333.9, 38.8, 154.3]  death:fire x1 at 334,39,154 (6 sites on file)
+   06:10:30 _death failed [333.9, 38.8, 154.3]  tried to swim in lava; idle at the moment of death | leading up: gather->success, gather->failed, gather->success, goto->failed, gather->success, gather->success | hp 15-

@@ -1,0 +1,55 @@
+# comms design 2026-10-21 r2: deaths at a death site already on file, REPLAYING production semantics (worldfacts.mjs
+# reportDeath + deathsites.mjs effectiveCount): merge into a same-class site within 3 blocks / 3 y of its kept centre,
+# +4 weight per death, one halving per 12 h since max(last, decayedAt), live while the weight >= 1; priced/covered when
+# within 6 blocks / 6 y of a live centre of ANY class. 2-day warm-up, then 7 judged days. Ignores the 120-site cap
+# (shared with hazards; several towns sit at 111-120), so "on file" is an UPPER bound. Read-only.
+import sys, os, json, math, collections, glob, random, bisect, datetime as dt
+sys.path.insert(0, os.path.expanduser('~/estel/scripts'))
+from lib.estelemetry import EsEvents
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd']
+H = 3600; DECAY = 12 * H
+ev = EsEvents.load(stream='skill', since_minutes=9 * 1440, pools=POOLS)
+print('caveats:', *ev.caveats, sep='\n  ')
+rows = list(ev.rows(kind='_death', fields=['@timestamp', 'bot.name', 'bot.pos', 'exp.pool', 'skill.fail_class']))
+def ts(s): return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+D = sorted(({'t': ts(r['@timestamp']), 'bot': r['bot']['name'], 'pool': r['exp']['pool'], 'p': (r['bot']['pos']['x'], r['bot']['pos']['y'], r['bot']['pos']['z']),
+             'fc': (r.get('skill') or {}).get('fail_class') or 'unknown'} for r in rows if (r.get('bot') or {}).get('pos')), key=lambda d: d['t'])
+print('_death rows', len(rows), 'with position', len(D))
+def eff(s, now):
+    ref = max(s['last'], s.get('dec', 0)); per = int((now - ref) // DECAY) if now > ref else 0
+    return s['count'] // (2 ** per)
+def decay_apply(s, now):
+    ref = max(s['last'], s.get('dec', 0)); per = int((now - ref) // DECAY) if now > ref else 0
+    if per > 0: s['count'] //= 2 ** per; s['dec'] = ref + per * DECAY
+sites = collections.defaultdict(list)
+t_judge = D[0]['t'] + 2 * 86400
+res = collections.Counter(); conf = collections.Counter(); ex = []
+for d in D:
+    S = sites[d['pool']]
+    for s in S: decay_apply(s, d['t'])
+    live = [s for s in S if s['count'] >= 1]
+    cover = [s for s in live if math.hypot(s['x'] - d['p'][0], s['z'] - d['p'][2]) <= 6 and abs(s['y'] - d['p'][1]) <= 6]
+    if d['t'] >= t_judge:
+        if not cover: res['no_live_site'] += 1
+        elif any(set(s['by']) - {d['bot']} for s in cover): res['site_with_another_bots_death'] += 1
+        else: res['site_from_own_deaths_only'] += 1
+        lavaconf = [s for s in cover if s['fc'] == 'fire' and s['deaths'] >= 2 and len(set(s['by'])) >= 2]
+        if lavaconf: conf['inside_confirmed_fire_site'] += 1; ex.append(d)
+        conf['judged'] += 1
+        conf[('class', d['fc'])] += 1
+    m = next((s for s in S if s['fc'] == d['fc'] and math.hypot(s['x'] - d['p'][0], s['z'] - d['p'][2]) <= 3 and abs(s['y'] - d['p'][1]) <= 3 and s['count'] >= 1), None)
+    if m: m['count'] += 4; m['deaths'] += 1; m['last'] = d['t']; m['by'].append(d['bot'])
+    else: S.append({'fc': d['fc'], 'x': round(d['p'][0]), 'y': round(d['p'][1]), 'z': round(d['p'][2]), 'count': 4, 'deaths': 1, 'last': d['t'], 'by': [d['bot']]})
+print(f'judged deaths (7 d after a 2-day warm-up): {conf["judged"]}', dict(res))
+print('  of which inside a CONFIRMED fire site (>=2 deaths by >=2 bots, live):', conf['inside_confirmed_fire_site'],
+      [f"{dt.datetime.fromtimestamp(d['t'], dt.timezone.utc):%m-%d %H:%M} {d['bot']}" for d in ex])
+print('  classes judged:', {k[1]: v for k, v in conf.items() if isinstance(k, tuple)})
+# reconcile with the 24 h file extract
+F = os.path.expanduser('~/commsdesign-1021/out')
+fd = []; lo = 1e20; hi = 0
+for f in sorted(glob.glob(F + '/*.jsonl')):
+    for l in open(f):
+        r = json.loads(l); lo = min(lo, r['t']); hi = max(hi, r['t'])
+        if r['k'] == '_death': fd.append((round(r['t']), r['bot']))
+esd = [(round(d['t']), d['bot']) for d in D if lo <= d['t'] <= hi]
+print(f'reconcile: file deaths {len(fd)}, ES deaths in the same window {len(esd)}; in file not ES {len(set(fd) - set(esd))}; in ES not file {len(set(esd) - set(fd))}')

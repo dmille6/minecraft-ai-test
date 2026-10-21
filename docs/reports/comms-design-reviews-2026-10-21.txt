@@ -45,3 +45,123 @@ town-plan-2026-10-20.md (townindex, siting file CAS); expansion-plan-2026-10-19.
 showcase-2026-10-20.md; learning-loop-design-2026-10-21.md (model bench). Memory notes: board-arm-never-used,
 hive-store-accumulates-everything, owner-comms-1021.
 
+=====================================================================================================================
+ROUND 1 on r1 (7b07c3b6)
+=====================================================================================================================
+---------------------------------------------------------------------------------------------------------------------
+CODEX ROUND 1 -- codex exec --sandbox read-only (verbatim final answer)
+---------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------
+CLAUDE (independent subagent) ROUND 1 on r1 (7b07c3b6) -- VERDICT: CHANGE  (verbatim)
+---------------------------------------------------------------------------------------------------------------------
+The data work is careful. I re-ran checks on 10.0.0.31 under nice, read-only, and nothing was written. Your code facts
+hold: commands.mjs takes commands from any name; death weight 4 halves every 12 h, so a site lasts 36 h; the
+town-memory miss times are 60 min and 2 h; the cobble journal uses '\n'+json+'\n', wx seals and checkpoints; all 12
+towns are at the 200-sighting cap. Three things need fixing first: the central rule is not applied to a store that
+shares reachability failures today, keepout-01's opportunity is overstated about 2x and its mechanism is unproven, and
+a keep-out on drowning sites breaks an owner constraint.
+
+P1-1 §0.3, §1, §4.2, C7: the central rule is broken by a live store it describes but does not deal with.
+  cognitive.mjs:1480 writes milestone give-ups to world-facts `unreachable` and announces them over [fleet] chat.
+  milestones.mjs:950 then cuts a peer's budget from 25 attempts to 8 (unreachableBy), and comms.mjs ingests
+  [fleet] ... unreachable from peers. It is live in every town (1-5 unreachable ids with several reporters). C7 calls
+  these "hazard lines" and recommends keeping them unchanged. Fix: a retirement step measured on behaviour, or name it
+  as an exception and test it with §2.4's method on milestone give-ups; list it under "NOT a type"; say whether
+  ledger-01 dual-writes it.
+P1-2 §0.2, §2.3, §4.5, C3: keepout-01 is sized and justified wrongly. The confirmed rule covers only 4 of the 9 deaths
+  (Comet 09:42, Echo, Bravo, Alpha, all one hive-b pool): ~0.75/day, not 1.7. The mechanism is not destination choice:
+  Bravo and Alpha died after 8- and 6-block falls into the lava just after reaching a path goal; Echo was idle.
+  deathsites.mjs documents that drop-down landings into a disc are not priced. Fix: pull goal and fall-origin
+  positions; scope the fix to drop-down landings / the column above, or show the goals were inside; restate C3.
+P1-3 §4.2 confirmed_hazard includes drowning, breaking "water is terrain" (the hive-c pair would wall off water).
+  Fix: v1 lava/fire only; exclude fall/other (no disproof read defined).
+P2-4 §4.7 L1 fails by construction: MAX_SITES=120 slice(-120) shared by hazards and deaths (placebo-a 120, board-b,
+  placebo-d 118, board-a 116) evicts death sites; merged deaths outlive 36 h. Fix: mimic cap and merge, or compare to
+  an uncapped reference.
+P2-5 §8: keepout-01 does not need ledger-01 (world facts carry deaths and by). Put keepout before talk-01.
+P2-6 §4.6, §8: keepout-01 bundles two variables (destination refusal and climb filter): split or justify. Exposure:
+  hive-b's site expires ~10-24 08:35, before weeks 2-4 -- plan for an unexposed run; Paper as main evidence.
+P2-7 §4.6 mine row: "walk N blocks away" is advisory (262 printed remedies never acted on). Make the walk-off
+  deterministic inside mine; gate on repeat refusals at the same spot.
+P2-8 Missing dead-end rows: town chest/furnace/home/respawn inside a confirmed disc; a gather whose every candidate is
+  inside one; stage 3 deliver_to full -> cancel: no_room -> baseline.
+P2-9 §8 tiers: ledger-01 and chatgate-01 owner-direct are not constants (tier 1 = a constant). Present as explicit
+  owner exceptions; recommend the canary path for ledger-01.
+P2-10 §5.6 talk-01: a bench tier-2 canary spends a slot on something that changes no decision, and promoting it would
+  switch talk on across the bench (contradicts C5). Fix: TALK flag default off, prove never-parse on Paper, enable on
+  the showcase only.
+P2-11 §4.4 rate caps: never drop terminal transitions (released, disproved, cancel, deliver, expire); cap observations
+  only.
+P2-12 §5.3 trust: offline auth / online-mode=false + whitelist -- a name list is not authentication (say it rests on LAN
+  + whitelist). comms.mjs accepts any name with the same hyphen count (a player "a-b-c" can inject hazards and
+  unreachable claims). Ingestion is unused: 0 "peer reported hazard" / "peer gave up" lines in 24 h on 4 bots and 7 d on
+  hive-b-Bravo -- retire chat ingestion inside chatgate-01. The never-parse test passes trivially once the speaker is
+  not whitelisted: run it with the speaker whitelisted, on reworded lines too, and kill a mutant. Any ledger field that
+  reaches a prompt must be an enum, registry name or number (REQUEST reason, cancel reasons, the future brain verb).
+P2-13 §4.1 principle 5 vs §6.1: deliver_to is a destination from a peer. Restrict to containers inside the courier's own
+  town and state the exception (opt-in through its own deterministic OFFER).
+P2-14 §4.2 stock duplicates townindex-01's index: pick one authority; the ledger mirrors it.
+P2-15 §2.7: stop/resume/help create no skill row -- add the journal check (0 "chat command" lines on 4 bots in 24 h vs
+  279 "INFO reflex" lines).
+P3-16 "killed 6 bots" -> "6 deaths by 5 bots"; §2.3 prior column blank for Echo, Bravo, Alpha.
+P3-17 "every one of 15,028 explore runs steered at a sighting": join per run or soften.
+P3-18 §2.2 smelt overlap less futile may be selection: say "plausibly parallel".
+P3-19 §2.4 cite gather_sens.out.
+P3-20 distance tests: t is start, p is end position; note it.
+P3-21 §0.5 "in earshot": chat is not distance-limited; each pool has its own server.
+P3-22 §4.3 fold orders by observed_at; checkpoints store state before expiry.
+P3-23 §2.1 the 2.55 bot-h includes copper repeats that are partly search progress; the death control's 5 deaths is
+  small n.
+P3-24 §6.3 offers will be ~empty: add an exposure gate (offers > 0) or early INCONCLUSIVE.
+
+=====================================================================================================================
+ROUND 1 -> r2: WHERE EACH FINDING IS ANSWERED
+=====================================================================================================================
+Codex P1 trust (comms.mjs free text, forged peers, unreachable ingestion) | §5.3 chatgate-01 retires ingestion, enum
+     prompt kinds, Paper tests with forged peers; §1 identity paragraph; principle 6; milestone path -> unreach-01 (C11)
+Codex P1 dropped invalidations / refresh                  | §4.4: transitions never dropped; observations coalesced with a
+     10-min durable refresh; §4.3 bootstrap + 30-min reconciliation; tests empty->load, claim->release, restart
+Codex P1 disproof semantics                               | §4.2: death = immutable event; hazard inferred; confirmed =
+     fire/lava with 2 deaths by 2 bots; lava disproof needs every disc cell loaded; others expiry-only; sighting "gone"
+     dropped (merged 24-block region cannot be covered)
+Codex P1 keep-out remedies not composed                   | §4.6: deterministic walk-off inside gather/mine; body-inside
+     exemption; Paper chain list (hive-b chain, overlapping discs, no safe bearing, climb vs entombment)
+Codex P1 peer-failure conclusion overstated               | v2.py: completion-time availability, pre-action positions,
+     dy band, no row cutoff, per-block strata, radius sweep; sightings: complete follow-up, latest peer episode, dy;
+     §2.4 limits paragraph ("strong evidence, not proof for every block")
+Codex P1 death sites != production                        | deaths_v2.py replays merge/decay with a 2-day warm-up; cap
+     ignored and named (upper bound); 33 = 33 reconciled row for row; "100x" dropped; confirmed 4 of 169
+Codex P1 owner-direct misclassified                       | §8: chatgate-01, ledger-01 tier 2 registrations; owner-direct
+     only as an explicit exception (C4); combined townindex variant must be newly reviewed (C2)
+Codex P1 stage 3 does not enforce peers-inform            | §6.1 state machine, writers, wx award lease, reserved
+     quantities, fresh courier re-check, own-town deliver_to, townindex transfer as proof, no trades v1; §6.4 rows
+Codex P2 repeat/duplication headlines                     | v2 [R] nearest vs any, deposit-only refills, labelled proxy;
+     [O] complete sweep; "none" -> measured overlap rates; leases "likely, not proven"
+Codex P2 controls matched / heading join                  | v2 [N] [P] town-matched controls on completion snapshots;
+     [X] per-run join (15,028 of 15,028)
+Codex P2 chat gates pass for the wrong reason             | journal check (data/chatcheck.txt); valid unauthorized
+     commands + runner-cancel assertion + authorized positive control + mutants; exposure >= 50 _say rows; C4 on mike
+Codex P2 cooperation gates                                | §6.3: all randomized town-hours, fixed horizon; S0-S3; bench
+     requester-side only (3/2 within-world interference); pre-registered estimator
+Codex P2 rewording validator                              | §5.1: LLM may only choose among slot-preserving phrasings;
+     free rewording not offered; filter on final text
+Codex P2 board adapter                                    | §4.3 typed adoptRule/disproofRule adapter, ordering rules
+Codex P3 BlueMap                                          | §5.2 verify on the pinned jar (config markers / CLI update
+     path); no web-root fallback claimed
+Claude P1-1 milestone unreachable                         | data/milestone_skips.txt (347 of 374 attempt skips at budget
+     8); §0.3, §1, §2.4, C11, unreach-01
+Claude P1-2 keepout sizing + mechanism                    | §2.3: 4 confirmed of 169; data/hiveb_chain.out (digs above the
+     pool, falls 6-9 blocks); keepout-01 = dig/gather candidates in the column; drop pricing a separate variant
+Claude P1-3 drowning                                      | fire/lava only
+Claude P2-4..15                                           | L1 replays cap + merge; keepout off the ledger and first;
+     split variables + unexposed-run plan; deterministic walk-off + repeat gate; new dead-end rows; tiers; TALK off
+     with no slot; transitions never dropped; trust (LAN + whitelist, ingestion retired, whitelisted-speaker test,
+     mutants, enum fields); deliver_to own-town; stock mirrors townindex; journal check
+Claude P3-16..24                                          | all applied (wording, prior column, per-run join, plausibly
+     parallel, gather_sens cited, timing rule paragraph, "every bot on that town's server", fold ordering, proxy label,
+     offers exposure gate)
+
+Data found while answering round 1:
+  - comms.mjs peer ingestion is NOT working: hive-a's Paper log carries 17 [fleet] lines from 4 peers today; 0
+    ingestion lines in 12 journals in 24 h (data/chatcheck.txt). Cause not diagnosed (possibly the 'chat' event for
+    "[Not Secure] <name>" lines). Retired by chatgate-01 rather than fixed: it is redundant with the file on one host.
