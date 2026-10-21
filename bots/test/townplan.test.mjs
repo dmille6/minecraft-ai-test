@@ -286,6 +286,12 @@ await t('GROWTH: every section cell placed -> up to 4 EXTRA annex cells appended
   const g = T.growPlan(p, world({ cells }), {})
   assert.equal(g.op, 'extend'); const extra = g.body.plots.find(x => x.id === 'store').cells.filter(c => c.extra)
   assert.ok(extra.length >= 1 && extra.length <= 4)
+  // never side by side, with each other or with a store chest (Codex code r1 P2: the annex's table cell beside its first chest)
+  const all = g.body.plots.find(x => x.id === 'store').cells
+  const side = (a, b) => a.at[1] === b.at[1] && Math.abs(a.at[0] - b.at[0]) + Math.abs(a.at[2] - b.at[2]) === 1
+  for (const e of extra) assert.ok(!all.some(o => o !== e && side(o, e)), `extra ${e.at} shares a side`)
+  // READY's whole context reaches growth (Claude code r1 P2): a cellForbid that refuses every chest cell -> no extension
+  assert.equal(T.growPlan(p, world({ cells }), { cellForbid: () => 'well' }), null)
   const p2 = basePlan()
   const water = {}
   for (const c of p2.plots.find(x => x.id === 'store').cells) water[`${c.at[0]},69,${c.at[2]}`] = 'water'
@@ -302,6 +308,10 @@ await t('AUDIT (Claude spec r6 P2): a chest under leaves is not `lid`, under sto
   cells[st.at.join(',')] = 'cobblestone'
   const au = T.auditPlan(p, world({ cells }), { home: HOME })
   assert.equal(au.placed, 2); assert.equal(au.present, 2); assert.equal(au.lid, 1); assert.equal(au.occupied, 1)
+  // the same block on a cell the fit wrote ready:false (terrain it already knew) is not `occupied` (Claude code r1 P2)
+  st.ready = false
+  assert.equal(T.auditPlan(p, world({ cells }), { home: HOME }).occupied, 0)
+  delete st.ready
   // wall the second chest in: unreachable
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) for (const dy of [0, 1]) cells[`${b.at[0] + dx},${b.at[1] + dy},${b.at[2] + dz}`] ??= 'stone'
   assert.equal(T.auditPlan(p, world({ cells }), { home: HOME }).unreachable, 1)

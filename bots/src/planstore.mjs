@@ -34,7 +34,7 @@ export const OBSERVE_MS = 10 * 60_000
 /** A writer's compare-and-swap tries per visit (design 4.1 / section 8 P4). */
 export const PUBLISH_TRIES = 3
 /** A walk reads at most this many bytes of plan files (a plan is a few KB; a flood of files fails closed: no head). */
-export const PLAN_MAX_READ_BYTES = 32 * 1024 * 1024
+export const PLAN_MAX_READ_BYTES = 64 * 1024 * 1024   // spec 1.2 (Claude code r1 P3: was 32 MB)
 
 export const CELL_STATES = Object.freeze(['free', 'reserved', 'placed'])
 export const MODES = Object.freeze(['greenfield', 'retrofit'])
@@ -125,7 +125,9 @@ function markRefusal (c, n, next, k) {
     if (c.state === 'reserved' && !(Number(next.at) > Number(c.until) + EXPIRE_MARGIN_MS) && next.by !== c.by) return `${mark} on live reservation ${k} by a non-holder`
   }
   const target = n.state ?? c.state
-  if (n.seenSince != null && target === 'placed' && c.state === 'placed') return `seenSince on placed ${k}`
+  // a placed cell never carries seenSince -- also not on the step that places it (Claude code r1 P3: kept through the adoption,
+  // the mark froze the plan: every later writer was refused)
+  if (n.seenSince != null && target === 'placed') return `seenSince on placed ${k}`
   if (n.missingSince != null && target !== 'placed') return `missingSince on ${target} ${k}`
   return null
 }
@@ -230,13 +232,17 @@ export function transitionRefusal (prev, next) {
     // free
     if (t) return `transition on free ${k}`
     if (n.state === 'reserved' && (n.by !== next.by || !(Number(n.until) > Number(next.at)))) return `reservation ${k} not by the writer`
-    // free -> placed is an OBSERVATION: two reads of its kind OBSERVE_MS apart (seenSince in prev)
+    // a reservation may SET an intent on a cell with none, never change one (Codex code r1 P2)
+    if (n.state === 'reserved' && !intentKept(c, n)) return `reservation of ${k} changed its intent`
+    // free -> placed is an OBSERVATION: two reads of its kind OBSERVE_MS apart (seenSince in prev), the cell's intent kept
+    // exactly ("an adoption keeps the cell's intent; a cell with none stays role: null": spec 1.2; Claude/Codex code r1 P2)
     if (n.state === 'placed' && !observed(c, 'seenSince')) return `free ${k} placed without two reads ${OBSERVE_MS / 60000} min apart`
+    if (n.state === 'placed' && !sameIntent(c, n)) return `adoption of ${k} changed its intent`
   }
   // new cells (an uncommitted re-fit, a new plot) may not arrive already reserved by someone else
   for (const [k, { cell: n }] of after) {
     if (before.has(k)) continue
-    if (n.state === 'reserved' && n.by !== next.by) return `new cell ${k} reserved by another`
+    if (n.state === 'reserved' && (n.by !== next.by || !(Number(n.until) > Number(next.at)))) return `new cell ${k} reserved by another (or already expired)`
     if (n.state === 'placed') return `new cell ${k} arrives placed`
     if (n.seenSince != null || n.missingSince != null) return `new cell ${k} arrives marked`
   }
