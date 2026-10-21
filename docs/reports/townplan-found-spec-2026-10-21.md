@@ -1,11 +1,12 @@
-# townplan-01 and found-01: the build specification (2026-10-21, r3)
+# townplan-01 and found-01: the build specification (2026-10-21, r4)
 
 Pieces 3 and 4 of the town plan (`docs/reports/town-plan-2026-10-20.md`, both engines APPROVE r9; OWNER 10-20 "yes, lets do
 this"; OWNER 10-21: first pieces next in the lane, signs as labels, the bench storehouse = the sorted chest cluster, no
 stray-table pickup, "no rush, lets do it the right way"). This note CONFIRMS that design and REFINES it to the level the code
 needs. The approved behaviour stands unless a row of section 6 says what changed and why. Section numbers `§x` are the
-design's. r2 took round 1 (Codex CHANGE 6 P1 / 10 P2; Claude CHANGE 2 P1 / 10 P2 / 4 P3); r3 takes round 2 (Codex CHANGE
-5 P1 / 7 P2; Claude CHANGE 1 P1 / 4 P2 / 6 P3). Section 6 has every disposition.
+design's. r2 took round 1 (Codex CHANGE 6 P1 / 10 P2; Claude CHANGE 2 P1 / 10 P2 / 4 P3); r3 took round 2 (Codex CHANGE
+5 P1 / 7 P2; Claude CHANGE 1 P1 / 4 P2 / 6 P3); r4 takes round 3 (Codex CHANGE 3 P1 / 2 P2; Claude CHANGE 3 P2 / 2 P3).
+Section 6 has every disposition.
 
 Base: the expected stack at their turn is indexsearch-01's tip (townindex-01 + indexsearch-01 re-varianted on the fleet's
 34d3e5e9 / ironpick-01 2d410985). That re-variant was not on origin when this was built, so the build base is a LOCAL stack:
@@ -37,8 +38,16 @@ Isolated memory scope: off (O8).
   N exists), then the directory is fsync'd. Never rewritten, never pruned.
 - **No on-disk checkpoint** (Codex r2 P2: a hash proves a file's bytes, not its membership in the accepted chain). Instead each
   process keeps the result of its OWN last full walk (head, accepted set, the file list it walked) and continues from it while
-  the listing only grew above its last number; anything else (a number at or below it that it had not seen) re-walks from the
-  root. A fresh process walks once from the root (generations are a few KB; the walk is bounded at 32 MB and fails closed).
+  the listing only grew above its last number; anything else -- a number at or below it that it had not seen, or ANY number it
+  walked that is gone from the listing (a hand cleanup, a reseed: Claude r3 P2) -- re-walks from the root. A fresh process
+  walks once from the root.
+- **Growth and the cap** (Claude r3 P2): a generation is 3-8 KB. Writes happen only on change: a found order writes about 3
+  (reserve, place; a renewal only past half the TTL), an observation 2 (the mark, the adoption), an allocation or adoption 1;
+  audits and ticks without a change write nothing. Expected: a bench town 2-10 a day (its two stations, allocations, drain
+  adoptions), a greenfield town 20-60 a day in its first week then a few. The walk is bounded at 64 MB (fails closed: no plan,
+  adopters as the base): ~8,000+ generations, i.e. years on the bench and many months for a greenfield town. The read alarms
+  at 25% (16 MB) per town. Compaction is a named follow-up (an epoch successor key whose root copies the head, with a cut
+  protocol that rejects a cut a later epoch-N write overtook), not built in v1.
 
 **The acceptance walk** (file contents only, never the clock):
 1. List the generations ascending; a file of another `world` is ABSENT (skipped, not rejected).
@@ -58,13 +67,18 @@ Isolated memory scope: off (O8).
   (below); or `free` with a `transitions[]` entry for that cell: `{ at, why: 'released', by, visit }` by the holder, or
   `{ at, why: 'expired' }` with `next.at > until + 60 s`. A placement keeps the reservation's intent (role, group).
 - **Observations take two reads 10 min apart** (Codex/Claude r2 P1: craft puts its own table down for seconds and takes it
-  back; a one-read adoption made a station `placed` for ever with nothing there):
-  - a cell that reads its kind and is not the plan's yet gets `seenSince: t` (a generation); `free` -> `placed`, or `reserved`
-    -> `placed` after `until + 60 s`, only in a generation with `at >= seenSince + 10 min`, and only by a writer that read it
-    again then. A read of anything else clears `seenSince`.
-  - a `placed` cell that reads empty gets `missingSince: t`; `placed` -> `free` (`{ at, why: 'gone' }`) only with
-    `at >= missingSince + 10 min` and a second empty read; a read of its kind clears `missingSince`. A gone cell keeps its
-    role/group intent (the next placement restores it).
+  back; a one-read adoption made a station `placed` for ever with nothing there). The marks are validator rules (Claude r3 P2):
+  - `seenSince` (a free cell, or a reserved one past `until + 60 s`, reads its kind) and `missingSince` (a placed cell reads
+    empty) are SET only to the writing generation's own `at` (never backdated), never changed while set, and CLEARED only by a
+    definite contrary read (an unknown read never clears); on a reserved cell before `until + 60 s` only its holder may touch
+    either mark;
+  - `free` -> `placed`, or `reserved` -> `placed` by a non-holder after `until + 60 s`, only when the PREVIOUS generation already
+    carries `seenSince` and `next.at >= prev.seenSince + 10 min`; `placed` -> `free` (`{ at, why: 'gone' }`) only from a previous
+    `missingSince` the same way;
+  - a cell carrying `seenSince` is PINNED like a committed one (Codex r3 P1): no re-fit, flex drop or move may remove or shift
+    it while the observation is pending;
+  - an adoption keeps the cell's intent (role/group, e.g. a gone overflow cell's); a cell with none stays `role: null` (Codex
+    r3 P2). A gone cell keeps its intent for the next placement.
 - `free` -> `reserved` only by `next.by`, with `until > next.at`. `transitions[]` is per generation, one per cell.
 - A `role`/`group` set on a placed cell changes only from null (an unassigned container may be given a home later).
 - Retrofit groups: `status` never goes back from `allocated`; a container in `homes[g]` stays in it.
@@ -172,9 +186,10 @@ preferences.
 **The planner tick** (index.mjs, every 30 s while the bot is in `inTown` and its world id is known; one publish at most):
 - no plan -> fit and publish a root (fitting is SUSPENDED while zones are unknown, 1.7);
 - a plan -> the first maintenance step that applies, in order: (c) a reservation past `until + 60 s`: its cell reads its kind
-  -> `seenSince` (then `placed` 10 min later on a second read), reads anything else -> `free` + `expired`, unknown -> nothing;
-  (d) a free cell that reads its kind -> `seenSince` (then `placed`, `role` null, 10 min later); a placed cell that reads empty
-  -> `missingSince` (then `gone` 10 min later); (a) retrofit `waiting` -> allocate; (b) retrofit: a new container -> drain; an
+  -> `seenSince` (then `placed`, with the reservation's intent, 10 min later on a second read), reads anything else -> `free` +
+  `expired`, unknown -> nothing; (d) a free cell that reads its kind -> `seenSince` (then `placed`, keeping its intent, 10 min
+  later); a marked cell that reads anything else -> the mark cleared; a placed cell that reads empty -> `missingSince` (then
+  `gone` 10 min later); unknown reads never change a mark; a pending mark never blocks the other steps; (a) retrofit `waiting` -> allocate; (b) retrofit: a new container -> drain; an
   unassigned placed container (`role` null) or the emptiest observed drain container -> the home of a pending group; (e)
   greenfield: every section cell placed or unready and fewer than 4 `extra` cells -> append annex cells (READY, off keep-outs,
   joint access) as `extra`; an `unplaced` store -> re-fit at the frozen `s`/orientation around what is committed; at most once
@@ -183,13 +198,17 @@ preferences.
 
 ### 1.6 The adopters (§4.6) -- keep-outs are HARD or SOFT
 
-`keepouts(plan)` (Codex r2 P1, Claude r2 P2: SOFT-last protected only the next placement, not the storehouse's future):
-- HARD (never a block there, any adopter): every plan cell (container or station, any state); every reserved or placed cell's
-  stand (feet and head); and the WHOLE box + 1 of every committed plot (its walls, door, interior and access stay free: the
-  storehouse cannot move once a chest is in it).
-- SOFT (tried last): the box + 1 of an UNCOMMITTED keep-out plot, annex cells' surroundings + 1, and path segments. An adopter
-  searches EVERY candidate outside the soft area -- across all its anchors and fallbacks -- before it accepts a soft cell. A
-  soft cell taken makes that plot's fit fail its next check, and tick (f) re-fits it while nothing is committed.
+`keepouts(plan)` -- THREE TIERS, searched in order by every adopter across ALL its anchors and fallbacks (Codex r2 P1, Claude r2
+P2: SOFT-last protected only the next placement; Codex r3 P1: a hard committed box must not remove the base's only remedy):
+- OUTSIDE: every cell not in the two tiers below. Searched first.
+- SOFT (second): the box + 1 of an UNCOMMITTED keep-out plot, annex surroundings + 1, path segments. A soft cell taken makes
+  that plot's fit fail its next check; tick (f) re-fits it while nothing is committed.
+- BOX (third, last): the box + 1 of a COMMITTED plot, except its plan cells and stands. Taken only when nothing outside or soft
+  is valid; the plot then records `building: obstructed:<n>` for storehouse-01. The base's availability is kept everywhere
+  except:
+- NEVER (hard): every plan cell (container or station, any state) and every reserved or placed cell's stand (feet and head):
+  at most ~25 cells + their heads per town. A `no_site` (recovery, well, plinth) whose every refused candidate was a NEVER cell
+  is counted `keepout=hard_only` (1.9) and named as P10.
 
 | adopter | change | rollback |
 |---|---|---|
@@ -197,7 +216,7 @@ preferences.
 | well siting, natural (`canonicalWellSite` in `townWellSite`'s COMPUTE only) | a NEW cap whose footprint (cap +-2) meets a hard cell is refused; soft last; the plan's well sector first. Never in `refuse` (the re-check of a recorded or built site) | TOWNPLAN=off |
 | well siting, RAISED (`planPlinthSteps` for a NEW plinth plan) | the plan's hard cells and committed plot boxes join `keepOut` (shell, opens and stair cells); soft boxes and paths in a first pass, dropped in a second; the planned chest cells join `avoid` (WELL_HOME_CLEARANCE) for that call only. An existing plinth record is never re-judged | TOWNPLAN=off |
 | composter siting (`canonicalComposterSite` compute) | `farm.composter` first when it passes the composter's own rules; hard refused, soft last | TOWNPLAN=off |
-| TEMPORARY station placements: craft's table (`place(ctx, { item: 'crafting_table' })` with no cell), the composter builder's table (`tableCellFor`), build_well's table (`wellTableCell`) | never on a plan cell or a reserved/placed stand (a narrow refusal: their own spot search goes on to the next cell, so no new needs_station) | TOWNPLAN=off |
+| TEMPORARY station placements: craft's table (`place(ctx, { item: 'crafting_table' })` with no cell: `placeSites`, 24 cells around the bot), the composter builder's table (`tableCellFor`), build_well's table (`wellTableCell`) | two tiers (Codex r3 P1, Claude r3 P2: a refusal must not become `needs_station`): non-plan cells first; then a FREE, unreserved, unmarked plan cell (the table is retaken; the two-read rule keeps it from being adopted, and a stray one is either the right station kind -- adopted legitimately -- or makes that cell unready). NEVER a reserved cell, a placed cell, a marked (seenSince) cell or a reserved/placed stand. Plan skips are counted like `wellSkip`, which also turns off place()'s make-room dig of a town cell; `needs_station` then arises only where the base's would, or where every spot is a NEVER cell (P9) | TOWNPLAN=off |
 | sapling planting (`plantableSpotNear`) | never a hard or soft cell (planting is optional; in greenfield the core box + 1 is soft, so bots plant away from the plaza: an intended change, counted in the read) | TOWNPLAN=off |
 
 The tree farm, the town floor and structureguard are not in the build; the plan reads the tree farm's record as occupied, and
@@ -232,13 +251,15 @@ their own adoption lands with them.
   (a placed container whose lid cell is solid; a placed cell no stand of which the walk reaches) with the first names.
 - The adopters' rows (`_deposit_new_chest`, well and plinth site rows, `_composter_site`) add `keepout=<class> gen=<N>`: the
   class at decision time under the generation in force, so a claim is judged against that generation, not a later one.
-- The read (`scripts/host/townplanread.py`, `--selftest` seeding a defect for every gate): per canary town the plan files
-  re-walked by a Python port of the acceptance rules. Exposure: an accepted plan in every canary town AND >= 1 accepted
+- The read (`scripts/host/townplanread.py`, `--selftest` seeding a defect for every gate, including a backdated mark and an
+  early mark on a reserved cell): per canary town the plan files re-walked by a Python port of the acceptance rules (the mark
+  rules included); plan bytes per town printed and alarmed at 16 MB. Exposure: an accepted plan in every canary town AND >= 1 accepted
   generation after a root. Defects (REVERT): an accepted generation the port rejects; any `result=invalid` row; a recovery
   claim, a new well or plinth site, or a composter site on a HARD cell of the generation recorded in its row; a plan cell in a
   zone or avoid box; a root's cells `occupied` in its first audit (the design's "0 plan cells on structure or furniture").
   No-harm (WATCH, DiD): deposit and town_deposit success, recovery `no_site`, well `no_site` and re-sites, plinth lost,
-  planting in town; deaths by the default gate. Every line prints its denominator; an unexposed line says so (never `ok`).
+  planting in town, `keepout=hard_only` no_site; deaths by the default gate. Every line prints its denominator; an unexposed line
+  says so (never `ok`).
 
 ### 1.10 Dead ends (§8; the rows this piece can create)
 
@@ -252,7 +273,8 @@ their own adoption lands with them.
 | P6 | the recovery's rings meet keep-outs | the next free store cell first (greenfield); then every anchor and the annex scan outside soft; then soft | a cell, or the base's own `no_site` refusal ("keep working and deposit later") when only hard cells remain anywhere in the town circle |
 | P7 | zones unknown at spawn | fitting and founding suspended; the accepted plan's keep-outs serve | every other order as today; the next good read resumes |
 | P8 | a bench town with an unknown container | `groups: waiting` | count_town visits it; the next tick allocates |
-| P9 | a temporary table's spot search meets plan cells | the next spot | craft as today |
+| P9 | a temporary table's spot search meets plan cells | non-plan cells, then free plan cells | craft as today; `needs_station` only where every one of the 24 spots is a NEVER cell |
+| P10 | (named, measured) every candidate of a recovery, well or plinth search is a NEVER cell | the base's own `no_site` refusal ("keep working and deposit later" / the well's hold) | as the base; counted `keepout=hard_only` in the read's no_site DiD |
 
 ---
 
@@ -281,11 +303,14 @@ home that went unused) is a FREE container; a homeless group takes it (tick (b))
 | `found_work` F3b | station 0 placed; station 1 (furnace) free and READY; the station rule can be met (for a furnace) | as F1, for the furnace |
 | `found_store` F3 | greenfield: a free READY store cell; no free (unassigned placed) container; the bag holds a stack EITHER deposit path would bank (`townDepositPlan`'s banked stacks or `depositPlan`'s, each with its own keeps) whose group has no home; a chest carried, or the craft fits. Retrofit: groups `allocated`; the same bag test; NO free container, no drain container, no overflow | greenfield: the next free cell in fill order, intent `role: 'home', group: g`. Retrofit (cluster): the recovery's own siting (`pickChestSite` anchored at the cluster's nearest home container, the keep-outs, the recovery's claim ledger and budget: 4 a day, 12 standing), appended to the cluster as `role: 'home', group: g` |
 
-**The found slot -- one decision** (Codex/Claude r2 P2), evaluated once per decision in this order in cognitive.mjs:
+**The found slot -- one decision** (Codex/Claude r2 P2, Codex/Claude r3), evaluated once per decision in this order in
+cognitive.mjs:
 1. the raised-well order (unchanged, first);
-2. **the found slot**: the first eligible of F1, F2, F3b, F3 -- EXCEPT when the bag is at TRIGGER_SLOTS (34) or more and a town
-   container has room, when only an F3 that places a CARRIED chest (or whose craft fits the bag's room plan) may go ahead of
-   the deposit; F1/F2/F3b then wait for the next decision after the deposit (F2 cannot be eligible with a container anyway);
+2. **the found slot**: the first eligible of F1, F2, F3b, F3 -- EXCEPT when the town deposit WOULD ISSUE NOW (its own
+   `townDepositOrder`, asked dry: bag at 34+, cooldown, latch and backoff as it decides them), when only an F3 that places a
+   CARRIED chest may go ahead of it (the deposit then banks into the new home); F1/F2/F3b and a crafting F3 wait for the next
+   decision. When the deposit would NOT issue (keeps, cooldown, backoff), founding runs ROOM-SAFE: a craft only when it fits
+   the bag's room plan (craftroom's own rule), a carried station or chest always;
 3. the town deposit; 4. the recount (its displacement exemption includes `found_*`); 5. everything else as today.
 
 The found lease: ONE per town (the furnace-lease file shape: `townplan-<home>.found-lease.g<N>.json`, `wx`, 4 min TTL, renewed
@@ -344,7 +369,7 @@ Every "keeps working" claim names a productive row that must succeed; every "usa
 | TP-RETRO | townplan | a bench-like town: a platform, 12 chests (one double), tables and furnaces, a raised well beside the free strip | `waiting` then `allocated` after the bot's counts; a strip off every container's stand and >= 3 from the cap; every container still opened by the bot; a `dispose_well` afterwards succeeds (the stand and stair still usable) |
 | TP-CAS | townplan | two bots arriving together; a stale writer (restart with an old head) | one root; later generations in order; the stale write rejected and rebased |
 | TP-ZONES | townplan | a zones file covering one orientation's pad; mid-run a malformed file; a restart with the malformed file | that orientation never chosen; mid-run: the last good list kept; after the restart: no fitting and no founding until the file is good |
-| TP-TEMP | townplan | a bot crafting beside a free station 0 while another bot's tick runs | craft's temporary table never on the station cell; no station `placed` without a table there |
+| TP-TEMP | townplan | a bot crafting beside a free station 0 while another bot's tick runs; a bot standing in the storehouse interior with every middle cell a placed chest's stand | craft's temporary table on a non-plan cell (or a free plan cell when nothing else), never on a NEVER cell; the craft succeeds; no station `placed` without a table there |
 | FOUND-FLAT | found | flat arena; 3 bots with chests, a spare table, a spare furnace | the first container in the overflow cell; group homes in cells as their stacks arrive; table and furnace in stations 0/1; 0 containers outside plots; 0 lid-blocked; bag deltas = placements |
 | FOUND-BARE | found | the same arena with a few trees and a stone patch; bags EMPTY | the bots gather; a table in station 0 (the giver keeps one); a chest crafted and placed in the overflow cell; a furnace crafted at station 0 into station 1 |
 | FOUND-HOUR1 | found | bags as at hour 1 of a fresh world: 16 logs, 20 cobblestone, 1 crafting table | founding from these (the founding floor), not after 64; the giver still crafts a wooden and a stone pickaxe afterwards |
@@ -353,7 +378,8 @@ Every "keeps working" claim names a productive row that must succeed; every "usa
 | FOUND-NONE | found | home on a water-surrounded pillar | `found:no_site`, no placement, a named work row succeeds |
 | FOUND-KILL | found | SIGKILL during the craft; between `reserved` and `placed`; between the placement and its publication | no duplicate container; no stuck reservation; the placement observed with its intent (role) after `until + 60 s` and 10 min |
 | FOUND-RETRO | found | TP-RETRO's town; bots carrying tables and furnaces | nothing removed (every pre-existing block still there); table and furnace in the strip's stations; the giver still holds a table and crafts a stone pickaxe afterwards |
-| FOUND-SOFT | found | greenfield, every store cell placed and full, the rings around them hard | the recovery's chest lands outside the plan (or soft), never hard; every placed cell still reachable afterwards; no new `no_site` |
+| FOUND-SOFT | found | greenfield, every store cell placed and full, the rings around them hard | the recovery's chest lands outside the plan (or soft, or the committed box), never on a NEVER cell; every placed cell still reachable afterwards; no new `no_site` |
+| FOUND-BOX | found | (base control and candidate) a town where the ONLY valid recovery cell is inside the committed storehouse box | the base places there; the candidate places there too (BOX tier), records `building: obstructed`, never a NEVER cell |
 | FOUND-PLINTH | found | greenfield, a plinth-first well whose cheapest candidate meets the committed storehouse | the plinth planned elsewhere; the storehouse box untouched |
 
 Unit and behaviour tests (anchored mutants on every guard): `bots/test/townplan.test.mjs` (READY, the furniture and well rules,
@@ -441,3 +467,15 @@ townplan-01, found-01, sortdeposit-01 (shas when they are kept). With the waiver
 | Claude P3 planting near home | stated as intended; counted (1.6, 1.9) |
 | Claude P3 the floor and the rung's wants | floor = max(founding floor, the rung's wants) (2.1) |
 | Claude P3 the retrofit well path end | omitted when its end is <= 7 (1.4) |
+
+### Round 3
+
+| finding | disposition |
+|---|---|
+| Codex P1 / Claude P3 HARD can add dead ends | three tiers: outside, SOFT, BOX (a committed box, except cells and stands); NEVER only plan cells and stands; P10 named and measured (`keepout=hard_only`); FOUND-BOX with a base control (1.6, 1.10, 3) |
+| Codex P1 / Claude P2 a temporary-table refusal can become needs_station | two tiers (non-plan, then free unmarked plan cells); plan skips counted like wellSkip (no make-room dig); NEVER only reserved/placed/marked cells and stands; TP-TEMP's interior case (1.6) |
+| Codex P1 a pending observation can be re-fitted away | a `seenSince` cell is pinned like a committed one (1.2) |
+| Claude P2 how the marks may be written | set only to the writer's own `at`, never changed while set, cleared only by a definite contrary read, the holder's alone on a live reservation; mutants for a backdated and an early mark (1.2, 1.9) |
+| Codex P2 re-adoption loses intent | an adoption keeps the cell's intent (1.2, 1.5) |
+| Codex P2 / Claude P3 "a container has room" | the deposit's own dry decision; room-safe founding when it would not issue; CHAIN tests at 34/35/36 slots (2.1, 3) |
+| Claude P2 a deleted file; the 32 MB cliff | any walked number gone -> a full re-walk; growth stated, the cap 64 MB, the read's 16 MB alarm, compaction a named follow-up (1.2) |
