@@ -176,6 +176,23 @@ export function foundOrder ({ plan = null, zonesKnown = true, items = [], wanted
   return { order: { skill: c.skill, args: { ...c.args, step: c.step }, why: c.why }, skip: null }
 }
 
+/**
+ * A HOMELESS GROUP TAKES AN UNASSIGNED CONTAINER FIRST (build spec 2.1 F3; Claude/Codex code r1 P2: in greenfield nothing else
+ * ever gives a recovery-placed `role: null` chest a group, and F3 waits for no unassigned container -- so without this the town
+ * would never found a group home again). -> { at, group } | null. Pure. Greenfield sections only (retrofit: maintainPlan's (b)).
+ * The bag's first bankable group with no home takes the first unassigned PLACED store cell (role null -> home: a placed cell's
+ * role may be set once from null, planstore's rule).
+ */
+export function foundAssign ({ plan = null, bankGroups = [] } = {}) {
+  if (!FOUND.on || !plan || plan.mode !== 'greenfield') return null
+  const st = storeOf(plan)
+  if (!st || st.kind === 'cluster' || st.kind === 'unplaced') return null
+  const { homes, unassigned } = storeHomes(plan)
+  const c = unassigned.find(x => (x.role ?? null) === null)
+  const g = (bankGroups ?? []).find(x => x && !homes.has(x))
+  return c && g ? { at: [...c.at], group: g } : null
+}
+
 /** The per-bot found state after an order was ISSUED (the cooldown and the visit are charged at issue). Pure. */
 export const foundIssued = (state = {}, now = 0) => ({ ...state, lastAt: now, visitUsed: true })
 /** A visit ends when the bot leaves the town circle; a new one starts on its return. Pure. */
@@ -191,16 +208,23 @@ function leaseGens (dir, key) {
   const re = LEASE_RE(key)
   return names.map(n => re.exec(n)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
 }
+/** IS THE LEASE LIVE? Pure. A TORN record (a kill inside the write, a zero-length file after a power loss: Claude code r1 P2)
+ *  is live only until it is older than any lease could be -- furnacelease.mjs leaseLive's rule -- never for ever. */
+export function foundLeaseLive ({ rec = null, released = false, mtimeMs = 0, now = Date.now(), ttl = FOUND_LEASE_MS } = {}) {
+  if (released) return false
+  if (!rec) return now - mtimeMs < ttl
+  return now < Number(rec.until ?? 0)
+}
 /** The current lease -> { gen, rec, live } | null. Never throws (an unreadable directory reads as BUSY: never two founders). */
 export function foundLeaseState (dir, key, now = Date.now()) {
   try {
     const g = leaseGens(dir, key).at(-1)
     if (g == null) return null
-    let rec = null
+    let rec = null, mtimeMs = now
+    try { mtimeMs = fs.statSync(leaseFile(dir, key, g)).mtimeMs } catch { /* vanished: read as just written */ }
     try { rec = JSON.parse(fs.readFileSync(leaseFile(dir, key, g), 'utf8')) } catch { rec = null }
     const released = fs.existsSync(`${leaseFile(dir, key, g)}.released`)
-    const live = !released && (rec ? now < Number(rec.until ?? 0) : true)
-    return { gen: g, rec, live }
+    return { gen: g, rec, live: foundLeaseLive({ rec, released, mtimeMs, now }) }
   } catch { return { gen: null, rec: null, live: true } }
 }
 /** Take the lease -> { ok, gen } | { ok: false, why }. Exactly one taker per generation (`wx`), and a later generation wins. */
