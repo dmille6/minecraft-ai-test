@@ -162,7 +162,8 @@ t('WIRED: no driver reads the lock by hand any more; every lock-checking driver 
   assert.deepEqual(byHand, [], 'a driver still cats the global owner file itself (it would ignore per-server locks)')
   const wired = drivers.filter(f => /\bsbx\.requireSandboxLock\(SERVER, /.test(code(f)))
   // 13 from sandbox58 + homefix-e2e, homefix2-e2e and drown/hf2-ab (homefix-02's drivers) + keepout/keepout-e2e (keepout-01's), moved onto the shared check at merge
-  assert.equal(wired.length, 17, `expected the 17 lock-checking drivers, saw ${wired.map(f => path.basename(f))}`)
+  // + poolescape/poolescape-e2e (poolescape-01's, written on the shared check from the start)
+  assert.equal(wired.length, 18, `expected the 18 lock-checking drivers, saw ${wired.map(f => path.basename(f))}`)
   for (const f of wired) assert.match(code(f), /require\('\.\.\/lib\/sbxlock\.cjs'\)|from '\.\.\/lib\/sbxlock\.cjs'/, `${path.basename(f)} never imports sbx`)
 })
 t("sbxlock.sh's own name list is the registry's", () => {
