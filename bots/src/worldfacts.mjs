@@ -61,17 +61,41 @@ export const WF_LOCK_CRITICAL_MS = 12_000
 export const WF_LOCK_STALE_MS = 10_000
 const WF_LOCK_BUSY = Symbol('world-facts lock busy')
 const WF_LOCK_LOST = Symbol('world-facts lock lost at the commit')
-/** A lock this old is abandoned whatever its pid says (the pid-reuse backstop): no live holder keeps it for seconds. */
-export const WF_LOCK_ABANDONED_MS = 120_000
 let lockSeq = 0
+/** A lock (or break-lock) with no readable token is a holder that died between create and write after this long. */
+export const WF_LOCK_EMPTY_MS = WF_LOCK_STALE_MS
+/** A break-lock's holder that died inside its few-microsecond critical section: cleaned after this long. */
+export const WF_BREAK_STALE_MS = 60_000
+const newToken = now => `${process.pid}.${++lockSeq}.${now}`
+/** Is this pid alive on this host? (EPERM: alive, another user's.) */
+export function pidAlive (pid) { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } }
+/** Was this pid's CURRENT process started after `ms` (the pid was reused)? Linux /proc; elsewhere: unknown -> false. */
+export function pidStartedAfter (pid, ms) { try { return fs.statSync(`/proc/${pid}`).ctimeMs > ms + 1000 } catch { return false } }
 /**
- * ONE TRY AT THE POOL LOCK -> a token (ours), or null (held: wait), or { enoent } / { error } (cannot be created). Pure but
- * for the file system. A STALE lock (older than WF_LOCK_STALE_MS: a killed holder) is taken over by RENAMING it aside, which
- * only one of several competing breakers can do (the others see ENOENT and wait); the moved file is deleted only if it is
- * still stale, so a lock that went fresh in between is put back (Codex r3 P1).
+ * IS THE HOLDER OF THIS TOKEN DEAD? Pure over the probes. Every bot of a pool runs on ONE host as the same user's systemd
+ * units with no PID namespace of their own (comms design 1; mcbot@.service) -- if that ever changes, this test calls live
+ * holders dead (Claude r5 P3-3). Dead = no such pid, or the pid now belongs to a process started after the lock was taken
+ * (reuse). A token-less lock (a holder killed between create and write) is dead after WF_LOCK_EMPTY_MS. NEVER BY AGE ALONE:
+ * a live holder paused for any length of time keeps its lock (Codex r5 P2) -- the pool's writes wait or are skipped, never
+ * interleaved.
  */
-export function tryLock (lock, now = Date.now(), alive = pidAlive) {
-  const token = `${process.pid}.${++lockSeq}.${now}`
+export function holderDead (token, lockMtimeMs, now = Date.now(), { alive = pidAlive, startedAfter = pidStartedAfter } = {}) {
+  const pid = Number(String(token ?? '').split('.')[0])
+  if (!Number.isInteger(pid) || pid <= 0) return now - lockMtimeMs > WF_LOCK_EMPTY_MS
+  if (!alive(pid)) return true
+  return startedAfter(pid, lockMtimeMs)
+}
+const readToken = f => { try { return fs.readFileSync(f, 'utf8') } catch { return null } }
+/**
+ * ONE TRY AT THE POOL LOCK -> a token (ours), or null (held: wait), or { enoent } / { error } (cannot be created).
+ * A DEAD holder's lock is removed under a BREAK-LOCK (Codex r5 P1): one breaker at a time takes `<lock>.break` (O_EXCL),
+ * RE-READS the lock and unlinks it only if it still holds the very token judged dead. No rename, no put-back: while the
+ * break-lock is held nobody else can remove the lock, and nobody can create one while the dead one exists, so the unlink
+ * removes exactly the dead holder's lock. A breaker that lost the break-lock race simply waits. A break-lock left by a
+ * breaker killed inside those few microseconds is cleaned once its own holder is dead and it is WF_BREAK_STALE_MS old.
+ */
+export function tryLock (lock, now = Date.now(), probes = {}) {
+  const token = newToken(now)
   try {
     const fd = fs.openSync(lock, 'wx')
     try { fs.writeSync(fd, token) } finally { fs.closeSync(fd) }
@@ -80,32 +104,30 @@ export function tryLock (lock, now = Date.now(), alive = pidAlive) {
     if (e.code === 'ENOENT') return { enoent: true }
     if (e.code !== 'EEXIST') return { error: e.code }
   }
-  // A LIVE HOLDER IS NEVER BROKEN (Codex r4 P1-2). Every bot of a pool runs on ONE host (comms design 1: "No world's bots span
-  // hosts"), so the holder's pid answers whether it died: only a lock whose pid is gone -- or a lock older than
-  // WF_LOCK_ABANDONED_MS, the pid-reuse backstop no live holder reaches (its critical section is a few ms) -- is taken over.
-  // Without breaking a live holder, the commit and release races (a holder pausing between its ownership read and its
-  // rename / unlink) cannot happen: nobody else can own the lock while it is alive.
   try {
+    const held = readToken(lock)
     const st = fs.statSync(lock)
-    const held = (() => { try { return fs.readFileSync(lock, 'utf8') } catch { return '' } })()
-    const pid = Number(String(held).split('.')[0])
-    const dead = Number.isInteger(pid) && pid > 0 && !alive(pid)
-    if (dead || now - st.mtimeMs > WF_LOCK_ABANDONED_MS) {
-      // TAKEN OVER BY A RENAME ASIDE, then verified: the moved file must still be the dead holder's (same token). Another
-      // breaker that got there first leaves us nothing to move (ENOENT) or a NEW owner's lock, which is put back by link()
-      // -- and if the path was taken meanwhile, that owner's commit check fails and its write RETRIES (#withLock), so a
-      // lost lock costs a retry, never a write.
-      const aside = `${lock}.stale.${token}`
-      fs.renameSync(lock, aside)
-      const moved = (() => { try { return fs.readFileSync(aside, 'utf8') } catch { return null } })()
-      if (moved === held) fs.unlinkSync(aside)
-      else { try { fs.linkSync(aside, lock) } catch { /* the path is taken: that owner retries */ } try { fs.unlinkSync(aside) } catch { /* gone */ } }
-    }
-  } catch { /* raced with the holder or another breaker */ }
+    if (held != null && holderDead(held, st.mtimeMs, now, probes)) breakDead(lock, held, now, probes)
+  } catch { /* the holder released it meanwhile */ }
   return null
 }
-/** Is this pid alive on this host? (EPERM: alive, another user's.) */
-export function pidAlive (pid) { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } }
+/** Remove `lock` iff it still holds `dead`, under the break-lock. Exported for the race tests. */
+export function breakDead (lock, dead, now = Date.now(), probes = {}) {
+  const brk = `${lock}.break`, mine = newToken(now)
+  try {
+    const fd = fs.openSync(brk, 'wx')
+    try { fs.writeSync(fd, mine) } finally { fs.closeSync(fd) }
+  } catch (e) {
+    if (e.code === 'EEXIST') {
+      try { const bt = readToken(brk), bs = fs.statSync(brk); if (now - bs.mtimeMs > WF_BREAK_STALE_MS && holderDead(bt, bs.mtimeMs, now, probes)) fs.unlinkSync(brk) } catch { /* gone */ }
+    }
+    return false
+  }
+  try {
+    if (readToken(lock) === dead) { fs.unlinkSync(lock); return true }
+    return false
+  } finally { if (readToken(brk) === mine) { try { fs.unlinkSync(brk) } catch { /* gone */ } } }
+}
 /** Is the lock still ours? */
 export function lockOwned (lock, token) { try { return fs.readFileSync(lock, 'utf8') === token } catch { return false } }
 /** Release the lock only if it is still ours (a broken-and-retaken lock belongs to someone else now). */
@@ -149,7 +171,7 @@ export class WorldFacts {
    * one difference that matters (Codex r2 P1): contention is NEVER permission to write unlocked. A ROUTINE write (a sighting,
    * a hazard, a give-up, a dispute -- each repeats or is safe to lose) waits WF_LOCK_ROUTINE_MS and is then SKIPPED. A
    * CRITICAL write (a death: one event, never repeated) waits up to WF_LOCK_CRITICAL_MS; the critical section itself is a few
-   * ms, and a dead holder's lock is taken over at once (tryLock: by its pid, not its age -- Codex r4). A lock that cannot be created
+   * ms, and a dead holder's lock is removed at once (tryLock / breakDead: by its pid, never its age -- Codex r4/r5). A lock that cannot be created
    * for a reason other than contention (the pool directory missing) gets the directory made and is tried again; one that
    * cannot be created at all (permissions) SKIPS the write, loudly (Codex r3 P1: never unlocked).
    * OWNERSHIP (Codex r3 P1): the lock holds a token; it is released only by its owner (unlockIfOwned), and the write's rename
