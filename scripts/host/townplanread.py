@@ -657,6 +657,29 @@ def selftest():
     assert transition_refusal(g8, g9) == 'adoption changed its intent', transition_refusal(g8, g9)
     c9.update(role='overflow', group=None)
     assert transition_refusal(g8, g9) is None, transition_refusal(g8, g9)
+    # the port's MARKER rules (JS parity, code r4): a reservation setting an intent carries intentSet; its release clears it; an
+    # older intent survives a release; a toggle is refused
+    r0 = json.loads(b1); r0.update(gen=1)
+    r1n = json.loads(b1); r1n.update(gen=2, prev=1, at=5000); c1n = r1n['plots'][0]['cells'][0]
+    c1n.update(state='reserved', by='A', visit='va', until=900000)          # the overflow cell already HAS an intent: no marker
+    assert transition_refusal(r0, r1n) is None, transition_refusal(r0, r1n)
+    c1n['intentSet'] = True
+    assert transition_refusal(r0, r1n) == 'intentSet on the reservation without an intent set'
+    q0 = json.loads(b1); q0['plots'][0]['cells'][0].update(role=None)
+    q1 = json.loads(json.dumps(q0)); q1.update(gen=2, prev=1, at=5000); qc = q1['plots'][0]['cells'][0]
+    qc.update(state='reserved', by='A', visit='va', until=900000, role='home', group='metal')
+    assert transition_refusal(q0, q1) == 'intentSet on the reservation missing'
+    qc['intentSet'] = True
+    assert transition_refusal(q0, q1) is None
+    q2 = json.loads(json.dumps(q1)); q2.update(gen=3, prev=2, at=6000, by='A'); q2c = q2['plots'][0]['cells'][0]
+    for k in ('by', 'visit', 'until', 'intentSet'):
+        q2c.pop(k, None)
+    q2c['state'] = 'free'; q2['transitions'] = [{'at': q2c['at'], 'why': 'released', 'by': 'A', 'visit': 'va'}]
+    assert transition_refusal(q1, q2) == 'the intent the reservation set survived its end'
+    q2c.update(role=None, group=None)
+    assert transition_refusal(q1, q2) is None
+    q3 = json.loads(json.dumps(q1)); q3.update(gen=3, prev=2, at=6000, by='A'); q3['plots'][0]['cells'][0].pop('intentSet')
+    assert transition_refusal(q1, q3) == 'intentSet on live reservation toggled'
     # judge_plans: D1 zero on a clean chain; a zone over the cell -> D4
     tmp = '/tmp/_tpread_selftest_%d' % os.getpid()
     d = os.path.join(tmp, '_pool-board-a'); os.makedirs(d, exist_ok=True)
