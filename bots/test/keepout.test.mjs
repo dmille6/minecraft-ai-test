@@ -458,6 +458,9 @@ test('CHAIN mine: a site recorded MID-DESCENT stops the stair at the column and 
     assert.ok(bot._digs.length > 0, 'it had started (the site was not known at planning)')
     const dug = rows.find(x => x.skill?.name === '_mine_dig')
     assert.ok(dug && dug.skill.args.in_column === 0 && dug.skill.args.n === bot._digs.length, `the gate row: ${dug?.skill?.detail}`)
+    // K1's population is the PLANNING-time decision (the stair is planned once and re-checked per dig): a descent planned with
+    // no site has no `_mine_plan`; its digs are judged by K2 (Codex r4 P2-3, said in the read's caveats)
+    assert.equal(rows.filter(x => x.skill?.name === '_mine_plan').length, 0)
   } finally { untap() }
 })
 test('CHAIN mine: standing over the column, every stair would cut it -> a walk-off (column-free route), then a stair outside', async () => {
@@ -615,57 +618,80 @@ test('MUTANT KILLED (deterministic): unlocked, the peer\'s stale write erases th
     assert.deepEqual(await holderRace(readdirMutant()), ['999,999'], 'the death is lost')
   })
 })
-test('LOCK OWNERSHIP (Codex r3 P1): a stale lock is taken over once; the old holder can neither release nor keep it', async () => {
+test('A LIVE HOLDER IS NEVER BROKEN (Codex r4 P1-2): an aged lock whose pid is alive stays; a dead pid\'s is taken over once', async () => {
   const WFm = await import('../src/worldfacts.mjs')
   const { utimesSync, existsSync } = await import('node:fs')
+  const { spawnSync } = await import('node:child_process')
   const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-own-')), lock = path.join(dir, 'wf.json.lock')
-  const a = WFm.tryLock(lock)
-  assert.equal(typeof a, 'string', 'positive control: a free lock is taken')
-  assert.equal(WFm.tryLock(lock), null, 'held and fresh: wait')
-  const old = (Date.now() - WFm.WF_LOCK_STALE_MS - 5000) / 1000
-  utimesSync(lock, old, old)
-  assert.equal(WFm.tryLock(lock), null, 'the first breaker moves the stale lock aside')
+  const live = `${process.pid}.1.1`
+  writeFileSync(lock, live)
+  const aged = (Date.now() - 30_000) / 1000
+  utimesSync(lock, aged, aged)
+  assert.equal(WFm.tryLock(lock), null, 'held')
+  assert.equal(readFileSync(lock, 'utf8'), live, 'a live holder\'s 30 s-old lock is NOT broken')
+  const ancient = (Date.now() - WFm.WF_LOCK_ABANDONED_MS - 5000) / 1000
+  utimesSync(lock, ancient, ancient)
+  assert.equal(WFm.tryLock(lock), null); assert.ok(!existsSync(lock), 'past the abandoned backstop it is moved aside')
+  const deadPid = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout
+  assert.equal(WFm.pidAlive(Number(deadPid)), false, 'positive control: that pid is gone')
+  writeFileSync(lock, `${deadPid}.1.1`)
+  assert.equal(WFm.tryLock(lock), null, 'the first try moves the dead holder\'s lock aside')
   const b = WFm.tryLock(lock)
-  assert.equal(typeof b, 'string', 'and the lock is taken anew')
-  assert.equal(WFm.lockOwned(lock, a), false, 'the old holder no longer owns it')
-  WFm.unlockIfOwned(lock, a)
-  assert.ok(existsSync(lock), 'the old holder cannot release the new owner\'s lock')
+  assert.equal(typeof b, 'string', 'and the next takes it')
+  assert.equal(WFm.lockOwned(lock, `${deadPid}.1.1`), false)
+  WFm.unlockIfOwned(lock, `${deadPid}.1.1`)
+  assert.ok(existsSync(lock), 'the old token cannot release the new owner\'s lock')
   WFm.unlockIfOwned(lock, b)
   assert.ok(!existsSync(lock), 'the owner can')
 })
-// A HOLDER PAUSED PAST THE STALE BREAK (deterministic): the child's reportDeath blocks INSIDE its locked mutate (a getter on the
-// position) until the parent has backdated its lock, broken it and written its own death; the child then must write nothing.
+test('MUTANT KILLED: judging a holder by age alone breaks a live holder\'s lock', async () => {
+  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [['    if (dead || now - st.mtimeMs > WF_LOCK_ABANDONED_MS) {', '    if (dead || now - st.mtimeMs > WF_LOCK_STALE_MS) {']], async mod => {
+    const { utimesSync } = await import('node:fs')
+    const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-own-m-')), lock = path.join(dir, 'wf.json.lock')
+    writeFileSync(lock, `${process.pid}.1.1`)
+    const aged = (Date.now() - 30_000) / 1000
+    utimesSync(lock, aged, aged)
+    mod.tryLock(lock)
+    let still = null; try { still = readFileSync(lock, 'utf8') } catch { still = null }
+    assert.notEqual(still, `${process.pid}.1.1`, 'the mutant broke a live holder')
+  })
+})
+// A LIVE HOLDER PAUSED INSIDE ITS LOCKED WRITE (1.5 s) while its lock is aged past every stale threshold: a peer's death waits for
+// it -- never breaks it -- and both writes are kept.
 async function pausedHolder (wfHref) {
   const { spawn } = await import('node:child_process')
-  const { utimesSync, existsSync } = await import('node:fs')
-  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-pause-')), file = path.join(dir, 'world-facts.json'), go = path.join(dir, 'go')
+  const { utimesSync } = await import('node:fs')
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-pause-')), file = path.join(dir, 'world-facts.json')
   const child = path.join(dir, 'child.mjs')
-  writeFileSync(child, `import fs from 'node:fs'
-const { WorldFacts } = await import(${JSON.stringify(wfHref)})
+  writeFileSync(child, `const { WorldFacts } = await import(${JSON.stringify(wfHref)})
 const wf = new WorldFacts(${JSON.stringify(file)}); let n = 0
-const pos = { y: 60, z: 0, get x () { if (++n === 2) { process.stdout.write('paused\\n'); while (!fs.existsSync(${JSON.stringify(go)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20) } return 500 } }
+const pos = { y: 60, z: 0, get x () { if (++n === 2) { process.stdout.write('paused\\n'); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500) } return 500 } }
 const r = wf.reportDeath('fire', pos, 'child'); process.stdout.write('child ' + (r ? 'wrote' : 'skipped') + '\\n')`)
   const proc = spawn(process.execPath, [child], { stdio: ['ignore', 'pipe', 'inherit'], env: process.env })
   let out = ''
   proc.stdout.on('data', d => { out += d })
-  for (let i = 0; i < 200 && !out.includes('paused'); i++) await new Promise(r => setTimeout(r, 25))
+  for (let i = 0; i < 200 && !out.includes('paused'); i++) await new Promise(r => setTimeout(r, 10))
   assert.ok(out.includes('paused'), 'the child is paused inside its locked write')
-  const old = (Date.now() - 20_000) / 1000
+  const old = (Date.now() - 30_000) / 1000
   utimesSync(file + '.lock', old, old)
   const { WorldFacts: WF } = await import(wfHref)
-  assert.ok(new WF(file).reportDeath('fire', { x: 0, y: 60, z: 0 }, 'parent'), 'the parent broke the stale lock and wrote')
-  writeFileSync(go, '1')
+  const t0 = Date.now()
+  const wrote = new WF(file).reportDeath('fire', { x: 0, y: 60, z: 0 }, 'parent')
+  const waited = Date.now() - t0
   await new Promise(res => proc.once('exit', res))
-  void existsSync
-  return { out, sites: JSON.parse(readFileSync(file, 'utf8')).sites.map(q => q.by[0]).sort() }
+  return { out, waited, wrote: !!wrote, sites: JSON.parse(readFileSync(file, 'utf8')).sites.map(q => q.by[0]).sort() }
 }
-test('A HOLDER PAUSED PAST THE STALE BREAK writes nothing: the death written meanwhile stays (Codex r3 P1)', async () => {
+test('A LIVE HOLDER PAUSED INSIDE ITS WRITE is waited for, not broken: both deaths are kept', async () => {
   const r = await pausedHolder(new URL('../src/worldfacts.mjs', import.meta.url).href)
-  assert.match(r.out, /child skipped/)
-  assert.deepEqual(r.sites, ['parent'])
+  assert.match(r.out, /child wrote/)
+  assert.ok(r.wrote && r.waited >= 700, `the parent waited for the holder (${r.waited} ms)`)
+  assert.deepEqual(r.sites, ['child', 'parent'])
 })
-test('MUTANT KILLED: without the ownership check before the rename, the paused holder overwrites the death', async () => {
-  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [['      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_BUSY }   // the lock was lost: write nothing\n', '']], async () => {
+test('MUTANT KILLED: age-only takeover AND a commit without the ownership check -> the paused holder erases the death', async () => {
+  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [
+    ['    if (dead || now - st.mtimeMs > WF_LOCK_ABANDONED_MS) {', '    if (dead || now - st.mtimeMs > WF_LOCK_STALE_MS) {'],
+    ['      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_LOST }   // the lock was lost: write nothing, retry\n', ''],
+  ], async () => {
     const r = await pausedHolder(readdirMutant())
     assert.deepEqual(r.sites, ['child'], 'the parent\'s death is lost')
   })

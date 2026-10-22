@@ -60,6 +60,9 @@ export const WF_LOCK_ROUTINE_MS = 200
 export const WF_LOCK_CRITICAL_MS = 12_000
 export const WF_LOCK_STALE_MS = 10_000
 const WF_LOCK_BUSY = Symbol('world-facts lock busy')
+const WF_LOCK_LOST = Symbol('world-facts lock lost at the commit')
+/** A lock this old is abandoned whatever its pid says (the pid-reuse backstop): no live holder keeps it for seconds. */
+export const WF_LOCK_ABANDONED_MS = 120_000
 let lockSeq = 0
 /**
  * ONE TRY AT THE POOL LOCK -> a token (ours), or null (held: wait), or { enoent } / { error } (cannot be created). Pure but
@@ -67,7 +70,7 @@ let lockSeq = 0
  * only one of several competing breakers can do (the others see ENOENT and wait); the moved file is deleted only if it is
  * still stale, so a lock that went fresh in between is put back (Codex r3 P1).
  */
-export function tryLock (lock, now = Date.now()) {
+export function tryLock (lock, now = Date.now(), alive = pidAlive) {
   const token = `${process.pid}.${++lockSeq}.${now}`
   try {
     const fd = fs.openSync(lock, 'wx')
@@ -77,16 +80,32 @@ export function tryLock (lock, now = Date.now()) {
     if (e.code === 'ENOENT') return { enoent: true }
     if (e.code !== 'EEXIST') return { error: e.code }
   }
+  // A LIVE HOLDER IS NEVER BROKEN (Codex r4 P1-2). Every bot of a pool runs on ONE host (comms design 1: "No world's bots span
+  // hosts"), so the holder's pid answers whether it died: only a lock whose pid is gone -- or a lock older than
+  // WF_LOCK_ABANDONED_MS, the pid-reuse backstop no live holder reaches (its critical section is a few ms) -- is taken over.
+  // Without breaking a live holder, the commit and release races (a holder pausing between its ownership read and its
+  // rename / unlink) cannot happen: nobody else can own the lock while it is alive.
   try {
-    if (now - fs.statSync(lock).mtimeMs > WF_LOCK_STALE_MS) {
+    const st = fs.statSync(lock)
+    const held = (() => { try { return fs.readFileSync(lock, 'utf8') } catch { return '' } })()
+    const pid = Number(String(held).split('.')[0])
+    const dead = Number.isInteger(pid) && pid > 0 && !alive(pid)
+    if (dead || now - st.mtimeMs > WF_LOCK_ABANDONED_MS) {
+      // TAKEN OVER BY A RENAME ASIDE, then verified: the moved file must still be the dead holder's (same token). Another
+      // breaker that got there first leaves us nothing to move (ENOENT) or a NEW owner's lock, which is put back by link()
+      // -- and if the path was taken meanwhile, that owner's commit check fails and its write RETRIES (#withLock), so a
+      // lost lock costs a retry, never a write.
       const aside = `${lock}.stale.${token}`
       fs.renameSync(lock, aside)
-      if (now - fs.statSync(aside).mtimeMs > WF_LOCK_STALE_MS) fs.unlinkSync(aside)
-      else { try { fs.linkSync(aside, lock) } catch { /* someone holds it now */ } try { fs.unlinkSync(aside) } catch { /* gone */ } }
+      const moved = (() => { try { return fs.readFileSync(aside, 'utf8') } catch { return null } })()
+      if (moved === held) fs.unlinkSync(aside)
+      else { try { fs.linkSync(aside, lock) } catch { /* the path is taken: that owner retries */ } try { fs.unlinkSync(aside) } catch { /* gone */ } }
     }
   } catch { /* raced with the holder or another breaker */ }
   return null
 }
+/** Is this pid alive on this host? (EPERM: alive, another user's.) */
+export function pidAlive (pid) { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } }
 /** Is the lock still ours? */
 export function lockOwned (lock, token) { try { return fs.readFileSync(lock, 'utf8') === token } catch { return false } }
 /** Release the lock only if it is still ours (a broken-and-retaken lock belongs to someone else now). */
@@ -129,8 +148,8 @@ export class WorldFacts {
    * update when two processes interleave (measured: 40 of 80 concurrent deaths kept). lessons.mjs's O_EXCL lockfile, with
    * one difference that matters (Codex r2 P1): contention is NEVER permission to write unlocked. A ROUTINE write (a sighting,
    * a hazard, a give-up, a dispute -- each repeats or is safe to lose) waits WF_LOCK_ROUTINE_MS and is then SKIPPED. A
-   * CRITICAL write (a death: one event, never repeated) waits up to WF_LOCK_CRITICAL_MS, which covers the stale-lock break
-   * (a killed holder's lock is broken after 10 s); the critical section itself is a few ms. A lock that cannot be created
+   * CRITICAL write (a death: one event, never repeated) waits up to WF_LOCK_CRITICAL_MS; the critical section itself is a few
+   * ms, and a dead holder's lock is taken over at once (tryLock: by its pid, not its age -- Codex r4). A lock that cannot be created
    * for a reason other than contention (the pool directory missing) gets the directory made and is tried again; one that
    * cannot be created at all (permissions) SKIPS the write, loudly (Codex r3 P1: never unlocked).
    * OWNERSHIP (Codex r3 P1): the lock holds a token; it is released only by its owner (unlockIfOwned), and the write's rename
@@ -143,7 +162,12 @@ export class WorldFacts {
     for (;;) {
       const t = tryLock(lock)
       if (typeof t === 'string') {
-        try { return fn(() => lockOwned(lock, t)) } finally { unlockIfOwned(lock, t) }
+        let r
+        try { r = fn(() => lockOwned(lock, t)) } finally { unlockIfOwned(lock, t) }
+        // LOST AT THE COMMIT (only possible after a dead/abandoned-holder takeover race): read, merge and write again
+        if (r !== WF_LOCK_LOST) return r
+        if (Date.now() >= until) return WF_LOCK_BUSY
+        continue
       }
       if (t?.enoent && !made) { made = true; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }) } catch { /* next try says */ } continue }
       if (t?.error || t?.enoent) return WF_LOCK_BUSY
@@ -167,7 +191,7 @@ export class WorldFacts {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
       const tmp = `${this.file}.${process.pid}.tmp`
       fs.writeFileSync(tmp, JSON.stringify(current, null, 1))
-      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_BUSY }   // the lock was lost: write nothing
+      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_LOST }   // the lock was lost: write nothing, retry
       fs.renameSync(tmp, this.file)      // atomic: readers never see a half file
       this.cache = current
       this.lastRead = Date.now()
