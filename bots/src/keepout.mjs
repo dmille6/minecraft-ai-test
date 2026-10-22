@@ -208,12 +208,22 @@ export function exitDecision ({ sites, pos, home = null, skill = null, yielded =
 }
 
 /**
- * HOMEFIX-02's RELOCATION TARGET IS NEVER IN A COLUMN (keepout-01 x homefix-02): any cell of the goto arrival region (goto
- * grades arrival within 3 horizontally) at the target's feet height in a live fire column refuses the target. Pure.
+ * GOTO'S ARRIVAL REGION (skills.mjs arrivedAt, range 1: max(1, 3) = 3 horizontally, 3 + 3 = 6 vertically): the cells a
+ * relocation can END in and still count as arrived. Pinned against arrivedAt itself by test/keepout-homefix.test.mjs.
  */
-export function relocationForbidden (sites, x, y, z, reach = 3) {
+export const RELOCATION_ARRIVAL_REACH = 3
+export const RELOCATION_ARRIVAL_DY = 6
+/**
+ * HOMEFIX-02's RELOCATION TARGET IS NEVER IN A COLUMN (keepout-01 x homefix-02): any cell of the goto arrival region -- 3
+ * horizontally AND 6 vertically of the target's feet, the whole volume arrivedAt accepts (Codex jit-1022b P1: the feet
+ * height alone let a target one block above a column's top land the bot inside it) -- in a live fire column refuses the
+ * target. Pure.
+ */
+export function relocationForbidden (sites, x, y, z, reach = RELOCATION_ARRIVAL_REACH, dyReach = RELOCATION_ARRIVAL_DY) {
   if (!Array.isArray(sites) || !sites.length) return false
-  for (let dx = -reach; dx <= reach; dx++) for (let dz = -reach; dz <= reach; dz++) if (columnAt(sites, { x: x + dx, y, z: z + dz })) return true
+  for (let dy = -dyReach; dy <= dyReach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) for (let dz = -reach; dz <= reach; dz++) if (columnAt(sites, { x: x + dx, y: y + dy, z: z + dz })) return true
+  }
   return false
 }
 
