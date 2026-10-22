@@ -179,3 +179,31 @@ stand-asides while it runs.
 - Read: order-independent trap spread (Codex P2); >= 75% post-deploy position coverage for every canary bot trapped pre,
   or G1 cannot pass (Codex P2: a silent canary read as escaped); G4 matures on the bot's own rows; a spell ending in a
   death counts to the window end and each named bot's exit cause is reported (Claude P2-4).
+
+## 8. Review rounds and Paper, to the canary sha
+
+| round | Codex | Claude subagent | what changed |
+|---|---|---|---|
+| design r1 | CHANGES (3 P1, 4 P2) | CHANGES (2 P1, 7 P2) | design r2: plug-cut-step, the breathing column, keep-out composition, hooks with grants, position-based read |
+| code r1 (52e5508e) | CHANGES (1 P1, 4 P2) | CHANGES (2 P1, 5 P2) | r2 335ad2e0 (section 7) |
+| code r2 (4e6fb460) | CHANGES (3 P2) | APPROVE (1 P2) | r4 9d6d15e5: the reservation waits for the unwind, lives through long digs, never overwrites another owner's; read coverage needs classifiable buckets; death-extended spells as a union |
+| code r3 (9d6d15e5) | APPROVE | APPROVE | -- |
+| code r4/r5 (4a5da0e5, Paper r5) | CHANGES (3 P2) | CHANGES (1 P1) | r6 5a6a4a96: the admission flag in one try/finally; stranded counter; retries re-planned before each press and budgeted; a closed step re-planned from the top |
+| code r5/r6 (5a6a4a96) | CHANGES (1 P2: budget at the press) | APPROVE (P3: steps=0 reads refused) | r7: both, two lines |
+
+Paper (sandbox5-8 under the per-server lock `poolescape`; the whole bot, model off; copies of the two live pits; 9 min a
+scene; outcomes by RCON and the bot's own rows):
+
+| build | bravo (2 bots) | alpha | lava | zone |
+|---|---|---|---|---|
+| BASE 1f5b4b4e | both STAYED (4 maroon firings each) | STAYED | STAYED (lava intact) | STAYED |
+| 52e5508e-copy (r1) | both out 194 s | out 212 s | out (lava had turned to obsidian beside water: scene invalid, re-built encased) | out, zone marks 3 |
+| 335ad2e0 (r3) | Bravo out; Comet on the lip, stayed | out | out S, lava intact | on the lip, stayed |
+| 4e6fb460 (r4) | both out 199-204 s | out 199 s | out 193 s | out 193 s |
+| 9d6d15e5 (r5) | both out 194 s | out 204 s | out 199 s | missed step during a stranded float_up: stayed |
+| 4a5da0e5 (r6, run 1) | Comet out; Bravo's retry found Comet in the step: refused | out 204 s | out 204 s | out 204 s |
+| 5a6a4a96 (r7, run 1) | (not run: the previous run's bots still logged in) | out 203 s | out 203 s | out 203 s |
+| 5a6a4a96 (r7, run 2) | both out 198/209 s (Comet: 1 retry, 1 replan, left by the south wall) | out 265 s | out 198 s | out 203 s |
+
+No bot died or lost health in any candidate scene; every lava scene ended with the pocket still lava. The ~195 s is the
+maroon check (60 s) plus the pillar that cannot rise (~115 s) plus the rung (~15-25 s).
