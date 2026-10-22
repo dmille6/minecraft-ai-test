@@ -289,6 +289,11 @@ await t('TRANSITION RULES, one minimal violation each (transitionRefusal)', () =
   assert.match(PS.transitionRefusal(i1, iy(n => { const c = n.plots[1].cells[1]; c.state = 'placed'; delete c.seenSince; c.role = 'home'; c.group = 'metal' })), /adoption .* changed its intent/)
   assert.equal(PS.transitionRefusal(i1, iy(n => { const c = n.plots[1].cells[1]; c.state = 'placed'; delete c.seenSince })), null, 'the intent kept: accepted')
   assert.match(PS.transitionRefusal(i1, iy(n => { n.plots[1].cells[1].state = 'placed' })), /seenSince on placed/)
+  // a NEW (appended) cell reserved with an intent must carry the marker; without an intent it must not (Claude code r4 P3)
+  const app = (extra) => nx(n => { n.plots[1].cells.push({ at: [111, 70, 98], kind: 'chest', stand: [111, 70, 99], role: 'home', group: 'metal', state: 'reserved', by: 'A', visit: 'v', until: 99_999, ...extra }) })
+  assert.equal(PS.transitionRefusal(base, app({ intentSet: true })), null)
+  assert.match(PS.transitionRefusal(base, app({})), /intentSet .* missing/)
+  assert.match(PS.transitionRefusal(base, app({ role: null, group: null, intentSet: true })), /without an intent set/)
   // a NEW cell reserved by the writer must carry a live until
   assert.match(PS.transitionRefusal(base, nx(n => { n.plots[1].cells.push({ at: [111, 70, 98], kind: 'chest', stand: [111, 70, 99], role: null, group: null, state: 'reserved', by: 'A', visit: 'v', until: 10 }) })), /reserved by another \(or already expired\)/)
   // a COMMITTED plot may only APPEND (Codex spec r1 P1): a new store cell is accepted, a moved free one is not
