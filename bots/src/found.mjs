@@ -26,7 +26,8 @@ export const FOUND_LEASE_MS = 4 * 60 * 1000
 export const FLOOR_WOOD_UNITS = 8
 export const FLOOR_STONE = 8
 /**
- * MAY FOUNDING SPEND BELOW THE 64-UNIT STOCKPILE? -- an OWNER DECISION, pending (coordinator default 10-22: yes, for founding only).
+ * MAY FOUNDING SPEND BELOW THE 64-UNIT STOCKPILE? -- OWNER DECISION 2026-10-22 ~13:00Z: YES, to craft the first table, chest and
+ * furnace, for founding only.
  * true: the floor above (8 wood units + 4 planks + the scaffold reserve; 8 cobblestone + the reserve). false: the stockpile's own
  * cap (STOCKPILE_KEEP, 64) for both -- a fresh bot then founds nothing until it holds more than 64. Founding only: no other order
  * reads it.
@@ -35,6 +36,9 @@ export const FOUND_BELOW_STOCKPILE = true
 /** A body standing in the cell on arrival is a FREE skip: the cooldown and the visit are refunded and the order may be issued
  *  again this long after (a body moves; Paper FOUND-NOFIT 10-22: a founder standing in the next cell cost two bots their visit). */
 export const FOUND_RETRY_MS = 60 * 1000
+/** ...at most this many free skips per CELL per visit (Claude code r9 P2: a body that never leaves -- an armour stand, a boat --
+ *  would otherwise be retried every minute for ever); the next one is charged as before. */
+export const FOUND_BODY_SKIPS_MAX = 2
 /** What a found craft needs. */
 export const CHEST_PLANKS = 8
 export const TABLE_PLANKS = 4
@@ -214,9 +218,14 @@ export function foundAssign ({ plan = null, bankGroups = [] } = {}) {
 export const foundIssued = (state = {}, now = 0) => ({ ...state, prevLastAt: state.lastAt ?? null, lastAt: now, visitUsed: true })
 /** A FREE SKIP after the order was issued (a body in the cell): the visit and the cooldown it charged are given back, and the next
  *  order waits FOUND_RETRY_MS. Pure. */
-export const foundRetry = (state = {}, now = 0) => ({ ...state, lastAt: state.prevLastAt ?? null, visitUsed: false, retryAt: now + FOUND_RETRY_MS })
+export function foundRetry (state = {}, now = 0, at = null) {
+  const k = Array.isArray(at) ? at.join(',') : '-'
+  const n = state.bodySkips?.[k] ?? 0
+  if (n >= FOUND_BODY_SKIPS_MAX) return state   // the cap: this one stays charged
+  return { ...state, lastAt: state.prevLastAt ?? null, visitUsed: false, retryAt: now + FOUND_RETRY_MS, bodySkips: { ...(state.bodySkips ?? {}), [k]: n + 1 } }
+}
 /** A visit ends when the bot leaves the town circle; a new one starts on its return. Pure. */
-export const foundVisit = (state = {}, inTown = false) => (inTown ? state : { ...state, visitUsed: false })
+export const foundVisit = (state = {}, inTown = false) => (inTown ? state : { ...state, visitUsed: false, bodySkips: {} })
 
 // ---- the town-wide found lease (the furnace lease's file shape: `wx` generations, a live TTL) --------------------------------
 
