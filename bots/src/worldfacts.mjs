@@ -82,7 +82,34 @@ export class WorldFacts {
    * wrote between our read and our write, which is exactly how reconnects were
    * deleting recorded successes from lessons-*.json earlier tonight.
    */
-  #update(mutate) {
+  #update(mutate) { return this.#withLock(() => this.#updateLocked(mutate)) }
+
+  /**
+   * ONE WRITER AT A TIME (keepout-01, Codex r1 P1-5). The rename is atomic, but a read-merge-write without a lock loses an
+   * update when two processes interleave -- a death recorded between a peer's read and its rename was dropped. lessons.mjs's
+   * O_EXCL lockfile, the same bounds: a stale lock (a killed bot) is broken after 10 s, and a bot never blocks for ever (after
+   * 50 tries the write goes ahead unlocked, as before).
+   */
+  #withLock (fn) {
+    const lock = `${this.file}.lock`
+    for (let i = 0; i < 50; i++) {
+      let fd = null
+      try { fd = fs.openSync(lock, 'wx') } catch (e) {
+        if (e.code !== 'EEXIST') return fn()
+        try { if (Date.now() - fs.statSync(lock).mtimeMs > 10_000) fs.unlinkSync(lock) } catch { /* raced with the holder */ }
+        const until = Date.now() + 4
+        while (Date.now() < until) { /* spin: the critical section is a few ms */ }
+        continue
+      }
+      try { return fn() } finally {
+        try { fs.closeSync(fd) } catch { /* already closed */ }
+        try { fs.unlinkSync(lock) } catch { /* already gone */ }
+      }
+    }
+    return fn()
+  }
+
+  #updateLocked(mutate) {
     let current = { schema: SCHEMA, sites: [], unreachable: {}, resources: [] }
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
@@ -295,11 +322,14 @@ export class WorldFacts {
    * keepout-01 stops keeping bots out of its column; the next fire death there clears the mark (reportDeath). -> the
    * stored site, or null when no live fire site sits at that centre.
    */
-  disputeFireSite(at, by = config.bot.name) {
+  disputeFireSite(at, seen = null, by = config.bot.name) {
     if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y) || !Number.isFinite(at.z)) return null
     let hit = null
     this.#update(d => {
       const s = d.sites.find(q => q.kind === `${DEATH_KIND_PREFIX}fire` && q.x === at.x && q.y === at.y && q.z === at.z)
+      // VERSION-CHECKED (Codex r1 P1-5): the read judged the site as it was (`seen`: its death count and last death); a peer's
+      // newer fire death there since then outranks the read, so the dispute is not written
+      if (seen && s && ((s.deaths ?? 1) !== (seen.deaths ?? 1) || (s.last ?? 0) !== (seen.last ?? 0))) return
       if (s && !s.disputed) { s.disputed = { at: Date.now(), by }; hit = s }
     })
     return hit

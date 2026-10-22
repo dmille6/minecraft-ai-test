@@ -861,8 +861,10 @@ export class CognitiveLoop {
       if (!sites.length || !bot.entity?.position) return null
       const d = exitDecision({ sites, pos: bot.entity.position, home: configuredHome(config.world), skill: order?.skill ?? null,
         yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
-      if (d.why === 'town_job') noteKeepout(bot, 'yield_town_job')
-      else if (d.why === 'home') noteKeepout(bot, 'yield_home')
+      // a yield is counted when it STARTS (Claude r1 P3-7), not on every tick it holds
+      const yk = d.why === 'town_job' || d.why === 'home' ? `${d.why}@${siteKey(d.site)}` : null
+      if (yk && yk !== this.keepoutYieldKey) noteKeepout(bot, d.why === 'home' ? 'yield_home' : 'yield_town_job')
+      this.keepoutYieldKey = yk
       if (!d.start) return null
       return { skill: 'keepout_exit', args: {}, why: `inside the column above a marked lava pool (fire death site ${siteKey(d.site)}): leaving it first${order ? ` (instead of ${order.skill})` : ''}` }
     } catch { return null }
@@ -1289,7 +1291,15 @@ export class CognitiveLoop {
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
       // KEEPOUT-01: a failed exit backs off (the stranded ladder owns the body); anything else re-arms it at once
-      if (!declined && admitted.skill === 'keepout_exit') this.keepoutExitBackoffUntil = r.status === 'failed' || r.status === 'unknown' ? Date.now() + KEEPOUT_EXIT_BACKOFF_MS : 0
+      // (a run the runner DECLINED never ran -- homefix-02's declined.mjs -- and does not count)
+      if (!declined && admitted.skill === 'keepout_exit') {
+        // OUT (success) or nothing to leave (no_effect) re-arms it; a failure backs off at once; anything else (interrupted by a
+        // reflex, unverified) counts, and the third in a row backs off too -- the exit can never loop on a bot it cannot move
+        const out = r.status === 'success' || r.status === 'no_effect'
+        this.keepoutExitTries = out ? 0 : (this.keepoutExitTries ?? 0) + 1
+        if (r.status === 'failed' || this.keepoutExitTries >= 3) { this.keepoutExitBackoffUntil = Date.now() + KEEPOUT_EXIT_BACKOFF_MS; this.keepoutExitTries = 0 }
+        else if (out) this.keepoutExitBackoffUntil = 0
+      }
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
