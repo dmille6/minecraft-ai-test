@@ -13,7 +13,7 @@ process.env.HOME_X = '200'; process.env.HOME_Y = '65'; process.env.HOME_Z = '200
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
+import { readFileSync, writeFileSync, unlinkSync, mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -43,6 +43,12 @@ async function withMutantsAll (url, pairs, fn) {
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
   writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+function readdirMutant () {
+  const dir = new URL('./', import.meta.url)
+  const f = readdirSync(dir).filter(n => n.startsWith(`_mutant-${process.pid}-`) && n.endsWith('.mjs'))
+  assert.equal(f.length, 1, 'exactly one live mutant file')
+  return new URL(f[0], dir).href
 }
 const fire = (x, y, z, extra = {}) => ({ kind: 'death:fire', x, y, z, count: 4, deaths: 1, last: Date.now(), by: ['hive-b-Echo'], ...extra })
 
@@ -78,6 +84,33 @@ test('the column-free route: outside, never in; inside, only outward; never into
   assert.equal(KO.routeForbids([a], inside, { x: 101, y: 45, z: 100 }), true, 'inside: a step toward the centre is not')
   assert.equal(KO.routeForbids([a, b], { x: 105.5, y: 45, z: 100.5 }, { x: 107, y: 45, z: 100 }), true, 'never into another column')
 })
+test('OVERLAPPING columns (Codex r1 P1-3): a step outward from one centre never enters a column the bot is not in', () => {
+  const a = fire(0, 60, 0), b = fire(8, 60, 0)
+  assert.equal(KO.routeForbids([a, b], { x: 1.5, y: 65, z: 0.5 }, { x: 5, y: 65, z: 0 }), true, 'the reproduction: (5,65,0) is in b, the bot is only in a')
+  assert.equal(KO.routeForbids([a, b], { x: 1.5, y: 65, z: 0.5 }, { x: -3, y: 65, z: 0 }), false, 'positive control: outward from a, away from b')
+  assert.equal(KO.routeForbids([a, b], { x: 4.5, y: 65, z: 0.5 }, { x: 4, y: 65, z: 3 }), false, 'in both: outward from each is allowed')
+  assert.equal(KO.routeForbids([a, b], { x: 4.5, y: 65, z: 0.5 }, { x: 6, y: 65, z: 0 }), true, 'in both: closer to b\'s centre is not')
+})
+test('THE ROUTE ON THE REAL PATHFINDER: a 101 step price deletes the move into the column, the move outside stays', () => {
+  const { Movements } = require_('mineflayer-pathfinder')
+  const registry = require_('prismarine-registry')('1.21.8')
+  const Block = require_('prismarine-block')(registry)
+  const blockAt = p => { const b = Block.fromStateId(registry.blocksByName[p.y <= 64 ? 'stone' : 'air'].defaultState, 0); b.position = new Vec3(p.x, p.y, p.z); return b }
+  const bot = { registry, version: '1.21.8', blockAt, entity: { position: new Vec3(93.5, 65, 100.5), effects: {} }, entities: {}, inventory: { items: () => [] },
+                pathfinder: { bestHarvestTool: () => null }, game: { minY: -64, height: 384 } }
+  const s = fire(100, 60, 100)
+  const m = new Movements(bot); m.canDig = false; m.allowParkour = false; m.allowSprinting = false
+  m.exclusionAreasStep = [b => (KO.routeForbids([s], bot.entity.position, b.position) ? 101 : 0)]
+  const at = x => m.getNeighbors({ x, y: 65, z: 100, remainingBlocks: 0 }).find(n => n.x === x + 1 && n.y === 65 && n.z === 100)
+  assert.equal(at(93), undefined, 'the step from 93 to 94 (into the column) is deleted')
+  assert.ok(m.getNeighbors({ x: 93, y: 65, z: 100, remainingBlocks: 0 }).find(n => n.x === 92 && n.z === 100), 'positive control: the step away exists')
+})
+test('the guard\'s purpose: survival first (a reflex, another holder, a survival scope), then the instrument\'s', () => {
+  assert.equal(KO.guardPurpose({ base: 'target', reflex: 'drowning' }), 'survival')
+  assert.equal(KO.guardPurpose({ base: 'target', holder: 'air_rescue', skill: 'gather' }), 'survival', 'a rescue holding the body while gather\'s tunnel profile is still set')
+  assert.equal(KO.guardPurpose({ base: 'target', scope: { purpose: 'survival', by: 'keepout_exit' } }), 'survival')
+  assert.equal(KO.guardPurpose({ base: 'target', holder: 'gather', skill: 'gather' }), 'target', 'positive control: gather\'s own dig stays a target')
+})
 test('the outward walk\'s targets are outside every column, nearest first', () => {
   const s = fire(100, 40, 100)
   const t = KO.exitTargets([s], { x: 101.5, y: 45, z: 100.5 }, () => true)
@@ -96,6 +129,15 @@ test('the exit decision: inside starts it; a yielded town column stands down for
   assert.equal(KO.exitDecision({ ...y, skill: 'gather', pos: { x: 97.5, y: 65, z: 96.5 } }).start, true, 'a yielded column still pushes out a non-town job away from home')
   assert.equal(KO.exitDecision({ ...y, skill: 'town_deposit', yieldOn: false }).start, true, 'C12 off: the exit starts even on a town job')
   assert.equal(KO.exitDecision({ sites, pos, backoffUntil: Date.now() + 1000 }).why, 'backoff')
+})
+test('C12 COMPOSED: in a yielded column EVERY town job keeps the body (the drain, the deposit, the toolkit...), a non-town job does not', () => {
+  const s = fire(100, 60, 100), sites = [s], pos = { x: 97.5, y: 65, z: 96.5 }
+  for (const skill of KO.TOWN_JOB_SKILLS) assert.equal(KO.exitDecision({ sites, pos, skill, yielded: () => true }).why, 'town_job', skill)
+  for (const skill of ['gather', 'mine', 'explore', null]) assert.equal(KO.exitDecision({ sites, pos, skill, yielded: () => true }).start, true, String(skill))
+  assert.ok(KO.TOWN_JOB_SKILLS.has('furnace_drain') && KO.TOWN_JOB_SKILLS.has('smelt_town') && KO.TOWN_JOB_SKILLS.has('town_deposit'))
+})
+test('THE EXIT\'S OWN CLOCK is inside its contract (Claude r1 P2-3)', () => {
+  assert.ok(SK.KEEPOUT_EXIT_BUDGET_MS < SK.SKILL_CONTRACTS.keepout_exit.maxMs)
 })
 test('coversTown: home or a chest / furnace in the column yields; bare ground does not', () => {
   const s = fire(100, 60, 100)
@@ -118,6 +160,46 @@ test('the lava read: lava -> lava, all air -> clear, any unloaded cell -> unload
   assert.equal(KO.disputeScan(s, () => 'air'), 'clear')
   assert.equal(KO.disputeScan(s, (x, y, z) => (x === 103 && y === 58 && z === 100 ? 'lava' : 'air')), 'lava')
   assert.equal(KO.disputeScan(s, (x, y, z) => (x === 103 && y === 58 && z === 100 ? null : 'air')), 'unloaded')
+})
+test('CELLS AGAINST CELLS (Claude r1 P2-2): a bot mid-cell on the far side of the disc may step in its own cell and above its head', () => {
+  const s = fire(440, 60, 200)
+  for (const from of [{ x: 442.5, y: 65, z: 200.5 }, { x: 440.5, y: 65, z: 200.5 }, { x: 444.5, y: 65, z: 203.5 }]) {
+    const own = { x: Math.floor(from.x), y: 65, z: Math.floor(from.z) }
+    assert.equal(KO.routeForbids([s], from, own), false, `own cell from ${JSON.stringify(from)}`)
+    assert.equal(KO.routeForbids([s], from, { ...own, y: 67 }), false, `the jump-up / tower cell above the head from ${JSON.stringify(from)}`)
+  }
+  assert.equal(KO.routeForbids([s], { x: 442.5, y: 65, z: 200.5 }, { x: 441, y: 65, z: 200 }), true, 'positive control: a step toward the centre is still refused')
+})
+test('scopeHolds in PRODUCTION (arbiter off, Claude r1 P1-1): only the run that set the scope, while it runs', () => {
+  const kr = { runSkill: 'gather', generation: 7, sites: [fire(1, 1, 1)] }
+  assert.equal(KO.scopeHolds(kr, { arbiter: false, generation: 7, running: true }), true, 'positive control: its own live run')
+  assert.equal(KO.scopeHolds(kr, { arbiter: false, generation: 8, running: true }), false, 'a later run: dead')
+  assert.equal(KO.scopeHolds(kr, { arbiter: false, generation: 7, running: false }), false, 'no run at all: dead')
+  assert.equal(KO.scopeHolds(kr, { arbiter: false, generation: 7, running: true, reflex: 'drowning' }), false, 'a reflex took the body')
+  assert.equal(KO.scopeHolds(kr, { arbiter: false, generation: 7, running: true, reflex: 'eating' }), true, 'eating does not take the body')
+})
+test('A DEAD RUN\'S SCOPE IS NEVER INHERITED OR RESTORED (Claude r1 P1-1)', async () => {
+  const { bot } = gatherWorld({ dirt: [...inCol, ...outCol], sites: [SITE_G] })
+  const zombie = { skill: 'gather', runSkill: 'gather', generation: 3, sites: [fire(0, 0, 0)] }
+  bot.keepoutRoute = zombie
+  const runner = { generation: 4, current: { skill: 'gather' } }
+  let seen = null
+  bot.pathfinder.goto = async () => { seen = bot.keepoutRoute }
+  await SKILLS.gather.run({ bot, runner }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
+  assert.ok(seen && seen !== zombie && seen.generation === 4, 'the run used its own scope')
+  assert.equal(bot.keepoutRoute ?? null, null, 'and did not put the zombie back')
+})
+test('MUTANTS KILLED: without the generation test a later run keeps a dead scope; without the inheritance test the zombie is restored', async () => {
+  await withMutantsAll(KO_URL, [['  if (kr.generation != null && generation != null && kr.generation !== generation) return false\n', '']], async mod => {
+    assert.equal(mod.scopeHolds({ runSkill: 'gather', generation: 7, sites: [] }, { arbiter: false, generation: 8, running: true }), true)
+  })
+  await withMutantsAll(SKILLS_URL, [['  const prev = held && held.generation === generation ? held : null\n', '  const prev = held\n']], async mod => {
+    const { bot } = gatherWorld({ dirt: [...inCol, ...outCol], sites: [SITE_G] })
+    const zombie = { skill: 'gather', runSkill: 'gather', generation: 3, sites: [fire(0, 0, 0)] }
+    bot.keepoutRoute = zombie
+    await mod.SKILLS.gather.run({ bot, runner: { generation: 4, current: { skill: 'gather' } } }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
+    assert.equal(bot.keepoutRoute, zombie, 'the mutant restores the dead scope')
+  })
 })
 test('scopeHolds: a reflex taking the body, or another holder, switches the route veto off', () => {
   const kr = { runSkill: 'gather', sites: [fire(1, 1, 1)] }
@@ -234,7 +316,25 @@ test('MUTANT KILLED: without the cooldown the refused gather is admitted again a
   await withMutantsAll(SKILLS_URL, [["    keepoutCooldown(bot, 'gather', args?.block ?? null, site)\n", '']], async mod => {
     const { bot } = gatherWorld({ dirt: inCol, sites: [SITE_G] })
     await mod.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal)
-    assert.equal(bot.keepoutCooldowns, undefined)
+    assert.notEqual(new AdmissionControl(null).check({ skill: 'gather', args: { block: 'dirt', count: 4 } }, bot).reason, 'keepout_cooldown', 'the mutant lets the next decision repeat it')
+  })
+})
+test('THE EXIT IS NEVER GATED BY MEMORY (Codex r1 P1-1): admitted every time; the repeat window still catches an ordinary repeat', () => {
+  const gate = new AdmissionControl(null), bot = { registry: { blocksByName: {} }, entity: { position: new Vec3(0, 65, 0) }, inventory: { items: () => [] }, players: {} }
+  for (let i = 0; i < 8; i++) assert.equal(gate.check({ skill: 'keepout_exit', args: {} }, bot).ok, true, `attempt ${i + 1}`)
+  gate.noteFailure('keepout_exit', {})
+  assert.equal(gate.check({ skill: 'keepout_exit', args: {} }, bot).ok, true, 'a failure cooldown does not hold it either')
+  const g2 = new AdmissionControl(null); let last = null
+  for (let i = 0; i < 6; i++) last = g2.check({ skill: 'status', args: {} }, bot)
+  assert.equal(last.reason, 'repeat_loop', 'positive control: the same gate does refuse an ordinary repeat')
+})
+test('MUTANT KILLED: without the exemption the fifth exit in a row is refused (the bot would stand over the pool)', async () => {
+  const AD_URL = new URL('../src/admission.mjs', import.meta.url)
+  await withMutantsAll(AD_URL, [["    if (skill === 'keepout_exit') return { ok: true, skill, args: {}, kind: 'keepout_exit' }\n", '']], async mod => {
+    const gate = new mod.AdmissionControl(null), bot = { registry: { blocksByName: {} }, entity: { position: new Vec3(0, 65, 0) }, inventory: { items: () => [] }, players: {} }
+    let last = null
+    for (let i = 0; i < 6; i++) last = gate.check({ skill: 'keepout_exit', args: {} }, bot)
+    assert.equal(last.ok, false)
   })
 })
 
@@ -299,11 +399,17 @@ test('CHAIN mine: the only dry stair runs into the column and no start within 32
   assert.equal(bot.keepoutCooldowns?.[0]?.skill, 'mine')
   assert.equal(new AdmissionControl(null).check({ skill: 'mine', args: { y: 30 } }, bot).reason, 'keepout_cooldown')
 })
-test('MUTANT KILLED: without the column in mine\'s composed keep-out the stair digs into it (positive control for the chain above)', async () => {
-  await withMutantsAll(SKILLS_URL, [["  const farmNow = () => composeKeepOut(farmTown(), ko ? keepOutPart(ko.sites) : { forbid: null, bottom: null })", '  const farmNow = () => farmTown()']], async mod => {
-    const bot = stairWorld({ sites: [SITE_M], wet: onlyEast, solidAt: pocket })
-    await runMine(mod, bot)
-    assert.ok(bot._digs.some(p => KO.columnAt([SITE_M], p)), 'the mutant cut the column')
+test('MUTANT KILLED (the bypassed guard, design 8 row 2): without the column in mine\'s plan the stair digs into it -- and the canary gate SEES it', async () => {
+  await withMutantsAll(SKILLS_URL, [["  const farmNow = () => composeKeepOut(farmTown(), ko ? keepOutPart(ko.refresh()) : { forbid: null, bottom: null })", '  const farmNow = () => farmTown()']], async mod => {
+    const rows = []; const untap = tapRecords(r => rows.push(r))
+    try {
+      const bot = stairWorld({ sites: [SITE_M], wet: onlyEast, solidAt: pocket })
+      await runMine(mod, bot)
+      assert.ok(bot._digs.some(p => KO.columnAt([SITE_M], p)), 'the mutant cut the column')
+      const plan = rows.find(x => x.skill?.name === '_mine_plan'), dug = rows.find(x => x.skill?.name === '_mine_dig')
+      assert.ok(plan?.skill.args.in_column > 0, `K1 fires: the permitted plan names column cells (${plan?.skill.detail})`)
+      assert.ok(dug?.skill.args.in_column > 0, `K2 fires: the executed stair dug column cells (${dug?.skill.detail})`)
+    } finally { untap() }
   })
 })
 test('CHAIN mine: standing over the column, every stair would cut it -> a walk-off (column-free route), then a stair outside', async () => {
@@ -352,6 +458,29 @@ test('CHAIN exit (the sealed ledge, Bravo\'s case): no walk works -> the escape 
   assert.ok(bot._digs.every(p => p.y >= 65), 'never below the feet')
   assert.ok(bot._digs.every(p => Math.hypot(p.x - 440, p.z - 200) > d0), `always away from the centre: ${JSON.stringify(bot._digs.slice(0, 4))}`)
 })
+test('THE ESCAPE STEP refuses before its first dig: falling block above, a liquid or unloaded neighbour, magma floor, another column', () => {
+  const s = fire(440, 60, 200)
+  const world = (over = {}) => ({ blockAt: p => { const k = `${p.x},${p.y},${p.z}`; const n = k in over ? over[k] : p.y < 65 ? 'stone' : (p.y <= 66 && p.x > 441 ? 'stone' : 'air')
+    return n == null ? null : { name: n, boundingBox: /air|water|lava/.test(n) ? 'empty' : 'block', position: V(p.x, p.y, p.z) } } })
+  const at = V(441, 65, 200), east = { x: 1, z: 0 }
+  assert.equal(SK.escapeStepHazard(world(), [s], at, east), null, 'positive control: a plain rock step is safe')
+  assert.equal(SK.escapeStepHazard(world({ '442,67,200': 'gravel' }), [s], at, east), 'break_hazard', 'gravel over the head cell')
+  assert.equal(SK.escapeStepHazard(world({ '443,65,200': 'water' }), [s], at, east), 'break_hazard', 'water beside the feet cell')
+  assert.equal(SK.escapeStepHazard(world({ '442,65,201': null }), [s], at, east), 'break_hazard', 'an unloaded neighbour is never safe')
+  assert.equal(SK.escapeStepHazard(world({ '442,64,200': 'magma_block' }), [s], at, east), 'no_floor')
+  assert.equal(SK.escapeStepHazard(world(), [s, fire(448, 60, 200)], at, east), 'other_column', 'the step enters a second column')
+})
+test('CHAIN exit: gravel over the first outward bearing -> the other outward bearing is dug, never under the gravel', async () => {
+  // at (441, 65, 199) both +x and -z lead away from (440, 200); rock seals feet/head height; gravel hangs over the +x step
+  const sealed = (x, y, z) => (y >= 65 && y <= 66 && !(x === 441 && z === 199)) || (x === 442 && y === 67 && z === 199)
+  const bot = stairWorld({ at: [441, 65, 199], sites: [SITE_X], solidAt: sealed, gotoOk: (to, b) => Math.hypot(to.x - b.entity.position.x, to.z - b.entity.position.z) < 1.6 })
+  const base = bot.blockAt
+  bot.blockAt = p => (p.x === 442 && p.y === 67 && p.z === 199 ? { ...base(p), name: 'gravel' } : base(p))
+  const r = await runExit(SK, bot)
+  assert.equal(r.status, 'success', JSON.stringify(r))
+  assert.ok(!bot._digs.some(p => p.x === 442 && p.z === 199), `never under the gravel: ${JSON.stringify(bot._digs.slice(0, 4))}`)
+  assert.ok(bot._digs.every(p => p.z < 199 && p.x === 441), 'the -z bearing')
+})
 test('CHAIN exit: no walk, no dig (liquid beside every cell), no climb room -> failed, named, handed to the escape ladder', async () => {
   const bot = stairWorld({ at: [441, 65, 200], sites: [SITE_X], gotoOk: () => false, wet: (x, y, z) => y >= 65 && y <= 66 && x !== 441 })
   bot.inventory = { items: () => [] }
@@ -383,12 +512,48 @@ test('a lava read that found the disc clear disputes the site (kept, no longer k
   assert.equal(KO.fireSites(wf.deathSites()).length, 1, 'the next fire death clears the dispute')
   assert.equal(wf.disputeFireSite({ x: 1, y: 1, z: 1 }), null, 'no such site: nothing')
 })
+test('THE DISPUTE IS VERSION-CHECKED (Codex r1 P1-5): a newer death since the read outranks it', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-'))
+  const wf = new WorldFacts(path.join(dir, 'world-facts.json'))
+  const s = wf.reportDeath('fire', { x: 100, y: 60, z: 100 }, 'hive-b-Echo')
+  const seen = { deaths: s.deaths, last: s.last }
+  wf.reportDeath('fire', { x: 101, y: 60, z: 100 }, 'hive-b-Alpha')   // a peer's death after the scan
+  assert.equal(wf.disputeFireSite({ x: 100, y: 60, z: 100 }, seen), null, 'stale read: not written')
+  assert.equal(KO.fireSites(wf.deathSites()).length, 1, 'the site still keeps out')
+  const now = wf.deathSites()[0]
+  assert.ok(wf.disputeFireSite({ x: 100, y: 60, z: 100 }, { deaths: now.deaths, last: now.last }), 'positive control: a current read is written')
+})
+test('ONE WRITER AT A TIME: two processes recording 40 deaths each lose none (the pool shares one file)', async () => {
+  const { execFile } = await import('node:child_process')
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-race-'))
+  const file = path.join(dir, 'world-facts.json')
+  const drv = path.join(dir, 'drv.mjs')
+  writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(new URL('../src/worldfacts.mjs', import.meta.url).href)})
+const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2])
+for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)
+  const run = off => new Promise((res, rej) => execFile(process.execPath, [drv, String(off)], { env: process.env }, e => (e ? rej(e) : res())))
+  await Promise.all([run(0), run(100000)])
+  const d = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(d.sites.filter(q => q.kind === 'death:fire').length, 80, 'every death kept')
+})
+test('MUTANT KILLED: the unlocked read-merge-write loses deaths under the same race (measured: 40 of 80 kept, 3 of 3 trials)', async () => {
+  const { execFile } = await import('node:child_process')
+  const WF_URL = new URL('../src/worldfacts.mjs', import.meta.url)
+  await withMutantsAll(WF_URL, [['  #update(mutate) { return this.#withLock(() => this.#updateLocked(mutate)) }', '  #update(mutate) { return this.#updateLocked(mutate) }']], async () => {
+    const mutant = readdirMutant()
+    const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-race-m-')), file = path.join(dir, 'world-facts.json'), drv = path.join(dir, 'drv.mjs')
+    writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(mutant)}); const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2]); for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)
+    const run = off => new Promise((res, rej) => execFile(process.execPath, [drv, String(off)], { env: process.env }, e => (e ? rej(e) : res())))
+    await Promise.all([run(0), run(100000)])
+    assert.ok(JSON.parse(readFileSync(file, 'utf8')).sites.length < 80, 'the mutant lost deaths')
+  })
+})
 
 // ---- wiring (structural: what behaviour cannot reach) -------------------------------------------------------------------
 const idx = strip(readFileSync(INDEX_URL, 'utf8'))
 const cog = strip(readFileSync(COG_URL, 'utf8'))
 const wired = {
-  guard: s => /bot\.dig = keepoutDigGuard\(inner, \{/.test(s) && s.indexOf('bot.dig = keepoutDigGuard(') > s.indexOf('const dt = attachDigTown(bot, {'),
+  guard: s => /bot\.dig = keepoutDigGuard\(inner, \{/.test(s) && s.indexOf('bot.dig = keepoutDigGuard(') > s.indexOf('const dt = attachDigTown(bot, {') && /return guardPurpose\(\{ reflex, holder, skill, scope, base: digPurpose\(/.test(s),
   step: s => /const deathSitePenalty = \(block\) => deathSiteStepCost\(deathSites, block\) \+ keepoutStepPenalty\(block\)/.test(s),
   brk: s => /gatherMoves\.exclusionAreasBreak = \[\.\.\.moves\.exclusionAreasBreak, \(block\) => keepoutBreakPenalty\(block\)\]/.test(s),
   lic: s => /kind: 'keepout_mode'/.test(s),

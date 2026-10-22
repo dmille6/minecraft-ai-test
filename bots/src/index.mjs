@@ -26,10 +26,11 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
-import { attachDigTown, digPurpose, currentDigScope } from './digtown.mjs'
+import { attachDigTown } from './digtown.mjs'
+import { digPurpose, currentDigScope } from './digtown.mjs'   // keepout-01's dig guard reads the instrument's purpose
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs)
 import { keepoutOn, keepoutModeDetail, fireSites, columnAt, routeForbids, coversTown, disputeScan, siteKey, keepoutCounters, noteKeepout,
-         KEEPOUT_DISPUTE_MS, townYieldOn, scopeHolds, keepoutDigGuard } from './keepout.mjs'
+         KEEPOUT_DISPUTE_MS, townYieldOn, scopeHolds, keepoutDigGuard, guardPurpose } from './keepout.mjs'
 import { townGroundCounters, configuredHome } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
@@ -566,16 +567,17 @@ function connect() {
     // a reflex that takes the body (a drowning rescue, an escape, the scaffold) plans as if keep-out did not exist. Transit
     // outside those runs is untouched (the town zone's lesson: a path-wide veto is a pit trap). 101 deletes the move
     // (mineflayer-pathfinder discards cost > 100). Hot path: a null check, then the scope's few sites.
-    const koHeld = (kr) => scopeHolds(kr, { reflex: stopReflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null, arbiter: !!config.reflex.arbiter })
+    const koHeld = (kr) => scopeHolds(kr, { reflex: stopReflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null, arbiter: !!config.reflex.arbiter,
+                                            generation: runner.generation, running: !!runner.current })
     const keepoutStepPenalty = (block) => {
       const kr = bot.keepoutRoute
-      if (!kr || !kr.sites.length || !block?.position || !koHeld(kr)) return 0
-      return routeForbids(kr.sites, bot.entity?.position, block.position) ? 101 : 0
+      if (!kr || !kr.sites.length || !block?.position) return 0
+      return routeForbids(kr.sites, bot.entity?.position, block.position) && koHeld(kr) ? 101 : 0
     }
     const keepoutBreakPenalty = (block) => {
       const kr = bot.keepoutRoute
-      if (!kr || !kr.sites.length || !block?.position || !koHeld(kr)) return 0
-      return columnAt(kr.sites, block.position) ? 101 : 0
+      if (!kr || !kr.sites.length || !block?.position) return 0
+      return columnAt(kr.sites, block.position) && koHeld(kr) ? 101 : 0
     }
     // THE TOWN JUNK WELL IS NO PLACE TO STAND (well.mjs): its column, cap to ten above, costs 1000 on EVERY profile, so no
     // node stands on, in or over it (open or closed, whatever the goal; sandbox: a goal on the cell fell in 2/2), and its
@@ -1100,8 +1102,9 @@ function connect() {
           purposeOf: () => {
             let mining = false, tag = null
             try { mining = !!bot.pathfinder?.isMining?.(); tag = bot.pathfinder?.movements?.digPurpose ?? null } catch { /* plugin absent */ }
-            return digPurpose({ scope: currentDigScope(), pathfinderMining: mining, movementsPurpose: tag, skill: runner.current?.skill ?? null,
-              args: runner.current?.args ?? null, reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }).purpose
+            const reflex = reflexes?.activeReflex?.() ?? null, holder = runner.arb?.holder?.owner ?? null, skill = runner.current?.skill ?? null, scope = currentDigScope()
+            return guardPurpose({ reflex, holder, skill, scope, base: digPurpose({ scope, pathfinderMining: mining, movementsPurpose: tag, skill,
+              args: runner.current?.args ?? null, reflex, holder }).purpose })
           },
           onRefuse: () => noteKeepout(bot, 'dig_refused'),
         })
@@ -1136,7 +1139,7 @@ function connect() {
         disputedAt.set(k, now)
         const v = disputeScan(site, (x, y, z) => bot.blockAt?.(new Vec3(x, y, z))?.name ?? null)
         if (v !== 'clear') return v
-        const s = worldFacts.disputeFireSite(site)
+        const s = worldFacts.disputeFireSite(site, { deaths: site.deaths ?? 1, last: site.last ?? 0 })
         refreshDeathSites()
         noteKeepout(bot, 'disputed')
         logEvent({ kind: 'keepout_dispute', status: 'success', snapshot: snapshot(bot), detail: `site=${k} read=clear stored=${s ? 1 : 0} -- no lava in the disc (every cell loaded): the site no longer keeps bots out until the next fire death there` })

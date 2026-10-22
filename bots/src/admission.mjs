@@ -261,6 +261,12 @@ export class AdmissionControl {
       return { ok: false, reason: 'unknown_skill', detail: `"${skill}" is not in the registry` }
     }
 
+    // KEEPOUT-01: THE EXIT FROM A FIRE COLUMN IS NOT GATED BY MEMORY (Codex r1 P1-1). It is a deterministic safety order that
+    // cognitive.mjs issues only for a body inside a column and bounds itself (3 attempts that do not get out -> a 5-min back-off
+    // that hands the body to the escape ladder); the repeat window, a cooldown or a learned rule must never be what keeps a
+    // bot standing over a marked lava pool.
+    if (skill === 'keepout_exit') return { ok: true, skill, args: {}, kind: 'keepout_exit' }
+
     // --- argument sanity, per skill ---------------------------------------
     if (skill === 'gather') {
       if (!args.block || typeof args.block !== 'string') {

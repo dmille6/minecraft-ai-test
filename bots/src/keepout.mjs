@@ -115,16 +115,21 @@ export function keepOutPart (sites) {
  * bot inside a disc walk out, and nothing else.
  */
 export function routeForbids (sites, from, cell) {
-  const s = columnAt(sites, cell)
-  if (!s) return false
-  const own = finite3(from) ? columnAt(sites, from) : null
-  if (!own || siteKey(own) !== siteKey(s)) {
-    // a cell in a DIFFERENT column, or the bot is outside every column: never
-    return !(own && inColumn(own, cell) && outward(own, from, cell))
+  if (!Array.isArray(sites) || !sites.length || !finite3(cell)) return false
+  // EVERY column the cell is in, judged on its own (Codex r1 P1-3: overlapping columns -- judging only the nearest let a walk
+  // that was outward from one centre enter a second column the bot was not in): a column the bot is NOT standing in is
+  // never entered; one it IS standing in is crossed only outward from that column's own centre
+  const fromIn = finite3(from) ? sites.filter(q => inColumn(q, from)) : []
+  for (const q of sites) {
+    if (!inColumn(q, cell)) continue
+    if (!fromIn.includes(q)) return true
+    if (!outward(q, from, cell)) return true
   }
-  return !outward(own, from, cell)
+  return false
 }
-const outward = (s, from, cell) => Math.hypot(s.x - Math.floor(cell.x), s.z - Math.floor(cell.z)) >= Math.hypot(s.x - from.x, s.z - from.z) - 0.5
+// CELLS AGAINST CELLS (Claude r1 P2-2): the bot's own cell, never its exact position -- a bot mid-cell on the far side of the disc
+// read its own cell (and the one above its head, the pathfinder's jump-up / tower test) as "inward" and could not move
+const outward = (s, from, cell) => Math.hypot(s.x - Math.floor(cell.x), s.z - Math.floor(cell.z)) >= Math.hypot(s.x - Math.floor(from.x), s.z - Math.floor(from.z))
 
 /**
  * THE OUTWARD WALK'S TARGETS -> [{ x, y, z, d }], nearest first: stand cells outside EVERY column within `radius` of the
@@ -156,8 +161,8 @@ const CARDINALS = [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 
 /** The cardinals that lead AWAY from the site's centre, most directly away first (the escape dig's bearings). Pure. */
 export function outwardBearings (site, from) {
   if (!site || !finite3(from)) return []
-  let ax = from.x - (site.x + 0.5), az = from.z - (site.z + 0.5)
-  if (Math.hypot(ax, az) < 0.25) { ax = 1; az = 0 }   // dead centre: any direction is away
+  let ax = Math.floor(from.x) - site.x, az = Math.floor(from.z) - site.z   // cells against cells, as inColumn (Claude r1 P3-9)
+  if (ax === 0 && az === 0) { ax = 1; az = 0 }   // dead centre: any direction is away
   return CARDINALS.map(b => ({ b, dot: b.x * ax + b.z * az })).filter(o => o.dot > 0).sort((p, q) => q.dot - p.dot).map(o => o.b)
 }
 
@@ -251,9 +256,16 @@ export function noteKeepout (bot, key, n = 1) {
  * DOES A KEEP-OUT SCOPE STILL HOLD THE BODY? Pure. The route and break vetoes (index.mjs) apply only while the run that set
  * the scope holds the body: a reflex taking it (a drowning rescue, an escape, the scaffold) plans as if keep-out did not exist.
  */
-export function scopeHolds (kr, { reflex = null, holder = null, arbiter = true } = {}) {
+export function scopeHolds (kr, { reflex = null, holder = null, arbiter = true, generation = null, running = true } = {}) {
   if (!kr) return false
-  if (reflex) return false
+  // THE RUN THAT SET IT MUST STILL BE THE RUN (Claude r1 P1-1): production runs with the arbiter OFF (config.mjs), so the
+  // holder test alone was always true, and a hard-stopped run's scope -- restored as `prev` by the next run -- vetoed every
+  // later walk for the life of the process. The scope carries the runner generation it was set in; any other generation,
+  // or no run at all, and the scope is dead.
+  if (!running) return false
+  if (kr.generation != null && generation != null && kr.generation !== generation) return false
+  // eating does not take the body (the skill keeps steering): only a reflex that moves the bot switches the veto off
+  if (reflex && !/^eat/.test(String(reflex))) return false
   return !arbiter || holder == null || holder === kr.runSkill
 }
 
@@ -280,4 +292,17 @@ export function keepoutDigGuard (inner, { sitesNow, purposeOf, onRefuse = () => 
   guarded.__digtown = inner?.__digtown
   guarded.__orig = inner?.__orig ?? inner
   return guarded
+}
+
+/**
+ * THE GUARD'S PURPOSE, with survival first (Codex r1 P2-4): the dig instrument's digPurpose names a pathfinder dig by its
+ * movement profile's tag BEFORE it looks at a reflex or a survival scope, so a rescue that runs while gather's tunnel profile
+ * is still set would read `target`. The guard asks the survival questions first: a reflex active, another holder of the body,
+ * or a `survival` scope (the reflex tick, `_keepout_exit`) -> survival, never refused. Pure.
+ */
+export function guardPurpose ({ reflex = null, holder = null, skill = null, scope = null, base = 'other' } = {}) {
+  if (reflex) return 'survival'
+  if (holder && skill && holder !== skill) return 'survival'
+  if (scope?.purpose === 'survival') return 'survival'
+  return base
 }
