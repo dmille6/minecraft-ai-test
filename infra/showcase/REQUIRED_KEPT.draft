@@ -1,0 +1,9 @@
+# DRAFT (not installed): the showcase start gate's required runs, one `<run> <sha>` per line, per O9 without the waiver
+# (docs/reports/townplan-found-spec-2026-10-21.md section 4). A line counts only with a recorded KEEP + promoted (or owner-direct)
+# row on the bench. sortdeposit-01 is not built yet: its line is filled when it is kept.
+toolkit-03 34d3e5e9629a45bcdb54c0e88870dacf09b8a22b
+townindex-01 1b0cca7c
+indexsearch-01 d0a27a5ef3c97b11110705e94d76844c0ebd6c02
+townplan-01 37d5aff6
+found-01 <the found-01 canary sha on the branch found-on-37d5aff>
+sortdeposit-01 <not built>
