@@ -31,14 +31,14 @@ def check(label, got, want):
     print(('  ok   ' if ok else '  FAIL ') + f"{label}: got {got!r} want {want!r}")
     if not ok: fails.append(label)
 
-print("1. the real fleet shape: 16 towns, 4 sandboxes with ports and no town, 1 template")
+print("1. the real fleet shape: 16 towns, 8 sandboxes with ports and no town, 1 template")
 with tempfile.TemporaryDirectory() as t:
     real = {'hive-a':25670,'hive-b':25671,'board-a':25672,'board-b':25673,
             'isolated-a':25674,'isolated-b':25675,'placebo-a':25676,'placebo-b':25677,
             'hive-c':25678,'hive-d':25679,'board-c':25680,'board-d':25681,
             'isolated-c':25682,'isolated-d':25683,'placebo-c':25684,'placebo-d':25685}
     for w, p in real.items(): world(t, w, p)
-    for i, w in enumerate(['sandbox','sandbox2','sandbox3','sandbox4']):
+    for i, w in enumerate(['sandbox','sandbox2','sandbox3','sandbox4','sandbox5','sandbox6','sandbox7','sandbox8']):
         world(t, w, 25699 + i, town=False)
     world(t, 'template', None, town=False)
     m = load(t); got = m._discover_worlds()

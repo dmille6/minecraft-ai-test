@@ -3,9 +3,9 @@
 # Usage: sandbox/run-scenario.sh <fixture.json> <env-file> [minutes]   -> appends to sandbox/results.jsonl
 set -euo pipefail
 FX="${1:?fixture}"; ENVF="${2:?env}"; MIN="${3:-15}"; GIVE="${GIVE:-}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"; H=mike@10.0.0.30
-# WHICH SANDBOX: SERVER=sandbox|sandbox2|sandbox3|sandbox4 (ports 25599..25602). The env file is rewritten to that
+# WHICH SANDBOX: SERVER=sandbox, sandbox2..sandbox8 (ports 25599..25606, sandbox/sandboxes.json). The env file is rewritten to that
 # port through a temp copy so four scenarios can run at once on four worlds (2026-09-13).
-SERVER="${SERVER:-sandbox}"; case "$SERVER" in sandbox) PORT=25599;; sandbox2) PORT=25600;; sandbox3) PORT=25601;; sandbox4) PORT=25602;; *) echo "unknown SERVER $SERVER"; exit 2;; esac
+SERVER="${SERVER:-sandbox}"; case "$SERVER" in sandbox) PORT=25599;; sandbox2) PORT=25600;; sandbox3) PORT=25601;; sandbox4) PORT=25602;; sandbox5) PORT=25603;; sandbox6) PORT=25604;; sandbox7) PORT=25605;; sandbox8) PORT=25606;; *) echo "unknown SERVER $SERVER"; exit 2;; esac
 BRAIN_PORT="${BRAIN_PORT:-$((11499 + PORT - 25599))}"
 SUFFIX=""; [[ "$SERVER" != sandbox ]] && SUFFIX="-${SERVER#sandbox}"   # sandbox2 -> "-2": distinct bot name, log and state dirs per server
 TMPENV="$(mktemp "$ROOT/sandbox/.env.XXXXXX")"; sed "s/^MINECRAFT_PORT=.*/MINECRAFT_PORT=$PORT/; s#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://127.0.0.1:$BRAIN_PORT#; s#^OLLAMA_BASE_URLS=.*#OLLAMA_BASE_URLS=http://127.0.0.1:$BRAIN_PORT#; s#^BOT_NAME=\(.*\)#BOT_NAME=\1$SUFFIX#; s#^LOG_DIR=\(.*\)#LOG_DIR=\1$SUFFIX#; s#^STATE_DIR=\(.*\)#STATE_DIR=\1$SUFFIX#" "$ROOT/$ENVF" > "$TMPENV"; trap 'rm -f "$TMPENV"' EXIT

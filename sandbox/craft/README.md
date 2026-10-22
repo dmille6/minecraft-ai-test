@@ -5,7 +5,7 @@ sandbox Paper server, sets each scene with RCON, and reads the **server's** slot
 ground before and after. The bot's own claim is recorded but never trusted as the outcome.
 
 Sandbox only: every driver refuses a non-`sandbox-*` bot name, and `run-bot.sh` refuses anything but
-`10.0.0.30:25599..25602`. RCON goes through `sbx-rcon.py` on the worlds host, which asserts a sandbox name and reads
+`10.0.0.30:25599..25606` (`sandbox/sandboxes.json`). RCON goes through `sbx-rcon.py` on the worlds host, which asserts a sandbox name and reads
 the RCON password from that server's own `server.properties` (nothing secret lives here). Never point any of this at
 a fleet world.
 
@@ -18,7 +18,7 @@ a fleet world.
 | `summarize.py` | per-trial lines + per-scene outcome table (CRAFTED / TOSSED / REFUSED / LIED) from the results files. |
 | `trace.cjs` | `node --require` preload that **only observes** packets (clicks, item spawns, pickups, slot updates) with timestamps. |
 | `qbrain.mjs` | loopback "model": answers each decision with the next line of a queue file (`craft [n] <item>`, `goto x y z`), else `status`. |
-| `sbx-rcon.py` | the RCON helper the drivers call over ssh as `/tmp/sbx-rcon.py <sandbox..sandbox4> -` (copy it there if missing). |
+| `sbx-rcon.py` | the RCON helper the drivers call over ssh as `/tmp/sbx-rcon.py <sandbox..sandbox8> -` (copy it there if missing). |
 | `drive.cjs` | craftsync skill A/B (2026-10-03 night): real bot, no shims, table/2x2/recursive cells. |
 | `realdrive.cjs` + `preload.cjs` | the same through `preload.cjs`, which can SHIM clicks (`CRAFTSYNC_ARM=A/B/AB`): an experiment harness, not a neutral observer. |
 | `craftsync.cjs` | bare-mineflayer craft probe (no bot code): table/2x2 cells, arms none/A/B/AB via in-process shims. |

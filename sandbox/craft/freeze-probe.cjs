@@ -23,6 +23,7 @@
 'use strict'
 const { execFileSync, spawn } = require('child_process')
 const http = require('http')
+const sbx = require('../lib/sbxlock.cjs')
 const fs = require('fs'); const path = require('path')
 const [SERVER, PLAN_S, SECS_S] = process.argv.slice(2)
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601 }      // sandbox4 is the model benchmark's
@@ -189,8 +190,7 @@ async function runTrial (arm, scene, k) {
 }
 
 async function main () {
-  const lock = r31('cat /tmp/mcai-sandbox.lock/* 2>/dev/null || echo NOLOCK')
-  if (!/freeze|airpocket-02/.test(lock)) throw new Error('the sandbox lock is not held for the freeze probe')
+  sbx.requireSandboxLock(SERVER, ['freeze', 'airpocket-02'])   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   if (!/There are 0 of/.test(rcon('list')[0].reply)) throw new Error('sandbox not empty')
   const fl = rcon('forceload query 700 700')[0].reply
   const addFl = !/is marked/.test(fl)

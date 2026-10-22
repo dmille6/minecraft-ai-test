@@ -1,0 +1,15 @@
+{
+  "_": "THE sandbox registry (2026-10-20). Paper test-rig servers on the worlds host, never fleet worlds. Every driver's allowlist must agree with this file; bots/test/sandbox-registry.test.mjs enforces it. sandbox5..8 exist from 10-20 but stay stopped until the worlds VM gets its RAM (scripts/host/sandbox58/enable.sh).",
+  "host": "10.0.0.30",
+  "lockHost": "mike@10.0.0.31",
+  "servers": {
+    "sandbox":  { "port": 25599, "rcon": 25699, "unit": "block2-sandbox",  "dir": "/srv/block2/sandbox" },
+    "sandbox2": { "port": 25600, "rcon": 25700, "unit": "block2-sandbox2", "dir": "/srv/block2/sandbox2" },
+    "sandbox3": { "port": 25601, "rcon": 25701, "unit": "block2-sandbox3", "dir": "/srv/block2/sandbox3" },
+    "sandbox4": { "port": 25602, "rcon": 25702, "unit": "block2-sandbox4", "dir": "/srv/block2/sandbox4" },
+    "sandbox5": { "port": 25603, "rcon": 25703, "unit": "block2-sandbox5", "dir": "/srv/block2/sandbox5" },
+    "sandbox6": { "port": 25604, "rcon": 25704, "unit": "block2-sandbox6", "dir": "/srv/block2/sandbox6" },
+    "sandbox7": { "port": 25605, "rcon": 25705, "unit": "block2-sandbox7", "dir": "/srv/block2/sandbox7" },
+    "sandbox8": { "port": 25606, "rcon": 25706, "unit": "block2-sandbox8", "dir": "/srv/block2/sandbox8" }
+  }
+}

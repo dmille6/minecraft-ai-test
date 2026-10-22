@@ -27,7 +27,7 @@ set -euo pipefail
 ROOT=${ROOT:-/srv/block2}
 STAGE=${STAGE:-/srv/world-backup/staging}
 EXPECT=${EXPECT:-16}
-PORT_LO=${PORT_LO:-25570}; PORT_HI=${PORT_HI:-25585}   # fleet worlds. Sandboxes are 25599-25602 and are NEVER backed up.
+PORT_LO=${PORT_LO:-25570}; PORT_HI=${PORT_HI:-25585}   # fleet worlds. Sandboxes are 25599-25606 and are NEVER backed up.
 UNIT_CHECK=${UNIT_CHECK:-1}           # the block2@ unit cross-check; the showcase run (ROOT = a pulled copy) sets 0
 BWLIMIT=${BWLIMIT:-40000}             # KB/s for pass 1. mq-deadline ignores ionice classes, so this is the real throttle.
 NAS_HOST=${NAS_HOST:-10.0.0.5}

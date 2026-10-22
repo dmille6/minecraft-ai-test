@@ -29,7 +29,7 @@ const http = require('http')
 const fs = require('fs'); const path = require('path')
 const [ARM, BOT_ROOT, REPS_S, SCENES_S, SERVER = 'sandbox'] = process.argv.slice(2)
 if (!ARM || !BOT_ROOT || !SCENES_S) throw new Error('usage: node peacefulkit-ab.cjs <arm> <botRoot> <reps> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 const REPS = Number(REPS_S || 1)
 const SCENES = SCENES_S.split(',')

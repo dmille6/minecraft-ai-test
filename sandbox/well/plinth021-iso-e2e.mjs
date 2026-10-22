@@ -13,14 +13,14 @@
 import { execFileSync, spawn } from 'node:child_process'
 import http from 'node:http'
 import fs from 'node:fs'
+import sbx from '../lib/sbxlock.cjs'
 import path from 'node:path'
 
 const [BOT_ROOT, LABEL = 'run', SERVER = 'sandbox2'] = process.argv.slice(2)
 if (!BOT_ROOT) throw new Error('usage: plinth021-iso-e2e.mjs <botRoot> <label> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-if (!/plinth021/.test(lock)) throw new Error(`the sandbox lock does not name plinth021: ${lock.trim()}`)
+sbx.requireSandboxLock(SERVER, 'plinth021')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
 const R = process.env.WELL_REPO
 if (!R || !fs.existsSync(`${R}/sandbox/run-bot.sh`)) throw new Error('WELL_REPO must hold sandbox/run-bot.sh')
 const WAIT_MS = Number(process.env.ISO_WAIT_MS || 240_000)

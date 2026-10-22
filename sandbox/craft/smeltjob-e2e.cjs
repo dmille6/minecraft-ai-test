@@ -24,10 +24,11 @@
 'use strict'
 const { execFileSync, spawn } = require('child_process')
 const http = require('http')
+const sbx = require('../lib/sbxlock.cjs')
 const fs = require('fs'); const path = require('path')
 const [BOT_ROOT, SCENES_S, SERVER = 'sandbox2'] = process.argv.slice(2)
 if (!BOT_ROOT || !SCENES_S) throw new Error('usage: node smeltjob-e2e.cjs <botRoot> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 const R = process.env.CRAFT_REPO || path.resolve(__dirname, '../..')
 const TRACE = path.join(R, 'sandbox/craft/trace.cjs')
@@ -320,8 +321,7 @@ async function runScene (scene) {
 }
 
 async function main () {
-  const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-  if (!/smeltjob/.test(lock)) throw new Error('the sandbox lock is not held for smeltjob: ' + lock.trim().slice(0, 160))
+  sbx.requireSandboxLock(SERVER, 'smeltjob')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   const pl = rcon('list')[0].reply; if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(BRAIN_PORT, '127.0.0.1', resolve) })
   console.log(`root=${BOT_ROOT} server=${SERVER} scenes=${SCENES_S}`)

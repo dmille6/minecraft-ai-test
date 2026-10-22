@@ -4,7 +4,7 @@
 # a stone sword is not fuel; one coal smelts all three (control).
 import subprocess, sys, re, time
 SERVER = sys.argv[1] if len(sys.argv) > 1 else 'sandbox3'
-assert SERVER in ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4')
+assert SERVER in ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4', 'sandbox5', 'sandbox6', 'sandbox7', 'sandbox8')
 FUELS = ['wooden_sword', 'wooden_sword', 'stone_sword', 'coal', 'oak_planks']
 
 
