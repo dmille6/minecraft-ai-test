@@ -359,6 +359,14 @@ await t('A BODY IN THE CELL IS A FREE SKIP (Paper FOUND-NOFIT 10-22), pure: foun
   assert.equal(order({ state: back, now: 1e9 + 5 + F.FOUND_RETRY_MS }).order?.args?.step, 'F1', 'after the wait: ordered again, the same visit')
   // a NOT-body refusal keeps the charge (only the body is free)
   assert.equal(order({ state: issued, now: 1e9 + 5 + F.FOUND_RETRY_MS }).skip, 'visit_used')
+  // THE CAP (Claude code r9 P2): FOUND_BODY_SKIPS_MAX free skips per cell per visit, then charged; another cell has its own;
+  // leaving town (a new visit) clears it
+  let st = { lastAt: 1000 }
+  for (let i = 0; i < F.FOUND_BODY_SKIPS_MAX; i++) { st = F.foundRetry(F.foundIssued(st, 1e9 + i), 1e9 + i, [7, 64, 7]); assert.equal(st.visitUsed, false, `skip ${i + 1} is free`) }
+  const capped = F.foundRetry(F.foundIssued(st, 2e9), 2e9, [7, 64, 7])
+  assert.equal(capped.visitUsed, true, 'past the cap: charged'); assert.equal(capped.lastAt, 2e9)
+  assert.equal(F.foundRetry(F.foundIssued(st, 2e9), 2e9, [9, 64, 2]).visitUsed, false, 'another cell')
+  assert.deepEqual(F.foundVisit(capped, false).bodySkips, {}, 'a new visit clears the count')
 })
 await t('A BODY IN THE CELL, the skill: found_work ends outcome=body, failClass found_body; the reservation is released; nothing placed', async () => {
   const w = town([stack('crafting_table', 2)])
@@ -368,6 +376,7 @@ await t('A BODY IN THE CELL, the skill: found_work ends outcome=body, failClass 
   const n0 = RECS.length
   const r = await runSkill(w.bot, 'found_work', { kind: 'crafting_table', at: s0.at, crafts: 0, step: 'F1' })
   assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'found_body'); assert.equal(r.placed, undefined)
+  assert.deepEqual(r.at, s0.at, 'the cell travels with the result (the cap is per cell)')
   assert.ok(rowsOf('found', n0).some(d => /outcome=body/.test(d)))
   assert.equal(stations(w.bot)[0].state, 'free')
   assert.notEqual(w.nameAt(...s0.at), 'crafting_table')
@@ -395,9 +404,36 @@ await t('CHAIN, A BODY: the found slot gives the visit back on found_body -- no 
   assert.equal(F.foundOrder({ plan: S.townPlanNow(w.bot).plan, items: w.bot.inventory.items(), ready: () => true, state: loop.foundState, now: Date.now() }).skip, 'retry_wait')
   assert.equal(F.foundOrder({ plan: S.townPlanNow(w.bot).plan, items: w.bot.inventory.items(), ready: () => true, state: loop.foundState, now: loop.foundState.retryAt }).order?.args?.step, 'F1', 'the same order, the same visit')
 })
+await t('A BODY, the bot ITSELF over the cell (Claude code r9 P2): never a free skip -- a refusal that could never succeed is charged', async () => {
+  const w = town([stack('crafting_table', 2)])
+  const s0 = stations(w.bot)[0]
+  const { Vec3 } = await import('vec3')
+  // the fake world never moves the bot when it is asked to centre: it stays over the cell
+  w.bot.entity.position = new Vec3(s0.at[0] + 0.5, s0.at[1], s0.at[2] + 0.5)
+  w.bot.pathfinder.goto = async () => {}
+  const r = await runSkill(w.bot, 'found_work', { kind: 'crafting_table', at: s0.at, crafts: 0, step: 'F1' })
+  assert.equal(r.status, 'no_effect', r.detail); assert.notEqual(r.failClass, 'found_body'); assert.match(r.detail, /the bot itself/)
+})
+await t('CHAIN, NOT A BODY: an ordinary no_effect (failClass unready) keeps the visit charged (only found_body is free)', async () => {
+  const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
+  loopBot(w)
+  const { loop } = await bodyLoop(CognitiveLoop, w, { status: 'no_effect', failClass: 'unready', detail: 'the plan cell is no longer ready' }, 1)
+  assert.equal(loop.foundState?.visitUsed, true)
+  assert.equal(loop.foundState?.retryAt, undefined)
+})
+await t('MUTANT KILLED: the free skip keyed on status instead of failClass -> an ordinary refusal is refunded', async () => {
+  const COGP = new URL('../src/cognitive.mjs', import.meta.url)
+  const k = await withMutant(COGP, "&& r.failClass === 'found_body') this.foundState = foundRetry(", "&& r.status === 'no_effect') this.foundState = foundRetry(", async M => killedBy(async () => {
+    const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
+    loopBot(w)
+    const { loop } = await bodyLoop(M.CognitiveLoop, w, { status: 'no_effect', failClass: 'unready', detail: 'x' }, 1)
+    assert.equal(loop.foundState?.visitUsed, true)
+  }))
+  assert.ok(k, 'the mutant survived')
+})
 await t('MUTANT KILLED: the free skip removed -> a body costs the visit (the order never comes back while in town)', async () => {
   const COGP = new URL('../src/cognitive.mjs', import.meta.url)
-  const line = "      if (!declined && (admitted.skill === 'found_store' || admitted.skill === 'found_work') && r.failClass === 'found_body') this.foundState = foundRetry(this.foundState ?? {}, Date.now())\n"
+  const line = "      if (!declined && (admitted.skill === 'found_store' || admitted.skill === 'found_work') && r.failClass === 'found_body') this.foundState = foundRetry(this.foundState ?? {}, Date.now(), r.at ?? admitted.args?.at ?? null)\n"
   const k = await withMutant(COGP, line, '', async M => killedBy(async () => {
     const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
     loopBot(w)
@@ -406,7 +442,7 @@ await t('MUTANT KILLED: the free skip removed -> a body costs the visit (the ord
   }))
   assert.ok(k, 'the mutant survived')
 })
-await t('THE FOUNDING FLOOR SWITCH (owner decision pending; default yes): FOUND_BELOW_STOCKPILE off -> the 64-unit stockpile is the floor and an hour-1 bag founds nothing', () => {
+await t('THE FOUNDING FLOOR SWITCH (OWNER DECISION 2026-10-22: yes, founding only): FOUND_BELOW_STOCKPILE off -> the 64-unit stockpile is the floor and an hour-1 bag founds nothing', () => {
   const hour1 = [st('oak_log', 16), st('cobblestone', 20)]
   assert.ok(F.foundMeans(hour1).planks >= 8, 'default: founds from the hour-1 bag')
   assert.equal(F.FOUND_BELOW_STOCKPILE, true)
@@ -420,6 +456,8 @@ await t('DECLINED (homefix-01 composition): a found run the runner declined neve
   assert.deepEqual(refundDeclined('found_store', { foundState: { lastAt: 5, visitUsed: true } }), { foundState: { lastAt: -Infinity, visitUsed: false } })
   assert.deepEqual(refundDeclined('gather', { foundState: { lastAt: 5, visitUsed: true } }), {})
   assert.deepEqual(refundDeclined('found_work', {}), {})
+  // with the previous order's cooldown kept by foundIssued: that one is restored, not wiped (Claude code r9 P3)
+  assert.deepEqual(refundDeclined('found_work', { foundState: { lastAt: 9, prevLastAt: 5, visitUsed: true } }), { foundState: { lastAt: 5, prevLastAt: 5, visitUsed: false } })
 })
 await t('CHAIN CONTROL: the same bot in a town with NO plan on disk (no tick has rooted it) -> no found order (the slot reads the head fresh: a nulled cache is not "no plan" any more)', async () => {
   freshPool(); S.resetPlanZones()
