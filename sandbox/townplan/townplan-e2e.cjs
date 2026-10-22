@@ -684,7 +684,9 @@ scenes.foundcanopy = async () => {
   for (let i = 1; i < 3; i++) files.push(await startBot('foundcanopy', bag, { pool, name: NAMES[i], standAt: at([-2 - i, 0]) }))
   const s = { files, world, root: true, poolDir: files[0].poolDir }
   const tStart = Date.now()
+  brainFar = true   // the 2nd and 3rd chests are F3 homes: one found order per bot per VISIT (walk out of town and back)
   await untilPlaced(s, plan => [storeCells(plan)[0], storeCells(plan)[1], storeCells(plan)[2]], 1500000)
+  brainFar = false
   await sleep(30000)
   const rows = foundRows(files)
   await stopBots()

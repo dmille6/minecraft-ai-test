@@ -14779,7 +14779,14 @@ export function townPlanHead (bot) {
   return h
 }
 /** THE ADOPTERS' VIEW: the last head this bot read (every tick refreshes it) -> { gen, plan, ko } | null (no plan: the base). */
-export const townPlanNow = bot => (planOn() && bot?.townPlan?.plan ? bot.townPlan : null)
+// A BOT THAT HAS NEVER READ THE PLAN reads it here, once (Paper FOUND-PLINTH 10-22: the planner tick first fires PLAN_TICK_MS
+// after spawn, and build_plinth planned the raised well 8 s after spawn as if the town had no plan -- inside the core's box).
+// `undefined` = never read; null = read, no plan; an unreadable directory leaves it undefined (retried at the next ask).
+export const townPlanNow = bot => {
+  if (!planOn() || !bot) return null
+  if (bot.townPlan === undefined && bot.worldId) { try { townPlanHead(bot) } catch { /* the next ask retries */ } }
+  return bot.townPlan?.plan ? bot.townPlan : null
+}
 
 /** The tree farm's record cells (`treefarm-<home>.g<N>.json`, the highest that parses) -> Set "x,z". Never throws. */
 function treeFarmCells () {
