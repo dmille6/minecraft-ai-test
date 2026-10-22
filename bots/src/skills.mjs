@@ -88,7 +88,7 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
-import { IRON_KINDS, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { IRON_KINDS, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -131,7 +131,7 @@ import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidF
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel, stepCells } from './minewell.mjs'
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs: the pure rules; index.mjs: the dig guard + route)
 import { columnAt, sitesNear, keepOutPart, KEEPOUT_KIND, KEEPOUT_SEARCH, KEEPOUT_RADIUS, KEEPOUT_HEIGHT, KEEPOUT_COOLDOWN_MS,
-         addCooldown, noteKeepout, exitTargets, outwardBearings, encodeCells, cellsInColumns, siteKey } from './keepout.mjs'
+         addCooldown, noteKeepout, exitTargets, outwardBearings, encodeCells, cellsInColumns, siteKey, routeForbids } from './keepout.mjs'
 // wellcare-01 fix 3 (its own statement): a station never on a junk well's cells
 import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
@@ -1812,10 +1812,30 @@ async function withKeepout (ctx, skill, fn, { near = 64 } = {}) {
   const p = bot?.entity?.position
   const sites = p ? sitesNear(bot.fireSitesNow?.() ?? [], p, near) : []
   if (!sites.length) return fn(null)
-  const prev = bot.keepoutRoute ?? null
-  const scope = { skill, runSkill: prev?.runSkill ?? ctx?.runner?.current?.skill ?? skill, sites, skipped: 0, site: null }
+  const generation = ctx?.runner?.generation ?? null
+  // NEVER A DEAD RUN'S SCOPE (Claude r1 P1-1): an outer scope is inherited (and restored) only from THIS runner generation
+  const held = bot.keepoutRoute ?? null
+  const prev = held && held.generation === generation ? held : null
+  const scope = { skill, runSkill: prev?.runSkill ?? ctx?.runner?.current?.skill ?? skill, generation, sites, skipped: 0, site: null }
+  // FRESH AT EVERY PLAN AND DIG (Codex r1 P2-6): the working set is re-read from the 20 s cache (a site reported during the run
+  // joins it); a site the run started with stays in it (a dispute never opens a column mid-dig)
+  scope.refresh = () => {
+    try {
+      const q = bot.entity?.position
+      const now = q ? sitesNear(bot.fireSitesNow?.() ?? [], q, near) : []
+      for (const n of now) if (!scope.sites.some(o => siteKey(o) === siteKey(n))) scope.sites.push(n)
+    } catch { /* keep the set it has */ }
+    return scope.sites
+  }
   bot.keepoutRoute = scope
   try { return await fn(scope) } finally { if (bot.keepoutRoute === scope) bot.keepoutRoute = prev }
+}
+/** A NESTED TRANSIT (mine's roof climb through `surface`) runs with the scope's route veto off, as any transit does. */
+async function withoutKeepout (bot, fn) {
+  const held = bot?.keepoutRoute ?? null
+  if (!held) return fn()
+  bot.keepoutRoute = null
+  try { return await fn() } finally { if (bot.keepoutRoute == null) bot.keepoutRoute = held }
 }
 /** Charge the 10-min deterministic cooldown for (skill, block) at `site` (admission.mjs refuses it near the column). */
 function keepoutCooldown (bot, skill, block, site) {
@@ -1834,6 +1854,9 @@ async function gather(ctx, args, signal) {
   return withKeepout(ctx, 'gather', async ko => {
     const r = await gatherRun(ctx, args ?? {}, signal, ko)
     if (!ko || !ko.skipped || r?.status === 'success') return r
+    // ONLY A FAILURE KEEP-OUT CAN HAVE CAUSED (Claude r1 P3-4): no candidate left, none reachable, none safe -- never a full bag,
+    // a budget or an interruption, which say nothing about the column
+    if (!['nothing_found', 'unreachable', 'no_safe_target', undefined, null].includes(r?.failClass) || r?.status === 'aborted') return r
     const bot = ctx.bot, site = ko.site ?? ko.sites[0]
     keepoutCooldown(bot, 'gather', args?.block ?? null, site)
     try { bot.keepoutDispute?.(site) } catch { /* the read is best effort */ }
@@ -1937,6 +1960,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
       return true
     }
+    ko?.refresh?.()
     let positions = bot
       .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
@@ -2280,7 +2304,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         logEvent({ kind: 'gather_escalated_to_mine', status: 'success',
                    detail: `${blockName}: every candidate buried, digging toward y=${depth}` })
         check(signal)
-        const dug = await mine(ctx, { y: depth }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        const dug = await mineGuarded(ctx, { y: depth }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel may have exposed one
       }
@@ -2562,27 +2586,49 @@ async function keepoutExit (ctx, _args, signal) {
     withKeepout(ctx, 'keepout_exit', ko => keepoutExitRun(ctx, ko, signal), { near: 48 }))
 }
 
-/** One outward escape bearing at foot level -> { out, steps, stopped }. Digs feet + head ahead, then steps in. */
-async function tunnelOut (bot, sites, dir, signal, maxSteps = 2 * KEEPOUT_RADIUS + 2) {
+/**
+ * THE ESCAPE STEP'S SAFETY, judged for the WHOLE step before its first dig (Codex r1 P1-2) -> null (safe) | why. Pure over the
+ * bot's reads. The floor is solid, not liquid, not hot (magma); every cell to dig passes the ore tunnel's six-face test
+ * (oretunnel.mjs breakHazard: no liquid, waterlogged or UNLOADED neighbour, nothing that falls above it); the stand passes
+ * its stand test (stepHazard: no lava within the 3x3, not hot, not a climbable); and the step enters no column the bot is
+ * not already in, and goes outward in the ones it is (routeForbids, every column judged: Codex r1 P1-3).
+ */
+export function escapeStepHazard (bot, sites, at, dir) {
+  const feet = at.offset(dir.x, 0, dir.z), head = feet.offset(0, 1, 0), floor = feet.offset(0, -1, 0)
+  const fb = bot.blockAt(floor)
+  if (!fb || fb.name == null) return 'unloaded'
+  if (fb.boundingBox !== 'block' || stairLiquid(fb) || /^(magma_block|lava)$/.test(fb.name)) return 'no_floor'
+  for (const c of [head, feet]) {
+    const b = bot.blockAt(c)
+    if (!b || b.name == null) return 'unloaded'
+    if (stairLiquid(b) || b.liquid === true) return 'liquid'
+    if (b.boundingBox === 'block' && breakHazard(q => bot.blockAt(q), b) > 0) return 'break_hazard'
+  }
+  if (routeForbids(sites, { x: at.x + 0.5, y: at.y, z: at.z + 0.5 }, feet)) return 'other_column'
+  const fe = bot.blockAt(feet)
+  if (fe && stepHazard(q => bot.blockAt(q), fe) > 0) return 'stand_hazard'
+  return null
+}
+
+/** One outward escape bearing at foot level -> { out, steps, stopped }. Validates the step, digs feet + head ahead, steps in. */
+async function tunnelOut (bot, sites, dir, signal, maxSteps = 2 * KEEPOUT_RADIUS + 2, deadline = Infinity) {
   const solid = b => !!b && b.boundingBox === 'block'
-  const wetBeside = c => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => stairLiquid(bot.blockAt(c.offset(dx, dy, dz))))
   for (let i = 0; i < maxSteps; i++) {
     check(signal)
+    if (Date.now() > deadline) return { out: !columnAt(sites, bot.entity.position.floored()), steps: i, stopped: 'deadline' }
     const at = bot.entity.position.floored()
     if (!columnAt(sites, at)) return { out: true, steps: i, stopped: null }
-    const feet = at.offset(dir.x, 0, dir.z), head = feet.offset(0, 1, 0), floor = feet.offset(0, -1, 0)
-    const fb = bot.blockAt(floor)
-    if (!fb) return { out: false, steps: i, stopped: 'unloaded' }
-    if (!solid(fb) || stairLiquid(fb)) return { out: false, steps: i, stopped: 'no_floor' }
+    const why = escapeStepHazard(bot, sites, at, dir)
+    if (why) return { out: false, steps: i, stopped: why }
+    const feet = at.offset(dir.x, 0, dir.z), head = feet.offset(0, 1, 0)
     for (const c of [head, feet]) {
       const b = bot.blockAt(c)
-      if (!b) return { out: false, steps: i, stopped: 'unloaded' }
-      if (stairLiquid(b)) return { out: false, steps: i, stopped: 'liquid' }
       if (!solid(b)) continue
-      if (wetBeside(c)) return { out: false, steps: i, stopped: 'liquid_beside' }
       { const tool = bestTool(bot, b); if (tool) await bot.equip(tool, 'hand').catch(() => {}) }
-      try { await withTimeout(bot.dig(b), 12_000, bot, { what: 'the keep-out escape dig', needsDrop: false }) } catch (e) { if (e?.aborted) throw e; return { out: false, steps: i, stopped: 'dig_failed' } }
+      try { await withTimeout(bot.dig(b), Math.max(1_000, Math.min(8_000, deadline - Date.now())), bot, { what: 'the keep-out escape dig', needsDrop: false }) } catch (e) { if (e?.aborted) throw e; return { out: false, steps: i, stopped: 'dig_failed' } }
     }
+    // a column refilled from above (a block fell after all): never step under it
+    if ([head, feet].some(c => solid(bot.blockAt(c)))) return { out: false, steps: i, stopped: 'refilled' }
     try { await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(feet.x, feet.y, feet.z)), 5000, bot, { what: 'the keep-out escape step' }) } catch (e) { if (e?.aborted) throw e }
     check(signal)
     const now = bot.entity.position.floored()
@@ -2591,9 +2637,12 @@ async function tunnelOut (bot, sites, dir, signal, maxSteps = 2 * KEEPOUT_RADIUS
   return { out: !columnAt(sites, bot.entity.position.floored()), steps: maxSteps, stopped: 'budget' }
 }
 
+/** The exit's own clock: every phase ends inside the 120 s contract (Claude r1 P2-3), whatever the terrain. */
+export const KEEPOUT_EXIT_BUDGET_MS = 100_000
 async function keepoutExitRun (ctx, ko, signal) {
   const { bot } = ctx
   const t0 = Date.now()
+  const left = () => KEEPOUT_EXIT_BUDGET_MS - (Date.now() - t0)
   const from = bot.entity.position.floored()
   const row = (outcome, method, site, extra = '') => {
     const at = bot.entity.position.floored()
@@ -2614,10 +2663,11 @@ async function keepoutExitRun (ctx, ko, signal) {
     const open = b => !!b && b.boundingBox === 'empty' && !stairLiquid(b)
     return open(feet) && open(head) && !!floor && floor.boundingBox === 'block' && !stairLiquid(floor) && floor.name !== 'magma_block'
   }
-  for (const t of exitTargets(ko.sites, bot.entity.position, standable).slice(0, 4)) {
+  for (const t of exitTargets(ko.sites, bot.entity.position, standable).slice(0, 3)) {
     check(signal)
+    if (left() < 60_000) break
     tried.push(`walk:${t.x},${t.y},${t.z}`)
-    try { await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(t.x, t.y, t.z)), 15_000, bot, { what: 'walking out of the keep-out column' }) } catch (e) { if (e?.aborted) throw e }
+    try { await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(t.x, t.y, t.z)), 12_000, bot, { what: 'walking out of the keep-out column' }) } catch (e) { if (e?.aborted) throw e }
     check(signal)
     await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
     if (!columnAt(ko.sites, bot.entity.position)) { row('out', 'walk', site0, ` tried=${tried.length}`); return { status: 'success', detail: `walked out of the column above the marked lava pool at ${siteKey(site0)}` } }
@@ -2625,16 +2675,17 @@ async function keepoutExitRun (ctx, ko, signal) {
   // 2a. the escape dig at foot level, away from the centre
   const here = columnAt(ko.sites, bot.entity.position) ?? site0
   for (const dir of outwardBearings(here, bot.entity.position).slice(0, 2)) {
-    const r = await tunnelOut(bot, ko.sites, dir, signal)
+    if (left() < 30_000) break
+    const r = await tunnelOut(bot, ko.sites, dir, signal, 2 * KEEPOUT_RADIUS + 2, Date.now() + left() - 25_000)
     tried.push(`dig:${dir.x},${dir.z}:${r.stopped ?? 'out'}`)
     if (r.out) { row('out', 'dig', site0, ` tried=${tried.join('|')}`); return { status: 'success', detail: `dug out of the column above the marked lava pool at ${siteKey(site0)}, away from its centre` } }
   }
   // 2b. climb above the column's top (the shaft ascent: digs only above the head, pillars, stops for liquid)
   const top = here.y + KEEPOUT_HEIGHT + 1
-  if (bot.entity.position.y < top) {
+  if (bot.entity.position.y < top && left() > 5_000) {
     const claim = ctx.runner?.claimBody?.('climb') ?? null
     let r = null
-    try { r = await shaftAscend(bot, top, signal, { deadline: Date.now() + 40_000, claim }) } catch (e) { if (e?.aborted) throw e } finally { claim?.release?.() }
+    try { r = await shaftAscend(bot, top, signal, { deadline: Date.now() + Math.min(40_000, left() - 2_000), claim }) } catch (e) { if (e?.aborted) throw e } finally { claim?.release?.() }
     tried.push(`climb:${r?.stopped ?? r?.status ?? '?'}`)
     if (!columnAt(ko.sites, bot.entity.position)) { row('out', 'climb', site0, ` tried=${tried.join('|')}`); return { status: 'success', detail: `climbed above the column of the marked lava pool at ${siteKey(site0)}` } }
   }
@@ -12066,12 +12117,26 @@ async function furnaceDrain (ctx, _args, signal) {
 // Distinct from gather: gather goes to blocks it can already see, mine
 // descends to reach ones it cannot. Staircase rather than straight down --
 // digging straight down is how bots fall into lava.
-/** MINE UNDER KEEP-OUT (design 4.6 row 3): the column joins mine's composed keep-out (see mineRun's farmNow). */
-async function mine(ctx, args, signal) {
-  return withKeepout(ctx, 'mine', ko => mineRun(ctx, args ?? {}, signal, ko), { near: 128 })
+/**
+ * MINE UNDER KEEP-OUT (design 4.6 row 3): the column joins mine's composed keep-out (see mine's farmNow). THE EXECUTED STAIR
+ * DIGS of the descent (the canary gate: 0 in a column) are written here, once at its end, whatever ended it.
+ */
+async function mineGuarded(ctx, args, signal) {
+  return withKeepout(ctx, 'mine', async ko => {
+    try { return await mine(ctx, args ?? {}, signal, ko) } finally {
+      if (ko?.minedCells) {
+        try {
+          const cells = ko.minedCells
+          logEvent({ kind: 'mine_dig', status: 'success', snapshot: snapshot(ctx.bot),
+                     detail: `n=${cells.length} in_column=${cellsInColumns(ko.sites, cells)} sites=${ko.sites.map(siteKey).join(';')}`,
+                     args: { n: cells.length, in_column: cellsInColumns(ko.sites, cells), sites: ko.sites.map(siteKey).join(';'), cells: encodeCells(cells) } })
+        } catch { /* telemetry */ }
+      }
+    }
+  }, { near: 128 })
 }
 
-async function mineRun(ctx, { y: targetY = 12 }, signal, ko = null) {
+async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   const { bot, runner } = ctx
   // Clamped to the bot's own elevation for the same reason admission.mjs
   // bounds the ask there: a flat 120 silently turned a stranded bot's
@@ -12221,7 +12286,7 @@ async function mineRun(ctx, { y: targetY = 12 }, signal, ko = null) {
   // ...AND THE COLUMN ABOVE EVERY LIVE FIRE SITE NEAR (keepout-01): the SAME plan checks the WHOLE stair against it before the
   // first dig (a descent from y 72 whose stair would meet a column at y 50 is refused at planning, not at y 50), the walk-off
   // finds a start that satisfies every keep-out at once, and every stair dig is checked again (shellStop). No site near: none.
-  const farmNow = () => composeKeepOut(farmTown(), ko ? keepOutPart(ko.sites) : { forbid: null, bottom: null })
+  const farmNow = () => composeKeepOut(farmTown(), ko ? keepOutPart(ko.refresh()) : { forbid: null, bottom: null })
   // A START MUST HAVE A DRY FIRST TREAD (the zone's water case, now the planner's): a keep-out that took the dry way walks off
   const dryStart = (from, b) => stairRunway(bot, new Vec3(from.x, from.y, from.z), b) > 0
   // THE FAR STARTS: just beyond the town's square (townground.mjs townExitColumns), at the standable height of each column
@@ -12279,12 +12344,12 @@ async function mineRun(ctx, { y: targetY = 12 }, signal, ko = null) {
     noteTownGround(bot, 'mine_bearing_refused')
     if (roofed()) {
       if (bot.entity.position.y < SEA_LEVEL) {
-        surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        surfaced = await withoutKeepout(bot, () => surface(ctx, {}, signal)).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         check(signal)
       }
       const top = roofTop()
       if (top != null) {
-        surfaced = await surface(ctx, { _toY: top + 1 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        surfaced = await withoutKeepout(bot, () => surface(ctx, { _toY: top + 1 }, signal)).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         check(signal)
       }
       wellPlan = planHere()
@@ -12371,6 +12436,7 @@ async function mineRun(ctx, { y: targetY = 12 }, signal, ko = null) {
   // KEEPOUT-01: THE PERMITTED PLAN, for the canary's deterministic gate (design 8 row 2): every cell this descent's stair
   // would dig from here to the goal (minewell.mjs stepCells), and how many of them lie in a column the bot knows (must be 0)
   const minedCells = []
+  if (ko) ko.minedCells = minedCells   // mineGuarded writes the `_mine_dig` row from it
   if (ko) {
     try {
       const p0 = bot.entity.position.floored(), planned = []
@@ -12575,7 +12641,8 @@ async function mineRun(ctx, { y: targetY = 12 }, signal, ko = null) {
         const fm = farmNow()
         const kind = fm.forbid && fm.forbid(pos)
         if (!kind) return null
-        // KEEPOUT-01: the column above a marked lava pool, read afresh at every dig -- the stair stops; the next plan avoids it
+        // KEEPOUT-01: the column above a marked lava pool (the scope's sites, refreshed from the 20 s cache at every plan and dig;
+    // the live dig guard under it reads the cache too) -- the stair stops; the next plan avoids it
         if (kind === KEEPOUT_KIND) {
           noteKeepout(bot, 'mine_step_refused')
           return { status: 'failed', failClass: 'keepout',
@@ -12784,17 +12851,7 @@ async function mineRun(ctx, { y: targetY = 12 }, signal, ko = null) {
     }
     await sleep(150, signal)
   }
-  } finally {
-    stairClaim?.release?.()
-    // KEEPOUT-01: THE EXECUTED STAIR DIGS of this descent (the gate: 0 in a column), one row at its end, whatever ended it
-    if (ko) {
-      try {
-        logEvent({ kind: 'mine_dig', status: 'success', snapshot: snapshot(bot),
-                   detail: `n=${minedCells.length} in_column=${cellsInColumns(ko.sites, minedCells)} sites=${ko.sites.map(siteKey).join(';')}`,
-                   args: { n: minedCells.length, in_column: cellsInColumns(ko.sites, minedCells), sites: ko.sites.map(siteKey).join(';'), cells: encodeCells(minedCells) } })
-      } catch { /* telemetry */ }
-    }
-  }
+  } finally { stairClaim?.release?.() }
   // THE CAP IS NOT AN ARRIVAL. Falling out of the loop on `steps < 90` used to
   // return the same success as reaching the target, which is the defect this
   // skill was already caught doing once: reporting the outcome it would have
@@ -15258,7 +15315,7 @@ export const SKILLS = {
   // rule -- which is where the shared-memory treatment actually lives -- is
   // untouched.
   explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'], rescue: true },
-  mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
+  mine:    { run: mineGuarded,    usage: 'mine <target_y>',               args: ['y'] },
   // `args: ['item']` IS THE POLICY DECISION HERE, not a formality.
   //
   // actionKey keeps only DECLARED args, so this is the granularity of the
