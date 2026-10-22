@@ -198,3 +198,71 @@ PAPER (sandbox3, 10-22 00:00-08:51Z; sandbox/townplan/townplan-e2e.cjs; server r
   PAPER FINDINGS FIXED ON THE WAY (each reviewed by both engines): a never-read plan at spawn (r5); a stale cached head in the
   found slot (r6); the plan's furniture dug by a path (r7); the found contract scored `unknown` (found r8); the arena outside the
   bots' world border (driver).
+
+COORDINATOR FOLLOW-UP 10-22 (owner answers relayed): O9 decided (the showcase starts after Paper + a no-harm bench read, 10-21
+  #11); the trial chambers PROTECTED (10-21 #18; zone `trial-chambers-home-se` [-20,-47,65,88,31,164] in the showcase zones
+  file); the mineshaft NOT protected (#19). OWNER 2026-10-22 ~13:00Z: bare ground (no stamped core, town-site.json
+  builds_core: true); the founding floor YES, for founding only (FOUND_BELOW_STOCKPILE = true). Asked: a body in the cell as a
+  free skip; FOUND-SOFT / BOX / ACCESS proven on Paper; TP-RETRO and FOUND-NOFIT 3-5 re-run; both engines on the new code.
+
+CODE ROUND 9 (found-01 c980f7fc: the body free skip -- foundRetry, FOUND_RETRY_MS 60 s, the found_body hook in cognitive; the
+  showcase avoid box = the zones file's; the owner-decision constants)
+  Codex APPROVE (P3: CHAIN uses a canned runner result; a permanent body can retry indefinitely -- no evacuation)
+  Claude CHANGE  P2-1 the skip uncapped and firing on the bot's OWN body (a bot over its own target retried forever); P2-2 the
+                 cluster path spent a claim, then retried as if free; P3 the hook-condition mutant, refundDeclined wiping the
+                 previous cooldown, the recovery's row text promising a retry, the zones fixture
+  -> found-01 r10 (cf3cd8ca): FOUND_BODY_SKIPS_MAX 2 per cell per visit (cleared on leaving town); only OTHER bodies are free
+     (othersAround, by identity); the bot's own body is centred on its stand, else a CHARGED refusal; the cluster path stays
+     charged (found_body downgraded); a mutant on the hook's condition; refundDeclined restores prevLastAt; the row text; the
+     fixture carries the zone; the owner's decisions recorded (spec section 5).
+
+CODE ROUND 10 (found-01 cf3cd8ca)
+  Codex APPROVE (P3: centreOn's 0.3 tolerance can leave a 0.6-wide body over the adjacent cell; spec line 261 still said pending)
+  Claude CHANGE  P2 the self-body nudge used centreOn's 0.3 tolerance and checked before the body settled; P3 the self-body test
+                 never exercised a successful nudge; `.slice(1)` assumed the bot's own entity came first
+  -> found-01 r11 (fe149adc): a nudge loop on the CELL's own test (up to 2 passes, forward until clear or 1.2 s, settle 150 ms,
+     controls released in finally); othersAround filters by identity; offsetScene (the bot 0.25 into the cell: nudged off, the
+     table placed) with a mutant removing the nudge; spec line 261.
+
+CODE ROUND 11 (found-01 fe149adc)   Codex APPROVE (P3: the instant-reposition fake does not cover abort cleanup, re-entry or
+  loop exhaustion)   Claude APPROVE (P3: the mutant could also assert the refusal's detail; othersAround duplicates
+  bodiesAround's filter). npm test 282/282 at fe149adc. Later commits on found2-on-37d5aff are the Paper driver and this record.
+
+PAPER r3 (sandbox3, 10-22 13:13-16:28Z; the driver as committed at d677f51b / 38cc55b5; server read-back; the global lock until
+  15:38Z, then the per-server lock sandbox3 (sbxlock.sh landed on main 10-22); held only while running)
+  The moat town (FOUND-SOFT / BOX / ACCESS): home on a 3x3 dirt pad in water, a walkway east, the 7-cell store box and the
+  workshop strips on dirt; the founders commit the town (store full of white_terracotta + one unique wool each, so no bot draws
+  the stock back); the scripted brain then asks for 3 deposits with a full bag, so the recovery must site an 8th chest.
+  scene          root       result
+  FOUND-SOFT     38cc55b5   PASS  workshop NOT committed: the recovery chest at 1112,120,-1094 tier=soft (the work plot), never a
+                                  NEVER cell, plan_refused=234, no_site 0; the bot's own audit afterwards (16:01:57): placed 7,
+                                  unreachable 0, lid 0; 3 of 7 wools withdrawn by the bot's own search
+                 d677f51b   PASS  the same placement (tier=soft, 1112,120,-1094); its reach proof (a queued goto per stand) did not run,
+                                  hence the re-run on 38cc55b5 with the audit proof
+                 d0a27a5e   BASE  no plan: the chest at 1114,120,-1099, the nearest spot -- inside what the plan calls the store box
+  FOUND-BOX      d677f51b   PASS  workshop committed (no soft cell left): the recovery chest at 1114,120,-1099 tier=box, inside the
+                                  store box, not a NEVER cell, plan_refused=227
+                 d0a27a5e   BASE  the same cell with no tier (no plan)
+  FOUND-ACCESS   38cc55b5   PASS  workshop committed: the recovery chest at 1114,120,-1099 tier=box, OFF the walkway (the
+                                  approach x-1..x+7 at z 0); the bot's own audit afterwards (16:27:31): placed 9,
+                                  unreachable 0, lid 0; 2 of 7 wools withdrawn by the bot's own search (it tries the
+                                  nearest few per ask)
+                 d677f51b   PASS  (goto proof: 7/7 stands reached) the chest at 1114,120,-1099 tier=box, off the walkway; 2 of 7
+                                  wools withdrawn
+                 d0a27a5e   BASE  the same cell (no plan)
+  FOUND-NOFIT    d677f51b   PASS  1-5 ground cells on a 1-wide island, three founders: 1 cell -> table only, store `unplaced`, 0
+                                  chests; 2 -> table + 1 chest; 3 -> table + 1; 4 -> table + 2; 5 -> table + 1 (one cell left free);
+                                  0 stray. The body free skip fired 6 times (`_found outcome=body`, arenas 3-5), and in 4 of them
+                                  the same bot placed on a later turn; on 76bc3f58 arenas 3-5 got the table only (each body refusal
+                                  cost the visit)
+  TP-RETRO       37d5aff6   PASS  (the fixed scene) retrofit, cluster store, groups allocated; the 5-station strip all air over a
+                                  floor, inside, none on a pre-existing block; well 13 from home; 13 of 13 containers opened by the
+                                  bot; the world intact (nothing removed, items moved by the bots); dispose_well succeeded
+  Unchanged from the r2 table: TP-GREEN, TP-CAS, TP-ZONES, TP-TEMP, FOUND-FLAT, FOUND-HOUR1, FOUND-ROUGH, FOUND-CANOPY,
+  FOUND-NONE, FOUND-KILL, FOUND-RETRO, FOUND-PLINTH (and its d0a27a5e BASE). FOUND-BARE not run (as before).
+  The candidate roots d677f51b and 38cc55b5 carry the bot code of fe149adc byte for byte (diff -r bots/src).
+  The 38cc55b5 rows in results.jsonl read sha "unknown" (the root lacked its .sha file); their `root` field names
+  root-cand-38cc55b5.
+  FINAL SHAS: found-01 = the tip of found2-on-37d5aff (bot code fe149adc; after it the Paper driver, this record, the spec's
+  REQUIRED_KEPT paragraph and the draft); townplan-01 37d5aff6 (townplan-on-d0a27a5); BASE d0a27a5e. Both registrations
+  name d0a27a5e / 37d5aff6 as their fleet; the coordinator JIT re-variants them onto the live fleet at their turn.
