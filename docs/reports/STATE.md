@@ -101,6 +101,23 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-22 03:30Z — ironpick-01 LIVE (3 pools); keepout-01 + chatgate-01 QUEUED; chain re-varianted (16 variants)
+
+- **ironpick-01 `2719ee0e` LIVE 00:36:03Z on hive-d, placebo-b, hive-c** (3 pools: no tier-2 +180 KEEP). homefix-02 merged to
+  main cd8df1d3 (278/278); frontier census merged 5cc17edb + fleetstatus E0 line installed (warm-up ends 10-24 00:20Z).
+- **Queue:** ironpick-01 -> **keepout-01** (safety lane, owner C3; tier 3; needs pools with a live fire site) -> protectzone-01
+  (HELD for the corrected fixture) -> townindex-01 -> indexsearch-01 -> **chatgate-01** (before the showcase bots; owner C4)
+  -> bamboo-03 -> junkout-01 -> foldwatch-01 -> treefarm-03.
+- **keepout-01 d014ec2c variant SWAPPED 04a3c726 -> 80339a91**: Codex P1 on the never-reviewed homefix composition (the
+  relocation dry check looked only at the target's foot height; goto arrives within +-6 y, so the watchdog could relocate into a
+  fire column) -- fixed + the watchdog's fire-site read wrapped. Also a807352c-style fix in every protectzone-on-keepout
+  variant: mine's zone refusal may not suggest an exit inside a fire column. Both engines APPROVE lines B (d014ec2c) and C
+  (2719ee0e); line A sidecar jit-1022b/lineA-variants.json not applied. Uncovered: a REVERT mid-chain leaves the next run
+  without a variant (JIT then); bamboo-03 / junkout-01 / foldwatch-01 / treefarm-03 still need variants at their turn.
+- **Ops audit 10-21: 1 HIGH** (toolkit-03 promoted before the promised owner look -- the loop auto-promotes; owner 10-22
+  00:50Z: fine with fast rollback, no promote-hold) and 1 low (drawrec still records a 5080/3090 half covariate after the
+  all-5080 move -- to fix).
+
 ## 10-22 00:40Z — FLEET d014ec2c (homefix-02 KEPT +360 00:18Z, promoted 00:28Z); ironpick-01 launching; queue re-varianted
 
 - **homefix-02 KEEP +360** (tier 3, gates complete at +360): G1 4 opps 0 defects; G2 50 / 0; G3 216 / 0; G4 337 / 0
