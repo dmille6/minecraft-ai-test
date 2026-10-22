@@ -62,48 +62,71 @@ export const WF_LOCK_STALE_MS = 10_000
 const WF_LOCK_BUSY = Symbol('world-facts lock busy')
 const WF_LOCK_LOST = Symbol('world-facts lock lost at the commit')
 let lockSeq = 0
-/** A lock (or break-lock) with no readable token is a holder that died between create and write after this long. */
+/** A lock (or break-lock) with no parseable token after this long is dead (nothing this code writes is token-less). */
 export const WF_LOCK_EMPTY_MS = WF_LOCK_STALE_MS
-/** A break-lock's holder that died inside its few-microsecond critical section: cleaned after this long. */
-export const WF_BREAK_STALE_MS = 60_000
-const newToken = now => `${process.pid}.${++lockSeq}.${now}`
+/**
+ * THE PROCESS'S IDENTITY: pid + start time in clock ticks since boot (/proc/<pid>/stat field 22), the kernel's own answer
+ * to "is this the same process" (Codex r6 P1: the /proc inode's ctime is when the inode was instantiated, not when the
+ * process started). Off Linux the start is unknown ('na') and only the pid is checked.
+ */
+export function parseStartTicks (stat) {
+  const s = String(stat ?? '')
+  const close = s.lastIndexOf(')')                  // comm may hold spaces and ')': the fields resume after the LAST ')'
+  if (close < 0) return null
+  const f = s.slice(close + 2).split(' ')           // f[0] is field 3 (state); field 22 is f[19]
+  return /^\d+$/.test(f[19] ?? '') ? f[19] : null
+}
+export function pidStartTicks (pid) { try { return parseStartTicks(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')) } catch { return null } }
+const SELF_START = pidStartTicks(process.pid) ?? 'na'
+const newToken = now => `${process.pid}.${SELF_START}.${++lockSeq}.${now}`
+/** A fresh token for THIS process (tests build live holders with it). */
+export const selfToken = (now = Date.now()) => newToken(now)
 /** Is this pid alive on this host? (EPERM: alive, another user's.) */
 export function pidAlive (pid) { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } }
-/** Was this pid's CURRENT process started after `ms` (the pid was reused)? Linux /proc; elsewhere: unknown -> false. */
-export function pidStartedAfter (pid, ms) { try { return fs.statSync(`/proc/${pid}`).ctimeMs > ms + 1000 } catch { return false } }
 /**
  * IS THE HOLDER OF THIS TOKEN DEAD? Pure over the probes. Every bot of a pool runs on ONE host as the same user's systemd
  * units with no PID namespace of their own (comms design 1; mcbot@.service) -- if that ever changes, this test calls live
- * holders dead (Claude r5 P3-3). Dead = no such pid, or the pid now belongs to a process started after the lock was taken
- * (reuse). A token-less lock (a holder killed between create and write) is dead after WF_LOCK_EMPTY_MS. NEVER BY AGE ALONE:
- * a live holder paused for any length of time keeps its lock (Codex r5 P2) -- the pool's writes wait or are skipped, never
- * interleaved.
+ * holders dead (Claude r5 P3-3). Dead = no such pid, or that pid is now a DIFFERENT process (its start ticks differ from the
+ * token's: reuse). An unparseable token (none is written by this code: tokens are published atomically, tryLock) is dead
+ * after WF_LOCK_EMPTY_MS. NEVER BY AGE ALONE: a live holder paused for any length keeps its lock (Codex r5 P2). The fleet is
+ * Linux; on a host without /proc a reused pid would read as alive and the pool's writes would wait or be skipped until that
+ * process ends (Claude r6 P3-2) -- the safe direction.
  */
-export function holderDead (token, lockMtimeMs, now = Date.now(), { alive = pidAlive, startedAfter = pidStartedAfter } = {}) {
-  const pid = Number(String(token ?? '').split('.')[0])
-  if (!Number.isInteger(pid) || pid <= 0) return now - lockMtimeMs > WF_LOCK_EMPTY_MS
+export function holderDead (token, lockMtimeMs, now = Date.now(), { alive = pidAlive, startTicks = pidStartTicks } = {}) {
+  const [p, start] = String(token ?? '').split('.')
+  const pid = Number(p)
+  if (!Number.isInteger(pid) || pid <= 0 || start == null) return now - lockMtimeMs > WF_LOCK_EMPTY_MS
   if (!alive(pid)) return true
-  return startedAfter(pid, lockMtimeMs)
+  if (start === 'na') return false
+  const nowStart = startTicks(pid)
+  return nowStart != null && nowStart !== start
 }
 const readToken = f => { try { return fs.readFileSync(f, 'utf8') } catch { return null } }
 /**
+ * PUBLISH A LOCK ATOMICALLY WITH ITS TOKEN (Codex r6 P2): the token is written to a private file first and hard-linked into
+ * place -- link() fails if the name exists, and the lock never exists without its token, so no live holder is ever
+ * "token-less". -> true (ours) | 'EEXIST' | an error code.
+ */
+function publish (lock, token) {
+  const tmp = `${lock}.${token}.tmp`
+  try { fs.writeFileSync(tmp, token, { flag: 'wx' }) } catch (e) { return e.code ?? 'error' }
+  try { fs.linkSync(tmp, lock); return true } catch (e) { return e.code ?? 'error' } finally { try { fs.unlinkSync(tmp) } catch { /* gone */ } }
+}
+/**
  * ONE TRY AT THE POOL LOCK -> a token (ours), or null (held: wait), or { enoent } / { error } (cannot be created).
- * A DEAD holder's lock is removed under a BREAK-LOCK (Codex r5 P1): one breaker at a time takes `<lock>.break` (O_EXCL),
- * RE-READS the lock and unlinks it only if it still holds the very token judged dead. No rename, no put-back: while the
- * break-lock is held nobody else can remove the lock, and nobody can create one while the dead one exists, so the unlink
- * removes exactly the dead holder's lock. A breaker that lost the break-lock race simply waits. A break-lock left by a
- * breaker killed inside those few microseconds is cleaned once its own holder is dead and it is WF_BREAK_STALE_MS old.
+ * A DEAD holder's lock is removed under a BREAK-LOCK (Codex r5 P1): one breaker at a time takes `<lock>.break` (published the
+ * same atomic way), RE-READS the lock and unlinks it only if it still holds the very token judged dead. While the break-lock
+ * is held nobody else can remove the lock, and nobody can create one while the dead one exists, so the unlink removes exactly
+ * the dead holder's lock. A breaker that lost the break-lock race waits. A break-lock whose own holder is dead (killed inside
+ * its microsecond section) is removed the same way, with no age wait (Codex r6 P3: a 60 s wait outlived a death's budget);
+ * two cleaners racing on such an abandoned break-lock is the residual window (it needs a breaker to die in that section).
  */
 export function tryLock (lock, now = Date.now(), probes = {}) {
   const token = newToken(now)
-  try {
-    const fd = fs.openSync(lock, 'wx')
-    try { fs.writeSync(fd, token) } finally { fs.closeSync(fd) }
-    return token
-  } catch (e) {
-    if (e.code === 'ENOENT') return { enoent: true }
-    if (e.code !== 'EEXIST') return { error: e.code }
-  }
+  const r = publish(lock, token)
+  if (r === true) return token
+  if (r === 'ENOENT') return { enoent: true }
+  if (r !== 'EEXIST') return { error: r }
   try {
     const held = readToken(lock)
     const st = fs.statSync(lock)
@@ -114,12 +137,10 @@ export function tryLock (lock, now = Date.now(), probes = {}) {
 /** Remove `lock` iff it still holds `dead`, under the break-lock. Exported for the race tests. */
 export function breakDead (lock, dead, now = Date.now(), probes = {}) {
   const brk = `${lock}.break`, mine = newToken(now)
-  try {
-    const fd = fs.openSync(brk, 'wx')
-    try { fs.writeSync(fd, mine) } finally { fs.closeSync(fd) }
-  } catch (e) {
-    if (e.code === 'EEXIST') {
-      try { const bt = readToken(brk), bs = fs.statSync(brk); if (now - bs.mtimeMs > WF_BREAK_STALE_MS && holderDead(bt, bs.mtimeMs, now, probes)) fs.unlinkSync(brk) } catch { /* gone */ }
+  const r = publish(brk, mine)
+  if (r !== true) {
+    if (r === 'EEXIST') {
+      try { const bt = readToken(brk), bs = fs.statSync(brk); if (bt != null && holderDead(bt, bs.mtimeMs, now, probes) && readToken(brk) === bt) fs.unlinkSync(brk) } catch { /* gone */ }
     }
     return false
   }
