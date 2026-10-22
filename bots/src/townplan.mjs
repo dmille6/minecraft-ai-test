@@ -754,6 +754,24 @@ export function keepouts (plan) {
   return { tier, never: isNever, boxAt, softAt, soft: softAt, boxes: box, softBoxes: soft, segs, neverCells: [...never].map(k => k.split(',').map(Number)) }
 }
 export const TIER_RANK = Object.freeze({ null: 0, soft: 1, box: 2, never: 3 })
+/**
+ * THE PLAN'S FURNITURE, NEVER A PATH'S DIG (Paper FOUND-NOFIT 10-22: a livelock relocation's dig-allowed retry dug the workshop
+ * table it walked past -- `_dig_town_sum zone.free.transit` -- and the plan read it missing). The cells a block stands in or is
+ * about to: placed, or reserved. Pure. A chest is already in mineflayer-pathfinder's blocksCantBreak; a table and a furnace are not.
+ */
+export function planFurnitureCells (plan) {
+  const out = new Set()
+  for (const pl of plan?.plots ?? []) for (const c of [...(pl.cells ?? []), ...(pl.stations ?? [])]) {
+    if ((c.state === 'placed' || c.state === 'reserved') && Array.isArray(c.at)) out.add(`${c.at[0]},${c.at[1]},${c.at[2]}`)
+  }
+  return out
+}
+/** The break price of a block for the pathfinder's exclusionAreasBreak: 100 (mineflayer-pathfinder's canDig needs < 100) on the
+ *  plan's furniture, else 0. Pure; one Set lookup (the A* step's cost). */
+export const planBreakCost = (cells, block) => {
+  const p = block?.position
+  return p && cells && cells.size && cells.has(`${p.x},${p.y},${p.z}`) ? 100 : 0
+}
 /** The pass a tier is first allowed in: OUTSIDE 1, SOFT 2, BOX 3, NEVER never. Pure. */
 export const tierAllowed = (tier, pass) => (tier === 'never' ? false : TIER_RANK[tier ?? 'null'] < pass)
 /** The worst tier over a junk well's footprint (cap +- 2, feet and head levels). Pure. */
