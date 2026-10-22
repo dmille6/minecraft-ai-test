@@ -189,6 +189,20 @@ await t('BUILDERS\' TABLES, LAST (Codex code r2 P2): place() with planTemp re-ju
   assert.ok(/placeWithin\(\{ item: 'crafting_table', x: cell\.x, y: cell\.y, z: cell\.z \}, \{ planTemp: true \}\)/.test(src), 'the composter builder')
   assert.ok(/\{ wellOwn: site, by: 'build_well', planTemp: true \}/.test(src), 'the well builder')
 })
+await t('A BOT THAT NEVER TICKED SEES THE PLAN (Paper FOUND-PLINTH 10-22): its first ask reads the head -- the raised well\'s keep-outs and the well\'s search carry the plan before the first PLAN_TICK_MS', () => {
+  town()   // bot A ticks: the root is on disk
+  const b = fakeWorld({ bag: [], at: [2.5, 64, 0.5] })
+  Object.assign(b.bot, { worldId: 'w', username: 'Late', players: {} })
+  assert.equal(b.bot.townPlan, undefined, 'never read')
+  assert.ok(S.townPlanNow(b.bot), 'the first ask reads it')
+  assert.ok(S.planPlinthKeepOut(b.bot, 1).length > 0, 'the plinth planner sees the plan\'s keep-outs')
+  // no world id yet: nothing is read (a write needs the world), the ask is retried later
+  const c = fakeWorld({ bag: [] }); Object.assign(c.bot, { username: 'NoWorld' })
+  assert.equal(S.townPlanNow(c.bot), null); assert.equal(c.bot.townPlan, undefined)
+  // a bot that read "no plan" (null) is not re-read on every ask: the tick refreshes it
+  const d = fakeWorld({ bag: [] }); Object.assign(d.bot, { worldId: 'w', username: 'Read', players: {}, townPlan: null })
+  assert.equal(S.townPlanNow(d.bot), null)
+})
 console.log('townplan: the wiring (comments stripped)')
 await t('WIRED: the planner tick every PLAN_TICK_MS and both licence rows once per spawn (index.mjs)', () => {
   const src = code('index.mjs')
