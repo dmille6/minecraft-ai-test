@@ -353,6 +353,12 @@ await ta('WIRED: hook (b) asks wading BEFORE taking the body; both stand-asides;
   assert.ok(/if \(!pocketing && !poolEscaping\) \{/.test(code), 'the float hold stands aside while a firing runs')
   assert.ok(/resv = runner\.reserve\('poolescape', 20_000, 'poolescape'\)/.test(code) && /runner\.releaseReservation\(resv\.gen\)/.test(code))
   assert.ok(/alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current/.test(code))
+  // Claude code r2 P2 / P3, Codex code r2 P2: never over another reservation; kept alive on a timer; the cancelled skill unwinds first
+  assert.ok(/if \(held && held\.owner !== 'poolescape'\) return null/.test(code), 'another owner\'s reservation is never overwritten')
+  assert.ok(code.indexOf("if (held && held.owner !== 'poolescape') return null") < code.indexOf("kind: 'poolescape_start'"), 'checked before the start row')
+  assert.ok(/if \(cur && !\(resv && cur\.gen === resv\.gen\)\) return/.test(code), 'renewed only while it is ours')
+  assert.ok(/keep = setInterval\(renew, 5_000\)/.test(code) && /clearInterval\(keep\)/.test(code), 'kept alive for the whole firing')
+  assert.ok(/for \(let w = 0; w < 30 && runner\?\.current; w\+\+\) await sleep\(100\)/.test(code), 'the cancelled skill unwinds before the first alive()')
 })
 await ta('WIRED: the licence row is written once per spawn (index.mjs)', () => {
   const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))

@@ -1511,24 +1511,41 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (await canStartAPath(bot)) return null
     const key = poolSpotKey(p), st = poolSpots.get(key)
     if (st && Date.now() < st.until) return null
+    // ANOTHER RESERVATION IS ANOTHER OWNER (Claude code r2 P3): the stagnation watchdog's rescue reserves the runner while
+    // the skill it cancelled unwinds. The rung never overwrites it; it waits for the next maroon check.
+    const held = runner?.activeReservation?.() ?? null
+    if (held && held.owner !== 'poolescape') return null
     const id = `${Date.now().toString(36)}`
     const tries = (st?.failures ?? 0) + 1
     logEvent({ kind: 'poolescape_start', status: 'success', snapshot: snapshot(bot),
                detail: `id=${id} hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- wading, no route: cutting a stair out of the pool` })
     poolEscaping = true
     // THE RUNNER IS RESERVED FOR THE FIRING (Claude code r1 P2-3): a reserved runner is busy, so the cognitive tick
-    // dispatches nothing into it (it would every 20 s with the model on); renewed before every action (<= 20 s each).
-    // A skill that is running anyway is an owner the rung does not override: it stops.
+    // dispatches nothing into it (it would every 20 s with the model on). Taking the reservation CANCELS a skill the
+    // planner started during the pillar (Runner.reserve interrupts), so the firing first waits up to 3 s for it to unwind
+    // (Claude code r2 P2: otherwise the first `alive()` saw the unwinding skill and every such firing yielded at once).
+    // Kept alive on a 5 s timer for the whole firing, long digs included (Codex code r2 P2), and renewed only while it is
+    // still ours (Claude code r2 P3: never over the watchdog's). A skill still running after the unwind wait stops it.
     let resv = null
-    const renew = () => { try { if (typeof runner?.reserve === 'function') resv = runner.reserve('poolescape', 20_000, 'poolescape') } catch {} }
-    let res
+    const renew = () => {
+      try {
+        if (typeof runner?.reserve !== 'function') return
+        const cur = runner.activeReservation?.() ?? null
+        if (cur && !(resv && cur.gen === resv.gen)) return
+        resv = runner.reserve('poolescape', 20_000, 'poolescape')
+      } catch {}
+    }
+    let res, keep = null
     try {
       renew()
+      keep = setInterval(renew, 5_000)
+      for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
       res = await poolEscape(bot, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
                                     yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), tries, renew })
     } catch (e) {
       res = { outcome: 'refused', steps: 0, reason: `threw: ${e.message}`, at: `${o.x},${o.y},${o.z}`, tries }
     } finally {
+      clearInterval(keep)
       poolEscaping = false
       try { if (resv) runner.releaseReservation(resv.gen) } catch {}
     }
