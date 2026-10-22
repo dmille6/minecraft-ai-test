@@ -133,6 +133,29 @@ function markRefusal (c, n, next, k) {
 }
 
 /**
+ * THE INTENT MARKER'S RULES (Codex code r3 P2) -> null, or why `n` may not follow `c` (c null: a new cell). `intentSet` says a
+ * RESERVATION set the cell's intent from none (skills planReserve), so its release or expiry clears it and an older intent
+ * survives. It is: set exactly when a reservation sets an intent from none; never toggled while the reservation lives; never on
+ * a free or placed cell; and on reserved -> free the intent is cleared iff it was set (kept otherwise).
+ */
+function intentSetRefusal (c, n, k) {
+  const role = x => x?.role ?? null, grp = x => x?.group ?? null
+  const was = c?.state ?? null
+  if (n.intentSet != null && n.intentSet !== true) return `intentSet on ${k} not true`
+  if (n.intentSet && n.state !== 'reserved') return `intentSet on ${n.state} ${k}`
+  if (n.state === 'reserved' && was !== 'reserved') {
+    const sets = role(c) === null && role(n) !== null
+    if (!!n.intentSet !== sets) return `intentSet on the reservation of ${k} ${sets ? 'missing' : 'without an intent set'}`
+  }
+  if (n.state === 'reserved' && was === 'reserved' && !!n.intentSet !== !!c.intentSet) return `intentSet on live reservation ${k} toggled`
+  if (was === 'reserved' && n.state === 'free') {
+    if (c.intentSet && (role(n) !== null || grp(n) !== null)) return `the intent the reservation of ${k} set survived its end`
+    if (!c.intentSet && (role(n) !== role(c) || grp(n) !== grp(c))) return `the older intent of ${k} lost at the reservation's end`
+  }
+  return null
+}
+
+/**
  * MAY `next` FOLLOW `prev`? -> null, or why not. Pure (design 4.1; build spec 1.2). The rules:
  *   - v, template, world, home, mode unchanged;
  *   - a plot of `prev` is never dropped; its GEOMETRY (box, cells, stations, door, sector...) and the plan's s/orientation
@@ -195,7 +218,7 @@ export function transitionRefusal (prev, next) {
       continue
     }
     if (n.kind !== c.kind) return `cell ${k} kind changed`
-    const markWhy = markRefusal(c, n, next, k)
+    const markWhy = markRefusal(c, n, next, k) ?? intentSetRefusal(c, n, k)
     if (markWhy) return markWhy
     const t = trans.get(k)
     if (c.state === 'placed') {
@@ -244,6 +267,8 @@ export function transitionRefusal (prev, next) {
     if (before.has(k)) continue
     if (n.state === 'reserved' && (n.by !== next.by || !(Number(n.until) > Number(next.at)))) return `new cell ${k} reserved by another (or already expired)`
     if (n.state === 'placed') return `new cell ${k} arrives placed`
+    const isWhy = intentSetRefusal(null, n, k)
+    if (isWhy) return isWhy
     if (n.seenSince != null || n.missingSince != null) return `new cell ${k} arrives marked`
   }
   const pg = prev.groups ?? {}, ng = next.groups ?? {}

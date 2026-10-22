@@ -6419,9 +6419,10 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // explicit coordinates (planTemp: the composter's and the well's) -- that became a reserved or placed plan cell (or a
       // stand) during the walk, the equip or the look is not taken. placeIntoPlan's explicit coordinates are its OWN reservation
       // and pass no planTemp.
+      // the head refreshed FIRST (Codex code r3 P2): a bot with no cached plan still sees one published during the awaits
+      if ((!explicitXYZ || planTemp) && planOn()) { try { townPlanHead(bot) } catch { /* the last head serves */ } }
       if ((!explicitXYZ || planTemp) && townPlanNow(bot)) {
         const tgt = ref.position.offset(face.x, face.y, face.z)
-        try { townPlanHead(bot) } catch { /* the last head serves */ }
         const pc = planCls(tgt)
         if (pc === 'never' || (pc === 'plan' && item !== 'crafting_table')) { failures.push(`${tgt} became a town plan cell: place again`); continue }
       }
@@ -14558,7 +14559,11 @@ function recoveryPlanCell (bot) {
   if (!store || store.kind === 'cluster' || store.kind === 'unplaced') return null
   const read = planReader(bot)
   const ctx = foundReadyCtx(bot, read, tp.plan)
-  return (store.cells ?? []).find(c => c.state === 'free' && !Number.isFinite(c.seenSince) && !readyCell(read, c.at, ctx, 'chest')) ?? null
+  // a cell with NO intent first, then the overflow cell; never a cell meant for a group's home (Claude code r3 P3: the recovery's
+  // chest in wood's gone home would make wood "homed" in the plan, and F3 would never found it a real one)
+  const ok = c => c.state === 'free' && !Number.isFinite(c.seenSince) && !readyCell(read, c.at, ctx, 'chest')
+  const cells = store.cells ?? []
+  return cells.find(c => (c.role ?? null) === null && ok(c)) ?? cells.find(c => c.role === 'overflow' && ok(c)) ?? null
 }
 /** READY's context for a live re-check (zones, wells, the plan's own cells). */
 function foundReadyCtx (bot, read, plan) {
