@@ -1,0 +1,444 @@
+#!/usr/bin/env python3
+"""learning loop M1 nightly: extract each finished UTC day, check it, and archive it to the NAS (on 10.0.0.31).
+
+    nice -n 19 ionice -c3 python3 -B nightly.py --tick                 # cron, 01:40Z: every day not yet archived
+    python3 -B nightly.py --tick --max-days 16                         # backfill
+    python3 -B nightly.py --tick --dry-run                             # what it would do; writes nothing remote
+
+WHY IT EXISTS. Logs on .31 rotate after 14 generations (logrotate rotate 14), so a day not archived within two weeks
+is gone; this archive is the only long-term copy of the decision stream (design s.1.5).
+
+PER DAY D (oldest first; D runs from --start, default 2026-10-08, the oldest generation on disk when M1 shipped):
+  1. rawhold: every rotated llm/skill generation is first COPIED to ~/learnloop/rawhold/<bot>/ (cp, never moved), so a
+     generation that rotates out before its day is archived is still on disk. A held generation is pruned only after
+     its day is sealed on the NAS AND the live copy has rotated away.
+  2. extract (extract_triples.extract_day) -> days/D/triples-YYYYMMDD.jsonl.gz + summary.json.
+  3. positive controls (controls.json, all printed with denominators; a failure is RECORDED, never a reason to skip
+     the archive -- preserving the rows comes first and a failed control shows as '!!' in fleetstatus):
+       rows      the day's decision lines counted by timestamp prefix BEFORE any parse == parsed rows (+ unparseable);
+                 model + deterministic == rows; triples written == model rows; labels sum to model rows;
+                 refused + admitted == model rows; bots with rows == roster
+       join      every EXECUTED decision (admitted, not runner-refused) joins its skill row: unexplained misses
+                 (not paused/busy) <= --join-tolerance of executed (default 0.01%)
+       sysprompt every (code version, system hash) pair of the day rebuilds from that version (sysprompts.py)
+       es        Elasticsearch agrees: llm docs, skill docs, _death, _stagnation, _milestone_complete for D
+                 (|files - ES| <= the rotation-race allowance: llm 15, skill 120, events 2)
+  4. raw-YYYYMMDD.tar: the generation -(D+1) llm + skill .gz of every log dir (the generation that holds D), each
+     gzip-tested; a missing one is listed in controls.
+  5. sysprompts-YYYYMMDD.json: the templates the day's hashes rebuild to (training needs the text, s.1.1).
+  6. MANIFEST.json (sha256 + bytes of every file, counts, controls, versions), then each file is sent through the .30
+     relay (nas-relay.sh: put -> NAS read-back hash -> rename), MANIFEST last, then `seal` re-hashes every listed
+     file on the NAS and writes _OK. Only then is D recorded archived in state.json.
+HEARTBEAT ~/learnloop/heartbeat.json (atomic) after every tick, also on a crash: status ok | control_failed |
+archive_failed | error, the newest archived day, per-day counts and controls, raw generations at risk. fleetstatus.py's
+learnloop_line reads it ('!!' when missing, stale, behind or failing).
+"""
+import argparse, datetime as dt, fcntl, glob, gzip, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, time, traceback
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(HERE))
+import extract_triples as X  # noqa: E402
+
+HOME = os.path.expanduser('~/learnloop')
+START = '2026-10-08'
+RELAY = 'mike@10.0.0.30'
+RELAY_KEY = '~/.ssh/id_learnloop_relay'
+TOL = {'llm': 15, 'skill': 120, 'event': 2}       # ES rotation race: ~5-12 llm / ~40-60 skill rows per rotation
+GEN = re.compile(r'^(llm|skill)-(.+)\.jsonl-(\d{8})\.gz$')
+
+
+def now_utc():
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def iso(t):
+    return t.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def sha256_file(p):
+    h = hashlib.sha256()
+    with open(p, 'rb') as fh:
+        for b in iter(lambda: fh.read(1 << 20), b''):
+            h.update(b)
+    return h.hexdigest()
+
+
+def atomic_json(path, obj):
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as fh:
+        json.dump(obj, fh, indent=1, default=str)
+    os.replace(tmp, path)
+
+
+# ------------------------------------------------------------------ pure controls (test_nightly.py) --------------
+def row_controls(s):
+    """Accounting identities on one extract_day summary. -> {'ok': bool, 'checks': [(name, ok, text)]}"""
+    pc, rows, ex = s['positive_control'], s['rows'], s.get('rows_extra') or {}
+    unp = (pc.get('reader_rejects') or {}).get('unparseable_line', 0)
+    refused = sum(s['refused_by_reason'].values()); admitted_any = sum(s['admitted_status'].values())
+    checks = [
+        ('raw lines == parsed rows', ex.get('llm_rows_raw', -1) - pc['llm_rows'] <= unp and ex.get('llm_rows_raw', -1) >= pc['llm_rows'],
+         'raw %s, parsed %s, unparseable (llm+skill) %s' % (ex.get('llm_rows_raw'), pc['llm_rows'], unp)),
+        ('model + deterministic == rows', rows['model_rows'] + rows['deterministic_rows'] == pc['llm_rows'],
+         '%d + %d vs %d' % (rows['model_rows'], rows['deterministic_rows'], pc['llm_rows'])),
+        ('triples written == model rows', ex.get('triples_written') == rows['model_rows'],
+         '%s vs %d' % (ex.get('triples_written'), rows['model_rows'])),
+        ('labels sum == model rows', sum(s['labels'].values()) == rows['model_rows'],
+         '%d vs %d %s' % (sum(s['labels'].values()), rows['model_rows'], s['labels'])),
+        ('refused + admitted == model rows', refused + admitted_any == rows['model_rows'],
+         '%d + %d vs %d' % (refused, admitted_any, rows['model_rows'])),
+        ('joined + missed == admitted', sum(s['join'].values()) == rows['admitted'],
+         '%s vs %d' % (s['join'], rows['admitted'])),
+        ('bots with rows == roster', pc['bots_with_rows'] == pc['roster'],
+         '%d of %d (no log dir %d, no rows %d)' % (pc['bots_with_rows'], pc['roster'], pc['roster_bots_without_log_dir'],
+                                                   pc['roster_bots_without_rows'])),
+        ('model rows > 0', rows['model_rows'] > 0, 'model rows %d (a day with none is an instrument failure)' % rows['model_rows']),
+    ]
+    return {'ok': all(c[1] for c in checks), 'checks': checks}
+
+
+def join_control(s, tolerance=1e-4):
+    """Every EXECUTED decision joins its skill row. Executed = admitted minus runner-refused (paused/busy: no row can
+    exist, runner.mjs returns before logSkill). Unexplained = misses that are not paused/busy."""
+    why = s.get('join_miss_why') or {}
+    runner_refused = sum(n for k, n in why.items() if not k.startswith('OTHER'))
+    unexplained = sum(n for k, n in why.items() if k.startswith('OTHER'))
+    executed = s['rows']['admitted'] - runner_refused
+    joined = (s['join'].get('exact', 0) + s['join'].get('ambiguous', 0))
+    allow = int(executed * tolerance)
+    ok = executed > 0 and unexplained <= allow and joined + unexplained == executed
+    return {'ok': ok, 'executed': executed, 'joined_exact': s['join'].get('exact', 0),
+            'joined_ambiguous': s['join'].get('ambiguous', 0), 'unexplained_misses': unexplained,
+            'allowance': allow, 'runner_refused': runner_refused,
+            'text': '%d of %d executed decisions join a skill row (exact %d, ambiguous %d); unexplained misses %d '
+                    '(allowance %d); runner-refused %d (void, no row by construction)' % (
+                        joined, executed, s['join'].get('exact', 0), s['join'].get('ambiguous', 0), unexplained, allow,
+                        runner_refused)}
+
+
+def es_compare(files, es, tol=TOL):
+    """files/es: {'llm': n, 'skill': n, '_death': n, '_stagnation': n, '_milestone_complete': n}. es None = unreadable."""
+    if es is None or es.get('error'):
+        return {'ok': False, 'text': 'ES unreadable: %s' % ((es or {}).get('error') or 'no reading'), 'rows': []}
+    rows = []
+    for k in ('llm', 'skill', '_death', '_stagnation', '_milestone_complete'):
+        t = tol['llm'] if k == 'llm' else tol['skill'] if k == 'skill' else tol['event']
+        d = files.get(k, 0) - es.get(k, 0)
+        rows.append((k, files.get(k), es.get(k), d, abs(d) <= t))
+    return {'ok': all(r[4] for r in rows), 'rows': rows,
+            'text': '; '.join('%s files %s ES %s (diff %+d%s)' % (r[0], r[1], r[2], r[3], '' if r[4] else ' OVER') for r in rows)}
+
+
+def files_counts(s):
+    ev = s['positive_control']['event_rows_in_day']
+    return {'llm': s['positive_control']['llm_rows'], 'skill': s['positive_control']['skill_rows_in_day'],
+            '_death': ev.get('_death', 0), '_stagnation': ev.get('_stagnation (exact kind)', 0),
+            '_milestone_complete': ev.get('_milestone_complete', 0)}
+
+
+READY_AFTER = dt.timedelta(days=1, hours=1, minutes=15)   # the extractor reads 1 h + 600 s past midnight
+
+
+def days_to_do(start, now, archived):
+    """Every day in [start, ...) whose lookahead has fully passed (D + 1 d 1 h 15 min <= now) and that is not yet
+    archived, oldest first."""
+    d = dt.date.fromisoformat(start); out = []
+    while dt.datetime(d.year, d.month, d.day, tzinfo=dt.timezone.utc) + READY_AFTER <= now:
+        if d.isoformat() not in archived:
+            out.append(d.isoformat())
+        d += dt.timedelta(days=1)
+    return out
+
+
+def generation_for(day):
+    """The rotated generation that holds day D: logrotate runs at 00:00Z and dateext names it for the rotation day."""
+    return (dt.date.fromisoformat(day) + dt.timedelta(days=1)).strftime('%Y%m%d')
+
+
+def at_risk(gens_on_disk, archived, today, keep=14, warn_days=3):
+    """Live generations whose day is not archived and that rotate out within warn_days. gens: {'YYYYMMDD'}."""
+    out = []
+    for g in sorted(gens_on_disk):
+        gd = dt.datetime.strptime(g, '%Y%m%d').date()
+        day = (gd - dt.timedelta(days=1)).isoformat()
+        expires = gd + dt.timedelta(days=keep)          # rotate 14: the 15th rotation after it deletes it
+        if day not in archived and (expires - today).days <= warn_days:
+            out.append({'generation': g, 'day': day, 'expires': expires.isoformat()})
+    return out
+
+
+def heartbeat_status(day_results, error=None, pending=(), newest_rec=None, at_risk_list=()):
+    """error > archive_failed (this run could not archive a day) > at_risk (a live generation of an unarchived day
+    rotates out within 3 days) > behind (finished days still pending, e.g. a capped backfill) > control_failed (the
+    NEWEST archived day failed a positive control) > ok."""
+    if error:
+        return 'error'
+    if any(not r.get('archived') for r in day_results):
+        return 'archive_failed'
+    if at_risk_list:
+        return 'at_risk'
+    if pending:
+        return 'behind'
+    if newest_rec is not None and not newest_rec.get('controls_ok'):
+        return 'control_failed'
+    if newest_rec is None:
+        return 'empty'
+    return 'ok'
+
+
+# ------------------------------------------------------------------ side effects --------------------------------
+def sync_rawhold(logroot, rawhold, log):
+    """Copy every rotated llm/skill generation not yet held. Never moves or deletes anything in logroot."""
+    n = 0
+    for f in glob.glob(os.path.join(logroot, '*', '*.jsonl-*.gz')):
+        b = os.path.basename(f)
+        if not GEN.match(b):
+            continue
+        dst = os.path.join(rawhold, os.path.basename(os.path.dirname(f)), b)
+        if os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(f):
+            continue
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(f, dst + '.part'); os.replace(dst + '.part', dst); n += 1
+    log('rawhold: %d generation file(s) copied' % n)
+    return n
+
+
+def raw_tar(day, logroot, rawhold, dst):
+    """tar of generation -(D+1) llm+skill gz for every log dir; each gzip-tested. -> (members, missing, bad)."""
+    g = generation_for(day)
+    bots = sorted(os.path.basename(d.rstrip('/')) for d in glob.glob(logroot + '/*-*/'))
+    members, missing, bad = 0, [], []
+    with tarfile.open(dst + '.part', 'w', format=tarfile.PAX_FORMAT) as tf:
+        for b in bots:
+            for kind in ('llm', 'skill'):
+                name = '%s-%s.jsonl-%s.gz' % (kind, b, g)
+                src = next((p for p in (os.path.join(logroot, b, name), os.path.join(rawhold, b, name)) if os.path.exists(p)), None)
+                if not src:
+                    missing.append('%s/%s' % (b, name)); continue
+                try:
+                    with gzip.open(src, 'rb') as fh:
+                        while fh.read(1 << 20):
+                            pass
+                except (OSError, EOFError) as e:
+                    bad.append('%s/%s: %s' % (b, name, e)); continue
+                tf.add(src, arcname='%s/%s' % (b, name)); members += 1
+    os.replace(dst + '.part', dst)
+    return members, missing, bad
+
+
+def es_counts(day):
+    """ES counts for [D, D+1). Never raises: an unreadable ES is a reading of its own."""
+    try:
+        from lib.estelemetry import EsEvents
+        a, b = day + 'T00:00:00Z', (dt.date.fromisoformat(day) + dt.timedelta(days=1)).isoformat() + 'T00:00:00Z'
+        sk = EsEvents.load('skill', since=a, until=b)
+        lm = EsEvents.load('llm', since=a, until=b)
+        out = {'llm': int(lm.total()), 'skill': int(sk.total())}
+        if not out['skill'] or not out['llm']:
+            return {'error': 'ES window holds %s skill / %s llm docs (positive control failed)' % (out['skill'], out['llm'])}
+        for k in ('_death', '_stagnation', '_milestone_complete'):
+            out[k] = int(sk.count(k, allow_zero=True))   # the window is proven non-empty above; the files are the control
+        out['caveats'] = list(sk.caveats)
+        return out
+    except Exception as e:                       # noqa: BLE001 -- recorded, never fatal
+        return {'error': '%s: %s' % (type(e).__name__, str(e)[:200])}
+
+
+class Relay:
+    def __init__(self, target=RELAY, key=RELAY_KEY, ssh='ssh', dry=False):
+        self.target, self.key, self.ssh, self.dry = target, os.path.expanduser(key), ssh, dry
+
+    def call(self, *args, stdin_path=None, timeout=1800):
+        if self.dry:
+            return 0, 'DRY ' + ' '.join(args)
+        cmd = [self.ssh, '-i', self.key, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'ServerAliveInterval=30',
+               '-o', 'StrictHostKeyChecking=accept-new', self.target] + list(args)
+        with (open(stdin_path, 'rb') if stdin_path else open(os.devnull, 'rb')) as fin:
+            r = subprocess.run(cmd, stdin=fin, capture_output=True, timeout=timeout)
+        return r.returncode, (r.stdout.decode(errors='replace') + r.stderr.decode(errors='replace')).strip()
+
+    def put(self, day, path):
+        sha = sha256_file(path)
+        rc, out = self.call('put', day, os.path.basename(path), sha, stdin_path=path)
+        ok = self.dry or (rc == 0 and out.startswith('OK ' + sha))
+        return ok, sha, out
+
+    def seal(self, day):
+        rc, out = self.call('seal', day)
+        return self.dry or (rc == 0 and out.startswith('OK sealed ' + day)), out
+
+    def status(self):
+        rc, out = self.call('status', timeout=120)
+        st = {'rc': rc, 'raw': out[:300]}
+        for line in out.splitlines():
+            if line.startswith('LASTGOOD '):
+                st['last_good'] = line[9:].strip()
+            elif line.startswith('SEALED '):
+                p = line.split(); st['sealed'] = int(p[1]) if len(p) > 1 and p[1].isdigit() else None
+                st['newest'] = p[2] if len(p) > 2 else None
+            elif line.startswith('UNSEALED'):
+                st['unsealed'] = line.split()[1:]
+        return st
+
+
+def process_day(day, a, relay, log):
+    ddir = os.path.join(a.home, 'days', day)
+    os.makedirs(ddir, exist_ok=True)
+    r = {'day': day, 'archived': False, 'controls_ok': False}
+    t0 = time.time()
+    s = X.extract_day(day, a.logroot, a.roster, ddir, rawhold=a.rawhold)
+    r['extract_s'] = round(time.time() - t0)
+    rc = row_controls(s); jc = join_control(s, a.join_tolerance)
+    import sysprompts as SP
+    rebuilt = SP.rebuild(list(s['system_hash_by_version']), a.repo, os.path.join(a.home, 'sysprompts'), a.node_modules)
+    spc = SP.match(s['system_hash_by_version'], rebuilt)
+    spc['errors'] = {v: e['errors'] for v, e in rebuilt.items() if e.get('errors')}
+    es = {'error': 'skipped (--no-es)'} if a.no_es else es_counts(day)
+    esc = es_compare(files_counts(s), es)
+    yyyymmdd = day.replace('-', '')
+    tarp = os.path.join(ddir, 'raw-%s.tar' % yyyymmdd)
+    members, missing, bad = raw_tar(day, a.logroot, a.rawhold, tarp)
+    rawc = {'ok': not missing and not bad and members > 0, 'members': members, 'missing': missing[:20],
+            'missing_n': len(missing), 'bad': bad[:20], 'generation': generation_for(day)}
+    spp = os.path.join(ddir, 'sysprompts-%s.json' % yyyymmdd)
+    atomic_json(spp, {v: {'sha': e.get('sha'), 'hashes': {h: x for h, x in (e.get('hashes') or {}).items()
+                                                            if h in (s['system_hash_by_version'].get(v) or {})}}
+                      for v, e in rebuilt.items()})
+    controls = {'rows': {'ok': rc['ok'], 'checks': [list(c) for c in rc['checks']]}, 'join': jc, 'sysprompt': spc,
+                'es': {'ok': esc['ok'], 'text': esc['text'], 'files': files_counts(s), 'es': es}, 'raw': rawc}
+    r['controls_ok'] = all(controls[k]['ok'] for k in controls)
+    r['controls_failed'] = [k for k in controls if not controls[k]['ok']]
+    atomic_json(os.path.join(ddir, 'controls.json'), controls)
+    files = [os.path.join(ddir, n) for n in (s['shard'], 'summary.json', 'controls.json', os.path.basename(spp), os.path.basename(tarp))]
+    man = {'day': day, 'made_at': iso(now_utc()), 'extractor': X.EXTRACTOR_VERSION, 'label_rule': X.LABEL_RULE,
+           'app_version': a.app_version, 'host': os.uname().nodename,
+           'counts': {'llm_rows': s['positive_control']['llm_rows'], 'model_rows': s['rows']['model_rows'],
+                      'triples': s['rows_extra']['triples_written'], 'labels': s['labels'],
+                      'bots': s['positive_control']['bots_with_rows'], 'roster': s['positive_control']['roster']},
+           'code_versions': s['code_version'], 'system_hashes': s['system_hash'],
+           'controls_ok': r['controls_ok'], 'controls_failed': r['controls_failed'],
+           'files': {os.path.basename(p): {'sha256': sha256_file(p), 'bytes': os.path.getsize(p)} for p in files}}
+    manp = os.path.join(ddir, 'MANIFEST.json')
+    atomic_json(manp, man)
+    r.update({'llm_rows': man['counts']['llm_rows'], 'model_rows': man['counts']['model_rows'],
+              'triples': man['counts']['triples'], 'labels': s['labels'], 'bots': man['counts']['bots'],
+              'roster': man['counts']['roster'], 'join': jc['text'], 'es': esc['text'],
+              'sysprompt': '%d of %d (version, hash) pairs rebuilt' % (spc['pairs_rebuilt'], spc['pairs']),
+              'bytes': sum(f['bytes'] for f in man['files'].values())})
+    log('%s: %d triples of %d llm rows, %d/%d bots, labels %s, controls %s (%ss)' % (
+        day, r['triples'], r['llm_rows'], r['bots'], r['roster'], s['labels'],
+        'ok' if r['controls_ok'] else 'FAILED ' + ','.join(r['controls_failed']), r['extract_s']))
+    for p in files + [manp]:
+        ok, sha, out = relay.put(day, p)
+        log('  put %s: %s' % (os.path.basename(p), out[:160]))
+        if not ok:
+            r['archive_error'] = 'put %s: %s' % (os.path.basename(p), out[:200]); return r
+    ok, out = relay.seal(day)
+    log('  seal: %s' % out[:160])
+    if not ok:
+        r['archive_error'] = 'seal: %s' % out[:200]; return r
+    r['archived'] = not relay.dry
+    if r['archived']:
+        os.remove(tarp)                          # the gz files stay in rawhold until pruned; the tar is on the NAS
+    return r
+
+
+def prune_rawhold(rawhold, logroot, archived, log):
+    """Remove a held generation only when its day is sealed on the NAS AND logrotate has deleted the live copy."""
+    n = 0
+    for f in glob.glob(os.path.join(rawhold, '*', '*.jsonl-*.gz')):
+        m = GEN.match(os.path.basename(f))
+        if not m:
+            continue
+        day = (dt.datetime.strptime(m.group(3), '%Y%m%d').date() - dt.timedelta(days=1)).isoformat()
+        live = os.path.join(logroot, os.path.basename(os.path.dirname(f)), os.path.basename(f))
+        if day in archived and not os.path.exists(live):
+            os.remove(f); n += 1
+    log('rawhold: %d archived generation file(s) pruned' % n)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--tick', action='store_true')
+    ap.add_argument('--home', default=HOME)
+    ap.add_argument('--logroot', default='/var/log/mcai')
+    ap.add_argument('--roster', default='/srv/mcbots/harness/env')
+    ap.add_argument('--repo', default='/opt/minecraft-ai')
+    ap.add_argument('--node-modules', default='/srv/mcbots/harness/node_modules')
+    ap.add_argument('--start', default=START)
+    ap.add_argument('--max-days', type=int, default=3)
+    ap.add_argument('--only', default=None, help='process exactly this day (still skipped if archived)')
+    ap.add_argument('--join-tolerance', type=float, default=1e-4)
+    ap.add_argument('--relay', default=RELAY)
+    ap.add_argument('--relay-key', default=RELAY_KEY)
+    ap.add_argument('--no-es', action='store_true')
+    ap.add_argument('--dry-run', action='store_true')
+    a = ap.parse_args(argv)
+    a.home = os.path.expanduser(a.home)
+    a.rawhold = os.path.join(a.home, 'rawhold')
+    os.makedirs(a.home, exist_ok=True)
+    vf = os.path.join(HERE, 'VERSION')
+    a.app_version = open(vf).read().strip() if os.path.exists(vf) else 'unknown'
+    logf = open(os.path.join(a.home, 'nightly.log'), 'a')
+
+    def log(msg):
+        line = '%s %s' % (iso(now_utc()), msg)
+        print(line, flush=True); logf.write(line + '\n'); logf.flush()
+
+    lock = open(os.path.join(a.home, 'nightly.lock'), 'w')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log('another nightly run holds the lock -- not starting a second'); return 3
+    statep = os.path.join(a.home, 'state.json')
+    state = json.load(open(statep)) if os.path.exists(statep) else {'archived': {}}
+    hb = {'at': None, 'status': None, 'app_version': a.app_version, 'host': os.uname().nodename}
+    results, error = [], None
+    relay = Relay(a.relay, a.relay_key, dry=a.dry_run)
+    try:
+        if not a.dry_run:
+            sync_rawhold(a.logroot, a.rawhold, log)
+        todo = days_to_do(a.start, now_utc(), state['archived'])
+        if a.only:
+            todo = [d for d in todo if d == a.only]
+        log('tick: %d day(s) not archived since %s: %s; this run takes %d' % (len(todo), a.start, todo[:20], min(len(todo), a.max_days)))
+        for day in todo[:a.max_days]:
+            try:
+                r = process_day(day, a, relay, log)
+            except Exception as e:               # one bad day must not stop the next (its raw is still held)
+                r = {'day': day, 'archived': False, 'controls_ok': False,
+                     'archive_error': 'crash: %s: %s' % (type(e).__name__, str(e)[:200])}
+                log('%s CRASH %s' % (day, traceback.format_exc()[-800:]))
+            results.append(r)
+            if r.get('archived'):
+                state['archived'][day] = {k: r.get(k) for k in ('triples', 'llm_rows', 'model_rows', 'bots', 'roster',
+                                                                'labels', 'controls_ok', 'controls_failed', 'bytes')}
+                state['archived'][day]['at'] = iso(now_utc())
+                atomic_json(statep, state)
+        if not a.dry_run:
+            prune_rawhold(a.rawhold, a.logroot, state['archived'], log)
+        hb['nas'] = relay.status() if not a.dry_run else {'dry': True}
+    except Exception as e:                       # noqa: BLE001 -- the heartbeat must say so
+        error = '%s: %s' % (type(e).__name__, str(e)[:300])
+        log('TICK CRASH %s' % traceback.format_exc()[-1200:])
+    gens = {GEN.match(os.path.basename(f)).group(3) for f in glob.glob(os.path.join(a.logroot, '*', '*.jsonl-*.gz'))
+            if GEN.match(os.path.basename(f))}
+    arch = sorted(state['archived'])
+    newest = arch[-1] if arch else None
+    pend = days_to_do(a.start, now_utc(), state['archived'])
+    risk = at_risk(gens, state['archived'], now_utc().date())
+    hb.update({'at': iso(now_utc()), 'status': heartbeat_status(results, error, pend, state['archived'].get(newest) if newest else None, risk),
+               'error': error, 'newest_archived_day': newest, 'archived_days': len(arch),
+               'newest': state['archived'].get(newest) if newest else None,
+               'this_run': results, 'pending': pend, 'at_risk': risk,
+               'oldest_live_generation': min(gens) if gens else None})
+    if not a.dry_run:
+        atomic_json(os.path.join(a.home, 'heartbeat.json'), hb)
+    log('heartbeat: %s, newest archived %s, %d archived, pending %s, at risk %s' % (
+        hb['status'], newest, len(arch), hb['pending'][:5], hb['at_risk']))
+    return 0 if hb['status'] == 'ok' else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())
