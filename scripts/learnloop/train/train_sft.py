@@ -6,7 +6,7 @@
 
 PRECONDITIONS (checked, refused otherwise -- train only when no bot can reach this GPU):
   * no Ollama model is resident (/api/ps empty) and nothing else of ours holds the GPU: run.sh stops Ollama first;
-  * --i-checked-m2b: the operator confirms drop16.sh --verify passed at +24 h (no bot env names 10.0.0.16).
+  * --m2b-verified <ISO>: the time drop16.sh --verify passed at +24 h (no bot env names 10.0.0.16); recorded in metrics.
 
 CONFIG (s.3.2; to be MEASURED, not assumed): max_seq_length 3,072, examples longer are DROPPED (never truncated) and
 counted; micro-batch 1; loss on the assistant tokens only; packing off; 4-bit base + Unsloth gradient checkpointing;
@@ -16,7 +16,7 @@ accumulation of 16 would be 125 steps for the same epoch; both are recorded).
 
 QWEN3 THINKING OFF (s.3.1): every example is rendered with the base's chat template and enable_thinking=False, so the
 training text is exactly the prompt a non-thinking serve sees ("<think>\\n\\n</think>\\n\\n" prefix in the assistant
-turn) followed by the fleet's JSON answer. The exported Ollama template must match (export.sh checks it).
+turn) followed by the fleet's JSON answer. The exported Ollama template must match (run.sh template-check measures it).
 
 MEASURED AND WRITTEN to <out>/metrics.json: peak VRAM (torch.cuda.max_memory_allocated and reserved), tokens/s over
 the timed steps, tokens trained, examples dropped as too long, grad-norm per logged step (must be finite and non-zero
@@ -54,10 +54,11 @@ def main():
     ap.add_argument('--grad-accum', type=int, default=10)
     ap.add_argument('--lr', type=float, default=1e-4)
     ap.add_argument('--fit-test-only', action='store_true', help='50 optimizer steps, measure, save nothing but metrics')
-    ap.add_argument('--i-checked-m2b', action='store_true')
+    ap.add_argument('--m2b-verified', default='', help='ISO time of the +24 h drop16.sh --verify OK')
     a = ap.parse_args()
-    if not a.i_checked_m2b:
-        raise SystemExit('REFUSED: pass --i-checked-m2b only after drop16.sh --verify passed at +24 h (no bot can reach .16)')
+    import re
+    if not re.fullmatch(r'20\d\d-\d\d-\d\dT\d\d:\d\d(:\d\d)?Z', a.m2b_verified or ''):
+        raise SystemExit('REFUSED: --m2b-verified <ISO Z time> of the +24 h drop16.sh --verify OK (no bot can reach .16)')
     res = ollama_resident()
     if res:
         raise SystemExit('REFUSED: Ollama still holds %s -- stop it first (run.sh does: sudo systemctl stop ollama)' % res)
@@ -131,7 +132,7 @@ def main():
                        'all_finite': all(math.isfinite(x) for x in gn), 'any_zero': any(x == 0 for x in gn)},
          'loss_first5': [round(h['loss'], 4) for h in hist[:5]], 'loss_last5': [round(h['loss'], 4) for h in hist[-5:]],
          'gpu': torch.cuda.get_device_name(0), 'versions': vers, 'python': platform.python_version(),
-         'fit_test_only': a.fit_test_only}
+         'fit_test_only': a.fit_test_only, 'm2b_verified': a.m2b_verified}
     ok = gn and m['grad_norm']['all_finite'] and not m['grad_norm']['any_zero'] and min(gn) > 0
     m['verdict'] = 'OK' if ok else 'BROKEN: grad-norm missing, zero or non-finite'
     json.dump(m, open(os.path.join(a.out, 'metrics.json'), 'w'), indent=1)

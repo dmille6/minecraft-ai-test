@@ -31,8 +31,15 @@
 # --verify run 24 h later; only then may training start on .16.
 set -u
 E=${ENV_DIR:-/srv/mcbots/harness/env}
-H=/home/mike
-MAN=/srv/mcbots/trial-manifest.json
+# Paths are overridable ONLY so scripts/host/test_drop16.py can run the script against a sandbox; the defaults are
+# the fleet's.
+H=${DROP16_HOME:-/home/mike}
+MAN=${DROP16_MANIFEST:-/srv/mcbots/trial-manifest.json}
+PROC=${DROP16_PROC:-/proc}
+UNITS=${DROP16_UNITS:-/etc/systemd/system}
+LOGROOT=${DROP16_LOGROOT:-/var/log/mcai}
+WAIT=${DROP16_WAIT:-180}
+LOCKF=${DROP16_LOCK:-/tmp/mcai-canary.lock}
 HOLDTOKEN=${HOLDTOKEN:-$H/gate-v36/holdtoken.py}
 HOLD_MIN=${HOLD_MIN:-45}
 EXPECT=${EXPECT:-80}
@@ -61,26 +68,28 @@ esac
 files=$(ls "$E"/*.env 2>/dev/null | grep -v '/\._')
 n=$(echo "$files" | grep -c . || true)
 
-verify() {   # $1 = since ISO
-  say "VERIFY: environ of every running bot, then the llm rows since $1"
+verify() {   # $1 = since ISO; $2 = the OLLAMA_BASE_URLS line every bot must run with (default: the new one)
+  local want=${2:-$NEW_URLS}
+  say "VERIFY: environ of every running bot (want '$want'), then the llm rows since $1"
   local bad=0 b pid envl
   for f in $files; do
     b=$(basename "$f" .env)
     pid=$(systemctl show -p MainPID --value "mcbot@$b.service" 2>/dev/null)
     if [ -z "$pid" ] || [ "$pid" = 0 ]; then echo "  !! $b: not running (MainPID $pid)"; bad=$((bad+1)); continue; fi
-    envl=$(sudo -n cat "/proc/$pid/environ" 2>/dev/null | tr '\0' '\n')
-    if [ -z "$envl" ]; then echo "  !! $b: cannot read /proc/$pid/environ"; bad=$((bad+1)); continue; fi
-    if echo "$envl" | grep -q '10\.0\.0\.16'; then echo "  !! $b (pid $pid): environ still names 10.0.0.16: $(echo "$envl" | grep '10\.0\.0\.16' | head -2 | tr '\n' ' ')"; bad=$((bad+1)); continue; fi
-    echo "$envl" | grep -qx "$NEW_URLS" || { echo "  !! $b (pid $pid): OLLAMA_BASE_URLS is $(echo "$envl" | grep '^OLLAMA_BASE_URLS=' | head -1)"; bad=$((bad+1)); }
+    envl=$(sudo -n cat "$PROC/$pid/environ" 2>/dev/null | tr '\0' '\n')
+    if [ -z "$envl" ]; then echo "  !! $b: cannot read $PROC/$pid/environ"; bad=$((bad+1)); continue; fi
+    if [ "$want" = "$NEW_URLS" ] && echo "$envl" | grep -q '10\.0\.0\.16'; then echo "  !! $b (pid $pid): environ still names 10.0.0.16: $(echo "$envl" | grep '10\.0\.0\.16' | head -2 | tr '\n' ' ')"; bad=$((bad+1)); continue; fi
+    echo "$envl" | grep -qx "$want" || { echo "  !! $b (pid $pid): OLLAMA_BASE_URLS is $(echo "$envl" | grep '^OLLAMA_BASE_URLS=' | head -1)"; bad=$((bad+1)); }
   done
-  echo "  environ: $((n - bad)) of $n bots run with $NEW_URLS and no 10.0.0.16"
-  python3 - "$1" "$E" <<'PY'
+  echo "  environ: $((n - bad)) of $n bots run with '$want'"
+  python3 - "$1" "$E" "$want" "$LOGROOT" <<'PY'
 import datetime as dt, glob, gzip, json, os, statistics, sys
 since = dt.datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00'))
 bots = sorted(os.path.basename(f)[:-4] for f in glob.glob(sys.argv[2] + '/*.env') if not os.path.basename(f).startswith('._'))
 ep, lat, vers, retry, rows, nobot = {}, [], {}, 0, 0, []
 for b in bots:
-    fs = ['/var/log/mcai/%s/llm-%s.jsonl' % (b, b)] + sorted(glob.glob('/var/log/mcai/%s/llm-%s.jsonl-*' % (b, b)))[-2:]
+    lr = sys.argv[4]
+    fs = ['%s/%s/llm-%s.jsonl' % (lr, b, b)] + sorted(glob.glob('%s/%s/llm-%s.jsonl-*' % (lr, b, b)))[-2:]
     newest = None; seen = 0
     for f in fs:
         if not os.path.exists(f):
@@ -112,8 +121,9 @@ print('  llm model rows since %s: %d from %d of %d bots (silent: %s)' % (sys.arg
 print('  served by: %s' % ep)
 print('  latency ms p50 %s p95 %s p99 %s; retry_count > 0: %d' % (q(.5), q(.95), q(.99), retry))
 print('  code versions live (newest row per bot): %s' % vers)
-gates = [('rows seen', rows > 0), ('all on .72', rows > 0 and ep.get('http://10.0.0.72:11434', 0) == rows),
-         ('0 on .16', ep.get('http://10.0.0.16:11434', 0) == 0), ('0 without endpoint', ep.get('None', 0) == 0),
+new_line = sys.argv[3].endswith('10.0.0.72:11434')       # after --rollback the fallback is back: rows on .16 are allowed
+gates = [('rows seen', rows > 0), ('all on .72', rows > 0 and (ep.get('http://10.0.0.72:11434', 0) == rows or not new_line)),
+         ('0 on .16', ep.get('http://10.0.0.16:11434', 0) == 0 or not new_line), ('0 without endpoint', ep.get('None', 0) == 0),
          ('p50 <= 2.5 s', lat and q(.5) <= 2500), ('p95 <= 5 s', lat and q(.95) <= 5000), ('p99 <= 10 s', lat and q(.99) <= 10000),
          ('one version live', len(vers) == 1), ('every bot decided', not nobot)]
 for g, ok in gates:
@@ -130,7 +140,7 @@ if [ "$MODE" = verify ]; then verify "$ARG"; exit $?; fi
 say "1. the slot: no canary declared, no drop-in, no loop or chain"
 _busy() {
   local D L C CP
-  D=$(ls /etc/systemd/system/mcbot@*.service.d/10-canary.conf 2>/dev/null | head -4 | tr '\n' ' ')
+  D=$(ls "$UNITS"/mcbot@*.service.d/10-canary.conf 2>/dev/null | head -4 | tr '\n' ' ')
   [ -z "$D" ] || W "canary drop-ins present: $D"
   L=$(pgrep -af '^bash /home/mike/canary-loop.sh' | grep -v pgrep || true)
   [ -z "$L" ] || W "a canary loop is running: $L"
@@ -147,13 +157,16 @@ _busy
 [ -f "$HOLDTOKEN" ] || W "holdtoken.py not found at $HOLDTOKEN (set HOLDTOKEN=)"
 if [ "$MODE" = dry ]; then
   HO=$(python3 "$HOLDTOKEN" owner 2>&1); [ -z "$HO" ] || W "an install-hold exists (owner $HO)"
-  flock -n /tmp/mcai-canary.lock true || W "/tmp/mcai-canary.lock is held"
+  flock -n "$LOCKF" true || W "/tmp/mcai-canary.lock is held"
 else
   TOKEN="drop16:$MODE:$$:$(date +%s%N)"
   CL=$(python3 "$HOLDTOKEN" claim "$TOKEN" "$HOLD_MIN" 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-500)"
-  trap 'python3 "$HOLDTOKEN" release "$TOKEN" >/dev/null 2>&1' EXIT
+  # A FAILED VERIFY KEEPS THE HOLD (Codex r1 P1): releasing it would let the scheduler launch a canary into a fleet
+  # that is half-edited or not running what its env files say. The operator fixes or rolls back, then releases.
+  KEEP_HOLD=""
+  trap '[ -n "$KEEP_HOLD" ] && echo "INSTALL-HOLD KEPT ($TOKEN): fix or roll back, then: python3 $HOLDTOKEN release $TOKEN" || python3 "$HOLDTOKEN" release "$TOKEN" >/dev/null 2>&1' EXIT
   echo "  $(echo "$CL" | tail -1 | cut -c1-200)"
-  exec 8>/tmp/mcai-canary.lock; flock -n 8 || die "/tmp/mcai-canary.lock is held"
+  exec 8>"$LOCKF"; flock -n 8 || die "$LOCKF is held"
   _busy      # re-checked UNDER the hold and the lock
 fi
 
@@ -174,7 +187,15 @@ if [ "$MODE" = rollback ]; then
   for f in $files; do [ -f "$f.bak-drop16-$ARG" ] || die "missing backup $f.bak-drop16-$ARG -- nothing restored"; done
   for f in $files; do sudo -n cp -p "$f.bak-drop16-$ARG" "$f" && cmp -s "$f.bak-drop16-$ARG" "$f" || die "restore of $f failed -- fix by hand"; done
   echo "  restored $n files; verified byte-equal to their backups"
-  restart_all; echo "ROLLED BACK $ARG; check: grep -c 10.0.0.16 $E/*.env (expect 1 per file)"; exit 0
+  restart_all; rfail=$?
+  T1=$(date -u +%FT%TZ)
+  say "wait 180 s after the LAST restart, then verify the restored line is what every bot runs"
+  sleep "$WAIT"
+  verify "$T1" "$OLD_URLS"; vrc=$?
+  if [ "$rfail" != 0 ] || [ "$vrc" != 0 ]; then
+    KEEP_HOLD=1; echo "ROLLBACK NOT VERIFIED ($rfail restart failure(s), verify rc $vrc) -- the install-hold is kept"; exit 4
+  fi
+  echo "ROLLED BACK $ARG and verified"; exit 0
 fi
 
 say "2. the $EXPECT env files are on the 5080-first lines"
@@ -190,7 +211,7 @@ for f in $files; do
   [ -z "$o" ] || { echo "  !! $(basename "$f"): 10.0.0.16 elsewhere: $o"; pre_bad=$((pre_bad+1)); }
 done
 [ "$pre_bad" = 0 ] || W "$pre_bad env file(s) are not on the expected lines (listed above): nothing changed"
-DI=$(grep -l '10\.0\.0\.16' /etc/systemd/system/mcbot@*.service.d/*.conf /etc/systemd/system/mcbot@.service 2>/dev/null | tr '\n' ' ')
+DI=$(grep -l '10\.0\.0\.16' "$UNITS"/mcbot@*.service.d/*.conf "$UNITS"/mcbot@.service 2>/dev/null | tr '\n' ' ')
 [ -z "$DI" ] || W "a unit or drop-in names 10.0.0.16: $DI"
 echo "  $((n - pre_bad)) of $n files: exactly one '$OLD_URLS' and '$URL1', no other 10.0.0.16"
 
@@ -215,13 +236,18 @@ for f in $files; do
   fi
 done
 echo "  $n files now read '$NEW_URLS'; each differs from its backup in that one line"
-T0=$(date -u +%FT%TZ)
+T_START=$(date -u +%FT%TZ)
 restart_all; rfail=$?
 [ "$rfail" = 0 ] || echo "  !! $rfail restart(s) failed -- verify will name them"
-say "4. wait 120 s for decisions, then verify"
-sleep 120
+# THE WINDOW STARTS AFTER THE LAST RESTART (Claude r1 P3): rows from bots not yet restarted would otherwise count, and
+# the last bot must get time to decide.
+T0=$(date -u +%FT%TZ)
+say "4. wait 180 s after the last restart, then verify"
+sleep "$WAIT"
 verify "$T0"; vrc=$?
+if [ "$rfail" != 0 ] || [ "$vrc" != 0 ]; then KEEP_HOLD=1; fi
 grep -q . "$H/digest/gate-installs.log" 2>/dev/null && echo "$(date -u +%FT%TZ) drop16 (learning loop M2b) applied: 10.0.0.16 removed from OLLAMA_BASE_URLS in $n env files; backups *.bak-drop16-$STAMP; verify rc $vrc" >> "$H/digest/gate-installs.log"
-echo "DONE $STAMP (restart began $T0). Rollback: bash $0 --rollback $STAMP"
+echo "DONE $STAMP (restarts $T_START..$T0, verify rc $vrc). Rollback: bash $0 --rollback $STAMP"
+[ "$vrc" = 0 ] && [ "$rfail" = 0 ] || { echo "NOT VERIFIED: the install-hold is kept until you fix or roll back"; exit 4; }
 echo "NEXT: bash $0 --verify $T0 at +60 min and again at +24 h (exclusion (i)); training on .16 only after the +24 h verify is OK."
 exit $vrc

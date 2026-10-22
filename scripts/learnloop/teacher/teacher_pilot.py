@@ -18,15 +18,19 @@ response_format json_schema (strict) and reasoning_effort `low`. Schema compatib
 output subset is NOT assumed: `submit` refuses until a 5-item probe of that arm has been fetched and every probe answer
 parsed (`--probe` sends exactly 5 requests).
 
-MONEY (s.2.4 "Monthly cap"). Caps: $100 / month / vendor (owner). Ledger ~/learnloop/spend.jsonl (append-only):
-  estimate rows at submit, actual rows from every fetched result's usage. Month-to-date = actuals + the estimates of
-  batches not yet fetched. A batch is REFUSED if month-to-date + its estimate > 80% of the vendor cap (room for the
-  vendors' enforcement lag). Batches are split to <= $10 each. A 429 is never retried. Prices are batch list prices
-  (50% of standard), per million tokens: claude-opus-5-5 $2 in / $10 out; gpt-6.1-sol $1 in / $5 out.
-ESTIMATE: input = the item's own qwen prompt_tokens (system + user, as Ollama counted them) x 1.35 (other tokenizers;
-  Anthropic documents ~1.0-1.35x for its newer tokenizer) + 600 for the informed condition's instruction and logged
-  outcome; output = 1,500 per item including thinking (generous; the visible answer is ~80). No caching is assumed,
-  so the estimate is an upper bound.
+MONEY (s.2.4 "Monthly cap"). Caps: $100 / month / vendor (owner). Ledger ~/learnloop/spend.jsonl (append-only, written
+  under an exclusive lock for the whole submit): a `reserve` row is written and flushed BEFORE the vendor call, a
+  `submitted` row links it to the batch id, an `actual` row comes from every fetched result's usage. Month-to-date =
+  actuals + every reservation without an actual (a submit that crashed after the vendor call stays counted). A batch is
+  REFUSED if month-to-date + its RESERVATION > 80% of the vendor cap (room for the vendors' enforcement lag), and a
+  submit whose exact request set is already reserved for that arm is REFUSED (no double pay) unless --resubmit.
+  Batches are split to <= $10 of RESERVATION each. A 429 is never retried (max_retries=0). Prices are batch list
+  prices (50% of standard), per million tokens: claude-opus-5-5 $2 in / $10 out; gpt-6.1-sol $1 in / $5 out.
+TWO NUMBERS per batch (both engines r1): RESERVED = the most the requests can bill -- input x 1.35 (other tokenizers;
+  Anthropic documents ~1.0-1.35x for its newer tokenizer) + 600 for the informed condition, and output at the
+  request's max_tokens (4,096; thinking counts as output and cannot be turned off on Opus 5.5) -- which sizes batches
+  and is checked against the cap; EXPECTED = the same input with 1,500 output tokens per item (the design's planning
+  figure; the visible answer is ~80), which is what the pilot should actually cost. No caching is assumed.
 KEYS: ~/.config/mcai/anthropic.key and ~/.config/mcai/openai.key, mode 600. `plan` checks that each exists with mode
   600 and NEVER opens it. Only submit/poll/fetch read a key, at call time, into the SDK client; it is never printed,
   logged, written or put on a command line.
@@ -42,6 +46,7 @@ ARMS = {'B': {'vendor': 'anthropic', 'model': 'claude-opus-5-5', 'in': 2.0, 'out
         'C': {'vendor': 'openai', 'model': 'gpt-6.1-sol', 'in': 1.0, 'out': 5.0}}
 CAP_USD = {'anthropic': 100.0, 'openai': 100.0}
 CAP_FRAC = 0.80
+MAC_HOSTS = ('mini4',)
 BATCH_USD = 10.0
 TOK_FACTOR = 1.35
 INFORMED_EXTRA = 600
@@ -102,33 +107,59 @@ def openai_request(item, condition, arm='C'):
 
 
 def plan_batches(items, arm, condition):
-    """-> list of batches, each {'items': [...], 'tin', 'tout', 'usd'}, each <= BATCH_USD."""
+    """-> list of batches {'items', 'tin', 'tout' (expected), 'tout_max', 'usd' (RESERVED: output at max_tokens),
+    'usd_expected'}; each batch's reservation <= BATCH_USD."""
     sel = items if condition == 'blind' else [i for i in items if i['id'] in informed_ids(items)]
-    out, cur = [], {'items': [], 'tin': 0, 'tout': 0, 'usd': 0.0}
+    new = lambda: {'items': [], 'tin': 0, 'tout': 0, 'tout_max': 0, 'usd': 0.0, 'usd_expected': 0.0}
+    out, cur = [], new()
     for it in sorted(sel, key=lambda i: i['id']):
-        tin, tout = est_tokens(it, condition); c = usd(arm, tin, tout)
+        tin, tout = est_tokens(it, condition); c = usd(arm, tin, MAX_TOKENS)
         if cur['items'] and cur['usd'] + c > BATCH_USD:
-            out.append(cur); cur = {'items': [], 'tin': 0, 'tout': 0, 'usd': 0.0}
-        cur['items'].append(it); cur['tin'] += tin; cur['tout'] += tout; cur['usd'] += c
+            out.append(cur); cur = new()
+        cur['items'].append(it); cur['tin'] += tin; cur['tout'] += tout; cur['tout_max'] += MAX_TOKENS
+        cur['usd'] += c; cur['usd_expected'] += usd(arm, tin, tout)
     if cur['items']:
         out.append(cur)
     return out
 
 
-def ledger_rows(path=LEDGER):
+def items_key(arm, condition, items):
+    return hashlib.sha1(json.dumps(sorted(anthropic_request(i, condition, arm)['custom_id'] for i in items)).encode()).hexdigest()
+
+
+def ledger_rows(path=None):
+    path = path or LEDGER
     if not os.path.exists(path):
         return []
     return [json.loads(l) for l in open(path) if l.strip()]
 
 
 def month_to_date(rows, vendor, now=None):
-    """Actual spend this UTC month + estimates of batches with no actual yet."""
+    """Actual spend this UTC month + every reservation with no actual yet (and not released by the owner). A
+    reservation is matched to its actual through the batch id its `submitted` row recorded."""
     now = now or dt.datetime.now(dt.timezone.utc)
     ym = now.strftime('%Y-%m')
     mine = [r for r in rows if r['vendor'] == vendor and r['ts'][:7] == ym]
-    actual_batches = {r['batch'] for r in mine if r['kind'] == 'actual'}
+    batch_of = {r['reservation']: r['batch'] for r in rows if r['kind'] == 'submitted'}
+    actual_batches = {r['batch'] for r in rows if r['kind'] == 'actual'}
+    released = {r['reservation'] for r in rows if r['kind'] == 'released'}
     return round(sum(r['usd'] for r in mine if r['kind'] == 'actual') +
-                 sum(r['usd'] for r in mine if r['kind'] == 'estimate' and r['batch'] not in actual_batches), 4)
+                 sum(r['usd'] for r in mine if r['kind'] == 'reserve' and r['reservation'] not in released
+                     and batch_of.get(r['reservation']) not in actual_batches), 4)
+
+
+def append_row(row):
+    os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+    with open(LEDGER, 'a') as fh:
+        fh.write(json.dumps(row) + '\n'); fh.flush(); os.fsync(fh.fileno())
+
+
+def mac_only():
+    """Submit/poll/fetch run on the Mac mini that holds the keys, nowhere else (Codex r1 P2)."""
+    import socket
+    host = socket.gethostname().split('.')[0]
+    if sys.platform != 'darwin' or host not in MAC_HOSTS:
+        raise SystemExit('REFUSED: the paid-teacher client runs only on the Mac mini (%s), not on %s/%s' % (MAC_HOSTS, sys.platform, host))
 
 
 def cap_check(rows, vendor, est, now=None):
@@ -158,6 +189,8 @@ def read_key(vendor):
 
 def cmd_plan(a):
     items = load(a.pilot)
+    if not items:
+        raise SystemExit('REFUSED: %s holds no items' % a.pilot)
     rows = ledger_rows()
     print('teacher pilot DRY RUN (no network, no key read): %d hard decisions in %s' % (len(items), a.pilot))
     strata = {}
@@ -173,16 +206,18 @@ def cmd_plan(a):
         for cond in ('blind', 'informed'):
             bs = plan_batches(items, arm, cond)
             n = sum(len(b['items']) for b in bs); tin = sum(b['tin'] for b in bs); tout = sum(b['tout'] for b in bs)
-            cost = sum(b['usd'] for b in bs)
-            tot.setdefault(v, 0.0); tot[v] += cost
-            print('    %-8s %4d requests in %d batch(es) <= $%.0f; est. %.2f M in + %.2f M out tokens = $%.2f' % (
-                cond, n, len(bs), BATCH_USD, tin / 1e6, tout / 1e6, cost))
-        cc = cap_check(rows, v, tot[v])
-        print('    month-to-date %s $%.2f + this arm $%.2f vs 80%% of the $%.0f cap ($%.0f): %s' % (
+            res, exp = sum(b['usd'] for b in bs), sum(b['usd_expected'] for b in bs)
+            tot.setdefault(v, [0.0, 0.0]); tot[v][0] += res; tot[v][1] += exp
+            print('    %-8s %4d requests in %d batch(es) of <= $%.0f reserved; %.2f M in; EXPECTED %.2f M out = $%.2f; '
+                  'RESERVED (out at max_tokens %d) $%.2f' % (cond, n, len(bs), BATCH_USD, tin / 1e6, tout / 1e6, exp, MAX_TOKENS, res))
+        cc = cap_check(rows, v, tot[v][0])
+        print('    month-to-date %s $%.2f + this arm reserved $%.2f vs 80%% of the $%.0f cap ($%.0f): %s' % (
             v, cc['mtd'], cc['estimate'], cc['cap'], cc['limit_80pct'], 'FITS' if cc['ok'] else 'REFUSED'))
-    grand = sum(tot.values())
-    print('\n  TOTAL planned (B + C, blind 1,000 + informed %d): $%.2f at batch list prices, no caching (upper bound)' % (INFORMED_N, grand))
-    print('  blind only: $%.2f' % sum(sum(b['usd'] for b in plan_batches(items, arm, 'blind')) for arm in ('B', 'C')))
+    print('\n  TOTAL (B + C, blind 1,000 + informed %d), batch list prices, no caching: EXPECTED $%.2f, RESERVED (upper bound) $%.2f'
+          % (INFORMED_N, sum(x[1] for x in tot.values()), sum(x[0] for x in tot.values())))
+    print('  blind only: EXPECTED $%.2f, RESERVED $%.2f' % (
+        sum(sum(b['usd_expected'] for b in plan_batches(items, arm, 'blind')) for arm in ('B', 'C')),
+        sum(sum(b['usd'] for b in plan_batches(items, arm, 'blind')) for arm in ('B', 'C'))))
     print('  NOTHING WAS SENT. submit needs: --i-will-spend, a fetched 5-item --probe per arm, and the cap check.')
     sample = items[0]
     ar = anthropic_request(sample, 'blind'); orq = openai_request(sample, 'blind')
@@ -194,33 +229,48 @@ def cmd_plan(a):
     return 0
 
 
-def cmd_submit(a):
+def cmd_submit(a, submit=None):
     if not a.i_will_spend:
         raise SystemExit('REFUSED: submit spends money; pass --i-will-spend (owner only)')
+    mac_only()
+    submit = submit or submit_batch
     arm = a.arm; v = ARMS[arm]['vendor']
     items = load(a.pilot)
     probe_ok = os.path.join(HOME, 'teacher-paid', arm, 'PROBE-OK')
+    cond = 'blind' if a.probe else a.condition
     if a.probe:
-        items = sorted(items, key=lambda i: i['id'])[:5]; batches = [{'items': items, 'tin': 0, 'tout': 0,
-                                                                      'usd': sum(usd(arm, *est_tokens(i, 'blind')) for i in items)}]
+        batches = plan_batches(sorted(items, key=lambda i: i['id'])[:5], arm, 'blind')
     else:
         if not os.path.exists(probe_ok):
             raise SystemExit('REFUSED: no fetched, fully parsed 5-item probe for arm %s (%s)' % (arm, probe_ok))
-        batches = plan_batches(items, arm, a.condition)
-    rows = ledger_rows()
-    for b in batches:
-        cc = cap_check(rows, v, b['usd'])
-        if not cc['ok']:
-            raise SystemExit('REFUSED by the ledger: %s' % cc)
-        bid = submit_batch(arm, b['items'], 'blind' if a.probe else a.condition)
-        row = {'ts': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'vendor': v, 'arm': arm,
-               'batch': bid, 'kind': 'estimate', 'usd': round(b['usd'], 4), 'requests': len(b['items']),
-               'condition': 'probe' if a.probe else a.condition}
-        os.makedirs(HOME, exist_ok=True)
-        with open(LEDGER, 'a') as fh:
-            fh.write(json.dumps(row) + '\n')
-        rows.append(row)
-        print('submitted', row)
+        batches = plan_batches(items, arm, cond)
+    import fcntl
+    os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+    with open(LEDGER + '.lock', 'w') as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)           # the WHOLE submit: two submits cannot pass against the same balance
+        rows = ledger_rows()
+        released = {r['reservation'] for r in rows if r['kind'] == 'released'}
+        for b in batches:
+            key = items_key(arm, cond, b['items'])
+            dup = [r for r in rows if r['kind'] == 'reserve' and r['arm'] == arm and r.get('items_key') == key
+                   and r['reservation'] not in released]
+            if dup and not a.resubmit:
+                raise SystemExit('REFUSED: this exact request set is already reserved (%s) -- no double pay; '
+                                 '--resubmit only after checking the vendor console' % dup[0]['reservation'])
+            cc = cap_check(rows, v, b['usd'])
+            if not cc['ok']:
+                raise SystemExit('REFUSED by the ledger: %s' % cc)
+            now = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            rid = 'r-%s-%s' % (now.replace(':', ''), key[:10])
+            res = {'ts': now, 'vendor': v, 'arm': arm, 'kind': 'reserve', 'reservation': rid, 'items_key': key,
+                   'usd': round(b['usd'], 4), 'usd_expected': round(b['usd_expected'], 4), 'requests': len(b['items']),
+                   'condition': 'probe' if a.probe else cond}
+            append_row(res); rows.append(res)     # durable BEFORE any money can move
+            bid = submit(arm, b['items'], cond)   # a crash here leaves the reservation counted (conservative)
+            sub = {'ts': now, 'vendor': v, 'arm': arm, 'kind': 'submitted', 'reservation': rid, 'batch': bid,
+                   'requests': len(b['items']), 'condition': res['condition']}
+            append_row(sub); rows.append(sub)
+            print('submitted', sub)
     return 0
 
 
@@ -241,7 +291,7 @@ def submit_batch(arm, items, condition):
 def open_batches(arm, rows=None):
     rows = rows if rows is not None else ledger_rows()
     done = {r['batch'] for r in rows if r['kind'] == 'actual'}
-    return [r for r in rows if r['arm'] == arm and r['kind'] == 'estimate' and r['batch'] not in done]
+    return [r for r in rows if r['arm'] == arm and r['kind'] == 'submitted' and r['batch'] not in done]
 
 
 def parse_answer(text):
@@ -253,6 +303,7 @@ def parse_answer(text):
 
 
 def cmd_poll(a):
+    mac_only()
     v = ARMS[a.arm]['vendor']
     for r in open_batches(a.arm):
         if v == 'anthropic':
@@ -268,6 +319,7 @@ def cmd_poll(a):
 
 def cmd_fetch(a):
     """Ended batches -> ~/learnloop/teacher-paid/<arm>/<batch>.jsonl (quarantined) + an ACTUAL ledger row from usage."""
+    mac_only()
     arm = a.arm; v = ARMS[arm]['vendor']; qdir = os.path.join(HOME, 'teacher-paid', arm)
     os.makedirs(qdir, exist_ok=True)
     for r in open_batches(arm):
@@ -303,10 +355,9 @@ def cmd_fetch(a):
                 fh.write(json.dumps(x) + '\n')
         spent = sum(usd(arm, x.get('in') or 0, x.get('out') or 0) for x in recs)
         row = {'ts': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'vendor': v, 'arm': arm,
-               'batch': r['batch'], 'kind': 'actual', 'usd': round(spent, 4), 'requests': len(recs),
+               'batch': r['batch'], 'reservation': r['reservation'], 'kind': 'actual', 'usd': round(spent, 4), 'requests': len(recs),
                'tokens_in': sum(x.get('in') or 0 for x in recs), 'tokens_out': sum(x.get('out') or 0 for x in recs)}
-        with open(LEDGER, 'a') as fh:
-            fh.write(json.dumps(row) + '\n')
+        append_row(row)
         print('fetched', row, 'parsed %d of %d' % (sum(1 for x in recs if x['parsed']), len(recs)))
         if r.get('condition') == 'probe' and recs and len(recs) == r['requests'] and all(x['parsed'] for x in recs):
             open(os.path.join(qdir, 'PROBE-OK'), 'w').write(row['ts'] + ' ' + r['batch'] + '\n')
@@ -322,6 +373,7 @@ def main(argv=None):
     ap.add_argument('--condition', choices=('blind', 'informed'), default='blind')
     ap.add_argument('--probe', action='store_true')
     ap.add_argument('--i-will-spend', action='store_true')
+    ap.add_argument('--resubmit', action='store_true', help='allow a request set that is already reserved (check the console first)')
     a = ap.parse_args(argv)
     if a.verb == 'plan':
         return cmd_plan(a)

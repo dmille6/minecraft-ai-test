@@ -15,8 +15,15 @@
 #                               (a run that failed before `seal`) and REFUSED once the day is sealed (immutable).
 #   seal <day>                  <day>/MANIFEST.json must exist and every file it lists must be on the NAS with its
 #                               sha256 (the NAS hashes them); then <day>/_OK and <base>/.last-good are written.
+#   verify <day>                read-only: the day is sealed (_OK) AND every file its MANIFEST.json lists is on the NAS
+#                               with that sha256 -> "OK verified <day> <n>". nightly.py asks this BEFORE re-processing a
+#                               day it has no local record of (a seal whose acknowledgement was lost, a lost state.json),
+#                               and after any refusal, so a sealed day is recorded from the NAS, never re-sent.
+#   manifest <day>              read-only: the day's MANIFEST.json as stored.
 #   status                      "LASTGOOD <stamp> <day>" (or NONE), "SEALED <n> <newest>", "UNSEALED <days...>".
 #   list <day>                  "<name> <bytes>" per file in <day>.
+# A sealed day accepts only NEW names that start with "repair-" (nightly.py --repair-raw: held raw files a failed raw
+# control left out); every existing name on a sealed day is immutable.
 # Day = YYYY-MM-DD; name = [A-Za-z0-9][A-Za-z0-9._-]*, no "..", <= 100 chars. Nothing is ever deleted on the NAS.
 # The NAS (Synology) refuses rsync over ssh for this account, so bytes go with `cat` (world-backup.sh does the same).
 set -uo pipefail
@@ -62,6 +69,8 @@ case "$verb" in
         out "REFUSED: $day is sealed and $name exists with sha $have, not $want -- a sealed day is immutable"; exit 4
       fi
       log "replacing $day/$name in the UNSEALED day ($have -> $want)"
+    elif [ "$(nas "[ -e '$dir/_OK' ] && echo SEALED || echo OPEN")" != OPEN ] && [[ "$name" != repair-* ]]; then
+      out "REFUSED: $day is sealed; only a new repair-* file may be added"; exit 4
     fi
     tmp=$(mktemp "$TMPD/put.XXXXXX"); trap 'rm -f "$tmp"' EXIT
     head -c "$((MAX_BYTES + 1))" > "$tmp"
@@ -76,8 +85,8 @@ case "$verb" in
     nas "mv -f '$dir/.$name.part' '$dir/$name'" || fail "$day/$name: rename failed"
     out "OK $want $bytes"
     ;;
-  seal)
-    [ "${#A[@]}" -eq 2 ] && day_ok "${A[1]}" || { out "REFUSED: usage seal <day>"; exit 2; }
+  seal|verify)
+    [ "${#A[@]}" -eq 2 ] && day_ok "${A[1]}" || { out "REFUSED: usage $verb <day>"; exit 2; }
     day=${A[1]}; dir=$DAYS/$day
     man=$(mktemp "$TMPD/man.XXXXXX"); trap 'rm -f "$man"' EXIT
     nas "cat '$dir/MANIFEST.json'" > "$man" 2>/dev/null || fail "$day: no MANIFEST.json on the NAS"
@@ -90,9 +99,18 @@ for n, f in sorted(m["files"].items()):
     [ -n "$want" ] || fail "$day: MANIFEST.json lists no files"
     got=$(nas "cd '$dir' && sha256sum $(echo "$want" | awk '{print $2}' | tr '\n' ' ')" 2>/dev/null) || fail "$day: a listed file is missing on the NAS"
     [ "$(echo "$want" | sort)" = "$(echo "$got" | sort)" ] || fail "$day: NAS hashes differ from MANIFEST.json"
-    stamp=$(date -u +%FT%TZ); n=$(echo "$want" | wc -l)
+    n=$(echo "$want" | wc -l)
+    if [ "$verb" = verify ]; then
+      [ "$(nas "[ -e '$dir/_OK' ] && echo SEALED || echo OPEN")" = SEALED ] || fail "$day: every file is there but the day is NOT sealed"
+      out "OK verified $day $n files"; exit 0
+    fi
+    stamp=$(date -u +%FT%TZ)
     nas "echo '$stamp $n files' > '$dir/_OK' && echo '$stamp $day' > '$BASE/.last-good'" || fail "$day: could not write _OK"
     out "OK sealed $day $n files"
+    ;;
+  manifest)
+    [ "${#A[@]}" -eq 2 ] && day_ok "${A[1]}" || { out "REFUSED: usage manifest <day>"; exit 2; }
+    nas "cat '$DAYS/${A[1]}/MANIFEST.json'" || fail "${A[1]}: no MANIFEST.json"
     ;;
   status)
     lg=$(nas "cat '$BASE/.last-good' 2>/dev/null || echo NONE") || fail "NAS unreachable"

@@ -10,7 +10,7 @@ stays at about one bot-day -- this runs on the FLEET host and must never compete
 <out>/summary.json. Never trains, never serves, never touches an endpoint.
 
 PRODUCTION CHANGES vs the 10-21 prototype (design docs/reports/learning-loop-design-2026-10-21.md s.1, both engines
-APPROVE). The decision logic -- join, value, windows, labels -- is unchanged and is pinned by test_extract.py, and the
+APPROVE). The decision logic -- join, value, windows, labels -- is unchanged and is pinned by test_learnloop.py, and the
 10-20 summary must reproduce docs/reports/learning-loop-1021/triples-summary-20261020.json:
   * one shard per day instead of one file per bot; each triple carries `label_rule` and `extractor`;
   * `dedupe.near`: the near-duplicate key (s.1.5) -- prompt with nonce, positions, coordinates, distances and the
@@ -137,7 +137,7 @@ def gain(delta):
 
 
 def label(refused, ost, detail, value, own_gain, w0, w1):
-    """Rule L1 (design s.1.3). Pure: test_extract.py pins every branch."""
+    """Rule L1 (design s.1.3). Pure: test_learnloop.py pins every branch."""
     if not refused and ost == 'failed' and (detail or '').startswith(RUNNER_REFUSED):
         return 'void'      # the runner refused to start: no evidence about the action (Claude r2); never a negative
     if refused or ost in ('failed', 'aborted') or w0['deaths'] or w0['stagnation']:

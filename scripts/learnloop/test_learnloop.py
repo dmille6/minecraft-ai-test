@@ -137,6 +137,8 @@ def t_shard_bytes_are_deterministic():
     X.extract_day(DAY, logs, roster, os.path.join(root, 'o2'))
     h = lambda d: hashlib.sha256(open(os.path.join(root, d, 'triples-20261020.jsonl.gz'), 'rb').read()).hexdigest()
     assert h('o1') == h('o2')
+    hdr = open(os.path.join(root, 'o1', 'triples-20261020.jsonl.gz'), 'rb').read(10)
+    assert hdr[4:8] == b'\0\0\0\0', 'gzip MTIME is 0 (two runs a second apart would otherwise differ)'
     assert not os.path.exists(os.path.join(root, 'o1', 'triples-20261020.jsonl.gz.part'))
 
 
@@ -241,13 +243,25 @@ def t_generation_and_at_risk():
 def t_heartbeat_status_order():
     H = N.heartbeat_status
     ok = {'controls_ok': True}
-    assert H([], None, [], ok, []) == 'ok'
-    assert H([], 'boom', [], ok, []) == 'error'
-    assert H([{'archived': False}], None, [], ok, []) == 'archive_failed'
-    assert H([], None, [], ok, [{'day': 'x'}]) == 'at_risk'
-    assert H([], None, ['2026-10-21'], ok, []) == 'behind'
-    assert H([], None, [], {'controls_ok': False}, []) == 'control_failed'
-    assert H([], None, [], None, []) == 'empty'
+    assert H([], None, [], ok, [], []) == 'ok'
+    assert H([], 'boom', [], ok, [], []) == 'error'
+    assert H([{'archived': False}], None, [], ok, [], []) == 'archive_failed'
+    assert H([], None, [], ok, [{'day': 'x'}], []) == 'at_risk'
+    assert H([], None, ['2026-10-21'], ok, [], []) == 'behind'
+    assert H([], None, [], ok, [], [{'day': '2026-10-09', 'why': 'x'}]) == 'control_failed'
+    assert H([], None, [], None, [], []) == 'empty'
+
+
+def t_unresolved_keeps_older_failures_until_acknowledged():
+    """Codex r1 P2-7: an older failed day must not disappear behind a healthy newer one."""
+    arch = {'2026-10-09': {'controls_ok': False, 'controls_failed': ['es'], 'raw_members': {'a': 'x'}, 'raw_left_out': []},
+            '2026-10-10': {'controls_ok': True, 'raw_members': {'a': 'x'}, 'raw_left_out': []},
+            '2026-10-11': {'controls_ok': True, 'raw_members': None},
+            '2026-10-12': {'controls_ok': True, 'raw_members': {'a': 'x'}, 'raw_left_out': ['b/llm-b.jsonl-20261013.gz']}}
+    u = N.unresolved(arch, {})
+    assert [x['day'] for x in u] == ['2026-10-09', '2026-10-11', '2026-10-12'], u
+    assert 'not proven' in u[1]['why'] and '--repair-raw 2026-10-12' in u[2]['why']
+    assert [x['day'] for x in N.unresolved(arch, {'2026-10-09': {'why': 'ok'}})] == ['2026-10-11', '2026-10-12']
 
 
 def t_raw_tar_lists_missing_and_corrupt_generations():
@@ -256,11 +270,18 @@ def t_raw_tar_lists_missing_and_corrupt_generations():
     os.makedirs(os.path.join(logs, 'w-a-Bravo'))
     with open(os.path.join(logs, 'w-a-Bravo', 'llm-w-a-Bravo.jsonl-20261021.gz'), 'wb') as fh:
         fh.write(b'\x1f\x8bnot gzip')
+    os.makedirs(os.path.join(logs, 'w-a-Idle'))          # a log dir with no rows that day: not expected, not a failure
     dst = os.path.join(root, 'raw.tar')
-    members, missing, bad = N.raw_tar(DAY, logs, hold, dst)
-    assert members == 2 and missing == ['w-a-Bravo/skill-w-a-Bravo.jsonl-20261021.gz'] and len(bad) == 1, (members, missing, bad)
+    members, missing, bad = N.raw_tar(DAY, logs, hold, dst, ['w-a-Alpha', 'w-a-Bravo'])
+    assert sorted(members) == ['w-a-Alpha/llm-w-a-Alpha.jsonl-20261021.gz', 'w-a-Alpha/skill-w-a-Alpha.jsonl-20261021.gz']
+    assert missing == ['w-a-Bravo/skill-w-a-Bravo.jsonl-20261021.gz'] and len(bad) == 1, (members, missing, bad)
     with tarfile.open(dst) as tf:
-        assert sorted(tf.getnames()) == ['w-a-Alpha/llm-w-a-Alpha.jsonl-20261021.gz', 'w-a-Alpha/skill-w-a-Alpha.jsonl-20261021.gz']
+        assert sorted(tf.getnames()) == sorted(members)
+        assert all(m.uid == 0 and m.uname == '' for m in tf.getmembers()), 'owner-independent headers'
+    m2, _, _ = N.raw_tar(DAY, logs, hold, dst + '2', ['w-a-Alpha', 'w-a-Bravo'])
+    import hashlib
+    h = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest()
+    assert h(dst) == h(dst + '2'), 'the same files tar to the same bytes' 
 
 
 FAKE_SSH = r'''#!/usr/bin/env bash
@@ -336,6 +357,16 @@ def t_relay_put_is_verified_immutable_and_sealed():
     assert rc == 0 and out == 'OK sealed 2026-10-21 1 files', out
     rc, out = _relay(env, 'put 2026-10-21 triples-20261020.jsonl.gz %s' % other, b'x')
     assert rc == 4 and 'sealed day is immutable' in out, out
+    rc, out = _relay(env, 'put 2026-10-21 extra.bin %s' % other, b'x')
+    assert rc == 4 and 'only a new repair-* file' in out, out
+    rc, out = _relay(env, 'put 2026-10-21 repair-raw-20261021-1.tar %s' % other, b'x')
+    assert rc == 0, 'a sealed day accepts a NEW repair-* file: %s' % out
+    rc, out = _relay(env, 'verify 2026-10-21')
+    assert rc == 0 and out == 'OK verified 2026-10-21 1 files', out
+    rc, out = _relay(env, 'verify 2026-10-20')
+    assert rc == 1 and ('missing' in out or 'NOT sealed' in out), 'an unsealed day never verifies: %s' % out
+    rc, out = _relay(env, 'manifest 2026-10-21')
+    assert rc == 0 and json.loads(out) == json.loads(man2), out
     assert open(stored.replace('2026-10-20/', '2026-10-21/'), 'rb').read() == data
     rc, out = _relay(env, 'status')
     lines = out.splitlines()
@@ -359,6 +390,161 @@ def t_relay_status_on_an_empty_archive():
     root, env = _relay_env()
     rc, out = _relay(env, 'status')
     assert rc == 0 and out.splitlines() == ['LASTGOOD NONE', 'SEALED 0 NONE', 'UNSEALED'], out
+
+
+class FakeRelay:
+    """The relay's contract in memory: put (unsealed replaceable, sealed immutable except new repair-*), seal (every
+    MANIFEST file present with its hash), verify, manifest, status. fail_* inject the failures nightly must survive."""
+    def __init__(self):
+        self.nas, self.sealed, self.calls, self.dry = {}, set(), [], False
+        self.fail_put = None; self.lose_seal_ack = False
+
+    def put(self, day, path):
+        import hashlib
+        name = os.path.basename(path); data = open(path, 'rb').read(); sha = hashlib.sha256(data).hexdigest()
+        self.calls.append(('put', day, name))
+        if self.fail_put == name:
+            return False, sha, 'FAIL injected'
+        d = self.nas.setdefault(day, {})
+        if day in self.sealed and (name in d and d[name] != data or name not in d and not name.startswith('repair-')):
+            return False, sha, 'REFUSED: sealed'
+        d[name] = data
+        return True, sha, 'OK %s %d' % (sha, len(data))
+
+    def _check(self, day):
+        import hashlib
+        d = self.nas.get(day) or {}
+        if 'MANIFEST.json' not in d:
+            return False
+        m = json.loads(d['MANIFEST.json'])
+        return all(n in d and hashlib.sha256(d[n]).hexdigest() == f['sha256'] for n, f in m['files'].items())
+
+    def seal(self, day):
+        self.calls.append(('seal', day))
+        if not self._check(day):
+            return False, 'FAIL'
+        self.sealed.add(day)
+        return (False, 'FAIL ssh dropped') if self.lose_seal_ack else (True, 'OK sealed %s 5 files' % day)
+
+    def verify(self, day):
+        self.calls.append(('verify', day))
+        ok = day in self.sealed and self._check(day)
+        return ok, ('OK verified %s' % day) if ok else 'FAIL'
+
+    def manifest(self, day):
+        d = self.nas.get(day) or {}
+        return json.loads(d['MANIFEST.json']) if 'MANIFEST.json' in d else None
+
+    def status(self):
+        return {'sealed': len(self.sealed), 'newest': max(self.sealed) if self.sealed else 'NONE'}
+
+
+def _nightly_env():
+    root, roster, logs = fixture()
+    home = os.path.join(root, 'home')
+    os.makedirs(home)
+    return root, roster, logs, home
+
+
+def _run(home, logs, roster, relay, *extra):
+    N_relay = N.Relay
+    N.Relay = lambda *a, **k: relay
+    try:
+        return N.main(['--tick', '--home', home, '--logroot', logs, '--roster', roster, '--start', DAY, '--max-days', '1',
+                       '--no-es', '--repo', '/nonexistent'] + list(extra))
+    finally:
+        N.Relay = N_relay
+
+
+def t_process_day_end_to_end_with_the_relay_contract():
+    """MANIFEST is sent last, state is written only after the seal, the tar is removed, the heartbeat names the day."""
+    root, roster, logs, home = _nightly_env()
+    rl = FakeRelay()
+    _run(home, logs, roster, rl)
+    puts = [c[2] for c in rl.calls if c[0] == 'put']
+    assert puts[-1] == 'MANIFEST.json' and set(puts) == {'triples-20261020.jsonl.gz', 'summary.json', 'controls.json',
+                                                         'sysprompts-20261020.json', 'raw-20261020.tar', 'MANIFEST.json'}, puts
+    assert rl.calls[-1][0] == 'seal' or ('seal', DAY) in rl.calls
+    st = json.load(open(os.path.join(home, 'state.json')))
+    rec = st['archived'][DAY]
+    assert rec['triples'] == 7 and sorted(rec['raw_members']) == ['w-a-Alpha/llm-w-a-Alpha.jsonl-20261021.gz',
+                                                                  'w-a-Alpha/skill-w-a-Alpha.jsonl-20261021.gz'], rec
+    assert not os.path.exists(os.path.join(home, 'days', DAY, 'raw-20261020.tar'))
+    man = json.loads(rl.nas[DAY]['MANIFEST.json'])
+    assert 'made_at' not in man and man['raw_members'] == rec['raw_members']
+    hb = json.load(open(os.path.join(home, 'heartbeat.json')))
+    assert hb['newest_archived_day'] == DAY and 'raw_members' not in (hb['newest'] or {}), hb
+    # the sysprompt control FAILED (no repo here): it must show, and stay unresolved until acknowledged
+    assert hb['unresolved'][0]['day'] == DAY and 'controls failed' in hb['unresolved'][0]['why'], hb['unresolved']
+    assert hb['status'] == 'behind' and hb['pending'] == ['2026-10-21'], (hb['status'], hb['pending'])
+
+
+def t_a_failed_put_leaves_the_day_unarchived_and_a_rerun_completes_it():
+    root, roster, logs, home = _nightly_env()
+    rl = FakeRelay(); rl.fail_put = 'raw-20261020.tar'
+    _run(home, logs, roster, rl)
+    st = json.load(open(os.path.join(home, 'state.json'))) if os.path.exists(os.path.join(home, 'state.json')) else {'archived': {}}
+    assert DAY not in st['archived'] and DAY not in rl.sealed
+    hb = json.load(open(os.path.join(home, 'heartbeat.json')))
+    assert hb['status'] == 'archive_failed', hb['status']
+    rl.fail_put = None
+    _run(home, logs, roster, rl)
+    assert DAY in json.load(open(os.path.join(home, 'state.json')))['archived'] and DAY in rl.sealed
+
+
+def t_a_lost_seal_acknowledgement_is_recovered_by_verify_not_resent():
+    """Both engines r1: seal succeeded remotely but the answer was lost; the day must be recorded, never stuck."""
+    root, roster, logs, home = _nightly_env()
+    rl = FakeRelay(); rl.lose_seal_ack = True
+    _run(home, logs, roster, rl)
+    assert DAY in json.load(open(os.path.join(home, 'state.json')))['archived'], 'verify after the failed seal'
+    os.remove(os.path.join(home, 'state.json'))                 # a lost state.json: the NAS is the record
+    rl.lose_seal_ack = False; n_puts = sum(1 for c in rl.calls if c[0] == 'put')
+    _run(home, logs, roster, rl)
+    rec = json.load(open(os.path.join(home, 'state.json')))['archived'][DAY]
+    assert rec.get('from_nas') and sum(1 for c in rl.calls if c[0] == 'put') == n_puts, 'recorded from the NAS, nothing re-sent'
+    assert rec['raw_members'], 'the NAS MANIFEST carries the members, so pruning stays possible'
+
+
+def t_prune_deletes_only_files_proven_on_the_nas():
+    """Both engines r1 P1: pruning by DAY deleted files a failed raw control had left out."""
+    root, roster, logs, home = _nightly_env()
+    hold = os.path.join(home, 'rawhold'); import shutil
+    for f in ('llm-w-a-Alpha.jsonl-20261021.gz', 'skill-w-a-Alpha.jsonl-20261021.gz'):
+        os.makedirs(os.path.join(hold, 'w-a-Alpha'), exist_ok=True)
+        shutil.copy2(os.path.join(logs, 'w-a-Alpha', f), os.path.join(hold, 'w-a-Alpha', f))
+    os.makedirs(os.path.join(hold, 'w-a-Bravo'))
+    open(os.path.join(hold, 'w-a-Bravo', 'llm-w-a-Bravo.jsonl-20261021.gz'), 'wb').write(b'left out')
+    llm_sha = N.sha256_file(os.path.join(hold, 'w-a-Alpha', 'llm-w-a-Alpha.jsonl-20261021.gz'))
+    arch = {DAY: {'raw_members': {'w-a-Alpha/llm-w-a-Alpha.jsonl-20261021.gz': llm_sha,
+                                  'w-a-Alpha/skill-w-a-Alpha.jsonl-20261021.gz': '0' * 64}}}
+    n, kept = N.prune_rawhold(hold, logs, arch, lambda m: None)
+    assert n == 0 and kept == 1, ('live copies still exist: nothing of Alpha is pruned; Bravo has no record', n, kept)
+    for f in ('llm-w-a-Alpha.jsonl-20261021.gz', 'skill-w-a-Alpha.jsonl-20261021.gz'):
+        os.remove(os.path.join(logs, 'w-a-Alpha', f))           # logrotate deleted the live generation
+    n, kept = N.prune_rawhold(hold, logs, arch, lambda m: None)
+    assert n == 1 and kept == 2, (n, kept)                       # the sha-matching member only
+    assert not os.path.exists(os.path.join(hold, 'w-a-Alpha', 'llm-w-a-Alpha.jsonl-20261021.gz'))
+    assert os.path.exists(os.path.join(hold, 'w-a-Alpha', 'skill-w-a-Alpha.jsonl-20261021.gz')), 'hash differs: kept'
+    assert os.path.exists(os.path.join(hold, 'w-a-Bravo', 'llm-w-a-Bravo.jsonl-20261021.gz')), 'never archived: kept'
+    n, kept = N.prune_rawhold(hold, logs, {}, lambda m: None)
+    assert n == 0, 'a day with no record prunes nothing'
+
+
+def t_repair_raw_sends_left_out_files_to_a_sealed_day():
+    root, roster, logs, home = _nightly_env()
+    rl = FakeRelay(); rl.sealed.add(DAY); rl.nas[DAY] = {'MANIFEST.json': b'{"files": {}}'}
+    hold = os.path.join(home, 'rawhold'); os.makedirs(os.path.join(hold, 'w-a-Bravo'))
+    import shutil
+    shutil.copy2(os.path.join(logs, 'w-a-Alpha', 'llm-w-a-Alpha.jsonl-20261021.gz'),
+                 os.path.join(hold, 'w-a-Bravo', 'llm-w-a-Bravo.jsonl-20261021.gz'))
+    st = {'archived': {DAY: {'controls_ok': False, 'controls_failed': ['raw'], 'raw_members': {},
+                             'raw_left_out': ['w-a-Bravo/llm-w-a-Bravo.jsonl-20261021.gz']}}, 'acknowledged': {}}
+    json.dump(st, open(os.path.join(home, 'state.json'), 'w'))
+    _run(home, logs, roster, rl, '--repair-raw', DAY)
+    rec = json.load(open(os.path.join(home, 'state.json')))['archived'][DAY]
+    assert rec['raw_left_out'] == [] and 'w-a-Bravo/llm-w-a-Bravo.jsonl-20261021.gz' in rec['raw_members'], rec
+    assert any(n.startswith('repair-raw-20261020-1.tar') for n in rl.nas[DAY]), rl.nas[DAY].keys()
 
 
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]

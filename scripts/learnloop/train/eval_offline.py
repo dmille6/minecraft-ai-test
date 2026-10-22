@@ -79,12 +79,31 @@ def table(c):
             'denominators': {'all': n, 'fail': c['n_fail'], 'post_veto': c['n_post_veto'], 'good': c['n_good']}}
 
 
-def gates(cand, ref):
-    g = {'schema_valid >= ref - 0.5 pp': cand['schema_valid'] is not None and ref['schema_valid'] is not None
+def gates(cand, ref, instrument_ok=True):
+    """COVERAGE FIRST (Codex r1 P1): a run that did not answer every item gets no verdict -- missing items and
+    transport errors would otherwise shrink the denominator in the candidate's favour. The instrument check must pass."""
+    g = {'complete coverage (candidate and reference answered every item)': cand['missing'] == 0 and ref['missing'] == 0
+         and cand['n'] == ref['n'] and cand['n'] > 0,
+         'instrument check passed': bool(instrument_ok),
+         'schema_valid >= ref - 0.5 pp': cand['schema_valid'] is not None and ref['schema_valid'] is not None
          and cand['schema_valid'] >= ref['schema_valid'] - 0.5,
          'hard <= ref': cand['hard'] is not None and ref['hard'] is not None and cand['hard'] <= ref['hard'],
          'rep_fail <= ref': cand['rep_fail'] is not None and ref['rep_fail'] is not None and cand['rep_fail'] <= ref['rep_fail']}
     return {'gates': g, 'pass': all(g.values())}
+
+
+def export_check(q4_recs, ref_recs):
+    """s.3.2: the Q4_K_M GGUF must choose the same skill as the 16-bit model >= 97% of the time (items both answered
+    schema-valid), and its schema-valid share must not fall."""
+    q = {r['id']: r for r in q4_recs if not r.get('transport_error')}
+    f = {r['id']: r for r in ref_recs if not r.get('transport_error')}
+    both = [i for i in q if i in f and q[i].get('schemaValid') and f[i].get('schemaValid')]
+    same = sum(1 for i in both if (q[i].get('proposal') or {}).get('skill') == (f[i].get('proposal') or {}).get('skill'))
+    vq = sum(1 for r in q.values() if r.get('schemaValid')); vf = sum(1 for r in f.values() if r.get('schemaValid'))
+    res = {'items_both_valid': len(both), 'same_skill': same, 'same_skill_pct': pct(same, len(both)),
+           'schema_valid_q4': pct(vq, len(q)), 'schema_valid_16bit': pct(vf, len(f))}
+    res['pass'] = bool(both) and same >= 0.97 * len(both) and (res['schema_valid_q4'] or 0) >= (res['schema_valid_16bit'] or 0)
+    return res
 
 
 def main():
@@ -93,6 +112,7 @@ def main():
     ap.add_argument('--runs', nargs='+', required=True)
     ap.add_argument('--ref', default=None, help='the run that plays "fleet" for the gates (default: the first run)')
     ap.add_argument('--json', default=None)
+    ap.add_argument('--export-check', nargs=2, metavar=('Q4_RUN', 'BF16_RUN'), default=None)
     a = ap.parse_args()
     items = load(a.items)
     rep = {'items': len(items), 'kinds': dict(collections.Counter(i['eval_kind'] for i in items)),
@@ -104,12 +124,14 @@ def main():
         runs[name] = table(score_one(items, recs))
     rep['runs'] = runs
     ref = a.ref or (next(iter(runs)) if runs else None)
-    rep['gates_vs'] = ref
-    rep['gates'] = {m: gates(t, runs[ref]) for m, t in runs.items() if m != ref} if ref else {}
     lg = rep['logged (fleet, instrument check)']
-    rep['instrument_check'] = {'hard fires more on failure items than on good items (logged)':
-                               (lg['hard_on_fail_items'] or 0) > (lg['hard_on_good_items'] or 0),
-                               'logged post-veto repeat rate': lg['post_veto_repeat']}
+    ic = (lg['hard_on_fail_items'] or 0) > (lg['hard_on_good_items'] or 0)
+    rep['instrument_check'] = {'hard fires more on failure items than on good items (logged)': ic,
+                               'logged post-veto repeat rate': lg['post_veto_repeat'], 'ok': ic}
+    rep['gates_vs'] = ref
+    rep['gates'] = {m: gates(t, runs[ref], ic) for m, t in runs.items() if m != ref} if ref else {}
+    if a.export_check:
+        rep['export_check'] = export_check(load(a.export_check[0]), load(a.export_check[1]))
     print(json.dumps(rep, indent=1))
     if a.json:
         json.dump(rep, open(a.json, 'w'), indent=1)

@@ -6,7 +6,8 @@
 #   bash run.sh stop-ollama      OWNER-APPROVED STEP: stop + disable ollama.service so nothing can load a model
 #   bash run.sh fit              50 optimizer steps at seq 3,072: peak VRAM, tok/s, grad-norm (writes runs/fit-01)
 #   bash run.sh train            the dry round: 200 steps x grad-accum 10 = the 2,000-example subset, one epoch
-#   bash run.sh export           merged 16-bit -> GGUF bf16 (llama.cpp convert) -> Ollama q4_K_M + bf16 models
+#   bash run.sh export           merged 16-bit -> GGUF bf16 (llama.cpp convert) -> Modelfiles for Ollama q4_K_M + bf16
+#   bash run.sh template-check   served prompt == trained prompt, token for token (needs ollama running + models created)
 #   bash run.sh start-ollama     OWNER-APPROVED STEP: start ollama with OLLAMA_NUM_PARALLEL=2 for the evaluation
 #   bash run.sh restore-ollama   put ollama.service back exactly as it was (the saved override), and start it
 #
@@ -45,12 +46,12 @@ case "${1:-}" in
     ;;
   fit)
     gpu_guard
-    $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/fit-01" --fit-test-only --i-checked-m2b 2>&1 | tee "$T/runs-fit-01.log"
+    $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/fit-01" --fit-test-only --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee "$T/runs-fit-01.log"
     ;;
   train)
     gpu_guard
     [ -f "$T/runs/fit-01/metrics.json" ] || die "run the fit test first"
-    nice -n 5 $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/$RUN" --max-steps 200 --grad-accum 10 --i-checked-m2b 2>&1 | tee "$T/runs-$RUN.log"
+    nice -n 5 $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/$RUN" --max-steps 200 --grad-accum 10 --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee "$T/runs-$RUN.log"
     ;;
   export)
     M=$T/runs/$RUN/merged-16bit
@@ -73,15 +74,30 @@ case "${1:-}" in
 </think>
 
 TPL
-    for v in bf16 q4; do
-      { echo "FROM $T/runs/$RUN/$CAND-bf16.gguf"; echo 'TEMPLATE """'"$(cat "$T/runs/$RUN/template.txt")"'"""'; echo 'PARAMETER stop "<|im_end|>"'; } > "$T/runs/$RUN/Modelfile.$v"
-    done
-    { echo "FROM qwen3:8b"; echo 'TEMPLATE """'"$(cat "$T/runs/$RUN/template.txt")"'"""'; echo 'PARAMETER stop "<|im_end|>"'; } > "$T/runs/$RUN/Modelfile.base-nothink"
+    # Written by python, byte for byte: $(cat ...) would strip the template's trailing "\n\n" after </think> (Codex r1 P2)
+    $PY - "$T/runs/$RUN" "$CAND" <<'PY' || die "Modelfile write failed"
+import os, sys
+d, cand = sys.argv[1:3]
+tpl = open(os.path.join(d, 'template.txt')).read()
+assert tpl.endswith('</think>\n\n'), 'template must end with the no-think tail: %r' % tpl[-24:]
+gguf = os.path.join(d, cand + '-bf16.gguf')
+for name, src in (('bf16', gguf), ('q4', gguf), ('base-nothink', 'qwen3:8b')):
+    open(os.path.join(d, 'Modelfile.' + name), 'w').write('FROM %s\nTEMPLATE """%s"""\nPARAMETER stop "<|im_end|>"\n' % (src, tpl))
+print('Modelfiles written; template tail %r' % tpl[-12:])
+PY
+    (cd "$T/llama.cpp" && git rev-parse HEAD) > "$T/runs/$RUN/llama.cpp.sha"
     echo "Modelfiles written. With ollama running (start-ollama):"
     echo "  ollama create $CAND-bf16 -f $T/runs/$RUN/Modelfile.bf16"
     echo "  ollama create $CAND -q q4_K_M -f $T/runs/$RUN/Modelfile.q4"
     echo "  ollama pull qwen3:8b && ollama create qwen3-8b-nothink -f $T/runs/$RUN/Modelfile.base-nothink"
     sha256sum "$T/runs/$RUN/$CAND-bf16.gguf" | tee "$T/runs/$RUN/gguf.sha256"
+    ;;
+  template-check)
+    # the served prompt must equal the trained one, token for token (template_check.py); needs ollama running and
+    # the models created (see export's printed commands)
+    for m in "$CAND" "$CAND-bf16" qwen3-8b-nothink; do
+      $PY "$T/template_check.py" --items "$DATA/m3-eval.jsonl" --model "$m" --n 3 || die "template check FAILED for $m"
+    done
     ;;
   start-ollama)
     [ -f "$OVR" ] || die "no $OVR"

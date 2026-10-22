@@ -27,9 +27,10 @@ def resolve(repo, prefix):
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
 
 
-def rebuild_version(repo, sha, node_modules, scopes=SCOPES, node='node'):
+def rebuild_version(repo, sha, node_modules, scopes=SCOPES, node=None):
     """-> ({hash: entry}, [errors]). One node run per scope; identical hashes from two scopes merge (scope list)."""
     out, errs = {}, []
+    node = node or shutil.which('node') or '/usr/bin/node'     # absolute: cron's PATH is /usr/bin:/bin
     td = tempfile.mkdtemp(prefix='learnloop-sp-')
     try:
         arc = subprocess.run(['git', '-C', repo, 'archive', sha, 'bots/src', 'bots/package.json'], capture_output=True, timeout=120)

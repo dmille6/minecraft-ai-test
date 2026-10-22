@@ -30,6 +30,8 @@ MUT = [
      "if False:", 'learnloop_nas_disagreement_is_an_alarm'),
     ('never-raises dropped', "        return _learnloop_line(now, p)\n    except Exception as e:",
      "        return _learnloop_line(now, p)\n    except OSError as e:", 'learnloop_malformed_heartbeat_never_raises'),
+    ('older unresolved ignored', "    for u in (hb.get('unresolved') or [])[:4]:", "    for u in []:",
+     'learnloop_older_unresolved_days_are_alarms'),
     ('not in header', "    if rep.get('learnloop'):\n        print(rep['learnloop'])\n", "", 'learnloop_line_is_in_the_header'),
 ]
 

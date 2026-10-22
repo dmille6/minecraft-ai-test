@@ -238,8 +238,14 @@ def main(argv=None):
     for d in days:
         s = json.load(open(os.path.join(ddir, d, 'summary.json')))
         worlds |= {v['world'] for v in s['per_bot'].values()}
-    last = json.load(open(os.path.join(ddir, days[-1], 'summary.json')))
-    newest_version = max(last['code_version'].items(), key=lambda kv: kv[1])[0]
+    # THE NEWEST CODE VERSION = the version of the latest decision row in the newest day (Claude r1 P3: the most
+    # FREQUENT version of that day can be the one a promotion has just replaced). Read from the last shard's tail.
+    newest_version, newest_ts = None, ''
+    with gzip.open(shards[days[-1]], 'rt') as fh:
+        for line in fh:
+            t = json.loads(line)
+            if t['ts'] > newest_ts:
+                newest_ts, newest_version = t['ts'], t['code_version']
     cur_skills = set()
     for k, e in sps.items():
         if k.startswith(newest_version + ':'):
@@ -266,6 +272,8 @@ def main(argv=None):
     post_veto_logged = collections.Counter()      # the positive control: how often the FLEET repeated a vetoed action
     prev = {}                                      # bot -> its previous model decision in cell C (rows are bot-ordered)
     used_sp = set()
+    train_pa, train_near = set(), set()             # LEAKAGE CONTROL (Claude r1 P3): keys of every TRAIN-cell decision
+    leak = collections.Counter()
     for d in days:
         with gzip.open(shards[d], 'rt') as fh:
             for line in fh:
@@ -275,6 +283,9 @@ def main(argv=None):
                 C['models']['%s:%s' % (cell, t['model'])] += 1
                 if cell != 'TRAIN':
                     held[cell].write(json.dumps(compact(t, cell)) + '\n')
+                    leak['%s:decisions' % cell] += 1        # TRAIN days are older than the new days, so the sets are full
+                    leak['%s:same prompt+action as a TRAIN decision' % cell] += t['dedupe']['prompt_action'] in train_pa
+                    leak['%s:same near-key as a TRAIN decision' % cell] += t['dedupe']['near'] in train_near
                     if cell == 'C':
                         usable = t['prompt_complete'] and t['nonce_ok'] and t['model'] == FLEET_MODEL \
                             and '%s:%s' % (t['code_version'], t['system_hash']) in sps
@@ -292,6 +303,7 @@ def main(argv=None):
                     continue
                 # ---- TRAIN cell
                 near = t['dedupe']['near']
+                train_pa.add(t['dedupe']['prompt_action']); train_near.add(near)
                 if t['label'] in ('good', 'bad') and t['prompt_complete']:
                     slot = pairs_idx[(t['bot'], near)]
                     if len(slot) < 8:
@@ -400,6 +412,7 @@ def main(argv=None):
            'lineage': {'provenance': {'fleet:%s' % FLEET_MODEL: kept}, 'rule': '<= 50% from the model being trained or '
                        'its fine-tuned ancestors; for the Qwen3-8B arm this is 0% (qwen2.5 is not its lineage)'},
            'paid_quarantine': 'refused without --owner-decision naming vendor + use=train; v0 has no paid example',
+           'leakage': dict(leak), 'role_note': "system prompts are rebuilt with <ROLE> = gatherer: all 80 fleet env files say BOT_ROLE=gatherer (read 10-22)",
            'pairs_natural': np_, 'pilot': {'n': len(pilot), 'strata': len(pq), 'pool': sum(len(v) for v in pilot_pool.values()),
                                            'quota': {'%s|%s' % k: v for k, v in sorted(pq.items())}},
            'm3_train': {'n': len(m3), 'quota': q}, 'm3_eval': {'good': len(eg), 'fail': len(ef), 'post_veto': len(epv),

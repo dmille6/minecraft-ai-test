@@ -451,7 +451,7 @@ def _llhb(**kw):
               'labels': {'good': 32726}, 'controls_ok': True, 'controls_failed': [], 'at': '2026-10-22T01:52:00Z'}
     hb = {'at': '2026-10-22T01:55:00Z', 'status': 'ok', 'error': None, 'newest_archived_day': '2026-10-21',
           'archived_days': 14, 'newest': newest, 'this_run': [{'day': '2026-10-21', 'archived': True, 'controls_ok': True}],
-          'pending': [], 'at_risk': [], 'nas': {'last_good': '2026-10-22T01:54:00Z 2026-10-21', 'sealed': 14,
+          'pending': [], 'at_risk': [], 'unresolved': [], 'nas': {'last_good': '2026-10-22T01:54:00Z 2026-10-21', 'sealed': 14,
                                                'newest': '2026-10-21'}}
     hb.update(kw)
     with open(p, 'w') as fh:
@@ -503,6 +503,15 @@ def t_learnloop_failed_controls_and_unarchived_days_are_alarms():
     assert line.startswith('!! ') and '2026-10-21 not archived (put x: FAIL)' in line, line
     line = FS.learnloop_line(LNOW, path=_llhb(at_risk=[{'day': '2026-10-09', 'expires': '2026-10-24'}]))
     assert line.startswith('!! ') and 'raw rotates out before it is archived: 2026-10-09 (expires 2026-10-24)' in line, line
+
+
+def t_learnloop_older_unresolved_days_are_alarms():
+    """Codex r1 P2-7: a failed OLDER day stays in the header while the newest is healthy, until acknowledged."""
+    u = [{'day': '2026-10-09', 'why': "controls failed ['es']"}, {'day': '2026-10-12', 'why': 'raw members not proven'}]
+    line = FS.learnloop_line(LNOW, path=_llhb(unresolved=u))
+    assert line.startswith('!! ') and "unresolved 2026-10-09: controls failed ['es']" in line and 'unresolved 2026-10-12' in line, line
+    line = FS.learnloop_line(LNOW, path=_llhb(unresolved=[{'day': 'd%d' % i, 'why': 'x'} for i in range(7)]))
+    assert '+3 more unresolved' in line, line
 
 
 def t_learnloop_nas_disagreement_is_an_alarm():

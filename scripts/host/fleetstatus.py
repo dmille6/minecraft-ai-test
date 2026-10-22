@@ -184,13 +184,13 @@ def _frontier_line(now, p):
 
 
 # LEARNING-LOOP ARCHIVE (M1, docs/reports/learning-loop-design-2026-10-21.md s.1.5): scripts/learnloop/nightly.py runs
-# from mike's crontab on this host at 01:40Z, extracts each finished day, checks it and archives it to the NAS through
+# from mike's crontab on this host at 01:50Z, extracts each finished day, checks it and archives it to the NAS through
 # the .30 relay, then rewrites ~/learnloop/heartbeat.json. The logs here rotate after 14 days, so that archive is the
 # only long-term copy of the decision stream: a missing, stale, behind or failing archive opens every report.
 LEARNLOOP_HB = '~/learnloop/heartbeat.json'
 LEARNLOOP_STALE = dt.timedelta(hours=26)         # daily cron; one missed night is an alarm
 LEARNLOOP_READY = dt.timedelta(days=1, hours=1, minutes=15)   # nightly.READY_AFTER: day D is extractable from here
-LEARNLOOP_GRACE = dt.timedelta(hours=3)          # cron 01:40Z + a run of minutes: D is due on the NAS by D+1 04:15Z
+LEARNLOOP_GRACE = dt.timedelta(hours=3)          # cron 01:50Z + a run of minutes: D is due on the NAS by D+1 04:15Z
 LEARNLOOP_BAD = {'error': 'ERROR', 'archive_failed': 'ARCHIVE FAILED', 'at_risk': 'RAW AT RISK', 'behind': 'BEHIND',
                  'control_failed': 'CONTROL FAILED', 'empty': 'NOTHING ARCHIVED'}
 
@@ -235,6 +235,10 @@ def _learnloop_line(now, p):
     rec = hb.get('newest') or {}
     if rec and not rec.get('controls_ok'):
         bad.append(f'{newest} failed controls {rec.get("controls_failed")}')
+    for u in (hb.get('unresolved') or [])[:4]:          # an OLDER failed day must not hide behind a healthy newest one
+        bad.append(f'unresolved {u.get("day")}: {str(u.get("why"))[:90]}')
+    if len(hb.get('unresolved') or []) > 4:
+        bad.append(f'+{len(hb["unresolved"]) - 4} more unresolved')
     nas = hb.get('nas') or {}
     if nas.get('newest') != newest or (nas.get('sealed') or 0) < (hb.get('archived_days') or 0):
         bad.append(f'NAS says newest {nas.get("newest")} ({nas.get("sealed")} sealed), local state {newest} '

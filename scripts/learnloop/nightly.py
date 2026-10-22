@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """learning loop M1 nightly: extract each finished UTC day, check it, and archive it to the NAS (on 10.0.0.31).
 
-    nice -n 19 ionice -c3 python3 -B nightly.py --tick                 # cron, 01:40Z: every day not yet archived
+    nice -n 19 ionice -c3 python3 -B nightly.py --tick                 # cron, 01:50Z: every day not yet archived
     python3 -B nightly.py --tick --max-days 16                         # backfill
     python3 -B nightly.py --tick --dry-run                             # what it would do; writes nothing remote
+    python3 -B nightly.py --adopt-raw                                  # prove raw members of days sealed without them
+    python3 -B nightly.py --repair-raw 2026-10-12                      # send held raw files a raw control left out
+    python3 -B nightly.py --ack 2026-10-12 "ES re-ingest, files right"  # a person accepts a failed control (recorded)
 
 WHY IT EXISTS. Logs on .31 rotate after 14 generations (logrotate rotate 14), so a day not archived within two weeks
 is gone; this archive is the only long-term copy of the decision stream (design s.1.5).
@@ -26,11 +29,18 @@ PER DAY D (oldest first; D runs from --start, default 2026-10-08, the oldest gen
   4. raw-YYYYMMDD.tar: the generation -(D+1) llm + skill .gz of every log dir (the generation that holds D), each
      gzip-tested; a missing one is listed in controls.
   5. sysprompts-YYYYMMDD.json: the templates the day's hashes rebuild to (training needs the text, s.1.1).
-  6. MANIFEST.json (sha256 + bytes of every file, counts, controls, versions), then each file is sent through the .30
-     relay (nas-relay.sh: put -> NAS read-back hash -> rename), MANIFEST last, then `seal` re-hashes every listed
-     file on the NAS and writes _OK. Only then is D recorded archived in state.json.
-HEARTBEAT ~/learnloop/heartbeat.json (atomic) after every tick, also on a crash: status ok | control_failed |
-archive_failed | error, the newest archived day, per-day counts and controls, raw generations at risk. fleetstatus.py's
+  6. MANIFEST.json (deterministic: no clock; sha256 + bytes of every file, counts, controls, versions, and the sha256 of
+     every raw member), then each file is sent through the .30 relay (nas-relay.sh: put -> NAS read-back hash ->
+     rename), MANIFEST last, then `seal` re-hashes every listed file on the NAS and writes _OK. Only then is D recorded
+     archived in state.json. BEFORE processing a day, `verify` asks the NAS: a day already sealed there (a lost
+     acknowledgement, a lost state.json) is recorded from the NAS's own MANIFEST and never re-sent; a failed seal is
+     also re-checked with `verify`.
+  7. rawhold pruning is PER FILE: a held file is deleted only when the live copy has rotated away AND the file's sha256
+     equals the one its sealed day recorded for it. Files a raw control left out stay held and keep the heartbeat red
+     until --repair-raw sends them (or a person acknowledges the day with --ack).
+HEARTBEAT ~/learnloop/heartbeat.json (atomic) after every tick, also on a crash: status ok | control_failed | behind |
+at_risk | archive_failed | error | empty, the newest archived day, per-day counts, every UNRESOLVED day (a failed control
+not yet acknowledged, raw not proven on the NAS), raw generations at risk. fleetstatus.py's
 learnloop_line reads it ('!!' when missing, stale, behind or failing).
 """
 import argparse, datetime as dt, fcntl, glob, gzip, hashlib, io, json, os, re, shutil, subprocess, sys, tarfile, time, traceback
@@ -168,10 +178,27 @@ def at_risk(gens_on_disk, archived, today, keep=14, warn_days=3):
     return out
 
 
-def heartbeat_status(day_results, error=None, pending=(), newest_rec=None, at_risk_list=()):
+def unresolved(archived, acknowledged):
+    """Archived days that still need a person: a failed positive control (until acknowledged with --ack), or raw files
+    not proven on the NAS (no raw_members record, or a raw control that left files out -- those stay held)."""
+    out = []
+    for day, rec in sorted(archived.items()):
+        why = []
+        if not rec.get('controls_ok') and day not in (acknowledged or {}):
+            why.append('controls failed %s' % rec.get('controls_failed'))
+        if rec.get('raw_members') is None:
+            why.append('raw members not proven on the NAS (run --adopt-raw)')
+        elif rec.get('raw_left_out'):
+            why.append('%d raw file(s) left out of the archive and held (run --repair-raw %s)' % (len(rec['raw_left_out']), day))
+        if why:
+            out.append({'day': day, 'why': '; '.join(why)})
+    return out
+
+
+def heartbeat_status(day_results, error=None, pending=(), newest_rec=None, at_risk_list=(), unresolved_list=()):
     """error > archive_failed (this run could not archive a day) > at_risk (a live generation of an unarchived day
-    rotates out within 3 days) > behind (finished days still pending, e.g. a capped backfill) > control_failed (the
-    NEWEST archived day failed a positive control) > ok."""
+    rotates out within 3 days) > behind (finished days still pending, e.g. a capped backfill) > control_failed (ANY
+    archived day with an unresolved failed control or unproven raw, not only the newest) > empty > ok."""
     if error:
         return 'error'
     if any(not r.get('archived') for r in day_results):
@@ -180,7 +207,7 @@ def heartbeat_status(day_results, error=None, pending=(), newest_rec=None, at_ri
         return 'at_risk'
     if pending:
         return 'behind'
-    if newest_rec is not None and not newest_rec.get('controls_ok'):
+    if unresolved_list:
         return 'control_failed'
     if newest_rec is None:
         return 'empty'
@@ -204,25 +231,37 @@ def sync_rawhold(logroot, rawhold, log):
     return n
 
 
-def raw_tar(day, logroot, rawhold, dst):
-    """tar of generation -(D+1) llm+skill gz for every log dir; each gzip-tested. -> (members, missing, bad)."""
+def _normalise(ti):
+    """Owner-independent member headers: a held copy (mike) and the live file (mcbot) tar to the same bytes."""
+    ti.uid = ti.gid = 0; ti.uname = ti.gname = ''; ti.mode = 0o644
+    return ti
+
+
+def raw_tar(day, logroot, rawhold, dst, expect_bots, legacy=False):
+    """tar of generation -(D+1) llm+skill gz, each gzip-tested. expect_bots = the bots with rows that day (a missing
+    file of one of them fails the raw control; a directory with no rows that day is not expected). Any other log dir
+    whose generation exists is included too. -> (members {relpath: sha256}, missing [relpath], bad [text]).
+    legacy=True rebuilds the way the first backfill did (live file first, headers as found) for --adopt-raw."""
     g = generation_for(day)
-    bots = sorted(os.path.basename(d.rstrip('/')) for d in glob.glob(logroot + '/*-*/'))
-    members, missing, bad = 0, [], []
+    dirs = sorted(set(expect_bots) | {os.path.basename(d.rstrip('/')) for d in glob.glob(logroot + '/*-*/')})
+    members, missing, bad = {}, [], []
     with tarfile.open(dst + '.part', 'w', format=tarfile.PAX_FORMAT) as tf:
-        for b in bots:
+        for b in dirs:
             for kind in ('llm', 'skill'):
                 name = '%s-%s.jsonl-%s.gz' % (kind, b, g)
                 src = next((p for p in (os.path.join(logroot, b, name), os.path.join(rawhold, b, name)) if os.path.exists(p)), None)
                 if not src:
-                    missing.append('%s/%s' % (b, name)); continue
+                    if b in expect_bots:
+                        missing.append('%s/%s' % (b, name))
+                    continue
                 try:
                     with gzip.open(src, 'rb') as fh:
                         while fh.read(1 << 20):
                             pass
                 except (OSError, EOFError) as e:
                     bad.append('%s/%s: %s' % (b, name, e)); continue
-                tf.add(src, arcname='%s/%s' % (b, name)); members += 1
+                tf.add(src, arcname='%s/%s' % (b, name), filter=None if legacy else _normalise)
+                members['%s/%s' % (b, name)] = sha256_file(src)
     os.replace(dst + '.part', dst)
     return members, missing, bad
 
@@ -268,6 +307,22 @@ class Relay:
         rc, out = self.call('seal', day)
         return self.dry or (rc == 0 and out.startswith('OK sealed ' + day)), out
 
+    def verify(self, day):
+        """True only when the day is sealed and every file its stored MANIFEST lists hashes right on the NAS."""
+        if self.dry:
+            return False, 'DRY'
+        rc, out = self.call('verify', day, timeout=600)
+        return rc == 0 and out.startswith('OK verified ' + day), out
+
+    def manifest(self, day):
+        rc, out = self.call('manifest', day, timeout=120)
+        if rc != 0:
+            return None
+        try:
+            return json.loads(out)
+        except ValueError:
+            return None
+
     def status(self):
         rc, out = self.call('status', timeout=120)
         st = {'rc': rc, 'raw': out[:300]}
@@ -298,9 +353,10 @@ def process_day(day, a, relay, log):
     esc = es_compare(files_counts(s), es)
     yyyymmdd = day.replace('-', '')
     tarp = os.path.join(ddir, 'raw-%s.tar' % yyyymmdd)
-    members, missing, bad = raw_tar(day, a.logroot, a.rawhold, tarp)
-    rawc = {'ok': not missing and not bad and members > 0, 'members': members, 'missing': missing[:20],
-            'missing_n': len(missing), 'bad': bad[:20], 'generation': generation_for(day)}
+    members, missing, bad = raw_tar(day, a.logroot, a.rawhold, tarp, sorted(s['per_bot']))
+    rawc = {'ok': not missing and not bad and len(members) > 0, 'members': len(members), 'missing': missing[:20],
+            'missing_n': len(missing), 'bad': bad[:20], 'generation': generation_for(day),
+            'expected_bots': len(s['per_bot'])}
     spp = os.path.join(ddir, 'sysprompts-%s.json' % yyyymmdd)
     atomic_json(spp, {v: {'sha': e.get('sha'), 'hashes': {h: x for h, x in (e.get('hashes') or {}).items()
                                                             if h in (s['system_hash_by_version'].get(v) or {})}}
@@ -311,8 +367,11 @@ def process_day(day, a, relay, log):
     r['controls_failed'] = [k for k in controls if not controls[k]['ok']]
     atomic_json(os.path.join(ddir, 'controls.json'), controls)
     files = [os.path.join(ddir, n) for n in (s['shard'], 'summary.json', 'controls.json', os.path.basename(spp), os.path.basename(tarp))]
-    man = {'day': day, 'made_at': iso(now_utc()), 'extractor': X.EXTRACTOR_VERSION, 'label_rule': X.LABEL_RULE,
+    # DETERMINISTIC: no clock in the MANIFEST, so a re-run of an unsealed day re-sends identical bytes (the time a day
+    # was archived lives in state.json and in the NAS's _OK).
+    man = {'day': day, 'extractor': X.EXTRACTOR_VERSION, 'label_rule': X.LABEL_RULE,
            'app_version': a.app_version, 'host': os.uname().nodename,
+           'raw_members': members, 'raw_left_out': sorted(missing + [x.split(':')[0] for x in bad]),
            'counts': {'llm_rows': s['positive_control']['llm_rows'], 'model_rows': s['rows']['model_rows'],
                       'triples': s['rows_extra']['triples_written'], 'labels': s['labels'],
                       'bots': s['positive_control']['bots_with_rows'], 'roster': s['positive_control']['roster']},
@@ -321,7 +380,8 @@ def process_day(day, a, relay, log):
            'files': {os.path.basename(p): {'sha256': sha256_file(p), 'bytes': os.path.getsize(p)} for p in files}}
     manp = os.path.join(ddir, 'MANIFEST.json')
     atomic_json(manp, man)
-    r.update({'llm_rows': man['counts']['llm_rows'], 'model_rows': man['counts']['model_rows'],
+    r.update({'raw_members': members, 'raw_left_out': man['raw_left_out'],
+              'llm_rows': man['counts']['llm_rows'], 'model_rows': man['counts']['model_rows'],
               'triples': man['counts']['triples'], 'labels': s['labels'], 'bots': man['counts']['bots'],
               'roster': man['counts']['roster'], 'join': jc['text'], 'es': esc['text'],
               'sysprompt': '%d of %d (version, hash) pairs rebuilt' % (spc['pairs_rebuilt'], spc['pairs']),
@@ -329,7 +389,7 @@ def process_day(day, a, relay, log):
     log('%s: %d triples of %d llm rows, %d/%d bots, labels %s, controls %s (%ss)' % (
         day, r['triples'], r['llm_rows'], r['bots'], r['roster'], s['labels'],
         'ok' if r['controls_ok'] else 'FAILED ' + ','.join(r['controls_failed']), r['extract_s']))
-    for p in files + [manp]:
+    for p in files + [manp]:                     # MANIFEST last: seal hashes exactly what it lists
         ok, sha, out = relay.put(day, p)
         log('  put %s: %s' % (os.path.basename(p), out[:160]))
         if not ok:
@@ -337,7 +397,10 @@ def process_day(day, a, relay, log):
     ok, out = relay.seal(day)
     log('  seal: %s' % out[:160])
     if not ok:
-        r['archive_error'] = 'seal: %s' % out[:200]; return r
+        vok, vout = relay.verify(day)            # a seal whose acknowledgement was lost is still a seal
+        log('  verify after a failed seal: %s' % vout[:160])
+        if not vok:
+            r['archive_error'] = 'seal: %s' % out[:200]; return r
     r['archived'] = not relay.dry
     if r['archived']:
         os.remove(tarp)                          # the gz files stay in rawhold until pruned; the tar is on the NAS
@@ -345,17 +408,88 @@ def process_day(day, a, relay, log):
 
 
 def prune_rawhold(rawhold, logroot, archived, log):
-    """Remove a held generation only when its day is sealed on the NAS AND logrotate has deleted the live copy."""
-    n = 0
+    """Remove a held file ONLY when it is itself proven on the NAS: its day is sealed, its relpath is in that day's
+    raw_members with the SAME sha256, and logrotate has already deleted the live copy. Anything left out of the
+    archive (missing at tar time, corrupt, or no raw_members record) stays held."""
+    n = kept = 0
     for f in glob.glob(os.path.join(rawhold, '*', '*.jsonl-*.gz')):
         m = GEN.match(os.path.basename(f))
         if not m:
             continue
         day = (dt.datetime.strptime(m.group(3), '%Y%m%d').date() - dt.timedelta(days=1)).isoformat()
-        live = os.path.join(logroot, os.path.basename(os.path.dirname(f)), os.path.basename(f))
-        if day in archived and not os.path.exists(live):
+        rel = '%s/%s' % (os.path.basename(os.path.dirname(f)), os.path.basename(f))
+        live = os.path.join(logroot, rel)
+        if os.path.exists(live):
+            continue
+        mem = (archived.get(day) or {}).get('raw_members') or {}
+        if rel in mem and mem[rel] == sha256_file(f):
             os.remove(f); n += 1
-    log('rawhold: %d archived generation file(s) pruned' % n)
+        else:
+            kept += 1
+    log('rawhold: %d archived file(s) pruned; %d rotated-out file(s) kept (not proven on the NAS)' % (n, kept))
+    return n, kept
+
+
+def record_from_nas(day, man):
+    """A state record rebuilt from the NAS's own MANIFEST (a sealed day this host has no record of)."""
+    c = man.get('counts') or {}
+    return {'triples': c.get('triples'), 'llm_rows': c.get('llm_rows'), 'model_rows': c.get('model_rows'),
+            'bots': c.get('bots'), 'roster': c.get('roster'), 'labels': c.get('labels'),
+            'controls_ok': man.get('controls_ok'), 'controls_failed': man.get('controls_failed'),
+            'bytes': sum(f.get('bytes', 0) for f in (man.get('files') or {}).values()),
+            'raw_members': man.get('raw_members'), 'raw_left_out': man.get('raw_left_out'), 'from_nas': True}
+
+
+def adopt_raw(day, rec, man, a, log):
+    """Prove the raw members of a day sealed by the first backfill (whose MANIFEST lists no members): rebuild its tar
+    the way it was built (legacy headers, live file first) and compare with the sealed tar's sha256. Equal -> every
+    member is on the NAS byte for byte; record them. Different -> leave unproven (nothing is pruned)."""
+    name = 'raw-%s.tar' % day.replace('-', '')
+    want = ((man or {}).get('files') or {}).get(name, {}).get('sha256')
+    if not want:
+        return False, 'no %s in the NAS MANIFEST' % name
+    tmp = os.path.join(a.home, 'days', day, name + '.adopt')
+    os.makedirs(os.path.dirname(tmp), exist_ok=True)
+    sp = os.path.join(a.home, 'days', day, 'summary.json')
+    expect = sorted((json.load(open(sp)).get('per_bot') or {})) if os.path.exists(sp) else []
+    members, missing, bad = raw_tar(day, a.logroot, a.rawhold, tmp, expect, legacy=True)
+    got = sha256_file(tmp); os.remove(tmp)
+    if got != want:
+        return False, 'rebuilt tar %s != sealed %s (a source file changed or rotated out)' % (got[:12], want[:12])
+    rec['raw_members'] = members; rec['raw_left_out'] = sorted(missing + [x.split(':')[0] for x in bad])
+    return True, '%d members proven (rebuilt tar sha256 equals the sealed one)' % len(members)
+
+
+def repair_raw(day, rec, a, relay, log):
+    """Send held files a failed raw control left out as repair-raw-YYYYMMDD-<n>.tar (a sealed day accepts only new
+    repair-* names); record them as members once the NAS read-back hash matches."""
+    left = [x for x in rec.get('raw_left_out') or [] if os.path.exists(os.path.join(a.rawhold, x))]
+    if not left:
+        return False, 'nothing held to repair (left out: %s)' % (rec.get('raw_left_out') or [])
+    n = len(rec.get('repairs') or [])
+    tarp = os.path.join(a.home, 'days', day, 'repair-raw-%s-%d.tar' % (day.replace('-', ''), n + 1))
+    os.makedirs(os.path.dirname(tarp), exist_ok=True)
+    mem = {}
+    with tarfile.open(tarp, 'w', format=tarfile.PAX_FORMAT) as tf:
+        for rel in left:
+            src = os.path.join(a.rawhold, rel)
+            try:
+                with gzip.open(src, 'rb') as fh:
+                    while fh.read(1 << 20):
+                        pass
+            except (OSError, EOFError) as e:
+                log('  repair: %s still unreadable (%s) -- kept held, not sent' % (rel, e)); continue
+            tf.add(src, arcname=rel, filter=_normalise); mem[rel] = sha256_file(src)
+    if not mem:
+        os.remove(tarp); return False, 'every left-out file is still unreadable'
+    ok, sha, out = relay.put(day, tarp)
+    if not ok:
+        return False, 'put: %s' % out[:200]
+    rec['raw_members'] = dict(rec.get('raw_members') or {}, **mem)
+    rec['raw_left_out'] = [x for x in rec.get('raw_left_out') or [] if x not in mem]
+    rec.setdefault('repairs', []).append({'file': os.path.basename(tarp), 'sha256': sha, 'members': sorted(mem)})
+    os.remove(tarp)
+    return True, '%d file(s) sent in %s' % (len(mem), os.path.basename(tarp))
 
 
 def main(argv=None):
@@ -374,6 +508,9 @@ def main(argv=None):
     ap.add_argument('--relay-key', default=RELAY_KEY)
     ap.add_argument('--no-es', action='store_true')
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--adopt-raw', action='store_true', help='prove raw members of archived days that have no record')
+    ap.add_argument('--repair-raw', default=None, metavar='DAY', help='send held raw files a failed raw control left out')
+    ap.add_argument('--ack', nargs=2, metavar=('DAY', 'WHY'), help='acknowledge a failed control (recorded, with why)')
     a = ap.parse_args(argv)
     a.home = os.path.expanduser(a.home)
     a.rawhold = os.path.join(a.home, 'rawhold')
@@ -393,17 +530,44 @@ def main(argv=None):
         log('another nightly run holds the lock -- not starting a second'); return 3
     statep = os.path.join(a.home, 'state.json')
     state = json.load(open(statep)) if os.path.exists(statep) else {'archived': {}}
+    state.setdefault('acknowledged', {})
     hb = {'at': None, 'status': None, 'app_version': a.app_version, 'host': os.uname().nodename}
     results, error = [], None
     relay = Relay(a.relay, a.relay_key, dry=a.dry_run)
     try:
+        if a.ack:
+            if a.ack[0] not in state['archived']:
+                raise SystemExit('REFUSED: %s is not archived' % a.ack[0])
+            state['acknowledged'][a.ack[0]] = {'why': a.ack[1], 'at': iso(now_utc())}
+            atomic_json(statep, state); log('acknowledged %s: %s' % tuple(a.ack))
+        if a.adopt_raw or a.repair_raw:
+            for day, rec in sorted(state['archived'].items()):
+                if a.adopt_raw and rec.get('raw_members') is None:
+                    ok, why = adopt_raw(day, rec, relay.manifest(day), a, log)
+                elif a.repair_raw == day:
+                    ok, why = repair_raw(day, rec, a, relay, log)
+                else:
+                    continue
+                log('%s %s: %s %s' % ('adopt-raw' if a.adopt_raw else 'repair-raw', day, 'OK' if ok else 'NOT DONE', why))
+                atomic_json(statep, state)
         if not a.dry_run:
             sync_rawhold(a.logroot, a.rawhold, log)
         todo = days_to_do(a.start, now_utc(), state['archived'])
         if a.only:
             todo = [d for d in todo if d == a.only]
+        if a.adopt_raw or a.repair_raw or a.ack:
+            todo = []
         log('tick: %d day(s) not archived since %s: %s; this run takes %d' % (len(todo), a.start, todo[:20], min(len(todo), a.max_days)))
         for day in todo[:a.max_days]:
+            vok, vout = relay.verify(day)        # sealed on the NAS but unknown here (lost ack, lost state): adopt it
+            if vok:
+                man = relay.manifest(day)
+                if man:
+                    state['archived'][day] = dict(record_from_nas(day, man), at=iso(now_utc()))
+                    atomic_json(statep, state)
+                    log('%s: already sealed on the NAS (%s) -- recorded from its MANIFEST, not re-sent' % (day, vout[:80]))
+                    results.append({'day': day, 'archived': True, 'controls_ok': man.get('controls_ok'), 'from_nas': True})
+                    continue
             try:
                 r = process_day(day, a, relay, log)
             except Exception as e:               # one bad day must not stop the next (its raw is still held)
@@ -413,7 +577,8 @@ def main(argv=None):
             results.append(r)
             if r.get('archived'):
                 state['archived'][day] = {k: r.get(k) for k in ('triples', 'llm_rows', 'model_rows', 'bots', 'roster',
-                                                                'labels', 'controls_ok', 'controls_failed', 'bytes')}
+                                                                'labels', 'controls_ok', 'controls_failed', 'bytes',
+                                                                'raw_members', 'raw_left_out')}
                 state['archived'][day]['at'] = iso(now_utc())
                 atomic_json(statep, state)
         if not a.dry_run:
@@ -428,10 +593,12 @@ def main(argv=None):
     newest = arch[-1] if arch else None
     pend = days_to_do(a.start, now_utc(), state['archived'])
     risk = at_risk(gens, state['archived'], now_utc().date())
-    hb.update({'at': iso(now_utc()), 'status': heartbeat_status(results, error, pend, state['archived'].get(newest) if newest else None, risk),
-               'error': error, 'newest_archived_day': newest, 'archived_days': len(arch),
-               'newest': state['archived'].get(newest) if newest else None,
-               'this_run': results, 'pending': pend, 'at_risk': risk,
+    unres = unresolved(state['archived'], state['acknowledged'])
+    hb.update({'at': iso(now_utc()), 'status': heartbeat_status(results, error, pend, state['archived'].get(newest) if newest else None,
+                                                                risk, unres),
+               'error': error, 'newest_archived_day': newest, 'archived_days': len(arch), 'unresolved': unres,
+               'newest': {k: v for k, v in (state['archived'].get(newest) or {}).items() if k != 'raw_members'} if newest else None,
+               'this_run': [{k: v for k, v in r.items() if k != 'raw_members'} for r in results], 'pending': pend, 'at_risk': risk,
                'oldest_live_generation': min(gens) if gens else None})
     if not a.dry_run:
         atomic_json(os.path.join(a.home, 'heartbeat.json'), hb)

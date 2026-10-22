@@ -30,8 +30,10 @@ def t_estimate_matches_the_design_arithmetic():
     b = T.plan_batches(it, 'B', 'blind'); c = T.plan_batches(it, 'C', 'blind')
     tin = sum(x['tin'] for x in b); tout = sum(x['tout'] for x in b)
     assert 3.3e6 < tin < 3.5e6 and tout == 1.5e6, (tin, tout)
-    cb, cc = sum(x['usd'] for x in b), sum(x['usd'] for x in c)
+    cb, cc = sum(x['usd_expected'] for x in b), sum(x['usd_expected'] for x in c)
     assert 21.0 < cb < 22.5 and 10.5 < cc < 11.3, (cb, cc)
+    rb = sum(x['usd'] for x in b)
+    assert abs(rb - (tin / 1e6 * 2 + 1000 * T.MAX_TOKENS / 1e6 * 10)) < 0.01, 'the reservation bills output at max_tokens'
     inf = T.plan_batches(it, 'B', 'informed')
     assert sum(len(x['items']) for x in inf) == 200
 
@@ -45,12 +47,16 @@ def t_batches_never_exceed_ten_dollars():
 
 def t_ledger_month_to_date_and_the_80pct_line():
     now = dt.datetime(2026, 11, 5, tzinfo=dt.timezone.utc)
-    rows = [{'ts': '2026-11-01T00:00:00Z', 'vendor': 'anthropic', 'arm': 'B', 'batch': 'b1', 'kind': 'estimate', 'usd': 9.0},
-            {'ts': '2026-11-02T00:00:00Z', 'vendor': 'anthropic', 'arm': 'B', 'batch': 'b1', 'kind': 'actual', 'usd': 7.5},
-            {'ts': '2026-11-03T00:00:00Z', 'vendor': 'anthropic', 'arm': 'B', 'batch': 'b2', 'kind': 'estimate', 'usd': 10.0},
-            {'ts': '2026-10-30T00:00:00Z', 'vendor': 'anthropic', 'arm': 'B', 'batch': 'b0', 'kind': 'actual', 'usd': 70.0},
+    A = lambda **k: dict({'vendor': 'anthropic', 'arm': 'B'}, **k)
+    rows = [A(ts='2026-11-01T00:00:00Z', kind='reserve', reservation='r1', usd=9.0),
+            A(ts='2026-11-01T00:00:00Z', kind='submitted', reservation='r1', batch='b1'),
+            A(ts='2026-11-02T00:00:00Z', kind='actual', reservation='r1', batch='b1', usd=7.5),
+            A(ts='2026-11-03T00:00:00Z', kind='reserve', reservation='r2', usd=10.0),     # crashed before `submitted`
+            A(ts='2026-11-03T00:00:00Z', kind='reserve', reservation='r3', usd=4.0),
+            A(ts='2026-11-03T00:00:00Z', kind='released', reservation='r3'),
+            A(ts='2026-10-30T00:00:00Z', kind='actual', reservation='r0', batch='b0', usd=70.0),
             {'ts': '2026-11-03T00:00:00Z', 'vendor': 'openai', 'arm': 'C', 'batch': 'c1', 'kind': 'actual', 'usd': 50.0}]
-    assert T.month_to_date(rows, 'anthropic', now) == 17.5, 'actual b1 + pending estimate b2; October excluded'
+    assert T.month_to_date(rows, 'anthropic', now) == 17.5, 'actual b1 + the unsubmitted reservation r2; released r3 and October out'
     assert T.cap_check(rows, 'anthropic', 62.5, now)['ok'] and not T.cap_check(rows, 'anthropic', 62.6, now)['ok']
     assert not T.cap_check(rows, 'openai', 30.1, now)['ok'] and T.cap_check(rows, 'openai', 30.0, now)['ok']
 
@@ -125,6 +131,77 @@ def t_submit_refuses_without_the_flag_and_without_a_probe():
         T.main(['submit', '--arm', 'C', '--i-will-spend', '--pilot', pf]); raise AssertionError('submit ran without a probe')
     except SystemExit as e:
         assert 'probe' in str(e), e
+
+
+def _submit_env(n=10):
+    d = tempfile.mkdtemp(); pf = os.path.join(d, 'p.jsonl')
+    open(pf, 'w').write(''.join(json.dumps(i) + '\n' for i in items(n)))
+    T.HOME = d; T.LEDGER = os.path.join(d, 'spend.jsonl')
+    os.makedirs(os.path.join(d, 'teacher-paid', 'B')); open(os.path.join(d, 'teacher-paid', 'B', 'PROBE-OK'), 'w').write('x')
+    return d, pf
+
+
+class Args:
+    def __init__(self, pf, **k):
+        self.i_will_spend, self.arm, self.pilot, self.probe, self.condition, self.resubmit = True, 'B', pf, False, 'blind', False
+        self.__dict__.update(k)
+
+
+def _as_mac(fn):
+    import socket
+    saved = (socket.gethostname, sys.platform)
+    socket.gethostname = lambda: 'mini4.local'; sys.platform = 'darwin'
+    try:
+        return fn()
+    finally:
+        socket.gethostname, sys.platform = saved
+
+
+def t_reservation_is_durable_before_the_vendor_call_and_blocks_double_pay():
+    d, pf = _submit_env()
+    seen = []
+    def boom(arm, its, cond):
+        seen.append([json.loads(l)['kind'] for l in open(T.LEDGER)])
+        raise RuntimeError('network died after the vendor took the batch')
+    try:
+        _as_mac(lambda: T.cmd_submit(Args(pf), submit=boom)); raise AssertionError('no raise')
+    except RuntimeError:
+        pass
+    assert seen == [['reserve']], 'the reservation was on disk before the call'
+    rows = T.ledger_rows()
+    assert T.month_to_date(rows, 'anthropic') > 0, 'an uncertain submit stays counted'
+    try:
+        _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda *a: 'b-x')); raise AssertionError('double pay allowed')
+    except SystemExit as e:
+        assert 'already reserved' in str(e), e
+    _as_mac(lambda: T.cmd_submit(Args(pf, resubmit=True), submit=lambda *a: 'b-2'))
+    kinds = [r['kind'] for r in T.ledger_rows()]
+    assert kinds == ['reserve', 'reserve', 'submitted'], kinds
+
+
+def t_the_cap_refuses_before_any_vendor_call():
+    d, pf = _submit_env(2000)
+    called = []
+    try:
+        _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda *a: called.append(1) or 'b')); raise AssertionError('no refusal')
+    except SystemExit as e:
+        assert 'REFUSED by the ledger' in str(e), e
+    assert len(called) == int(0.8 * T.CAP_USD['anthropic'] // T.BATCH_USD), (len(called), 'batches up to the 80% line, then refused')
+    assert T.month_to_date(T.ledger_rows(), 'anthropic') <= 0.8 * T.CAP_USD['anthropic']
+
+
+def t_paid_verbs_refuse_off_the_mac():
+    import socket
+    saved = socket.gethostname
+    socket.gethostname = lambda: 'block2-bots'
+    try:
+        for fn in (lambda: T.mac_only(),):
+            try:
+                fn(); raise AssertionError('ran off the Mac')
+            except SystemExit as e:
+                assert 'only on the Mac mini' in str(e)
+    finally:
+        socket.gethostname = saved
 
 
 def t_informed_subset_is_deterministic():
