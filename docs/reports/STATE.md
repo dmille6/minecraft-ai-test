@@ -101,6 +101,23 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-22 00:40Z — FLEET d014ec2c (homefix-02 KEPT +360 00:18Z, promoted 00:28Z); ironpick-01 launching; queue re-varianted
+
+- **homefix-02 KEEP +360** (tier 3, gates complete at +360): G1 4 opps 0 defects; G2 50 / 0; G3 216 / 0; G4 337 / 0
+  (reserve_expired 12); G5a-g 0 (272 relocation landings, 4 wet); G6 0 verdict-adjacent drownings; deaths 3 / 120 bh v 2 / 240
+  (held), guard DiD +0.001; 0 deaths within 120 s of a rescue. Read COVERAGE was False at +180 only because two stale
+  `-Charlie` log dirs (renamed 09-02, no env, no unit) counted as canary bots -> all 8 `*-Charlie` dirs moved to
+  /var/log/mcai-stale-charlie/ (nothing deleted); +360 COVERAGE readable True. Merge to main pending (tests running).
+- **ironpick-01 launching** on the homefix-02 variant (canary 2719ee0e). Queue after it: protectzone-01 (HELD: install the
+  CORRECTED fixture jit-1021b/protectzone-fixture.py md5 ac13bc75 first -- the old one closed the column to y -64, Codex P1)
+  -> townindex-01 -> indexsearch-01 -> bamboo-03 -> junkout-01 -> foldwatch-01 -> treefarm-03. JIT 13 variants applied
+  (ironpick 4, protectzone 5, townindex 7, indexsearch 7); two zone fixes (5e4f4189 town search, fab4329b count_town extras).
+  bamboo-03 / foldwatch-01 / treefarm-03 still carry adbec4f4-era variants -> JIT when each nears the head.
+- **New since 10-21 14:00Z:** junkout-01 queued (approved list additions NOT applied: all used or already handled); comms design
+  merged (9ba02e6f; owner C1-C10 yes); chatgate-01 + keepout-01 building; townplan-01 + found-01 building; frontier census
+  restarted (owner); learning-loop keys on the Mac (both verified; owner caps set); isolated-b pilot clean, hold released
+  (tool quiet_min bug: fix before phase 2).
+
 ## 10-21 18:15Z — isolated-b pilot +180 clean; hold released (240 min, owner); homefix-02 LIVE 18:05:53Z (4 pools)
 
 - **isolated-b pilot tripwire** +15/+60/+180: config right on 5/5; one shared well cap (357,74,160), 0 new wells; deaths 0 in
