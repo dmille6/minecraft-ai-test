@@ -276,6 +276,130 @@ def t_opsaudit_line_opens_the_report():
     assert 'opsaudit' in rep and out.getvalue().splitlines()[2].startswith(('ops audit', '!! ops audit')), out.getvalue()[:400]
 
 
+FNOW = dt.datetime(2026, 10, 22, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def _hb(**kw):
+    """A heartbeat.json as frontiercensus.py --tick writes it; kw overrides. None -> no file at all."""
+    d = tempfile.mkdtemp(); p = os.path.join(d, 'heartbeat.json')
+    if kw.get('_absent'):
+        return p
+    hb = {'mode': 'tick', 'at': '2026-10-22T11:57:00Z', 'status': 'idle', 'newest_measured_hour_end': '2026-10-22T11:00:00Z',
+          'last_publish': {'at': '2026-10-22T11:57:30Z', 'status': 'warmup', 'usable': 13, 'offered': 13},
+          'towns': 13, 'isolated_folded': ['isolated-a', 'isolated-c', 'isolated-d'], 'backlog_hours': 0,
+          'home_problems': {}, 'site_errors': {}, 'uncovered_days': [],
+          'warmup': {'run_start': '2026-10-22T00:00:00Z', 'complete': False, 'complete_at': '2026-10-24T00:00:00Z'}}
+    hb.update(kw)
+    with open(p, 'w') as fh:
+        fh.write(kw['_raw'] if '_raw' in kw else json.dumps(hb))
+    return p
+
+
+def t_frontier_healthy_line_names_its_denominators():
+    line = FS.frontier_line(FNOW, path=_hb())
+    assert line.startswith('frontier census (E0): idle, tick 3 min ago, 13 towns (+3 isolated folded), measured to 11:00Z'), line
+    assert 'warm-up ends 2026-10-24T00:00Z' in line and '!!' not in line, line
+
+
+def t_frontier_missing_heartbeat_is_an_alarm_not_silence():
+    line = FS.frontier_line(FNOW, path=_hb(_absent=True))
+    assert line.startswith('!! frontier census (E0): NO HEARTBEAT (FileNotFoundError)'), line
+
+
+def t_frontier_unreadable_heartbeat_is_an_alarm():
+    line = FS.frontier_line(FNOW, path=_hb(_raw='{"at": '))
+    assert line.startswith('!! frontier census (E0): NO HEARTBEAT (JSONDecodeError)'), line
+
+
+def t_frontier_stale_tick_is_an_alarm():
+    line = FS.frontier_line(FNOW, path=_hb(at='2026-10-22T11:40:00Z'))
+    assert line.startswith('!! ') and 'STALE: newest tick 20 min old' in line, line
+
+
+def t_frontier_void_reads_void_never_zero():
+    line = FS.frontier_line(FNOW, path=_hb(status='void', es_blind_since='2026-10-22T10:00:00Z'))
+    assert line.startswith('!! ') and 'VOID: ES blind since 2026-10-22T10:00:00Z' in line, line
+
+
+def t_frontier_error_instrument_behind_and_towns_are_alarms():
+    for kw, want in (({'status': 'error', 'error': 'EsError: x'}, 'ERROR: EsError: x'),
+                     ({'status': 'selftest_failed'}, 'SELFTEST_FAILED'),
+                     ({'status': 'instrument', 'instrument': ['3 sampled rows fall in regions the fold lacks']}, 'INSTRUMENT: 3'),
+                     ({'newest_measured_hour_end': '2026-10-22T09:00:00Z'}, 'BEHIND: newest measured hour ended 09:00Z'),
+                     ({'newest_measured_hour_end': None}, 'BEHIND: no measured hour'),
+                     ({'home_problems': {'hive-c': 'conflicting homes'}}, 'towns left out'),
+                     ({'site_errors': {'hive-c': 'OSError'}}, 'hazards unread'),
+                     ({'last_publish': {'at': '2026-10-22T11:57:30Z', 'status': 'warmup',
+                                        'unusable': {'hive-c': 'not writable'}}}, 'PUBLISHER cannot write')):
+        line = FS.frontier_line(FNOW, path=_hb(**kw))
+        assert line.startswith('!! frontier census (E0): ') and want in line, (kw, line)
+
+
+def t_frontier_backlog_is_quiet_while_warming_and_an_alarm_once_warm():
+    """Claude r2 P2-3: a backlog during the warm-up (the first backfill) is expected; a warm census that has not staged
+    for 30 min because of one is not."""
+    line = FS.frontier_line(FNOW, path=_hb(status='behind', backlog_hours=40))
+    assert line.startswith('frontier census (E0): behind') and 'backlog 40 h' in line and 'warm-up ends' in line, line
+    line = FS.frontier_line(FNOW, path=_hb(status='behind', backlog_hours=40, last_staged_at='2026-10-22T10:00:00Z',
+                                            withheld='backlog 40 hours, unstable []',
+                                            last_publish={'at': '2026-10-22T11:57:30Z', 'status': 'ok'},
+                                            warmup={'complete': True, 'complete_at': '2026-10-21T00:00:00Z'}))
+    assert line.startswith('!! ') and 'NOT STAGING since 2026-10-22T10:00:00Z (withheld: backlog 40' in line, line
+
+
+def t_frontier_malformed_heartbeat_never_raises():
+    for raw in ('[1, 2]', '{"at": "2026-10-22T11:57:00"}', '{"at": "2026-10-22T11:57:00Z", "warmup": 5}',
+                '{"at": "2026-10-22T11:57:00Z", "newest_measured_hour_end": 7}'):
+        line = FS.frontier_line(FNOW, path=_hb(_raw=raw))
+        assert line.startswith('!! frontier census (E0): '), (raw, line)
+
+
+def t_frontier_warm_census_that_stops_staging_or_publishing_alarms():
+    warm = {'run_start': '2026-10-20T00:00:00Z', 'complete': True, 'complete_at': '2026-10-22T00:00:00Z'}
+    okp = {'at': '2026-10-22T11:57:30Z', 'status': 'ok', 'published': 13}
+    line = FS.frontier_line(FNOW, path=_hb(warmup=warm, last_staged_at='2026-10-22T11:57:00Z', last_publish=okp))
+    assert line.startswith('frontier census (E0): idle') and 'warm-up complete' in line, line
+    for kw, want in (({'last_staged_at': '2026-10-22T11:00:00Z', 'last_publish': okp}, 'NOT STAGING'),
+                     ({'last_staged_at': None, 'last_publish': okp}, 'NOT STAGING'),
+                     ({'last_staged_at': '2026-10-22T11:57:00Z', 'last_publish': None}, 'PUBLISHER silent'),
+                     ({'last_staged_at': '2026-10-22T11:57:00Z', 'last_publish': dict(okp, at='2026-10-22T11:30:00Z')},
+                      'PUBLISHER ok at 2026-10-22T11:30:00Z'),
+                     ({'last_staged_at': '2026-10-22T11:57:00Z',
+                       'last_publish': dict(okp, status='refused', why='running as root')}, 'PUBLISHER refused')):
+        line = FS.frontier_line(FNOW, path=_hb(warmup=warm, **kw))
+        assert line.startswith('!! ') and want in line, (kw, line)
+
+
+def t_frontier_publisher_silent_during_warmup_alarms():
+    """Claude r4 P2-1: the 48 h warm-up must not hide a publisher that never runs."""
+    for lp, want in ((None, 'PUBLISHER silent'), ({'at': '2026-10-22T11:00:00Z', 'status': 'warmup'}, 'during the warm-up'),
+                     ({'at': '2026-10-22T11:57:30Z', 'status': 'error'}, 'PUBLISHER error'),
+                     ({'at': '2026-10-22T11:57:30Z', 'status': 'warmup', 'usable': 12, 'offered': 13}, 'usable 12 of 13')):
+        line = FS.frontier_line(FNOW, path=_hb(last_publish=lp))
+        assert line.startswith('!! ') and want in line, (lp, line)
+
+
+def t_frontier_publisher_age_is_judged_against_the_tick_that_carried_it():
+    """Claude r5 P3-2: the heartbeat carries the PREVIOUS run's publisher line; a slow backfill tick (cron slot skipped)
+    must not make a live publisher read stale. The tick's own age is STALE's job."""
+    line = FS.frontier_line(dt.datetime(2026, 10, 22, 12, 9, tzinfo=dt.timezone.utc),
+                            path=_hb(at='2026-10-22T11:57:00Z', last_publish={'at': '2026-10-22T11:47:30Z',
+                                                                              'status': 'warmup', 'usable': 13, 'offered': 13}))
+    assert line.startswith('frontier census (E0): idle'), line
+    warm = {'run_start': '2026-10-20T00:00:00Z', 'complete': True, 'complete_at': '2026-10-22T00:00:00Z'}
+    line = FS.frontier_line(dt.datetime(2026, 10, 22, 12, 9, tzinfo=dt.timezone.utc),
+                            path=_hb(at='2026-10-22T11:57:00Z', warmup=warm, last_staged_at='2026-10-22T11:57:00Z',
+                                     last_publish={'at': '2026-10-22T11:47:30Z', 'status': 'ok'}))
+    assert line.startswith('frontier census (E0): idle') and 'warm-up complete' in line, line
+
+
+def t_frontier_line_is_in_the_header():
+    out = io.StringIO()
+    rep = run(fleet_docs(), stdout=out)
+    head = out.getvalue().splitlines()[:5]
+    assert 'frontier' in rep and any(x.startswith(('frontier census (E0)', '!! frontier census (E0)')) for x in head), head
+
+
 def t_showcase_block_never_raises():
     """docs/reports/showcase-2026-10-20.md s.4: the SHOWCASE block reads only its own streams and NEVER takes the
     fleet report down: an ES that refuses everything yields one line per part, no exception."""

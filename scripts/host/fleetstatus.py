@@ -92,6 +92,97 @@ def opsaudit_line(now, path=None):
     return f'{mark}ops audit (Codex) {m.group(1)}: {flags} flag(s), {high} high, {h:.0f} h old{stale}; read {p}'
 
 
+# FRONTIER CENSUS (E0, expansion plan 2026-10-19 section 4): frontiercensus.py --tick runs from mike's crontab on this host
+# every 5 min and rewrites ~/frontiercensus/out/heartbeat.json atomically. Its health opens every report, the same way as
+# the disk and the audit: a census nobody looks at goes VOID unnoticed. The thresholds are check-frontiercensus.py's.
+FRONTIER_HB = '~/frontiercensus/out/heartbeat.json'
+FRONTIER_STALE = dt.timedelta(minutes=15)       # cron 5 min; a tick may run 4 min
+FRONTIER_BEHIND = dt.timedelta(minutes=135)     # whole hours fold 10 min after they end: healthy is <= ~75 min
+FRONTIER_NOT_STAGING = dt.timedelta(minutes=30)
+FRONTIER_PUBLISHER = dt.timedelta(minutes=15)   # the publisher runs right after every tick: its line, as carried by the
+#                                                 NEXT tick's heartbeat, is judged against that tick (its age is STALE's)
+
+
+def _ts(s):
+    return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+
+
+def frontier_line(now, path=None):
+    """One header line for the frontier census. NEVER raises (a malformed heartbeat is an alarm line too): missing,
+    unreadable, stale, VOID, error, instrument, behind, a town left out or gone, unread hazards, and -- once warm --
+    nothing staged for 30 min or a publisher that has not reported `ok` within 15 min are '!! ' lines; a healthy census
+    says so with its denominators."""
+    p = os.path.expanduser(path or FRONTIER_HB)
+    try:
+        return _frontier_line(now, p)
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! frontier census (E0): UNREADABLE heartbeat ({type(e).__name__}: {str(e)[:80]}) at {p}'
+
+
+def _frontier_line(now, p):
+    try:
+        with open(p) as fh:
+            hb = json.load(fh)
+        at = _ts(hb['at'])
+        if at.tzinfo is None:
+            raise ValueError('timestamp without a zone')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        return f'!! frontier census (E0): NO HEARTBEAT ({type(e).__name__}) at {p} -- not a quiet census, an absent one'
+    bad = []
+    age = now - at
+    if age > FRONTIER_STALE:
+        bad.append(f'STALE: newest tick {age.total_seconds() / 60:.0f} min old')
+    st = hb.get('status')
+    if st in ('error', 'selftest_failed'):
+        bad.append(f'{st.upper()}: {str(hb.get("error"))[:120]}')
+    elif st == 'void':
+        bad.append(f'VOID: ES blind since {hb.get("es_blind_since")} (reads VOID, not zero)')
+    elif st == 'instrument':
+        bad.append(f'INSTRUMENT: {"; ".join(hb.get("instrument") or [])[:160]}')
+    elif st not in ('ok', 'idle', 'behind'):
+        bad.append(f'status {st!r}')
+    mu = hb.get('newest_measured_hour_end')
+    try:
+        lag = now - _ts(mu) if mu else None
+    except ValueError:
+        lag = None
+    if lag is None:
+        bad.append('BEHIND: no measured hour')
+    elif lag > FRONTIER_BEHIND:
+        bad.append(f'BEHIND: newest measured hour ended {mu[11:16]}Z ({lag.total_seconds() / 60:.0f} min)')
+    if hb.get('home_problems'):
+        bad.append(f'towns left out {hb["home_problems"]}')
+    if hb.get('site_errors'):
+        bad.append(f'hazards unread (ranking withheld) {hb["site_errors"]}')
+    wu = hb.get('warmup') or {}
+    if (hb.get('last_publish') or {}).get('unusable'):
+        bad.append(f'PUBLISHER cannot write {hb["last_publish"]["unusable"]}')
+    if not wu.get('complete'):              # the publisher must be alive during the warm-up too (Claude r4 P2-1)
+        lp = hb.get('last_publish') or {}
+        if not lp.get('at') or at - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') not in ('warmup', 'ok') \
+                or (lp.get('usable') or 0) < (lp.get('offered') or 0):
+            bad.append(f'PUBLISHER {lp.get("status") or "silent"} at {lp.get("at")} during the warm-up '
+                       f'(usable {lp.get("usable")} of {lp.get("offered")})')
+    if wu.get('complete'):
+        ls = hb.get('last_staged_at')
+        if not ls or now - _ts(ls) > FRONTIER_NOT_STAGING:
+            bad.append(f'NOT STAGING since {ls} (withheld: {str(hb.get("withheld"))[:80]})')
+        lp = hb.get('last_publish') or {}
+        if not lp.get('at') or at - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') != 'ok':
+            bad.append(f'PUBLISHER {lp.get("status") or "silent"} at {lp.get("at")}: '
+                       f'{str(lp.get("why") or lp.get("error") or lp.get("refused") or "")[:100]}')
+    warm = ('warm-up complete' if wu.get('complete') else
+            f'warm-up ends {wu["complete_at"][:16]}Z (nothing published before)' if wu.get('complete_at') else
+            'warm-up not started')
+    unc = hb.get('uncovered_days')
+    what = (f'{hb.get("towns")} towns (+{len(hb.get("isolated_folded") or [])} isolated folded), '
+            f'measured to {mu[11:16] if mu else "-"}Z, backlog {hb.get("backlog_hours")} h, uncovered days '
+            f'{unc if unc else "none"}, {warm}')
+    if bad:
+        return f'!! frontier census (E0): {"; ".join(bad)} -- {what}; read {os.path.dirname(p)}/check.log'
+    return f'frontier census (E0): {st}, tick {age.total_seconds() / 60:.0f} min ago, {what}'
+
+
 def elk_disk(now, client=None):
     """Header lines for the ELK host's disk. Never raises: an unreadable reading is itself an
     alarm line, because a disk check that cannot be read has not passed."""
@@ -355,6 +446,8 @@ def show(rep):
         print(line)
     if rep.get('opsaudit'):
         print(rep['opsaudit'])
+    if rep.get('frontier'):
+        print(rep['frontier'])
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -403,7 +496,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
