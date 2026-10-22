@@ -50,7 +50,7 @@ import pathfinderPkg from 'mineflayer-pathfinder'
 import { digScoped } from './digtown.mjs'
 // poolescape-01: the walled-water-pit rung (poolescape.mjs plans one step; poolEscape below executes it)
 import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark, poolForbid, poolToolOk, poolBackoffMs,
-         poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS } from './poolescape.mjs'
+         poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS, POOL_STEP_WALK_MS } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
@@ -4917,28 +4917,49 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
   }
   const canClear = b => (b?.diggable === false ? 'undiggable' : handFor(b).refuse ? 'neither hand can break it' : null)
   const keepouts = () => ({ zones: bot.protectZones?.() ?? [], fire: bot.fireSitesNow?.() ?? [], home: configuredHome(config.world) })
+  const occupied = c => {
+    for (const e of Object.values(bot.entities ?? {})) {
+      if (!e || e === bot.entity || e.type !== 'player' || !e.position) continue
+      const p = e.position
+      if (Math.floor(p.x) === c.x && Math.floor(p.z) === c.z && Math.floor(p.y) <= c.y && c.y <= Math.floor(p.y) + 1) return `another body in the step (${e.username ?? 'a player'})`
+    }
+    return null
+  }
   // the planner's world, re-based at a feet cell `o` (a Vec3 of integers)
   const optsAt = (o, k = keepouts()) => {
     const at = (dx, dy, dz) => bot.blockAt(o.offset(dx, dy, dz))
     return {
       at, bearings: escapeBearings(bot.entity.yaw), canClear,
       blocks: poolBlockCount(inv().filter(it => scaffoldRank(it.name) != null), PLACEABLE),
-      forbid: (dx, dy, dz) => poolForbid({ cell: o.offset(dx, dy, dz), feet: o, fireSites: k.fire }),
+      // a cell another body stands in is not a step this bot can take (Paper 10-22 r3: Comet's step was where Bravo stood)
+      forbid: (dx, dy, dz) => poolForbid({ cell: o.offset(dx, dy, dz), feet: o, fireSites: k.fire }) || occupied(o.offset(dx, dy, dz)),
       mark: (dx, dy, dz) => keepoutMark({ cell: o.offset(dx, dy, dz), feet: o, zones: k.zones, home: k.home, name: at(dx, dy, dz)?.name }),
     }
   }
   const lavaIn = reasons => Object.entries(reasons ?? {}).filter(([k]) => /lava/.test(k)).reduce((a, [, n]) => a + n, 0)
+  // THE STEP IN TWO PHASES, AS A PLAYER TAKES IT (Paper 10-22 r3: two of five bots rose onto the ledge with their centre
+  // still over the pit -- y 101, z 5200.03 -- and the 1.2 s single hold ended there). Phase 1: forward + jump until the
+  // feet are up (the out-of-liquid impulse). Phase 2: jump released, forward until the centre is inside the step cell.
   const holdToward = async (bear, target, ms) => {
+    const inCell = q => Math.floor(q.x) === target.x && Math.floor(q.z) === target.z
+    const up = q => Math.floor(q.y + 0.2) >= target.y
     await bot.look(Math.atan2(-bear.x, -bear.z), 0, true).catch(() => {})
     if (gone()) return false
     bot.setControlState('forward', true); bot.setControlState('jump', true)
     try {
-      const until = Date.now() + ms
+      let until = Date.now() + ms
       while (Date.now() < until) {
         await sleep(60)
         if (gone()) return false
         const q = bot.entity.position
-        if (Math.floor(q.x) === target.x && Math.floor(q.z) === target.z && Math.floor(q.y + 0.2) >= target.y) break
+        if (up(q)) break
+      }
+      bot.setControlState('jump', false)
+      until = Date.now() + POOL_STEP_WALK_MS
+      while (Date.now() < until) {
+        if (inCell(bot.entity.position)) break
+        await sleep(60)
+        if (gone()) return false
       }
     } finally { if (!gone() || !steering) { bot.setControlState('forward', false); bot.setControlState('jump', false) } }
     await sleep(400)   // land before measuring

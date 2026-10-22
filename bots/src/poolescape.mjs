@@ -28,7 +28,8 @@ export const poolEscapeOn = (env = typeof process !== 'undefined' ? process.env 
 export const POOL_MAX_STEPS = 8            // steps per firing
 export const POOL_BUDGET_MS = 90_000       // one firing holds the body at most this long
 export const POOL_SWIM_MAX = 4             // how far it swims to another wall of the same pool
-export const POOL_STEP_HOLD_MS = 1200      // forward + jump held this long for one step (the impulse needs the collision)
+export const POOL_STEP_HOLD_MS = 2000      // phase 1: forward + jump until the feet are up (the impulse needs the collision)
+export const POOL_STEP_WALK_MS = 1500      // phase 2: forward alone until the centre is inside the step cell
 export const POOL_BACKOFF_MS = [5, 10, 20, 40, 60].map(m => m * 60_000)
 
 const SIDES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
