@@ -29,8 +29,8 @@ t('every goto inside a dig-capable profile opts out of the harvest watchdog', ()
 t('MUTANTS: putting the default back on ANY of the three walks is caught, one at a time', () => {
   const anchors = [
     ["await withTimeout(bot.pathfinder.goto(goal), retryBudget, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(goal), retryBudget, bot)"],
-    ["await withTimeout(bot.pathfinder.goto(goal), 20000, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(goal), 20000, bot)"],
-    ["await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)"],
+    ["await withTimeout(bot.pathfinder.goto(goal), legMs(20000), bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(goal), legMs(20000), bot)"],
+    ["await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), stageMs(), bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), stageMs(), bot)"],
   ]
   for (const [anchor, mutant] of anchors) {
     assert.equal(RAW.split(anchor).length - 1, 1, `ANCHOR MISSING or not unique: ${anchor.slice(0, 50)}`)

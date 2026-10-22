@@ -20,6 +20,70 @@ import pathfinderPkg from 'mineflayer-pathfinder'
 const { goals } = pathfinderPkg
 import { snapshot, inventorySummary } from './state.mjs'
 import { config } from './config.mjs'
+import { HARD_STOP_GRACE_MS } from './hard-stop.mjs'
+import { logRescueRow } from './rescuerow.mjs'
+import { airAdmission, airDeclineNext } from './airstate.mjs'
+import { pickRelocationTargetAsync, landingCheck, reasonsLabel } from './relocate.mjs'
+import { Vec3 } from 'vec3'
+
+// ---------------------------------------------------------------------------
+// THE RESCUE CONTRACT (homefix-01, docs/reports/expansion-plan-2026-10-19.md §2 H2a/H2b, "The H2 fix, as one contract").
+//
+// H2a: `#escalate` cancelled the skill and then called runner.run(), which returned `runner_busy` while the cancelled
+// skill was still unwinding (`current` was set until after its logging) -- >= 45.9% of level-2 rescues never ran. H2b:
+// check() had no in-flight guard, so 15 s into a rescue the next tick judged the OLD stagnant window plus 15 s of the
+// rescue and cancelled it (404 of 610 cut at 10-20 s). The contract:
+//   1. PENDING FROM THE VERDICT: no verdict and no cancel from either judgement while a rescue is pending; both histories
+//      still sample. Released in a finally (identity-guarded) around the whole escalation.
+//   2. CANCEL AND RESERVE in one step (Runner.reserve): nothing else can start into the gap.
+//   4. THE LEVEL IS HELD (escalation--, window reset, one window of backoff) when the rescue did not START -- except after
+//      RESERVE_EXPIRED_CAP consecutive `reserve_expired`: a skill ignoring its abort twice is the wedge, so go to level 3,
+//      whose reconnect needs no runner.
+//   5. THE WINDOW IS RESET WHEN THE RESCUE STARTS, so the next verdict is on the rescue's own samples.
+//   7. ONE RESCUE AT A TIME: stagnation and stranding share `pending`.
+//   8. EVERY ATTEMPT IS LOGGED (`_watchdog_rescue`, rescuerow.mjs).
+// ---------------------------------------------------------------------------
+export const RESCUE_OWNER = 'watchdog'
+/** The reservation a rescue takes (<= Runner.RESERVE_MAX_MS): ~95% of measured unwinds finish inside it (h11). */
+export const RESCUE_RESERVE_MS = 20_000
+/** Consecutive `reserve_expired` declines after which the level is no longer held (item 4). */
+export const RESERVE_EXPIRED_CAP = 2
+/** Stranding climb-outs refunded per episode when the air reflex interrupted them (homefix-02 C3b). */
+export const AIR_REFUND_CAP = 2
+
+/**
+ * DOES THIS CLIMB-OUT COUNT AS ONE OF THE TWO? -> { refund, refunds }. Pure. A climb-out that never started (any decline,
+ * `air_rescue` included) is refunded, as before homefix-02. One the air reflex interrupted during a drowning in progress
+ * (`interruptedBy === 'drowning'`, C3b) is refunded at most `cap` times per stranding episode, so a flooded cave still
+ * reaches `stranded_unrecoverable` (Claude r3 P3-3).
+ */
+export function strandRefund ({ out = null, refunds = 0, cap = AIR_REFUND_CAP } = {}) {
+  if (!out) return { refund: false, refunds }
+  if (!out.started) return { refund: true, refunds }
+  if (out.r?.interruptedBy === 'drowning' && refunds < cap) return { refund: true, refunds: refunds + 1 }
+  return { refund: false, refunds }
+}
+
+/**
+ * WHAT A RESCUE'S OUTCOME DOES TO THE LADDER -> { streak, hold, jump }. Pure (H2 item 4).
+ *   started            the rescue ran: nothing held, the decline streak ends (the window was reset at its start)
+ *   not started        held: the level goes back one and backs off one window ...
+ *   ... unless this is the RESERVE_EXPIRED_CAP-th consecutive reserve_expired: not held, and below level 3 jump to it
+ */
+export function rescueLevelStep ({ started = false, failClass = null, level = 0, streak = 0, cap = RESERVE_EXPIRED_CAP,
+                                   sinceLastMs = 0, ttlMs = Infinity } = {}) {
+  if (started) return { streak: 0, hold: false, jump: false }
+  // A DROWNING IN PROGRESS DECLINED THE START (homefix-02 C3a): held like any rescue that did not start, and it is NOT
+  // wedge evidence -- the reserve_expired streak is left exactly as it was (Codex r1 P2-5, Claude r1 P2-4).
+  if (failClass === 'air_rescue') return { streak, hold: true, jump: false }
+  // CONSECUTIVE MEANS RECENT (Claude code r1 P3-4): a streak of 1 left from hours ago is not half of a wedge, so an old
+  // reserve_expired does not count toward the cap -- only one inside `ttlMs` of this one (the watchdog passes two windows,
+  // the held level's backoff and the next verdict's window, plus the pending bound: 590 s at production clocks).
+  const live = sinceLastMs <= ttlMs ? streak : 0
+  const n = failClass === 'reserve_expired' ? live + 1 : 0
+  if (n >= cap) return { streak: n, hold: false, jump: level < 3 }
+  return { streak: n, hold: true, jump: false }
+}
 
 /**
  * At or above this the bot is stranded ON the world rather than under it, and
@@ -73,7 +137,82 @@ export class StagnationWatchdog {
     this.strandHistory = []    // { t, y, items, milestone }
     this.strandWindows = 0     // consecutive WINDOWS (not ticks) meeting the condition
     this.surfaceAttempts = 0   // climb-outs tried since the last real progress
+    this.airRefunds = 0        // climb-outs refunded because the air reflex took them (homefix-02 C3b), this episode
+    this.airDeclines = { stagnation: 0, stranding: 0 }   // consecutive `air_rescue` declines per rescue kind (C3a cap)
     this.lastStrandJudgedAt = 0
+
+    // THE RESCUE CONTRACT's state (see the header). `pending` = { attempt, kind, level, at, startedAt, tickSeen, gen,
+    // rescue } while a rescue is requested or running. The streak survives the `escalation = 0` resets on purpose.
+    this.pending = null
+    this.attemptSeq = 0
+    this.reserveExpiredStreak = 0
+    this.lastReserveExpiredAt = -Infinity
+    this.backoffUntil = 0
+    this.windowResetAt = 0
+    this.reserveMs = RESCUE_RESERVE_MS
+  }
+
+  /** The most a pending rescue can last: the reservation + the rescue's skill timeout + the hard-stop grace (item 6). */
+  pendingBoundMs () { return this.reserveMs + config.skills.defaultTimeoutMs + HARD_STOP_GRACE_MS }
+
+  #resetWindow () { this.samples = []; this.windowResetAt = Date.now() }
+
+  #newAttempt () { return `${Date.now().toString(36)}-${++this.attemptSeq}` }
+
+  /** A tick while a rescue is pending: sample both histories, issue nothing (item 1); mark the first tick in a started rescue. */
+  #pendingTick () {
+    const now = Date.now()
+    this.#strandSample(now)
+    const pd = this.pending
+    if (!pd) return
+    if (pd.startedAt && !pd.tickSeen && pd.rescue) {
+      pd.tickSeen = true
+      logRescueRow(this.bot, pd.rescue, 'tick_seen', { pending_ms: now - pd.at })
+    }
+    // A backstop, not the bound: the runner itself releases the body by pendingBoundMs (its hard stop). Past it with
+    // margin, a pending that never cleared would silence the watchdog forever, which is the old H2a in a new place.
+    if (now - pd.at > this.pendingBoundMs() + 30_000) {
+      log('error', 'watchdog: a pending rescue outlived its bound; releasing it', { attempt: pd.attempt, ms: now - pd.at })
+      this.pending = null
+    }
+  }
+
+  /**
+   * ONE RESCUE, PENDING FROM THE VERDICT TO ITS END (items 1, 6, 7). `body(pending)` does the work; whatever it does or
+   * throws (e.g. reading the position after a disconnect), the pending flag and this attempt's reservation are released.
+   */
+  async #rescue (kind, body) {
+    const mine = { attempt: this.#newAttempt(), kind, level: this.escalation, at: Date.now(), startedAt: null,
+                   tickSeen: false, gen: null, rescue: null }
+    this.pending = mine
+    try { return await body(mine) }
+    catch (e) { log('error', 'watchdog: rescue threw', { err: e?.message, kind }); return null }
+    finally {
+      if (mine.gen != null) { try { this.runner.releaseReservation?.(mine.gen) } catch {} }
+      if (this.pending === mine) this.pending = null
+    }
+  }
+
+  /**
+   * Run one rescue skill through the runner: `requested` row, cancel-and-reserve, then the owner's run. Returns
+   * { r, started }. A runner without reserve() (the unit fakes) gets the old cancel.
+   */
+  async #runRescue (pd, { level, remedy, skill, args, trigger, reason, rowExtra = {} }) {
+    pd.level = level
+    pd.rescue = { attempt: pd.attempt, level, remedy }
+    logRescueRow(this.bot, pd.rescue, 'requested', { skill, kind: pd.kind, ...rowExtra })
+    if (typeof this.runner.reserve === 'function') pd.gen = this.runner.reserve(RESCUE_OWNER, this.reserveMs, reason).gen
+    else this.runner.cancel(reason)
+    this.runner.resume()        // a stagnant agent must not also be paused
+    const r = await this.runner.run(skill, args, {
+      trigger, owner: RESCUE_OWNER, rescue: pd.rescue,
+      onStart: () => { pd.startedAt = Date.now(); this.reserveExpiredStreak = 0; this.#resetWindow() },
+      // homefix-02 C3a: asked by the runner at the instant of the start (after the unwind), never before reserve(); the
+      // per-kind decline count caps it (airstate.mjs AIR_DECLINE_CAP)
+      admit: () => airAdmission(this.bot?.airRescue ?? null, Date.now(), { declines: this.airDeclines[pd.kind] ?? 0 }),
+    })
+    this.airDeclines[pd.kind] = airDeclineNext(this.airDeclines[pd.kind] ?? 0, { started: pd.startedAt != null, failClass: r?.failClass ?? null })
+    return { r: r ?? null, started: pd.startedAt != null }
   }
 
   start() {
@@ -120,6 +259,8 @@ export class StagnationWatchdog {
     // the window it is defined over.
     const now = Date.now()
     const W = config.watchdog.strandWindowMs ?? 6 * 60_000
+    // ONE RESCUE AT A TIME (homefix-01 H2 items 1, 7): while any rescue is pending this judgement only samples.
+    if (this.pending) { this.#strandSample(now); return 'pending' }
     // Sample on EVERY call -- the six-minute measurement is built from these --
     // but judge at most once per window.
     const v = this.#strandingVerdict(now)
@@ -137,6 +278,7 @@ export class StagnationWatchdog {
       }
       this.strandWindows = 0
       this.surfaceAttempts = 0
+      this.airRefunds = 0
       return
     }
 
@@ -156,26 +298,29 @@ export class StagnationWatchdog {
       kind: 'stranded_underground', status: 'failed',
       detail: `y=${y}, ${Math.round(v.altitudeGain)}b net gain over ` +
               `${Math.round((v.window[v.window.length - 1].t - v.window[0].t) / 60000)}m, ` +
-              `no milestone change, no inventory change; climb-out attempt ${this.surfaceAttempts}`,
+              `no milestone change, no inventory change; climb-out attempt ${this.surfaceAttempts}` +
+              `${this.airRefunds ? `; air refunds ${this.airRefunds}` : ''}`,
       snapshot: snapshot(this.bot),
     })
 
     if (this.surfaceAttempts <= 2) {
       log('error', 'watchdog: STRANDED UNDERGROUND -- forcing a climb-out',
           { y, attempt: this.surfaceAttempts })
-      this.runner.cancel('stranded')
-      this.runner.resume()
-      try {
-        await this.runner.run('surface', {}, { trigger: 'watchdog_stranded_underground' })
-      } catch (e) {
-        log('error', 'watchdog: climb-out failed', { err: e.message })
-      }
+      // The same contract as the stagnation rescue (homefix-01 H2a: this shared the cancel-then-run shape): pending,
+      // cancel-and-reserve, attempt rows. Level 0 in the rows names the stranding ladder.
+      const out = await this.#rescue('stranding', pd => this.#runRescue(pd, {
+        level: 0, remedy: 'climb_out', skill: 'surface', args: {}, trigger: 'watchdog_stranded_underground', reason: 'stranded' }))
+      // A climb-out that never started was not an attempt: it does not use up one of the two. ONE THE AIR REFLEX TOOK
+      // (homefix-02 C3b) is refunded too, at most AIR_REFUND_CAP times per episode (strandRefund).
+      const rf = strandRefund({ out, refunds: this.airRefunds })
+      if (rf.refund) this.surfaceAttempts--
+      this.airRefunds = rf.refunds
       // Do NOT clear strandWindows here. The next window decides whether it
       // worked, and altitude is what answers that -- not the fact that a rescue
       // ran. A rescue that reports success while the bot stays at y=-42 is the
       // exact failure this whole class of bug is made of.
       this.strandWindows = 1
-      return
+      return 'rescued'
     }
 
     // Two climb-outs and still down there. Say so as a distinct, countable
@@ -225,7 +370,8 @@ export class StagnationWatchdog {
    * legitimately spends long stretches below y=50; what it does NOT do is spend
    * them without its inventory changing.
    */
-  #strandingVerdict(now = Date.now()) {
+  /** The stranding history's sample, split out so a pending tick can take it without judging (homefix-01 H2 item 1). */
+  #strandSample(now = Date.now()) {
     const W = config.watchdog.strandWindowMs ?? 6 * 60_000
     const p = this.bot.entity?.position
     if (!p) return null
@@ -237,6 +383,13 @@ export class StagnationWatchdog {
     // Keep a little over two windows so a verdict always has a full one behind it.
     const cutoff = now - W * 2.5
     while (this.strandHistory.length && this.strandHistory[0].t < cutoff) this.strandHistory.shift()
+    return p
+  }
+
+  #strandingVerdict(now = Date.now()) {
+    const W = config.watchdog.strandWindowMs ?? 6 * 60_000
+    const p = this.#strandSample(now)
+    if (!p) return null
 
     const win = this.strandHistory.filter(s => s.t >= now - W)
     if (win.length < 2 || (win[win.length - 1].t - win[0].t) < W * 0.9) return null
@@ -291,6 +444,9 @@ export class StagnationWatchdog {
   async check() {
     if (!this.bot.entity) return
     this.#sample()
+    // A RESCUE IS PENDING (homefix-01 H2 items 1, 5): this tick samples both histories and issues NO verdict and NO cancel.
+    // Before this guard the 15 s setInterval re-entered check() mid-rescue and cut the rescue on the OLD window.
+    if (this.pending) { this.#pendingTick(); return }
 
     // Need a full window before judging anything.
     const span = this.samples.length
@@ -317,10 +473,16 @@ export class StagnationWatchdog {
     // displacement looks fine. It is going nowhere in the only direction that
     // matters. That is invisible to a 180-second window and obvious over six
     // minutes.
-    await this.judgeStranding()
+    // A stranding rescue ran this tick: its outcome is judged on the next window, not on this one.
+    if (await this.judgeStranding() === 'rescued') return
+    // A RESCUE THAT DID NOT START holds its level and backs off one window (H2 item 4).
+    if (Date.now() < this.backoffUntil) return
 
     const idleFor = Date.now() - this.lastActionAt
-    if (idleFor > config.watchdog.windowMs) return
+    // A SKILL STILL HOLDING THE RUNNER IS NOT IDLE (homefix-01 H2 item 4). lastActionAt moves only when a run STARTS, so a
+    // skill past its own timeout and ignoring its abort (the 180-210 s before the runner's hard stop) read as "nothing
+    // attempted recently" and could never earn the second verdict the reserve_expired cap needs to reach level 3.
+    if (idleFor > config.watchdog.windowMs && !this.runner?.isBusy?.()) return
 
     // JUDGE ONLY THE TIME THE BOT WAS TRYING. Samples taken while no skill was
     // running are idle-by-design and say nothing about being stuck.
@@ -375,13 +537,21 @@ export class StagnationWatchdog {
                    `frozen ${Math.round(frozenMs / 1000)}s; window ${Math.round(config.watchdog.windowMs / 1000)}s, ` +
                    `threshold ${config.watchdog.minMoveBlocks} blocks)`
     log('error', `watchdog: STAGNANT (level ${this.escalation})`, { detail })
-    logEvent({ kind: 'stagnation', status: 'failed',
-               detail: `${detail}; escalation ${this.escalation}`,
-               snapshot: snapshot(this.bot) })
-    this.cognitive?.memory?.addEvent(`watchdog: stuck making no progress — ${detail}`)
-
-    await this.#escalate()
-    this.samples = []           // fresh window so we judge the result, not the past
+    // PENDING FROM THE VERDICT (H2 item 1): set inside #rescue before anything is cancelled. The verdict row carries its
+    // window's first-sample time (`window_from`) and the last window reset, so homefixread.py G3 can tell a verdict on the
+    // rescue's own samples from one on samples taken before the rescue started.
+    await this.#rescue('stagnation', async pd => {
+      logEvent({ kind: 'stagnation', status: 'failed',
+                 detail: `${detail}; escalation ${this.escalation}`,
+                 args: { escalation: this.escalation, attempt: pd.attempt,
+                         window_from: new Date(this.samples[0]?.t ?? Date.now()).toISOString(),
+                         window_reset_at: this.windowResetAt ? new Date(this.windowResetAt).toISOString() : '' },
+                 snapshot: snapshot(this.bot) })
+      this.cognitive?.memory?.addEvent(`watchdog: stuck making no progress — ${detail}`)
+      await this.#escalate(pd)
+    })
+    // NO WINDOW RESET HERE any more (H2 item 5): a rescue that STARTED reset it at its start (onStart), so the next
+    // verdict is on the rescue's own samples; one that did not start reset it in #escalate.
   }
 
   /**
@@ -389,28 +559,93 @@ export class StagnationWatchdog {
    * the last, because "try the same recovery again" is what produced twenty
    * minutes of nothing.
    */
-  async #escalate() {
+  async #escalate(pd) {
     const p = this.bot.entity.position
-    this.runner.cancel('stagnation')
-    this.runner.resume()        // a stagnant agent must not also be paused
-
+    if (this.escalation >= 3) return this.#levelThree(pd)
+    let plan
+    let target = null
     if (this.escalation === 1) {
-      // Move decisively further than a reflex nudge would.
-      const ang = Math.random() * Math.PI * 2
-      const d = 45 + Math.random() * 25
-      const x = Math.round(p.x + Math.cos(ang) * d), z = Math.round(p.z + Math.sin(ang) * d)
-      log('warn', 'watchdog: forcing relocation', { to: `${x},${z}` })
-      await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'watchdog_relocate' })
-      return
-    }
-
-    if (this.escalation === 2) {
+      // Move decisively further than a reflex nudge would -- TO SOMEWHERE DRY (homefix-02 C2, relocate.mjs): a standable
+      // surface cell whose whole goto arrival volume reads dry. The old target was a random point at the bot's own y;
+      // in hive-d it was often a frozen river's ice sheet (death 1).
+      const t0 = Date.now()
+      const read = (x, y, z) => this.bot.blockAt?.(new Vec3(x, y, z)) ?? null
+      const pick = await pickRelocationTargetAsync({ p, read })
+      const dryMs = Date.now() - t0
+      const rowExtra = { dry_tries: pick.tries, dry_reasons: reasonsLabel(pick.reasons), dry_ms: dryMs }
+      if (pick.ok) {
+        target = { x: pick.x, y: pick.y, z: pick.z }
+        log('warn', 'watchdog: forcing relocation', { to: `${pick.x},${pick.y},${pick.z}`, tries: pick.tries })
+        plan = { level: 1, remedy: 'relocate', skill: 'goto', args: { ...target }, trigger: 'watchdog_relocate', reason: 'stagnation',
+                 rowExtra: { ...rowExtra, target_x: pick.x, target_y: pick.y, target_z: pick.z } }
+      } else {
+        // NO DRY TARGET IN 16 TRIES: the bot is in a wet, steep or unreadable place, and the one remedy it can still
+        // perform is home (an executable walk; level 3 follows if it fails). ONE requested row, level 2, with the
+        // fallback named -- that attempt's `_stagnation` row says escalation 1 (Claude r1 P3-11).
+        log('warn', 'watchdog: no dry relocation target; returning home now', { tries: pick.tries, reasons: rowExtra.dry_reasons })
+        this.escalation = 2
+        // the cancel reason stays the verdict's ('stagnation'): the cancelled skill's row reads interrupt:stagnation as
+        // for any rescue (G3 and every reader key on it); the fallback is named on the requested row only
+        plan = { level: 2, remedy: 'home', skill: 'home', args: {}, trigger: 'watchdog_home', reason: 'stagnation',
+                 rowExtra: { ...rowExtra, fallback: 'no_dry_relocation' } }
+      }
+    } else {
       // Still stuck after a relocation: the local area is the problem. Go home,
       // which is known-reachable terrain by construction.
       log('warn', 'watchdog: relocation did not help, returning home')
-      await this.runner.run('home', {}, { trigger: 'watchdog_home' })
-      return
+      plan = { level: 2, remedy: 'home', skill: 'home', args: {}, trigger: 'watchdog_home', reason: 'stagnation' }
     }
+    const { r, started } = await this.#runRescue(pd, plan)
+    if (target && started) {
+      // THE LANDING (homefix-02 C2, read G5f), judged with the target's own volume (relocate.mjs landingCheck)
+      try {
+        const q = this.bot.entity?.position
+        if (q) {
+          const read = (x, y, z) => this.bot.blockAt?.(new Vec3(x, y, z)) ?? null
+          const L = landingCheck(read, q, target)
+          logEvent({ kind: 'relocate_landed', status: L.wet ? 'failed' : 'success',
+                     detail: `attempt ${pd.attempt}: ${r?.status ?? '?'} ${L.wet ? 'WET' : 'dry'} feet=${L.feet} head=${L.head} in_region=${L.in_region} region_now=${L.region_now}`,
+                     args: { attempt: String(pd.attempt), status: String(r?.status ?? ''), ...L,
+                             target_x: target.x, target_y: target.y, target_z: target.z },
+                     snapshot: snapshot(this.bot) })
+        }
+      } catch { /* a row must never break the ladder */ }
+    }
+    return this.#afterRescue(pd, r, started)
+  }
+
+  /** The ladder after a rescue's run (H2 item 4; the decision is rescueLevelStep). */
+  async #afterRescue (pd, r, started) {
+    const now = Date.now()
+    const step = rescueLevelStep({ started, failClass: r?.failClass ?? null, level: this.escalation, streak: this.reserveExpiredStreak,
+                                   sinceLastMs: now - this.lastReserveExpiredAt,
+                                   ttlMs: 2 * config.watchdog.windowMs + this.pendingBoundMs() })
+    this.reserveExpiredStreak = step.streak
+    if (r?.failClass === 'reserve_expired') this.lastReserveExpiredAt = now
+    if (started) return r
+    this.#resetWindow()
+    if (step.hold) {
+      this.escalation = Math.max(0, this.escalation - 1)
+      this.backoffUntil = Date.now() + config.watchdog.windowMs
+      log('warn', 'watchdog: the rescue did not start; level held, backing off one window',
+          { failClass: r?.failClass ?? null, level: this.escalation })
+      return r
+    }
+    if (step.jump) {
+      // The cancelled skill ignored its abort for a whole reservation, twice: that IS the wedge. Level 3 now, whose
+      // reconnect needs no runner (it bypasses the reservation by construction).
+      log('error', 'watchdog: two rescues expired behind a skill that will not unwind; going to level 3',
+          { streak: step.streak })
+      this.escalation = 3
+      pd.attempt = this.#newAttempt()
+      pd.startedAt = null; pd.tickSeen = false; pd.gen = null; pd.rescue = null
+      return this.#levelThree(pd)
+    }
+    return r
+  }
+
+  /** Level 3+: reconnect when a route exists (no runner needed), else surface / mine through the runner. */
+  async #levelThree(pd) {
 
     // Level 3+: everything local has failed.
     //
@@ -444,12 +679,19 @@ export class StagnationWatchdog {
       // A route exists and the bot still is not moving: that is the client-state
       // wedge reconnecting was written for.
       log('error', 'watchdog: stagnant despite a computable route, reconnecting')
+      // The attempt's rows: `requested`, then its TERMINAL phase `reconnected` BEFORE bot.quit (H2 item 8; after the
+      // quit nothing more is written). No reservation: the reconnect needs no runner (item 4).
+      pd.level = this.escalation
+      pd.rescue = { attempt: pd.attempt, level: this.escalation, remedy: 'reconnect' }
+      logRescueRow(this.bot, pd.rescue, 'requested', { skill: '', kind: pd.kind })
       logEvent({ kind: 'stagnation_reconnect', status: 'failed',
                  detail: `escalation ${this.escalation}; route exists but no movement`,
                  snapshot: snapshot(this.bot) })
+      logRescueRow(this.bot, pd.rescue, 'reconnected')
       this.escalation = 0
+      try { this.runner.cancel('stagnation') } catch { /* as before homefix-01: the skill is told before the socket goes */ }
       try { this.bot.quit('watchdog: stagnation reset') } catch { /* already gone */ }
-      return
+      return null
     }
 
     // Physically stranded. Say so as a distinct, countable event rather than
@@ -499,10 +741,15 @@ export class StagnationWatchdog {
     const args = tooHigh ? { y: Math.max(WORLD_FLOOR, Math.round(y) - 8) } : {}
     log('warn', `watchdog: stranded at y=${typeof y === 'number' ? Math.round(y) : '?'}` +
                 ` -- forcing ${verb} rather than counting it again`)
+    // Through the runner, under the same contract. A skill that still holds the runner (the wedge) answers
+    // reserve_expired here; its release is then the runner's hard stop at timeout + grace (stated, not fixed: §2 item 4).
     try {
-      await this.runner.run(verb, args, { trigger: 'watchdog_stranded' })
+      const { r, started } = await this.#runRescue(pd, { level: this.escalation, remedy: verb, skill: verb, args,
+                                                         trigger: 'watchdog_stranded', reason: 'stagnation' })
+      return this.#afterRescue(pd, r, started)
     } catch (e) {
       log('error', 'watchdog: escape failed', { err: e.message, verb })
+      return null
     }
   }
 }

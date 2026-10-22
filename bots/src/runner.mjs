@@ -13,6 +13,8 @@ import { snapshot, perception, biomeAt, inventorySummary } from './state.mjs'
 import { HARD_STOP_GRACE_MS, hardStopResult } from './hard-stop.mjs'
 import { config } from './config.mjs'
 import { Arbiter, PRIORITY } from './arbiter.mjs'
+import { logRescueRow } from './rescuerow.mjs'
+
 
 export class Runner {
   constructor(bot) {
@@ -43,16 +45,49 @@ export class Runner {
     // "no skill running" regardless of what the bot was doing. The runner is
     // the only thing that actually knows, so it keeps the record.
     this.recent = []
+    // THE RESCUE RESERVATION (homefix-01 H2 item 2): { owner, gen, until } while the watchdog's rescue waits for the
+    // cancelled skill to unwind. Any other run() is declined `runner_reserved`; only the owner's passes once `current` is
+    // null. `reserveGen` numbers reservations so a run suspended mid-start can tell one landed under it.
+    this.reservation = null
+    this.reserveGen = 0
   }
 
   static RECENT_MAX = 6
+  /** The longest a reservation may hold the runner (the measured p95 unwind, docs/reports/expansion-plan-2026-10-19.md §2). */
+  static RESERVE_MAX_MS = 20_000
 
   /** Recent attempts as "skill->status", oldest first. Empty if nothing has run. */
   recentSummary() {
     return this.recent.map(r => `${r.skill}->${r.status}`).join(', ')
   }
 
-  isBusy() { return this.current !== null }
+  // A RESERVED RUNNER IS BUSY (H2 item 2): the cognitive tick and the idle reflexes read isBusy(), so nothing starts work
+  // into the gap between the cancelled skill unwinding and the rescue starting.
+  isBusy() { return this.current !== null || this.activeReservation() !== null }
+
+  /** The live reservation, or null (an expired one is cleared here). */
+  activeReservation () {
+    const r = this.reservation
+    if (!r) return null
+    if (Date.now() >= r.until) { this.reservation = null; return null }
+    return r
+  }
+
+  /**
+   * CANCEL AND RESERVE IN ONE STEP (homefix-01 H2 item 2). Aborts the running skill (if any) and reserves the runner for
+   * `owner` for at most `ms` (<= RESERVE_MAX_MS). Returns { gen, aborted }. Polling for idle instead loses to the
+   * cognitive loop: a cancelled livelock rung returns and the next rung starts a goto before any timer fires.
+   */
+  reserve (owner, ms = Runner.RESERVE_MAX_MS, reason = 'stagnation') {
+    const gen = ++this.reserveGen
+    const span = Math.max(0, Math.min(Number(ms) || 0, Runner.RESERVE_MAX_MS))
+    this.reservation = { owner, gen, until: Date.now() + span, at: Date.now() }
+    const aborted = this.interrupt(reason)
+    return { gen, aborted }
+  }
+
+  /** Drop a reservation, only the one this caller made (identity by generation). */
+  releaseReservation (gen) { if (this.reservation && this.reservation.gen === gen) this.reservation = null }
 
   // ---------------------------------------------------------------------
   // A SKILL MAY DECLARE THAT IT IS DRIVING THE BODY BY HAND.
@@ -156,12 +191,35 @@ export class Runner {
 
   cancel(reason = 'cancelled') { return this.interrupt(reason) }
 
-  async run(skillName, args = {}, { trigger = 'chat' } = {}) {
+  async run(skillName, args = {}, { trigger = 'chat', owner = null, rescue = null, onStart = null, admit = null } = {}) {
     const def = SKILLS[skillName]
+    // A rescue run's decline is an attempt row too (declined:<class>), written here so the watchdog does not grade itself.
+    const declined = (r, extra = {}) => { logRescueRow(this.bot, rescue, `declined:${r.failClass}`, { skill: skillName, ...extra }); return r }
     // These three refusals never ran anything, so they carry a class that says
     // "the runner declined", not one that says anything about the world. Named
     // rather than left blank because nothing downstream may guess any more.
-    if (!def) return { status: 'failed', failClass: 'unknown_skill', detail: `unknown skill "${skillName}"` }
+    if (!def) return declined({ status: 'failed', failClass: 'unknown_skill', detail: `unknown skill "${skillName}"` })
+
+    // THE RESERVATION (homefix-01 H2 item 2). Anyone but its owner gets a "not now" that every outcome handler skips
+    // (declined.mjs). The owner waits -- at most the reservation -- for the cancelled skill to unwind.
+    const held = this.activeReservation()
+    if (held && held.owner !== owner) {
+      return declined({ status: 'failed', failClass: 'runner_reserved',
+               detail: `the runner is reserved for ${held.owner}'s rescue (${Math.ceil((held.until - Date.now()) / 1000)}s at most); not now` })
+    }
+    let myGen = null
+    if (held && held.owner === owner) {
+      myGen = held.gen
+      while (this.current && Date.now() < held.until && this.reservation?.gen === myGen) await new Promise(r => setTimeout(r, 25))
+      if (this.reservation && this.reservation.gen !== myGen) {
+        return declined({ status: 'failed', failClass: 'runner_reserved', detail: 'a newer reservation replaced this one' })
+      }
+      if (this.current) {
+        this.releaseReservation(myGen)
+        return declined({ status: 'failed', failClass: 'reserve_expired',
+                          detail: `${this.current.skill} did not unwind within the ${Math.round((held.until - held.at) / 1000)}s reservation; the rescue did not start` })
+      }
+    }
 
     // The pause is a safety valve, not a trap. It was written for chat-driven
     // operation where a human types "resume" -- in autonomous mode there is no
@@ -173,16 +231,18 @@ export class Runner {
         log('info', 'auto-resuming after pause', { pausedForSec: Math.round(waited / 1000) })
         this.resume()
       } else {
-        return {
+        if (myGen != null) this.releaseReservation(myGen)
+        return declined({
           status: 'failed',
           failClass: 'runner_paused',
           detail: `paused after repeated failures; ${Math.ceil((config.skills.pauseRecoveryMs - waited) / 1000)}s until auto-resume`,
-        }
+        })
       }
     }
     if (this.current) {
-      return { status: 'failed', failClass: 'runner_busy',
-               detail: `busy with ${this.current.skill}; send "stop" first` }
+      if (myGen != null) this.releaseReservation(myGen)
+      return declined({ status: 'failed', failClass: 'runner_busy',
+               detail: `busy with ${this.current.skill}; send "stop" first` })
     }
 
     this.watchdog?.noteActivity()
@@ -191,17 +251,82 @@ export class Runner {
     if (config.reflex.arbiter) {
       // A reflex may be holding the body (an escape in progress): a skill does
       // not start under it. That is the answer "busy", not a silent overlap.
-      const grant = await this.arb.acquire({ owner: skillName, priority: PRIORITY.work, context: null,
-                                             onCancel: () => { this.interrupt(`preempted by ${this.arb.holder?.owner ?? 'a reflex'}`) } })
-      if (!grant) return { status: 'failed', failClass: 'body_held', detail: `the body is held by ${this.arb.holder?.owner ?? 'a reflex'}; the skill did not start` }
+      const ask = () => this.arb.acquire({ owner: skillName, priority: PRIORITY.work, context: null,
+                                           onCancel: () => { this.interrupt(`preempted by ${this.arb.holder?.owner ?? 'a reflex'}`) } })
+      let grant = await ask()
+      // THE OWNER LOSES THE BODY TO THE RUN IT IS ABOUT TO TURN AWAY (Claude code r1 P2-2): both waited on the same
+      // preemption, the brain's in-flight run was granted first, and its re-check below gives the body back one microtask
+      // LATER -- after this owner was refused (by the time this line runs it has usually released already). With no skill
+      // running and the body either free again or held at WORK priority (a run in its start, never a reflex), ask once more
+      // after a macrotask, by which time that run has released or started.
+      const by = this.arb.holder
+      if (!grant && myGen != null && !this.current && (by == null || by.priority === PRIORITY.work)) {
+        await new Promise(r => setImmediate(r))
+        grant = await ask()
+      }
+      if (!grant) {
+        if (myGen != null) this.releaseReservation(myGen)
+        return declined({ status: 'failed', failClass: 'body_held', detail: `the body is held by ${this.arb.holder?.owner ?? 'a reflex'}; the skill did not start` })
+      }
+      // THE IN-FLIGHT START (H2 item 2, Codex r3): this run passed its entry check, then waited here with no `current`,
+      // so a reservation that landed meanwhile could abort nothing. Re-check after the grant; the loser gives it back.
+      const landed = this.activeReservation()
+      if (landed && landed.owner !== owner) {
+        this.arb.release(grant, 'the runner was reserved while this run waited for the body')
+        return declined({ status: 'failed', failClass: 'runner_reserved',
+                 detail: `the runner was reserved for ${landed.owner}'s rescue while this run waited for the body; not now` })
+      }
+      // THE OWNER'S OWN START, RE-CHECKED AFTER THE SAME AWAIT (Codex code r1 P1): a NEWER reservation that replaced this
+      // one while the rescue waited for the body makes this attempt stale -- it gives the grant back and the newer one
+      // stands. A reservation that merely EXPIRED during the wait does not: nothing else can have started (no other run
+      // passes the entry check while it was live, and once it lapsed the arbiter refuses an equal-priority asker while this
+      // run holds the body -- the `current` check below is the backstop), so the rescue starts rather than being thrown away.
+      if (myGen != null && landed && landed.gen !== myGen) {
+        this.arb.release(grant, 'a newer reservation replaced this one while the rescue waited for the body')
+        return declined({ status: 'failed', failClass: 'runner_reserved',
+                 detail: 'a newer reservation replaced this one while the rescue waited for the body; not now' })
+      }
+      if (this.current) {
+        this.arb.release(grant, 'another run started while this one waited for the body')
+        if (myGen != null) this.releaseReservation(myGen)
+        return declined({ status: 'failed', failClass: 'runner_busy', detail: `busy with ${this.current.skill}; another run started first` })
+      }
       this.grant = grant
+    }
+    // THE OWNER'S ADMISSION, AT THE INSTANT OF THE START (homefix-02 C3a, Codex r1 P1-1): after the reservation wait and
+    // the body acquisition, with no await between this check and `this.current = mine` -- a check made before
+    // reserve() goes stale during a 20-s unwind. A refusal never ran anything: its class is in RUNNER_DECLINED.
+    let admission = null
+    if (typeof admit === 'function') {
+      try { admission = admit() } catch { admission = null }
+      if (admission?.refuse) {
+        if (this.grant) { try { this.arb.release(this.grant, 'the owner refused its own start') } catch {} this.grant = null }
+        if (myGen != null) this.releaseReservation(myGen)
+        // the one admission today is the watchdog's air gate (airstate.mjs airAdmission), so the class is that one
+        return declined({ status: 'failed', failClass: 'air_rescue', detail: admission.detail ?? 'the owner refused its own start' },
+                        admission.fields ?? {})
+      }
     }
     const invBefore = inventorySummary(this.bot)
     const posBefore = this.bot.entity?.position?.clone()
     const hpBefore = this.bot.health
     const foodBefore = this.bot.food
-    this.current = { skill: skillName, args, controller, startedAt }
+    // `owner` and `rescue` ride on `current` (homefix-02 C3b): the air reflex interrupts a watchdog-owned run during a
+    // drowning in progress, and names the attempt in its row.
+    const mine = { skill: skillName, args, controller, startedAt, owner, rescue }
+    this.current = mine
     this.interruptedReason = null
+    // The owner's run has started: the reservation is consumed. `started` is the RUNNER's row (H2 item 8), so the
+    // watchdog never grades its own attempt; onStart lets it reset its window at the rescue's start (item 5).
+    if (myGen != null) this.releaseReservation(myGen)
+    let terminalWritten = !rescue
+    if (rescue) logRescueRow(this.bot, rescue, 'started', { skill: skillName, run_started: new Date(startedAt).toISOString(), ...(admission?.fields ?? {}) })
+    try { onStart?.(mine) } catch { /* a callback must never stop the skill */ }
+
+    // `current` IS ALWAYS CLEARED (H2 item 3): everything from here to the return is the protected body; the OUTER
+    // finally below clears `current` even if the evidence processing or logging throws, identity-guarded so a late
+    // unwind can never clear a newer run's state. Before homefix-01 a throw there left the runner `busy` forever.
+    try {
 
     const watchdog = setTimeout(() => {
       log('warn', 'watchdog fired', { skill: skillName, ms: config.skills.defaultTimeoutMs })
@@ -253,9 +378,15 @@ export class Runner {
       const v = e?.verified && typeof e.verified === 'object' ? e.verified : null
       const carried = v ? { item: v.item ?? null, requested: Number(v.requested ?? 0),
                             executions: Number(v.executions ?? 0), produced: Number(v.produced ?? 0) } : {}
-      result = e?.aborted
+      // H3 (homefix-01): ANY throw while this run's own signal is aborted is an interruption, whatever its shape. 225 home
+      // rows were filed skill_error carrying the raw pathfinder "goal was changed" that a climb's catch re-threw after the
+      // entombment reflex took the body (skills.mjs surface: `if (e.aborted || signal?.aborted) throw e`), and the same
+      // re-throw sits at 20+ sites; skill_error feeds consecutiveFailures, the pause and the lessons.
+      result = (e?.aborted || controller.signal.aborted)
         ? { status: 'aborted', failClass: 'interrupted',
-            detail: this.interruptedReason ?? 'aborted', ...carried }
+            // the thrown message is KEPT when the throw was not the skill's own abort mark (Claude code r1 P3-1): a real bug
+            // thrown after an abort stays findable in the row, while the class says what ended the run
+            detail: (this.interruptedReason ?? 'aborted') + (e?.aborted ? '' : ` (threw ${e?.name ?? 'Error'}: ${String(e?.message ?? e).slice(0, 80)})`), ...carried }
         : e?.budgetExceeded
           ? { status: 'unknown', failClass: e.failClass ?? 'path_budget',
               detail: e?.message ?? String(e), ...carried }
@@ -275,6 +406,7 @@ export class Runner {
     // later, into a bot that is now doing something else. Its result is dropped.
     if (generation !== this.generation) {
       log('warn', 'discarding a result from a superseded run', { skill: skillName })
+      if (rescue) { logRescueRow(this.bot, rescue, 'completed:superseded', { skill: skillName }); terminalWritten = true }
       return { status: 'failed', failClass: 'superseded',
                detail: `${skillName} returned after the runner had moved on` }
     }
@@ -488,6 +620,11 @@ export class Runner {
     // an abort it still is. So the reason is DATA on the result, and the
     // caller acts on it once it is safe to.
     const interruptedBy = this.interruptedReason
+    if (rescue) {
+      logRescueRow(this.bot, rescue, interruptedBy ? `interrupted:${interruptedBy}` : `completed:${result.status}`,
+                   { skill: skillName, status: result.status, fail_class: result.failClass ?? '', run_ms: Date.now() - startedAt })
+      terminalWritten = true
+    }
     this.current = null
     this.interruptedReason = null
     // Hand the DELTA back, not just the status. The runner already computed
@@ -506,6 +643,10 @@ export class Runner {
       // what makes "a win with nothing behind it" unwritable rather than merely
       // detectable. Empty for every status except `success`.
       contractEvidence,
+    }
+    } finally {
+      if (this.current === mine) { this.current = null; this.interruptedReason = null }
+      if (!terminalWritten) logRescueRow(this.bot, rescue, 'interrupted:runner_error', { skill: skillName })
     }
   }
 

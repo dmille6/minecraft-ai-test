@@ -380,7 +380,27 @@ const MAX_LEG = 45
 // path: goto's own 16-leg ceiling is 720 blocks and bots are routinely further
 // out than that, so a single attempt cannot arrive and the value of the call is
 // the ground it closes. Kept under the skill contract's maxMs below it.
-const HOME_BUDGET_MS = 200_000
+// UNDER THE SKILL TIMEOUT (homefix-01 H4): it was 200 s against the runner's 180 s, so a long walk ended as
+// `interrupt:timeout` instead of on its own budget with its honest partial credit. 170 s leaves the runner 10 s, and
+// `home` now passes what is left of it into every nested goto and surface (`until`), because one goto alone can run
+// ~145 s and the constant by itself would not stop it.
+export const HOME_BUDGET_MS = 170_000
+
+/**
+ * GOTO'S OWN FINAL ARRIVAL TEST, as one exported pure function (homefix-01 H1): within max(range, 3) horizontally and
+ * max(range, 3) + 3 vertically. `home` grades its arrival with THIS, not with its old `after <= 2`: GoalNear (pathfinder
+ * 2.4.5 lib/goals.js) ends on an integer NODE with dx^2 + dy^2 + dz^2 <= range^2, so a node 2 out is an end and the bot
+ * stands at its centre ~2.5 from home -- 224 of 253 `travel_incomplete` home rows were bots standing there. goto's LOOP
+ * BREAK (`dist <= max(range, 2)`) is deliberately not routed through this, so no other caller's stopping distance moves.
+ */
+export function arrivedAt (pos, target, range = 1) {
+  if (!pos || !target) return false
+  const left = Math.hypot(Number(target.x) - pos.x, Number(target.z) - pos.z)
+  const ty = Number(target.y)
+  const dy = Number.isFinite(ty) ? Math.abs(ty - pos.y) : 0
+  const R = Math.max(range, 3)
+  return left <= R && dy <= R + 3
+}
 const MAX_HAZARD_RETRIES = 6
 
 // Per-block harvest budget, and how many fruitless attempts end the skill.
@@ -419,8 +439,10 @@ const BARREN_LIMIT = 3
 
 // THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): goto's own direct digs (float dig, ride-floor-down) are
 // transit, also when goto runs inside mine or gather. Nothing reads digScope but the instrument.
-async function goto (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal)) }
-async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
+// `until` (homefix-01): an internal caller's absolute deadline (home's remaining budget). No leg starts after it and every
+// leg's clock is clipped to it. Not a model argument; the runner calls skills with three arguments, so it is unset there.
+async function goto (ctx, args, signal, opts = {}) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal, opts)) }
+async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = {}) {
   const { bot } = ctx
   assertInsideBorder(x, z)
   check(signal)
@@ -460,9 +482,14 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   await settle(bot, signal).catch(() => {})
   const startDist = Math.hypot(target.x - bot.entity.position.x, target.z - bot.entity.position.z)
   const maxLegs = Math.min(16, Math.max(8, Math.ceil(startDist / MAX_LEG) + 3))
+  const legMs = ms => (until == null ? ms : Math.max(1, Math.min(ms, until - Date.now())))
+  // THE CALLER'S BUDGET IS SPENT: no recovery rung (dig retry, float dig, descent, ride-down) STARTS after it (Codex code r1
+  // P2: each clipped only its own walk, so the rungs could still carry `home` past the runner's 180 s).
+  const spent = () => until != null && Date.now() >= until
 
   while (legs < maxLegs) {
     check(signal)
+    if (until != null && Date.now() >= until) break   // the caller's budget is spent: grade what was closed
     const here = bot.entity.position
     const dist = Math.hypot(target.x - here.x, target.z - here.z)
     if (dist <= Math.max(range, 2)) break
@@ -506,7 +533,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
       // finished leg's listener could halt a later walk).
       const onAbort = () => haltPath(bot)
       signal?.addEventListener('abort', onAbort, { once: true })
-      try { await withTimeout(p, 25000, bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
+      try { await withTimeout(p, legMs(25000), bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
 
       // A RESOLVED PROMISE IS NOT AN ARRIVAL.
       //
@@ -553,7 +580,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
         // case, and it gets the same treatment -- ONE retry, still budgeted,
         // config always given back. Digging stays a deliberate act with a
         // named reason; it does not become how the bot walks.
-        if (!diggingRetry && bot.withAscentMovements) {
+        if (!diggingRetry && bot.withAscentMovements && !spent()) {
           diggingRetry = true
           log('warn', 'no route on foot; retrying this leg with digging allowed',
               { from: `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)}` })
@@ -578,7 +605,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
           const retryPlan = bot.entity.onGround
             ? { status: 'grounded', path: [], digMs: 0, budgetMs: 25000, notOnGround: false }
             : planDigRetry(bot, bot.ascentMovements, goal)
-          const retryBudget = retryPlan.budgetMs
+          let retryBudget = legMs(retryPlan.budgetMs)
           let retryErr = null
           // A FLOATING BOT NEVER DIGS THROUGH THE PATHFINDER: its executor
           // waits for onGround before it calls bot.dig, so the plan it found
@@ -589,6 +616,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
           let floatDug = 0
           for (const { block, digMs } of floatDigTargets(bot, retryPlan.path)) {
             check(signal)     // an abort must not start another dig
+            if (spent()) break   // nor a spent budget (homefix-01 H4)
             // Re-read the target the instant before digging: the world and the
             // bot have moved since the plan was priced (digapproach.floatDigOk).
             const gate = floatDigOk(bot, block)
@@ -603,7 +631,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
             const onAbort = () => { try { bot.stopDigging() } catch {} }
             signal?.addEventListener?.('abort', onAbort, { once: true })
             try {
-              await withTimeout(bot.dig(block, true), Math.min(RETRY_CAP_MS, digMs + 5000), bot,
+              await withTimeout(bot.dig(block, true), legMs(Math.min(RETRY_CAP_MS, digMs + 5000)), bot,
                                 { what: 'float dig', needsDrop: false, onTimeout: onAbort })
             } catch (e) { ok = false; why = String(e?.message || e).slice(0, 80) }
             finally { signal?.removeEventListener?.('abort', onAbort) }
@@ -626,7 +654,9 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
             floatDug++
           }
           check(signal)     // and an abort during the float dig must not start the walk
+          retryBudget = legMs(retryPlan.budgetMs)   // re-clipped NOW: the float digs spent some of the caller's budget
           try {
+            if (spent()) throw new Error('the caller\'s budget is spent')
             await bot.withAscentMovements(async () => {
               // THE HOLE, NOT THE DROP. This retry exists to dig through what
               // blocks the walk; with the watchdog on, a bare-handed stone dig
@@ -677,7 +707,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
         // Gated on health because the whole repair is a bigger fall: 169 of 868
         // deaths are already falls, and rescuing a wounded bot by dropping it
         // eight blocks is not a rescue.
-        if (!descentRetry && bot.withDescentMovements &&
+        if (!descentRetry && bot.withDescentMovements && !spent() &&
             bot.entity.position.y >= SEA_LEVEL && (bot.health ?? 20) >= 18) {
           descentRetry = true
           log('warn', 'stranded above sea level; retrying this leg with a larger drop allowed',
@@ -687,7 +717,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
               // The descent profile is canDig=false, so this flag is inert
               // here today; it is set for the day that profile learns to dig,
               // so the watchdog cannot silently reappear on it (Codex review).
-              await withTimeout(bot.pathfinder.goto(goal), 20000, bot, { needsDrop: false })
+              await withTimeout(bot.pathfinder.goto(goal), legMs(20000), bot, { needsDrop: false })
             })
             check(signal)
             // Same postcondition as the dig retry, and self-verifying: if it
@@ -734,11 +764,11 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
         // The bridge branch still refuses cleanly on its own ("no placeable
         // blocks left"), so removing this costs nothing but a wasted call when
         // there is genuinely nothing underneath.
-        if (!rodeDown && bot.entity.position.y >= SEA_LEVEL + 20 &&
+        if (!rodeDown && !spent() && bot.entity.position.y >= SEA_LEVEL + 20 &&
             (bot.health ?? 20) >= 18 && Number(target.y) < bot.entity.position.y - 8) {
           rodeDown = true
           const before2 = bot.entity.position.clone()
-          const r = await rideFloorDown(bot, { signal })
+          const r = await rideFloorDown(bot, { signal, until })
           check(signal)
           logEvent({
             kind: 'ride_floor_down',
@@ -830,8 +860,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   // destination is often genuinely unknown to the caller -- but it is bounded,
   // and exceeding it is reported as its own class rather than quietly passing.
   const dy = Number.isFinite(target.y) ? Math.abs(target.y - p.y) : 0
-  const VERT = Math.max(range, 3) + 3
-  if (left <= Math.max(range, 3) && dy <= VERT) {
+  if (arrivedAt(p, target, range)) {
     return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
   }
   if (left <= Math.max(range, 3)) {
@@ -2562,10 +2591,12 @@ async function home(ctx, _args, signal) {
   while (Date.now() < deadline) {
     check(signal)
     const before = distTo()
-    last = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+    last = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal, { until: deadline })
     const after = distTo()
 
-    if (after <= 2) {
+    // ARRIVAL IS GOTO'S OWN FINAL TEST (homefix-01 H1), not `after <= 2`: a bot on GoalNear's end node 2.5 from home was
+    // re-sent to a goal it was standing on and graded travel_incomplete "3 still to go".
+    if (arrivedAt(bot.entity.position, { x: homeX, y: homeY, z: homeZ }, 2)) {
       // failClass is deliberately dropped, not spread through. The last leg
       // often reports something like `wrong_elevation` on its way to arriving,
       // and carrying that onto a success produces a record that is graded as a
@@ -2603,11 +2634,18 @@ async function home(ctx, _args, signal) {
     // ROUTE REPAIR, ONCE. Below sea level with no route is exactly what
     // `surface` exists for, and it is the difference between "home is a walk"
     // and "home is a walk that first climbs out of the hole it is in".
-    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path'
+    // `wrong_elevation` too (homefix-01, Claude code r1 P3-3): H1's |dy| bound now fails a bot standing in home's column
+    // but deep below it (the two pre-fix dy -10 "successes"), and that failure must name the remedy it can perform from
+    // there -- the same climb, gated on the same below-sea-level test.
+    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path' ||
+                  (last?.failClass === 'wrong_elevation' && bot.entity.position.y < homeY)   // below home only (Claude code r2 P3-1)
     if (stuck && !repaired && bot.entity.position.y < SEA_LEVEL) {
       repaired = true
-      const up = await surface(ctx, {}, signal)
+      const up = await surface(ctx, {}, signal, { until: deadline })
       check(signal)
+      // A climb that LANDED home is an arrival, whatever else it reports (Claude code r1 P3-3).
+      const landed = arrivedAt(bot.entity.position, { x: homeX, y: homeY, z: homeZ }, 2)
+      if (landed) return { status: 'success', distanceMoved: startDist - distTo(), detail: `home (${Math.round(distTo())}b from the town centre) after a climb` }
       // Carry a genuine scaffold prerequisite outward: applyPrereq turns it
       // into the task, which is the only mechanism measured to break this loop
       // (0/13 from prose, 3/13 on 7b and 12/13 on 32b once promoted).
@@ -14486,11 +14524,12 @@ export async function shaftAscend(bot, targetY, signal,
  * Every step verifies the placement by reading the world back and verifies
  * that the bot actually descended; anything unexpected stops the whole thing.
  */
-export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
+export async function rideFloorDown (bot, { maxSteps = 16, signal, until = null } = {}) {
   const startY = bot.entity.position.y
   let placed = 0, rode = 0, stopped = null
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) { stopped = 'aborted'; break }
+    if (until != null && Date.now() >= until) { stopped = 'the caller\'s budget is spent'; break }   // homefix-01 H4
     const yBefore = bot.entity.position.y
     const floor = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!floor || floor.boundingBox !== 'block') { stopped = 'nothing underfoot to stand on'; break }
@@ -14557,6 +14596,9 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
       //
       // _placeBlockWithOptions is the only way to pass it (place_block.js:37).
       // It is private, so fall back rather than crash if a bump removes it.
+      // NO ACTUATOR STARTS THAT THE CALLER'S BUDGET CANNOT COVER (homefix-01 H4, Codex code r2 P2): the placement's own
+      // 6 s wait would carry `home` past the runner's timeout instead of ending on its own budget.
+      if (until != null && until - Date.now() < 6_200) { stopped = 'the caller\'s budget cannot cover a placement'; break }
       const place = bot._placeBlockWithOptions
         ? bot._placeBlockWithOptions(floor, new Vec3(0, -1, 0),
                                      { swingArm: 'right', forceLook: true })
@@ -14586,6 +14628,10 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
     const plan = planDig(predictedDigMs(floor, tool))
     if (plan.refuse) { stopped = `cannot break ${floor.name} by hand`; break }
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
+    // ...nor a floor dig it cannot finish (a half-broken floor under a bot whose skill is about to time out is worse than
+    // none). Checked AFTER the equip, immediately before the dig (Codex code r3 P2: an equip's own wait spent the margin).
+    if (signal?.aborted) { stopped = 'aborted'; break }
+    if (until != null && until - Date.now() < plan.budgetMs + 420) { stopped = 'the caller\'s budget cannot cover the floor dig'; break }
     try {
       // Same reasoning as the climb: breaking the floor to fall through it wants
       // the hole, not the cobble.
@@ -14682,8 +14728,9 @@ export function climbAdvice(stopped) {
 
 // THE `_dig_town` INSTRUMENT'S SCOPE (telemetry only): surface's own digs (shaftAscend) are transit, also when surface runs
 // inside mine (the zone's walk-out fallback) -- never mine's target (Claude code r2 P1: a false Z1 trip).
-async function surface (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal)) }
-async function surfaceClimb(ctx, args, signal) {
+// `until` (homefix-01): an internal caller's absolute deadline (home's budget), clipping the climb's own 120 s.
+async function surface (ctx, args, signal, opts = {}) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal, opts)) }
+async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
   const { bot, runner } = ctx
   const startY = bot.entity.position.y
   // THE CLIMB'S TOP: sea level, unless an internal caller names a higher one (mine's town walk-out: the open top of the
@@ -14738,8 +14785,10 @@ async function surfaceClimb(ctx, args, signal) {
   // and only if the model re-chose `surface` every time against every other
   // skill competing for the slot. Deterministic progress does not belong in the
   // decision loop. One call now climbs as far as it can.
-  const DEADLINE = Date.now() + 120_000
+  const CLIMB_T0 = Date.now()
+  const DEADLINE = Math.min(CLIMB_T0 + 120_000, until ?? Infinity)
   const STAGE_MS = 40_000
+  const stageMs = () => Math.max(1, Math.min(STAGE_MS, DEADLINE - Date.now()))
   let usedDig = false
   let stalls = 0
   let lastErr = null
@@ -14797,12 +14846,12 @@ async function surfaceClimb(ctx, args, signal) {
 
     try {
       if (walk === 'success') {
-        await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)
+        await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), stageMs(), bot)
       } else {
         usedDig = true
         await bot.withAscentMovements(async () => {
           // A climb wants the hole; see the goto retry above and digbudget.mjs.
-          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot, { needsDrop: false })
+          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), stageMs(), bot, { needsDrop: false })
         })
       }
     } catch (e) {
@@ -14870,7 +14919,7 @@ async function surfaceClimb(ctx, args, signal) {
   return {
     status: 'unknown', failClass: 'no_measurable_change', gap: `at_y${Math.round(endY)}`,
     detail: `no altitude gained from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
-            `in ${Math.round((Date.now() - (DEADLINE - 120_000)) / 1000)}s of trying` +
+            `in ${Math.round((Date.now() - CLIMB_T0) / 1000)}s of trying` +
             (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : '') +
             // THE RAW STOP, NOT ONLY THE ADVICE.
             //

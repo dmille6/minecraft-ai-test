@@ -96,10 +96,15 @@ const STONE = B('stone'), DIORITE = B('diorite')
 const WET_STAIR = { name: 'oak_stairs', boundingBox: 'empty',
                     getProperties: () => ({ waterlogged: 'true' }) }
 
-/** A world as a map keyed on offsets from the HEAD cell, defaulting to stone. */
+/**
+ * A world as a map keyed on offsets from the HEAD cell, defaulting to stone -- EXCEPT THE HEAD CELL ITSELF, which
+ * defaults to WATER (homefix-02 C1). The scan never read the head cell before C1, so every case below was written for a
+ * bot whose head is in water (the only time the rescue scans); a stone default there would now make each one a
+ * head-capped case and test something else. Cases about a solid head cell set '0,0,0' explicitly (section D).
+ */
 const around = (cells = {}, fill = STONE) =>
   (dx, dy, dz) => (Object.prototype.hasOwnProperty.call(cells, `${dx},${dy},${dz}`)
-    ? cells[`${dx},${dy},${dz}`] : fill)
+    ? cells[`${dx},${dy},${dz}`] : (dx === 0 && dy === 0 && dz === 0 ? WATER : fill))
 
 // ============================================================================
 // A. ONE AIR PREDICATE. The route may only promise what the release accepts.
@@ -486,8 +491,8 @@ await t('MUTANT KILLED: letting the scan swim through lava routes a bot into it'
 
 await t('MUTANT KILLED: collapsing `sealed` back onto `dir === null` suppresses in open water', async () => {
   await withMutant(REFLEX_PATH,
-    'return { ...best, axes,\n           sealed: best.dir == null && capped && allClosed && !unknown }',
-    'return { ...best, axes, sealed: best.dir == null }',
+    'return { ...best, axes, headCap, headName, headBox,\n           sealed: best.dir == null && capped && allClosed && !unknown }',   // re-anchored for homefix-02 C1 (head fields)
+    'return { ...best, axes, headCap, headName, headBox, sealed: best.dir == null }',
     async mod => {
       const deepOcean = (dx, dy, dz) => (dy > 40 ? AIR : WATER)
       const r = mod.scanBreathableRoute({ at: deepOcean, maxUp: 32, maxOut: 8 })
@@ -535,6 +540,49 @@ await t('MUTANT KILLED: dropping the health override would let sealed hide a dro
       assert.equal(mod.drownRescueSuppressed(
         { failures: 2, movedBlocks: 40, sealedHere: true, healthDropped: true }), true,
         'the mutant is not reproducing the defect the safety test forbids')
+    })
+})
+
+// ============================================================================
+// F. THE HEAD CELL ITSELF (homefix-02 C1). hive-d-Echo, 10-20 20:17:49-20:19:20Z, (-14.5, 61.4, 54.3): feet in the
+// 1-high water layer of a frozen river, head cell (-15,62,54) ICE, air above it -- the old scan read `up dist=1` for
+// 93 s and the bot drowned; 10 old-code hive-d drownings that week had the same signature.
+// ============================================================================
+const ICE_B = B('ice')
+await t('F1 death 1: head cell ICE under air is NOT `up`; with ice all round at head height it is SEALED', () => {
+  const r = scanBreathableRoute({ at: around({ '0,0,0': ICE_B, '0,1,0': AIR,
+    '1,0,0': ICE_B, '-1,0,0': ICE_B, '0,0,1': ICE_B, '0,0,-1': ICE_B }) })
+  assert.notEqual(r.dir, 'up', `answered ${r.dir} dist=${r.dist} through the ice`)
+  assert.equal(r.headCap, 'ice')
+  assert.deepEqual([r.headName, r.headBox], ['ice', 'block'], 'the head cell as THIS scan read it (the route row prints these)')
+  assert.equal(r.sealed, true, 'sealed is what lets the air-pocket ice dig run at once')
+})
+await t('F2 death 1 after home float-dug the ice beside the head: `out dist=1` into the hole (AIRUP)', () => {
+  const r = scanBreathableRoute({ at: around({ '0,0,0': ICE_B, '0,1,0': AIR, '0,0,1': WATER, '0,1,1': AIR }) })
+  assert.equal(r.dir, 'out'); assert.equal(r.dist, 1); assert.deepEqual(r.offset, [0, 1, 1])
+})
+await t('F3 a head cell in WATER under air is unchanged: `up dist=1`, no head cap', () => {
+  const r = scanBreathableRoute({ at: around({ '0,0,0': WATER, '0,1,0': AIR }) })
+  assert.equal(r.dir, 'up'); assert.equal(r.dist, 1); assert.equal(r.headCap, null)
+})
+await t('F4 an UNREADABLE head cell is unknown: never sealed', () => {
+  const r = scanBreathableRoute({ at: around({ '0,0,0': null }) })
+  assert.equal(r.sealed, false)
+})
+await t('F5 breathableRoute forwards headCap and axes (the `_drowning_route` row prints them; read G5c)', () => {
+  const at = { x: -14.5, y: 61.4, z: 54.3, offset (dx, dy, dz) { return { x: this.x + dx, y: this.y + dy, z: this.z + dz, offset: this.offset } } }
+  const bot = { entity: { position: at }, blockAt: p => (Math.floor(p.y) === 62 ? ICE_B : Math.floor(p.y) >= 63 ? AIR : WATER) }
+  const r = breathableRoute(bot)
+  assert.notEqual(r.dir, 'up'); assert.equal(r.headCap, 'ice'); assert.ok(Array.isArray(r.axes) && r.axes.length === 4)
+})
+await t('F6 MUTANT KILLED: without the head-cell cap the old `up dist=1` through the ice comes back', async () => {
+  await withMutant(REFLEX_PATH,
+    "else if (!swimmable(headCell)) { headCap = String(headCell.name ?? 'solid'); capped = true }",
+    'else { /* mutant: the head cell is never a cap */ }',
+    async mod => {
+      const r = mod.scanBreathableRoute({ at: around({ '0,0,0': ICE_B, '0,1,0': AIR }) })
+      assert.equal(r.dir, 'up', 'the mutant must reproduce the fleet defect, or F1 proves nothing')
+      assert.equal(r.dist, 1)
     })
 })
 

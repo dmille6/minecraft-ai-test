@@ -103,9 +103,27 @@ await t('A9 packed ice does not melt: it takes the POCKET rule (sides and top ch
   const p = airPocketPlan(world({ ...HIVE_C, '0,2,0': 'packed_ice' }))
   assert.deepEqual([p.ok, p.kind], [true, 'pocket'])
 })
-await t('A10 the head cell solid (the hive-d "ice in the head cell" sites): refused', () => {
-  const p = airPocketPlan(world({ ...HIVE_C, '0,1,0': 'ice' }))
-  assert.equal(p.ok, false); assert.match(p.why, /head cell is ice/)
+await t('A10 (homefix-02 C1) the hive-d "ice in the head cell" sites: head ICE with AIR above is planned as ICE at dy 1', () => {
+  // hive-d-Echo 10-20 20:19Z: feet in the 1-high water layer under a frozen river, head cell = the ice, air above.
+  const p = airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': 'air' }))
+  assert.deepEqual([p.ok, p.kind, p.dy, p.name], [true, 'ice', 1, 'ice'])
+})
+await t('A10b a solid head cell that is not plain ice-under-air still refuses (stone above the ice; packed ice; dirt)', () => {
+  const stoneAbove = airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': 'stone' }))
+  assert.equal(stoneAbove.ok, false); assert.match(stoneAbove.why, /ice with stone above/)
+  const packed = airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'packed_ice', '0,2,0': 'air' }))
+  assert.equal(packed.ok, false); assert.match(packed.why, /head cell is packed_ice/)
+  const dirt = airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'dirt', '0,2,0': 'air' }))
+  assert.equal(dirt.ok, false); assert.match(dirt.why, /head cell is dirt/)
+  const unknownTop = airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': null }))
+  assert.equal(unknownTop.ok, false); assert.match(unknownTop.why, /above the ice unknown/)
+})
+await t('A10c MUTANT KILLED: without the head-ice branch the death-1 cell is refused again', async () => {
+  await withMutant(AP_PATH, "  if (ICE.test(head.name || '')) {\n    if (!AP_ICE_ENABLED) return refuse('ice branch disabled', { dy: 1, name: head.name })",
+    "  if (false) {\n    if (!AP_ICE_ENABLED) return refuse('ice branch disabled', { dy: 1, name: head.name })", async m => {
+      const p = m.airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': 'air' }))
+      assert.equal(p.ok, false); assert.match(p.why, /head cell is ice/)
+    })
 })
 await t('A11 unknown cells refuse: the roof, a side, the top', () => {
   for (const k of ['0,2,0', '1,2,0', '0,3,0']) {
@@ -279,6 +297,15 @@ await t('F3 hive-d ice: the ice opens to water and the eye rises into the air ab
   const bot = fakeBot({ cells: HIVE_D, riseTo: 2.6 })   // the eye must clear the ice cell (now water) into the air above
   const r = await airPocketStep(bot, airPocketPlan(world(HIVE_D)), deps()); clearInterval(bot._healthTimer)
   assert.equal(r.ok, true, r.why); assert.equal(r.kind, 'ice')
+})
+await t('F3b (homefix-02 C1) death 1: the HEAD cell is the ice -- the step digs dy 1 (the head cell itself), it opens to water, the eye rises into the air above', async () => {
+  // feet 60 water (the 1-high layer), head 61 ICE, 62 air (hive-d's frozen river; hive-d-Echo 10-20 20:19Z)
+  const cells = { '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': 'air', '0,3,0': 'air' }
+  const plan = airPocketPlan(world(cells))
+  assert.deepEqual([plan.ok, plan.kind, plan.dy], [true, 'ice', 1])
+  const bot = fakeBot({ cells, riseTo: 0.6 })          // feet 60.6: the eye (62.2) is in the air cell above the opened ice
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.kind, 'ice'); assert.equal(r.cell, '100,61,100', 'the dug cell is the head cell')
 })
 await t('F4 the dig opens but the eye never reaches air -> OPENED (the pocket exists), not success', async () => {
   const bot = fakeBot({ rise: false })
