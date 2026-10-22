@@ -128,7 +128,10 @@ def main():
         name = (recs[0].get('model') if recs else os.path.basename(p))
         runs[name] = table(score_one(items, recs))
     rep['runs'] = runs
-    ref = a.ref or (next(iter(runs)) if runs else None)
+    # the fleet model is the reference whenever it was replayed (Codex r4: a glob can put a candidate first)
+    ref = a.ref or ('qwen2.5:7b-instruct' if 'qwen2.5:7b-instruct' in runs else next(iter(runs), None))
+    if ref is not None and ref not in runs:
+        raise SystemExit('REFUSED: --ref %s is not among the runs %s' % (ref, sorted(runs)))
     lg = rep['logged (fleet, instrument check)']
     ic = (lg['hard_on_fail_items'] or 0) > (lg['hard_on_good_items'] or 0)
     rep['instrument_check'] = {'hard fires more on failure items than on good items (logged)': ic,

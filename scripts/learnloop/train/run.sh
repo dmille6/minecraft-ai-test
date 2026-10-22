@@ -27,6 +27,14 @@ gpu_guard() {
   [ -n "${DROP16_VERIFIED:-}" ] || die "set DROP16_VERIFIED=<ISO time of the +24 h drop16.sh --verify OK> -- no training while a bot can reach .16"
   local ps; ps=$(curl -s -m 5 http://127.0.0.1:11434/api/ps || echo STOPPED)
   case "$ps" in STOPPED|'{"models":[]}') ;; *) die "Ollama holds a model: $ps";; esac
+  # ANY OTHER GPU PROCESS (Claude r4 P3): on 10-22 a llama-server that is not ours (~/ethan-gpu, 6 GB) was resident.
+  # A VRAM figure measured beside it must say so: refuse unless the owner's decision is named in ALLOW_OTHER_GPU.
+  local other; other=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null)
+  if [ -n "$other" ]; then
+    echo "  other GPU processes: $other"
+    [ -n "${ALLOW_OTHER_GPU:-}" ] || die "another process holds GPU memory (above): stop it, or set ALLOW_OTHER_GPU=<owner decision> to train beside it"
+    echo "  ALLOW_OTHER_GPU=$ALLOW_OTHER_GPU (recorded in the run log)"
+  fi
 }
 case "${1:-}" in
   preflight)

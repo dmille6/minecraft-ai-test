@@ -33,7 +33,7 @@ and `/volume1/homes/mike/learnloop/.last-good`. Nothing is ever deleted there.
 (`~/.ssh/id_esbackup`), and the showcase backup set the rule "no new key on the NAS". So .31 holds one new restricted
 key (`~/.ssh/id_learnloop_relay`) whose only power is a forced command on .30:
 `restrict,from="10.0.0.31",command="/home/mike/bin/learnloop-relay.sh"`. The relay (`scripts/learnloop/nas-relay.sh`)
-accepts five verbs -- `put`, `seal`, `verify`, `manifest`, `status`, `list` -- with day/name/sha regexes and a
+accepts seven verbs -- `put`, `seal`, `verify`, `manifest`, `members`, `status`, `list` -- with day/name/sha regexes and a
 character whitelist; `put` hashes what it received, streams it to the NAS, has the NAS hash what it STORED, and only
 then renames; a sealed day is immutable (only new `repair-*` files may be added).
 
@@ -47,11 +47,12 @@ until a person runs `--ack DAY "why"`.
 missing, stale (> 26 h), any status but ok, a due day not archived (D is due by D+1 04:15Z), an unresolved day, raw at
 risk, or a NAS that disagrees with local state is a `!!` line.
 
-PIPELINE NUMBERS: section 5.
+Pipeline numbers: section 5.1.
 
 ## 2. M2b: remove 10.0.0.16 from every bot's endpoint list (SCRIPT READY, NOT RUN)
 
-`scripts/host/drop16.sh`, staged as `~/drop16.sh` on 10.0.0.31. It rewrites one line in each of the 80 env files,
+`scripts/host/drop16.sh`, staged by `install-m1.sh` as `~/drop16.sh` on 10.0.0.31 (its sha256 is printed by the
+install and listed in s.5.2; compare before running). It rewrites one line in each of the 80 env files,
 `OLLAMA_BASE_URLS=http://10.0.0.72:11434,http://10.0.0.16:11434` -> `OLLAMA_BASE_URLS=http://10.0.0.72:11434`
 (`OLLAMA_BASE_URL` is already .72 and is not touched), and restarts the 80 bots 12 s apart (~16 min).
 
@@ -65,18 +66,28 @@ PIPELINE NUMBERS: section 5.
 - **Verify** after the LAST restart (+180 s): every running bot's `/proc/<pid>/environ` carries the new line and no
   .16; the llm rows since then are all served by .72, none by .16, none without an endpoint; p50/p95/p99 <= 2.5 / 5 /
   10 s; one code version live; every bot decided. A failed restart or verify KEEPS the install-hold and exits 4.
-- **Rollback** `bash ~/drop16.sh --rollback <stamp>`: restores, restarts 12 s apart, verifies the old line.
+- **Rollback** `bash ~/drop16.sh --rollback <stamp>`: restores, restarts 12 s apart, verifies the old line. **After a
+  failed `--apply` the hold is kept, and the only working rollback is the one it prints:
+  `bash ~/drop16.sh --rollback <stamp> --hold-token <token>`** (a plain `--rollback` is refused while the kept hold
+  exists, by design).
 
 Run it (owner, in a canary gap; a copy outside any repo):
 
     ssh mike@10.0.0.31
+    sha256sum ~/drop16.sh            # must equal the sha in s.5.2
     bash ~/drop16.sh                 # must end "DRY RUN OK: --apply would proceed now"
     bash ~/drop16.sh --apply         # ~20 min; prints the backup stamp and the verify
     bash ~/drop16.sh --verify <T0>   # again at +60 min, and at +24 h: exclusion (i) of design s.5.2
 
-Measured today (positive control, read-only): `--verify` found `10.0.0.16` in all 80 running bots' environ, and of
-4,433 model rows since 11:30Z, 4,433 were served by .72 and 0 by .16. The dry run refused correctly on keepout-01
-(drop-ins, a running loop, a declared canary, the canary lock).
+**What is evidence and what is a tripwire.** The environ check is the evidence: run today (read-only) it found
+`10.0.0.16` in all 80 running bots' environ, so it can see the thing it must later find absent. The row gate is a
+tripwire only: of 4,433 model rows since 11:30Z, 4,433 were already served by .72 and 0 by .16, so "0 on .16" would
+pass even if drop16 never ran. The script's sandbox test (`scripts/host/test_drop16.py`, 7 cases, run on .31 with fake
+sudo/systemctl/pgrep/holdtoken and fictitious bot names) covers dry run, every refusal, apply, a failed restart, and
+rollback with and without the kept hold. The dry run refused correctly on keepout-01 (drop-ins, a running loop, a
+declared canary, the canary lock). **Disclosure:** while building it I also invoked `--apply` once on .31 as a refusal
+check while keepout-01 was declared; it stopped at check 1 (`REFUSED: canary drop-ins present`) before claiming a hold
+or touching any file. That should not have been done that way and was not repeated.
 
 ## 3. The 3090 training VM (VM 200 ollama-3090, 10.0.0.16) -- procedure
 
@@ -95,8 +106,10 @@ imports, the SFTConfig the trainer builds is accepted, and Qwen3's no-think chat
 `DROP16_VERIFIED=<the +24 h verify time>` and with any Ollama model resident):**
 
 1. M2b applied and its +24 h `--verify` OK (no bot can reach .16).
-2. Owner decision on the `ethan-gpu` llama-server: leave it (17.4 GB free; QLoRA-8B at seq 3,072 is expected to fit,
-   measured by step 4) or stop it for the training window.
+2. Owner decision on the `ethan-gpu` llama-server: stop it for the training window, or leave it (17.4 GB free;
+   QLoRA-8B at seq 3,072 is expected to fit, measured by step 4) and say so with `export ALLOW_OTHER_GPU=<decision>`
+   -- every GPU phase refuses while another process holds GPU memory unless that is set, so a VRAM figure is never
+   read without knowing 6 GB was already taken.
 3. `bash run.sh preflight`, then `bash run.sh stop-ollama` (saves the override, stops and disables ollama.service:
    training needs the VRAM and nothing may load a model mid-run).
 4. `bash run.sh fit` -- 50 optimizer steps: peak VRAM, tok/s, grad-norm finite and non-zero.
@@ -141,7 +154,8 @@ sandbox measured 29-59%), and 13,390 of those prompts carry the rejection.
 
 **Ready-to-run commands (after `drop16.sh --verify` passes at +24 h):**
 
-    ssh mike@10.0.0.16; cd ~/learnloop-train
+    ssh mike@10.0.0.16
+    cd ~/learnloop-train              # (inside the remote session)
     export DROP16_VERIFIED=<the +24 h verify time, e.g. 2026-10-24T10:00:00Z>
     bash run.sh preflight
     bash run.sh stop-ollama           # owner-approved step (and decide on the ethan-gpu llama-server, s.3)
@@ -153,11 +167,14 @@ sandbox measured 29-59%), and 13,390 of those prompts carry the rejection.
     ollama create cand-qwen3-8b-v0-dry -q q4_K_M -f runs/dry-01/Modelfile.q4
     ollama pull qwen3:8b && ollama create qwen3-8b-nothink -f runs/dry-01/Modelfile.base-nothink
     bash run.sh template-check
-    # then on 10.0.0.31, from a checkout of this branch (eval.sh needs node + the deploy checkout):
-    DROP16_VERIFIED=<same> bash scripts/learnloop/train/eval.sh ~/learnloop/datasets/v0 \
+    # then on 10.0.0.31, from the installed copy (NOT /opt/minecraft-ai's tree, which deploys reset):
+    cd ~/learnloop/app/scripts/learnloop
+    DROP16_VERIFIED=<same> bash train/eval.sh ~/learnloop/datasets/v0 \
         qwen2.5:7b-instruct qwen3-8b-nothink cand-qwen3-8b-v0-dry cand-qwen3-8b-v0-dry-bf16
-    python3 scripts/learnloop/train/eval_offline.py --items ~/learnloop/datasets/v0/m3-eval.jsonl \
-        --runs ~/learnloop/datasets/v0/eval/*.jsonl --export-check \
+    python3 train/eval_offline.py --items ~/learnloop/datasets/v0/m3-eval.jsonl \
+        --ref qwen2.5:7b-instruct --runs ~/learnloop/datasets/v0/eval/qwen2.5_7b-instruct.jsonl \
+        ~/learnloop/datasets/v0/eval/qwen3-8b-nothink.jsonl ~/learnloop/datasets/v0/eval/cand-qwen3-8b-v0-dry.jsonl \
+        --export-check \
         ~/learnloop/datasets/v0/eval/cand-qwen3-8b-v0-dry.jsonl ~/learnloop/datasets/v0/eval/cand-qwen3-8b-v0-dry-bf16.jsonl
     # back on .16:
     bash run.sh restore-ollama
@@ -219,7 +236,10 @@ sandbox measured 29-59%), and 13,390 of those prompts carry the rejection.
   mismatch. 2,114 (skill, milestone) strata; the largest are gather|gather_dirt 74,722, explore|patrol 57,307 and
   mine|gather_iron_ore 51,430.
 - Leakage control: 0 of 346,770 A and 0 of 58,445 C decisions share a prompt+action or near-key with a TRAIN
-  decision; B 3 and 27 of 244,889.
+  decision; B 3 and 27 of 244,889. **This is a within-world check only:** a cross-world control (TRAIN-days decisions
+  of different worlds, 1,808,880 decisions, 1,736,764 distinct near-keys) found 0 near-keys shared by two worlds, so
+  prompts carry world-specific text and a cross-world match is impossible by construction. The 0 for A and C says the
+  held-out worlds are not copies of training prompts; it cannot say anything finer.
 - Natural preference pairs (same bot, same near-key, good vs bad, different action): **49**. That is too few for
   stage 3 from natural pairs alone; constructed (teacher) pairs will have to carry it.
 - Pilot pool: 946,087 hard decisions (TRAIN cell, complete prompt, refused or failed/aborted, void out). The 1,000-item
@@ -253,4 +273,14 @@ checks their mode and owner with `stat` and never opens them. Sample: `~/learnlo
 
 ## 7. Reviews
 
-REVIEW_TABLE
+Scope: the pipeline (extractor, nightly, relay, sysprompts, fleetstatus line), the endpoint-removal script and the
+teacher client, plus the dataset builder and M3 tooling they feed. Codex = `codex exec --sandbox read-only`; Claude =
+an independent subagent (read-only, local tests).
+
+| round | commit | Codex | Claude | what changed because of it |
+|---|---|---|---|---|
+| 1 | 18afe782 | CHANGE (5 P1, 3 P2) | CHANGE (2 P1, 5 P2, 7 P3) | prune per proven member; deterministic MANIFEST + verify/manifest reconcile; unresolved days in the header; eval coverage gate; teacher reservations at max_tokens, durable, locked, Mac-only; drop16 verify after the last restart and kept hold on failure; byte-exact Modelfile + template check; end-to-end archive tests + mutants |
+| 2 | 3fd09fa4 | CHANGE (2 P1, 2 P2, 1 P3) | CHANGE (1 P1 reproduced, 3 P2, 4 P3) | dry put/repair never records an archive; adopt via NAS-side member hashes (relay `members`); drop16 hold kept from the first mutation + `--hold-token` rollback; resumable teacher submits; cross-month reservations; export-check coverage; complete-set leakage; node check; stdout-only parsing |
+| 3 | 82bf0b7c | CHANGE (1 P1, 1 P2) | CHANGE (1 P2, 2 P3) | adopted hold kept through rollback refusals; unique reservation ids; `--resubmit` never re-sends a submitted batch; locked `release`; repair tars adopted via `list` |
+| 4 | f60f9c69 | CHANGE (doc: 1 P2, 1 P3) | **APPROVE** (code); report: 2 P2, 6 P3 | eval reference defaults to qwen2.5 and must be a run; report commands fixed (ssh, `--ref`, the installed eval copy, drop16 staged by the installer with its sha); within-world leakage stated with its cross-world control; environ = evidence, rows = tripwire; other-GPU guard |
+| 5 | FINAL | see below | see below | |

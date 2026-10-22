@@ -14,7 +14,7 @@
 set -euo pipefail
 DRY=""; [ "${1:-}" = "--dry-run" ] && DRY=1
 cd "$(git rev-parse --show-toplevel)"
-SHA=$(git rev-parse HEAD); [ -z "$(git status --porcelain scripts/learnloop scripts/lib)" ] || { echo "REFUSED: uncommitted changes under scripts/learnloop or scripts/lib"; exit 2; }
+SHA=$(git rev-parse HEAD); [ -z "$(git status --porcelain scripts/learnloop scripts/lib scripts/host/drop16.sh bench/models/score.py)" ] || { echo "REFUSED: uncommitted changes under scripts/learnloop or scripts/lib"; exit 2; }
 B=10.0.0.31; W=10.0.0.30
 CRON='50 1 * * * cd /home/mike/learnloop/app/scripts/learnloop && PATH=/usr/bin:/bin /usr/bin/nice -n 19 /usr/bin/ionice -c3 /usr/bin/python3 -B nightly.py --tick >> /home/mike/learnloop/cron.log 2>&1'
 run() { if [ -n "$DRY" ]; then echo "  (dry) $*"; else "$@"; fi; }
@@ -30,6 +30,15 @@ run scp -q scripts/learnloop/extract_triples.py scripts/learnloop/nightly.py scr
     scripts/learnloop/build_dataset.py scripts/learnloop/nas-relay.sh scripts/learnloop/test_learnloop.py \
     scripts/learnloop/test_learnloop_mutants.py "$B:learnloop/app/scripts/learnloop/"
 run scp -q scripts/lib/estelemetry.py scripts/lib/telemetry.py "$B:learnloop/app/scripts/lib/"
+# the M3 evaluation runs from here on .31 (node + the deploy checkout, read with git archive only), never from
+# /opt/minecraft-ai's working tree; score.py is the bench's own scorer
+run ssh "$B" 'mkdir -p ~/learnloop/app/scripts/learnloop/train/bench'
+run scp -q scripts/learnloop/train/replay_client.mjs scripts/learnloop/train/eval_offline.py scripts/learnloop/train/eval.sh \
+    scripts/learnloop/train/test_eval.py "$B:learnloop/app/scripts/learnloop/train/"
+run scp -q bench/models/score.py "$B:learnloop/app/scripts/learnloop/train/bench/"
+# M2b: the reviewed drop16.sh is (re)staged as ~/drop16.sh with its sha256 printed, so the owner never runs an old copy
+run scp -q scripts/host/drop16.sh "$B:drop16.sh"
+run ssh "$B" 'sha256sum ~/drop16.sh'; echo "  branch file: $(shasum -a 256 scripts/host/drop16.sh | cut -c1-64)"
 # THE REMOTE TESTS GATE THE INSTALL: the exit status is the test's, not tail's (Claude r1 P2-5)
 run ssh "$B" "echo $SHA > ~/learnloop/app/scripts/learnloop/VERSION && cd ~/learnloop/app/scripts/learnloop && python3 -B test_learnloop.py > /tmp/ll-test.out 2>&1; rc=\$?; tail -1 /tmp/ll-test.out; grep -q ' 0 skipped' /tmp/ll-test.out || rc=9; exit \$rc" \
   || { echo "REFUSED: the tests failed (or skipped) on $B -- nothing else installed"; exit 2; }
