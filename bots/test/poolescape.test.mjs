@@ -269,6 +269,14 @@ await ta('YIELDS TO THE DROWNING RESCUE: after the first action it stops, and le
   assert.equal(f.log.digs.length, 0, 'no dig after the yield')
   assert.equal(f.log.controls.filter(c => c[0] === 'clear').length, 1, 'only the seize at the start cleared the controls; a yield never clears the new owner\'s')
 })
+await ta('TWO BOTS, ONE PIT (Paper 10-22 r3): a step cell another body stands in is not taken -- the other wall is', async () => {
+  const f = fakeBot('bravo')
+  f.bot.entities = { 7: { type: 'player', username: 'Comet', position: new Vec3(0.5, 1, -0.5) } }
+  const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
+  assert.equal(r.outcome, 'out', JSON.stringify(r))
+  assert.ok(!f.log.digs.some(d => d[2] === -1), 'never cut toward the occupied north step')
+  assert.ok(f.log.digs.some(d => d[2] === 1 && d[1] === 1), 'cut the south wall instead')
+})
 await ta('NO PICKAXE: the hand digs dirt (Bravo north wall made dirt), never refused for want of a tool', async () => {
   const f = fakeBot('bravo', { edits: { [k3(0, 1, -1)]: 'dirt' }, bag: [item('dirt', 10, 12)] })
   const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })

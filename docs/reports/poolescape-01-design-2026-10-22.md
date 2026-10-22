@@ -149,11 +149,12 @@ pathfinder, `overheadBreakRisk`, the ramp, the pillar or any guard's predicate; 
 stand-asides while it runs.
 
 ## 6. Proof
-- Behaviour tests (`bots/test/poolescape.test.mjs`, 28): the planner on both LIVE pits (fixtures from the region files,
+- Behaviour tests (`bots/test/poolescape.test.mjs`, 38): the planner on both LIVE pits (fixtures from the region files,
   200/200 cells matched live), lava behind a wall, the breathing column, waterlogged sides, the fill, keep-out ordering
   and the fire veto, obsidian, the swim, the tool reserve, back-off; the REAL actuator on a fake bot whose one piece of
   physics is the impulse rule (plug, cut, step, out; the base shape with no blocks never opens a cut; lava appearing at
-  the swing; the drowning yield; the hand on dirt). Seven anchored, unique mutants.
+  the swing and at the place; the drowning yield; a non-owner stop releasing the controls; the hand on dirt; no-tool
+  obsidian through the real hand choice; no falling plug). Eleven anchored, unique mutants.
 - Paper (sandbox, per-server lock `poolescape`): the WHOLE bot (`src/index.mjs`, model off) in each live pit copied cell
   for cell -- bravo (two bots), alpha, lava, zone -- BASE 1f5b4b4e vs CANDIDATE.
 - Read `poolescaperead.py` (instrument = bot.pos, not the rung's rows; both reviews): G1 canary spell bot-h post <= half
@@ -162,3 +163,19 @@ stand-asides while it runs.
   later REVERT; ARMS, LIVENESS, INSTRUMENT. Tier 2, `draw_require_pools: ["board-d"]`, exposure = canary spell bot-h pre
   >= 0.5 and >= 1 firing (the three named bots are on board-d; dry run on the base 10-22: 7.5 canary spell bot-h in 150
   min, G1 "DID NOT FALL").
+
+## 7. Code review r1 (Codex CHANGES, Claude CHANGES) -> r2 (335ad2e0)
+
+- A solid FLOOR under the feet is required (Codex P1: a bot afloat over deep water is swimming; the rung would stand it
+  down from the float hold while it worked), and the bot's own head cell must be breathable on every plan; `gone()` stops
+  the moment the eye is in water and hands the body back to the air reflex (Claude P1-2).
+- Never a falling block for a plug, tread or fill (Claude P1-2: a sand plug reads solid, then falls and floods the cut).
+- Two kinds of stop (Claude P1-1): an owner that steers (the drowning rescue) keeps its controls; any other stop (arbiter,
+  air-pocket request, a skill, the head under water) releases the forward/jump the rung set.
+- The placement is planned again after the equip (Codex P2); water plants in or beside the step refuse (Codex P2).
+- No tool is priced past the cap (Claude P2-1: planDig reads Infinity as unknown); hook (b) asks wading before it takes the
+  body (Claude P2-2); the runner is RESERVED for the firing, renewed before every action, and a running skill stops it
+  (Claude P2-3: the cognitive tick reads isBusy, so with the model on it dispatches nothing into a firing).
+- Read: order-independent trap spread (Codex P2); >= 75% post-deploy position coverage for every canary bot trapped pre,
+  or G1 cannot pass (Codex P2: a silent canary read as escaped); G4 matures on the bot's own rows; a spell ending in a
+  death counts to the window end and each named bot's exit cause is reported (Claude P2-4).
