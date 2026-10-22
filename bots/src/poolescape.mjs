@@ -47,7 +47,7 @@ const flowing = b => !!b && /^(water|flowing_water)$/.test(b.name ?? '')
  * opens it and nothing is placed (Paper 10-22: board-d-Bravo's plug was aimed at the crafting table under it and "did not
  * take"). Never a reference face.
  */
-export const INTERACTIVE = /(crafting_table|furnace|smoker|chest|barrel|shulker_box|hopper|dispenser|dropper|_door|trapdoor|fence_gate|_button|lever|_bed|anvil|table|composter|bell|beacon|brewing_stand|cauldron|lectern|loom|stonecutter|grindstone|jukebox|note_block|repeater|comparator|daylight_detector|_sign|flower_pot|cake|respawn_anchor|crafter|decorated_pot|chiseled_bookshelf)$/
+export const INTERACTIVE = /(crafting_table|furnace|smoker|chest|barrel|shulker_box|hopper|dispenser|dropper|_door|trapdoor|fence_gate|_button|lever|_bed|anvil|table|composter|bell|beacon|brewing_stand|cauldron|lectern|loom|stonecutter|grindstone|jukebox|note_block|repeater|comparator|daylight_detector|_sign|flower_pot|cake|respawn_anchor|crafter|decorated_pot|chiseled_bookshelf|dragon_egg|command_block|structure_block|jigsaw|vault|trial_spawner)$/
 /** The first solid, non-interactive neighbour of `c` (offsets from the feet) to click, skipping `skip` cells -> {ref, face} | null. */
 function faceFor (at, c, skip = []) {
   const [cx, cy, cz] = c
@@ -99,8 +99,13 @@ export function poolStep ({ at = () => null, bear = { x: 0, z: 0 }, canClear = (
   const bx = bear?.x ?? 0, bz = bear?.z ?? 0
   const no = reason => ({ ok: false, bear, place: [], dig: [], blocks: 0, marks: {}, wet: 0, reason })
   if (!bx && !bz) return no('no bearing')
-  const own2 = at(0, 2, 0), own3 = at(0, 3, 0)
-  if (!own2 || !own3) return no('terrain not loaded')
+  const own0 = at(0, -1, 0), own1 = at(0, 1, 0), own2 = at(0, 2, 0), own3 = at(0, 3, 0)
+  if (!own0 || !own1 || !own2 || !own3) return no('terrain not loaded')
+  // A FLOOR UNDER THE FEET (Codex code r1 P1): the rung stands the bot on it while it works, without the float hold. A bot
+  // afloat over deep water is not this trap -- it is swimming -- and is left to the float and the pathfinder.
+  if (!solid(own0)) return no(`no floor under the feet (${own0.name})`)
+  // THE BOT'S OWN HEAD CELL, ON EVERY PLAN (Claude code r1 P1-2): water that reached it stops the rung at the next re-plan.
+  if (!breathable(own1)) return no(`the head is under water (${own1.name})`)
   // THE ROOM THE BOT RISES THROUGH, and the column it breathes in while it works.
   if (!breathable(own2)) return no(`no headroom (${own2.name})`)
   if (!breathable(own3)) return no(`no room to rise out of the water (${own3.name})`)
@@ -145,6 +150,7 @@ export function poolStep ({ at = () => null, bear = { x: 0, z: 0 }, canClear = (
     const n = at(...c)
     if (!n) return no('terrain not loaded')
     if (n.isWaterlogged === true) return no(`a waterlogged block beside the step cannot be plugged (${n.name})`)
+    if (isWaterCell(n) && !flowing(n)) return no(`a water plant beside the step cannot be plugged (${n.name})`)
     if (!flowing(n)) continue
     const f = faceFor(at, c, [S, [0, 1, 0], [0, 0, 0]].concat(solid(step) ? [] : [S]))
     // the step cell itself is a fine face while it is still solid (the plug goes in before the cut)
@@ -160,6 +166,7 @@ export function poolStep ({ at = () => null, bear = { x: 0, z: 0 }, canClear = (
     place.push({ cell: S, ref: T, face: [0, 1, 0], why: 'fill' }); fill = true
   }
   else if (step.isWaterlogged === true) return no(`a waterlogged block in the step (${step.name})`)
+  else if (isWaterCell(step)) return no(`a water plant in the step (${step.name})`)   // kelp, seagrass, bubble column: wet, not fillable
   if (place.length > blocks) return no(`needs ${place.length} block(s) to place, holds ${blocks}`)
   // 4. THE CELLS TO CLEAR, top down (a falling column then falls before the bot is under it).
   const dig = []
@@ -266,6 +273,19 @@ export function poolToolOk (tool, items = [], planned = 1) {
   }
   return left(tool) - n > 1
 }
+
+/**
+ * THE BLOCK TO PLACE (tread, plug, fill) -> item | null. Pure. The escape's own cheapest-first order (toolfor pickScaffold)
+ * WITHOUT falling blocks (Claude code r1 P1-2): a sand plug over water reads solid when placed and then falls, and the cut
+ * that follows floods the step and the bot's head cell. Never a falling block, whatever the bag holds.
+ */
+export function poolBlockOf (items = [], placeable = /./, pick = null) {
+  const ok = (Array.isArray(items) ? items : []).filter(it => it?.name && placeable.test(it.name) && !isFallingBlock({ name: it.name }))
+  return pick ? pick(ok, placeable) : (ok[0] ?? null)
+}
+/** How many such blocks the bag holds (the plan's `blocks`). Pure. */
+export const poolBlockCount = (items = [], placeable = /./) =>
+  (Array.isArray(items) ? items : []).filter(it => it?.name && placeable.test(it.name) && !isFallingBlock({ name: it.name })).reduce((a, it) => a + (it.count ?? 0), 0)
 
 /** The `_poolescape_mode` licence row, once per spawn (index.mjs). Pure. */
 export function poolEscapeModeDetail (env = typeof process !== 'undefined' ? process.env : {}) {

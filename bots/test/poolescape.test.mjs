@@ -275,10 +275,50 @@ await ta('NO PICKAXE: the hand digs dirt (Bravo north wall made dirt), never ref
   assert.equal(r.outcome, 'out', JSON.stringify(r))
   assert.deepEqual(r.hands, ['hand'], 'no tool: the empty hand (a non-tool stack held) dug the dirt')
 })
-await ta('NOT WADING (head in water): the rung does nothing', async () => {
+await ta('HEAD UNDER WATER: the rung yields to the air reflex at once and does nothing', async () => {
   const f = fakeBot('bravo', { edits: { [k3(0, 1, 0)]: 'water' } })
   const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
-  assert.equal(r.outcome, 'refused'); assert.equal(f.log.digs.length + f.log.places.length, 0)
+  assert.equal(r.outcome, 'yielded'); assert.ok(/air reflex/.test(r.reason), r.reason)
+  assert.equal(f.log.digs.length + f.log.places.length, 0)
+})
+await ta('NO FLOOR (afloat over deep water: swimming, not this trap) and WATER PLANTS refuse in the planner', () => {
+  assert.ok(/no floor/.test(poolStep({ at: world('bravo', { [k3(0, -1, 0)]: 'water' }).at, bear: N, blocks: 64 }).reason))
+  assert.ok(/water plant in the step/.test(poolStep({ at: world('bravo', { [k3(0, 1, -1)]: 'kelp' }).at, bear: N, blocks: 64 }).reason))
+  assert.ok(/water plant beside/.test(poolStep({ at: world('bravo', { [k3(1, 1, -1)]: 'seagrass' }).at, bear: N, blocks: 64 }).reason))
+  assert.ok(/head is under water/.test(poolStep({ at: world('bravo', { [k3(0, 1, 0)]: 'water' }).at, bear: N, blocks: 64 }).reason))
+})
+await ta('NEVER A FALLING BLOCK as a plug (Claude code r1 P1-2): sand is passed over for cobblestone; sand alone counts as no block', async () => {
+  assert.equal(PE.poolBlockCount([item('sand', 64), item('gravel', 9)], /./), 0)
+  assert.equal(PE.poolBlockOf([item('sand', 64), item('cobblestone', 5)], /./).name, 'cobblestone')
+  const f = fakeBot('bravo', { bag: [item('stone_pickaxe', 1, 9, 0), item('wooden_pickaxe', 1, 10, 16), item('sand', 64, 11), item('cobblestone', 5, 12)] })
+  const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
+  assert.equal(r.outcome, 'out', JSON.stringify(r))
+  assert.ok(f.log.places.every(p => p[3] !== 'sand'), JSON.stringify(f.log.places))
+})
+await ta('EVERY PLACE RE-CHECKS LIVE AFTER THE EQUIP (Codex code r1 P2): lava arriving during the equip stops the plug', async () => {
+  let armed = true
+  const f = fakeBot('bravo', { onEquip: (it, set) => { if (armed && it && !/pickaxe/.test(it.name)) { armed = false; set(new Vec3(0, 1, -2), 'lava'); set(new Vec3(0, 1, 2), 'lava') } } })
+  const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
+  assert.notEqual(r.outcome, 'out')
+  assert.equal(f.log.places.length, 0, `placed after lava appeared: ${JSON.stringify(f.log.places)}`)
+})
+await ta('NO TOOL MEANS THE HAND ONLY (Claude code r1 P2-1): obsidian with no pickaxe is refused at PLANNING, the next wall is cut', async () => {
+  const f = fakeBot('bravo', { edits: { [k3(0, 1, -1)]: 'obsidian' }, bag: [item('cobblestone', 30, 11)] })
+  const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
+  assert.equal(r.outcome, 'out', JSON.stringify(r))
+  assert.ok(!f.log.digs.some(d => d[2] === -1), 'the obsidian was never swung at')
+  assert.deepEqual(f.log.digs.map(d => d.slice(0, 3)), [[0, 1, 1]], 'the south andesite, by hand')
+})
+await ta('A STOP THAT IS NOT AN OWNER RELEASES THE CONTROLS (Claude code r1 P1-1): a skill starting mid-step leaves nothing held', async () => {
+  const f = fakeBot('bravo')
+  let pressed = false
+  const real = f.bot.setControlState
+  f.bot.setControlState = (n, on) => { if (n === 'forward' && on) pressed = true; return real(n, on) }
+  f.bot.entity.position = new Vec3(0.5, 0, 0.5)
+  const r = await RX.poolEscape(f.bot, { yieldTo: () => null, alive: () => !pressed })
+  assert.equal(r.outcome, 'yielded')
+  const last = n => [...f.log.controls].reverse().find(c => c[0] === n)
+  assert.deepEqual(last('forward'), ['forward', false]); assert.deepEqual(last('jump'), ['jump', false])
 })
 
 // ------------------------------------------------------------------------------------------------ wiring (structural)
@@ -295,6 +335,16 @@ function hooks (src) {
 }
 await ta('WIRED: the climb hook runs after pillarOut and never after a pre-emption; the need_scaffold hook after the ramp', () => {
   assert.deepEqual(hooks(readFileSync(REFLEX, 'utf8')), { climb: true, scaffold: true })
+})
+await ta('WIRED: hook (b) asks wading BEFORE taking the body; both stand-asides; the runner reserved for the firing', () => {
+  const code = strip(readFileSync(REFLEX, 'utf8'))
+  const w = code.indexOf("if (poolEscapeOn() && !marooned && wading({ at: (dx, dy, dz) => bot.blockAt(wadeAt.offset(dx, dy, dz)) })) {")
+  const g = code.indexOf("const g = await takeBody(bot, runner, 'marooned', PRIORITY.escape)")
+  assert.ok(w > 0 && g > w, 'wading is asked before the grant')
+  assert.ok(/longEnough && !poolEscaping &&/.test(code), 'the stranded ladder stands aside while a firing runs')
+  assert.ok(/if \(!pocketing && !poolEscaping\) \{/.test(code), 'the float hold stands aside while a firing runs')
+  assert.ok(/resv = runner\.reserve\('poolescape', 20_000, 'poolescape'\)/.test(code) && /runner\.releaseReservation\(resv\.gen\)/.test(code))
+  assert.ok(/alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current/.test(code))
 })
 await ta('WIRED: the licence row is written once per spawn (index.mjs)', () => {
   const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
@@ -324,10 +374,23 @@ await ta('MUTANT KILLED: without the breathing-column check, water beside the he
   })
 })
 await ta('MUTANT KILLED: without the plugs, Bravo\'s cut floods and the actuator cannot step', async () => {
-  await withMutant(PEPATH, '    if (!flowing(n)) continue\n', '    continue\n', async m => {
-    const c = m.choosePoolStep({ at: world('bravo').at, bearings: [N], blocks: 64 })
-    assert.equal(c.place.length, 0, 'the mutant plans no plug')
-  })
+  await withMutant(PEPATH, '    if (!flowing(n)) continue\n', '    continue\n', async () => {})   // anchor present and unique
+  const src = readFileSync(REFLEX, 'utf8')
+  // the actuator is run with the mutant planner bound in (reflex.mjs imports poolescape.mjs: rewrite that one import)
+  const pe = readFileSync(PEPATH, 'utf8'); assert.equal(pe.split('    if (!flowing(n)) continue\n').length, 2)
+  const peOut = new URL(`./_mutant-pe-${process.pid}.mjs`, import.meta.url)
+  writeFileSync(peOut, pe.replace('    if (!flowing(n)) continue\n', '    continue\n').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const imp = "} from './poolescape.mjs'"
+    assert.equal(src.split(imp).length, 2, 'ANCHOR: the one poolescape import')
+    await withMutant(REFLEX, imp, `} from './${peOut.pathname.split('/').pop()}'`.replace("'./_mutant", "'../test/_mutant"), async m => {
+      const f = fakeBot('bravo')
+      const r = await m.poolEscape(f.bot, { yieldTo: f.yieldTo })
+      assert.notEqual(r.outcome, 'out', 'with no plug the cut floods and the step is never taken')
+      const p = f.bot.entity.position
+      assert.deepEqual([Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)], [0, 0, 0], 'the bot never left the pit: each cut flooded')
+    })
+  } finally { try { unlinkSync(peOut) } catch {} }
 })
 await ta('MUTANT KILLED: a mark that vetoes (instead of ordering) leaves the all-zone pit with no exit', async () => {
   await withMutant(PEPATH, '    if (!best || better(c, best)) best = c\n', '    if (markTotal(c.marks)) continue\n    if (!best || better(c, best)) best = c\n', async m => {
@@ -353,6 +416,28 @@ await ta('MUTANT KILLED: a crafting table taken as the plug\'s face (Paper 10-22
   await withMutant(PEPATH, "    if (solid(b) && !INTERACTIVE.test(b.name ?? '')) return", "    if (solid(b)) return", async m => {
     const c = m.choosePoolStep({ at: world('bravo').at, bearings: [N], blocks: 64 })
     assert.equal(c.place[0].ref.join(','), '1,0,-1', 'the mutant clicks the crafting table')
+  })
+})
+await ta('MUTANT KILLED: without the re-check AFTER THE EQUIP, lava arriving during the equip does not stop the plug', async () => {
+  await withMutant(REFLEX, '        const atPlace = recheck()\n', '        const atPlace = c\n', async m => {
+    let armed = true
+    const f = fakeBot('bravo', { onEquip: (it, set) => { if (armed && it && !/pickaxe/.test(it.name)) { armed = false; set(new Vec3(0, 1, -2), 'lava'); set(new Vec3(0, 1, 2), 'lava') } } })
+    await m.poolEscape(f.bot, { yieldTo: f.yieldTo })
+    assert.ok(f.log.places.length >= 1, 'the mutant places the plug beside the new lava')
+  })
+})
+await ta('MUTANT KILLED: Infinity as the no-tool price (planDig reads it as unknown) admits the obsidian wall', async () => {
+  await withMutant(REFLEX, '      toolHardnessMs: tool ? predictedDigMs(b, tool) : MAX_DIG_MS + 1,\n', '      toolHardnessMs: tool ? predictedDigMs(b, tool) : Number.POSITIVE_INFINITY,\n', async m => {
+    const f = fakeBot('bravo', { edits: { [k3(0, 1, -1)]: 'obsidian' }, bag: [item('cobblestone', 30, 11)] })
+    await m.poolEscape(f.bot, { yieldTo: f.yieldTo })
+    assert.ok(f.log.digs.some(d => d[2] === -1 && d[1] === 1), 'the mutant swings at the obsidian')
+  })
+})
+await ta('MUTANT KILLED: without the head-under-water stop, the rung works on with its eyes in water', async () => {
+  await withMutant(REFLEX, "    else if (headWet()) yielded = 'the air reflex (the head went under water)'\n", '', async m => {
+    const f = fakeBot('bravo', { edits: { [k3(0, 1, 0)]: 'water' } })
+    const r = await m.poolEscape(f.bot, { yieldTo: f.yieldTo })
+    assert.notEqual(r.outcome, 'yielded', 'the mutant does not hand the body to the air reflex')
   })
 })
 await ta('MUTANT KILLED: a removed climb hook is seen by the wiring check', async () => {
