@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 const M = await import('../../scripts/host/isolated2shared.mjs')
@@ -447,6 +447,223 @@ console.log(JSON.stringify({ wf: wf.file, sites: wf.read().sites.length, lessons
   assert.equal(iso.wf, path.join(sd, `world-facts-${bot}.json`)); assert.equal(iso.smelt, false); assert.equal(iso.shared, false)
   assert.equal(iso.lessons, conv.lessons); assert.equal(iso.prompt, conv.prompt, 'the system prompt is byte-identical under private and isolated')
   assert.notEqual(runAs({ MEMORY_SCOPE: 'board' }).prompt, conv.prompt, 'POSITIVE CONTROL: the prompt hash does see a scope that changes it')
+})
+
+// ---- THE ACCEPTED QUIET, THROUGH THE REAL WRAPPER (10-22) -------------------------------------------------------------------
+// On 10-21 the owner accepted a 240-min quiet (computed 420). `--release` with no --quiet passed the computed 420, the helper
+// took max(recorded 240, 420), refused until +420 and WROTE 420 into HOLD.json; the operator hand-edited it back. These run the
+// REAL isolated2shared-direct.sh and isolated2sharedhold.py with the REAL holdtoken.py, against a fixture home: every external
+// command the wrapper calls (flock, sudo, systemctl, date, sleep) is a fake on PATH, and the scheduler is a fake canary-sched.py
+// whose status table and queue the test writes. Nothing live is read or written (the canary lock is a fixture path too).
+const HOST = path.join(here, '../../scripts/host')
+function i2sFixture ({ wrapper = null, hold = null, noSelftest = false } = {}) {
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-wrap-')), H = path.join(r, 'home'), D = path.join(H, 'isolated2shared'), B = path.join(r, 'bin')
+  for (const d of [H, D, B, path.join(H, 'digest')]) fs.mkdirSync(d, { recursive: true })
+  fs.writeFileSync(path.join(D, 'isolated2shared-direct.sh'), wrapper ?? fs.readFileSync(path.join(HOST, 'isolated2shared-direct.sh'), 'utf8'))
+  fs.writeFileSync(path.join(D, 'isolated2sharedhold.py'), hold ?? fs.readFileSync(path.join(HOST, 'isolated2sharedhold.py'), 'utf8'))
+  fs.writeFileSync(path.join(D, 'isolated2shared.mjs'), `const [m, , , p] = process.argv.slice(2); console.log(m === 'status' ? p + ': env converted (5/5)' : 'fake ' + m + ' ' + p)\n`)
+  const sh = (n, body) => { fs.writeFileSync(path.join(B, n), body); fs.chmodSync(path.join(B, n), 0o755) }
+  sh('flock', '#!/bin/sh\nexit 0\n'); sh('sleep', '#!/bin/sh\nexit 0\n'); sh('sudo', '#!/bin/sh\nexec "$@"\n')
+  sh('systemctl', `#!/bin/sh\ncase "$*" in\n  *fleet-recycle.service*) exit 3;;\n  list-timers*) python3 -c "import datetime as d; print((d.datetime.now(d.timezone.utc)+d.timedelta(hours=3)).strftime('%a %Y-%m-%d %H:%M:%S UTC'), 'left fleet-recycle.timer')";;\n  *) echo "$*" >> "$SCHED_HOME/systemctl.log"; exit 0;;\nesac\n`)
+  sh('date', `#!/usr/bin/env python3
+import sys, time, datetime as dt
+a = sys.argv[1:]
+if a[:1] == ['-d']:
+    print(int(dt.datetime.strptime(a[1], '%a %Y-%m-%d %H:%M:%S %Z').replace(tzinfo=dt.timezone.utc).timestamp()))
+elif a == ['+%s']:
+    print(int(time.time()))
+elif a == ['-u', '+%FT%TZ']:
+    print(dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+else:
+    sys.exit('fake date: unsupported %r' % a)
+`)
+  fs.writeFileSync(path.join(H, 'canary-sched.py'), `import os, sys
+H = os.environ['SCHED_HOME']
+def paths():
+    return {'install_hold': os.path.join(H, 'digest', 'INSTALL-HOLD'), 'tick_lock': os.path.join(H, 'digest', 'tick.lock')}
+def gather(P, full=False): return {'procs': []}
+def ancestors(P, pid): return set()
+def slot_blockers(st): return [], []
+if __name__ == '__main__' and sys.argv[1:] == ['status']:
+    if os.path.exists(os.path.join(H, 'status.crash')): sys.exit(1)
+    print(open(os.path.join(H, 'status.txt')).read())
+`)
+  const o = { r, H, D, B, J: path.join(H, 'canary-journal.jsonl'), holdf: path.join(D, 'HOLD.json'), ih: path.join(H, 'digest', 'INSTALL-HOLD') }
+  o.queue = (entries) => {      // [[run, read_minutes, class?]] -> status table (all ready) + queue + registrations
+    fs.writeFileSync(path.join(H, 'status.txt'), entries.map(([run]) => `${run} ready head`).join('\n') + '\n')
+    fs.writeFileSync(path.join(H, 'canary-queue.json'), JSON.stringify({ entries: entries.map(([run, rm, cls]) => {
+      const reg = path.join(H, `reg-${run}.json`); fs.writeFileSync(reg, JSON.stringify({ read_minutes: rm }))
+      return { run, ...(cls ? { class: cls } : {}), variants: { v: { registration: reg } } }
+    }) }))
+  }
+  o.run = (...args) => {
+    const res = spawnSync('bash', [path.join(D, 'isolated2shared-direct.sh'), ...args], { encoding: 'utf8', env: { ...process.env,
+      PATH: `${B}:${process.env.PATH}`, SCHED_HOME: H, I2S_DIR: D, HOLDTOKEN: path.join(HOST, 'holdtoken.py'),
+      HOLDTOKEN_SCHED: path.join(H, 'canary-sched.py'), I2S_CANARY_LOCK: path.join(r, 'canary.lock'), ...(noSelftest ? { PYTHONOPTIMIZE: '1' } : {}) } })
+    return { rc: res.status, out: (res.stdout || '') + (res.stderr || '') }
+  }
+  o.rows = () => fs.existsSync(o.J) ? fs.readFileSync(o.J, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) : []
+  o.hold = () => fs.existsSync(o.holdf) ? JSON.parse(fs.readFileSync(o.holdf, 'utf8')) : null
+  o.ihold = () => fs.existsSync(o.ih) ? JSON.parse(fs.readFileSync(o.ih, 'utf8')) : null
+  // AGE every journal row by `sec` seconds: "the release runs at last transition + N min" without a clock hook in the code
+  o.age = (sec) => fs.writeFileSync(o.J, o.rows().map(x => JSON.stringify({ ...x, ts: new Date(Date.parse(x.ts) - sec * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z') })).join('\n') + '\n')
+  o.lastTs = () => Date.parse(o.rows().filter(x => ['owner-direct', 'apply-done'].includes(x.phase)).at(-1).ts)
+  return o
+}
+const PILOT = ['--quiet', '240', '--why', 'OWNER 10-21 01:30Z: 240-min quiet per phase', '--accept-contamination', 'owner (darrellmiller) 10-21 01:30Z', 'operator-claude', 'isolated-b']
+// the 10-21 scenario: pilot with an accepted 240 against a computed 420; release at +239 refuses, at +240 releases
+async function scenario1021 (o) {
+  o.queue([['toolkit-03', [180, 360]]])                  // computed QUIET = 360 + 60 = 420
+  const a = o.run(...PILOT)
+  const r239 = (o.age(239 * 60), o.run('--release', 'operator-claude'))
+  const after239 = o.hold(), ih239 = o.ihold()
+  const r240 = (o.age(61), o.run('--release', 'operator-claude'))
+  return { a, r239, after239, ih239, r240 }
+}
+await ta('10-21 THROUGH THE WRAPPER: apply with an accepted 240 (computed 420) -> a plain --release refuses at +239 and releases at +240', async () => {
+  const o = i2sFixture(), s = await scenario1021(o)
+  assert.equal(s.a.rc, 0, s.a.out)
+  assert.ok(o.rows().some(x => x.phase === 'apply-done' && x.pool === 'isolated-b'), 'POSITIVE CONTROL: the fake fleet really ran the apply\n' + s.a.out)
+  const acc = o.rows().find(x => x.phase === 'contamination-accepted')
+  assert.match(acc?.note ?? '', /^quiet 240 below computed 420, accepted by: owner \(darrellmiller\) 10-21 01:30Z/, 'the acceptance is journalled')
+  assert.match(o.rows().find(x => x.phase === 'owner-direct').note, /quiet 240 min/)
+  assert.equal(s.r239.rc, 2, s.r239.out); assert.match(s.r239.out, /REFUSED: the quiet period runs to .* \+ 240 min/)
+  assert.equal(s.after239.quiet_min, 240, 'the refused release must not write the computed 420 into HOLD.json (the 10-21 bug)')
+  assert.deepEqual([s.after239.accepted.quiet, s.after239.accepted.computed], [240, 420])
+  assert.ok(Date.parse(s.ih239.until) >= o.lastTs() + 61e3 + 300 * 60e3 - 1000, `the hold outlives the quiet period: until ${s.ih239.until}`)
+  assert.equal(s.r240.rc, 0, s.r240.out); assert.match(s.r240.out, /RELEASED .* \+ 240 min/)
+  assert.equal(o.hold(), null); assert.equal(o.ihold(), null, 'the scheduler hold is gone')
+  assert.match(o.rows().find(x => x.phase === 'hold-released').note, /quiet 240; the quiet recorded in HOLD\.json \(computed now 420\)/)
+  assert.deepEqual(fs.readdirSync(o.D).filter(f => /tmp/.test(f)).concat(fs.readdirSync(path.join(o.H, 'digest')).filter(f => /tmp/.test(f))), [], 'no temp file left behind')
+})
+await ta('a NEW longer-reading canary raises an accepted quiet, SAYS so, extends the hold, keeps the accepted floor; when it leaves, 240 applies again', async () => {
+  const o = i2sFixture()
+  o.queue([['toolkit-03', [180, 360]]]); assert.equal(o.run(...PILOT).rc, 0)
+  o.queue([['toolkit-03', [180, 360]], ['bagfix-09', [180], 'bag-fix']])          // computed now 1440 + 60 = 1500
+  o.age(240 * 60 + 5)
+  const r = o.run('--release', 'operator-claude')
+  assert.equal(r.rc, 2, r.out); assert.match(r.out, /^RAISED: computed quiet now 1500 exceeds the 420/m)
+  assert.equal(o.hold().quiet_min, 240, 'the dynamic raise is not written over the accepted floor')
+  assert.ok(Date.parse(o.ihold().until) >= o.lastTs() + 1560 * 60e3 - 1000, `the hold now outlives the RAISED quiet: until ${o.ihold().until}`)
+  o.queue([['toolkit-03', [180, 360]]])
+  const r2 = o.run('--release', 'operator-claude')
+  assert.equal(r2.rc, 0, r2.out)
+})
+await ta('a LATER PHASE reuses the hold and keeps the accepted quiet (no silent raise to the computed 420)', async () => {
+  const o = i2sFixture()
+  o.queue([['toolkit-03', [180, 360]]]); assert.equal(o.run(...PILOT).rc, 0)
+  const r = o.run('operator-claude', 'isolated-a')
+  assert.equal(r.rc, 0, r.out); assert.match(r.out, /^KEPT the accepted quiet 240/m); assert.match(r.out, /REUSED .*; quiet 240/)
+  assert.match(o.rows().filter(x => x.phase === 'owner-direct').at(-1).note, /isolated-a.*quiet 240 min/)
+  assert.equal(o.rows().filter(x => x.phase === 'contamination-accepted').length, 1, 'no second acceptance row for a decision already recorded')
+  const r2 = o.run('--quiet', '480', '--why', 'operator wants longer', 'operator-claude', 'isolated-c')
+  assert.equal(r2.rc, 0, r2.out); assert.equal(o.hold().quiet_min, 480, 'an explicit --quiet still raises, and is recorded')
+})
+// MUTANTS: each anchor present and unique; each must turn a test above red for the intended reason
+function mutate (file, old, neu) {
+  const src = fs.readFileSync(path.join(HOST, file), 'utf8')
+  assert.ok(src.includes(old), `ANCHOR MISSING in ${file}: ${JSON.stringify(old.slice(0, 70))}`)
+  assert.equal(src.split(old).length, 2, `anchor not unique in ${file}`)
+  return src.replace(old, neu)
+}
+await ta('MUTANT KILLED: release = max(recorded, computed) again (the 10-21 behaviour) refuses at +240 and writes 420', async () => {
+  const hold = mutate('isolated2sharedhold.py', "floor = max(recq, int(req)) if (src != 'computed' or not acc) else recq", 'floor = max(recq, int(req))')
+  const s = await scenario1021(i2sFixture({ hold, noSelftest: true }))
+  assert.equal(s.a.rc, 0, s.a.out); assert.equal(s.r240.rc, 2, 'the mutant released at +240, so the test proves nothing\n' + s.r240.out)
+  assert.equal(s.after239.quiet_min, 420, 'the defect reproduced: 420 written into HOLD.json')
+  // and the helper's own import-time self-test refuses this mutant before it can run at all
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-m-')), 'h.py'); fs.writeFileSync(f, hold)
+  assert.notEqual(spawnSync('python3', [f, 'selftest'], { encoding: 'utf8' }).status, 0, 'the self-test passed the 10-21 mutant')
+})
+await ta('MUTANT KILLED: the wrapper not saying the quiet was merely computed (src always cli) refuses at +240', async () => {
+  const wrapper = mutate('isolated2shared-direct.sh', '[ -n "$QUIET" ] && SRC=cli || SRC=computed', 'SRC=cli')
+  const s = await scenario1021(i2sFixture({ wrapper }))
+  assert.equal(s.a.rc, 0, s.a.out); assert.equal(s.r240.rc, 2, 'the mutant released at +240\n' + s.r240.out)
+})
+await ta('MUTANT KILLED: a claim that records the computed value instead of the accepted one', async () => {
+  const hold = mutate('isolated2sharedhold.py', 'q, h2, notes = effective_quiet(None, req, src, computed, accept, iso(now))',
+    'q, h2, notes = effective_quiet(None, max(req, computed or 0), src, computed, accept, iso(now))')
+  const s = await scenario1021(i2sFixture({ hold, noSelftest: true }))
+  assert.equal(s.a.rc, 0, s.a.out); assert.notEqual(s.after239.quiet_min, 240, 'the mutant still recorded 240')
+  assert.equal(s.r240.rc, 2, 'the mutant released at +240\n' + s.r240.out)
+})
+await ta('MUTANT KILLED: a refused release that does not extend the hold leaves it expiring before a RAISED quiet', async () => {
+  const hold = mutate('isolated2sharedhold.py', "        until = extend(ht, P, h['token'], parse(last), q)\n", "        until = h['token']\n")
+  const o = i2sFixture({ hold, noSelftest: true })
+  o.queue([['toolkit-03', [180, 360]]]); assert.equal(o.run(...PILOT).rc, 0)
+  o.queue([['toolkit-03', [180, 360]], ['bagfix-09', [180], 'bag-fix']]); o.age(240 * 60 + 5)
+  assert.equal(o.run('--release', 'operator-claude').rc, 2)
+  assert.ok(Date.parse(o.ihold().until) < o.lastTs() + 1560 * 60e3 - 1000, 'the mutant hold outlived the raised quiet anyway')
+})
+
+// I5 EXPOSURE (10-22): the pilot's +180 read was BLIND "no disposal in 3 h" while isolated-b-Delta disposed at the cap at
+// +36 min -- its detail's at= token ended exactly at the 300-char cap, which at_of() rightly refuses as possibly cut. The
+// fallback places such a row by bot.pos. Real row strings; a complete token elsewhere is never rescued.
+const I5_CUT = 'slots=34->27 offlist=0 gclicked=1 stone=192 swords=0 sword_lost=0 sword_kept=0 cobble=212 cobble_left=64 cap=at_cap offlist_items=- unnamed=0 freed=7 tossed=7 n=216 misses=0 aim_off=0 aim_read=7 retaken=0 recollected=0 nonlisted=0 other_loss=0 server=resync closed_open=0 cap_end=closed at=357,74,160'
+const i5 = (file, env = {}) => JSON.parse(execFileSync('python3', ['-c', `import importlib.util,sys,json; s=importlib.util.spec_from_file_location('t', sys.argv[1]); t=importlib.util.module_from_spec(s); s.loader.exec_module(t)
+C={(357,74,160)}; at=lambda x,y,z: {'x':x,'y':y,'z':z}
+print(json.dumps([t.disposal_cap(sys.argv[2], at(357.4,75,159.5), C), t.disposal_cap(sys.argv[2], at(300.5,75,100.5), C),
+  t.disposal_cap(sys.argv[2][:-13] + 'at=351,72,134 ', at(357.4,75,159.5), C), t.disposal_cap(sys.argv[2] + ' ', at(357.4,75,159.5), C)]))`,
+  file, I5_CUT], { encoding: 'utf8', env: { ...process.env, ...env } }).trim())
+await ta('I5: a disposal whose at= was cut at the 300-char cap is placed by bot.pos (the pilot\'s +180 BLIND, a real row)', () => {
+  assert.equal(I5_CUT.length, 300)
+  assert.deepEqual(i5(path.join(HOST, 'isolated2sharedtrip.py')), [[[357, 74, 160], 'pos'], [null, null], [null, null], [[357, 74, 160], 'at']])
+})
+await ta('MUTANT KILLED: the I5 decision without the bot.pos fallback misses the real cut row', () => {
+  const src = mutate('isolated2sharedtrip.py', "    c = near_cap(pos, caps)\n    return (c, 'pos') if c else (None, None)\n", '    return (None, None)\n')
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-t-')), 'trip.py'); fs.writeFileSync(f, src)
+  assert.deepEqual(i5(f, { PYTHONOPTIMIZE: '1' })[0], [null, null], 'the mutant still placed the cut row')
+  assert.notEqual(spawnSync('python3', [f, '--help'], { encoding: 'utf8' }).status, 0, 'the tripwire self-test passed the mutant')
+})
+
+await ta('--until replay: the walk never selects a row after the replay time (it would mark a pool mixed: Codex r1)', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'i2s-until-')), bot = 'isolated-a-Alpha'
+  fs.mkdirSync(path.join(d, bot))
+  const until = new Date(Date.now() - 60 * 60e3), since = new Date(until - 180 * 60e3)
+  const row = (t, pool) => JSON.stringify({ '@timestamp': t.toISOString(), skill: { name: '_plinthfirst_mode', detail: 'policy=1 shared=1' }, bot: { name: bot }, exp: { pool } })
+  fs.writeFileSync(path.join(d, bot, `skill-${bot}.jsonl`), [row(new Date(until - 30 * 60e3), `self-${bot}`), row(new Date(until.getTime() + 10 * 60e3), 'isolated-a')].join('\n') + '\n')
+  const out = execFileSync('python3', ['-c', `
+import importlib.util,sys,datetime as dt
+s=importlib.util.spec_from_file_location('t', sys.argv[1]); t=importlib.util.module_from_spec(s); s.loader.exec_module(t)
+t.LOGS=sys.argv[2]; P=lambda x: dt.datetime.fromisoformat(x.replace('Z','+00:00')); now=P(sys.argv[3]); since=P(sys.argv[4])
+sel,_,walked=t.walk(since-dt.timedelta(hours=1), since, since+dt.timedelta(minutes=5), now, set())
+print(walked, [e.get('pool') for _b,_t,_k,_s,_d,e in sel])`, path.join(HOST, 'isolated2sharedtrip.py'), d, until.toISOString(), since.toISOString()], { encoding: 'utf8' }).trim()
+  assert.equal(out, "2 ['self-isolated-a-Alpha']", 'POSITIVE CONTROL: both rows walked, only the one before --until selected')
+})
+
+await ta('a bare --accept-contamination (no --quiet below computed) is REFUSED and journals nothing (Claude r1 P2-1)', async () => {
+  const o = i2sFixture()
+  o.queue([['toolkit-03', [180, 360]]]); assert.equal(o.run(...PILOT).rc, 0)
+  const n = o.rows().length
+  const r = o.run('--accept-contamination', 'someone', 'operator-claude', 'isolated-a')
+  assert.equal(r.rc, 2, r.out); assert.match(r.out, /REFUSED: --accept-contamination needs --quiet <min> below the computed 420/)
+  assert.equal(o.rows().length, n, 'no row'); assert.equal(o.hold().accepted.by, 'owner (darrellmiller) 10-21 01:30Z', 'the owner\'s acceptance is untouched')
+  const wrapper = mutate('isolated2shared-direct.sh', '  [ -z "$ACCEPT" ] || { [ -n "$QUIET" ] && [ "$QUIET" -lt "$CQ" ]; } || {', '  true || {')
+  const m = i2sFixture({ wrapper }); m.queue([['toolkit-03', [180, 360]]]); assert.equal(m.run(...PILOT).rc, 0)
+  assert.equal(m.run('--accept-contamination', 'someone', 'operator-claude', 'isolated-a').rc, 0, 'MUTANT not killed: without the refusal the run goes ahead')
+})
+
+async function crashScenario (o) {
+  o.queue([['toolkit-03', [180, 360]]]); assert.equal(o.run(...PILOT).rc, 0)
+  o.queue([['toolkit-03', [180, 360]], ['bagfix-09', [180], 'bag-fix']]); o.age(240 * 60 + 5)
+  const raised = o.run('--release', 'operator-claude')
+  fs.writeFileSync(path.join(o.H, 'status.crash'), '')
+  const crashed = o.run('--release', '--quiet', '240', '--why', 'status down', 'operator-claude')
+  fs.rmSync(path.join(o.H, 'status.crash'))
+  fs.writeFileSync(path.join(o.H, 'status.txt'), 'toolkit-03 done head\nbagfix-09 cancelled x\n')
+  const empty = o.run('--release', '--quiet', '240', '--why', 'queue empty', 'operator-claude')
+  return { raised, crashed, empty }
+}
+await ta('a CRASHED scheduler status is unreadable, never "nothing ready": the remembered raise HOLDS; a truly empty queue lets it lapse (Claude r3 P2)', async () => {
+  const o = i2sFixture(), s = await crashScenario(o)
+  assert.equal(s.raised.rc, 2, s.raised.out); assert.match(s.raised.out, /^RAISED/m)
+  assert.equal(s.crashed.rc, 2, s.crashed.out); assert.match(s.crashed.out, /^HELD at the last raise 1500/m)
+  assert.equal(s.empty.rc, 0, s.empty.out); assert.match(s.empty.out, /RELEASED .* \+ 240 min/)
+})
+await ta('MUTANT KILLED: any failed computation read as "nothing ready" releases at +240 under a crashed status', async () => {
+  const wrapper = mutate('isolated2shared-direct.sh', '[ $crc -eq 3 ] && CQARG=0', '[ $crc -ne 0 ] && CQARG=0')
+  const s = await crashScenario(i2sFixture({ wrapper }))
+  assert.equal(s.crashed.rc, 0, 'the mutant held the raise anyway\n' + s.crashed.out)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

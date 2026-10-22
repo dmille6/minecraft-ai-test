@@ -15,15 +15,21 @@
 # recomputed at release (max of recorded and now). Every mode runs under this rollout's own lock ($D/rollout.lock), so a
 # release cannot race a conversion (Codex r3 P1-1).
 #
+# AN ACCEPTED QUIET IS HONOURED (10-22). The helper is told where QUIET came from (an explicit --quiet, the computed value, or
+# the recorded fallback), the value computed now and the --accept-contamination text; it records an acceptance in HOLD.json
+# and answers with the EFFECTIVE quiet (`QUIET <n>`), which every later row and message here uses. So a plain `--release
+# <owner>` after `--quiet 240 --accept-contamination ...` releases at +240 (10-21 refused until +420), and a later phase keeps
+# the accepted quiet unless a longer-reading canary became ready since -- and then the helper says RAISED.
+#
 # Per pool: journal `owner-direct`; stop the 5 units; `apply` (or `rollback`); then
 #   exit 0 -> restart the 5 units 12 s apart, verify all active, journal `<mode>-done`;
 #   exit 2 -> the tool wrote nothing; restart ONLY if `status` shows the pool uniformly isolated or converted (an earlier
 #             interrupted run may have left it mixed: Codex r3 P1-2), else leave the units stopped;
 #   other  -> the tool died part-way: the units STAY STOPPED, journal `<mode>-incomplete`; re-run (apply resumes) or roll back.
 set -u
-H=/home/mike; J=$H/canary-journal.jsonl; RUN=isolated2shared-01
+H=${SCHED_HOME:-/home/mike}; J=$H/canary-journal.jsonl; RUN=isolated2shared-01
 D=${I2S_DIR:-$H/isolated2shared}; TOOL=$D/isolated2shared.mjs; HOLD="python3 $D/isolated2sharedhold.py"
-MODE=apply; QUIET=""; WHY=""; ACCEPT=""; ACCEPT_ROW=""
+MODE=apply; QUIET=""; WHY=""; ACCEPT=""; SRC=""; CQARG=-
 while [ $# -gt 0 ]; do case "$1" in
   --rollback) MODE=rollback; shift;; --release) MODE=release; shift;;
   --accept-contamination) ACCEPT=${2:-}; shift 2;;
@@ -59,39 +65,53 @@ mkdir -p "$D"; exec 7>"$D/rollout.lock"; flock -n 7 || { echo "REFUSED: another 
 
 # QUIET: computed now; --quiet can only RAISE it unless the computation fails (then it is the bound, with its --why)
 CQ=$($HOLD quiet 2>&1); crc=$?
+[ -n "$QUIET" ] && SRC=cli || SRC=computed
 if [ $crc -eq 0 ]; then
+  CQARG=$CQ
   # BELOW the computed value only as an explicit, journalled decision (design 5.2: the 240-min floor stays -- it is the pilot's
   # tripwire + rollback window and the tier-2 +180 read's PRE)
   [ -z "$QUIET" ] || [ "$QUIET" -ge "$CQ" ] || [ -n "$ACCEPT" ] || { echo "REFUSED: --quiet $QUIET is below the computed $CQ (pass --accept-contamination \"<who decided, why>\" to take the shorter hold)"; exit 2; }
+  # an acceptance is a --quiet BELOW the computed value; anything else would journal a decision nobody made (Claude r1 P2-1)
+  [ -z "$ACCEPT" ] || { [ -n "$QUIET" ] && [ "$QUIET" -lt "$CQ" ]; } || { echo "REFUSED: --accept-contamination needs --quiet <min> below the computed $CQ"; exit 2; }
   [ -z "$ACCEPT" ] || WHY="$WHY; ACCEPTED CONTAMINATION below computed $CQ: $ACCEPT"
   QUIET=${QUIET:-$CQ}
 elif [ -z "$QUIET" ] && [ "$MODE" = rollback ] && RQ=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['quiet_min']))" "$D/HOLD.json" 2>/dev/null); then
-  QUIET=$RQ; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback is never a dead end (Claude r3 P3-6); a release is (Codex r4 P2-1)
+  QUIET=$RQ; SRC=recorded; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback is never a dead end (Claude r3 P3-6); a release is (Codex r4 P2-1)
 elif [ -z "$QUIET" ]; then
   echo "REFUSED: the quiet period cannot be computed ($CQ): pass --quiet <min> --why <text>"; exit 2
 fi
 [ "$QUIET" -ge 240 ] || QUIET=240
-# a DEDICATED row (Claude r6 P3-2), built AFTER the 240 clamp (Codex r7 P3) and journalled only after the hold is ours
-# (Claude r7 nit), so the reader of a later +360/+720 read finds the decision without remembering it
-if [ -n "$ACCEPT" ] && [ $crc -eq 0 ] && [ "$QUIET" -lt "$CQ" ]; then
-  ACCEPT_ROW="quiet $QUIET below computed $CQ, accepted by: $ACCEPT; reads beyond +$((QUIET - 60)) of the next canaries may hold the switch in their PRE"
-fi
+# NOTHING READY is not an unreadable queue: no canary needs protecting, so the computed requirement is 0 and a remembered
+# raise lapses (Claude r2 P3-a). The quiet period itself still never drops below HOLD.json's or 240.
+[ $crc -eq 3 ] && CQARG=0        # 3 = the table parsed complete and nothing is ready (an exit code, not text: Claude r3)
+[ $crc -eq 0 ] && HACCEPT=${ACCEPT:--} || HACCEPT=-       # an acceptance is only ever made against a computed value
+# effective <helper output>: the helper's `QUIET <n>` line (its effective quiet) becomes QUIET; a quiet that is neither the
+# computed value nor an explicit one is HOLD.json's, and the rows say so
+effective() { local q; q=$(printf '%s\n' "$1" | awk '$1=="QUIET"{q=$2} END{print q}'); case "$q" in ''|*[!0-9]*) ;; *) QUIET=$q;; esac
+  [ -n "$WHY" ] || [ "$QUIET" = "$CQARG" ] || WHY="the quiet recorded in HOLD.json (computed now $CQARG)"; }
+# a DEDICATED row (Claude r6 P3-2), built AFTER the 240 clamp (Codex r7 P3) from the helper's EFFECTIVE quiet, and journalled
+# only when the helper says it RECORDED the acceptance (so only once the hold is ours: Claude r7 nit), so the reader of a
+# later +360/+720 read finds the decision without remembering it
+accept_row() { printf '%s\n' "$1" | grep -q '^ACCEPTED ' || return 0
+  journal contamination-accepted "quiet $QUIET below computed $CQ, accepted by: $ACCEPT; reads beyond +$((QUIET - 60)) of the next canaries may hold the switch in their PRE; pools ${POOLS:-none}; mode $MODE"; }
 
 if [ "$MODE" = release ]; then
-  out=$($HOLD release "$OWNER" "$QUIET" 2>&1); rc=$?; echo "$out"
+  out=$($HOLD release "$OWNER" "$QUIET" "$SRC" "$CQARG" "$HACCEPT" 2>&1); rc=$?; echo "$out"
+  effective "$out"; accept_row "$out"
   [ $rc -eq 0 ] && journal hold-released "by $OWNER (quiet $QUIET; ${WHY:-computed}): $out"
   exit $rc
 fi
 
 recycle_clear || exit 2
 # 1. THE HOLD FIRST (claimed, or reused and extended), then the loop lock
-out=$($HOLD claim "$OWNER" "$QUIET" 2>&1); rc=$?; echo "$out"
+out=$($HOLD claim "$OWNER" "$QUIET" "$SRC" "$CQARG" "$HACCEPT" 2>&1); rc=$?; echo "$out"
 [ $rc -eq 0 ] || { echo "REFUSED: no hold"; exit 2; }
-[ -z "$ACCEPT_ROW" ] || journal contamination-accepted "$ACCEPT_ROW; pools $POOLS; mode $MODE"
+effective "$out"; accept_row "$out"
 case "$out" in *CLAIMED*) CLAIMED=1;; *) CLAIMED="";; esac
 DONE=0
 drop_if_unused() { [ -n "$CLAIMED" ] && [ $DONE -eq 0 ] && $HOLD drop; }
-exec 9>/tmp/mcai-canary.lock; flock -n 9 || { echo "REFUSED: /tmp/mcai-canary.lock is held"; drop_if_unused; exit 2; }
+LOCKF=${I2S_CANARY_LOCK:-/tmp/mcai-canary.lock}      # overridable for the fixture test only (it must never open the live lock)
+exec 9>"$LOCKF"; flock -n 9 || { echo "REFUSED: $LOCKF is held"; drop_if_unused; exit 2; }
 if [ "$MODE" = apply ]; then
   for p in $POOLS; do
     out=$(sudo node "$TOOL" plan --pool "$p" 2>&1); rc=$?

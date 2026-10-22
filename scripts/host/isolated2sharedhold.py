@@ -2,17 +2,33 @@
 """isolated2sharedhold.py -- the isolated2shared rollout's scheduler hold (design 5.2). Used by isolated2shared-direct.sh.
 
   quiet                      the QUIET period required NOW -> minutes on stdout, rc 0; rc 2 with the reason when it cannot
-                             be computed (any READY queue entry whose registration cannot be read, or none at all)
-  claim <owner> <quiet>      claim the install-hold (holdtoken.py claim: the scheduler's slot checks under its tick lock) for
+                             be computed (the scheduler status failed or does not list every queue entry, or a READY entry's
+                             registration cannot be read); rc 3 when the status is complete and NOTHING is ready
+  claim <owner> <quiet> <src> <computed|-> <accepted-by|->
+                             claim the install-hold (holdtoken.py claim: the scheduler's slot checks under its tick lock) for
                              quiet + 60 min and record it in HOLD.json; or, when HOLD.json names the hold that EXISTS NOW,
-                             reuse it and EXTEND its `until` to now + quiet + 60 (never shorter), under the same tick lock
-  release <owner> <quiet>    release only when quiet' = max(recorded, <quiet>) minutes have passed since the last transition
-                             row in the journal; rc 2 (refused) before that
+                             reuse it and EXTEND its `until` to now + quiet' + 60 (never shorter), under the same tick lock
+  release <owner> <quiet> <src> <computed|-> <accepted-by|->
+                             release only when quiet' minutes have passed since the last transition row in the journal; rc 2
+                             (refused) before that, and the hold's `until` is then extended to last + quiet' + 60
   drop                       release a hold this rollout claimed and never used (no transition since it was claimed)
 
+  quiet' is effective_quiet() below. <src> says where the wrapper's <quiet> came from: `cli` (an explicit --quiet), `computed`
+  (the value computed now) or `recorded` (the computation failed; a rollback falls back to HOLD.json). <computed> is the value
+  computed now. <accepted-by> is the --accept-contamination text. claim and release print `QUIET <quiet'>` as their last line,
+  and `ACCEPTED ...` when they record a new acceptance (the wrapper journals `contamination-accepted` from that line).
+
 QUIET = max read minute over every READY (or running) queue entry's registrations, + 60; 1440 + 60 when any such entry has
-class underground-safety or bag-fix (their 24 h PRE / null bands). HOLD.json is written by tmp + os.replace. Every decision
-is a pure function below, self-tested at import."""
+class underground-safety or bag-fix (their 24 h PRE / null bands). HOLD.json is written by tmp + fsync + os.replace + a
+directory fsync. Every decision is a pure function below, self-tested at import.
+
+AN ACCEPTED QUIET IS RECORDED AND HONOURED (10-22). On 10-21 the owner accepted 240 (--quiet 240 --accept-contamination,
+computed 420); the claim recorded 240, but `--release` with no --quiet passed the computed 420, release took max(recorded,
+computed) = 420, refused until +420 and WROTE 420 into HOLD.json. So HOLD.json now carries `accepted` {quiet, computed, by,
+at}, and a later computed value raises an accepted quiet only when it exceeds the value the acceptance was made against (a
+longer-reading canary became ready since): then it is raised for that call, the call SAYS so, and the raise is not written
+over the accepted floor (if that canary leaves the queue the accepted quiet applies again). An explicit --quiet still raises,
+and is recorded."""
 import datetime as dt, fcntl, importlib.util, json, os, subprocess, sys
 
 H = os.environ.get('SCHED_HOME', '/home/mike')
@@ -119,6 +135,61 @@ def extended_until(cur_until, now, quiet):
     return max(want, cur) if cur else want
 
 
+SRCS = ('cli', 'computed', 'recorded')
+
+
+def effective_quiet(rec, req, src, computed, accept_by=None, at=None):
+    """PURE. -> (quiet, new_record, notes). The quiet period a claim or a release uses, and what HOLD.json records.
+
+    rec: HOLD.json (None on a fresh claim). req: the wrapper's QUIET (already >= FLOOR). src: 'cli' | 'computed' | 'recorded'
+    (see the module doc). computed: the quiet computed NOW, or None when it could not be. accept_by: the
+    --accept-contamination text, or None. at: the ISO time stamped on a new acceptance.
+
+    * No acceptance recorded, or an explicit --quiet, or the recorded fallback: max(recorded, req), recorded (as before).
+    * An acceptance recorded and req is merely the computed value: the recorded quiet stands -- UNLESS computed now exceeds the
+      value the acceptance was made against, when the quiet is raised to it for this call and a note says why. That dynamic
+      raise is NOT written into quiet_min (the accepted floor), so it lapses if the long canary leaves the queue.
+    * A dynamic raise is remembered as `raised_min`, which binds only a later call whose computation FAILED.
+    * accept_by with src 'cli' and the result still below computed records a new acceptance against today's computed value (a note
+      `ACCEPTED ...`), unless the identical acceptance is already recorded."""
+    rec = dict(rec or {})
+    recq = max(int(rec.get('quiet_min') or 0), FLOOR) if rec else 0
+    acc = rec.get('accepted') if isinstance(rec.get('accepted'), dict) else None
+    notes = []
+    floor = max(recq, int(req)) if (src != 'computed' or not acc) else recq
+    q = floor
+    if src == 'computed' and acc:
+        base = int(acc.get('computed') or 0)
+        if computed is not None and int(computed) > base:
+            q = max(recq, int(computed))
+            rec['raised_min'] = max(int(rec.get('raised_min') or 0), q)     # a floor ONLY for a later call that cannot compute
+            notes.append('RAISED: computed quiet now %d exceeds the %d that %r accepted %d against -- a longer-reading canary is '
+                         'ready since; this call uses %d (the accepted quiet is kept; the raise is remembered only for a call that cannot '
+                         'compute). To accept again: --quiet <min> --why <text> '
+                         '--accept-contamination <who decided>' % (int(computed), base, acc.get('by'), recq, q))
+        elif int(req) > recq:
+            notes.append('KEPT the accepted quiet %d (computed now %s; accepted against %d by %r)'
+                         % (recq, computed, base, acc.get('by')))
+    elif rec and floor > recq:
+        notes.append('RAISED: recorded quiet %d -> %d (%s)' % (recq, floor, 'by --quiet' if src == 'cli' else 'computed now'))
+    if computed is None and int(rec.get('raised_min') or 0) > q:
+        # the computation failed after a raise (Claude r1 P3-2): the long canary may still be ready, so the last raise holds
+        q = int(rec['raised_min'])
+        notes.append('HELD at the last raise %d: the quiet period cannot be computed now (an unreadable registration); '
+                     'it lapses once the computation succeeds, or by an explicit re-acceptance' % q)
+    rec['quiet_min'] = floor
+    # an acceptance is made only by an explicit --quiet below the computed value (Claude r1 P2-1: a bare
+    # --accept-contamination must never re-attribute the owner's decision)
+    if accept_by and src == 'cli' and computed is not None and q < int(computed):
+        new = {'quiet': q, 'computed': int(computed), 'by': accept_by}
+        if not acc or any(acc.get(k) != v for k, v in new.items()):
+            new['at'] = at
+            rec['accepted'] = new
+            rec.pop('raised_min', None)          # superseded by this acceptance (Codex r2 P2)
+            notes.append('ACCEPTED quiet %d below computed %d by %r' % (q, int(computed), accept_by))
+    return q, rec, notes
+
+
 _N = dt.datetime(2026, 10, 20, 12, 0, tzinfo=dt.timezone.utc)
 _E = [{'run': 'a', 'variants': {'x': {'registration': 'ra'}}}, {'run': 'b', 'class': 'bag-fix', 'variants': {'y': {'registration': 'rb'}}},
       {'run': 'c', 'variants': {'z': {'registration': 'bad'}}}]
@@ -147,6 +218,27 @@ assert changed_since([_r('11:00:00Z', 'owner-direct', 'isolated-b'), _r('11:00:0
 assert changed_since([_r('11:00:00Z', 'apply-blocked', 'isolated-b')], '2026-10-20T10:00:00Z') is True
 assert extended_until('2026-10-20T20:00:00Z', _N, 60) == parse('2026-10-20T20:00:00Z'), 'never shorter'
 assert extended_until('2026-10-20T12:30:00Z', _N, 60) == parse('2026-10-20T14:00:00Z')
+# the 10-21 case: claimed with an accepted 240 (computed 420), then a plain --release (req = the computed 420)
+_q, _h, _n = effective_quiet(None, 240, 'cli', 420, 'owner 10-21', 'T')
+assert (_q, _h['quiet_min'], _h['accepted']) == (240, 240, {'quiet': 240, 'computed': 420, 'by': 'owner 10-21', 'at': 'T'}) and _n[0].startswith('ACCEPTED')
+assert effective_quiet(_h, 420, 'computed', 420)[:2] == (240, _h), 'a plain release keeps the accepted 240 and records nothing new'
+assert effective_quiet(_h, 420, 'computed', 300)[0] == 240, 'a shorter queue never lowers it'
+_q2, _h2, _n2 = effective_quiet(_h, 1500, 'computed', 1500)
+assert _q2 == 1500 and _h2['quiet_min'] == 240 and _n2[0].startswith('RAISED'), 'a NEW longer-reading canary raises it, says so, preserves quiet_min and remembers the raise'
+assert effective_quiet(_h, 240, 'cli', 1500, 'owner again', 'T2')[1]['accepted']['computed'] == 1500, 'an explicit re-acceptance'
+assert effective_quiet(_h, 240, 'cli', 420, 'owner 10-21', 'T3')[2] == [], 'the same acceptance again is not a new row'
+assert effective_quiet(_h, 480, 'cli', 420)[:2] == (480, dict(_h, quiet_min=480)), 'an explicit --quiet raises and is recorded'
+assert effective_quiet(_h, 240, 'recorded', None)[0] == 240
+assert effective_quiet({'token': 't', 'quiet_min': 240}, 420, 'computed', 420)[:2] == (420, {'token': 't', 'quiet_min': 420}), \
+    'no acceptance: max(recorded, computed), recorded, as before'
+assert effective_quiet(None, 420, 'computed', 420)[0] == 420 and effective_quiet(None, 420, 'computed', 420)[2] == []
+assert effective_quiet(_h, 420, 'computed', 420, 'someone else', 'T4')[1]['accepted']['by'] == 'owner 10-21', \
+    'a bare --accept-contamination (src computed) never re-attributes the recorded acceptance'
+assert _h2['raised_min'] == 1500 and effective_quiet(_h2, 240, 'cli', None)[0] == 1500, 'after a raise, a failed computation holds it'
+assert effective_quiet(_h2, 420, 'computed', 420)[0] == 240, 'a working computation lets the raise lapse'
+assert effective_quiet(_h2, 240, 'cli', 0)[0] == 240, 'nothing ready (the wrapper passes 0): the remembered raise lapses'
+_h3 = effective_quiet(_h2, 240, 'cli', 1500, 'owner again', 'T5')[1]
+assert 'raised_min' not in _h3 and effective_quiet(_h3, 240, 'cli', None)[0] == 240, 'Codex r2 P2: a re-acceptance supersedes the raise'
 
 
 def _ht():
@@ -164,21 +256,68 @@ def read_hold():
         return None
 
 
+def atomic_write(path, obj, suffix):
+    """tmp + flush + fsync + os.replace + a fsync of the directory (so the rename itself survives a power loss: the 10-06
+    outage lost /tmp state); the tmp file is removed if anything before the rename fails."""
+    tmp = path + suffix
+    try:
+        with open(tmp, 'w') as f:
+            json.dump(obj, f)
+            f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    try:
+        fd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass                                   # a directory fsync is best effort (not every filesystem allows it)
+
+
 def write_hold(h):
-    tmp = HOLDF + '.tmp'
-    with open(tmp, 'w') as f:
-        json.dump(h, f)
-        f.flush(); os.fsync(f.fileno())
-    os.replace(tmp, HOLDF)
+    atomic_write(HOLDF, h, '.tmp')
+
+
+def status_ready(rc, lines, entries):
+    """PURE. The scheduler's status table -> (ready|running run names, None) | (None, why). A table that failed, or that does
+    not list EVERY queue entry, is unreadable -- never "nothing ready" (Claude r3 P2: a crashed status read as an empty queue
+    and let a remembered raise lapse)."""
+    if rc != 0:
+        return None, 'canary-sched.py status exited %s' % rc
+    state = {l.split()[0]: l.split()[1] for l in lines if len(l.split()) > 1}
+    missing = [e.get('run') for e in entries if e.get('run') not in state]
+    if missing:
+        return None, 'canary-sched.py status does not list %s' % ', '.join(map(str, missing[:5]))
+    return {r for r, s in state.items() if s in ('ready', 'running')}, None
+
+
+NOTHING_READY = 3        # cmd_quiet's exit code when the table parsed and no entry is ready: the wrapper passes computed 0
+_Q = [{'run': 'a'}, {'run': 'b'}]
+assert status_ready(0, ['a ready x', 'b done y'], _Q) == ({'a'}, None) and status_ready(0, ['a done', 'b done'], _Q) == (set(), None)
+assert status_ready(1, ['a ready x', 'b done y'], _Q)[0] is None, 'a failed status is unreadable'
+assert status_ready(0, [], _Q)[0] is None and status_ready(0, ['a done'], _Q)[0] is None, 'an incomplete table is unreadable, never empty'
 
 
 def cmd_quiet():
-    st = subprocess.run(['python3', os.path.join(H, 'canary-sched.py'), 'status'], capture_output=True, text=True).stdout.splitlines()
-    ready = {l.split()[0] for l in st if len(l.split()) > 1 and l.split()[1] in ('ready', 'running')}
-    q = json.load(open(os.path.join(H, 'canary-queue.json')))
+    """rc 0 + minutes; rc NOTHING_READY when the table is complete and nothing is ready; rc 2 (unreadable) otherwise."""
+    r = subprocess.run(['python3', os.path.join(H, 'canary-sched.py'), 'status'], capture_output=True, text=True)
+    try:
+        q = json.load(open(os.path.join(H, 'canary-queue.json')))
+    except Exception as e:
+        print('queue unreadable: %s' % type(e).__name__); return 2
+    ready, why = status_ready(r.returncode, r.stdout.splitlines(), q.get('entries', []))
+    if ready is None:
+        print(why); return 2
     m, why = quiet_from(ready, q.get('entries', []), lambda p: json.load(open(p)))
     if m is None:
-        print(why); return 2
+        print(why); return NOTHING_READY if why == 'no ready queue entry' else 2
     print(m); return 0
 
 
@@ -187,43 +326,62 @@ def extend(ht, P, token, base, quiet):
     def go():
         if ht.owner_of(P['install_hold']) != token:
             return None
-        r = json.load(open(P['install_hold']))
+        with open(P['install_hold']) as f:
+            r = json.load(f)
         r['until'] = iso(extended_until(r.get('until'), base, quiet))
-        tmp = P['install_hold'] + '.i2s-tmp'
-        with open(tmp, 'w') as f:
-            json.dump(r, f); f.flush(); os.fsync(f.fileno())
-        os.replace(tmp, P['install_hold'])
+        atomic_write(P['install_hold'], r, '.i2s-tmp')
         return r['until']
     return ht._locked(P, go)
 
 
-def cmd_claim(owner, quiet):
-    quiet = int(quiet)
+def _args(quiet, src, computed, accept):
+    """The CLI's five-argument form -> (req, src, computed, accept_by). The old two-argument form is src `cli`: exactly the old
+    max(recorded, quiet), and no acceptance."""
+    if src not in SRCS:
+        raise SystemExit('src must be one of %s, not %r' % ('|'.join(SRCS), src))
+    return int(quiet), src, (None if computed in (None, '-', '') else int(computed)), (None if accept in (None, '-', '') else accept)
+
+
+def cmd_claim(owner, quiet, src='cli', computed=None, accept=None):
+    req, src, computed, accept = _args(quiet, src, computed, accept)
+    now = dt.datetime.now(dt.timezone.utc)
     ht = _ht(); sm = ht._sched(); P = sm.paths()
     h = read_hold()
     cur = ht.owner_of(P['install_hold'])
     if h and cur == h['token']:
-        until = extend(ht, P, h['token'], dt.datetime.now(dt.timezone.utc), max(quiet, int(h.get('quiet_min', 0))))
+        q, h2, notes = effective_quiet(h, req, src, computed, accept, iso(now))
+        until = extend(ht, P, h['token'], now, q)
         if not until:
             print('REFUSED: the hold changed owner while extending it'); return 2
-        h['quiet_min'] = max(quiet, int(h.get('quiet_min', 0)))
-        write_hold(h)
-        print('REUSED %s; until %s; quiet %d' % (h['token'], until, h['quiet_min'])); return 0
+        if h2 != h:
+            write_hold(h2)
+        for n in notes:
+            print(n)
+        print('REUSED %s; until %s; quiet %d' % (h['token'], until, q)); print('QUIET %d' % q); return 0
     if h:
         print('REFUSED: HOLD.json names %s but the live hold is %r: resolve by hand (no new claim over a recorded one)' % (h['token'], cur)); return 2
+    q, h2, notes = effective_quiet(None, req, src, computed, accept, iso(now))
     token = '%s:%d:%d' % (RUN, os.getpid(), int(dt.datetime.now().timestamp() * 1e9))
-    rc = ht.claim(P, token, quiet + 60, ht.sched_slot_check(sm))
+    rc = ht.claim(P, token, q + 60, ht.sched_slot_check(sm))
     if rc != 0:
         return 2
-    write_hold({'token': token, 'quiet_min': quiet, 'owner': owner, 'claimed_at': iso(dt.datetime.now(dt.timezone.utc))})
-    print('CLAIMED %s' % token); return 0
+    h2.update({'token': token, 'owner': owner, 'claimed_at': iso(now)})
+    if computed is not None:
+        h2['computed_min'] = computed
+    write_hold(h2)
+    for n in notes:
+        print(n)
+    print('CLAIMED %s; quiet %d' % (token, q)); print('QUIET %d' % q); return 0
 
 
-def cmd_release(owner, quiet):
+def cmd_release(owner, quiet, src='cli', computed=None, accept=None):
+    req, src, computed, accept = _args(quiet, src, computed, accept)
     h = read_hold()
     if not h:
         print('REFUSED: no hold recorded in %s' % HOLDF); return 2
-    q = max(int(quiet), int(h.get('quiet_min', 0)))
+    # notes (RAISED / KEPT / ACCEPTED) are printed only where they take effect: an ACCEPTED line makes the wrapper journal
+    # `contamination-accepted`, so it must never be printed by a call that then records nothing
+    q, h2, notes = effective_quiet(h, req, src, computed, accept, iso(dt.datetime.now(dt.timezone.utc)))
     try:
         lines = open(JOURNAL).read().splitlines()
     except Exception as e:
@@ -237,19 +395,28 @@ def cmd_release(owner, quiet):
         print('REFUSED: %s' % why); return 2
     ht = _ht(); P = ht._sched().paths()
     if not ok:
-        # a QUIET raised at release (a long canary queued during the hold) must not leave the hold expiring first
-        # (Claude r4 P3-1): its until is extended to last + q + 60
-        if q > int(h.get('quiet_min', 0)):
-            extend(ht, P, h['token'], parse(last), q)
-            h['quiet_min'] = q; write_hold(h)
-        print('REFUSED: the quiet period runs to %s (last transition %s + %d min)' % (iso(nb), last, q)); return 2
+        # the hold must not expire before the quiet period it guards ends (Claude r4 P3-1; 10-22: on EVERY refusal, not only
+        # when q rose here -- a raise recorded by an earlier call, or a claim extended from its own start, could leave
+        # `until` short): until -> max(until, last + q + 60). A failed extension is said, and records nothing.
+        until = extend(ht, P, h['token'], parse(last), q)
+        if not until:
+            print('REFUSED: the live hold is not ours (%r): nothing extended or recorded' % ht.owner_of(P['install_hold']))
+            print('QUIET %d' % q); return 2
+        if h2 != h:
+            write_hold(h2)
+        for n in notes:
+            print(n)
+        print('REFUSED: the quiet period runs to %s (last transition %s + %d min); hold until %s' % (iso(nb), last, q, until))
+        print('QUIET %d' % q); return 2
     if ht.owner_of(P['install_hold']) != h['token']:
         print('REFUSED: the live hold is not ours (%r): nothing released' % ht.owner_of(P['install_hold'])); return 2
     ht.release(P, h['token'])
     if ht.owner_of(P['install_hold']) is not None:
         print('REFUSED: the hold is still there after release'); return 2
     os.remove(HOLDF)
-    print('RELEASED %s (last transition %s + %d min = %s)' % (h['token'], last, q, iso(nb))); return 0
+    for n in notes:
+        print(n)
+    print('RELEASED %s (last transition %s + %d min = %s)' % (h['token'], last, q, iso(nb))); print('QUIET %d' % q); return 0
 
 
 def cmd_drop():
@@ -281,10 +448,10 @@ if __name__ == '__main__':
         print('self-tests PASS'); sys.exit(0)
     if a == ['quiet']:
         sys.exit(cmd_quiet())
-    if len(a) == 3 and a[0] == 'claim':
-        sys.exit(cmd_claim(a[1], a[2]))
-    if len(a) == 3 and a[0] == 'release':
-        sys.exit(cmd_release(a[1], a[2]))
+    if len(a) in (3, 6) and a[0] == 'claim':
+        sys.exit(cmd_claim(*a[1:]))
+    if len(a) in (3, 6) and a[0] == 'release':
+        sys.exit(cmd_release(*a[1:]))
     if a == ['drop']:
         sys.exit(cmd_drop())
     print(__doc__); sys.exit(2)

@@ -20,7 +20,9 @@
 #                 counted only from start + 5 min + 240 s (FURNACE_LEASE_TTL_MS: old-env leases cannot be seen across the
 #                 switch).
 #   I5 EXPOSURE   (BLIND from +120 min if missing) per converted pool: >= 1 _well_dispose success at a known cap, and >= 1
-#                 _smelt_job_tally row (the job is on and was considered at town). Before +120 min: EARLY.
+#                 _smelt_job_tally row (the job is on and was considered at town). Before +120 min: EARLY. A disposal whose
+#                 `at=` token was cut by the 300-char detail cap is placed by the row's bot.pos instead (near_cap; 10-22: the
+#                 isolated-b pilot read BLIND at +180 with a disposal at the cap at +36 min whose at= ended at char 300).
 #   I6 COBBLE     the fail-closed recount actually closing (Codex r2 P2-9): over the TRAILING 120 min, the pool's *_unknown
 #                 _stock_refused rate per bot-hour against max(its own PRE rate, the shared pools' POST rate, 0.2) -- above 3x
 #                 with no counted _stock_recount in that tail is not closing: BLIND from +60, BREACH from +180. Unknown
@@ -36,6 +38,7 @@ LOGS = '/var/log/mcai'
 STATE = '/var/lib/mcai'
 MANIFEST = '/srv/mcbots/trial-manifest.json'
 GAP_CAP_S = 120
+DETAIL_CAP = 300        # the bots cut a skill row's detail at 300 chars
 LEASE_TTL_S = 240
 KINDS = {'_death', '_plinth', '_well_pit_dug', '_well_dispose', '_furnace_session', '_smelt_job_tally', '_smelt_town', 'smelt_town',
          '_stock_refused', '_stock_recount', '_deposit_new_chest', '_plinthfirst_mode', '_plinth021_mode', 'town_deposit', 'gather'}
@@ -55,6 +58,33 @@ def at_of(d):
     and a cut `at=357,74,16` must never read as a cap."""
     m = re.search(r'(?:^| )at=(-?\d+),(-?\d+),(-?\d+) ', d or '')
     return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+def near_cap(pos, caps):
+    """PURE. The known cap a bot standing at `pos` (bot.pos {x, y, z}) is disposing into, or None. Used ONLY when the detail's
+    at= token is unreadable (cut by the 300-char cap): a bot at a well stands on or beside the cap block, so its feet are
+    within 2 blocks of the cap's centre horizontally and within 2 of the block above it vertically."""
+    try:
+        x, y, z = float(pos['x']), float(pos['y']), float(pos['z'])
+    except Exception:
+        return None
+    for c in sorted(caps or ()):
+        if abs(x - (c[0] + 0.5)) <= 2 and abs(z - (c[2] + 0.5)) <= 2 and abs(y - (c[1] + 1)) <= 2:
+            return c
+    return None
+
+
+def disposal_cap(d, pos, caps):
+    """PURE. I5: the known cap a _well_dispose row disposed into, and how it was placed -> (cap, 'at' | 'pos') | (None, None).
+    A complete at= token decides alone (a complete token at another cap is NOT rescued by the bot's position); only an
+    unreadable token (cut by the 300-char detail cap) falls back to bot.pos."""
+    at = at_of(d)
+    if at is not None:
+        return (at, 'at') if at in (caps or ()) else (None, None)
+    if len(d or '') < DETAIL_CAP:
+        return None, None              # an uncut detail with no readable at= is not placed by position (Claude r1 P3-6)
+    c = near_cap(pos, caps)
+    return (c, 'pos') if c else (None, None)
 
 
 def pool_of(bot):
@@ -159,6 +189,8 @@ def walk(lo, since, post0, now, judged, tail0=None):
                     if e == 'post' and tail0 is not None and prev[0] >= tail0:
                         exp_h[bot]['tail'] += g          # MEASURED trailing exposure (Codex r3 P2-5), never scaled
                 prev = (t, e)
+                if t >= now:
+                    continue          # a --until replay never SELECTS the future (it would mark a pool mixed: Codex r1)
                 mine = bot in judged and t >= since
                 if mine or any(k in raw for k in KIND_BYTES):
                     try:
@@ -167,7 +199,9 @@ def walk(lo, since, post0, now, judged, tail0=None):
                         continue
                     sk = r.get('skill') or {}
                     if sk.get('name') in KINDS or mine:
-                        sel.append((bot, t, sk.get('name'), sk.get('status'), sk.get('detail') or '', r.get('exp') or {}))
+                        # bot.pos rides in a copy of exp under `_pos` (no reader of exp looks at underscore keys): near_cap's input
+                        sel.append((bot, t, sk.get('name'), sk.get('status'), sk.get('detail') or '',
+                                    dict(r.get('exp') or {}, _pos=(r.get('bot') or {}).get('pos'))))
     return sel, exp_h, walked
 
 
@@ -180,6 +214,25 @@ def exposure(times, a, z):
 # ---- self-tests on the bots' own row strings and on the pure rules ----
 assert at_of('slots=36->35 cap_end=closed at=357,74,160 stop=done items=p') == (357, 74, 160)
 assert at_of('slots=36->35 cap_end=closed at=357,74,16') is None, 'a detail cut inside at= is not a cap'
+# the real isolated-b-Delta row of 2026-10-21T14:29:08.530Z: detail ends `... cap_end=closed at=357,74,160` at char 300, bot.pos
+assert at_of('nonlisted=0 other_loss=0 server=resync closed_open=0 cap_end=closed at=357,74,160') is None
+assert near_cap({'x': 357.5, 'y': 75, 'z': 159.5}, {(357, 74, 160)}) == (357, 74, 160)
+assert near_cap({'x': 361.5, 'y': 75, 'z': 159.5}, {(357, 74, 160)}) is None, '4 blocks away is not at the cap'
+assert near_cap({'x': 357.5, 'y': 64, 'z': 160.5}, {(357, 74, 160)}) is None, 'down the shaft is not at the cap'
+assert near_cap(None, {(357, 74, 160)}) is None and near_cap({'x': 357.5, 'y': 75, 'z': 160.5}, None) is None
+# two REAL isolated-b rows (300 chars each, bot.pos 357.4,75,159.5): one whose at= ends flush with the cap, one with its space
+_D_CUT = ('slots=34->27 offlist=0 gclicked=1 stone=192 swords=0 sword_lost=0 sword_kept=0 cobble=212 cobble_left=64 cap=at_cap '
+          'offlist_items=- unnamed=0 freed=7 tossed=7 n=216 misses=0 aim_off=0 aim_read=7 retaken=0 recollected=0 nonlisted=0 '
+          'other_loss=0 server=resync closed_open=0 cap_end=closed at=357,74,160')
+_D_OK = ('slots=34->31 offlist=0 gclicked=1 stone=64 swords=0 sword_lost=0 sword_kept=0 cobble=124 cobble_left=64 cap=at_cap '
+         'offlist_items=- unnamed=0 freed=3 tossed=3 n=125 misses=0 aim_off=0 aim_read=3 retaken=0 recollected=0 nonlisted=0 '
+         'other_loss=0 server=resync closed_open=0 cap_end=closed at=357,74,160 ')
+_P, _C = {'x': 357.4, 'y': 75, 'z': 159.5}, {(357, 74, 160)}
+assert len(_D_CUT) == 300 and len(_D_OK) == 300
+assert disposal_cap(_D_OK, _P, _C) == ((357, 74, 160), 'at') and disposal_cap(_D_CUT, _P, _C) == ((357, 74, 160), 'pos')
+assert disposal_cap(_D_CUT, {'x': 300.5, 'y': 75, 'z': 100.5}, _C) == (None, None), 'cut and elsewhere: not counted'
+assert disposal_cap('slots=36->35 cap=at_cap', _P, _C) == (None, None), 'a short detail without at= is not placed by position'
+assert disposal_cap(_D_OK.replace('at=357,74,160 ', 'at=351,72,134 '), _P, _C) == (None, None), 'a complete token elsewhere is not rescued'
 assert kv('furnace=399,12,164 lease=1 t0=1792457595767 t1=1792457633636 by=smelt')['t1'] == '1792457633636'
 assert kv('phase=mode v=1 policy=1 shared=1 minraise=2 lost=evidence dy=12 w=x')['policy'] == '1'
 assert kv('trigger=order refused=4 keys=4 counted=2 tried=3 unknown_after=4')['counted'] == '2'
@@ -205,13 +258,14 @@ def main():
     ap.add_argument('--since', required=True, help='ISO time the units were stopped for the conversion')
     ap.add_argument('--pools', required=True)
     ap.add_argument('--pre-hours', type=float, default=24.0)
+    ap.add_argument('--until', default=None, help='REPLAY: read as if now were this ISO time (rows after it are ignored)')
     a = ap.parse_args()
     pools = [p.strip() for p in a.pools.split(',') if p.strip()]
     for p in pools:
         if not re.fullmatch(r'isolated-[a-d]', p):
             sys.exit('not a converted pool name: %s' % p)
     since = ts(a.since)
-    now = dt.datetime.now(dt.timezone.utc)
+    now = ts(a.until) if a.until else dt.datetime.now(dt.timezone.utc)
     minutes = (now - since).total_seconds() / 60
     post0 = since + dt.timedelta(minutes=5)
     lo = since - dt.timedelta(hours=a.pre_hours)
@@ -244,9 +298,12 @@ def main():
     newest, lic, sessions = {}, defaultdict(set), []
     planned, pitdug, dispose_ok, tally, unknown_ref, counted_rc, deaths = defaultdict(list), defaultdict(list), Counter(), Counter(), Counter(), Counter(), defaultdict(list)
     caps = {p: known_caps(p) for p in pools}
+    dispose_by_pos = Counter()
     unk_t, rc_t = defaultdict(list), defaultdict(list)
     lease_from = since + dt.timedelta(minutes=5, seconds=LEASE_TTL_S)
     for bot, t, k, st, d, exp in sel:
+        if t >= now:
+            continue                                     # a --until replay: the future is not read
         p = pool_of(bot)
         g = p if p in pools else 'still-isolated' if p in still else 'shared' if p in shared else None
         era = era_of(t, lo, since, post0, now)
@@ -272,8 +329,9 @@ def main():
             planned[p].append((bot, t, at_of(d), f.get('why')))
         elif k == '_well_pit_dug':
             pitdug[p].append((bot, t, at_of(d), f.get('from')))
-        elif k == '_well_dispose' and st == 'success' and caps[p] and at_of(d) in caps[p]:
+        elif k == '_well_dispose' and st == 'success' and caps[p] and disposal_cap(d, exp.get('_pos'), caps[p])[0]:
             dispose_ok[p] += 1
+            dispose_by_pos[p] += disposal_cap(d, exp.get('_pos'), caps[p])[1] == 'pos'
         elif k == '_smelt_job_tally':
             tally[p] += 1
         elif k == '_stock_refused' and re.search(r':(cobble|stock)_unknown\b', d):
@@ -293,6 +351,9 @@ def main():
     print('DENOMINATORS since %s (%.0f min) pre %.0f h | lines walked %d | selected rows %d | bots %d (converted %s; still-isolated %s; shared %d pools%s)' % (
         a.since, minutes, a.pre_hours, walked, len(sel), len(bots), {p: len(v) for p, v in conv.items()}, still, len(shared),
         ', canary %s excluded' % sorted(canary) if canary else ''))
+    if a.until:
+        print('REPLAY       as of --until %s: rows after it are not read, but the declared canary, the known caps and the pool '
+              'set are TODAY\'s (Claude r1 P3-7)' % a.until)
     seen = Counter(k for _, _, k, _, _, _ in sel if k in KINDS)
     print('INSTRUMENT   selected kinds seen fleet-wide in the window (the parsers\' positive control): %s' % dict(sorted(seen.items())))
     if not sel or not bots:
@@ -306,7 +367,7 @@ def main():
             ok = n and e.get('pool') == p and e.get('memory_scope') == 'private' and e.get('arm') == 'town' and lic[b] >= {'plinthfirst', 'plinth021'}
             print('I1 CONFIG    %-18s newest %s pool=%s scope=%s arm=%s licence=%s' % (b, n[0].strftime('%H:%M:%S') if n else '-', e.get('pool'), e.get('memory_scope'), e.get('arm'), sorted(lic[b]) or '-'))
             if minutes >= 15 and not ok:
-                breach('I1', p, '%s did not take the shared config (newest %s, licence %s)' % (b, e or 'none', sorted(lic[b])))
+                breach('I1', p, '%s did not take the shared config (newest %s, licence %s)' % (b, {k: v for k, v in e.items() if k != '_pos'} or 'none', sorted(lic[b])))
         if len(conv[p]) != 5:
             breach('I1', p, '%d bots on disk, expected 5' % len(conv[p]))
         # I2
@@ -337,7 +398,8 @@ def main():
         for key, b1, b2 in ov:
             breach('I4', p, 'furnace %s held by %s and %s at once' % (key[1], b1, b2))
         # I5
-        print('I5 EXPOSURE  %s well disposals at a known cap %d | _smelt_job_tally rows %d' % (p, dispose_ok[p], tally[p]))
+        print('I5 EXPOSURE  %s well disposals at a known cap %d (%d placed by bot.pos: at= cut at the detail cap) | _smelt_job_tally rows %d'
+              % (p, dispose_ok[p], dispose_by_pos[p], tally[p]))
         if minutes >= 120 and (dispose_ok[p] == 0 or tally[p] == 0):
             blind.append('%s unexposed (disposals %d, smelt tallies %d)' % (p, dispose_ok[p], tally[p]))
         # I6

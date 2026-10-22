@@ -454,8 +454,10 @@ be undone.
 The wrapper supports this as an explicit, journalled choice:
 `--quiet 240 --why "<text>" --accept-contamination "<who decided>"`.
 
-* Pass the SAME three options to **every** phase and to `--release`. A plain `--release` recomputes the quiet period (780 now)
-  and keeps the hold for that long.
+* (SUPERSEDED 10-22, section 11.2.) The acceptance is now RECORDED in HOLD.json and honoured: a plain `--release` and a
+  later phase that reuses the hold keep the accepted quiet, unless a longer-reading canary became ready since (then the
+  helper prints RAISED and the hold is extended). Passing the same three options again is harmless but no longer needed.
+  The pre-10-22 tool needed them on `--release` -- and even then a plain `--release` wrote the computed value into HOLD.json.
 * Without the flag, `--quiet` can only raise the computed value.
 * The 240-min floor cannot be lowered: it is the rollback window.
 
@@ -723,3 +725,201 @@ claimed.
 
 **Coordinator question (10-20):** exclusion vs hold, in 5.2a. The new `--accept-contamination` lowers the hold to the
 240-min floor, as a journalled decision.
+
+## 11. 10-22: the pilot's read, the accepted-quiet fix, and phase 2
+
+### 11.1 What went wrong on 10-21
+
+The owner accepted a 240-min quiet period. The journal row is `contamination-accepted` at 13:53:20Z: "quiet 240 below computed
+420". `--release` then refused until 20:54Z, which is the last transition (13:54:21Z) + 420. The operator hand-set HOLD.json
+`quiet_min` to 240 (backup `HOLD.json.bak-1754Z`, which shows 420) and released at 17:54:55Z.
+
+**The claim did not write the 420; a refused `--release` did.** The evidence:
+
+* The scheduler log shows the install-hold's `until` as 18:53:20Z on every tick from 13:55 to 17:50Z. That is the claim time
+  (13:53:20Z) + 240 + 60, so the claim used 240. In the c6bea93b code, the claim writes the same `quiet` into HOLD.json.
+* In the old code, `--release <owner>` with no `--quiet` passed the computed 420. `cmd_release` took max(recorded 240,
+  computed 420) = 420 and refused. Because 420 > 240, it also wrote `quiet_min` 420 into HOLD.json and extended the hold.
+* The log's last tick before the release was 17:50:01Z. The refused attempt fell between that tick and 17:54Z, so the log
+  never showed the extended `until`.
+
+STATE.md's "the claim recorded quiet_min 420" was the natural reading of HOLD.json afterwards. The mechanism was the release.
+
+### 11.2 The fix (isolated2sharedhold.py, isolated2shared-direct.sh)
+
+* **The wrapper tells the helper where QUIET came from.** The source is `cli` (an explicit `--quiet`), `computed`, or
+  `recorded` (a rollback whose computation failed). It also passes the value computed now and the `--accept-contamination`
+  text. The helper's last line is `QUIET <n>`, the effective quiet, and every later row and message uses it.
+* **HOLD.json records the acceptance** as `accepted` = {quiet, computed, by, at}.
+* **`effective_quiet()` decides.** It is pure and self-tested at import:
+  * Suppose an acceptance is recorded and QUIET is merely the computed value. Then the accepted quiet stands, and the helper
+    prints `KEPT`.
+  * The exception is a computed value above the one the acceptance was made against, which means a longer-reading canary
+    became ready since. Then that call uses the higher value, prints `RAISED: ...` with the remedy, and extends the hold. It
+    does not overwrite the accepted floor, so the raise lapses if that canary leaves the queue. It is remembered as
+    `raised_min`, which binds only a later call whose computation FAILS (an unreadable registration). An empty queue is not
+    a failure: `quiet` exits 3 only when the scheduler status ran and lists every queue entry with none ready, and the
+    wrapper then passes 0, so the raise lapses. A crashed or incomplete status is unreadable and holds the raise. A
+    superseding acceptance clears `raised_min`.
+  * An explicit `--quiet` still raises the quiet period, and the raise is recorded.
+  * A re-acceptance against a new computed value is recorded, and the helper prints `ACCEPTED`. The wrapper journals
+    `contamination-accepted` only on that line, so a refused call that recorded nothing writes no row.
+  * An acceptance is made only by an explicit `--quiet` BELOW the computed value. A bare `--accept-contamination` is refused
+    by the wrapper and ignored by the helper, so it can never re-attribute the owner's decision.
+* **Two earlier P3s are fixed:**
+  * Every refused release now extends the hold to last + quiet + 60 and checks the result. Before, it extended only when the
+    quiet period rose, and it ignored a failed extension while still writing the raised value.
+  * HOLD.json and the INSTALL-HOLD extension each go through the same `atomic_write` helper, in separate writes: tmp
+    file, flush, fsync, replace, then a directory fsync. The tmp file is removed on failure.
+* `H` and the canary-lock path can be overridden from the environment (`SCHED_HOME`, `I2S_CANARY_LOCK`). This exists only so
+  the fixture test never opens the live lock. Production uses the defaults.
+
+**Tests** (bots/test/isolated2shared.test.mjs, 44/44). They run the REAL wrapper and helper with the repo's real
+holdtoken.py against a fixture home. flock, sudo, systemctl, date and sleep are fakes on PATH. The scheduler is a fake
+canary-sched.py whose status table and queue each test writes. Journal rows are aged by rewriting their ts, so no clock hook
+exists in the code. The cases:
+
+* **10-21 through the wrapper:** apply with `--quiet 240 --accept-contamination` (computed 420), then a plain `--release`.
+  At +239 it refuses, and HOLD.json keeps 240. At +240 it releases, and the scheduler hold is gone.
+* **A new bag-fix canary** raises the quiet to 1500. The release refuses with RAISED, the hold is extended to last + 1560,
+  and `quiet_min` stays 240. When that canary leaves the queue, the release goes through at +240.
+* **A bare `--accept-contamination`** is refused, writes no row, and leaves the owner's acceptance untouched.
+* **A later phase** keeps 240 (`KEPT`, and the `owner-direct` row says 240), and writes no second acceptance row.
+* **An explicit `--quiet 480`** raises the quiet period and is recorded.
+* **Mutants**, each with its anchor present and unique: release = max(recorded, computed), the old behaviour (refuses at
+  +240 and writes 420; the import-time self-test also refuses it); the wrapper's source always `cli`; a claim that records
+  the computed value; a refused release that does not extend the hold; the bare-acceptance refusal removed; I5 without the
+  position fallback; a `--until` replay without its future-row skip (checked by hand).
+
+### 11.3 The pilot's +180 BLIND was the instrument, not the exposure
+
+At +180, I5 read "0 well disposals" and returned BLIND. The real rows say something else:
+
+* **The first disposal came at +36 min.** isolated-b-Delta disposed at the cap at 14:29:08Z: 8 items tossed, cap=at_cap,
+  bot.pos 357.5,75,159.5.
+* **The position was cut off.** Its 300-char detail ends `... cap_end=closed at=357,74,160` exactly at the cap. `at_of()`
+  rightly refuses a token there, because a cut token could look like a real one.
+* **Every bot disposed.** Since the switch there have been 11 disposals at 357,74,160, by all five bots. In 8 of them the
+  `at=` token is cut.
+* **The installed tripwire reads OK now.** At +1331 min it reads TRIPWIRE OK, counting the 3 disposals it can position. I3
+  shows 1 death in 136.7 bot-h, against 1 in 139.0 before the switch.
+
+The cut token is the same in every isolated pool. Window: 10-21 12:00Z to 10-22 ~12:00Z; 120-140k rows walked per pool,
+5 bots each.
+
+| pool | cap | disposals | complete at= | cut at=, bot.pos within 2 of the cap | cut, elsewhere |
+|---|---|---|---|---|---|
+| isolated-a | 361,73,133 | 18 | 11 | 7 | 0 |
+| isolated-b | 357,74,160 | 11 | 3 | 8 | 0 |
+| isolated-c | 351,72,134 | 13 | 6 | 7 | 0 |
+| isolated-d | 369,72,151 | 16 | 10 | 6 | 0 |
+
+**Fix (isolated2sharedtrip.py).** `disposal_cap()` decides each row:
+
+* A complete `at=` token decides alone. A complete token at another cap is never rescued by the bot's position.
+* Only an unreadable token in a detail of at least 300 characters (the cap) falls back to `near_cap(bot.pos)`.
+
+bot.pos rides into the row tuple inside a copy of `exp`, under `_pos`. `--until` replays a read as of a past time.
+
+**Replay on the host** of the pilot's +180 read (`--since 2026-10-21T13:53:20Z --until 2026-10-21T16:53:20Z`):
+
+* With the fix, I5 = 1 (placed by bot.pos) and TRIPWIRE OK.
+* With the fallback removed, I5 = 0 and TRIPWIRE BLIND, which is exactly the 10-21 read. The replay's 44 smelt tallies match
+  the recorded read.
+* With the fix, the read at +1337 min counts 11 disposals (8 placed by bot.pos), matching the row count above.
+
+### 11.4 Recommendation: do not require another observed disposal on isolated-b
+
+The disposal has been observed, both in the rows and by the tripwire's own strict rule, which reads OK. The 10-21 BLIND was
+the 300-char detail cap, which is "a cheap negative from an instrument that could not see a presence" (CLAUDE.md). Waiting
+for one more disposal adds nothing.
+
+Install the I5 fix before phase 2 instead. Otherwise each phase-2 pool's +180 read can come back BLIND for the same reason.
+The odds:
+
+* **Expected exposure.** Before the switch, the phase-2 pools disposed 13-18 times in ~24 h (0.55-0.75/h). That gives
+  P(no disposal in 3 h) ≈ e^-1.6 to e^-2.25 ≈ 10-20% per pool with the fix.
+* **Without the fix,** only ~60% of disposals are countable, so P(BLIND at +180) ≈ 25-40% per pool.
+* **A BLIND is not a breach.** The procedure in 6.3 is to read again at +360.
+
+### 11.5 Phase 2: isolated-a, isolated-c, isolated-d (nothing below has been run)
+
+**Preconditions.**
+
+* **The fixes are installed** (`install-i2s-hostfix-1022.sh`). It refuses while HOLD.json exists.
+* **The slot is empty.** On 10-22 ~12:10Z, `plan` reported WOULD REFUSE for the live canary on hive-b and placebo-a.
+* **fleet-recycle.timer is more than 30 min away.** The wrapper checks this.
+* **The owner's 10-21 acceptance holds:** "240-min quiet per phase", made against a computed 420. Phase 2 makes a FRESH
+  claim, which binds nothing to that acceptance. So: computed > 420 means ask the owner before passing
+  `--accept-contamination`, because that would be a new decision. Computed <= 240 means drop `--quiet`, `--why` and
+  `--accept-contamination` (the wrapper refuses an acceptance that lowers nothing). If no entry is ready, the computation
+  fails: pass `--quiet 240 --why "<text>"` without `--accept-contamination`.
+
+**The read-only plan, as of 10-22 ~12:10Z.** All three pools seed cleanly apart from the canary:
+
+| pool | plinth cap | plinth records | composter | containers | world facts |
+|---|---|---|---|---|---|
+| isolated-a | 361,73,133 | 1 complete + 3 plan, all at that cap; 4 no-site records not copied | 351,72,143 | 22 | 120 sites |
+| isolated-c | 351,72,134 | 5 complete | 354,78,150 | 16 | 114 sites |
+| isolated-d | 369,72,151 | 1 complete + 3 plan; 4 no-site records not copied | 351,68,144 | 15 | 120 sites |
+
+**The commands, on 10.0.0.31 as mike:**
+
+```
+cd ~/isolated2shared
+python3 isolated2sharedhold.py quiet                      # the computed QUIET now (420 on 10-21 with toolkit-03 ready)
+for p in isolated-a isolated-c isolated-d; do sudo node isolated2shared.mjs plan --pool $p; done   # each: no WOULD REFUSE
+bash isolated2shared-direct.sh --quiet 240 --why "OWNER 10-21 01:30Z: 240-min quiet per phase" \
+     --accept-contamination "owner (darrellmiller) 10-21 01:30Z" operator-claude isolated-a isolated-c isolated-d
+#   expect: ACCEPTED quiet 240 below computed <CQ> / CLAIMED ...; quiet 240 / QUIET 240 / three DONE apply lines, each with T0
+#   journal: contamination-accepted, then per pool owner-direct + apply-done (pool field set)
+```
+
+**The tripwire.** Run it per pool, each with its own T0, at +15, +60 and +180. The T0 is the stop time INSIDE that pool's
+`apply-done` note ("isolated-a since <T0>", the same T0 as in the printed command), not the row's own ts. Run one pool
+at a time; each run is a ~50 s full walk.
+
+```
+cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <T0 of isolated-a> --pools isolated-a
+cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <T0 of isolated-c> --pools isolated-c
+cd ~/isolated2shared && nice -n 19 python3 isolated2sharedtrip.py --since <T0 of isolated-d> --pools isolated-d
+```
+
+* **BREACH:** `bash ~/isolated2shared/isolated2shared-direct.sh --rollback operator-claude <pool>`, then record REVERT for that
+  pool. A rollback is a transition, so the quiet period restarts from it.
+* **OK at +180:** record KEEP for that pool.
+* **BLIND:** read again at +360.
+* **Comparator change.** After phase 2 no pool is still isolated, so the "still-isolated" comparator is empty and I7 prints
+  `-` for it. I3 still judges each pool against its own PRE and the shared pools' POST.
+* **Watch isolated-d first.** It had the most deaths before the switch (design 6.2).
+
+**Release.** Once the last transition + 240 min has passed:
+
+```
+bash ~/isolated2shared/isolated2shared-direct.sh --release operator-claude
+```
+
+* **Before that time,** it refuses and names the time.
+* **If a longer-reading canary was queued** during the hold, it prints `RAISED` and the time moves out. To keep 240 anyway,
+  the owner must accept again: `--quiet 240 --why ... --accept-contamination ...`.
+* **On success,** it journals `hold-released` with the effective quiet.
+
+**Close.** Record KEEP or REVERT per pool in the journal and STATE.md, then mark memory SHIPPED. Archive (4.5) after the
+last KEEP.
+
+### 11.6 Review log (10-22, hostfix-1022; drawrec.sh's endpoint lines were reviewed in the same rounds)
+
+* **r1.** Codex: DESIGN APPROVE, CODE CHANGE. Claude: DESIGN APPROVE, CODE CHANGE. Both confirmed the 11.1 reading of 10-21.
+  * Codex P2s, all fixed: the i2s installer could leave a partial install, so it now rolls back all three files, verified;
+    `--until` leaked future rows into `mixed`, so the walk now skips them; drawrec collapsed endpoints to a hostname, so it
+    now compares normalized URLs; a pool with missing bot env files read as agreement, so it now needs exactly 5; the env
+    parse differed from systemd on continuations and quotes.
+  * Claude P2, fixed: a bare `--accept-contamination` re-attributed the owner's acceptance.
+  * P3s fixed: the remembered raise (`raised_min`), `_pos` in the I1 detail, the I5 fallback only on a 300-char detail, the
+    REPLAY disclosure, taking the lock before the precheck, no flock in a dry run, an empty `OLLAMA_BASE_URL`, and doc 5.2a.
+* **r2.** Both DESIGN APPROVE. Codex CODE CHANGE: a re-acceptance left a stale `raised_min`, so it is now cleared. Claude
+  CODE APPROVE with P3s: `raised_min` never expired on an empty queue, so it now lapses there; wording; doc 11.
+* **r3.** Codex APPROVE / APPROVE. Claude CODE CHANGE: a crashed scheduler status read as "nothing ready". Fixed: the pure
+  `status_ready`, `quiet` exiting 3 only on a complete table, and the wrapper matching the exit code rather than text, with a
+  test and a mutant.
+* **r4.** Codex APPROVE / APPROVE. Claude APPROVE / APPROVE. No P1 or P2 open.
