@@ -125,7 +125,8 @@ test('MUTANT KILLED: without the three-try bound the exit is re-issued for ever'
 })
 test('WIRED: cognitive applies exitOutcome to every exit it ran', () => {
   const src = strip(readFileSync(COG_URL, 'utf8'))
-  assert.match(src, /if \(admitted\.skill === 'keepout_exit'\) \{\s*const o = exitOutcome\(\{ tries: this\.keepoutExitTries \?\? 0, backoffUntil: this\.keepoutExitBackoffUntil \?\? 0 \}, r\.status\)/)
+  // (homefix-02's variant: a run the runner DECLINED never ran and is not counted -- `!declined && `)
+  assert.match(src, /if \(!declined && admitted\.skill === 'keepout_exit'\) \{\s*const o = exitOutcome\(\{ tries: this\.keepoutExitTries \?\? 0, backoffUntil: this\.keepoutExitBackoffUntil \?\? 0 \}, r\.status\)/)
   assert.match(src, /backoffUntil: this\.keepoutExitBackoffUntil \?\? 0 \}\)/, 'and the decision reads the back-off')
 })
 test('the guard\'s purpose: survival first (a reflex, another holder, a survival scope), then the instrument\'s', () => {
