@@ -48,7 +48,9 @@ const P_ = (...a) => { const s = `[${LABEL} ${((Date.now() - T0) / 1000).toFixed
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const C = { x: 4800, y: 100, z: 4800 }          // the pool's centre (the site)
-const TOWN = process.argv[4]?.split(',').includes('town')
+// the TOWN scene's home is in the column; it runs ALONE (Codex r3 P2), so no other scene shares that home
+const TOWN = String(SCENES_S).split(',').includes('town')
+if (TOWN && String(SCENES_S).split(',').length > 1) throw new Error('run the town scene on its own (its home is inside the column)')
 const HOME = TOWN ? { x: 4803, y: 106, z: 4800 } : { x: 4800 + 200, y: 106, z: 4800 }  // the town scene's home is IN the column
 Object.assign(process.env, {
   BOT_NAME: NAME, BOT_ROLE: 'gatherer', EXP_INSTANCE: 'sandbox', EXP_BLOCK: 'sandbox', EXP_ARM: 'sandbox', MEMORY_SCOPE: 'checkpoint',
@@ -171,7 +173,9 @@ async function scene (s) {
   await connect()
   rcon(`tp ${NAME} ${C.x + 0.5} 112 ${C.z + 20.5}`); await sleep(4000)      // load the chunks first
   await arena(s)
-  const start = s === 'mine' ? { x: C.x + 10.5, y: 106, z: C.z + 0.5 } : s === 'ledge' ? { x: C.x + 2.5, y: 106, z: C.z + 0.5 } : s === 'town' ? { x: HOME.x + 0.5, y: 106, z: HOME.z + 0.5 } : { x: C.x + 1.5, y: 106, z: C.z + 0.5 }
+  // the town scene starts INSIDE the column but more than 4 blocks from home, so the yield that holds is the TOWN-JOB one
+  // (Claude r3 P3-5), not the at-home one
+  const start = s === 'mine' ? { x: C.x + 10.5, y: 106, z: C.z + 0.5 } : s === 'ledge' ? { x: C.x + 2.5, y: 106, z: C.z + 0.5 } : s === 'town' ? { x: C.x - 3.5, y: 106, z: C.z - 2.5 } : { x: C.x + 1.5, y: 106, z: C.z + 0.5 }
   rcon(`tp ${NAME} ${start.x} ${start.y} ${start.z}`); await sleep(3000)
   const wf = new WorldFacts(path.join(STATE, `world-facts-${s}.json`))
   wf.reportDeath('fire', { x: C.x + 0.3, y: C.y, z: C.z + 0.2 }, 'sbx-ko-victim')
@@ -187,10 +191,10 @@ async function scene (s) {
       await sleep(1500)
       const sites = KO ? bot.fireSitesNow() : []
       const d = KO ? KO.exitDecision({ sites, pos: bot.entity.position, home: HOME, skill: 'furnace_drain', yielded: q => bot.keepoutYields(q), yieldOn: KO.townYieldOn({}) }) : { start: false, why: 'base' }
-      const dAway = KO ? KO.exitDecision({ sites, pos: { x: C.x - 3.5, y: 106, z: C.z + 0.5 }, home: HOME, skill: 'gather', yielded: q => bot.keepoutYields(q), yieldOn: true }) : null
+      const dAway = KO ? KO.exitDecision({ sites, pos: bot.entity.position, home: HOME, skill: 'gather', yielded: q => bot.keepoutYields(q), yieldOn: true }) : null
       runs.push(['furnace_drain', await runner.run('furnace_drain', {}, { trigger: 'sandbox' })])
       const left = r1(`data get block ${C.x + 2} 106 ${C.z - 2} Items`)
-      town = { decisionAtHomeOnDrain: { start: d.start, why: d.why }, decisionAwayOnGather: dAway && { start: dAway.start, why: dAway.why },
+      town = { decisionOnDrain: { start: d.start, why: d.why }, decisionOnGather: dAway && { start: dAway.start, why: dAway.why },
                furnaceItemsAfter: left.slice(0, 160), ingotsInBag: bot.inventory.items().filter(i => i.name === 'copper_ingot').reduce((a, i) => a + i.count, 0) }
       runs.push(['gather', await runner.run('gather', { block: 'dirt', count: 3 }, { trigger: 'llm:sandbox' })])
     }
