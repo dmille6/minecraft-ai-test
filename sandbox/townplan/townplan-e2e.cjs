@@ -821,7 +821,9 @@ async function fullStore (scene, pool, { unique = false } = {}) {
   const E7 = [[9, -2], [9, 2], [11, -2], [11, 2], [13, 0], [13, -2], [13, 2]].map(([dx, dz]) => ({ at: [HOME.x + dx, HOME.y, HOME.z + dz], state: 'free' }))
   const sc = plan0 ? storeCells(plan0) : E7
   // full of cobblestone; with `unique`, slot 0 holds one wool of a colour only that chest has (a withdraw of it is an OPEN of it)
-  sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['cobblestone', 64]))))
+  // FULL of an item no bot draws back out (Paper 10-22 r2: cobblestone was withdrawn by the bots' own stockpile rung, freeing a slot,
+  // so the deposit found room and the recovery never ran): white terracotta
+  sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['white_terracotta', 64]))))
   // THE EXTRA CELLS TOO (FOUND-SOFT r1: once the section is placed, growth appends up to EXTRA_MAX extra cells, which the recovery
   // takes before any tier search): each one that appears is filled the same way, until every store cell is placed and the
   // extras are exhausted (or the plan stops growing for 3 minutes)
@@ -872,12 +874,25 @@ async function committedEastTown (scene, { unique = false, commitWork = true } =
     if (commitWork) for (const [dx, dz, k] of E_STATIONS) { const p = at([dx, dz]); must(rcon(`setblock ${p.x} ${p.y} ${p.z} minecraft:${k}`), 'base stations') }
     sc = E_STORE.map(([dx, dz]) => ({ at: [HOME.x + dx, HOME.y, HOME.z + dz] }))
   }
-  sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['cobblestone', 64]))))
+  // FULL of an item no bot draws back out (Paper 10-22 r2: cobblestone was withdrawn by the bots' own stockpile rung, freeing a slot,
+  // so the deposit found room and the recovery never ran): white terracotta
+  sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['white_terracotta', 64]))))
   if (plan0) await waitFor(async () => storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed'), 1500000, 20000)
   const plan1 = (await planOf(w.poolDir, w.world)).head?.plan
   // the watcher leaves: the queued model verbs (deposit, withdraw) are for the next bot alone (the brain's queue is shared)
   await stopBots([NAMES[0]])
   return { w, sc, pool, plan1, committed: !!plan1 && storeCells(plan1).every(c => c.state === 'placed') && (!commitWork || stations(plan1).slice(0, 2).every(c => c.state === 'placed')) }
+}
+/** A model `goto` to every store chest's own stand (the plan's), read by goto's own rows -> { reached, of }. */
+async function standsReached (f, t) {
+  const goals = (t.plan1 ? storeCells(t.plan1) : []).filter(c => Array.isArray(c.stand)).map(c => ({ x: c.stand[0], y: c.stand[1], z: c.stand[2] }))
+  const t0 = Date.now()
+  for (const g of goals) brainQueue.push({ skill: 'goto', args: g })
+  await waitFor(() => rowsOf(f.skillLog).filter(r => r.name === 'goto' && r.ts >= t0).length >= goals.length, 400000, 3000)
+  const rows = rowsOf(f.skillLog).filter(r => r.name === 'goto' && r.ts >= t0)
+  // goto's own scoring downgrades a short walk to `unknown`; an arrival is the row's detail
+  const reached = rows.filter(r => r.status === 'success' || /^arrived at/.test(r.detail)).length
+  return { reached: Math.min(reached, goals.length), of: goals.length }
 }
 const boxOf = (plan, c) => (plan?.plots ?? []).filter(p => Array.isArray(p.box) && c[0] >= p.box[0] - 1 && c[0] <= p.box[2] + 1 && c[2] >= p.box[1] - 1 && c[2] <= p.box[3] + 1).map(p => p.id)
 // FOUND-SOFT (r2): the moat town of FOUND-BOX, its workshop NOT committed -- every store cell placed and FULL, the cells around them
@@ -893,6 +908,7 @@ scenes.foundsoft = async () => {
   for (const wl of wools) brainQueue.push({ skill: 'withdraw', args: { item: wl, count: 1 } })
   await waitFor(() => { const b = bagOf(NAMES[1]); return wools.every(x => (b[x] ?? 0) >= 1) }, 600000, 10000)
   const bagNow = bagOf(NAMES[1])
+  const reach = await standsReached(f, t)
   const rows = rowsOf(f.skillLog).filter(r => r.name === '_deposit_new_chest')
   await stopBots()
   const plan = (await planOf(t.w.poolDir, t.w.world)).head?.plan
@@ -902,8 +918,8 @@ scenes.foundsoft = async () => {
   const unopened = wools.filter(x => !(bagNow[x] >= 1))
   const noSite = rows.filter(r => /site=none/.test(r.detail)).length
   result({ scene: 'foundsoft', world: t.w.world, committed: t.committed, dep: dep?.detail?.slice(0, 240) ?? null, cell: cell && K(cell), tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null,
-    inBoxes: cell ? boxOf(plan ?? t.plan1, cell) : [], onNever: cell ? never.has(K(cell)) : null, opened: wools.length - unopened.length, of: wools.length, noSite,
-    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !never.has(K(cell)) && / tier=(soft|outside) /.test(dep.detail) && !unopened.length && noSite === 0),
+    inBoxes: cell ? boxOf(plan ?? t.plan1, cell) : [], onNever: cell ? never.has(K(cell)) : null, opened: wools.length - unopened.length, of: wools.length, reach, noSite,
+    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !never.has(K(cell)) && / tier=(soft|outside) /.test(dep.detail) && reach.reached === reach.of && reach.of > 0 && noSite === 0),
     BASE_SHAPE: !!(!t.w.root && dep && /placed=1/.test(dep.detail)) })
 }
 scenes.foundbox = async () => {
@@ -932,15 +948,18 @@ scenes.foundaccess = async () => {
   rcon(`clear ${NAMES[1]} minecraft:andesite`, `clear ${NAMES[1]} minecraft:diorite`, `clear ${NAMES[1]} minecraft:granite`, `clear ${NAMES[1]} minecraft:calcite`)
   const wools = t.sc.map((_, i) => WOOLS[i])
   for (const wl of wools) brainQueue.push({ skill: 'withdraw', args: { item: wl, count: 1 } })
-  await waitFor(() => { const b = bagOf(NAMES[1]); return wools.every(x => (b[x] ?? 0) >= 1) }, 600000, 10000)
+  await waitFor(() => { const b = bagOf(NAMES[1]); return wools.every(x => (b[x] ?? 0) >= 1) }, 300000, 10000)
   const bagNow = bagOf(NAMES[1])
+  const reach = await standsReached(f, t)
   await stopBots()
   const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
   const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
   const walkway = new Set(Array.from({ length: 9 }, (_, i) => `${HOME.x - 1 + i},${HOME.y},${HOME.z}`))   // x-1..x+7 at z 0: the approach and the box entry
   const unopened = wools.filter(x => !(bagNow[x] >= 1))
-  result({ scene: 'foundaccess', world: t.w.world, committed: t.committed, dep: dep?.detail?.slice(0, 240) ?? null, cell: cell && K(cell), onApproach: cell ? walkway.has(K(cell)) : null, opened: wools.length - unopened.length, of: wools.length, unopened,
-    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !walkway.has(K(cell)) && !unopened.length),
+  result({ scene: 'foundaccess', world: t.w.world, committed: t.committed, dep: dep?.detail?.slice(0, 240) ?? null, cell: cell && K(cell), onApproach: cell ? walkway.has(K(cell)) : null, opened: wools.length - unopened.length, of: wools.length, unopened, reach,
+    // every store chest still REACHABLE (a walk to its own stand succeeds) -- what ACCESS keeps; the wool withdraws show the opens
+    // the bot's own search made (it tries the nearest few per ask, so far chests need not be opened by it)
+    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !walkway.has(K(cell)) && reach.reached === reach.of && reach.of > 0 && wools.length - unopened.length >= 1),
     BASE_SHAPE: !!(!t.w.root && dep && /placed=1/.test(dep.detail)) })
 }
 
