@@ -618,20 +618,24 @@ test('MUTANT KILLED (deterministic): unlocked, the peer\'s stale write erases th
     assert.deepEqual(await holderRace(readdirMutant()), ['999,999'], 'the death is lost')
   })
 })
-const AGE_ONLY = ['  if (!alive(pid)) return true\n  return startedAfter(pid, lockMtimeMs)\n', '  return now - lockMtimeMs > WF_LOCK_STALE_MS\n']
+const AGE_ONLY = ["  if (!alive(pid)) return true\n  if (start === 'na') return false\n", '  return now - lockMtimeMs > WF_LOCK_STALE_MS\n']
 test('A LIVE HOLDER IS NEVER BROKEN, at any age (Codex r4/r5): only a dead pid, a reused pid or a token-less lock is', async () => {
   const WFm = await import('../src/worldfacts.mjs')
   const { utimesSync, existsSync } = await import('node:fs')
   const { spawnSync } = await import('node:child_process')
   const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-own-')), lock = path.join(dir, 'wf.json.lock')
-  const live = `${process.pid}.1.1`
+  const live = WFm.selfToken()
   writeFileSync(lock, live)
   for (const age of [30_000, 600_000]) {
     const t = (Date.now() - age) / 1000; utimesSync(lock, t, t)
     assert.equal(WFm.tryLock(lock), null, 'held')
     assert.equal(readFileSync(lock, 'utf8'), live, `a live holder's ${age / 1000} s-old lock is NOT broken`)
   }
-  assert.equal(WFm.holderDead(live, Date.now(), Date.now(), { alive: () => true, startedAfter: () => true }), true, 'a REUSED pid (its process started after the lock) is dead')
+  assert.equal(WFm.holderDead('4242.777.1.1', Date.now(), Date.now(), { alive: () => true, startTicks: () => '999' }), true, 'a REUSED pid (another process: other start ticks) is dead')
+  assert.equal(WFm.holderDead('4242.777.1.1', Date.now(), Date.now(), { alive: () => true, startTicks: () => '777' }), false, 'the same process (same start ticks) is alive')
+  assert.equal(WFm.holderDead('4242.na.1.1', Date.now(), Date.now(), { alive: () => true, startTicks: () => '999' }), false, 'no start recorded (not Linux): judged by the pid only')
+  assert.equal(WFm.parseStartTicks('4242 (node (x) y) S 1 4242 4242 0 -1 4194560 1 0 0 0 5 1 0 0 20 0 11 0 987654 1 2 3'), '987654', 'field 22 after the LAST paren (comm may hold spaces and parens)')
+  assert.equal(WFm.parseStartTicks('garbage'), null)
   const deadPid = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout
   assert.equal(WFm.pidAlive(Number(deadPid)), false, 'positive control: that pid is gone')
   writeFileSync(lock, `${deadPid}.1.1`)
@@ -660,12 +664,13 @@ test('COMPETING BREAKERS (Codex r5 P1, deterministic): a late breaker never remo
   assert.equal(WFm.breakDead(lock, D), false, 'C\'s late break finds E\'s token, not D\'s')
   assert.equal(readFileSync(lock, 'utf8'), E, 'E still owns its lock')
   // while a breaker holds the break-lock, another breaker does nothing
-  WFm.unlockIfOwned(lock, E); writeFileSync(lock, D); writeFileSync(lock + '.break', `${process.pid}.7.7`)
+  WFm.unlockIfOwned(lock, E); writeFileSync(lock, D); writeFileSync(lock + '.break', WFm.selfToken())
   assert.equal(WFm.breakDead(lock, D), false, 'the break-lock is held: wait')
   assert.equal(readFileSync(lock, 'utf8'), D, 'nothing removed')
-  const old = (Date.now() - WFm.WF_BREAK_STALE_MS - 5000) / 1000; utimesSync(lock + '.break', old, old)
-  assert.equal(WFm.breakDead(lock, D), false, 'a live breaker\'s old break-lock is not cleaned')
-  writeFileSync(lock + '.break', D); utimesSync(lock + '.break', old, old)
+  const old = (Date.now() - 600_000) / 1000; utimesSync(lock + '.break', old, old)
+  assert.equal(WFm.breakDead(lock, D), false, 'a live breaker\'s break-lock is not cleaned, however old')
+  assert.ok(existsSync(lock + '.break'))
+  writeFileSync(lock + '.break', D)
   WFm.breakDead(lock, D)
   assert.ok(!existsSync(lock + '.break'), 'a dead breaker\'s old break-lock is cleaned')
   assert.equal(WFm.breakDead(lock, D), true, 'and the next break proceeds')
@@ -685,12 +690,13 @@ test('MUTANT KILLED: judging a holder by age alone breaks a live holder\'s lock'
   await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [AGE_ONLY], async mod => {
     const { utimesSync } = await import('node:fs')
     const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-own-m-')), lock = path.join(dir, 'wf.json.lock')
-    writeFileSync(lock, `${process.pid}.1.1`)
+    const live = mod.selfToken()
+    writeFileSync(lock, live)
     const aged = (Date.now() - 30_000) / 1000
     utimesSync(lock, aged, aged)
     mod.tryLock(lock)
     let still = null; try { still = readFileSync(lock, 'utf8') } catch { still = null }
-    assert.notEqual(still, `${process.pid}.1.1`, 'the mutant broke a live holder')
+    assert.notEqual(still, live, 'the mutant broke a live holder')
   })
 })
 // A LIVE HOLDER PAUSED INSIDE ITS LOCKED WRITE (1.5 s) while its lock is aged past every stale threshold: a peer's death waits for
