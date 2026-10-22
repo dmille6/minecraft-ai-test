@@ -2558,7 +2558,7 @@ const COG = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url),
 const idxWired = s => {
   once(s, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]', 'index')
   once(s, 'waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]', 'index')
-  once(s, 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]', 'index')
+  once(s, 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]', 'index')   // townplan-01 re-anchor: the plan's furniture rides in the same entry
   once(s, 'const wellPenalty = (block) => wellStepCost(wellCols, block, selfWell)', 'index')
   once(s, "bot.on('move', trackSelf)", 'index')
   once(s, 'protectWellBlocks(moves, bot.registry)', 'index')
@@ -2570,7 +2570,7 @@ await t('index.mjs: the well cost on the shared step array and the water array, 
 await t('MUTANT (index): the well dropped from the water profile, or the break array set after the clones, is detected', () => {
   const m1 = IDX.replace('waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]', 'waterMoves.exclusionAreasStep = [deathSitePenalty]')
   assert.notEqual(m1, IDX, 'MUTATION DID NOT APPLY'); assert.throws(() => idxWired(m1), /found 0/)
-  const line = 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]'
+  const line = 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]'
   const m2 = IDX.replace(line, '').replace('Object.assign(gatherMoves, moves)', 'Object.assign(gatherMoves, moves)\n' + line)
   assert.notEqual(m2, IDX, 'MUTATION DID NOT APPLY'); assert.throws(() => idxWired(m2), /after the clones/)
 })
