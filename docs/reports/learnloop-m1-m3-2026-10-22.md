@@ -286,4 +286,9 @@ an independent subagent (read-only, local tests).
 | 2 | 3fd09fa4 | CHANGE (2 P1, 2 P2, 1 P3) | CHANGE (1 P1 reproduced, 3 P2, 4 P3) | dry put/repair never records an archive; adopt via NAS-side member hashes (relay `members`); drop16 hold kept from the first mutation + `--hold-token` rollback; resumable teacher submits; cross-month reservations; export-check coverage; complete-set leakage; node check; stdout-only parsing |
 | 3 | 82bf0b7c | CHANGE (1 P1, 1 P2) | CHANGE (1 P2, 2 P3) | adopted hold kept through rollback refusals; unique reservation ids; `--resubmit` never re-sends a submitted batch; locked `release`; repair tars adopted via `list` |
 | 4 | f60f9c69 | CHANGE (doc: 1 P2, 1 P3) | **APPROVE** (code); report: 2 P2, 6 P3 | eval reference defaults to qwen2.5 and must be a run; report commands fixed (ssh, `--ref`, the installed eval copy, drop16 staged by the installer with its sha); within-world leakage stated with its cross-world control; environ = evidence, rows = tripwire; other-GPU guard |
-| 5 | FINAL | see below | see below | |
+| 5 | a64fe08e | CHANGE (1 P2 doc sha, 1 P3 log) | CHANGE (1 P2 in-place re-stage, 2 P3) | drop16 re-staged by rename, refused while a drop16 hold exists, sha compared; sha in s.5.2; nvidia-smi failure refuses; guard output in the run log |
+| 6 | 786dac3c | **APPROVE** (no findings) | **APPROVE** (no findings) | -- |
+
+Every finding of rounds 1-5 is answered in the commits that name it. Not runnable on the Mac, so run on 10.0.0.31
+instead: the relay shell tests (in test_learnloop.py: 23 passed, 0 skipped there) and `scripts/host/test_drop16.py`
+(7 passed).
