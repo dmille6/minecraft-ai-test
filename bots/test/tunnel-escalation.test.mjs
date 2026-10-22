@@ -55,7 +55,8 @@ test('the escalation happens AT MOST ONCE per gather run', () => {
 })
 
 test('it calls mine, and reports what mine SAID rather than reclassifying it', () => {
-  assert.match(SRC, /await mine\(ctx, \{ y: depth \}/,
+  // keepout-01: through mineGuarded, mine's keep-out scope (the column in its plan, the `_mine_dig` gate row)
+  assert.match(SRC, /await mineGuarded\(ctx, \{ y: depth \}/,
     'the escalation must actually invoke mine')
   assert.match(SRC, /mine said: \$\{String\(mineSaid\)/,
     "mine's own refusal must reach the failure detail verbatim")
