@@ -32,7 +32,7 @@ import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel,
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
 // FOUNDING (found-01): the found slot's decision and readings
-import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign } from './found.mjs'
+import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -1346,6 +1346,8 @@ export class CognitiveLoop {
         const o = exitOutcome({ tries: this.keepoutExitTries ?? 0, backoffUntil: this.keepoutExitBackoffUntil ?? 0 }, r.status)
         this.keepoutExitTries = o.tries; this.keepoutExitBackoffUntil = o.backoffUntil
       }
+      // found-01: a body in the plan cell is a FREE skip -- the visit and the cooldown come back, the order is retried after FOUND_RETRY_MS
+      if (!declined && (admitted.skill === 'found_store' || admitted.skill === 'found_work') && r.failClass === 'found_body') this.foundState = foundRetry(this.foundState ?? {}, Date.now())
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

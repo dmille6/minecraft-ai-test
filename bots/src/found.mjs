@@ -13,7 +13,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { LOGS, PLANKS, COBBLE, PLANKS_MEANS } from './towndeposit.mjs'
+import { LOGS, PLANKS, COBBLE, PLANKS_MEANS, STOCKPILE_KEEP } from './towndeposit.mjs'
 import { scaffoldKeep } from './bankable.mjs'
 
 // THE SWITCH. townplan-01 shipped this code DORMANT (FOUND=on only); found-01 makes it default-on. FOUND=off is its rollback.
@@ -25,6 +25,16 @@ export const FOUND_LEASE_MS = 4 * 60 * 1000
 /** The founding floor (build spec 2.1): the stockpile's lap-0 targets, not its 64-unit cap. */
 export const FLOOR_WOOD_UNITS = 8
 export const FLOOR_STONE = 8
+/**
+ * MAY FOUNDING SPEND BELOW THE 64-UNIT STOCKPILE? -- an OWNER DECISION, pending (coordinator default 10-22: yes, for founding only).
+ * true: the floor above (8 wood units + 4 planks + the scaffold reserve; 8 cobblestone + the reserve). false: the stockpile's own
+ * cap (STOCKPILE_KEEP, 64) for both -- a fresh bot then founds nothing until it holds more than 64. Founding only: no other order
+ * reads it.
+ */
+export const FOUND_BELOW_STOCKPILE = true
+/** A body standing in the cell on arrival is a FREE skip: the cooldown and the visit are refunded and the order may be issued
+ *  again this long after (a body moves; Paper FOUND-NOFIT 10-22: a founder standing in the next cell cost two bots their visit). */
+export const FOUND_RETRY_MS = 60 * 1000
 /** What a found craft needs. */
 export const CHEST_PLANKS = 8
 export const TABLE_PLANKS = 4
@@ -43,7 +53,8 @@ const sum = (c, names) => names.reduce((t, n) => t + (c[n] ?? 0), 0)
  * of wood) units + PLANKS_MEANS planks + the scaffold reserve's planks; stone, max(FLOOR_STONE, the rung's stone wants) + the
  * scaffold reserve's stone. `wanted` = the active rung's wanted names with counts ({ name: n }).
  */
-export function foundMeans (items = [], { wanted = {} } = {}) {
+export function foundMeans (items = [], { wanted = {}, belowStockpile = FOUND_BELOW_STOCKPILE } = {}) {
+  const floorWood = belowStockpile ? FLOOR_WOOD_UNITS : STOCKPILE_KEEP, floorStoneMin = belowStockpile ? FLOOR_STONE : STOCKPILE_KEEP
   const c = countsOf(items)
   const logs = sum(c, LOGS), planks = sum(c, PLANKS)
   const wantWood = Object.entries(wanted ?? {}).filter(([n]) => LOGS.includes(n)).reduce((t, [, v]) => t + (Number(v) || 0), 0) +
@@ -53,11 +64,11 @@ export function foundMeans (items = [], { wanted = {} } = {}) {
   const sk = scaffoldKeep(c)
   const scaffoldPlanks = PLANKS.reduce((t, n) => t + (sk[n] ?? 0), 0) + 4 * LOGS.reduce((t, n) => t + (sk[n] ?? 0), 0)
   const scaffoldStone = COBBLE.reduce((t, n) => t + (sk[n] ?? 0), 0)
-  const floorPlanks = 4 * Math.max(FLOOR_WOOD_UNITS, wantWood) + PLANKS_MEANS + scaffoldPlanks
+  const floorPlanks = 4 * Math.max(floorWood, wantWood) + PLANKS_MEANS + scaffoldPlanks
   const plankEq = planks + 4 * logs
   const stone = sum(c, ['cobblestone', 'cobbled_deepslate', 'blackstone'])
   const wantStone = Object.entries(wanted ?? {}).filter(([n]) => COBBLE.includes(n)).reduce((t, [, v]) => t + (Number(v) || 0), 0)
-  const floorStone = Math.max(FLOOR_STONE, wantStone) + scaffoldStone
+  const floorStone = Math.max(floorStoneMin, wantStone) + scaffoldStone
   return { planks: Math.max(0, plankEq - floorPlanks), cobble: Math.max(0, stone - floorStone), floorPlanks, floorStone, plankEq, stone }
 }
 
@@ -128,6 +139,7 @@ export function foundOrder ({ plan = null, zonesKnown = true, items = [], wanted
   if (!zonesKnown) return skip('zones_unknown')
   if (state.visitUsed) return skip('visit_used')
   if (now - (state.lastAt ?? -Infinity) < FOUND_COOLDOWN_MS) return skip('cooldown')
+  if (now < (state.retryAt ?? -Infinity)) return skip('retry_wait')
   if (!leaseFree) return skip('lease_busy')
   const means = foundMeans(items, { wanted })
   const work = workOf(plan), store = storeOf(plan)
@@ -199,7 +211,10 @@ export function foundAssign ({ plan = null, bankGroups = [] } = {}) {
 }
 
 /** The per-bot found state after an order was ISSUED (the cooldown and the visit are charged at issue). Pure. */
-export const foundIssued = (state = {}, now = 0) => ({ ...state, lastAt: now, visitUsed: true })
+export const foundIssued = (state = {}, now = 0) => ({ ...state, prevLastAt: state.lastAt ?? null, lastAt: now, visitUsed: true })
+/** A FREE SKIP after the order was issued (a body in the cell): the visit and the cooldown it charged are given back, and the next
+ *  order waits FOUND_RETRY_MS. Pure. */
+export const foundRetry = (state = {}, now = 0) => ({ ...state, lastAt: state.prevLastAt ?? null, visitUsed: false, retryAt: now + FOUND_RETRY_MS })
 /** A visit ends when the bot leaves the town circle; a new one starts on its return. Pure. */
 export const foundVisit = (state = {}, inTown = false) => (inTown ? state : { ...state, visitUsed: false })
 
@@ -267,6 +282,6 @@ export function releaseFoundLease (dir, key, holder, gen) {
 
 // ---- rows ---------------------------------------------------------------------------------------------------------------------
 
-export const foundModeDetail = () => `phase=mode found=${FOUND.on ? 'on' : 'off'} v=1 cooldown_min=${FOUND_COOLDOWN_MS / 60000} lease_s=${FOUND_LEASE_MS / 1000} floor_wood=${FLOOR_WOOD_UNITS} floor_stone=${FLOOR_STONE}`
+export const foundModeDetail = () => `phase=mode found=${FOUND.on ? 'on' : 'off'} v=1 cooldown_min=${FOUND_COOLDOWN_MS / 60000} lease_s=${FOUND_LEASE_MS / 1000} floor_wood=${FLOOR_WOOD_UNITS} floor_stone=${FLOOR_STONE} below_stockpile=${FOUND_BELOW_STOCKPILE ? 1 : 0} retry_s=${FOUND_RETRY_MS / 1000}`
 export const foundRowDetail = (f = {}) => ['order', 'kind', 'step', 'outcome', 'at', 'source', 'gen', 'role', 'group', 'lease', 'spare', 'ms', 'why']
   .filter(k => f[k] != null).map(k => `${k}=${String(Array.isArray(f[k]) ? f[k].join(',') : f[k]).replace(/\s+/g, '_').slice(0, k === 'why' ? 120 : 40)}`).join(' ')
