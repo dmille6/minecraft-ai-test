@@ -1141,8 +1141,10 @@ function connect() {
         if (v !== 'clear') return v
         const s = worldFacts.disputeFireSite(site, { deaths: site.deaths ?? 1, last: site.last ?? 0 })
         refreshDeathSites()
-        noteKeepout(bot, 'disputed')
-        logEvent({ kind: 'keepout_dispute', status: 'success', snapshot: snapshot(bot), detail: `site=${k} read=clear stored=${s ? 1 : 0} -- no lava in the disc (every cell loaded): the site no longer keeps bots out until the next fire death there` })
+        if (s) noteKeepout(bot, 'disputed')
+        logEvent({ kind: 'keepout_dispute', status: s ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: s
+          ? `site=${k} read=clear stored=1 -- no lava in the disc (every cell loaded): the site no longer keeps bots out until the next fire death there`
+          : `site=${k} read=clear stored=0 -- not written (a newer death there since the read, or already disputed): the site still keeps bots out` })
         return v
       } catch { return null }
     }

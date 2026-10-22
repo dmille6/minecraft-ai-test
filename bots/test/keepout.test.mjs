@@ -105,7 +105,31 @@ test('THE ROUTE ON THE REAL PATHFINDER: a 101 step price deletes the move into t
   assert.equal(at(93), undefined, 'the step from 93 to 94 (into the column) is deleted')
   assert.ok(m.getNeighbors({ x: 93, y: 65, z: 100, remainingBlocks: 0 }).find(n => n.x === 92 && n.z === 100), 'positive control: the step away exists')
 })
+test('THE EXIT\'S LOOP BOUND (exitOutcome): out re-arms; a failure backs off; the third non-out in a row backs off', () => {
+  const T = 1_000_000
+  let st = {}
+  for (const status of ['aborted', 'aborted']) st = KO.exitOutcome(st, status, T)
+  assert.deepEqual(st, { tries: 2, backoffUntil: 0 }, 'two interruptions: still armed')
+  st = KO.exitOutcome(st, 'aborted', T)
+  assert.deepEqual(st, { tries: 0, backoffUntil: T + KO.KEEPOUT_EXIT_BACKOFF_MS }, 'the third: backs off (the escape ladder\'s turn)')
+  assert.equal(KO.exitOutcome({ tries: 0 }, 'failed', T).backoffUntil, T + KO.KEEPOUT_EXIT_BACKOFF_MS, 'a failure backs off at once')
+  assert.deepEqual(KO.exitOutcome({ tries: 2, backoffUntil: 0 }, 'success', T), { tries: 0, backoffUntil: 0 }, 'out re-arms')
+  assert.deepEqual(KO.exitOutcome({ tries: 1 }, 'no_effect', T), { tries: 0, backoffUntil: 0 }, 'nothing to leave re-arms')
+})
+test('MUTANT KILLED: without the three-try bound the exit is re-issued for ever', async () => {
+  await withMutantsAll(KO_URL, [["  if (status === 'failed' || tries >= 3) { backoffUntil = now + KEEPOUT_EXIT_BACKOFF_MS; tries = 0 }", "  if (status === 'failed') { backoffUntil = now + KEEPOUT_EXIT_BACKOFF_MS; tries = 0 }"]], async mod => {
+    let st = {}
+    for (let i = 0; i < 6; i++) st = mod.exitOutcome(st, 'aborted', 1)
+    assert.equal(st.backoffUntil, 0, 'the mutant never backs off')
+  })
+})
+test('WIRED: cognitive applies exitOutcome to every exit it ran', () => {
+  const src = strip(readFileSync(COG_URL, 'utf8'))
+  assert.match(src, /if \(admitted\.skill === 'keepout_exit'\) \{\s*const o = exitOutcome\(\{ tries: this\.keepoutExitTries \?\? 0, backoffUntil: this\.keepoutExitBackoffUntil \?\? 0 \}, r\.status\)/)
+  assert.match(src, /backoffUntil: this\.keepoutExitBackoffUntil \?\? 0 \}\)/, 'and the decision reads the back-off')
+})
 test('the guard\'s purpose: survival first (a reflex, another holder, a survival scope), then the instrument\'s', () => {
+  assert.equal(KO.guardPurpose({ base: 'target', reflex: 'eating' }), 'target', 'eating does not take the body: a work dig while eating is still a target (Codex r2 P1-3)')
   assert.equal(KO.guardPurpose({ base: 'target', reflex: 'drowning' }), 'survival')
   assert.equal(KO.guardPurpose({ base: 'target', holder: 'air_rescue', skill: 'gather' }), 'survival', 'a rescue holding the body while gather\'s tunnel profile is still set')
   assert.equal(KO.guardPurpose({ base: 'target', scope: { purpose: 'survival', by: 'keepout_exit' } }), 'survival')
@@ -292,6 +316,15 @@ test('CHAIN gather: only dirt in the column -> no dig, failClass keepout, the re
   bot.entity.position = new Vec3(400.5, 64, 200.5)
   assert.notEqual(gate.check({ skill: 'gather', args: { block: 'sand', count: 4 } }, bot).reason, 'keepout_cooldown', 'another block is a different decision')
 })
+test('CHAIN gather: a site recorded AFTER the run started still keeps its dirt out (the scope refreshes; Codex r2 P2-2)', async () => {
+  let calls = 0
+  const { bot, digs } = gatherWorld({ dirt: [...inCol, ...outCol], sites: [] })
+  bot.fireSitesNow = () => (calls++ === 0 ? [] : [SITE_G])
+  await SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
+  assert.ok(calls >= 2, 'positive control: the run asked again')
+  assert.equal(digs.filter(p => KO.columnAt([SITE_G], p)).length, 0, `nothing in the new column: ${JSON.stringify(digs)}`)
+  assert.ok(digs.length > 0, 'the dirt outside was taken')
+})
 test('CHAIN gather: no fire site near -> exactly the base (no scope, no counters)', async () => {
   const { bot, digs } = gatherWorld({ dirt: inCol, sites: [] })
   await SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
@@ -330,7 +363,8 @@ test('THE EXIT IS NEVER GATED BY MEMORY (Codex r1 P1-1): admitted every time; th
 })
 test('MUTANT KILLED: without the exemption the fifth exit in a row is refused (the bot would stand over the pool)', async () => {
   const AD_URL = new URL('../src/admission.mjs', import.meta.url)
-  await withMutantsAll(AD_URL, [["    if (skill === 'keepout_exit') return { ok: true, skill, args: {}, kind: 'keepout_exit' }\n", '']], async mod => {
+  await withMutantsAll(AD_URL, [["    if (skill === 'keepout_exit' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'keepout_exit' }\n", ''],
+                                 ["    if (skill === 'keepout_exit') return { ok: false, reason: 'inventory_unsettled',", "    if (false) return { ok: false, reason: 'inventory_unsettled',"]], async mod => {
     const gate = new mod.AdmissionControl(null), bot = { registry: { blocksByName: {} }, entity: { position: new Vec3(0, 65, 0) }, inventory: { items: () => [] }, players: {} }
     let last = null
     for (let i = 0; i < 6; i++) last = gate.check({ skill: 'keepout_exit', args: {} }, bot)
@@ -536,10 +570,55 @@ for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z:
   const d = JSON.parse(readFileSync(file, 'utf8'))
   assert.equal(d.sites.filter(q => q.kind === 'death:fire').length, 80, 'every death kept')
 })
+// A PEER HOLDING THE LOCK ACROSS A STALE READ (deterministic, Codex r2 P2-7): it reads the file, holds the lock 400 ms, then
+// writes its own site from that read. A writer that waits for the lock keeps both; one that does not is overwritten.
+async function holderRace (WFmodHref) {
+  const { spawn } = await import('node:child_process')
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-hold-')), file = path.join(dir, 'world-facts.json')
+  writeFileSync(file, JSON.stringify({ schema: 1, sites: [], unreachable: {}, resources: [] }))
+  const peer = path.join(dir, 'peer.mjs')
+  writeFileSync(peer, `import fs from 'node:fs'
+const file = ${JSON.stringify(file)}, lock = file + '.lock'
+const fd = fs.openSync(lock, 'wx'); const d = JSON.parse(fs.readFileSync(file, 'utf8'))
+process.stdout.write('held\\n')
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400)
+d.sites.push({ kind: 'death:fire', x: 999, y: 60, z: 999, count: 4, deaths: 1, last: Date.now(), by: ['peer'] })
+fs.writeFileSync(file + '.peer.tmp', JSON.stringify(d)); fs.renameSync(file + '.peer.tmp', file)
+fs.closeSync(fd); fs.unlinkSync(lock)`)
+  const child = spawn(process.execPath, [peer], { stdio: ['ignore', 'pipe', 'inherit'] })
+  await new Promise(res => child.stdout.once('data', res))
+  const { WorldFacts: WF } = await import(WFmodHref)
+  const wf = new WF(file)
+  wf.reportDeath('fire', { x: 0, y: 60, z: 0 }, 'me')
+  await new Promise(res => child.once('exit', res))
+  return JSON.parse(readFileSync(file, 'utf8')).sites.map(q => `${q.x},${q.z}`).sort()
+}
+test('THE LOCK, deterministic: a death written while a peer holds the lock across a stale read is kept, and so is the peer\'s', async () => {
+  assert.deepEqual(await holderRace(new URL('../src/worldfacts.mjs', import.meta.url).href), ['0,0', '999,999'])
+})
+test('MUTANT KILLED (deterministic): unlocked, the peer\'s stale write erases the death', async () => {
+  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [["    const r = this.#withLock(() => this.#updateLocked(mutate), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
+    assert.deepEqual(await holderRace(readdirMutant()), ['999,999'], 'the death is lost')
+  })
+})
+test('A ROUTINE write under a held lock is SKIPPED, never written unlocked (Codex r2 P1)', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-skip-')), file = path.join(dir, 'world-facts.json')
+  const wf = new WorldFacts(file)
+  writeFileSync(file + '.lock', 'held')
+  const t0 = Date.now()
+  wf.reportResource('oak_log', { x: 1, y: 70, z: 1 }, 'me')
+  assert.ok(Date.now() - t0 < 1000, 'bounded wait')
+  let wrote = 0
+  try { wrote = JSON.parse(readFileSync(file, 'utf8')).resources?.length ?? 0 } catch { wrote = 0 }   // no file: nothing written
+  assert.equal(wrote, 0, 'not written')
+  unlinkSync(file + '.lock')
+  wf.reportResource('oak_log', { x: 1, y: 70, z: 1 }, 'me')
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).resources.length, 1, 'positive control: with the lock free it writes')
+})
 test('MUTANT KILLED: the unlocked read-merge-write loses deaths under the same race (measured: 40 of 80 kept, 3 of 3 trials)', async () => {
   const { execFile } = await import('node:child_process')
   const WF_URL = new URL('../src/worldfacts.mjs', import.meta.url)
-  await withMutantsAll(WF_URL, [['  #update(mutate) { return this.#withLock(() => this.#updateLocked(mutate)) }', '  #update(mutate) { return this.#updateLocked(mutate) }']], async () => {
+  await withMutantsAll(WF_URL, [["    const r = this.#withLock(() => this.#updateLocked(mutate), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
     const mutant = readdirMutant()
     const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-race-m-')), file = path.join(dir, 'world-facts.json'), drv = path.join(dir, 'drv.mjs')
     writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(mutant)}); const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2]); for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)

@@ -9,7 +9,7 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
-import { exitDecision, townYieldOn, noteKeepout, siteKey, KEEPOUT_EXIT_BACKOFF_MS } from './keepout.mjs'
+import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
@@ -1253,13 +1253,10 @@ export class CognitiveLoop {
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
       // KEEPOUT-01: a failed exit backs off (the stranded ladder owns the body); anything else re-arms it at once
+      // KEEPOUT-01: the exit's own bookkeeping (keepout.mjs exitOutcome): 3 attempts that do not get out -> the 5-min back-off
       if (admitted.skill === 'keepout_exit') {
-        // OUT (success) or nothing to leave (no_effect) re-arms it; a failure backs off at once; anything else (interrupted by a
-        // reflex, unverified) counts, and the third in a row backs off too -- the exit can never loop on a bot it cannot move
-        const out = r.status === 'success' || r.status === 'no_effect'
-        this.keepoutExitTries = out ? 0 : (this.keepoutExitTries ?? 0) + 1
-        if (r.status === 'failed' || this.keepoutExitTries >= 3) { this.keepoutExitBackoffUntil = Date.now() + KEEPOUT_EXIT_BACKOFF_MS; this.keepoutExitTries = 0 }
-        else if (out) this.keepoutExitBackoffUntil = 0
+        const o = exitOutcome({ tries: this.keepoutExitTries ?? 0, backoffUntil: this.keepoutExitBackoffUntil ?? 0 }, r.status)
+        this.keepoutExitTries = o.tries; this.keepoutExitBackoffUntil = o.backoffUntil
       }
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
