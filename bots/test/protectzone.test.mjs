@@ -362,7 +362,7 @@ test('CHAIN mine: standing in the MIDDLE of a zone (30 from every side) it walks
   assert.ok(bot.protectZone.mine_walkout >= 1)
 })
 test('LAYERS: the zone left out of mine\'s keep-out -> the chokepoint still refuses every zone dig; remove the guard too and the zone IS dug (positive control)', async () => {
-  await withMutant(SKILLS_URL, '  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones(), bot.entity?.position ?? null))\n', '  const farmNow = () => townNow()\n', async mod => {
+  await withMutant(SKILLS_URL, '  const farmTown = () => composeKeepOut(townNow(), zoneKeepOut(liveZones(), bot.entity?.position ?? null))\n', '  const farmTown = () => townNow()\n', async mod => {
     const guarded = stairWorld({ at: [270, 65, 200] })
     await runMine(mod, guarded)
     assert.equal(guarded._digs.filter(inM).length, 0, 'the chokepoint holds on its own')
@@ -710,7 +710,7 @@ test('CHAIN mine DEEP (Claude r3 P3): a bot in a cave pocket UNDER a village cut
   assert.ok(bot._digs.length > 0)
   assert.equal(bot._digs.filter(p => zoneAt(MZD, p.x, p.y, p.z) && p.y >= 50).length, 0, 'nothing at or above the floor')
   assert.equal(bot._refused.length, 0, 'the guard agreed with the plan')
-  await withMutant(SKILLS_URL, '  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones(), bot.entity?.position ?? null))\n', '  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones()))\n', async mod => {
+  await withMutant(SKILLS_URL, '  const farmTown = () => composeKeepOut(townNow(), zoneKeepOut(liveZones(), bot.entity?.position ?? null))\n', '  const farmTown = () => composeKeepOut(townNow(), zoneKeepOut(liveZones()))\n', async mod => {
     const b2 = make()
     const m = await runMine(mod, b2, 10)
     assert.notEqual(m.status, 'success', `without the feet the deep bot cannot plan a stair: ${m.status} ${String(m.detail).slice(0, 120)}`)
