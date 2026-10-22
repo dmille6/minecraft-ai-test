@@ -177,7 +177,9 @@ await t('BUILDERS\' TABLES, LAST (Codex code r2 P2): place() with planTemp re-ju
   const PS = await import('../src/planstore.mjs')
   const s0 = S.townPlanNow(w.bot).plan.plots.find(p => p.id === 'work').stations[0]
   PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey(HOME), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'work').stations[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
-  S.townPlanHead(w.bot)
+  // NO cached plan (Claude code r4 P3): the reservation is only on disk -- place() must refresh the head before asking whether a
+  // plan exists, or this case is the one the r3 order missed
+  w.bot.townPlan = null
   w.bot.entity.position = new Vec3(s0.at[0] - 0.5, 64, s0.at[2] + 0.5)
   const r = await S.placeForTest({ bot: w.bot }, { item: 'crafting_table', x: s0.at[0], y: s0.at[1], z: s0.at[2] }, new AbortController().signal, { planTemp: true })
   assert.notEqual(w.nameAt(...s0.at), 'crafting_table', JSON.stringify(r))
