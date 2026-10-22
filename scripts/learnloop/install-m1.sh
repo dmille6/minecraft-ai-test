@@ -21,6 +21,9 @@ run() { if [ -n "$DRY" ]; then echo "  (dry) $*"; else "$@"; fi; }
 echo "== tests here (the relay and drop16 tests need GNU tools: they run on $B below)"
 python3 scripts/learnloop/test_learnloop.py > /tmp/ll-test.out 2>&1 || { tail -5 /tmp/ll-test.out; echo "REFUSED: tests fail"; exit 2; }
 tail -1 /tmp/ll-test.out
+echo "== 0. node on $B is the one cron's PATH (/usr/bin:/bin) finds (sysprompts.py runs it)"
+NODE=$(ssh "$B" 'env -i PATH=/usr/bin:/bin sh -c "command -v node"')
+case "$NODE" in /usr/bin/node|/bin/node) echo "  $NODE";; *) echo "REFUSED: cron cannot find node on $B (got '$NODE')"; exit 2;; esac
 echo "== 1. app on $B at $SHA"
 run ssh "$B" 'mkdir -p ~/learnloop/app/scripts/learnloop ~/learnloop/app/scripts/lib'
 run scp -q scripts/learnloop/extract_triples.py scripts/learnloop/nightly.py scripts/learnloop/sysprompts.py scripts/learnloop/sysprompt.mjs \

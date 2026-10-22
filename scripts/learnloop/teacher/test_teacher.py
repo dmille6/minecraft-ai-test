@@ -173,7 +173,7 @@ def t_reservation_is_durable_before_the_vendor_call_and_blocks_double_pay():
     try:
         _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda *a: 'b-x')); raise AssertionError('double pay allowed')
     except SystemExit as e:
-        assert 'already reserved' in str(e), e
+        assert 'never recorded as submitted' in str(e), e
     _as_mac(lambda: T.cmd_submit(Args(pf, resubmit=True), submit=lambda *a: 'b-2'))
     kinds = [r['kind'] for r in T.ledger_rows()]
     assert kinds == ['reserve', 'reserve', 'submitted'], kinds
@@ -188,6 +188,33 @@ def t_the_cap_refuses_before_any_vendor_call():
         assert 'REFUSED by the ledger' in str(e), e
     assert len(called) == int(0.8 * T.CAP_USD['anthropic'] // T.BATCH_USD), (len(called), 'batches up to the 80% line, then refused')
     assert T.month_to_date(T.ledger_rows(), 'anthropic') <= 0.8 * T.CAP_USD['anthropic']
+
+
+def t_a_stopped_run_resumes_without_paying_twice_and_reservations_cross_months():
+    d, pf = _submit_env(1000)
+    sent = []
+    def flaky(arm, its, cond):
+        if len(sent) == 1:
+            raise RuntimeError('vendor 500 on batch 2')
+        sent.append(len(its)); return 'b-%d' % len(sent)
+    try:
+        _as_mac(lambda: T.cmd_submit(Args(pf), submit=flaky)); raise AssertionError('no raise')
+    except RuntimeError:
+        pass
+    assert sent and len(sent) == 1
+    try:                                             # batch 2's reservation has no `submitted`: the unknown case
+        _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda *a: 'b-x')); raise AssertionError('unknown case passed')
+    except SystemExit as e:
+        assert 'never recorded as submitted' in str(e), e
+    rid = [r for r in T.ledger_rows() if r['kind'] == 'reserve'][-1]['reservation']
+    assert T.main(['release', rid]) == 0
+    calls = []
+    _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda arm, its, cond: calls.append(len(its)) or 'b-%d' % (len(calls) + 1)))
+    nb = len(T.plan_batches(T.load(pf), 'B', 'blind'))
+    assert len(calls) == nb - 1, ('batch 1 skipped, the rest sent', len(calls), nb)
+    rows = T.ledger_rows()
+    nxt = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=40)
+    assert T.month_to_date(rows, 'anthropic', nxt) == T.month_to_date(rows, 'anthropic'), 'unresolved reservations count in every month'
 
 
 def t_paid_verbs_refuse_off_the_mac():

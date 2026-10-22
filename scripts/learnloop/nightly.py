@@ -187,7 +187,7 @@ def unresolved(archived, acknowledged):
         if not rec.get('controls_ok') and day not in (acknowledged or {}):
             why.append('controls failed %s' % rec.get('controls_failed'))
         if rec.get('raw_members') is None:
-            why.append('raw members not proven on the NAS (run --adopt-raw)')
+            why.append('raw members not proven on the NAS (run --adopt-raw: it hashes the sealed tar on the NAS)')
         elif rec.get('raw_left_out'):
             why.append('%d raw file(s) left out of the archive and held (run --repair-raw %s)' % (len(rec['raw_left_out']), day))
         if why:
@@ -237,11 +237,10 @@ def _normalise(ti):
     return ti
 
 
-def raw_tar(day, logroot, rawhold, dst, expect_bots, legacy=False):
+def raw_tar(day, logroot, rawhold, dst, expect_bots):
     """tar of generation -(D+1) llm+skill gz, each gzip-tested. expect_bots = the bots with rows that day (a missing
     file of one of them fails the raw control; a directory with no rows that day is not expected). Any other log dir
-    whose generation exists is included too. -> (members {relpath: sha256}, missing [relpath], bad [text]).
-    legacy=True rebuilds the way the first backfill did (live file first, headers as found) for --adopt-raw."""
+    whose generation exists is included too. -> (members {relpath: sha256}, missing [relpath], bad [text])."""
     g = generation_for(day)
     dirs = sorted(set(expect_bots) | {os.path.basename(d.rstrip('/')) for d in glob.glob(logroot + '/*-*/')})
     members, missing, bad = {}, [], []
@@ -260,7 +259,7 @@ def raw_tar(day, logroot, rawhold, dst, expect_bots, legacy=False):
                             pass
                 except (OSError, EOFError) as e:
                     bad.append('%s/%s: %s' % (b, name, e)); continue
-                tf.add(src, arcname='%s/%s' % (b, name), filter=None if legacy else _normalise)
+                tf.add(src, arcname='%s/%s' % (b, name), filter=_normalise)
                 members['%s/%s' % (b, name)] = sha256_file(src)
     os.replace(dst + '.part', dst)
     return members, missing, bad
@@ -289,23 +288,43 @@ class Relay:
         self.target, self.key, self.ssh, self.dry = target, os.path.expanduser(key), ssh, dry
 
     def call(self, *args, stdin_path=None, timeout=1800):
+        """-> (rc, stdout). STDOUT ONLY is parsed (Claude r2 P3: an ssh warning on stderr broke the JSON of `manifest`);
+        stderr is appended after ' | ' only when the call failed, for the log."""
         if self.dry:
-            return 0, 'DRY ' + ' '.join(args)
+            return 99, 'DRY (not sent): ' + ' '.join(args[:3])
         cmd = [self.ssh, '-i', self.key, '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'ServerAliveInterval=30',
                '-o', 'StrictHostKeyChecking=accept-new', self.target] + list(args)
         with (open(stdin_path, 'rb') if stdin_path else open(os.devnull, 'rb')) as fin:
             r = subprocess.run(cmd, stdin=fin, capture_output=True, timeout=timeout)
-        return r.returncode, (r.stdout.decode(errors='replace') + r.stderr.decode(errors='replace')).strip()
+        out = r.stdout.decode(errors='replace').strip()
+        if r.returncode != 0 and r.stderr.strip():
+            out += ' | ' + r.stderr.decode(errors='replace').strip()[:300]
+        return r.returncode, out
 
     def put(self, day, path):
+        """A DRY put is NOT an upload (both engines r2 P1): ok is False, so no caller can record it as archived."""
         sha = sha256_file(path)
         rc, out = self.call('put', day, os.path.basename(path), sha, stdin_path=path)
-        ok = self.dry or (rc == 0 and out.startswith('OK ' + sha))
+        ok = rc == 0 and out.startswith('OK ' + sha)
         return ok, sha, out
 
     def seal(self, day):
         rc, out = self.call('seal', day)
-        return self.dry or (rc == 0 and out.startswith('OK sealed ' + day)), out
+        return rc == 0 and out.startswith('OK sealed ' + day), out
+
+    def members(self, day, name):
+        """{relpath: sha256} of every member of a tar AS STORED on the NAS (hashed on .30 from the NAS's bytes), or
+        None. The proof of what reached the NAS, independent of tar headers, owners and live copies (Claude r2 P2)."""
+        rc, out = self.call('members', day, name, timeout=1800)
+        if rc != 0:
+            return None
+        mem = {}
+        for line in out.splitlines():
+            p = line.split('  ', 1)
+            if len(p) != 2 or not re.fullmatch(r'[0-9a-f]{64}', p[0]):
+                return None
+            mem[p[1]] = p[0]
+        return mem
 
     def verify(self, day):
         """True only when the day is sealed and every file its stored MANIFEST lists hashes right on the NAS."""
@@ -440,24 +459,36 @@ def record_from_nas(day, man):
             'raw_members': man.get('raw_members'), 'raw_left_out': man.get('raw_left_out'), 'from_nas': True}
 
 
-def adopt_raw(day, rec, man, a, log):
-    """Prove the raw members of a day sealed by the first backfill (whose MANIFEST lists no members): rebuild its tar
-    the way it was built (legacy headers, live file first) and compare with the sealed tar's sha256. Equal -> every
-    member is on the NAS byte for byte; record them. Different -> leave unproven (nothing is pruned)."""
-    name = 'raw-%s.tar' % day.replace('-', '')
-    want = ((man or {}).get('files') or {}).get(name, {}).get('sha256')
-    if not want:
-        return False, 'no %s in the NAS MANIFEST' % name
-    tmp = os.path.join(a.home, 'days', day, name + '.adopt')
-    os.makedirs(os.path.dirname(tmp), exist_ok=True)
+def expected_raw(day, a):
+    """The raw files a day should have archived: llm + skill of generation -(D+1) for every bot with rows that day."""
     sp = os.path.join(a.home, 'days', day, 'summary.json')
-    expect = sorted((json.load(open(sp)).get('per_bot') or {})) if os.path.exists(sp) else []
-    members, missing, bad = raw_tar(day, a.logroot, a.rawhold, tmp, expect, legacy=True)
-    got = sha256_file(tmp); os.remove(tmp)
-    if got != want:
-        return False, 'rebuilt tar %s != sealed %s (a source file changed or rotated out)' % (got[:12], want[:12])
-    rec['raw_members'] = members; rec['raw_left_out'] = sorted(missing + [x.split(':')[0] for x in bad])
-    return True, '%d members proven (rebuilt tar sha256 equals the sealed one)' % len(members)
+    bots = sorted((json.load(open(sp)).get('per_bot') or {})) if os.path.exists(sp) else []
+    g = generation_for(day)
+    return ['%s/%s-%s.jsonl-%s.gz' % (b, k, b, g) for b in bots for k in ('llm', 'skill')]
+
+
+def adopt_raw(day, rec, relay, a, log):
+    """Prove the raw members of a day the NAS holds but this host has no member record for (the first backfill's
+    MANIFESTs listed none): the day must verify, then every raw-*/repair-raw-* tar it lists is hashed member by member
+    FROM THE NAS'S BYTES on .30 (relay `members`). Those hashes become raw_members; expected files not among them are
+    raw_left_out (held, repairable). Prune later deletes a held file only if its own sha256 equals the NAS's."""
+    vok, vout = relay.verify(day)
+    if not vok:
+        return False, 'the day does not verify on the NAS: %s' % vout[:120]
+    man = relay.manifest(day) or {}
+    names = sorted(n for n in (man.get('files') or {}) if n.startswith(('raw-', 'repair-raw-')) and n.endswith('.tar'))
+    if not names:
+        return False, 'the NAS MANIFEST lists no raw tar'
+    mem = {}
+    for n in names:
+        m = relay.members(day, n)
+        if m is None:
+            return False, 'could not list the members of %s on the NAS' % n
+        mem.update(m)
+    exp = expected_raw(day, a)
+    rec['raw_members'] = mem
+    rec['raw_left_out'] = sorted(x for x in exp if x not in mem)
+    return True, '%d members hashed on the NAS (%d expected, %d left out)' % (len(mem), len(exp), len(rec['raw_left_out']))
 
 
 def repair_raw(day, rec, a, relay, log):
@@ -466,11 +497,10 @@ def repair_raw(day, rec, a, relay, log):
     left = [x for x in rec.get('raw_left_out') or [] if os.path.exists(os.path.join(a.rawhold, x))]
     if not left:
         return False, 'nothing held to repair (left out: %s)' % (rec.get('raw_left_out') or [])
-    n = len(rec.get('repairs') or [])
-    tarp = os.path.join(a.home, 'days', day, 'repair-raw-%s-%d.tar' % (day.replace('-', ''), n + 1))
-    os.makedirs(os.path.dirname(tarp), exist_ok=True)
+    tmp = os.path.join(a.home, 'days', day, 'repair-raw.part')
+    os.makedirs(os.path.dirname(tmp), exist_ok=True)
     mem = {}
-    with tarfile.open(tarp, 'w', format=tarfile.PAX_FORMAT) as tf:
+    with tarfile.open(tmp, 'w', format=tarfile.PAX_FORMAT) as tf:
         for rel in left:
             src = os.path.join(a.rawhold, rel)
             try:
@@ -481,7 +511,12 @@ def repair_raw(day, rec, a, relay, log):
                 log('  repair: %s still unreadable (%s) -- kept held, not sent' % (rel, e)); continue
             tf.add(src, arcname=rel, filter=_normalise); mem[rel] = sha256_file(src)
     if not mem:
-        os.remove(tarp); return False, 'every left-out file is still unreadable'
+        os.remove(tmp); return False, 'every left-out file is still unreadable'
+    # CONTENT-NAMED (Claude r2 P3): a retry after a lost acknowledgement re-sends the SAME name with the same bytes
+    # ("already"); a different member set gets a different name instead of a refusal on the sealed day
+    tag = hashlib.sha1(json.dumps(sorted(mem.items())).encode()).hexdigest()[:10]
+    tarp = os.path.join(a.home, 'days', day, 'repair-raw-%s-%s.tar' % (day.replace('-', ''), tag))
+    os.replace(tmp, tarp)
     ok, sha, out = relay.put(day, tarp)
     if not ok:
         return False, 'put: %s' % out[:200]
@@ -534,6 +569,9 @@ def main(argv=None):
     hb = {'at': None, 'status': None, 'app_version': a.app_version, 'host': os.uname().nodename}
     results, error = [], None
     relay = Relay(a.relay, a.relay_key, dry=a.dry_run)
+    if a.dry_run and (a.ack or a.adopt_raw or a.repair_raw):
+        log('REFUSED: --ack, --adopt-raw and --repair-raw change what is recorded as archived; they never run under --dry-run')
+        return 2
     try:
         if a.ack:
             if a.ack[0] not in state['archived']:
@@ -543,7 +581,7 @@ def main(argv=None):
         if a.adopt_raw or a.repair_raw:
             for day, rec in sorted(state['archived'].items()):
                 if a.adopt_raw and rec.get('raw_members') is None:
-                    ok, why = adopt_raw(day, rec, relay.manifest(day), a, log)
+                    ok, why = adopt_raw(day, rec, relay, a, log)
                 elif a.repair_raw == day:
                     ok, why = repair_raw(day, rec, a, relay, log)
                 else:

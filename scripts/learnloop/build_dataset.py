@@ -273,7 +273,8 @@ def main(argv=None):
     prev = {}                                      # bot -> its previous model decision in cell C (rows are bot-ordered)
     used_sp = set()
     train_pa, train_near = set(), set()             # LEAKAGE CONTROL (Claude r1 P3): keys of every TRAIN-cell decision
-    leak = collections.Counter()
+    held_keys = []                                   # (cell, prompt_action, near) of every held-out decision; compared
+    leak = collections.Counter()                     # AFTER the pass, against the COMPLETE train sets (Codex r2 P3)
     for d in days:
         with gzip.open(shards[d], 'rt') as fh:
             for line in fh:
@@ -283,9 +284,7 @@ def main(argv=None):
                 C['models']['%s:%s' % (cell, t['model'])] += 1
                 if cell != 'TRAIN':
                     held[cell].write(json.dumps(compact(t, cell)) + '\n')
-                    leak['%s:decisions' % cell] += 1        # TRAIN days are older than the new days, so the sets are full
-                    leak['%s:same prompt+action as a TRAIN decision' % cell] += t['dedupe']['prompt_action'] in train_pa
-                    leak['%s:same near-key as a TRAIN decision' % cell] += t['dedupe']['near'] in train_near
+                    held_keys.append((cell, t['dedupe']['prompt_action'], t['dedupe']['near']))
                     if cell == 'C':
                         usable = t['prompt_complete'] and t['nonce_ok'] and t['model'] == FLEET_MODEL \
                             and '%s:%s' % (t['code_version'], t['system_hash']) in sps
@@ -339,6 +338,11 @@ def main(argv=None):
                 m3_pool[t['action']['skill']].append({'id': t['id'], 'day': d})
     for fh in list(held.values()) + [good]:
         close_gz(fh)
+    for cell, kpa, kn in held_keys:
+        leak['%s:decisions' % cell] += 1
+        leak['%s:same prompt+action as a TRAIN decision' % cell] += kpa in train_pa
+        leak['%s:same near-key as a TRAIN decision' % cell] += kn in train_near
+    del held_keys, train_pa, train_near
     del seen_pa, near_n
     # ---- natural pairs
     np_ = 0

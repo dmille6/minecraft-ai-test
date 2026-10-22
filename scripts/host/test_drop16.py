@@ -162,6 +162,23 @@ def t_a_failed_restart_keeps_the_hold_and_exits_nonzero():
     assert 'VERIFY FAILED' in out
 
 
+def t_a_failed_apply_rolls_back_by_adopting_its_kept_hold():
+    """Claude r2 P2: the kept hold made a fresh rollback claim refuse -- a dead end. The printed command must work."""
+    import re
+    d = sandbox(); before = envs(d)
+    rc, out = run(d, '--apply', FAIL_BOT=BOTS[1])
+    assert rc == 4 and 'INSTALL-HOLD KEPT' in out, out
+    m = re.search(r'Roll back with: bash \S+ --rollback (\S+) --hold-token (\S+)', out)
+    assert m, out
+    rc2, out2 = run(d, '--rollback', m.group(1))
+    assert rc2 == 2 and 'install-hold not claimed' in out2, 'without the token the kept hold blocks a claim: %s' % out2
+    rc3, out3 = run(d, '--rollback', m.group(1), '--hold-token', 'drop16:someone-else')
+    assert rc3 == 2 and 'nothing adopted' in out3, out3
+    rc4, out4 = run(d, '--rollback', m.group(1), '--hold-token', m.group(2))
+    assert rc4 == 0 and 'ROLLED BACK %s and verified' % m.group(1) in out4, out4
+    assert envs(d) == before and not os.path.exists(os.path.join(d, 'hold.json')), 'restored, and the adopted hold released'
+
+
 def t_rollback_restores_restarts_and_verifies_the_old_line():
     d = sandbox(); before = envs(d)
     rc, out = run(d, '--apply'); assert rc == 0, out

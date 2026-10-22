@@ -79,6 +79,9 @@ def t_export_check_needs_97pct_same_skill_and_no_validity_loss():
     assert not E.export_check(q4b, f16)['pass']
     q4c = [rec(i, 'gather', {}, valid=i > 0) for i in range(100)]
     assert not E.export_check(q4c, f16)['pass'], 'schema-valid share fell'
+    ids = ['i%d' % i for i in range(100)]
+    assert not E.export_check(q4[:1], f16, ids)['pass'], 'Codex r2: 1 Q4 answer against 100 must not pass'
+    assert E.export_check(q4, f16, ids)['pass']
 
 
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]

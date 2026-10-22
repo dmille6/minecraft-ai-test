@@ -12,7 +12,9 @@
 #     cp drop16.sh ~/drop16.sh && bash ~/drop16.sh                 # DRY RUN (default): checks + the plan, changes nothing
 #     bash ~/drop16.sh --apply                                    # backups, edit, restart 80 bots 12 s apart, verify
 #     bash ~/drop16.sh --verify <since ISO, e.g. 2026-10-23T10:00:00Z>   # read-only: environ + llm rows since then
-#     bash ~/drop16.sh --rollback <stamp>                         # restore *.bak-drop16-<stamp>, restart 12 s apart
+#     bash ~/drop16.sh --rollback <stamp> [--hold-token <T>]      # restore *.bak-drop16-<stamp>, restart 12 s apart
+#       (--hold-token: ADOPT the install-hold a failed --apply kept -- it prints the exact command -- instead of
+#        claiming a new one, so the slot never reopens to the scheduler while the fleet is half-applied)
 #
 # INSTALLER PROTOCOL (CLAUDE.md "Deploys"): --apply / --rollback take the scheduler's install-hold through
 # holdtoken.py claim (refuses unless the slot is free, checked under the scheduler's own tick lock) and
@@ -48,13 +50,14 @@ OLD_URLS="OLLAMA_BASE_URLS=http://10.0.0.72:11434,http://10.0.0.16:11434"
 NEW_URLS="OLLAMA_BASE_URLS=http://10.0.0.72:11434"
 URL1="OLLAMA_BASE_URL=http://10.0.0.72:11434"
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-MODE=dry; ARG=""
+MODE=dry; ARG=""; ADOPT=""
 case "${1:-}" in
   "") ;;
   --apply) MODE=apply;;
   --verify) MODE=verify; ARG=${2:?--verify needs a since ISO time};;
-  --rollback) MODE=rollback; ARG=${2:?--rollback needs the backup stamp};;
-  *) echo "usage: $0 [--apply | --verify <since ISO> | --rollback <stamp>]"; exit 2;;
+  --rollback) MODE=rollback; ARG=${2:?--rollback needs the backup stamp}
+              if [ "${3:-}" = --hold-token ]; then ADOPT=${4:?--hold-token needs the token}; fi;;
+  *) echo "usage: $0 [--apply | --verify <since ISO> | --rollback <stamp> [--hold-token <token>]]"; exit 2;;
 esac
 say() { echo "== $*"; }
 die() { echo "REFUSED: $*"; exit 2; }
@@ -159,12 +162,20 @@ if [ "$MODE" = dry ]; then
   HO=$(python3 "$HOLDTOKEN" owner 2>&1); [ -z "$HO" ] || W "an install-hold exists (owner $HO)"
   flock -n "$LOCKF" true || W "/tmp/mcai-canary.lock is held"
 else
-  TOKEN="drop16:$MODE:$$:$(date +%s%N)"
-  CL=$(python3 "$HOLDTOKEN" claim "$TOKEN" "$HOLD_MIN" 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-500)"
-  # A FAILED VERIFY KEEPS THE HOLD (Codex r1 P1): releasing it would let the scheduler launch a canary into a fleet
-  # that is half-edited or not running what its env files say. The operator fixes or rolls back, then releases.
-  KEEP_HOLD=""
-  trap '[ -n "$KEEP_HOLD" ] && echo "INSTALL-HOLD KEPT ($TOKEN): fix or roll back, then: python3 $HOLDTOKEN release $TOKEN" || python3 "$HOLDTOKEN" release "$TOKEN" >/dev/null 2>&1' EXIT
+  if [ -n "$ADOPT" ]; then
+    # ADOPT the hold a failed --apply kept (Claude r2 P2): a fresh claim would be refused while it exists, and releasing
+    # it first would reopen the slot to canary-sched while the fleet is half-applied
+    HO=$(python3 "$HOLDTOKEN" owner 2>&1)
+    [ "$HO" = "$ADOPT" ] || die "the current install-hold is '$HO', not '$ADOPT' -- nothing adopted"
+    TOKEN=$ADOPT; CL="adopted the kept install-hold $TOKEN"
+  else
+    TOKEN="drop16:$MODE:$$:$(date +%s%N)"
+    CL=$(python3 "$HOLDTOKEN" claim "$TOKEN" "$HOLD_MIN" 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-500)"
+  fi
+  # THE HOLD IS KEPT FROM THE FIRST MUTATION until a VERIFIED end (Codex r1 P1, r2 P1): any exit in between -- a
+  # failed copy, an interruption, a failed restart or verify -- leaves it held, with the exact command to finish.
+  KEEP_HOLD=""; ROLLSTAMP=$STAMP; [ "$MODE" = rollback ] && ROLLSTAMP=$ARG
+  trap '[ -n "$KEEP_HOLD" ] && echo "INSTALL-HOLD KEPT ($TOKEN). Roll back with: bash $0 --rollback $ROLLSTAMP --hold-token $TOKEN   (or fix by hand, then: python3 $HOLDTOKEN release $TOKEN)" || python3 "$HOLDTOKEN" release "$TOKEN" >/dev/null 2>&1' EXIT
   echo "  $(echo "$CL" | tail -1 | cut -c1-200)"
   exec 8>"$LOCKF"; flock -n 8 || die "$LOCKF is held"
   _busy      # re-checked UNDER the hold and the lock
@@ -185,6 +196,7 @@ if [ "$MODE" = rollback ]; then
   say "ROLLBACK from *.bak-drop16-$ARG"
   [[ "$ARG" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || die "stamp looks like 20261023T101500Z"
   for f in $files; do [ -f "$f.bak-drop16-$ARG" ] || die "missing backup $f.bak-drop16-$ARG -- nothing restored"; done
+  KEEP_HOLD=1
   for f in $files; do sudo -n cp -p "$f.bak-drop16-$ARG" "$f" && cmp -s "$f.bak-drop16-$ARG" "$f" || die "restore of $f failed -- fix by hand"; done
   echo "  restored $n files; verified byte-equal to their backups"
   restart_all; rfail=$?
@@ -195,7 +207,7 @@ if [ "$MODE" = rollback ]; then
   if [ "$rfail" != 0 ] || [ "$vrc" != 0 ]; then
     KEEP_HOLD=1; echo "ROLLBACK NOT VERIFIED ($rfail restart failure(s), verify rc $vrc) -- the install-hold is kept"; exit 4
   fi
-  echo "ROLLED BACK $ARG and verified"; exit 0
+  KEEP_HOLD=""; echo "ROLLED BACK $ARG and verified"; exit 0
 fi
 
 say "2. the $EXPECT env files are on the 5080-first lines"
@@ -222,8 +234,9 @@ if [ "$MODE" = dry ]; then
 fi
 
 say "3. back up, edit, check each file changed in exactly one line"
+KEEP_HOLD=1
 for f in $files; do
-  sudo -n cp -p "$f" "$f.bak-drop16-$STAMP" && cmp -s "$f" "$f.bak-drop16-$STAMP" || die "backup of $f failed -- nothing edited yet beyond earlier files (restore: bash $0 --rollback $STAMP)"
+  sudo -n cp -p "$f" "$f.bak-drop16-$STAMP" && cmp -s "$f" "$f.bak-drop16-$STAMP" || { KEEP_HOLD=""; die "backup of $f failed -- no env file edited yet; the hold is released"; }
 done
 echo "  backups: $E/*.env.bak-drop16-$STAMP"
 for f in $files; do
@@ -231,8 +244,13 @@ for f in $files; do
   d=$(diff "$f.bak-drop16-$STAMP" "$f" | grep -c '^[<>]')
   if [ "$d" != 2 ] || ! grep -qx "$NEW_URLS" "$f" || grep -q '10\.0\.0\.16' "$f" || ! grep -qx "$URL1" "$f"; then
     echo "EDIT CHECK FAILED on $f (diff lines $d) -- restoring every file"
-    for g in $files; do sudo -n cp -p "$g.bak-drop16-$STAMP" "$g"; done
-    die "nothing restarted; all $n files restored from *.bak-drop16-$STAMP"
+    rbad=0
+    for g in $files; do
+      [ -f "$g.bak-drop16-$STAMP" ] || continue
+      sudo -n cp -p "$g.bak-drop16-$STAMP" "$g" && cmp -s "$g.bak-drop16-$STAMP" "$g" || rbad=$((rbad+1))
+    done
+    [ "$rbad" = 0 ] && KEEP_HOLD=""      # every file byte-equal to its backup and nothing restarted: safe to release
+    die "nothing restarted; restore of $n files from *.bak-drop16-$STAMP: $rbad failure(s)"
   fi
 done
 echo "  $n files now read '$NEW_URLS'; each differs from its backup in that one line"
@@ -245,7 +263,7 @@ T0=$(date -u +%FT%TZ)
 say "4. wait 180 s after the last restart, then verify"
 sleep "$WAIT"
 verify "$T0"; vrc=$?
-if [ "$rfail" != 0 ] || [ "$vrc" != 0 ]; then KEEP_HOLD=1; fi
+[ "$rfail" = 0 ] && [ "$vrc" = 0 ] && KEEP_HOLD=""
 grep -q . "$H/digest/gate-installs.log" 2>/dev/null && echo "$(date -u +%FT%TZ) drop16 (learning loop M2b) applied: 10.0.0.16 removed from OLLAMA_BASE_URLS in $n env files; backups *.bak-drop16-$STAMP; verify rc $vrc" >> "$H/digest/gate-installs.log"
 echo "DONE $STAMP (restarts $T_START..$T0, verify rc $vrc). Rollback: bash $0 --rollback $STAMP"
 [ "$vrc" = 0 ] && [ "$rfail" = 0 ] || { echo "NOT VERIFIED: the install-hold is kept until you fix or roll back"; exit 4; }

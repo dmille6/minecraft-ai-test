@@ -20,6 +20,9 @@
 #                               day it has no local record of (a seal whose acknowledgement was lost, a lost state.json),
 #                               and after any refusal, so a sealed day is recorded from the NAS, never re-sent.
 #   manifest <day>              read-only: the day's MANIFEST.json as stored.
+#   members <day> <tar>         read-only: "<sha256>  <member path>" for every file in <day>/<tar> (raw-*.tar or
+#                               repair-raw-*.tar), hashed HERE from the bytes the NAS returns -- the proof nightly.py
+#                               uses before it prunes a held raw file (independent of tar headers and live copies).
 #   status                      "LASTGOOD <stamp> <day>" (or NONE), "SEALED <n> <newest>", "UNSEALED <days...>".
 #   list <day>                  "<name> <bytes>" per file in <day>.
 # A sealed day accepts only NEW names that start with "repair-" (nightly.py --repair-raw: held raw files a failed raw
@@ -111,6 +114,19 @@ for n, f in sorted(m["files"].items()):
   manifest)
     [ "${#A[@]}" -eq 2 ] && day_ok "${A[1]}" || { out "REFUSED: usage manifest <day>"; exit 2; }
     nas "cat '$DAYS/${A[1]}/MANIFEST.json'" || fail "${A[1]}: no MANIFEST.json"
+    ;;
+  members)
+    [ "${#A[@]}" -eq 3 ] && day_ok "${A[1]}" && name_ok "${A[2]}" && [[ "${A[2]}" =~ ^(repair-)?raw-.*\.tar$ ]] \
+      || { out "REFUSED: usage members <day> <raw-*.tar|repair-raw-*.tar>"; exit 2; }
+    set -o pipefail
+    nas "cat '$DAYS/${A[1]}/${A[2]}'" | python3 -c '
+import hashlib, sys, tarfile
+t = tarfile.open(fileobj=sys.stdin.buffer, mode="r|")
+n = 0
+for m in t:
+    if m.isfile():
+        print(hashlib.sha256(t.extractfile(m).read()).hexdigest() + "  " + m.name); n += 1
+sys.exit(0 if n else 3)' || fail "${A[1]}/${A[2]}: not readable as a tar on the NAS"
     ;;
   status)
     lg=$(nas "cat '$BASE/.last-good' 2>/dev/null || echo NONE") || fail "NAS unreachable"

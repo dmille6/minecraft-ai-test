@@ -92,17 +92,22 @@ def gates(cand, ref, instrument_ok=True):
     return {'gates': g, 'pass': all(g.values())}
 
 
-def export_check(q4_recs, ref_recs):
+def export_check(q4_recs, ref_recs, item_ids=None):
     """s.3.2: the Q4_K_M GGUF must choose the same skill as the 16-bit model >= 97% of the time (items both answered
-    schema-valid), and its schema-valid share must not fall."""
+    schema-valid), and its schema-valid share must not fall. COVERAGE FIRST (Codex r2 P2): both runs must answer every
+    expected item, or there is no verdict."""
     q = {r['id']: r for r in q4_recs if not r.get('transport_error')}
     f = {r['id']: r for r in ref_recs if not r.get('transport_error')}
+    ids = set(item_ids) if item_ids is not None else set(q) | set(f)
+    covered = bool(ids) and ids <= set(q) and ids <= set(f)
+    q = {i: r for i, r in q.items() if i in ids}; f = {i: r for i, r in f.items() if i in ids}
     both = [i for i in q if i in f and q[i].get('schemaValid') and f[i].get('schemaValid')]
     same = sum(1 for i in both if (q[i].get('proposal') or {}).get('skill') == (f[i].get('proposal') or {}).get('skill'))
     vq = sum(1 for r in q.values() if r.get('schemaValid')); vf = sum(1 for r in f.values() if r.get('schemaValid'))
-    res = {'items_both_valid': len(both), 'same_skill': same, 'same_skill_pct': pct(same, len(both)),
+    res = {'expected_items': len(ids), 'answered_q4': len(q), 'answered_16bit': len(f), 'complete_coverage': covered,
+           'items_both_valid': len(both), 'same_skill': same, 'same_skill_pct': pct(same, len(both)),
            'schema_valid_q4': pct(vq, len(q)), 'schema_valid_16bit': pct(vf, len(f))}
-    res['pass'] = bool(both) and same >= 0.97 * len(both) and (res['schema_valid_q4'] or 0) >= (res['schema_valid_16bit'] or 0)
+    res['pass'] = covered and bool(both) and same >= 0.97 * len(both) and (res['schema_valid_q4'] or 0) >= (res['schema_valid_16bit'] or 0)
     return res
 
 
@@ -131,7 +136,7 @@ def main():
     rep['gates_vs'] = ref
     rep['gates'] = {m: gates(t, runs[ref], ic) for m, t in runs.items() if m != ref} if ref else {}
     if a.export_check:
-        rep['export_check'] = export_check(load(a.export_check[0]), load(a.export_check[1]))
+        rep['export_check'] = export_check(load(a.export_check[0]), load(a.export_check[1]), [i['id'] for i in items])
     print(json.dumps(rep, indent=1))
     if a.json:
         json.dump(rep, open(a.json, 'w'), indent=1)

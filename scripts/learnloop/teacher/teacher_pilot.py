@@ -135,16 +135,16 @@ def ledger_rows(path=None):
 
 
 def month_to_date(rows, vendor, now=None):
-    """Actual spend this UTC month + every reservation with no actual yet (and not released by the owner). A
-    reservation is matched to its actual through the batch id its `submitted` row recorded."""
+    """Actual spend this UTC month + EVERY unresolved reservation, whatever month it was made in (Codex r2 P2: a batch
+    reserved before midnight can bill after it). A reservation resolves when its batch (via the `submitted` row) has
+    an `actual`, or when the owner `release`s it."""
     now = now or dt.datetime.now(dt.timezone.utc)
     ym = now.strftime('%Y-%m')
-    mine = [r for r in rows if r['vendor'] == vendor and r['ts'][:7] == ym]
     batch_of = {r['reservation']: r['batch'] for r in rows if r['kind'] == 'submitted'}
     actual_batches = {r['batch'] for r in rows if r['kind'] == 'actual'}
     released = {r['reservation'] for r in rows if r['kind'] == 'released'}
-    return round(sum(r['usd'] for r in mine if r['kind'] == 'actual') +
-                 sum(r['usd'] for r in mine if r['kind'] == 'reserve' and r['reservation'] not in released
+    return round(sum(r['usd'] for r in rows if r['vendor'] == vendor and r['kind'] == 'actual' and r['ts'][:7] == ym) +
+                 sum(r['usd'] for r in rows if r['vendor'] == vendor and r['kind'] == 'reserve' and r['reservation'] not in released
                      and batch_of.get(r['reservation']) not in actual_batches), 4)
 
 
@@ -250,13 +250,20 @@ def cmd_submit(a, submit=None):
         fcntl.flock(lk, fcntl.LOCK_EX)           # the WHOLE submit: two submits cannot pass against the same balance
         rows = ledger_rows()
         released = {r['reservation'] for r in rows if r['kind'] == 'released'}
+        submitted = {r['reservation'] for r in rows if r['kind'] == 'submitted'}
         for b in batches:
             key = items_key(arm, cond, b['items'])
             dup = [r for r in rows if r['kind'] == 'reserve' and r['arm'] == arm and r.get('items_key') == key
                    and r['reservation'] not in released]
+            # RESUMABLE (Claude r2 P2): a batch already reserved AND submitted is skipped, so a run that stopped at
+            # batch k finishes without paying for 1..k again; a reservation with NO `submitted` row is the unknown
+            # case (did the vendor take it?) and needs --resubmit after a look at the console, or `release`
+            if any(r['reservation'] in submitted for r in dup) and not a.resubmit:
+                print('skipped: batch already submitted (%s)' % [r['reservation'] for r in dup if r['reservation'] in submitted][0])
+                continue
             if dup and not a.resubmit:
-                raise SystemExit('REFUSED: this exact request set is already reserved (%s) -- no double pay; '
-                                 '--resubmit only after checking the vendor console' % dup[0]['reservation'])
+                raise SystemExit('REFUSED: this exact request set was reserved (%s) but never recorded as submitted -- '
+                                 'check the vendor console, then --resubmit or `release %s`' % (dup[0]['reservation'], dup[0]['reservation']))
             cc = cap_check(rows, v, b['usd'])
             if not cc['ok']:
                 raise SystemExit('REFUSED by the ledger: %s' % cc)
@@ -367,7 +374,8 @@ def cmd_fetch(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('verb', nargs='?', default='plan', choices=('plan', 'submit', 'poll', 'fetch'))
+    ap.add_argument('verb', nargs='?', default='plan', choices=('plan', 'submit', 'poll', 'fetch', 'release'))
+    ap.add_argument('reservation', nargs='?', default=None, help='release: the reservation id the owner checked was NOT taken')
     ap.add_argument('--pilot', default='~/learnloop/teacher/pilot-1000.jsonl')
     ap.add_argument('--arm', choices=('B', 'C'))
     ap.add_argument('--condition', choices=('blind', 'informed'), default='blind')
@@ -377,6 +385,16 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.verb == 'plan':
         return cmd_plan(a)
+    if a.verb == 'release':
+        rows = ledger_rows()
+        r = [x for x in rows if x['kind'] == 'reserve' and x['reservation'] == a.reservation]
+        if not r:
+            raise SystemExit('REFUSED: no reservation %s' % a.reservation)
+        if any(x['kind'] == 'submitted' and x['reservation'] == a.reservation for x in rows):
+            raise SystemExit('REFUSED: %s was submitted; it resolves through fetch, not release' % a.reservation)
+        append_row({'ts': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), 'vendor': r[0]['vendor'],
+                    'arm': r[0]['arm'], 'kind': 'released', 'reservation': a.reservation})
+        print('released', a.reservation); return 0
     if a.verb == 'submit':
         if not a.arm:
             raise SystemExit('--arm B|C')

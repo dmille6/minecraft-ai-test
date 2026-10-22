@@ -324,7 +324,7 @@ def _relay(env, cmd, data=b''):
 
 
 def t_relay_put_is_verified_immutable_and_sealed():
-    import hashlib
+    import hashlib, io
     root, env = _relay_env()
     data = b'hello triples\n' * 100
     sha = hashlib.sha256(data).hexdigest()
@@ -367,6 +367,18 @@ def t_relay_put_is_verified_immutable_and_sealed():
     assert rc == 1 and ('missing' in out or 'NOT sealed' in out), 'an unsealed day never verifies: %s' % out
     rc, out = _relay(env, 'manifest 2026-10-21')
     assert rc == 0 and json.loads(out) == json.loads(man2), out
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w') as tf:
+        for n, body in (('b1/llm-b1.jsonl-20261022.gz', b'one'), ('b1/skill-b1.jsonl-20261022.gz', b'two')):
+            ti = tarfile.TarInfo(n); ti.size = len(body); tf.addfile(ti, io.BytesIO(body))
+    tb = buf.getvalue()
+    rc, out = _relay(env, 'put 2026-10-21 repair-raw-20261021-abc.tar %s' % hashlib.sha256(tb).hexdigest(), tb)
+    assert rc == 0, out
+    rc, out = _relay(env, 'members 2026-10-21 repair-raw-20261021-abc.tar')
+    assert rc == 0 and out.splitlines() == ['%s  b1/llm-b1.jsonl-20261022.gz' % hashlib.sha256(b'one').hexdigest(),
+                                            '%s  b1/skill-b1.jsonl-20261022.gz' % hashlib.sha256(b'two').hexdigest()], out
+    rc, out = _relay(env, 'members 2026-10-21 MANIFEST.json')
+    assert rc == 2 and out.startswith('REFUSED'), out
     assert open(stored.replace('2026-10-20/', '2026-10-21/'), 'rb').read() == data
     rc, out = _relay(env, 'status')
     lines = out.splitlines()
@@ -434,6 +446,14 @@ class FakeRelay:
     def manifest(self, day):
         d = self.nas.get(day) or {}
         return json.loads(d['MANIFEST.json']) if 'MANIFEST.json' in d else None
+
+    def members(self, day, name):
+        import hashlib, io
+        data = (self.nas.get(day) or {}).get(name)
+        if data is None:
+            return None
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+            return {m.name: hashlib.sha256(tf.extractfile(m).read()).hexdigest() for m in tf.getmembers() if m.isfile()}
 
     def status(self):
         return {'sealed': len(self.sealed), 'newest': max(self.sealed) if self.sealed else 'NONE'}
@@ -544,7 +564,40 @@ def t_repair_raw_sends_left_out_files_to_a_sealed_day():
     _run(home, logs, roster, rl, '--repair-raw', DAY)
     rec = json.load(open(os.path.join(home, 'state.json')))['archived'][DAY]
     assert rec['raw_left_out'] == [] and 'w-a-Bravo/llm-w-a-Bravo.jsonl-20261021.gz' in rec['raw_members'], rec
-    assert any(n.startswith('repair-raw-20261020-1.tar') for n in rl.nas[DAY]), rl.nas[DAY].keys()
+    assert any(n.startswith('repair-raw-20261020-') and n.endswith('.tar') for n in rl.nas[DAY]), rl.nas[DAY].keys()
+
+
+def t_dry_run_never_records_an_archive():
+    """Both engines r2 P1: --repair-raw under --dry-run recorded files as on the NAS; the next prune deleted them."""
+    root, roster, logs, home = _nightly_env()
+    st = {'archived': {DAY: {'controls_ok': True, 'raw_members': {}, 'raw_left_out': ['w-a-Alpha/llm-w-a-Alpha.jsonl-20261021.gz']}},
+          'acknowledged': {}}
+    json.dump(st, open(os.path.join(home, 'state.json'), 'w'))
+    for extra in (['--repair-raw', DAY], ['--adopt-raw'], ['--ack', DAY, 'x']):
+        rc = N.main(['--tick', '--home', home, '--logroot', logs, '--roster', roster, '--dry-run', '--no-es'] + extra)
+        assert rc == 2, (extra, rc)
+    assert json.load(open(os.path.join(home, 'state.json'))) == st, 'nothing recorded'
+    ok, sha, out = N.Relay(dry=True).put(DAY, os.path.join(logs, 'w-a-Alpha', 'llm-w-a-Alpha.jsonl'))
+    assert ok is False and 'DRY' in out, 'a dry put is never an upload'
+    assert N.Relay(dry=True).seal(DAY)[0] is False
+
+
+def t_adopt_raw_proves_members_from_the_nas_bytes():
+    """Claude r2 P2: members are hashed from the sealed tar on the NAS -- no dependence on headers or live copies."""
+    root, roster, logs, home = _nightly_env()
+    rl = FakeRelay()
+    _run(home, logs, roster, rl)                                  # seals DAY with the current code
+    st = json.load(open(os.path.join(home, 'state.json')))
+    proven = st['archived'][DAY]['raw_members']
+    st['archived'][DAY]['raw_members'] = None                    # as the first backfill recorded it
+    json.dump(st, open(os.path.join(home, 'state.json'), 'w'))
+    for f in os.listdir(os.path.join(logs, 'w-a-Alpha')):         # the live copies have rotated away
+        if f.endswith('-20261021.gz'):
+            os.remove(os.path.join(logs, 'w-a-Alpha', f))
+    _run(home, logs, roster, rl, '--adopt-raw')
+    rec = json.load(open(os.path.join(home, 'state.json')))['archived'][DAY]
+    assert rec['raw_members'] == proven and rec['raw_left_out'] == [], rec
+
 
 
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
