@@ -74,7 +74,7 @@ export function dryTarget (read, x, z, hy, opts = {}) {
   if (!standable(read, x, fy, z)) return { ok: false, why: 'not_standable' }
   if (BAD_FLOOR.test(String(read(x, f, z)?.name || ''))) return { ok: false, why: 'floor' }
   // KEEPOUT-01 x HOMEFIX-02: never a relocation INTO the column above a marked lava pool -- `forbid(x, fy, z)` judges the target's
-  // goto arrival region (keepout.mjs relocationForbidden: the 7x7 around it at its feet height). Absent -> the base rule.
+  // goto arrival region (keepout.mjs relocationForbidden: the 7x7 around it, 6 above and below its feet). Absent -> the base rule.
   if (typeof opts.forbid === 'function' && opts.forbid(x, fy, z)) return { ok: false, why: 'keepout' }
   const wet = volumeWet(read, x, fy, z, opts)
   if (wet) return { ok: false, why: wet }
