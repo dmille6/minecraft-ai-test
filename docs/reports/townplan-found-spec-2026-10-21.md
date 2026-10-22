@@ -258,7 +258,8 @@ their own adoption lands with them.
   good read in this process (malformed at spawn, or any malformed zone at the first read: Claude r2 P3 -- for siting, a zone it
   cannot parse is a zone it cannot avoid), zones are UNKNOWN: no root, no re-fit, and found places nothing; the accepted plan's
   keep-outs still serve. Re-read every 30 s.
-- Seed `avoid` boxes are siting policy on top (the showcase's trial chambers: not in the zones file, an owner "ASK").
+- Seed `avoid` boxes are siting policy on top. The showcase's trial chambers are now BOTH (owner 10-21 #18: protected): the zones
+  file's `trial-chambers-home-se` and the seed's avoid box, the same id and box (a test asserts they agree).
 - The no-dig zone (townzone-01, kept) refuses TARGET digs of town terrain within Chebyshev 16 above home.y - 12; READY cells need
   no dig at all.
 
