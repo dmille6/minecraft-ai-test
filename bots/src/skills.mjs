@@ -15223,7 +15223,10 @@ async function foundRun (ctx, args, signal, order) {
     if (!at) return out('no_effect', 'refused', 'no plan cell named')
     const done = await placeIntoPlan(ctx, { at, kind, role: args?.role ?? null, group: args?.group ?? null, signal, lease: { gen: () => renew() }, append })
     if (done.gen) f.gen = done.gen
-    return out(done.status, done.outcome ?? done.status, done.detail, done.failClass ?? null)
+    // THE CONTRACT'S EVIDENCE (Paper FOUND-NOFIT 10-22: every placement was scored `unknown` -- "nothing changed that found_work
+    // exists to change" -- and throttled): world_change is read from result.placed, the block read back at its cell
+    const r = out(done.status, done.outcome ?? done.status, done.detail, done.failClass ?? null)
+    return done.outcome === 'placed' ? { ...r, placed: 1, at } : r
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), 'other')
