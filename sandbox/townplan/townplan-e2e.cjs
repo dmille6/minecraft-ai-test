@@ -423,14 +423,16 @@ scenes.tpcas = async () => {
   const pool = `sbxtp-${RUN}-cas`
   let world = null
   // all three in town before the first tick (each ticks every 30 s from its own spawn)
-  const files = [await startBot('tpcas', IDLE_BAG, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
-  for (let i = 1; i < 3; i++) files.push(await startBot('tpcas', IDLE_BAG, { pool, name: NAMES[i], standAt: at([-2 - i, 0]) }))
+  // founding bags: every bot writes reservations and placements concurrently (later generations), then one is killed mid-run
+  const bag = [['chest', 3], ['crafting_table', 2], ['furnace', 2], ['stone_pickaxe', 1]]
+  const files = [await startBot('tpcas', bag, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
+  for (let i = 1; i < 3; i++) files.push(await startBot('tpcas', bag, { pool, name: NAMES[i], standAt: at([-2 - i, 0]) }))
   const root = await waitFor(() => rootRow(files), 150000, 1000)
   await sleep(90000)
   // SIGKILL the third and restart it (its walk starts from the files)
   await stopBots([NAMES[2]], 'SIGKILL')
   const gBefore = (await planOf(files[0].poolDir, world)).gens
-  files.push(await startBot('tpcas-restart', IDLE_BAG, { pool, name: NAMES[2], standAt: at([-5, 0]) }))
+  files.push(await startBot('tpcas-restart', bag, { pool, name: NAMES[2], standAt: at([-5, 0]) }))
   await sleep(120000)
   const rows = rowsAll(files).filter(r => /^_townplan$/.test(r.name))
   await stopBots()
@@ -440,7 +442,7 @@ scenes.tpcas = async () => {
   const PS = await import(path.join(BOT_ROOT, 'bots/src/planstore.mjs'))
   const rootsOnDisk = PS.planGens(files[0].poolDir, PS.planKey(HOME)).filter(g => { try { return JSON.parse(fs.readFileSync(path.join(files[0].poolDir, `${PS.planKey(HOME)}.g${g}.json`), 'utf8')).prev === null } catch { return false } }).length
   result({ scene: 'tpcas', world, rows: rows.map(fmt).slice(-30), roots, rootsOnDisk, invalid, gens: pl.gens, accepted: pl.accepted.length, rejected: pl.rejected, gBefore,
-    CANDIDATE_PASS: !!(root && roots === 1 && rootsOnDisk === 1 && invalid === 0 && pl.rejected.length === 0 && pl.accepted.length === pl.gens),
+    CANDIDATE_PASS: !!(root && roots === 1 && rootsOnDisk === 1 && invalid === 0 && pl.rejected.length === 0 && pl.accepted.length === pl.gens && pl.gens >= 5),
     BASE_SHAPE: !!(rows.length === 0 && pl.gens === 0) })
 }
 
@@ -573,7 +575,8 @@ scenes.foundflat = async () => {
   const placedStore = storeCells(plan).filter(c => c.state === 'placed')
   const lids = lidsOf(placedStore)
   const homes = placedStore.filter(c => c.role === 'home').map(c => `${c.group}@${K(c.at)}`)
-  const sum = foundSummary(s, rows, { want: last, standing: st, stray, lids, homes })
+  const { tablesOff } = strayOf(plan)
+  const sum = foundSummary(s, rows, { want: last, standing: st, stray, tablesOff, lids, homes })
   result({ scene: 'foundflat', ...sum,
     CANDIDATE_PASS: !!(s.root && sum.licence >= 1 && last?.every(x => x.on && x.state === 'placed') && last[1].role === 'overflow' && !stray.length && !lids.length && homes.length >= 2),
     BASE_SHAPE: !!(sum.licence === 0 && sum.placed === 0) })
@@ -879,14 +882,20 @@ scenes.foundaccess = async () => {
 // plinth inside the committed box) is proven in the fake world (townplan-adopters RAISED WELL), not here.
 scenes.foundplinth = async () => {
   buildArena()
+  // ground only EAST of home (x >= home + 3) plus a 5x5 pad at home: the plan fits E (its storehouse box u 7..15 and its
+  // workshop strip are the ground nearest home), and the cheapest raised-well candidate -- with no plan -- lies in that box
+  must(rcon(...fillChunks({ x0: A.x0, x1: HOME.x + 2, z0: A.z0, z1: A.z1 }, 112, G, 'air'), `fill ${HOME.x - 2} ${G - 6} ${HOME.z - 2} ${HOME.x + 2} ${G} ${HOME.z + 2} minecraft:dirt`), 'east ground')
   const pool = `sbxtp-${RUN}-plinth`
-  const w = await plannedTown('foundplinth-plan', { bags: [IDLE_BAG], pool, env: { FOUND: 'off' } })
+  // the planner bot must not plan the raised well before the root (plinth-first plans with no funds): PLINTH_FIRST=0 for it
+  const w = await plannedTown('foundplinth-plan', { bags: [IDLE_BAG], pool, env: { FOUND: 'off', PLINTH_FIRST: '0' } })
   await stopBots()
   const bag = [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['oak_trapdoor', 2], ['dirt', 8]]
   const f = await startBot('foundplinth', bag, { pool, name: NAMES[1], env: { FOUND: 'off', PLINTH_COOLDOWN_MS: 20000 } })
-  const planned = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_plinth' && /stage=planned|stage=none/.test(r.detail)), 600000, 3000)
+  // the plan may be made by EITHER bot (plinth-first plans with no funds: the planner bot may plan it before it stops)
+  const all = () => rowsAll([...w.files, f])
+  const planned = await waitFor(() => all().find(r => r.name === '_plinth' && /stage=planned|stage=none/.test(r.detail)), 600000, 3000)
   await sleep(3000)
-  const rows = rowsOf(f.skillLog).filter(r => /^_plinth$|^_townplan_adopt$|^_well_refused$/.test(r.name))
+  const rows = all().filter(r => /^_plinth$|^_townplan_adopt$|^_well_refused$/.test(r.name))
   await stopBots()
   let rec = null
   try { rec = JSON.parse(fs.readFileSync(fs.readdirSync(f.poolDir).filter(n => /^junkwell-plinth-.*\.json$/.test(n)).map(n => path.join(f.poolDir, n))[0], 'utf8')) } catch { rec = null }
