@@ -31,7 +31,7 @@ import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
 // FOUNDING (found-01): the found slot's decision and readings
 import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign } from './found.mjs'
-import { townPlanNow, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
+import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -780,6 +780,10 @@ export class CognitiveLoop {
       const inT = !!p && inTown(home, p)
       this.foundState = foundVisit(this.foundState ?? {}, inT)
       if (!inT) return null
+      // THE HEAD READ FRESH for this decision (Paper FOUND-RETRO 10-22: a bot that decided from its 30-s-old cached head took the
+      // lease the moment another bot released it, crafted a spare table for a station that bot had just filled, and spent its
+      // visit on lost_reservation). One directory read per in-town decision; the walk continues incrementally.
+      try { townPlanHead(bot) } catch { /* the cached head serves */ }
       const tp = townPlanNow(bot)
       if (!tp) return null
       const items = bot.inventory?.items?.() ?? []
