@@ -414,6 +414,31 @@ await t('A BODY, the bot ITSELF over the cell (Claude code r9 P2): never a free 
   const r = await runSkill(w.bot, 'found_work', { kind: 'crafting_table', at: s0.at, crafts: 0, step: 'F1' })
   assert.equal(r.status, 'no_effect', r.detail); assert.notEqual(r.failClass, 'found_body'); assert.match(r.detail, /the bot itself/)
 })
+/** The bot on its stand but 0.25 toward the cell (a walk ends within 0.35 of the centre): over the cell. A step forward (the
+ *  nudge) moves the fake bot to the stand's centre. -> the run's result and the cell's block. */
+async function offsetScene (S2) {
+  const w = town([stack('crafting_table', 2)])
+  const s0 = stations(w.bot)[0]
+  const { Vec3 } = await import('vec3')
+  const st = s0.stand
+  const dx = Math.sign(s0.at[0] - st[0]), dz = Math.sign(s0.at[2] - st[2])
+  w.bot.entity.position = new Vec3(st[0] + 0.5 + 0.25 * dx, st[1], st[2] + 0.5 + 0.25 * dz)
+  w.bot.pathfinder.goto = async () => {}
+  w.bot.setControlState = (k, on) => { if (k === 'forward' && on) w.bot.entity.position = new Vec3(st[0] + 0.5, st[1], st[2] + 0.5) }
+  const r = await S2.SKILLS.found_work.run({ bot: w.bot }, { kind: 'crafting_table', at: s0.at, crafts: 0, step: 'F1' }, new AbortController().signal)
+  return { r, block: w.nameAt(...s0.at) }
+}
+await t('A BODY, the bot ITSELF 0.25 into the cell (Claude code r10 P2): the nudge steps it off on the cell\'s own test and the table is placed', async () => {
+  const { r, block } = await offsetScene(S)
+  assert.equal(r.status, 'success', r.detail); assert.equal(block, 'crafting_table')
+})
+await t('MUTANT KILLED: the nudge removed -> the bot\'s own body over the cell refuses (charged) a placement it could make', async () => {
+  const k = await withMutant(new URL('../src/skills.mjs', import.meta.url), '    if (selfIn() && stand) {\n', '    if (false) {\n', async M => killedBy(async () => {
+    const { r } = await offsetScene(M)
+    assert.equal(r.status, 'success')
+  }))
+  assert.ok(k, 'the mutant survived')
+})
 await t('CHAIN, NOT A BODY: an ordinary no_effect (failClass unready) keeps the visit charged (only found_body is free)', async () => {
   const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
   loopBot(w)
