@@ -28,7 +28,9 @@
 #   column (replayed) per bot-h, canary vs fire-site control towns, pre vs post. Keep-out removes these by construction, so a
 #   fall mostly shows that the code ran.
 # DEFECTS (each REVERTS; each has a failing fixture in --selftest)
-#   K1 plan_in_column      a canary `_mine_plan` with in_column > 0 (a permitted stair through a column the bot knew)
+#   K1 plan_in_column      a canary `_mine_plan` with in_column > 0 (a permitted stair through a column the bot knew). K1's
+#                          population is the PLANNING-time decision: a descent planned with no site near writes no plan row,
+#                          and a site that joins mid-descent is judged by K2 (its executed digs) and the per-dig stop
 #   K2 dig_in_column       a canary `_mine_dig` with in_column > 0 (an executed stair dig in a column the bot knew)
 #   K3 repeat_refusals     > 2 keepout-refused gathers of one block by one bot within 10 min (the cooldown failed)
 #   K4 exit_loop           > 3 `_keepout_exit` rows by one bot within 10 min that did not get out (the order looped)
