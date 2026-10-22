@@ -20,7 +20,8 @@
 //           lava    the bravo pit with a lava pocket behind its north wall (one bot)
 //           zone    the bravo pit inside a protected zone (one bot)
 // Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `poolescape` as its owner's first word.
-// World edits on its own arena only.
+// World edits on its own arena only. Cleanup re-sets the driver's OWN stone/air plain there (not the sandbox's original terrain).
+// `escaped` = out of the pit column and >= 1 above its feet at the end, held out >= 20 s, never dead, still inside the arena.
 import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -150,9 +151,14 @@ async function main () {
   r1(`forceload add ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`)
   await sleep(2000)
   batch(arenaCmds())
-  P_('arena set', { feet: isBlock(A.x, A.y, A.z, 'water'), head: isBlock(A.x, A.y + 1, A.z, 'air'), floor: !isBlock(A.x, A.y - 1, A.z, 'water'), lava: SCENE === 'lava' ? isBlock(A.x, A.y + 1, A.z - 2, 'lava') : null })
+  const set = { feet: isBlock(A.x, A.y, A.z, 'water'), head: isBlock(A.x, A.y + 1, A.z, 'air'), floor: !isBlock(A.x, A.y - 1, A.z, 'water') && !isBlock(A.x, A.y - 1, A.z, 'air'), lava: SCENE === 'lava' ? isBlock(A.x, A.y + 1, A.z - 2, 'lava') : true }
+  P_('arena set', set)
+  // A SETUP THAT DID NOT TAKE IS NOT A SCENE (Codex driver review P2): abort rather than measure an escape from a pit that is not there
+  if (!set.feet || !set.head || !set.floor || !set.lava) throw new Error('arena did not set: ' + JSON.stringify(set))
   const bots = who.map(launch)
-  for (let k = 0; k < 60; k++) { await sleep(2000); const l = r1('list'); if (bots.every(b => l.includes(b.name))) break }
+  let joined = false
+  for (let k = 0; k < 60; k++) { await sleep(2000); const l = r1('list'); if (bots.every(b => l.includes(b.name))) { joined = true; break } }
+  if (!joined) throw new Error('the bots did not all join: ' + r1('list'))
   for (const b of bots) {
     const bag = BAGS[b.w]
     rcon(`gamemode survival ${b.name}`, `clear ${b.name}`, `effect clear ${b.name}`, `tp ${b.name} ${A.x + 0.5} ${A.y} ${A.z + 0.5}`,
@@ -163,6 +169,8 @@ async function main () {
   batch([`setblock ${A.x} ${A.y} ${A.z} minecraft:water`, `setblock ${A.x} ${A.y + 1} ${A.z} minecraft:air`])
   const start = Object.fromEntries(bots.map(b => [b.name, posOf(b.name)]))
   P_('placed', start)
+  const inPit = q => q && Math.floor(q.x) === A.x && Math.floor(q.z) === A.z && Math.floor(q.y) === A.y
+  if (!bots.every(b => inPit(start[b.name]))) throw new Error('a bot is not in the pit after the teleport: ' + JSON.stringify(start))
   const deadline = Date.now() + MINUTES * 60_000
   const outAt = {}, minHealth = {}
   const isOut = p => p && (Math.floor(p.y) >= A.y + 1) && !(Math.floor(p.x) === A.x && Math.floor(p.z) === A.z)
@@ -182,7 +190,12 @@ async function main () {
     const rows = rowsOf(b)
     const p = posOf(b.name)
     const pe = rows.filter(r => kind(r) === '_poolescape').map(r => String(r.skill.detail).slice(0, 260))
-    ev.bots.push({ bot: b.w, name: b.name, start: start[b.name], end: p, escaped: isOut(p), outAfterS: outAt[b.name] ? +((outAt[b.name] - T0) / 1000).toFixed(0) : null,
+    // ESCAPED = out of the pit at the end AND held out for >= 20 s (Codex driver review P2: an exit seconds before the deadline is not one)
+    // ...AND ALIVE, AND STILL IN THE ARENA (Claude driver review P2): a respawn at the sandbox's spawn is outside the pit too
+    const held = outAt[b.name] ? (Date.now() - outAt[b.name]) / 1000 : 0
+    const died = rows.some(r => kind(r) === '_death') || (minHealth[b.name] ?? 20) <= 0
+    const inArena = !!p && Math.abs(p.x - A.x) <= R && Math.abs(p.z - A.z) <= R && p.y >= A.y - 8 && p.y <= A.y + 12
+    ev.bots.push({ bot: b.w, name: b.name, start: start[b.name], end: p, escaped: isOut(p) && held >= 20 && !died && inArena, heldOutS: +held.toFixed(0), inArena, outAfterS: outAt[b.name] ? +((outAt[b.name] - T0) / 1000).toFixed(0) : null,
       minHealth: minHealth[b.name] ?? null, deaths: rows.filter(r => kind(r) === '_death').map(r => String(r.skill.detail).slice(0, 160)),
       licence: rows.some(r => kind(r) === '_poolescape_mode'), marooned: rows.filter(r => kind(r) === '_marooned').length,
       pillarPicks: rows.filter(r => kind(r) === '_scaffold_pick').length, starts: rows.filter(r => kind(r) === '_poolescape_start').length,
@@ -202,8 +215,11 @@ async function main () {
   P_('RESULT', ev)
 }
 async function cleanup () {
+  // every bot process ends before the arena is restored: SIGTERM, then SIGKILL for a straggler (Codex driver review P2)
   for (const c of procs) { try { c.kill('SIGTERM') } catch {} }
-  await sleep(4000)
+  for (let k = 0; k < 25 && procs.some(c => c.exitCode === null && c.signalCode === null); k++) await sleep(200)
+  for (const c of procs) { if (c.exitCode === null && c.signalCode === null) { try { c.kill('SIGKILL') } catch {} } }
+  await sleep(2000)
   try {
     const c = [`kill @e[type=!player,x=${A.x - R},y=${A.y - 8},z=${A.z - R},dx=${2 * R},dy=24,dz=${2 * R}]`]
     for (let dy = -8; dy <= 12; dy++) c.push(`fill ${A.x - R} ${A.y + dy} ${A.z - R} ${A.x + R} ${A.y + dy} ${A.z + R} minecraft:${dy <= 1 ? 'stone' : 'air'}`)
@@ -213,4 +229,5 @@ async function cleanup () {
   } catch (e) { P_('cleanup failed', e.message) }
 }
 main().then(() => cleanup().then(() => process.exit(0)), e => { P_('FATAL', e.stack || e.message); cleanup().then(() => process.exit(1)) })
-process.on('SIGINT', () => cleanup().then(() => process.exit(1)))
+let stopping = false
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { if (stopping) return; stopping = true; cleanup().then(() => process.exit(1)) })
