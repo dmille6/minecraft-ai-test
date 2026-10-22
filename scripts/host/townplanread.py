@@ -441,10 +441,10 @@ def judge_plans(plans, cans, cut_ms):
     """The plan files -> the D1/D4/exposure/arms fields and per-town summaries."""
     res = {'chain_invalid': 0, 'zone_cells': 0, 'plan_towns_canary': 0, 'towns_canary': 0, 'gens_after_root_canary': 0,
            'control_gens_post': 0, 'bytes_alarm': 0, '_towns': {}, '_lists': defaultdict(list), '_gen_index': {}, '_rejected': {}}
+    # every canary POOL is a town that must have a plan (a pool with no plan files is a town without one, not no town)
+    res['towns_canary'] = len(set(cans))
     for pool, keys in plans.items():
         arm = 'canary' if pool in cans else 'control'
-        if arm == 'canary':
-            res['towns_canary'] += 1
         for key, info in keys.items():
             if info['bytes'] > BYTES_ALARM:
                 res['bytes_alarm'] += 1; res['_lists']['bytes'].append('%s:%d' % (pool, info['bytes']))
@@ -687,6 +687,9 @@ def selftest():
         open(os.path.join(d, 'townplan-0_64_0.g%d.json' % gen), 'wb').write(buf)
     plans = read_plans(tmp)
     pl = judge_plans(plans, {'board-a'}, 0)
+    # a second canary pool with NO plan files: the exposure line is not READY (both towns must have a plan)
+    pl2 = judge_plans(plans, {'board-a', 'board-b'}, 0)
+    assert pl2['towns_canary'] == 2 and pl2['plan_towns_canary'] == 1
     assert pl['chain_invalid'] == 0 and pl['plan_towns_canary'] == 1 and pl['gens_after_root_canary'] == 2 and pl['zone_cells'] == 0, pl
     json.dump({'version': 1, 'hashed_seed': W_, 'zones': [{'id': 'z', 'box': [9, -64, -2, 9, 90, -2]}]}, open(os.path.join(d, 'protected-zones.json'), 'w'))
     assert judge_plans(read_plans(tmp), {'board-a'}, 0)['zone_cells'] == 1
