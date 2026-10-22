@@ -112,7 +112,7 @@ import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnkn
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
-import { FOUND, FOUND_LEASE_MS, FOUND_RETRY_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
+import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
@@ -15123,8 +15123,15 @@ async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal
     const rctx = foundReadyCtx(bot, read, townPlanNow(bot)?.plan)
     const why = readyCell(read, at, rctx, kind)
     if (why) return { status: 'no_effect', outcome: 'unready', detail: `the plan cell at ${at.join(',')} is no longer ready (${why})` }
-    // A BODY IN THE CELL is not the cell's fault: its own outcome and failClass, a FREE skip for the found slot (found.mjs foundRetry)
-    if (bodiesAround(bot).some(b => bodyInCell(b, { x: at[0], y: at[1], z: at[2] }))) return { status: 'no_effect', failClass: 'found_body', outcome: 'body', detail: `someone is standing in the plan cell at ${at.join(',')}; founding retries in ${FOUND_RETRY_MS / 1000} s` }
+    // THE BOT'S OWN BODY over the cell (a walk ends within 0.35 of the stand's centre: Claude code r9 P2) is moved off -- centred on
+    // its stand -- and judged again; still over it: an ordinary, charged refusal (no free retry that could never succeed)
+    const cellQ = { x: at[0], y: at[1], z: at[2] }
+    const selfIn = () => { const e = bot.entity?.position; return !!e && bodyInCell({ x: e.x, y: e.y, z: e.z, w: bot.entity.width ?? 0.6, h: bot.entity.height ?? 1.8 }, cellQ) }
+    if (selfIn() && stand) { try { await centreOn(bot, { x: stand[0], y: stand[1], z: stand[2] }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (selfIn()) return { status: 'no_effect', outcome: 'unready', detail: `the bot itself stands over the plan cell at ${at.join(',')}` }
+    // ANOTHER BODY IN THE CELL is not the cell's fault: its own outcome and failClass, a FREE skip for the found slot (found.mjs
+    // foundRetry: at most FOUND_BODY_SKIPS_MAX per cell per visit)
+    if (bodiesAround(bot).slice(1).some(b => bodyInCell(b, cellQ))) return { status: 'no_effect', failClass: 'found_body', outcome: 'body', at, detail: `someone else is standing in the plan cell at ${at.join(',')}` }
     let put
     try { put = await place(ctx, { item: KIND_ITEM[kind], x: at[0], y: at[1], z: at[2] }, signal, { by: 'found' }) } catch (e) {
       if (e?.aborted || signal?.aborted) throw e
@@ -15209,12 +15216,15 @@ async function foundRun (ctx, args, signal, order) {
       f.at = at
     }
     if (!at) return out('no_effect', 'refused', 'no plan cell named')
-    const done = await placeIntoPlan(ctx, { at, kind, role: args?.role ?? null, group: args?.group ?? null, signal, lease: { gen: () => renew() }, append })
+    const done0 = await placeIntoPlan(ctx, { at, kind, role: args?.role ?? null, group: args?.group ?? null, signal, lease: { gen: () => renew() }, append })
+    // THE CLUSTER PATH SPENT A TOWN NEW-CHEST CLAIM before the walk (clusterHomeSite): a body there is NOT free -- charged as before
+    // (Claude code r9 P2: a free retry would fail the claim interval and read as no_site)
+    const done = append && done0.failClass === 'found_body' ? { ...done0, failClass: null } : done0
     if (done.gen) f.gen = done.gen
     // THE CONTRACT'S EVIDENCE (Paper FOUND-NOFIT 10-22: every placement was scored `unknown` -- "nothing changed that found_work
     // exists to change" -- and throttled): world_change is read from result.placed, the block read back at its cell
     const r = out(done.status, done.outcome ?? done.status, done.detail, done.failClass ?? null)
-    return done.outcome === 'placed' ? { ...r, placed: 1, at } : r
+    return done.outcome === 'placed' ? { ...r, placed: 1, at } : done.failClass === 'found_body' ? { ...r, at } : r
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), 'other')

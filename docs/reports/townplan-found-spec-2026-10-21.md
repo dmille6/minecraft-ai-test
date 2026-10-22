@@ -444,14 +444,16 @@ option is not built: a seed field forcing greenfield with the stamp's chests as 
 townplan-01, found-01, sortdeposit-01 (shas when they are kept). With the waiver, the gate needs a record type for "Paper proof
 + no-harm read" for townplan-01, found-01 and sortdeposit-01: an owner decision, not built.
 
-## 5. Owner decisions this build needs
+## 5. Owner decisions (all DECIDED)
 
-- **D-STAMP:** no stamp (`builds_core: true`, recommended) or the stamp (a retrofit town from frame 0).
-- **O9 (pending):** the showcase gate as designed waits for bench KEEPs of townplan-01 and found-01.
-- **Trial chambers / mineshaft under the showcase town:** protectzone-01 left them "ASK"; the plan keeps its digging plots off
-  the trial chambers through a seed `avoid` box either way.
-- **The founding floor** (2.1): founding may spend below the 64-unit stockpile (to 8 units + 4 planks + scaffold, or the
-  rung's wants); bounded per town.
+- **D-STAMP -- DECIDED 2026-10-22 ~13:00Z: bare ground.** No stamped core; `infra/showcase/town-site.json` `builds_core: true`.
+- **O9 -- DECIDED 2026-10-21 (#11):** the showcase starts after Paper + a no-harm bench read, not after bench KEEPs.
+- **Trial chambers -- DECIDED 2026-10-21 (#18): PROTECTED.** The showcase zones file carries `trial-chambers-home-se`
+  [-20,-47,65,88,31,164]; the seed's `avoid` box is the same id and box (a test asserts they agree).
+  **Mineshaft under home -- DECIDED 2026-10-21 (#19): NOT protected.**
+- **The founding floor -- DECIDED 2026-10-22 ~13:00Z: YES, for founding only.** Founding may spend below the 64-unit wood/cobble
+  stockpile (to 8 units + 4 planks + scaffold, or the rung's wants) to craft the first table, chest and furnace; bounded per town.
+  The switch is `FOUND_BELOW_STOCKPILE` (bots/src/found.mjs), true.
 
 ## 6. Dispositions
 
