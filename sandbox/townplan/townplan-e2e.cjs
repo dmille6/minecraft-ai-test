@@ -317,7 +317,7 @@ scenes.tpgreen = async () => {
   const { S } = rebuildShowcase()
   const pz = JSON.parse(fs.readFileSync(path.join(BOT_ROOT, 'bots/test/fixtures/protected-zones.showcase.json'), 'utf8'))
   const zones = pz.zones.map(z => ({ ...z, box: shiftBox(z.box) }))
-  const avoid = [{ id: 'trial-chambers', box: shiftBox([-16, -43, 69, 84, 27, 160]) }]
+  const avoid = [{ id: 'trial-chambers-home-se', box: shiftBox([-20, -47, 65, 88, 31, 164]) }]   // = the showcase zone (owner 10-21 #18)
   const pool = `sbxtp-${RUN}-green`
   let world = null
   brainHome = SHOW_HOME
@@ -837,32 +837,6 @@ async function fullStore (scene, pool, { unique = false } = {}) {
   }, 2700000, 20000)
   return { w, sc }
 }
-scenes.foundsoft = async () => {
-  buildArena()
-  const pool = `sbxtp-${RUN}-soft`
-  const { w } = await fullStore('foundsoft', pool)
-  const observed = storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed')
-  const f = await startBot('foundsoft', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64], ['wheat_seeds', 30]]), { pool, name: NAMES[1], standAt: at([-3, 0]) })
-  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && / tier=/.test(r.detail) && /placed=1/.test(r.detail)), 600000, 3000)
-  await sleep(10000)
-  const rows = rowsAll([w.files[0], f]).filter(r => /^_deposit_new_chest$|^_town_deposit$|^deposit$/.test(r.name))
-  await stopBots()
-  const plan = (await planOf(w.poolDir, w.world)).head?.plan
-  const T = await import(path.join(BOT_ROOT, 'bots/src/townplan.mjs'))
-  const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
-  const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
-  const never = NEVER(plan)
-  const mcData = req('minecraft-data')('1.21.8')
-  void mcData
-  const reach = rcon(...storeCells(plan).map(c => `execute if block ${c.at[0]} ${c.at[1] + 1} ${c.at[2]} #minecraft:replaceable`)).map(x => passed(x.reply))
-  const noSite = rows.filter(r => r.name === '_deposit_new_chest' && /site=none/.test(r.detail)).length
-  result({ scene: 'foundsoft', world: w.world, observed, rows: rows.map(fmt).slice(-20), dep: dep?.detail?.slice(0, 200) ?? null, cell: cell && K(cell), tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null, onNever: cell ? never.has(K(cell)) : null, lidsClear: reach.every(Boolean), noSite,
-    note: 'every placed cell reachable: read as lids clear + the walk the recovery itself ran (ACCESS on soft/box); FOUND-ACCESS opens them',
-    // a SECTION placement is the recovery's own reservation of a plan (extra) cell -- legitimate; anything else never a NEVER cell
-    CANDIDATE_PASS: !!(observed && dep && cell && (/ tier=section /.test(dep.detail) || !never.has(K(cell))) && reach.every(Boolean) && noSite === 0),
-    BASE_SHAPE: !!(!w.root && dep) })
-  void T
-}
 // ================================================================ FOUND-BOX / FOUND-ACCESS (r2): a COMMITTED east town on an island
 // Ground: a 1-wide walkway from x-1 to x+6 (z 0) -- the only way in -- the E storehouse box (x+7..15, z -4..4) and the two workshop
 // strips (x+7..11, z +-6..8): exactly the E plan's plots, nothing outside them. The workshop is COMMITTED (a table and a furnace
@@ -871,7 +845,7 @@ scenes.foundsoft = async () => {
 // The BASE (no plan) gets the same physical town: chests at the candidate's E store cells, a table and a furnace at its stations.
 const E_STORE = [[9, -2], [9, 2], [11, -2], [11, 2], [13, 0], [13, -2], [13, 2]]
 const E_STATIONS = [[7, 7, 'crafting_table'], [8, 7, 'furnace']]
-async function committedEastTown (scene, { unique = false } = {}) {
+async function committedEastTown (scene, { unique = false, commitWork = true } = {}) {
   // r3: WATER, not void, around the plots (the island lost its watcher to a livelock relocation into the void): every surface cell
   // outside the plots is a water source over dirt -- terrain a bot swims, never a chest site, never READY
   buildArena()
@@ -885,26 +859,57 @@ async function committedEastTown (scene, { unique = false } = {}) {
   const w = await plannedTown(`${scene}-watch`, { bags: [IDLE_BAG], pool, env: { FOUND: 'off' }, island: true })
   const plan0 = (await planOf(w.poolDir, w.world)).head?.plan
   let sc
-  if (plan0) {
+  if (plan0 && commitWork) {
     // the workshop committed by the bots' own founding: a table giver, then a furnace giver (F1, then F3b)
     await startBot(scene, [['crafting_table', 2]], { pool, name: NAMES[1], standAt: HOME })
     await startBot(scene, [['furnace', 2]], { pool, name: NAMES[2], standAt: { x: HOME.x - 1, y: HOME.y, z: HOME.z } })
     await untilPlaced({ poolDir: w.poolDir, world: w.world }, plan => [stations(plan).find(c => c.kind === 'crafting_table'), stations(plan).find(c => c.kind === 'furnace')], 600000)
     await stopBots([NAMES[1], NAMES[2]])
     sc = storeCells(plan0)
+  } else if (plan0) {
+    sc = storeCells(plan0)   // FOUND-SOFT: the workshop left uncommitted (its strip is SOFT)
   } else {
-    for (const [dx, dz, k] of E_STATIONS) { const p = at([dx, dz]); must(rcon(`setblock ${p.x} ${p.y} ${p.z} minecraft:${k}`), 'base stations') }
+    if (commitWork) for (const [dx, dz, k] of E_STATIONS) { const p = at([dx, dz]); must(rcon(`setblock ${p.x} ${p.y} ${p.z} minecraft:${k}`), 'base stations') }
     sc = E_STORE.map(([dx, dz]) => ({ at: [HOME.x + dx, HOME.y, HOME.z + dz] }))
   }
   sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['cobblestone', 64]))))
   if (plan0) await waitFor(async () => storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed'), 1500000, 20000)
   const plan1 = (await planOf(w.poolDir, w.world)).head?.plan
-  return { w, sc, pool, plan1, committed: !!plan1 && storeCells(plan1).every(c => c.state === 'placed') && stations(plan1).slice(0, 2).every(c => c.state === 'placed') }
+  // the watcher leaves: the queued model verbs (deposit, withdraw) are for the next bot alone (the brain's queue is shared)
+  await stopBots([NAMES[0]])
+  return { w, sc, pool, plan1, committed: !!plan1 && storeCells(plan1).every(c => c.state === 'placed') && (!commitWork || stations(plan1).slice(0, 2).every(c => c.state === 'placed')) }
 }
 const boxOf = (plan, c) => (plan?.plots ?? []).filter(p => Array.isArray(p.box) && c[0] >= p.box[0] - 1 && c[0] <= p.box[2] + 1 && c[2] >= p.box[1] - 1 && c[2] <= p.box[3] + 1).map(p => p.id)
+// FOUND-SOFT (r2): the moat town of FOUND-BOX, its workshop NOT committed -- every store cell placed and FULL, the cells around them
+// either in the committed storehouse box (BOX) or in the workshop strip (SOFT, uncommitted), nothing outside the plan: the
+// recovery's chest must land on SOFT ground (pass 2), never a NEVER cell; every placed container still opened; no no_site
+scenes.foundsoft = async () => {
+  const t = await committedEastTown('foundsoft', { unique: true, commitWork: false })
+  const f = await startBot('foundsoft', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool: t.pool, name: NAMES[1], standAt: HOME })
+  for (let i = 0; i < 3; i++) brainQueue.push({ skill: 'deposit', args: {} })
+  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 900000, 3000)
+  rcon(`clear ${NAMES[1]} minecraft:andesite`, `clear ${NAMES[1]} minecraft:diorite`, `clear ${NAMES[1]} minecraft:granite`, `clear ${NAMES[1]} minecraft:calcite`)
+  const wools = t.sc.map((_, i) => WOOLS[i])
+  for (const wl of wools) brainQueue.push({ skill: 'withdraw', args: { item: wl, count: 1 } })
+  await waitFor(() => { const b = bagOf(NAMES[1]); return wools.every(x => (b[x] ?? 0) >= 1) }, 600000, 10000)
+  const bagNow = bagOf(NAMES[1])
+  const rows = rowsOf(f.skillLog).filter(r => r.name === '_deposit_new_chest')
+  await stopBots()
+  const plan = (await planOf(t.w.poolDir, t.w.world)).head?.plan
+  const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
+  const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
+  const never = NEVER(plan)
+  const unopened = wools.filter(x => !(bagNow[x] >= 1))
+  const noSite = rows.filter(r => /site=none/.test(r.detail)).length
+  result({ scene: 'foundsoft', world: t.w.world, committed: t.committed, dep: dep?.detail?.slice(0, 240) ?? null, cell: cell && K(cell), tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null,
+    inBoxes: cell ? boxOf(plan ?? t.plan1, cell) : [], onNever: cell ? never.has(K(cell)) : null, opened: wools.length - unopened.length, of: wools.length, noSite,
+    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !never.has(K(cell)) && / tier=(soft|outside) /.test(dep.detail) && !unopened.length && noSite === 0),
+    BASE_SHAPE: !!(!t.w.root && dep && /placed=1/.test(dep.detail)) })
+}
 scenes.foundbox = async () => {
   const t = await committedEastTown('foundbox')
   const f = await startBot('foundbox', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool: t.pool, name: NAMES[1], standAt: HOME })
+  for (let i = 0; i < 3; i++) brainQueue.push({ skill: 'deposit', args: {} })   // the model's verb: every town chest is full -> the recovery
   const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 900000, 3000)
   await sleep(10000)
   await stopBots()
@@ -921,6 +926,7 @@ scenes.foundbox = async () => {
 scenes.foundaccess = async () => {
   const t = await committedEastTown('foundaccess', { unique: true })
   const f = await startBot('foundaccess', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool: t.pool, name: NAMES[1], standAt: HOME })
+  for (let i = 0; i < 3; i++) brainQueue.push({ skill: 'deposit', args: {} })
   const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 600000, 3000)
   // EVERY store container then OPENED by the bot: a withdraw of the one wool only that chest holds (the bag gaining it is the open)
   rcon(`clear ${NAMES[1]} minecraft:andesite`, `clear ${NAMES[1]} minecraft:diorite`, `clear ${NAMES[1]} minecraft:granite`, `clear ${NAMES[1]} minecraft:calcite`)
