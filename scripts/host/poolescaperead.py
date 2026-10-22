@@ -97,7 +97,7 @@ def spells(trapped, lo, hi, deaths=None):
     deaths = deaths or {}
     res = {}
     for bot, ks in trapped.items():
-        tks = sorted(k for k, v in ks.items() if v)
+        tks = sorted(k for k, v in ks.items() if v is True)
         runs, cur = [], []
         for k in tks:
             if cur and k == cur[-1] + 1:
@@ -106,14 +106,14 @@ def spells(trapped, lo, hi, deaths=None):
                 if cur: runs.append(cur)
                 cur = [k]
         if cur: runs.append(cur)
-        h = 0.0
+        counted = set()      # a UNION of buckets: two death-extended spells never count one bucket twice (Codex code r2 P2)
         for run in runs:
             if len(run) >= SPELL_BUCKETS:
                 end = (run[-1] + 1) * BUCKET_S
                 if any(end - BUCKET_S - DEATH_END_S <= t <= end + DEATH_END_S for t in deaths.get(bot, [])):
                     run = list(range(run[0], max(run[-1], int(hi // BUCKET_S)) + 1))
-                h += sum(1 for k in run if lo <= k * BUCKET_S < hi) * BUCKET_S / 3600
-        res[bot] = h
+                counted.update(k for k in run if lo <= k * BUCKET_S < hi)
+        res[bot] = len(counted) * BUCKET_S / 3600
     return res
 
 
@@ -161,10 +161,14 @@ def judge(rows, *, cut, W, cans, population):
     # >= COVERAGE of the post buckets up to the newest row anywhere -- or a bot that went silent would read as escaped
     newest = max((r['t'] for r in rows), default=cut_s)
     post_ks = [k for k in range(int(cut_s // BUCKET_S), int(min(hi, newest) // BUCKET_S))]
-    seen = defaultdict(set)
+    # A BUCKET IS OBSERVED ONLY WITH ENOUGH POSITIONS TO CLASSIFY IT (Codex code r2 P2): one row a bucket could never read
+    # as trapped, so it cannot count toward the coverage that lets G1 call a fall
+    nseen = defaultdict(Counter)
     for r in rows:
         if r.get('pos') is not None and r['t'] >= cut_s:
-            seen[r['bot']].add(int(r['t'] // BUCKET_S))
+            nseen[r['bot']][int(r['t'] // BUCKET_S)] += 1
+    seen = {b: {k for k, n in c.items() if n >= MIN_SAMPLES} for b, c in nseen.items()}
+    seen = defaultdict(set, seen)
     targets = [b for b, h in pre.items() if h > 0 and arm(b) == 'canary']
     cov = {b: (len(seen[b] & set(post_ks)) / len(post_ks) if post_ks else 0.0) for b in targets}
     res['coverage_post'] = {b: round(v, 2) for b, v in sorted(cov.items())}
@@ -190,6 +194,7 @@ def judge(rows, *, cut, W, cans, population):
     res['starts_canary'] = sum(1 for r in can if r['name'] == '_poolescape_start')
     ends = [r for r in can if r['name'] == '_poolescape']
     res['outcomes'] = dict(Counter(kv(r['detail']).get('outcome', '?') for r in ends))
+    res['yielded_share'] = round(res['outcomes'].get('yielded', 0) / len(ends), 2) if ends else None   # Claude code r2: start-of-firing yields show here
     res['hands'] = dict(Counter(h for r in ends for h in (kv(r['detail']).get('hands') or '-').split(',') if h and h != '-'))
     marks = Counter()
     for r in ends:
@@ -319,6 +324,15 @@ def selftest():
     died = base + [st, lic, row('board-d-Bravo', cut + 1150, '_death', fc='other')]
     dres = judge(died, cut=cut, W=W, cans={'board-d'}, population=pop)
     assert dres['spell_fall'] == 0, dres
+    # SPARSE (Codex code r2 P2): pinned pre, then ONE position per bucket after the deploy -> not observed, G1 cannot pass
+    sparse = pinned('board-d-Bravo', cut - W * 60, cut + 600) + [row('board-d-Bravo', t) for t in range(int(cut + 600), int(cut + W * 60), 600)] + \
+        [row('board-d-Bravo', t + 50, '_water_float') for t in range(int(cut + 600), int(cut + W * 60), 600)] + moving('hive-a-Alpha', cut - W * 60, cut + W * 60)
+    spres = judge(sparse + [st, en, lic], cut=cut, W=W, cans={'board-d'}, population=pop)
+    assert spres['coverage_ok'] == 0 and spres['spell_fall'] == 0, spres
+    # TWO death-extended spells never count a bucket twice (Codex code r2 P2)
+    tr = {'b-c-D': {k: True for k in list(range(0, 4)) + list(range(6, 10))}}
+    two = spells(tr, 0, 20 * BUCKET_S, {'b-c-D': [3.5 * BUCKET_S, 9.5 * BUCKET_S]})
+    assert abs(two['b-c-D'] - 20 * BUCKET_S / 3600) < 1e-9, two
     # a moving bot that happens to log _water_float is never trapped (positions decide)
     assert not any(buckets(moving('x-y-Z', 0, 3600) + [row('x-y-Z', 100, '_water_float', pos=(5.0, 1.0, 5.0))])['x-y-Z'].values())
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
@@ -397,8 +411,8 @@ if __name__ == '__main__':
     print('SPELL BOTS   [pre, post] bot-h: %s' % json.dumps(res['spell_bots']))
     print('DEFECTS      G2 fire death in an escape window %d | G3 drowning/suffocation in one %d | G4 claimed out, still pinned %d (pending %d) | ARMS control rows %d'
           % (res['fire_in_escape'], res['drown_in_escape'], res['claimed_out'], res['claimed_out_pending'], res['rows_control']))
-    print('LIVENESS     licence %d | firings %d | outcomes %s | hands %s | marks %s | lava refusals %d | drowning-rescue rows inside escape windows %d'
-          % (res['licence_canary'], res['starts_canary'], res['outcomes'] or '-', res['hands'] or '-', res['marks'] or '-', res['lava_refused'], res['rescue_rows_in_escape']))
+    print('LIVENESS     licence %d | firings %d | outcomes %s (yielded share %s) | hands %s | marks %s | lava refusals %d | drowning-rescue rows inside escape windows %d'
+          % (res['licence_canary'], res['starts_canary'], res['outcomes'] or '-', res['yielded_share'], res['hands'] or '-', res['marks'] or '-', res['lava_refused'], res['rescue_rows_in_escape']))
     print('REPORTED     canary deaths %s' % (res['deaths_canary'] or '-'))
     print('EXPOSURE     -> %s (canary spell bot-h pre %.2f, need %.1f; firings %d) | INSTRUMENT -> %s'
           % ('READY' if res['exposure_ready'] else 'NOT YET', res['spell_bh']['pre_canary'], EXPOSURE_BH, res['starts_canary'], 'ok' if res['instrument_control'] else 'BLIND'))
