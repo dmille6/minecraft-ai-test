@@ -90,7 +90,7 @@ def fold_with_fake_es(m, rows, events, counts, drop_q2=0):
         m._ev, m.es_hour_counts, m.es_sample = old
 
 
-def fake_tick(m, state, out, budget=999.0, unstable_hours=(), parity_ok=True, hours=6):
+def fake_tick(m, state, out, budget=999.0, unstable_hours=(), parity_ok=True, hours=6, nosample_hours=()):
     """run_tick with ES replaced: every hour of the last `hours` holds one bot per folded pool standing at home."""
     now = int(time.time() * 1000)
     settled = m.floor_hour(now - m.SETTLE_MS)
@@ -109,6 +109,8 @@ def fake_tick(m, state, out, budget=999.0, unstable_hours=(), parity_ok=True, ho
                           'rows': [[f'{p}-A', p, h[0], h[1], h[2], 10, True, True, 20] for p, h in homes.items()]}}
         if h0 in unstable_hours:
             rec.update(unstable=True, es_counts=None)
+        if h0 in nosample_hours:
+            rec.pop('sample')
         return rec
     saved = (m.es_hour_counts, m.es_fold_hour, m.maybe_parity, m.last_parity)
     m.es_hour_counts, m.es_fold_hour = counts, fold
@@ -177,7 +179,7 @@ def cases(m):
     H = 10 ** 12 - 10 ** 12 % m.HOUR_MS
     S = m.FOLD_SCHEMA
     rec = lambda n, fa, pf, homes=None: {'es_counts': n, 'homes': homes or {'p': [1, 2, 3]}, 'schema': S,  # noqa: E731
-                                         'folded_at': fa, 'prev_es_counts': pf}
+                                         'folded_at': fa, 'prev_es_counts': pf, 'sample': {'at': 'x'}}
     have = {H: rec([5, 1], 'f0', None), H + m.HOUR_MS: rec([5, 1], 'f1', [5, 1]),
             H + 2 * m.HOUR_MS: rec([7, 0], 'f2', [5, 1])}
     counts = {H: [5, 2], H + m.HOUR_MS: [5, 1], H + 2 * m.HOUR_MS: [7, 0], H + 3 * m.HOUR_MS: [0, 0]}
@@ -566,6 +568,14 @@ def cases(m):
       (cu['complete'], 'unstable' in cu['problems'], cp['complete'], 'pool_not_folded' in cp['problems'],
        m.control_completeness([good_r(k) for k in range(-1, 3)], m.FX_H0, m.FX_H0 + 3 * m.HOUR_MS, ['fx'])['complete'])
       == (False, True, False, True, True))
+    cs = m.control_status
+    c('control status: valid only when complete AND its subset control holds; each reason named (Codex r4 P2, Claude '
+      'r5 P2-1)', (cs({'complete': True}, {'missing_n': 0}), cs({'complete': True}, {'missing_n': 3})[0],
+                   'regions the fold lacks' in ' '.join(cs({'complete': True}, {'missing_n': 3})[1]),
+                   cs({'complete': False, 'problems': {'unstable': {}}}, {'missing_n': 0}))
+      == (('ok', []), 'INCOMPLETE', True, ('INCOMPLETE', ['completeness: unstable'])))
+    c('plan: an hour without its sample is refolded (the cross-check is never a dead end, Claude r5 P3-1)',
+      [w for _, w in m.plan_folds({H: [5, 1]}, {H: dict(have[H], sample={})}, {'p': [1, 2, 3]})] == ['no sample'])
     with tempfile.TemporaryDirectory() as td:
         st, o = os.path.join(td, 'state'), os.path.join(td, 'out')
         mkpool(st, '_pool-a', 'town-chest-1_2_3.cobble.jsonl')
@@ -576,9 +586,10 @@ def cases(m):
           ([e['pool'] for e in bun['entries']], bun['withheld'], res['status'], res['isolated_folded'],
            sorted(json.load(open(os.path.join(o, 'expected-towns.json')))))
           == (['a', 'b'], None, 'ok', ['iso'], ['a', 'b']))
-        c('tick: every entry is publishable by the publisher\'s own rule (instrument ok, fresh, its own key)',
+        c('tick: every entry is publishable by the publisher\'s own rule (instrument ok, fresh, its own key) and says a '
+          'reader must treat it as VOID past stale_after (the mechanical half of the tombstone deferral)',
           bun['entries'] and all(pub.publish_refusal(e['doc'], e['pool'], e['key'], m.ms_of(bun['generated_at'])) is None
-                                 for e in bun['entries']))
+                                 and 'stale_after' in (e['doc'].get('withdrawal') or '') for e in bun['entries']))
         shutil.rmtree(os.path.join(st, '_pool-b'))
         res2, bun2 = fake_tick(m, st, o)
         c('tick: a town whose dir vanished is named "gone" and leaves the bundle at once (Codex r2 P1)',
@@ -591,6 +602,10 @@ def cases(m):
         hs = {m.floor_hour(now0 - m.SETTLE_MS) - m.HOUR_MS}
         res4, bun4 = fake_tick(m, st, os.path.join(td, 'out4'), unstable_hours=hs)
         c('tick: an unstable hour stages nothing', (bun4['entries'], 'unstable' in (bun4['withheld'] or '')) == ([], True))
+        res4b, bun4b = fake_tick(m, st, os.path.join(td, 'out4b'), nosample_hours=hs)
+        c('tick: an hour folded without its sample stages nothing this tick (the cross-check, Claude r5 P3-1)',
+          (bun4b['entries'], bool(bun4b['withheld'])) == ([], True))
+        real_fold_ns = m.es_fold_hour
         res5, bun5 = fake_tick(m, st, os.path.join(td, 'out5'), parity_ok=False)
         c('tick: a failed parity is an instrument failure; its entries carry instrument_ok false, which the publisher refuses',
           (res5['status'], [e['doc']['instrument_ok'] for e in bun5['entries']],
@@ -647,6 +662,20 @@ def cases(m):
         c('heartbeat: a locked tick is logged but never overwrites heartbeat.json (Claude r3 P2-1)',
           (json.load(open(os.path.join(o8, 'heartbeat.json')))['status'],
            len(open(os.path.join(o8, 'heartbeat.jsonl')).read().splitlines())) == ('ok', 2))
+        saved9 = m.es_fold_hour
+        fake_tick(m, st, os.path.join(td, 'out9'))
+        recf = os.path.join(td, 'out9', 'hours', sorted(os.listdir(os.path.join(td, 'out9', 'hours')))[-1])
+        r9 = json.load(open(recf))
+        r9.pop('sample', None)
+        json.dump(r9, open(recf, 'w'))
+        m.es_fold_hour = lambda h0, homes: (_ for _ in ()).throw(RuntimeError('no ES in this case'))
+        try:
+            C9 = m.compute(os.path.join(td, 'out9'), st, int(time.time() * 1000))
+            w9 = m.stage_withheld(0, m.invalid_hours(C9), [])
+        finally:
+            m.es_fold_hour = saved9
+        c('tick: the staging cross-check withholds a window holding an hour without its sample (Claude r5 P3-1)',
+          bool(w9) and 'unstable' in w9)
         lnk = os.path.join(td, 'linked-out')
         os.symlink(o, lnk)
         try:
@@ -864,6 +893,16 @@ MUTANTS = [
      'a silent, stale, failing or short one alarms', 'checker'),
     ('a failed tick drops the clocks', "    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)', prior)",
      "    invalidate_bundle(a.out_dir, now, 'tick in progress (or it failed: see heartbeat.json)')", 'keeps the publisher-lag clocks'),
+    ('the control ignores its subset control', "        ([f'{sub[\"missing_n\"]} sampled rows in regions the fold lacks'] if sub.get('missing_n') else [])",
+     "        []", 'control status: valid only when complete'),
+    ('no-sample hours are not refolded', "        elif not (r.get('sample') or {}).get('at'):\n            todo[h0] = 'no sample'",
+     "        elif False:\n            todo[h0] = 'no sample'", 'an hour without its sample is refolded'),
+    ('the staged doc forgets the withdrawal contract', "                   withdrawal='none yet:", "                   withdrawl='none yet:",
+     'the mechanical half of the tombstone deferral'),
+    ('the cross-check ignores record_problems', "    return sorted(set(C['unstable']) | {h for v in bad.values() for h in v})",
+     "    return sorted(set(C['unstable']))", 'the staging cross-check withholds'),
+    ('the tick skips the cross-check', "        withheld = stage_withheld(backlog, invalid_hours(C), instrument)",
+     "        withheld = stage_withheld(backlog, C['unstable'], instrument)", 'an hour folded without its sample stages nothing'),
     ('a dropped town stays in the bundle', "if p not in shared and p not in problems}", "if False}", 'named "gone"'),
     ('the report ignores staleness', "if mu is None or now_ms - mu > STALE_AFTER_MS:", "if mu is None:",
      'a fold whose newest measured hour is 4 h old'),

@@ -1467,6 +1467,8 @@ def plan_folds(counts, have, want_homes):
             todo[h0] = f'count {r.get("es_counts")} -> {n}'
         elif r.get('schema') != FOLD_SCHEMA:
             todo[h0] = f'schema {r.get("schema")} -> {FOLD_SCHEMA}'
+        elif not (r.get('sample') or {}).get('at'):
+            todo[h0] = 'no sample'
         else:
             moved = sorted(p for p, h in want_homes.items() if (r.get('homes') or {}).get(p) != h)
             if moved:
@@ -1626,10 +1628,7 @@ def run_tick(a):
         if parity_alarm(par, now, backlog):
             instrument.append(f'no passing agg-vs-rows parity in {PARITY_MAX_AGE_H} h (last: '
                               f'{ {k: par.get(k) for k in ("at", "hour", "diffs", "raw_positioned_rows")} if par else None})')
-        win = [h for h in sorted(have) if C['since'] <= h < C['data_until']]
-        cross = {k: v for k, v in record_problems(C['records'], win, C['shared']).items()
-                 if k in ('unstable', 'old_schema', 'pool_not_folded', 'no_sample')}
-        withheld = stage_withheld(backlog, sorted(set(C['unstable']) | {h for v in cross.values() for h in v}), instrument)
+        withheld = stage_withheld(backlog, invalid_hours(C), instrument)
         if withheld is None:
             entries = stage_entries(C, now, instrument, wu, par, script_version(), prior)
         daily(a.out_dir, C, touched)
@@ -1637,7 +1636,8 @@ def run_tick(a):
         withheld = 'no folded hour on record'
     # EVERY tick rewrites the bundle with only the towns eligible NOW: a town dropped this tick is never published
     # from an older staging (Codex r2 P1); a withheld tick offers nothing
-    clocks = dict(prior, **{e['pool']: [e['doc']['digest'], e['doc']['digest_since']] for e in entries})
+    clocks = {p: v for p, v in dict(prior, **{e['pool']: [e['doc']['digest'], e['doc']['digest_since']]
+                                             for e in entries}).items() if p in shared or p in expected}
     write_json_atomic(bundle_path, {'schema': 1, 'generated_at': iso(now), 'warmup': wu, 'withheld': withheld,
                                     'entries': entries, 'clocks': clocks})
     last_staged = iso(now) if entries else prev_hb.get('last_staged_at')
@@ -1663,6 +1663,16 @@ def run_tick(a):
             'subset_missing': C['ctl']['missing_n'] if C else None,
             'warmup': {k: wu.get(k) for k in ('run_start', 'complete', 'complete_at')},
             'last_publish': last_publish(a.out_dir)}
+
+
+def invalid_hours(C):
+    """The window's hours that must not be staged: unstable, or failing the shared validity rule (record_problems:
+    old schema, a town not folded, no sample). plan_folds refolds every one of these, so withholding is never a dead
+    end (Claude r5 P3-1). Pure."""
+    win = [r['h0'] for r in C['records'] if C['since'] <= r['h0'] < C['data_until']]
+    bad = {k: v for k, v in record_problems(C['records'], win, C['shared']).items()
+           if k in ('unstable', 'old_schema', 'pool_not_folded', 'no_sample')}
+    return sorted(set(C['unstable']) | {h for v in bad.values() for h in v})
 
 
 def stage_withheld(backlog, unstable, instrument):
@@ -1783,6 +1793,14 @@ def control_completeness(records, t0, t1, pools=()):
             'problems': {k: {'n': len(v), 'first': v[:5]} for k, v in probs.items()}, 'complete': not probs}
 
 
+def control_status(comp, sub):
+    """A control result is valid only when its hours are validly folded AND its own subset positive control holds
+    (Codex r4 P2). -> ('ok' | 'INCOMPLETE', [reasons]). Pure."""
+    because = ([] if comp.get('complete') else ['completeness: ' + ', '.join(sorted(comp.get('problems') or {}))]) + \
+        ([f'{sub["missing_n"]} sampled rows in regions the fold lacks'] if sub.get('missing_n') else [])
+    return ('ok' if not because else 'INCOMPLETE'), because
+
+
 def run_control(a):
     t0, t1 = ms_of(a.control[0]), ms_of(a.control[1])
     homes, shared, _, _ = census_pools(a.state_dir)
@@ -1803,10 +1821,8 @@ def run_control(a):
     base = baselines(recs, shared, homes, t0, t1)               # section 1.2's e4 window is [t0, t1) in hours
     keep = ('log_gathers', 'log_ok_pct', 'log_body_h', 'log_got', 'log_per_body_h', 'ore_gathers', 'ore_ok_pct',
             'ore_body_h', 'ore_got', 'ore_per_body_h', 'bot_h', 'deaths', 'deaths_per_1k_bot_h')
-    valid = comp['complete'] and not sub['missing_n']
-    print(json.dumps({'window': [iso(t0), iso(t1)], 'status': 'ok' if valid else 'INCOMPLETE',
-                      'invalid_because': ([] if comp['complete'] else ['completeness']) +
-                                         ([f'{sub["missing_n"]} sampled rows in regions the fold lacks'] if sub['missing_n'] else []),
+    status, because = control_status(comp, sub)
+    print(json.dumps({'window': [iso(t0), iso(t1)], 'status': status, 'invalid_because': because,
                       'completeness': comp, 'shared': shared, 'shares': sh, 'shares_all_pools': sh_all,
                       'subset': sub, 'presence_vs_samples': pr,
                       'per_pool': per, 'gather_baseline_hours': base['hours'],
@@ -1814,7 +1830,7 @@ def run_control(a):
                       'gather_baseline': {b: {k: v[k] for k in keep} for b, v in base['bands'].items()},
                       'home_by_start_band': {k: v for k, v in base['home'].items() if k.endswith('|*')},
                       'bag': base['bag']}, indent=1, default=list))
-    return {'status': 'ok' if valid else 'incomplete'}
+    return {'status': 'ok' if status == 'ok' else 'incomplete'}
 
 
 def parity_diffs(ref, rec):

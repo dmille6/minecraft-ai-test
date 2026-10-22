@@ -379,6 +379,15 @@ def t_frontier_publisher_silent_during_warmup_alarms():
         assert line.startswith('!! ') and want in line, (lp, line)
 
 
+def t_frontier_publisher_age_is_judged_against_the_tick_that_carried_it():
+    """Claude r5 P3-2: the heartbeat carries the PREVIOUS run's publisher line; a slow backfill tick (cron slot skipped)
+    must not make a live publisher read stale. The tick's own age is STALE's job."""
+    line = FS.frontier_line(dt.datetime(2026, 10, 22, 12, 9, tzinfo=dt.timezone.utc),
+                            path=_hb(at='2026-10-22T11:57:00Z', last_publish={'at': '2026-10-22T11:47:30Z',
+                                                                              'status': 'warmup', 'usable': 13, 'offered': 13}))
+    assert line.startswith('frontier census (E0): idle'), line
+
+
 def t_frontier_line_is_in_the_header():
     out = io.StringIO()
     rep = run(fleet_docs(), stdout=out)

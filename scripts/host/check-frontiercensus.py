@@ -119,7 +119,7 @@ def assess(lines, now, max_age_min=15.0, behind_min=135.0):
         alarms.append(f'FrontierPublisher: pool dirs the publisher cannot write: {json.dumps(lp0["unusable"])[:240]}')
     if not wu.get('complete'):              # ... and its liveness: a publisher that never runs must not stay silent
         try:                                # for 48 h (Claude r4 P2-1)
-            wage = (now - _t(lp0['at'])) / 60 if lp0.get('at') else None
+            wage = (_t(last['at']) - _t(lp0['at'])) / 60 if lp0.get('at') else None
         except ValueError:
             wage = None
         if wage is None or wage > PUBLISHER_MAX_AGE_MIN or lp0.get('status') not in ('warmup', 'ok') \
@@ -138,7 +138,7 @@ def assess(lines, now, max_age_min=15.0, behind_min=135.0):
                           f'{str(last.get("withheld"))[:160]})')
         lp = last.get('last_publish') if isinstance(last.get('last_publish'), dict) else None
         try:
-            page = (now - _t(lp['at'])) / 60 if lp and lp.get('at') else None
+            page = (_t(last['at']) - _t(lp['at'])) / 60 if lp and lp.get('at') else None
         except ValueError:
             page = None
         if lp is None or page is None or page > PUBLISHER_MAX_AGE_MIN or lp.get('status') != 'ok':
