@@ -53,3 +53,44 @@ CODE ROUND 1 (townplan-01 aa24b10c on d0a27a5e; found-01's code dormant in it; f
   Claude P3  planPlinthKeepOut tiles boxes at s+1 +- 2 only                  kept: the keep-out is 3-D Chebyshev r 2 at the pad level, which
                                                                             covers s-1..s+3; a plinth cell outside that span is not on the
                                                                             plan's ground (noted for r2)
+
+CODE ROUND 2 (townplan-01 4a01b891; found-01 ce0d3002)
+  Codex CHANGE (5 P2)   Claude CHANGE (2 P2, 7 P3)
+
+  finding                                                                   disposition (code r3: townplan d96b6cc0, found 14254a58)
+  Claude+Codex P2  F3/F2 pick a cell whose intent conflicts; r2's intent     F3: its own group's cell first, then a no-intent cell, never another
+             rule refuses the reserve -> the same refusal every visit        group's; F2: overflow or no intent. A reservation that SETS an intent
+                                                                            marks it; a release/expiry clears only that; a placement keeps it.
+                                                                            Tests: the matrix + the chain through the real reserve
+  Claude+Codex P2  recovery section placements judged by nobody              foundread: `_found_recovery outcome=placed` enters the found list;
+                                                                            selftest fixtures for clean / G2 / G1 / not-placed
+  Codex P2   builders' tables at explicit coordinates bypass the late check place(..., { planTemp: true }) for the composter's and build_well's
+                                                                            tables; placeIntoPlan passes none; test placeForTest both ways
+  Codex P2 / Claude P3  growth access judged per cell, not the set            the appended set judged together with the committed cells
+  Codex P2   FOUND-ACCESS used goto rows, not opens; FOUND-PLINTH missing    a withdraw of a wool only that chest holds (the bag gaining it is the
+                                                                            open); foundplinth scene (ONLY-BOX fake-world only)
+  Claude P3  appended cell's gen when `placed` loses                          the reserve's gen
+  Claude P3  Python crash on a null until                                     null-safe
+  Claude P3  a cut audit detail can name another cell                         the last name of a 300-char detail is dropped; positive control
+  Claude P3  release clears an older home intent                              intentSet (above)
+  Claude P3  G5 no seed-avoid fixture                                         added
+  Claude P3  chatOnly found skills on a control bot trip arms                 named in the read's header (read the row before calling it a leak)
+
+CODE ROUND 3 (townplan-01 d96b6cc0; found-01 14254a58)
+  Codex CHANGE (2 P2)   Claude APPROVE (6 P3)
+
+  finding                                                                   disposition (code r4)
+  Codex P2   neither walk validates intentSet                                 intentSetRefusal (JS) / intent_set_refusal (port): set exactly when a
+                                                                            reservation sets an intent from none; never on a free/placed cell;
+                                                                            never toggled; its end clears what it set and keeps an older intent;
+                                                                            planstore TRANSITION RULES cover each
+  Codex P2   planTemp asks for a plan before refreshing the head             the head is refreshed first whenever the plan is on
+  Claude P3  the clear-on-release / clear-on-expiry halves never asserted    found.test chain (iron released -> no intent); townplan.test MARKS
+                                                                            (an expiry with and without the marker, both accepted by the walk)
+  Claude P3  the recovery ignores intent                                     recoveryPlanCell: a no-intent cell first, then the overflow cell, never
+                                                                            a group's home cell
+  Claude P3  a stale comment (found.mjs)                                     fixed
+  Claude P3  the joint growth-access fix has no test                         OPEN (named): a two-cell joint cut needs a hand-built ring layout; the
+                                                                            code judges the whole set, the per-cell form is gone
+  Claude P3  a detail of exactly 300 uncut chars loses its last name          kept: errs toward not reverting (noted)
+  Claude P3  tablesOff not in the scene result                               added (foundflat)

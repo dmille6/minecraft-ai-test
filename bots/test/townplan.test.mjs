@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 const T = await import('../src/townplan.mjs')
+const PS = await import('../src/planstore.mjs')
 const TP_PATH = new URL('../src/townplan.mjs', import.meta.url)
 const require_ = createRequire(import.meta.url)
 const mcData = require_('minecraft-data')('1.21.8')
@@ -261,6 +262,19 @@ await t('MARKS: an expired reservation reading its kind -> seen, then placed 10 
   const m3 = T.maintainPlan(p, world(), { now: 1000 + 61_000 })
   assert.equal(m3.op, 'expire'); assert.equal(m3.body.transitions[0].why, 'expired')
   assert.equal(T.maintainPlan(p, world({ bounds: [0, 0, 0, 0] }), { now: 1000 + 61_000 }), null, 'unknown: nothing')
+  // THE EXPIRY'S INTENT (Claude code r3 P3): an intent the expired reservation SET (intentSet) is cleared; an older one is kept --
+  // and both expiries are accepted by the walk
+  const PSm = PS
+  const ex = (intentSet, role) => {
+    const q = basePlan(); const cc = q.plots.find(x => x.id === 'store').cells[1]
+    Object.assign(cc, { state: 'reserved', by: 'a', visit: 'v', until: 1000, role, group: 'stone', ...(intentSet ? { intentSet: true } : {}) })
+    const m = T.maintainPlan(q, world(), { now: 1000 + 61_000 })
+    const after = m.body.plots.find(x => x.id === 'store').cells[1]
+    const next = { ...m.body, v: 1, gen: 3, prev: 2, at: 1000 + 61_000, by: 'b' }
+    return { op: m.op, role: after.role ?? null, group: after.group ?? null, marker: after.intentSet, walk: PSm.transitionRefusal({ ...q, v: 1, gen: 2 }, next) }
+  }
+  assert.deepEqual(ex(true, 'home'), { op: 'expire', role: null, group: null, marker: undefined, walk: null })
+  assert.deepEqual(ex(false, 'home'), { op: 'expire', role: 'home', group: 'stone', marker: undefined, walk: null })
 })
 await t('MARKS: a free cell read as its kind -> seen -> placed (a second cycle after a contrary read); a placed one read empty -> missing -> gone, intent kept', () => {
   const p = basePlan()
