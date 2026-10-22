@@ -265,7 +265,9 @@ export class AdmissionControl {
     // cognitive.mjs issues only for a body inside a column and bounds itself (3 attempts that do not get out -> a 5-min back-off
     // that hands the body to the escape ladder); the repeat window, a cooldown or a learned rule must never be what keeps a
     // bot standing over a marked lava pool.
-    if (skill === 'keepout_exit') return { ok: true, skill, args: {}, kind: 'keepout_exit' }
+    // (an inventory click in flight still waits: the escape step equips a tool -- Claude r2 P3-4)
+    if (skill === 'keepout_exit' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'keepout_exit' }
+    if (skill === 'keepout_exit') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
 
     // --- argument sanity, per skill ---------------------------------------
     if (skill === 'gather') {

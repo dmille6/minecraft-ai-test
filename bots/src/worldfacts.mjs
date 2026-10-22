@@ -55,6 +55,11 @@ const CONFIRM_AT = 2                   // personal hits before a fact is worth p
 const DEATH_WEIGHT = 4                 // a death site starts at 4: three 12-h halvings (4 -> 2 -> 1 -> 0) before it is forgotten
 const RESOURCE_MERGE = 24              // sightings within this many blocks are one deposit
 const MAX_RESOURCES = 200
+// keepout-01: the pool lock's budgets (#withLock)
+export const WF_LOCK_ROUTINE_MS = 200
+export const WF_LOCK_CRITICAL_MS = 12_000
+export const WF_LOCK_STALE_MS = 10_000
+const WF_LOCK_BUSY = Symbol('world-facts lock busy')
 
 export class WorldFacts {
   constructor(file) {
@@ -82,23 +87,35 @@ export class WorldFacts {
    * wrote between our read and our write, which is exactly how reconnects were
    * deleting recorded successes from lessons-*.json earlier tonight.
    */
-  #update(mutate) { return this.#withLock(() => this.#updateLocked(mutate)) }
+  #update(mutate, { critical = false } = {}) {
+    const r = this.#withLock(() => this.#updateLocked(mutate), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)
+    if (r === WF_LOCK_BUSY) log('warn', 'world facts: write skipped, the pool lock is busy', { critical, file: path.basename(this.file) })
+    return r
+  }
 
   /**
-   * ONE WRITER AT A TIME (keepout-01, Codex r1 P1-5). The rename is atomic, but a read-merge-write without a lock loses an
-   * update when two processes interleave -- a death recorded between a peer's read and its rename was dropped. lessons.mjs's
-   * O_EXCL lockfile, the same bounds: a stale lock (a killed bot) is broken after 10 s, and a bot never blocks for ever (after
-   * 50 tries the write goes ahead unlocked, as before).
+   * ONE WRITER AT A TIME (keepout-01, Codex r1/r2 P1-5). The rename is atomic, but a read-merge-write without a lock loses an
+   * update when two processes interleave (measured: 40 of 80 concurrent deaths kept). lessons.mjs's O_EXCL lockfile, with
+   * one difference that matters (Codex r2 P1): contention is NEVER permission to write unlocked. A ROUTINE write (a sighting,
+   * a hazard, a give-up, a dispute -- each repeats or is safe to lose) waits WF_LOCK_ROUTINE_MS and is then SKIPPED. A
+   * CRITICAL write (a death: one event, never repeated) waits up to WF_LOCK_CRITICAL_MS, which covers the stale-lock break
+   * (a killed holder's lock is broken after 10 s); the critical section itself is a few ms. A lock that cannot be created
+   * for a reason other than contention (the pool directory missing) gets the directory made and is tried again; a lock that
+   * still cannot be created at all (permissions) is a configuration fault and the write goes ahead, as before this change.
    */
-  #withLock (fn) {
+  #withLock (fn, budgetMs) {
     const lock = `${this.file}.lock`
-    for (let i = 0; i < 50; i++) {
+    const until = Date.now() + budgetMs
+    let made = false
+    for (;;) {
       let fd = null
       try { fd = fs.openSync(lock, 'wx') } catch (e) {
+        if (e.code === 'ENOENT' && !made) { made = true; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }) } catch { /* next try says */ } continue }
         if (e.code !== 'EEXIST') return fn()
-        try { if (Date.now() - fs.statSync(lock).mtimeMs > 10_000) fs.unlinkSync(lock) } catch { /* raced with the holder */ }
-        const until = Date.now() + 4
-        while (Date.now() < until) { /* spin: the critical section is a few ms */ }
+        try { if (Date.now() - fs.statSync(lock).mtimeMs > WF_LOCK_STALE_MS) fs.unlinkSync(lock) } catch { /* raced with the holder */ }
+        if (Date.now() >= until) return WF_LOCK_BUSY
+        const spin = Date.now() + 4
+        while (Date.now() < spin) { /* spin: the holder's critical section is a few ms */ }
         continue
       }
       try { return fn() } finally {
@@ -106,7 +123,6 @@ export class WorldFacts {
         try { fs.unlinkSync(lock) } catch { /* already gone */ }
       }
     }
-    return fn()
   }
 
   #updateLocked(mutate) {
@@ -294,7 +310,7 @@ export class WorldFacts {
     if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return null
     const kind = `${DEATH_KIND_PREFIX}${String(cls || 'unknown').slice(0, 24)}`
     let site = null
-    this.#update(d => {
+    this.#update((d) => {
       // MERGE ONLY WHEN THE KEPT CENTRE STILL PRICES THE NEW DEATH: a death 7 blocks from a site would have merged
       // into a centre whose 6-block disc does not cover it (Codex pass 2), so the merge radius is half the disc.
       const near = d.sites.find(s =>
@@ -312,7 +328,7 @@ export class WorldFacts {
         site = { kind, x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z), count: DEATH_WEIGHT, deaths: 1, last: Date.now(), by: [by] }
         d.sites.push(site)
       }
-    })
+    }, { critical: true })
     return site
   }
 
