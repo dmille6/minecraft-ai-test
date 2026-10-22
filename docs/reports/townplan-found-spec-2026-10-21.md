@@ -441,9 +441,12 @@ RETROFIT town at frame 0 (design §4.7 says "with the stamp ... the plots are gr
 the conflict is named here), so no storehouse cell would ever be founded. It costs the stamp's beds and torch chest. A third
 option is not built: a seed field forcing greenfield with the stamp's chests as drain.
 
-`REQUIRED_KEPT` (per O9): without the waiver, six lines (§4.7): toolkit-03 34d3e5e9 (KEPT 10-21), townindex-01, indexsearch-01,
-townplan-01, found-01, sortdeposit-01 (shas when they are kept). With the waiver, the gate needs a record type for "Paper proof
-+ no-harm read" for townplan-01, found-01 and sortdeposit-01: an owner decision, not built.
+`REQUIRED_KEPT` (`infra/showcase/REQUIRED_KEPT.draft`): six lines (§4.7): toolkit-03 34d3e5e9 (KEPT 10-21), townindex-01,
+indexsearch-01, townplan-01, found-01, sortdeposit-01. O9 is decided (§5: Paper + a no-harm bench read, not bench KEEPs), but
+the start gate (showcase_ops.py `pieces_in`, followrule.py `kept_runs`) counts only a KEEP + promoted or owner-direct row: it
+has no record type for "Paper proof + no-harm read". That gate change is NOT built here. Until it is, the draft's last three
+lines read `FILL-WHEN-KEPT`, which never resolves, so the gate FAILS CLOSED (refuses the start) rather than starting without
+them.
 
 ## 5. Owner decisions (all DECIDED)
 
