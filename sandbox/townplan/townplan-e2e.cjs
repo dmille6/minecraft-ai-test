@@ -103,6 +103,14 @@ function fillChunks (b, y0, y1, name) {   // fill in <= 32768-block pieces
 }
 function buildArena ({ ground = 'dirt' } = {}) {
   must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air'), ...fillChunks(A, 113, G, ground)), 'arena')
+  fenceArena()
+}
+// A BARRIER RING at the slab's edge, 3 high (an invisible solid): a bot on a milestone walk never steps off the floating arena
+// (foundhour1 r1: a bot fell 50 blocks to the ground below and the watchdog reconnected it there)
+function fenceArena () {
+  const c = []
+  for (const [x0, z0, x1, z1] of [[A.x0, A.z0, A.x1, A.z0], [A.x0, A.z1, A.x1, A.z1], [A.x0, A.z0, A.x0, A.z1], [A.x1, A.z0, A.x1, A.z1]]) c.push(`fill ${x0} ${G + 1} ${z0} ${x1} ${G + 3} ${z1} minecraft:barrier`)
+  must(rcon(...c), 'fence')
 }
 const parseItem = seg => { const id = (seg.match(/id: "minecraft:([a-z0-9_]+)"/) || [])[1]; return id ? { id, count: +((seg.match(/count: (\d+)/) || [])[1] || 1) } : null }
 function chestTotals (p) {
@@ -138,7 +146,7 @@ async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date
 
 // THE LOOPBACK BRAIN: a queue of model verbs per bot (by the sentinel-free request: round-robin is fine, one queue for all), else
 // short walks WEST of home -- never `status` for ever (the livelock breaker relocates the bot off the arena)
-let brainN = 0, brainHome = HOME, brainFar = false
+let brainN = 0, brainHome = HOME, brainFar = false, brainPoints = null   // brainPoints: an island scene's own walkable wander cells
 const brainQueue = []
 const brain = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
@@ -152,8 +160,8 @@ const brain = http.createServer((req, res) => {
     if (q) decision = q
     else if (brainN++ % 2) {
       // brainFar: every other walk leaves the town circle (a found order is one per bot per VISIT: a visit ends outside it)
-      const pts = brainFar ? [{ x: brainHome.x - 22, y: brainHome.y, z: brainHome.z }, { x: brainHome.x - 4, y: brainHome.y, z: brainHome.z + 1 }]
-        : [{ x: brainHome.x - 4, y: brainHome.y, z: brainHome.z - 1 }, { x: brainHome.x - 5, y: brainHome.y, z: brainHome.z + 1 }]
+      const pts = brainPoints ?? (brainFar ? [{ x: brainHome.x - 22, y: brainHome.y, z: brainHome.z }, { x: brainHome.x - 4, y: brainHome.y, z: brainHome.z + 1 }]
+        : [{ x: brainHome.x - 4, y: brainHome.y, z: brainHome.z - 1 }, { x: brainHome.x - 5, y: brainHome.y, z: brainHome.z + 1 }])
       decision = { skill: 'goto', args: pts[(brainN >> 1) % 2] }
     }
     res.setHeader('Content-Type', 'application/json')
@@ -423,7 +431,8 @@ scenes.tpcas = async () => {
   const pool = `sbxtp-${RUN}-cas`
   let world = null
   // all three in town before the first tick (each ticks every 30 s from its own spawn)
-  // founding bags: every bot writes reservations and placements concurrently (later generations), then one is killed mid-run
+  // founding bags: every bot writes reservations and placements concurrently (later generations), then one is killed mid-run.
+  // On a tree where FOUND is dormant (townplan-01 alone) only maintenance writes: run this scene on found-01, or with FOUND=on
   const bag = [['chest', 3], ['crafting_table', 2], ['furnace', 2], ['stone_pickaxe', 1]]
   const files = [await startBot('tpcas', bag, { pool, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
   for (let i = 1; i < 3; i++) files.push(await startBot('tpcas', bag, { pool, name: NAMES[i], standAt: at([-2 - i, 0]) }))
@@ -466,7 +475,10 @@ scenes.tpzones = async () => {
   // A FRESH POOL STARTED WITH THE MALFORMED FILE: no root, no found row; then the good file -> a root
   const pool2 = `sbxtp-${RUN}-zones2`
   let world2 = null
-  const f2 = await startBot('tpzones2', FOUND_BAG, { pool: pool2, onSpawn: async ({ skillLog, poolDir }) => { world2 = await worldOf(skillLog); fs.mkdirSync(poolDir, { recursive: true }); fs.writeFileSync(path.join(poolDir, 'protected-zones.json'), '{"version": 1, "zones": [ {"id": broken') } })
+  // the malformed file is there BEFORE the process starts (a restart with it): the process never had a good read
+  const pd2 = path.join(R, 'sandbox/state', `_pool-${pool2}`)
+  fs.mkdirSync(pd2, { recursive: true }); fs.writeFileSync(path.join(pd2, 'protected-zones.json'), '{"version": 1, "zones": [ {"id": broken')
+  const f2 = await startBot('tpzones2', FOUND_BAG, { pool: pool2, onSpawn: async ({ skillLog }) => { world2 = await worldOf(skillLog) } })
   await sleep(100000)
   const blocked = { root: !!rootRow([f2]), found: rowsAll([f2]).filter(r => r.name === '_found' && /outcome=placed/.test(r.detail)).length, mode: rowsAll([f2]).find(r => r.name === '_townplan_mode')?.detail ?? null }
   zonesFile(f2.poolDir, world2, [{ id: 'epad', kind: 'village', box: ePad }])
@@ -586,7 +598,10 @@ scenes.foundhour1 = async () => {
   buildArena()
   const bag = [['oak_log', 16], ['cobblestone', 20], ['crafting_table', 1]]
   const s = await plannedTown('foundhour1', { bags: [bag, bag, bag] })
-  const last = await untilPlaced(s, want3, 1200000)
+  // the founding floor at hour 1: 28 planks and 4 cobblestone above it (found.test THE FOUNDING FLOOR) -- the table and the chest
+  // are founded from these; the furnace (8 cobblestone above the floor) is not, by design, until the bots hold more stone
+  const want2 = plan => [stations(plan).find(c => c.kind === 'crafting_table'), storeCells(plan).find(c => c.role === 'overflow') ?? storeCells(plan)[0]]
+  const last = await untilPlaced(s, want2, 1200000)
   // afterwards: the givers' own pickaxe rungs (the ladder crafts wooden then stone)
   const picks = await waitFor(() => { const r = rowsAll(s.files).filter(x => x.name === 'craft' && x.status === 'success'); return ['wooden_pickaxe', 'stone_pickaxe'].every(n => r.some(x => (x.args?.item ?? '') === n || x.detail.includes(n))) && r }, 900000, 10000)
   const rows = foundRows(s.files)
@@ -685,6 +700,7 @@ scenes.foundcanopy = async () => {
 }
 
 scenes.foundnofit = async () => {
+  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
   const out = []
   for (const n of [1, 2, 3, 4, 5]) {
     // an air arena; home on a 3x3 dirt pad; a 1-wide walkway east to x+6; n ground cells at radius 7 (x+7, z 0, +1, -1, +2, -2)
@@ -709,6 +725,7 @@ scenes.foundnofit = async () => {
 }
 
 scenes.foundnone = async () => {
+  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
   // home on a 1x1 dirt pillar in water (no READY cell anywhere); the bot keeps working: a named work row (craft) succeeds
   must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air'), ...fillChunks(A, 113, G - 1, 'dirt'), ...fillChunks(A, G, G, 'water'), `setblock ${HOME.x} ${G} ${HOME.z} minecraft:dirt`), 'pillar')
   const s = await plannedTown('foundnone', { bags: [[['chest', 2], ['crafting_table', 2], ['oak_log', 16], ['stone_pickaxe', 1]]] })
@@ -821,6 +838,7 @@ scenes.foundsoft = async () => {
   void T
 }
 scenes.foundbox = async () => {
+  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
   // the only ground: home, a 1-wide walkway east, and the E storehouse box (u 7..15, v -4..4) -- the recovery's rings around the
   // full store chests find valid cells only inside the box
   must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
@@ -844,6 +862,7 @@ scenes.foundbox = async () => {
     BASE_SHAPE: !!(!w.root && dep && /placed=1/.test(dep.detail)) })
 }
 scenes.foundaccess = async () => {
+  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
   // as foundbox, but the E box reached from home only through ONE cell (the walkway end at x+6, z 0), and that cell is the cheapest
   // recovery candidate: ACCESS must refuse it
   must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
@@ -881,6 +900,7 @@ scenes.foundaccess = async () => {
 // The BASE (no plan) on the same arena shows where the cheapest candidate lies (the discrimination). ONLY-BOX (the only feasible
 // plinth inside the committed box) is proven in the fake world (townplan-adopters RAISED WELL), not here.
 scenes.foundplinth = async () => {
+  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
   buildArena()
   // ground only EAST of home (x >= home + 3) plus a 5x5 pad at home: the plan fits E (its storehouse box u 7..15 and its
   // workshop strip are the ground nearest home), and the cheapest raised-well candidate -- with no plan -- lies in that box
@@ -925,7 +945,7 @@ async function main () {
   for (const s of SCENES_S.split(',')) {
     P('=== scene', s)
     try { await scenes[s]() } catch (e) { P('SCENE FAILED', s, e.stack || e.message); result({ scene: s, error: String(e.message).slice(0, 300), CANDIDATE_PASS: false, BASE_SHAPE: false }); await stopBots().catch(() => {}) }
-    brainQueue.length = 0
+    brainQueue.length = 0; brainPoints = null; brainFar = false; brainHome = HOME
   }
 }
 async function cleanup () {
