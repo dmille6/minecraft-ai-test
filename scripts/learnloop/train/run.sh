@@ -35,7 +35,7 @@ case "${1:-}" in
     say "ollama"; systemctl is-active ollama; curl -s -m 5 http://127.0.0.1:11434/api/ps; echo
     sudo -n cat "$OVR" 2>/dev/null | grep -E 'NUM_PARALLEL|MAX_LOADED|KEEP_ALIVE|CONTEXT'
     say "venv"; $PY -c "import torch, unsloth, trl, transformers, peft; print('torch', torch.__version__, 'cuda', torch.cuda.is_available(), 'free GiB %.1f' % (torch.cuda.mem_get_info()[0] / 2**30)); print('unsloth', unsloth.__version__, 'trl', trl.__version__, 'transformers', transformers.__version__, 'peft', peft.__version__)" 2>&1 | grep -v -E 'Warning|W10|patch'
-    say "base weights"; du -sh "$HF_HOME"/hub/models--unsloth--Qwen3-8B 2>/dev/null || echo "MISSING: unsloth/Qwen3-8B"
+    say "base weights"; du -shL "$HF_HOME"/hub/models--unsloth--Qwen3-8B 2>/dev/null || echo "MISSING: unsloth/Qwen3-8B"
     say "data"; ls -la "$DATA"/m3-train-2000.jsonl "$DATA"/m3-eval.jsonl "$DATA"/MANIFEST.json 2>&1
     say "disk"; df -h "$T" | tail -1
     ;;

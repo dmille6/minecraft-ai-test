@@ -168,13 +168,16 @@ else
     HO=$(python3 "$HOLDTOKEN" owner 2>&1)
     [ "$HO" = "$ADOPT" ] || die "the current install-hold is '$HO', not '$ADOPT' -- nothing adopted"
     TOKEN=$ADOPT; CL="adopted the kept install-hold $TOKEN"
+    ADOPTED=1
   else
     TOKEN="drop16:$MODE:$$:$(date +%s%N)"
     CL=$(python3 "$HOLDTOKEN" claim "$TOKEN" "$HOLD_MIN" 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-500)"
   fi
   # THE HOLD IS KEPT FROM THE FIRST MUTATION until a VERIFIED end (Codex r1 P1, r2 P1): any exit in between -- a
   # failed copy, an interruption, a failed restart or verify -- leaves it held, with the exact command to finish.
-  KEEP_HOLD=""; ROLLSTAMP=$STAMP; [ "$MODE" = rollback ] && ROLLSTAMP=$ARG
+  # an ADOPTED hold belongs to a fleet that is already half-applied: it stays held through ANY refusal from here on
+  # (a held lock, a bad stamp, a missing backup) until the rollback is verified (Codex r3 P1)
+  KEEP_HOLD=${ADOPTED:-}; ROLLSTAMP=$STAMP; [ "$MODE" = rollback ] && ROLLSTAMP=$ARG
   trap '[ -n "$KEEP_HOLD" ] && echo "INSTALL-HOLD KEPT ($TOKEN). Roll back with: bash $0 --rollback $ROLLSTAMP --hold-token $TOKEN   (or fix by hand, then: python3 $HOLDTOKEN release $TOKEN)" || python3 "$HOLDTOKEN" release "$TOKEN" >/dev/null 2>&1' EXIT
   echo "  $(echo "$CL" | tail -1 | cut -c1-200)"
   exec 8>"$LOCKF"; flock -n 8 || die "$LOCKF is held"

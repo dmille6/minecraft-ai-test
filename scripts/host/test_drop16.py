@@ -174,6 +174,15 @@ def t_a_failed_apply_rolls_back_by_adopting_its_kept_hold():
     assert rc2 == 2 and 'install-hold not claimed' in out2, 'without the token the kept hold blocks a claim: %s' % out2
     rc3, out3 = run(d, '--rollback', m.group(1), '--hold-token', 'drop16:someone-else')
     assert rc3 == 2 and 'nothing adopted' in out3, out3
+    os.rename(os.path.join(d, 'env', BOTS[0] + '.env.bak-drop16-' + m.group(1)), os.path.join(d, 'gone.bak'))
+    rc5, out5 = run(d, '--rollback', m.group(1), '--hold-token', m.group(2))
+    assert rc5 == 2 and 'missing backup' in out5 and os.path.exists(os.path.join(d, 'hold.json')), \
+        'Codex r3 P1: a refused rollback on an ADOPTED hold keeps it: %s' % out5
+    lk = open(os.path.join(d, 'canary.lock'), 'w'); import fcntl; fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    rc6, out6 = run(d, '--rollback', m.group(1), '--hold-token', m.group(2))
+    lk.close()
+    assert rc6 == 2 and 'is held' in out6 and os.path.exists(os.path.join(d, 'hold.json')), out6
+    os.rename(os.path.join(d, 'gone.bak'), os.path.join(d, 'env', BOTS[0] + '.env.bak-drop16-' + m.group(1)))
     rc4, out4 = run(d, '--rollback', m.group(1), '--hold-token', m.group(2))
     assert rc4 == 0 and 'ROLLED BACK %s and verified' % m.group(1) in out4, out4
     assert envs(d) == before and not os.path.exists(os.path.join(d, 'hold.json')), 'restored, and the adopted hold released'

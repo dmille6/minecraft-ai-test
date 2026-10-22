@@ -217,6 +217,51 @@ def t_a_stopped_run_resumes_without_paying_twice_and_reservations_cross_months()
     assert T.month_to_date(rows, 'anthropic', nxt) == T.month_to_date(rows, 'anthropic'), 'unresolved reservations count in every month'
 
 
+def t_resubmit_never_resends_a_submitted_batch_and_ids_are_unique():
+    """Claude r3 P2 + Codex r3 P2: --resubmit re-paid submitted batches; a same-second retry reused a released id."""
+    d, pf = _submit_env(1000)
+    sent = []
+    def flaky(arm, its, cond):
+        if len(sent) == 1:
+            raise RuntimeError('lost on batch 2')
+        sent.append(len(its)); return 'b-%d' % len(sent)
+    try:
+        _as_mac(lambda: T.cmd_submit(Args(pf), submit=flaky))
+    except RuntimeError:
+        pass
+    calls = []
+    _as_mac(lambda: T.cmd_submit(Args(pf, resubmit=True), submit=lambda arm, its, cond: calls.append(len(its)) or 'b-r%d' % len(calls)))
+    nb = len(T.plan_batches(T.load(pf), 'B', 'blind'))
+    assert len(calls) == nb - 1, ('batch 1 is never sent again, even with --resubmit', len(calls), nb)
+    res = [r['reservation'] for r in T.ledger_rows() if r['kind'] == 'reserve']
+    assert len(res) == len(set(res)), 'every reservation attempt has its own id'
+    import datetime as _dt
+    real = T.dt.datetime
+    class Frozen(real):
+        @classmethod
+        def now(cls, tz=None):
+            return real(2026, 11, 2, 12, 0, 0, tzinfo=tz)
+    d, pf = _submit_env(10)
+    T.dt.datetime = Frozen
+    try:
+        try:
+            _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda *a: (_ for _ in ()).throw(RuntimeError('x'))))
+        except RuntimeError:
+            pass
+        rid = [r for r in T.ledger_rows() if r['kind'] == 'reserve'][-1]['reservation']
+        T.main(['release', rid])
+        try:
+            _as_mac(lambda: T.cmd_submit(Args(pf), submit=lambda *a: (_ for _ in ()).throw(RuntimeError('y'))))
+        except RuntimeError:
+            pass
+        rows = T.ledger_rows()
+        ids = [r['reservation'] for r in rows if r['kind'] == 'reserve']
+        assert len(ids) == 2 and ids[0] != ids[1], ids
+        assert T.month_to_date(rows, 'anthropic', Frozen.now(_dt.timezone.utc)) > 0, 'the retry stays counted'
+    finally:
+        T.dt.datetime = real
+
+
 def t_paid_verbs_refuse_off_the_mac():
     import socket
     saved = socket.gethostname

@@ -458,6 +458,9 @@ class FakeRelay:
     def status(self):
         return {'sealed': len(self.sealed), 'newest': max(self.sealed) if self.sealed else 'NONE'}
 
+    def list(self, day):
+        return sorted((self.nas.get(day) or {}))
+
 
 def _nightly_env():
     root, roster, logs = fixture()

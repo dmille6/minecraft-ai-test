@@ -258,7 +258,9 @@ def cmd_submit(a, submit=None):
             # RESUMABLE (Claude r2 P2): a batch already reserved AND submitted is skipped, so a run that stopped at
             # batch k finishes without paying for 1..k again; a reservation with NO `submitted` row is the unknown
             # case (did the vendor take it?) and needs --resubmit after a look at the console, or `release`
-            if any(r['reservation'] in submitted for r in dup) and not a.resubmit:
+            # ALWAYS skip a batch already submitted -- --resubmit never re-sends it (Claude r3 P2: following the printed
+            # remedy re-paid batches 1..k-1); --resubmit only lets a reserved-but-unrecorded batch go again
+            if any(r['reservation'] in submitted for r in dup):
                 print('skipped: batch already submitted (%s)' % [r['reservation'] for r in dup if r['reservation'] in submitted][0])
                 continue
             if dup and not a.resubmit:
@@ -268,7 +270,8 @@ def cmd_submit(a, submit=None):
             if not cc['ok']:
                 raise SystemExit('REFUSED by the ledger: %s' % cc)
             now = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-            rid = 'r-%s-%s' % (now.replace(':', ''), key[:10])
+            import uuid
+            rid = 'r-%s-%s-%s' % (now.replace(':', ''), key[:10], uuid.uuid4().hex[:12])   # unique per attempt (Codex r3 P2)
             res = {'ts': now, 'vendor': v, 'arm': arm, 'kind': 'reserve', 'reservation': rid, 'items_key': key,
                    'usd': round(b['usd'], 4), 'usd_expected': round(b['usd_expected'], 4), 'requests': len(b['items']),
                    'condition': 'probe' if a.probe else cond}
@@ -386,6 +389,8 @@ def main(argv=None):
     if a.verb == 'plan':
         return cmd_plan(a)
     if a.verb == 'release':
+        import fcntl
+        lk = open(LEDGER + '.lock', 'w'); fcntl.flock(lk, fcntl.LOCK_EX)    # same lock as submit (Claude r3 P3)
         rows = ledger_rows()
         r = [x for x in rows if x['kind'] == 'reserve' and x['reservation'] == a.reservation]
         if not r:

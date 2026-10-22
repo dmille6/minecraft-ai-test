@@ -312,6 +312,10 @@ class Relay:
         rc, out = self.call('seal', day)
         return rc == 0 and out.startswith('OK sealed ' + day), out
 
+    def list(self, day):
+        rc, out = self.call('list', day, timeout=120)
+        return [l.split(' ', 1)[0] for l in out.splitlines() if l.strip()] if rc == 0 else None
+
     def members(self, day, name):
         """{relpath: sha256} of every member of a tar AS STORED on the NAS (hashed on .30 from the NAS's bytes), or
         None. The proof of what reached the NAS, independent of tar headers, owners and live copies (Claude r2 P2)."""
@@ -477,6 +481,8 @@ def adopt_raw(day, rec, relay, a, log):
         return False, 'the day does not verify on the NAS: %s' % vout[:120]
     man = relay.manifest(day) or {}
     names = sorted(n for n in (man.get('files') or {}) if n.startswith(('raw-', 'repair-raw-')) and n.endswith('.tar'))
+    # repair tars are never in a MANIFEST (added after the seal): find them by listing the day (Claude r3 P3)
+    names += sorted(n for n in (relay.list(day) or []) if n.startswith('repair-raw-') and n.endswith('.tar') and n not in names)
     if not names:
         return False, 'the NAS MANIFEST lists no raw tar'
     mem = {}

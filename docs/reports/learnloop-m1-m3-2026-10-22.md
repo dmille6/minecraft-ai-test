@@ -111,18 +111,146 @@ imports, the SFTConfig the trainer builds is accepted, and Qwen3's no-think chat
    `eval_offline.py --export-check` (q4 vs bf16 same skill >= 97%).
 10. `bash run.sh restore-ollama` -- the saved override back byte-equal, ollama enabled and started.
 
-## 4. M3: the first offline training round
+## 4. M3: the first offline training round -- READY TO RUN, NOT RUN
 
-STATUS: section 5.
+M2b has not run (a canary, keepout-01, is deployed; the owner runs drop16.sh in a gap), so no training was started on
+.16 -- by the task's rule and by `run.sh`'s own guard (`REFUSED: set DROP16_VERIFIED=...`, checked live).
+
+**Data for the dry round (dataset v0, s.5.3):** `m3-train-2000.jsonl`, 2,000 good decisions from the TRAIN cell,
+skill-balanced (sqrt allocation: gather 508, explore 466, mine 386, goto 329, craft 85, deposit 79, surface 50, smelt
+37, place 34, home 13, withdraw 8, board 5). Rendered with Qwen3's no-think template: p50 2,576 tokens, p95 2,828, max
+2,966, **0 over 3,072** (none dropped); 5.15 M tokens in all, so the round takes **about 3.6-6.1 h** at the planning
+range of 235-400 tok/s. Staged on .16 in `~/learnloop-train/data/`.
+
+**The round:** 200 optimizer steps x grad-accum 10 = the 2,000 examples, one epoch (the design's accumulation of 16
+would be 125 steps for the same epoch). QLoRA r 16 / alpha 32 on all linear projections, lr 1e-4 cosine, 3% warmup,
+adamw_8bit, loss on the answer only, packing off. A 50-step fit test runs first: peak VRAM, tok/s, grad-norm.
+
+**Evaluation (offline, rung a):** `m3-eval.jsonl` = 600 items from cell C (held-out worlds x the 2 newest days):
+200 good (agreement), 300 non-transient failures (repeats-the-failed-action, hard-infeasible), 100 decisions right
+after a repeat_loop veto (post-veto test). They are replayed through the bots' own `LlmClient.decide()` (grammar,
+sentinel, repair retry, fleet settings 8,192 / 512 / 0.7 / 45 s) against:
+- base qwen2.5:7b (the reference for the gates);
+- base Qwen3-8B with the same no-think template;
+- the candidate (q4_K_M, and bf16 for the export check).
+
+Gates: complete coverage, a passing instrument check, schema-valid >= reference - 0.5 pp, hard <= reference,
+rep_fail <= reference; export check q4 vs bf16 same skill >= 97%. **Positive control already measured on the logged
+actions:** of 13,408 post-veto decisions in cell C, the fleet repeated the vetoed action 7,858 times (58.6%; the
+sandbox measured 29-59%), and 13,390 of those prompts carry the rejection.
+
+**Ready-to-run commands (after `drop16.sh --verify` passes at +24 h):**
+
+    ssh mike@10.0.0.16; cd ~/learnloop-train
+    export DROP16_VERIFIED=<the +24 h verify time, e.g. 2026-10-24T10:00:00Z>
+    bash run.sh preflight
+    bash run.sh stop-ollama           # owner-approved step (and decide on the ethan-gpu llama-server, s.3)
+    bash run.sh fit                   # 50 steps -> runs/fit-01/metrics.json
+    bash run.sh train                 # the dry round -> runs/dry-01/{metrics.json,lora,merged-16bit}
+    bash run.sh export                # GGUF bf16 + Modelfiles (prints the ollama create commands)
+    bash run.sh start-ollama          # OLLAMA_NUM_PARALLEL=2 for the evaluation
+    ollama create cand-qwen3-8b-v0-dry-bf16 -f runs/dry-01/Modelfile.bf16
+    ollama create cand-qwen3-8b-v0-dry -q q4_K_M -f runs/dry-01/Modelfile.q4
+    ollama pull qwen3:8b && ollama create qwen3-8b-nothink -f runs/dry-01/Modelfile.base-nothink
+    bash run.sh template-check
+    # then on 10.0.0.31, from a checkout of this branch (eval.sh needs node + the deploy checkout):
+    DROP16_VERIFIED=<same> bash scripts/learnloop/train/eval.sh ~/learnloop/datasets/v0 \
+        qwen2.5:7b-instruct qwen3-8b-nothink cand-qwen3-8b-v0-dry cand-qwen3-8b-v0-dry-bf16
+    python3 scripts/learnloop/train/eval_offline.py --items ~/learnloop/datasets/v0/m3-eval.jsonl \
+        --runs ~/learnloop/datasets/v0/eval/*.jsonl --export-check \
+        ~/learnloop/datasets/v0/eval/cand-qwen3-8b-v0-dry.jsonl ~/learnloop/datasets/v0/eval/cand-qwen3-8b-v0-dry-bf16.jsonl
+    # back on .16:
+    bash run.sh restore-ollama
 
 ## 5. Numbers
 
-(filled in below)
+### 5.1 The pipeline, per day (10.0.0.31; all 14 days archived and sealed on the NAS; every control OK)
 
-## 6. Teacher pilot plumbing (Mac only, dry run)
+| day | llm rows | model decisions (= triples) | bots | good | bad | void | neutral | ES diff llm / skill | sysprompt pairs | raw files | MB |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 10-08 | 158,586 | 146,790 | 80/80 | 34,363 | 97,255 | 10,168 | 5,004 | -5 / -55 | 9/9 | 160 | 132 |
+| 10-09 | 160,586 | 148,067 | 80/80 | 33,812 | 98,717 | 10,354 | 5,184 | +7 / +52 | 3/3 | 160 | 132 |
+| 10-10 | 162,388 | 150,179 | 80/80 | 32,059 | 102,434 | 10,568 | 5,118 | +7 / +58 | 10/10 | 160 | 132 |
+| 10-11 | 160,185 | 149,974 | 80/80 | 34,375 | 100,870 | 9,943 | 4,786 | +9 / +62 | 11/11 | 160 | 133 |
+| 10-12 | 161,684 | 148,379 | 80/80 | 35,178 | 98,636 | 9,699 | 4,866 | +10 / +37 | 10/10 | 160 | 132 |
+| 10-13 | 162,840 | 148,580 | 80/80 | 34,686 | 99,237 | 9,847 | 4,810 | +12 / +44 | 11/11 | 160 | 132 |
+| 10-14 | 157,933 | 150,362 | 80/80 | 35,414 | 100,098 | 10,197 | 4,653 | +5 / +46 | 14/14 | 160 | 138 |
+| 10-15 | 161,880 | 154,384 | 80/80 | 32,822 | 106,612 | 10,496 | 4,454 | +7 / +42 | 11/11 | 160 | 137 |
+| 10-16 | 157,961 | 152,294 | 80/80 | 34,146 | 102,848 | 10,734 | 4,566 | +10 / +29 | 14/14 | 160 | 140 |
+| 10-17 | 159,334 | 151,806 | 80/80 | 33,371 | 103,588 | 10,463 | 4,384 | +10 / +55 | 19/19 | 160 | 140 |
+| 10-18 | 161,332 | 151,582 | 80/80 | 32,798 | 104,658 | 10,265 | 3,861 | +7 / +42 | 10/10 | 160 | 140 |
+| 10-19 | 165,010 | 156,483 | 80/80 | 31,585 | 109,217 | 11,132 | 4,549 | +7 / +32 | 14/14 | 160 | 140 |
+| 10-20 | 160,559 | 151,549 | 80/80 | 32,726 | 104,254 | 10,435 | 4,134 | +0 / +5 | 13/13 | 160 | 140 |
+| 10-21 | 160,393 | 151,785 | 80/80 | 33,631 | 104,469 | 9,960 | 3,725 | +11 / +39 | 12/12 | 160 | 142 |
+| **14 days** | **2,250,671** | **2,112,214** | | **470,966** | | | | | | **2,240** | **1,910** |
 
-STATUS: section 5.
+- **Denominators and controls, every day:** raw lines counted by timestamp prefix = parsed rows (0 unparseable);
+  model + deterministic = rows; triples = model decisions; the labels sum to them; refused + admitted = model
+  decisions; 80 of 80 roster bots with rows. **Join: 0 unexplained misses on every day** (e.g. 10-08: 74,673 of 74,673
+  executed decisions joined; the 10,168 runner-refused are void and have no row by construction). ES: llm within 15,
+  skill within 120, `_death` / `_stagnation` / `_milestone_complete` within 2 (largest event diff 1). Every (code
+  version, system hash) pair rebuilt from its own version. Raw: 160 of 160 files (80 bots x llm + skill).
+- **Regression control:** the productionised extractor's 10-20 summary equals the committed prototype's on all 577 of
+  its keys, and 10-20's ES counts equal the committed crosscheck.
+- **Archive control:** all 2,240 raw members of the 14 days were hashed FROM THE NAS'S BYTES on .30 (`--adopt-raw`,
+  relay `members`); 2,240 of 2,240 equal the sha256 of the local copy.
+- **Near-duplicates (s.1.5 "measured at M1"):** 5.0% of 10-20's model decisions share a near-key with an earlier one
+  (7,535 of 151,549); among TRAIN good decisions none exceeded k = 3 per (bot, near-key, action).
+- **Cost on the fleet host:** ~4.3 min per day at nice 19 / ionice idle, 0.84 GB peak RSS; ~135 MB per day on the
+  NAS (~50 GB a year).
+
+### 5.2 Install
+
+- **10.0.0.31:** `~/learnloop/app/scripts/{learnloop,lib}/` at the commit in its `VERSION`; crontab
+  `50 1 * * * cd /home/mike/learnloop/app/scripts/learnloop && PATH=/usr/bin:/bin /usr/bin/nice -n 19 /usr/bin/ionice -c3 /usr/bin/python3 -B nightly.py --tick >> /home/mike/learnloop/cron.log 2>&1`;
+  state in `~/learnloop/{state.json,heartbeat.json,nightly.log}`, local days in `~/learnloop/days/`, held raw in
+  `~/learnloop/rawhold/` (1.2 GB), relay key `~/.ssh/id_learnloop_relay`. Installer: `scripts/learnloop/install-m1.sh`.
+- **10.0.0.30:** `~/bin/learnloop-relay.sh` and one `restrict,from="10.0.0.31",command=...` line in
+  `~/.ssh/authorized_keys` (backup `authorized_keys.bak-learnloop-20261022`).
+- **NAS:** `/volume1/homes/mike/learnloop/daily/2026-10-08 .. 2026-10-21/`; `.last-good` = 2026-10-21.
+
+### 5.3 Dataset v0 (`~/learnloop/datasets/v0/` on .31; immutable)
+
+- Days 10-08..10-21 (14). The newest 2 days (10-20, 10-21) are held out for every world. Held-out worlds, drawn once
+  with `secrets.SystemRandom`: **board-a, placebo-d, isolated-c**. The split seed is recorded in the MANIFEST.
+- Cells (model decisions): TRAIN 1,462,110; A (held-out worlds x old days) 346,770; B (training worlds x new days)
+  244,889; C (held-out x new, the headline) 58,445.
+- Stage-1 TRAIN good: 335,189 kept of 337,198. Out: 2,008 gemma4 brain-01 rows (v0 is qwen2.5 only) and 1 nonce
+  mismatch. 2,114 (skill, milestone) strata; the largest are gather|gather_dirt 74,722, explore|patrol 57,307 and
+  mine|gather_iron_ore 51,430.
+- Leakage control: 0 of 346,770 A and 0 of 58,445 C decisions share a prompt+action or near-key with a TRAIN
+  decision; B 3 and 27 of 244,889.
+- Natural preference pairs (same bot, same near-key, good vs bad, different action): **49**. That is too few for
+  stage 3 from natural pairs alone; constructed (teacher) pairs will have to carry it.
+- Pilot pool: 946,087 hard decisions (TRAIN cell, complete prompt, refused or failed/aborted, void out). The 1,000-item
+  sample covers 109 (class x skill) strata and 25 failure classes.
+
+## 6. Teacher pilot plumbing (Mac only) -- DRY RUN, nothing sent
+
+`scripts/learnloop/teacher/teacher_pilot.py` on the Mac mini. The keys stay in `~/.config/mcai/`, mode 600; `plan`
+checks their mode and owner with `stat` and never opens them. Sample: `~/learnloop/teacher/pilot-1000.jsonl` (from v0).
+
+`python3 scripts/learnloop/teacher/teacher_pilot.py plan` (10-22, no network):
+
+| arm | condition | requests | batches (<= $10 reserved) | expected | reserved (upper bound) |
+|---|---|---|---|---|---|
+| B claude-opus-5-5 (Anthropic Batches) | blind | 1,000 | 5 | $21.83 | $47.79 |
+| B | informed | 200 | 1 | $4.61 | $9.80 |
+| C gpt-6.1-sol (OpenAI Batch) | blind | 1,000 | 3 | $10.91 | $23.89 |
+| C | informed | 200 | 1 | $2.31 | $4.90 |
+| **total** | | **2,400** | **10** | **$39.66** | **$86.39** |
+
+- Expected = 3.41 M input tokens per 1,000 items (the items' own qwen counts x 1.35) + 1,500 output per item.
+- Reserved = output at the request's max_tokens 4,096 (thinking counts as output and cannot be turned off on Opus 5.5).
+- Blind only: expected **$32.74**, reserved $71.68. Each vendor's reservation fits under 80% of its $100 cap
+  (anthropic $57.59, openai $28.80). This matches the design's ~$35 blind / ~$42 with the informed condition.
+- Safeguards: the ledger (`~/learnloop/spend.jsonl`) reserves durably before any vendor call, under a lock; a stopped
+  submit resumes without re-paying; a 5-item probe per arm must be fetched and fully parsed before a full submit; no
+  server-side fallback model (a refusal stays that arm's refusal). Paid answers land in `~/learnloop/teacher-paid/<arm>/`,
+  quarantined: the dataset builder refuses them for training without a recorded owner decision.
+- Not exercised against the live APIs (no money may be spent here): the vendors' structured-output subsets may reject
+  parts of the fleet schema; the 5-item probe exists to find that out for under $0.30.
 
 ## 7. Reviews
 
-(filled in below)
+REVIEW_TABLE
