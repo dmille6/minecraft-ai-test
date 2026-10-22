@@ -94,3 +94,26 @@ CODE ROUND 3 (townplan-01 d96b6cc0; found-01 14254a58)
                                                                             code judges the whole set, the per-cell form is gone
   Claude P3  a detail of exactly 300 uncut chars loses its last name          kept: errs toward not reverting (noted)
   Claude P3  tablesOff not in the scene result                               added (foundflat)
+
+CODE ROUND 4 (townplan-01 440008d7; found-01 6d582fcb)
+  Codex APPROVE         Claude APPROVE (5 P3: three test gaps, a group-without-role reserve, the tpcas tree)
+  -> 74ee0f6a (tests and the Paper driver only): the head-refresh test starts with no cached plan; an appended reserved cell's
+     marker; the port's marker rules in townplanread's selftest; tpcas names its tree. The group-without-role reserve: no
+     caller sends one (noted).
+
+PAPER finding (10-22, FOUND-PLINTH on 110b8627): a bot that never read the plan acted as if the town had none -- its first
+planner tick fires PLAN_TICK_MS after spawn, and build_plinth planned the raised well 8 s after spawn inside the core's box.
+  -> 68f4533e: townPlanNow reads the head once when the bot never read it. Re-run on b8f787c5: the cap moved outside every
+     box (tier=outside, never=0). Also townplanread's exposure counts every canary pool.
+
+CODE ROUND 5 (townplan-01 68f4533e; found-01 b8f787c5)
+  Codex APPROVE (1 P3: a failing read retried on every ask)   Claude APPROVE (4 P3: the same retry cost, a double read in
+  place() while failing, plan_towns_canary counting heads not pools, a comment)
+  -> kept as P3 (named): the retry cost only arises past 16 MB of plan files or an unreadable generation (alarmed first);
+     plan_towns_canary needs leftover plan files of an earlier world or key in a canary pool.
+
+PAPER finding (10-22, FOUND-RETRO on b8f787c5): a bot decided F1 from its 30-s-old cached head, took the found lease the moment
+another bot released it, crafted a spare table for the station that bot had just filled, and spent its visit on
+lost_reservation (no harm: the table is carried; the furnace waited one cooldown).
+  -> r6: the found slot reads the head fresh for each in-town decision. Test CHAIN, A STALE CACHE; the CHAIN CONTROL now uses a
+     town with no plan on disk (a nulled cache is no longer "no plan").
