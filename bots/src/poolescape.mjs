@@ -30,6 +30,7 @@ export const POOL_BUDGET_MS = 90_000       // one firing holds the body at most 
 export const POOL_SWIM_MAX = 4             // how far it swims to another wall of the same pool
 export const POOL_STEP_HOLD_MS = 2000      // phase 1: forward + jump until the feet are up (the impulse needs the collision)
 export const POOL_STEP_WALK_MS = 1500      // phase 2: forward alone until the centre is inside the step cell
+export const POOL_STEP_TRIES = 3           // a missed step (the cut done and dry) is pressed again, re-planned each time
 export const POOL_BACKOFF_MS = [5, 10, 20, 40, 60].map(m => m * 60_000)
 
 const SIDES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
@@ -308,6 +309,6 @@ export function poolRowDetail (r = {}) {
   const m = r.marks ?? {}
   return `outcome=${r.outcome ?? '?'} steps=${r.steps ?? 0} rose=${(r.rose ?? 0).toFixed(1)} dug=${r.dug ?? 0} placed=${r.placed ?? 0} ` +
     `swam=${r.swam ?? 0} hands=${(r.hands ?? []).join(',') || '-'} marks=zone:${m.zone ?? 0},fire:${m.fire ?? 0},town:${m.town ?? 0} ` +
-    `lava_refused=${r.lavaRefused ?? 0} water_beside=${r.wet ?? 0} dry=${r.dry ? 1 : 0} route=${r.route ? 1 : 0} ` +
+    `lava_refused=${r.lavaRefused ?? 0} water_beside=${r.wet ?? 0} dry=${r.dry ? 1 : 0} route=${r.route ? 1 : 0} step_retries=${r.stepRetries ?? 0} ` +
     `at=${r.at ?? '?'} tries=${r.tries ?? 0} -- ${String(r.reason ?? '').slice(0, 160)}`
 }

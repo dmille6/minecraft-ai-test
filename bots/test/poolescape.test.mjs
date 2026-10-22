@@ -277,6 +277,19 @@ await ta('TWO BOTS, ONE PIT (Paper 10-22 r3): a step cell another body stands in
   assert.ok(!f.log.digs.some(d => d[2] === -1), 'never cut toward the occupied north step')
   assert.ok(f.log.digs.some(d => d[2] === 1 && d[1] === 1), 'cut the south wall instead')
 })
+await ta('A MISSED STEP IS PRESSED AGAIN (Paper 10-22 r5): the first jump fails, the second takes the bot out', async () => {
+  const f = fakeBot('bravo')
+  let presses = 0
+  const real = f.bot.setControlState
+  f.bot.setControlState = (n, on) => {
+    if (n === 'jump' && on && ++presses === 1) { f.log.controls.push([n, on]); return }   // the first press does nothing
+    return real(n, on)
+  }
+  const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
+  assert.equal(r.outcome, 'out', JSON.stringify(r))
+  assert.equal(r.stepRetries, 1)
+  assert.ok(PE.poolRowDetail(r).includes('step_retries=1'))
+})
 await ta('NO PICKAXE: the hand digs dirt (Bravo north wall made dirt), never refused for want of a tool', async () => {
   const f = fakeBot('bravo', { edits: { [k3(0, 1, -1)]: 'dirt' }, bag: [item('dirt', 10, 12)] })
   const r = await RX.poolEscape(f.bot, { yieldTo: f.yieldTo })
@@ -354,11 +367,15 @@ await ta('WIRED: hook (b) asks wading BEFORE taking the body; both stand-asides;
   assert.ok(/resv = runner\.reserve\('poolescape', 20_000, 'poolescape'\)/.test(code) && /runner\.releaseReservation\(resv\.gen\)/.test(code))
   assert.ok(/alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current/.test(code))
   // Claude code r2 P2 / P3, Codex code r2 P2: never over another reservation; kept alive on a timer; the cancelled skill unwinds first
-  assert.ok(/if \(held && held\.owner !== 'poolescape'\) return null/.test(code), 'another owner\'s reservation is never overwritten')
-  assert.ok(code.indexOf("if (held && held.owner !== 'poolescape') return null") < code.indexOf("kind: 'poolescape_start'"), 'checked before the start row')
+  const skip = "if (held && held.owner !== 'poolescape') { poolEscaping = false; return null }"
+  assert.ok(code.includes(skip), 'another owner\'s reservation is never overwritten')
+  assert.ok(code.indexOf(skip) < code.indexOf("kind: 'poolescape_start'"), 'checked before the start row')
   assert.ok(/if \(cur && !\(resv && cur\.gen === resv\.gen\)\) return/.test(code), 'renewed only while it is ours')
   assert.ok(/keep = setInterval\(renew, 5_000\)/.test(code) && /clearInterval\(keep\)/.test(code), 'kept alive for the whole firing')
   assert.ok(/for \(let w = 0; w < 30 && runner\?\.current; w\+\+\) await sleep\(100\)/.test(code), 'the cancelled skill unwinds before the first alive()')
+  // Paper r5: a running stranded routine is waited for; none starts once a firing is admitted
+  assert.ok(/poolEscaping = true[^\n]*\n\s*for \(let w = 0; w < 60 && strandedRunning; w\+\+\) await sleep\(100\)/.test(code))
+  assert.ok(/strandedRunning = true\n\s*const r = routine/.test(code) && /\.finally\(\(\) => \{ strandedRunning = false \}\)/.test(code))
 })
 await ta('WIRED: the licence row is written once per spawn (index.mjs)', () => {
   const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))

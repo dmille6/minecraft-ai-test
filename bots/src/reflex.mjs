@@ -50,7 +50,8 @@ import pathfinderPkg from 'mineflayer-pathfinder'
 import { digScoped } from './digtown.mjs'
 // poolescape-01: the walled-water-pit rung (poolescape.mjs plans one step; poolEscape below executes it)
 import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark, poolForbid, poolToolOk, poolBackoffMs,
-         poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS, POOL_STEP_WALK_MS } from './poolescape.mjs'
+         poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS, POOL_STEP_WALK_MS,
+         POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
@@ -1501,6 +1502,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // ladder (not gated on `marooned`, by design) and the float hold's jump. The rung keeps the head in air by its own
   // plan and yields to the drowning rescue, which still runs.
   let poolEscaping = false
+  // ...AND THE OTHER WAY ROUND (Paper 10-22 r5, zone scene): the stranded ladder's float_up started in the same second as a
+  // firing (it was already past its `!poolEscaping` check) and the two steered one body; the step failed. A firing waits
+  // for a running stranded routine to end first (<= 6 s; float_up holds ~4 s).
+  let strandedRunning = false
   const poolEscapeTry = async (hook, grantOf) => {
     if (!poolEscapeOn()) return null
     const p = bot.entity?.position
@@ -1508,24 +1513,28 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const o = p.floored()
     if (!wading({ at: (dx, dy, dz) => bot.blockAt(o.offset(dx, dy, dz)) })) return null
     if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
-    if (await canStartAPath(bot)) return null
+    poolEscaping = true          // from here no new stranded routine starts; one already running is waited for
+    for (let w = 0; w < 60 && strandedRunning; w++) await sleep(100)
+    if (strandedRunning) { poolEscaping = false; return null }
+    if (await canStartAPath(bot)) { poolEscaping = false; return null }
     const key = poolSpotKey(p), st = poolSpots.get(key)
-    if (st && Date.now() < st.until) return null
+    if (st && Date.now() < st.until) { poolEscaping = false; return null }
     // ANOTHER RESERVATION IS ANOTHER OWNER (Claude code r2 P3): the stagnation watchdog's rescue reserves the runner while
     // the skill it cancelled unwinds. The rung never overwrites it; it waits for the next maroon check.
     const held = runner?.activeReservation?.() ?? null
-    if (held && held.owner !== 'poolescape') return null
+    if (held && held.owner !== 'poolescape') { poolEscaping = false; return null }
     const id = `${Date.now().toString(36)}`
     const tries = (st?.failures ?? 0) + 1
     logEvent({ kind: 'poolescape_start', status: 'success', snapshot: snapshot(bot),
                detail: `id=${id} hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- wading, no route: cutting a stair out of the pool` })
-    poolEscaping = true
     // THE RUNNER IS RESERVED FOR THE FIRING (Claude code r1 P2-3): a reserved runner is busy, so the cognitive tick
     // dispatches nothing into it (it would every 20 s with the model on). Taking the reservation CANCELS a skill the
     // planner started during the pillar (Runner.reserve interrupts), so the firing first waits up to 3 s for it to unwind
     // (Claude code r2 P2: otherwise the first `alive()` saw the unwinding skill and every such firing yielded at once).
     // Kept alive on a 5 s timer for the whole firing, long digs included (Codex code r2 P2), and renewed only while it is
     // still ours (Claude code r2 P3: never over the watchdog's). A skill still running after the unwind wait stops it.
+    // Every renewal goes through Runner.reserve(), which also calls interrupt(): a no-op while the reservation keeps the
+    // runner idle, which is the point of holding it.
     let resv = null
     const renew = () => {
       try {
@@ -1728,10 +1737,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             snapshot: snapshot(bot),
           })
           const routine = ESCAPE_ROUTINES[plan]
+          strandedRunning = true
           const r = routine
             ? await routine(bot, { yieldTo: drowningOwnsBody })
                 .catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+                .finally(() => { strandedRunning = false })
             : { ok: false, why: `no routine for ${plan}` }
+          strandedRunning = false
           logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
                      status: r?.ok ? 'success' : 'failed',
                      detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
@@ -5115,10 +5127,24 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
     if (!last.ok || last.dig.length || last.place.length) return done(r.steps ? 'progress' : 'refused', `the step closed: ${last.reason ?? 'a cell refilled'}`)
     if (gone()) return done('yielded', '')
     const target = feet.offset(bear.x, 1, bear.z)
-    if (!await holdToward(bear, target, POOL_STEP_HOLD_MS)) return done('yielded', 'during the step')
-    const q = bot.entity.position
+    // A MISSED STEP IS TRIED AGAIN (Paper 10-22 r5): the cut is done and dry, so a failed jump costs one more press, not a
+    // five-minute back-off. Each attempt re-plans first: the step must still need nothing.
+    let q = null
+    for (let attempt = 0; attempt < POOL_STEP_TRIES; attempt++) {
+      if (attempt > 0) {
+        const again = recheck()
+        if (!again.ok || again.dig.length || again.place.length) return done(r.steps ? 'progress' : 'refused', `the step closed before try ${attempt + 1}: ${again.reason ?? 'a cell changed'}`)
+        r.stepRetries = (r.stepRetries ?? 0) + 1
+        await sleep(300)
+      }
+      if (!await holdToward(bear, target, POOL_STEP_HOLD_MS)) return done('yielded', 'during the step')
+      q = bot.entity.position
+      if (Math.floor(q.x) === target.x && Math.floor(q.z) === target.z && Math.floor(q.y + 0.2) >= target.y) break
+      // back to the pit's own cell before trying again: a bot left on the lip with its centre over the water is neither
+      if (Math.floor(q.x) !== feet.x || Math.floor(q.z) !== feet.z) break
+    }
     if (Math.floor(q.x) !== target.x || Math.floor(q.z) !== target.z || Math.floor(q.y + 0.2) < target.y) {
-      return done(r.steps ? 'progress' : 'refused', `cut a step at ${cellOf(target)} but could not stand in it (at ${cellOf(q)})`)
+      return done(r.steps ? 'progress' : 'refused', `cut a step at ${cellOf(target)} but could not stand in it after ${1 + (r.stepRetries ?? 0)} tries (at ${cellOf(q)})`)
     }
     r.steps++
     // A ROUTE IS THE END, WET OR DRY (Claude design P2): both measured exits are a lake and a flooded cave.
