@@ -7586,6 +7586,9 @@ async function centreOn(bot, c, signal) {
     for (const until = Date.now() + 1_500; !centredOn(bot, c) && Date.now() < until;) await sleep(25, signal)
   } finally { try { bot.setControlState?.('forward', false) } catch { /* nothing held */ } }
 }
+/** Every OTHER body near the bot (entities but items and orbs), by identity -- never the bot's own. */
+const othersAround = bot => Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb'].includes(e.name) &&
+  e.position.distanceTo?.(bot.entity.position) < 8).map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 }))
 /** Every body near the bot that a placed block may not intersect: its own, and every entity's but items' and orbs'. */
 const bodiesAround = bot => [bot.entity, ...Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position &&
   !['item', 'experience_orb'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < 8)]
@@ -14682,11 +14685,23 @@ async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal
     // its stand -- and judged again; still over it: an ordinary, charged refusal (no free retry that could never succeed)
     const cellQ = { x: at[0], y: at[1], z: at[2] }
     const selfIn = () => { const e = bot.entity?.position; return !!e && bodyInCell({ x: e.x, y: e.y, z: e.z, w: bot.entity.width ?? 0.6, h: bot.entity.height ?? 1.8 }, cellQ) }
-    if (selfIn() && stand) { try { await centreOn(bot, { x: stand[0], y: stand[1], z: stand[2] }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    // the nudge judges the CELL's own test (Claude code r10 P2: centreOn's 0.3 tolerance stops while a 0.6-wide body still overlaps
+    // the next cell): step toward the stand's centre until the body is off the cell, let it settle, judge again -- twice at most
+    if (selfIn() && stand) {
+      const c = new Vec3(stand[0] + 0.5, bot.entity.position.y + 1.62, stand[2] + 0.5)
+      for (let i = 0; i < 2 && selfIn(); i++) {
+        try { await bot.lookAt?.(c, true) } catch { /* not fatal */ }
+        try {
+          bot.setControlState?.('forward', true)
+          for (const until = Date.now() + 1_200; selfIn() && Date.now() < until;) await sleep(25, signal)
+        } finally { try { bot.setControlState?.('forward', false) } catch { /* nothing held */ } }
+        await sleep(150, signal)
+      }
+    }
     if (selfIn()) return { status: 'no_effect', outcome: 'unready', detail: `the bot itself stands over the plan cell at ${at.join(',')}` }
     // ANOTHER BODY IN THE CELL is not the cell's fault: its own outcome and failClass, a FREE skip for the found slot (found.mjs
-    // foundRetry: at most FOUND_BODY_SKIPS_MAX per cell per visit)
-    if (bodiesAround(bot).slice(1).some(b => bodyInCell(b, cellQ))) return { status: 'no_effect', failClass: 'found_body', outcome: 'body', at, detail: `someone else is standing in the plan cell at ${at.join(',')}` }
+    // foundRetry: at most FOUND_BODY_SKIPS_MAX per cell per visit). Others by identity, never by position in a list.
+    if (othersAround(bot).some(b => bodyInCell(b, cellQ))) return { status: 'no_effect', failClass: 'found_body', outcome: 'body', at, detail: `someone else is standing in the plan cell at ${at.join(',')}` }
     let put
     try { put = await place(ctx, { item: KIND_ITEM[kind], x: at[0], y: at[1], z: at[2] }, signal, { by: 'found' }) } catch (e) {
       if (e?.aborted || signal?.aborted) throw e
