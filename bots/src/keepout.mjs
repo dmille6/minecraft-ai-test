@@ -206,6 +206,16 @@ export function exitDecision ({ sites, pos, home = null, skill = null, yielded =
   return { start: true, site, why: 'inside' }
 }
 
+/**
+ * HOMEFIX-02's RELOCATION TARGET IS NEVER IN A COLUMN (keepout-01 x homefix-02): any cell of the goto arrival region (goto
+ * grades arrival within 3 horizontally) at the target's feet height in a live fire column refuses the target. Pure.
+ */
+export function relocationForbidden (sites, x, y, z, reach = 3) {
+  if (!Array.isArray(sites) || !sites.length) return false
+  for (let dx = -reach; dx <= reach; dx++) for (let dz = -reach; dz <= reach; dz++) if (columnAt(sites, { x: x + dx, y, z: z + dz })) return true
+  return false
+}
+
 /** A refused (skill, block) suppressed for this bot -> the matching live entry | null. Pure. */
 export function cooldownHit (entries, { skill, block = null, pos, now = Date.now() } = {}) {
   if (!Array.isArray(entries) || !finite3(pos)) return null
