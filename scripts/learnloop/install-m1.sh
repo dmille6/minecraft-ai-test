@@ -37,8 +37,21 @@ run scp -q scripts/learnloop/train/replay_client.mjs scripts/learnloop/train/eva
     scripts/learnloop/train/test_eval.py "$B:learnloop/app/scripts/learnloop/train/"
 run scp -q bench/models/score.py "$B:learnloop/app/scripts/learnloop/train/bench/"
 # M2b: the reviewed drop16.sh is (re)staged as ~/drop16.sh with its sha256 printed, so the owner never runs an old copy
-run scp -q scripts/host/drop16.sh "$B:drop16.sh"
-run ssh "$B" 'sha256sum ~/drop16.sh'; echo "  branch file: $(shasum -a 256 scripts/host/drop16.sh | cut -c1-64)"
+# NEVER over a running copy (Claude r5 P2; CLAUDE.md "bash re-reads a running script by byte offset"): refuse while
+# a drop16 run holds the install-hold, and replace by RENAME (a new inode) rather than in place.
+if [ -z "$DRY" ]; then
+  # a mutating drop16 run always holds an install-hold named drop16:* (the canary lock is NOT checked: a canary loop
+  # holds it for days, and the rename below already protects any running copy)
+  busy=$(ssh "$B" 'o=$(python3 ~/gate-v36/holdtoken.py owner 2>/dev/null); case "$o" in drop16:*) echo "hold $o";; esac')
+  [ -z "$busy" ] || { echo "REFUSED: not re-staging ~/drop16.sh while it may be running ($busy)"; exit 2; }
+fi
+run scp -q scripts/host/drop16.sh "$B:drop16.sh.new"
+run ssh "$B" 'mv -f ~/drop16.sh.new ~/drop16.sh'
+if [ -z "$DRY" ]; then
+  WANT=$(shasum -a 256 scripts/host/drop16.sh | cut -c1-64); GOT=$(ssh "$B" 'sha256sum ~/drop16.sh' | cut -c1-64)
+  [ "$WANT" = "$GOT" ] || { echo "REFUSED: ~/drop16.sh on $B is $GOT, the branch file is $WANT"; exit 2; }
+  echo "  ~/drop16.sh sha256 $GOT = the branch file"
+fi
 # THE REMOTE TESTS GATE THE INSTALL: the exit status is the test's, not tail's (Claude r1 P2-5)
 run ssh "$B" "echo $SHA > ~/learnloop/app/scripts/learnloop/VERSION && cd ~/learnloop/app/scripts/learnloop && python3 -B test_learnloop.py > /tmp/ll-test.out 2>&1; rc=\$?; tail -1 /tmp/ll-test.out; grep -q ' 0 skipped' /tmp/ll-test.out || rc=9; exit \$rc" \
   || { echo "REFUSED: the tests failed (or skipped) on $B -- nothing else installed"; exit 2; }

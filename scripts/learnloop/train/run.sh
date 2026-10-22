@@ -29,7 +29,8 @@ gpu_guard() {
   case "$ps" in STOPPED|'{"models":[]}') ;; *) die "Ollama holds a model: $ps";; esac
   # ANY OTHER GPU PROCESS (Claude r4 P3): on 10-22 a llama-server that is not ours (~/ethan-gpu, 6 GB) was resident.
   # A VRAM figure measured beside it must say so: refuse unless the owner's decision is named in ALLOW_OTHER_GPU.
-  local other; other=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null)
+  local other; other=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>&1) \
+    || die "nvidia-smi failed ($other) -- an unreadable GPU is not an empty one (Claude r5 P3)"
   if [ -n "$other" ]; then
     echo "  other GPU processes: $other"
     [ -n "${ALLOW_OTHER_GPU:-}" ] || die "another process holds GPU memory (above): stop it, or set ALLOW_OTHER_GPU=<owner decision> to train beside it"
@@ -53,13 +54,14 @@ case "${1:-}" in
     sleep 3; systemctl is-active ollama; nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader
     ;;
   fit)
-    gpu_guard
-    $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/fit-01" --fit-test-only --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee "$T/runs-fit-01.log"
+    # the guard's findings (other GPU processes, ALLOW_OTHER_GPU) go into the SAME run log (Codex r5 P3)
+    gpu_guard 2>&1 | tee "$T/runs-fit-01.log"; [ "${PIPESTATUS[0]}" = 0 ] || exit 2
+    $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/fit-01" --fit-test-only --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-fit-01.log"
     ;;
   train)
-    gpu_guard
+    gpu_guard 2>&1 | tee "$T/runs-$RUN.log"; [ "${PIPESTATUS[0]}" = 0 ] || exit 2
     [ -f "$T/runs/fit-01/metrics.json" ] || die "run the fit test first"
-    nice -n 5 $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/$RUN" --max-steps 200 --grad-accum 10 --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee "$T/runs-$RUN.log"
+    nice -n 5 $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/$RUN" --max-steps 200 --grad-accum 10 --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-$RUN.log"
     ;;
   export)
     M=$T/runs/$RUN/merged-16bit

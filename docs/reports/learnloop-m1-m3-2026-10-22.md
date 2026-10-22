@@ -222,6 +222,9 @@ sandbox measured 29-59%), and 13,390 of those prompts carry the rejection.
   `50 1 * * * cd /home/mike/learnloop/app/scripts/learnloop && PATH=/usr/bin:/bin /usr/bin/nice -n 19 /usr/bin/ionice -c3 /usr/bin/python3 -B nightly.py --tick >> /home/mike/learnloop/cron.log 2>&1`;
   state in `~/learnloop/{state.json,heartbeat.json,nightly.log}`, local days in `~/learnloop/days/`, held raw in
   `~/learnloop/rawhold/` (1.2 GB), relay key `~/.ssh/id_learnloop_relay`. Installer: `scripts/learnloop/install-m1.sh`.
+- **M2b script:** `~/drop16.sh` on 10.0.0.31, sha256 `b911c6edd812e67ce841f5d228f8d8dd7dd1fdb048d745bde1a7394288c28f0d`
+  (= `scripts/host/drop16.sh` at this branch's head; the installer stages it by rename, refuses while a drop16 run may
+  be live, and fails unless the two hashes match).
 - **10.0.0.30:** `~/bin/learnloop-relay.sh` and one `restrict,from="10.0.0.31",command=...` line in
   `~/.ssh/authorized_keys` (backup `authorized_keys.bak-learnloop-20261022`).
 - **NAS:** `/volume1/homes/mike/learnloop/daily/2026-10-08 .. 2026-10-21/`; `.last-good` = 2026-10-21.
