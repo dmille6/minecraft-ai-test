@@ -218,6 +218,12 @@ await t('THE CHAIN, intent kept (Claude/Codex code r2 P2): a free cell meant for
   await runSkill(w.bot, 'found_store', { at: woodCell.at, role: 'home', group: 'wood', step: 'F3' })
   const after = storeCells(w.bot)[1]
   assert.equal(after.state, 'free'); assert.equal(after.role, 'home'); assert.equal(after.group, 'wood')
+  // ...and a release DROPS the intent its own reservation set: `iron` on a no-intent cell occupied on arrival -> released, no intent
+  const free = storeCells(w.bot).find(c => c.state === 'free' && (c.role ?? null) === null)
+  w.set(...free.at, 'cobblestone')
+  await runSkill(w.bot, 'found_store', { at: free.at, role: 'home', group: 'iron', step: 'F3' })
+  const freed = storeCells(w.bot).find(c => c.at.join() === free.at.join())
+  assert.equal(freed.state, 'free'); assert.equal(freed.role ?? null, null); assert.equal(freed.group ?? null, null); assert.equal(freed.intentSet, undefined)
 })
 await t('F8 (craft first, Codex spec r1 P1): the craft fails -> nothing was reserved, the cell is untouched', async () => {
   const w = town([stack('crafting_table', 1), stack('oak_log', 16), stack('cobblestone', 20)])
