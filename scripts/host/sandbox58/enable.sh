@@ -43,7 +43,7 @@ listening() { ss -ltnH "sport = :$1" | grep -q .; }
 active() { systemctl is-active --quiet "$(unit "$1")"; }
 gib() { awk -v k="$1" 'BEGIN { printf "%.1f GiB", k / 1048576 }'; }
 rcon_list() {   # prints the reply to `list`, or nothing; the password never leaves this host and is never printed
-  python3 - "/srv/block2/$1/server.properties" <<'PY' 2>/dev/null
+  timeout 20 python3 - "/srv/block2/$1/server.properties" <<'PY' 2>/dev/null   # hard bound per probe (Codex r2 P3)
 import socket, struct, sys
 p = dict(l.rstrip('\n').split('=', 1) for l in open(sys.argv[1]) if '=' in l and not l.startswith('#'))
 s = socket.create_connection(('127.0.0.1', int(p['rcon.port'])), timeout=10)
@@ -130,7 +130,7 @@ fi
 # ---------------------------------------------------------------- result
 echo; printf '%-9s %-8s %-9s %-6s %-6s %-9s %s\n' server active enabled game rcon rss list
 for s in "${NAMES[@]}"; do
-  pid=$(systemctl show "$(unit "$s")" -p MainPID --value); rss=$( [ "$pid" -gt 0 ] && ps -o rss= -p "$pid" | awk '{printf "%.1fG", $1/1048576}' || echo -)
+  pid=$(systemctl show "$(unit "$s")" -p MainPID --value); rss=$( [ "${pid:-0}" -gt 0 ] 2>/dev/null && ps -o rss= -p "$pid" | awk '{printf "%.1fG", $1/1048576}' || echo -)
   printf '%-9s %-8s %-9s %-6s %-6s %-9s %s\n' "$s" "$(systemctl is-active "$(unit "$s")")" "$(systemctl is-enabled "$(unit "$s")" 2>/dev/null)" \
     "$(game_port "$s")" "$(rcon_port "$s")" "$rss" "$(rcon_list "$s" | head -c 60)"
 done

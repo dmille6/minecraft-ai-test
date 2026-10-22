@@ -11,7 +11,7 @@
 4. Waits, checking every 5 min that the bots are alive.
 5. Stops the bots, runs cl_metrics.py over the run window, and appends the result to results/runs.jsonl.
 """
-import argparse, json, os, shlex, subprocess, sys, time
+import argparse, json, os, secrets, shlex, subprocess, sys, time
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -53,9 +53,10 @@ class sandbox_lock:
     def __init__(self, who, server, wait_s=900, run=None, poll_s=15):
         self.who, self.server, self.wait_s, self.poll_s = who, server, wait_s, poll_s
         self.run = run or _sbxlock_ssh
-        # One tag per process ("mbench-<pid>"): a clean-up release can then only ever remove THIS run's lock, never a
-        # concurrent mbench run's on the same server (release matches the tag exactly).
-        self.TAG = 'mbench-%d' % os.getpid()
+        # One RANDOM tag per acquisition ("mbench-<8 hex>"; Codex r2: a pid repeats across machines and over time): a
+        # clean-up release can then only ever remove THIS acquisition's lock, never another mbench run's (release
+        # matches the tag exactly).
+        self.TAG = 'mbench-' + secrets.token_hex(4)
 
     def __enter__(self):
         t = time.time()
@@ -68,8 +69,16 @@ class sandbox_lock:
             else:
                 # Claude r1 P2: an ambiguous answer (exit 0 without TAKEN, an ssh error or timeout) may mean the take
                 # DID happen remotely. Release our own tag before giving up, so a failed run never leaks the lock.
-                self.run(['release', self.server, self.TAG])
-                raise SystemExit('sandbox lock: %s' % out[-300:])          # usage/unknown server/ssh failure: never wait on it
+                rrc, rout = self.run(['release', self.server, self.TAG])
+                # Claude r2 P3: after a TIMEOUT the remote take may still be running, so NOT HELD can be premature:
+                # retry briefly before believing it.
+                for _ in range(3):
+                    if not (rc == 124 and rout.startswith('NOT HELD')):
+                        break
+                    time.sleep(self.poll_s and 5)
+                    rrc, rout = self.run(['release', self.server, self.TAG])
+                cleanup = 'released' if rrc == 0 else (('NOT HELD after a timeout -- the take may still land: check `sandbox/sbxlock.sh status` for owner %s' % self.TAG) if rc == 124 and rout.startswith('NOT HELD') else 'not held' if rout.startswith('NOT HELD') else 'CLEAN-UP FAILED (%s): check `sandbox/sbxlock.sh status` for owner %s' % (rout[-200:], self.TAG))
+                raise SystemExit('sandbox lock: %s [clean-up of %s: %s]' % (out[-300:], self.TAG, cleanup))          # usage/unknown server/ssh failure: never wait on it
             if time.time() - t > self.wait_s:
                 raise SystemExit('sandbox lock for %s not free after %ds: %s' % (self.server, self.wait_s, out[-300:]))
             time.sleep(self.poll_s)

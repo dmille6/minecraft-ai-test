@@ -871,7 +871,7 @@ scenes.stockrace = async () => {
 }
 
 async function main () {
-  const owner = process.env.LOCK_OWNER || 'stocktarget'
+  const owner = process.env.LOCK_OWNER || 'stocktarget'   // OPERATOR OVERRIDE: the lock tag this run accepts (e.g. LOCK_OWNER=cobblekeep)
   sbx.requireSandboxLock(SERVER, owner)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   W = await import(path.join(BOT_ROOT, 'bots/src/well.mjs'))
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)

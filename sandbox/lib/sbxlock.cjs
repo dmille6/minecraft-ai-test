@@ -6,7 +6,7 @@
 //   /tmp/mcai-sandbox.lock.<name>     a PER-SERVER lock (new): its holder has that one sandbox, e.g. .sandbox6.
 //
 // THE RULE A DRIVER ENFORCES (lockVerdict): a run on server S is allowed only when EVERY lock that covers S -- the
-// global one and S's own -- is either absent or has this driver's tag as its owner's FIRST WORD (or tag-<label>),
+// global one and S's own -- is either absent or has EXACTLY this driver's tag as its owner's FIRST WORD,
 // and at least one of them is held. So a
 // global holder whose driver targets a server someone else holds per-server is refused, and so is the per-server
 // holder if a different owner holds the global lock. Two owners can never both pass for the same server.
@@ -55,12 +55,13 @@ function parseProbe (out, name) {
   return { global: read(lines[0], ''), server: read(lines[1], '.' + name) }
 }
 
-/** Does the owner text name `tag`? Only its FIRST WORD counts: equal to the tag, or the tag plus a `-suffix` (a run
- *  label: owner `plinth-02 agent-x` is a `plinth` holder). Codex r1 P1: the drivers used to regex the WHOLE owner
- *  text, so owner `plinth021 …` admitted the `/plinth/` driver and a note mentioning another tag admitted that one. */
+/** Does the owner text name `tag`? Only its FIRST WORD counts, and it must EQUAL one of the accepted tags. Codex r1
+ *  P1: the drivers used to regex the WHOLE owner text, so owner `plinth021 …` admitted the `/plinth/` driver and a note
+ *  mentioning another tag admitted that one. Codex r2: a `tag-<label>` prefix rule would still let two distinct owners
+ *  (`airpocket` and `airpocket-02`) both pass one driver, so there is no prefix rule: put run labels AFTER the tag. */
 function ownerNames (owner, tag) {
   const first = String(owner).trim().split(/\s+/)[0]
-  return [].concat(tag).some(t => first === t || first.startsWith(t + '-'))
+  return [].concat(tag).some(t => first === t)
 }
 
 /** The decision. `locks` = { global, server }: null when free, else the owner text ('' when no owner file).

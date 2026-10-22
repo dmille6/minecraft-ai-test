@@ -184,12 +184,15 @@ t('lockVerdict: every lock covering the server must name us, and at least one mu
   assert.equal(sbx.lockVerdict({ global: null, server: 'treefarm x' }, 'treefarm').ok, true, 'string tag = first word')
   assert.equal(sbx.lockVerdict({ global: null, server: 'treefarmer x' }, 'treefarm').ok, false, 'string tag is exact')
 })
-t('Codex r1 P1: only the owner\'s FIRST WORD names a holder (tag, or tag-<label>), never a substring or a note', () => {
+t('Codex r1 P1 + r2: only the owner\'s FIRST WORD names a holder, and it must EQUAL an accepted tag (no substring, no prefix, no note)', () => {
   const V = (owner, tag) => sbx.lockVerdict({ global: null, server: owner }, tag).ok
   assert.equal(V('plinth021 agent-x', 'plinth'), false, 'plinth021 does not admit the plinth driver (the old /plinth/ did)')
   assert.equal(V('plinthfirst agent-x', 'plinth'), false)
   assert.equal(V('kitshrink agent-x waiting for plinth to finish', 'plinth'), false, 'a note naming another tag admits nothing')
-  assert.equal(V('plinth-02 agent-x', 'plinth'), true, 'a run label after a dash is still that holder')
+  assert.equal(V('plinth-02 agent-x', 'plinth'), false, 'Codex r2: no prefix rule -- `airpocket` and `airpocket-02` are different owners')
+  assert.equal(sbx.lockVerdict({ global: 'airpocket agent-a', server: 'airpocket-02 agent-b' }, 'airpocket').ok, false,
+    'two distinct owners can never both pass one driver')
+  assert.equal(V('plinth plinth-02 agent-x', 'plinth'), true, 'a run label goes after the tag')
   assert.equal(V('airpocket-02 agent', ['freeze', 'airpocket-02']), true, 'a list of accepted tags')
   assert.equal(V('airpocket-03 agent', ['freeze', 'airpocket-02']), false)
   assert.equal(V('  townground  agent', 'townground'), true, 'leading space tolerated')
@@ -343,6 +346,45 @@ try {
     }
     console.log(`        (beta took the lock in ${bTook} of 25 rounds)`)
   })
+  t('Claude r2 P3: a take whose owner write fails backs out and leaves NO ownerless dir', () => {
+    const r = spawnSync('bash', ['-c', 'umask 0222; exec bash "$0" take sandbox5 plinth', SBXLOCK], { env: lockenv(ROOT), encoding: 'utf8' })
+    assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /FAILED: could not write .*owner; nothing is held/)
+    assert.deepEqual(readdirSync(ROOT), [], 'no ownerless dir and no mutex left behind')
+  })
+  // Claude r2: a DETERMINISTIC release race. Release #1 pauses between its tag check and its rmdir (test hook); release
+  // #2 and beta's take run inside that pause. With the mutex they wait and beta's lock survives; with the mutex removed
+  // from release (the mutant) release #1 wakes and deletes beta's lock -- the round-1 P1, reproduced on demand.
+  const pausedRace = (script) => new Promise((resolve, reject) => {
+    assert.equal(lock(['take', 'sandbox6', 'alpha']).rc, 0)
+    const env = { ...lockenv(ROOT), SBXLOCK_TEST_PAUSE: '1.5' }
+    const a1 = spawn('bash', [script, 'release', 'sandbox6', 'alpha'], { env })
+    setTimeout(() => {
+      try {
+        const a2 = lock(['release', 'sandbox6', 'alpha'], ROOT, script)
+        const b = lock(['take', 'sandbox6', 'beta'])
+        a1.on('close', () => {
+          const owner = existsSync(path.join(G + '.sandbox6', 'owner')) ? readFileSync(path.join(G + '.sandbox6', 'owner'), 'utf8').split(' ')[0] : null
+          lock(['release', 'sandbox6', 'beta']); rmSync(G + '.sandbox6', { recursive: true, force: true })
+          resolve({ a2, b, owner })
+        })
+      } catch (e) { reject(e) }
+    }, 300)
+  })
+  await ta('RACE, deterministic: with the mutex, a paused release cannot delete the next holder\'s lock', async () => {
+    const { b, owner } = await pausedRace(SBXLOCK)
+    assert.equal(b.rc, 0, b.out); assert.equal(owner, 'beta', 'beta still holds sandbox6')
+  })
+  await ta('MUTANT KILLED: the same paused race with the mutex removed from release deletes beta\'s lock', async () => {
+    const src = readFileSync(SBXLOCK, 'utf8')
+    const old = 'T="$(target_of "$S")"; mutex\n    [[ -d "$T" ]] || { echo "NOT HELD $T"; exit 1; }'
+    assert.ok(src.split(old).length === 2, 'ANCHOR MISSING or not unique')
+    const mut = path.join(ROOT, '..', `sbxlock-mutant3-${process.pid}.sh`)
+    writeFileSync(mut, src.replace(old, old.replace('; mutex', ''))); chmodSync(mut, 0o755)
+    try {
+      const { b, owner } = await pausedRace(mut)
+      assert.equal(b.rc, 0, 'beta took the lock'); assert.equal(owner, null, 'and the paused release then deleted it')
+    } finally { rmSync(mut, { force: true }) }
+  })
   t('MUTANT KILLED: sbxlock.sh without the global take\'s per-server check lets `take all` through', () => {
     const src = readFileSync(SBXLOCK, 'utf8')
     const old = 'for n in $NAMES; do [[ -d "$G.$n" ]] && conflict+="$G.$n: $(owner_of "$G.$n"); "; done'
@@ -395,7 +437,7 @@ def run(args):
     r = subprocess.run(['bash', sh] + args, env=dict(os.environ, SBXLOCK_LOCAL='1', LOCK_ROOT=root), capture_output=True, text=True)
     return r.returncode, (r.stdout + r.stderr).strip()
 with cl_run.sandbox_lock('model-selection agent: reset', 'sandbox4', run=run):
-    print('inside', open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner')).read().split()[0] == 'mbench-%d' % os.getpid())
+    import re; print('inside', bool(re.fullmatch(r'mbench-[0-9a-f]{8}', open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner')).read().split()[0])))
 print('after', sorted(os.listdir(root)))
 os.mkdir(os.path.join(root, 'mcai-sandbox.lock')); open(os.path.join(root, 'mcai-sandbox.lock', 'owner'), 'w').write('other x\\n')
 try:
@@ -409,7 +451,7 @@ def flaky(args):
     return (255, 'Connection reset by peer') if args[0] == 'take' else (rc, out)
 try:
     with cl_run.sandbox_lock('m', 'sandbox4', run=flaky): print('WRONGLY ENTERED')
-except SystemExit as e: print('ambiguous:', 'Connection reset' in str(e))
+except SystemExit as e: print('ambiguous:', 'Connection reset' in str(e) and 'released]' in str(e))
 print('leaked', sorted(os.listdir(root)))
 # and its clean-up release can never remove ANOTHER mbench run's lock (one tag per process)
 os.mkdir(os.path.join(root, 'mcai-sandbox.lock.sandbox4')); open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner'), 'w').write('mbench-1 other run\\n')
@@ -417,9 +459,21 @@ try:
     with cl_run.sandbox_lock('m', 'sandbox4', run=lambda a: (255, 'boom') if a[0] == 'take' else run(a)): pass
 except SystemExit: pass
 print('other run kept', open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner')).read().split()[0])
+shutil.rmtree(os.path.join(root, 'mcai-sandbox.lock.sandbox4'))
+# Claude r2 P3: after a TIMEOUT the remote take may land late; NOT HELD is retried, and a late landing is then released
+state = {'n': 0}
+def late(args):
+    if args[0] == 'take': return 124, 'ssh to the lock host timed out'
+    state['n'] += 1
+    if state['n'] == 2: run(['take'] + args[1:] + ['late'])       # the slow remote take lands between release attempts
+    return run(args)
+try:
+    with cl_run.sandbox_lock('m', 'sandbox4', poll_s=0, run=late): pass
+except SystemExit as e: print('late take:', 'released]' in str(e), state['n'])
+print('late leaked', sorted(os.listdir(root)))
 `
     const r = spawnSync('python3', ['-c', py, path.join(REPO, 'bench/models/closedloop'), ROOT, SBXLOCK], { encoding: 'utf8' })
-    assert.equal(r.stdout.trim(), "inside True\nafter []\nwaited out: True\nleft ['mcai-sandbox.lock']\nambiguous: True\nleaked []\nother run kept mbench-1", r.stderr)
+    assert.equal(r.stdout.trim(), "inside True\nafter []\nwaited out: True\nleft ['mcai-sandbox.lock']\nambiguous: True\nleaked []\nother run kept mbench-1\nlate take: True 2\nlate leaked []", r.stderr)
     rmSync(G, { recursive: true, force: true }); rmSync(G + '.sandbox4', { recursive: true, force: true })
   })
 } finally { rmSync(ROOT, { recursive: true, force: true }) }

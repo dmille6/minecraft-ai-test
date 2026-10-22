@@ -46,7 +46,11 @@ case "$CMD" in
     [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "bad tag '$TAG' (letters, digits, . _ -)"; exit 2; }
     T="$(target_of "$S")"; mutex
     if ! mkdir "$T" 2>/dev/null; then echo "HELD $T: $(owner_of "$T")"; exit 1; fi
-    printf '%s %s since %s (%s)\n' "$TAG" "${NOTE:-}" "$(date -u +%FT%TZ)" "$S" > "$T/owner"
+    # Claude r2 P3: a failed owner write must not leave an ownerless dir (read as held by everyone, owned by no one).
+    if ! printf '%s %s since %s (%s)\n' "$TAG" "${NOTE:-}" "$(date -u +%FT%TZ)" "$S" > "$T/owner"; then
+      rm -f "$T/owner"; rmdir "$T" || echo "STUCK: $T has no owner file and could not be removed; remove it by hand"
+      echo "FAILED: could not write $T/owner; nothing is held"; exit 1
+    fi
     conflict=""
     if [[ "$S" == all ]]; then
       for n in $NAMES; do [[ -d "$G.$n" ]] && conflict+="$G.$n: $(owner_of "$G.$n"); "; done
@@ -54,7 +58,8 @@ case "$CMD" in
       [[ -d "$G" ]] && conflict="$G: $(owner_of "$G")"
     fi
     if [[ -n "$conflict" ]]; then
-      rm -f "$T/owner"; rmdir "$T" || echo "STUCK: could not back out of $T; remove it by hand"
+      # A STUCK back-out leaves $T WITHOUT an owner file: every driver and take then reads it as held. Remove it by hand.
+      rm -f "$T/owner"; rmdir "$T" || echo "STUCK: could not back out of $T (it now has NO owner file and blocks everyone); remove it by hand"
       echo "REFUSED (backed out of $T): held by $conflict"; exit 1
     fi
     echo "TAKEN $T: $(owner_of "$T")" ;;
@@ -62,6 +67,7 @@ case "$CMD" in
     S="${1:?server|all}"; TAG="${2:?tag}"; T="$(target_of "$S")"; mutex
     [[ -d "$T" ]] || { echo "NOT HELD $T"; exit 1; }
     first="$(owner_of "$T" | awk '{print $1}')"
+    [[ -z "${SBXLOCK_TEST_PAUSE:-}" ]] || sleep "$SBXLOCK_TEST_PAUSE"   # test hook only: widens the check->rmdir window
     [[ "$first" == "$TAG" ]] || { echo "REFUSED: $T is held by $(owner_of "$T")"; exit 1; }
     # Claude r1 P2: check for anything besides `owner` BEFORE touching it. Removing the owner and then failing the
     # rmdir would leave an ownerless dir, which every driver and every take reads as held: all sandboxes wedged.
