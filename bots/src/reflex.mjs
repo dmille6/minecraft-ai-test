@@ -50,7 +50,8 @@ import pathfinderPkg from 'mineflayer-pathfinder'
 import { digScoped } from './digtown.mjs'
 // poolescape-01: the walled-water-pit rung (poolescape.mjs plans one step; poolEscape below executes it)
 import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark, poolForbid, poolToolOk, poolBackoffMs,
-         poolSpotKey, poolRowDetail, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS } from './poolescape.mjs'
+         poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS } from './poolescape.mjs'
+import { MAX_DIG_MS } from './digbudget.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1515,14 +1516,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     logEvent({ kind: 'poolescape_start', status: 'success', snapshot: snapshot(bot),
                detail: `id=${id} hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- wading, no route: cutting a stair out of the pool` })
     poolEscaping = true
+    // THE RUNNER IS RESERVED FOR THE FIRING (Claude code r1 P2-3): a reserved runner is busy, so the cognitive tick
+    // dispatches nothing into it (it would every 20 s with the model on); renewed before every action (<= 20 s each).
+    // A skill that is running anyway is an owner the rung does not override: it stops.
+    let resv = null
+    const renew = () => { try { if (typeof runner?.reserve === 'function') resv = runner.reserve('poolescape', 20_000, 'poolescape') } catch {} }
     let res
     try {
-      // a skill the planner dispatched mid-firing (runner busy) is an owner too: the rung stops (Claude design P2)
-      res = await poolEscape(bot, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.isBusy?.(),
-                                    yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), tries })
+      renew()
+      res = await poolEscape(bot, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+                                    yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), tries, renew })
     } catch (e) {
       res = { outcome: 'refused', steps: 0, reason: `threw: ${e.message}`, at: `${o.x},${o.y},${o.z}`, tries }
-    } finally { poolEscaping = false }
+    } finally {
+      poolEscaping = false
+      try { if (resv) runner.releaseReservation(resv.gen) } catch {}
+    }
     if (res.outcome === 'out') poolSpots.delete(key)
     else if (res.outcome !== 'yielded') {
       poolSpots.set(key, { failures: tries, until: Date.now() + poolBackoffMs(tries) })
@@ -2762,7 +2771,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               // POOLESCAPE-01, THE SECOND HOOK: a wading bot with no placeable cannot pillar or ramp out either. The tread is
               // then never placed (holdsBlock false), so only walls with a solid tread qualify. This branch held no
               // grant, so it takes one -- `marooned` blocks a second firing from the next tick -- and gives it back.
-              if (poolEscapeOn() && !marooned) {
+              const wadeAt = bot.entity.position.floored()
+              if (poolEscapeOn() && !marooned && wading({ at: (dx, dy, dz) => bot.blockAt(wadeAt.offset(dx, dy, dz)) })) {
                 marooned = true
                 const g = await takeBody(bot, runner, 'marooned', PRIORITY.escape)
                 try {
@@ -4864,16 +4874,24 @@ export async function escapeStairUp (bot, {
  * @returns the `_poolescape` row's fields (poolRowDetail): outcome out | progress | refused | yielded
  */
 export async function poolEscape (bot, { alive = () => true, yieldTo = () => null, maxSteps = POOL_MAX_STEPS,
-                                         budgetMs = POOL_BUDGET_MS, tries = 0 } = {}) {
+                                         budgetMs = POOL_BUDGET_MS, tries = 0, renew = () => {} } = {}) {
   const t0 = Date.now()
   const start = bot.entity.position.clone()
   const cellOf = p => `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`
   const r = { outcome: null, steps: 0, rose: 0, dug: 0, placed: 0, swam: 0, hands: [], marks: {}, lavaRefused: 0, wet: 0,
               dry: false, route: false, reason: '', at: cellOf(start), tries }
-  let yielded = null
+  // TWO KINDS OF STOP (Claude code r1 P1-1). An OWNER that steers (the drowning rescue, via yieldTo) keeps the controls it
+  // has set: they are left alone. Anything else -- the arbiter, an air-pocket request, a skill that started, the head
+  // going under water -- has NOT taken the controls, so the forward/jump this rung set are released, never left held.
+  let yielded = null, steering = false
+  const headWet = () => isWaterCell(bot.blockAt(bot.entity.position.offset(0, 1.62, 0)))
   const gone = () => {
     if (yielded) return yielded
-    yielded = yieldTo() || (alive() ? null : 'the arbiter or an air-pocket request')
+    const owner = yieldTo()
+    if (owner) { yielded = owner; steering = true; return yielded }
+    if (!alive()) yielded = 'the arbiter, an air-pocket request or a skill'
+    else if (headWet()) yielded = 'the air reflex (the head went under water)'
+    if (yielded) { try { bot.setControlState('forward', false); bot.setControlState('jump', false) } catch {} }
     return yielded
   }
   const done = (outcome, reason) => {
@@ -4890,9 +4908,10 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
     const env = digEnv(bot)
     const plan = escapeDigPlan({
       bareHardnessMs: predictedDigMs(b, null), bareActualMs: predictedDigMs(b, null, env),
-      // NO TOOL IS NOT AN UNKNOWN TOOL: planDig reads null as "try it", so a missing tool is priced as impossible
-      toolHardnessMs: tool ? predictedDigMs(b, tool) : Number.POSITIVE_INFINITY,
-      toolActualMs: tool ? predictedDigMs(b, tool, env) : Number.POSITIVE_INFINITY,
+      // NO TOOL IS NOT AN UNKNOWN TOOL (Claude code r1 P2-1): planDig reads null AND Infinity as "unknown, try it", so a
+      // missing tool is priced just past the cap -- refused -- and only the hand's own numbers can admit the dig
+      toolHardnessMs: tool ? predictedDigMs(b, tool) : MAX_DIG_MS + 1,
+      toolActualMs: tool ? predictedDigMs(b, tool, env) : MAX_DIG_MS + 1,
     })
     return { ...plan, tool: plan.hand === 'tool' ? tool : null }
   }
@@ -4903,7 +4922,7 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
     const at = (dx, dy, dz) => bot.blockAt(o.offset(dx, dy, dz))
     return {
       at, bearings: escapeBearings(bot.entity.yaw), canClear,
-      blocks: inv().filter(it => PLACEABLE.test(it.name) && scaffoldRank(it.name) != null).reduce((a, it) => a + it.count, 0),
+      blocks: poolBlockCount(inv().filter(it => scaffoldRank(it.name) != null), PLACEABLE),
       forbid: (dx, dy, dz) => poolForbid({ cell: o.offset(dx, dy, dz), feet: o, fireSites: k.fire }),
       mark: (dx, dy, dz) => keepoutMark({ cell: o.offset(dx, dy, dz), feet: o, zones: k.zones, home: k.home, name: at(dx, dy, dz)?.name }),
     }
@@ -4921,7 +4940,7 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
         const q = bot.entity.position
         if (Math.floor(q.x) === target.x && Math.floor(q.z) === target.z && Math.floor(q.y + 0.2) >= target.y) break
       }
-    } finally { if (!gone()) { bot.setControlState('forward', false); bot.setControlState('jump', false) } }
+    } finally { if (!gone() || !steering) { bot.setControlState('forward', false); bot.setControlState('jump', false) } }
     await sleep(400)   // land before measuring
     return !gone()
   }
@@ -4972,7 +4991,7 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
               const p = bot.entity.position
               if (Math.floor(p.x) === tgt.x && Math.floor(p.z) === tgt.z) break
             }
-          } finally { if (!gone()) bot.setControlState('forward', false) }
+          } finally { if (!gone() || !steering) bot.setControlState('forward', false) }
           const p = bot.entity.position
           if (Math.floor(p.x) !== tgt.x || Math.floor(p.z) !== tgt.z) return done(r.steps ? 'progress' : 'refused', 'could not swim to the wall')
         }
@@ -4997,20 +5016,25 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
     }
     // PLACE (the tread, the plugs, the fill), THEN DIG (top down) -- every action planned again, live, right before it
     // happens, so the lava and breathing checks run on every place and every swing. Water that finds a way into the
-    // cut after a dig shows up in the next plan as a fill or a plug: up to three rounds of that, then the step is given up.
+    // cut after a dig shows up in the next plan as a fill or a plug: at most 12 actions in all, then the step is given up.
     let acted = 0
     for (let round = 0; ; round++) {
       if (round >= 12) return done(r.steps ? 'progress' : 'refused', 'the step kept changing under the cut')
+      renew()
       const c = recheck()
       if (!c.ok) return done(r.steps ? 'progress' : 'refused', `before ${acted ? 'the next action' : 'the first action'}: ${c.reason}`)
       if (!c.place.length && !c.dig.length) break
       acted++
       if (c.place.length) {
         const q = c.place[0]
-        const item = pickScaffold(inv(), PLACEABLE)
+        const item = poolBlockOf(inv(), PLACEABLE, pickScaffold)
         if (!item) return done(r.steps ? 'progress' : 'refused', `no block for the ${q.why}`)
         await bot.equip(item, 'hand').catch(() => {})
         if (gone()) return done('yielded', '')
+        // AND AGAIN AFTER THE EQUIP (Codex code r1 P2): the same placement must still be the plan's next one
+        const atPlace = recheck()
+        if (!atPlace.ok) return done(r.steps ? 'progress' : 'refused', `at the place: ${atPlace.reason}`)
+        if (!atPlace.place.length || atPlace.place[0].cell.join(',') !== q.cell.join(',') || atPlace.place[0].ref.join(',') !== q.ref.join(',')) continue
         const ref = bot.blockAt(feet.offset(...q.ref))
         try { await bot.placeBlock(ref, new Vec3(...q.face)) } catch { /* verified below */ }
         if (gone()) return done('yielded', '')

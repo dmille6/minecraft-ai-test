@@ -15,7 +15,7 @@
 #                      lava_refused= at= -- the change row
 #
 # THE INSTRUMENT IS POSITION, NOT THE REFLEX'S OWN ROWS (Codex + Claude design P1/P2). A TRAPPED 10-minute bucket of a bot:
-#   >= 3 rows carrying bot.pos, every one within TRAP_R (2.5) blocks of the bucket's first, AND >= 1 `_water_float` or
+#   >= 3 rows carrying bot.pos whose spread on every axis is <= TRAP_SPREAD (3.0) blocks, AND >= 1 `_water_float` or
 #   `_marooned` row (afloat / marooned with an open column: the rung's population). A SPELL is >= 3 consecutive trapped
 #   buckets. `_path_no_legal_move sealed_in_liquid` alone is NOT a marker: measured 10-22 it also pins ENTOMBED bots in
 #   flooded rock (placebo-c-Bravo, placebo-d-Delta, isolated-c-Alpha, isolated-d-Bravo: `_entombed`, head blocked), a
@@ -47,7 +47,9 @@ sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
-BUCKET_S, TRAP_R, MIN_SAMPLES, SPELL_BUCKETS = 600, 2.5, 3, 3
+BUCKET_S, TRAP_SPREAD, MIN_SAMPLES, SPELL_BUCKETS = 600, 3.0, 3, 3
+COVERAGE = 0.75          # a canary bot trapped pre must have positions in >= 75% of its post buckets, or G1 cannot pass
+DEATH_END_S = 600        # a spell that ends within 10 min of the bot's death did not end in an escape
 WINDOW_PAD_S, NO_END_S = 120, 90
 EXPOSURE_BH = 0.5
 FALL_RATIO = 0.5          # G1: canary spell bot-h post must be at most HALF of pre (a dry run on the base read 7.50 -> 7.33)
@@ -80,14 +82,19 @@ def buckets(rows):
         out[bot] = {}
         for k, b in ks.items():
             ps = b['pos']
-            pinned = len(ps) >= MIN_SAMPLES and all(max(abs(p[i] - ps[0][i]) for i in range(3)) <= TRAP_R for p in ps)
+            # ORDER-INDEPENDENT (Codex code r1 P2): the spread of the bucket's positions on every axis, not distances from
+            # whichever row the file happened to list first
+            pinned = len(ps) >= MIN_SAMPLES and all(max(p[i] for p in ps) - min(p[i] for p in ps) <= TRAP_SPREAD for i in range(3))
             out[bot][k] = bool(pinned and b['mark'])
     return out
 
 
-def spells(trapped, lo, hi):
+def spells(trapped, lo, hi, deaths=None):
     """Bot-hours of spells (>= SPELL_BUCKETS consecutive trapped buckets) per bot, restricted to buckets in [lo, hi) (epoch s).
-    A spell is found on the whole bucket map, so one that started before `lo` still counts its minutes inside. Pure."""
+    A spell is found on the whole bucket map, so one that started before `lo` still counts its minutes inside.
+    A SPELL THAT ENDS IN A DEATH IS NOT AN ESCAPE (Claude code r1 P2-4): a respawn moves bot.pos, so a spell whose last
+    bucket ends within DEATH_END_S of one of the bot's `_death` times (deaths: {bot: [t]}) is counted to `hi`. Pure."""
+    deaths = deaths or {}
     res = {}
     for bot, ks in trapped.items():
         tks = sorted(k for k, v in ks.items() if v)
@@ -102,6 +109,9 @@ def spells(trapped, lo, hi):
         h = 0.0
         for run in runs:
             if len(run) >= SPELL_BUCKETS:
+                end = (run[-1] + 1) * BUCKET_S
+                if any(end - BUCKET_S - DEATH_END_S <= t <= end + DEATH_END_S for t in deaths.get(bot, [])):
+                    run = list(range(run[0], max(run[-1], int(hi // BUCKET_S)) + 1))
                 h += sum(1 for k in run if lo <= k * BUCKET_S < hi) * BUCKET_S / 3600
         res[bot] = h
     return res
@@ -131,8 +141,12 @@ def judge(rows, *, cut, W, cans, population):
     res = {}
     trapped = buckets(rows)
     lo_pre, cut_s, hi = cut - W * 60, cut, cut + W * 60
-    pre = spells(trapped, lo_pre, cut_s)
-    post = spells(trapped, cut_s, hi)
+    deaths_by = defaultdict(list)
+    for r in rows:
+        if r['name'] == '_death':
+            deaths_by[r['bot']].append(r['t'])
+    pre = spells(trapped, lo_pre, cut_s, deaths_by)
+    post = spells(trapped, cut_s, hi, deaths_by)
     arm = lambda b: 'canary' if pool_of(b) in cans else 'control'
     tot = {(p, a): 0.0 for p in ('pre', 'post') for a in ('canary', 'control')}
     for b, h in pre.items(): tot[('pre', arm(b))] += h
@@ -143,7 +157,32 @@ def judge(rows, *, cut, W, cans, population):
     did = (per_bot[('post', 'canary')] - per_bot[('pre', 'canary')]) - (per_bot[('post', 'control')] - per_bot[('pre', 'control')])
     res['spell_did_per_bot'] = round(did, 4)
     res['exposure_spells'] = tot[('pre', 'canary')] >= EXPOSURE_BH
-    res['spell_fall'] = 1 if (tot[('post', 'canary')] <= FALL_RATIO * tot[('pre', 'canary')] and did < 0) else 0
+    # COVERAGE (Codex code r1 P2): a canary bot trapped in the pre window must stay OBSERVED after the deploy -- positions in
+    # >= COVERAGE of the post buckets up to the newest row anywhere -- or a bot that went silent would read as escaped
+    newest = max((r['t'] for r in rows), default=cut_s)
+    post_ks = [k for k in range(int(cut_s // BUCKET_S), int(min(hi, newest) // BUCKET_S))]
+    seen = defaultdict(set)
+    for r in rows:
+        if r.get('pos') is not None and r['t'] >= cut_s:
+            seen[r['bot']].add(int(r['t'] // BUCKET_S))
+    targets = [b for b, h in pre.items() if h > 0 and arm(b) == 'canary']
+    cov = {b: (len(seen[b] & set(post_ks)) / len(post_ks) if post_ks else 0.0) for b in targets}
+    res['coverage_post'] = {b: round(v, 2) for b, v in sorted(cov.items())}
+    res['coverage_ok'] = 1 if (targets and all(v >= COVERAGE for v in cov.values())) else 0
+    res['spell_fall'] = 1 if (res['coverage_ok'] and tot[('post', 'canary')] <= FALL_RATIO * tot[('pre', 'canary')] and did < 0) else 0
+    exits = {}
+    for b in NAMED:
+        if not pre.get(b):
+            exits[b] = 'not trapped pre'
+        elif cov.get(b, 0) < COVERAGE:
+            exits[b] = 'not observed after the deploy'
+        elif any(cut_s <= t < hi for t in deaths_by.get(b, [])):
+            exits[b] = 'died after the deploy'
+        elif post.get(b, 0) * 3600 >= (min(hi, newest) - cut_s) - BUCKET_S:
+            exits[b] = 'still trapped'
+        else:
+            exits[b] = 'escaped (pinned %d min after the deploy)' % round(post.get(b, 0) * 60)
+    res['named_exit'] = exits
     res['named'] = {b: {'pre_min': round(pre.get(b, 0) * 60), 'post_min': round(post.get(b, 0) * 60)} for b in NAMED}
     res['spell_bots'] = {b: [round(pre.get(b, 0), 2), round(post.get(b, 0), 2)] for b in sorted(set(pre) | set(post)) if pre.get(b) or post.get(b)}
     can = [r for r in rows if r['arm'] == 'canary' and r['per'] == 'post']
@@ -193,7 +232,8 @@ def judge(rows, *, cut, W, cans, population):
             ax, ay, az = (float(v) for v in at.split(','))
         except Exception:
             continue
-        if last_t < r['t'] + 1800:
+        own_last = max((t for t, _ in pos_by[r['bot']]), default=0)
+        if last_t < r['t'] + 1800 or own_last < r['t'] + 1800:      # the bot itself must have been seen 30 min on
             pending += 1
             continue
         ks = [k for k in range(int((r['t'] + 600) // BUCKET_S), int((r['t'] + 1800) // BUCKET_S) + 1)]
@@ -263,6 +303,22 @@ def selftest():
     blind = judge(moving('board-d-Bravo', cut - W * 60, cut + W * 60) + moving('hive-a-Alpha', cut - W * 60, cut + W * 60) + [lic],
                   cut=cut, W=W, cans={'board-d'}, population=pop)
     assert blind['instrument_control'] == 0 and blind['exposure_ready'] == 0, blind
+    # COVERAGE (Codex code r1 P2): pinned pre, licence + start + out right after the deploy, then SILENT -> G1 cannot pass
+    silent = pinned('board-d-Bravo', cut - W * 60, cut + 600) + moving('hive-a-Alpha', cut - W * 60, cut + W * 60)
+    sres = judge(silent + [st, en, lic], cut=cut, W=W, cans={'board-d'}, population=pop)
+    assert sres['spell_fall'] == 0 and sres['coverage_ok'] == 0 and sres['claimed_out_pending'] == 1, sres
+    # ORDER (Codex code r1 P2): the same positions in any order classify the same
+    pos3 = [(0.0, 61.0, 0.0), (2.0, 61.0, 0.0), (4.0, 61.0, 0.0)]
+    import itertools
+    verdicts = set()
+    for perm in itertools.permutations(pos3):
+        rs = [row('o-o-O', 10 + i, pos=p) for i, p in enumerate(perm)] + [row('o-o-O', 50, '_water_float', pos=None)]
+        verdicts.add(buckets(rs)['o-o-O'][0])
+    assert verdicts == {False}, verdicts
+    # A DEATH ENDS A SPELL WITHOUT AN ESCAPE (Claude code r1 P2-4): pinned to cut+1200, dies there, then moves -> no fall
+    died = base + [st, lic, row('board-d-Bravo', cut + 1150, '_death', fc='other')]
+    dres = judge(died, cut=cut, W=W, cans={'board-d'}, population=pop)
+    assert dres['spell_fall'] == 0, dres
     # a moving bot that happens to log _water_float is never trapped (positions decide)
     assert not any(buckets(moving('x-y-Z', 0, 3600) + [row('x-y-Z', 100, '_water_float', pos=(5.0, 1.0, 5.0))])['x-y-Z'].values())
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
@@ -335,7 +391,9 @@ if __name__ == '__main__':
              hrs.get(('post', 'canary'), 0), hrs.get(('post', 'control'), 0)))
     print('PRIMARY G1   marooned-water spell bot-h (pinned by bot.pos, >= 30 min) %s -> DiD per bot %s -> %s'
           % (res['spell_bh'], res['spell_did_per_bot'], 'FELL' if res['spell_fall'] else 'DID NOT FALL'))
-    print('NAMED        %s' % json.dumps(res['named']))
+    print('NAMED        %s | exits %s' % (json.dumps(res['named']), json.dumps(res['named_exit'])))
+    print('COVERAGE     post-window position coverage of canary bots trapped pre %s -> %s (need >= %.2f each)'
+          % (json.dumps(res['coverage_post']), 'ok' if res['coverage_ok'] else 'NOT MET (G1 cannot pass)', COVERAGE))
     print('SPELL BOTS   [pre, post] bot-h: %s' % json.dumps(res['spell_bots']))
     print('DEFECTS      G2 fire death in an escape window %d | G3 drowning/suffocation in one %d | G4 claimed out, still pinned %d (pending %d) | ARMS control rows %d'
           % (res['fire_in_escape'], res['drown_in_escape'], res['claimed_out'], res['claimed_out_pending'], res['rows_control']))
