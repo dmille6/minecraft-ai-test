@@ -35,9 +35,12 @@ SBXLOCK_SH = os.path.join(HERE, '..', '..', '..', 'sandbox', 'sbxlock.sh')
 
 def _sbxlock_ssh(args):
     """Run sandbox/sbxlock.sh ON THE LOCK HOST (10.0.0.31), where every agent's sandbox locks live."""
-    with open(SBXLOCK_SH) as f:
-        r = subprocess.run(['ssh', '-o', 'BatchMode=yes', BOTS_HOST, 'SBXLOCK_LOCAL=1 bash -s -- ' + ' '.join(shlex.quote(x) for x in args)],
-                           stdin=f, capture_output=True, text=True, timeout=60)
+    try:
+        with open(SBXLOCK_SH) as f:
+            r = subprocess.run(['ssh', '-o', 'BatchMode=yes', BOTS_HOST, 'SBXLOCK_LOCAL=1 bash -s -- ' + ' '.join(shlex.quote(x) for x in args)],
+                               stdin=f, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return 124, 'ssh to the lock host timed out after 60 s (the command may or may not have run)'
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -47,19 +50,25 @@ class sandbox_lock:
     the short server-state change (a world reset), never for a whole run.
     Until 10-20 this mkdir'd /tmp/mcai-sandbox.lock on the machine it ran on -- the Mac mini -- so it never excluded
     anyone: the shared lock is on 10.0.0.31."""
-    TAG = 'mbench'
-
     def __init__(self, who, server, wait_s=900, run=None, poll_s=15):
         self.who, self.server, self.wait_s, self.poll_s = who, server, wait_s, poll_s
         self.run = run or _sbxlock_ssh
+        # One tag per process ("mbench-<pid>"): a clean-up release can then only ever remove THIS run's lock, never a
+        # concurrent mbench run's on the same server (release matches the tag exactly).
+        self.TAG = 'mbench-%d' % os.getpid()
 
     def __enter__(self):
         t = time.time()
         while True:
             rc, out = self.run(['take', self.server, self.TAG, self.who])
-            if rc == 0 and out.startswith('TAKEN'):
+            if rc == 0 and 'TAKEN' in out:
                 return self
-            if rc == 2 or not out.startswith(('HELD', 'REFUSED')):
+            if rc in (1, 2) and out.startswith(('HELD', 'REFUSED')):
+                pass                                                         # someone else holds it: wait below
+            else:
+                # Claude r1 P2: an ambiguous answer (exit 0 without TAKEN, an ssh error or timeout) may mean the take
+                # DID happen remotely. Release our own tag before giving up, so a failed run never leaks the lock.
+                self.run(['release', self.server, self.TAG])
                 raise SystemExit('sandbox lock: %s' % out[-300:])          # usage/unknown server/ssh failure: never wait on it
             if time.time() - t > self.wait_s:
                 raise SystemExit('sandbox lock for %s not free after %ds: %s' % (self.server, self.wait_s, out[-300:]))

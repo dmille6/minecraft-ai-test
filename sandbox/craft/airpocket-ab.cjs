@@ -405,7 +405,7 @@ async function runTrial (arm, scene, k) {
 }
 
 async function main () {
-  sbx.requireSandboxLock(SERVER, /airpocket/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
+  sbx.requireSandboxLock(SERVER, 'airpocket')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   for (const t = Date.now(); ;) {
     const pl = rcon('list')[0].reply
     if (/There are 0 of/.test(pl)) break

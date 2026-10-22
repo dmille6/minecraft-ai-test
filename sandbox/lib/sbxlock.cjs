@@ -6,7 +6,8 @@
 //   /tmp/mcai-sandbox.lock.<name>     a PER-SERVER lock (new): its holder has that one sandbox, e.g. .sandbox6.
 //
 // THE RULE A DRIVER ENFORCES (lockVerdict): a run on server S is allowed only when EVERY lock that covers S -- the
-// global one and S's own -- is either absent or names this driver's tag, and at least one of them is held. So a
+// global one and S's own -- is either absent or has this driver's tag as its owner's FIRST WORD (or tag-<label>),
+// and at least one of them is held. So a
 // global holder whose driver targets a server someone else holds per-server is refused, and so is the per-server
 // holder if a different owner holds the global lock. Two owners can never both pass for the same server.
 //
@@ -54,10 +55,22 @@ function parseProbe (out, name) {
   return { global: read(lines[0], ''), server: read(lines[1], '.' + name) }
 }
 
+/** Does the owner text name `tag`? Only its FIRST WORD counts: equal to the tag, or the tag plus a `-suffix` (a run
+ *  label: owner `plinth-02 agent-x` is a `plinth` holder). Codex r1 P1: the drivers used to regex the WHOLE owner
+ *  text, so owner `plinth021 …` admitted the `/plinth/` driver and a note mentioning another tag admitted that one. */
+function ownerNames (owner, tag) {
+  const first = String(owner).trim().split(/\s+/)[0]
+  return [].concat(tag).some(t => first === t || first.startsWith(t + '-'))
+}
+
 /** The decision. `locks` = { global, server }: null when free, else the owner text ('' when no owner file).
- *  `tag` = a RegExp tested against the owner text (the drivers' historical form) or a string equal to its first word. */
+ *  `tag` = the driver's tag (a string), or an array of accepted tags. */
 function lockVerdict (locks, tag) {
-  const names = o => tag instanceof RegExp ? tag.test(o) : o.split(/\s+/)[0] === tag
+  const tags = [].concat(tag)
+  if (!tags.length || !tags.every(t => typeof t === 'string' && /^[A-Za-z0-9][A-Za-z0-9._]*(-[A-Za-z0-9._]+)*$/.test(t))) {
+    throw new Error(`lock tag must be a word (or a list of words): ${String(tag)}`)
+  }
+  const names = o => ownerNames(o, tags)
   const { global = null, server = null } = locks || {}
   if (global === null && server === null) {
     return { ok: false, reason: 'no sandbox lock is held: take this server (sandbox/sbxlock.sh take <server> <tag>) or the global lock' }
@@ -78,4 +91,4 @@ function requireSandboxLock (name, tag, { exec, root } = {}) {
   return v.reason
 }
 
-module.exports = { REGISTRY, NAMES, PORTS, RCON_PORTS, GLOBAL, serverLockName, probeCmd, parseProbe, lockVerdict, requireSandboxLock }
+module.exports = { REGISTRY, NAMES, PORTS, RCON_PORTS, GLOBAL, serverLockName, probeCmd, parseProbe, ownerNames, lockVerdict, requireSandboxLock }

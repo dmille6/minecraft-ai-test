@@ -94,18 +94,30 @@ else echo "precheck OK: pending ${PENDING[*]}"; fi
 [ "$CHECK_ONLY" = 1 ] && exit 0
 
 # ---------------------------------------------------------------- enable + start, staggered
-systemctl daemon-reload
+systemctl daemon-reload || { echo "FAIL: systemctl daemon-reload; nothing started"; exit 1; }
 left=${#PENDING[@]}
 for s in "${PENDING[@]}"; do
   a=$(memavail_kb); n=$(( left * HEAP + RESERVE_KB ))
   [ "$a" -ge "$n" ] || { echo "STOPPED before $s: MemAvailable $(gib "$a") < $left x heap + 8 GiB = $(gib "$n")"; exit 2; }
   echo "$(date -u +%FT%TZ) starting $s (game $(game_port "$s"), rcon $(rcon_port "$s"))"
-  systemctl enable "$(unit "$s")" >/dev/null 2>&1; systemctl start "$(unit "$s")"
-  ok=""; for i in $(seq 1 120); do sleep 5; r=$(rcon_list "$s"); case "$r" in "There are"*) ok=$r; break;; esac; done
+  # Codex r1 P2: every systemctl step is checked, and so is the clean-up of a server that never answers.
+  backout() {   # stop + disable $1 and SAY whether that worked
+    systemctl disable --now "$(unit "$1")" >/dev/null 2>&1
+    echo "  backout $1: now $(systemctl is-active "$(unit "$1")") / $(systemctl is-enabled "$(unit "$1")" 2>/dev/null)" \
+         "(want inactive / disabled; if not, run: sudo systemctl disable --now $(unit "$1"))"
+    journalctl -u "$(unit "$1")" -n 15 --no-pager
+  }
+  systemctl enable "$(unit "$s")" >/dev/null 2>&1 || { echo "FAIL $s: systemctl enable; the rest are NOT started"; backout "$s"; exit 1; }
+  systemctl start "$(unit "$s")" || { echo "FAIL $s: systemctl start; the rest are NOT started"; backout "$s"; exit 1; }
+  ok=""; deadline=$((SECONDS + 600))     # a wall-clock bound: each probe can itself take up to 10 s
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    sleep 5; r=$(rcon_list "$s"); case "$r" in "There are"*) ok=$r; break;; esac
+  done
   if [ -z "$ok" ]; then
     echo "FAIL $s: no RCON answer to list in 600 s -- stopping and disabling it; the rest are NOT started"
-    systemctl disable --now "$(unit "$s")" >/dev/null 2>&1; journalctl -u "$(unit "$s")" -n 15 --no-pager; exit 1
+    backout "$s"; exit 1
   fi
+  [ "$(systemctl is-enabled "$(unit "$s")" 2>/dev/null)" = enabled ] || { echo "FAIL $s: answers but is not enabled at boot"; exit 1; }
   echo "$(date -u +%FT%TZ) $s answers: $ok"
   left=$((left - 1)); [ "$left" -gt 0 ] && sleep 12
 done

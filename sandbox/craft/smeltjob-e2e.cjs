@@ -321,7 +321,7 @@ async function runScene (scene) {
 }
 
 async function main () {
-  sbx.requireSandboxLock(SERVER, /smeltjob/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
+  sbx.requireSandboxLock(SERVER, 'smeltjob')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   const pl = rcon('list')[0].reply; if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(BRAIN_PORT, '127.0.0.1', resolve) })
   console.log(`root=${BOT_ROOT} server=${SERVER} scenes=${SCENES_S}`)

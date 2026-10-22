@@ -77,7 +77,14 @@ function enumerationViolations (text, ext) {
       for (const n of NAMES.slice(4)) if (!new RegExp(`\\b${REG.servers[n].port}\\b`).test(l)) out.push(`${where}: names 25601+25602 but not ${REG.servers[n].port}`)
     }
   }
-  stripComments(text, ext).split('\n').forEach((l, i) => {
+  const code = stripComments(text, ext)
+  // Codex r1 P2: a table spread over several lines has no single line naming sandbox3+4, so also check every
+  // bracket group and every shell case...esac block as one unit, newlines folded.
+  const lineOf = idx => code.slice(0, idx).split('\n').length
+  for (const m of code.matchAll(/\{[^{}]*\}|\([^()]*\)|\[[^[\]]*\]|\bcase\b[\s\S]*?\besac\b/g)) {
+    if (m[0].includes('\n')) check(m[0].replace(/\s+/g, ' '), `group at line ${lineOf(m.index)}`)
+  }
+  code.split('\n').forEach((l, i) => {
     check(l, `line ${i + 1}`)
     l.split(/[()[\]{};"`]/).forEach((seg, j) => check(seg, `line ${i + 1} segment ${j}`))
     for (const m of l.matchAll(/['"]?\b(sandbox\d?)\b['"]?\s*:\s*(\d{5})\b/g)) {
@@ -124,6 +131,17 @@ t('MUTANT KILLED: run-scenario.sh with the sandbox8 arm dropped from its case is
   assert.deepEqual(enumerationViolations(src, '.sh'), [])
   assert.match(enumerationViolations(src.replace(old, ''), '.sh').join(), /not sandbox8/)
 })
+t('MUTANT KILLED (Codex r1 P2): a MULTILINE table stopping at sandbox4 is flagged, and a complete one is not', () => {
+  const full = `const PORTS = {\n  sandbox: 25599,\n  sandbox2: 25600,\n  sandbox3: 25601,\n  sandbox4: 25602,\n  sandbox5: 25603,\n  sandbox6: 25604,\n  sandbox7: 25605,\n  sandbox8: 25606,\n}\n`
+  assert.deepEqual(enumerationViolations(full, '.cjs'), [])
+  const old = '  sandbox5: 25603,\n  sandbox6: 25604,\n  sandbox7: 25605,\n  sandbox8: 25606,\n'
+  assert.ok(full.split(old).length === 2, 'ANCHOR MISSING or not unique')
+  assert.match(enumerationViolations(full.replace(old, ''), '.cjs').join(), /group at line 1: names sandbox3\+4 but not sandbox5/)
+  const py = "ALLOW = (\n    'sandbox',\n    'sandbox2',\n    'sandbox3',\n    'sandbox4',\n)\n"
+  assert.match(enumerationViolations(py, '.py').join(), /not sandbox8/)
+  const sh = 'case "$S" in\n  sandbox3) P=25601;;\n  sandbox4) P=25602;;\nesac\n'
+  assert.match(enumerationViolations(sh, '.sh').join(), /not sandbox8/)
+})
 t('MUTANT KILLED: a PORTS table with a wrong port, or one stopping at sandbox4, is flagged', () => {
   const src = readFileSync(path.join(REPO, 'sandbox/well/stock-e2e.cjs'), 'utf8')
   const old = 'sandbox7: 25605, sandbox8: 25606 }'
@@ -153,7 +171,7 @@ t("sbxlock.sh's own name list is the registry's", () => {
 
 // ------------------------------------------------------------------------------------------------ the decision
 t('lockVerdict: every lock covering the server must name us, and at least one must be held', () => {
-  const V = (global, server, tag = /plinth/) => sbx.lockVerdict({ global, server }, tag).ok
+  const V = (global, server, tag = 'plinth') => sbx.lockVerdict({ global, server }, tag).ok
   assert.equal(V(null, null), false, 'no lock at all')
   assert.equal(V('plinth agent-x since ...', null), true, 'legacy: the global lock names us (unchanged behaviour)')
   assert.equal(V(null, 'plinth agent-x since ...'), true, 'our own per-server lock')
@@ -165,6 +183,19 @@ t('lockVerdict: every lock covering the server must name us, and at least one mu
   assert.equal(V('', null), false)
   assert.equal(sbx.lockVerdict({ global: null, server: 'treefarm x' }, 'treefarm').ok, true, 'string tag = first word')
   assert.equal(sbx.lockVerdict({ global: null, server: 'treefarmer x' }, 'treefarm').ok, false, 'string tag is exact')
+})
+t('Codex r1 P1: only the owner\'s FIRST WORD names a holder (tag, or tag-<label>), never a substring or a note', () => {
+  const V = (owner, tag) => sbx.lockVerdict({ global: null, server: owner }, tag).ok
+  assert.equal(V('plinth021 agent-x', 'plinth'), false, 'plinth021 does not admit the plinth driver (the old /plinth/ did)')
+  assert.equal(V('plinthfirst agent-x', 'plinth'), false)
+  assert.equal(V('kitshrink agent-x waiting for plinth to finish', 'plinth'), false, 'a note naming another tag admits nothing')
+  assert.equal(V('plinth-02 agent-x', 'plinth'), true, 'a run label after a dash is still that holder')
+  assert.equal(V('airpocket-02 agent', ['freeze', 'airpocket-02']), true, 'a list of accepted tags')
+  assert.equal(V('airpocket-03 agent', ['freeze', 'airpocket-02']), false)
+  assert.equal(V('  townground  agent', 'townground'), true, 'leading space tolerated')
+  assert.throws(() => sbx.lockVerdict({ global: 'x', server: null }, /plinth/), /lock tag must be a word/, 'a RegExp tag is refused now')
+  assert.throws(() => sbx.lockVerdict({ global: 'x', server: null }, ''), /lock tag must be a word/)
+  assert.throws(() => sbx.lockVerdict({ global: 'x', server: null }, []), /lock tag must be a word/)
 })
 t('parseProbe refuses a probe that printed nothing or something else (a silent probe is not "free")', () => {
   assert.throws(() => sbx.parseProbe('', 'sandbox6'), /expected 2 lines/)
@@ -194,9 +225,9 @@ try {
   })
   t('the driver rule reads that lock: kitshrink may run on sandbox6, not on sandbox5, and plinth not on sandbox6', () => {
     const run = cmd => probeLocal(cmd)
-    assert.match(sbx.requireSandboxLock('sandbox6', /kitshrink/, { exec: run, root: ROOT }), /per-server: kitshrink/)
-    assert.throws(() => sbx.requireSandboxLock('sandbox5', /kitshrink/, { exec: run, root: ROOT }), /no sandbox lock is held/)
-    assert.throws(() => sbx.requireSandboxLock('sandbox6', /plinth/, { exec: run, root: ROOT }), /per-server lock is held by someone else/)
+    assert.match(sbx.requireSandboxLock('sandbox6', 'kitshrink', { exec: run, root: ROOT }), /per-server: kitshrink/)
+    assert.throws(() => sbx.requireSandboxLock('sandbox5', 'kitshrink', { exec: run, root: ROOT }), /no sandbox lock is held/)
+    assert.throws(() => sbx.requireSandboxLock('sandbox6', 'plinth', { exec: run, root: ROOT }), /per-server lock is held by someone else/)
   })
   t('two agents on two sandboxes at once: sandbox3 is takeable while sandbox6 is held', () => {
     const r = lock(['take', 'sandbox3', 'plinth'])
@@ -208,6 +239,29 @@ try {
     assert.equal(r.rc, 1); assert.match(r.out, /^REFUSED \(backed out of .*mcai-sandbox\.lock\): held by .*sandbox6: kitshrink/)
     assert.equal(existsSync(G), false)
   })
+  t('Claude r1 P2: release refuses a lock dir holding more than its owner file, and changes NOTHING (no ownerless wedge)', () => {
+    assert.equal(lock(['take', 'sandbox7', 'airpocket']).rc, 0)
+    writeFileSync(path.join(G + '.sandbox7', 'notes.txt'), 'scratch\n')
+    const r = lock(['release', 'sandbox7', 'airpocket'])
+    assert.equal(r.rc, 1); assert.match(r.out, /holds more than its owner file \(notes\.txt \)/)
+    assert.match(readFileSync(path.join(G + '.sandbox7', 'owner'), 'utf8'), /^airpocket /, 'the owner file is still there')
+    rmSync(path.join(G + '.sandbox7', 'notes.txt')); assert.equal(lock(['release', 'sandbox7', 'airpocket']).rc, 0)
+    assert.equal(existsSync(G + '.sandbox7'), false)
+  })
+  t('MUTANT KILLED: without the extra-file check, release leaves an ownerless dir that wedges the server', () => {
+    const src = readFileSync(SBXLOCK, 'utf8')
+    const old = '[[ -z "$extra" ]] || {'
+    assert.ok(src.split(old).length === 2, 'ANCHOR MISSING or not unique')
+    const mut = path.join(ROOT, '..', `sbxlock-mutant2-${process.pid}.sh`)
+    writeFileSync(mut, src.replace(old, 'true || {')); chmodSync(mut, 0o755)
+    try {
+      assert.equal(lock(['take', 'sandbox7', 'airpocket']).rc, 0)
+      writeFileSync(path.join(G + '.sandbox7', 'notes.txt'), 'scratch\n')
+      assert.notEqual(lock(['release', 'sandbox7', 'airpocket'], ROOT, mut).rc, 0)
+      assert.equal(existsSync(path.join(G + '.sandbox7', 'owner')), false, 'the mutant removed the owner file')
+      assert.equal(lock(['take', 'sandbox7', 'plinth']).rc, 1, 'and now nobody can take sandbox7: the wedge the check prevents')
+    } finally { rmSync(mut, { force: true }); rmSync(G + '.sandbox7', { recursive: true, force: true }) }
+  })
   t('release refuses another tag, then releases our own', () => {
     const r = lock(['release', 'sandbox6', 'plinth']); assert.equal(r.rc, 1); assert.match(r.out, /REFUSED: .* held by kitshrink/)
     assert.equal(lock(['release', 'sandbox6', 'kitshrink']).rc, 0)
@@ -217,8 +271,8 @@ try {
   t('the global lock is the legacy lock: `take all` is mkdir /tmp/mcai-sandbox.lock + owner, and drivers read it as before', () => {
     const r = lock(['take', 'all', 'townground', 'agent-q']); assert.equal(r.rc, 0, r.out)
     assert.match(readFileSync(path.join(G, 'owner'), 'utf8'), /^townground agent-q since /)
-    assert.match(sbx.requireSandboxLock('sandbox4', /townground/, { exec: probeLocal, root: ROOT }), /global: townground/)
-    assert.match(sbx.requireSandboxLock('sandbox8', /townground/, { exec: probeLocal, root: ROOT }), /global: townground/)
+    assert.match(sbx.requireSandboxLock('sandbox4', 'townground', { exec: probeLocal, root: ROOT }), /global: townground/)
+    assert.match(sbx.requireSandboxLock('sandbox8', 'townground', { exec: probeLocal, root: ROOT }), /global: townground/)
   })
   t('a per-server take while the global lock is held backs out (the global holder has every sandbox)', () => {
     const r = lock(['take', 'sandbox2', 'plinth'])
@@ -229,9 +283,9 @@ try {
   t('LEGACY TAKER: a hand mkdir of the global lock beside a per-server lock -- each driver is refused on the shared server', () => {
     assert.equal(lock(['take', 'sandbox6', 'kitshrink']).rc, 0)
     mkdirSync(G); writeFileSync(path.join(G, 'owner'), 'bagbudget agent-z since 2026-10-20\n')     // what old scripts do
-    assert.throws(() => sbx.requireSandboxLock('sandbox6', /bagbudget/, { exec: probeLocal, root: ROOT }), /per-server lock is held/)
-    assert.throws(() => sbx.requireSandboxLock('sandbox6', /kitshrink/, { exec: probeLocal, root: ROOT }), /global lock is held/)
-    assert.match(sbx.requireSandboxLock('sandbox3', /bagbudget/, { exec: probeLocal, root: ROOT }), /global: bagbudget/, 'other servers stay usable')
+    assert.throws(() => sbx.requireSandboxLock('sandbox6', 'bagbudget', { exec: probeLocal, root: ROOT }), /per-server lock is held/)
+    assert.throws(() => sbx.requireSandboxLock('sandbox6', 'kitshrink', { exec: probeLocal, root: ROOT }), /global lock is held/)
+    assert.match(sbx.requireSandboxLock('sandbox3', 'bagbudget', { exec: probeLocal, root: ROOT }), /global: bagbudget/, 'other servers stay usable')
     rmSync(G, { recursive: true }); assert.equal(lock(['release', 'sandbox6', 'kitshrink']).rc, 0)
   })
   t('refusals: unknown server and a bad tag exit 2 and create nothing', () => {
@@ -257,6 +311,37 @@ try {
       assert.deepEqual(readdirSync(ROOT), [], 'a lock leaked')
     }
     assert.equal(both, 0, `${both} rounds had both holders`); assert.equal(oneOrNone, 25)
+  })
+  t('take and release both wait on the mutex, and a stuck mutex is reported (exit 3), never broken', () => {
+    assert.equal(lock(['take', 'sandbox6', 'kitshrink']).rc, 0)
+    const M = path.join(ROOT, 'mcai-sandbox.lock-mutex'); mkdirSync(M)
+    const env = { ...lockenv(ROOT), SBXLOCK_MUTEX_TRIES: '3' }
+    for (const args of [['take', 'sandbox5', 'plinth'], ['release', 'sandbox6', 'kitshrink']]) {
+      const r = spawnSync('bash', [SBXLOCK, ...args], { env, encoding: 'utf8' })
+      assert.equal(r.status, 3, args.join(' ')); assert.match(r.stdout, /MUTEX STUCK/)
+    }
+    assert.ok(existsSync(M), 'the mutex was not broken'); assert.ok(existsSync(G + '.sandbox6'), 'the held lock survived')
+    assert.equal(existsSync(G + '.sandbox5'), false)
+    rmSync(M, { recursive: true }); assert.equal(lock(['release', 'sandbox6', 'kitshrink']).rc, 0)
+    assert.deepEqual(readdirSync(ROOT), [], 'the mutex is removed on every exit path')
+  })
+  await ta('Codex r1 P1 RACE (smoke): two releases of one lock racing a new take leave the new holder\'s lock intact (25 rounds; the window is narrow, so the guarantee is the mutex test above, not this)', async () => {
+    const go = (args) => new Promise(res => {
+      const p = spawn('bash', [SBXLOCK, ...args], { env: lockenv(ROOT) }); let o = ''
+      p.stdout.on('data', d => { o += d }); p.on('close', rc => res({ rc, o }))
+    })
+    let bTook = 0
+    for (let i = 0; i < 25; i++) {
+      assert.equal(lock(['take', 'sandbox6', 'alpha']).rc, 0)
+      const [, , b] = await Promise.all([go(['release', 'sandbox6', 'alpha']), go(['release', 'sandbox6', 'alpha']), go(['take', 'sandbox6', 'beta'])])
+      if (b.rc === 0) {
+        bTook++
+        assert.match(readFileSync(path.join(G + '.sandbox6', 'owner'), 'utf8'), /^beta /, `round ${i}: beta's lock was deleted under it`)
+        assert.equal(lock(['release', 'sandbox6', 'beta']).rc, 0)
+      } else lock(['release', 'sandbox6', 'alpha'])
+      assert.deepEqual(readdirSync(ROOT), [], `round ${i}: leaked ${readdirSync(ROOT)}`)
+    }
+    console.log(`        (beta took the lock in ${bTook} of 25 rounds)`)
   })
   t('MUTANT KILLED: sbxlock.sh without the global take\'s per-server check lets `take all` through', () => {
     const src = readFileSync(SBXLOCK, 'utf8')
@@ -310,17 +395,32 @@ def run(args):
     r = subprocess.run(['bash', sh] + args, env=dict(os.environ, SBXLOCK_LOCAL='1', LOCK_ROOT=root), capture_output=True, text=True)
     return r.returncode, (r.stdout + r.stderr).strip()
 with cl_run.sandbox_lock('model-selection agent: reset', 'sandbox4', run=run):
-    print('inside', open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner')).read().split()[0])
+    print('inside', open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner')).read().split()[0] == 'mbench-%d' % os.getpid())
 print('after', sorted(os.listdir(root)))
 os.mkdir(os.path.join(root, 'mcai-sandbox.lock')); open(os.path.join(root, 'mcai-sandbox.lock', 'owner'), 'w').write('other x\\n')
 try:
     with cl_run.sandbox_lock('m', 'sandbox4', wait_s=-1, poll_s=0, run=run): print('WRONGLY TAKEN')
 except SystemExit as e: print('waited out:', 'global' in str(e) or 'mcai-sandbox.lock' in str(e))
 print('left', sorted(os.listdir(root)))
+import shutil; shutil.rmtree(os.path.join(root, 'mcai-sandbox.lock'))
+# Claude r1 P2: an AMBIGUOUS answer after the take really happened (ssh died after the remote mkdir) must not leak it
+def flaky(args):
+    rc, out = run(args)
+    return (255, 'Connection reset by peer') if args[0] == 'take' else (rc, out)
+try:
+    with cl_run.sandbox_lock('m', 'sandbox4', run=flaky): print('WRONGLY ENTERED')
+except SystemExit as e: print('ambiguous:', 'Connection reset' in str(e))
+print('leaked', sorted(os.listdir(root)))
+# and its clean-up release can never remove ANOTHER mbench run's lock (one tag per process)
+os.mkdir(os.path.join(root, 'mcai-sandbox.lock.sandbox4')); open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner'), 'w').write('mbench-1 other run\\n')
+try:
+    with cl_run.sandbox_lock('m', 'sandbox4', run=lambda a: (255, 'boom') if a[0] == 'take' else run(a)): pass
+except SystemExit: pass
+print('other run kept', open(os.path.join(root, 'mcai-sandbox.lock.sandbox4', 'owner')).read().split()[0])
 `
     const r = spawnSync('python3', ['-c', py, path.join(REPO, 'bench/models/closedloop'), ROOT, SBXLOCK], { encoding: 'utf8' })
-    assert.equal(r.stdout.trim(), "inside mbench\nafter []\nwaited out: True\nleft ['mcai-sandbox.lock']", r.stderr)
-    rmSync(G, { recursive: true, force: true })
+    assert.equal(r.stdout.trim(), "inside True\nafter []\nwaited out: True\nleft ['mcai-sandbox.lock']\nambiguous: True\nleaked []\nother run kept mbench-1", r.stderr)
+    rmSync(G, { recursive: true, force: true }); rmSync(G + '.sandbox4', { recursive: true, force: true })
   })
 } finally { rmSync(ROOT, { recursive: true, force: true }) }
 

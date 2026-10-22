@@ -190,7 +190,7 @@ async function runTrial (arm, scene, k) {
 }
 
 async function main () {
-  sbx.requireSandboxLock(SERVER, /freeze|airpocket-02/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
+  sbx.requireSandboxLock(SERVER, ['freeze', 'airpocket-02'])   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   if (!/There are 0 of/.test(rcon('list')[0].reply)) throw new Error('sandbox not empty')
   const fl = rcon('forceload query 700 700')[0].reply
   const addFl = !/is marked/.test(fl)

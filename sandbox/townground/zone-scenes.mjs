@@ -24,7 +24,7 @@ import path from 'node:path'
 const [ARM, BOT_ROOT, SERVER = 'sandbox4', SCENES = 'G,M,P,E,F'] = process.argv.slice(2)
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!ARM || !BOT_ROOT || !PORTS[SERVER]) throw new Error('usage: zone-scenes.mjs <arm> <botRoot> [server] [scenes]')
-sbx.requireSandboxLock(SERVER, /townground/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
+sbx.requireSandboxLock(SERVER, 'townground')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
 const R = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
 const NAME = 'sandbox-Zone'
 const OUT = `${R}/sandbox/log/townground`; fs.mkdirSync(OUT, { recursive: true })

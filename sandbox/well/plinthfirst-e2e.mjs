@@ -24,7 +24,7 @@ const [BOT_ROOT, SCENES_S, SERVER = 'sandbox2'] = process.argv.slice(2)
 if (!BOT_ROOT || !SCENES_S) throw new Error('usage: plinthfirst-e2e.mjs <botRoot> <scenes> [server]')
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
-sbx.requireSandboxLock(SERVER, /plinthfirst/)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
+sbx.requireSandboxLock(SERVER, 'plinthfirst')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
 const R = process.env.WELL_REPO
 if (!R || !fs.existsSync(`${R}/sandbox/run-bot.sh`)) throw new Error('WELL_REPO must hold sandbox/run-bot.sh')
 const NAME = 'sandbox-PFirst'

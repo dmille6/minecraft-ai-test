@@ -455,7 +455,7 @@ scenes.bmab = async () => {
 ;(async () => {
   TF = await import(process.env.TF_SRC || path.join(BOT_ROOT, 'bots/src/treefarm.mjs'))   // TF_SRC: the layout for a control arm
   if (!/There are 0 of/.test(r1('list'))) throw new Error(`${SERVER} is not empty`)
-  sbx.requireSandboxLock(SERVER, /^treefarm /)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER names us
+  sbx.requireSandboxLock(SERVER, 'treefarm')   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word
   await new Promise(r => brain.listen(BRAIN_PORT, '127.0.0.1', r))
   for (const s of SCENES_S.split(',')) {
     P('=== scene', s)
