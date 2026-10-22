@@ -43,13 +43,14 @@ CMD="${1:-}"; shift || true
 case "$CMD" in
   take)
     S="${1:?server|all}"; TAG="${2:?tag}"; shift 2; NOTE="$*"
-    [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "bad tag '$TAG' (letters, digits, . _ -)"; exit 2; }
+    [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._]*(-[A-Za-z0-9._]+)*$ ]] || { echo "bad tag '$TAG' (letters, digits, . _, inner -)"; exit 2; }   # = sbxlock.cjs
     T="$(target_of "$S")"; mutex
     if ! mkdir "$T" 2>/dev/null; then echo "HELD $T: $(owner_of "$T")"; exit 1; fi
     # Claude r2 P3: a failed owner write must not leave an ownerless dir (read as held by everyone, owned by no one).
     if ! printf '%s %s since %s (%s)\n' "$TAG" "${NOTE:-}" "$(date -u +%FT%TZ)" "$S" > "$T/owner"; then
-      rm -f "$T/owner"; rmdir "$T" || echo "STUCK: $T has no owner file and could not be removed; remove it by hand"
-      echo "FAILED: could not write $T/owner; nothing is held"; exit 1
+      if rm -f "$T/owner" && rmdir "$T"; then echo "FAILED: could not write $T/owner; nothing is held"
+      else echo "FAILED: could not write $T/owner, and STUCK: $T could not be removed (NO owner file, blocks everyone); remove it by hand"; fi
+      exit 1
     fi
     conflict=""
     if [[ "$S" == all ]]; then

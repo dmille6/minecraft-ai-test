@@ -109,7 +109,7 @@ for s in "${PENDING[@]}"; do
   }
   systemctl enable "$(unit "$s")" >/dev/null 2>&1 || { echo "FAIL $s: systemctl enable; the rest are NOT started"; backout "$s"; exit 1; }
   systemctl start "$(unit "$s")" || { echo "FAIL $s: systemctl start; the rest are NOT started"; backout "$s"; exit 1; }
-  ok=""; deadline=$((SECONDS + 600))     # a wall-clock bound: each probe can itself take up to 10 s
+  ok=""; deadline=$((SECONDS + 600))     # wall-clock bound (+ at most one sleep and one 20 s probe)
   while [ "$SECONDS" -lt "$deadline" ]; do
     sleep 5; r=$(rcon_list "$s"); case "$r" in "There are"*) ok=$r; break;; esac
   done

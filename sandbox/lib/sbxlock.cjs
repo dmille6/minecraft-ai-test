@@ -9,7 +9,8 @@
 // global one and S's own -- is either absent or has EXACTLY this driver's tag as its owner's FIRST WORD,
 // and at least one of them is held. So a
 // global holder whose driver targets a server someone else holds per-server is refused, and so is the per-server
-// holder if a different owner holds the global lock. Two owners can never both pass for the same server.
+// holder if a different owner holds the global lock. When BOTH locks are held their owners' first words must also be
+// identical, so two owners can never both pass for the same server -- not even for a driver that accepts a LIST of tags.
 //
 // TAKING (sandbox/sbxlock.sh) is announce-then-check: mkdir your lock, THEN look for the other kind and back out if
 // it is there. Two concurrent takers can both back out; they cannot both succeed.
@@ -80,6 +81,10 @@ function lockVerdict (locks, tag) {
     if (owner !== null && !names(owner)) {
       return { ok: false, reason: `the ${kind} lock is held by someone else: ${owner ? JSON.stringify(owner.slice(0, 160)) : '(no owner file yet)'}` }
     }
+  }
+  const first = o => String(o).trim().split(/\s+/)[0]
+  if (global !== null && server !== null && first(global) !== first(server)) {   // Claude r3 P3: a tag LIST let two owners pass
+    return { ok: false, reason: `the global lock (${first(global)}) and the per-server lock (${first(server)}) have different owners` }
   }
   return { ok: true, reason: [global !== null && `global: ${global}`, server !== null && `per-server: ${server}`].filter(Boolean).join('; ') }
 }

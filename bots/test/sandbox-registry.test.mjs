@@ -196,6 +196,9 @@ t('Codex r1 P1 + r2: only the owner\'s FIRST WORD names a holder, and it must EQ
   assert.equal(V('airpocket-02 agent', ['freeze', 'airpocket-02']), true, 'a list of accepted tags')
   assert.equal(V('airpocket-03 agent', ['freeze', 'airpocket-02']), false)
   assert.equal(V('  townground  agent', 'townground'), true, 'leading space tolerated')
+  assert.equal(sbx.lockVerdict({ global: 'freeze agent-a', server: 'airpocket-02 agent-b' }, ['freeze', 'airpocket-02']).ok, false,
+    'Claude r3 P3: two held locks with different owners refuse even a driver that accepts both tags')
+  assert.equal(sbx.lockVerdict({ global: 'freeze agent-a', server: 'freeze agent-a again' }, ['freeze', 'airpocket-02']).ok, true)
   assert.throws(() => sbx.lockVerdict({ global: 'x', server: null }, /plinth/), /lock tag must be a word/, 'a RegExp tag is refused now')
   assert.throws(() => sbx.lockVerdict({ global: 'x', server: null }, ''), /lock tag must be a word/)
   assert.throws(() => sbx.lockVerdict({ global: 'x', server: null }, []), /lock tag must be a word/)
@@ -294,6 +297,8 @@ try {
   t('refusals: unknown server and a bad tag exit 2 and create nothing', () => {
     const a = lock(['take', 'sandbox9', 'x']); assert.equal(a.rc, 2); assert.match(a.out, /unknown server/)
     const b = lock(['take', 'sandbox5', '../x']); assert.equal(b.rc, 2); assert.match(b.out, /bad tag/)
+    const c = lock(['take', 'sandbox5', 'plinth-']); assert.equal(c.rc, 2, 'a trailing-dash tag, which lockVerdict also refuses')
+    assert.throws(() => sbx.lockVerdict({ global: 'plinth- x', server: null }, 'plinth-'), /lock tag must be a word/)
     assert.deepEqual(readdirSync(ROOT), [])
   })
   t('status lists what is held', () => {
@@ -347,6 +352,7 @@ try {
     console.log(`        (beta took the lock in ${bTook} of 25 rounds)`)
   })
   t('Claude r2 P3: a take whose owner write fails backs out and leaves NO ownerless dir', () => {
+    if (process.getuid?.() === 0) { console.log('        (skipped as root: umask cannot make the dir unwritable)'); return }
     const r = spawnSync('bash', ['-c', 'umask 0222; exec bash "$0" take sandbox5 plinth', SBXLOCK], { env: lockenv(ROOT), encoding: 'utf8' })
     assert.equal(r.status, 1, r.stdout + r.stderr); assert.match(r.stdout, /FAILED: could not write .*owner; nothing is held/)
     assert.deepEqual(readdirSync(ROOT), [], 'no ownerless dir and no mutex left behind')
