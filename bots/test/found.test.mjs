@@ -336,21 +336,30 @@ await t('CHAIN: in a fresh town with a plan, a bot carrying 2 tables gets found_
   assert.equal(ran[0]?.skill, 'found_work', JSON.stringify(ran))
   assert.equal(ran[0].args.step, 'F1')
 })
+await t('CHAIN, A STALE CACHE (Paper FOUND-RETRO 10-22): another bot reserved station 0 since this bot last read the plan -> the found slot reads the head fresh and never orders F1 at that station', async () => {
+  const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
+  const s0 = stations(w.bot)[0]
+  // on disk only: Other reserves station 0 (this bot's cached head still says free)
+  PS.publishPlan(process.env.POOL_STATE_DIR, PS.planKey({ x: 0, y: 64, z: 0 }), 'w', cur => { Object.assign(cur.plots.find(p => p.id === 'work').stations[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
+  assert.equal(S.townPlanNow(w.bot).plan.plots.find(p => p.id === 'work').stations[0].state, 'free', 'the cache is stale')
+  loopBot(w)
+  const ran = await decisions(w.bot, 1)
+  assert.ok(!(ran[0]?.skill === 'found_work' && ran[0]?.args?.at?.join() === s0.at.join()), JSON.stringify(ran))
+})
 await t('DECLINED (homefix-01 composition): a found run the runner declined never ran -- its cooldown and its visit are refunded; other skills keep theirs', () => {
   assert.deepEqual(refundDeclined('found_work', { foundState: { lastAt: 5, visitUsed: true, x: 1 } }), { foundState: { lastAt: -Infinity, visitUsed: false, x: 1 } })
   assert.deepEqual(refundDeclined('found_store', { foundState: { lastAt: 5, visitUsed: true } }), { foundState: { lastAt: -Infinity, visitUsed: false } })
   assert.deepEqual(refundDeclined('gather', { foundState: { lastAt: 5, visitUsed: true } }), {})
   assert.deepEqual(refundDeclined('found_work', {}), {})
 })
-await t('CHAIN CONTROL: the same bot with FOUND off in its module state (no plan read) -> no found order', async () => {
-  const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
+await t('CHAIN CONTROL: the same bot in a town with NO plan on disk (no tick has rooted it) -> no found order (the slot reads the head fresh: a nulled cache is not "no plan" any more)', async () => {
+  freshPool(); S.resetPlanZones()
+  const w = fakeWorld({ bag: [stack('crafting_table', 2), stack('oak_log', 30)], at: [2.5, 64, 0.5] })
+  Object.assign(w.bot, { worldId: 'w', username: 'FoundBot', players: {} })
   loopBot(w)
-  w.bot.townPlan = null
-  const real = S.townPlanHead
-  // no plan in memory and no tick: the loop sees none
   const ran = await decisions(w.bot, 1)
   assert.notEqual(ran[0]?.skill, 'found_work', JSON.stringify(ran))
-  assert.ok(real)
+  assert.equal(PS.planGens(process.env.POOL_STATE_DIR, PS.planKey({ x: 0, y: 64, z: 0 })).length, 0, 'still no plan on disk')
 })
 
 console.log('found: anchored mutants')
