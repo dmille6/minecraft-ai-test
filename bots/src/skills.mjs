@@ -110,7 +110,7 @@ import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnkn
 // THE TOWN PLAN (townplan-01) and FOUNDING (found-01): the files, the planner, the orders (the section before SKILL_CONTRACTS)
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
-         readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard } from './townplan.mjs'
+         readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -14634,7 +14634,7 @@ export function townPlanSeed (bot) {
 /** The town's head plan (this world) -> planHead's answer; the in-memory copy the adopters read is refreshed with it. */
 export function townPlanHead (bot) {
   const h = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
-  if (h.ok && bot) bot.townPlan = h.head ? { gen: h.head.gen, plan: h.head.plan, ko: keepouts(h.head.plan), at: Date.now() } : null
+  if (h.ok && bot) bot.townPlan = h.head ? { gen: h.head.gen, plan: h.head.plan, ko: keepouts(h.head.plan), cells: planFurnitureCells(h.head.plan), at: Date.now() } : null
   return h
 }
 /** THE ADOPTERS' VIEW: the last head this bot read (every tick refreshes it) -> { gen, plan, ko } | null (no plan: the base). */

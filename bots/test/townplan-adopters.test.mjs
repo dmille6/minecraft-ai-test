@@ -203,6 +203,35 @@ await t('A BOT THAT NEVER TICKED SEES THE PLAN (Paper FOUND-PLINTH 10-22): its f
   const d = fakeWorld({ bag: [] }); Object.assign(d.bot, { worldId: 'w', username: 'Read', players: {}, townPlan: null })
   assert.equal(S.townPlanNow(d.bot), null)
 })
+await t('THE PLAN\'S FURNITURE IS NO PATH\'S DIG (Paper FOUND-NOFIT 10-22; real mineflayer-pathfinder Movements): a move through a placed workshop table is no move at all; the same table off the plan is dug as before', async () => {
+  const { createRequire } = await import('node:module')
+  const rq = createRequire(new URL('../package.json', import.meta.url))
+  const { Movements } = rq('mineflayer-pathfinder')
+  const registry = rq('prismarine-registry')('1.21.8')
+  const Block = rq('prismarine-block')(registry)
+  const tables = new Set(['205,65,200', '205,66,200'])
+  const blockAt = q => {
+    const name = q.y <= 64 ? 'stone' : tables.has(`${q.x},${q.y},${q.z}`) ? 'crafting_table' : 'air'
+    const blk = Block.fromStateId(registry.blocksByName[name].defaultState, 0); blk.position = new Vec3(q.x, q.y, q.z); return blk
+  }
+  const bot = { registry, version: '1.21.8', blockAt, entity: { position: new Vec3(204.5, 65, 200.5), effects: {} }, entities: {}, inventory: { items: () => [] },
+                pathfinder: { bestHarvestTool: () => null }, game: { minY: -64, height: 384 } }
+  const forward = cells => {
+    const m = new Movements(bot); m.canDig = true; m.allowParkour = false; m.allowSprinting = false; m.scafoldingBlocks = []
+    m.exclusionAreasBreak = [blk => T.planBreakCost(cells, blk)]
+    return m.getNeighbors({ x: 204, y: 65, z: 200, remainingBlocks: 0 }).find(n => n.x === 205 && n.y === 65 && n.z === 200)
+  }
+  assert.ok(forward(new Set()), 'off the plan: the table wall is dug through (the base)')
+  assert.equal(forward(new Set(['205,65,200'])), undefined, 'a placed plan cell: no move')
+  // the cells come from the plan: placed and reserved, never free
+  const plan = { plots: [{ id: 'work', stations: [{ at: [1, 2, 3], state: 'placed' }, { at: [4, 5, 6], state: 'reserved' }, { at: [7, 8, 9], state: 'free' }] }] }
+  assert.deepEqual([...T.planFurnitureCells(plan)].sort(), ['1,2,3', '4,5,6'])
+  // every head read keeps them on the bot (the A* step reads bot.townPlan.cells, never a file)
+  const w = town()
+  assert.ok(S.townPlanNow(w.bot).cells instanceof Set)
+  // the wiring: the SAME break entry as the well (no new array entry)
+  assert.ok(/moves\.exclusionAreasBreak = \[\(block\) => wellBreakCost\(wellCols, block, selfWell\) \|\| planBreakCost\(bot\.townPlan\?\.cells, block\)\]/.test(code('index.mjs')))
+})
 console.log('townplan: the wiring (comments stripped)')
 await t('WIRED: the planner tick every PLAN_TICK_MS and both licence rows once per spawn (index.mjs)', () => {
   const src = code('index.mjs')
