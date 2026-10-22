@@ -11,7 +11,9 @@
 //   3. the far starts (the one hand-resolved line): a plan only the column blocked walks to the column's ring even with a
 //      zone loaded -- protectzone's `return []` for "no town, no zone among the kinds" would drop it (mutant);
 //   4. gather: the nearest dirt in a column, the next in a zone -> the dirt outside both (keep-out's enumeration filter
-//      over the zone's findBlocks filter); CONTROL: no zone -> the zone's dirt is the one taken.
+//      over the zone's findBlocks filter); CONTROL: no zone -> the zone's dirt is the one taken;
+//   5. mine's protected-zone refusal never names an exit inside a fire column (Codex jit-1022b P2): the nearest exit is in
+//      a column -> the next clear one is named (MUTANT: without the composed check the column's exit is named).
 process.env.LOG_DIR ??= '/tmp'
 process.env.STATE_DIR ??= '/tmp'
 process.env.HOME_X = '200'; process.env.HOME_Y = '65'; process.env.HOME_Z = '200'
@@ -204,6 +206,27 @@ test('CHAIN gather: the nearest dirt in a fire column, the next in a zone -- the
   assert.equal(w.refused.length, 0, 'enumeration kept the zone out: the guard never had to refuse')
 })
 
+// ---- mine's zone refusal: the exit it names is clear of the column too (Codex jit-1022b P2) ---------------------------
+// the bot inside the zone [420..460] x [180..220]; every stand rock-roofed but two exit columns: 464,200 (the zone's nearest
+// exit, inside the column of a fire site at 464,60,200) and 440,176 (outside every keep-out, standable, but ringed by water
+// at tread height, so the planner cannot START a stair there and mine refuses -- the refusal names it as the walk out)
+const SITE_E = fire(464, 60, 200)
+const exitRock = (x, y, z) => y >= 66 && y <= 75 && !(x === 441 && z === 200) && !(x === 464 && z === 200) && !(x === 440 && z === 176)
+const exitWet = (x, y, z) => y >= 58 && y <= 64 && Math.abs(x - 440) <= 3 && Math.abs(z - 176) <= 3 && !(x === 440 && z === 176)
+const gotoIn = d => { const m = /goto (-?\d+) (-?\d+) (-?\d+)/.exec(String(d)); return m ? { x: +m[1], y: +m[2], z: +m[3] } : null }
+
+test('CHAIN mine x zone refusal: the zone\'s nearest exit is inside a fire column -> the refusal names the next exit, clear of both', async () => {
+  const bot = stairWorld({ at: [441, 65, 200], sites: [SITE_E], zones: ZONE_X, solidAt: exitRock, wet: exitWet, ctx: { skill: 'mine' } })
+  assert.deepEqual(PZ.zoneExitColumns(ZONE_X, bot.entity.position)[0], { x: 464, z: 200 }, 'the nearest exit is the column\'s')
+  const r = await runMine(bot)
+  assert.equal(r.failClass, 'protected_zone', `${r.status} ${r.failClass} ${String(r.detail).slice(0, 200)}`)
+  assert.equal(bot._digs.length, 0)
+  const g = gotoIn(r.detail)
+  assert.ok(g, `an exit is named: ${r.detail}`)
+  assert.deepEqual(g, { x: 440, y: 65, z: 176 }, `the clear exit: ${r.detail}`)
+  assert.equal(KO.columnAt([SITE_E], { x: g.x + 0.5, y: g.y, z: g.z + 0.5 }), null)
+})
+
 // ---- mutants: each composed assertion fails for the intended reason (anchors present and unique) -----------------------
 async function withMutant (url, old, neu, fn) {
   const src = readFileSync(url, 'utf8')
@@ -234,5 +257,14 @@ test('MUTANT KILLED: the far starts dropping the column ring when no town or zon
     assert.equal(bot._digs.filter(p => KO.columnAt([SITE_M], p)).length, 0, 'the column is still never dug')
     assert.equal(bot._digs.length, 0, `the mutant cut no stair (${r.status} ${r.failClass} ${String(r.detail).slice(0, 140)})`)
     assert.equal(r.failClass, 'keepout', 'it refuses instead')
+  })
+})
+
+test('MUTANT KILLED: without the composed check on the exit, the zone refusal names the stand inside the fire column', async () => {
+  await withMutant(SKILLS_URL, '.find(c => c && !exitForbidden(c))', '.find(Boolean)', async mod => {
+    const bot = stairWorld({ at: [441, 65, 200], sites: [SITE_E], zones: ZONE_X, solidAt: exitRock, wet: exitWet, ctx: { skill: 'mine' } })
+    const r = await mod.SKILLS.mine.run({ bot }, { y: 40 }, new AbortController().signal).catch(e => ({ status: 'threw', detail: e.message }))
+    const g = gotoIn(r.detail)
+    assert.ok(g && KO.columnAt([SITE_E], { x: g.x + 0.5, y: g.y, z: g.z + 0.5 }), `the mutant names the column's exit: ${r.failClass} ${r.detail}`)
   })
 })
