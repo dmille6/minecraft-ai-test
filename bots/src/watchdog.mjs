@@ -24,6 +24,7 @@ import { HARD_STOP_GRACE_MS } from './hard-stop.mjs'
 import { logRescueRow } from './rescuerow.mjs'
 import { airAdmission, airDeclineNext } from './airstate.mjs'
 import { pickRelocationTargetAsync, landingCheck, reasonsLabel } from './relocate.mjs'
+import { relocationForbidden } from './keepout.mjs'   // keepout-01 x homefix-02: no relocation into a fire column
 import { Vec3 } from 'vec3'
 
 // ---------------------------------------------------------------------------
@@ -570,7 +571,10 @@ export class StagnationWatchdog {
       // in hive-d it was often a frozen river's ice sheet (death 1).
       const t0 = Date.now()
       const read = (x, y, z) => this.bot.blockAt?.(new Vec3(x, y, z)) ?? null
-      const pick = await pickRelocationTargetAsync({ p, read })
+      // a world-facts read error never breaks the rescue ladder (Claude jit-1022b P3): no sites -> the base rule
+      let fire = []
+      try { fire = this.bot.fireSitesNow?.() ?? [] } catch { fire = [] }
+      const pick = await pickRelocationTargetAsync({ p, read, ...(fire.length ? { forbid: (x, y, z) => relocationForbidden(fire, x, y, z) } : {}) })
       const dryMs = Date.now() - t0
       const rowExtra = { dry_tries: pick.tries, dry_reasons: reasonsLabel(pick.reasons), dry_ms: dryMs }
       if (pick.ok) {

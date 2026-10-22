@@ -55,6 +55,104 @@ const CONFIRM_AT = 2                   // personal hits before a fact is worth p
 const DEATH_WEIGHT = 4                 // a death site starts at 4: three 12-h halvings (4 -> 2 -> 1 -> 0) before it is forgotten
 const RESOURCE_MERGE = 24              // sightings within this many blocks are one deposit
 const MAX_RESOURCES = 200
+// keepout-01: the pool lock's budgets (#withLock)
+export const WF_LOCK_ROUTINE_MS = 200
+export const WF_LOCK_CRITICAL_MS = 12_000
+export const WF_LOCK_STALE_MS = 10_000
+const WF_LOCK_BUSY = Symbol('world-facts lock busy')
+const WF_LOCK_LOST = Symbol('world-facts lock lost at the commit')
+let lockSeq = 0
+/** A lock (or break-lock) with no parseable token after this long is dead (nothing this code writes is token-less). */
+export const WF_LOCK_EMPTY_MS = WF_LOCK_STALE_MS
+/**
+ * THE PROCESS'S IDENTITY: pid + start time in clock ticks since boot (/proc/<pid>/stat field 22), the kernel's own answer
+ * to "is this the same process" (Codex r6 P1: the /proc inode's ctime is when the inode was instantiated, not when the
+ * process started). Off Linux the start is unknown ('na') and only the pid is checked.
+ */
+export function parseStartTicks (stat) {
+  const s = String(stat ?? '')
+  const close = s.lastIndexOf(')')                  // comm may hold spaces and ')': the fields resume after the LAST ')'
+  if (close < 0) return null
+  const f = s.slice(close + 2).split(' ')           // f[0] is field 3 (state); field 22 is f[19]
+  return /^\d+$/.test(f[19] ?? '') ? f[19] : null
+}
+export function pidStartTicks (pid) { try { return parseStartTicks(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')) } catch { return null } }
+const SELF_START = pidStartTicks(process.pid) ?? 'na'
+const newToken = now => `${process.pid}.${SELF_START}.${++lockSeq}.${now}`
+/** A fresh token for THIS process (tests build live holders with it). */
+export const selfToken = (now = Date.now()) => newToken(now)
+/** Is this pid alive on this host? (EPERM: alive, another user's.) */
+export function pidAlive (pid) { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } }
+/**
+ * IS THE HOLDER OF THIS TOKEN DEAD? Pure over the probes. Every bot of a pool runs on ONE host as the same user's systemd
+ * units with no PID namespace of their own (comms design 1; mcbot@.service) -- if that ever changes, this test calls live
+ * holders dead (Claude r5 P3-3). Dead = no such pid, or that pid is now a DIFFERENT process (its start ticks differ from the
+ * token's: reuse). An unparseable token (none is written by this code: tokens are published atomically, tryLock) is dead
+ * after WF_LOCK_EMPTY_MS. NEVER BY AGE ALONE: a live holder paused for any length keeps its lock (Codex r5 P2). The fleet is
+ * Linux; on a host without /proc a reused pid would read as alive and the pool's writes would wait or be skipped until that
+ * process ends (Claude r6 P3-2) -- the safe direction.
+ */
+export function holderDead (token, lockMtimeMs, now = Date.now(), { alive = pidAlive, startTicks = pidStartTicks } = {}) {
+  const [p, start] = String(token ?? '').split('.')
+  const pid = Number(p)
+  if (!Number.isInteger(pid) || pid <= 0 || start == null) return now - lockMtimeMs > WF_LOCK_EMPTY_MS
+  if (!alive(pid)) return true
+  if (start === 'na') return false
+  const nowStart = startTicks(pid)
+  return nowStart != null && nowStart !== start
+}
+const readToken = f => { try { return fs.readFileSync(f, 'utf8') } catch { return null } }
+/**
+ * PUBLISH A LOCK ATOMICALLY WITH ITS TOKEN (Codex r6 P2): the token is written to a private file first and hard-linked into
+ * place -- link() fails if the name exists, and the lock never exists without its token, so no live holder is ever
+ * "token-less". -> true (ours) | 'EEXIST' | an error code.
+ */
+function publish (lock, token) {
+  const tmp = `${lock}.${token}.tmp`
+  try { fs.writeFileSync(tmp, token, { flag: 'wx' }) } catch (e) { return e.code ?? 'error' }
+  try { fs.linkSync(tmp, lock); return true } catch (e) { return e.code ?? 'error' } finally { try { fs.unlinkSync(tmp) } catch { /* gone */ } }
+}
+/**
+ * ONE TRY AT THE POOL LOCK -> a token (ours), or null (held: wait), or { enoent } / { error } (cannot be created).
+ * A DEAD holder's lock is removed under a BREAK-LOCK (Codex r5 P1): one breaker at a time takes `<lock>.break` (published the
+ * same atomic way), RE-READS the lock and unlinks it only if it still holds the very token judged dead. While the break-lock
+ * is held nobody else can remove the lock, and nobody can create one while the dead one exists, so the unlink removes exactly
+ * the dead holder's lock. A breaker that lost the break-lock race waits. A break-lock whose own holder is dead (killed inside
+ * its microsecond section) is removed the same way, with no age wait (Codex r6 P3: a 60 s wait outlived a death's budget);
+ * two cleaners racing on such an abandoned break-lock is the residual window (it needs a breaker to die in that section).
+ */
+export function tryLock (lock, now = Date.now(), probes = {}) {
+  const token = newToken(now)
+  const r = publish(lock, token)
+  if (r === true) return token
+  if (r === 'ENOENT') return { enoent: true }
+  if (r !== 'EEXIST') return { error: r }
+  try {
+    const held = readToken(lock)
+    const st = fs.statSync(lock)
+    if (held != null && holderDead(held, st.mtimeMs, now, probes)) breakDead(lock, held, now, probes)
+  } catch { /* the holder released it meanwhile */ }
+  return null
+}
+/** Remove `lock` iff it still holds `dead`, under the break-lock. Exported for the race tests. */
+export function breakDead (lock, dead, now = Date.now(), probes = {}) {
+  const brk = `${lock}.break`, mine = newToken(now)
+  const r = publish(brk, mine)
+  if (r !== true) {
+    if (r === 'EEXIST') {
+      try { const bt = readToken(brk), bs = fs.statSync(brk); if (bt != null && holderDead(bt, bs.mtimeMs, now, probes) && readToken(brk) === bt) fs.unlinkSync(brk) } catch { /* gone */ }
+    }
+    return false
+  }
+  try {
+    if (readToken(lock) === dead) { fs.unlinkSync(lock); return true }
+    return false
+  } finally { if (readToken(brk) === mine) { try { fs.unlinkSync(brk) } catch { /* gone */ } } }
+}
+/** Is the lock still ours? */
+export function lockOwned (lock, token) { try { return fs.readFileSync(lock, 'utf8') === token } catch { return false } }
+/** Release the lock only if it is still ours (a broken-and-retaken lock belongs to someone else now). */
+export function unlockIfOwned (lock, token) { if (lockOwned(lock, token)) { try { fs.unlinkSync(lock) } catch { /* gone */ } } }
 
 export class WorldFacts {
   constructor(file) {
@@ -82,7 +180,47 @@ export class WorldFacts {
    * wrote between our read and our write, which is exactly how reconnects were
    * deleting recorded successes from lessons-*.json earlier tonight.
    */
-  #update(mutate) {
+  #update(mutate, { critical = false } = {}) {
+    const r = this.#withLock(owned => this.#updateLocked(mutate, owned), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)
+    if (r === WF_LOCK_BUSY) log(critical ? 'error' : 'warn', 'world facts: write skipped, the pool lock is busy', { critical, file: path.basename(this.file) })
+    return r
+  }
+
+  /**
+   * ONE WRITER AT A TIME (keepout-01, Codex r1/r2 P1-5). The rename is atomic, but a read-merge-write without a lock loses an
+   * update when two processes interleave (measured: 40 of 80 concurrent deaths kept). lessons.mjs's O_EXCL lockfile, with
+   * one difference that matters (Codex r2 P1): contention is NEVER permission to write unlocked. A ROUTINE write (a sighting,
+   * a hazard, a give-up, a dispute -- each repeats or is safe to lose) waits WF_LOCK_ROUTINE_MS and is then SKIPPED. A
+   * CRITICAL write (a death: one event, never repeated) waits up to WF_LOCK_CRITICAL_MS; the critical section itself is a few
+   * ms, and a dead holder's lock is removed at once (tryLock / breakDead: by its pid, never its age -- Codex r4/r5). A lock that cannot be created
+   * for a reason other than contention (the pool directory missing) gets the directory made and is tried again; one that
+   * cannot be created at all (permissions) SKIPS the write, loudly (Codex r3 P1: never unlocked).
+   * OWNERSHIP (Codex r3 P1): the lock holds a token; it is released only by its owner (unlockIfOwned), and the write's rename
+   * happens only while the token is still ours (a holder paused past the stale break lost the lock and writes nothing).
+   */
+  #withLock (fn, budgetMs) {
+    const lock = `${this.file}.lock`
+    const until = Date.now() + budgetMs
+    let made = false
+    for (;;) {
+      const t = tryLock(lock)
+      if (typeof t === 'string') {
+        let r
+        try { r = fn(() => lockOwned(lock, t)) } finally { unlockIfOwned(lock, t) }
+        // LOST AT THE COMMIT (only possible after a dead/abandoned-holder takeover race): read, merge and write again
+        if (r !== WF_LOCK_LOST) return r
+        if (Date.now() >= until) return WF_LOCK_BUSY
+        continue
+      }
+      if (t?.enoent && !made) { made = true; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }) } catch { /* next try says */ } continue }
+      if (t?.error || t?.enoent) return WF_LOCK_BUSY
+      if (Date.now() >= until) return WF_LOCK_BUSY
+      const spin = Date.now() + 4
+      while (Date.now() < spin) { /* spin: the holder's critical section is a few ms */ }
+    }
+  }
+
+  #updateLocked(mutate, owned = null) {
     let current = { schema: SCHEMA, sites: [], unreachable: {}, resources: [] }
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
@@ -96,6 +234,7 @@ export class WorldFacts {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
       const tmp = `${this.file}.${process.pid}.tmp`
       fs.writeFileSync(tmp, JSON.stringify(current, null, 1))
+      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_LOST }   // the lock was lost: write nothing, retry
       fs.renameSync(tmp, this.file)      // atomic: readers never see a half file
       this.cache = current
       this.lastRead = Date.now()
@@ -267,7 +406,7 @@ export class WorldFacts {
     if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return null
     const kind = `${DEATH_KIND_PREFIX}${String(cls || 'unknown').slice(0, 24)}`
     let site = null
-    this.#update(d => {
+    const wrote = this.#update((d) => {
       // MERGE ONLY WHEN THE KEPT CENTRE STILL PRICES THE NEW DEATH: a death 7 blocks from a site would have merged
       // into a centre whose 6-block disc does not cover it (Codex pass 2), so the merge radius is half the disc.
       const near = d.sites.find(s =>
@@ -277,13 +416,36 @@ export class WorldFacts {
       if (near) {
         near.count += DEATH_WEIGHT; near.deaths = (near.deaths ?? 1) + 1; near.last = Date.now()
         if (!near.by.includes(by)) near.by.push(by)
+        // THE NEXT DEATH CLEARS A DISPUTE (keepout-01, design 4.2): a lava read that found the disc clear is outranked by a
+        // fire death there -- the site keeps bots out again
+        delete near.disputed
         site = near
       } else {
         site = { kind, x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z), count: DEATH_WEIGHT, deaths: 1, last: Date.now(), by: [by] }
         d.sites.push(site)
       }
-    })
+    }, { critical: true })
+    if (wrote === WF_LOCK_BUSY) return null   // not on file: never reported as recorded
     return site
+  }
+
+  /**
+   * A LAVA READ FOUND THIS FIRE SITE'S DISC CLEAR (keepout-01, design 4.2 `fire_site` disproof): every cell of the disc,
+   * loaded, and no lava. The site is KEPT (its price on paths and its prompt line are unchanged) and marked `disputed`, so
+   * keepout-01 stops keeping bots out of its column; the next fire death there clears the mark (reportDeath). -> the
+   * stored site, or null when no live fire site sits at that centre.
+   */
+  disputeFireSite(at, seen = null, by = config.bot.name) {
+    if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y) || !Number.isFinite(at.z)) return null
+    let hit = null
+    const wrote = this.#update(d => {
+      const s = d.sites.find(q => q.kind === `${DEATH_KIND_PREFIX}fire` && q.x === at.x && q.y === at.y && q.z === at.z)
+      // VERSION-CHECKED (Codex r1 P1-5): the read judged the site as it was (`seen`: its death count and last death); a peer's
+      // newer fire death there since then outranks the read, so the dispute is not written
+      if (seen && s && ((s.deaths ?? 1) !== (seen.deaths ?? 1) || (s.last ?? 0) !== (seen.last ?? 0))) return
+      if (s && !s.disputed) { s.disputed = { at: Date.now(), by }; hit = s }
+    })
+    return wrote === WF_LOCK_BUSY ? null : hit
   }
 
   /** Every death site on file (the cache; re-read every 20 s). Cheap enough for the pathfinder's per-node price. */

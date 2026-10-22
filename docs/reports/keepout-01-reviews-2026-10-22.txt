@@ -1,0 +1,70 @@
+keepout-01 -- review record (2026-10-22)
+========================================
+Design: docs/reports/comms-design-2026-10-21.md 0.2, 2.3, 4.2, 4.5, 4.6, 8 row 2, 9 C3/C12 (Codex + Claude APPROVE r7;
+owner "yes" C1-C9 2026-10-22 ~00:00Z; owner "yes" C12 / item 10 ~00:05Z, relayed by the coordinator: KEEPOUT_TOWN_YIELD =
+true). Branches: keepout-on-34d3e5e (fleet base 34d3e5e9) and keepout-on-d014ec2 (homefix-02's canary d014ec2c: the same
+commits cherry-picked, two cognitive.mjs hunks resolved by hand to keep homefix-02's `!declined &&` guard, a keepout.mjs
+hunk keeping both new functions, plus the homefix composition commit and a test-only re-anchor).
+
+R1 (76b5178e)  Codex CHANGE: P1 the exit order fell to admission's repeat window; P1 the escape dig lacked hazard checks
+  (unloaded / waterlogged neighbours, falling blocks, magma floor); P1 overlapping columns (a cell of a second column
+  allowed if outward from the first); P1 the dispute could override a newer death + unlocked world-facts RMW; P2 survival /
+  transit exemption inconsistent (digPurpose orders the tunnel tag before a reflex; mine's roof climb under the veto); P2
+  per-dig "fresh" sites were the run-start set; P2 tests (route safety, C12 drain, admission chain, Paper).
+  Claude CHANGE: P1 a hard-stopped run's scope restored forever (production runs with the arbiter OFF); P2 exit vs the
+  repeat window; P2 outward measured cell-corner vs exact position; P2 the exit's worst case past its contract; P2 tests
+  (bypassed-guard gate positive control, a vacuous cooldown mutant, composed C12 / overlapping / arbiter-off cases); P3s.
+R2 (30297788)  Codex CHANGE: P1 the lock wrote unlocked after its budget; P1 eating exempted target digs; P2 empty initial
+  site set; P2 refused disputes counted by the read, write order not bracketed; P2 the primary's denominator; P2 blind
+  gate controls; P2 composed chains (C12 drain, the exit bound, Paper wiring).
+  Claude CHANGE: P2 stored=0 disputes; P2 the exit's loop bound untested inside cognitive; P2 no executed C12 chain; P3s.
+R3 (fdf6c4a2)  Codex CHANGE: P1 lock ownership (stale break by age, unconditional cleanup, unlocked writes on other
+  errors); P2 town scene home; P2 K1/K2 exercised from one row, shared probe coordinates; P2 mid-descent `_mine_dig`; P2
+  cognitive interruption-to-ladder chain.  Claude APPROVE (P3s).
+R4 (e08d1aa4 / 4d15b94a)  Codex CHANGE: P1 commit/release not atomic; P1 competing breakers + age takeover discarding live
+  writes; P2 `_mine_plan` mid-descent; P2 Paper.  Claude APPROVE (P3: retry a death whose lock was lost).
+R5 (02fbf397: the lock judged by pid)  Codex CHANGE: P1 competing breakers via rename + put-back; P2 the 120 s age
+  backstop; P2 tests.  Claude APPROVE (P3s: empty-lock 120 s outage, PID-namespace assumption, retry untested).
+R6 (22c129ca: removal under a break-lock, never by age)  Codex CHANGE: P1 /proc ctime is not a start time; P2 the
+  token-less acquisition window; P3 abandoned break-lock cleanup race.  Claude APPROVE (P3-1 the same ctime point).
+R7 (1b0f8155: pid + start ticks, atomic publication by link(), dead break-lock cleaned at once)
+  Codex APPROVE (P3: the abandoned break-lock cleanup race -- needs a breaker killed inside a microsecond section plus
+  four adverse schedules; a death expires behind a live holder paused > 12 s, the bounded-wait trade; an unreaped zombie
+  keeps its pid -- systemd reaps).  Claude APPROVE (P3: the real start-ticks path runs only on Linux -- checked by hand on
+  10.0.0.31: a child's ticks parse, are stable, date its start; litter tmp files if killed mid-publish; mixed builds
+  during a restart still interleave unlocked, as before).
+
+TESTS (1b0f8155): bots/test/keepout.test.mjs 60, keepout-loop.test.mjs 4 (the REAL CognitiveLoop: exit x3 -> back-off ->
+  the model's `surface`; + mutant), and on the d014ec2 variant keepout-homefix.test.mjs 3; anchored unique mutants
+  throughout (enumeration / target layers, the composition = the bypassed guard with K1/K2 seeing it, the cooldown,
+  the exemption, the exit bound, the generation scope, the guard purpose, the lock: age-only, re-read, commit check,
+  unlocked RMW). Other suites re-anchored: tunnel-escalation (mineGuarded). npm test: see the branch commits.
+READ: scripts/host/keepoutread.py (selftest; dry run on the base 34d3e5e9, 180 min: 389,742 rows, live fire sites in 8
+  towns, in-column candidates on both arms, 2 control fire deaths inside a live column). drawexposure at 24 h: hive-a,
+  hive-b, hive-d, placebo-a eligible (a 36 h window skips the middle date: drawexposure scans only the first and last).
+  Final host copy md5 04b0ec63; its dry run (hive-b,hive-c,hive-d,placebo-a as canary, 180 min): 394,600 rows, control
+  fire-site towns board-a, hive-a, isolated-a/b/d, in-column candidates on both arms (DiD -0.35 on identical code: noise),
+  every defect gate 0, licence 0 (the base cannot write it), INSTRUMENT ok.
+NPM TEST: 272/272 at 4d15b94a and at 1b0f8155 (the r7 code); 279/279 on the d014ec2 variant b032e231 (r7 code + the
+  homefix composition). The full runner caught one stale anchor in another suite (tunnel-escalation), re-anchored.
+PAPER (sandbox3, Paper 1.21.8; /tmp/mcai-sandbox.lock held 01:07:30-01:16:44Z after another agent's 23:24-01:07 hold;
+  docs/reports/keepout-01-paper-2026-10-22.jsonl; arena: a 3x3 lava pool at y 100 under a 2-high cave and a dirt cap, the
+  fire death site written into the bot's world facts; index.mjs's keep-out wiring copied into the driver; no reflexes;
+  fire resistance so a base bot that digs in survives to be counted). Base 34d3e5e9 v candidate 1b0f8155:
+  gather   (on the surface above the pool, inside the column, `gather dirt 3`): BASE collected 3 dirt, all 3 dug IN the
+           column (the cap over the cave) and stayed inside; CANDIDATE collected 3 dirt, 0 in the column, outside after 1.8 s.
+  ledge    (sealed in a 1x1x2 rock pocket in the column; Bravo's case): BASE's gather dug 3 dirt cells in the column and
+           stayed inside; CANDIDATE's `_keepout_exit` dug 2 rock cells at foot/head level AWAY from the centre (outcome=out
+           method=dig), outside after 8.6 s, then collected 3 dirt with 0 column digs.
+  mine     (10 blocks east of the pool, facing it, to y 85): BASE dug 11 cells in the column and stopped at y 99 ("lava
+           beside the ceiling cell ahead"); CANDIDATE turned its bearing, 0 column digs, reached y 86 (`_mine_plan`
+           in_column=0, `_mine_dig` n=57 in_column=0).
+  BYPASSED GUARD (the column removed from mine's plan + the dig guard disabled; design 8 row 2): 11 column digs, and the
+           gate rows SEE it: `_mine_plan` in_column=12 (K1), `_mine_dig` in_column=11 (K2).
+  town     (C12: home, a chest and a furnace holding 8 copper ingots in the column; the bot inside, 6+ blocks from home):
+           the exit decision on the drain = start:false why=town_job; the real furnace_drain took the 8 ingots (the furnace
+           read back empty by RCON) in both builds; `_keepout_yield` named the town (home=1 containers=1 furnaces=1); a
+           gather decision there = start:true (non-town jobs are still pushed out).
+  Earlier attempts are in the file and named by label: base gather/ledge hit "position is not loaded" before the arena
+  loaded (base, first run); base2/cand2 found every dirt "beside water" because the driver had not lent the dig-capable
+  profile to safeToBreak as index.mjs does (driver fixed; no bot code changed). The deciding pair is base3/cand3.
