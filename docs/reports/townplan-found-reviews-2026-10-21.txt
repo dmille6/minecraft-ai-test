@@ -141,3 +141,60 @@ PAPER finding (10-22, FOUND-NOFIT on 093f080b): every found placement was scored
 found_work exists to change") and throttled: the result carried no `placed` count for the world_change contract.
   -> found-01 r8 (found code only; townplan-01 37d5aff6 unchanged): a placed found order returns placed: 1 and at; test in
      FOUND-FLAT F1.
+
+CODE ROUND 8 (found-01 76bc3f58)   Codex APPROVE   Claude APPROVE (3 P3: the runner gate not driven in the test; F2 does not assert
+  placed; the recovery's own result does not pass placed on -- its contract is inventory_loss). npm test 282/282 at 76bc3f58;
+  282/282 at townplan-01 37d5aff6 (FOUND dormant).
+
+PAPER (sandbox3, 10-22 00:00-08:51Z; sandbox/townplan/townplan-e2e.cjs; server read-back; the lock held only while running)
+  FINAL SHAS: found-01 76bc3f58 (bot code), townplan-01 37d5aff6; BASE d0a27a5e. Earlier shas named where a result is from them.
+  scene          sha        result
+  TP-GREEN       37d5aff6   PASS  the showcase ground rebuilt at (-1200, 70, 1200) from the read-only dump: the root plan EQUALS the
+                                  offline planner's (orientation W, s 70, every plot, cell and sector); 7 zones + the trial-chambers
+                                  avoid box recorded; no cell in a zone or avoid box; 12 free cells air over solid floor
+                 d0a27a5e   BASE  no plan file, no row
+  TP-RETRO       37d5aff6   PASS* retrofit, cluster store, allocated (at the root: the bot's counts landed before its first tick --
+                                  `waiting` was not observed), the 5-station strip on air over floor, none on a pre-existing block,
+                                  13 from the junk well's cap, all 13 containers OPENED by the bot after the root (town index),
+                                  nothing removed, dispose_well succeeded afterwards (*the scene's own check expected an op=alloc
+                                  generation; fixed in the driver)
+  TP-CAS         76bc3f58   PASS  three founding bots at once: one root, 7 generations all accepted, 0 rejected, 0 invalid; a bot
+                                  SIGKILLed and restarted wrote no second root
+  TP-ZONES       37d5aff6   PASS  a zone over the E pad: orientation S; a malformed file mid-run: no refit, plan unchanged; a fresh
+                                  pool started WITH the malformed file: no root and no found row (`zones=unknown:unreadable`), then
+                                  the good file: a root (S)
+  TP-TEMP        37d5aff6   PASS  a crafter walled in beside free station 0: its temporary table went on the free station (the second
+                                  tier), the craft succeeded, the table was taken back; station 0 never `placed`; never a NEVER cell
+  FOUND-FLAT     093f080b   PASS  table -> station 0, first chest -> overflow cell, furnace -> station 1, then group homes fuel,
+                                  metal, wood in store cells; 0 containers off the plan; 0 lids blocked
+  FOUND-HOUR1    76bc3f58   PASS  from 16 logs + 20 cobblestone + 1 table: table and chest founded; afterwards 2 wooden and a stone
+                                  pickaxe crafted; every giver still holds a table (no furnace: the hour-1 floor leaves 4 cobble)
+  FOUND-ROUGH    b8f787c5   PASS  holes, a slope and a pond: orientation N; every placement on a solid floor; 0 stray
+  FOUND-CANOPY   093f080b   PASS  chests placed and OPENED in the large-fern, tall-grass and under-spruce-leaves cells; the 2-snow-layer
+                                  and mud-lid cells never chosen
+  FOUND-NOFIT    76bc3f58   PARTIAL  1 READY cell: table, store `unplaced`; 2: table + chest; 3-5: table only -- the chest's founders
+                                  were refused "someone is standing in the plan cell" (the table's founder stood in the chest cell, the
+                                  only stand on a 1-wide island) and each refusal cost that bot its visit; an island never ends a
+                                  visit, so no retry. OWNER/FOLLOW-UP: a body refusal could be a free skip (not built)
+  FOUND-NONE     b8f787c5   PASS  home on a pillar in water: nothing placed; a craft row succeeded
+  FOUND-KILL     76bc3f58   PASS  killed between reserve and place: the reservation expired (cell free, no table); killed between the
+                                  placement and its publication: observed `placed` with role overflow after until+60 s+10 min; no
+                                  stuck reservation; exactly one chest
+  FOUND-RETRO    76bc3f58   PASS  the bench town: table and furnace in the strip's stations; every pre-existing block there; the givers
+                                  keep a table and a furnace
+  FOUND-PLINTH   76bc3f58   PASS  on east-only ground the raised well planned outside every plot box (tier=outside, never=0)
+                 d0a27a5e   BASE  the same ground without a plan: the cap inside the core's box (the discrimination); the same was
+                                  seen on b8f787c5 before r5's first-read fix
+  FOUND-SOFT     093f080b   NOT PROVEN  the scene waited for all store cells incl. the growth's 4 extra cells (r1 bug) and never
+                                  reached the recovery; the driver now fills the extras; not re-run
+  FOUND-BOX      76bc3f58   NOT PROVEN  three arenas: annex (no workshop ground), an island (the watcher fell to a livelock
+                                  relocation), a water moat (the depositing bot kept floating): the precondition (a committed town,
+                                  all cells full, a deposit) was reached once (committed=true) but no deposit row came in 15 min
+  FOUND-ACCESS   --         NOT PROVEN  the same arena as FOUND-BOX; not reached
+  FOUND-BARE     --         NOT RUN  (empty bags need the bots' own gathering, which the scripted brain never proposes; not attempted)
+  The tier logic, ACCESS and the BOX pass are covered by the fake-world tests (townplan-adopters RECOVERY, found.test THE
+  RECOVERY, BUILDERS' TABLES; planstore / townplan unit tests).
+
+  PAPER FINDINGS FIXED ON THE WAY (each reviewed by both engines): a never-read plan at spawn (r5); a stale cached head in the
+  found slot (r6); the plan's furniture dug by a path (r7); the found contract scored `unknown` (found r8); the arena outside the
+  bots' world border (driver).

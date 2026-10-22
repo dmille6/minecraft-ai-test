@@ -49,6 +49,10 @@
 //                           cell, never in a box + 1 (the base shows the cheapest cap lies in the E storehouse box); ONLY-BOX
 //                           (the only feasible plinth inside the committed box) is fake-world only (townplan-adopters)
 //
+// STATUS 10-22 (the review record docs/reports/townplan-found-reviews-2026-10-21.txt has every result): FOUND-SOFT, FOUND-BOX and
+// FOUND-ACCESS did not reach their precondition on Paper (see the record); FOUND-BARE was not run; FOUND-NOFIT passes for 1-2 READY
+// cells only. Every other scene passed on the final shas.
+//
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -` (ports 25599-25602). Sandbox servers and sandbox-*
 // names only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names LOCK_OWNER (default townplan).
 'use strict'
@@ -328,7 +332,7 @@ scenes.tpgreen = async () => {
   await stopBots(); brainHome = HOME
   const pl = await planOf(f.poolDir, world, SHOW_HOME)
   const plan = pl.head?.plan
-  const off = await offlinePlan(S, zones, avoid, world)
+  const off = await offlinePlan(S, zones, avoid, world).catch(() => ({ body: null, why: 'no townplan.mjs in this root (the base)' }))
   const geo = p => (p?.plots ?? []).map(x => ({ id: x.id, kind: x.kind, box: x.box ?? null, sector: x.sector ?? null, cells: (x.cells ?? []).map(c => K(c.at)), stations: (x.stations ?? []).map(c => `${c.kind}@${K(c.at)}`) }))
   const same = !!plan && JSON.stringify(geo(plan)) === JSON.stringify(geo(off.body)) && plan.orientation === off.body?.orientation && plan.s === off.body?.s
   const zoneHits = cellsOf(plan).filter(c => [...zones, ...avoid].some(z => inBox3(z.box, c.at))).map(c => K(c.at))
@@ -420,7 +424,8 @@ scenes.tpretro = async () => {
   result({ scene: 'tpretro', world, rows: rows.map(fmt).slice(-50), plan: plan ? { gen: pl.head.gen, gens: pl.gens, rejected: pl.rejected.length, mode: plan.mode, groups: plan.groups?.status,
     store: plan.plots.find(p => p.id === 'store')?.kind, work: st.map(c => `${c.kind}@${K(c.at)}`) } : null, cells: ct, onPre, wellD, opened: [...opened].length, unopened,
     world2: { intact: after.intact, missing: after.missing, itemsMoved }, alloc: !!alloc, dispose: disp?.detail?.slice(0, 120) ?? null,
-    CANDIDATE_PASS: !!(lic >= 1 && root && plan?.mode === 'retrofit' && alloc && plan.groups?.status === 'allocated' && ct.allAir && ct.allFloor && !onPre.length &&
+    // allocated by an `op=alloc` generation, or already at the root (the bot's own counts landed before its first tick: Paper 10-22)
+    CANDIDATE_PASS: !!(lic >= 1 && root && plan?.mode === 'retrofit' && plan.groups?.status === 'allocated' && ct.allAir && ct.allFloor && !onPre.length &&
       (wellD === null || wellD >= 3) && after.intact && !unopened.length && disp && pl.rejected.length === 0),
     BASE_SHAPE: !!(lic === 0 && pl.gens === 0 && after.intact) })
 }
@@ -528,10 +533,11 @@ scenes.tptemp = async () => {
 }
 
 // ================================================================ the found scenes
-async function plannedTown (scene, { bags = [FOUND_BAG, FOUND_BAG, FOUND_BAG], pool = `sbxtp-${RUN}-${scene}`, onRoot = null, env = {} } = {}) {
+async function plannedTown (scene, { bags = [FOUND_BAG, FOUND_BAG, FOUND_BAG], pool = `sbxtp-${RUN}-${scene}`, onRoot = null, env = {}, island = false } = {}) {
   let world = null
   const files = [await startBot(scene, bags[0], { pool, env, onSpawn: async ({ skillLog }) => { world = await worldOf(skillLog) } })]
-  for (let i = 1; i < bags.length; i++) files.push(await startBot(scene, bags[i], { pool, env, name: NAMES[i], standAt: at([-2 - i, 0]) }))
+  // ISLAND scenes stand every bot on the home pad (a cell beside it is air: FOUND-NOFIT r1's second bot fell into the void)
+  for (let i = 1; i < bags.length; i++) files.push(await startBot(scene, bags[i], { pool, env, name: NAMES[i], standAt: island ? HOME : at([-2 - i, 0]) }))
   const root = await waitFor(() => rootRow(files), 150000, 1000)
   if (onRoot && root) await onRoot({ files, world })
   return { files, world, root, pool, poolDir: files[0].poolDir }
@@ -602,7 +608,9 @@ scenes.foundhour1 = async () => {
   // are founded from these; the furnace (8 cobblestone above the floor) is not, by design, until the bots hold more stone
   const want2 = plan => [stations(plan).find(c => c.kind === 'crafting_table'), storeCells(plan).find(c => c.role === 'overflow') ?? storeCells(plan)[0]]
   const last = await untilPlaced(s, want2, 1200000)
-  // afterwards: the givers' own pickaxe rungs (the ladder crafts wooden then stone)
+  // afterwards: the pickaxe rungs from what founding left (the scripted brain never proposes them by itself: the model verbs are
+  // queued, as the fleet's model proposes them; every bot gets each ask twice)
+  for (let i = 0; i < 2 * s.files.length; i++) brainQueue.push({ skill: 'craft', args: { item: 'wooden_pickaxe', count: 1 } }, { skill: 'craft', args: { item: 'stone_pickaxe', count: 1 } })
   const picks = await waitFor(() => { const r = rowsAll(s.files).filter(x => x.name === 'craft' && x.status === 'success'); return ['wooden_pickaxe', 'stone_pickaxe'].every(n => r.some(x => (x.args?.item ?? '') === n || x.detail.includes(n))) && r }, 900000, 10000)
   const rows = foundRows(s.files)
   const bags = NAMES.map(n => bagOf(n))
@@ -712,8 +720,10 @@ scenes.foundnofit = async () => {
     for (const z of zs) c.push(`fill ${HOME.x + 7} ${G - 2} ${HOME.z + z} ${HOME.x + 7} ${G} ${HOME.z + z} minecraft:dirt`)
     must(rcon(...c), 'nofit')
     const bag = [['chest', 3], ['crafting_table', 2], ['furnace', 2], ['stone_pickaxe', 1]]
-    const s = await plannedTown(`foundnofit${n}`, { bags: [bag, bag] })
-    await sleep(240000)
+    // THREE bots: one order per bot per visit, and an island never ends a visit -- a body in a cell (a founder standing where the
+    // next one places: FOUND-NOFIT r2) costs that bot its order; the third retries
+    const s = await plannedTown(`foundnofit${n}`, { bags: [bag, bag, bag], island: true })
+    await sleep(420000)
     const rows = foundRows(s.files)
     await stopBots()
     const plan = (await planOf(s.poolDir, s.world)).head?.plan
@@ -730,7 +740,7 @@ scenes.foundnone = async () => {
   brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
   // home on a 1x1 dirt pillar in water (no READY cell anywhere); the bot keeps working: a named work row (craft) succeeds
   must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air'), ...fillChunks(A, 113, G - 1, 'dirt'), ...fillChunks(A, G, G, 'water'), `setblock ${HOME.x} ${G} ${HOME.z} minecraft:dirt`), 'pillar')
-  const s = await plannedTown('foundnone', { bags: [[['chest', 2], ['crafting_table', 2], ['oak_log', 16], ['stone_pickaxe', 1]]] })
+  const s = await plannedTown('foundnone', { bags: [[['chest', 2], ['crafting_table', 2], ['oak_log', 16], ['stone_pickaxe', 1]]], island: true })
   brainQueue.push({ skill: 'craft', args: { item: 'oak_planks', count: 4 } }, { skill: 'craft', args: { item: 'stick', count: 4 } })
   await sleep(180000)
   const rows = foundRows(s.files)
@@ -807,10 +817,24 @@ const WOOLS = ['white_wool', 'orange_wool', 'magenta_wool', 'light_blue_wool', '
 async function fullStore (scene, pool, { unique = false } = {}) {
   const w = await plannedTown(`${scene}-watch`, { bags: [IDLE_BAG], pool, env: { FOUND: 'off' } })
   const plan0 = (await planOf(w.poolDir, w.world)).head?.plan
-  const sc = storeCells(plan0)
+  // THE BASE (no plan): the candidate's E store cells at this home (read off the candidate runs), so the physical town is the same
+  const E7 = [[9, -2], [9, 2], [11, -2], [11, 2], [13, 0], [13, -2], [13, 2]].map(([dx, dz]) => ({ at: [HOME.x + dx, HOME.y, HOME.z + dz], state: 'free' }))
+  const sc = plan0 ? storeCells(plan0) : E7
   // full of cobblestone; with `unique`, slot 0 holds one wool of a colour only that chest has (a withdraw of it is an OPEN of it)
   sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['cobblestone', 64]))))
-  await waitFor(async () => storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed'), 1500000, 20000)
+  // THE EXTRA CELLS TOO (FOUND-SOFT r1: once the section is placed, growth appends up to EXTRA_MAX extra cells, which the recovery
+  // takes before any tier search): each one that appears is filled the same way, until every store cell is placed and the
+  // extras are exhausted (or the plan stops growing for 3 minutes)
+  const filled = new Set(sc.map(c => K(c.at)))
+  let lastGrow = Date.now(), lastN = sc.length
+  if (!plan0) return { w, sc }
+  await waitFor(async () => {
+    const cells = storeCells((await planOf(w.poolDir, w.world)).head?.plan)
+    if (cells.length !== lastN) { lastN = cells.length; lastGrow = Date.now() }
+    for (const c of cells) if (!filled.has(K(c.at))) { setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, () => ['cobblestone', 64])); filled.add(K(c.at)) }
+    const all = cells.length > 0 && cells.every(c => c.state === 'placed')
+    return all && (cells.filter(c => c.extra).length >= 4 || Date.now() - lastGrow > 180000)
+  }, 2700000, 20000)
   return { w, sc }
 }
 scenes.foundsoft = async () => {
@@ -839,59 +863,79 @@ scenes.foundsoft = async () => {
     BASE_SHAPE: !!(!w.root && dep) })
   void T
 }
+// ================================================================ FOUND-BOX / FOUND-ACCESS (r2): a COMMITTED east town on an island
+// Ground: a 1-wide walkway from x-1 to x+6 (z 0) -- the only way in -- the E storehouse box (x+7..15, z -4..4) and the two workshop
+// strips (x+7..11, z +-6..8): exactly the E plan's plots, nothing outside them. The workshop is COMMITTED (a table and a furnace
+// founded into stations 0/1), every store cell holds a FULL chest (set by RCON, observed by the watcher), so every cell a recovery
+// can take lies in a committed box, and the walkway (soft: the core) is the one approach ACCESS must keep.
+// The BASE (no plan) gets the same physical town: chests at the candidate's E store cells, a table and a furnace at its stations.
+const E_STORE = [[9, -2], [9, 2], [11, -2], [11, 2], [13, 0], [13, -2], [13, 2]]
+const E_STATIONS = [[7, 7, 'crafting_table'], [8, 7, 'furnace']]
+async function committedEastTown (scene, { unique = false } = {}) {
+  // r3: WATER, not void, around the plots (the island lost its watcher to a livelock relocation into the void): every surface cell
+  // outside the plots is a water source over dirt -- terrain a bot swims, never a chest site, never READY
+  buildArena()
+  must(rcon(...fillChunks(A, G, G, 'water')), 'water surface')
+  must(rcon(`fill ${HOME.x - 1} ${G} ${HOME.z - 1} ${HOME.x + 1} ${G} ${HOME.z + 1} minecraft:dirt`, `fill ${HOME.x + 2} ${G} ${HOME.z} ${HOME.x + 6} ${G} ${HOME.z} minecraft:dirt`,
+    `fill ${HOME.x + 7} ${G} ${HOME.z - 4} ${HOME.x + 15} ${G} ${HOME.z + 4} minecraft:dirt`,
+    `fill ${HOME.x + 6} ${G} ${HOME.z + 5} ${HOME.x + 12} ${G} ${HOME.z + 9} minecraft:dirt`,
+    `fill ${HOME.x + 6} ${G} ${HOME.z - 9} ${HOME.x + 12} ${G} ${HOME.z - 5} minecraft:dirt`), 'east ground')
+  brainPoints = [{ x: HOME.x, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
+  const pool = `sbxtp-${RUN}-${scene}`
+  const w = await plannedTown(`${scene}-watch`, { bags: [IDLE_BAG], pool, env: { FOUND: 'off' }, island: true })
+  const plan0 = (await planOf(w.poolDir, w.world)).head?.plan
+  let sc
+  if (plan0) {
+    // the workshop committed by the bots' own founding: a table giver, then a furnace giver (F1, then F3b)
+    await startBot(scene, [['crafting_table', 2]], { pool, name: NAMES[1], standAt: HOME })
+    await startBot(scene, [['furnace', 2]], { pool, name: NAMES[2], standAt: { x: HOME.x - 1, y: HOME.y, z: HOME.z } })
+    await untilPlaced({ poolDir: w.poolDir, world: w.world }, plan => [stations(plan).find(c => c.kind === 'crafting_table'), stations(plan).find(c => c.kind === 'furnace')], 600000)
+    await stopBots([NAMES[1], NAMES[2]])
+    sc = storeCells(plan0)
+  } else {
+    for (const [dx, dz, k] of E_STATIONS) { const p = at([dx, dz]); must(rcon(`setblock ${p.x} ${p.y} ${p.z} minecraft:${k}`), 'base stations') }
+    sc = E_STORE.map(([dx, dz]) => ({ at: [HOME.x + dx, HOME.y, HOME.z + dz] }))
+  }
+  sc.forEach((c, i) => setChest({ x: c.at[0], y: c.at[1], z: c.at[2] }, Array.from({ length: 27 }, (_, j) => (unique && j === 0 ? [WOOLS[i], 1] : ['cobblestone', 64]))))
+  if (plan0) await waitFor(async () => storeCells((await planOf(w.poolDir, w.world)).head?.plan).every(c => c.state === 'placed'), 1500000, 20000)
+  const plan1 = (await planOf(w.poolDir, w.world)).head?.plan
+  return { w, sc, pool, plan1, committed: !!plan1 && storeCells(plan1).every(c => c.state === 'placed') && stations(plan1).slice(0, 2).every(c => c.state === 'placed') }
+}
+const boxOf = (plan, c) => (plan?.plots ?? []).filter(p => Array.isArray(p.box) && c[0] >= p.box[0] - 1 && c[0] <= p.box[2] + 1 && c[2] >= p.box[1] - 1 && c[2] <= p.box[3] + 1).map(p => p.id)
 scenes.foundbox = async () => {
-  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
-  // the only ground: home, a 1-wide walkway east, and the E storehouse box (u 7..15, v -4..4) -- the recovery's rings around the
-  // full store chests find valid cells only inside the box
-  must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
-  must(rcon(`fill ${HOME.x - 2} ${G - 2} ${HOME.z - 2} ${HOME.x + 2} ${G} ${HOME.z + 2} minecraft:dirt`, `fill ${HOME.x + 3} ${G - 2} ${HOME.z} ${HOME.x + 6} ${G} ${HOME.z} minecraft:dirt`,
-    `fill ${HOME.x + 6} ${G - 2} ${HOME.z - 5} ${HOME.x + 16} ${G} ${HOME.z + 5} minecraft:dirt`, `fill ${HOME.x - 2} ${G - 2} ${HOME.z + 3} ${HOME.x + 2} ${G} ${HOME.z + 7} minecraft:dirt`), 'box ground')
-  const pool = `sbxtp-${RUN}-box`
-  const { w } = await fullStore('foundbox', pool)
-  const f = await startBot('foundbox', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool, name: NAMES[1], standAt: at([-1, 0]) })
-  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 600000, 3000)
+  const t = await committedEastTown('foundbox')
+  const f = await startBot('foundbox', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool: t.pool, name: NAMES[1], standAt: HOME })
+  const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 900000, 3000)
   await sleep(10000)
   await stopBots()
-  const plan = (await planOf(w.poolDir, w.world)).head?.plan
+  const plan = (await planOf(t.w.poolDir, t.w.world)).head?.plan
   const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
   const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
-  const sb = plan?.plots?.find(p => p.id === 'store')?.box
-  const inBox = !!(cell && sb && cell[0] >= sb[0] - 1 && cell[0] <= sb[2] + 1 && cell[2] >= sb[1] - 1 && cell[2] <= sb[3] + 1)
   const never = NEVER(plan)
-  result({ scene: 'foundbox', world: w.world, plan: plan ? { orient: plan.orientation, box: sb } : null, dep: dep?.detail?.slice(0, 220) ?? null, cell: cell && K(cell), inBox, tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null, onNever: cell ? never.has(K(cell)) : null,
-    CANDIDATE_PASS: !!(dep && cell && !never.has(K(cell)) && / tier=box /.test(dep.detail) && inBox),
-    // the base (no plan): it places in the same ground (the only valid cells)
-    BASE_SHAPE: !!(!w.root && dep && /placed=1/.test(dep.detail)) })
+  const inBoxes = cell ? boxOf(plan ?? t.plan1, cell) : []
+  const storeBoxBase = cell && cell[0] >= HOME.x + 7 && cell[0] <= HOME.x + 15 && cell[2] >= HOME.z - 4 && cell[2] <= HOME.z + 4
+  result({ scene: 'foundbox', world: t.w.world, committed: t.committed, dep: dep?.detail?.slice(0, 240) ?? null, cell: cell && K(cell), tier: (dep?.detail.match(/ tier=(\w+)/) || [])[1] ?? null, inBoxes, storeBoxBase, onNever: cell ? never.has(K(cell)) : null,
+    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !never.has(K(cell)) && / tier=box /.test(dep.detail) && inBoxes.length),
+    BASE_SHAPE: !!(!t.w.root && dep && /placed=1/.test(dep.detail) && storeBoxBase) })
 }
 scenes.foundaccess = async () => {
-  brainPoints = [{ x: HOME.x + 1, y: HOME.y, z: HOME.z }, { x: HOME.x - 1, y: HOME.y, z: HOME.z }]
-  // as foundbox, but the E box reached from home only through ONE cell (the walkway end at x+6, z 0), and that cell is the cheapest
-  // recovery candidate: ACCESS must refuse it
-  must(rcon(`kill ${ARENA_SEL(A)}`, ...fillChunks(A, 112, 140, 'air')), 'air arena')
-  must(rcon(`fill ${HOME.x - 2} ${G - 2} ${HOME.z - 2} ${HOME.x + 2} ${G} ${HOME.z + 2} minecraft:dirt`, `fill ${HOME.x + 3} ${G - 2} ${HOME.z} ${HOME.x + 6} ${G} ${HOME.z} minecraft:dirt`,
-    `fill ${HOME.x + 7} ${G - 2} ${HOME.z - 5} ${HOME.x + 16} ${G} ${HOME.z + 5} minecraft:dirt`), 'access ground')
-  const pool = `sbxtp-${RUN}-access`
-  const { w, sc } = await fullStore('foundaccess', pool, { unique: true })
-  const f = await startBot('foundaccess', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool, name: NAMES[1], standAt: at([-1, 0]) })
-  const tStart = Date.now()
+  const t = await committedEastTown('foundaccess', { unique: true })
+  const f = await startBot('foundaccess', fillBag([['chest', 2], ['stone_pickaxe', 1], ['oak_log', 20], ['flint', 64]]), { pool: t.pool, name: NAMES[1], standAt: HOME })
   const dep = await waitFor(() => rowsOf(f.skillLog).find(r => r.name === '_deposit_new_chest' && /placed=1|site=none/.test(r.detail)), 600000, 3000)
-  // EVERY store container then OPENED by the bot: a model `withdraw` of the one wool only that chest holds -- the bag gaining
-  // it is the server's proof of the open (a room first: the bot's own bag is emptied of rocks by RCON)
+  // EVERY store container then OPENED by the bot: a withdraw of the one wool only that chest holds (the bag gaining it is the open)
   rcon(`clear ${NAMES[1]} minecraft:andesite`, `clear ${NAMES[1]} minecraft:diorite`, `clear ${NAMES[1]} minecraft:granite`, `clear ${NAMES[1]} minecraft:calcite`)
-  const wools = sc.map((_, i) => WOOLS[i])
+  const wools = t.sc.map((_, i) => WOOLS[i])
   for (const wl of wools) brainQueue.push({ skill: 'withdraw', args: { item: wl, count: 1 } })
   await waitFor(() => { const b = bagOf(NAMES[1]); return wools.every(x => (b[x] ?? 0) >= 1) }, 600000, 10000)
   const bagNow = bagOf(NAMES[1])
   await stopBots()
-  const plan = (await planOf(w.poolDir, w.world)).head?.plan
   const atS = dep && /at=(-?\d+),(-?\d+),(-?\d+)/.exec(dep.detail)
   const cell = atS ? [+atS[1], +atS[2], +atS[3]] : null
-  void tStart
+  const walkway = new Set(Array.from({ length: 9 }, (_, i) => `${HOME.x - 1 + i},${HOME.y},${HOME.z}`))   // x-1..x+7 at z 0: the approach and the box entry
   const unopened = wools.filter(x => !(bagNow[x] >= 1))
-  const neck = `${HOME.x + 6},${HOME.y},${HOME.z}`
-  result({ scene: 'foundaccess', world: w.world, dep: dep?.detail?.slice(0, 220) ?? null, cell: cell && K(cell), neck, onNeck: cell ? K(cell) === neck : null, opened: wools.length - unopened.length, of: wools.length, unopened, gen: plan?.gen,
-    CANDIDATE_PASS: !!(dep && cell && K(cell) !== neck && /placed=1/.test(dep.detail) && wools.length && !unopened.length),
-    BASE_SHAPE: !!(!w.root && dep) })
+  result({ scene: 'foundaccess', world: t.w.world, committed: t.committed, dep: dep?.detail?.slice(0, 240) ?? null, cell: cell && K(cell), onApproach: cell ? walkway.has(K(cell)) : null, opened: wools.length - unopened.length, of: wools.length, unopened,
+    CANDIDATE_PASS: !!(t.committed && dep && /placed=1/.test(dep.detail) && cell && !walkway.has(K(cell)) && !unopened.length),
+    BASE_SHAPE: !!(!t.w.root && dep && /placed=1/.test(dep.detail)) })
 }
 
 // ================================================================ FOUND-PLINTH: the raised well planned under a plan
