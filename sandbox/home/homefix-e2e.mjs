@@ -12,7 +12,7 @@
 //
 //   node sandbox/home/homefix-e2e.mjs <botRoot> <label> <scene,scene,...> [server]
 //   scenes: p0a p0b p1 p1far p1in p2 p3
-// Refuses unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `homefix`. World edits on its arenas only.
+// Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `homefix` as its owner's first word. World edits on its arenas only.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -21,10 +21,13 @@ import { createRequire } from 'node:module'
 
 const [BOT_ROOT, LABEL, SCENES_S, SERVER = 'sandbox4'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENES_S) throw new Error('usage: homefix-e2e.mjs <botRoot> <label> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
+// sandbox names, ports and the lock come from the shared registry (sandbox/sandboxes.json via sandbox/lib/sbxlock.cjs):
+// the global lock or this server's own, whose owner's FIRST word must be `homefix`
+const require = createRequire(import.meta.url)
+const sbx = require('../lib/sbxlock.cjs')
+const PORTS = sbx.PORTS
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-if (!/homefix/.test(lock)) throw new Error(`the sandbox lock does not name homefix: ${lock.trim()}`)
+sbx.requireSandboxLock(SERVER, 'homefix')
 const NAME = 'sandbox-Homefix'
 const OUT = process.env.HF_OUT || path.join(os.tmpdir(), 'homefix-e2e')
 fs.mkdirSync(OUT, { recursive: true })

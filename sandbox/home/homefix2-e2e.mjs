@@ -15,7 +15,7 @@
 //   scenes: reloc_wet   (C2) a frozen river (ice over 1 water) covering 3/4 of the relocation ring; where do targets go?
 //           home_ice    (C3+C1) the L2 home rescue starts; the bot is dropped into hive-d's 1-high water layer under ice
 //           home_pocket (C3) the same into a 3x3x2 water room under a stone roof (the base air-pocket step handles the air)
-// Refuses unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `homefix02`. World edits on its arenas only.
+// Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `homefix02` as its owner's first word. World edits on its arenas only.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -24,10 +24,13 @@ import { createRequire } from 'node:module'
 
 const [BOT_ROOT, LABEL, SCENES_S, SERVER = 'sandbox3'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENES_S) throw new Error('usage: homefix2-e2e.mjs <botRoot> <label> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601 }        // sandbox4 is the model benchmark's: never
-if (!PORTS[SERVER]) throw new Error('sandbox servers only (sandbox, sandbox2, sandbox3)')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-if (!/homefix02/.test(lock)) throw new Error(`the sandbox lock does not name homefix02: ${lock.trim()}`)
+// sandbox names/ports and the lock from the shared registry (sandbox/sandboxes.json via sandbox/lib/sbxlock.cjs);
+// sandbox4 stays excluded: it is the model benchmark's
+const require = createRequire(import.meta.url)
+const sbx = require('../lib/sbxlock.cjs')
+const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => n !== 'sandbox4'))
+if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).join(', ')})`)
+sbx.requireSandboxLock(SERVER, 'homefix02')
 const NAME = `sandbox-Hf2${SERVER.replace(/\D/g, '') || '1'}`
 const OUT = process.env.HF_OUT || path.join(os.tmpdir(), 'homefix2-e2e')
 fs.mkdirSync(OUT, { recursive: true })

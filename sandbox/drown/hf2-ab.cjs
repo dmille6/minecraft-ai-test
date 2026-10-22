@@ -18,7 +18,7 @@
 //
 //   node airpocket-ab.cjs <server> <arm:scene,arm:scene,...>       e.g. sandbox cand:A,ctrl:A,ctrl:A,cand:A
 //   env: CAND_ROOT (default ~/ap-sbx/cand-950e89c), CTRL_ROOT (default ~/ap-sbx/ctrl), AP_BOT_NAME, AP_BRAIN_PORT,
-//        AP_LOCAL_OUT. Refuses to run unless /tmp/mcai-sandbox.lock on 10.0.0.31 exists and names `airpocket`.
+//        AP_LOCAL_OUT. Refuses to run unless a sandbox lock covering SERVER has `homefix02` as its owner's first word.
 //
 // Each trial: ONE FRESH BOT; parked in spectator above the arena while the arena is built by RCON (the chunk must be
 // loaded); the arena verified cell by cell (a positive control: every expected block read back, "not loaded" = abort);
@@ -55,8 +55,9 @@ const http = require('http')
 const fs = require('fs'); const path = require('path')
 
 const [SERVER, PLAN_S] = process.argv.slice(2)
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601 }        // sandbox4 is the model benchmark's: never
-if (!PORTS[SERVER] || !PLAN_S) throw new Error('usage: node airpocket-ab.cjs <sandbox|sandbox2|sandbox3> <arm:scene,...>')
+const sbx = require('../lib/sbxlock.cjs')   // sandbox names/ports + the lock: the shared registry (sandbox/sandboxes.json)
+const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => n !== 'sandbox4'))   // sandbox4 is the model benchmark's: never
+if (!PORTS[SERVER] || !PLAN_S) throw new Error(`usage: node hf2-ab.cjs <${Object.keys(PORTS).join('|')}> <arm:scene,...>`)
 const ROOTS = { cand: process.env.HF2_CAND || '/home/mike/ap-sbx/cand-hf2', ctrl: process.env.HF2_CTRL || '/home/mike/ap-sbx/ctrl-9e7d998' }
 const SHAS = { '/home/mike/ap-sbx/cand-950e89c': '950e89c', '/home/mike/ap-sbx/cand': 'c783e79', '/home/mike/ap-sbx/ctrl': 'c6e91a8', '/home/mike/ap-sbx/ctrl-dbb4d78': 'dbb4d78', '/home/mike/ap-sbx/ctrl-0cdb1a8': '0cdb1a8' }   // a cand-<sha> root names its own sha (below)
 const PLAN = PLAN_S.split(',').map(s => { const [arm, scene] = s.split(':'); if (!ROOTS[arm]) throw new Error(`arm ${arm}`); return { arm, scene } })
@@ -415,8 +416,7 @@ async function runTrial (arm, scene, k) {
 }
 
 async function main () {
-  const lock = r31('cat /tmp/mcai-sandbox.lock/* 2>/dev/null || echo NOLOCK')
-  if (!/homefix02/.test(lock)) throw new Error('the sandbox lock is not held for homefix02: ' + lock.trim().slice(0, 120))
+  sbx.requireSandboxLock(SERVER, 'homefix02')   // the global lock or SERVER's own; owner's first word must be homefix02
   for (const t = Date.now(); ;) {
     const pl = rcon('list')[0].reply
     if (/There are 0 of/.test(pl)) break
