@@ -29,6 +29,12 @@ MUT = [
      'frontier_error_instrument_behind_and_towns_are_alarms'),
     ('silent warm-up publisher ignored', "    if not wu.get('complete'):              # the publisher must be alive",
      "    if False:              # the publisher must be alive", 'frontier_publisher_silent_during_warmup_alarms'),
+    ('warm-up publisher age from now', "if not lp.get('at') or at - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') not in ('warmup', 'ok') \\",
+     "if not lp.get('at') or now - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') not in ('warmup', 'ok') \\",
+     'frontier_publisher_age_is_judged_against_the_tick_that_carried_it'),
+    ('warm publisher age from now', "if not lp.get('at') or at - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') != 'ok':",
+     "if not lp.get('at') or now - _ts(lp['at']) > FRONTIER_PUBLISHER or lp.get('status') != 'ok':",
+     'frontier_publisher_age_is_judged_against_the_tick_that_carried_it'),
     ('not in header', "    if rep.get('frontier'):\n        print(rep['frontier'])\n", "", 'frontier_line_is_in_the_header'),
 ]
 

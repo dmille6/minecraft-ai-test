@@ -386,6 +386,11 @@ def t_frontier_publisher_age_is_judged_against_the_tick_that_carried_it():
                             path=_hb(at='2026-10-22T11:57:00Z', last_publish={'at': '2026-10-22T11:47:30Z',
                                                                               'status': 'warmup', 'usable': 13, 'offered': 13}))
     assert line.startswith('frontier census (E0): idle'), line
+    warm = {'run_start': '2026-10-20T00:00:00Z', 'complete': True, 'complete_at': '2026-10-22T00:00:00Z'}
+    line = FS.frontier_line(dt.datetime(2026, 10, 22, 12, 9, tzinfo=dt.timezone.utc),
+                            path=_hb(at='2026-10-22T11:57:00Z', warmup=warm, last_staged_at='2026-10-22T11:57:00Z',
+                                     last_publish={'at': '2026-10-22T11:47:30Z', 'status': 'ok'}))
+    assert line.startswith('frontier census (E0): idle') and 'warm-up complete' in line, line
 
 
 def t_frontier_line_is_in_the_header():

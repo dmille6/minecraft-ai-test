@@ -1680,7 +1680,8 @@ def stage_withheld(backlog, unstable, instrument):
     published (Codex r1 P1). An instrument failure is staged with instrument_ok false, which the publisher refuses, so
     the bundle says why. Pure."""
     if backlog or unstable:
-        return f'backlog {backlog} hours, unstable {list(unstable)[:5]}'
+        return f'backlog {backlog} hours, invalid hours (unstable / old schema / town not folded / no sample) '\
+               f'{list(unstable)[:5]}'
     return None
 
 

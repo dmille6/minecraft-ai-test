@@ -361,6 +361,11 @@ def cases(m):
        [any(x.startswith('FrontierPublisher') for x in chk.assess([tick('2026-10-20T11:58:00Z', last_publish=lp)], now_s)[0])
         for lp in (None, wp(at='2026-10-20T11:00:00Z'), wp(status='error'), wp(usable=12))])
       == ([], [True, True, True, True]))
+    c('checker: the publisher\'s age is judged against the tick that carried it, warm-up and warm (Claude r6 P3-A)',
+      chk.assess([tick('2026-10-20T11:50:00Z', last_publish=wp(at='2026-10-20T11:40:00Z')),
+                  tick('2026-10-20T11:50:00Z', warmup=W, last_staged_at='2026-10-20T11:50:00Z',
+                       last_publish={'at': '2026-10-20T11:40:00Z', 'status': 'ok'})][1:], now_s)[0] == []
+      and chk.assess([tick('2026-10-20T11:50:00Z', last_publish=wp(at='2026-10-20T11:40:00Z'))], now_s)[0] == [])
     c('checker: warm comes from the newest tick line', (chk.warm_of([tick('x', warmup=W)]), chk.warm_of([tick('x')]))
       == (True, False))
     with tempfile.TemporaryDirectory() as td:
@@ -601,11 +606,11 @@ def cases(m):
         now0 = int(time.time() * 1000)
         hs = {m.floor_hour(now0 - m.SETTLE_MS) - m.HOUR_MS}
         res4, bun4 = fake_tick(m, st, os.path.join(td, 'out4'), unstable_hours=hs)
-        c('tick: an unstable hour stages nothing', (bun4['entries'], 'unstable' in (bun4['withheld'] or '')) == ([], True))
+        c('tick: an unstable hour stages nothing', (bun4['entries'], m.hour_key(min(hs)) in (bun4['withheld'] or ''))
+          == ([], True))
         res4b, bun4b = fake_tick(m, st, os.path.join(td, 'out4b'), nosample_hours=hs)
         c('tick: an hour folded without its sample stages nothing this tick (the cross-check, Claude r5 P3-1)',
           (bun4b['entries'], bool(bun4b['withheld'])) == ([], True))
-        real_fold_ns = m.es_fold_hour
         res5, bun5 = fake_tick(m, st, os.path.join(td, 'out5'), parity_ok=False)
         c('tick: a failed parity is an instrument failure; its entries carry instrument_ok false, which the publisher refuses',
           (res5['status'], [e['doc']['instrument_ok'] for e in bun5['entries']],
@@ -675,7 +680,7 @@ def cases(m):
         finally:
             m.es_fold_hour = saved9
         c('tick: the staging cross-check withholds a window holding an hour without its sample (Claude r5 P3-1)',
-          bool(w9) and 'unstable' in w9)
+          bool(w9) and r9['hour'] in w9)
         lnk = os.path.join(td, 'linked-out')
         os.symlink(o, lnk)
         try:
@@ -903,6 +908,12 @@ MUTANTS = [
      "    return sorted(set(C['unstable']))", 'the staging cross-check withholds'),
     ('the tick skips the cross-check', "        withheld = stage_withheld(backlog, invalid_hours(C), instrument)",
      "        withheld = stage_withheld(backlog, C['unstable'], instrument)", 'an hour folded without its sample stages nothing'),
+    ('the warm-up publisher age is taken from now', "            wage = (_t(last['at']) - _t(lp0['at'])) / 60 if lp0.get('at') else None",
+     "            wage = (now - _t(lp0['at'])) / 60 if lp0.get('at') else None", 'judged against the tick that carried it',
+     'checker'),
+    ('the warm publisher age is taken from now', "            page = (_t(last['at']) - _t(lp['at'])) / 60 if lp and lp.get('at') else None",
+     "            page = (now - _t(lp['at'])) / 60 if lp and lp.get('at') else None", 'judged against the tick that carried it',
+     'checker'),
     ('a dropped town stays in the bundle', "if p not in shared and p not in problems}", "if False}", 'named "gone"'),
     ('the report ignores staleness', "if mu is None or now_ms - mu > STALE_AFTER_MS:", "if mu is None:",
      'a fold whose newest measured hour is 4 h old'),
