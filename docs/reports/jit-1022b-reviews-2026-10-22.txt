@@ -1,0 +1,97 @@
+JIT-1022b rebase reviews, 2026-10-22 (records only; committed ABOVE each jit-1022b canary)
+=========================================================================================
+
+Queue after the re-order: ironpick-01 (live, 2719ee0e) -> keepout-01 -> protectzone-01 -> townindex-01 -> indexsearch-01 ->
+chatgate-01. Built just in time for each fleet that keeping or reverting a run can produce.
+
+THE STACKS (canary = the commit reviewed and tested; the branch tip may carry this record above it)
+  keepout-01      keepout-on-2719ee0      f39471bb  on 2719ee0e  (11 keepout commits, no conflict + 0d0f5ff0 test + the r2 fix)
+                  keepout-on-d014ec2-v2   80339a91  on d014ec2c  (04a3c726 + the r2 relocation fix; SUPERSEDES 04a3c726)
+  Line B (keepout v2 80339a91): protectzone-on-80339a9 97bf8b4f -> townindex-on-97bf8b4 def5ea86 -> indexsearch-on-def5ea8
+                  d1bc1097 -> chatgate-on-d1bc109 3f665712
+  Line C (keepout f39471bb on 2719ee0e): protectzone-on-f39471b 1f5b4b4e -> townindex-on-1f5b4b4 c0fec812 ->
+                  indexsearch-on-c0fec81 7b0d4958 -> chatgate-on-7b0d495 c59b727a
+  Line A (the ORIGINAL keepout 04a3c726, without the relocation fix): protectzone-on-04a3c72 a807352c -> townindex-on-a807352
+                  189d44e1 -> indexsearch-on-189d44e 48369c94 -> chatgate-on-48369c9 e9aa71b0   (Codex r2 CHANGE: supersede by B)
+  No keepout:     chatgate-on-afd6254 035fa76e on afd62547; chatgate-on-9183c3f dc62e948 on 9183c3fe
+
+CONFLICTS (all resolved keeping both behaviours; every later stage's +/- lines byte-identical to its base variant's)
+  protectzone onto keepout: skills.mjs mine (farmNow = composeKeepOut(farmTown(), the column); farmTown =
+    composeKeepOut(townNow(), the zones); farStarts returns keepout's lavaFar when neither town nor zone blocked, and
+    [...town/zone starts, ...lavaFar] otherwise; both walk-out counters), index.mjs (both licence rows; craftsync before the
+    zone reader; keep-out's dig guard first, the zone guard outer), minewell.mjs (both KEEP_OUT_WORDS).
+  townindex: index.mjs licence rows (union).   indexsearch: none.
+  chatgate: index.mjs imports (protectzone's poolStateDir + zone import kept; startComms dropped as chatgate retires it).
+
+ROUND 1 (one brief, all stacks; review-prompt.txt + review-bundle.txt)
+  Codex (codex exec --sandbox read-only): CHANGE for the keepout stacks, APPROVE chatgate-on-afd6254 / chatgate-on-9183c3f.
+    P1  62842d56 relocationForbidden checks the target's feet height only; goto's arrivedAt accepts +-6 vertically
+        (repro: site 50,60,0, target 50,73,0, landing 50.5,72,1.5 inside the column).
+    P2  mine's protected-zone refusal could name an exit stand inside a fire column.
+  Claude (independent subagent): APPROVE every stack and 62842d56 (production) + a0a8ef86; P3s: the same two findings,
+    fireSitesNow unguarded in the watchdog, column+zone refusals counted by keep-out only, the exit digging scenery
+    (survival: by design), no mutants in four of the composed tests.
+  FIXES: 80339a91 (keepout x homefix-02 r2: the whole arrival volume, 3 horizontally / 6 vertically; the watchdog read
+    wrapped; tests pinned against arrivedAt + a feet-only mutant) and a807352c (protectzone x keepout: the exit is judged
+    by the composed keep-out on feet and head; test + mutant).
+
+ROUND 2 (review-prompt-r2.txt)
+  Codex: APPROVE 80339a91, a807352c, line B, line C. CHANGE line A (P1 inherited from 04a3c726: supersede with B).
+  Claude: APPROVE 80339a91, a807352c, lines A, B and C (B preferred). P3s on a807352c: the exit is checked on its exact
+    feet/head cells, not goto's arrival margin (the next mine run plans a walk-off; bounded); the fallback words name
+    only the kinds that blocked the plan.
+
+PAPER: not re-run. No conflict or fix changed a dig, search or container path: the conflicts compose two approved
+  keep-outs into one plan exactly as each had it; the fixes change relocation target choice and refusal advice. Both
+  engines concur. (Claude notes: keep-out's own Paper ran on the 34d3e5e9 build, so the homefix relocation composition has
+  never run on Paper.)
+
+Codex final messages, verbatim:
+--- Codex round 1
+**CHANGE for the keepout stacks; APPROVE for the two chatgate stacks without keepout.** Two findings below. File:line references use `10c61b19` unless stated otherwise.
+
+1. **P1 — Relocation checks the wrong vertical extent.** `bots/src/keepout.mjs:214–216` checks only the target’s y, but `arrivedAt` accepts ±6 vertically (`bots/src/skills.mjs:399`). Read-only reproduction: fire site `(50,60,0)`, dry target `(50,73,0)`, landing `(50.5,72,1.5)`. `dryTarget` accepts, `arrivedAt` succeeds, yet the landing is inside the column and triggers `_keepout_exit`. Thus 62842d56 does not prevent the rescue interaction it promises. Check the entire accepted arrival volume and add upper/lower boundary tests.
+
+2. **P2 — Mine’s protected-zone refusal can recommend a start inside a fire column.** The advice selector checks failed sides and standability, but not the composed keep-out (`bots/src/skills.mjs:12833–12839`). Reproduced with zone `[420,0,180,460,90,220]`, bot `(441,65,200)`, fire site `(464,60,200)`, and the only standable exterior exit `(464,65,200)`: the composed planner correctly refuses with `kinds=['protected']`, then the advice selects that forbidden exit. Following “goto … then mine” hands the bot to `_keepout_exit`. Validate advice against both keep-outs; otherwise name an escape without promising a valid mining start.
+
+Answers to the five questions:
+
+- **1 — Conflict resolutions:** The requested unions are correct. Nested composition is preserved at `skills.mjs:12670–12674`; `lavaFar` survives both return paths at `12710` and `12722`; all three walk-out counters remain at `12773–12775`. The dig instrument precedes keepout, with protectzone outermost (`index.mjs:1095`, `1126`, `1198`). Craftsync precedes the zone reader (`319`, `327`); licence rows remain (`309–317`). Both labels survive in `minewell.mjs:105–111`. Chatgate retains `poolStateDir` and zone imports (`index.mjs:64–65`) and removes `startComms`. No dropped or duplicated production patch found.
+- **2 — Dead ends:** Finding 2 is a concrete conflicting-remedy case; finding 1 permits relocation/exit interference. The sealed exit retains its survival scope (`skills.mjs:2620`), which protectzone allows (`protectzone.mjs:239–243`). No additional composition defect found in town-index access, index ranking, or ironpick order fallback.
+- **3 — 62842d56:** **CHANGE, finding 1.** No-site behavior is preserved: watchdog omits `forbid` (`watchdog.mjs:574–575`), and the optional hook leaves the base rule intact (`relocate.mjs:78`). Horizontal reach covers the accepted footprint; vertical reach does not. Watchdog wiring and rejection counting are otherwise correct.
+- **4 — Tests:** The composed tests exercise behavior with meaningful controls. Mutant anchors occur exactly once on both protectzone tips and both final keepout tips. The escape mutant requires an actual zone refusal (`test/keepout-protectzone-compose.test.mjs:218–225`); the far-start mutant requires `failClass='keepout'` (`229–236`). The two `farmTown` re-anchors preserve their intended mutations (`test/protectzone.test.mjs:365`, `713`). Coverage misses findings 1 and 2. I inspected these suites rather than running their file-writing fixtures/mutants; the reported reproductions ran entirely read-only.
+- **5 — Paper:** No unintended dig/search/container implementation drift found in the rebases; townindex/indexsearch production additions and removals match their respective approved variants. Fixing finding 1 changes relocation behavior; fixing finding 2 changes mining recovery advice. Re-run the affected composed Paper scenarios before approving those revised canaries.
+
+| Stack / tip | Verdict |
+|---|---|
+| keepout-on-d014ec2 `04a3c726` — newly reviewed composition | **CHANGE — 1** |
+| keepout-on-2719ee0 `0d0f5ff0` | **CHANGE — 1** |
+| protectzone `619ca955`, `7ed18b79` | **CHANGE — 1, 2** |
+| townindex `67a6e276`, `dcf85635` | **CHANGE — inherited 1, 2** |
+| indexsearch `9d88d898`, `051cf6e9` | **CHANGE — inherited 1, 2** |
+| chatgate `10c61b19`, `bb90958f` | **CHANGE — inherited 1, 2** |
+| chatgate `035fa76e`, `dc62e948` | **APPROVE** |
+
+--- Codex round 2
+**Approve both fixes and lines B/C. Line A should be superseded by B.**
+
+| Commit / line | Verdict |
+|---|---|
+| `80339a91` | APPROVE |
+| `a807352c` | APPROVE |
+| A — `e9aa71b0` | CHANGE — finding 1 |
+| B — `3f665712` | APPROVE |
+| C — `c59b727a` | APPROVE |
+
+1. **P1 — Line A retains the unsafe relocation rule.** At `e9aa71b0`, `bots/src/keepout.mjs:216` checks only target feet height. Site `(50,60,0)` permits target `(50,73,0)`, while `arrivedAt` accepts landing `(50.5,72,1.5)` inside that column (`bots/src/skills.mjs:402`). Being already queued does not resolve this finding; supersede A with B.
+
+Both fixes close their respective findings without a new blocking issue:
+
+- **Relocation:** `80339a91`, `bots/src/keepout.mjs:224` covers all accepted arrival cells. Its square horizontal envelope is conservative relative to `arrivedAt`’s circle. Exhausting candidates remains bounded at 16 attempts and selects the existing home fallback (`bots/src/watchdog.mjs:587`). The facts-reader exception is caught at line 577.
+- **Zone refusal:** `a807352c`, `bots/src/skills.mjs:12533` checks composed keep-out at feet and head. When no eligible exit remains, line 12542 returns exploration advice without naming a forbidden coordinate. An additional no-clear-exit probe confirmed this, with zero digs.
+
+**Tests:** All 15 tests in the affected suites passed, including mutants, using an in-memory harness for temporary modules and log sinks. Two additional probes passed: no clear exit and relocation exhaustion. Mutation anchors are explicitly checked for uniqueness. The vertical regression distinguishes the old feet-only behavior correctly. The “exhaustive” test exhausts its sampled lattice, not continuous positions; coverage of the full accepted volume also follows from inspecting the bounds.
+
+**Stack/path verification:** A/B range-diffs match; rebuilt downstream stages match round 1’s added/removed lines, including C’s existing ironpick composition. Both fix replicas match. No new dig execution, resource-search, or container-path changes: these fixes affect relocation selection/error handling and refusal advice. No additional Paper rerun is indicated by those path changes.
+
+No files edited.
