@@ -1839,8 +1839,10 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
 async function withKeepout (ctx, skill, fn, { near = 64 } = {}) {
   const bot = ctx?.bot
   const p = bot?.entity?.position
-  const sites = p ? sitesNear(bot.fireSitesNow?.() ?? [], p, near) : []
-  if (!sites.length) return fn(null)
+  // A SCOPE WHENEVER KEEP-OUT IS ON, EVEN WITH NO SITE NEAR YET (Codex r2 P2-2): a site recorded during the run joins it at the
+  // next plan, dig or gather round (refresh). With no site in it, every check is a no-op -- the base exactly. Off -> no scope.
+  if (typeof bot?.fireSitesNow !== 'function') return fn(null)
+  const sites = p ? sitesNear(bot.fireSitesNow() ?? [], p, near) : []
   const generation = ctx?.runner?.generation ?? null
   // NEVER A DEAD RUN'S SCOPE (Claude r1 P1-1): an outer scope is inherited (and restored) only from THIS runner generation
   const held = bot.keepoutRoute ?? null
@@ -12474,8 +12476,8 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   // KEEPOUT-01: THE PERMITTED PLAN, for the canary's deterministic gate (design 8 row 2): every cell this descent's stair
   // would dig from here to the goal (minewell.mjs stepCells), and how many of them lie in a column the bot knows (must be 0)
   const minedCells = []
-  if (ko) ko.minedCells = minedCells   // mineGuarded writes the `_mine_dig` row from it
-  if (ko) {
+  if (ko && ko.sites.length) ko.minedCells = minedCells   // mineGuarded writes the `_mine_dig` row from it (only near a site)
+  if (ko && ko.sites.length) {
     try {
       const p0 = bot.entity.position.floored(), planned = []
       for (let i = 0; i < 90 && p0.y - i > goalY + 1; i++) planned.push(...stepCells(p0, bear, i))

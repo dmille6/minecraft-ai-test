@@ -116,6 +116,7 @@ export function keepOutPart (sites) {
  */
 export function routeForbids (sites, from, cell) {
   if (!Array.isArray(sites) || !sites.length || !finite3(cell)) return false
+  if (!sites.some(q => inColumn(q, cell))) return false        // the hot path: most cells are in no column (Claude r2 P3-2)
   // EVERY column the cell is in, judged on its own (Codex r1 P1-3: overlapping columns -- judging only the nearest let a walk
   // that was outward from one centre enter a second column the bot was not in): a column the bot is NOT standing in is
   // never entered; one it IS standing in is crossed only outward from that column's own centre
@@ -216,6 +217,20 @@ export function relocationForbidden (sites, x, y, z, reach = 3) {
   return false
 }
 
+/**
+ * THE EXIT ORDER'S OWN BOOKKEEPING (cognitive.mjs; Codex r1 P1-1 / Codex r2 P2-7) -> { tries, backoffUntil }. Pure. Out
+ * (success) or nothing to leave (no_effect) re-arms it; a failure backs off at once; anything else (interrupted by a reflex,
+ * aborted by the runner's clock, unverified) counts, and the third in a row backs off too -- the exit can never loop on a
+ * bot it cannot move, and while it backs off the escape ladder and the model have the body.
+ */
+export function exitOutcome (state = {}, status, now = Date.now()) {
+  const out = status === 'success' || status === 'no_effect'
+  let tries = out ? 0 : (state.tries ?? 0) + 1
+  let backoffUntil = out ? 0 : (state.backoffUntil ?? 0)
+  if (status === 'failed' || tries >= 3) { backoffUntil = now + KEEPOUT_EXIT_BACKOFF_MS; tries = 0 }
+  return { tries, backoffUntil }
+}
+
 /** A refused (skill, block) suppressed for this bot -> the matching live entry | null. Pure. */
 export function cooldownHit (entries, { skill, block = null, pos, now = Date.now() } = {}) {
   if (!Array.isArray(entries) || !finite3(pos)) return null
@@ -311,7 +326,8 @@ export function keepoutDigGuard (inner, { sitesNow, purposeOf, onRefuse = () => 
  * or a `survival` scope (the reflex tick, `_keepout_exit`) -> survival, never refused. Pure.
  */
 export function guardPurpose ({ reflex = null, holder = null, skill = null, scope = null, base = 'other' } = {}) {
-  if (reflex) return 'survival'
+  // eating does not take the body (Codex r2 P1-3): a work dig while the bot eats is still the work's dig
+  if (reflex && !/^eat/.test(String(reflex))) return 'survival'
   if (holder && skill && holder !== skill) return 'survival'
   if (scope?.purpose === 'survival') return 'survival'
   return base

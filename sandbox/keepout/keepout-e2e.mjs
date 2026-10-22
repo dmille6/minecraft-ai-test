@@ -21,6 +21,9 @@
 //   scenes: gather  the bot on the surface above the pool (inside the column) is told `gather dirt 3`
 //           ledge   the bot sealed in a 1x1x2 rock pocket above the pool (inside the column): candidate keepout_exit, then gather
 //           mine    the bot 10 blocks east of the pool facing it, told `mine` to y 85: its stair would cut the column
+//           town    C12: home, a chest and a furnace holding 8 copper ingots inside the column; the bot at home: the exit
+//                   decision (keepout.mjs exitDecision, as cognitive.mjs asks it) yields, the real furnace_drain empties the
+//                   furnace, then `gather dirt 3` digs nothing in the column; `_keepout_yield` names the town
 // Refuses unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `keepout01`. World edits on its arena only.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -45,9 +48,10 @@ const P_ = (...a) => { const s = `[${LABEL} ${((Date.now() - T0) / 1000).toFixed
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const C = { x: 4800, y: 100, z: 4800 }          // the pool's centre (the site)
-const HOME = { x: 4800 + 200, y: 106, z: 4800 }  // far away: no town ground near
+const TOWN = process.argv[4]?.split(',').includes('town')
+const HOME = TOWN ? { x: 4803, y: 106, z: 4800 } : { x: 4800 + 200, y: 106, z: 4800 }  // the town scene's home is IN the column
 Object.assign(process.env, {
-  BOT_NAME: NAME, BOT_ROLE: 'gatherer', EXP_INSTANCE: 'sandbox', EXP_BLOCK: 'sandbox', EXP_ARM: 'sandbox', MEMORY_SCOPE: 'isolated',
+  BOT_NAME: NAME, BOT_ROLE: 'gatherer', EXP_INSTANCE: 'sandbox', EXP_BLOCK: 'sandbox', EXP_ARM: 'sandbox', MEMORY_SCOPE: 'checkpoint',
   MEMORY_POOL: `sbxko-${LABEL}`, MINECRAFT_HOST: '10.0.0.30', MINECRAFT_PORT: String(PORTS[SERVER]), MINECRAFT_VERSION: '1.21.8',
   MINECRAFT_AUTH: 'offline', WORLD_BORDER_RADIUS: '8000', SKILL_TIMEOUT_MS: '180000', MAX_CONSECUTIVE_FAILURES: '50',
   OLLAMA_MODEL: 'qwen2.5:7b-instruct', OLLAMA_BASE_URL: 'http://127.0.0.1:11499', LLM_ENABLED: 'false', LOG_LEVEL: 'warn',
@@ -59,7 +63,8 @@ const mineflayer = breq('mineflayer')
 const { pathfinder, Movements } = breq('mineflayer-pathfinder')
 const { SKILLS } = await import(path.join(BOT_ROOT, 'bots/src/skills.mjs'))
 const { Runner } = await import(path.join(BOT_ROOT, 'bots/src/runner.mjs'))
-const { tapRecords } = await import(path.join(BOT_ROOT, 'bots/src/logger.mjs'))
+const { tapRecords, logEvent } = await import(path.join(BOT_ROOT, 'bots/src/logger.mjs'))
+const { Vec3 } = createRequire(path.join(BOT_ROOT, 'bots/package.json'))('vec3')
 const { WorldFacts } = await import(path.join(BOT_ROOT, 'bots/src/worldfacts.mjs'))
 const { deathSiteStepCost } = await import(path.join(BOT_ROOT, 'bots/src/deathsites.mjs'))
 const { digPurpose, currentDigScope } = await import(path.join(BOT_ROOT, 'bots/src/digtown.mjs'))
@@ -95,6 +100,9 @@ async function arena (scene) {
   for (let y = 85; y <= 118; y++) c.push(`fill ${x0} ${y} ${z0} ${x1} ${y} ${z1} minecraft:${y <= 101 ? 'stone' : y <= 104 ? 'dirt' : y === 105 ? 'grass_block' : 'air'}`)
   c.push(`fill ${C.x - 2} 101 ${C.z - 2} ${C.x + 2} 102 ${C.z + 2} minecraft:air`)          // the cave over the pool
   c.push(`fill ${C.x - 1} 100 ${C.z - 1} ${C.x + 1} 100 ${C.z + 1} minecraft:lava`)        // the pool
+  if (scene === 'town') {
+    c.push(`setblock ${C.x + 3} 106 ${C.z + 2} minecraft:chest`, `setblock ${C.x + 2} 106 ${C.z - 2} minecraft:furnace`)
+  }
   if (scene === 'ledge') {
     c.push(`fill ${C.x + 1} 105 ${C.z - 1} ${C.x + 3} 108 ${C.z + 1} minecraft:stone`)     // a rock pocket on the surface, inside the column
     c.push(`fill ${C.x + 2} 106 ${C.z} ${C.x + 2} 107 ${C.z} minecraft:air`)
@@ -123,9 +131,16 @@ function wire (runner, wf) {
   gatherMoves.canDig = true; gatherMoves.allow1by1towers = true; gatherMoves.maxDropDown = 6; gatherMoves.dontCreateFlow = true
   if (KO) {
     bot.fireSitesNow = () => KO.fireSites(deathSites())
-    const koHeld = kr => KO.scopeHolds(kr, { reflex: null, holder: runner.arb?.holder?.owner ?? null, arbiter: true })
-    const stepPen = block => { const kr = bot.keepoutRoute; if (!kr || !kr.sites.length || !block?.position || !koHeld(kr)) return 0; return KO.routeForbids(kr.sites, bot.entity?.position, block.position) ? 101 : 0 }
-    const brkPen = block => { const kr = bot.keepoutRoute; if (!kr || !kr.sites.length || !block?.position || !koHeld(kr)) return 0; return KO.columnAt(kr.sites, block.position) ? 101 : 0 }
+    // as index.mjs: the arbiter is OFF in production (config.mjs), the scope must be this generation's and a run must be live
+    const koHeld = kr => KO.scopeHolds(kr, { reflex: null, holder: runner.arb?.holder?.owner ?? null, arbiter: false, generation: runner.generation, running: !!runner.current })
+    const stepPen = block => { const kr = bot.keepoutRoute; if (!kr || !kr.sites.length || !block?.position) return 0; return KO.routeForbids(kr.sites, bot.entity?.position, block.position) && koHeld(kr) ? 101 : 0 }
+    const brkPen = block => { const kr = bot.keepoutRoute; if (!kr || !kr.sites.length || !block?.position) return 0; return KO.columnAt(kr.sites, block.position) && koHeld(kr) ? 101 : 0 }
+    // the C12 yield and its row, as index.mjs bot.keepoutYields
+    bot.keepoutYields = site => {
+      const v = KO.coversTown(site, { home: HOME, nameAt: (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null })
+      if (v.yields) try { logEvent({ kind: 'keepout_yield', status: 'success', detail: `site=${KO.siteKey(site)} pool=${process.env.MEMORY_POOL} home=${v.home ? 1 : 0} containers=${v.containers} furnaces=${v.furnaces}` }) } catch {}
+      return v.yields
+    }
     moves.exclusionAreasStep = [b => deathSiteStepCost(deathSites(), b) + stepPen(b)]
     gatherMoves.exclusionAreasStep = moves.exclusionAreasStep
     gatherMoves.exclusionAreasBreak = [b => brkPen(b)]
@@ -156,7 +171,7 @@ async function scene (s) {
   await connect()
   rcon(`tp ${NAME} ${C.x + 0.5} 112 ${C.z + 20.5}`); await sleep(4000)      // load the chunks first
   await arena(s)
-  const start = s === 'mine' ? { x: C.x + 10.5, y: 106, z: C.z + 0.5 } : s === 'ledge' ? { x: C.x + 2.5, y: 106, z: C.z + 0.5 } : { x: C.x + 1.5, y: 106, z: C.z + 0.5 }
+  const start = s === 'mine' ? { x: C.x + 10.5, y: 106, z: C.z + 0.5 } : s === 'ledge' ? { x: C.x + 2.5, y: 106, z: C.z + 0.5 } : s === 'town' ? { x: HOME.x + 0.5, y: 106, z: HOME.z + 0.5 } : { x: C.x + 1.5, y: 106, z: C.z + 0.5 }
   rcon(`tp ${NAME} ${start.x} ${start.y} ${start.z}`); await sleep(3000)
   const wf = new WorldFacts(path.join(STATE, `world-facts-${s}.json`))
   wf.reportDeath('fire', { x: C.x + 0.3, y: C.y, z: C.z + 0.2 }, 'sbx-ko-victim')
@@ -165,7 +180,20 @@ async function scene (s) {
   const rows = []; const untap = tapRecords(r => rows.push(r))
   const runs = []; const t0 = Date.now(); let outAt = null
   const poll = setInterval(() => { try { const p = bot.entity.position; if (!outAt && !inCol(p)) outAt = Date.now() } catch {} }, 250)
+  let town = null
   try {
+    if (s === 'town') {
+      rcon(`item replace block ${C.x + 2} 106 ${C.z - 2} container.2 with minecraft:copper_ingot 8`)
+      await sleep(1500)
+      const sites = KO ? bot.fireSitesNow() : []
+      const d = KO ? KO.exitDecision({ sites, pos: bot.entity.position, home: HOME, skill: 'furnace_drain', yielded: q => bot.keepoutYields(q), yieldOn: KO.townYieldOn({}) }) : { start: false, why: 'base' }
+      const dAway = KO ? KO.exitDecision({ sites, pos: { x: C.x - 3.5, y: 106, z: C.z + 0.5 }, home: HOME, skill: 'gather', yielded: q => bot.keepoutYields(q), yieldOn: true }) : null
+      runs.push(['furnace_drain', await runner.run('furnace_drain', {}, { trigger: 'sandbox' })])
+      const left = r1(`data get block ${C.x + 2} 106 ${C.z - 2} Items`)
+      town = { decisionAtHomeOnDrain: { start: d.start, why: d.why }, decisionAwayOnGather: dAway && { start: dAway.start, why: dAway.why },
+               furnaceItemsAfter: left.slice(0, 160), ingotsInBag: bot.inventory.items().filter(i => i.name === 'copper_ingot').reduce((a, i) => a + i.count, 0) }
+      runs.push(['gather', await runner.run('gather', { block: 'dirt', count: 3 }, { trigger: 'llm:sandbox' })])
+    }
     if (s === 'mine') { await bot.look(Math.PI / 2, 0, true).catch(() => {}); runs.push(['mine', await runner.run('mine', { y: 85 }, { trigger: 'llm:sandbox' })]) }
     if (s === 'ledge' && KO) runs.push(['keepout_exit', await runner.run('keepout_exit', {}, { trigger: 'sandbox' })])
     if (s === 'gather' || s === 'ledge') runs.push(['gather', await runner.run('gather', { block: 'dirt', count: 3 }, { trigger: 'llm:sandbox' })])
@@ -175,10 +203,10 @@ async function scene (s) {
   const colDigs = digs.filter(inCol)
   const brief = r => ({ name: r.skill?.name, status: r.skill?.status, fc: r.skill?.fail_class, detail: String(r.skill?.detail ?? '').slice(0, 220),
     args: /^_mine_(plan|dig)$/.test(r.skill?.name ?? '') ? { n: r.skill.args?.n, in_column: r.skill.args?.in_column } : undefined })
-  const ev = { scene: s, start, end, endInColumn: inCol(end), outAfterS: outAt ? +((outAt - t0) / 1000).toFixed(1) : null,
+  const ev = { scene: s, start, end, endInColumn: inCol(end), outAfterS: outAt ? +((outAt - t0) / 1000).toFixed(1) : null, town,
     runs: runs.map(([k, r]) => ({ skill: k, status: r?.status, fc: r?.failClass ?? null, detail: String(r?.detail ?? '').slice(0, 220) })),
     digs: digs.length, columnDigs: colDigs.length, columnDigCells: colDigs.slice(0, 12), lavaBelowBot: end ? /Test passed/.test(r1(`execute if block ${Math.floor(end.x)} ${Math.floor(end.y) - 1} ${Math.floor(end.z)} minecraft:lava`)) : null,
-    rows: rows.filter(r => /^_(mine_plan|mine_dig|keepout|keepout_exit|keepout_dispute)$/.test(r.skill?.name ?? '')).map(brief).slice(0, 12) }
+    rows: rows.filter(r => /^_(mine_plan|mine_dig|keepout|keepout_exit|keepout_dispute|keepout_yield|furnace_drain)$/.test(r.skill?.name ?? '')).map(brief).slice(0, 12) }
   await disconnect()
   return ev
 }
