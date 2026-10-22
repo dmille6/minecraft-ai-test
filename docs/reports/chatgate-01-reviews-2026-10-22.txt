@@ -1,0 +1,32 @@
+chatgate-01 -- review record (2026-10-22)
+=========================================
+Design: docs/reports/comms-design-2026-10-21.md 5.3 / 8 row 1 / 9 C4 C7 (Codex + Claude APPROVE r7; owner "yes" C1-C9
+2026-10-22 ~00:00Z). Branches: chatgate-on-34d3e5e (fleet base 34d3e5e9) and chatgate-on-d014ec2 (homefix-02's canary
+d014ec2c: the same commits cherry-picked, no conflict; sorted +/- lines of both diffs identical, 1,167 lines).
+
+ROUND 1 (4a7fb891)
+  Codex CHANGE: P2-1 unlisted lines were still parsed (addressed() in the unlisted branch); P2-2 the mode row carried the
+    env's raw dropped text (an e-mail reached telemetry) and `mike:status:stop` was silently `mike:status`; P2-3 the listener
+    inventory missed index.mjs's `message` (death cause) listener, which trusted any text starting with the bot's name.
+    P3: the core restriction and status are sound; reply throttling effective; retirement checks out; TALK omission OK.
+  Claude CHANGE: P2-1 the listener walk missed `message`/systemChat/unmatchedMessage; P2-2 the echo test passed for the wrong
+    reason (the hyphenated name failed NAME_RE). P3: mineflayer reads the `chat` sender from the RENDERED text -- hyphenated
+    fleet names never raise `chat` (the 0 ingestions) and `* ab mike: !stop` (/me) arrives as `mike`; status was public;
+    the ignored tail could be lost; parser edge cases; stale comms comment; TALK's later build needs its own T6.
+ROUND 2 (35c90833 code; f9b0b65b + the Paper scene) -- every round-1 finding answered (commit 35c90833).
+  Codex CHANGE: P2 the `_chat_ignored` interval leaked one dead bot per in-process reconnect; P3 game_info control and a
+    position-forwarding mutant.
+  Claude CHANGE: P2 the same timer leak; P3 Paper on another sha, LISTEN missed raw packet names, comment on 'chat' only.
+ROUND 3 (24e9217c code; a05526bb + Paper re-run on 24e9217c)
+  Codex APPROVE (no P1/P2).  Claude APPROVE (P3: timerLive reads a flag; the end-flush on a dead bot may lose one row;
+    `_chat_ignored` ~0 on the bench is not evidence -- exposure is `_chatgate_mode`).
+
+TESTS: bots/test/chatgate.test.mjs 39 (allowlist, status-only scope, refusal of unlisted names, parser spy, listener walk,
+  death-cause provenance, prompt enum, lifecycle; 10 anchored unique mutants). npm test 269/269 on the 24e9217c tree
+  (comms-scope / peer-names removed with the ingestion they tested). eslint no-undef: only reflex.mjs:2384 withinBody.
+PAPER (sandbox3, Paper 1.21.8; lock /tmp/mcai-sandbox.lock 23:08:18-23:10:24Z and 23:14:48-23:15:46Z;
+  docs/reports/chatgate-01-paper-2026-10-22.jsonl): `chat` fires for plain names, never for hyphenated fleet names; the
+  death message is position 'system'. BASE 34d3e5e9: an unlisted `!stop` cancelled the running skill; status/goto/come
+  dispatched. CANDIDATE (35c90833, 24e9217c): every unlisted line ignored, the held skill ran throughout, mike's status
+  whispered, mike's !stop refused, nothing ingested, 0 blocks moved.
+READ: scripts/host/chatgateread.py (host md5 4a2e911f); dry run on the base: 388,574 rows, D1-D3 0, licence 0.
