@@ -48,6 +48,8 @@ const RUN = fs.mkdtempSync(path.join(OUT, `${LABEL}-${SCENE}-`))
 const T0 = Date.now()
 const P_ = (...a) => { const s = `[${LABEL}/${SCENE} ${((Date.now() - T0) / 1000).toFixed(1)}] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' '); fs.appendFileSync(`${OUT}/driver.log`, s + '\n'); console.log(s) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+// ONE STOP FOR EVERYTHING (Codex driver review r2 P2): once a signal or the end has begun the cleanup, no bot is launched
+let stopping = false
 let sha = 'unknown'
 try { sha = execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch { try { sha = fs.readFileSync(path.join(BOT_ROOT, 'SHA'), 'utf8').trim() } catch {} }
 
@@ -114,6 +116,7 @@ const who = SCENE === 'bravo' ? ['Bravo', 'Comet'] : SCENE === 'alpha' ? ['Alpha
 const nameOf = w => `pe${LABEL.replace(/[^a-z0-9]/gi, '').slice(0, 6)}${w.slice(0, 3)}${SCENE.slice(0, 2)}`.slice(0, 16)
 const procs = []
 function launch (w) {
+  if (stopping) throw new Error('stopping: no bot is launched once the cleanup has begun')
   const name = nameOf(w)
   const dir = path.join(RUN, name)
   fs.mkdirSync(path.join(dir, 'log'), { recursive: true }); fs.mkdirSync(path.join(dir, 'state'), { recursive: true })
@@ -214,7 +217,10 @@ async function main () {
   fs.appendFileSync(RES, JSON.stringify({ at: new Date().toISOString(), label: LABEL, ...ev }) + '\n')
   P_('RESULT', ev)
 }
-async function cleanup () {
+let cleaned = null
+function cleanup () { return (cleaned ??= cleanupOnce()) }   // a single shared cleanup, whoever asks first
+async function cleanupOnce () {
+  stopping = true
   // every bot process ends before the arena is restored: SIGTERM, then SIGKILL for a straggler (Codex driver review P2)
   for (const c of procs) { try { c.kill('SIGTERM') } catch {} }
   for (let k = 0; k < 25 && procs.some(c => c.exitCode === null && c.signalCode === null); k++) await sleep(200)
@@ -225,9 +231,9 @@ async function cleanup () {
     for (let dy = -8; dy <= 12; dy++) c.push(`fill ${A.x - R} ${A.y + dy} ${A.z - R} ${A.x + R} ${A.y + dy} ${A.z + R} minecraft:${dy <= 1 ? 'stone' : 'air'}`)
     c.push(`forceload remove ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`)
     batch(c)
+    for (const ch of procs) { if (ch.exitCode === null && ch.signalCode === null) { try { ch.kill('SIGKILL') } catch {} } }
     P_('cleanup', r1('list').slice(0, 80))
   } catch (e) { P_('cleanup failed', e.message) }
 }
 main().then(() => cleanup().then(() => process.exit(0)), e => { P_('FATAL', e.stack || e.message); cleanup().then(() => process.exit(1)) })
-let stopping = false
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { if (stopping) return; stopping = true; cleanup().then(() => process.exit(1)) })
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { stopping = true; cleanup().then(() => process.exit(1)) })
