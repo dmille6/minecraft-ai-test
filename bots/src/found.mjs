@@ -161,7 +161,8 @@ export function foundOrder ({ plan = null, zonesKnown = true, items = [], wanted
     const m = chestMeans(items, means)
     if (g && !unassigned.length && m.ok && (!m.craft || craftFits('chest'))) {
       if (store.kind !== 'cluster') {
-        // THIS group's own cell first (a gone or expired home keeps its intent), then a cell with no intent; never one meant for
+        // THIS group's own cell first (a gone home keeps its intent; an expired or released reservation keeps only an intent it did
+        // not set itself), then a cell with no intent; never one meant for
         // the overflow or another group (Claude/Codex code r2 P2: the walk refuses changing an intent, so such a pick looped)
         const free = freeCells(store.cells)
         const cell = free.find(c => c.role === 'home' && c.group === g && ready(c)) ?? free.find(c => (c.role ?? null) === null && ready(c))
