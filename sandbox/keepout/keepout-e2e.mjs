@@ -24,7 +24,7 @@
 //           town    C12: home, a chest and a furnace holding 8 copper ingots inside the column; the bot at home: the exit
 //                   decision (keepout.mjs exitDecision, as cognitive.mjs asks it) yields, the real furnace_drain empties the
 //                   furnace, then `gather dirt 3` digs nothing in the column; `_keepout_yield` names the town
-// Refuses unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `keepout01`. World edits on its arena only.
+// Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `keepout01` as its owner's first word. World edits on its arena only.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -33,10 +33,13 @@ import { createRequire } from 'node:module'
 
 const [BOT_ROOT, LABEL, SCENES_S, SERVER = 'sandbox3'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENES_S) throw new Error('usage: keepout-e2e.mjs <botRoot> <label> <scenes> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601 }        // sandbox4 is the model benchmark's: never
-if (!PORTS[SERVER]) throw new Error('sandbox servers only (sandbox, sandbox2, sandbox3)')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-if (!/keepout01/.test(lock)) throw new Error(`the sandbox lock does not name keepout01: ${lock.trim()}`)
+// sandbox names/ports and the lock from the shared registry (sandbox/sandboxes.json via sandbox/lib/sbxlock.cjs);
+// sandbox4 stays excluded: it is the model benchmark's
+const require = createRequire(import.meta.url)
+const sbx = require('../lib/sbxlock.cjs')
+const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => n !== 'sandbox4'))
+if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).join(', ')})`)
+sbx.requireSandboxLock(SERVER, 'keepout01')
 const NAME = `sbx-ko-${LABEL.replace(/[^a-z0-9]/gi, '').slice(0, 6)}`
 const OUT = process.env.KO_OUT || path.join(os.tmpdir(), 'keepout-e2e')
 fs.mkdirSync(OUT, { recursive: true })
