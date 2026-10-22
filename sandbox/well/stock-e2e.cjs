@@ -11,6 +11,7 @@
 //           cobbleband (cobblekeep-01: a town at 984 of the 1000 cap, a full bag of cobble -> the well takes it; after `build`)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //           kitsearch smeltcoal (toolkit-03: the far chest of iron / of coal; no well needed; LOCK_OWNER=kitsearch)
+//           ironpick ironpickkeep ironpickfull (ironpick-01: the kit's iron pickaxe; no well needed; LOCK_OWNER=ironpick)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -910,6 +911,68 @@ scenes.smeltcoal = async () => {
     world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearAfter: after.near, townIngots, townRaw },
     CANDIDATE_PASS: !!(rows.some(r => /^stop=done .* smelted=8 /.test(r.detail)) && townIngots === 8 && townRaw === 0 && (after.far.coal ?? 0) === 3),
     BASE_SHAPE: !!(rows.length >= 1 && rows.every(r => /^stop=no_fuel /.test(r.detail)) && townRaw === 8 && townIngots === 0 && (after.far.coal ?? 0) === 4) })
+}
+// IRONPICK (ironpick-01; LOCK_OWNER=ironpick; no well needed): the kit makes an IRON PICKAXE from the town's iron when the bag has
+// none above 40 uses. One chest 3 from home; the bot holds a WORN iron pickaxe (damage 220 = 30 uses left), the iron axe and the
+// iron shovel (so the base build's kit has nothing to make), 9 sticks and a crafting table. Read back from the WORLD: the
+// server's bag (a fresh copy = damage 0, the worn copy = damage 220, by `execute if items`), the chest's contents, the item
+// entities on the arena, the rows. Scenes:
+//   ironpick      chest 20 ingots + 64 sticks -> CANDIDATE: a fresh iron pickaxe, the worn copy still held, the chest 20 -> 17, a
+//                 `_kit_ironpick` made=1 row. BASE: no kit order (the kit is held), the chest keeps its 20.
+//   ironpickkeep  chest 3 + TOWN_IRON_KEEP - 1 = 6 ingots -> CANDIDATE: no craft, the chest keeps 6, a `_kit_ironpick` no_iron row.
+//   ironpickfull  a FULL bag (36/36): worn iron pickaxe, iron axe, sticks, table, three whole bankable stacks (raw copper, copper
+//                 ingots, coal) and 29 single white wool; chest 20 ingots -> CANDIDATE: room made (by the town deposit, which goes
+//                 first at 34+, or the kit's own room plan), the fresh pickaxe AND the shovel crafted, chest 20 -> 16, nothing on
+//                 the ground.
+const IRON_WORN = 'iron_pickaxe[minecraft:damage=220]'
+async function ironpickScene (scene, { chestIron, bagSpec, wait = 300000 }) {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = { x: HOME.x + 3, y: HOME.y, z: HOME.z }
+  setChest([['iron_ingot', chestIron], ['stick', 64]], at)
+  const before = chestTotals(at).totals
+  const files = await startBot(scene, bagSpec, { pool: `sbxip-${RUN}-${scene}` })
+  const b0 = bag(NAME)
+  const t0 = Date.now()
+  const ipRows = () => rowsOf(files.skillLog).filter(r => r.name === '_kit_ironpick')
+  await waitFor(() => ipRows().length >= 1, wait, 1000)
+  await sleep(4000)
+  const rows = ipRows()
+  const kit = rowsOf(files.skillLog).filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail)).map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.status} ${r.detail}`)
+  const orders = rowsOf(files.skillLog).filter(r => /^_(town_deposit|withdraw_pick|toolkit|kit_ironpick|well_dispose|wear_out)$/.test(r.name)).map(r => `${r.name}:${r.status}`)
+  const after = chestTotals(at).totals
+  const b = bag(NAME)
+  const freshN = /count: (\d+)/.exec(r1(`execute if items entity ${NAME} container.* minecraft:iron_pickaxe[minecraft:damage=0]`))?.[1]
+  const wornN = /count: (\d+)/.exec(r1(`execute if items entity ${NAME} container.* minecraft:iron_pickaxe[minecraft:damage=220]`))?.[1]
+  const ground = /count: (\d+)/.exec(r1(`execute if entity ${ARENA_SEL}`))?.[1] ?? '0'
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_toolkit_ironpick_mode').map(r => r.detail)
+  await stopBot(); BRAIN_WANDER = false
+  const out = { scene, root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.status} ${r.detail}`), kit, orders: orders.slice(0, 20),
+    world: { bagBefore: b0.totals, bag: b.totals, used: [b0.used, b.used], chestBefore: before, chestAfter: after, freshIronPick: Number(freshN ?? 0), wornIronPick: Number(wornN ?? 0), groundItems: Number(ground) },
+    licence }
+  return out
+}
+scenes.ironpick = async () => {
+  const r = await ironpickScene('ironpick', { chestIron: 20, bagSpec: [[IRON_WORN, 1], ['iron_axe', 1], ['iron_shovel', 1], ['stick', 9], ['crafting_table', 1], ...TORCH(2)] })
+  const w = r.world
+  result({ ...r, CANDIDATE_PASS: !!(w.freshIronPick === 1 && w.wornIronPick === 1 && (w.chestAfter.iron_ingot ?? 0) === 17 && w.groundItems === 0 &&
+      r.rows.some(x => / outcome=crafted made=1 best=iron_pickaxe@30->iron_pickaxe@250 drew=3 iron_seen=20 keep=4 /.test(` ${x.split(' ').slice(2).join(' ')}`)) && r.licence.some(l => /^phase=mode on=1 /.test(l))),
+    BASE_SHAPE: !!(w.freshIronPick === 0 && w.wornIronPick === 1 && (w.chestAfter.iron_ingot ?? 0) === 20 && r.rows.length === 0 && r.licence.length === 0) })
+}
+scenes.ironpickkeep = async () => {
+  const r = await ironpickScene('ironpickkeep', { chestIron: 6, bagSpec: [[IRON_WORN, 1], ['iron_axe', 1], ['iron_shovel', 1], ['stick', 9], ['crafting_table', 1], ...TORCH(2)] })
+  const w = r.world
+  result({ ...r, CANDIDATE_PASS: !!(w.freshIronPick === 0 && w.wornIronPick === 1 && (w.chestAfter.iron_ingot ?? 0) === 6 && (w.bag.iron_ingot ?? 0) === 0 &&
+      r.rows.length >= 1 && r.rows.every(x => / outcome=no_iron made=0 .* drew=0 /.test(` ${x.split(' ').slice(2).join(' ')}`))) })
+}
+scenes.ironpickfull = async () => {
+  const spec = [[IRON_WORN, 1], ['iron_axe', 1], ['stick', 9], ['crafting_table', 1], ['raw_copper', 64], ['copper_ingot', 64], ['coal', 64], ...Array.from({ length: 29 }, () => ['white_wool', 1])]
+  const r = await ironpickScene('ironpickfull', { chestIron: 20, bagSpec: spec })
+  const w = r.world
+  result({ ...r, BAG_FULL_AT_START: w.used[0] === 36,
+    CANDIDATE_PASS: !!(w.used[0] === 36 && w.freshIronPick === 1 && w.wornIronPick === 1 && (w.bag.iron_shovel ?? 0) === 1 && (w.chestAfter.iron_ingot ?? 0) === 16 && w.groundItems === 0 &&
+      r.rows.some(x => / outcome=crafted made=1 /.test(` ${x.split(' ').slice(2).join(' ')}`))) })
 }
 scenes.townsearch = () => townSearchScene('townsearch')
 scenes.townsearch2 = () => townSearchScene('townsearch2', { orders: 2, wait: 1700000 })   // two orders (the second ~20 min later)
