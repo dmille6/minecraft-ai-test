@@ -179,6 +179,29 @@ def mark_refusal(c, n, nxt, k):
     return None
 
 
+def intent_set_refusal(c, n):
+    """planstore.mjs intentSetRefusal, exactly (c None: a new cell)."""
+    role = lambda x: (x or {}).get('role')
+    grp = lambda x: (x or {}).get('group')
+    was = (c or {}).get('state')
+    if n.get('intentSet') is not None and n.get('intentSet') is not True:
+        return 'intentSet not true'
+    if n.get('intentSet') and n.get('state') != 'reserved':
+        return 'intentSet on %s' % n.get('state')
+    if n.get('state') == 'reserved' and was != 'reserved':
+        sets = role(c) is None and role(n) is not None
+        if bool(n.get('intentSet')) != sets:
+            return 'intentSet on the reservation %s' % ('missing' if sets else 'without an intent set')
+    if n.get('state') == 'reserved' and was == 'reserved' and bool(n.get('intentSet')) != bool((c or {}).get('intentSet')):
+        return 'intentSet on live reservation toggled'
+    if was == 'reserved' and n.get('state') == 'free':
+        if (c or {}).get('intentSet') and (role(n) is not None or grp(n) is not None):
+            return 'the intent the reservation set survived its end'
+        if not (c or {}).get('intentSet') and (role(n) != role(c) or grp(n) != grp(c)):
+            return 'the older intent lost at the reservation end'
+    return None
+
+
 def transition_refusal(prev, nxt):
     for k in ('v', 'template', 'world', 'mode'):
         if json.dumps(prev.get(k)) != json.dumps(nxt.get(k)):
@@ -236,7 +259,7 @@ def transition_refusal(prev, nxt):
             continue
         if n.get('kind') != c.get('kind'):
             return 'kind changed'
-        mw = mark_refusal(c, n, nxt, k)
+        mw = mark_refusal(c, n, nxt, k) or intent_set_refusal(c, n)
         if mw:
             return mw
         t = trans.get(k)
@@ -307,6 +330,9 @@ def transition_refusal(prev, nxt):
             return 'new cell reserved by another'
         if n.get('state') == 'placed':
             return 'new cell arrives placed'
+        iw = intent_set_refusal(None, n)
+        if iw:
+            return iw
         if n.get('seenSince') is not None or n.get('missingSince') is not None:
             return 'new cell arrives marked'
     pg, ng = prev.get('groups') or {}, nxt.get('groups') or {}

@@ -199,9 +199,9 @@ await t('RELEASE: only the holder (same bot and visit) may release a live reserv
 await t('PLACED: the holder publishes its own placement at once (keeping the intent); another bot only after the expiry AND two reads 10 min apart', () => {
   const dir = dirOf()
   pub(dir, () => body())
-  pub(dir, cur => { Object.assign(cellOf(cur, C1), { state: 'reserved', by: 'A', visit: 'va', until: 900_000, role: 'overflow', group: null }); return cur }, 'A', 2000)
+  pub(dir, cur => { Object.assign(cellOf(cur, C1), { state: 'reserved', by: 'A', visit: 'va', until: 900_000, role: 'overflow', group: null, intentSet: true }); return cur }, 'A', 2000)
   // the adopting step clears seenSince (a placed cell never carries it: maintainPlan does the same)
-  const place = (by, visit) => cur => { Object.assign(cellOf(cur, C1), { state: 'placed', by, visit }); delete cellOf(cur, C1).seenSince; return cur }
+  const place = (by, visit) => cur => { Object.assign(cellOf(cur, C1), { state: 'placed', by, visit }); delete cellOf(cur, C1).seenSince; delete cellOf(cur, C1).intentSet; return cur }
   assert.equal(pub(dir, place('B', 'vb'), 'B', 3000).result, 'invalid', 'another bot, before the expiry')
   assert.equal(pub(dir, place('B', 'vb'), 'B', 900_000 + 61_000).result, 'invalid', 'another bot after the expiry, but with ONE read')
   // the first read: seenSince (any writer); the adoption 10 min later
@@ -215,7 +215,7 @@ await t('PLACED: the holder publishes its own placement at once (keeping the int
   // the holder's own placement needs no observation
   const d2 = dirOf()
   pub(d2, () => body())
-  pub(d2, cur => { Object.assign(cellOf(cur, C1), { state: 'reserved', by: 'A', visit: 'va', until: 900_000, role: 'overflow', group: null }); return cur }, 'A', 2000)
+  pub(d2, cur => { Object.assign(cellOf(cur, C1), { state: 'reserved', by: 'A', visit: 'va', until: 900_000, role: 'overflow', group: null, intentSet: true }); return cur }, 'A', 2000)
   assert.equal(pub(d2, place('A', 'va'), 'A', 3000).result, 'accepted')
 })
 
@@ -267,7 +267,23 @@ await t('TRANSITION RULES, one minimal violation each (transitionRefusal)', () =
   const i0 = JSON.parse(JSON.stringify(base)); Object.assign(i0.plots[1].cells[1], { role: 'overflow' })
   const ix = f => { const n = JSON.parse(JSON.stringify(i0)); n.gen = 3; n.prev = 2; f(n); return n }
   assert.match(PS.transitionRefusal(i0, ix(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, role: 'home', group: 'metal' }) })), /changed its intent/)
-  assert.equal(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, role: 'home', group: 'metal' }) })), null, 'set from none')
+  assert.equal(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, role: 'home', group: 'metal', intentSet: true }) })), null, 'set from none')
+  // THE MARKER (Codex code r3 P2): set exactly when the reservation sets an intent; never on a free/placed cell; never toggled;
+  // its end clears what it set and keeps an older intent
+  assert.match(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, role: 'home', group: 'metal' }) })), /intentSet .* missing/)
+  assert.match(PS.transitionRefusal(base, nx(n => { Object.assign(n.plots[1].cells[1], { state: 'reserved', by: 'A', visit: 'v2', until: 99_999, intentSet: true }) })), /without an intent set/)
+  assert.match(PS.transitionRefusal(base, nx(n => { n.plots[1].cells[1].intentSet = true })), /intentSet on free/)
+  const m0 = JSON.parse(JSON.stringify(base)); Object.assign(cellOf(m0, C1), { role: 'home', group: 'metal', intentSet: true })
+  const mx = f => { const n = JSON.parse(JSON.stringify(m0)); n.gen = 3; n.prev = 2; f(n); return n }
+  assert.match(PS.transitionRefusal(m0, mx(n => { delete cellOf(n, C1).intentSet })), /toggled/)
+  const rel = keep => mx(n => { const c = cellOf(n, C1); c.state = 'free'; delete c.by; delete c.visit; delete c.until; delete c.intentSet; if (!keep) { c.role = null; c.group = null } n.transitions = [{ at: c.at, why: 'released', by: 'A', visit: 'va' }] })
+  assert.equal(PS.transitionRefusal(m0, rel(false)), null, 'the set intent cleared at the release')
+  assert.match(PS.transitionRefusal(m0, rel(true)), /survived its end/)
+  const o0 = JSON.parse(JSON.stringify(base)); Object.assign(cellOf(o0, C1), { role: 'home', group: 'wood' })   // an OLDER intent (no marker)
+  const ox = f => { const n = JSON.parse(JSON.stringify(o0)); n.gen = 3; n.prev = 2; f(n); return n }
+  const rel2 = keep => ox(n => { const c = cellOf(n, C1); c.state = 'free'; delete c.by; delete c.visit; delete c.until; if (!keep) { c.role = null; c.group = null } n.transitions = [{ at: c.at, why: 'released', by: 'A', visit: 'va' }] })
+  assert.equal(PS.transitionRefusal(o0, rel2(true)), null, 'the older intent kept')
+  assert.match(PS.transitionRefusal(o0, rel2(false)), /older intent .* lost/)
   const i1 = JSON.parse(JSON.stringify(i0)); i1.plots[1].cells[1].seenSince = 1000
   const iy = f => { const n = JSON.parse(JSON.stringify(i1)); n.gen = 3; n.prev = 2; n.at = 1000 + 11 * 60_000; f(n); return n }
   assert.match(PS.transitionRefusal(i1, iy(n => { const c = n.plots[1].cells[1]; c.state = 'placed'; delete c.seenSince; c.role = 'home'; c.group = 'metal' })), /adoption .* changed its intent/)
