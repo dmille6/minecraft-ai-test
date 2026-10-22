@@ -117,3 +117,16 @@ another bot released it, crafted a spare table for the station that bot had just
 lost_reservation (no harm: the table is carried; the furnace waited one cooldown).
   -> r6: the found slot reads the head fresh for each in-town decision. Test CHAIN, A STALE CACHE; the CHAIN CONTROL now uses a
      town with no plan on disk (a nulled cache is no longer "no plan").
+
+CODE ROUND 6 (townplan-01 39d9cfee; found-01 fb5255cb)
+  Codex APPROVE (2 P3)   Claude APPROVE (5 P3: the chain tests are negative-only; the fresh read could follow the cheap skips;
+  a failed fresh read falls back to the cache; townPlanHead not gated by planOn; a double read while failing) -> P3, named.
+  npm test 282/282 at fb5255cb.
+
+PAPER finding (10-22, FOUND-NOFIT on b8f787c5): a livelock relocation's dig-allowed retry dug the workshop table it walked
+past (`_dig_town_sum zone.free.transit.confirmed 1`, the table in the bot's bag), and the plan read it missing. A chest is in
+mineflayer-pathfinder's blocksCantBreak; a table and a furnace are not.
+  -> r7: a placed or reserved plan cell is never a path's dig: planBreakCost (100: canDig needs < 100) rides in the SAME break
+     entry as the junk well (no new array entry), over bot.townPlan.cells kept by every head read. Test with real
+     mineflayer-pathfinder Movements (the move through a placed table is no move; off the plan it is dug as before);
+     well.test's index wiring re-anchored.

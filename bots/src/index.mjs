@@ -53,7 +53,7 @@ import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
-import { townPlanModeDetail, PLAN_TICK_MS } from './townplan.mjs'   // townplan-01's licence row and tick
+import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { lidClearModeDetail } from './lidrule.mjs'
@@ -647,7 +647,9 @@ function connect() {
     const zoneFeet = () => bot.entity?.position ?? null
     const zonePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet })
     const zonePlacePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet, grow: 1 })
-    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    // THE PLAN'S FURNITURE (townplan-01; Paper FOUND-NOFIT 10-22) rides in the SAME entry (no new array entry): a placed or reserved
+    // plan cell is never a path's dig. bot.townPlan.cells is kept by every head read, so the A* step costs one Set lookup.
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
