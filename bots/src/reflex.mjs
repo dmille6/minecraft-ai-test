@@ -5149,6 +5149,8 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
       }
       // RE-PLANNED IMMEDIATELY BEFORE EVERY PRESS (after the waits): holdToward asks again after its look, too
       if (!await holdToward(bear, target, POOL_STEP_HOLD_MS, () => {
+        // a RETRY never presses past the budget, checked here after the waits and the look (Codex code r5 P2)
+        if (attempt > 0 && Date.now() - t0 > budgetMs) return 'the budget is spent'
         const again = recheck()
         return (!again.ok || again.dig.length || again.place.length) ? (again.reason ?? 'a cell changed') : null
       })) {
@@ -5180,7 +5182,7 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
       return done('out', 'a route exists again')
     }
   }
-  return done('progress', 'step budget spent')
+  return done(r.steps ? 'progress' : 'refused', 'step budget spent')   // replans with no step taken are a refusal (Claude code r6 P3)
 }
 
 /**
