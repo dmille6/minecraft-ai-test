@@ -130,3 +130,14 @@ mineflayer-pathfinder's blocksCantBreak; a table and a furnace are not.
      entry as the junk well (no new array entry), over bot.townPlan.cells kept by every head read. Test with real
      mineflayer-pathfinder Movements (the move through a placed table is no move; off the plan it is dug as before);
      well.test's index wiring re-anchored.
+
+CODE ROUND 7 (townplan-01 37d5aff6; found-01 093f080b)
+  Codex APPROVE (2 P3: protection waits for the first head read; no composed confinement test)   Claude APPROVE (5 P3: the
+  exclusion is not gated by planOn when FOUND=on and TOWNPLAN=off; the comment beside the townground note; seenSince cells
+  unprotected until placed; a string per A* check; the composed well||plan entry only regex-checked) -> P3, named.
+  npm test 282/282 at 093f080b.
+
+PAPER finding (10-22, FOUND-NOFIT on 093f080b): every found placement was scored `unknown` by the runner ("nothing changed that
+found_work exists to change") and throttled: the result carried no `placed` count for the world_change contract.
+  -> found-01 r8 (found code only; townplan-01 37d5aff6 unchanged): a placed found order returns placed: 1 and at; test in
+     FOUND-FLAT F1.
