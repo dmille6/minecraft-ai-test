@@ -170,6 +170,8 @@ await t('FOUND-FLAT F1 (found_work): the bot with 2 tables puts one in station 0
   const n0 = RECS.length
   const r = await runSkill(w.bot, 'found_work', { kind: 'crafting_table', at: s0.at, crafts: 0, step: 'F1' })
   assert.equal(r.status, 'success', r.detail)
+  // the contract's evidence (Paper FOUND-NOFIT 10-22: scored `unknown` without it): world_change reads result.placed
+  assert.equal(r.placed, 1); assert.deepEqual(r.at, s0.at); assert.ok(S.SKILL_CONTRACTS.found_work.expects.includes('world_change'))
   assert.equal(w.nameAt(...s0.at), 'crafting_table')
   const p = stations(w.bot)[0]
   assert.equal(p.state, 'placed'); assert.equal(p.by, 'FoundBot')
