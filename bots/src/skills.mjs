@@ -12566,14 +12566,19 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
       // THE EXIT NAMED IS NOT ON A SIDE THAT FAILED (Codex r1 P1): the zone's exit columns, nearest first, none on a side of the
       // zone a walk already failed to reach (a ravine or a wall along it), none beside a failed cell, at a standable height
       const failedSides = new Set(failedTargets.map(t => sideOf(z, t)).filter(Boolean))
+      // ...AND NOT A STAND ANOTHER KEEP-OUT FORBIDS (protectzone-01 x keepout-01, Codex jit-1022b P2): an exit inside a fire
+      // column would hand the bot to `_keepout_exit` (and the planner refuses it as a start) -- the planner's own test, the
+      // composed keep-out on the feet and head cells
+      const exitFm = farmNow()
+      const exitForbidden = c => typeof exitFm.forbid === 'function' && (!!exitFm.forbid(c) || !!exitFm.forbid({ x: c.x, y: c.y + 1, z: c.z }))
       const exit = zoneExitColumns(liveZones(), bot.entity.position)
         .filter(c => !failedSides.has(sideOf(z, c)) && !failedTargets.some(t => Math.hypot(t.x - c.x, t.z - c.z) <= 12))
-        .map(c => { const y = standYAt(c); return y == null ? null : { x: c.x, y, z: c.z } }).find(Boolean)
+        .map(c => { const y = standYAt(c); return y == null ? null : { x: c.x, y, z: c.z } }).find(c => c && !exitForbidden(c))
       return { status: 'failed', failClass: 'protected_zone',
                detail: `reason=protected_zone walked=${failedTargets.map(t => `${t.x},${t.y},${t.z}`).join(';') || '-'}: no start near ${f.x},${f.y},${f.z} or just beyond ` +
                        `${z?.label ?? 'the protected zone'} has a dry stair clear of it${others.length ? ` and ${others.join(' and ')}` : ''} -- ` +
                        (exit ? `goto ${exit.x} ${exit.y} ${exit.z} (${EXIT_PAD} past the zone, away from the walks that failed), then mine`
-                             : `no exit beside it is standable from here: explore away from ${z?.label ?? 'it'}, then mine`) }
+                             : `no exit beside it is standable${others.length ? ` and clear of ${others.join(' and ')}` : ''} from here: explore away from ${z?.label ?? 'it'}${others.length ? ` and ${others.join(' and ')}` : ''}, then mine`) }
     }
     const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
     const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
