@@ -99,7 +99,8 @@ const R = 40
 async function arena (scene) {
   const x0 = C.x - R, x1 = C.x + R, z0 = C.z - R, z1 = C.z + R
   const c = [`kill @e[type=!player,x=${x0},y=85,z=${z0},dx=${2 * R},dy=40,dz=${2 * R}]`]
-  for (let y = 85; y <= 118; y++) c.push(`fill ${x0} ${y} ${z0} ${x1} ${y} ${z1} minecraft:${y <= 101 ? 'stone' : y <= 104 ? 'dirt' : y === 105 ? 'grass_block' : 'air'}`)
+  // the top layer is bare DIRT (exposed: a gather can take it from the surface), not grass (which caps dirt as "buried")
+  for (let y = 85; y <= 118; y++) c.push(`fill ${x0} ${y} ${z0} ${x1} ${y} ${z1} minecraft:${y <= 101 ? 'stone' : y <= 105 ? 'dirt' : 'air'}`)
   c.push(`fill ${C.x - 2} 101 ${C.z - 2} ${C.x + 2} 102 ${C.z + 2} minecraft:air`)          // the cave over the pool
   c.push(`fill ${C.x - 1} 100 ${C.z - 1} ${C.x + 1} 100 ${C.z + 1} minecraft:lava`)        // the pool
   if (scene === 'town') {
@@ -158,6 +159,9 @@ function wire (runner, wf) {
   }
   bot.pathfinder.setMovements(moves)
   bot.gatherMovements = gatherMoves
+  // as index.mjs: safeToBreak / breakVetoAt resolve `bot.collectBlock?.movements` -- the dig-capable profile (canDig=true is
+  // what makes safeToBreak answer at all; without it every candidate reads "beside water")
+  bot.collectBlock = { movements: gatherMoves }
   bot.withGatherMovements = async fn => { bot.pathfinder.setMovements(gatherMoves); try { return await fn() } finally { bot.pathfinder.setMovements(moves) } }
   bot.ascentMovements = gatherMoves
   bot.withAscentMovements = bot.withGatherMovements
@@ -172,6 +176,7 @@ function wire (runner, wf) {
 async function scene (s) {
   await connect()
   rcon(`tp ${NAME} ${C.x + 0.5} 112 ${C.z + 20.5}`); await sleep(4000)      // load the chunks first
+  for (let k = 0; k < 10 && /not loaded/.test(r1(`fill ${C.x - R} 85 ${C.z - R} ${C.x - R} 85 ${C.z - R} minecraft:stone`)); k++) await sleep(2000)
   await arena(s)
   // the town scene starts INSIDE the column but more than 4 blocks from home, so the yield that holds is the TOWN-JOB one
   // (Claude r3 P3-5), not the at-home one
