@@ -309,6 +309,6 @@ export function poolRowDetail (r = {}) {
   const m = r.marks ?? {}
   return `outcome=${r.outcome ?? '?'} steps=${r.steps ?? 0} rose=${(r.rose ?? 0).toFixed(1)} dug=${r.dug ?? 0} placed=${r.placed ?? 0} ` +
     `swam=${r.swam ?? 0} hands=${(r.hands ?? []).join(',') || '-'} marks=zone:${m.zone ?? 0},fire:${m.fire ?? 0},town:${m.town ?? 0} ` +
-    `lava_refused=${r.lavaRefused ?? 0} water_beside=${r.wet ?? 0} dry=${r.dry ? 1 : 0} route=${r.route ? 1 : 0} step_retries=${r.stepRetries ?? 0} ` +
+    `lava_refused=${r.lavaRefused ?? 0} water_beside=${r.wet ?? 0} dry=${r.dry ? 1 : 0} route=${r.route ? 1 : 0} step_retries=${r.stepRetries ?? 0} replans=${r.replans ?? 0} ` +
     `at=${r.at ?? '?'} tries=${r.tries ?? 0} -- ${String(r.reason ?? '').slice(0, 160)}`
 }

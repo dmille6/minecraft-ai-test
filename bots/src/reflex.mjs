@@ -1505,7 +1505,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // ...AND THE OTHER WAY ROUND (Paper 10-22 r5, zone scene): the stranded ladder's float_up started in the same second as a
   // firing (it was already past its `!poolEscaping` check) and the two steered one body; the step failed. A firing waits
   // for a running stranded routine to end first (<= 6 s; float_up holds ~4 s).
-  let strandedRunning = false
+  let strandedRunning = 0        // a COUNT of stranded routines in flight (Claude code r5 P3: two would share a boolean)
   const poolEscapeTry = async (hook, grantOf) => {
     if (!poolEscapeOn()) return null
     const p = bot.entity?.position
@@ -1514,15 +1514,19 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (!wading({ at: (dx, dy, dz) => bot.blockAt(o.offset(dx, dy, dz)) })) return null
     if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
     poolEscaping = true          // from here no new stranded routine starts; one already running is waited for
-    for (let w = 0; w < 60 && strandedRunning; w++) await sleep(100)
-    if (strandedRunning) { poolEscaping = false; return null }
-    if (await canStartAPath(bot)) { poolEscaping = false; return null }
+    // EVERYTHING AFTER ADMISSION IS INSIDE ONE try/finally (Codex code r4 P2, Claude code r5 P1): a throw anywhere below --
+    // the route probe on a bot that lost its entity, the start row's snapshot -- must not leave the flag set, or the float
+    // hold and the stranded ladder would stand aside for the life of the process.
+    try {
+    for (let w = 0; w < 60 && strandedRunning > 0; w++) await sleep(100)
+    if (strandedRunning > 0) return null
+    if (await canStartAPath(bot)) return null
     const key = poolSpotKey(p), st = poolSpots.get(key)
-    if (st && Date.now() < st.until) { poolEscaping = false; return null }
+    if (st && Date.now() < st.until) return null
     // ANOTHER RESERVATION IS ANOTHER OWNER (Claude code r2 P3): the stagnation watchdog's rescue reserves the runner while
     // the skill it cancelled unwinds. The rung never overwrites it; it waits for the next maroon check.
     const held = runner?.activeReservation?.() ?? null
-    if (held && held.owner !== 'poolescape') { poolEscaping = false; return null }
+    if (held && held.owner !== 'poolescape') return null
     const id = `${Date.now().toString(36)}`
     const tries = (st?.failures ?? 0) + 1
     logEvent({ kind: 'poolescape_start', status: 'success', snapshot: snapshot(bot),
@@ -1566,6 +1570,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     logEvent({ kind: 'poolescape', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
                snapshot: snapshot(bot), detail: `id=${id} hook=${hook} ${poolRowDetail(res)}` })
     return res
+    } finally { poolEscaping = false }
   }
   let strandedSince = 0
   // Cleared by the same displacement test as strandedSince -- see the block that
@@ -1737,13 +1742,15 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             snapshot: snapshot(bot),
           })
           const routine = ESCAPE_ROUTINES[plan]
-          strandedRunning = true
-          const r = routine
-            ? await routine(bot, { yieldTo: drowningOwnsBody })
-                .catch(e => ({ ok: false, why: String(e?.message ?? e) }))
-                .finally(() => { strandedRunning = false })
-            : { ok: false, why: `no routine for ${plan}` }
-          strandedRunning = false
+          let r
+          strandedRunning++
+          try {
+            r = routine
+              ? await routine(bot, { yieldTo: drowningOwnsBody })
+                  .catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+              : { ok: false, why: `no routine for ${plan}` }
+          } catch (e) { r = { ok: false, why: String(e?.message ?? e) } }
+          finally { strandedRunning = Math.max(0, strandedRunning - 1) }
           logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
                      status: r?.ok ? 'success' : 'failed',
                      detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
@@ -4969,11 +4976,14 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
   // THE STEP IN TWO PHASES, AS A PLAYER TAKES IT (Paper 10-22 r3: two of five bots rose onto the ledge with their centre
   // still over the pit -- y 101, z 5200.03 -- and the 1.2 s single hold ended there). Phase 1: forward + jump until the
   // feet are up (the out-of-liquid impulse). Phase 2: jump released, forward until the centre is inside the step cell.
-  const holdToward = async (bear, target, ms) => {
+  let stepClosed = null
+  const holdToward = async (bear, target, ms, pre = () => null) => {
     const inCell = q => Math.floor(q.x) === target.x && Math.floor(q.z) === target.z
     const up = q => Math.floor(q.y + 0.2) >= target.y
     await bot.look(Math.atan2(-bear.x, -bear.z), 0, true).catch(() => {})
     if (gone()) return false
+    stepClosed = pre()
+    if (stepClosed) return false
     bot.setControlState('forward', true); bot.setControlState('jump', true)
     try {
       let until = Date.now() + ms
@@ -5129,19 +5139,35 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
     const target = feet.offset(bear.x, 1, bear.z)
     // A MISSED STEP IS TRIED AGAIN (Paper 10-22 r5): the cut is done and dry, so a failed jump costs one more press, not a
     // five-minute back-off. Each attempt re-plans first: the step must still need nothing.
-    let q = null
+    let q = null, replan = false
     for (let attempt = 0; attempt < POOL_STEP_TRIES; attempt++) {
       if (attempt > 0) {
-        const again = recheck()
-        if (!again.ok || again.dig.length || again.place.length) return done(r.steps ? 'progress' : 'refused', `the step closed before try ${attempt + 1}: ${again.reason ?? 'a cell changed'}`)
-        r.stepRetries = (r.stepRetries ?? 0) + 1
+        if (Date.now() - t0 > budgetMs) break                      // a retry never starts past the firing's budget
         await sleep(300)
+        if (gone()) return done('yielded', '')
+        r.stepRetries = (r.stepRetries ?? 0) + 1
       }
-      if (!await holdToward(bear, target, POOL_STEP_HOLD_MS)) return done('yielded', 'during the step')
+      // RE-PLANNED IMMEDIATELY BEFORE EVERY PRESS (after the waits): holdToward asks again after its look, too
+      if (!await holdToward(bear, target, POOL_STEP_HOLD_MS, () => {
+        const again = recheck()
+        return (!again.ok || again.dig.length || again.place.length) ? (again.reason ?? 'a cell changed') : null
+      })) {
+        if (gone()) return done('yielded', 'during the step')
+        // THE STEP CLOSED (lava, water, another body in it -- Paper r6: Comet stood in the step Bravo had cut): plan the
+        // whole step again from the top, so another wall can be taken in the same firing (bounded by maxSteps and budget)
+        replan = true
+        r.replans = (r.replans ?? 0) + 1
+        r.reason = `the step closed before try ${attempt + 1}: ${stepClosed}`
+        break
+      }
       q = bot.entity.position
       if (Math.floor(q.x) === target.x && Math.floor(q.z) === target.z && Math.floor(q.y + 0.2) >= target.y) break
       // back to the pit's own cell before trying again: a bot left on the lip with its centre over the water is neither
       if (Math.floor(q.x) !== feet.x || Math.floor(q.z) !== feet.z) break
+    }
+    if (replan) {
+      if (Date.now() - t0 > budgetMs) return done(r.steps ? 'progress' : 'refused', `budget spent; ${r.reason}`)
+      continue
     }
     if (Math.floor(q.x) !== target.x || Math.floor(q.z) !== target.z || Math.floor(q.y + 0.2) < target.y) {
       return done(r.steps ? 'progress' : 'refused', `cut a step at ${cellOf(target)} but could not stand in it after ${1 + (r.stepRetries ?? 0)} tries (at ${cellOf(q)})`)
