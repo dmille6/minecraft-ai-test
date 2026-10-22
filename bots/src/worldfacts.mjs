@@ -60,6 +60,37 @@ export const WF_LOCK_ROUTINE_MS = 200
 export const WF_LOCK_CRITICAL_MS = 12_000
 export const WF_LOCK_STALE_MS = 10_000
 const WF_LOCK_BUSY = Symbol('world-facts lock busy')
+let lockSeq = 0
+/**
+ * ONE TRY AT THE POOL LOCK -> a token (ours), or null (held: wait), or { enoent } / { error } (cannot be created). Pure but
+ * for the file system. A STALE lock (older than WF_LOCK_STALE_MS: a killed holder) is taken over by RENAMING it aside, which
+ * only one of several competing breakers can do (the others see ENOENT and wait); the moved file is deleted only if it is
+ * still stale, so a lock that went fresh in between is put back (Codex r3 P1).
+ */
+export function tryLock (lock, now = Date.now()) {
+  const token = `${process.pid}.${++lockSeq}.${now}`
+  try {
+    const fd = fs.openSync(lock, 'wx')
+    try { fs.writeSync(fd, token) } finally { fs.closeSync(fd) }
+    return token
+  } catch (e) {
+    if (e.code === 'ENOENT') return { enoent: true }
+    if (e.code !== 'EEXIST') return { error: e.code }
+  }
+  try {
+    if (now - fs.statSync(lock).mtimeMs > WF_LOCK_STALE_MS) {
+      const aside = `${lock}.stale.${token}`
+      fs.renameSync(lock, aside)
+      if (now - fs.statSync(aside).mtimeMs > WF_LOCK_STALE_MS) fs.unlinkSync(aside)
+      else { try { fs.linkSync(aside, lock) } catch { /* someone holds it now */ } try { fs.unlinkSync(aside) } catch { /* gone */ } }
+    }
+  } catch { /* raced with the holder or another breaker */ }
+  return null
+}
+/** Is the lock still ours? */
+export function lockOwned (lock, token) { try { return fs.readFileSync(lock, 'utf8') === token } catch { return false } }
+/** Release the lock only if it is still ours (a broken-and-retaken lock belongs to someone else now). */
+export function unlockIfOwned (lock, token) { if (lockOwned(lock, token)) { try { fs.unlinkSync(lock) } catch { /* gone */ } } }
 
 export class WorldFacts {
   constructor(file) {
@@ -88,8 +119,8 @@ export class WorldFacts {
    * deleting recorded successes from lessons-*.json earlier tonight.
    */
   #update(mutate, { critical = false } = {}) {
-    const r = this.#withLock(() => this.#updateLocked(mutate), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)
-    if (r === WF_LOCK_BUSY) log('warn', 'world facts: write skipped, the pool lock is busy', { critical, file: path.basename(this.file) })
+    const r = this.#withLock(owned => this.#updateLocked(mutate, owned), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)
+    if (r === WF_LOCK_BUSY) log(critical ? 'error' : 'warn', 'world facts: write skipped, the pool lock is busy', { critical, file: path.basename(this.file) })
     return r
   }
 
@@ -100,32 +131,29 @@ export class WorldFacts {
    * a hazard, a give-up, a dispute -- each repeats or is safe to lose) waits WF_LOCK_ROUTINE_MS and is then SKIPPED. A
    * CRITICAL write (a death: one event, never repeated) waits up to WF_LOCK_CRITICAL_MS, which covers the stale-lock break
    * (a killed holder's lock is broken after 10 s); the critical section itself is a few ms. A lock that cannot be created
-   * for a reason other than contention (the pool directory missing) gets the directory made and is tried again; a lock that
-   * still cannot be created at all (permissions) is a configuration fault and the write goes ahead, as before this change.
+   * for a reason other than contention (the pool directory missing) gets the directory made and is tried again; one that
+   * cannot be created at all (permissions) SKIPS the write, loudly (Codex r3 P1: never unlocked).
+   * OWNERSHIP (Codex r3 P1): the lock holds a token; it is released only by its owner (unlockIfOwned), and the write's rename
+   * happens only while the token is still ours (a holder paused past the stale break lost the lock and writes nothing).
    */
   #withLock (fn, budgetMs) {
     const lock = `${this.file}.lock`
     const until = Date.now() + budgetMs
     let made = false
     for (;;) {
-      let fd = null
-      try { fd = fs.openSync(lock, 'wx') } catch (e) {
-        if (e.code === 'ENOENT' && !made) { made = true; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }) } catch { /* next try says */ } continue }
-        if (e.code !== 'EEXIST') return fn()
-        try { if (Date.now() - fs.statSync(lock).mtimeMs > WF_LOCK_STALE_MS) fs.unlinkSync(lock) } catch { /* raced with the holder */ }
-        if (Date.now() >= until) return WF_LOCK_BUSY
-        const spin = Date.now() + 4
-        while (Date.now() < spin) { /* spin: the holder's critical section is a few ms */ }
-        continue
+      const t = tryLock(lock)
+      if (typeof t === 'string') {
+        try { return fn(() => lockOwned(lock, t)) } finally { unlockIfOwned(lock, t) }
       }
-      try { return fn() } finally {
-        try { fs.closeSync(fd) } catch { /* already closed */ }
-        try { fs.unlinkSync(lock) } catch { /* already gone */ }
-      }
+      if (t?.enoent && !made) { made = true; try { fs.mkdirSync(path.dirname(this.file), { recursive: true }) } catch { /* next try says */ } continue }
+      if (t?.error || t?.enoent) return WF_LOCK_BUSY
+      if (Date.now() >= until) return WF_LOCK_BUSY
+      const spin = Date.now() + 4
+      while (Date.now() < spin) { /* spin: the holder's critical section is a few ms */ }
     }
   }
 
-  #updateLocked(mutate) {
+  #updateLocked(mutate, owned = null) {
     let current = { schema: SCHEMA, sites: [], unreachable: {}, resources: [] }
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
@@ -139,6 +167,7 @@ export class WorldFacts {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
       const tmp = `${this.file}.${process.pid}.tmp`
       fs.writeFileSync(tmp, JSON.stringify(current, null, 1))
+      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_BUSY }   // the lock was lost: write nothing
       fs.renameSync(tmp, this.file)      // atomic: readers never see a half file
       this.cache = current
       this.lastRead = Date.now()
@@ -310,7 +339,7 @@ export class WorldFacts {
     if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return null
     const kind = `${DEATH_KIND_PREFIX}${String(cls || 'unknown').slice(0, 24)}`
     let site = null
-    this.#update((d) => {
+    const wrote = this.#update((d) => {
       // MERGE ONLY WHEN THE KEPT CENTRE STILL PRICES THE NEW DEATH: a death 7 blocks from a site would have merged
       // into a centre whose 6-block disc does not cover it (Codex pass 2), so the merge radius is half the disc.
       const near = d.sites.find(s =>
@@ -329,6 +358,7 @@ export class WorldFacts {
         d.sites.push(site)
       }
     }, { critical: true })
+    if (wrote === WF_LOCK_BUSY) return null   // not on file: never reported as recorded
     return site
   }
 
@@ -341,14 +371,14 @@ export class WorldFacts {
   disputeFireSite(at, seen = null, by = config.bot.name) {
     if (!at || !Number.isFinite(at.x) || !Number.isFinite(at.y) || !Number.isFinite(at.z)) return null
     let hit = null
-    this.#update(d => {
+    const wrote = this.#update(d => {
       const s = d.sites.find(q => q.kind === `${DEATH_KIND_PREFIX}fire` && q.x === at.x && q.y === at.y && q.z === at.z)
       // VERSION-CHECKED (Codex r1 P1-5): the read judged the site as it was (`seen`: its death count and last death); a peer's
       // newer fire death there since then outranks the read, so the dispute is not written
       if (seen && s && ((s.deaths ?? 1) !== (seen.deaths ?? 1) || (s.last ?? 0) !== (seen.last ?? 0))) return
       if (s && !s.disputed) { s.disputed = { at: Date.now(), by }; hit = s }
     })
-    return hit
+    return wrote === WF_LOCK_BUSY ? null : hit
   }
 
   /** Every death site on file (the cache; re-read every 20 s). Cheap enough for the pathfinder's per-node price. */

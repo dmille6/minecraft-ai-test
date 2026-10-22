@@ -446,6 +446,20 @@ test('MUTANT KILLED (the bypassed guard, design 8 row 2): without the column in 
     } finally { untap() }
   })
 })
+test('CHAIN mine: a site recorded MID-DESCENT stops the stair at the column and the gate row is still written (Codex r3 P2-4)', async () => {
+  const rows = []; const untap = tapRecords(r => rows.push(r))
+  try {
+    let calls = 0
+    const bot = stairWorld({ sites: [], wet: onlyEast, solidAt: pocket })
+    bot.fireSitesNow = () => (calls++ < 3 ? [] : [SITE_M])
+    const r = await runMine(SK, bot)
+    assert.ok(calls > 3, 'positive control: the descent asked again')
+    assert.equal(bot._digs.filter(p => KO.columnAt([SITE_M], p)).length, 0, `the stair stopped at the column (${r.status} ${String(r.detail).slice(0, 120)})`)
+    assert.ok(bot._digs.length > 0, 'it had started (the site was not known at planning)')
+    const dug = rows.find(x => x.skill?.name === '_mine_dig')
+    assert.ok(dug && dug.skill.args.in_column === 0 && dug.skill.args.n === bot._digs.length, `the gate row: ${dug?.skill?.detail}`)
+  } finally { untap() }
+})
 test('CHAIN mine: standing over the column, every stair would cut it -> a walk-off (column-free route), then a stair outside', async () => {
   const bot = stairWorld({ at: [440, 65, 200], sites: [SITE_M] })
   const r = await runMine(SK, bot)
@@ -597,8 +611,63 @@ test('THE LOCK, deterministic: a death written while a peer holds the lock acros
   assert.deepEqual(await holderRace(new URL('../src/worldfacts.mjs', import.meta.url).href), ['0,0', '999,999'])
 })
 test('MUTANT KILLED (deterministic): unlocked, the peer\'s stale write erases the death', async () => {
-  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [["    const r = this.#withLock(() => this.#updateLocked(mutate), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
+  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [["    const r = this.#withLock(owned => this.#updateLocked(mutate, owned), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
     assert.deepEqual(await holderRace(readdirMutant()), ['999,999'], 'the death is lost')
+  })
+})
+test('LOCK OWNERSHIP (Codex r3 P1): a stale lock is taken over once; the old holder can neither release nor keep it', async () => {
+  const WFm = await import('../src/worldfacts.mjs')
+  const { utimesSync, existsSync } = await import('node:fs')
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-own-')), lock = path.join(dir, 'wf.json.lock')
+  const a = WFm.tryLock(lock)
+  assert.equal(typeof a, 'string', 'positive control: a free lock is taken')
+  assert.equal(WFm.tryLock(lock), null, 'held and fresh: wait')
+  const old = (Date.now() - WFm.WF_LOCK_STALE_MS - 5000) / 1000
+  utimesSync(lock, old, old)
+  assert.equal(WFm.tryLock(lock), null, 'the first breaker moves the stale lock aside')
+  const b = WFm.tryLock(lock)
+  assert.equal(typeof b, 'string', 'and the lock is taken anew')
+  assert.equal(WFm.lockOwned(lock, a), false, 'the old holder no longer owns it')
+  WFm.unlockIfOwned(lock, a)
+  assert.ok(existsSync(lock), 'the old holder cannot release the new owner\'s lock')
+  WFm.unlockIfOwned(lock, b)
+  assert.ok(!existsSync(lock), 'the owner can')
+})
+// A HOLDER PAUSED PAST THE STALE BREAK (deterministic): the child's reportDeath blocks INSIDE its locked mutate (a getter on the
+// position) until the parent has backdated its lock, broken it and written its own death; the child then must write nothing.
+async function pausedHolder (wfHref) {
+  const { spawn } = await import('node:child_process')
+  const { utimesSync, existsSync } = await import('node:fs')
+  const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-pause-')), file = path.join(dir, 'world-facts.json'), go = path.join(dir, 'go')
+  const child = path.join(dir, 'child.mjs')
+  writeFileSync(child, `import fs from 'node:fs'
+const { WorldFacts } = await import(${JSON.stringify(wfHref)})
+const wf = new WorldFacts(${JSON.stringify(file)}); let n = 0
+const pos = { y: 60, z: 0, get x () { if (++n === 2) { process.stdout.write('paused\\n'); while (!fs.existsSync(${JSON.stringify(go)})) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20) } return 500 } }
+const r = wf.reportDeath('fire', pos, 'child'); process.stdout.write('child ' + (r ? 'wrote' : 'skipped') + '\\n')`)
+  const proc = spawn(process.execPath, [child], { stdio: ['ignore', 'pipe', 'inherit'], env: process.env })
+  let out = ''
+  proc.stdout.on('data', d => { out += d })
+  for (let i = 0; i < 200 && !out.includes('paused'); i++) await new Promise(r => setTimeout(r, 25))
+  assert.ok(out.includes('paused'), 'the child is paused inside its locked write')
+  const old = (Date.now() - 20_000) / 1000
+  utimesSync(file + '.lock', old, old)
+  const { WorldFacts: WF } = await import(wfHref)
+  assert.ok(new WF(file).reportDeath('fire', { x: 0, y: 60, z: 0 }, 'parent'), 'the parent broke the stale lock and wrote')
+  writeFileSync(go, '1')
+  await new Promise(res => proc.once('exit', res))
+  void existsSync
+  return { out, sites: JSON.parse(readFileSync(file, 'utf8')).sites.map(q => q.by[0]).sort() }
+}
+test('A HOLDER PAUSED PAST THE STALE BREAK writes nothing: the death written meanwhile stays (Codex r3 P1)', async () => {
+  const r = await pausedHolder(new URL('../src/worldfacts.mjs', import.meta.url).href)
+  assert.match(r.out, /child skipped/)
+  assert.deepEqual(r.sites, ['parent'])
+})
+test('MUTANT KILLED: without the ownership check before the rename, the paused holder overwrites the death', async () => {
+  await withMutantsAll(new URL('../src/worldfacts.mjs', import.meta.url), [['      if (owned && !owned()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return WF_LOCK_BUSY }   // the lock was lost: write nothing\n', '']], async () => {
+    const r = await pausedHolder(readdirMutant())
+    assert.deepEqual(r.sites, ['child'], 'the parent\'s death is lost')
   })
 })
 test('A ROUTINE write under a held lock is SKIPPED, never written unlocked (Codex r2 P1)', () => {
@@ -618,7 +687,7 @@ test('A ROUTINE write under a held lock is SKIPPED, never written unlocked (Code
 test('MUTANT KILLED: the unlocked read-merge-write loses deaths under the same race (measured: 40 of 80 kept, 3 of 3 trials)', async () => {
   const { execFile } = await import('node:child_process')
   const WF_URL = new URL('../src/worldfacts.mjs', import.meta.url)
-  await withMutantsAll(WF_URL, [["    const r = this.#withLock(() => this.#updateLocked(mutate), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
+  await withMutantsAll(WF_URL, [["    const r = this.#withLock(owned => this.#updateLocked(mutate, owned), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
     const mutant = readdirMutant()
     const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-race-m-')), file = path.join(dir, 'world-facts.json'), drv = path.join(dir, 'drv.mjs')
     writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(mutant)}); const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2]); for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)

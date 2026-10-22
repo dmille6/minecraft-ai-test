@@ -97,6 +97,7 @@ class Sites:
         per = int((t - ref) // DECAY) if t > ref else 0
         return count // (2 ** per)
     disagree = 0
+    disagree_keys = set()
 
     def live(self, pool, t):
         out = []
@@ -105,7 +106,7 @@ class Sites:
                 continue
             a, b = self.weight(times, t, 'A') >= 1, self.weight(times, t, 'B') >= 1
             if a != b:
-                Sites.disagree += 1
+                Sites.disagree += 1; Sites.disagree_keys.add((p, key))
             if not (a or b):
                 continue
             last_death = max([d for d in times if d <= t], default=None)
@@ -140,7 +141,8 @@ def judge(rows, sites, W=180, CANS=(), pools_with_site=None, population=None):
     bots = defaultdict(set)
     for k, v in (population or {}).items():
         bots[k] |= set(v)
-    malformed = 0; probe_post = Counter(); probe_coord = 0
+    malformed = 0; probe_post = Counter(); probe_coord = Counter()
+    Sites.disagree = 0; disagree_sites = set()   # per judge call (Claude r3 P3-4)
     for r in rows:
         a, p, n, b, t = r['arm'], r['per'], r['name'], r['bot'], r['t']
         pool = pool_of(b)
@@ -152,7 +154,7 @@ def judge(rows, sites, W=180, CANS=(), pools_with_site=None, population=None):
             m = HIT.search(r['detail'] or '')
             if p == 'post':
                 probe_post[a] += 1
-                probe_coord += 1 if m else 0
+                probe_coord[a] += 1 if m else 0
             if live or a == 'canary':
                 probe[(p, a, pool)] += 1
             if m and live:
@@ -189,6 +191,7 @@ def judge(rows, sites, W=180, CANS=(), pools_with_site=None, population=None):
                 inc = 0
                 if a == 'canary' and p == 'post':
                     malformed += 1          # a gate row without its field is never a pass (Codex r2 P2-6)
+                c[(n + '_bad', p, a)] += 1
             c[(n, p, a)] += 1
             if inc > 0:
                 c[(n + '_in', p, a)] += 1
@@ -218,14 +221,16 @@ def judge(rows, sites, W=180, CANS=(), pools_with_site=None, population=None):
     out['licence_canary'] = c[('lic', 'post', 'canary')]
     out['liveness'] = int(c[('lic_on', 'post', 'canary')] >= 1)
     out['mine_rows_malformed'] = malformed
-    out['k12_exercised'] = int(c[('_mine_plan', 'post', 'canary')] >= 1)
+    out['k1_exercised'] = int(c[('_mine_plan', 'post', 'canary')] - c[('_mine_plan_bad', 'post', 'canary')] >= 1)
+    out['k2_exercised'] = int(c[('_mine_dig', 'post', 'canary')] - c[('_mine_dig_bad', 'post', 'canary')] >= 1)
     out['refused_canary'] = c[('refused', 'post', 'canary')]
     out['fire_towns_control'] = sorted(ctrl_fire_towns); out['fire_towns_canary'] = sorted(can_fire_towns)
     out['control_fire_towns_n'] = len(ctrl_fire_towns)
     out['exposure_ready'] = int(out['refused_canary'] >= EXPOSURE_REFUSED and out['liveness'] == 1)
     out['did_possible'] = int(len(ctrl_fire_towns) >= 2)
-    out['instrument_control'] = int(probe_post['control'] >= 1 and probe_post['canary'] >= 1 and probe_coord >= 1 and len(sites.ev) >= 1)
-    out['replay_variant_disagreements'] = Sites.disagree
+    out['instrument_control'] = int(probe_coord['control'] >= 1 and probe_coord['canary'] >= 1 and len(sites.ev) >= 1)   # coordinates on EACH arm (Codex r3 P2)
+    out['replay_variant_disagreements'] = len(Sites.disagree_keys)   # distinct sites the two write orders judged differently
+    Sites.disagree_keys = set()
     # PRIMARY: in-column probe hits per bot-h, canary pools vs control pools with a live fire site
     hrs = lambda per, arm, pools: sum(1 for b in bots[(per, arm)] if pool_of(b) in pools) * W / 60
     cpools = set(CANS); kpools = ctrl_fire_towns | {k[2] for k in probe_hits if k[1] == 'control'}
@@ -299,13 +304,19 @@ def selftest():
     # LIVENESS needs keepout=on; a gate row without in_column is malformed (never a pass); K1/K2 exercised is said
     assert judge(base + [R('_keepout_mode', LIC.replace('keepout=on', 'keepout=off'))], S, CANS=('hive-b',))['liveness'] == 0, 'a licence with keepout=off is not live'
     mal = judge(base + live + [R('_mine_plan', 'cells=3')], S, CANS=('hive-b',))
-    assert mal['mine_rows_malformed'] == 1 and mal['k12_exercised'] == 1, mal
-    assert ok['k12_exercised'] == 0 and ok['mine_rows_malformed'] == 0, 'no mine row: K1/K2 NOT exercised (said, not passed)'
+    assert mal['mine_rows_malformed'] == 1 and mal['k1_exercised'] == 0 and mal['k2_exercised'] == 0, ('malformed only: not exercised', mal)
+    assert ok['k1_exercised'] == 0 and ok['k2_exercised'] == 0 and ok['mine_rows_malformed'] == 0, 'no mine row: K1/K2 NOT exercised (said, not passed)'
+    po = judge(base + live + [R('_mine_plan', 'in_column=0', args={'in_column': 0, 'cells': '1,1,1'})], S, CANS=('hive-b',))
+    assert po['k1_exercised'] == 1 and po['k2_exercised'] == 0, ('a plan alone exercises K1, not K2 (Codex r3 P2)', po)
+    pd = judge(base + live + [R('_mine_dig', 'in_column=0', args={'in_column': 0, 'cells': '1,1,1'})], S, CANS=('hive-b',))
+    assert pd['k1_exercised'] == 0 and pd['k2_exercised'] == 1, pd
     # INSTRUMENT needs POST probes on both arms with a coordinate
     pre_only = [r for r in base if not (r['name'] == '_reach_probe' and r['per'] == 'post')]
     assert judge(pre_only + live, S, CANS=('hive-b',))['instrument_control'] == 0, 'pre-only probes: blind'
     nocoord = [dict(r, detail=r['detail'].split(' hit=')[0]) if r['name'] == '_reach_probe' else r for r in base]
     assert judge(nocoord + live, S, CANS=('hive-b',))['instrument_control'] == 0, 'no hit= coordinate: blind'
+    can_blind = [dict(r, detail=r['detail'].split(' hit=')[0]) if r['name'] == '_reach_probe' and r['arm'] == 'canary' else r for r in base]
+    assert judge(can_blind + live, S, CANS=('hive-b',))['instrument_control'] == 0, 'coordinates missing on the canary arm only: still blind (Codex r3 P2)'
     # the denominator: a control bot with no selected row still counts in the primary's bot-h
     popd = judge(base + live, S, CANS=('hive-b',), population={('post', 'control'): {'hive-c-Alpha', 'hive-c-Bravo', 'hive-d-Alpha', 'hive-d-Bravo'}, ('pre', 'control'): {'hive-c-Alpha', 'hive-d-Alpha'}})
     assert popd['probe_in_column_rates'][3] == ok['probe_in_column_rates'][3] / 2, ('two silent control bots halve the post-control rate', popd['probe_in_column_rates'], ok['probe_in_column_rates'])
@@ -402,10 +413,10 @@ if __name__ == '__main__':
           % (res['fire_towns_canary'] or '-', res['fire_towns_control'] or '-', res['control_fire_towns_n']))
     print('PRIMARY      `_reach_probe` hit= candidates in a live fire column per bot-h [canary pre, post, control pre, post] %s -> DiD %s (a MECHANISM check: should FALL); canary post hits %d'
           % (res['probe_in_column_rates'], res['probe_in_column_did'], res['probe_hits_canary_post']))
-    print('DEFECTS      K1 permitted plan through a known column %d | K2 executed stair dig in a known column %d | K3 repeated gather refusals at a spot %d | K4 exit loops %d | ARMS control rows %d'
-          % (res['plan_in_column'], res['dig_in_column'], res['repeat_refusals'], res['exit_loop'], res['rows_control_post']))
-    print('LIVENESS     licence %d (keepout=on: %s) | mine plans %d digs %d (K1/K2 exercised: %s; malformed gate rows %d, must be 0) | exits %s | yields (C12: the town named) %s | disputes %d | replay write-order disagreements %d'
-          % (res['licence_canary'], 'yes' if res['liveness'] else 'NO', res['mine_plans_canary'], res['mine_digs_canary'], 'yes' if res['k12_exercised'] else 'NOT YET',
+    print('DEFECTS      K1 permitted plan through a known column %d | K2 executed stair dig in a known column %d | K3 repeated gather refusals at a spot %d | K4 exit loops %d | malformed gate rows %d | ARMS control rows %d'
+          % (res['plan_in_column'], res['dig_in_column'], res['repeat_refusals'], res['exit_loop'], res['mine_rows_malformed'], res['rows_control_post']))
+    print('LIVENESS     licence %d (keepout=on: %s) | mine plans %d digs %d (K1 exercised: %s, K2: %s; malformed gate rows %d, must be 0) | exits %s | yields (C12: the town named) %s | disputes %d | replay write-order disagreements %d'
+          % (res['licence_canary'], 'yes' if res['liveness'] else 'NO', res['mine_plans_canary'], res['mine_digs_canary'], 'yes' if res['k1_exercised'] else 'NOT YET', 'yes' if res['k2_exercised'] else 'NOT YET',
              res['mine_rows_malformed'], res['exits'] or '-', res['yields'] or '-', res['disputes_canary'], res['replay_variant_disagreements']))
     print('REPORTED     host-replayed column cells in canary plans %d / digs %d (the replay is approximate: not judged) | fire deaths in a live column %s of %s'
           % (res['host_plan_cells_in_column'], res['host_dig_cells_in_column'], res['fire_deaths_in_column'] or '-', res['fire_deaths'] or '-'))
