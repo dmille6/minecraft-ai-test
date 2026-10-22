@@ -48,7 +48,7 @@ import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
-import { townPlanModeDetail, PLAN_TICK_MS } from './townplan.mjs'   // townplan-01's licence row and tick
+import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { indexSearchModeDetail } from './indexsearch.mjs'   // indexsearch-01's licence row (its own statement)
@@ -596,7 +596,9 @@ function connect() {
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]
     // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
-    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    // THE PLAN'S FURNITURE (townplan-01; Paper FOUND-NOFIT 10-22) rides in the SAME entry (no new array entry): a placed or reserved
+    // plan cell is never a path's dig. bot.townPlan.cells is kept by every head read, so the A* step costs one Set lookup.
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
