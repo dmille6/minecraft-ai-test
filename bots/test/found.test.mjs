@@ -348,6 +348,73 @@ await t('CHAIN, A STALE CACHE (Paper FOUND-RETRO 10-22): another bot reserved st
   const ran = await decisions(w.bot, 1)
   assert.ok(!(ran[0]?.skill === 'found_work' && ran[0]?.args?.at?.join() === s0.at.join()), JSON.stringify(ran))
 })
+await t('A BODY IN THE CELL IS A FREE SKIP (Paper FOUND-NOFIT 10-22), pure: foundRetry gives back the visit and the cooldown foundIssued charged; the next order waits FOUND_RETRY_MS, then is issued', () => {
+  const st0 = { lastAt: 1000, visitUsed: false }
+  const issued = F.foundIssued(st0, 1e9)
+  assert.equal(issued.visitUsed, true); assert.equal(issued.lastAt, 1e9)
+  const back = F.foundRetry(issued, 1e9 + 5)
+  assert.equal(back.visitUsed, false); assert.equal(back.lastAt, 1000, 'the cooldown is the one before this order')
+  assert.equal(back.retryAt, 1e9 + 5 + F.FOUND_RETRY_MS)
+  assert.equal(order({ state: back, now: 1e9 + 10 }).skip, 'retry_wait')
+  assert.equal(order({ state: back, now: 1e9 + 5 + F.FOUND_RETRY_MS }).order?.args?.step, 'F1', 'after the wait: ordered again, the same visit')
+  // a NOT-body refusal keeps the charge (only the body is free)
+  assert.equal(order({ state: issued, now: 1e9 + 5 + F.FOUND_RETRY_MS }).skip, 'visit_used')
+})
+await t('A BODY IN THE CELL, the skill: found_work ends outcome=body, failClass found_body; the reservation is released; nothing placed', async () => {
+  const w = town([stack('crafting_table', 2)])
+  const s0 = stations(w.bot)[0]
+  const { Vec3 } = await import('vec3')
+  w.bot.entities = { other: { name: 'player', position: new Vec3(s0.at[0] + 0.5, s0.at[1], s0.at[2] + 0.5), width: 0.6, height: 1.8 } }
+  const n0 = RECS.length
+  const r = await runSkill(w.bot, 'found_work', { kind: 'crafting_table', at: s0.at, crafts: 0, step: 'F1' })
+  assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'found_body'); assert.equal(r.placed, undefined)
+  assert.ok(rowsOf('found', n0).some(d => /outcome=body/.test(d)))
+  assert.equal(stations(w.bot)[0].state, 'free')
+  assert.notEqual(w.nameAt(...s0.at), 'crafting_table')
+})
+/** The REAL CognitiveLoop with a runner that answers each found order with `answer`; -> { ran, loop }. */
+async function bodyLoop (Loop, w, answer, n) {
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => { ran.push({ skill, args }); return /^found_/.test(skill) ? answer : { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe`] } } }
+  const loop = new Loop(w.bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.start()
+  for (let i = 0; i < 200 && ran.filter(x => /^found_/.test(x.skill)).length < n; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  return { ran, loop }
+}
+const BODY = { status: 'no_effect', failClass: 'found_body', detail: 'someone is standing in the plan cell' }
+await t('CHAIN, A BODY: the found slot gives the visit back on found_body -- no found order inside FOUND_RETRY_MS, the same order after it (one visit)', async () => {
+  const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
+  loopBot(w)
+  const { loop } = await bodyLoop(CognitiveLoop, w, BODY, 1)
+  assert.equal(loop.foundState?.visitUsed, false, JSON.stringify(loop.foundState))
+  assert.ok(loop.foundState.retryAt > Date.now(), 'the short wait')
+  // the wait passes (same visit: the bot never left town) -> ordered again
+  assert.equal(F.foundOrder({ plan: S.townPlanNow(w.bot).plan, items: w.bot.inventory.items(), ready: () => true, state: loop.foundState, now: Date.now() }).skip, 'retry_wait')
+  assert.equal(F.foundOrder({ plan: S.townPlanNow(w.bot).plan, items: w.bot.inventory.items(), ready: () => true, state: loop.foundState, now: loop.foundState.retryAt }).order?.args?.step, 'F1', 'the same order, the same visit')
+})
+await t('MUTANT KILLED: the free skip removed -> a body costs the visit (the order never comes back while in town)', async () => {
+  const COGP = new URL('../src/cognitive.mjs', import.meta.url)
+  const line = "      if (!declined && (admitted.skill === 'found_store' || admitted.skill === 'found_work') && r.failClass === 'found_body') this.foundState = foundRetry(this.foundState ?? {}, Date.now())\n"
+  const k = await withMutant(COGP, line, '', async M => killedBy(async () => {
+    const w = town([stack('crafting_table', 2), stack('oak_log', 30)])
+    loopBot(w)
+    const { loop } = await bodyLoop(M.CognitiveLoop, w, BODY, 1)
+    assert.equal(loop.foundState?.visitUsed, false)
+  }))
+  assert.ok(k, 'the mutant survived')
+})
+await t('THE FOUNDING FLOOR SWITCH (owner decision pending; default yes): FOUND_BELOW_STOCKPILE off -> the 64-unit stockpile is the floor and an hour-1 bag founds nothing', () => {
+  const hour1 = [st('oak_log', 16), st('cobblestone', 20)]
+  assert.ok(F.foundMeans(hour1).planks >= 8, 'default: founds from the hour-1 bag')
+  assert.equal(F.FOUND_BELOW_STOCKPILE, true)
+  const off = F.foundMeans(hour1, { belowStockpile: false })
+  assert.equal(off.planks, 0); assert.equal(off.cobble, 0)
+  assert.ok(F.foundMeans([st('oak_log', 80), st('cobblestone', 90)], { belowStockpile: false }).planks > 0, 'above 64 it founds')
+  assert.match(F.foundModeDetail(), / below_stockpile=1 retry_s=60$/)
+})
 await t('DECLINED (homefix-01 composition): a found run the runner declined never ran -- its cooldown and its visit are refunded; other skills keep theirs', () => {
   assert.deepEqual(refundDeclined('found_work', { foundState: { lastAt: 5, visitUsed: true, x: 1 } }), { foundState: { lastAt: -Infinity, visitUsed: false, x: 1 } })
   assert.deepEqual(refundDeclined('found_store', { foundState: { lastAt: 5, visitUsed: true } }), { foundState: { lastAt: -Infinity, visitUsed: false } })

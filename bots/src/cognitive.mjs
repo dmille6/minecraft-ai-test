@@ -30,7 +30,7 @@ import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel,
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
 // FOUNDING (found-01): the found slot's decision and readings
-import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign } from './found.mjs'
+import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -1309,6 +1309,8 @@ export class CognitiveLoop {
       if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
+      // found-01: a body in the plan cell is a FREE skip -- the visit and the cooldown come back, the order is retried after FOUND_RETRY_MS
+      if (!declined && (admitted.skill === 'found_store' || admitted.skill === 'found_work') && r.failClass === 'found_body') this.foundState = foundRetry(this.foundState ?? {}, Date.now())
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

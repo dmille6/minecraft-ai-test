@@ -112,7 +112,7 @@ import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnkn
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
-import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
+import { FOUND, FOUND_LEASE_MS, FOUND_RETRY_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
@@ -14678,7 +14678,8 @@ async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal
     const rctx = foundReadyCtx(bot, read, townPlanNow(bot)?.plan)
     const why = readyCell(read, at, rctx, kind)
     if (why) return { status: 'no_effect', outcome: 'unready', detail: `the plan cell at ${at.join(',')} is no longer ready (${why})` }
-    if (bodiesAround(bot).some(b => bodyInCell(b, { x: at[0], y: at[1], z: at[2] }))) return { status: 'no_effect', outcome: 'unready', detail: `someone is standing in the plan cell at ${at.join(',')}` }
+    // A BODY IN THE CELL is not the cell's fault: its own outcome and failClass, a FREE skip for the found slot (found.mjs foundRetry)
+    if (bodiesAround(bot).some(b => bodyInCell(b, { x: at[0], y: at[1], z: at[2] }))) return { status: 'no_effect', failClass: 'found_body', outcome: 'body', detail: `someone is standing in the plan cell at ${at.join(',')}; founding retries in ${FOUND_RETRY_MS / 1000} s` }
     let put
     try { put = await place(ctx, { item: KIND_ITEM[kind], x: at[0], y: at[1], z: at[2] }, signal, { by: 'found' }) } catch (e) {
       if (e?.aborted || signal?.aborted) throw e
