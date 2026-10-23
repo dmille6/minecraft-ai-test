@@ -1,0 +1,3 @@
+pools with drains 14: board-a,board-b,board-c,board-d,hive-a,hive-b,hive-c,hive-d,isolated-b,isolated-d,placebo-a,placebo-b,placebo-c,placebo-d | history 72 h to 10-23 18:22Z | effect 0.7 | sims 150
+POWER (effect 0.70)  +180/+360: 30/150 = 0.20  +180/+720: 62/150 = 0.41  +180/+1440: 117/150 = 0.78  +2880: no history
+NULL  (effect 0)     +180/+360: 2/150 = 0.01  +180/+720: 1/150 = 0.01  +180/+1440: 2/150 = 0.01  +2880: no history
