@@ -109,6 +109,13 @@ def cases(v):
     c('blind: a product-suffixed rename (diamond -> diamond_ingot) raises', raises(lambda: v.check_output(mk(ingot), 24), v.ValueBlind))
     for item in ('iron_ingot', 'oak_planks', 'stone_pickaxe', 'cobblestone_slab', 'red_bed', 'waxed_oxidized_copper', 'amethyst_block'):
         c(f'weight {item} = 0', v.weight(item) == 0.0, v.weight(item))
+    for item in ('diamond_bed', 'diamond_button', 'waxed_diamond', 'diamond_log', 'diamond_sapling', 'diamond_wool', 'polished_diamond'):
+        c(f'weight {item} = None (no wildcard may zero or price an unknown stem)', v.weight(item) is None, v.weight(item))
+    for item in ('red_bed', 'oak_button', 'white_wool', 'waxed_cut_copper_slab', 'stripped_birch_log', 'crimson_stem'):
+        c(f'weight {item} known', v.weight(item) is not None, v.weight(item))
+    for alias in ('diamond_bed', 'diamond_button', 'waxed_diamond'):
+        rn = dict(gems); rn[alias] = rn.pop('diamond')
+        c(f'blind: diamond renamed to {alias} raises', raises(lambda: v.check_output(mk(rn), 24), v.ValueBlind))
     for item in ('diamond_ingot', 'emerald_nugget', 'raw_iron_slab'):
         c(f'weight {item} = None (unknown stem)', v.weight(item) is None, v.weight(item))
     burst = dict(day); burst['geode_crystal_x'] = 26
@@ -155,6 +162,9 @@ MUTANTS = [
     ("    big = {i: n for i, n in res['unweighted'].items() if n > MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24} if hours >= 24 else {}",
      "    big = {i: n for i, n in res['unweighted'].items() if n > MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24}"),
     ("    check_inputs(names, delta_docs, hours)", "    pass"),
+    ("                     rf'|composter|{_COLOURS}_bed|bowl|", "                     rf'|composter|[a-z_]+_bed|bowl|"),
+    ("    r'|^waxed_(exposed_|weathered_|oxidized_)?(cut_|chiseled_)?copper(_block|_bulb|_grate|_door|_trapdoor|_slab|_stairs)?$')",
+     "    r'|^waxed_')"),
 ]
 
 

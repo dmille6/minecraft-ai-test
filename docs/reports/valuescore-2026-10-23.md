@@ -78,7 +78,7 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 
 **The old counts** (gather ok/bot-h, mine ok, craft ok, town_deposit ok/all) print alongside until `OLD_COUNTS_UNTIL = 2026-10-31`; after that only with `--old`. 10-31 is one week from an install on 10-24; if the install is later, move the constant. They reproduce the owner's 10-09 and 10-22 figures exactly (7.15 and 6.37; 8,243 and 5,508; 885 and 478; 413/841 and 165/211).
 
-**Tests** (`python3 scripts/host/test_valuescore.py`): 77 behaviour cases and 16 source mutants. A mutant that fails to load or run is a harness ERROR, not a kill. Every mutant is killed, and every anchor is checked unique.
+**Tests** (`python3 scripts/host/test_valuescore.py`): 93 behaviour cases and 18 source mutants. A mutant that fails to load or run is a harness ERROR, not a kill. Every mutant is killed, and every anchor is checked unique.
 - **The blind-input mutant:** renaming `gather` to `gathering` must raise. So must a kind thinning to 100 documents a day, any intake kind losing inventory_delta, a renamed raw item, or a coverage gap.
 - **Wiring:** `measure()` must call all three guards and stream every intake kind.
 - **The installer** has its own test, `scripts/host/test_install_valuescore.sh`, run on 10.0.0.31. It uses a throwaway HOME and a fake `crontab`, so the real ones are never touched, and all 29 checks pass. It covers:
@@ -157,4 +157,6 @@ bash scripts/host/install-valuescore.sh --rollback  # restores scoreboard.py, re
 - **P2:** a failing `crontab -r` was hidden on sole-entry rollback. It now propagates.
 - **P2:** product suffixes zeroed unknown names. They now match only known stems.
 
-**r5:** pending.
+**r5** (75ad2b4e), Codex CHANGE: 1 P2. The remaining wildcards zeroed `diamond_bed`, `diamond_button` and `waxed_diamond`. Every pattern now names its stems: log species, sapling species, colours, deco woods, polished stones, and the waxed copper forms. Renames to those names raise, and the 15-day replay is unchanged.
+
+**r6:** pending.

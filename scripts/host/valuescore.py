@@ -66,9 +66,12 @@ WEIGHTS = {
     'emerald': 16.0, 'diamond': 32.0, 'obsidian': 2.0,
     'coal_ore': 1.0, 'deepslate_coal_ore': 1.0,
 }
+# EVERY pattern below names its stems: no rule may zero (or price) a name it does not know (Codex r1 P2-3, r4 P2-2, r5 P2-1).
+_LOG_WOODS = '(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|stripped_oak|stripped_spruce|stripped_birch|' \
+             'stripped_jungle|stripped_acacia|stripped_dark_oak|stripped_mangrove|stripped_cherry|stripped_pale_oak)'
 PATTERNS = [
-    (re.compile(r'(_log|_wood|_stem|_hyphae)$'), 1.0),        # every log species (WOOD IS WOOD, milestones.mjs)
-    (re.compile(r'(_sapling|_propagule)$'), 0.5),             # the tree farm's input (treefarm, the planting obligation)
+    (re.compile(rf'^{_LOG_WOODS}_(log|wood)$|^(stripped_)?(crimson|warped)_(stem|hyphae)$'), 1.0),   # every log species
+    (re.compile(r'^(oak|spruce|birch|jungle|acacia|dark_oak|cherry|pale_oak)_sapling$|^mangrove_propagule$'), 0.5),
 ]
 # Weighted 0 ON PURPOSE (listed, so they are not "unweighted"). These are SCORING CHOICES, grounded where the project has a
 # policy: stocktarget.mjs town targets 0 (dirt, sand, gravel, deepslate, tuff, calcite, sandstone), well.mjs WELL_JUNK (the
@@ -87,7 +90,13 @@ armadillo_scute rail powered_rail detector_rail activator_rail lead glass glass_
 firefly_bush bush cactus_flower amethyst_block magma_block netherrack name_tag big_dripleaf small_dripleaf
 tuff_bricks chiseled_tuff_bricks mossy_stone_bricks cracked_stone_bricks chiseled_stone_bricks bricks brick'''.split())   # well.mjs DECORATIONS
 # waxed_* are copper DECOR blocks (trial chambers), not raw copper: seen 10-08..10-23 at 1-5 a day (Claude r3)
-ZERO_PATTERNS = re.compile(r'(_wool|_stained_glass|_stained_glass_pane|_button|_pressure_plate|_fence|_carpet)$|^polished_|^waxed_')
+_COLOURS = '(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)'
+_DECO_WOODS = '(oak|spruce|birch|jungle|acacia|cherry|dark_oak|pale_oak|mangrove|bamboo|crimson|warped)'
+ZERO_PATTERNS = re.compile(
+    rf'^{_COLOURS}_(wool|stained_glass|stained_glass_pane|carpet)$'
+    rf'|^({_DECO_WOODS}|stone|polished_blackstone)_(button|pressure_plate)$|^({_DECO_WOODS}|nether_brick)_fence$'
+    r'|^polished_(andesite|diorite|granite|tuff|deepslate|blackstone|basalt)$'
+    r'|^waxed_(exposed_|weathered_|oxidized_)?(cut_|chiseled_)?copper(_block|_bulb|_grate|_door|_trapdoor|_slab|_stairs)?$')
 # Crafted or smelted PRODUCTS: weighted 0 as intake (made from inputs already counted; a picked-up product is not new).
 # No catch-all suffix: a product suffix counts only on a KNOWN stem (Codex r1 P2-3, r4 P2-2: 'diamond_ingot' must surface
 # as unweighted, not be zeroed by '_ingot'). Anything else is UNWEIGHTED, and the look-alike guard judges it.
@@ -97,7 +106,7 @@ _STONES = '(stone|cobblestone|mossy_cobblestone|stone_brick|smooth_stone|sandsto
           'deepslate_tile|polished_deepslate|brick|andesite|diorite|granite|tuff|blackstone|mud_brick|prismarine|quartz)'
 PRODUCT = re.compile(rf'^({_WOODS}_planks|stick|{_TIERS}_(pickaxe|axe|shovel|hoe|sword)|(iron|gold|copper|netherite)_ingot'
                      rf'|(iron|gold)_nugget|crafting_table|furnace|chest|barrel|torch|ladder|bucket|(water|lava|milk)_bucket'
-                     rf'|composter|[a-z_]+_bed|bowl|paper|book|bricks?|stone_bricks|smooth_stone|{_WOODS}_(slab|stairs|trapdoor|door)'
+                     rf'|composter|{_COLOURS}_bed|bowl|paper|book|bricks?|stone_bricks|smooth_stone|{_WOODS}_(slab|stairs|trapdoor|door)'
                      rf'|{_STONES}_(slab|stairs|wall))$')
 
 INTAKE_KINDS = ('gather', 'mine', 'explore', 'goto', 'surface', 'home')
