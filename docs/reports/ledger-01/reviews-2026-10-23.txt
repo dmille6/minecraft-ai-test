@@ -1,0 +1,74 @@
+LEDGER-01 (cooperation tier B2) -- code review record. Branch ledger-on-6e1afb5; Paper driver on ledger-sbx-1023.
+
+== Codex r1 (bfb4ef71): CHANGE
+VERDICT: CHANGE
+
+1. **P1 — `sandbox/ledger/ledger-e2e.cjs:436,440`:** Lock rejection still calls cleanup, which unfreezes ticks and clears the arena without ownership. Gate all cleanup mutations on successful lock validation and arena acquisition.
+
+2. **P2 — `bots/src/skills.mjs:12009`:** Subsequent `loadNext()` fuel loads write no verifying record; only the initial load is recorded. Record each successful later load and add a multi-load behavioral fixture.
+
+3. **P2 — `scripts/host/ledgerread.py:121–124`:** Missing smelt writes disappear from L1’s denominator because `open=` exists only when recording succeeds. Log an independent window-read marker and slot fields, then count missing ledger IDs as defects. Add a failed-writer smelt fixture.
+
+4. **P2 — `scripts/host/ledgerread.py:283–285,306–315`:** L1 validates telemetry against telemetry; ledger files are checked only for JSON syntax. Missing or altered persisted records can pass, and telemetry rows count as confirmed exposure. Join rows to persisted station records by ID, validate their contents/outcomes, and block on missing or unreadable evidence.
+
+5. **P2 — `bots/src/ledger.mjs:167–174,211`:** Unreadable history is treated as empty: `recordStation` ignores `ok`, and rotation skips failed reads before publishing an incomplete checkpoint and deleting older generations. Reproduced `ok:false` followed by a successful entry append. Abort classification/rotation on unreadable inputs; test read failures and racing rotations.
+
+6. **P2 — `scripts/host/ledgerread.py:310–319`:** L3 divides current retained file sizes by the requested observation window and averages towns. Historical bytes can block a correct canary; rotation and averaging can hide excessive production. Measure bytes written within the evaluated interval per town and enforce the limit for every town.
+
+7. **P2 — `sandbox/ledger/ledger-e2e.cjs:57–61`:** Timing parity checks only an upper fuel bound. An unlit furnace with eight inputs and no fuel becoming eight outputs is accepted as `timing`—reproduced. Require sufficient consumed fuel or measured residual burn energy; add this impossible-cooking fixture.
+
+8. **P2 — `sandbox/ledger/ledger-e2e.cjs:423–426`:** Three successful drain rounds alone can produce overall PASS, omitting smelt and frozen/active validation. Require the mandated scene coverage and count sampled opens separately from load records.
+
+Paper and Python selftests passed. Ledger tests were blocked at temporary-directory creation by the read-only sandbox.
+
+
+== Codex r2 (8d542b04): CHANGE
+VERDICT: CHANGE
+
+1. **P2 — scripts/host/ledgerread.py:403:** L3 still counts only retained records. Rotation deletes window bytes, so excessive daily writes can pass; checkpoint bytes are also excluded. Preserve cumulative byte accounting across rotations, or make L3 undefined when window coverage is incomplete.
+
+2. **P2 — scripts/host/ledgerread.py:163:** Once a pool has rotated, *every* missing record becomes unresolved—even a fresh record that should remain. Reproduced: the same missing record is a defect before rotation and ignored afterward. Track retained-generation boundaries; exempt only records demonstrably old enough to have rotated away.
+
+3. **P3 — scripts/host/ledgerread.py:458:** The inline comment accidentally comments out `l1_denominator`, `l1_raced`, and `l1_unread`. Restore these emitted fields on separate lines.
+
+Python and Paper selftests passed. Both bot tests were blocked by read-only sandbox `mkdtemp` failures.
+
+
+== Codex r3 (ac765572): CHANGE
+VERDICT: CHANGE
+
+1. **P2** `scripts/host/ledgerread.py:166`: `t < boundary - 5000` falsely flags legitimately rotated-away records from the five seconds preceding the boundary as `not_persisted`. Reproduced with `t=99000`, `boundary=100000`. Use `t < boundary + RACE_MS` to conservatively allow timestamp skew, and add boundary-adjacent fixtures.
+
+Python and driver self-tests pass. Node ledger tests blocked by sandbox `mkdtemp` permissions.
+
+
+== Codex r4 (5337a531): APPROVE
+VERDICT: APPROVE
+
+No findings. Diff contains only the boundary fix, explanatory comment, and fixtures: 99 s/104 s unresolved; 106 s not_persisted. Self-test: `SELFTEST OK`.
+
+
+== Claude r1 (bfb4ef71): CHANGE -- no P1; 3 P2, 10 P3
+Ran ledger.test.mjs 20/20, ledgerread --selftest OK, ledger-e2e --selftest OK. Fleet safety holds (every new path try/catch and
+synchronous; the drain's lit/empty decisions read the same values; scope = townFurnaces' test). A fold of two 4 MB generations: 27 ms
+median. Design 6.4 B2 met for: coalesce into the newest from any bot, one append, the drain's one read, the structural test + mutants.
+P2-1 L1 cannot see a missing smelt/smelt_town record (open= only on success) -> marker open=-, load= field.
+P2-2 L2 "0 unparsed" / L3 bytes pass with nothing to read (no ledger file) -> undefined when a pool has rows but no file.
+P2-3 the Paper gate passes on drains alone -> require drains, frozen, live and a smelt-type open.
+P3: lit-only timing in live; k>0 unlit no fuel passes; out=? rows; empty CV; 4 MB rotation vs steady-state fold; recordStation ok:false;
+`void clicked`; opener regex receiver; `difficulty peaceful`; LEDGER=off drain row identity; unparsed-lines docstring.
+
+== Claude r2 (8d542b04): CHANGE -- 2 P2, 4 P3
+P2-1 the inline comment swallows l1_denominator / l1_raced / l1_unread in the emit (fixed in 3a9334cb; a structural test added).
+P2-2 a pool whose ledger the read cannot see makes every row not_persisted (a DEFECT) -> unresolved + L1 undefined.
+P3: ENOENT between stat and read is "unreadable"; the lit-only case for a one-coal load (fuel null both sides); LEDGER=off smelt rows
+still carry open=off; the registration note is round-1 text (addressed in the registration).
+
+== Claude r3 (ac765572): APPROVE -- 2 P3
+Every round-2 finding fixed. Ran ledgerread --selftest OK, ledger.test.mjs 21/21, ledger-e2e --selftest OK.
+P3-1 the rotation-boundary tolerance points the wrong way (t < b - 5000) -> fixed in 5337a531 (Codex r3 P2, the same point).
+P3-2 a record appended twice (a rotation racing an append) is counted twice in L3 bytes -- conservative; kept (they are bytes written).
+
+
+CONVERGED at 5337a531: Codex r4 APPROVE, Claude r3 APPROVE (its P3-1 is 5337a531). npm test 291/291 at ac765572 (5337a531 changes
+only scripts/host/ledgerread.py; ledger.test.mjs 21/21 there). eslint no-undef: the base's one guarded hit (reflex.mjs:2506).
