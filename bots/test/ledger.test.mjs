@@ -389,3 +389,23 @@ test('THE READ: scripts/host/ledgerread.py\'s L1 / L2 / exposure fixtures pass (
   assert.equal(py.status, 0, py.stderr || py.stdout)
   assert.match(py.stdout, /SELFTEST OK/)
 })
+
+test('THE READ EMITS what the registration gates on (an inline comment once swallowed three fields: Claude r2 P2-1)', () => {
+  const src = fs.readFileSync(new URL('../../scripts/host/ledgerread.py', import.meta.url), 'utf8')
+  // a Python comment is a `#` OUTSIDE a string literal (single-line strings are all this file uses)
+  const stripLine = l => {
+    let q = null
+    for (let i = 0; i < l.length; i++) {
+      const c = l[i]
+      if (q) { if (c === '\\') i++; else if (c === q) q = null } else if (c === "'" || c === '"') q = c; else if (c === '#') return l.slice(0, i)
+    }
+    return l
+  }
+  const strip = s => s.split('\n').map(stripLine).join('\n')
+  const emitOf = s => { const c = strip(s); return c.slice(c.indexOf("emit('ledgerread'")) }
+  for (const k of ['l1_defects', 'l1_denominator', 'l2_defects', 'l3_ok', 'station_exposure', 'liveness', 'instrument_control', 'rows_control_post'])
+    assert.match(emitOf(src), new RegExp(`'${k}':`), k)
+  const old = "'l1_denominator': l1['denominator'],"
+  assert.equal(src.split(old).length - 1, 1, 'ANCHOR MISSING or not unique')
+  assert.doesNotMatch(emitOf(src.replace(old, "# " + old)), /'l1_denominator':/, 'the mutant (the field commented out) is caught')
+})
