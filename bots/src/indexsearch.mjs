@@ -20,6 +20,7 @@
 //   kit_iron_<n>  iron_ingot                                    n + TOWN_IRON_KEEP
 //   coal          the job's fuels (smeltjob.mjs JOB_FUELS)      1
 //   raw_copper    raw_copper (the job's input)                  1
+//   raw_iron      raw_iron (ironsmelt-01: the job's first input) 1
 //   stick / cobblestone / planks   withdrawpick NEEDS' matchers 1
 //   pick, trippick: never -- the index records no wear, and a spent copy is no pickaxe
 //
@@ -34,7 +35,7 @@
 import { indexHolding } from './townindex.mjs'
 import { NEEDS } from './withdrawpick.mjs'
 import { KIT_IRON_NEED, TOWN_IRON_KEEP } from './toolkit.mjs'
-import { SMELT_JOB_INPUT, SMELT_JOB_FUEL, JOB_FUELS } from './smeltjob.mjs'
+import { SMELT_JOB_INPUT, SMELT_JOB_FUEL, JOB_FUELS, SMELT_IRON_INPUT } from './smeltjob.mjs'
 
 const onOff = (v, dflt = true) => (v == null || String(v).trim() === '' ? dflt : String(v).trim().toLowerCase() !== 'off')
 export const INDEXSEARCH = Object.freeze({ on: onOff(typeof process !== 'undefined' ? process.env.INDEXSEARCH : null) })
@@ -50,6 +51,8 @@ export function indexNeed (need, { keep = TOWN_IRON_KEEP } = {}) {
   if (m) return { match: x => x === 'iron_ingot', min: Math.max(1, Number(m[1])) + keep }
   if (n === SMELT_JOB_FUEL) return { match: x => JOB_FUELS.includes(x), min: 1 }
   if (n === SMELT_JOB_INPUT) return { match: x => x === SMELT_JOB_INPUT, min: 1 }
+  // x ironsmelt-01 (Codex + Claude design r1): the job's IRON pass is ranked too -- a known holder of raw iron first
+  if (n === SMELT_IRON_INPUT) return { match: x => x === SMELT_IRON_INPUT, min: 1 }
   if (NEEDS[n]) return { match: NEEDS[n].match, min: 1 }
   return null
 }
@@ -98,7 +101,7 @@ export const indexSearchRow = ({ by = '-', need = '-', town = 0, cand = 0, ix = 
 
 /** The `_indexsearch_mode` licence row (once per spawn): a kind the baseline cannot write. */
 export const indexSearchModeDetail = () =>
-  `phase=mode rank=${INDEXSEARCH.on ? 'index' : 'off'} kitsticks=${KITSTICKS.on ? 'on' : 'off'} needs=kit_iron,coal,raw_copper,stick,cobblestone,planks fresh_h=6 positive_only=1`
+  `phase=mode rank=${INDEXSEARCH.on ? 'index' : 'off'} kitsticks=${KITSTICKS.on ? 'on' : 'off'} needs=kit_iron,coal,raw_copper,raw_iron,stick,cobblestone,planks fresh_h=6 positive_only=1`
 
 /** How many sticks the kit's pre-draw takes from one container -> n (0: none here). Pure. */
 export const kitStickTake = (inChest = [], want = 0) => Math.max(0, Math.min(Number(want) || 0,

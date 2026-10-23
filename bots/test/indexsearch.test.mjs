@@ -84,6 +84,7 @@ await t('indexNeed: the kit\'s iron by draw size (+ the 4 kept), the job\'s coal
   assert.equal(IS.indexNeed('kit_iron_1').min, 5); assert.equal(IS.indexNeed('kit_iron_3').min, 7)
   assert.ok(IS.indexNeed('coal').match('coal') && !IS.indexNeed('coal').match('charcoal'), 'the job burns coal only (JOB_FUELS)')
   assert.ok(IS.indexNeed('raw_copper').match('raw_copper'))
+  assert.ok(IS.indexNeed('raw_iron').match('raw_iron') && !IS.indexNeed('raw_iron').match('iron_ingot'), 'x ironsmelt-01: the job\'s iron pass')
   assert.ok(IS.indexNeed('stick').match('stick') && IS.indexNeed('cobblestone').match('blackstone') && IS.indexNeed('planks').match('birch_planks'))
   assert.equal(IS.indexNeed('pick'), null); assert.equal(IS.indexNeed('trippick'), null); assert.equal(IS.indexNeed('nonsense'), null)
 })
@@ -109,7 +110,7 @@ await t('the change row and the licence row: key=value, <= 300 characters', () =
   assert.equal(IS.indexSearchRow({ by: 'toolkit', need: 'kit_iron', town: 10, cand: 10, ix: 1, first: 'ix', visits: 1, took: 1, hit: 1, tried: ['1,2,3:success'] }),
     'by=toolkit need=kit_iron town=10 cand=10 ix=1 first=ix visits=1 took=1 hit=1 tried=[1,2,3:success]')
   assert.ok(IS.indexSearchRow({ tried: Array(80).fill('1000,64,1000:none') }).length <= 300)
-  assert.match(IS.indexSearchModeDetail(), /^phase=mode rank=index kitsticks=on needs=kit_iron,coal,raw_copper,stick,cobblestone,planks fresh_h=6 positive_only=1$/)
+  assert.match(IS.indexSearchModeDetail(), /^phase=mode rank=index kitsticks=on needs=kit_iron,coal,raw_copper,raw_iron,stick,cobblestone,planks fresh_h=6 positive_only=1$/)
 })
 
 // ------------------------------------------------------------------------------------------------- the toolkit's iron draw
@@ -209,6 +210,8 @@ function smeltTown () {
   for (const c of CHESTS) { w.set(...c, 'chest'); w.stock(...c, [stack('dirt', 5)]) }
   w.stock(...COPPER, [stack('raw_copper', 8)])
   w.stock(...COAL, [stack('coal', 4)])
+  // x ironsmelt-01: these are the COPPER flow's scenes (the job searches raw iron first): a town whose iron is all looked at
+  CF.updateTownMemory(dir(), CF.townKey(HOME), null, e => CF.noteItemMisses(e, SJ.IRON_MISS_KEY, SJ.IRON_MISS_TTL_MS, CHESTS.map(kOf)))
   return w
 }
 const job = (S, w) => S.SKILLS.smelt_town.run({ bot: w.bot }, {}, new AbortController().signal)
@@ -223,6 +226,28 @@ const coalFirst = async (S = S0) => {
   assert.ok(rowsSince('_index_search', n0).some(d => /^by=smelt_town need=coal .* first=ix visits=1 took=1 hit=1 /.test(d)), rowsSince('_index_search', n0).join(' | '))
 }
 await t('THE SMELT JOB: the index says the far chest holds coal -> the coal pass opens it first (one visit); `_index_search` by=smelt_town first=ix hit=1', () => coalFirst())
+// x ironsmelt-01: the job's IRON pass is ranked by the index too -- raw iron only in the FARTHEST container, which the index says
+// holds it: the iron pass opens it FIRST (one visit), first=ix hit=1; CONTROL: no index -> nearest first
+const ironTown = () => {
+  freshPool(); clearWithdrawHolds(); offset += 3 * 60 * 60_000
+  const w = withServer(fakeWorld({ bag: [{ ...stack('cobblestone', 3), slot: 9 }] }))
+  for (const c of CHESTS) { w.set(...c, 'chest'); w.stock(...c, [stack('dirt', 5)]) }
+  w.stock(...COAL, [stack('raw_iron', 8), stack('coal', 4)])
+  return w
+}
+await t('x ironsmelt-01: the index says the far chest holds raw iron -> the iron pass opens it FIRST (one visit, first=ix hit=1); CONTROL: no index -> nearer containers first', async () => {
+  const w = ironTown()
+  seed(COAL, { raw_iron: [8, 1], coal: [4, 1] })
+  const n0 = RECS.length
+  const r = await job(S0, w)
+  assert.equal(r.stop, 'no_furnace', `${r.status} ${r.stop} ${r.detail}`)
+  assert.equal(w.spy.opened[0], kOf(COAL), `the iron pass opened the index's raw-iron holder first: ${w.spy.opened}`)
+  assert.ok(rowsSince('_index_search', n0).some(d => /^by=smelt_town need=raw_iron .* first=ix visits=1 took=1 hit=1 /.test(d)), rowsSince('_index_search', n0).join(' | '))
+  const w2 = ironTown()
+  const r2 = await job(S0, w2)
+  assert.equal(r2.stop, 'no_furnace', r2.detail)
+  assert.ok(w2.spy.opened.indexOf(kOf(COAL)) > 0, `CONTROL: nearer containers first: ${w2.spy.opened}`)
+})
 await t('CONTROL, no index: the coal pass walks the nearer containers first (toolkit-03 exactly)', async () => {
   const w = smeltTown()
   const r = await job(S0, w)
