@@ -1,4 +1,5 @@
 mineshaft-safety (design, branch mineshaft-safety-1023) -- REVIEW RECORD, 2026-10-23
+FINAL: Codex APPROVE r10 + Claude APPROVE r10 (b1afc0a8), after 10 rounds. Open P2/P3s carried into the build reviews (design section 13).
 Doc: docs/reports/mineshaft-safety-2026-10-23.md. Codex: `codex exec --sandbox read-only - < prompt` with a
 ( sleep 1500; kill ) watchdog. Claude: an independent general-purpose subagent, read-only, fresh context each round.
 
@@ -1102,3 +1103,54 @@ Codex P2-2 (obs_full retention): obs_full appended immutably to _pool-<pool>/dee
 Claude P3: enum gains waiting and uncertified; "Bots can pass" and "(coordinated)" removed; unmatched reload/blockUpdate
   changes are classed by block names (air or a placed block with no row = G6 violation; lava/water/gravel/sand =
   `env`, a break check, not a violation); positive controls add an uncertified own-exit dig and a water flow.
+
+====================================================================================================
+ROUND 10 (doc r10 @ b1afc0a8): Codex APPROVE (0 P1, 1 P2); Claude APPROVE (0 P1, 4 P2, 4 P3)
+====================================================================================================
+--- Codex r10 (verbatim) ---
+Reviewed `b1afc0a8` read-only. I interpret “resolved in r2” as “resolved in r10.”
+
+| Round 9 finding | R10 disposition |
+|---|---|
+| Codex P1: retirement releases an occupied underground slot | **Resolved at design level.** Retirement preserves the separate occupancy fence; exit, death or permanent removal clears it (§8, lines 1524–1545). O11 now states the resulting town-wide halt. |
+| Codex P2: hash-only observations cannot be replayed after replacement | **Resolved for the stated 14-day retention window.** Immutable observations are retained by hash, and the conflicting full-row specification is removed (§7 F6, lines 1328–1332). |
+| Claude P2-1: admission is asserted but unenforced | **Resolved at design level.** Admission is a generation-checked compare-and-set under the lock; waiting leaseholders receive non-leaseholder exclusions and cannot start `deep_miner` (§8, lines 1530–1534). |
+| Claude P2-2: retirement permits stale-generation reconnect overlap | **Resolved at design level.** Retirement retains occupancy; reconnect uses deterministic evacuation, and reconnect after permanent removal trips the violation gate (§8, lines 1564–1578). |
+
+1. **P2 — G6’s new environmental classifier cannot establish mutation provenance (§7 F6, “G6 evidence”).**  
+   [Lines 1378–1381](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1378) classify unmatched changes to sand/gravel as environmental, but unmatched changes to air as violations.
+
+   This creates both error directions:
+   - An unauthorized sand/gravel placement that bypasses the mutation logger is classified `env`, defeating the bypass-placement mutants specified immediately below.
+   - A falling sand block vacates its original cell without a bot dig. That transition becomes an apparent unauthorized dig. Sand falling when support disappears is documented by [Minecraft’s official description](https://www.minecraft.net/en-us/article/block-week-sand).
+
+   Block names alone cannot distinguish placement from falling. Preserve an unresolved attribution category unless corroborating evidence establishes the cause; independently trigger route revalidation. Add controls covering both cells of a fall and an unlogged sand/gravel placement. This is a gate-correctness issue for the build review, not a newly demonstrated movement dead end.
+
+The six entombment probe results reproduced. Synthetic execution of `d8.py` confirmed cross-life attribution stops at the first death and right-censored episodes are dropped. The principal code claims match the source: blind sprint, feet-or-below danger trigger, head-level entombment walls, mining lava gaps, exit-reserve formula and pathfinder planning checks.
+
+Production totals remain unverified because the telemetry JSON inputs are absent. The document appropriately qualifies the depth proxy, associations and canary power. No new P1 emerged in F1–F6, refusal-chain composition, sequencing, tiers or the diamond/enchanting sketch. M7–M10 remain respected.
+
+VERDICT: APPROVE
+
+--- Claude r10 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r10 on b1afc0a8. Condensed:
+R9 disposition: Codex P1-1 resolved; Codex P2-2 partly (14-day limit); Claude P2-1 resolved; P2-2 partly; P3-1
+resolved; P3-2 partly; P3-3 resolved. No P1.
+P2-1 stale-gen rule contradicts "retiring frees the job": a retired record's legitimate occupant reconnecting below
+  the top with a stale gen would trip _deepmine_fence_violation -- decide by the fence (occupant_bot/occupant_gen).
+P2-2 the fence can stay set after the bot is out (a certified or retired occupant surfacing below the stair top's
+  height never clears it; _deepmine_stale needs 24 h unseen) -- one rule for every occupant, surface anywhere with
+  exitDebt 0, against the fence; a held-fence-while-on-surface alarm.
+P2-3 "kept 14 days" can delete a baseline still in use -- keep while live + 14 days after superseded; missing = error.
+P2-4 normal fluid behaviour reads as a violation (drained flowing cells become air after an upstream seal; fluid
+  meetings produce cobble/stone/obsidian/basalt) -- class by before-state as env; control: a seal drains a lava cell.
+P3: /kill cannot reach an offline player; admission should require the waiting bot to be at the stair top;
+  concurrent appends to deepstair-obs.jsonl (atomic per line or under the lock); operator tooling takes the keepout
+  lock. Compare-and-set admission sound; fencing for gone/retired/stale records safe. M7-M10 respected; O13 correctly
+  left to the owner.
+VERDICT: APPROVE
+
+--- r10 outcome ---
+BOTH ENGINES APPROVE r10 (b1afc0a8). The remaining P2/P3 findings (G6 provenance/fluid classification; fence-keyed
+reconnect fencing; one fence-clearing rule + alarm; obs_full retention while live; P3 tooling items) are recorded in
+the design's section 13 under "Carried into the build reviews"; the approved design text is unchanged.

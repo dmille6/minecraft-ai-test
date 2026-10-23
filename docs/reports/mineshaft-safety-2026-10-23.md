@@ -1898,6 +1898,33 @@ read-only chest census** before `enchant-01` is sized.
 
 `docs/reports/mineshaft-safety-reviews-2026-10-23.txt` holds every round, verbatim, with the response to each finding.
 
+**Outcome.** Both engines APPROVE r10 (`b1afc0a8`) after ten rounds: Codex returned no P1, and Claude returned no
+P1. The design text below the r10 approval is unchanged.
+
+**Carried into the build reviews.** These are the open P2/P3 findings from round 10. They concern gate correctness and
+operator tooling. None is a safety or dead-end finding.
+
+1. **G6 classification.**
+   - Block names alone cannot tell a placement from a fall: an unlogged sand or gravel placement reads `env`, and the
+     cell a falling block vacates reads as an unauthorized dig.
+   - A drained fluid cell (after an upstream seal) and fluid-meeting products (cobblestone, stone, obsidian, basalt)
+     read as violations.
+   - **Remedy:** an `unresolved` attribution class unless corroborating evidence exists, with classification by the
+     before-state. Controls: both cells of a fall, an unlogged sand placement, and a seal draining a lava cell. (Codex
+     r10 P2, Claude r10 P2-4.)
+2. **Reconnect fencing.** Decide by the fence (`occupant_bot`/`occupant_gen`), not by the record's `gen`. A retired
+   record's legitimate occupant reconnecting with a stale `gen` must not trip `_deepmine_fence_violation`. (Claude r10
+   P2-1.)
+3. **Fence clearing.** Use one rule for every occupant: on the surface anywhere with `exitDebt` = 0, checked against the
+   fence. Add a held-fence-while-on-surface alarm. (Claude r10 P2-2.)
+4. **`obs_full` retention.** Keep each generation while it is live, plus 14 days after it is superseded. A missing
+   baseline is an error, not "no change". (Claude r10 P2-3.)
+5. **P3s.**
+   - `/kill` cannot reach an offline occupant: O11's options for it are a restart or permanent removal.
+   - Admission also requires the `waiting` bot to be at the stair top.
+   - `deepstair-obs.jsonl` uses one atomic append per line, or a write under the lock.
+   - Operator retire and removal tooling takes the keepout lock.
+
 ## 14. Reproduce
 
 `docs/reports/mineshaft-safety-2026-10-23.measure/`.
