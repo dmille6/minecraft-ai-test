@@ -101,6 +101,29 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-23 15:40Z — indexsearch-01 CLOSED INCONCLUSIVE +180 (early, unexposed); isolated phase 2 APPLIED; owner set the next tiers
+
+- **drop16 (M2b) DONE** 08:06:59-08:23:20Z: 80/80 bots on OLLAMA_BASE_URLS .72 only; re-verify 08:26Z OK (1,810 rows all .72, 0 on
+  .16, p95 3.2 s); hold released by its token. 24 h verify due >= 10-24 08:25Z (`bash ~/drop16.sh --verify 2026-10-23T08:23:20Z`).
+- **JIT 10-23** (queue on 6e1afb52): indexsearch d4a0f424; chatgate 3cc5f14d (+ 9d1f6d02 on d4a0f424); bamboo-03 f998ed34;
+  junkout-01 4108c84e; foldwatch-01 9280aaa6 (on f998ed34); treefarm-03 975e2ce5. bamboo/junkout/treefarm each needed a reviewed
+  production fix for composition with homefix/keepout/protectzone (both engines APPROVE). Stale /tmp/bambooread.py (10-06) moved aside.
+- **indexsearch-01 `d4a0f424`** drawn board-a, placebo-a (only 2 pools could expose it) 12:14Z. +180 NOT_YET; **closed INCONCLUSIVE
+  15:21Z** under the owner 10-15 early-close rule: canary coal-searching smelt jobs 0 of 43 (need 13; bots carry coal); kit half shows
+  no effect because town iron is running out (no_iron per attempt rising on both arms). Torn down 15:25Z, 10 bots on 6e1afb5, 0
+  drop-ins; `closed` in the scheduler. **Re-queue as indexsearch-02 after ironsmelt-01** with a reviewed, kit-led exposure.
+- **isolated -> shared PHASE 2 APPLIED** 15:26-15:28Z (isolated-a, -c, -d; --quiet 240 accepted per owner 10-21 #2). The rollout's
+  install-hold blocks launches until `bash isolated2shared-direct.sh --release operator` at >= 19:28Z (it refuses earlier). Tripwires
+  +15/+60/+180. Then 15 drawable pools.
+- **OWNER 10-23 decisions** (memory owner-next-tiers-1023, owner-queue-speed-1023, owner-design-answers-1023): town iron smelting
+  (ironsmelt-01, building; smelt_town is copper-only and copper is gone while 899 raw iron sits unsmelted, ingots -448/day);
+  townplan-01 + found-01 move up after chatgate-01 (being re-stacked); designs in progress with both engines: building tier +
+  structure count, mineshaft safety -> diamonds, cooperation (frontier overseer, $150/month cap), queue speed (settle-based cool-off
+  -- install only with ZERO flipped verdicts in replay -- and head-blocked lookahead after 30 min; both back to the owner before
+  install). Successors are pre-built for both outcomes of the live canary. Expeditions up to 1200 blocks (after census 10-24).
+- **Lane order once released:** chatgate-01 -> ironsmelt-01 -> townplan-01 -> found-01 -> bamboo-03 -> junkout-01 -> foldwatch-01
+  -> treefarm-03 (ironsmelt/townplan/found entries added when built).
+
 ## 10-23 08:30Z — FLEET 6e1afb52 (poolescape-01 KEPT +360 07:55Z, promoted 08:05Z); lane BLOCKED H2 pending JIT variants; drop16 applying
 
 - **poolescape-01** KEEP +360: marooned-water spell bot-h canary 18.0 -> 0.0 v control 0.0 -> 0.5 (DiD per bot -1.21); coverage
