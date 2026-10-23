@@ -434,3 +434,22 @@ DISPOSITIONS r6 -> r7:
 - Codex 3 (P2 baseline lost): `last_good` (generation + sha256) carried forward through UNKNOWN manifests and hash-validated
   before use; demonstrated OK -> failed run -> depleted-stamp retry refused -> normal retry OK.
 - Claude P3: the survey skips the bot's own unconfirmed-dig set and resync-probes a cell before reporting it missing.
+
+ROUND 7 (r7 doc, commit f60ab0c1): BOTH APPROVE
+-----------------------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: APPROVE
+Round-6 status: **all three findings are fixed at design level**: #1 two surveys can qualify a quiet building; #2 a newer attempt invalidates a retained same-day OK manifest; #3 hash-validated `last_good` survives UNKNOWN publications. Verified 17/17 structure fixtures, eight anchored mutants killed, 12/12 funding fixtures, reproduced funding totals, and exercised the reader and depleted-stamp validator in memory.
+
+1. **P3 — Design §2.5, §6.1 and §7: reconcile the persistence wording.** “Two observations” permits two region reads, but the adjacent rule excludes unsurveyed buildings, and §6.1 still requires copy-then-survey, excluding the newly allowed survey-then-survey route. The explicit survey gate and CUTOFF-DAMAGE scene keep this nonblocking. **Fix:** state one rule everywhere: first observation = qualifying copy or clean survey; second = clean survey ≥1 hour later. Update §7’s CUTOFF-QUIET summary accordingly.
+
+2. **P3 — `tools/daily.sh.txt`: attempt identities and temporary names assume serialized runs.** IDs have only second resolution, and overlapping invocations share `.attempt.tmp` and `.manifest.tmp`; generation names can also collide. **Fix:** serialize the wrapper with a nonblocking host lock and use unique attempt IDs and temporary paths. Add an overlapping-run fixture before installing cron.
+
+No P1 or P2 remains.
+
+CLAUDE r7 (same reviewer agent, resumed): VERDICT: APPROVE (0 P1, 0 P2). Its r6 P3 fixed; the observation/persistence rule
+sound; readmanifest r7 correct; last_good keeps the baseline.
+P3: while a run is in progress its attempt has no manifest, so goalboard reads UNKNOWN for minutes: say "run in progress".
+
+DISPOSITIONS (r7.1 polish after approval): Codex P3 1: one persistence rule everywhere (§2.5, §6.1, §7). Codex P3 2: a
+non-blocking host lock, attempt ids to the millisecond plus pid, unique temp and generation names, an overlapping-run fixture
+before cron. Claude P3: the reader says RUNNING for an attempt younger than 60 min with no manifest.

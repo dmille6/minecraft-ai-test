@@ -1,4 +1,4 @@
-# The building tier: count what is built, make the materials, build from plans (design only, r7, 2026-10-23)
+# The building tier: count what is built, make the materials, build from plans (design only, 2026-10-23, r7.1: r7 approved by both engines; P3 polish applied after)
 
 OWNER 2026-10-23 ~12:40Z approved the building tier. The goal it serves is the owner's: "build cool structures, survive,
 and work together for long periods of time", in peaceful worlds.
@@ -339,10 +339,12 @@ world.
     `_build_survey` (record, cells read, missing, foreign, unknown, the bot's position). Before it reports a cell missing it runs
     the resync probe on it once (§4.4), so its own stale view cannot fail a real building.
   - **An OBSERVATION of a record is either a scored region read or a clean survey** (Codex r6 P2: a final save inside the 5 s
-    margin, in a chunk nothing touches again, would otherwise never score). A building is PERSISTENT when two observations at
-    least one hour apart both find every cell in family, the room intact and the light lit. Two surveys qualify on their own, so a
-    quiet building needs no further save. Damage before the second observation fails it; damage after it is the next one's.
-  - **One read rule for the canary:** exposure counts PERSISTENT buildings; a scored but not yet surveyed building is
+    margin, in a chunk nothing touches again, would otherwise never score). **ONE rule, used everywhere** (§6.1, §7; Codex r7 P3):
+    a building is PERSISTENT when its FIRST observation (a scored region read or a clean survey) and a SECOND observation that is
+    a clean SURVEY at least one hour later both find every cell in family, the room intact and the light lit. So copy-then-survey
+    and survey-then-survey both qualify, and a quiet building needs no further save. Damage before the second observation fails
+    it; damage after it is the next one's.
+  - **One read rule for the canary:** exposure counts PERSISTENT buildings; a building with only its first observation is
     reported, not counted; an UNKNOWN record is reported as UNKNOWN.
   - **Copies:** `cp -p` on 10.0.0.30 and the SOURCE file's mtime recorded before the copy. No RCON `save-all`.
   - Tests: CUTOFF-SPLIT (a record across two chunks, A finished first, the last placement in B: scored after B's save, with A
@@ -378,6 +380,12 @@ The wrapper is `tools/daily.sh.txt` (r7), exercised on 10.0.0.30 (`data/daily-wr
 - **Checks before OK:** both controls on the same instrument path; per world a scan and a negative control with FULL coverage
   (every chunk `ok`, no unresolved start), the stamp within 10% of `last_good` (hash-validated, so an UNKNOWN run cannot erase the
   baseline), and 0 surface false positives. A failed run publishes a manifest with status UNKNOWN and no files.
+- **One run at a time** (Codex r7 P3): the wrapper takes a non-blocking host lock (`flock -n` on its own lock file, held by
+  the wrapper's own process for its whole run, never wrapped around another tool's command); a second invocation exits 8 at
+  once, touching nothing. Attempt ids carry the UTC stamp to the millisecond plus the process id, and temporary and generation
+  names include the attempt id. An overlapping-run fixture runs before the cron line is installed.
+- **"Run in progress"** (Claude r7 P3): while the newest attempt is younger than 60 min and has no manifest, the reader says
+  `RUNNING` (not UNKNOWN) and goalboard's BUILD line prints "run in progress"; older than that, it is UNKNOWN.
 - **The READER** (`tools/readmanifest.py.txt`, goalboard's rule) says OK only for a manifest of the expected day whose attempt
   equals the newest recorded attempt, with status OK and every hash matching. So a failed manifest replacement, or an unwritable
   output directory, after a same-day OK reads UNKNOWN (that attempt has no manifest), while the older generation stays readable
@@ -971,7 +979,7 @@ furnace this job loaded.
 | 0 | **structcount** | host script, no canary | — | §2: the daily count + controls + BUILD lines; SC-CTL first | ≥ 3 days of baseline before #3; controls, selftest and mutants every day |
 | 1 | **matset-01** | 1 (owner-direct + tripwire) | — | §3.4: sand target, glass off the junk list, parts PROTECTED and untargeted, building stones out of the pathfinder scaffold list, `BUILD_RESERVE` declared | tripwire: 0 well disposals or prunes of any part; sand banked > 0 in 24 h; gather and rung rates within the null |
 | 2 | **mats-01** | 3 (r2: allocation, withdrawals, furnace policy and recovery are not a small fix) | 1; townindex-01 (KEPT) | §3.2-3.3, buffers only (no project yet) | exposure ≥ 20 parts made with exact conservation, fuel booked by name. REVERT: any forbidden input consumed (coal burned included); the reserve crossed (index); a stone count in a bag that rose across an order with no open note. No-harm DiD: rung completions, gather, smelt `furnace_busy`, bag fill |
-| 3 | **shop-01** | 3 | 2; **townplan-01 and found-01 KEPT** (not yet: their JIT re-variants come after chatgate-01); the composed P0 gate first (§4.3); builder.mjs + structureguard-01 (carried here, rebased, with TP 2-8 §4.1's four changes) | §4: the record, slots and segments (2 builders), workshop@1 (bench) and storehouse@ring (greenfield), B4 clearing and durable replant | **effect:** B5 buildings complete in canary towns (structcount at a read-time copy), control = 0 by construction. Exposure ≥ 1 PERSISTENT workshop (§2.5: scored from a copy, then verified by a survey) in ≥ 2 canary towns, conformance F1 ≥ 0.98 (name and state). REVERT: an off-record placement; a clear outside the clear list or a plot; any zone cell touched; two leases live on one segment or more holders than slots; builder bag delta ≠ confirmed placements + scaffold; a felling with no planted replant; an unconfirmed dig stood on. No-harm DiD: deaths (two-death floor), immobile bot-h, gather and rung, litter cells added |
+| 3 | **shop-01** | 3 | 2; **townplan-01 and found-01 KEPT** (not yet: their JIT re-variants come after chatgate-01); the composed P0 gate first (§4.3); builder.mjs + structureguard-01 (carried here, rebased, with TP 2-8 §4.1's four changes) | §4: the record, slots and segments (2 builders), workshop@1 (bench) and storehouse@ring (greenfield), B4 clearing and durable replant | **effect:** B5 buildings complete in canary towns (structcount at a read-time copy), control = 0 by construction. Exposure ≥ 1 PERSISTENT workshop (§2.5: a first observation, then a clean survey ≥ 1 h later) in ≥ 2 canary towns, conformance F1 ≥ 0.98 (name and state). REVERT: an off-record placement; a clear outside the clear list or a plot; any zone cell touched; two leases live on one segment or more holders than slots; builder bag delta ≠ confirmed placements + scaffold; a felling with no planted replant; an unconfirmed dig stood on. No-harm DiD: deaths (two-death floor), immobile bot-h, gather and rung, litter cells added |
 | 4 | **house-01** | 3 | 3 KEPT; houses' composed P0 gate (5 pads per town) | house plots + house@1 + the sealed-door rule + `exit_house` | exposure ≥ 3 PERSISTENT houses in each canary town; REVERT also on a body inside a sealed interior at a door click |
 | 5 | **paths-01** | 3 | 3 | the town plan's paths + torches | the plan's gates; lit path cells (structcount) |
 | 6 | **wall-01** | 3 | 3, 5 | wall@1 segments | REVERT: any segment longer than 12 without a gap; immobile DiD near the wall line |
@@ -1029,7 +1037,7 @@ and the building pieces are not blocked by them.
 | GHOST-RESYNC | shop-01 | a dig the server rejects (made in the first 3 s after spawn), then the probe: the server's block update arrives and the cell is known again; the no-neighbour case yields |
 | SHOP-BARRIER | shop-01 | a sender SIGSTOPped after its check holding the mutex; a delivery delayed > 5 s; an expired holder's in-flight click meets a closer; an ordinary click races the barrier take; a click crosses a `trim_shortfall` transition: no enclosure, no stale click accepted |
 | MINE-NOTE | mats-01 | a deposit fails with a note naming cobblestone open; the bot goes mining: the exit contract's count matches the movements' placeable blocks and the bot climbs out |
-| CUTOFF-* | structcount | §2.5's four: SPLIT (two chunks, scored after the last chunk's save), QUIET (unloaded, never re-saved, scored and then surveyed), DAMAGE (an unrowed dig after the save: scored from the copy, not PERSISTENT after the survey), SLOW (unsaved: UNKNOWN) |
+| CUTOFF-* | structcount | §2.5's four: SPLIT (two chunks, scored after the last chunk's save), QUIET (unloaded, never re-saved: scored then surveyed; and a save inside the margin: surveyed twice), DAMAGE (an unrowed dig after the save: scored from the copy, not PERSISTENT after the survey), SLOW (unsaved: UNKNOWN) |
 | MAT-KILL | mats-01 | SIGKILL after the withdraw, during the session, and holding 1-3 stone: `mats_return` reconciles; nothing lost or thrown |
 | MAT-RES | mats-01 | stock exactly at the reserve: no order; one batch above: one batch |
 | SHOP-FLAT / SHOP-TOWN | shop-01 | the whole workshop on flat ground and on two dug-out fixtures; every cell read in family |
@@ -1261,3 +1269,7 @@ Rounds are recorded in `docs/reports/building-tier-reviews-2026-10-23.txt`.
     missing; the wrapper records its attempt first in a separate directory, the reader requires the manifest's attempt to be
     the newest, and `last_good` is carried through UNKNOWN runs with its hash; nine demonstrations, both failures from a
     same-day OK and the depleted-stamp retry.
+- **Round 7 (r7, commit f60ab0c1): Codex APPROVE, Claude APPROVE.** No P1 or P2 remains. Their P3s, applied after approval as
+  r7.1: one persistence rule stated everywhere (first observation = a scored copy or a clean survey; second = a clean survey
+  ≥ 1 h later); the wrapper serialised by a non-blocking host lock with unique attempt ids and temporary names, and an
+  overlapping-run fixture before cron; the reader says RUNNING for a fresh attempt with no manifest.
