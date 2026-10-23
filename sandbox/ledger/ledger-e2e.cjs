@@ -253,10 +253,22 @@ const arenaCmds = () => ['forceload add 880 880 920 920', 'kill @e[type=!player,
   'fill 884 120 884 916 126 916 minecraft:air', 'fill 884 119 884 916 119 916 minecraft:stone']
 const furnaceCmds = (f, preset) => [`setblock ${at(f)} minecraft:air`, `setblock ${at(f)} minecraft:furnace[facing=north]`,
   ...preset.map(([s, id, n]) => `item replace block ${at(f)} container.${s} with minecraft:${id} ${n}`)]
+// ONE QUERY PER SLOT (Paper 10-23 smoke): Paper TRUNCATES a long `data get ... Items` reply ({Slot: 2b, id: "...), which
+// read a two-item furnace as holding only its first item -- a parity "failure" of the DRIVER, not of the ledger
 const readFurnace = f => {
-  const [items, lit] = rcon(`data get block ${at(f)} Items`, `execute if block ${at(f)} minecraft:furnace[lit=true]`)
-  if (!/has the following block data/.test(items?.reply ?? '')) throw new Error(`furnace ${key(f)} unreadable: ${items?.reply}`)
-  return { ...parseFurnaceItems(items.reply), lit: /Test passed/.test(lit?.reply ?? '') }
+  const r = rcon(`data get block ${at(f)} Items[{Slot:0b}]`, `data get block ${at(f)} Items[{Slot:1b}]`, `data get block ${at(f)} Items[{Slot:2b}]`,
+                 `execute if block ${at(f)} minecraft:furnace[lit=true]`, `execute if block ${at(f)} minecraft:furnace`)
+  if (!/Test passed/.test(r[4]?.reply ?? '')) throw new Error(`no furnace at ${key(f)}: ${r[4]?.reply}`)
+  const one = (q, k) => {
+    const t = q?.reply ?? ''
+    if (/has the following block data/.test(t)) {
+      if (/\.\.\.\s*$/.test(t)) throw new Error(`a truncated slot read at ${key(f)}: ${t}`)
+      return parseFurnaceItems('[' + t.slice(t.indexOf('{')) + ']')[k]
+    }
+    if (/Found no elements matching|no element/i.test(t)) return null
+    throw new Error(`furnace ${key(f)} slot unreadable: ${t}`)
+  }
+  return { in: one(r[0], 'in'), fuel: one(r[1], 'fuel'), out: one(r[2], 'out'), lit: /Test passed/.test(r[3]?.reply ?? '') }
 }
 
 // ---------------------------------------------------------------- logs and the ledger
