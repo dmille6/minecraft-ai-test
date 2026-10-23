@@ -114,7 +114,7 @@ test('a town holding ONLY iron and coal (and no input above the reserve) never g
   const r = M.materialOrder(base({ town: { stock: { iron_ingot: 500, raw_iron: 300, coal: 900, charcoal: 40 }, coverage: 1 } }))
   assert.equal(r.order, null); assert.equal(r.skip, 'inputs')
   // positive control: the same town with cobble and logs above the reserve gets one
-  assert.equal(M.materialOrder(base({ town: { stock: { iron_ingot: 500, coal: 900, cobblestone: 400, oak_log: 600 }, coverage: 1 } })).order?.args.kind, 'bricks')
+  assert.equal(M.materialOrder(base({ town: { stock: { iron_ingot: 500, coal: 900, cobblestone: 400, oak_log: 600 }, coverage: 1 } })).order?.args.item, 'bricks')
 })
 
 test('the log species: the most-stocked one with enough, never below the logs reserve in total', () => {
@@ -126,7 +126,7 @@ test('the log species: the most-stocked one with enough, never below the logs re
 // ---- the order ------------------------------------------------------------------------------------------------------------
 test('the order: issued at town with a short part and its inputs; every reason it is not is named (skips, never refusals)', () => {
   const r = M.materialOrder(base())
-  assert.equal(r.order?.skill, 'make_material'); assert.equal(r.order.args.kind, 'bricks'); assert.equal(r.state.lastIssuedAt, T0)
+  assert.equal(r.order?.skill, 'make_material'); assert.equal(r.order.args.item, 'bricks'); assert.equal(r.state.lastIssuedAt, T0)
   const skip = over => M.materialOrder(base(over)).skip
   assert.equal(skip({ on: false }), 'off')
   assert.equal(skip({ shared: false }), 'isolated')
@@ -143,21 +143,21 @@ test('the order: issued at town with a short part and its inputs; every reason i
   assert.equal(skip({ lease: () => false }), 'lease_busy')
   // below the coverage with never-opened containers in reach: the REMEDY is the order (count them), not a skip
   const c = M.materialOrder(base({ town: { stock: RICH, coverage: 0.5 }, unknown: () => 3 }))
-  assert.equal(c.order?.args.kind, 'count'); assert.match(c.order.why, /open the 3 never-opened/)
+  assert.equal(c.order?.args.item, 'count'); assert.match(c.order.why, /recount the 3 it does not know/)
   assert.equal(M.materialOrder(base({ state: { lastIssuedAt: T0 - M.MATS_COOLDOWN_MS } })).order?.skill, 'make_material', 'the cooldown ends')
 })
 
 test('the order: the first SHORT part in KIND_ORDER whose inputs, furnace and table are there; buffers stop production', () => {
   const stocked = { ...RICH, stone_bricks: 128 }
-  assert.equal(M.materialOrder(base({ town: { stock: stocked, coverage: 1 } })).order.args.kind, 'cut_copper', 'bricks at the buffer: the next part')
-  assert.equal(M.materialOrder(base({ furnace: () => false })).order.args.kind, 'cut_copper', 'no furnace: a kind with no smelt')
+  assert.equal(M.materialOrder(base({ town: { stock: stocked, coverage: 1 } })).order.args.item, 'cut_copper', 'bricks at the buffer: the next part')
+  assert.equal(M.materialOrder(base({ furnace: () => false })).order.args.item, 'cut_copper', 'no furnace: a kind with no smelt')
   const r = M.materialOrder(base({ furnace: () => false, table: () => false }))
   assert.equal(r.order, null); assert.equal(r.skip, 'no_furnace', 'nothing makeable: the most informative reason')
   const full = { ...RICH, stone_bricks: 128, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64 }
   assert.equal(M.materialOrder(base({ town: { stock: full, coverage: 1 } })).skip, 'stocked')
   // torch: Q3's part (charcoal from logs), only below its buffer
   const torches = { ...full, torch: 40 }
-  assert.equal(M.materialOrder(base({ town: { stock: torches, coverage: 1 } })).order?.args.kind, 'torch')
+  assert.equal(M.materialOrder(base({ town: { stock: torches, coverage: 1 } })).order?.args.item, 'torch')
   // cheap gates first: no town read when a gate fails
   let reads = 0
   M.materialOrder(base({ holds: true, town: () => { reads++; return { stock: RICH, coverage: 1 } } }))
@@ -208,15 +208,57 @@ test('the batch: the whole one, or the largest unit the clock affords (4 stone, 
 })
 
 // ---- recovery (MAT-KILL's plan) ------------------------------------------------------------------------------------------
-test('the return plan: stone crafted in fours, a 1-3 remainder KEPT under the note (never banked-and-closed); parts banked', () => {
+test('the return plan: stone crafted in fours (a 1-3 remainder is ORDINARY stone, reported); the part banked; unspent inputs are NOT obligations', () => {
   const note = M.newNote({ kind: 'bricks', bag0: { stone: 0, stone_bricks: 2, cobblestone: 80, oak_log: 10, oak_planks: 4 } })
-  const p = M.returnPlan(note, { stone: 7, stone_bricks: 6, cobblestone: 80, oak_log: 10, oak_planks: 7 })
-  assert.equal(p.craftStone, 4); assert.deepEqual(p.keep, { stone: 3 }); assert.equal(p.close, false)
-  assert.equal(p.bank.stone_bricks, 4 + 4, 'the bricks already made + the four about to be'); assert.equal(p.bank.oak_planks, 3)
-  assert.equal(p.bank.cobblestone, undefined, 'the bag\'s own cobble is the bag\'s')
-  const clean = M.returnPlan(note, { stone: 8, stone_bricks: 2, cobblestone: 80, oak_log: 10, oak_planks: 4 })
-  assert.equal(clean.craftStone, 8); assert.deepEqual(clean.keep, {}); assert.equal(clean.close, true)
-  assert.deepEqual(M.returnPlan(null, {}), { craftStone: 0, bank: {}, keep: {}, close: true })
+  const p = M.returnPlan(note, { stone: 7, stone_bricks: 6, cobblestone: 84, oak_log: 10, oak_planks: 7 })
+  assert.equal(p.craftStone, 4); assert.equal(p.stoneLeft, 3)
+  assert.deepEqual(p.bank, { stone_bricks: 4 + 4 }, 'the bricks already made + the four about to be')
+  assert.deepEqual(p.inputsLeft, { cobblestone: 4, oak_planks: 3 }, 'booked, never an obligation')
+  assert.equal(M.noteSettled(note, { stone: 3, stone_bricks: 2, cobblestone: 84, oak_planks: 7 }), true, 'leftover inputs and a 1-3 stone remainder do not hold the note open')
+  assert.equal(M.noteSettled(note, { stone: 4, stone_bricks: 2 }), false, 'four stone still owe a craft')
+  assert.equal(M.noteSettled(note, { stone_bricks: 3 }), false, 'a brick above bag0 is still owed to town')
+  assert.equal(M.noteSettled({ ...note, furnace: '1,2,3' }, { stone_bricks: 2 }, { furnaceDone: false }), false, 'a furnace not yet drained holds it open')
+  // the torch kind's charcoal is made into torches in recovery (Codex r1 P2-13), never banked as charcoal
+  const tn = M.newNote({ kind: 'torch', bag0: { charcoal: 1, stick: 0, torch: 8 } })
+  const tp = M.returnPlan(tn, { charcoal: 7, stick: 6, torch: 8 })
+  assert.equal(tp.torches, 6); assert.deepEqual(tp.bank, { torch: 24 }); assert.ok(!('charcoal' in tp.bank))
+  assert.deepEqual(M.returnPlan(null, {}), { craftStone: 0, torches: 0, bank: {}, stoneLeft: 0, inputsLeft: {} })
+  assert.deepEqual(M.obligations('bricks').sort(), ['stone', 'stone_bricks']); assert.deepEqual(M.obligations('copper_door'), ['copper_door'])
+})
+
+test('the reserve AT THE TAKE (Codex r1 P1-1): the other known containers plus what the server shows here, never below the reserve', () => {
+  const R = BUILD_RESERVE
+  // the order read 514 logs; another bot has since taken 2 from this chest: here shows 30, the others 482 -> 512, none to spare
+  assert.equal(M.takeAllowed('oak_log', 2, { others: { oak_log: 482 }, here: { oak_log: 30 } }), 0)
+  assert.equal(M.takeAllowed('oak_log', 2, { others: { oak_log: 484 }, here: { oak_log: 30 } }), 2, 'positive control: 514 -> 2 to spare')
+  assert.equal(M.takeAllowed('oak_log', 2, { others: { birch_log: 600 }, here: { oak_log: 1 } }), 1, 'never more than the container holds')
+  assert.equal(M.takeAllowed('cobblestone', 12, { others: { cobblestone: R.cobblestone }, here: { cobblestone: 5 } }), 5)
+  assert.equal(M.takeAllowed('iron_ingot', 5, { others: {}, here: { iron_ingot: 64 } }), 0, 'never a name with no reserve key (no input)')
+})
+
+test('a recovery drains ONLY the note\'s own load (Codex r1 P1-5): its names, at most its counts', () => {
+  const loaded = { input: { name: 'cobblestone', n: 12 }, fuel: { name: 'oak_planks', n: 8 }, out: 'stone', prior: 0 }
+  assert.equal(M.recoveryContentsOk(loaded, { input: { name: 'cobblestone', count: 3 }, fuel: { name: 'oak_planks', count: 2 }, output: { name: 'stone', count: 9 } }).ok, true)
+  assert.equal(M.recoveryContentsOk(loaded, { output: { name: 'iron_ingot', count: 1 } }).why, 'output:iron_ingot')
+  assert.equal(M.recoveryContentsOk(loaded, { fuel: { name: 'coal', count: 1 } }).why, 'fuel:coal')
+  assert.equal(M.recoveryContentsOk(loaded, { input: { name: 'cobblestone', count: 13 } }).why, 'input:cobblestone', 'more than it loaded')
+  assert.equal(M.recoveryContentsOk(null, {}).why, 'no_load_record')
+})
+
+test('the recipe that uses only what it may: sticks from the order\'s own planks; the torch from charcoal, never coal', () => {
+  const ids = { 1: 'oak_planks', 2: 'cherry_planks', 3: 'stick', 4: 'coal', 5: 'charcoal' }
+  const nameOf = i => ids[i]
+  const sticks = [{ id: 'cherry', delta: [{ id: 2, count: -2 }, { id: 3, count: 4 }] }, { id: 'oak', delta: [{ id: 1, count: -2 }, { id: 3, count: 4 }] }]
+  assert.equal(M.recipeUsing(sticks, nameOf, { allowed: ['oak_planks'], must: 'oak_planks' }).id, 'oak')
+  const torches = [{ id: 'coal', delta: [{ id: 4, count: -1 }, { id: 3, count: -1 }] }, { id: 'charcoal', delta: [{ id: 5, count: -1 }, { id: 3, count: -1 }] }]
+  assert.equal(M.recipeUsing(torches, nameOf, { allowed: ['charcoal', 'stick'], must: 'charcoal' }).id, 'charcoal')
+  assert.equal(M.recipeUsing(torches.slice(0, 1), nameOf, { allowed: ['charcoal', 'stick'], must: 'charcoal' }), null, 'only coal on offer: no recipe')
+})
+
+test('HEADROOM (Codex r1 P2-10): an order runs only when its whole batch fits under the buffer', () => {
+  const at = n => M.materialOrder(base({ town: { stock: { ...RICH, stone_bricks: n, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64 }, coverage: 1 } }))
+  assert.equal(at(116).order?.args.item, 'bricks', '116 + 12 = 128')
+  assert.equal(at(117).skip, 'stocked', '117 + 12 would pass 128')
 })
 
 // ---- conservation ---------------------------------------------------------------------------------------------------------
@@ -226,6 +268,9 @@ test('the balance by family: a whole bricks order is ok; a short deposit is a LO
   assert.equal(M.matsBalance({ ...ok, deposited: { stone_bricks: 11 } }).verdict, 'loss')
   assert.equal(M.matsBalance({ ...ok, forbidden0: { coal: 5 }, forbidden1: { coal: 4 } }).verdict, 'forbidden')
   assert.equal(M.matsBalance({ ...ok, forbidden0: { coal: 5 }, forbidden1: { coal: 4 }, uncertain: true }).verdict, 'forbidden', 'never excused by uncertainty')
+  // a pickaxe that wears out on the order's walk is booked apart (tools_lost), never a forbidden input (Claude r1 P2)
+  assert.deepEqual(M.forbiddenCounts({ stone_pickaxe: 2, coal: 3, iron_ingot: 1, oak_log: 9 }), { coal: 3, iron_ingot: 1 })
+  assert.deepEqual(M.toolCounts({ stone_pickaxe: 2, coal: 3, bucket: 1 }), { stone_pickaxe: 2, bucket: 1 })
   assert.equal(M.matsBalance({ ...ok, burnedPlanks: 9, withdrawn: { oak_log: 2, oak_planks: 1 } }).verdict, 'overburn')
   assert.equal(M.matsBalance({ ...ok, bag1: { cobblestone: 89 } }).verdict, 'gain', 'a gain is reported, not a defect')
   assert.equal(M.matsBalance({ ...ok, uncertain: true }).verdict, 'unreconciled')
@@ -251,7 +296,8 @@ test('touched names: the part, the inputs, the intermediate and every wood name 
 
 test('the row and the licence row carry the fields the read parses', () => {
   const d = M.matsDetail({ kind: 'bricks', stop: 'done', made: 12, took: { oak_log: 2 }, verdict: 'ok', families: { stone: 0 } })
-  for (const k of ['kind=bricks', 'stop=done', 'made=12', 'took=oak_log:2', 'verdict=ok', 'forbidden=-', 'kept_lost=-']) assert.ok(d.includes(k), k)
+  for (const k of ['kind=bricks', 'stop=done', 'made=12', 'took=oak_log:2', 'verdict=ok', 'forbidden=-', 'stone_left=-', 'inputs_left=-', 'tools_lost=-']) assert.ok(d.includes(k), k)
+  assert.ok(d.indexOf('stock=') < d.indexOf('stop='), 'stock= comes before stop= (the 300-char cut)')
   const m = M.matsModeDetail()
   assert.match(m, /^phase=mode v=1 on=1 kinds=bricks,cut_copper,copper_door,panes,torch reserve=cobblestone:256,logs:512,planks:71,sticks:40,copper_ingot:512,sand:16,torch:32 reserve_src=default/)
 })
@@ -269,10 +315,18 @@ test('MUTANTS: the reserve, the coverage rule, the forbidden gate, the qualify r
       X => assert.equal(X.furnaceQualifies({ lit: false, fuel: { name: 'coal', count: 2 } }).ok, false)],
     ['lit unknown read as cold', "if (lit !== false) return", "if (lit === true) return",
       X => assert.equal(X.furnaceQualifies({ lit: null }).ok, false)],
-    ['a stocked part is still made', "if (short <= 0) { reasons.push('stocked'); continue }", '',
+    ['a stocked part is still made', "if (short < k.makes) { reasons.push('stocked'); continue }", '',
       X => assert.equal(X.materialOrder(base({ town: { stock: { ...RICH, stone_bricks: 128, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64 }, coverage: 1 } })).skip, 'stocked')],
-    ['the kept remainder is banked', "if (st % 4) keep.stone = st % 4", '',
-      X => assert.deepEqual(X.returnPlan(X.newNote({ kind: 'bricks', bag0: { stone: 0 } }), { stone: 3 }).keep, { stone: 3 })],
+    ['no headroom check', "if (short < k.makes) { reasons.push('stocked'); continue }", "if (short <= 0) { reasons.push('stocked'); continue }",
+      X => assert.equal(X.materialOrder(base({ town: { stock: { ...RICH, stone_bricks: 117, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64 }, coverage: 1 } })).skip, 'stocked')],
+    ['the take ignores the reserve', "return Math.max(0, Math.min(Number(want) || 0, Number(here?.[name]) || 0, spendable(rk, sum, reserve)))", "return Math.max(0, Math.min(Number(want) || 0, Number(here?.[name]) || 0))",
+      X => assert.equal(X.takeAllowed('oak_log', 2, { others: { oak_log: 482 }, here: { oak_log: 30 } }), 0)],
+    ['recovery takes a foreign output', "if (output && (output.name !== loaded.out || output.count > loaded.input.n)) return { ok: false, why: `output:${output.name}` }", '',
+      X => assert.equal(X.recoveryContentsOk({ input: { name: 'cobblestone', n: 12 }, fuel: { name: 'oak_planks', n: 8 }, out: 'stone' }, { output: { name: 'iron_ingot', count: 1 } }).ok, false)],
+    ['coal allowed in the torch recipe', "if (!used.length || used.some(n => !ok.has(n))) continue", "if (!used.length) continue",
+      X => assert.equal(X.recipeUsing([{ id: 'coal', delta: [{ id: 4, count: -1 }, { id: 3, count: -1 }] }], i => ({ 3: 'stick', 4: 'coal' })[i], { allowed: ['charcoal', 'stick'] }), null)],
+    ['a leftover input holds the note', "    if (n === 'stone' || n === 'charcoal') continue\n    const extra = above(n)", "    const extra = above(n)",
+      X => assert.equal(X.noteSettled(X.newNote({ kind: 'bricks', bag0: { stone: 0, stone_bricks: 0 } }), { stone: 3, stone_bricks: 0 }), true)],
   ]
   for (const [name, old, neu, check] of cases) {
     check(M)      // the real module passes
@@ -291,4 +345,11 @@ test('STRUCTURAL: both skills are registered HOUSEKEEPING (chatOnly) with their 
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const runner = strip(readFileSync(new URL('../src/runner.mjs', import.meta.url), 'utf8'))
   assert.equal(runner.split('made: Number(result.made ?? 0)').length, 2, 'the runner passes the job\'s count to the evidence gate exactly once')
+  // WIRING (Claude r1 P3): make_material's one furnace session takes NO output as its own -- any output is another session's.
+  // matsSession's behaviour for own=null is tested in mats-session.test; this asserts make_material passes it (the Paper
+  // `furn` scene is the world check). The executable call, comments stripped, exactly one session call.
+  const skills = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const calls = skills.match(/await matsSession\(ctx, \{[^}]*\}/g) ?? []
+  assert.equal(calls.length, 1, 'one session call in make_material')
+  assert.match(calls[0], /\bown: null\b/, 'own: null')
 })

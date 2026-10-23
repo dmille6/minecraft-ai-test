@@ -22,7 +22,7 @@ const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
 // mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
-import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, indexRecountKeys } from './skills.mjs'
+import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -742,6 +742,26 @@ export class CognitiveLoop {
     } catch { return null }   // an inventory or world read must never break the decision loop
   }
 
+  /**
+   * THE MATERIALS RECOVERY (mats-01, mats.mjs returnOrder), or null: an OPEN carry note at town is reconciled FIRST, before any
+   * other town order (design 3.2) -- like the plinth and the town deposit, ahead of the milestone order (bounded: once a
+   * minute while the note is open, at most MATS_RETURN_MAX tries, then the note is given up and counted).
+   */
+  #matsReturnOrder() {
+    try {
+      const bot = this.bot
+      const p = bot.entity?.position
+      const home = { x: config.world.homeX, z: config.world.homeZ }
+      const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
+      if (!atTown) return null
+      const note = readMatsNote(bot)
+      const r = returnOrder({ on: matsEnabled(process.env, config.memory.scope).on, atTown, noteOpen: note?.phase === 'open', now: Date.now(), state: this.matsState ?? {} })
+      this.matsState = r.state
+      if (r.order) this.matsIssuedAt = Date.now()
+      return r.order
+    } catch { return null }
+  }
+
   #townDepositOrder(milestone) {
     try {
       const bot = this.bot
@@ -959,24 +979,7 @@ export class CognitiveLoop {
     // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
     // THE RAISED JUNK WELL GOES BEFORE THE DEPOSIT (plinth.mjs plinthOrder; design 3.4): at town, a funded bot's surplus
     // stone builds the town's well before any of it is banked; one builder per town (the lease), on its own cooldown.
-    order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
-    // THE MATERIALS RECOVERY (mats-01, mats.mjs returnOrder): an OPEN carry note at town is reconciled before any other town
-    // order (design 3.2) -- after the town deposit, which may bank the order's items itself (the return then finds them gone
-    // and closes), and never over a milestone order already chosen.
-    if (!order) {
-      try {
-        const bot = this.bot
-        const p = bot.entity?.position
-        const home = { x: config.world.homeX, z: config.world.homeZ }
-        const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
-        if (atTown) {
-          const note = readMatsNote(bot)
-          const r = returnOrder({ on: matsEnabled(process.env, config.memory.scope).on, atTown, noteOpen: note?.phase === 'open', now: Date.now(), state: this.matsState ?? {} })
-          this.matsState = r.state
-          if (r.order) { order = r.order; this.matsIssuedAt = Date.now() }
-        }
-      } catch { /* a world read must never break the decision loop */ }
-    }
+    order = this.#matsReturnOrder() ?? this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
     // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
     // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
     // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
@@ -1204,7 +1207,7 @@ export class CognitiveLoop {
           const r = materialOrder({ now, on: sw.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }),
             noteOpen: note?.phase === 'open', freeSlots: 36 - items.length, bagSpare: matsBagSpare(bot),
             town: () => matsTownStock(bot), furnace: () => matsFurnaceCandidates(bot).length > 0, table: () => matsTableReady(bot),
-            lease: () => matsLeaseFree(bot), unknown: () => indexRecountKeys(bot, []).length, bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
+            lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
             reserve: matsReserve().table, buffers: matsBuffers().table, state: this.matsState ?? {} })
           this.matsState = r.state
           if (r.order) { order = r.order; this.matsIssuedAt = now }

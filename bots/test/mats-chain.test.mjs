@@ -96,7 +96,7 @@ test('CHAIN: at town with a known chest above the reserve and a cold furnace -> 
   const { ran } = await decisions(chainBot(), 4, skipTown)
   const i = ran.findIndex(r => r.skill === 'make_material')
   assert.ok(i >= 0, JSON.stringify(ran.map(r => r.skill)))
-  assert.equal(ran[i].args.kind, 'bricks')
+  assert.equal(ran[i].args.item, 'bricks')
   assert.ok(ran.slice(0, i).every(r => TOWN_FIRST.has(r.skill)), `only the town's own orders come before it: ${JSON.stringify(ran.map(r => r.skill))}`)
 })
 
@@ -115,7 +115,7 @@ test('CHAIN CONTROL: away from town never; a LIT furnace only -> a kind with no 
   const away = await decisions(chainBot({ at: new Vec3(200, 70, 0) }), 3)
   assert.ok(!away.ran.some(r => r.skill === 'make_material'), JSON.stringify(away.ran.map(r => r.skill)))
   const hot = await decisions(chainBot({ lit: true }), 3, skipTown)
-  assert.ok(!hot.ran.some(r => r.skill === 'make_material' && r.args.kind === 'bricks'), 'no bricks order without a cold furnace')
+  assert.ok(!hot.ran.some(r => r.skill === 'make_material' && r.args.item === 'bricks'), 'no bricks order without a cold furnace')
   seedIndex({ cobblestone: [256, 4], oak_log: [512, 8] })
   const res = await decisions(chainBot(), 3, skipTown)
   assert.ok(!res.ran.some(r => r.skill === 'make_material'), `the town at its reserve gets no order: ${JSON.stringify(res.ran.map(r => r.skill))}`)

@@ -125,7 +125,7 @@ await t('the pathfinder no longer spends a building stone; nothing that counts s
   assert.equal(scaffoldCount([{ name: 'cobblestone', count: 9 }]), 9, 'positive control: the exit contract counts')
 })
 
-await t('BUILD_RESERVE: declared, the OWNER 10-23 table (cobble 256, logs 512, copper 512, torch 32, sand 16, planks 71, sticks 40), frozen; nothing in src reads it yet (mats-01 does)', () => {
+await t('BUILD_RESERVE: declared, the OWNER 10-23 table (cobble 256, logs 512, copper 512, torch 32, sand 16, planks 71, sticks 40), frozen; mats-01 (mats.mjs) is its ONLY reader', () => {
   assert.deepEqual(ST.BUILD_RESERVE, { cobblestone: 256, logs: 512, planks: 71, sticks: 40, copper_ingot: 512, sand: 16, torch: 32 })
   assert.ok(Object.isFrozen(ST.BUILD_RESERVE))
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
@@ -133,7 +133,7 @@ await t('BUILD_RESERVE: declared, the OWNER 10-23 table (cobble 256, logs 512, c
   const readers = fs.readdirSync(dir).filter(f => f.endsWith('.mjs') && f !== 'stocktarget.mjs')
     .filter(f => strip(fs.readFileSync(new URL(f, dir), 'utf8')).includes('BUILD_RESERVE'))
   assert.ok(strip(fs.readFileSync(new URL('stocktarget.mjs', dir), 'utf8')).includes('export const BUILD_RESERVE'), 'positive control: the scan sees the declaration')
-  assert.deepEqual(readers, [])
+  assert.deepEqual(readers, ['mats.mjs'], 'mats-01: the materials job reads it (and nothing else does)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)
