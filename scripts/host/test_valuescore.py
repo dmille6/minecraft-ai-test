@@ -85,7 +85,7 @@ def cases(v):
     c('output: zero rows raises', raises(lambda: v.check_output(v.score({})), v.ValueBlind))
     c('output: all-dirt day (value 0) raises', raises(lambda: v.check_output(v.score({'gather': [{'delta': {'dirt': 50}}]}), 1), v.ValueBlind))
     c('output: unweighted > 10 % raises (1 h window, below the per-item floor)',
-      raises(lambda: v.check_output(v.score({'gather': [{'delta': {'iron_raw': 5, 'oak_log': 10, 'gizmo': 4}}]}), 1), v.ValueBlind))
+      raises(lambda: v.check_output(v.score({'gather': [{'delta': {'widget': 5, 'oak_log': 10, 'gizmo': 4}}]}), 1), v.ValueBlind))
     # a REALISTIC day (10-22-like units): passes; then rename raw_iron / oak_log inside it -> must raise (Claude r1 P2-1)
     day = {'dirt': 39000, 'cobblestone': 24000, 'raw_iron': 500, 'oak_log': 1500, 'raw_copper': 550, 'coal': 260, 'andesite': 1500}
     mk = lambda d: v.score({'gather': [{'delta': d, 'world': 'w'}]})
@@ -97,10 +97,18 @@ def cases(v):
     noiron = dict(day); noiron.pop('raw_iron')
     c('sentinel: a day with no raw iron at all raises', raises(lambda: v.check_output(mk(noiron), 24), v.ValueBlind))
     c('sentinel: skipped for a 1 h window', raises(lambda: v.check_output(mk({'cobblestone': 900, 'oak_log': 10}), 1), v.ValueBlind) is False)
-    newitem = dict(day); newitem['mystery_ore'] = 400        # a NEW (or renamed) item with every sentinel still present
+    newitem = dict(day); newitem['mystery_widget'] = 400        # a NEW (or renamed) item with every sentinel still present
     c('blind: one unweighted item above 50/day raises', raises(lambda: v.check_output(mk(newitem), 24), v.ValueBlind))
+    gems = dict(day); gems['diamond'] = 8
+    c('output: a realistic day with diamonds passes', raises(lambda: v.check_output(mk(gems), 24), v.ValueBlind) is False)
+    ren3 = dict(gems); ren3['diamonds'] = ren3.pop('diamond')
+    c('blind: a LOW-volume rename (diamond -> diamonds, 8) raises', raises(lambda: v.check_output(mk(ren3), 24), v.ValueBlind))
+    ren4 = dict(day); ren4['raw_coper'] = ren4.pop('raw_copper')
+    c('blind: a misspelt weighted name (raw_coper) raises', raises(lambda: v.check_output(mk(ren4), 24), v.ValueBlind))
     few = dict(day); few['magma_block'] = 3
     c('output: a few stray unweighted units pass', raises(lambda: v.check_output(mk(few), 24), v.ValueBlind) is False)
+    stray = dict(day); stray['firefly_lantern'] = 3
+    c('output: a stray unrelated unknown item passes (listed, not raised)', raises(lambda: v.check_output(mk(stray), 24), v.ValueBlind) is False)
     c('world: self-isolated-c-Bravo -> isolated-c', v.world_of('self-isolated-c-Bravo') == 'isolated-c')
     return out
 
@@ -129,6 +137,7 @@ MUTANTS = [
     ("    if res['value'] <= 0:", "    if res['value'] < 0:"),
     ("    if uw > MAX_UNWEIGHTED_SHARE * res['units']:", "    if False:"),
     ("    if big:\n", "    if False:\n"),
+    ("    if alike:\n", "    if False:\n"),
     ("            if got < per_day * hours / 24:", "            if False:"),
     ("    'raw_iron': 8.0,", "    'raw_iron': 0.0,"),
     ("                if w is None:\n                    unweighted[item] += n\n                    continue",
@@ -156,8 +165,10 @@ def main():
             m = load(mutated)
             mres = cases(m) + [(n_, ok, None) for n_, ok in wiring(mutated)]
             killed = any(not ok for _, ok, _ in mres)
-        except Exception:
-            killed = True
+        except Exception as e:                    # the mutant never ran: a broken harness, not a kill
+            print(f'ERROR  {old.strip().splitlines()[0][:80]!r}: {type(e).__name__}: {e}')
+            alive.append(old)
+            continue
         print(('killed ' if killed else 'ALIVE  ') + repr(old.strip().splitlines()[0])[:90])
         if not killed:
             alive.append(old)

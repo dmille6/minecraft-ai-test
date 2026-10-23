@@ -51,6 +51,18 @@ cp -p "$T/home/mcai-analysis/scoreboard.py" "$T/sb.installed"; echo '# someone e
 run --rollback > "$T/rbedit.out" 2>&1; rc=$?
 check 'rollback refuses after someone else edited scoreboard.py' "[ $rc -ne 0 ] && grep -q 'changed since this install' '$T/rbedit.out'"
 cp -p "$T/sb.installed" "$T/home/mcai-analysis/scoreboard.py"
+# Codex r3 P2-1: a crontab WRITE failure during rollback leaves the files installed, and a re-run then succeeds
+cp "$T/bin/crontab" "$T/crontab.good"
+cat > "$T/bin/crontab" <<'EOF3'
+#!/usr/bin/env bash
+F="$HOME/crontab.txt"
+case "${1:-}" in -l) cat "$F" ;; *) echo "crontab: write failed" >&2; exit 1 ;; esac
+EOF3
+chmod +x "$T/bin/crontab"
+run --rollback > "$T/rbfail.out" 2>&1; rc=$?
+check 'rollback with a failing crontab write exits non-zero' "[ $rc -ne 0 ]"
+check '... and leaves the installed files in place (retryable)' '[ -e "$T/home/mcai-analysis/valuescore.py" ] && cmp -s "$T/sb.installed" "$T/home/mcai-analysis/scoreboard.py"'
+cp "$T/crontab.good" "$T/bin/crontab"
 run --rollback > "$T/rb.out" 2>&1; rc=$?
 check '--rollback exits 0' "[ $rc -eq 0 ]"
 check '--rollback restored scoreboard.py' '[ "$(md5sum < "$T/home/mcai-analysis/scoreboard.py")" = "$before_sb" ]'

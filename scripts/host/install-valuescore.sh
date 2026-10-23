@@ -59,16 +59,18 @@ if [ "$MODE" = --rollback ]; then
   [ -n "${INSTALLED_SB_MD5:-}" ] || die "$STATE has no INSTALLED_SB_MD5 (the install did not complete); restore by hand from it"
   [ "$(md5 "$DEST/scoreboard.py")" = "$INSTALLED_SB_MD5" ] \
     || die "~/mcai-analysis/scoreboard.py changed since this install (md5 $(md5 "$DEST/scoreboard.py") != $INSTALLED_SB_MD5): not overwriting someone else's edit"
-  cp -p "$SB_BACKUP" "$DEST/scoreboard.py"
-  for f in valuescore.py test_valuescore.py; do
-    v="BK_${f%%.py}"; b="${!v:-}"
-    if [ -n "$b" ]; then cp -p "$b" "$DEST/$f"; else rm -f "$DEST/$f"; fi
-  done
+  # CRON FIRST (Codex r3 P2-1): if the crontab read or write fails, set -e stops here with every file still installed, so the
+  # md5 guard above still matches and the rollback can simply be re-run.
   if [ "${CRON_ADDED:-0}" = 1 ]; then                            # remove the line only if THIS install added it
     cron_get > "$TMPD/cron.now"
     grep -vxF -- "$CRON_LINE" "$TMPD/cron.now" > "$TMPD/cron.new" || true   # exact line only; an empty result is fine
     cron_put "$TMPD/cron.new"
   fi
+  cp -p "$SB_BACKUP" "$DEST/scoreboard.py"
+  for f in valuescore.py test_valuescore.py; do
+    v="BK_${f%%.py}"; b="${!v:-}"
+    if [ -n "$b" ]; then cp -p "$b" "$DEST/$f"; else rm -f "$DEST/$f"; fi
+  done
   mv "$STATE" "$STATE.rolled-back-$TS"
   echo "rolled back $STATE: scoreboard.py <- $SB_BACKUP (md5 $(md5 "$DEST/scoreboard.py" | cut -c1-8)); exact cron line present: $(cron_get | grep -cxF -- "$CRON_LINE" || true)"
   exit 0

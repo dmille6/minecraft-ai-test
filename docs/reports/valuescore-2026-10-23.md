@@ -60,6 +60,7 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 - any intake kind's rows stop carrying `skill.inventory_delta`. The floors are 10 % for gather and mine, and 5 % for explore, goto, surface and home. The shares measured were 57/67/26/22/40/38 % on 10-09 and 58/74/24/21/52/50 % on 10-22;
 - the window has an empty whole hour, or more than 2 empty 10-minute bins. ES caveats, including ingest lag on a window ending now, are printed with the result;
 - the window is empty, the weighted total is 0, or unweighted units exceed 10 %;
+- an unweighted item LOOKS like a weighted one, at any count. That means it shares a valuable token (iron, copper, gold, diamond, emerald, lapis, redstone, coal, log, ore, raw and others), or it is a close spelling of a weighted name. A low-volume rename such as diamond → diamonds (8 a day) is caught by this (Codex r3). On 10-08..10-22 it raised on no day: the only unweighted items were netherrack (up to 6), name_tag and big_dripleaf;
 - any SINGLE unweighted item exceeds 50 units a day, scaled by window length. A renamed raw_iron (512 units, 0.5 % of intake) is caught by this, where the share test could not see it (Claude r1);
 - a SENTINEL item is below its floor on windows of 3 h or more. The floors are cobblestone 2,000, raw_iron 50 and any log 100 a day; the measured minima over 10-08..10-22 were 24,000, 229 and 1,147;
 - the streamed intake rows do not equal the intake kinds' document counts;
@@ -74,10 +75,10 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 
 **The old counts** (gather ok/bot-h, mine ok, craft ok, town_deposit ok/all) print alongside until `OLD_COUNTS_UNTIL = 2026-10-31`; after that only with `--old`. 10-31 is one week from an install on 10-24; if the install is later, move the constant. They reproduce the owner's 10-09 and 10-22 figures exactly (7.15 and 6.37; 8,243 and 5,508; 885 and 478; 413/841 and 165/211).
 
-**Tests** (`python3 scripts/host/test_valuescore.py`): 61 behaviour cases and 14 source mutants. Every mutant is killed, and every anchor is checked unique.
+**Tests** (`python3 scripts/host/test_valuescore.py`): 65 behaviour cases and 15 source mutants. A mutant that fails to load or run is a harness ERROR, not a kill. Every mutant is killed, and every anchor is checked unique.
 - **The blind-input mutant:** renaming `gather` to `gathering` must raise. So must a kind thinning to 100 documents a day, any intake kind losing inventory_delta, a renamed raw item, or a coverage gap.
 - **Wiring:** `measure()` must call all three guards and stream every intake kind.
-- **The installer** has its own test, `scripts/host/test_install_valuescore.sh`, run on 10.0.0.31. It uses a throwaway HOME and a fake `crontab`, so the real ones are never touched, and all 24 checks pass. It covers:
+- **The installer** has its own test, `scripts/host/test_install_valuescore.sh`, run on 10.0.0.31. It uses a throwaway HOME and a fake `crontab`, so the real ones are never touched, and all 26 checks pass. It covers:
   - dry run changes nothing;
   - --apply installs and adds exactly one line, keeping the others;
   - re-apply refuses and changes nothing;
@@ -86,7 +87,8 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
   - an exact line already present before the install survives that install's rollback;
   - a `crontab -l` error other than "no crontab" refuses before any change;
   - rollback refuses when someone else has edited scoreboard.py since the install;
-  - no temporary files are left. All temporary files live under `$HOME`.
+  - no temporary files are left. All temporary files live under `$HOME`;
+  - a crontab write failure during rollback leaves the installed files in place, so the rollback can be re-run. Rollback does cron first, then files.
 
 ## 4. Install (staged; the coordinator runs it)
 
@@ -135,4 +137,9 @@ bash scripts/host/install-valuescore.sh --rollback  # restores scoreboard.py, re
 - **P3:** temporary files live under `$HOME`.
 - All three are tested in `test_install_valuescore.sh`.
 
-**r3:** pending.
+**r3** (525eaf47), Codex CHANGE: 2 P2s, 1 P3.
+- **P2:** rollback is now cron-first, so it can be retried.
+- **P2:** a low-volume weighted-item rename is caught by the look-alike rule.
+- **P3:** the mutant harness treats load or run errors as failures.
+
+**r4:** pending.

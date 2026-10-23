@@ -32,6 +32,7 @@ the two can be compared for a week, then only with --old.
 READ ONLY: Elasticsearch searches through scripts/lib/estelemetry.py (the read-only key). Nothing on the fleet is touched.
 """
 import argparse
+import difflib
 import datetime as dt
 import json
 import os
@@ -83,7 +84,7 @@ wheat_seeds pumpkin_seeds melon_seeds beetroot_seeds wheat apple melon_slice car
 brown_mushroom red_mushroom sugar_cane cactus snowball ice packed_ice salmon cod tropical_fish pufferfish
 cooked_mutton cooked_beef cooked_porkchop cooked_chicken mutton beef porkchop chicken rabbit bread bone_meal
 armadillo_scute rail powered_rail detector_rail activator_rail lead glass glass_pane mossy_cobblestone azalea flowering_azalea
-firefly_bush bush cactus_flower'''.split())
+firefly_bush bush cactus_flower amethyst_block magma_block'''.split())
 ZERO_PATTERNS = re.compile(r'(_wool|_stained_glass|_stained_glass_pane|_button|_pressure_plate|_fence|_carpet)$|^polished_')
 # Crafted or smelted PRODUCTS: weighted 0 as intake (made from inputs already counted; a picked-up product is not new).
 # No catch-all suffix like '_block': a renamed raw item must surface as UNWEIGHTED, never be zeroed (Codex r1 P2-3).
@@ -103,6 +104,10 @@ MAX_UNWEIGHTED_SHARE = 0.10
 # see it (Claude r1 P2-1). Two more guards, per 24 h and scaled by the window:
 MAX_ONE_UNWEIGHTED_PER_DAY = 50          # any single unweighted item above this raises (10-09/10-22 max: rail 5, amethyst_block 4)
 SENTINELS_PER_DAY = {'cobblestone': 2000, 'raw_iron': 50, '_log': 100}   # measured 10-08..10-22: >= 24,000 / 229 / 1,147 a day
+# A LOW-volume rename (diamond -> diamonds, 8 a day) passes both floors (Codex r2 P2-2): an unweighted name that LOOKS like a
+# weighted one raises at any count. "Looks like" = shares a valuable token, or is a close spelling of a weighted name.
+VALUABLE_TOKENS = {'iron', 'copper', 'gold', 'diamond', 'diamonds', 'emerald', 'lapis', 'redstone', 'coal', 'quartz',
+                   'amethyst', 'obsidian', 'log', 'logs', 'cobblestone', 'cobble', 'charcoal', 'raw', 'ore', 'sapling'}
 MIN_SENTINEL_HOURS = 3                   # shorter windows skip the sentinel floors (too few units to judge)
 MAX_INGEST_GAP_MIN = 15                  # the newest document must be within this of the window end
 CLASSES = (('wood', re.compile(r'(_log|_wood|_stem|_hyphae)$|^bamboo$')), ('stone', re.compile(r'^(cobblestone|cobbled_deepslate|stone|blackstone)$')),
@@ -178,6 +183,14 @@ def score(rows_by_kind):
             'zero_units': sum(n for i, n in units.items() if weight(i) == 0.0)}
 
 
+def looks_weighted(item):
+    """An unweighted name that resembles a weighted one: a likely rename, never a stray (Codex r2 P2-2)."""
+    toks = set(re.split(r'[_\W]+', item))
+    if toks & VALUABLE_TOKENS:
+        return True
+    return bool(difflib.get_close_matches(item, list(WEIGHTS), n=1, cutoff=0.8))
+
+
 def check_output(res, hours=None):
     if res['rows'] == 0 or res['units'] == 0:
         raise ValueBlind(f'no intake units at all ({res["rows"]} rows): the instrument saw nothing')
@@ -185,6 +198,9 @@ def check_output(res, hours=None):
         raise ValueBlind(f'{res["units"]} intake units but a weighted value of 0: every item weighs 0 or is unweighted '
                          f'(renamed item names? top unweighted: {Counter(res["unweighted"]).most_common(5)})')
     hours = hours if hours is not None else res.get('hours', 24)
+    alike = {i: n for i, n in res['unweighted'].items() if looks_weighted(i)}
+    if alike:
+        raise ValueBlind(f'unweighted item(s) that look like weighted ones (renamed?): {alike} -- add to WEIGHTS or ZERO')
     big = {i: n for i, n in res['unweighted'].items() if n > max(5, MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24)}
     if big:
         raise ValueBlind(f'unweighted item(s) above {MAX_ONE_UNWEIGHTED_PER_DAY}/day: {big} -- a renamed item? add to WEIGHTS or ZERO')
