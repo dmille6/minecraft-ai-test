@@ -766,3 +766,97 @@ Claude P2-b (danger_stuck): keyed by (cell, block name in magma_block/campfire/s
   arm that takes the body or at 60 s.
 Claude P3 (non-planning rungs): pillarOut and the stranded dig-up check each cell; an envelope cell makes the rung
   decline to the next rung (except an uncertified bot's own exit).
+
+====================================================================================================
+ROUND 6 (doc r6 @ 4d353fbd): Codex CHANGE (0 P1, 2 P2, 1 P3); Claude CHANGE (1 P1, 4 P2)
+====================================================================================================
+--- Codex r6 (verbatim) ---
+Reviewed `4d353fbd` read-only. I interpret “resolved in r2” as “resolved in r6.” References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+All four Codex r5 findings are **resolved at design level**:
+
+| R5 finding | Resolution in r6 |
+|---|---|
+| P1: failed branch repair has no next rung | Universal handover covers branch failures; reserve accounting and work-stop threshold agree (`design:1201–1247,1475–1481`). |
+| P2: cache mutant cannot trip its gate | Separate Paper G7 exercises neighbour changes and disabled invalidation (`1275–1281`). |
+| P2: placement observer misses direct placement | `_genericPlace` now covers the bypass; successful mutations and block updates are observed (`836–842,1280`). |
+| P2: uncertified fallback contradicts confinement/reconnect | Gate applies only to certified phases; uncertified reconnect resumes ordinary recovery (`1233–1248,1425–1429,1449–1452`). |
+
+New findings:
+
+1. **P2 — The new branch-shell protection lacks an authorization contract for normal mining (§7 F6; §8 M9).**
+
+   Branch cells and their one-cell shell are now “guarded like the envelope” (`design:1205–1206`). The envelope exceptions name stair construction and `stairReturn` repairs (`1146–1150`); G6 additionally allows uncertified exits (`1280`). None explicitly allows ordinary branch extension or ore extraction.
+
+   The next extension digs through the current branch’s end shell, and side-adjacent ore lies within that shell. Both are intended operations (`1515–1529`). Interpreting the guard literally refuses them; allowing them without updating G6 makes legitimate mining fail the gate.
+
+   Define authorization for the active branch builder’s F4-planned extension and ore extraction, including which support cells remain protected. Include successful extension and side-ore extraction as positive controls alongside unauthorized shell-mutation mutants.
+
+2. **P2 — The new guard-lifting exception needs composition with the second miner (§7 F6 universal handover; §8 M8; §11 O11).**
+
+   An uncertified bot may now dig or place on shared envelope and branch cells for its own exit (`design:1246–1247`). Two miners may use that infrastructure concurrently (`1413,1436–1439`). The specified validation occurs before actions, while cache invalidation follows block updates (`1188–1197`).
+
+   Consequently, an authorized escape dig can remove support beneath the other miner during an already-started movement. Revalidation before its next action does not protect that movement, and G6 explicitly accepts the mutation. This newly permitted interaction is not covered by the listed chain scenes (`1164–1168`).
+
+   Specify coordination before an exit mutation affects another miner’s occupied or traversed cells, and add a two-miner Paper scene. O11 should also acknowledge that one bot’s escape can invalidate another bot’s return route; the residual currently describes only the escaping bot’s ordinary exit chain (`1702–1705`).
+
+3. **P3 — F6’s summary still gives the superseded refusal chain (§7 F6).**
+
+   `design:1300–1301` jumps from lane switching directly to the operator alarm and says every envelope refusal offers an executable `use_stair`. That contradicts the universal handover (`1233–1253`) and connection-dependent rung (`1154–1163`). Update the summary to match those detailed rules.
+
+The entombment probe reproduced all six results. Synthetic execution of `d8.py` confirmed correct attribution across deaths. The principal code claims check out; production measurement totals remain unverified because their JSON inputs are absent. M7–M10, sequential canaries, conditional tier-2 eligibility, and investigation-only F3 remain respected.
+
+VERDICT: CHANGE
+
+--- Claude r6 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r6 on 4d353fbd. Condensed:
+
+R5 disposition: Codex P1-1, P2-2, P2-3 (checked: place_block.js:9 and place_entity.js:35 call bot._genericPlace;
+pathfinder calls bot.dig via the property), P2-4 resolved; Claude P1 resolved for break-type failures only; P2-a,
+P2-b, P2-d, P2-e resolved; P2-c partly; P2-f adopted but overstated; P3 partly.
+
+P1 §7 F6 Exits/Confinement, §8 M8: a certified leaseholder whose stairReturn fails with NO break has no next rung --
+  pathfinder stall, empty-path resolve (path_interrupted), both lanes occupied past the 20 s step-aside; every cell
+  still conforms so no break and no handover; confinement re-runs stairReturn forever; the stuck reflex cannot help
+  (neighbours are envelope; non-planning rungs decline); no alarm (the bot is seen). Fix: N attempts or T minutes
+  without a new route cell -> universal handover; chain test.
+
+P2-1 an uncertified bot gets the non-leaseholder 1000 exclusion on lanes for every profile except evacuation, incl.
+  surface's ascent movements, so today's chain digs a fresh way instead of walking intact lanes; its kit (floor +
+  reserve, 30-94 swings at -53) is below today's ~147, so "never worse off than an ordinary deep bot today" overstates
+  -- the cave-fall comparison in O11 is the defensible one. Keep the evacuation profile; walk the valid route or
+  use_stair before surface; state the kit in O11.
+P2-2 G6 vs the miner's own work: cutting branch cell n+1 digs cell n's shell and side ore is mined from the shell, so
+  G6 fails correct operation unless the leaseholder's F4-planned cuts and ore digs are authorized; "by anyone else" is
+  ambiguous about the second leaseholder.
+P2-3 F6's end-of-section refusal chain is stale (skips the handover; use_stair "from where the bot stands").
+P2-4 who walks back after F1: the runner row says the order chain forces stairReturn, M8 says deep_miner walks back.
+P3: G1 cannot see stale-and-recomputed (G7 does); the off-route gate paragraph is garbled; how a blockUpdate one bot
+  sees is matched to another bot's _envelope_mutation, and how unloaded-chunk changes are diffed on reload; keep the
+  danger_stuck sneak until the bot leaves the cell.
+
+M7-M10 respected.
+
+VERDICT: CHANGE
+
+--- r6 -> r7 response (doc r7) ---
+Claude P1 (stairReturn no-progress dead end): no-progress handover -- 3 attempts or 5 min without reaching a new route
+  cell goes to the universal handover even when every cell conforms (stall, empty path, both lanes occupied); chain
+  test with an always-empty path.
+Claude P2-1 (uncertified exclusion; kit overstated): an uncertified bot keeps the evacuation profile and first walks
+  the longest still-valid part of the route (or use_stair), then today's chain; the kit (about 30-94 swings) is stated
+  against today's ~147 at -53, and "never worse" is replaced by the cave-fall comparison; O11 restated.
+Codex P2-1 / Claude P2-2 (branch guard vs normal mining; G6): the active branch's leaseholder is authorized for its own
+  F4-planned extension and ore digs (floor cells and the shell beside the lanes stay protected); "anyone else" defined;
+  G6 positive controls (an extension and a side-ore dig must pass).
+Codex P2-2 (guard lifting vs the second miner): an uncertified exit may not mutate cells within 2 of the other live
+  record's position or its next 8 route cells (published once a second in world facts); it waits up to 60 s, then
+  takes another exit plan; two-miner Paper scene; O11 says one escape can break the other's route (which then hands
+  over too).
+Codex P3-3 / Claude P2-3 (stale F6 refusal chain): replaced with the handover chain and the connection-dependent
+  use_stair / step-away remedies.
+Claude P2-4 (walk-back owner): after F1 the lease has ended, the order chain runs stairReturn, and stairReturn itself
+  begins off-route with walk-back, dig-back, then the handover.
+Claude P3: G7 named as the cache gate; the gate paragraph rewritten; blockUpdate matching by cell and a +-2 s window
+  across all bots' rows, unloaded-chunk changes found by diffing obs on reload; the danger_stuck sneak is kept until
+  the bot leaves the cell.
