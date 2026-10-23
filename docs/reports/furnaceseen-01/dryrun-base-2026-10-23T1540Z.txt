@@ -1,0 +1,10 @@
+rows walked 436772  |  canary board-a,hive-b,placebo-a,hive-c  sha 6e1afb52  cutoff 15:40Z  window +180 min  |  offbuild canary rows 0, no-version 0
+LIVENESS     canary _furnace_seen_mode on=on 0 | canary drains 62
+EXPOSURE     skipped walks (distinct furnace x entry x bot) 0 (registered min 20)
+D1 (defect)  0 defects | walks replayed 0, skips replayed 0, unresolved 0 | lit-released walks 0 | []
+EFFECT       repeat empty drains per bot-h: canary pre [0.467, 0.067, 0.2, 0.601] | R = 0.3454, lower bound (alpha 0.025, randomization) 0.0001, bar 0.0835 -> margin -0.0834
+REPORT       drains by stop class {('canary', 'post', 'empty'): 28, ('canary', 'post', 'other'): 5, ('canary', 'post', 'unreachable'): 29, ('canary', 'pre', 'empty'): 57, ('canary', 'pre', 'other'): 2, ('canary', 'pre', 'unreachable'): 24, ('control', 'post', 'drained'): 1, ('control', 'post', 'empty'): 153, ('control', 'post', 'other'): 14, ('control', 'post', 'unreachable'): 79, ('control', 'pre', 'empty'): 76, ('control', 'pre', 'other'): 4, ('control', 'pre', 'unreachable'): 34}
+             drain body-s per bot-h DiD by stop class {'empty': -9.36, 'drained': -0.03, 'unreachable': -3.61, 'lit': 0.0, 'busy': 0.0, 'other': -0.54} (the saving, measured) | raced walks (an append after the pick read the fold; reported) 0
+ARMS         control skip / mode rows post 0 (blocks KEEP)
+INSTRUMENT   control repeat empty drains post 51 | control _ledger_station post 0
+emit failed: CANARY_DRYRUN set -- not emitting
