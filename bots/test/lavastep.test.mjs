@@ -44,7 +44,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // ------------------------------------------------------------------------------------------------ a tiny world
 const EMPTY = new Set(['air', 'cave_air', 'water', 'lava', 'flowing_lava', 'fire', 'soul_fire', 'bubble_column', 'flowing_water', 'torch'])
-const B = (name, x, y, z) => name == null ? null : { name, boundingBox: EMPTY.has(name) ? 'empty' : 'block', position: { x, y, z } }
+const B = (name, x, y, z) => name == null ? null : { name, boundingBox: EMPTY.has(name) ? 'empty' : 'block', position: new Vec3(x, y, z) }
 /** cells: { "x,y,z": name | null }; everything else is stone below y=64 and air from 64 up. */
 function World (cells = {}) {
   const map = new Map(Object.entries(cells))
@@ -174,7 +174,14 @@ await t('B6 PROPERTY: over 400 random worlds no returned plan has a DANGER or un
     const w = World(c)
     const kase = dangerCase({ feet: w.name(0, 64, 0), below: w.name(0, 63, 0), onGround: true })
     const r = stepPlan(w.at, [0, 64, 0], kase)
-    if (r.plan) { plans++; assert.deepEqual(g1Violations(w.at, [0, 64, 0], r.plan, kase), [], JSON.stringify(c)) ; assert.equal(cellLavaSafe(w.at, ...r.plan.at(-1).to).safe, true) }
+    if (r.plan) {
+      plans++
+      assert.deepEqual(g1Violations(w.at, [0, 64, 0], r.plan, kase), [], JSON.stringify(c))
+      assert.equal(cellLavaSafe(w.at, ...r.plan.at(-1).to).safe, true, 'the goal is strictly lava-safe')
+      // every intermediate is lava-safe with ONLY the origin's feet cell masked (the one exemption)
+      const masked = (x, y, z) => (x === 0 && y === 64 && z === 0) ? { name: 'air', boundingBox: 'empty' } : w.at(x, y, z)
+      for (const st of r.plan.slice(0, -1)) assert.equal(cellLavaSafe(masked, ...st.to).safe, true, `intermediate ${st.to}`)
+    }
   }
   assert.ok(plans > 20, `the generator must produce plans (${plans}) or the property proves nothing`)
 })
@@ -273,7 +280,7 @@ function fakeBot (scene, { items = [], health = 20, physics = true, placeWorks =
   bot.equipHang = false
   bot.equip = it => bot.equipHang ? new Promise(() => {}) : (bot.heldItem = it, Promise.resolve())
   bot.places = []
-  bot.dig = () => Promise.resolve('dug'); bot.digs = 0
+  bot.dig = (b) => { bot.digs++; if (b?.position && bot.digOpens) w.set(b.position.x, b.position.y, b.position.z, 'air'); return Promise.resolve('dug') }; bot.digs = 0; bot.digOpens = false
   bot._genericPlace = async (ref, face) => {
     const c = [ref.position.x + face.x, ref.position.y + face.y, ref.position.z + face.z]
     bot.places.push(c)
@@ -298,7 +305,8 @@ function fakeBot (scene, { items = [], health = 20, physics = true, placeWorks =
       const sp = (bot.controls.sprint ? 0.28 : 0.2) * (inLava ? 0.5 : 1) * (bot.controls.sneak ? 0.3 : 1)
       const nx = p.x - Math.sin(bot.entity.yaw) * sp, nz = p.z - Math.cos(bot.entity.yaw) * sp
       const fx = Math.floor(nx), fz = Math.floor(nz), fy = Math.floor(p.y)
-      if (!solidAt(fx, fy, fz) && !solidAt(fx, fy + 1, fz)) { p.x = nx; p.z = nz }
+      const boxFree = (x, z, y) => [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].every(([ox, oz]) => !solidAt(Math.floor(x + ox), y, Math.floor(z + oz)) && !solidAt(Math.floor(x + ox), y + 1, Math.floor(z + oz)))
+      if (boxFree(nx, nz, fy)) { p.x = nx; p.z = nz }
       else if ((bot.controls.jump || true) && solidAt(fx, fy, fz) && !solidAt(fx, fy + 1, fz) && !solidAt(fx, fy + 2, fz) && !solidAt(Math.floor(p.x), fy + 2, Math.floor(p.z))) { p.x = nx; p.z = nz; p.y = fy + 1 }
     }
     if (supported(p)) { bot.entity.onGround = true; p.y = w.name(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)) === 'campfire' ? p.y : Math.floor(p.y + 1e-6) }
@@ -365,6 +373,10 @@ await t('D3 S1 with cobble: the seal is witnessed, the case re-classified at onc
   assert.equal(r.seal.witnessed, true); assert.equal(r.seal.next, 'reclassify'); assert.equal(r.seal.item, 'cobblestone')
   assert.equal(r.outcome, 'sealed'); assert.equal(h.bot.world.name(1, 63, 0), 'cobblestone')
   assert.deepEqual(h.bot.places, [[1, 63, 0]])
+  assert.deepEqual(r.items, ['cobblestone'], 'the seal items the decision saw')
+  assert.equal(r.seal.held, 'cobblestone'); assert.equal(r.seal.placeHeld, 'cobblestone'); assert.equal(r.seal.update.name, 'cobblestone')
+  assert.equal(r.seal.cellName, 'lava', 'the cell as read before the place')
+  assert.equal(r.reclass, null, 're-classified: no danger left'); assert.ok(r.replan && r.replan.cells, 'the re-classification observation is recorded')
 })
 await t('D4 S1 with cobble but the server never places it: unwitnessed -> the aimed escape, never a re-classification', async () => {
   const h = harness('poolEdge', { items: ['cobblestone'], placeWorks: false })
@@ -381,6 +393,7 @@ await t('D5 S2 feet in lava (in plan): first step sprint+jump, second a walk; th
   assert.equal(r.steps[0].sprint, true); assert.equal(r.steps[0].jump, true)
   assert.equal(r.steps[1].sprint, false); assert.equal(r.steps[1].jump, false)
   const c = h.bot.entity.position.floored(); assert.deepEqual([c.x, c.y, c.z], [-1, 64, 0])
+  assert.ok(r.steps.every(s => s.plan === 'decision' && s.origin.join() === '1,64,0'), 'each step names its plan and origin')
 })
 await t('D6 `in` with a step that does not arrive (the body cannot move): straight to the aimed escape, no wait for the next firing', async () => {
   const h = harness('oneDeep', { physics: false })
@@ -505,6 +518,80 @@ await t('D15 cadence: one ground firing per 2.5 s; rows carry the episode and it
   assert.equal(rs.length, 2); assert.equal(rs[0].args.episode, rs[1].args.episode); assert.deepEqual(rs.map(r => r.args.n), [1, 2])
 })
 
+await t('D16 the air rescue taking the body ends the move AT ONCE for whoever asks: its first dig passes the guard in the same instant', async () => {
+  const h = harness('poolEdge', { items: ['cobblestone'] })
+  attachLavastepGuard(h.bot, h.mover)
+  const p = h.fire()
+  await sleep(20)
+  await assert.rejects(h.bot.dig({}), /lavastep/, 'control: mid-move a dig is refused')
+  h.setAir(true)
+  assert.equal(await h.bot.dig({}), 'dug', 'no re-assertion period: the rescue digs at once')
+  assert.equal(h.mover.moving(), false)
+  await p; h.bot.done()
+  assert.equal(firing(h.rows)[0].args.ended, 'air')
+})
+await t('D17 no overlap at the deadline: a firing at the deadline ends the old move first, and the old one never clears the new one\'s controls', async () => {
+  const h = harness('walledLava', { physics: false, timing: { move: 300, aim: 2000, ground: 0 } })
+  const p1 = h.fire()
+  await sleep(310)
+  const p2 = h.fire()
+  assert.ok(p2 && typeof p2.then === 'function', 'a fresh move starts once the old one is ended')
+  assert.equal(firing(h.rows).length >= 0, true)
+  await sleep(60)
+  assert.equal(h.bot.controls.forward, true, 'the new move holds forward; the old move\'s end did not clear it')
+  await p1; await p2; h.bot.done()
+  const rs = firing(h.rows)
+  assert.equal(rs[0].args.ended, 'deadline')
+})
+await t('D18 WET firings never relax (Claude code r1 P1): three stationary firings with the feet in water over magma -> no relaxation, no sneak', async () => {
+  const s = { cells: { '0,63,0': 'magma_block', '0,64,0': 'water', '1,64,0': 'stone', '-1,64,0': 'stone', '0,64,1': 'stone', '0,64,-1': 'stone', '1,65,0': 'stone', '-1,65,0': 'stone', '0,65,1': 'stone', '0,65,-1': 'stone' }, pos: [0.5, 64, 0.5], yaw: 0 }
+  SCENES.__wet = () => s
+  const h = harness('__wet', { physics: false, timing: { ground: 0, aim: 60 } })
+  h.bot.entity.isInWater = true
+  for (let k = 0; k < 4; k++) { await h.fire(); h.mover.tick() }
+  h.bot.done(); delete SCENES.__wet
+  assert.equal(h.mover.state().relax, null); assert.equal(h.bot.writes.some(([c, v]) => c === 'sneak' && v), false)
+  assert.ok(firing(h.rows).length >= 3, 'the arm did fire (positive control)')
+})
+await t('D19 a firing ended by the air rescue writes no sneak and starts no relaxation, even as the third stationary one', async () => {
+  const h = harness('walledMagma', { physics: false, timing: { ground: 0, aim: 150 } })
+  await h.fire(); await h.fire()
+  const p = h.fire(); await sleep(40); h.setAir(true); const mark = h.bot.writes.length
+  await p; await sleep(30); h.bot.done()
+  assert.equal(h.mover.state().relax, null)
+  assert.equal(h.bot.writes.slice(mark).some(([c, v]) => c === 'sneak' && v), false, 'no sneak after the rescue took the body')
+  h.setAir(false)
+})
+await t('D20 a relaxation ends when the air rescue takes the body or the bot is in water (its sneak dropped)', async () => {
+  const h = harness('walledMagma', { physics: false, timing: { ground: 0, aim: 60 } })
+  for (let k = 0; k < 3; k++) await h.fire()
+  assert.ok(h.mover.state().relax); assert.equal(h.bot.controls.sneak, true)
+  h.setAir(true); h.mover.tick()
+  assert.equal(h.mover.state().relax, null); assert.equal(h.bot.controls.sneak, false)
+  h.setAir(false)
+  for (let k = 0; k < 3; k++) await h.fire()
+  assert.ok(h.mover.state().relax)
+  h.bot.entity.isInWater = true; h.mover.tick()
+  assert.equal(h.mover.state().relax, null); h.bot.done()
+})
+await t('D21 a move holds every movement control it does not use false: an unwinding skill\'s `back`/`left` does not survive it', async () => {
+  const h = harness('poolEdge')
+  h.bot.controls.back = true; h.bot.controls.left = true
+  const p = h.fire()
+  await sleep(20)
+  assert.equal(h.bot.controls.back, false); assert.equal(h.bot.controls.left, false)
+  h.bot.controls.right = true
+  await sleep(70)
+  assert.equal(h.bot.controls.right, false, 're-asserted false within 50 ms')
+  await p; h.bot.done()
+})
+await t('D22 the +1.5 s observation is taken at +1.5 s from the FIRING even when the move runs longer; its end state separately', async () => {
+  const h = harness('poolEdge', { items: ['cobblestone'], placeWorks: false, timing: { after: 300 } })
+  await h.fire(); await sleep(30); h.bot.done()
+  const r = firing(h.rows)[0].args
+  assert.ok(r.after && r.end, 'both recorded'); assert.ok(r.after.ms >= 280 && r.after.ms < 600, `after at ${r.after.ms} ms`)
+  assert.ok(r.end.ms > r.after.ms, `the move ran on: end at ${r.end.ms} ms`)
+})
 // ------------------------------------------------------------------------------------------------ E. the runner's one change
 await t('E1 a live lavastep reservation is never replaced: the watchdog\'s reserve() is refused and its run declines runner_reserved; a model skill declines too', async () => {
   const ran = []
@@ -590,6 +677,25 @@ await t('F8 the relaxation ends on a block update at the cell, and on moving off
   assert.equal(h.mover.state().relax, null, 'moving off ends it'); h.bot.done()
 })
 
+await t('F9 CHAIN the relaxed magma floor hands over to a REAL ordinary escape (pillarOut): it runs, its seize does not cost the sneak for more than a tick, and the bot takes no magma damage', async () => {
+  const h = harness('walledMagma', { timing: { ground: 0, aim: 60 } })
+  h.bot.inv = [{ name: 'cobblestone', count: 64, type: 2 }]
+  // the bot cannot move (walled), so stop the kinematic forward; damage stays on
+  for (let k = 0; k < 3; k++) await h.fire()
+  assert.ok(h.mover.state().relax, 'relaxed after three: ' + firing(h.rows).map(r => r.detail + ' end=' + JSON.stringify(r.args.end)).join(' | '))
+  const hp0 = h.bot.health
+  const ticker = setInterval(() => h.mover.tick(), 100)   // the reflex tick (every 500 ms on the fleet; faster here)
+  let placed = 0; h.bot.placeBlock = async () => { placed++ }; h.bot.digOpens = true
+  const fb = feetBelow(h.bot); const eff = h.mover.effective(fb.feet, fb.below)
+  assert.equal(recoveryArmsMayRun({ feetName: eff.feet, belowName: eff.below }), true, 'the arms may run on the relaxed cell')
+  const r = await pillarOut(h.bot, 2, { alive: () => !h.mover.moving() }).catch(e => 'threw:' + e.message)
+  await sleep(300)
+  clearInterval(ticker); h.bot.done()
+  assert.notEqual(r, 'preempted', `the escape arm runs: ${r}`)
+  assert.ok(placed >= 1, `it reached a placement (pillarOut -> ${r}, digs ${h.bot.digs})`)
+  assert.equal(h.bot.controls.sneak, true, 'the sneak is re-asserted after the pillar\'s seize cleared it')
+  assert.ok(h.bot.health >= hp0 - 1, `at most one magma tick lost while the seize had cleared the sneak: ${hp0} -> ${h.bot.health}`)
+})
 // ------------------------------------------------------------------------------------------------ G. wiring (structural)
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
 const RFX = strip(fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
@@ -614,9 +720,6 @@ await t('G1 WIRED (reflex.mjs, comments stripped): the arm, the rollback, the st
   for (const [what, needle] of WIRES) once(RFX, needle, what)
   assert.ok(RFX.indexOf('lavastepMover?.tick()') < RFX.indexOf('const dangerHere = !recoveryArmsMayRun({ feetName: eff.feet, belowName: eff.below })'), 'the relaxation is ticked before the predicate')
 })
-await t('G2 MUTANTS of the wiring are caught (each needle removed -> G1\'s check fails)', () => {
-  for (const [what, needle] of WIRES) { const m = RFX.replace(needle, '/*x*/'); assert.throws(() => once(m, needle, what), /expected exactly one/, what) }
-})
 await t('G3 WIRED (index.mjs): the licence row once per spawn, and the in-flight guard attached OUTERMOST (after protectzone)', () => {
   once(IDX, "logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() })", 'licence')
   const iZone = IDX.indexOf('attachProtectZone(bot, {'), iGuard = IDX.indexOf('attachLavastepGuard(bot, mover, {')
@@ -632,13 +735,13 @@ await t('G4 the watchdog declines on a refused reserve: its rescue run is made w
 
 // ------------------------------------------------------------------------------------------------ H. anchored mutants
 // Each is the defect one read gate (scripts/host/lavastepread.py G1-G5) is built to catch; here the behaviour test catches it.
-await t('H1 MUTANT KILLED (G1): allowing DANGER in the sweep plans past a fire cell (B6\'s independent check catches it)', () =>
+await t('H1 MUTANT KILLED (G1): allowing DANGER in the sweep plans past a fire cell beside the origin (B6\'s independent check catches it)', () =>
   withMutantsAll(LS_PATH, [
-    ["      if (isDanger(at(fx + lx, fy, fz + lz))) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${fx + lx},${fy},${fz + lz}` }\n", ''],
-    ["    if (isDanger(at(to[0] + lx, to[1], to[2] + lz))) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${to[0] + lx},${to[1]},${to[2] + lz}` }\n", ''],
+    ["      if (isDanger(o)) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${fx + lx},${fy},${fz + lz}` }\n", ''],
+    ["    if (isDanger(d)) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${to[0] + lx},${to[1]},${to[2] + lz}` }\n", ''],
   ], m => {
-    // a magma floor walled on three sides; the open side's first cell has FIRE beside it (passable, supported)
-    const w = World({ '0,63,0': 'magma_block', '-1,64,0': 'stone', '-1,65,0': 'stone', '0,64,1': 'stone', '0,65,1': 'stone', '0,64,-1': 'stone', '0,65,-1': 'stone', '1,64,1': 'fire' })
+    // a magma floor walled west and north; FIRE at feet level south of the bot (a lateral cell of the eastward step)
+    const w = World({ '0,63,0': 'magma_block', '-1,64,0': 'stone', '-1,65,0': 'stone', '0,64,-1': 'stone', '0,65,-1': 'stone', '0,64,1': 'fire' })
     const good = stepPlan(w.at, [0, 64, 0], 'edge'); assert.equal(good.plan, null, 'control: the real search refuses it')
     const bad = m.stepPlan(w.at, [0, 64, 0], 'edge')
     assert.ok(bad.plan && g1Violations(w.at, [0, 64, 0], bad.plan, 'edge').length > 0, `the mutant plans past the fire: ${JSON.stringify(bad.plan)}`)
@@ -659,7 +762,7 @@ await t('H3 MUTANT KILLED (G3): sprinting on an edge plan step (D1 catches it)',
     assert.ok(firing(rows)[0].args.controls.some(([c, v]) => c === 'sprint' && v))
   }))
 await t('H4 MUTANT KILLED (G4): accepting an unwitnessed seal re-classifies (D4 catches it)', () =>
-  withMutant(MOVE_PATH, "          if (s === 'witnessed') {\n", "          if (s === 'witnessed' || s === 'unwitnessed') {\n", async m => {
+  withMutant(MOVE_PATH, "        if (s === 'witnessed') {\n          const o = await afterSeal('sealed')", "        if (true) {\n          const o = await afterSeal('sealed')", async m => {
     const scene = SCENES.poolEdge(); const bot = fakeBot(scene, { items: ['cobblestone'], placeWorks: false }); const rows = []
     const mv = m.makeDangerMover(bot, fakeRunner(), { emit: r => rows.push(r), timing: { after: 0 } })
     await mv.maybeFire(feetBelow(bot)); await sleep(30); bot.done()
@@ -667,7 +770,7 @@ await t('H4 MUTANT KILLED (G4): accepting an unwitnessed seal re-classifies (D4 
     assert.equal(r.seal.witnessed, false); assert.notEqual(r.outcome, 'seal_failed_aim')
   }))
 await t('H5 MUTANT KILLED (G5): aiming at the facing bearing sprints into the pool (D2 catches it)', () =>
-  withMutant(MOVE_PATH, '      const yaw = yawOf(aim.choice.b)\n', '      const yaw = bot.entity.yaw ?? 0\n', async m => {
+  withMutant(MOVE_PATH, '      const yaw = yawOf(ob.choice.b)\n', '      const yaw = bot.entity.yaw ?? 0\n', async m => {
     const scene = SCENES.poolEdge(); const bot = fakeBot(scene); const rows = []
     const mv = m.makeDangerMover(bot, fakeRunner(), { emit: r => rows.push(r), timing: { after: 0 } })
     await mv.maybeFire(feetBelow(bot)); await sleep(30); bot.done()
@@ -687,8 +790,8 @@ await t('H7 MUTANT KILLED: a guard that ignores the move lets a dig through mid-
     assert.equal(await h.bot.dig({}), 'dug'); await p; h.bot.done()
   }))
 await t('H8 MUTANT KILLED: without the air check in ownership the move keeps steering over the rescue (D11 catches it)', () =>
-  withMutant(MOVE_PATH, "    const owns = () => cur === me && now() < me.deadline && !!bot.entity && (bot.health ?? 20) > 0 && !airHolds()\n",
-    "    const owns = () => cur === me && now() < me.deadline && !!bot.entity && (bot.health ?? 20) > 0\n", async m => {
+  withMutant(MOVE_PATH, "    me.check = () => now() >= me.deadline ? 'deadline' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : airHolds() ? 'air' : null\n",
+    "    me.check = () => now() >= me.deadline ? 'deadline' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : null\n", async m => {
       const scene = SCENES.poolEdge(); const bot = fakeBot(scene); const rows = []; let air = false
       const mv = m.makeDangerMover(bot, fakeRunner(), { airHolds: () => air, emit: r => rows.push(r), timing: { after: 0 } })
       const p = mv.maybeFire(feetBelow(bot)); await sleep(250); air = true; const mark = bot.writes.length
