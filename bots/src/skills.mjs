@@ -106,6 +106,7 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
+import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS } from './townindex.mjs'   // townindex-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
@@ -3095,6 +3096,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   let cursorLost = false
   // THE TOWN CAP'S OBSERVATION: every deposit that opens a town container records its cobble (the server's window)
   await cobbleObserve(bot, chestBlock.position, chest)
+  // THE TOWN INDEX (townindex-01): what the server sent at this open, before any click; the clicks mark it dirty (pre, post)
+  const ixPre = townIndexObserve(bot, chestBlock.position, chest, 'deposit')
+  const ixPreNames = observation(chest.containerItems?.() ?? [], Number.isInteger(chest.inventoryStart) ? chest.inventoryStart : 27).names
+  const ixOp = indexId(bot, 'dep')   // one operation: its pre and post marks close each other (townindex.mjs ops)
+  let ixDirty = false
   // THE COBBLE RULE's bookkeeping: what cobble the transfer counted eligible, and one record per cobble name tried
   let cobbleEligible = 0, cobbleBefore = 0
   const cobbleRows = []
@@ -3149,6 +3155,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords, stockRoomFor })   // the wants admission judged with (set by the gate)
     // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target dropped from this plan, named
     if (!noRecovery) stockRefusedRow(bot, 'deposit', planItems, { wants: bot.currentWants ?? [], noSwords, stockRoomFor })   // the plan's own options (Codex fold-r1 P2); a recovery's nested deposit is the same bag (Claude fold-r1 P3)
+    if (plan.length) { ixDirty = true; townIndexDirty(bot, chestBlock.position, 'deposit', 'pre', ixOp) }
     for (const { name, count } of plan) {
       check(signal)
       // A TOOL GOES BY SLOT, A USABLE COPY AT A TIME (Codex round 2 on withdraw: chest.deposit(type) takes the first copy
@@ -3274,6 +3281,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   } finally {
     // claims a throw left live: released with the container marked unknown (its transfer may or may not have landed)
     if (liveIds.size) { try { await cobbleObserve(bot, chestBlock.position, chest, { releaseAll: [...liveIds], dirtyIfLost: true, lost: true }) } catch { /* live until the next connection voids them */ } }
+    // THE TOWN INDEX: what the window gained (the client's count: no re-open, so `ok: 0`), then the closing dirty mark
+    if (ixDirty) {
+      try { if (moved > 0) townIndexTransfers(bot, chestBlock.position, windowGain(ixPreNames, chest), { op: ixOp, pre: ixPre, by: 'deposit', ok: 0 }) } catch { /* telemetry */ }
+      townIndexDirty(bot, chestBlock.position, 'deposit', 'post', ixOp)
+    }
     chest.close()
   }
   // THE STOCK TARGETS' ROWS (stocktarget-01): one _stock_bank row per targeted non-cobble name the plan named
@@ -3558,6 +3570,76 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [],
       { obs: inside ? { k: containerKey(bot, pos), n, m, cap } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
   } catch { return false }
 }
+// ---- THE TOWN INDEX (townindex-01; townindex.mjs): what every town container held at its last open --------------------
+// Observe-only: it writes ITS OWN files and nothing else (never the cobble journal, never the stock counts); the only reader in
+// townindex-01 is count_town's candidate list (index-unknown containers), indexsearch-01 adds the search's.
+const indexHk = () => indexHomeKey(homeVec())
+/** A TOWN container (the scan's own boundary: chestfull inTown, which is never deep) and the index switched on. */
+const townIndexed = pos => TOWNINDEX.on && !!pos && inTown(homeVec(), pos)
+const indexId = (bot, tag) => `${bot?.username ?? 'bot'}-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+// THIS PROCESS'S RECORDS ARE STRICTLY ORDERED IN TIME: a closing dirty mark and the verifying re-open that follows it can fall in
+// one millisecond, and a tie goes to dirty (townindex.mjs supersedes) -- so each record's `at` is past the previous one's.
+// Between processes a tie stays dirty (conservative).
+let ixLastAt = 0
+const ixNow = () => { ixLastAt = Math.max(Date.now(), ixLastAt + 1); return ixLastAt }
+/** Both halves' keys of the container at `pos`, the lower first (one key per double chest: containerKey). */
+const indexHalves = (bot, pos) => {
+  const q = chestPartner(bot, pos)
+  if (!q) return [posKey(pos)]
+  const k = containerKey(bot, pos)
+  return [k, k === posKey(pos) ? posKey(q) : posKey(pos)]
+}
+/**
+ * THE OBSERVATION AT AN OPEN -> its id, or null (not a town container, the index off, or the window is no longer the bot's: a
+ * window it does not own cannot vouch for what the server sent). Call it right after the open, BEFORE any click on the window.
+ */
+export function townIndexObserve (bot, pos, win, by = '-') {
+  try {
+    if (!townIndexed(pos) || !win || bot.currentWindow !== win || bot.cobbleEnded) return null
+    const size = Number.isInteger(win.inventoryStart) ? win.inventoryStart : 27
+    const o = observation(win.containerItems?.() ?? [], size)
+    const rec = { t: 'obs', id: indexId(bot, 'o'), k: containerKey(bot, pos), h: indexHalves(bot, pos), at: ixNow(), bot: bot.username ?? null, by, ...o }
+    return appendIndex(townDir(), indexHk(), bot.worldId ?? null, rec) ? rec.id : null
+  } catch { return null }
+}
+/** A MUTATION of the town container at `pos` by this bot (`phase` pre: before its first click, post: after its last) -> true when written. */
+export function townIndexDirty (bot, pos, by = '-', phase = 'post', op = null) {
+  try {
+    if (!townIndexed(pos)) return false
+    return appendIndex(townDir(), indexHk(), bot.worldId ?? null, { t: 'dirty', id: indexId(bot, 'd'), k: containerKey(bot, pos), h: indexHalves(bot, pos), at: ixNow(), bot: bot.username ?? null, by, phase, op })
+  } catch { return false }
+}
+/** TRANSFER RECORDS into the town container at `pos`: [{ slot, name, n }] under one operation; `ok` 1 = verified by a re-open. */
+export function townIndexTransfers (bot, pos, moves = [], { op = null, pre = null, ver = null, by = '-', ok = 0 } = {}) {
+  try {
+    if (!townIndexed(pos) || !moves.length) return 0
+    const k = containerKey(bot, pos), h = indexHalves(bot, pos), at = ixNow()
+    let n = 0
+    for (const m of moves) {
+      if (!m?.name || !(Number(m.n) > 0)) continue
+      if (appendIndex(townDir(), indexHk(), bot.worldId ?? null, { t: 'xfer', id: indexId(bot, 'x'), op, pre, ver, gen: null, bot: bot.username ?? null, by, at, k, h, slot: m.slot ?? null, name: m.name, n: Number(m.n), ok: ok ? 1 : 0 })) n++
+    }
+    return n
+  } catch { return 0 }
+}
+/** The town's index, folded now -> { k: entry }, or null when it cannot be read or the index is off (then no reader acts on
+ *  it: an unreadable index is never "every container unknown" -- Claude code r1 P3). */
+export function townIndexEntries (bot) {
+  if (!TOWNINDEX.on) return null
+  try { const r = readIndex(townDir(), indexHk(), bot?.worldId ?? null); return r.ok ? r.entries : null } catch { return null }
+}
+/** A HELD window's operation (holdUnsettled): renewed while the hold lives, closed by its end (townindex.mjs HELD_RENEW_MS). */
+function indexHold (bot, win, pos, by, op) {
+  if (!win) return
+  townIndexDirty(bot, pos, by, 'held', op)
+  win.ixHeld = { last: Date.now(), renew: () => townIndexDirty(bot, pos, by, 'held', op), close: () => townIndexDirty(bot, pos, by, 'post', op) }
+}
+/** What a window gained over the observation at its open, per name -> [{ name, n }] (the deposit verb's unverified records). */
+const windowGain = (pre, win) => {
+  const now = observation(win?.containerItems?.() ?? [], Number.isInteger(win?.inventoryStart) ? win.inventoryStart : 27).names
+  return Object.entries(now).map(([name, [c]]) => ({ name, n: c - (pre?.[name]?.[0] ?? 0) })).filter(m => m.n > 0)
+}
+
 /**
  * THE AUTHORITATIVE ADMISSION for one whole stack into the container at `pos` -> { decision, view, id, at }: a CLAIM in
  * the town's journal, decided by the fold at its own place (cobblecap.mjs claimStack). 'bank' returns the claim's id,
@@ -3703,9 +3785,75 @@ async function countTown (ctx, _args, signal) {
     throw e
   }
   capEpoch++                                                          // the plan's next view reads the new counts
+  // townindex-01: the index's UNKNOWN town containers fill what the stock keys left of the visit's 3, AFTER the base's count
+  // is complete -- a second call with its own budget and backoff; its abort or failure never changes the base's outcome
+  await countIndexUnknowns(bot, signal, keys, rc, until)
   const after = unknownRefusals(bot)
   return row(rc.counted ? 'success' : 'no_effect',
     `trigger=order refused=${before.length} keys=${keys.length} counted=${rc.counted} tried=${rc.tried ?? 0} unknown_after=${after.length}${rc.timedOut ? ' timed_out=1' : ''}${rc.interrupted ? ' interrupted=1' : ''}${rc.pending ? ' pending_open=1' : ''} fails=${Object.entries(rc.fails ?? {}).map(([w, n]) => `${w.replace(/\s+/g, '_')}:${n}`).join(',') || '-'} names=${refusedS}`, rc.counted)
+}
+/** count_town's index-unknown containers that could not be counted: out of THIS bot's extras for RECONCILE_BACKOFF_MS (never
+ *  the stock keys' backoff, never a recount miss: the base's own candidates are judged exactly as before). */
+const indexCountFailed = new Map()
+/**
+ * COUNT_TOWN'S EXTRAS (townindex-01; design 4.2: "count_town adds index-unknown town containers to its candidates, bounded as
+ * today (3 per visit)") -> { counted, tried } | null. Only after a base count that ended normally with visits left over; one
+ * `_townindex_count` row (the change row). An abort here is swallowed: the base's count had already ended.
+ */
+async function countIndexUnknowns (bot, signal, keys, rc, until) {
+  if (!TOWNINDEX.on || signal?.aborted || rc.timedOut || rc.interrupted || rc.pending) return null
+  const room = RECONCILE_MAX - (rc.tried ?? 0)
+  if (room <= 0) return null
+  const extra = indexRecountKeys(bot, keys).filter(k => !((indexCountFailed.get(failKey(k))?.until ?? 0) > Date.now()))
+  if (!extra.length) return null
+  const t0 = Date.now()
+  let rx = null, status = 'no_effect'
+  try {
+    rx = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), extra, { max: room, backoff: indexCountFailed, row: false, arrive: true })
+    status = rx.counted ? 'success' : 'no_effect'
+  } catch (e) {
+    status = e?.aborted || signal?.aborted ? 'aborted' : 'failed'
+  }
+  try { logEvent({ kind: 'townindex_count', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: townIndexCountDetail({ keys: keys.length, extra: extra.length, counted: rx?.counted ?? 0, tried: rx?.tried ?? 0, unknownLeft: indexRecountKeys(bot, []).length }) }) } catch { /* telemetry */ }
+  capEpoch++
+  return rx
+}
+/** Forget count_town's extra backoffs (tests). */
+export const resetIndexCount = () => indexCountFailed.clear()
+/**
+ * THE TOWN CONTAINERS THE INDEX HAS NEVER SEEN that a count can still reach -> [k] (townindex-01): every container the town
+ * scan names (in town, never deep, one key per double chest), not in `exclude` (the stock keys, counted first), never opened
+ * since the index began, and outside every backoff the stock keys honour (the reconciliation's, the town memory's skip
+ * statuses, the recount misses). [] with the index off.
+ */
+export function indexRecountKeys (bot, exclude = [], now = Date.now()) {
+  try {
+    if (!TOWNINDEX.on || bot?.cobbleOpenPending) return []
+    const home = homeVec()
+    const sc = townCobbleScan(bot, now)
+    const ex = new Set(exclude)
+    const mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {}
+    const misses = readRecountMisses(bot)
+    const ents = townIndexEntries(bot)
+    if (!ents) return []
+    const ks = indexUnknownKeys((sc.keys ?? []).filter(k => !ex.has(k)), ents)
+    // protectzone-01 x townindex-01 (JIT 10-21b): NEVER AN EXTRA IN A PROTECTED ZONE -- the guard refuses its open, and the
+    // index can never learn it, so it would stay `unknown` and be walked to again after every backoff. The town search's
+    // rule (townSearchView): the scan's findBlocks never answers a zone cell, the journal's counted keys do; either half
+    // of a double shuts both. No zone loaded -> nothing changes.
+    let zonesNow = []
+    try { zonesNow = bot.protectZones?.() ?? [] } catch { zonesNow = [] }
+    const feet = bot.entity?.position ?? null
+    const zoneShut = k => {
+      if (!zonesNow.length) return false
+      try {
+        const p = keyVec(k), q = chestPartner(bot, p)
+        return [p, ...(q ? [q] : [])].some(c => !!blocked(zonesNow, c.x, c.y, c.z, feet))
+      } catch { return false }
+    }
+    return cobbleReconcilable({ unknown: ks }, now).filter(k => /^-?\d+,-?\d+,-?\d+$/.test(k) && inTown(home, keyVec(k))
+      && !RECOUNT_SKIP.has(containerStatus(mem[k], now)) && recountMissStatus(misses[k], now) === 'ok' && !zoneShut(k))
+  } catch { return [] }
 }
 export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now() } = {}) {
   try {
@@ -3843,12 +3991,14 @@ export function resetCobbleReconcile () { reconcileFailed.clear(); capScan = { a
  * window that opens after its timeout is closed by that open's own promise, and a timeout ends the reconciliation (Codex r3
  * P2: two opens are never in flight). A count that cannot be written backs off too. -> { counted, timedOut }.
  */
-export async function reconcileCobble (bot, signal, msLeft, keys = null, { remember = false, progress = null } = {}) {
+export async function reconcileCobble (bot, signal, msLeft, keys = null, { remember = false, progress = null, max = RECONCILE_MAX, backoff = reconcileFailed, row = true, arrive = remember } = {}) {
   let counted = 0, tried = 0, timedOut = false, interrupted = false
+  // townindex-01: count_town's index-unknown containers are counted by a SECOND call after the base's -- with its own visit
+  // budget (`max`), its own backoff map (never the stock keys' reconcileFailed) and no `_cobble_reconcile` row
   const fails = {}   // why -> n (the recount's row names them: Claude st2-r2 P3-c, a dug-out town's walk timeouts)
   const fail = (k, why) => {
     fails[why] = (fails[why] ?? 0) + 1
-    reconcileFailed.set(failKey(k), { until: Date.now() + RECONCILE_BACKOFF_MS, why })
+    backoff.set(failKey(k), { until: Date.now() + RECONCILE_BACKOFF_MS, why })
     // THE RECOUNT ORDER (stocktarget-02): a container it could not reach or open is a RECOUNT MISS in the town's own
     // recount file (recount.mjs) -- never a strike in the container memory the deposit, the withdraw and the full-chest
     // recovery read (both reviews st2-r1 P1/P2) -- and only on evidence (RECOUNT_MISS_REASONS)
@@ -3861,8 +4011,9 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
     const view = cobbleTownViewFor(bot, Date.now(), { fresh: true })
     const here = bot.entity.position
     // `keys`: the containers the caller needs counted (stocktarget: any group's unknown, or the floor's stale ones)
-    const cells = (keys ? cobbleReconcilable({ unknown: keys }) : cobbleReconcilable(view)).map(k => ({ k, c: keyVec(k) }))
-      .sort((a, b) => here.distanceTo(a.c) - here.distanceTo(b.c)).slice(0, RECONCILE_MAX)
+    const reconcilable = ks => (backoff === reconcileFailed ? cobbleReconcilable({ unknown: ks }) : ks.filter(k => !((backoff.get(failKey(k))?.until ?? 0) > Date.now())))
+    const cells = (keys ? reconcilable(keys) : cobbleReconcilable(view)).map(k => ({ k, c: keyVec(k) }))
+      .sort((a, b) => here.distanceTo(a.c) - here.distanceTo(b.c)).slice(0, Math.max(0, Math.min(RECONCILE_MAX, max)))
     for (const { k, c } of cells) {
       check(signal)
       if (msLeft(RECONCILE_WALK_MS) < 2_000) break
@@ -3879,7 +4030,7 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
         await chestWalk(bot, new goals.GoalNear(c.x, c.y, c.z, 2), msLeft(RECONCILE_WALK_MS))
         // THE RECOUNT ARRIVES BEFORE IT OPENS (Claude st2-r1): a resolved walk is not an arrival (Paper 10-05, the deposit's
         // own check); out of reach is this walk's no-path
-        if (remember && !(eyeToBlock(bot.entity.position, c) <= OPEN_REACH)) { fail(k, 'unreachable'); continue }
+        if (arrive && !(eyeToBlock(bot.entity.position, c) <= OPEN_REACH)) { fail(k, 'unreachable'); continue }
       } catch (e) {
         if (e?.aborted || signal?.aborted) throw e
         if (!remember) { fail(k, 'unreachable'); continue }
@@ -3917,11 +4068,12 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
         continue
       }
       try {
+        townIndexObserve(bot, c, win, 'count')   // townindex-01: the open's observation, the same window the count reads
         if (cobbleObserve(bot, c, win)) { counted++; note(); if (remember) clearRecountMiss(bot, k) } else fail(k, 'count not written')
       } finally { try { win.close() } catch { /* closed */ } }
     }
   } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-  logEvent({ kind: 'cobble_reconcile', status: counted ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `counted=${counted} of ${tried} tried (max ${RECONCILE_MAX})${timedOut ? ' timed_out=1' : ''}${interrupted ? ' interrupted=1' : ''}` })
+  if (row) logEvent({ kind: 'cobble_reconcile', status: counted ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `counted=${counted} of ${tried} tried (max ${RECONCILE_MAX})${timedOut ? ' timed_out=1' : ''}${interrupted ? ' interrupted=1' : ''}` })
   return { counted, timedOut, tried, interrupted, fails }
 }
 /** One outcome into the town's container memory (chestfull.mjs), for TOWN containers only (inTown: the same boundary
@@ -7354,7 +7506,7 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [] } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null } = {}) {
   const bag = windowBag(bot, win)
   const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve })
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
@@ -7369,9 +7521,12 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   const stock = { claims: 0, refused: 0, valve: 0 }
   try {
     await lockstepClicks(bot, async raw => {
+      let mutating = false
       const click = async slot => {
         check(signal)
         if (bot.currentWindow !== win) throw stop('the window changed')
+        // townindex-01: the container is marked dirty BEFORE its first click (a crash mid-clicks leaves it dirty)
+        if (!mutating) { mutating = true; try { onMutate?.() } catch { /* advisory */ } }
         const p = trackedClick(bot, raw, slot, 0, 0)
         p.catch(() => {})
         if ((await within(p, Math.max(250, deadline - Date.now()))) === TIMED_OUT) throw stop('a click went unanswered')
@@ -7422,13 +7577,15 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
  * false when the re-open did not come back (then nothing is credited and the run says unverified).
  */
 async function verifyTown (bot, block, done, ms) {
-  if (!done.length) return { verified: [], ok: true, bag: null }
+  if (!done.length) return { verified: [], ok: true, bag: null, ix: null }
   const win = await openTown(bot, block, ms)
-  if (!win) return { verified: [], ok: false, bag: null }
+  if (!win) return { verified: [], ok: false, bag: null, ix: null }
   try {
+    // townindex-01: the re-open IS an open -- the server's contents after the clicks, the container known again
+    const ix = townIndexObserve(bot, block.position, win, 'verify')
     const bag = {}
     for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
-    return { ok: true, bag, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
+    return { ok: true, bag, ix, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
   } finally { try { win.close() } catch { /* already closed */ } }
 }
 
@@ -7502,6 +7659,11 @@ async function townDeposit (ctx, _args, signal) {
       if (!win) { tried.push({ at, result: 'unopenable' }); stop = 'open timeout'; break }
       win.townPos = c.position
       await cobbleObserve(bot, c.position, win)   // the town cap's observation (cobblecap.mjs)
+      // THE TOWN INDEX (townindex-01): the pre-state at this open (the transfers below are judged against it), and the
+      // dirty marks around the clicks (bankInto's first click; after the settle)
+      const ixPre = townIndexObserve(bot, c.position, win, 'town_deposit')
+      const ixOp = indexId(bot, 'td')
+      let ixDirty = false
       // OWNED FROM THE OPEN TO THE CLOSE, OR HELD (withdraw's rules, rebase review P1): nothing else touches the inventory
       // while this run has the window; the cursor is settled with the SERVER's word before the close, and a cursor that
       // cannot be emptied keeps the window open (holdUnsettled) -- never a loaded close.
@@ -7509,13 +7671,14 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) } })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
         settled = await settleCursor(bot, win)
         // THE RUN'S CLAIMS, released after the settle: the window's count, or (held) a dirty mark for the container
         try { if (reservedHere.length || r.done?.length) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
+        if (ixDirty) { if (settled.state === 'unresolved') indexHold(bot, win, c.position, 'town_deposit', ixOp); else townIndexDirty(bot, c.position, 'town_deposit', 'post', ixOp) }
         if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
         // A WINDOW THE SERVER ALREADY CLOSED is not closed again (Codex round 2): mineflayer's close copies the window
         // into the bag and clears currentWindow, which would overwrite the server's correction or a newer window.
@@ -7531,6 +7694,8 @@ async function townDeposit (ctx, _args, signal) {
       const v = await verifyTown(bot, block, r.done, openMs())
       if (!v.ok) unverified += r.done.length
       if (v.bag) serverBag = v.bag
+      // THE TOWN INDEX's transfer records: each VERIFIED stack, with its pre-state (this visit's open) and the re-open's id
+      townIndexTransfers(bot, c.position, v.verified.map(({ step, dest }) => ({ slot: dest, name: step.name, n: step.count })), { op: ixOp, pre: ixPre, ver: v.ix, by: 'town_deposit', ok: 1 })
       // A TOWN CONTAINER TOOK ITEMS (rebase review P3): the town's memory hears it, as it does from the deposit verb --
       // that clears withdraw's pickaxe/ingredient misses for this container and is the bank's "room again" signal.
       if (v.verified.length) { rememberTown(bot, c.position, 'took'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'took') }
@@ -9813,7 +9978,8 @@ async function openForWithdraw (bot, chestBlock, signal, msLeft) {
     return { fail: { status: 'failed', failClass: 'container_open', detail: `the window that opened is not the chest at ${cp.x},${cp.y},${cp.z}` } }
   }
   await cobbleObserve(bot, cp, chest)   // the town cap's observation (cobblecap.mjs)
-  return { chest }
+  const ix = townIndexObserve(bot, cp, chest, 'withdraw')   // townindex-01: the open's observation, before any click
+  return { chest, ix }
 }
 
 /** A bag as plain records (name, count, wear), frozen when read: the server's word, before anything else moves it. */
@@ -10062,6 +10228,8 @@ function holdUnsettled (bot, win, u, own) {
     done = true
     clearInterval(iv)
     bot.removeListener?.('end', onEnd)
+    const ixHeldEnd = win.ixHeld   // townindex-01: the held operation ends -- its post mark AFTER the in-flight clicks drain
+    win.ixHeld = null
     const held = carriedLocal()   // the client's view as the hold ended -- read BEFORE the close
     if (close && bot.currentWindow === win) own.close()
     invalidateClicks(bot, `withdraw ${how}`)
@@ -10073,12 +10241,14 @@ function holdUnsettled (bot, win, u, own) {
         logEvent({ kind: 'withdraw_settled', status: 'failed', snapshot: snapshot(bot),
                    detail: `how=drain_timeout after_ms=${Date.now() - since} a click was still in flight ${HOLD_TIMING.drainMs} ms after the close (invalidated: its send is dropped)` })
       }
+      try { ixHeldEnd?.close() } catch { /* advisory: a crash here leaves the operation to expire OP_TTL_MS past its last renewal */ }
       writeRow(how, how === 'settled' ? 'success' : 'no_effect', how !== 'disconnected', held, extra)
     })().catch(() => {})
   }
   const tick = async () => {
     if (done) return
     if (clientEnded(bot)) return finish('disconnected', { close: false })
+    if (win.ixHeld && Date.now() - win.ixHeld.last >= HELD_RENEW_MS) { win.ixHeld.last = Date.now(); try { win.ixHeld.renew() } catch { /* advisory */ } }
     const s = await settleCursor(bot, win, { cancelled: () => done })   // 'gone' first if the server closed the window
     if (done) return
     if (clientEnded(bot)) return finish('disconnected', { close: false })
@@ -10309,7 +10479,8 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
   if (opened.fail) return { result: opened.fail, diag }
   const win = opened.chest
   const double = (win.inventoryStart ?? 27) >= 54
-  let saw = [], plan = null, moved = null, unresolved = null
+  let saw = [], plan = null, moved = null, unresolved = null, ixDirty = false
+  const ixOp = indexId(bot, 'wd')
   // OWNED FROM THE OPEN TO THE CLOSE OR THE HOLD (I): nothing else touches the inventory while this visit has the window.
   const own = ownInventory(bot, win)
   const stockIds = []
@@ -10351,7 +10522,10 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
         stockIds.push(adm.id)
       }
     }
-    if (plan) { moved = await transferIn(bot, win, plan, { deadline, signal }); unresolved = moved.unresolved }
+    if (plan) {
+      ixDirty = true; townIndexDirty(bot, cp, 'withdraw', 'pre', ixOp)   // townindex-01: the clicks begin
+      moved = await transferIn(bot, win, plan, { deadline, signal }); unresolved = moved.unresolved
+    }
   } catch (e) {
     if (e?.withdrawState) {
       unresolved = e.withdrawState.unresolved
@@ -10362,6 +10536,9 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
     // THE TOWN CONTAINER'S COUNT AFTER THIS VISIT (stocktarget design 3.5), releasing its draw/bank claims, while the window
     // is still ours; a held or lost window releases them with the container marked UNKNOWN (a dirty mark)
     if (moved || stockIds.length) { try { await cobbleObserve(bot, cp, win, { releaseAll: stockIds, dirtyIfLost: true, lost: !!unresolved }) } catch { /* the claims stay live: conservative */ } }
+    // townindex-01: the clicks are over (or abandoned): dirty until an open. A HELD window may still move its cursor: its
+    // operation stays OPEN (no post mark), so no open inside OP_TTL_MS makes the container known
+    if (ixDirty) { if (unresolved) indexHold(bot, win, cp, 'withdraw', ixOp); else townIndexDirty(bot, cp, 'withdraw', 'post', ixOp) }
     // NEVER A LOADED CLOSE: an unresolved cursor keeps the window open until it settles (holdUnsettled, which takes the
     // ownership over). Otherwise the close, then the ownership once every click has settled (bounded).
     if (unresolved) holdUnsettled(bot, win, unresolved, own)
