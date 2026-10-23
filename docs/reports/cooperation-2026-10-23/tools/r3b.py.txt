@@ -1,0 +1,65 @@
+# cooperation design 2026-10-23, r3 addition after review round 2 (Claude r2 P2-7). Read-only. Same window and extract.
+# Explore -> harvest of the headed-for item by ANY route (gather, mine, pickup): a rise of the matching raw item in the
+# bot's bag (iron_ore -> raw_iron, coal_ore -> coal, *_log -> that log, else the block name) between the bot's newest
+# snapshot at or before the explore's end and any snapshot within the next 600 s; "near the sighting" when the snapshot
+# carrying the first rise is within 24 (dy 16) of the sighting. Snapshot times: skill rows at start + duration, event rows
+# at emission. Explores ending after T1 - 600 are censored. Also: the kinds the headings name.
+import gzip, json, glob, os, re, math, bisect, collections, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+RAW = {'iron_ore': 'raw_iron', 'deepslate_iron_ore': 'raw_iron', 'coal_ore': 'coal', 'copper_ore': 'raw_copper'}
+
+def end(r):
+    return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+
+KINDS = collections.Counter(); X = collections.Counter()
+for pool in POOLS:
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    snaps = collections.defaultdict(list)
+    for r in rows:
+        if r.get('bot') and r.get('inv') is not None and r.get('p'):
+            snaps[r['bot']].append((end(r), r['inv'], r['p']))
+    for b in snaps:
+        snaps[b].sort(key=lambda x: x[0])
+    heads = sorted((r['t'], r['bot'], m.group(1), (int(m.group(2)), int(m.group(3)), int(m.group(4))))
+                   for r in rows if r['k'] == '_explore_toward_known' for m in [HEAD.search(r.get('d') or '')] if m)
+    hts = [h[0] for h in heads]
+    for h in heads:
+        KINDS[h[2]] += 1
+    for r in rows:
+        if r['k'] != 'explore' or not r.get('dur') or not r.get('bot'):
+            continue
+        i, j = bisect.bisect_left(hts, r['t'] - 2), bisect.bisect_right(hts, r['t'] + 10)
+        mine = [h for h in heads[i:j] if h[1] == r['bot']]
+        if not mine:
+            continue
+        t, b, item, xyz = mine[0]
+        k0 = bisect.bisect_left(hts, t - 1800)
+        cls = 'peer' if any(h[1] != b and h[3] == xyz and h[0] < t for h in heads[k0:bisect.bisect_left(hts, t)]) else 'fresh'
+        e = end(r)
+        if e > T1 - 600:
+            X[(cls, 'censored')] += 1; continue
+        X[(cls, 'runs')] += 1
+        lst = snaps.get(b) or []
+        ts = [x[0] for x in lst]
+        j0 = bisect.bisect_right(ts, e) - 1
+        if j0 < 0:
+            X[(cls, 'no_base')] += 1; continue
+        want = RAW.get(item, item)
+        base = lst[j0][1].get(want, 0)
+        for x in lst[j0 + 1:bisect.bisect_right(ts, e + 600)]:
+            if x[1].get(want, 0) > base:
+                near = math.hypot(x[2][0] - xyz[0], x[2][2] - xyz[2]) <= 24 and abs(x[2][1] - xyz[1]) <= 16
+                X[(cls, 'rise_near' if near else 'rise_elsewhere')] += 1
+                break
+    del rows
+print('heading kinds:', KINDS.most_common(6))
+print('== explore -> a bag rise of the headed-for raw item within 600 s of the explore end (any route)')
+for c in ('fresh', 'peer'):
+    n = X[(c, 'runs')]
+    print(f"  {c:5s} runs {n} (censored {X[(c, 'censored')]}, no base snapshot {X[(c, 'no_base')]}): rise near the sighting "
+          f"{X[(c, 'rise_near')]} ({100*X[(c, 'rise_near')]/max(n,1):.2f}%), rise elsewhere {X[(c, 'rise_elsewhere')]} ({100*X[(c, 'rise_elsewhere')]/max(n,1):.2f}%)")

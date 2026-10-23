@@ -1,4 +1,6 @@
-# cooperation design 2026-10-23: build the overseer's per-town INPUT SNAPSHOT from real rows, to size it (read-only).
+# cooperation design 2026-10-23: build the overseer's per-town INPUT SNAPSHOT from real rows, to SIZE it (read-only).
+# r3: SYNTHETIC for sizing only (raw index obs, invented eligibility); fields updated to r3 (to_site, short_town,
+# arrivals, affinity, next-visit eligibility for away, unflagged bots).
 # No model is called. The snapshot is the compact JSON the design (section 3.4) specifies, filled from the 24 h extract at
 # a fixed instant (10-23 10:00Z) for each of the 13 shared towns, plus a FIXTURE workshop project (the building tier owns
 # the real record; its shape here is the interface of section 5, sized like a 7x5 workshop: 4 segments, 9 BOM lines).
@@ -41,8 +43,11 @@ for pool in POOLS:
             'bot': b.split('-')[-1], 'at_town': bool(pos and math.hypot(pos[0] - home[0], pos[2] - home[2]) <= 48 and abs(pos[1] - home[1]) <= 12),
             'dist': round(math.hypot(pos[0] - home[0], pos[2] - home[2])) if pos else None, 'dy': round(pos[1] - home[1]) if pos else None,
             'hp': hp, 'kinds': len(inv), 'items': {k: inv[k] for k in KEY if inv.get(k)}, 'picks': picks,
-            'doing': [(r['k'], r.get('s')) for r in last], 'flags': flags, 'done24': dict(jobs24.most_common(4)),
-            'eligible': ['SUPPLY:cobblestone', 'SUPPLY:oak_planks', 'BUILD:seg2', 'BANK'] if pos else [],
+            'doing': [(r['k'], r.get('s')) for r in last], 'flags': flags,
+            'arrivals24': sum(1 for a, b2 in zip(mine, mine[1:]) if a.get('p') and b2.get('p') and
+                              math.hypot(a['p'][0] - home[0], a['p'][2] - home[2]) > 16 >= math.hypot(b2['p'][0] - home[0], b2['p'][2] - home[2])),
+            'affinity': {k: round(v / 10, 1) for k, v in jobs24.most_common(3)},
+            'eligible': [] if flags or not pos else ['BUILD:seg2', 'SUPPLY:cobblestone', 'SUPPLY:oak_stairs', 'BANK'],
         })
     stock = collections.Counter(); state = collections.Counter()
     last = {}
@@ -64,7 +69,7 @@ for pool in POOLS:
         'project': {'id': 'workshop', 'state': 'building', 'layer': 2, 'cells': {'done': 61, 'open': 74, 'waived': 0},
                     'segments': [{'seg': i, 'state': s, 'holder': h, 'open': o} for i, (s, h, o) in
                                  enumerate([('done', None, 0), ('leased', 'Bravo', 18), ('open', None, 31), ('open', None, 25)])],
-                    'bom': {n: {'need': q, 'site': q // 3, 'town': stock.get(n, 0)} for n, q in BOM.items()},
+                    'items': {n: {'to_site': max(0, q - q // 3), 'short_town': max(0, q - q // 3 - stock.get(n, 0))} for n, q in BOM.items()},
                     'stall_min': 0},
         'jobs_open': ['BUILD:seg2', 'BUILD:seg3', 'SUPPLY:cobblestone', 'SUPPLY:glass_pane', 'SUPPLY:oak_stairs', 'DEEP_MINE', 'BANK'],
         'caps': {'BUILD': 2, 'DEEP_MINE': 2, 'leased_max': 3},

@@ -1,0 +1,280 @@
+# cooperation design 2026-10-23, r3 re-measurement after review round 2 (Codex r2 P1-1, P2-5, P2-6, P2-7, P2-8). Read-only.
+# Same fixed window and inputs as r2fix.py.
+#  [P3] provenance by the OBSERVATION CHAIN: every difference between consecutive observations of a container is an event;
+#       it is attributed to a bot only when exactly one op's [pre, post] marks overlap that pair's interval, otherwise it
+#       is UNKNOWN. So conservation holds by construction (nothing disappears). Bounds per withdrawer B, container K, item:
+#         lower = max over B's withdrawals of (B's withdrawn so far - stock at first open - unknown additions so far
+#                 - B's own deposits so far), floored at 0;
+#         upper = min(B's withdrawn, other bots' deposits + unknown additions, before B's last withdrawal).
+#       Unknown withdrawals are counted and reported; they are no one's.
+#  [O3] overlapped BOT-time: per run, the union of its overlaps with every townmate's run of the same job, summed over runs.
+#  [X3] explore attribution first (each completed same-block gather credits the latest explore of that bot that ended
+#       within 600 s before it), then classification: an explore is "at sighting" if ANY gather credited to it ended within
+#       24 (dy 16) of the sighting. End position is a proxy for where the block was.
+#  [F3] furnace repeats: invalidation by a non-drain session whose recorded [t0, t1] overlaps the gap; the repeat cost is
+#       the summed duration of the repeat drains themselves.
+#  [R3] presence at the town-job radius (16 h / 12 v): occupancy, dwell, co-presence (>= 2, >= 3) and longest stretches.
+import gzip, json, glob, os, re, math, bisect, collections, statistics, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+JOBS = ('smelt_town', 'furnace_drain', 'toolkit', 'deposit', 'town_deposit', 'withdraw_pick', 'dispose_well', 'compost', 'craft')
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+FURN = re.compile(r'furnace at (-?\d+,-?\d+,-?\d+)')
+SESS = re.compile(r'furnace=(-?\d+,-?\d+,-?\d+).*?t0=(\d+) t1=(\d+) by=(\w+)')
+
+def end(r):
+    return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+
+def hd(a, b):
+    return math.hypot(a[0] - b[0], a[2] - b[2])
+
+def args(r):
+    try:
+        return json.loads(r.get('a') or '{}')
+    except Exception:
+        return {}
+
+def homeof(pool):
+    f = glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')[0]
+    return tuple(int(v) for v in re.search(r'town-index-(-?\d+)_(-?\d+)_(-?\d+)\.g', f).groups())
+
+def union_len(ivs):
+    tot = 0.0; cs = ce = None
+    for s, e in sorted(ivs):
+        if ce is None or s > ce:
+            if ce is not None:
+                tot += ce - cs
+            cs, ce = s, e
+        else:
+            ce = max(ce, e)
+    return tot + ((ce - cs) if ce is not None else 0.0)
+
+O = collections.Counter(); X = collections.Counter(); F = collections.Counter(); R = collections.Counter()
+DW = []; BEST = {}
+for pool in POOLS:
+    home = homeof(pool)
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows.sort(key=lambda r: r['t'])
+    # [O3]
+    for k in JOBS:
+        iv = []
+        for r in rows:
+            if r['k'] == k and r.get('dur') is not None and r.get('bot'):
+                key = None
+                if k == 'furnace_drain':
+                    m = FURN.search(r.get('d') or '')
+                    key = m.group(1) if m else ('?', id(r))
+                iv.append((r['t'], end(r), r['bot'], key))
+        iv.sort()
+        starts = [x[0] for x in iv]
+        for i, (s, e, b, key) in enumerate(iv):
+            ovs = []
+            j = i - 1
+            while j >= 0 and s - iv[j][0] < 4 * 3600:   # skills are capped at minutes; 4 h back is exhaustive
+                sj, ej, bj, kj = iv[j]
+                if bj != b and kj == key and ej > s:
+                    ovs.append((s, min(e, ej)))
+                j -= 1
+            j = i + 1
+            while j < len(iv) and iv[j][0] < e:
+                sj, ej, bj, kj = iv[j]
+                if bj != b and kj == key:
+                    ovs.append((sj, min(e, ej)))
+                j += 1
+            O[(k, 'body')] += e - s
+            O[(k, 'overlap_bot_s')] += union_len(ovs)
+    # [X3]
+    heads = []
+    for r in rows:
+        if r['k'] == '_explore_toward_known':
+            m = HEAD.search(r.get('d') or '')
+            if m:
+                heads.append((r['t'], r['bot'], m.group(1), (int(m.group(2)), int(m.group(3)), int(m.group(4)))))
+    hts = [h[0] for h in heads]
+    exps = []
+    for r in rows:
+        if r['k'] != 'explore' or not r.get('dur') or not r.get('bot'):
+            continue
+        i, j = bisect.bisect_left(hts, r['t'] - 2), bisect.bisect_right(hts, r['t'] + 10)
+        mine = [h for h in heads[i:j] if h[1] == r['bot']]
+        if not mine:
+            continue
+        t, b, item, xyz = mine[0]
+        k0 = bisect.bisect_left(hts, t - 1800)
+        dup = any(h[1] != b and h[3] == xyz and h[0] < t for h in heads[k0:bisect.bisect_left(hts, t)])
+        exps.append({'end': end(r), 'bot': b, 'item': item, 'xyz': xyz, 'cls': 'peer' if dup else 'fresh', 'g': []})
+    byb = collections.defaultdict(list)
+    for n, e in enumerate(exps):
+        byb[e['bot']].append((e['end'], n))
+    for b in byb:
+        byb[b].sort()
+    for r in rows:
+        if r['k'] != 'gather' or r.get('s') != 'success' or not r.get('p') or not r.get('bot'):
+            continue
+        ge = end(r); lst = byb.get(r['bot']) or []
+        ts = [x[0] for x in lst]
+        j = bisect.bisect_right(ts, ge) - 1
+        while j >= 0 and ge - lst[j][0] <= 600:
+            e = exps[lst[j][1]]
+            if args(r).get('block') == e['item']:
+                e['g'].append(r['p']); break
+            j -= 1
+    for e in exps:
+        if e['end'] > T1 - 600:
+            X[(e['cls'], 'censored')] += 1; continue
+        X[(e['cls'], 'runs')] += 1
+        if any(hd(p, e['xyz']) <= 24 and abs(p[1] - e['xyz'][1]) <= 16 for p in e['g']):
+            X[(e['cls'], 'at_sighting')] += 1
+        elif e['g']:
+            X[(e['cls'], 'elsewhere')] += 1
+    # [F3]
+    sess = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == '_furnace_session':
+            m = SESS.search(r.get('d') or '')
+            if m and m.group(4) != 'drain':
+                sess[m.group(1)].append((int(m.group(2)) / 1000.0, int(m.group(3)) / 1000.0))
+    dr = sorted((end(r), r['t'], r['bot'], m.group(1), (r.get('dur') or 0) / 1000.0)
+                for r in rows if r['k'] == 'furnace_drain' for m in [FURN.search(r.get('d') or '')]
+                if m and 'is empty' in (r.get('d') or ''))
+    F['sessions'] += sum(len(v) for v in sess.values())
+    for i, (e, s, b, f, dur) in enumerate(dr):
+        F['empty'] += 1; F['empty_s'] += dur
+        prev = [x for x in dr[:i] if x[3] == f and x[0] <= s and s - x[0] <= 3600]
+        if not prev:
+            continue
+        last = prev[-1]
+        if any(t0 < s and t1 > last[0] for t0, t1 in sess.get(f, [])):
+            F['invalidated'] += 1; continue
+        c = 'peer' if last[2] != b else 'self'
+        F[c] += 1; F[c + '_s'] += dur
+    # [R3]
+    per = collections.defaultdict(list)
+    for r in rows:
+        if r['k'].startswith('_') and r.get('p') and r.get('bot'):
+            per[r['bot']].append((r['t'], r['p']))
+    seqs = []
+    for b, lst in per.items():
+        ts = [x[0] for x in lst]; seq = []
+        for m in range(int(T0 // 60) + 1, int(T1 // 60) + 1):
+            j = bisect.bisect_right(ts, m * 60) - 1
+            p = lst[j][1] if j >= 0 and m * 60 - ts[j] <= 600 else None
+            seq.append(bool(p and hd(p, home) <= 16 and abs(p[1] - home[1]) <= 12))
+        seqs.append(seq)
+        R['bot_min'] += len(seq); R['at16'] += sum(seq)
+        run = 0
+        for a in seq + [False]:
+            if a:
+                run += 1
+            elif run:
+                DW.append(run); run = 0
+    c2 = c3 = b2 = b3 = 0
+    for m in range(len(seqs[0])):
+        k = sum(s[m] for s in seqs)
+        R['ge2'] += k >= 2; R['ge3'] += k >= 3
+        c2 = c2 + 1 if k >= 2 else 0; c3 = c3 + 1 if k >= 3 else 0
+        b2, b3 = max(b2, c2), max(b3, c3)
+    BEST[pool] = (b2, b3)
+    del rows
+
+print('== [O3] overlapped BOT-time (per run, union of overlaps with townmates in the same job; the drain per furnace)')
+for k in JOBS:
+    print(f"  {k:14s} body {O[(k, 'body')]/3600:6.2f} bot-h, overlapped {O[(k, 'overlap_bot_s')]/3600:5.2f} bot-h ({100*O[(k, 'overlap_bot_s')]/max(O[(k, 'body')],1e-9):.1f}%)")
+print('== [X3] explore: attribution first, then classification (end position within 24 / dy 16 of the sighting = at sighting, a proxy)')
+for c in ('fresh', 'peer'):
+    n = X[(c, 'runs')]
+    print(f"  {c:5s} runs {n} (censored {X[(c, 'censored')]}): at sighting {X[(c, 'at_sighting')]} ({100*X[(c, 'at_sighting')]/max(n,1):.2f}%), same block elsewhere only {X[(c, 'elsewhere')]} ({100*X[(c, 'elsewhere')]/max(n,1):.2f}%)")
+print('== [F3] furnace "is empty" drains, 60 min, invalidated by a non-drain session overlapping the gap [t0, t1]')
+print(f"  empty drains {F['empty']} ({F['empty_s']/3600:.2f} bot-h); after a townmate {F['peer']} ({F['peer_s']/3600:.2f} bot-h); after itself {F['self']} ({F['self_s']/3600:.2f} bot-h); invalidated {F['invalidated']}; positive control: non-drain sessions with t0/t1 parsed {F['sessions']}")
+print('== [R3] presence at the town-job radius (16 h / 12 v)')
+print(f"  occupancy {R['at16']}/{R['bot_min']} bot-minutes ({100*R['at16']/R['bot_min']:.1f}%); stays {len(DW)}, median {statistics.median(DW)} min, p75 {sorted(DW)[3*len(DW)//4]}, p90 {sorted(DW)[9*len(DW)//10]}")
+print(f"  >=2 together {R['ge2']} town-minutes ({R['ge2']/len(POOLS):.0f} per town-day), >=3 {R['ge3']} ({R['ge3']/len(POOLS):.0f} per town-day)")
+print('  longest stretch >=2 / >=3 (min):', BEST)
+
+# ---- [P3] provenance by the observation chain
+PB = collections.Counter(); PS = collections.Counter()
+for pool in POOLS:
+    recs = []
+    for f in glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl'):
+        for l in open(f, errors='replace'):
+            try:
+                r = json.loads(l)
+            except Exception:
+                continue
+            if r.get('t') in ('obs', 'dirty') and r.get('at') and r['at'] < T1 * 1000:
+                recs.append(r)
+    recs.sort(key=lambda r: (r['at'], r['id']))
+    obs = collections.defaultdict(list); ops = collections.defaultdict(dict)
+    for r in recs:
+        if r['t'] == 'obs':
+            obs[r['k']].append(r)
+        else:
+            o = ops[r['k']].setdefault(r.get('op') or r['id'], {'bot': r['bot'], 'pre': None, 'post': None})
+            o[r.get('phase') or 'pre'] = r['at']
+    for k, lst in obs.items():
+        oplist = [(v['pre'] or v['post'], v['post'] or v['pre'], v['bot']) for v in ops[k].values()]
+        stock0 = {n: c for n, (c, s) in (lst[0].get('names') or {}).items()}
+        ev = []
+        for o1, o2 in zip(lst, lst[1:]):
+            n1 = {n: c for n, (c, s) in (o1.get('names') or {}).items()}
+            n2 = {n: c for n, (c, s) in (o2.get('names') or {}).items()}
+            if n1 == n2:
+                continue
+            between = [x for x in oplist if x[1] >= o1['at'] and x[0] <= o2['at']]
+            who = between[0][2] if len({x[2] for x in between}) == 1 and between else None
+            PB['pairs_changed'] += 1
+            PB['pairs_attributed' if who else ('pairs_no_op' if not between else 'pairs_multi_bot')] += 1
+            for n in set(n1) | set(n2):
+                d = n2.get(n, 0) - n1.get(n, 0)
+                if d:
+                    ev.append((o2['at'], who, n, d))
+        for n in {e[2] for e in ev}:
+            seq = sorted(e for e in ev if e[2] == n)
+            s0 = stock0.get(n, 0)
+            for t, who, _, d in seq:
+                if who is None:
+                    PB['unknown_added' if d > 0 else 'unknown_removed'] += abs(d)
+            for B in {w for _, w, _, d in seq if w and d < 0}:
+                W = own = oth = unk = 0; lb = 0; ub_cap = 0
+                for t, who, _, d in seq:
+                    if d > 0:
+                        if who == B:
+                            own += d
+                        elif who is None:
+                            unk += d
+                        else:
+                            oth += d
+                    elif who == B:
+                        W += -d
+                        lb = max(lb, W - s0 - unk - own)
+                        ub_cap = oth + unk
+                PB['withdrawn'] += W; PB['lb'] += lb; PB['ub'] += min(W, ub_cap)
+            for scen in ('own_first', 'others_first'):
+                bag = [['stock', s0]] if s0 > 0 else []
+                for t, who, _, d in seq:
+                    if d > 0:
+                        bag.append([who or 'unknown', d]); continue
+                    need = -d
+                    if who is None:
+                        PS[(scen, 'withdrawer_unknown')] += need; continue
+                    def rank(tag):
+                        r0 = 0 if tag in ('stock', 'unknown') else (1 if tag == who else 2)
+                        return r0 if scen == 'own_first' else -r0
+                    for entry in sorted(bag, key=lambda x: rank(x[0])):
+                        if need <= 0:
+                            break
+                        take = min(entry[1], need)
+                        prov = 'stock_or_unknown' if entry[0] in ('stock', 'unknown') else ('same' if entry[0] == who else 'other')
+                        PS[(scen, prov)] += take; entry[1] -= take; need -= take
+                    if need > 0:
+                        PS[(scen, 'short')] += need
+                    bag = [x for x in bag if x[1] > 0]
+print('== [P3] provenance by the observation chain (no pooling; unknown changes kept as unknown)')
+print('  pairs:', {k: PB[k] for k in ('pairs_changed', 'pairs_attributed', 'pairs_no_op', 'pairs_multi_bot')})
+print(f"  unknown additions {PB['unknown_added']}, unknown removals {PB['unknown_removed']}")
+print(f"  attributed withdrawals {PB['withdrawn']} units; from another bot's deposit: lower bound {PB['lb']}, upper bound {PB['ub']}")
+for scen in ('own_first', 'others_first'):
+    print(f"  scenario {scen}: " + ', '.join(f"{p} {PS[(scen, p)]}" for p in ('stock_or_unknown', 'same', 'other', 'short', 'withdrawer_unknown')))
