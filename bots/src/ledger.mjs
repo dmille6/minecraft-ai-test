@@ -24,6 +24,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 
 export const LEDGER = Object.freeze({ on: process.env.LEDGER !== 'off' })
 export const LEDGER_V = 1
@@ -206,15 +207,18 @@ export const resetLedgerCap = () => { REFRESHES.length = 0 }
 export function recordStation (dir, hk, world, { id, f, bot, by, phase = 'open', slots, at = Date.now() } = {}, opts = {}) {
   if (!LEDGER.on || !f || !slots) return null
   try {
+    const t0 = performance.now()
     const { view } = readLedger(dir, hk, world)
     const newest = view.furnaces[f] ?? null
     while (REFRESHES.length && at - REFRESHES[0] > 3600_000) REFRESHES.shift()
     const o = stationOutcome(newest, { at, slots }, REFRESHES.length)
     const rec = { t: 'station', id, f, at, bot, by, phase, slots, state: stationState(slots), outcome: o.outcome }
     if (o.into) rec.into = o.into
+    const t1 = performance.now()
     if (!appendLedger(dir, hk, world, rec, opts)) return null
     if (o.refresh) REFRESHES.push(at)
-    return rec
+    // the L3 cost (design 4.3: append p95 < 5 ms, fold p95 < 50 ms), on the returned object only (never written to the file)
+    return { ...rec, foldMs: t1 - t0, appendMs: performance.now() - t1 }
   } catch { return null }
 }
 
@@ -224,4 +228,5 @@ export const ledgerModeDetail = () =>
 
 /** The `_ledger_station` row's detail (one per record written). Pure. */
 export const ledgerStationDetail = rec =>
-  `id=${rec.id} f=${rec.f} phase=${rec.phase} by=${rec.by} state=${rec.state} outcome=${rec.outcome}${rec.into ? ` into=${rec.into}` : ''} in=${rec.slots.in ? rec.slots.in.join(':') : '0'} fuel=${rec.slots.fuel ? rec.slots.fuel.join(':') : '0'} out=${rec.slots.out ? rec.slots.out.join(':') : '0'} lit=${rec.slots.lit ? 1 : 0}`
+  `id=${rec.id} f=${rec.f} phase=${rec.phase} by=${rec.by} state=${rec.state} outcome=${rec.outcome}${rec.into ? ` into=${rec.into}` : ''} in=${rec.slots.in ? rec.slots.in.join(':') : '0'} fuel=${rec.slots.fuel ? rec.slots.fuel.join(':') : '0'} out=${rec.slots.out ? rec.slots.out.join(':') : '0'} lit=${rec.slots.lit ? 1 : 0} at=${rec.at}` +
+  (Number.isFinite(rec.foldMs) ? ` fold_ms=${rec.foldMs.toFixed(2)} app_ms=${rec.appendMs.toFixed(2)}` : '')
