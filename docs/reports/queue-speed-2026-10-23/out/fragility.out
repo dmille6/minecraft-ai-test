@@ -1,0 +1,41 @@
+run             declared     actual set: +180 / +360        all 3- and 4-pool sets NOT clean at +180 / +360
+cobblekeep-01   10-20T05:06Z  clean / clean
+      k=3 L=240: of 165 sets clean 84 | NOT clean: tied vote 0, restart straddle 0, a real other build 81, other 0
+      k=3 L=360: of 165 sets clean 84 | NOT clean: tied vote 0, restart straddle 0, a real other build 81, other 0
+      k=4 L=240: of 330 sets clean 126 | NOT clean: tied vote 0, restart straddle 0, a real other build 204, other 0
+      k=4 L=360: of 330 sets clean 126 | NOT clean: tied vote 0, restart straddle 0, a real other build 204, other 0
+bagbudget-01    10-20T11:35Z  clean / clean
+      k=3 L=240: of 165 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 130, other 0
+      k=3 L=360: of 165 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 130, other 0
+      k=4 L=240: of 330 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 295, other 0
+      k=4 L=360: of 330 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 295, other 0
+toolkit-03      10-21T01:11Z  clean / clean
+      k=3 L=240: of 165 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 130, other 0
+      k=3 L=360: of 165 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 130, other 0
+      k=4 L=240: of 330 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 295, other 0
+      k=4 L=360: of 330 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 295, other 0
+ironpick-01     10-22T00:36Z  clean / clean
+      k=3 L=240: of 165 sets clean 30 | NOT clean: tied vote 0, restart straddle 5, a real other build 130, other 0
+      k=3 L=360: of 165 sets clean 30 | NOT clean: tied vote 0, restart straddle 5, a real other build 130, other 0
+      k=4 L=240: of 330 sets clean 25 | NOT clean: tied vote 13, restart straddle 5, a real other build 287, other 0
+      k=4 L=360: of 330 sets clean 25 | NOT clean: tied vote 13, restart straddle 5, a real other build 287, other 0
+protectzone-01  10-22T13:36Z  clean / clean
+      k=3 L=240: of 165 sets clean 84 | NOT clean: tied vote 0, restart straddle 0, a real other build 81, other 0
+      k=3 L=360: of 165 sets clean 84 | NOT clean: tied vote 0, restart straddle 81, a real other build 0, other 0
+      k=4 L=240: of 330 sets clean 126 | NOT clean: tied vote 0, restart straddle 0, a real other build 204, other 0
+      k=4 L=360: of 330 sets clean 126 | NOT clean: tied vote 0, restart straddle 204, a real other build 0, other 0
+townindex-01    10-22T18:56Z  clean / clean
+      k=3 L=240: of 165 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 130, other 0
+      k=3 L=360: of 165 sets clean 10 | NOT clean: tied vote 0, restart straddle 130, a real other build 25, other 0
+      k=4 L=240: of 330 sets clean 35 | NOT clean: tied vote 0, restart straddle 0, a real other build 295, other 0
+      k=4 L=360: of 330 sets clean 5 | NOT clean: tied vote 0, restart straddle 295, a real other build 30, other 0
+poolescape-01   10-23T01:48Z  clean / clean
+      k=3 L=240: of 165 sets clean 56 | NOT clean: tied vote 0, restart straddle 0, a real other build 109, other 0
+      k=3 L=360: of 165 sets clean 56 | NOT clean: tied vote 0, restart straddle 0, a real other build 109, other 0
+      k=4 L=240: of 330 sets clean 58 | NOT clean: tied vote 42, restart straddle 0, a real other build 230, other 0
+      k=4 L=360: of 330 sets clean 58 | NOT clean: tied vote 42, restart straddle 0, a real other build 230, other 0
+indexsearch-01  10-23T12:14Z  clean / DIRTY
+      k=3 L=240: of 165 sets clean 165 | NOT clean: tied vote 0, restart straddle 0, a real other build 0, other 0
+      k=3 L=360: of 165 sets clean 56 | NOT clean: tied vote 0, restart straddle 0, a real other build 109, other 0
+      k=4 L=240: of 330 sets clean 330 | NOT clean: tied vote 0, restart straddle 0, a real other build 0, other 0
+      k=4 L=360: of 330 sets clean 70 | NOT clean: tied vote 0, restart straddle 0, a real other build 260, other 0

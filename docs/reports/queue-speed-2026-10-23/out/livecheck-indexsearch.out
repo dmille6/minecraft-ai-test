@@ -1,0 +1,3 @@
+indexsearch-01: 10 canary bots, 70 control bots (enabled units)
+  lookback 240 min: CLEAN -- every canary row on the control majority build over 240 min (10 of 10 canary bots seen, 0 transition rows); control heterogeneity 0.0% (reported, not gated)
+  lookback 360 min: NOT CLEAN -- placebo-a-Alpha ran 6e1afb52465d8f50658e in the bucket at 10-23T06:14Z while the controls ran c0fec81273e256e672e4 (an asymmetric build in the baseline)

@@ -1,0 +1,108 @@
+scan: 18069506 rows, 80 bots, from 2026-10-11T00:00:00+00:00
+
+== POSITIVE CONTROL: today's rule re-drawn at each actual draw (34 draws)
+OK  gridfix-01       10-12T09:00Z drew board-a,board-b,board-d,placebo-a      recon board-a,board-b,board-d,placebo-a
+OK  airpocket-02     10-12T21:50Z drew hive-d,placebo-d                       recon hive-d,placebo-d
+XX  stocktarget-01   10-13T16:30Z drew board-b,hive-a,hive-b,placebo-a        recon hive-a,hive-b,placebo-a  | median 58.4 band {'board-a': 19.4, 'board-b': 78.9, 'board-c': 48.7, 'board-d': 84.2, 'hive-a': 58.8, 'hive-b': 39.0, 'hive-c': 90.7, 'hive-d': 58.4, 'placebo-a': 51.6, 'placebo-b': 41.1, 'placebo-c': 38.6, 'placebo-d': 77.0}
+XX  orderroom-01     10-13T19:55Z drew board-a,board-d,hive-c,placebo-b       recon board-a,board-c,board-d,placebo-b  | median 76.9 band {'board-a': 50.8, 'board-b': 76.9, 'board-c': 51.0, 'board-d': 98.6, 'hive-a': 95.0, 'hive-b': 82.9, 'hive-c': 110.0, 'hive-d': 107.5, 'placebo-a': 36.4, 'placebo-b': 76.5, 'placebo-c': 23.9, 'placebo-d': 32.0}
+OK  digtown-01       10-14T04:50Z drew hive-d,placebo-d                       recon hive-d,placebo-d
+OK  stocktarget-02   10-14T11:25Z drew board-c,hive-b                         recon board-c,hive-b
+OK  wellsite-02      10-14T17:45Z drew board-a,board-b,board-d,placebo-b      recon board-a,board-b,board-d,placebo-b
+XX  airpocket-03     10-15T00:05Z drew hive-c,hive-d                          recon hive-c,hive-d,placebo-d  | median 55.1 band {'board-a': 22.0, 'board-b': 84.1, 'board-c': 102.8, 'board-d': 90.9, 'hive-a': 41.1, 'hive-b': 55.1, 'hive-c': 64.6, 'hive-d': 31.1, 'placebo-a': 68.6, 'placebo-b': 46.4, 'placebo-c': 42.6, 'placebo-d': 42.2}
+OK  minewell-01      10-15T06:45Z drew hive-a,placebo-a                       recon hive-a,placebo-a
+OK  wellsite-04      10-15T13:10Z drew board-b,board-c,board-d,placebo-b      recon board-b,board-c,board-d,placebo-b
+OK  townzone-01      10-15T22:40Z drew board-a,hive-b,hive-c                  recon board-a,hive-b,hive-c
+OK  cobblecap-1000   10-16T05:30Z drew hive-a,placebo-a                       recon hive-a,placebo-a
+OK  plinth-01        10-16T13:35Z drew board-c,hive-d                         recon board-c,hive-d
+OK  lidclear-01      10-16T16:55Z drew board-a,board-b,hive-c,placebo-b       recon board-a,board-b,hive-c,placebo-b
+OK  townsearch-01    10-17T04:55Z drew board-c,placebo-d                      recon board-c,placebo-d
+OK  kitshrink-01     10-17T12:05Z drew board-a,board-b,hive-c,hive-d          recon board-a,board-b,hive-c,hive-d
+OK  smeltjob-01      10-17T13:35Z drew board-d,hive-a,hive-b,placebo-a        recon board-d,hive-a,hive-b,placebo-a
+XX  toolkit-02       10-18T00:05Z drew placebo-b,placebo-d                    recon -  | median 47.4 band {'board-a': 52.4, 'board-b': 44.7, 'board-c': 88.0, 'board-d': 9.7, 'hive-a': 47.4, 'hive-b': 58.0, 'hive-c': 72.6, 'hive-d': 30.8, 'placebo-a': 64.6, 'placebo-b': 18.1, 'placebo-c': 38.0, 'placebo-d': 27.8}
+OK  wellcare-01      10-18T06:30Z drew board-b,board-c,hive-c,hive-d          recon board-b,board-c,hive-c,hive-d
+XX  townsearch-02    10-18T12:55Z drew board-a,board-d                        recon board-a  | median 46.7 band {'board-a': 36.0, 'board-b': 40.5, 'board-c': 72.2, 'board-d': 23.3, 'hive-a': 46.7, 'hive-b': 72.0, 'hive-c': 51.2, 'hive-d': 41.2, 'placebo-a': 253.8, 'placebo-b': 41.0, 'placebo-c': 17.1, 'placebo-d': 55.3}
+OK  bamboo-02        10-19T02:00Z drew hive-a,hive-b                          recon hive-a,hive-b
+OK  treefarm-02      10-19T12:45Z drew board-a,hive-c                         recon board-a,hive-c
+OK  brain-01         10-19T16:40Z drew board-c,hive-d                         recon board-c,hive-d,placebo-a,placebo-d
+OK  cobblekeep-01    10-20T05:00Z drew board-a,hive-c,placebo-a,placebo-d     recon board-a,board-b,hive-c,placebo-a,placebo-d
+XX  bagbudget-01     10-20T11:30Z drew board-d,hive-a                         recon board-d  | median 52.1 band {'board-a': 59.1, 'board-b': 58.5, 'board-c': 35.7, 'board-d': 45.0, 'hive-a': 84.9, 'hive-b': 110.9, 'hive-c': 52.1, 'hive-d': 43.2, 'placebo-a': 62.2, 'placebo-b': 16.4, 'placebo-c': 35.9, 'placebo-d': 28.2}
+OK  homefix-01       10-20T19:15Z drew board-c,hive-d,placebo-b,placebo-d     recon board-c,hive-b,hive-d,placebo-a,placebo-b,placebo-d
+OK  toolkit-03       10-21T01:05Z drew board-a,hive-b,placebo-a               recon board-a,hive-b,placebo-a
+OK  homefix-02       10-21T18:00Z drew board-b,board-c,hive-a,placebo-d       recon board-b,board-c,hive-a,hive-c,placebo-d
+OK  ironpick-01      10-22T00:30Z drew hive-c,hive-d,placebo-b                recon hive-c,hive-d,placebo-b
+XX  keepout-01       10-22T07:00Z drew hive-b,placebo-a                       recon placebo-a  | median 77.9 band {'board-a': 141.8, 'board-b': 56.9, 'board-c': 84.1, 'board-d': 23.6, 'hive-a': 111.7, 'hive-b': 46.3, 'hive-c': 77.9, 'hive-d': 31.6, 'placebo-a': 88.5, 'placebo-b': 57.8, 'placebo-c': 57.5, 'placebo-d': 108.6}
+OK  protectzone-01   10-22T13:30Z drew board-a,board-b,board-c,hive-a         recon board-a,board-b,board-c,hive-a
+OK  townindex-01     10-22T18:50Z drew hive-c,hive-d,placebo-d                recon hive-c,hive-d,placebo-d
+OK  poolescape-01    10-23T01:45Z drew board-d,hive-b,placebo-a               recon board-d,hive-b,placebo-a
+OK  indexsearch-01   10-23T12:10Z drew board-a,placebo-a                      recon board-a,placebo-a
+CONTROL: 27 of 34 draws reproduced
+
+== I1 floor = every read incl. extensions
+  0 of 34 draws changed
+
+== I2 today's timers + symmetric build test
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I2: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED ironpick-01      today-recon: first 10-22T00:30Z, 3 pools at the draw | I2: first 10-22T00:30Z, 4 pools hive-b,hive-c,placebo-a,placebo-b | released {'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240', 'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I2: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED poolescape-01    today-recon: first 10-23T01:45Z, 3 pools at the draw | I2: first 10-23T01:20Z, 4 pools board-c,board-d,hive-b,placebo-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  4 of 34 draws changed
+
+== I3 I2 + INCONCLUSIVE / non-death REVERT at 240 (t2) / 360 (t3)
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I3: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED townsearch-01    today-recon: first 10-17T04:55Z, 2 pools at the draw | I3: first 10-17T00:25Z, 2 pools board-c,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
+  CHANGED bagbudget-01     today-recon: first NONE, 1 pools at the draw | I3: first 10-20T11:30Z, 2 pools board-c,board-d | released {'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240', 'board-c': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED toolkit-03       today-recon: first 10-21T01:05Z, 3 pools at the draw | I3: first 10-21T01:05Z, 4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED ironpick-01      today-recon: first 10-22T00:30Z, 3 pools at the draw | I3: first 10-22T00:30Z, 4 pools hive-b,hive-c,placebo-a,placebo-b | released {'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240', 'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I3: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED poolescape-01    today-recon: first 10-23T01:45Z, 3 pools at the draw | I3: first 10-23T01:20Z, 4 pools board-c,board-d,hive-b,placebo-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  7 of 34 draws changed
+
+== I4 I3 + tier-2 incoming after a tier-3 KEEP at 240
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I4: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED townsearch-01    today-recon: first 10-17T04:55Z, 2 pools at the draw | I4: first 10-17T00:25Z, 2 pools board-c,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
+  CHANGED bagbudget-01     today-recon: first NONE, 1 pools at the draw | I4: first 10-20T11:30Z, 2 pools board-c,board-d | released {'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240', 'board-c': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED toolkit-03       today-recon: first 10-21T01:05Z, 3 pools at the draw | I4: first 10-21T01:05Z, 4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED ironpick-01      today-recon: first 10-22T00:30Z, 3 pools at the draw | I4: first 10-22T00:30Z, 4 pools hive-b,hive-c,placebo-a,placebo-b | released {'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240', 'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I4: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED townindex-01     today-recon: first 10-22T18:50Z, 3 pools at the draw | I4: first 10-22T18:50Z, 4 pools hive-c,hive-d,placebo-a,placebo-d | released {'hive-b': 'keepout-01 promoted 10-22T13:22 floor 240', 'placebo-a': 'keepout-01 promoted 10-22T13:22 floor 240'}
+  CHANGED poolescape-01    today-recon: first 10-23T01:45Z, 3 pools at the draw | I4: first 10-23T01:20Z, 4 pools board-c,board-d,hive-b,placebo-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  8 of 34 draws changed
+
+== I8 I2 for tier-3 incoming only
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I8: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I8: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  2 of 34 draws changed
+
+== I9 I3 for tier-3 incoming only
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I9: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED townsearch-01    today-recon: first 10-17T04:55Z, 2 pools at the draw | I9: first 10-17T00:25Z, 2 pools board-c,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I9: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  3 of 34 draws changed
+
+== I5 I2 + siblings-out bag reference
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I5: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED ironpick-01      today-recon: first 10-22T00:30Z, 3 pools at the draw | I5: first 10-22T00:30Z, 4 pools hive-b,hive-c,placebo-a,placebo-b | released {'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240', 'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I5: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED poolescape-01    today-recon: first 10-23T01:45Z, 3 pools at the draw | I5: first 10-23T01:20Z, 4 pools board-c,board-d,hive-b,placebo-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  4 of 34 draws changed
+
+== I6 I3 + siblings-out bag reference
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I6: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED townsearch-01    today-recon: first 10-17T04:55Z, 2 pools at the draw | I6: first 10-17T00:25Z, 2 pools board-c,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
+  CHANGED bagbudget-01     today-recon: first NONE, 1 pools at the draw | I6: first 10-20T11:30Z, 2 pools board-c,board-d | released {'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240', 'board-c': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED toolkit-03       today-recon: first 10-21T01:05Z, 3 pools at the draw | I6: first 10-21T01:05Z, 4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED ironpick-01      today-recon: first 10-22T00:30Z, 3 pools at the draw | I6: first 10-22T00:30Z, 4 pools hive-b,hive-c,placebo-a,placebo-b | released {'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240', 'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I6: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED poolescape-01    today-recon: first 10-23T01:45Z, 3 pools at the draw | I6: first 10-23T01:20Z, 4 pools board-c,board-d,hive-b,placebo-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  7 of 34 draws changed
+
+== I7 I4 + siblings-out bag reference
+  CHANGED stocktarget-02   today-recon: first 10-14T11:25Z, 2 pools at the draw | I7: first 10-14T11:25Z, 3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
+  CHANGED townsearch-01    today-recon: first 10-17T04:55Z, 2 pools at the draw | I7: first 10-17T00:25Z, 2 pools board-c,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
+  CHANGED bagbudget-01     today-recon: first NONE, 1 pools at the draw | I7: first 10-20T11:30Z, 2 pools board-c,board-d | released {'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240', 'board-c': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED toolkit-03       today-recon: first 10-21T01:05Z, 3 pools at the draw | I7: first 10-21T01:05Z, 4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED ironpick-01      today-recon: first 10-22T00:30Z, 3 pools at the draw | I7: first 10-22T00:30Z, 4 pools hive-b,hive-c,placebo-a,placebo-b | released {'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240', 'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       today-recon: first NONE, 1 pools at the draw | I7: first 10-22T07:00Z, 2 pools board-b,placebo-a | released {'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED townindex-01     today-recon: first 10-22T18:50Z, 3 pools at the draw | I7: first 10-22T17:40Z, 4 pools hive-c,hive-d,placebo-a,placebo-d | released {'hive-c': 'ironpick-01 promoted 10-22T06:56 floor 240', 'placebo-b': 'ironpick-01 promoted 10-22T06:56 floor 240', 'hive-b': 'keepout-01 promoted 10-22T13:22 floor 240', 'placebo-a': 'keepout-01 promoted 10-22T13:22 floor 240'}
+  CHANGED poolescape-01    today-recon: first 10-23T01:45Z, 3 pools at the draw | I7: first 10-23T01:20Z, 4 pools board-c,board-d,hive-b,placebo-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  8 of 34 draws changed
