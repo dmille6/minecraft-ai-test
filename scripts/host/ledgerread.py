@@ -19,19 +19,25 @@
 #       (b) a coalesced record whose `into` is not an ENTRY row of the same pool and furnace with EQUAL slots, or is not the
 #           furnace's newest entry at the time (an entry newer by > RACE_MS that the writer could have read; a closer one is
 #           a concurrent append: reported as `raced`, not counted);
-#       (c) a drain row that read a window (out != '-') naming no record, or a record whose slots differ from the row's own
-#           out/in/fuel (they come from one in-memory read: a mismatch is serialization);
-#       (d) a smelt session row whose `open=` names no record or a record with other slots.
-#       DENOMINATOR: opening rows that read a window (drains with out != '-', sessions carrying open=) plus coalesced records.
+#       (c) a drain row that read a window (out != '-') whose `ledger=` is not a record id (`fail`, `scope`, `off`, or an id
+#           with no row), or a record whose slots differ from the row's own out/in/fuel (one in-memory read: serialization);
+#       (d) a smelt session whose `open=` is `fail` / `off` or an id with no row, or a record with other slots; a session
+#           whose `loads=ok/attempted` shows a load that could not be recorded (`scope` and `unread` are reported, not counted);
+#       (e) a `_ledger_station` row with NO PERSISTED record of that id in the town's ledger file, or one whose persisted
+#           slots / outcome / into differ (Codex r1 P2-4: the rows are telemetry; the file is the ledger). A record the file
+#           can no longer hold (an older generation rotated away) is unresolved: reported, not counted.
+#       DENOMINATOR: opening rows that read a window (drains with out != '-', sessions carrying open=) plus coalesced records
+#       plus station rows checked against the file.
 #   L2 (defect) `l2_defects`: unparsed lines in the canary pools' ledger files (a dead writer's last fragment excepted),
 #       dropped TRANSITIONS (a drop whose slots differ from the furnace's newest entry: a changed state must never be
 #       dropped), and drops > 1% of the window records.
-#   L3 (blocking, not a defect) `l3_ok`: append p95 < 5 ms, fold p95 < 50 ms, ledger bytes per town-day < 2 MB.
+#   L3 (blocking, not a defect) `l3_ok`: append p95 < 5 ms, fold p95 < 50 ms, and in EVERY canary town the bytes of the
+#       records WRITTEN in the window (persisted lines with `at` inside it), per day, < 2 MB (Codex r1 P2-6).
 #   ARMS      control `_ledger_mode` / `_ledger_station` rows after the deploy (BLOCKS KEEP).
 #   LIVENESS  canary `_ledger_mode on=on` >= 1 and canary `_ledger_station` >= 1.
 #   POSITIVE CONTROL  control `_furnace_drain` rows that read a window >= 1 (the instrument that sees opens).
-#   EXPOSURE  `station_exposure` = the pooled count of canary window records if EVERY canary pool has >= 10, else 0
-#             (registered min 50; confirmed records at run time, not the projection).
+#   EXPOSURE  `station_exposure` = the pooled count of canary window records CONFIRMED in the ledger file if EVERY canary
+#             pool has >= 10, else 0 (registered min 50; confirmed records at run time, not the projection).
 #   PRIMARY (reported) records per canary bot-h by phase and outcome; coalesced share; "empty" records repeating another
 #             bot's empty entry within 60 min (furnaceseen-01's opportunity); drains per bot-h DiD (no change expected).
 import sys, os, re, json, glob
@@ -42,6 +48,7 @@ sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
 OUTCOMES = ('entry', 'coalesced', 'drop')
+MISSES = ('off', 'scope', 'unread', 'fail')     # skills.mjs ledgerObserve's `miss`: the row's marker when nothing was written
 RACE_MS = 5000
 APPEND_P95_MS, FOLD_P95_MS, BYTES_PER_TOWN_DAY = 5.0, 50.0, 2 * 1024 * 1024
 EXPOSURE_PER_POOL = 10
@@ -108,27 +115,78 @@ def l1_check(stations, drains, sessions, race_ms=RACE_MS):
                 defects.append(('coalesced_not_newest', f.get('id'), f.get('into'), newer[-1][1]))
             else:
                 raced += 1
+    unread = 0
     for t, p, b, f in drains:
         if f.get('out', '-') == '-':
             continue
+        if f.get('out') == '?' or f.get('ledger') == 'unread':
+            unread += 1; continue                 # the window itself could not be read: no evidence either way (reported)
         den += 1
         rid = f.get('ledger')
-        rec = by_id.get(rid) if rid and rid != '-' else None
+        rec = by_id.get(rid) if rid not in (None, '-') + MISSES else None
         if rec is None:
             defects.append(('drain_without_record', b, f.get('furnace'), rid))
         elif slots_of(rec[3]) != (f.get('in'), f.get('fuel'), f.get('out')):
             defects.append(('drain_row_differs', rid))
     for t, p, b, f in sessions:
         rid = f.get('open')
-        if not rid:
-            continue
+        if not rid or rid == 'scope':
+            continue                              # not a town furnace (the bot's own, far away): not the ledger's
+        if rid == 'unread':
+            unread += 1; continue
         den += 1
-        rec = by_id.get(rid)
+        rec = by_id.get(rid) if rid not in MISSES else None
         if rec is None:
             defects.append(('session_without_record', b, f.get('furnace'), rid))
         elif slots_of(rec[3]) != slots_of(f):
             defects.append(('session_row_differs', rid))
-    return {'defects': defects, 'raced': raced, 'denominator': den}
+        lo = f.get('loads', '')
+        if '/' in lo:
+            ok_, att = (num(x) for x in lo.split('/', 1))
+            if ok_ is not None and att is not None and att > ok_:
+                defects.append(('load_not_recorded', b, f.get('furnace'), lo))
+    return {'defects': defects, 'raced': raced, 'denominator': den, 'unread': unread}
+
+
+def persisted_check(stations, files_by_pool):
+    """PURE. stations [(t, pool, bot, f)] + {pool: {'records': {id: rec}, 'rotated': bool}} -> {defects, confirmed_by_pool,
+    unresolved, checked}. Every station row must have its record in the pool's ledger file with the same slots, outcome and
+    into; a pool whose file rotated (oldest generation > 1) may have lost an old record: then a missing one is unresolved."""
+    defects, unresolved, checked = [], 0, 0
+    confirmed = Counter()
+    for t, p, b, f in stations:
+        fp = files_by_pool.get(p)
+        if fp is None:
+            unresolved += 1; continue
+        rec = fp['records'].get(f.get('id'))
+        if rec is None:
+            if fp.get('rotated'):
+                unresolved += 1
+            else:
+                checked += 1; defects.append(('not_persisted', f.get('id')))
+            continue
+        checked += 1
+        sl = rec.get('slots') or {}
+        row = lambda x: ':'.join(str(v) for v in x) if x else '0'
+        same = (row(sl.get('in')), row(sl.get('fuel')), row(sl.get('out'))) == slots_of(f) and str(int(bool(sl.get('lit')))) == f.get('lit') \
+            and rec.get('outcome') == f.get('outcome') and (rec.get('into') or None) == (f.get('into') or None) and rec.get('f') == f.get('f')
+        if not same:
+            defects.append(('persisted_differs', f.get('id')))
+        else:
+            confirmed[p] += 1
+    return {'defects': defects, 'confirmed_by_pool': dict(confirmed), 'unresolved': unresolved, 'checked': checked}
+
+
+def bytes_written(records_with_len, t0_ms, t1_ms):
+    """PURE. [(at_ms, line_bytes)] of one town's persisted records -> bytes of those written inside [t0, t1)."""
+    return sum(n for at, n in records_with_len if isinstance(at, (int, float)) and t0_ms <= at < t1_ms)
+
+
+def num(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def l2_check(stations, unparsed, window_records):
@@ -152,8 +210,9 @@ def l2_check(stations, unparsed, window_records):
 
 
 def unparsed_lines(path):
-    """The ledger file's lines that are not JSON, a final fragment (a dead writer's, closed by the next newline-first append
-    or still open at the end) excepted when it is the LAST line. -> (unparsed, lines, bytes)."""
+    """The ledger file's lines that are not JSON -> (unparsed, lines, bytes). Only an UNTERMINATED LAST line is excepted (a
+    writer mid-append, or a dead one's fragment not yet closed); a fragment that a later newline-first append closed off is
+    counted (it is a write that died: L2 reports it)."""
     try:
         raw = open(path, 'rb').read()
     except OSError:
@@ -204,6 +263,23 @@ _ss = lambda rid, ins='0': fields(f'furnace=1,64,1 lease=4 t0=1 t1=2 by=smelt_to
 assert l1_check(_st, [], [(1000, 'P', 'A', _ss('a'))])['defects'] == []
 assert l1_check(_st, [], [(1000, 'P', 'A', _ss('a', ins='raw_copper:8'))])['defects'][0][0] == 'session_row_differs'
 assert l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=1,64,1 lease=4 t0=1 t1=2 by=smelt'))])['denominator'] == 1, 'a session without open= is not counted'
+# the INDEPENDENT markers (Codex r1 P2-3): a drain or session whose writer failed is a defect; scope/unread are not counted
+assert l1_check(_st, [(1000, 'P', 'A', _d('fail'))], [])['defects'][0][0] == 'drain_without_record'
+assert l1_check(_st, [(1000, 'P', 'A', _d('scope'))], [])['defects'][0][0] == 'drain_without_record', 'a drain furnace is always in scope'
+assert l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=9,9,9 lease=4 t0=1 t1=2 by=smelt open=fail loads=0/0'))])['defects'][0][0] == 'session_without_record'
+assert l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=9,9,9 lease=4 t0=1 t1=2 by=smelt open=scope loads=0/0'))])['denominator'] == 1
+_u = l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=9,9,9 lease=4 t0=1 t1=2 by=smelt open=unread loads=0/0'))])
+assert _u['defects'] == [] and _u['unread'] == 1
+assert l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=1,64,1 lease=4 t0=1 t1=2 by=smelt open=a in=0 fuel=0 out=0 loads=1/2'))])['defects'][0][0] == 'load_not_recorded'
+assert l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=1,64,1 lease=4 t0=1 t1=2 by=smelt open=a in=0 fuel=0 out=0 loads=2/2'))])['defects'] == []
+# PERSISTED (Codex r1 P2-4): a row without its record in the file, or with different persisted fields, is a defect
+_rec = {'a': {'id': 'a', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out': None, 'lit': False}, 'outcome': 'entry'},
+        'b': {'id': 'b', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out': None, 'lit': False}, 'outcome': 'coalesced', 'into': 'a'}}
+assert persisted_check(_st, {'P': {'records': _rec, 'rotated': False}})['defects'] == [] and persisted_check(_st, {'P': {'records': _rec, 'rotated': False}})['confirmed_by_pool'] == {'P': 2}
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'rotated': False}})['defects'] == [('not_persisted', 'b')]
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'rotated': True}})['unresolved'] == 1
+assert persisted_check(_st, {'P': {'records': dict(_rec, a=dict(_rec['a'], slots={'in': ['raw_iron', 1], 'fuel': None, 'out': None, 'lit': False})), 'rotated': False}})['defects'] == [('persisted_differs', 'a')]
+assert bytes_written([(5, 100), (15, 200), (25, 50)], 10, 25) == 200
 # L2: a dropped TRANSITION is a defect; a dropped repeat is not; the 1% share
 _l2 = [(1000, 'P', 'A', _S('a')), (2000, 'P', 'A', _S('d', 'drop'))]
 assert l2_check(_l2, 0, 200)['dropped_transitions'] == 0 and l2_check(_l2, 0, 200)['defects'] == 0
@@ -304,20 +380,39 @@ if __name__ == '__main__':
 
     window_records = len(stations)
     l1 = l1_check(stations, drains, sessions)
-    # the canary pools' ledger files: unparsed lines and bytes (the ledger lives beside the town index)
-    unparsed, files, nbytes = 0, 0, 0
+    # THE LEDGER FILES of the canary pools (beside the town index): unparsed lines, the persisted records, bytes written
+    unparsed, files, unreadable_files = 0, 0, 0
+    files_by_pool, written = {}, {}
+    CUT_MS, END_MS = int(CUT.timestamp() * 1000), int(END.timestamp() * 1000)
     for p in sorted(CANS):
+        recs, lens, gens = {}, [], []
         for f_ in sorted(glob.glob('/var/lib/mcai/_pool-%s/ledger-*.g*.jsonl' % p)):
             u = unparsed_lines(f_)
             if u is None:
-                continue
-            unparsed += u[0]; files += 1; nbytes += u[2]
+                unreadable_files += 1; continue
+            unparsed += u[0]; files += 1
+            m_ = re.search(r'\.g(\d+)\.jsonl$', f_)
+            if m_:
+                gens.append(int(m_.group(1)))
+            for ln in open(f_, 'rb').read().split(b'\n'):
+                try:
+                    rr = json.loads(ln)
+                except Exception:
+                    continue
+                if rr.get('t') == 'station' and rr.get('id'):
+                    recs[rr['id']] = rr; lens.append((rr.get('at'), len(ln) + 1))
+        files_by_pool[p] = {'records': recs, 'rotated': bool(gens) and min(gens) > 1, 'files': len(gens)}
+        written[p] = bytes_written(lens, CUT_MS, END_MS)
+    # A POOL WITH ROWS AND NO LEDGER FILE (Claude r1 P2-2): L2 and L3 cannot be read there -- undefined, never "0 unparsed"
+    no_file = sorted(p for p in CANS if by_pool.get(p, 0) > 0 and not files_by_pool.get(p, {}).get('files'))
+    pc = persisted_check(stations, files_by_pool)
+    l1['defects'] += pc['defects']; l1['denominator'] += pc['checked']
     l2 = l2_check(stations, unparsed, window_records)
     days = max(W / 1440.0, 1e-9)
-    per_town_day = nbytes / max(1, len(CANS)) / days
+    per_town_day = max([v / days for v in written.values()] or [0])          # the WORST town, not the mean
     a95, f95 = p95(app_ms), p95(fold_ms)
-    l3_ok = int(a95 is not None and f95 is not None and a95 < APPEND_P95_MS and f95 < FOLD_P95_MS and per_town_day < BYTES_PER_TOWN_DAY)
-    expo = exposure(by_pool, sorted(CANS))
+    l3_ok = int(a95 is not None and f95 is not None and a95 < APPEND_P95_MS and f95 < FOLD_P95_MS and per_town_day < BYTES_PER_TOWN_DAY and not unreadable_files)
+    expo = exposure(pc['confirmed_by_pool'], sorted(CANS))
     # furnaceseen-01's opportunity: an 'empty' open record by one bot repeating ANOTHER bot's empty entry < 60 min old
     last = {}
     repeat_empty = 0
@@ -336,16 +431,17 @@ if __name__ == '__main__':
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
              len(bots[('pre', 'control')]), len(bots[('post', 'control')]), can_bh, offbuild, noversion))
     print('LIVENESS     canary _ledger_mode on=on %d | canary _ledger_station %d' % (n['licence_mode'], window_records))
-    print('EXPOSURE     window records by canary pool %s -> station_exposure %d (every pool >= %d; registered min 50)' % (dict(by_pool), expo, EXPOSURE_PER_POOL))
+    print('EXPOSURE     window records by canary pool %s, CONFIRMED in the file %s -> station_exposure %d (every pool >= %d; registered min 50)' % (dict(by_pool), pc['confirmed_by_pool'], expo, EXPOSURE_PER_POOL))
     print('PRIMARY      records: open %d load %d | entry %d coalesced %d drop %d (coalesced share %.3f) | per canary bot-h %.2f | empty repeating another bot\'s empty < 60 min: %d'
           % (n[('phase', 'open')], n[('phase', 'load')], n[('outcome', 'entry')], n[('outcome', 'coalesced')], n[('outcome', 'drop')],
              n[('outcome', 'coalesced')] / window_records if window_records else float('nan'), window_records / can_bh if can_bh else float('nan'), repeat_empty))
-    print('L1 (defect)  %d defects over %d (opening rows that read a window + coalesced records) | raced (concurrent appends, reported) %d | %s'
-          % (len(l1['defects']), l1['denominator'], l1['raced'], l1['defects'][:4]))
+    print('L1 (defect)  %d defects over %d (opening rows that read a window + coalesced records + rows checked against the file) | raced (concurrent appends, reported) %d | unread windows %d | unresolved (rotated away) %d | %s'
+          % (len(l1['defects']), l1['denominator'], l1['raced'], l1['unread'], pc['unresolved'], l1['defects'][:4]))
+    print('             pools with rows but NO ledger file (L2/L3 undefined there): %s' % (no_file or '-'))
     print('L2 (defect)  unparsed lines %d in %d files | dropped transitions %d | drops %d (%.4f of records) -> %d'
           % (unparsed, files, l2['dropped_transitions'], l2['drops'], l2['drop_share'], l2['defects']))
-    print('L3 (block)   append p95 %s ms (< %g) | fold p95 %s ms (< %g) | %.0f bytes per town-day (< %d) -> %s'
-          % (a95, APPEND_P95_MS, f95, FOLD_P95_MS, per_town_day, BYTES_PER_TOWN_DAY, 'ok' if l3_ok else 'NOT OK'))
+    print('L3 (block)   append p95 %s ms (< %g) | fold p95 %s ms (< %g) | worst town %.0f bytes written per day (< %d) %s | unreadable files %d -> %s'
+          % (a95, APPEND_P95_MS, f95, FOLD_P95_MS, per_town_day, BYTES_PER_TOWN_DAY, written, unreadable_files, 'ok' if l3_ok else 'NOT OK'))
     print('ARMS         control _ledger_mode / _ledger_station rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   control drains that read a window post %d (the positive control) | drains per bot-h DiD %+.3f (no change expected)' % (ctl_drain_open, drain_did))
     try:
@@ -359,9 +455,10 @@ if __name__ == '__main__':
             'licence_rows': window_records, 'mode_rows': n['licence_mode'],
             'liveness': int(n['licence_mode'] >= 1 and window_records >= 1),
             'station_exposure': expo, 'window_records': window_records,
-            'l1_defects': len(l1['defects']), 'l1_denominator': l1['denominator'], 'l1_raced': l1['raced'],
-            'l2_defects': l2['defects'], 'unparsed_lines': unparsed, 'dropped_transitions': l2['dropped_transitions'], 'drops': l2['drops'],
-            'l3_ok': l3_ok, 'append_p95_ms': a95, 'fold_p95_ms': f95, 'bytes_per_town_day': round(per_town_day),
+            'l1_defects': len(l1['defects']) if CV else None,          # no canary version: the off-build filter cannot run 'l1_denominator': l1['denominator'], 'l1_raced': l1['raced'], 'l1_unread': l1['unread'],
+            'l1_unresolved': pc['unresolved'], 'confirmed_records': sum(pc['confirmed_by_pool'].values()), 'unreadable_files': unreadable_files,
+            'l2_defects': None if no_file else l2['defects'], 'unparsed_lines': unparsed, 'dropped_transitions': l2['dropped_transitions'], 'drops': l2['drops'],
+            'l3_ok': None if no_file else l3_ok, 'pools_without_ledger_file': no_file, 'append_p95_ms': a95, 'fold_p95_ms': f95, 'bytes_per_town_day': round(per_town_day),
             'rows_control_post': leak, 'instrument_control': int(ctl_drain_open >= 1),
             'coalesced': n[('outcome', 'coalesced')], 'repeat_empty_other_bot': repeat_empty,
             'drains_per_bh_did': nanless(drain_did), 'canary_bot_hours': round(can_bh, 2),

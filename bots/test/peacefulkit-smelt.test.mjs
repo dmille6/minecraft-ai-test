@@ -12,6 +12,9 @@
 // copied into bot.inventory only at close() -- so code that reads bot.inventory mid-job sees the bag as it was at the open.
 process.env.LOG_DIR = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mcbot-pk-smelt-'))
 process.env.BOT_NAME = 'SmeltBot'
+// ledger-01: a town home and a pool dir, so the furnace at 1,64,0 is a TOWN furnace whose loads are recorded (the multi-load test)
+process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
+process.env.POOL_STATE_DIR = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'mcbot-pk-pool-'))
 const assert = (await import('node:assert/strict')).default
 const test = (await import('node:test')).default
 const { SKILLS, foodSkipNow, swordDrainRow } = await import('../src/skills.mjs')
@@ -155,6 +158,22 @@ test('PEACEFUL: the swords burn first (one per ingot, each into a COLD furnace),
   assert.equal(m.slots.fuel, null); assert.deepEqual(m.dropped, [])
   assert.match(r.detail, /burned .*2x wooden_sword/)
   assert.deepEqual(rows, ['success:burned wooden_sword for raw_iron active=1', 'success:burned wooden_sword for raw_iron active=1'])
+})
+
+test('LEDGER-01, EVERY LOAD IS RECORDED (Codex r1 P2-2): the first sword, the second sword and the coal after it -- three loads, three load records, and the session row counts them', async () => {
+  const m = makeBot({ raw_iron: 4, coal: 2, wooden_sword: 2 }, 'peaceful')
+  const rows = []
+  const untap = tapRecords(r => { if (['_ledger_station', '_furnace_session'].includes(r?.skill?.name)) rows.push(r.skill) })
+  let r
+  try { r = await run(m.bot) } finally { untap() }
+  assert.equal(r.status, 'success', r.detail)
+  const loads = rows.filter(x => x.name === '_ledger_station' && / phase=load /.test(x.detail))
+  assert.equal(m.burnt.wooden_sword, 2); assert.equal(m.burnt.coal, 1)
+  assert.equal(loads.length, 3, loads.map(x => x.detail).join(' | '))
+  assert.equal(new Set(loads.map(x => /^id=(\S+)/.exec(x.detail)[1])).size, 3, 'each load its own record')
+  assert.match(loads[0].detail, / fuel=wooden_sword:1 /); assert.match(loads[2].detail, / fuel=coal:\d+ /)
+  const sess = rows.find(x => x.name === '_furnace_session')
+  assert.match(sess.detail, / loads=3\/3$/)
 })
 
 for (const d of ['easy', undefined]) {
