@@ -131,12 +131,12 @@ Of the ~1,359 town_has_none jobs a day, every one started in a town with a known
 until the town raw iron (34-95 per town) is worked down, then the gate's index rule-out removes most of the copper churn
 (84% of the opens). Iron ingots +up to 8 per job; the stock is ~899 raw iron plus ~90/day inflow.
 
-The read (`ironsmeltread.py`, files, canary vs control, difference-in-differences): primary = raw iron smelted into
-ingots by the job (the row's bag-measured `smelted` for in=raw_iron) cross-checked against the world (the town index's
-xfer records of iron_ingot deposited by that bot inside the job's window); the no_effect share of smelt_town; correctness
-gates: G1 a balance `loss`/`gain` on any job (defect), G2 an iron job that ends holding less of the iron family than it
-opened with (it banked the bot's own iron), G3 an iron job's smelted > its town take (it smelted bag iron); exposure =
-iron jobs on the canary; no-harm: deaths (the gate's), toolkit kit outcomes (no_iron share), coal-no_fuel jobs.
+The read (`ironsmeltread.py`, files, canary vs control, difference-in-differences; superseded in detail by section 4's last
+bullet and section 5): primary = iron ingots the job made from town raw iron per canary bot-h (the row's bag-measured `smelted`
+for `in=fe`), beside world evidence from the town index's server-sent observations; correctness gates per NAME, never a family
+total: G1 a broken family balance not explained by same-family pickups (defect), G2 an iron job whose closing raw_iron or
+iron_ingot is below its opening count (`fe=r0/i0>r1/i1`; it banked the bot's own iron), G3 an iron job with `fed` > `withdrawn`
+(the bag fed its own raw iron: `smelted` can exceed the take when the furnace held prior input, so it is not the gate).
 
 ## 4. Review round 1 (design) and what changed (r2)
 
@@ -186,3 +186,18 @@ smelt count is capped by the town take; the existing guards are unaffected. Chan
   bag-measured counts; deposit-verb xfers are reported as unverified. Plus: ingots per bot-h, no_effect body-seconds per
   bot-h, opens per job, unreconciled share, town iron left in bags; draws from the 13 shared pools only. The Paper e2e
   (sandbox5-8, server read-back) proves the per-name ownership and the town's raw-iron/ingot deltas before registration.
+
+## 5. Code review round 1 and what changed (r2 code)
+
+Codex code r1 **CHANGE** (1 P1, 2 P2, 1 P3); Claude code r1 **APPROVE** (1 P2, 5 P3). Changes:
+- The withdraw's state is the caller's (Codex P1): a verified iron take followed by a throw or an abort is adopted by the job,
+  so the bank, the balance and the row are the iron job's on every exit (tests: abort mid-withdraw, abort mid-smelt, error).
+- A working fake furnace (Codex P2): success, a short town (5 + the bag's own 3: fed=5), prior furnace stock, abort mid-smelt,
+  error -- each read from the fake's server-side counts (bots/test/ironsmelt-furnace.test.mjs).
+- The read is family-aware (Codex P2): ironsmeltread.py keys on `in=fe|cu`, explains a gain by same-family pickups, gates per
+  name (G2) and on `fed` (G3); smeltjobread.py is not registered for this run (it explains every gain by copper pickups).
+- The row's iron fields sit right after `stop=` (Codex P3), so the logger's 300-char cap can only cut the search tallies.
+- IRONSMELT=off is tested as the base in its own process (Claude P2-1: bots/test/ironsmelt-off.test.mjs).
+- The iron pass keeps its own `progressed` (Claude P3-1); carried copper INGOTS also take the copper flow when the iron search is
+  unfinished (P3-2); the order's reason says "raw iron left to look for" (P3-3); the mode row says `rule_out=off_noindex` with
+  TOWNINDEX=off, and the rule-out is off then (P3-4); a mutant for the copper gate's rule-out (P3-5).

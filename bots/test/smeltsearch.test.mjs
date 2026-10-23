@@ -298,7 +298,7 @@ await t('A COPPER SEARCH CUT BY ITS BUDGET with candidates left: stop=search_mor
   const r = await job(S0, w)
   assert.equal(r.stop, SJ.SMELT_SEARCH_MORE, `${r.status} ${r.stop} ${r.detail}`)
   assert.equal(w.spy.opened.length, SJ.SMELT_COPPER_VISITS)
-  assert.match(lastRow(), / looked=12 more=cu /, lastRow())
+  assert.match(lastRow(), / looked=12 more=cu( |$)/, lastRow())
   const streak = SJm => {
     let s = {}
     for (let i = 0; i < SJm.SMELT_MORE_MAX; i++) { s = SJm.smeltTownOutcome('no_effect', SJm.SMELT_SEARCH_MORE, 1e12, s); assert.equal(s.backoffUntil ?? 0, 0, `more #${i + 1}`) }
