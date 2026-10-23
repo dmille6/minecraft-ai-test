@@ -14615,7 +14615,12 @@ export function townPlanZones (bot, now = Date.now()) {
   } else {
     const r = parseZones(json, world)
     const partial = /^dropped /.test(r.why)
-    if (r.ok && !partial) { view = { known: true, zones: r.zones, why: r.why }; zoneMem.good = view } else {
+    if (r.ok && !partial) { view = { known: true, zones: r.zones, why: r.why }; zoneMem.good = view } else if (partial && zoneMem.good) {
+      // A PARTLY MALFORMED EDIT after a good read (townplan x protectzone, JIT 10-23c): protectzone's guard protects the edit's
+      // VALID zones at once, so the planner avoids them too -- the last good list PLUS them (never fewer than either)
+      const seen = new Set(zoneMem.good.zones.map(z => z.box.join()))
+      view = { ...zoneMem.good, zones: [...zoneMem.good.zones, ...r.zones.filter(z => !seen.has(z.box.join()))], why: `stale:${r.why}` }
+    } else {
       view = zoneMem.good ? { ...zoneMem.good, why: `stale:${r.why}` } : { known: false, zones: [], why: r.why }
     }
   }
