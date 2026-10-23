@@ -35,14 +35,26 @@ The furnace drain skips the walk to a furnace a TOWNMATE found empty less than 6
 
 ## Power (pre-launch simulation, `scripts/host/furnaceseenpower.py`; logs here)
 
-### r4: the result that stands -- the read's contamination rule applied (`power-r4-contamination-120h-400sims.log`)
+### r5: the result that stands (`power-r5-contamination-exact-120h-200sims.log`)
+r5 changes three things in the r4 simulation (Codex r4):
+- the contamination rule is applied over exactly the read's window, [cut - 24 h, cut), minute-aligned;
+- it requires the read's own minimum of 4 canary pools plus 4 controls;
+- every cut is reported, defined or not.
+
+- **The result.** In **200 of 200** cuts over the last 120 h, the clean pools were too few, so every simulated run reads
+  UNDEFINED at every schedule. KEEP is 0/200, and the null is also 0/200.
+- **What it means.** In today's lane, a 4 + 4 clean draw over a 24 h pre-period did not occur once in this sample.
+  "Do not queue as is" follows. The owner options below stand.
+
+### r4 (superseded: whole-bucket windows, 6-pool minimum) (`power-r4-contamination-120h-400sims.log`)
 - **The method.** At each simulated cut, the simulation now applies the read's own contamination rule to the 24 h
   pre-period (Codex r3 P2): more than 5% of a pool's rows off the fleet majority of their 10-min bucket.
 - **The result.** In 92-95% of cuts over the last 120 h, fewer than 4 clean canary pools plus 2 clean controls exist.
   Such a run reads UNDEFINED. **Over all cuts, KEEP is 0/400 for every schedule, even at full removal.** The null is
   also 0/400.
-- **So in today's lane (one canary after another, tier-2 pools reused after 240 min), furnaceseen-01 as designed cannot
-  be read at all.**
+- **So in today's lane (one canary after another, tier-2 pools reused after 240 min), furnaceseen-01 as designed is
+  UNDEFINED in the great majority of draws.** Of the few defined ones, none KEEPs in this sample. The share of defined
+  draws is too small here to measure power among them. "Do not queue as is" follows; "never readable" is not claimed.
 - **The cause** is the 24 h frozen pre-period plus the contamination rule. Both are needed so that a predecessor
   canary's build cannot fake an effect (Claude r2 P2-2).
 - **Recorded in advance:** registered as designed, furnaceseen-01 closes UNREADABLE / INCONCLUSIVE. It should not be
