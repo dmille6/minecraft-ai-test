@@ -193,9 +193,14 @@ class World:
         pal, bs, vals = s[:3]
         if len(pal) == 1: return pal[0]
         if vals is None: vals = s[2] = section_values(bs)
-        if vals is None: return pal[0]
+        if vals is None or len(vals) < 4096:
+            self.stats['undecoded_hit_sections'] += 1                 # a blind read, counted (Claude r3 P3), never a guess
+            return pal[0]
         v = vals[(y & 15) * 256 + (z & 15) * 16 + (x & 15)]
-        return pal[v] if v < len(pal) else None
+        if v >= len(pal):
+            self.stats['undecoded_hit_sections'] += 1
+            return None
+        return pal[v]
     def props(self, x, y, z):
         """The block STATE's properties (lit, facing, half ...), {} when it has none."""
         d = self.chunk(x >> 4, z >> 4)
@@ -205,9 +210,14 @@ class World:
         pal, bs, vals, props = s
         if len(pal) == 1: return props[0]
         if vals is None: vals = s[2] = section_values(bs)
-        if vals is None: return props[0]
+        if vals is None or len(vals) < 4096:
+            self.stats['undecoded_hit_sections'] += 1
+            return props[0]
         v = vals[(y & 15) * 256 + (z & 15) * 16 + (x & 15)]
-        return props[v] if v < len(props) else {}
+        if v >= len(props):
+            self.stats['undecoded_hit_sections'] += 1
+            return {}
+        return props[v]
     def cells_matching(self, cx, cz, rx, ylo=-64, yhi=320):
         """(x, y, z, name) for every cell in chunk (cx,cz) whose name matches rx (palette-skipped sections are free)."""
         d = self.chunk(cx, cz)
@@ -222,7 +232,7 @@ class World:
                         for lx in range(16): yield cx * 16 + lx, Y * 16 + ly, cz * 16 + lz, pal[0]
                 continue
             if vals is None: vals = s[2] = section_values(bs)
-            if vals is None or len(vals) < 4096:
+            if vals is None or len(vals) < 4096 or max(vals) >= len(pal):     # short, or indices outside the palette (Codex r3)
                 # A section whose palette HOLDS a match but whose cells cannot be decoded is a blind spot, never a skip
                 # (Codex r2 P2): counted here, and validate() refuses any world where it happened.
                 self.stats['undecoded_hit_sections'] += 1

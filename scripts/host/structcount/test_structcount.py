@@ -262,8 +262,11 @@ BLIND = [   # (name, anchor, replacement, how it must be stopped: 'validate:<pro
     ('blind: negctl BUILT sections undecodable', "    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0\n",
      "    for c in zero:\n        for s in (w.chunk(*c) or {}).values():\n            if any(BUILT.match(n) for n in s[0]): s[1] = {'palette': s[1].get('palette')}; s[2] = None\n"
      "    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0\n", 'validate:negative control undecoded'),
-    ('blind: scan BUILT sections undecodable', "            if vals is None: vals = s[2] = section_values(bs)\n            if vals is None or len(vals) < 4096:",
-     "            vals = None\n            if vals is None or len(vals) < 4096:", 'validate:scan undecoded'),
+    ('blind: negctl BUILT sections hold out-of-range indices', "    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0\n",
+     "    for c in zero:\n        for s in (w.chunk(*c) or {}).values():\n            if len(s[0]) > 1 and any(BUILT.match(n) for n in s[0]): s[2] = [len(s[0]) + 7] * 4096\n"
+     "    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0\n", 'validate:negative control undecoded'),
+    ('blind: scan BUILT sections undecodable', "            if vals is None: vals = s[2] = section_values(bs)\n            if vals is None or len(vals) < 4096 or max(vals) >= len(pal):",
+     "            vals = None\n            if vals is None or len(vals) < 4096 or max(vals) >= len(pal):", 'validate:scan undecoded'),
     ('blind: block states ignored', "[p.get('Properties') or {} for p in (bs.get('palette') or [])]", "[{} for p in (bs.get('palette') or [])]",
      'gate:fixture: two buildings (torch, lamp lit=true)'),
 ]
