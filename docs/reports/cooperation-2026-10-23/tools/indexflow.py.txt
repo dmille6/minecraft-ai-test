@@ -1,0 +1,167 @@
+# cooperation design 2026-10-23: WHO FEEDS WHOM through the town containers, read from the town index (townindex-01's
+# journals). Read-only. World-read evidence only: every count below is a difference between two SERVER windows of the same
+# container (`obs` records), attributed to the bot whose mutation (`dirty` pre/post marks of one op) lies between them.
+# Window: each town from its index's first record (townindex-01 promoted 01:17Z; canary towns earlier) to 12:14Z 10-23.
+import json, glob, re, collections, datetime as dt
+
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp() * 1000
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+GROUP = [('metal', r'iron|copper|gold'), ('fuel', r'^coal$|charcoal|coal_block'),
+         ('tools', r'pickaxe|_axe$|shovel|hoe$|sword|bucket|shears'),
+         ('stone', r'cobble|stone$|andesite|diorite|granite|tuff|deepslate|sandstone|bricks'),
+         ('wood', r'_log$|planks|stick|_slab|_stairs|fence|door|_wood$'),
+         ('farm', r'sapling|seeds|bone_meal|apple|bamboo|sugar_cane|wheat|carrot|potato'),
+         ('earth', r'^dirt$|gravel|^sand$|clay|flint')]
+
+def group(n):
+    for g, pat in GROUP:
+        if re.search(pat, n):
+            return g
+    return 'other'
+
+def add(a, b, s=1):
+    out = dict(a)
+    for k, v in b.items():
+        out[k] = out.get(k, 0) + s * v
+    return {k: v for k, v in out.items() if v}
+
+TOT = collections.Counter()
+UNITS = collections.Counter()            # (group, dir) -> units
+FLOW = collections.Counter()             # (rule, provenance, group) -> withdrawn units
+PAIRS = collections.Counter()
+BOTS = collections.defaultdict(lambda: collections.defaultdict(set))
+XC = collections.Counter()
+SPAN = {}
+for pool in POOLS:
+    recs = []
+    for f in sorted(glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')):
+        for l in open(f, errors='replace'):
+            l = l.strip()
+            if not l:
+                continue
+            try:
+                r = json.loads(l)
+            except Exception:
+                TOT['torn'] += 1; continue
+            if r.get('t') in ('obs', 'dirty', 'xfer') and r.get('at') and r['at'] < T1:
+                recs.append(r)
+    recs.sort(key=lambda r: (r['at'], r['id']))
+    if not recs:
+        continue
+    SPAN[pool] = ((recs[-1]['at'] - recs[0]['at']) / 3.6e6)
+    obs = collections.defaultdict(list); ops = collections.defaultdict(dict); byid = {}
+    for r in recs:
+        byid[r['id']] = r
+        if r['t'] == 'obs':
+            obs[r['k']].append(r); TOT['obs'] += 1
+        elif r['t'] == 'dirty':
+            o = ops[r['k']].setdefault(r.get('op') or r['id'], {'bot': r['bot'], 'by': r.get('by'), 'pre': None, 'post': None})
+            o[r.get('phase') or 'pre'] = r['at']
+            TOT['dirty'] += 1
+        else:
+            TOT['xfer'] += 1
+    events = []  # (at, town-level event)
+    for k, lst in obs.items():
+        ats = [o['at'] for o in lst]
+        first = lst[0]
+        events.append((first['at'], 'stock', None, {n: c for n, (c, s) in (first.get('names') or {}).items()}))
+        oplist = sorted(((v['pre'] or v['post'], v['post'] or v['pre'], v['bot'], v['by'], opid) for opid, v in ops[k].items()), key=lambda x: x[0])
+        covered = set()
+        for (pa, po, bot, by, opid) in oplist:
+            TOT['ops'] += 1
+            before = [o for o in lst if o['at'] <= pa][-1:]
+            after = [o for o in lst if o['at'] >= po][:1]
+            if not before or not after:
+                TOT['ops_unresolved'] += 1; continue
+            b0, a0 = before[0], after[0]
+            others = [x for x in oplist if x[4] != opid and x[1] >= b0['at'] and x[0] <= a0['at']]
+            if others:
+                TOT['ops_multi'] += 1; continue
+            covered.add((b0['id'], a0['id']))
+            nb = {n: c for n, (c, s) in (b0.get('names') or {}).items()}
+            na = {n: c for n, (c, s) in (a0.get('names') or {}).items()}
+            diff = add(na, nb, -1)
+            TOT['ops_attributed'] += 1
+            if not diff:
+                TOT['ops_nochange'] += 1
+            for n, d in diff.items():
+                events.append((po, 'dep' if d > 0 else 'wd', bot, {n: abs(d)}))
+                UNITS[(group(n), 'dep' if d > 0 else 'wd')] += abs(d)
+                BOTS[pool]['dep' if d > 0 else 'wd'].add(bot)
+        # consecutive observations that differ with NO op between them (an integrity check: every mutator writes marks)
+        for o1, o2 in zip(lst, lst[1:]):
+            n1 = {n: c for n, (c, s) in (o1.get('names') or {}).items()}
+            n2 = {n: c for n, (c, s) in (o2.get('names') or {}).items()}
+            if n1 != n2:
+                TOT['obs_pairs_changed'] += 1
+                if not any(x[1] >= o1['at'] and x[0] <= o2['at'] for x in oplist):
+                    TOT['obs_pairs_changed_no_op'] += 1
+            TOT['obs_pairs'] += 1
+    # positive control: each verified xfer (ok=1) names its pre and ver observation ids -> the diff must hold the item
+    for r in recs:
+        if r['t'] == 'xfer':
+            XC['xfer_' + ('verified' if r.get('ok') else 'unverified')] += 1
+            if r.get('ok'):
+                p, v = byid.get(r.get('pre')), byid.get(r.get('ver'))
+                if p and v:
+                    np_ = {n: c for n, (c, s) in (p.get('names') or {}).items()}
+                    nv = {n: c for n, (c, s) in (v.get('names') or {}).items()}
+                    XC['verified_with_both_obs'] += 1
+                    if nv.get(r['name'], 0) - np_.get(r['name'], 0) >= r.get('n', 0):
+                        XC['verified_diff_holds_item'] += 1
+    # provenance of withdrawn units at the town x item level, under FIFO and LIFO (bounds)
+    for rule in ('fifo', 'lifo'):
+        pools = collections.defaultdict(list)    # item -> [[tag, n]]
+        for at, kind, bot, names in sorted(events, key=lambda e: e[0]):
+            for n, c in names.items():
+                if kind in ('stock', 'dep'):
+                    pools[n].append(['stock' if kind == 'stock' else bot, c])
+                else:
+                    need = c
+                    while need > 0 and pools[n]:
+                        idx = 0 if rule == 'fifo' else -1
+                        tag, have = pools[n][idx]
+                        take = min(have, need)
+                        prov = 'stock_at_first_open' if tag == 'stock' else ('same_bot' if tag == bot else 'other_bot')
+                        FLOW[(rule, prov, group(n))] += take
+                        need -= take
+                        if take == have:
+                            pools[n].pop(idx)
+                        else:
+                            pools[n][idx][1] -= take
+                    if need > 0:
+                        FLOW[(rule, 'unexplained', group(n))] += need
+    # pairs (depositor -> withdrawer, item) seen in the window
+    dep = collections.defaultdict(set); wd = collections.defaultdict(set)
+    for at, kind, bot, names in events:
+        for n in names:
+            if kind == 'dep':
+                dep[n].add(bot)
+            elif kind == 'wd':
+                wd[n].add(bot)
+    for n in wd:
+        if any(a != b for a in dep.get(n, ()) for b in wd[n]):
+            PAIRS[group(n)] += 1
+        PAIRS['items_withdrawn'] += 1
+
+print('== [E] the town index as a flow record (13 towns; each from its first index record to 10-23 12:14Z)')
+print('  index hours per town:', {k: round(v, 1) for k, v in SPAN.items()})
+print('  records:', dict(TOT))
+print('  positive control (verified xfer -> its own pre/ver observations hold the item):', dict(XC))
+print('  units moved (attributed op diffs), by group and direction:')
+for g in sorted({g for g, d in UNITS}):
+    print(f"    {g:6s} deposited {UNITS[(g, 'dep')]:6d}  withdrawn {UNITS[(g, 'wd')]:6d}")
+for rule in ('fifo', 'lifo'):
+    tot = sum(v for (r, p, g), v in FLOW.items() if r == rule)
+    byp = collections.Counter()
+    for (r, p, g), v in FLOW.items():
+        if r == rule:
+            byp[p] += v
+    print(f'  withdrawn units by provenance ({rule}): ' + ', '.join(f'{p} {v} ({100*v/max(tot,1):.1f}%)' for p, v in byp.most_common()))
+    for g in ('metal', 'fuel', 'tools', 'wood', 'stone'):
+        sub = {p: v for (r, p, gg), v in FLOW.items() if r == rule and gg == g}
+        st = sum(sub.values())
+        if st:
+            print(f'    {g:6s} of {st}: ' + ', '.join(f'{p} {v}' for p, v in sorted(sub.items())))
+print('  items withdrawn (town x item) where a DIFFERENT bot deposited that item in the window:', dict(PAIRS))
+print('  bots depositing / withdrawing per town:', {p: (len(v['dep']), len(v['wd'])) for p, v in BOTS.items()})

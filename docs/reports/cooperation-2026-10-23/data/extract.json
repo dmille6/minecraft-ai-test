@@ -1,0 +1,234 @@
+{
+ "board-a": {
+  "rows": 97782,
+  "bots": [
+   "board-a-Alpha",
+   "board-a-Bravo",
+   "board-a-Comet",
+   "board-a-Delta",
+   "board-a-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 49167,
+   "c0fec812": 26827,
+   "6e1afb52": 16129,
+   "2719ee0e": 3469,
+   "f39471bb": 2190
+  }
+ },
+ "board-b": {
+  "rows": 87090,
+  "bots": [
+   "board-b-Alpha",
+   "board-b-Bravo",
+   "board-b-Comet",
+   "board-b-Delta",
+   "board-b-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 42024,
+   "c0fec812": 25905,
+   "6e1afb52": 15665,
+   "2719ee0e": 2258,
+   "f39471bb": 1238
+  }
+ },
+ "board-c": {
+  "rows": 98348,
+  "bots": [
+   "board-c-Alpha",
+   "board-c-Bravo",
+   "board-c-Comet",
+   "board-c-Delta",
+   "board-c-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 49490,
+   "c0fec812": 26708,
+   "6e1afb52": 16922,
+   "2719ee0e": 3528,
+   "f39471bb": 1700
+  }
+ },
+ "board-d": {
+  "rows": 135316,
+  "bots": [
+   "board-d-Alpha",
+   "board-d-Bravo",
+   "board-d-Comet",
+   "board-d-Delta",
+   "board-d-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 62834,
+   "c0fec812": 5922,
+   "6e1afb52": 36231,
+   "2719ee0e": 6570,
+   "f39471bb": 23759
+  }
+ },
+ "hive-a": {
+  "rows": 96621,
+  "bots": [
+   "hive-a-Alpha",
+   "hive-a-Bravo",
+   "hive-a-Comet",
+   "hive-a-Delta",
+   "hive-a-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 43432,
+   "c0fec812": 26290,
+   "6e1afb52": 19401,
+   "2719ee0e": 5776,
+   "f39471bb": 1722
+  }
+ },
+ "hive-b": {
+  "rows": 96890,
+  "bots": [
+   "hive-b-Alpha",
+   "hive-b-Bravo",
+   "hive-b-Comet",
+   "hive-b-Delta",
+   "hive-b-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 33208,
+   "c0fec812": 2638,
+   "6e1afb52": 42466,
+   "f39471bb": 18578
+  }
+ },
+ "hive-c": {
+  "rows": 96987,
+  "bots": [
+   "hive-c-Alpha",
+   "hive-c-Bravo",
+   "hive-c-Comet",
+   "hive-c-Delta",
+   "hive-c-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "c0fec812": 51912,
+   "6e1afb52": 17953,
+   "2719ee0e": 4555,
+   "f39471bb": 14496,
+   "1f5b4b4e": 8071
+  }
+ },
+ "hive-d": {
+  "rows": 106552,
+  "bots": [
+   "hive-d-Alpha",
+   "hive-d-Bravo",
+   "hive-d-Comet",
+   "hive-d-Delta",
+   "hive-d-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "c0fec812": 59964,
+   "6e1afb52": 17788,
+   "2719ee0e": 5996,
+   "f39471bb": 14747,
+   "1f5b4b4e": 8057
+  }
+ },
+ "placebo-a": {
+  "rows": 92815,
+  "bots": [
+   "placebo-a-Alpha",
+   "placebo-a-Bravo",
+   "placebo-a-Comet",
+   "placebo-a-Delta",
+   "placebo-a-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 33601,
+   "c0fec812": 2904,
+   "6e1afb52": 38638,
+   "f39471bb": 17672
+  }
+ },
+ "placebo-b": {
+  "rows": 76859,
+  "bots": [
+   "placebo-b-Alpha",
+   "placebo-b-Bravo",
+   "placebo-b-Comet",
+   "placebo-b-Delta",
+   "placebo-b-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 26855,
+   "c0fec812": 23324,
+   "6e1afb52": 13318,
+   "2719ee0e": 3180,
+   "f39471bb": 10182
+  }
+ },
+ "placebo-c": {
+  "rows": 101921,
+  "bots": [
+   "placebo-c-Alpha",
+   "placebo-c-Bravo",
+   "placebo-c-Comet",
+   "placebo-c-Delta",
+   "placebo-c-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 35544,
+   "c0fec812": 28028,
+   "6e1afb52": 18171,
+   "2719ee0e": 4182,
+   "f39471bb": 15996
+  }
+ },
+ "placebo-d": {
+  "rows": 98504,
+  "bots": [
+   "placebo-d-Alpha",
+   "placebo-d-Bravo",
+   "placebo-d-Comet",
+   "placebo-d-Delta",
+   "placebo-d-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "c0fec812": 54490,
+   "6e1afb52": 18074,
+   "2719ee0e": 4542,
+   "f39471bb": 12074,
+   "1f5b4b4e": 9324
+  }
+ },
+ "isolated-b": {
+  "rows": 93538,
+  "bots": [
+   "isolated-b-Alpha",
+   "isolated-b-Bravo",
+   "isolated-b-Comet",
+   "isolated-b-Delta",
+   "isolated-b-Echo"
+  ],
+  "span_h": 24.0,
+  "versions": {
+   "1f5b4b4e": 31648,
+   "c0fec812": 25917,
+   "6e1afb52": 17498,
+   "2719ee0e": 3720,
+   "f39471bb": 14755
+  }
+ }
+}

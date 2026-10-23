@@ -1,0 +1,50 @@
+# r9.1 LABEL (Codex r9): an UNVERIFIED, SESSION-BASED ESTIMATE with APPROXIMATE coalescing; not a count of confirmed opens.
+# cooperation design 2026-10-23, r8 (Claude r7 P2-2, Codex r7 P3-4): FURNACE OPENS (estimated), per town-day, and
+# what B2's exposure would count after comms 4.4's coalescing. Read-only; extract2 (out2/), the fixed 24 h window.
+#  - a drain OPENED a furnace when its row read a window: detail "is empty", "is burning", or "took ..." (a lease that
+#    never reached the furnace -- unreachable, interrupted -- has no window read);
+#  - a smelt or smelt_town session (`_furnace_session` with by != drain) is counted as one open (its slots are not in the
+#    rows, so coalescing is not applied to these: an upper bound for them);
+#  - coalescing (comms 4.4), applied to drains: an open whose observed state (empty / burning / drained) equals the same
+#    bot's previous open of that furnace less than 10 min earlier writes no new entry.
+# Prints per town: opens per day, entries per day after coalescing, entries expected by +180; and the slowest 4-town draw.
+import gzip, json, glob, os, re, collections, itertools
+
+OUT = os.path.expanduser('~/coop-1023/out2')
+FURN = re.compile(r'furnace at (-?\d+,-?\d+,-?\d+)')
+SESS = re.compile(r'furnace=(-?\d+,-?\d+,-?\d+).*?by=(\w+)')
+res = {}
+for f in sorted(glob.glob(f'{OUT}/*.jsonl.gz')):
+    pool = os.path.basename(f).split('.')[0]
+    opens = 0; entries = 0; last = {}
+    evs = []
+    for l in gzip.open(f, 'rt'):
+        r = json.loads(l)
+        d = r.get('d') or ''
+        if r['k'] == 'furnace_drain':
+            m = FURN.search(d)
+            st = 'empty' if 'is empty' in d else 'burning' if 'is burning' in d else 'drained' if d.startswith('took') else None
+            if m and st:
+                evs.append((r['t'], r['bot'], m.group(1), st))
+        elif r['k'] == '_furnace_session':
+            m = SESS.search(d)
+            if m and m.group(2) != 'drain':
+                evs.append((r['t'], r['bot'], m.group(1), None))
+    evs.sort()
+    for t, b, fk, st in evs:
+        opens += 1
+        if st is None:
+            entries += 1; continue
+        pv = last.get((b, fk))
+        if pv and pv[1] == st and t - pv[0] < 600:
+            continue
+        last[(b, fk)] = (t, st)
+        entries += 1
+    res[pool] = (opens, entries)
+for p, (o, e) in res.items():
+    print(f'{p:10s} opens/day {o:4d}  entries/day after coalescing {e:4d}  expected entries by +180 {e/8:5.1f}')
+tot_o = sum(o for o, e in res.values()); tot_e = sum(e for o, e in res.values())
+print(f'all: opens {tot_o}, entries {tot_e}')
+slow = sorted(res.items(), key=lambda kv: kv[1][1])[:4]
+print('slowest 4-town draw by entries:', [p for p, _ in slow], 'expected entries by +180:', round(sum(e for _, (o, e) in slow) / 8, 1),
+      'by +360:', round(sum(e for _, (o, e) in slow) / 4, 1), '; slowest single town by +180:', round(slow[0][1][1] / 8, 1))

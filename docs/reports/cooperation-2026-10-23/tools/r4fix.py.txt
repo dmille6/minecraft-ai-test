@@ -1,0 +1,160 @@
+# cooperation design 2026-10-23, r4 re-measurement after review round 3 (Codex r3 P2-4, P2-5, P2-6). Read-only.
+# Input: extract2 (out2/: the same fixed window, EMPTY inventories kept as {}), and the index journals.
+#  [X4] explore -> iron by any route, events first: every positive raw_iron change between consecutive snapshots of a bot
+#       is ONE rise event (time = the later snapshot, position = its position). Each rise is assigned to at most one
+#       explore: the latest explore of that bot that ended within 600 s before it. Then each explore is classed by ALL
+#       its assigned rises: near (any within 24 / dy 16 of the sighting), elsewhere, or none. Explores ending after
+#       T1 - 600 are censored.
+#  [G4] gather overlapped BOT-time: per run, the union of its overlaps with townmates' same-block gathers (end positions
+#       within 16 / dy 8), summed over runs.
+#  [V4] the verified-transfer control through the r3 CHAIN predicate: for each verified xfer, the observation-chain pair
+#       starting at the xfer's `pre` observation must end at its `ver` observation, and be attributed (exactly one bot's
+#       op overlapping the pair, the ambiguity rule applied) to the xfer's bot.
+import gzip, json, glob, os, re, math, bisect, collections, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out2')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+
+def end(r):
+    return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+
+def hd(a, b):
+    return math.hypot(a[0] - b[0], a[2] - b[2])
+
+def args(r):
+    try:
+        return json.loads(r.get('a') or '{}')
+    except Exception:
+        return {}
+
+def union_len(ivs):
+    tot = 0.0; cs = ce = None
+    for s, e in sorted(ivs):
+        if ce is None or s > ce:
+            if ce is not None:
+                tot += ce - cs
+            cs, ce = s, e
+        else:
+            ce = max(ce, e)
+    return tot + ((ce - cs) if ce is not None else 0.0)
+
+X = collections.Counter(); G = collections.Counter(); RIS = collections.Counter()
+for pool in POOLS:
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows.sort(key=lambda r: r['t'])
+    RIS['empty_inventory_rows'] += sum(1 for r in rows if r.get('inv') == {})
+    # rise events
+    snaps = collections.defaultdict(list)
+    for r in rows:
+        if r.get('bot') and 'inv' in r and r.get('p'):
+            snaps[r['bot']].append((end(r), r['inv'].get('raw_iron', 0), r['p']))
+    rises = collections.defaultdict(list)
+    for b, lst in snaps.items():
+        lst.sort(key=lambda x: x[0])
+        for a, c in zip(lst, lst[1:]):
+            if c[1] > a[1]:
+                rises[b].append((c[0], c[2], c[1] - a[1]))
+                RIS['rise_events'] += 1; RIS['raw_iron_units'] += c[1] - a[1]
+    # explores
+    heads = sorted((r['t'], r['bot'], m.group(1), (int(m.group(2)), int(m.group(3)), int(m.group(4))))
+                   for r in rows if r['k'] == '_explore_toward_known' for m in [HEAD.search(r.get('d') or '')] if m)
+    hts = [h[0] for h in heads]
+    exps = []
+    for r in rows:
+        if r['k'] != 'explore' or not r.get('dur') or not r.get('bot'):
+            continue
+        i, j = bisect.bisect_left(hts, r['t'] - 2), bisect.bisect_right(hts, r['t'] + 10)
+        mine = [h for h in heads[i:j] if h[1] == r['bot']]
+        if not mine:
+            continue
+        t, b, item, xyz = mine[0]
+        k0 = bisect.bisect_left(hts, t - 1800)
+        cls = 'peer' if any(h[1] != b and h[3] == xyz and h[0] < t for h in heads[k0:bisect.bisect_left(hts, t)]) else 'fresh'
+        exps.append({'end': end(r), 'bot': b, 'xyz': xyz, 'cls': cls, 'rises': []})
+    byb = collections.defaultdict(list)
+    for n, e in enumerate(exps):
+        byb[e['bot']].append((e['end'], n))
+    for b in byb:
+        byb[b].sort()
+    for b, lst in rises.items():
+        el = byb.get(b) or []
+        ets = [x[0] for x in el]
+        for (t, p, amt) in lst:
+            j = bisect.bisect_right(ets, t) - 1
+            if j >= 0 and t - el[j][0] <= 600:
+                exps[el[j][1]]['rises'].append(p); RIS['rises_assigned'] += 1
+    for e in exps:
+        if e['end'] > T1 - 600:
+            X[(e['cls'], 'censored')] += 1; continue
+        X[(e['cls'], 'runs')] += 1
+        if any(hd(p, e['xyz']) <= 24 and abs(p[1] - e['xyz'][1]) <= 16 for p in e['rises']):
+            X[(e['cls'], 'near')] += 1
+        elif e['rises']:
+            X[(e['cls'], 'elsewhere')] += 1
+    # gather union overlap
+    g = [(r['t'], end(r), r['bot'], args(r).get('block'), r['p']) for r in rows
+         if r['k'] == 'gather' and r.get('p') and r.get('dur') and r.get('bot')]
+    g.sort(key=lambda x: x[0])
+    for i, (s, e, b, blk, p) in enumerate(g):
+        ovs = []
+        j = i - 1
+        while j >= 0 and s - g[j][0] < 4 * 3600:
+            sj, ej, bj, kj, pj = g[j]
+            if bj != b and kj == blk and ej > s and hd(p, pj) <= 16 and abs(p[1] - pj[1]) <= 8:
+                ovs.append((s, min(e, ej)))
+            j -= 1
+        j = i + 1
+        while j < len(g) and g[j][0] < e:
+            sj, ej, bj, kj, pj = g[j]
+            if bj != b and kj == blk and hd(p, pj) <= 16 and abs(p[1] - pj[1]) <= 8:
+                ovs.append((sj, min(e, ej)))
+            j += 1
+        G['body_s'] += e - s; G['overlap_bot_s'] += union_len(ovs)
+    del rows
+
+V = collections.Counter()
+for pool in POOLS:
+    recs = []
+    for f in glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl'):
+        for l in open(f, errors='replace'):
+            try:
+                r = json.loads(l)
+            except Exception:
+                continue
+            if r.get('t') in ('obs', 'dirty', 'xfer') and r.get('at') and r['at'] < T1 * 1000:
+                recs.append(r)
+    recs.sort(key=lambda r: (r['at'], r['id']))
+    obs = collections.defaultdict(list); ops = collections.defaultdict(dict)
+    for r in recs:
+        if r['t'] == 'obs':
+            obs[r['k']].append(r)
+        elif r['t'] == 'dirty':
+            o = ops[r['k']].setdefault(r.get('op') or r['id'], {'bot': r['bot'], 'pre': None, 'post': None})
+            o[r.get('phase') or 'pre'] = r['at']
+    for x in recs:
+        if x['t'] != 'xfer' or not x.get('ok'):
+            continue
+        V['verified'] += 1
+        lst = obs[x['k']]
+        ids = [o['id'] for o in lst]
+        if x['pre'] not in ids:
+            V['pre_missing'] += 1; continue
+        i = ids.index(x['pre'])
+        if i + 1 >= len(lst) or lst[i + 1]['id'] != x['ver']:
+            V['next_obs_is_not_ver'] += 1; continue
+        o1, o2 = lst[i], lst[i + 1]
+        oplist = [(v['pre'] or v['post'], v['post'] or v['pre'], v['bot']) for v in ops[x['k']].values()]
+        between = [y for y in oplist if y[1] >= o1['at'] and y[0] <= o2['at']]
+        who = between[0][2] if between and len({y[2] for y in between}) == 1 else None
+        V['chain_attributed_to_xfer_bot' if who == x['bot'] else ('chain_ambiguous' if between else 'chain_no_op')] += 1
+
+print('== [X4] explore -> raw_iron rise events (each rise assigned to at most one explore; empty bags kept)')
+print('  rise events / units / assigned / empty-inventory rows:', dict(RIS))
+for c in ('fresh', 'peer'):
+    n = X[(c, 'runs')]
+    print(f"  {c:5s} runs {n} (censored {X[(c, 'censored')]}): any assigned rise near the sighting {X[(c, 'near')]} ({100*X[(c, 'near')]/max(n,1):.2f}%), only elsewhere {X[(c, 'elsewhere')]} ({100*X[(c, 'elsewhere')]/max(n,1):.2f}%)")
+print(f"== [G4] gather: overlapped BOT-time (union per run) {G['overlap_bot_s']/3600:.2f} of {G['body_s']/3600:.1f} bot-h")
+print('== [V4] verified transfers through the r3 chain predicate:', dict(V))

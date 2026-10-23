@@ -1,0 +1,10 @@
+== [G] time outside any skill row: 1117 bot-h (13 towns, 65 bots, 24 h)
+  trap_or_escape     521.0 bot-h ( 46.6%)  gaps 21063
+  other_events       216.4 bot-h ( 19.4%)  gaps 21407
+  path_failures      195.1 bot-h ( 17.5%)  gaps 12945
+  town_or_order      173.1 bot-h ( 15.5%)  gaps 16055
+  water_or_air         8.0 bot-h (  0.7%)  gaps 677
+  fall_or_hazard       3.7 bot-h (  0.3%)  gaps 334
+  no_event_rows        0.0 bot-h (  0.0%)  gaps 637
+  by gap length (bot-h): {'10-60s': 444.2, '1-5min': 532.2, '5-30min': 110.2, '<10s': 3.8, '>=30min': 26.9}
+== decision stream: 125735 rows, 118283 with a model latency, model time 66.0 bot-h; triggers [('trigger:idle', 114464), ('trigger:entombed', 6062), ('trigger:liveness_restart', 1664), ('trigger:stagnation', 1629), ('trigger:stuck', 924), ('trigger:startup', 621), ('trigger:timeout', 267)]

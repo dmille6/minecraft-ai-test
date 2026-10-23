@@ -1,0 +1,16 @@
+# UNVERIFIED, SESSION-BASED ESTIMATE with APPROXIMATE coalescing (tools/furnace_opens.py.txt); not confirmed opens.
+board-a    opens/day  206  entries/day after coalescing  202  expected entries by +180  25.2
+board-b    opens/day  245  entries/day after coalescing  243  expected entries by +180  30.4
+board-c    opens/day  231  entries/day after coalescing  230  expected entries by +180  28.8
+board-d    opens/day  149  entries/day after coalescing  147  expected entries by +180  18.4
+hive-a     opens/day  124  entries/day after coalescing  124  expected entries by +180  15.5
+hive-b     opens/day  117  entries/day after coalescing  117  expected entries by +180  14.6
+hive-c     opens/day  111  entries/day after coalescing  111  expected entries by +180  13.9
+hive-d     opens/day  131  entries/day after coalescing  131  expected entries by +180  16.4
+isolated-b opens/day  226  entries/day after coalescing  223  expected entries by +180  27.9
+placebo-a  opens/day  135  entries/day after coalescing  132  expected entries by +180  16.5
+placebo-b  opens/day  112  entries/day after coalescing  112  expected entries by +180  14.0
+placebo-c  opens/day  136  entries/day after coalescing  135  expected entries by +180  16.9
+placebo-d  opens/day  192  entries/day after coalescing  190  expected entries by +180  23.8
+all: opens 2115, entries 2097
+slowest 4-town draw by entries: ['hive-c', 'placebo-b', 'hive-b', 'hive-a'] expected entries by +180: 58.0 by +360: 116.0 ; slowest single town by +180: 13.9

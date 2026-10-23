@@ -1,0 +1,3 @@
+== next-visit assignable UPPER BOUND (town-hours in 24 h): >= 1 / >= 2 unflagged bots inside 16 h / 12 v of home
+  per town: {'board-a': (4.5, 0.4), 'board-b': (10.1, 2.7), 'board-c': (7.5, 1.1), 'board-d': (4.2, 0.2), 'hive-a': (5.8, 0.6), 'hive-b': (5.5, 0.7), 'hive-c': (6.7, 0.8), 'hive-d': (7.6, 0.9), 'placebo-a': (9.3, 2.0), 'placebo-b': (13.8, 3.7), 'placebo-c': (3.1, 0.1), 'placebo-d': (4.9, 0.4), 'isolated-b': (7.2, 1.0)}
+  all 13 towns: >=1 90.4 town-h, >=2 14.7 town-h

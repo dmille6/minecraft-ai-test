@@ -1,0 +1,40 @@
+# cooperation design 2026-10-23: compact extract of a FIXED 24 h window of skill rows per shared town (read-only).
+# Window ends at indexsearch-01's deploy (2026-10-23T12:14:44Z), so no indexsearch canary row is in it.
+# Uses scripts/lib/telemetry.Events (full walk inside the window; rotated files read by mtime rule).
+import sys, json, os, gzip, datetime as dt
+sys.path.insert(0, os.path.expanduser('~/coop-1023'))
+from lib.telemetry import Events
+UTC = dt.timezone.utc
+SINCE = dt.datetime(2026, 10, 22, 12, 14, 0, tzinfo=UTC)
+UNTIL = dt.datetime(2026, 10, 23, 12, 14, 0, tzinfo=UTC)
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+OUT = os.path.expanduser('~/coop-1023/out')
+os.makedirs(OUT, exist_ok=True)
+tot = {}
+for pool in POOLS:
+    ev = Events.load(paths=f'/var/log/mcai/{pool}-*/skill-*.jsonl*', since=SINCE, until=UNTIL)
+    n = 0
+    with gzip.open(f'{OUT}/{pool}.jsonl.gz', 'wt') as out:
+        for r in ev.rows:
+            d = r['raw']; b = d.get('bot') or {}; sk = d.get('skill') or {}
+            rec = {'t': r['t'].timestamp(), 'bot': b.get('name'), 'k': r['name'], 's': sk.get('status'),
+                   'dur': sk.get('duration_ms'), 'd': (sk.get('detail') or '')[:400], 'trg': d.get('trigger'),
+                   'v': ((d.get('code') or {}).get('version') or '')[:8], 'hp': b.get('health')}
+            if sk.get('args'):
+                rec['a'] = json.dumps(sk.get('args'))[:200]
+            p = b.get('pos')
+            if p:
+                rec['p'] = [round(p.get('x', 0), 1), round(p.get('y', 0), 1), round(p.get('z', 0), 1)]
+            inv = b.get('inventory')
+            if inv:
+                rec['inv'] = inv
+            out.write(json.dumps(rec, separators=(',', ':')) + '\n'); n += 1
+    bots = sorted({(r['bot'] or {}).get('name') for r in ev.rows} - {None})
+    vers = {}
+    for r in ev.rows:
+        v = ((r['raw'].get('code') or {}).get('version') or '')[:8]
+        vers[v] = vers.get(v, 0) + 1
+    tot[pool] = {'rows': n, 'bots': bots, 'span_h': round(ev.span, 2), 'versions': vers}
+    print(pool, n, len(bots), round(ev.span, 2), vers, flush=True)
+    del ev
+json.dump(tot, open(f'{OUT}/extract.json', 'w'), indent=1)

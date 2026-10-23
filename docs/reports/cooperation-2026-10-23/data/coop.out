@@ -1,0 +1,55 @@
+== [A] window and positive controls
+  window 2026-10-22T12:14Z .. 2026-10-23T12:14Z; towns 13; rows 1,279,223; bots 65; bot-h 1560; positioned event rows 763,883
+  homes {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147), 'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68), 'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73), 'isolated-b': (355, 73, 147)}
+== [B] time budget (skill rows, start..start+duration, union per bot)
+  inside any skill: 443 bot-h of 1560 (28.4%); outside any skill 1117 bot-h
+  gather             171.0 bot-h (10.96%)  of it under llm:idle   70.7  outcome-h success:108.4, failed:42.6, aborted:18.3, unknown:1.6
+  explore            122.3 bot-h ( 7.84%)  of it under llm:idle   96.6  outcome-h success:97.9, aborted:12.2, no_effect:8.3, failed:3.9
+  goto                96.5 bot-h ( 6.19%)  of it under llm:idle   47.1  outcome-h success:61.1, aborted:15.7, unknown:10.9, failed:8.8
+  surface             15.4 bot-h ( 0.99%)  of it under llm:idle    1.3  outcome-h unknown:5.1, failed:4.7, aborted:4.3, success:1.3
+  mine                 9.5 bot-h ( 0.61%)  of it under llm:idle    8.2  outcome-h success:8.3, unknown:0.8, failed:0.4, aborted:0.0
+  smelt_town           7.3 bot-h ( 0.47%)  of it under llm:idle    4.8  outcome-h no_effect:4.6, success:2.4, aborted:0.2, failed:0.1
+  furnace_drain        7.2 bot-h ( 0.46%)  of it under llm:idle    5.2  outcome-h no_effect:4.2, failed:2.5, aborted:0.5, success:0.0
+  home                 6.3 bot-h ( 0.40%)  of it under llm:idle    0.3  outcome-h aborted:2.2, success:1.8, failed:1.3, unknown:1.0
+  smelt                2.3 bot-h ( 0.14%)  of it under llm:idle    1.6  outcome-h success:1.6, unknown:0.3, aborted:0.2, failed:0.0
+  toolkit              1.3 bot-h ( 0.09%)  of it under llm:idle    1.1  outcome-h success:0.7, failed:0.5, aborted:0.2
+  deposit              1.3 bot-h ( 0.08%)  of it under llm:idle    0.8  outcome-h success:0.7, aborted:0.4, failed:0.2, no_effect:0.0
+  craft                1.1 bot-h ( 0.07%)  of it under llm:idle    0.8  outcome-h success:0.9, failed:0.2, aborted:0.1, unknown:0.0
+  dispose_well         0.6 bot-h ( 0.04%)  of it under llm:idle    0.4  outcome-h success:0.5, failed:0.1, aborted:0.0, no_effect:0.0
+  withdraw_pick        0.5 bot-h ( 0.03%)  of it under llm:idle    0.3  outcome-h aborted:0.2, success:0.2, no_effect:0.1, failed:0.0
+  compost              0.1 bot-h ( 0.01%)  of it under llm:idle    0.1  outcome-h success:0.1, failed:0.0
+  town_deposit         0.1 bot-h ( 0.01%)  of it under llm:idle    0.1  outcome-h success:0.1, no_effect:0.0, failed:0.0
+  town jobs (excl. craft) body: 18.4 bot-h (1.18%)
+  skill-row triggers: [('llm:idle', 48335), ('interrupt:entombed', 7540), ('llm:entombed', 3848), ('livelock_escape', 2936), ('watchdog_relocate', 2428), ('interrupt:stagnation', 1764), ('interrupt:stuck', 1390), ('livelock_escape_dig', 1199)]
+== [C] where the bots are (newest positioned event row per bot-minute, carried <= 10 min)
+  bot-minutes with a position 93557/93600 (100.0%); at town (<=48 h, <=12 v) 18957/93557 (20.3%); more than 12 below home's y 45423/93557 (48.6%)
+  distance from home: median 55, p75 92, p90 141, p99 246
+  minute-to-minute horizontal displacement: 949 blocks per bot-h over 1558 bot-h (a lower bound on travel)
+  town-minutes 18720: bots at town 0:6403 1:7196 2:3798 3:1136 4:178 5:9
+  >=2 bots at town together 5121/18720 (27.4%)
+  bot-minutes with a townmate within 16 (dy 8): 8611/93557 (9.2%)
+== [D1] concurrent town jobs (a run starting while another townmate is inside the same job; the drain keyed by furnace)
+  smelt_town     runs   1646  overlapping 107/1646 (6.5%)  no_effect+failed: overlap 93% solo 87%  top-bot share of successes (median over towns with >=5) 0.34
+  furnace_drain  runs   2237  overlapping 5/2237 (0.2%)  no_effect+failed: overlap 100% solo 95%  top-bot share of successes (median over towns with >=5) None
+  toolkit        runs    514  overlapping 2/514 (0.4%)  no_effect+failed: overlap 50% solo 34%  top-bot share of successes (median over towns with >=5) 0.26
+  withdraw_pick  runs     78  overlapping 0/78 (0.0%)  no_effect+failed: overlap 0% solo 49%  top-bot share of successes (median over towns with >=5) 0.36
+  withdraw       runs     13  overlapping 0/13 (0.0%)  no_effect+failed: overlap 0% solo 77%  top-bot share of successes (median over towns with >=5) None
+  deposit        runs    400  overlapping 1/400 (0.2%)  no_effect+failed: overlap 100% solo 48%  top-bot share of successes (median over towns with >=5) 0.36
+  town_deposit   runs    153  overlapping 1/153 (0.7%)  no_effect+failed: overlap 100% solo 26%  top-bot share of successes (median over towns with >=5) 0.37
+  compost        runs     76  overlapping 0/76 (0.0%)  no_effect+failed: overlap 0% solo 7%  top-bot share of successes (median over towns with >=5) 0.31
+  dispose_well   runs    159  overlapping 0/159 (0.0%)  no_effect+failed: overlap 0% solo 14%  top-bot share of successes (median over towns with >=5) 0.4
+  craft          runs    636  overlapping 1/636 (0.2%)  no_effect+failed: overlap 100% solo 35%  top-bot share of successes (median over towns with >=5) 0.33
+== [D2] field concurrency
+  gather runs 23456: contested (same block, townmate's gather overlapping in time, end positions within 16 / dy 8) 521/23456 (2.2%); bot-h contested 7.4 of 169.4
+    contested: success 290/521 (55.7%)
+    solo: success 10383/22935 (45.3%)
+    contested by block: [('dirt', 515), ('iron_ore', 4), ('oak_log', 2)]
+  mine runs 6494: a townmate mining within 16 at the same time 2/6494 (0.0%)
+== [D3] explore toward a known sighting
+  headings 17113: same sighting as ANOTHER bot's heading in the 30 min before 9295/17113 (54.3%); same bot's own 10220/17113 (59.7%)
+== [D4] furnace found empty again (60 min, no non-drain session on that furnace between)
+  'is empty' drains 1435: repeat after a TOWNMATE 870/1435 (60.6%); after itself 38/1435 (2.6%); positive control: non-drain sessions parsed 678
+== [D5] the same item crafted by two townmates within 10 min
+  successful crafts 340: 14/340 (4.1%); items [('stone_pickaxe', 10), ('furnace', 4)]
+== [N] town supply refusals left
+  toolkit no-iron 101/514 (19.6%); smelt_town no-coal 10/1646 (0.6%), no-copper 1399/1646 (85.0%); withdraw_pick none 38/78 (48.7%)

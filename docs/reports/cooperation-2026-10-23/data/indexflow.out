@@ -1,0 +1,23 @@
+== [E] the town index as a flow record (13 towns; each from its first index record to 10-23 12:14Z)
+  index hours per town: {'board-a': 10.6, 'board-b': 10.5, 'board-c': 11.0, 'board-d': 10.9, 'hive-a': 10.8, 'hive-b': 10.4, 'hive-c': 17.2, 'hive-d': 17.0, 'placebo-a': 10.5, 'placebo-b': 11.0, 'placebo-c': 10.6, 'placebo-d': 17.1, 'isolated-b': 10.8}
+  records: {'obs': 3612, 'dirty': 824, 'xfer': 224, 'ops': 412, 'ops_attributed': 398, 'obs_pairs': 3346, 'obs_pairs_changed': 399, 'ops_unresolved': 14, 'obs_pairs_changed_no_op': 1}
+  positive control (verified xfer -> its own pre/ver observations hold the item): {'xfer_unverified': 136, 'xfer_verified': 88, 'verified_with_both_obs': 88, 'verified_diff_holds_item': 88}
+  units moved (attributed op diffs), by group and direction:
+    fuel   deposited     73  withdrawn     48
+    metal  deposited    575  withdrawn    474
+    other  deposited     56  withdrawn      0
+    stone  deposited     64  withdrawn      0
+    tools  deposited      6  withdrawn      4
+    wood   deposited    417  withdrawn    103
+  withdrawn units by provenance (fifo): stock_at_first_open 479 (76.2%), other_bot 76 (12.1%), same_bot 73 (11.6%), unexplained 1 (0.2%)
+    metal  of 474: other_bot 76, same_bot 71, stock_at_first_open 326, unexplained 1
+    fuel   of 48: stock_at_first_open 48
+    tools  of 4: stock_at_first_open 4
+    wood   of 103: same_bot 2, stock_at_first_open 101
+  withdrawn units by provenance (lifo): stock_at_first_open 349 (55.5%), other_bot 173 (27.5%), same_bot 106 (16.9%), unexplained 1 (0.2%)
+    metal  of 474: other_bot 147, same_bot 100, stock_at_first_open 226, unexplained 1
+    fuel   of 48: other_bot 19, same_bot 4, stock_at_first_open 25
+    tools  of 4: other_bot 1, stock_at_first_open 3
+    wood   of 103: other_bot 6, same_bot 2, stock_at_first_open 95
+  items withdrawn (town x item) where a DIFFERENT bot deposited that item in the window: {'metal': 23, 'items_withdrawn': 46, 'fuel': 11, 'wood': 2, 'tools': 3}
+  bots depositing / withdrawing per town: {'board-a': (4, 4), 'board-b': (4, 5), 'board-c': (5, 5), 'board-d': (5, 5), 'hive-a': (5, 5), 'hive-b': (3, 5), 'hive-c': (5, 5), 'hive-d': (4, 5), 'placebo-a': (5, 3), 'placebo-b': (2, 5), 'placebo-c': (4, 4), 'placebo-d': (3, 4), 'isolated-b': (5, 5)}

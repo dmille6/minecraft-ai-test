@@ -1,0 +1,25 @@
+== [O3] overlapped BOT-time (per run, union of overlaps with townmates in the same job; the drain per furnace)
+  smelt_town     body   7.31 bot-h, overlapped  0.47 bot-h (6.4%)
+  furnace_drain  body   7.17 bot-h, overlapped  0.00 bot-h (0.0%)
+  toolkit        body   1.33 bot-h, overlapped  0.01 bot-h (0.5%)
+  deposit        body   1.31 bot-h, overlapped  0.00 bot-h (0.0%)
+  town_deposit   body   0.08 bot-h, overlapped  0.00 bot-h (0.3%)
+  withdraw_pick  body   0.48 bot-h, overlapped  0.00 bot-h (0.0%)
+  dispose_well   body   0.56 bot-h, overlapped  0.00 bot-h (0.0%)
+  compost        body   0.13 bot-h, overlapped  0.00 bot-h (0.0%)
+  craft          body   1.13 bot-h, overlapped  0.00 bot-h (0.0%)
+== [X3] explore: attribution first, then classification (end position within 24 / dy 16 of the sighting = at sighting, a proxy)
+  fresh runs 7748 (censored 52): at sighting 8 (0.10%), same block elsewhere only 50 (0.65%)
+  peer  runs 9210 (censored 60): at sighting 3 (0.03%), same block elsewhere only 35 (0.38%)
+== [F3] furnace "is empty" drains, 60 min, invalidated by a non-drain session overlapping the gap [t0, t1]
+  empty drains 1435 (4.18 bot-h); after a townmate 870 (2.51 bot-h); after itself 38 (0.09 bot-h); invalidated 36; positive control: non-drain sessions with t0/t1 parsed 678
+== [R3] presence at the town-job radius (16 h / 12 v)
+  occupancy 8667/93600 bot-minutes (9.3%); stays 5423, median 1 min, p75 2, p90 3
+  >=2 together 1425 town-minutes (110 per town-day), >=3 209 (16 per town-day)
+  longest stretch >=2 / >=3 (min): {'board-a': (4, 1), 'board-b': (6, 3), 'board-c': (4, 1), 'board-d': (3, 1), 'hive-a': (7, 2), 'hive-b': (10, 2), 'hive-c': (5, 2), 'hive-d': (4, 2), 'placebo-a': (9, 4), 'placebo-b': (5, 3), 'placebo-c': (2, 1), 'placebo-d': (3, 1), 'isolated-b': (4, 2)}
+== [P3] provenance by the observation chain (no pooling; unknown changes kept as unknown)
+  pairs: {'pairs_changed': 399, 'pairs_attributed': 398, 'pairs_no_op': 1, 'pairs_multi_bot': 0}
+  unknown additions 14, unknown removals 121
+  attributed withdrawals 629 units; from another bot's deposit: lower bound 78, upper bound 161
+  scenario own_first: stock_or_unknown 474, same 77, other 78, short 0, withdrawer_unknown 121
+  scenario others_first: stock_or_unknown 406, same 88, other 135, short 0, withdrawer_unknown 121

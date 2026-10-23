@@ -1,0 +1,82 @@
+# cooperation design 2026-10-23: the 72% of bot-time OUTSIDE any skill row -- what fills it (read-only).
+# Same fixed window and extract as coop.py. A gap is time between one bot's consecutive skill intervals (union). Each gap
+# is classed by the event rows emitted inside it (first matching class in CLASSES order); llm decision rows come from
+# /var/log/mcai/<bot>/llm-*.jsonl* (the decision stream; telemetry.Events drops them).
+import gzip, json, glob, os, re, collections, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+CLASSES = [('trap_or_escape', r'entomb|strand|maroon|livelock|watchdog|trapped|pathfinder_wedged|reflex_stuck|escape|flooded_pocket|stagnation'),
+           ('water_or_air', r'water|drown|air'),
+           ('fall_or_hazard', r'fall|lava|danger|death|fire'),
+           ('path_failures', r'^_path_'),
+           ('town_or_order', r'work_order|town|smelt|furnace|kit|withdraw|deposit|well|compost|milestone|prereq'),
+           ('other_events', r'.')]
+
+def end(r):
+    return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+
+GAP = collections.Counter(); GAPN = collections.Counter(); HIST = collections.Counter(); TOTAL = 0.0
+for pool in POOLS:
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows.sort(key=lambda r: r['t'])
+    bots = sorted({r['bot'] for r in rows if r.get('bot')})
+    for b in bots:
+        mine = [r for r in rows if r.get('bot') == b]
+        iv = sorted((max(r['t'], T0), min(end(r), T1)) for r in mine if not r['k'].startswith('_') and r.get('dur'))
+        merged = []
+        for s, e in iv:
+            if e <= s:
+                continue
+            if merged and s <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([s, e])
+        edges = [T0] + [x for m in merged for x in m] + [T1]
+        gaps = [(edges[i], edges[i + 1]) for i in range(0, len(edges), 2) if edges[i + 1] > edges[i]]
+        evs = [(r['t'], r['k']) for r in mine if r['k'].startswith('_')]
+        ets = [t for t, k in evs]
+        import bisect
+        for s, e in gaps:
+            L = e - s; TOTAL += L
+            HIST['<10s' if L < 10 else '10-60s' if L < 60 else '1-5min' if L < 300 else '5-30min' if L < 1800 else '>=30min'] += L
+            i, j = bisect.bisect_left(ets, s), bisect.bisect_right(ets, e)
+            kinds = [evs[x][1] for x in range(i, j)]
+            cls = 'no_event_rows'
+            for c, pat in CLASSES:
+                if any(re.search(pat, k) for k in kinds):
+                    cls = c; break
+            GAP[cls] += L; GAPN[cls] += 1
+    del rows
+
+DEC = collections.Counter(); LAT = 0.0
+for f in glob.glob('/var/log/mcai/*/llm-*.jsonl*'):
+    if not any(os.path.basename(f).startswith(f'llm-{p}-') for p in POOLS):
+        continue
+    if os.path.getmtime(f) < T0:
+        continue
+    op = gzip.open if f.endswith('.gz') else open
+    with op(f, 'rt', errors='replace') as fh:
+        for l in fh:
+            try:
+                d = json.loads(l)
+                t = dt.datetime.fromisoformat(d['@timestamp'].replace('Z', '+00:00')).timestamp()
+            except Exception:
+                continue
+            if not (T0 <= t < T1):
+                continue
+            DEC['rows'] += 1
+            lat = ((d.get('llm') or {}).get('latency_ms') or 0)
+            if lat > 0:
+                DEC['model_calls'] += 1; LAT += lat / 1000.0
+            DEC['trigger:' + str(d.get('trigger'))] += 1
+
+bh = TOTAL / 3600
+print(f'== [G] time outside any skill row: {bh:.0f} bot-h (13 towns, 65 bots, 24 h)')
+for c, s in GAP.most_common():
+    print(f'  {c:16s} {s/3600:7.1f} bot-h ({100*s/TOTAL:5.1f}%)  gaps {GAPN[c]}')
+print('  by gap length (bot-h):', {k: round(v / 3600, 1) for k, v in HIST.items()})
+print(f"== decision stream: {DEC['rows']} rows, {DEC['model_calls']} with a model latency, model time {LAT/3600:.1f} bot-h; triggers",
+      [(k, v) for k, v in DEC.most_common(9) if k.startswith('trigger:')])

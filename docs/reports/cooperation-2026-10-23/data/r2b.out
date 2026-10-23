@@ -1,0 +1,14 @@
+== [A] next-visit leases: an away, unflagged bot-minute -> inside 16 h / 12 v of home for >= 2 consecutive minutes
+  away bot-minutes 83115: flagged 46193, unflagged 36922
+  arrives within 15 min: 10053 of 36922 (27.2%)
+  arrives within 30 min: 15798 of 36922 (42.8%)
+== [N] chance null for "a run starts inside a townmate's run of the same job" (independence; the drain not keyed by furnace)
+  smelt_town     runs  1646  expected under independence 1.95%
+  furnace_drain  runs  2237  expected under independence 2.13%
+  toolkit        runs   514  expected under independence 0.42%
+  deposit        runs   400  expected under independence 0.54%
+  town_deposit   runs   153  expected under independence 0.02%
+  withdraw_pick  runs    78  expected under independence 0.28%
+  dispose_well   runs   159  expected under independence 0.15%
+  compost        runs    76  expected under independence 0.04%
+== [V] verified transfers through the attribution path: {'verified': 88, 'bracket_equals_pre_ver_and_bot': 88}
