@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r8 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r9 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
@@ -35,11 +35,14 @@
 //   - THE ADVENTURE SEND IS FENCED TOO (r7 Claude P2-2 / Codex P1-1): `defaultgamemode adventure` is sent only from inside a
 //     fenced section that first checks this run's authoritative marker still stands; a late or delayed copy from a run
 //     whose marker was swept therefore refuses itself, and so cannot leave adventure with no marker;
-//   - ORDERING INSIDE PAPER (driver review r7, Codex P1-2: a request still in flight after its sender died): the RCON helper
-//     runs ON the worlds host and talks to the server over localhost, and Paper runs RCON commands on its main thread, one
-//     at a time, in the order they arrive. A dead run's request has therefore either arrived BEFORE the next run's
-//     `defaultgamemode adventure` (which it precedes, so it cannot undo it) or never arrived. Every launch sends adventure
-//     itself, so a stale survival can only land before that launch's own adventure, never between it and the join;
+//   - AN UNRESOLVED MODE COMMAND STOPS EVERYONE (driver review r8, Codex P1: ordering inside Paper is not guaranteed
+//     across RCON connections -- a connection thread can read a command and pause before handing it to the main thread,
+//     so a command whose sender died may still execute later). Each fenced mode command writes
+//     ~/mcai-sandbox-mode/<server>/.inflight-<run> BEFORE it sends, and removes it only AFTER the reply confirming the
+//     change. A command that was not confirmed (a timeout, a kill, a bad reply) leaves that file, and while ANY in-flight
+//     file exists every fenced section refuses: no registration, no adventure send, no restore, no marker deletion. The
+//     run stops FATAL and names the file. RESOLVING IT IS BY HAND: confirm no lavastep driver is running, set the default
+//     you want with RCON, then delete the file;
 //   - A DEAD DRIVER IS NOT ENOUGH TO CALL ITS MARKER STALE (r7 Codex P1-1: its bot process can outlive it, still trying
 //     to join): every bot process carries its run in its command line (`lsrun=<run id>`), and a marker counts as stale
 //     only when its driver is gone (pid dead or reused), NO process on this host carries its run tag, and NO player of its
@@ -58,10 +61,10 @@
 //     authoritative marker and deleted only AFTER it (and after the confirmed restore), so a copy can be a false alarm,
 //     never missing while adventure may be set. Survival is restored only by the LAST driver to leave the server, and a
 //     marker is deleted only AFTER survival is confirmed (r5 Codex P2); a failed restore leaves every marker standing (exit
-//     3). At STARTUP a driver writes its own marker first and then deletes stale ones (this host, pid gone or reused);
+//     3). At STARTUP a driver writes its own marker first and then deletes stale ones (see staleOwner: same machine, driver gone, run drained);
 //   - an ATOMIC ARENA CLAIM (Claude r4 P2-1: two runs of one scene and slot could both pass the forceload check, and the
 //     loser's cleanup would restore over the winner's live box): ~/mcai-sandbox-mode/arenas/<server>-<x>-<z> on the worlds
-//     host, taken in a fenced section by mkdir, or, when the current owner was judged stale (this host, pid gone or
+//     host, taken in a fenced section by mkdir, or, when the current owner was judged stale (same machine, driver gone or
 //     reused), by a compare-and-swap of exactly that owner text; a held claim refuses the run before ANY world change;
 //     released (fenced) only while it is still this run's;
 //   - a LIMITED LOG CHECK, not proof (r5 Codex P2, Claude P2-B): a trial is INVALID if the build logged, before its bot was
@@ -72,6 +75,9 @@
 //     any other kind, and door/button/chest use, are not covered: adventure mode is what stops the edits.
 // Residuals (disclosed): an adventure-mode bot can still use doors, buttons and chests at world spawn for the ~70 ms
 // before the teleport (its inventory is empty, its cognitive loop not started; the reflex layer has no block-use calls);
+// a bot ORPHANED by a SIGKILLed driver can do the same for as long as it lives (smoke: it died of its closed stdout ~7 s
+// later); the next run on this machine SIGKILLs any `lsrun=` bot whose driver is gone before it judges staleness
+// (Claude r8 P3-2), so that window ends at the next start;
 // markers from another host are never swept, only reported (they hold the default at adventure until removed by hand);
 // a fenced section on a worlds host that is down cannot run, so the driver refuses to start (and a cleanup leaves its
 // markers standing) rather than act unfenced; the RCON helper the sections call is /tmp/sbx-rcon.py on the worlds host.
@@ -263,7 +269,7 @@ const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { ret
 // authoritative markers, the arena claims and the lock
 const LH = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'mike@10.0.0.31']
 /** A FENCED section: `script` runs on the WORLDS host under flock on ~/mcai-sandbox-mode/<server>.lock, bounded there by
- *  `timeout 50`; the holder of the lock is the process running the commands. -> its stdout (it must end with an OK line). */
+ *  `timeout -k 5 50`; the holder of the lock is the process running the commands. -> its stdout (it must end with an OK line). */
 function fenced (script) {
   const remote = `mkdir -p "$HOME/mcai-sandbox-mode" && flock -w 60 "$HOME/mcai-sandbox-mode/${SERVER}.lock" timeout -k 5 50 bash -s`   // r7 Codex: KILL 5 s after TERM
   // the client waits longer than the remote bound (60 s for the lock + 50 s + 5 s kill: Claude r7 P3-1); a failing section's
@@ -281,7 +287,7 @@ const MACHINE = (() => {
   return 'unknown'
 })()
 // from `ps -o lstart` (the clock staleOwner compares against; Claude r6 P3-3), uptime arithmetic only as a fallback
-const PSTART = (() => { try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', timeout: 5000 }).trim()); if (Number.isFinite(t)) return Math.round(t / 1000) } catch {} return Math.round(Date.now() / 1000 - process.uptime()) })()
+const PSTART = (() => { try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', timeout: 5000 }).trim()); if (Number.isFinite(t)) return Math.round(t / 1000) } catch {} return 0 })()   // 0 = unknown: liveness alone decides (Claude r8 P3-1: the uptime fallback could differ by > 3 s)
 const OWNER = `host=${HOSTNAME} mid=${MACHINE} pid=${process.pid} pstart=${PSTART} run=${NONCE}`
 /** The start time (epoch s) of a live pid on this host, or null. */
 function startOf (pid) {
@@ -301,7 +307,7 @@ function driverGone (p, ps) {
 function runDrained (run) {
   if (!/^[a-z0-9]{8}$/.test(run)) return false
   let procs = ''
-  try { procs = execFileSync('ps', ['-axo', 'command='], { encoding: 'utf8', timeout: 5000 }) } catch { return false }
+  try { procs = execFileSync('ps', ['-axww', '-o', 'command='], { encoding: 'utf8', timeout: 5000 }) } catch { return false }
   if (procs.split('\n').some(l => l.includes(`lsrun=${run}`))) return false
   let who
   try { who = online() } catch { return false }
@@ -341,20 +347,38 @@ function register (stale) {
   const text = MARK_TEXT()
   const c = lh(`mkdir -p ${MDIR}; printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; cat ${MDIR}/${NONCE}`)
   if (!c.includes(OWNER)) throw new Error(`warning copy not written: ${c.slice(0, 120)}`)
-  const out = fenced(`mkdir -p ${MDIR}; printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; grep -q 'run=${NONCE}' ${MDIR}/${NONCE}; ${stale.map(n => `rm -f ${MDIR}/${nameOk(n)}; `).join('')}echo REGISTERED`)
+  const out = fenced(`mkdir -p ${MDIR}; ${UNRESOLVED_CHECK}
+printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; grep -q 'run=${NONCE}' ${MDIR}/${NONCE}; ${stale.map(n => `rm -f ${MDIR}/${nameOk(n)}; `).join('')}echo REGISTERED`)
+  if (/(^|\n)UNRESOLVED /.test(out)) {
+    // refused BEFORE the authoritative marker was written and before any adventure: this run set nothing, so its own
+    // warning copy goes, and it has nothing to restore
+    try { lh(`rm -f ${MDIR}/${NONCE}; echo GONE`) } catch {}
+    registered = false
+  }
+  unresolved(out)
   if (!/(^|\n)REGISTERED\n?$/.test(out)) throw new Error(`marker not written: ${out.slice(0, 120)}`)
   if (stale.length) lh(stale.map(n => `rm -f ${MDIR}/${nameOk(n)}; `).join('') + 'echo GONE')
 }
+// every fenced section starts with this: any in-flight file = a mode command whose outcome is unknown -> refuse
+const UNRESOLVED_CHECK = `for f in ${MDIR}/.inflight-*; do if [ -e "$f" ]; then echo "UNRESOLVED $(basename "$f") $(cat "$f" 2>/dev/null | head -c 200)"; exit 0; fi; done`
+function unresolved (out) {
+  const m = /(^|\n)UNRESOLVED ([^\n]*)/.exec(out)
+  if (m) throw new Fatal(`an earlier mode command on ${SERVER} was never confirmed (${m[2]}); every lavastep driver refuses until it is resolved BY HAND: confirm no lavastep driver is running, set the default game mode you want by RCON, then delete ~/mcai-sandbox-mode/${SERVER}/.inflight-* on the worlds host`)
+}
+const inflightOpen = what => `printf '%s\\n' '${what} by ${OWNER} at '"$(date -u +%FT%TZ)" > ${MDIR}/.inflight-${NONCE}`
 /** The LAST-OUT restore, fenced: survival only when no marker but ours and the known-stale ones stands; the reply is
  *  checked BEFORE any marker is deleted. -> 'RESTORED' | 'LEFT <names>'; throws on a failed restore (markers stay). */
 function restoreIfLast (stale) {
   const keep = [NONCE, ...stale].map(nameOk)
-  const out = fenced(`d=${MDIR}; mkdir -p "$d"
+  const out = fenced(`d=${MDIR}; mkdir -p "$d"; ${UNRESOLVED_CHECK}
 others=""; for f in "$d"/*; do [ -f "$f" ] || continue; n=$(basename "$f"); case " ${keep.join(' ')} " in *" $n "*) ;; *) others="$others $n";; esac; done
 if [ -n "$others" ]; then rm -f "$d/${NONCE}"; echo "LEFT$others"; exit 0; fi
+${inflightOpen('defaultgamemode survival')}
 r=$(printf '%s\\n' 'defaultgamemode survival' | python3 /tmp/sbx-rcon.py ${SERVER} - 2>&1 || true)
 case "$r" in *"The default game mode is now Survival Mode"*) ;; *) echo "RESTORE_FAILED $(printf '%s' "$r" | tr '\\n' ' ' | head -c 200)"; exit 3;; esac
+rm -f "$d/.inflight-${NONCE}"
 ${keep.map(n => `rm -f "$d/${n}"; `).join('')}echo RESTORED`).trim()
+  unresolved(out)
   const last = out.split('\n').pop()
   if (last === 'RESTORED') { lh(keep.map(n => `rm -f ${MDIR}/${n}; `).join('') + 'echo GONE'); return last }
   if (last.startsWith('LEFT')) { lh(`rm -f ${MDIR}/${NONCE}; echo GONE`); return last }
@@ -385,9 +409,12 @@ function setDefault (m) {
   if (m !== 'adventure') throw new Error(`setDefault ${m}: only the fenced restore sets survival`)
   // Claude r6 P2-1: a trial resuming after the cleanup began (or after its marker went) must never re-send adventure
   if (stopping || markerGone || !registered) throw new Fatal(`no adventure default: ${stopping ? 'the cleanup has begun' : markerGone ? "this run's marker may be gone" : 'not registered'}`)
-  const out = fenced(`[ -f ${MDIR}/${NONCE} ] || { echo NO_MARKER; exit 0; }
+  const out = fenced(`${UNRESOLVED_CHECK}
+[ -f ${MDIR}/${NONCE} ] || { echo NO_MARKER; exit 0; }
+${inflightOpen('defaultgamemode adventure')}
 r=$(printf '%s\\n' 'defaultgamemode adventure' | python3 /tmp/sbx-rcon.py ${SERVER} - 2>&1 || true)
-case "$r" in *"The default game mode is now Adventure Mode"*) echo SET;; *) echo "FAILED $(printf '%s' "$r" | tr '\\n' ' ' | head -c 200)";; esac`).trim()
+case "$r" in *"The default game mode is now Adventure Mode"*) rm -f ${MDIR}/.inflight-${NONCE}; echo SET;; *) echo "FAILED $(printf '%s' "$r" | tr '\\n' ' ' | head -c 200)";; esac`).trim()
+  unresolved(out)
   if (out === 'NO_MARKER') throw new Fatal(`no adventure default: this run's marker is not on the worlds host`)
   if (out !== 'SET') throw new Error(`defaultgamemode adventure: ${out}`)
 }
@@ -703,10 +730,35 @@ async function main () {
   // default), the stale ones going in the same section (this run's marker now stands for the adventure state)
   claimArena()
   if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
+  // Claude r8 P3-3: a worlds-host marker without `mid=` was written by a pre-r8 driver, whose sweep rules are weaker:
+  // refuse to share the server with it
+  const preR8 = wMarkers().filter(m => !/\bmid=/.test(m.text))
+  if (preR8.length) throw new Error(`an older (pre-r8) lavastep driver's marker is on ${SERVER}; retire that checkout and resolve by hand: ${preR8.map(m => m.text).join(' | ')}`)
+  // Claude r8 P3-2: SIGKILL any orphaned bot of a run whose driver is gone (same machine), before judging staleness
+  for (const m of wMarkers()) {
+    const h = /host=(\S+)/.exec(m.text)?.[1], mid = /mid=([0-9a-f-]+)/.exec(m.text)?.[1], p = Number(/pid=(\d+)/.exec(m.text)?.[1])
+    const ps = Number(/pstart=(\d+)/.exec(m.text)?.[1]), run = /run=([a-z0-9]{8})\b/.exec(m.text)?.[1]
+    if (!run || run === NONCE || h !== HOSTNAME || mid !== MACHINE || MACHINE === 'unknown' || !(p > 0) || !driverGone(p, ps)) continue
+    let lines = []
+    try { lines = execFileSync('ps', ['-axww', '-o', 'pid=,command='], { encoding: 'utf8', timeout: 5000 }).split('\n') } catch {}
+    for (const l of lines) {
+      const mm = /^\s*(\d+)\s+(.*)$/.exec(l)
+      if (mm && mm[2].includes(`lsrun=${run}`) && Number(mm[1]) !== process.pid) { P_(`WARNING: SIGKILL orphaned bot pid ${mm[1]} of run ${run} (its driver is gone)`); try { process.kill(Number(mm[1]), 'SIGKILL') } catch {} }
+    }
+  }
+  await sleep(1500)
   // Claude r7 P3-4: a warning copy on the lock host with no authoritative twin on the worlds host means an OLDER driver
   // (r5/r6 kept its state on the lock host) or a half-written marker: refuse rather than guess
-  const twins = new Set(wMarkers().map(m => m.name))
-  const orphanCopies = parseList(lh(listScript(MDIR))).filter(m => !twins.has(m.name))
+  let orphanCopies = []
+  for (let t = 0; t < 4; t++) {   // r8 Codex P2: a healthy concurrent startup writes its copy just before its twin
+    const copies = parseList(lh(listScript(MDIR)))
+    const twins = new Set(wMarkers().map(m => m.name))
+    // Claude r8 P2-1: a copy whose owner is a LIVE driver on this machine is a sibling mid-registration, not an orphan
+    const liveSibling = m => { const p = Number(/pid=(\d+)/.exec(m.text)?.[1]), mid = /mid=([0-9a-f-]+)/.exec(m.text)?.[1]; return mid === MACHINE && MACHINE !== 'unknown' && p > 0 && p !== process.pid && alive(p) }
+    orphanCopies = copies.filter(m => !twins.has(m.name) && !liveSibling(m))
+    if (!orphanCopies.length) break
+    await sleep(2000)
+  }
   if (orphanCopies.length) throw new Error(`lock-host marker(s) with no worlds-host twin (an older driver, or a half-written marker; check and remove by hand): ${orphanCopies.map(m => m.text).join(' | ')}`)
   const before = wMarkers().filter(m => m.name !== NONCE)
   const stale = before.filter(m => staleOwner(m.text))
