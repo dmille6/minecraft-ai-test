@@ -846,31 +846,35 @@ def census(ds, projects=PROJECTS, emit_from=None):
                     if bs is not None:
                         void_free = [b for b in free if bs.get(b) == 'void']
                         free = [b for b in free if bs.get(b) == 'capable']
-                    holders = [b for b in free if P.has_material(cur[b][4], need)]
-                    ready = []
-                    for b in holders:
-                        why_b, ready_from = bot_block(P, runs[pool].get(b, []), issues[pool].get(b, []), tm)
-                        if why_b is None:
-                            ready.append(max(since, ready_from))
-                    if len(active) >= P.cap:
-                        reason = 'cap_full'
-                    elif len(here) == 0:
-                        reason = 'nobody_at_town'
-                    elif len(here) < 2:
-                        reason = 'one_at_town'
-                    elif not free:
-                        reason = 'all_flagged_or_building'
-                    elif not holders:
-                        reason = f'no_material:{need}'
-                    elif not ready:
-                        reason = 'all_in_own_cooldown'
-                    elif all(tm - r0 < P.scan_ms for r0 in ready):
-                        reason = 'within_rotation_latency'
-                    else:
-                        reason = 'assignable'
+                    def reason_for(free):
+                        holders = [b for b in free if P.has_material(cur[b][4], need)]
+                        ready = []
+                        for b in holders:
+                            why_b, ready_from = bot_block(P, runs[pool].get(b, []), issues[pool].get(b, []), tm)
+                            if why_b is None:
+                                ready.append(max(since, ready_from))
+                        if len(active) >= P.cap:
+                            return 'cap_full'
+                        if len(here) == 0:
+                            return 'nobody_at_town'
+                        if len(here) < 2:
+                            return 'one_at_town'
+                        if not free:
+                            return 'all_flagged_or_building'
+                        if not holders:
+                            return f'no_material:{need}'
+                        if not ready:
+                            return 'all_in_own_cooldown'
+                        if all(tm - r0 < P.scan_ms for r0 in ready):
+                            return 'within_rotation_latency'
+                        return 'assignable'
+                    reason = reason_for(free)
+                    if reason == 'assignable':
                         rec['assignable_min'] += 1
-                    if reason not in ('assignable', 'cap_full', 'nobody_at_town', 'one_at_town') and void_free:
-                        # a bot whose capability is unknown might have been the free one: not a zero, a void minute
+                    elif void_free and reason_for(free + void_free) == 'assignable':
+                        # a bot whose capability is unknown WOULD have made the minute assignable: not a zero, a void
+                        # minute. When the VOID bots change nothing (no material, own cooldown...) the known reason
+                        # stands (Claude r2 P3-1: dropping known-zero minutes would inflate the assignable rate)
                         reason = 'capability_void'
                         rec['cap_void_min'] += 1
                     rec['blocked'][reason] += 1
@@ -1752,13 +1756,24 @@ def selftest(verbose=True):
     dsa['modes'] = [m for m in dsa['modes'] if m[1] != 'fx-A']
     qa = _tf(dsa)['towns']['fx']['projects']['treefarm']
     # (B, capable, is still assignable on its own: the same 10 minutes as the flagged-holder fixture below, ds6)
-    check('one bot VOID: its would-be minutes are capability_void, never no_material or a zero; B still counts',
+    # 01:00-20:00 stay no_material (18 min): B has no sapling and A, VOID or not, is in its own backoff until 23:00, so A
+    # could not have made them assignable (Claude r2 P3-1); 23:00 onward, where A would have been free, is capability_void
+    check('one bot VOID: only the minutes it could have made assignable are capability_void; B still counts',
           (qa['assignable_min'], qa['blocked'].get('capability_void', 0) > 0, qa['blocked'].get('no_material:sapling', 0)),
-          (10, True, 0))
+          (10, True, 18))
     Sa = summarize(census(dsa, projects=(TreeFarm(),)), projects=(TreeFarm(),))
     check('one bot VOID: those minutes leave the project\'s valid hours',
           round(Sa['projects']['treefarm']['valid_h'] + qa['cap_void_min'] / 60, 2), 1.0)
     check('every project adapter declares its mode row', all(P.mode_kind for P in PROJECTS), True)
+    # ... a VOID bot that could not have made the minute assignable leaves the KNOWN reason (Claude r2 P3-1): B is VOID and
+    # holds no sapling before 20:00, A (capable) is in its own backoff until 23:00, so 01:00-20:00 stays a known zero
+    dsk = with_modes(fixture())
+    dsk['modes'] = [m for m in dsk['modes'] if m[1] != 'fx-B']
+    qk = _tf(dsk)['towns']['fx']['projects']['treefarm']
+    qb = _tf(with_modes(fixture()))['towns']['fx']['projects']['treefarm']
+    check('VOID bot without material: its minutes keep their known reason, not capability_void',
+          (qk['blocked'].get('capability_void', 0) < qb['open_min'] - qb['assignable_min'],
+           qk['blocked'].get('all_in_own_cooldown', 0) + qk['blocked'].get('no_material:sapling', 0) > 0), (True, True))
     check('state keeps each bot\'s newest row per kind',
           newest_per_kind([(1, 'b', 'k', V1, True), (5, 'b', 'k', V1, False), (3, 'c', 'k', V1, True)]),
           [(3, 'c', 'k', V1, True), (5, 'b', 'k', V1, False)])

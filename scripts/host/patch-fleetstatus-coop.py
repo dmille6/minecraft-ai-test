@@ -40,6 +40,14 @@ def main(target):
 
 
 def write(target, t, what):
+    try:
+        compile(t, target, 'exec')           # the operator's report is never replaced by a file that does not compile
+    except SyntaxError as e:
+        print(f'{target}: the patched text does not compile ({e}); NOTHING WRITTEN')
+        return 1
+    if os.environ.get('COOP_PATCH_DRY_RUN'):
+        print(f'{target}: dry run: {what} would apply cleanly')
+        return 0
     bak = f'{target}.bak-{time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())}'
     shutil.copy2(target, bak)
     with open(target + '.tmp', 'w') as f:

@@ -31,6 +31,9 @@ echo "== self-tests from the source tree ($SRC)"
 ( cd "$SRC/scripts/host" && python3 -B coopread.py --selftest >/dev/null && echo "  coopread selftest OK" )
 ( cd "$SRC/scripts/host" && python3 -B sightread.py --selftest >/dev/null && echo "  sightread selftest OK" )
 
+echo "== dry run of the fleetstatus patch first (an anchor it cannot find stops the install before anything is copied)"
+COOP_PATCH_DRY_RUN=1 python3 -B "$SRC/scripts/host/patch-fleetstatus-coop.py" "$HOME/estel/scripts/host/fleetstatus.py"
+
 echo "== B0a: the S0 census"
 put "$SRC/scripts/host/staffcensus.py" "$HOME/staffcensus/scripts/host"
 put "$SRC/scripts/host/check-staffcensus.py" "$HOME/staffcensus/scripts/host"

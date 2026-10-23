@@ -99,7 +99,10 @@ def assess(lines, now, max_age_min=15.0, behind_min=35.0):
     cc = good[-1].get('capability_control') if good else None
     if good and cc is None:
         alarms.append('StaffCensusCapability: the newest measuring tick carries no capability control')
-    if cc and cc.get('alarm'):
+    if cc and cc.get('alarm') and not cc.get('eligible'):
+        alarms.append(f'StaffCensusCapability: {cc.get("present")} bots present, none eligible -- the capability control '
+                      f'could not be evaluated')
+    elif cc and cc.get('alarm'):
         alarms.append(f'StaffCensusCapability: only {cc.get("capable")} of {cc.get("eligible")} bots whose build carries '
                       f'townindex read capable (share {cc.get("share")}, limit 0.95) -- the capability reader is suspect')
     newest = next((r.get('newest_slot') for r in reversed(recs) if r.get('newest_slot')), None)
