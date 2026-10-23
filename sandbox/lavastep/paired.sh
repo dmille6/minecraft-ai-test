@@ -1,10 +1,10 @@
 #!/bin/bash
-# lavastep-01 PAPER, paired runs on ONE sandbox server (2026-10-23, with driver r5).
+# lavastep-01 PAPER, paired runs on ONE sandbox server (2026-10-23, with driver r7).
 #   sandbox/lavastep/paired.sh <server> <outdir> <baseSlot 0|1> <baseRoot> <candRoot> <scene:bag:yaw:trials> ...
 # For each job the BASE build and the CANDIDATE build run SIDE BY SIDE on the same server (base in <baseSlot>, candidate in
 # the other; the caller counterbalances slots across servers), then the next job.
 # r5 (driver review r4, Codex P2s): this script no longer touches the server. The join safeguard (adventure default,
-# confirmed before each launch, restored by the last driver out) is the DRIVER's, under its per-server mutex, so a
+# confirmed before each launch, restored by the last driver out in a section fenced on the worlds host) is the DRIVER's, so a
 # standalone driver is as safe as a paired one. This script only pairs and waits for EACH driver by pid. When a driver
 # exits non-zero (a failed cleanup is exit 3), the CURRENT pair is allowed to finish (its sibling is not killed: it is
 # mid-trial and cleans up itself), and then the queue stops; the exit status is the base driver's if it failed, else the

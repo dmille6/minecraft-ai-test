@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r6 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r7 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
@@ -21,32 +21,37 @@
 // cognitive loop): every trial bot is a NEW player and joins in ADVENTURE mode, which the server enforces (no block breaking
 // or placing). THIS DRIVER OWNS THAT SAFEGUARD (driver review r4, Codex P1: standalone runs must be safe too):
 //   - names are `ls` + an 8-character random run id + the trial number (36^8 ids: never a returning player);
-//   - ONE LOCK FOR EVERYTHING THAT TOUCHES THE DEFAULT (driver review r5, Codex P1: a per-host /tmp mutex did not serialize
-//     drivers on two hosts or with two temp dirs, and its stale recovery raced): `flock` on ~/mcai-sandbox-mode/<server>.lock
-//     on the LOCK host, held by an SSH session for exactly as long as the driver needs it. The kernel releases it when that
-//     session ends, so a killed driver never leaves it held and there is no stale-lock recovery to race. Under it run: the
-//     arena claim (with its stale recovery), the marker writes and deletions, every launch from `defaultgamemode adventure`
-//     (sent, reply confirmed) through the join, the staging and the switch to survival, and the last-out restore;
+//   - FENCED CRITICAL SECTIONS (driver review r5 Codex P1: a per-host mutex; r6 Codex P1: a lock held across the network
+//     cannot fence commands already issued when the holder's session is lost): every section that must be atomic is ONE
+//     script run on the WORLDS host (10.0.0.30, where RCON executes) as `flock -w 60 ~/mcai-sandbox-mode/<server>.lock
+//     timeout 50 bash -s`. The process holding the lock is the process running the commands, so nothing runs unlocked,
+//     and `timeout` bounds every holder server-side. The sections: writing this run's AUTHORITATIVE marker
+//     (~/mcai-sandbox-mode/<server>/<run id> on the worlds host) and deleting stale ones; the last-out check-and-restore
+//     (list the markers; if none but this run's and the known-stale ones stands, send `defaultgamemode survival` through
+//     the RCON helper, check the reply, and only then delete them); the arena claim (compare-and-swap of its owner) and its
+//     release. LAUNCHES NEED NO LOCK: a restore runs only inside the fenced section and only when no live marker stands,
+//     and each run's marker is written inside that same section before its first `defaultgamemode adventure`, so once a
+//     run can set adventure no restore can follow it; every launch sends adventure and checks the reply first;
 //   - the joined mode is READ BACK in the same round trip as the teleport into the box: anything but adventure is FATAL
 //     (below); staging later than 5 s after the join was seen makes the trial INVALID;
-//   - FORCE-GAMEMODE PROBE, every trial: with its own bot staged in survival (still inside the mutex), the driver re-sends
+//   - FORCE-GAMEMODE PROBE, every trial: with its own bot staged in survival, the driver re-sends
 //     `defaultgamemode adventure` and reads its bot's mode back: still survival proves the server does not force modes
 //     onto online players, so a launch by the other slot's driver cannot flip this bot mid-trial; a flip STOPS THE RUN
 //     (FATAL). Each trial also reads its bot's mode at the end of the observation: anything but survival is INVALID;
 //   - a bot that joins in any mode but adventure ENDS THE RUN (FATAL; Claude r4 P2-2): at most one bot is ever exposed;
-//   - REBOOT-SURVIVING MARKER (Claude r4 P2-3: a sandbox silently left in adventure makes every later harness's digs read
-//     zero): before its first `defaultgamemode adventure`, the driver writes `adventure since <T> host= pid= run=` to
-//     ~/mcai-sandbox-mode/<server>/<run id> on the LOCK host (10.0.0.31; not /tmp, so an outage does not erase it), and
-//     `sandbox/sbxlock.sh take|status` print a WARNING for every marker there. Survival is restored only by the LAST driver
-//     to leave the server, and the markers are deleted only AFTER survival is confirmed (r5 Codex P2: a kill between the
-//     deletion and the restore left adventure with no marker): under the host lock, if no other LIVE marker stands, it sends
-//     survival, checks the reply, and only then deletes its own marker and any stale ones (this host, pid gone); otherwise it
-//     deletes only its own. A failed restore leaves every marker standing (and exits 3). At STARTUP a driver writes its own
-//     marker first, then deletes stale ones (its marker now stands for the adventure state) and says so;
+//   - REBOOT-SURVIVING MARKERS (Claude r4 P2-3: a sandbox silently left in adventure makes every later harness's digs read
+//     zero), `adventure since <T> host= pid= pstart= run=`, in home directories (not /tmp, so an outage does not erase
+//     them): the AUTHORITATIVE one on the worlds host (above), and a WARNING COPY on the lock host (10.0.0.31,
+//     ~/mcai-sandbox-mode/<server>/<run id>) that `sandbox/sbxlock.sh take|status` print. The copy is written BEFORE the
+//     authoritative marker and deleted only AFTER it (and after the confirmed restore), so a copy can be a false alarm,
+//     never missing while adventure may be set. Survival is restored only by the LAST driver to leave the server, and a
+//     marker is deleted only AFTER survival is confirmed (r5 Codex P2); a failed restore leaves every marker standing (exit
+//     3). At STARTUP a driver writes its own marker first and then deletes stale ones (this host, pid gone or reused);
 //   - an ATOMIC ARENA CLAIM (Claude r4 P2-1: two runs of one scene and slot could both pass the forceload check, and the
-//     loser's cleanup would restore over the winner's live box): mkdir ~/mcai-sandbox-mode/arenas/<server>-<x>-<z> on the
-//     lock host, owner `host= pid= run=`, taken and (if stale: this host, pid gone) recovered UNDER THE HOST LOCK, so two runs
-//     cannot both own it; a held claim refuses the run before ANY world change; released only while it is still this run's;
+//     loser's cleanup would restore over the winner's live box): ~/mcai-sandbox-mode/arenas/<server>-<x>-<z> on the worlds
+//     host, taken in a fenced section by mkdir, or, when the current owner was judged stale (this host, pid gone or
+//     reused), by a compare-and-swap of exactly that owner text; a held claim refuses the run before ANY world change;
+//     released (fenced) only while it is still this run's;
 //   - a LIMITED LOG CHECK, not proof (r5 Codex P2, Claude P2-B): a trial is INVALID if the build logged, before its bot was
 //     set to survival, a row that can mean a block edit (editRow below: any `_lava_retreat`, any `_marooned_self_sourced`
 //     -- the reflex's adjacent harvest, reflex.mjs ~2698 --, a `_marooned_*` / `_escape_candidate` row reporting >= 1
@@ -55,8 +60,9 @@
 //     any other kind, and door/button/chest use, are not covered: adventure mode is what stops the edits.
 // Residuals (disclosed): an adventure-mode bot can still use doors, buttons and chests at world spawn for the ~70 ms
 // before the teleport (its inventory is empty, its cognitive loop not started; the reflex layer has no block-use calls);
-// the launch mutex is per host (markers and claims are on the lock host); markers from another host are never swept,
-// only reported (and they hold the default at adventure until removed by hand).
+// markers from another host are never swept, only reported (they hold the default at adventure until removed by hand);
+// a fenced section on a worlds host that is down cannot run, so the driver refuses to start (and a cleanup leaves its
+// markers standing) rather than act unfenced; the RCON helper the sections call is /tmp/sbx-rcon.py on the worlds host.
 // WHAT IS SYNTHETIC, said so in every result row: the arena (a stone plain in a barrier box, the scene's lava/magma/campfire set
 // by RCON); the bot is staged on a dry stone pad in the box (a fresh bot is not burning; that is read back), healed
 // (instant_health + saturation), given its bag, then teleported to the scene's start pose. (r1/r2 rested it in a sunk 1x1
@@ -241,32 +247,19 @@ const inBox = p => Math.abs(p.x - (A.x + 0.5)) <= R + 0.5 && Math.abs(p.z - (A.z
 const killCmd = `kill @e[type=!player,${OWN}]`
 // ---------------------------------------------------------------- the join safeguard: the server's default game mode
 const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
-// the LOCK host (10.0.0.31) keeps the reboot-surviving state: adventure markers and arena claims under ~/mcai-sandbox-mode
-const LH = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=3', 'mike@10.0.0.31']
-/** Run fn holding `flock` on the lock host's ~/mcai-sandbox-mode/<server>.lock. The lock lives exactly as long as one SSH
- *  session (its remote `cat` reads our stdin): we end it by closing stdin; if this process dies, the session dies and the
- *  kernel releases the lock. Waits <= 180 s for it, then throws (nothing is done without it). */
-async function withHostLock (fn) {
-  const remote = `mkdir -p "$HOME/mcai-sandbox-mode" && exec flock -w 180 "$HOME/mcai-sandbox-mode/${SERVER}.lock" sh -c 'echo LOCKED; exec cat >/dev/null'`
-  const ch = spawn('ssh', ['-T', ...LH, remote], { stdio: ['pipe', 'pipe', 'pipe'] })
-  ch.on('error', () => {})
-  const got = await new Promise(resolve => {
-    let buf = ''
-    const t = setTimeout(() => resolve(false), 200_000)
-    ch.stdout.on('data', d => { buf += d; if (buf.includes('LOCKED')) { clearTimeout(t); resolve(true) } })
-    ch.on('exit', () => { clearTimeout(t); resolve(false) })
-  })
-  const release = async () => {
-    try { ch.stdin.end() } catch {}
-    for (let k = 0; k < 50 && ch.exitCode === null && ch.signalCode === null; k++) await sleep(100)
-    if (ch.exitCode === null && ch.signalCode === null) { try { ch.kill('SIGKILL') } catch {} }
-  }
-  if (!got) { await release(); throw new Error(`the host mode lock for ${SERVER} was not acquired`) }
-  try { return await fn() } finally { await release() }
+// the LOCK host (10.0.0.31) keeps the WARNING COPIES of the markers (what sbxlock.sh reads); the worlds host keeps the
+// authoritative markers, the arena claims and the lock
+const LH = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'mike@10.0.0.31']
+/** A FENCED section: `script` runs on the WORLDS host under flock on ~/mcai-sandbox-mode/<server>.lock, bounded there by
+ *  `timeout 50`; the holder of the lock is the process running the commands. -> its stdout (it must end with an OK line). */
+function fenced (script) {
+  const remote = `mkdir -p "$HOME/mcai-sandbox-mode" && flock -w 60 "$HOME/mcai-sandbox-mode/${SERVER}.lock" timeout 50 bash -s`
+  return execFileSync('ssh', [...SSH, remote], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 75000 })
 }
 const lh = script => execFileSync('ssh', [...LH, 'bash -s'], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 30000 })
 const HOSTNAME = os.hostname().replace(/[^A-Za-z0-9._-]/g, '_')
-const PSTART = Math.round(Date.now() / 1000 - process.uptime())
+// from `ps -o lstart` (the clock staleOwner compares against; Claude r6 P3-3), uptime arithmetic only as a fallback
+const PSTART = (() => { try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', timeout: 5000 }).trim()); if (Number.isFinite(t)) return Math.round(t / 1000) } catch {} return Math.round(Date.now() / 1000 - process.uptime()) })()
 const OWNER = `host=${HOSTNAME} pid=${process.pid} pstart=${PSTART} run=${NONCE}`
 /** The start time (epoch s) of a live pid on this host, or null. */
 function startOf (pid) {
@@ -287,40 +280,72 @@ const staleOwner = text => {
 function editRow (r) {
   const k = r?.skill?.name ?? '', d = `${r?.skill?.detail ?? ''}`
   if (k === '_lava_retreat' || k === '_marooned_self_sourced') return true
-  if ((k.startsWith('_marooned_') || k === '_escape_candidate') && /\b([1-9]\d*) adjacent block|\bblocks=([1-9]\d*)|\(([1-9]\d*)\/\d+ dug\)/.test(d)) return true
+  // Claude r6 P3-2: any successful `_marooned_*` row (ramp_cut with steps, underfoot's dig); `steps=N` and `N dug` read;
+  // `blocks=` dropped (in `_escape_candidate` it counts blocks HELD, not dug)
+  if (k.startsWith('_marooned_') && r?.skill?.status === 'success') return true
+  if ((k.startsWith('_marooned_') || k === '_escape_candidate') && /\b([1-9]\d*) adjacent block|\bsteps=([1-9]\d*)|\(([1-9]\d*)\/\d+ dug\)/.test(d)) return true
   return r?.skill?.status === 'success' && /dig|place|harvest|pillar|scaffold|tunnel|bridge|break/i.test(k)
 }
-function markers () {
-  const out = lh(`mkdir -p ${MDIR}; for f in ${MDIR}/*; do [ -f "$f" ] || continue; printf '%s\\t%s\\n' "$(basename "$f")" "$(head -c 300 "$f" | tr '\\n\\t' '  ')"; done; echo END`)
-  if (!/(^|\n)END\n?$/.test(out)) throw new Error('markers: no END line from the lock host')
+const nameOk = n => { if (!/^[a-z0-9]+$/.test(n)) throw new Error(`marker name ${n}`); return n }
+const listScript = dir => `mkdir -p ${dir}; for f in ${dir}/*; do [ -f "$f" ] || continue; printf '%s\\t%s\\n' "$(basename "$f")" "$(head -c 300 "$f" | tr '\\n\\t' '  ')"; done; echo END`
+const parseList = out => {
+  if (!/(^|\n)END\n?$/.test(out)) throw new Error('marker list: no END line')
   return out.split('\n').filter(l => l && l !== 'END').map(l => { const [name, text = ''] = l.split('\t'); return { name, text } })
 }
-const rmMarker = name => { if (!/^[a-z0-9]+$/.test(name)) throw new Error(`marker name ${name}`); lh(`rm -f ${MDIR}/${name}; [ ! -e ${MDIR}/${name} ] && echo GONE`) }
-/** The other markers on this server, split into stale (this host, pid gone) and live (or another host's). */
-function otherMarkers () {
-  const all = markers().filter(m => m.name !== NONCE)
-  return { stale: all.filter(m => staleOwner(m.text)), live: all.filter(m => !staleOwner(m.text)) }
-}
+/** The AUTHORITATIVE markers (worlds host; a read, unfenced: a stale judgement cannot be undone by a later write). */
+const wMarkers = () => parseList(execFileSync('ssh', [...SSH, 'bash -s'], { input: 'set -eu\n' + listScript(MDIR), encoding: 'utf8', timeout: 30000 }))
+const staleNames = () => wMarkers().filter(m => m.name !== NONCE && staleOwner(m.text))
+const MARK_TEXT = () => `adventure since ${new Date().toISOString()} by lavastep-e2e ${OWNER}`
 let registered = false
-function register () {
-  registered = true      // marked BEFORE the write: a lost acknowledgement still gets a removal attempt
-  const out = lh(`mkdir -p ${MDIR}; printf '%s\\n' 'adventure since ${new Date().toISOString()} by lavastep-e2e ${OWNER}' > ${MDIR}/${NONCE}; cat ${MDIR}/${NONCE}`)
-  if (!out.includes(OWNER)) throw new Error(`marker not written: ${out.slice(0, 120)}`)
+/** This run's markers, BEFORE any adventure default: the lock host's warning copy first, then (fenced) the authoritative
+ *  one; then the stale ones go (fenced), and their warning copies after. */
+function register (stale) {
+  registered = true      // marked BEFORE the writes: a lost acknowledgement still gets a removal attempt
+  const text = MARK_TEXT()
+  const c = lh(`mkdir -p ${MDIR}; printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; cat ${MDIR}/${NONCE}`)
+  if (!c.includes(OWNER)) throw new Error(`warning copy not written: ${c.slice(0, 120)}`)
+  const out = fenced(`mkdir -p ${MDIR}; printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; grep -q 'run=${NONCE}' ${MDIR}/${NONCE}; ${stale.map(n => `rm -f ${MDIR}/${nameOk(n)}; `).join('')}echo REGISTERED`)
+  if (!/(^|\n)REGISTERED\n?$/.test(out)) throw new Error(`marker not written: ${out.slice(0, 120)}`)
+  if (stale.length) lh(stale.map(n => `rm -f ${MDIR}/${nameOk(n)}; `).join('') + 'echo GONE')
+}
+/** The LAST-OUT restore, fenced: survival only when no marker but ours and the known-stale ones stands; the reply is
+ *  checked BEFORE any marker is deleted. -> 'RESTORED' | 'LEFT <names>'; throws on a failed restore (markers stay). */
+function restoreIfLast (stale) {
+  const keep = [NONCE, ...stale].map(nameOk)
+  const out = fenced(`d=${MDIR}; mkdir -p "$d"
+others=""; for f in "$d"/*; do [ -f "$f" ] || continue; n=$(basename "$f"); case " ${keep.join(' ')} " in *" $n "*) ;; *) others="$others $n";; esac; done
+if [ -n "$others" ]; then rm -f "$d/${NONCE}"; echo "LEFT$others"; exit 0; fi
+r=$(printf '%s\\n' 'defaultgamemode survival' | python3 /tmp/sbx-rcon.py ${SERVER} - 2>&1 || true)
+case "$r" in *"The default game mode is now Survival Mode"*) ;; *) echo "RESTORE_FAILED $(printf '%s' "$r" | tr '\\n' ' ' | head -c 200)"; exit 3;; esac
+${keep.map(n => `rm -f "$d/${n}"; `).join('')}echo RESTORED`).trim()
+  const last = out.split('\n').pop()
+  if (last === 'RESTORED') { lh(keep.map(n => `rm -f ${MDIR}/${n}; `).join('') + 'echo GONE'); return last }
+  if (last.startsWith('LEFT')) { lh(`rm -f ${MDIR}/${NONCE}; echo GONE`); return last }
+  throw new Error(`restore: ${out.slice(0, 200)}`)
 }
 let arenaClaimed = false
+/** The arena claim, fenced: mkdir, or a compare-and-swap of exactly the owner text this run judged stale. */
 function claimArena () {
-  for (let t = 0; t < 2; t++) {
-    const out = lh(`mkdir -p ${MROOT}/arenas; if mkdir ${ARENA} 2>/dev/null; then printf '%s\\n' '${OWNER} scene=${SCENE} slot=${SLOT} since ${new Date().toISOString()}' > ${ARENA}/owner; echo CLAIMED; else echo "HELD $(cat ${ARENA}/owner 2>/dev/null || echo '(no owner)')"; fi`).trim()
-    if (out === 'CLAIMED') { arenaClaimed = true; return }
-    if (t === 0 && staleOwner(out)) { P_(`WARNING: stale arena claim swept: ${out}`); lh(`rm -f ${ARENA}/owner; rmdir ${ARENA}`); continue }
-    throw new Error(`arena ${SERVER} ${A.x},${A.z} is claimed: ${out}`)
-  }
+  const own = `${OWNER} scene=${SCENE} slot=${SLOT} since ${new Date().toISOString()}`
+  let cur = ''
+  try { cur = execFileSync('ssh', [...SSH, `cat ${ARENA}/owner 2>/dev/null || true`], { encoding: 'utf8', timeout: 30000 }).trim() } catch {}
+  const expect = cur && staleOwner(cur) ? cur : ''
+  if (/'/.test(expect)) throw new Error(`arena owner text has a quote: ${expect.slice(0, 80)}`)
+  const out = fenced(`mkdir -p ${MROOT}/arenas
+if mkdir ${ARENA} 2>/dev/null; then printf '%s\\n' '${own}' > ${ARENA}/owner; echo CLAIMED
+else c=$(cat ${ARENA}/owner 2>/dev/null || true); if [ -n '${expect}' ] && [ "$c" = '${expect}' ]; then printf '%s\\n' '${own}' > ${ARENA}/owner; echo CLAIMED_STALE; else echo "HELD $c"; fi; fi`).trim()
+  if (out === 'CLAIMED' || out === 'CLAIMED_STALE') { arenaClaimed = true; if (out === 'CLAIMED_STALE') P_(`WARNING: stale arena claim taken over: ${expect}`); return }
+  throw new Error(`arena ${SERVER} ${A.x},${A.z} is claimed: ${out}`)
 }
 function releaseArena () {
-  const out = lh(`if grep -q 'run=${NONCE} ' ${ARENA}/owner 2>/dev/null; then rm -f ${ARENA}/owner; rmdir ${ARENA}; fi; [ -e ${ARENA} ] && echo "STILL $(cat ${ARENA}/owner 2>/dev/null)" || echo GONE`).trim()
+  const out = fenced(`if grep -q 'run=${NONCE} ' ${ARENA}/owner 2>/dev/null; then rm -f ${ARENA}/owner; rmdir ${ARENA}; fi; if [ -e ${ARENA} ]; then echo "STILL $(cat ${ARENA}/owner 2>/dev/null)"; else echo GONE; fi`).trim()
   if (out !== 'GONE') throw new Error(`arena claim: ${out}`)
 }
+let markerGone = false   // set BEFORE the restore section runs: from then on this run's marker may not stand
 function setDefault (m) {
+  // Claude r6 P2-1: a trial resuming after the cleanup began (or after its marker went) must never re-send adventure,
+  // which would leave the default with no marker standing
+  if (m === 'adventure' && (stopping || markerGone || !registered)) throw new Fatal(`no adventure default: ${stopping ? 'the cleanup has begun' : markerGone ? "this run's marker may be gone" : 'not registered'}`)
   const want = m === 'adventure' ? 'Adventure' : 'Survival'
   const t = r1(`defaultgamemode ${m}`)
   if (t !== `The default game mode is now ${want} Mode`) throw new Error(`defaultgamemode ${m}: ${t || '(no reply)'}`)
@@ -453,8 +478,8 @@ async function trial (k) {
   brain.mode = 'status'; brain.gotoServedAt = null
   let b = null, tSurvival = null
   try {
-    // LAUNCH behind a confirmed server-side safeguard, and STAGE, all inside the per-server mode mutex
-    const st = await withHostLock(async () => {
+    // LAUNCH behind a confirmed server-side safeguard (setDefault('adventure') below), then STAGE
+    const st = await (async () => {     // no lock: see the header (a restore cannot follow a run's registration)
       setDefault('adventure')
       b = launch(k)
       let joined = false
@@ -482,7 +507,7 @@ async function trial (k) {
       const mode3 = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
       if (mode3 !== '0') { try { batch([`gamemode survival ${b.name}`]) } catch {} throw new Fatal(`force-gamemode: defaultgamemode flipped an online bot to mode ${mode3}; concurrent arms are unsafe on ${SERVER}`) }
       return { tJoin, joinMode, joinToStagedMs }
-    })
+    })()
     if (st.bad) return invalid(st.bad)
     const { tJoin, joinMode, joinToStagedMs } = st
     const servedAtJoin = brain.served
@@ -568,9 +593,14 @@ async function trial (k) {
     if (score == null) return invalid('the death score is unreadable at the end')
     // its mode at the end, dead or alive (a respawn keeps it): still survival, so nothing flipped it mid-trial (Claude r5
     // P3-2); after a death, it respawned inside the box (Claude r5 P3-7)
+    if (died) {   // the RESPAWN, seen (r6 Codex P2, Claude P3-4): positive health, at the staging pad, within 10 s
+      let pr = null
+      const atPad = p => Math.hypot(p.x - (REST.x + 0.5), p.z - (REST.z + 0.5)) <= 3 && Math.abs(p.y - REST.y) <= 2   // Claude r6 P3-4
+      for (let w = 0; w < 20; w++) { pr = probe(b.name); if (pr.ok && pr.hp > 0 && inBox(pr.pos) && atPad(pr.pos)) break; await sleep(500) }
+      if (!pr?.ok || !(pr.hp > 0) || !inBox(pr.pos) || !atPad(pr.pos)) return invalid(`after the death: no respawn seen inside the box (${pr?.why ?? JSON.stringify({ hp: pr?.hp, pos: pr?.pos })})`)
+    }
     const mEnd = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
     if (mEnd !== '0') return invalid(`mode ${mEnd} at the end of the observation, not survival`)
-    if (died) { const pr = probe(b.name); if (!pr.ok || !inBox(pr.pos)) return invalid(`after the death: not seen inside the box (${pr.why ?? JSON.stringify(pr.pos)})`) }
     let all = rowsOf(b)
     if (score > 0) for (let w = 0; w < 20 && !all.some(r => kind(r) === '_death' && tsOf(r) >= t0 - 200); w++) { await sleep(500); all = rowsOf(b) }
     const rows = all.filter(r => tsOf(r) >= t0 - 200)
@@ -627,16 +657,15 @@ async function main () {
   for (let k = 0; k < 30 && online().some(n => n.startsWith(prefix)); k++) await sleep(2000)
   if (online().some(n => n.startsWith(prefix))) throw new Error('a bot of this run is still online: ' + online().join(','))
   P_(`root=${BOT_ROOT} sha=${sha} lavastep_build=${lavastepBuild} server=${SERVER} slot=${SLOT} scene=${SCENE} bag=${BAG} yaw=${YAW} trials=${TRIALS} secs=${SECS} arena=${A.x},${A.y},${A.z} nonce=${NONCE} objective=${OBJ}`)
-  // STARTUP, under the host lock: the arena CLAIM (before any world change), then this run's marker, then the stale ones
-  // go (this run's marker now stands for the adventure state)
-  await withHostLock(async () => {
-    claimArena()
-    if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
-    register()
-    const { stale, live } = otherMarkers()
-    for (const m of stale) { P_(`WARNING: stale adventure marker removed: ${SERVER}/${m.name}: ${m.text}`); rmMarker(m.name) }
-    for (const m of live) P_(`note: adventure marker of another driver on ${SERVER}: ${m.text}`)
-  })
+  // STARTUP: the arena CLAIM (fenced; before any world change), then this run's markers (fenced; before any adventure
+  // default), the stale ones going in the same section (this run's marker now stands for the adventure state)
+  claimArena()
+  if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
+  const before = wMarkers().filter(m => m.name !== NONCE)
+  const stale = before.filter(m => staleOwner(m.text))
+  register(stale.map(m => m.name))
+  for (const m of stale) P_(`WARNING: stale adventure marker removed: ${SERVER}/${m.name}: ${m.text}`)
+  for (const m of before.filter(m => !staleOwner(m.text))) P_(`note: adventure marker of another driver on ${SERVER}: ${m.text}`)
   setupBegan = true
   forceAdded = true      // marked BEFORE the add is sent: a lost acknowledgement must still get a removal
   batch([`forceload add ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`])
@@ -703,15 +732,13 @@ async function cleanupOnce () {
   if (registered) {
     // the LAST driver to leave restores survival FIRST (confirmed), and only then deletes markers: a kill in between
     // leaves a marker, never a silent adventure default
-    ok = await step('default mode', () => withHostLock(async () => {
-      const { stale, live } = otherMarkers()
-      if (live.length) { rmMarker(NONCE); P_(`cleanup: default mode left to ${live.map(m => m.text).join(' | ')}`); return }
-      setDefault('survival')
-      for (const m of stale) rmMarker(m.name)
-      rmMarker(NONCE)
-    })) && ok
+    markerGone = true
+    ok = await step('default mode', () => {
+      const r = restoreIfLast(staleNames().map(m => m.name))
+      if (r.startsWith('LEFT')) P_(`cleanup: default mode left to the markers${r.slice(4)}`)
+    }) && ok
   }
-  if (arenaClaimed) ok = await step('arena claim', () => withHostLock(async () => releaseArena())) && ok
+  if (arenaClaimed) ok = await step('arena claim', () => releaseArena()) && ok
   if (setupBegan) {   // printed whether or not RCON still answers (Claude r5 P2-A)
     let who = '(online unknown)'; try { who = online().join(',') } catch {}
     P_(ok ? 'cleanup ok' : 'cleanup INCOMPLETE', who)
