@@ -228,12 +228,15 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
     cur = me
     epCells.add(row.origin.join())
     let resvGen = null
+    // ENDED DURING ITS OWN SETUP (a synchronous unwind inside reserve/stopDigging/haltPath asked moving() while the check
+    // failed): release what was taken and stop -- no dig stop, no path halt (the dig could be the rescue's own), no timer,
+    // no control writes (Claude code r3 P3-4, r4 P3-3)
+    const fenced = () => { if (!me.ended) return false; if (resvGen != null) { try { runner.releaseReservation?.(resvGen) } catch {} } return true }
     try { resvGen = runner.reserve?.('lavastep', T.move, 'danger_block')?.gen ?? null } catch {}
+    if (fenced()) return
     try { if (bot.targetDigBlock) bot.stopDigging() } catch {}
     haltPath(bot)
-    // ENDED DURING ITS OWN SETUP (a synchronous unwind inside reserve/stopDigging/haltPath asked moving() while the check
-    // failed): release what was taken and stop here -- no timer, no control writes (Claude code r3 P3-4)
-    if (me.ended) { if (resvGen != null) { try { runner.releaseReservation?.(resvGen) } catch {} } return }
+    if (fenced()) return
     const owns = () => cur === me && !me.ended && !me.check()
     const reasonNow = () => me.ended ?? (cur !== me ? 'superseded' : me.check() ?? 'done')
     const setCtl = (name, v) => {
@@ -441,8 +444,11 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         if (r === 'lost') return 'lost'
         if (r === 'ok') return `${reason}_plan`
         if (ob.kase !== 'in') return `${reason}_plan_missed`
-        // a missed `in` step goes straight to the aimed escape, as in the decision's own plan (Codex code r2 P2)
-        const a = await runAim(observeHere(), 'in_step_missed')
+        // a missed `in` step goes straight to the aimed escape, as in the decision's own plan (Codex code r2 P2) -- unless
+        // the step has already carried the bot out of danger (an overshoot onto stone: Claude code r4 P2-1)
+        const ob2 = observeHere()
+        if (!ob2.kase) return `${reason}_plan_missed_safe`
+        const a = await runAim(ob2, 'in_step_missed')
         return a === 'lost' ? 'lost' : `${reason}_plan_missed_aim`
       }
       const a = await runAim(ob, reason, 'replan')
@@ -467,9 +473,13 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         if (r === 'lost') return end(reasonNow())
         if (r === 'ok') outcome = 'plan'
         else if (kase === 'in') {        // a missed `in` step goes straight to the aimed escape (no waiting for the next firing)
-          const a = await runAim(observeHere(), 'in_step_missed')
-          if (a === 'lost') return end(reasonNow())
-          outcome = 'plan_missed_aim'
+          const ob2 = observeHere()
+          if (!ob2.kase) outcome = 'plan_missed_safe'   // ...unless it already carried the bot out of danger (Claude code r4 P2-1)
+          else {
+            const a = await runAim(ob2, 'in_step_missed')
+            if (a === 'lost') return end(reasonNow())
+            outcome = 'plan_missed_aim'
+          }
         } else outcome = 'plan_missed'   // `edge`: the move ends; the next firing re-classifies
       } else if (kase === 'edge' && dec.seal?.ok) {
         const s = await runSeal(dec.seal)
