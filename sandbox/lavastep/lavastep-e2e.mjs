@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r3 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r4 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
 // /api/chat shape, as sandbox/sandbox-brain.mjs) so the cognitive loop, the watchdog and the reflex layer run as on the fleet.
-// The brain answers `status` (an instant skill) until the trial's release; in scene `busy` it switches to `goto` across the
-// pool once the bot is staged, and the bot is released while that goto runs (exposure is then PROVEN per trial from the
-// build's own goto row: started after the switch and before the release, ended after it, aborted on danger_block; the busy
-// result is reported on the exposed trials only). The danger arm -- today's blind sprint on a base build, the verified move on
+// The brain answers `status` (an instant skill) until the trial's release; in scene `busy` it switches to `goto` once the
+// bot is staged, and the bot is released while that goto runs. busy is an AWAY-DIRECTED goto (its target lies in the far
+// corner, away from the pool). EXPOSURE is proven per trial from the build's own goto row alone: started after the switch
+// and before the release, ended after it (driver review r3, Codex P2: exposure must not depend on what happens after the
+// release). Whether the danger arm cut it is reported separately, as an outcome. The busy result counts every exposed trial. The danger arm -- today's blind sprint on a base build, the verified move on
 // a lavastep build -- is the only thing that differs. LAVASTEP is removed from the child's environment on both arms.
 // A FRESH BOT PER TRIAL with a per-run nonce in its name: no death site, hunger, cooldown or episode history carries over.
 //
@@ -16,6 +17,13 @@
 // skills, watchdog relocations, reflexes, scaffolds -- reaches outside it. The arena is rebuilt BEFORE the bot is launched;
 // the bot is moved into the box the moment it appears in `list` (before its cognitive loop starts, 5 s after spawn), and its
 // respawn point is set inside the box (the staging pad), so a death respawns it there too.
+// BEFORE THE TELEPORT THE BOT CANNOT EDIT ANYTHING (driver review r3, Codex P1: its reflexes start at spawn, before the
+// cognitive loop): every trial bot is a NEW player (a per-run nonce in its name) and joins in ADVENTURE mode, which the
+// server enforces (no block breaking or placing). The queue script sets `defaultgamemode adventure` while none of its bots is
+// online, and restores survival after both drivers have exited; this driver never changes it (a change while the other
+// slot's bot is mid-trial could flip that bot under force-gamemode). The joined bot's mode is READ BACK in the same round
+// trip as the teleport into the box: anything but adventure, or staging later than 5 s after the join was seen, makes the
+// trial INVALID. Only once it is in the box does it get `gamemode survival`.
 // WHAT IS SYNTHETIC, said so in every result row: the arena (a stone plain in a barrier box, the scene's lava/magma/campfire set
 // by RCON); the bot is staged on a dry stone pad in the box (a fresh bot is not burning; that is read back), healed
 // (instant_health + saturation), given its bag, then teleported to the scene's start pose. (r1/r2 rested it in a sunk 1x1
@@ -28,13 +36,17 @@
 // back after the teleport. Any setup or RCON error inside a trial makes that trial INVALID, never a measurement.
 // OUTCOMES FROM THE WORLD (r2 Codex P1-2): every 0.5 s a COMPLETE probe (position, health, fire ticks, the run's deathCount
 // score; all four must parse, else it is a gap; 6 gaps in a row, or > 10% gaps, make the trial INVALID). A DEATH needs
-// affirmative evidence: the server's deathCount score (a per-run objective) -- cross-checked with the build's `_death` row
-// and health 0; any disagreement is INVALID. A position outside the box with no death is INVALID ("left arena"). After the
+// affirmative evidence: the server's deathCount score (a per-run objective) AND the build's `_death` row, which must agree
+// (else INVALID); health 0 is recorded as supporting evidence only (a 0.5 s probe can miss it before the respawn). A position outside the box with no death is INVALID ("left arena"). After the
 // window the probe goes on until the fire is out; still burning 20 s later = CENSORED (reported, not counted). A `_death` row
 // or a death score before the release is INVALID.
 // GUARDS: the run refuses an arena whose chunks are already force-loaded (another run on this server/slot); it records the
-// server's tick time (mspt) per trial; every trial is appended to <out>/trials.jsonl as it finishes; the cleanup restores the
-// arena, removes the forceload (retried and verified) and the objective, each independently, and closes the SSH master.
+// server's tick time (mspt) before the release and every ~5 s through the observation, and the release time; every trial is
+// appended to <out>/trials.jsonl as it finishes; the cleanup restores the arena, then RECONCILES the forceload and the
+// objective (each marked as attempted BEFORE its add is sent, so a lost acknowledgement still gets a removal; removal is
+// retried and verified absent), each independently, and closes the SSH master (verified; a failure makes the exit status 3).
+// RESIDUAL (disclosed): the two arms on one server are concurrent, not synchronised; slots are counterbalanced across
+// servers, and release times and mspt are recorded so drift and lag can be read off.
 //
 //   node sandbox/lavastep/lavastep-e2e.mjs <botRoot> <label> <scene> [server] [trials] [seconds]
 //   scenes (feet level y = A.y; the floor A.y-1; every pool SUNK into the floor so no lava flows over open ground):
@@ -109,7 +121,7 @@ const OK = [
   [/^fill /, /^(Successfully filled \d+ block|No blocks were filled)/],
   [/^setblock /, /^(Changed the block at|Could not set the block)/],
   [/^tp /, /^Teleported /],
-  [/^gamemode /, /^(Set .*game mode to|)$/],
+  [/^gamemode survival /, /^(Set \S+'s game mode to Survival Mode|)$/],   // r4 smoke: the full reply ("... to Survival Mode")
   [/^clear \S+$/, /^(Removed \d+ item|No items were found)/],
   [/^effect give /, /^Applied effect/],
   [/^effect clear /, /^(Removed every effect|Target has no effects to remove)/],
@@ -325,9 +337,20 @@ async function trial (k) {
     for (let w = 0; w < 160; w++) { await sleep(250); if (online().includes(b.name)) { joined = true; break } if (b.child.exitCode !== null) break }
     if (!joined) return invalid('the bot did not join')
     const tJoin = Date.now()
-    batch([`tp ${b.name} ${REST.x + 0.5} ${REST.y} ${REST.z + 0.5}`, `spawnpoint ${b.name} ${REST.x} ${REST.y} ${REST.z}`, `gamemode survival ${b.name}`, `clear ${b.name}`])
+    // the joined mode is read in the SAME round trip as the teleport into the box
+    const stg = [`data get entity ${b.name} playerGameType`, `tp ${b.name} ${REST.x + 0.5} ${REST.y} ${REST.z + 0.5}`, `spawnpoint ${b.name} ${REST.x} ${REST.y} ${REST.z}`]
+    const stgr = rcon(...stg)
+    if (stgr.length !== 3 || stgr.some((x, i) => x.cmd !== stg[i])) return invalid('staging: replies do not match the commands')
+    const joinMode = dataOf(stgr[0])
+    if (joinMode !== '2') return invalid(`joined in mode ${joinMode}, not adventure: confinement before staging is not guaranteed`)
+    if (!/^Teleported /.test(stgr[1].reply) || !/^Set spawn point to/.test(stgr[2].reply)) return invalid(`staging: ${stgr[1].reply} | ${stgr[2].reply}`)
+    const joinToStagedMs = Date.now() - tJoin
+    if (joinToStagedMs > 5000) return invalid(`staging took ${joinToStagedMs} ms after the join was seen`)
     const staged = probe(b.name)
     if (!staged.ok || !inBox(staged.pos)) return invalid(`not staged: ${staged.why ?? JSON.stringify(staged.pos)}`)
+    batch([`gamemode survival ${b.name}`, `clear ${b.name}`])
+    const mode2 = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
+    if (mode2 !== '0') return invalid(`staged but mode ${mode2}, not survival`)
     const servedAtJoin = brain.served
     for (let w = 0; w < 60 && brain.served === servedAtJoin; w++) await sleep(250)    // the cognitive loop is running
     if (brain.served === servedAtJoin) return invalid('no decision within 15 s of joining')
@@ -371,6 +394,7 @@ async function trial (k) {
     const yaw = YAW === 'cycle' ? ((s.yaw + 45 * (k % 8) + 540) % 360) - 180 : s.yaw
     const tpCmd = `tp ${b.name} ${A.x + s.x} ${A.y + s.y} ${A.z + s.z} ${yaw} 0`
     const t0 = Date.now()
+    const releasedAt = new Date(t0).toISOString()
     const rel = rcon(tpCmd, `data get entity ${b.name} Pos`, `data get entity ${b.name} Rotation`)
     if (rel.length !== 3 || rel[0].cmd !== tpCmd || !/^Teleported /.test(rel[0].reply)) return invalid(`release tp: ${rel[0]?.reply}`)
     const sp = /^\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]$/.exec(dataOf(rel[1]) ?? ''), sr = /^\[(-?[\d.]+)f, (-?[\d.]+)f\]$/.exec(dataOf(rel[2]) ?? '')
@@ -380,6 +404,7 @@ async function trial (k) {
     const dYaw = Math.abs((((startYaw - yaw) % 360) + 540) % 360 - 180)
     if (dYaw > 2) return invalid(`start rotation not taken: ${startYaw} vs ${yaw}`)
     // OBSERVE: the window, then until the fire is out (<= 20 s more), no rest, no heal; every probe complete or a gap
+    const obsMspt = []
     let minHp = pre.hp, died = false, hp0 = false, burned = 0, last = null, deathAt = null, gaps = 0, run = 0, probes = 0, censored = false, left = null
     const until = t0 + SECS * 1000
     for (let phase = 0; phase < 2 && !died; phase++) {
@@ -388,6 +413,7 @@ async function trial (k) {
       while (Date.now() < end) {
         await sleep(500)
         const p = probe(b.name); probes++
+        if (probes % 10 === 0) { const m = mspt(); if (m) obsMspt.push(m.avg5s) }
         if (!p.ok) { gaps++; run++; if (run >= 6) return invalid(`observation gap: ${run} probes in a row (${p.why})`, { gaps, probes }); continue }
         run = 0
         minHp = Math.min(minHp, p.hp)
@@ -415,13 +441,14 @@ async function trial (k) {
     if (censored) return invalid('censored: still burning 20 s after the window', { censored: true, minHp })
     const firstDanger = rows.filter(r => kind(r) === '_reflex_danger_block').map(tsOf).sort((a, c) => a - c)[0] ?? null
     const standOffFirst = rows.some(r => kind(r) === '_lava_adjacent_stand_off' && (firstDanger == null || tsOf(r) <= firstDanger))
-    // busy EXPOSURE: the brain's goto (its args), stamped at its START (after the switch, before the release), ended after
-    // the release, aborted on danger_block
-    let gotoCut = null
+    // busy EXPOSURE, by the goto's span alone: the brain's goto (its args), stamped at its START (after the switch, before the
+    // release) and ended after the release. Whether the danger arm cut it is an OUTCOME, reported apart (gotoDangerCut).
+    let gotoSpan = null, gotoDangerCut = null
     if (SCENE === 'busy') {
-      gotoCut = all.some(r => kind(r) === 'goto' && r.skill?.args?.x === DEF.goto.x && r.skill?.args?.z === DEF.goto.z &&
-        tsOf(r) >= brain.gotoServedAt - 500 && tsOf(r) < t0 && tsOf(r) + (r.skill?.duration_ms ?? 0) >= t0 &&
-        r.skill?.status !== 'success' && /danger_block/.test(`${r.trigger ?? ''} ${r.skill?.detail ?? ''}`))
+      const spans = all.filter(r => kind(r) === 'goto' && r.skill?.args?.x === DEF.goto.x && r.skill?.args?.z === DEF.goto.z &&
+        tsOf(r) >= brain.gotoServedAt - 500 && tsOf(r) < t0 && tsOf(r) + (r.skill?.duration_ms ?? 0) >= t0)
+      gotoSpan = spans.length > 0
+      gotoDangerCut = spans.some(r => r.skill?.status !== 'success' && /danger_block/.test(`${r.trigger ?? ''} ${r.skill?.detail ?? ''}`))
     }
     let endCell = null, endHazard = null
     if (!died) {
@@ -434,11 +461,11 @@ async function trial (k) {
       trial: k, name: b.name, scene: SCENE, bag: BAG, yaw, died, deathAtMs: deathAt, deathEvidence: { score, row: deathRow, hp0 }, minHp,
       endHp: died ? null : last.hp, endFire: died ? null : last.fire, burnedHalfSeconds: burned, probes, gaps, start, startYaw,
       end: died ? null : last.pos, endCell, endOnHazard: endHazard && endHazard.length ? endHazard : null,
-      fired: firstDanger != null, dangerRows: rows.filter(r => kind(r) === '_reflex_danger_block').length, masked: standOffFirst, gotoCut,
+      fired: firstDanger != null, dangerRows: rows.filter(r => kind(r) === '_reflex_danger_block').length, masked: standOffFirst, gotoSpan, gotoDangerCut,
       licence: all.some(r => kind(r) === '_lavastep_mode' && /on=1/.test(r.skill?.detail ?? '')),   // written at spawn, before t0
       retreats: retreats.map(a => ({ case: a.case, outcome: a.outcome, path: (a.path || []).join('>'), ended: a.ended, seal: a.seal?.witnessed ?? null, aim: a.aim?.chosen ?? null })),
       deathMsg: rows.filter(r => kind(r) === '_death').map(r => String(r.skill?.detail ?? '').slice(0, 120)),
-      mspt: tick, joinToReleaseMs: t0 - tJoin, busyPre,
+      mspt: { pre: tick, obsAvg5s: obsMspt, obsMax: obsMspt.length ? Math.max(...obsMspt) : null }, releasedAt, joinMode, joinToStagedMs, joinToReleaseMs: t0 - tJoin, busyPre,
     }
     P_('TRIAL', res)
     return res
@@ -458,8 +485,10 @@ async function main () {
   // another run on this server and slot holds the same arena: refuse rather than share it
   if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
   setupBegan = true
-  batch([`forceload add ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`]); forceAdded = true
-  batch([`scoreboard objectives add ${OBJ} deathCount`]); objAdded = true
+  forceAdded = true      // marked BEFORE the add is sent: a lost acknowledgement must still get a removal
+  batch([`forceload add ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`])
+  objAdded = true
+  batch([`scoreboard objectives add ${OBJ} deathCount`])
   await sleep(1500)
   await startBrain()
   const results = []
@@ -474,17 +503,18 @@ async function main () {
   const valid = results.filter(r => !r.invalid)
   const unmasked = valid.filter(r => !r.masked)
   const sum = list => { const n = list.length, ok = list.filter(r => !r.died).length, un = list.filter(r => !r.died && r.minHp >= 18).length; return { n, survived: ok, survival_ci95: wilson(ok, n), unhurt: un, unhurt_ci95: wilson(un, n) } }
-  const exposed = SCENE === 'busy' ? valid.filter(r => r.gotoCut) : null
+  const exposed = SCENE === 'busy' ? valid.filter(r => r.gotoSpan) : null
   const yaws = YAW === 'cycle' ? Object.fromEntries([...new Set(valid.map(r => r.yaw))].sort((a, c) => a - c).map(y => [y, { n: valid.filter(r => r.yaw === y).length, survived: valid.filter(r => r.yaw === y && !r.died).length }])) : null
-  const ms = valid.map(r => r.mspt?.avg5s).filter(x => x != null).sort((a, c) => a - c)
+  const ms = valid.flatMap(r => [r.mspt?.pre?.avg5s, ...(r.mspt?.obsAvg5s ?? [])]).filter(x => x != null).sort((a, c) => a - c)
   const summary = { at: new Date().toISOString(), label: LABEL, scene: SCENE, bag: BAG, yawMode: YAW, sha, lavastep_build: lavastepBuild, server: SERVER, slot: SLOT, nonce: NONCE,
     trials: results.length, invalid: results.filter(r => r.invalid && !r.censored).map(r => `${r.trial}:${r.invalid}`), censored: results.filter(r => r.censored).map(r => r.trial),
     valid: sum(valid), unmasked: sum(unmasked), masked: valid.length - unmasked.length, fired: valid.filter(r => r.fired).length, licence: valid.filter(r => r.licence).length,
-    gotoCut: exposed ? exposed.length : null, busy_exposed: exposed ? sum(exposed) : null, by_yaw: yaws,
+    gotoSpan: exposed ? exposed.length : null, gotoDangerCut: exposed ? exposed.filter(r => r.gotoDangerCut).length : null,
+    busy_exposed: exposed ? sum(exposed) : null, by_yaw: yaws,
     median_min_hp: valid.map(r => r.minHp).sort((a, c) => a - c)[Math.floor(valid.length / 2)] ?? null,
     mspt_avg5s: ms.length ? { median: ms[Math.floor(ms.length / 2)], max: ms[ms.length - 1] } : null,
     outcomes: Object.entries(valid.flatMap(r => r.retreats.map(x => x.outcome)).reduce((m, o) => (m[o] = (m[o] || 0) + 1, m), {})),
-    synthetic: 'arena by RCON in a closed barrier box; a fresh bot per trial, staged on a dry pad in the box on join, healed + fed, given the scene bag, teleported to the start pose (all verified); scripted in-process brain (status; busy: goto, released mid-goto)' }
+    synthetic: 'arena by RCON in a closed barrier box; a fresh bot per trial, staged on a dry pad in the box on join, healed + fed, given the scene bag, teleported to the start pose (all verified); joined in adventure mode (no edits before staging); scripted in-process brain (status; busy: an away-directed goto, released mid-goto)' }
   fs.appendFileSync(RES, JSON.stringify({ ...summary, results }) + '\n')
   P_('SUMMARY', summary)
 }
@@ -508,10 +538,18 @@ async function cleanupOnce () {
     // each independently: a failed restore never skips the forceload removal or the objective
     ok = await step('restore', () => { batch([killCmd, ...restoreCmds()]); if (!isBlock(A.x - R, A.y, A.z, 'air') || !isBlock(A.x, A.y - 8, A.z, 'stone')) throw new Error('restore not read back') }) && ok
     if (forceAdded) ok = await step('forceload', () => { try { batch([`forceload remove ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`]) } catch (e) { P_('forceload remove', e.message.slice(0, 120)) } if (forced().some(Boolean)) throw new Error('still force-loaded') }) && ok
-    if (objAdded) ok = await step('objective', () => batch([`scoreboard objectives remove ${OBJ}`])) && ok
+    // the objective's name carries this run's nonce, so removing it never touches another run's
+    if (objAdded) ok = await step('objective', () => {
+      const t = r1(`scoreboard objectives remove ${OBJ}`)
+      if (!/^(Removed objective|Unknown scoreboard objective)/.test(t)) throw new Error(`objective remove: ${t}`)
+      const l = r1('scoreboard objectives list')
+      if (!/^There are/.test(l) || l.includes(`[${OBJ}]`)) throw new Error(`objective still listed: ${l.slice(0, 120)}`)
+    }) && ok
     try { P_(ok ? 'cleanup ok' : 'cleanup INCOMPLETE', online().join(',')) } catch {}
   }
-  try { execFileSync('ssh', [...SSH.slice(0, -1), '-O', 'exit', SSH[SSH.length - 1]], { stdio: 'ignore', timeout: 10000 }) } catch {}
+  // this process's SSH master: closed and verified gone (`-O check` fails once no master listens)
+  const sshCtl = op => { try { execFileSync('ssh', [...SSH.slice(0, -1), '-O', op, SSH[SSH.length - 1]], { stdio: 'ignore', timeout: 10000 }); return true } catch { return false } }
+  if (sshCtl('check')) { sshCtl('exit'); if (sshCtl('check')) { P_('cleanup: the SSH master is still running'); ok = false } }
   return ok
 }
 const finish = code => cleanup().then(ok => process.exit(ok ? code : 3))
