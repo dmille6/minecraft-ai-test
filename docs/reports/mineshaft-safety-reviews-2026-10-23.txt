@@ -1,0 +1,173 @@
+mineshaft-safety (design, branch mineshaft-safety-1023) -- REVIEW RECORD, 2026-10-23
+Doc: docs/reports/mineshaft-safety-2026-10-23.md. Codex: `codex exec --sandbox read-only - < prompt` with a
+( sleep 1500; kill ) watchdog. Claude: an independent general-purpose subagent, read-only, fresh context each round.
+
+====================================================================================================
+ROUND 1 (doc r1 @ cde81825): Codex CHANGE (11 P1, 5 P2, 1 P3); Claude CHANGE (6 P1)
+====================================================================================================
+--- Codex r1 (verbatim) ---
+1. **P1 — F1’s hold branch is not a safe, complete remedy (§7 F1, lines 585–646).** Clear feet with a dangerous block below does **not** establish solid footing: the bot may be falling over lava, standing on magma, or swimming above magma. The danger arm checks feet **OR below**, without checking support (`bots/src/reflex.mjs:2541–2556`). Sneaking cannot establish missing support, and the proposed hold has no deadline, release condition, or deterministic next action. Meanwhile, `inDanger` suppresses other movement recovery (`reflex.mjs:3035,3342`). Define supported-edge, falling, submerged, and solid-hot-floor cases separately; bound the hold and test control cleanup, skill unwind, and watchdog reservation contention. The proposed chain test also excludes `hold` from its allowed outcomes despite explicitly introducing it.
+
+2. **P1 — F1 verifies a trail destination, not a traversable retreat (§7 F1, lines 573–583).** A safe, supported cell among the last 40 samples may be behind a corner, above a drop, obstructed, or too far away. Turning toward it and holding forward does not retrace the trail. `cellLavaSafe` checks nearby lava; it does not establish body clearance or connectivity (`bots/src/lavaguard.mjs:10–18`). Require a bounded, currently verified sequence of moves, including headroom, support and swept geometry. Define how an in-lava retreat exempts the hazardous origin while validating the remaining route.
+
+3. **P1 — F2’s “exit” can be a sealed chamber, and its promised fixtures do not meet its thresholds (§7 F2, lines 650–705).** More than 24 reachable cells or a cell five blocks away proves room to move, not an exit. A sealed corridor satisfies `far`; an enclosed room satisfies `count`. Conversely, the supplied tunnel fixture extends only three cells, and the stair fixture only two; neither has sky, sufficient distance, or 25 reachable cells (`measure/probe-entombed.mjs:18–26`). F2 therefore cannot deliver its stated results on those fixtures. Its stuck backstop is also conditional: idle, digging and declared-stationary bots reset the timer (`bots/src/reflex.mjs:3339–3342`), and G1 misses healthy trapped bots. Define the intended escape endpoint, deterministically select the route when needed, and test enclosed-room, short-corridor and one-way-drop counterexamples.
+
+4. **P1 — F4’s seal is not yet executable from the specified position (§7 F4, lines 742–765).** “Replaceable lava cell” and “body overlaps no lava” do not establish a reachable placement face, unobstructed interaction, safe footing, sufficient blocks, or a safe approach. Lava behind the next solid head/feet cell may be inaccessible before that cell is opened—the exact ordering the design requires. Specify the placement reference, face, reach, approach and resource checks; an inaccessible seal must turn or stop without opening the barrier. Revalidate before **each** dig, re-dig, placement and movement, rather than only before the step’s first dig. Existing mining performs multiple asynchronous digs and a recovery re-dig (`bots/src/skills.mjs:13021–13025,13148–13158`); poolescape already explicitly requires fresh hazard checks at the swing (`docs/reports/poolescape-01-design-2026-10-22.md:113–115`).
+
+5. **P1 — F4’s return remedy is advisory, and `surface` does not walk the recorded stair (§7 F4, lines 809–815; §7 F6).** Returning a failure naming `surface` does not cause the next decision to execute it. Current `surface` probes altitude goals, can use digging movements, and can invoke `shaftAscend`; it has no certificate-following branch (`bots/src/skills.mjs:15369–15373,15401–15427`). A stop on the first step also has no stair cut by this call. Implement a deterministic return executor and test it from initial refusal, partial descent, depleted resources, zone/keepout restrictions and interrupted execution. Make that executor a prerequisite for granting return credit.
+
+6. **P1 — F6’s debt formula does not price the remaining unverified escape (§7 F6, lines 819–869).** With a certified stair from y=63 to −53, `y_top − y` remains 116: essentially today’s debt, despite the claimed zero-dig return. With a stair starting in an enclosed cave at y=−40, the formula can instead grant substantial credit without proving any route from that cave to safety. The prior shaft certificate certified the landing-to-collar route and collar exit, not merely arrival at an arbitrary top (`docs/reports/ziggurat-mineshaft-2026-10-15.md:783`). Define debt as the unverified remainder beyond a certified safe endpoint, and explicitly specify the separate scaffold and swing policies. “Failed revalidation → today’s debt” is not necessarily safe after earlier credit has already allowed those reserves to be spent.
+
+7. **P1 — F6’s certificate is weaker than the T6 certificate it cites (§7 F6, lines 826–835).** `canDig=false` does not mean zero-place: the walk profile allows towers and scaffold placement (`bots/src/index.mjs:426–450`). F6 also records stair cells but does not require recording/revalidating every node of an alternative probe route or applying the execution-time corridor guard. That guard can reject an otherwise planned route (`index.mjs:1026–1033`; `oretunnel.mjs:83–102`). Use T6’s explicit zero-break/zero-place profile and validate the entire executable return route. Clarify coordinates too: the proposed “tread solid” conflicts with the existing tread/feet cell being opened for occupancy; its supporting floor is a distinct cell (`skills.mjs:14458–14464`). Specify certificate extension across calls—the current mine loop stops after 90 steps (`skills.mjs:12818`).
+
+8. **P1 — The proposed correctness gates cannot be computed from the proposed rows (§7 F1/F4/F6).**
+   - F1 records neither trail candidates nor sampled geometry nor actual sprint/jump controls, yet G1–G3 require them (lines 595–616).
+   - F4 records lava cells and aggregate counts, but not per-dig observations, placement material/reference, or push geometry needed by G1–G3 (lines 774–789).
+   - F6 records a validity conclusion and node count, not the certificate nodes and block observations needed to independently recompute validity (lines 840–856).
+
+   Add bounded structured evidence, operation/certificate IDs and timestamps, plus positive controls demonstrating that each gate detects an injected defect. Re-reading a decision’s own `valid` flag is not independent verification.
+
+9. **P1 — F5 can block escape, and its claimed input and loss instrumentation are incomplete (§7 F5, lines 873–910).** Hard exclusions around remembered lava need an outward-egress rule for bots already inside them, including certificate returns and `keepout_exit`. “Pick another gather target” does not remedy a blocked goto-home or return stair. Specify stale-sighting invalidation after sealing or world changes, and bounded recovery when every target is excluded. Several named input rows do not contain lava coordinates: danger logs only a block name, while stand-off/no-retreat details omit the hazard cell (`bots/src/reflex.mjs:2530,2538,2554`). World-facts contention can skip writes (`bots/src/worldfacts.mjs:185,190–197`); the design does not identify the asserted loss counter or a retry/reconciliation mechanism.
+
+10. **P1 — The diamond job lacks enforceable admission, return and resource invariants (§8, lines 939–979).** “At most 2 … a soft preference” does not enforce M8’s cap. A town-wide stair needs an atomic, recoverable occupancy lease covering descent **and ascent**, including renewals, expiry, disconnects and returning miners. The stated 400-use admission budget does not cover its own example of approximately 351 descent digs plus 200 branch digs; pooled uses also do not reserve an iron-or-better pickaxe for diamonds. Define per-action budgets, food/recovery supplies, and a deterministic return from branches and ore approaches to the stair. The certificate currently covers staircase steps only, yet any lava retreat ends the job and may leave that route.
+
+11. **P1 — “Own stair and branches” does not yet establish the diamond tier’s fall-safety exemption (§3, §8, O4).** F4 checks lava but leaves ordinary void handling “as today.” Today the fall probe permits survivable drops rather than requiring a supported, reversible stair (`bots/src/skills.mjs:12931–12950`). A cut can therefore open into a cave and lose the walk-up invariant. Require verified support and reversible movement for every deep-miner step, branch and ore approach before dismissing falls as an independent workstream. This strengthens M7/M9 without changing either owner decision.
+
+12. **P2 — The lava measurement labels and causal claims exceed what the scripts compute (§§0, 2.3–2.4).**
+   - `d4.py:28` correctly labels nonhazard feet as **hazard below**, not lava below. The row cannot distinguish lava, magma or another `DANGER_BLOCKS` member underneath; `bubble_column` is the feet block, not the below block.
+   - Its conversion window is 20 seconds after the episode’s **first** row (`d4.py:30`), not after any firing or episode end. Later deaths can be labelled “survived.”
+   - `d3.py:34–38` only examines mine/gather skills starting within 60 seconds. Longer-running digs are missed even when their execution overlaps the last 30 seconds. Thus 16 is not an established upper bound on dig-exposed deaths.
+   - “Seen” means a warning somewhere in the preceding 150-second context, without matching the warned cell to the fatal hazard.
+   - `d5.py:25–31` selects the first observed health below 20 in the final 12 seconds, without requiring a preceding full-health observation; that is not necessarily first damage.
+
+   Rename these measures precisely, fix execution-interval matching and episode censoring, and separate temporal association from the claim that the reflex was the last mover.
+
+13. **P2 — Entombment prevalence is supported; resolved episodes, causal dominance and time cost are not (§4).** `e1.py:26` implements the stated proximity/gap grouping, but it does not split on death, respawn or observed recovery. “Cleared” is merely absence of a matched death/unrecoverable row; unrecoverable matching actually extends 60 seconds past the episode (`e1.py:66–69`). Summed spans can include successful intervening activity, so they are not a demonstrated lower bound on entombed time (`e1.py:88`). Multiplying interrupt count by a median from another window likewise does not measure incremental time lost. The supplied scripts contain no implementation of the 20,000-point baseline or the 17/17 climb association. Supply those analyses, control for bot/world clustering, and qualify “dominant cause” and the 3–6% fleet-time estimate.
+
+14. **P2 — Depth rates are a mismatched exposure proxy, not an estimated deep-miner lifetime (§§0, 3, 8).** `es3.py:20–30` assigns an entire ten-minute bucket using its **event-weighted** average height; `d6.py:17–22` assigns deaths by final height. A brief fatal fall can add a deep death without corresponding deep exposure. The caveat is present, but “dies roughly every 2.6 bot-hours” and its use to quantify M7’s alternative overstate what follows. Report the proxy association or recompute time-weighted, pre-death exposure. Also remove the claim that the measurements do not depend on board-a/placebo-a: the extraction scripts include all pools (`es1.py:5`, `es3.py:17`), and the document itself attributes ten deep deaths to placebo-a.
+
+15. **P2 — F3’s ghost trigger cannot reach its stated ghost action, and its fallback can create another hazard (§7 F3).** A client-air ghost with no nearby falling entity fails the proposed trigger, so “send the dig action anyway” is unreachable (lines 725–729). Digging the feet and stepping down also requires verified support, lava/fall checks and an executable movement; `overheadBreakRisk` alone does not establish those. “Existing arms keep the body” is not a remedy when those arms cannot observe the in-wall condition. Keep F3 investigation-only until the trigger, ownership, server witness and complete fallback chain are demonstrated.
+
+16. **P2 — Single-variable and tier claims need narrower registration (§7).** F5 changes both routing exclusions and explore-target selection; F6 adds torch placement independently of exit credit. Split those effects or explicitly justify an inseparable intervention. F1/F2 are plausible tier-2 candidates only after strong Paper evidence exists; a pure-function boundary or “one conjunct” is insufficient. Spell out the tier-2 conditions—four pools, ≥48 bot-hours, declared exposure, clean baseline, no WATCH/HOLD and the required licence—rather than implying +180 follows from high firing counts. F1 appropriately acknowledges low fleet power, but requiring 20-trial constructed scenes to reproduce observational 10%/49% conversion rates is not a sound positive control; demonstrate the failure mechanism and report trial uncertainty.
+
+17. **P3 — Correct internal counts and reproduction details.** The summary says 77 idle deaths and 302 clear-feet episodes, while §2 reports 81 and 303. `es5.py:17` writes `entomb7d.json`, whereas `e1.py:4` reads `entomb7d.json.gz`; document the missing compression step. The JSON inputs are not included, so this checkout supports auditing the calculations but not independently reproducing the reported totals. Finally, “pathfinder never steps into lava” should describe its planning checks, not guarantee physical execution; the document itself identifies execution failures.
+
+VERDICT: CHANGE
+
+--- Claude r1 ---
+Claude (independent general-purpose subagent, read-only), r1 on cde81825. Verbatim findings:
+
+The code facts in section 9 hold (escape() reflex.mjs:5948; danger arm and its `feet?.name ?? below?.name`
+detail 2541-2559; isEntombed geometry 3391-3442; fall probe counting lava as hollow, skills.mjs:12931-12951; lava
+checks on the ceiling neighbours only, 12957-12967; the push with no hazard check, 13146-13181; the swing formula,
+exit-contract.mjs:109-113 with SEA_LEVEL 63; the pathfinder lines). The probe reproduces all six results. The problems
+are in the fix designs and in some of the counting.
+
+P1-1 §7 F1: the sneak-hold is a new dead end. While feet or below are DANGER the danger arm fires every 2.5 s and
+  calls runner.interrupt('danger_block') (reflex.mjs:2552-2557); the movement arms stand down on inDanger. A bot
+  holding with no retreat cell can run no skill and no arm moves it -- permanent. `air` feet over a danger block also
+  happens to a bot in mid-air, and 32 of the deaths were falls into lava. Require onGround, bound the hold, give it a
+  working exit; chain-test S3 through the next decision.
+P1-2 §7 F1: trail cells are never checked for reachability. "Newest lava-safe supported cell in the last 40" has no
+  height or line check; the swept-line check applies only to the cardinal option. After a fall the trail is blocks up.
+  Allow only cells one walk step away (|dy| <= 1) with stepLineSafe/holdForwardSafe on the line.
+P1-3 §7 F1/F4: the gates cannot be computed from the rows. _lava_retreat once per episode while the arm fires every
+  2.5 s; no swept cells, candidates or control states (G1-G3 unrecomputable). _mine_lava holds counts, nothing about
+  pushes (G2) or the placed item (G3). F4 G1 checks the planner against its own row: circular. Under tierrule.py an
+  undefined line blocks a tier-2 KEEP. List the fields each row needs.
+P1-4 §7 F6: the debt formula leaves out the climb above the certificate. max(0, y_top - y) treats the top as the
+  surface, but a certificate starts where the mine call started -- often underground (target bands 16..47 hold 27k
+  calls). Correct debt is descentPickNeed(y_top) + 0 for the stair. Also: how does a certificate chain across calls?
+P1-5 §7 F6: credit can leave a deep bot with no way home, and widens deep exposure. Swing refusals come from worn
+  pickaxes; credit lets them descend; a later failed revalidation stops descent with the bot already deep and short of
+  swings -- "get a pickaxe" at y=-40 is not executable. Keep a swing floor with credit and turn back while swings
+  still cover the climb. Also: expecting fleet-wide time below y=0 to rise conflicts with M8; limit credit to the
+  deep_miner job or a certified town stair, or ask the owner.
+P1-6 §7 F4+F5+F6: remembered lava blocks the stair home. F5 writes _mine_lava cells and blocks their 4 cardinals with
+  no clearing on a later clear read; F4 seals lava beside the stair's cells; the seals then exclude the stair's own
+  cells; F6's walk-only probe and the walk up both fail. A live read must clear a memory cell, sealed cells are
+  recorded as sealed (or not at all), and no exclusion covers a certified cell.
+
+P2: §2.3/d3.py "seen" includes _reflex_danger_block `lava` rows and corridor refusals planned from inside lava (the
+  3-10 s bucket is mostly "already in lava"; the 60 at >= 10 s holds up; classify by health and feet cell); d3.py:34
+  drops skills started > 60 s before death, so 16 is not an upper bound. §2.4/d4.py: air/cave_air feet means any
+  DANGER block below, including a supported magma floor; bubble_column is the feet cell; relabel; F1's `over` must
+  check the below name. §0.2/§4.1 "mostly the predicate misreading" is from hand-built fixtures; the stair fixture is
+  2 high while descentStepCells opens `above`, so a mine-cut stair reads false; soften, or log what walkExit would
+  decide at each firing. F2: via=sky with climbNeedAbove=0 cannot happen (returns >= 1 or the cap, reflex.mjs:369);
+  "does not touch maroonState" is false (isEntombed feeds entombedNow 2634-2641 and escape success 3264; test it);
+  G1 "health falling" misses a healthy bot behind a false exit -- use no displacement; a sealed 6-long tunnel or a
+  sealed 30-cell cave passes far/count -- chain-test through surface. Licences: tierrule.py:103 accepts only `kind`
+  or `text`, not "mechanism"; F2 names none and its primary is a rate, so "+180 KEEP realistic" fails; name kind
+  licences. F4 seal geometry: lava beside an unopened cell shows no face the bot can see; say which block and face,
+  and whether it opens then plugs inside the flow delay; S1 must use the real placement path. F4 is about five
+  changes under one flag (a bundle); magma in LAVA_LIKE makes the stair turn from a diggable cell; flowing lava is
+  still named `lava` (no flowing-variant gap). F6: a straight 117-step stair leaves loaded chunks (use a spiral or a
+  loaded-only rule); surface climbs by pathfinding to a height (skills.mjs:15371), not along the certificate; protect
+  the town stair from other bots' digs. F5 is three changes; the target filter is the part aimed at 61/84 and could
+  move earlier. §8 branches need a horizontal planner including breaking into a cave or void below; D0 should count
+  water. Unscripted numbers: 164/276, 51.9%, 17/17, falls breakdown, "77 idle"; the 52% base is for entombed, the
+  claim says "entombed or marooned"; 0.52^17 assumes independence.
+
+P3: 302 vs 303; 77 vs 81 idle; "81 of 84 bots" should be deaths; the 141,921/142,886 are _explore_toward_known rows
+  against explore rows; the falls breakdown sums to 82; milestone ratios use decisions not bot-time; the "every 2.6
+  deep bot-hours" headline needs §3's caveats; §13's review file does not exist yet; §8 "mined only from above"
+  contradicts "never dig down onto it"; the second miner's wait needs a timeout; natural obsidian under the ore rule
+  is mostly unminable (ruined portals are the realistic source); F3 must take the body grant; F1's trail ring should
+  clear on respawn or relocation.
+
+The order F1 -> F2 -> F4 -> F6 -> F5 is sound once P1-6 is fixed; the diamond tier should also wait for the F6 swing
+floor.
+
+VERDICT: CHANGE
+
+--- r1 -> r2 response (doc r2) ---
+Codex P1-1 / Claude P1-1 (F1 hold dead end): hold removed. Cases airborne / edge / in, by onGround and feet+below
+  names; edge with no verified step -> witnessed seal -> aimed escape; in -> aimed escape. Bounded, every branch moves.
+Codex P1-2 / Claude P1-2 (trail reachability): trail removed; stepPlan BFS <= 3 walk steps, every cell read now,
+  |dy| <= 1, lavaStandOff's swept 3-wide line, only the in-lava origin exempt.
+Codex P1-3 / Claude P2 (F2 false exit, fixtures): endpoint is now a free cell the bot occupied in the last 120 s
+  (isEntombed false there), >= 3 away, reachable by walk-profile moves in <= 64 nodes; two declines per cell per
+  10 min then today's arm; counterexamples (TOMB, sealed-behind tunnel, one-way drop) must stay entombed; G1 uses
+  no displacement, not health.
+Codex P1-4 / Claude P2 (seal geometry): seal only lava VISIBLE from an already-open cell, against a named solid
+  reference face within reach and line of sight, from a solid DANGER-free stand; hidden lava -> turn, never
+  open-then-plug; planner re-run before every dig, re-dig, place and move.
+Codex P1-5 (advisory remedy): F4 now carries a deterministic in-call return (walk the call's own stand cells up on a
+  zero-break zero-place profile), else relocate, else refusal from the call's start cell.
+Codex P1-6 / Claude P1-4 (debt formula): debt = exitDebt(top) (today's contract at the certificate top) + 0 for the
+  stair; certificates chain across calls from the bottom stand cell.
+Claude P1-5 / Codex P1-6 (no way home after credit; M8): swing floor exitDebt(top)+30 and 16 seal blocks always
+  kept; failure after credit -> walk the valid part, re-dig within the floor, then surface; credit below y=0 only
+  under a deep_miner lease (off until cooperation-1023 ships it) -- owner question O7.
+Codex P1-7 (certificate weaker than T6): explicit zero-break zero-place probe profile (no towers/scaffold/parkour,
+  maxDropDown 1), probe nodes through corridorSafe, cells named (feet, head, above, floor), 90-step chaining.
+Codex P1-8 / Claude P1-3 (gates not computable): every row now carries structured args (logger args field):
+  F1 per firing with plan cells, swept names, controls, seal, after-state; F4 per-action faces/seal/push;
+  F6 cells_read and probe_path; every gate has a mutant positive control.
+Codex P1-9 / Claude P1-6 (F5 blocks escape; inputs; losses): F5 split; F5a uses the bot's own coordinate-bearing rows
+  only, target choice only; F5b live re-read clears loaded non-DANGER cells, egress for bots inside (first 6 nodes),
+  never covers certified cells / keepout_exit / home goals, one downgrade re-plan, write retries + skipped counter.
+Codex P1-10 (diamond job invariants): atomic per-town lease (max 2) + a separate stair mutex with expiry; per-action
+  budgets; a reserved iron-or-better pickaxe for ore; budgets for first cut vs certified stair; deterministic
+  end/return including after an F1 move.
+Codex P1-11 (fall-safety for deep miners): reversible-step rule in F6 (solid non-falling floor, one step-up back) and
+  branches never open into air/caves (turn).
+Codex P2-12 / Claude P2 (measurement labels): d7.py -- warnings exclude danger rows, cell-matched (65; 44 >= 10 s);
+  dig by interval overlap (16, not an upper bound); episodes censored at last+20 s (31/303, 32/65, 4/44); first
+  damage after a full-health row (79/84); "hazard below" relabelled; association, not causation, stated.
+Codex P2-13 / Claude P2 (entombment stats): e2.py -- split at deaths (61,538); per-bot base rates; suffocation 17/17
+  vs 8.7 expected (P ~ 1e-5 illustrative; 8 of 17 in hive-d); climbs >= 3 in 10 of 17 (not "each"); "cleared"
+  renamed; spans not a lower bound; interrupt cost labelled an estimate; "mostly the predicate" softened.
+Codex P2-14 / Claude P3 (depth proxy): pre-death-y binning added (bottom band 9 deaths, 23/100 bh); the "every 2.6
+  bot-hours" line removed; board-a/placebo-a statement corrected (included; judged unaffected).
+Codex P2-15 (F3): investigation-only until a mechanism reproduces; trigger must reach it; body grant; fallback with
+  verified support.
+Codex P2-16 / Claude P2 (variables, tiers, licences): F5 split; torches moved out of F6 into the deep-miner
+  procedure; F4 declared a bundle with the reason; tier-2 conditions spelled out (tierrule.py:84-108); licences of
+  class kind named; Paper positive control is the mechanism, with intervals.
+Codex P3-17 / Claude P3: counts reconciled (81 idle, 303); reproduce notes the gzip step and that JSON is
+  regenerated; "pathfinder plans no step into lava" (planning only); magma-as-turn reasoned; flowing-lava gap
+  removed; climbNeedAbove claim removed; obsidian -> ruined portals; second-miner wait times out; "from above"
+  contradiction removed.
+
