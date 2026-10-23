@@ -244,3 +244,19 @@ cleanup, P3s). r4 changes the READ, the DRIVER and tests only -- no bot source:
   carries the server; the brain port defaults per server; a failed spawn ends the scene.
 - Tests: the dirty mark's own effect asserted after the took mark (P3-3); `more=fe+` asserted (P3-4); an abort during the
   error exit's bank is rethrown as interrupted, with a mutant (P3-4).
+
+## 8. Review round 4 (r5)
+
+Codex r4: A CHANGE (3 P2 in the read), B **APPROVE** (the three stacked tips' diffs byte-identical to 21f766d3..93932abf),
+C CHANGE (1 P2: the driver's oracle let an unparseable item read as empty). r5 changes the read and the driver only:
+- The world DiD uses PAIRED pools only (evidence in both periods; the excluded are named); a pool with no container known at
+  both ends of a period is unavailable, never a zero change; the pickup summaries past END are used only to explain gains
+  (no population, bot-hours or counts). Host md5 7e77cb4e; dry run 10-23 (board-a,placebo-a, base, 120 min): 13 pools paired,
+  none excluded; G1-G4 0.
+- The driver: a slot that answered with data must parse to an item with a count, the ground's items too, else the scene stops.
+  Re-run 10-23 16:16-16:24Z with the strict driver (sandbox5 base 6e1afb52, sandbox6 candidate 21f766d3 = the same bot code as
+  93932abf): candidate iron / scattered / mixed **CANDIDATE_PASS**, base iron / scattered / mixed **BASE_SHAPE**.
+
+The Claude r4 confirmation review could not run: the reviewing subagent stopped on the account's weekly API limit (resets
+10-26). Claude's last verdicts stand at round 3: A APPROVE, B APPROVE, C CHANGE (its P2-1, the cleanup on a refused lock, is
+fixed in r4 and confirmed by Codex r4: "Cleanup gating ... present").
