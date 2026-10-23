@@ -20,6 +20,13 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 MAN=/srv/mcbots/trial-manifest.json
 fail() { echo "!! STOPPED: $*"; exit 1; }
+# the GUARDED rollback text, one place (Codex light r2 P3): never redeploy over a declared canary or onto a stale base
+rollback_text() {
+  echo "   ROLLBACK: FIRST confirm no canary is declared (canary_pool empty in $MAN; tear any down in THREE steps), and that"
+  echo "   ${BASE:0:8} is still the build to return to (a later promotion makes it stale); then"
+  echo "   sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh $BASE furnaceseen-01-rollback \"furnaceseen-01 rollback\""
+  echo "   (the one-setting alternative without a code redeploy: FURNACE_SEEN=off in the fleet env)"
+}
 case "$MODE" in --check) ;; --go) [ -n "$SHA" ] || fail "usage: $0 --go <sha>";; *) echo "usage: $0 --check | --go <sha>"; exit 2;; esac
 [ "$(hostname)" = block2-bots ] || fail "run on 10.0.0.31 (block2-bots), not $(hostname)"
 case "$REPO" in /opt/minecraft-ai*) fail "run from a checkout outside /opt/minecraft-ai (a deploy resets that tree)";; esac
@@ -44,14 +51,15 @@ release() {   # the hold is OURS only (holdtoken releases nothing else); a faile
 trap release EXIT          # registered BEFORE the claim, for --check and --go alike (Codex light r1 P2-3)
 python3 "$HERE/holdtoken.py" claim "$TOKEN" 60 || fail "the scheduler slot is not free (holdtoken claim refused)"
 if [ "$MODE" = --check ]; then
-  echo "== CHECK PASSED: the slot was free (claimed; released on exit). Nothing deployed."
+  release; trap - EXIT             # released BEFORE the verdict is printed (Claude light r2 P3-1)
+  echo "== CHECK PASSED: the slot was free (claimed and released). Nothing deployed."
   exit 0
 fi
 NOTES="furnaceseen-01 OWNER-DIRECT (tier 1, cooperation tier B3; OWNER 10-23): the furnace drain skips the walk to a furnace a TOWNMATE found empty < 60 min ago (the town ledger, ledger-01) unless newer contrary evidence; order and skill share one pick; FURNACE_SEEN=off = the base. Tripwire furnaceseentrip.py (the replay check). Rollback = redeploy $BASE"
 T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh || fail "copy the deploy script"
 sudo /root/d.sh "$SHA" furnaceseen-01-direct "$NOTES"; RC=$?
-[ "$RC" = 0 ] || fail "deploy-fleet exited $RC (the hold is released on exit; read its output, and roll back with: sudo /root/d.sh $BASE furnaceseen-01-rollback \"furnaceseen-01 rollback\")"
+[ "$RC" = 0 ] || { echo "!! deploy-fleet exited $RC (the hold is released on exit; read its output)"; rollback_text; exit 1; }
 python3 - "$T0" "$SHA" "$BASE" <<'EOF' || fail "journal append"
 import json, sys
 t0, sha, base = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -66,7 +74,7 @@ if ! { mkdir -p "$HOME/mcai-analysis" && cp -p "$HERE/furnaceseentrip.py" "$HERE
        && cmp -s "$HERE/furnaceseentrip.py" "$HOME/mcai-analysis/furnaceseentrip.py" && cmp -s "$HERE/furnaceseenread.py" "$HOME/mcai-analysis/furnaceseenread.py"; }; then
   echo "!! THE TRIPWIRE WAS NOT INSTALLED (the deploy DID happen): copy it by hand --"
   echo "   mkdir -p ~/mcai-analysis && cp -p $HERE/furnaceseentrip.py $HERE/furnaceseenread.py ~/mcai-analysis/"
-  echo "   or roll back: sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh $BASE furnaceseen-01-rollback \"furnaceseen-01 rollback\""
+  echo "   or roll back --"; rollback_text
   exit 1
 fi
 echo "== TRIPWIRE (every 30-60 min; BREACH -> roll back):"

@@ -234,10 +234,14 @@ def selftest():
     keep, LOGS = LOGS, tempfile.mkdtemp()
     try:
         os.makedirs(os.path.join(LOGS, 'p-a-B')); os.makedirs(os.path.join(LOGS, 'p-a-C'))
-        open(os.path.join(LOGS, 'p-a-B', 'skill-1.jsonl'), 'w').write(json.dumps({'@timestamp': '2026-10-24T01:00:00Z', 'skill': {'name': '_furnace_drain', 'detail': 'stop=empty'}}) + '\n')
+        # logger.mjs logEvent's key order: @timestamp first, then bot: {name, ...} (JSON.stringify, compact)
+        open(os.path.join(LOGS, 'p-a-B', 'skill-1.jsonl'), 'w').write(json.dumps({'@timestamp': '2026-10-24T01:00:00Z', 'bot': {'name': 'p-a-B-x', 'pos': {'x': 1}},
+            'skill': {'name': '_furnace_drain', 'detail': 'stop=empty'}}, separators=(',', ':')) + '\n')
         open(os.path.join(LOGS, 'p-a-C', 'skill-1.jsonl.gz'), 'wb').write(b'not gzip at all')
-        un = []
-        got_rows = list(rows(since, 2, un))
+        un, sp = [], {'before': {}, 'after': {}}
+        got_rows = list(rows(since, 2, un, sp))
+        # the PRESENCE regexes against the logger's real row shape (Claude light r2 P3-2): a format change fails here, loudly
+        cases.append(('reader: presence spans read from the logger\'s row shape', 'x' if sp['after'].get('p-a-B-x') else 'y', 'x', sp))
         cases.append(('reader: a corrupt .gz is UNREADABLE, the good file still read', 'x' if (len(got_rows) == 1 and len(un) == 1 and un[0].endswith('.gz')) else 'y', 'x', (len(got_rows), un)))
     finally:
         LOGS = keep
