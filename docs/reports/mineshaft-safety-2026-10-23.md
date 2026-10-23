@@ -1,4 +1,4 @@
-# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r9)
+# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r10)
 
 OWNER 2026-10-23 ~12:40Z: "mineshaft safety (lava + entombment underground) -> diamonds -> enchanting". Earlier
 owner decision (10-19): "diamond after mineshaft safety". The owner answered M7-M10 at ~13:30Z (section 8).
@@ -14,7 +14,15 @@ placebo-a at 12:17Z, during this measurement. Its read belongs to the operator l
 canary. The 7-day window does include those two pools, and their last 2 h of rows ran the canary build. indexsearch
 changes a town-index search and touches no movement or mining path. That is a judgement, not a measured exclusion.
 
-**r9** takes in the r8 reviews. Both raised a P1 on the same thing: the wait on a protected peer could be unbounded,
+**r10** takes in the r9 reviews. Claude APPROVE. Codex CHANGE, one P1: an operator retiring a record could free the
+underground slot while its bot was still below.
+- **Occupancy is a fence of its own, separate from the job record.** It clears only when the bot is witnessed out, or
+  dead, or permanently removed.
+- **Admission is an explicit phase change under the lock**, with a gate.
+- **Reconnect fencing:** a bot that comes back with a stale record is told what to do.
+- **`obs_full` is retained immutably**, by hash.
+
+**r9** took in the r8 reviews. Both raised a P1 on the same thing: the wait on a protected peer could be unbounded,
 when the peer disconnects or keeps working.
 - **One deep miner underground per town at a time.** There are still at most 2 leases (M8), so two miners can share
   the job, but only one is ever below the stair top. A second miner is admitted to descend only after the first is
@@ -1158,8 +1166,8 @@ reflex armed, and with interrupted-return, zone and keepout variants.
 today's exit contract everywhere.
 
 **The stair.**
-- **Two lanes**, side by side, 3 high, cut together and **open to each other**. Bots can pass, and a blocked lane is
-  left for the other one after 20 s.
+- **Two lanes**, side by side, 3 high, cut together and **open to each other**. They are redundancy against breaks: a
+  lane blocked by an obstruction is left for the other one after 20 s.
 - **A spiral** inside a 10x10 footprint, turning every 8 steps, so it stays in loaded chunks near town.
 - **Every step is F4-planned and reversible.**
 - **Sited by D0, not by F4.** The stair is cut only where D0's survey of the exact route and its shell is clean
@@ -1317,8 +1325,11 @@ demand, which is why it is a residual and not "never worse".
   - `obs`: one class character per route cell, in route order. The gate replays the cell rules on this; it does not
     trust a verdict;
   - `lane`.
-- `_stair_cert_full`, once per generation and on any change: the full ordered route with each cell's rule, plus
-  `obs_full`, the block names of the whole protected footprint.
+- `_stair_cert_full`, once per generation and on any change: the full ordered route with each cell's rule, plus the
+  **hash** of `obs_full` and the cells that changed.
+  - `obs_full` itself (the block names of the whole protected footprint) is appended, immutably, to
+    `_pool-<pool>/deepstair-obs.jsonl`, keyed by hash.
+  - It is kept 14 days, so any generation can be replayed after the record has advanced or been retired.
 - `_exit_credit`, per credited action: `op`, `debt_old`, `debt_new`, `on_route`, `swings_left`, `blocks_left`,
   `floor`, `reserve`, `stale_n`, `lease`.
 - `_corridor_recompute`: `op`, `segments`, `trigger`, `result`.
@@ -1350,7 +1361,9 @@ demand, which is why it is a residual and not "never worse".
 *Positive controls that must pass G6:*
 - a branch extension;
 - a side-ore dig from the branch;
-- an ore-hole seal.
+- an ore-hole seal;
+- an `uncertified` bot's own exit dig;
+- a water flow into a lane, classed `env`.
 
 *Mutation observer.* At `bot.dig` and `_genericPlace`, every successful mutation is logged as `_envelope_mutation`:
 actor, skill or rung, purpose, cell, before and after, lease gen, authorized.
@@ -1360,8 +1373,12 @@ external edit.
 - A change seen while loaded is matched to a mutation row by its cell, within a ±2 s window, across all bots' rows.
 - A change made while the chunk was unloaded is found on reload, by diffing against `obs_full`. It is then matched
   against **every** mutation row for that cell over the whole unloaded interval, from the unload time to the reload.
-- `obs_full` holds the block names of the whole protected footprint, per certificate generation. It lives in the
-  record's own file. The row carries only its hash and the changed cells, to keep the log small.
+- `obs_full` holds the block names of the whole protected footprint, per certificate generation. It is retained
+  immutably by hash (Rows above). The row carries only its hash and the changed cells.
+- **An unmatched change is classed by its block names.**
+  - A cell that became air, or a placed block, with no mutation row: a G6 violation.
+  - A cell that became lava, water, gravel or sand (flow or a fall): an environment change, `_envelope_change
+    class=env`. It is not a G6 violation, but it triggers a break check at the next validation.
 
 *Positive control:* a shell-only mutation made while the chunk is unloaded must be seen.
 
@@ -1388,7 +1405,7 @@ dig the envelope.
 | F5b | never excludes envelope cells |
 
 **Refusal chain.** Validation failure, or no progress → walk up → repair → switch lanes → the universal handover. The
-handover walks the valid route, then runs today's chain, with the guard lifted (coordinated). The alarm fires only if
+handover walks the valid route, then runs today's chain, with the guard lifted for its own exit. The alarm fires only if
 today's chain gives up (O11).
 - An envelope-mutation refusal names `use_stair` only where a verified connection exists.
 - Otherwise it names "step away from the stair", and the rungs re-plan with the envelope excluded.
@@ -1501,11 +1518,35 @@ The evidence argues for the cap. The interface needed from cooperation-1023 foll
 (`gen`) that increments on every acquire.
 
 ```
-{ bot, gen, phase: descending | branch | ascending | out, work_expires, renewals }
+{ bot, gen, phase: waiting | descending | branch | ascending | uncertified | out, work_expires, renewals }
 ```
 
+**The occupancy fence**, separate from the record, kept in the same world-facts entry:
+
+```
+{ occupant_bot, occupant_gen, since }
+```
+
+**Admission.** `waiting → descending` is a single compare-and-set, made under the keepout pid lock, with a `gen` check.
+It succeeds only while the occupancy fence is **empty**. It then writes the fence.
+- Until it is admitted, a `waiting` leaseholder is treated as a **non-leaseholder**. The lane and branch exclusions
+  apply to it, and `deep_miner` declines at its start.
+- A model-chosen goto or explore therefore cannot walk it down the stair.
+
+**The fence clears only on:**
+- witnessed exit: the occupant is seen at or above the stair top, or for `uncertified` on the surface anywhere, with
+  `exitDebt` = 0;
+- the occupant's death;
+- an operator's **permanent removal** of that bot: its unit disabled, and its account no longer in the fleet, so it
+  cannot reconnect.
+
+**Retiring a record does not clear the fence.** The two are separate.
+
+**Gate.** At most 1 record underground at once, counted from `_deepmine` phase rows and positions. Any overlap is a
+defect.
+
 **The cap.** At most **2 records per town with phase ≠ `out`**. **At most 1 of them below the stair top.**
-- A second leaseholder's descent is admitted only when the other record is `out`, dead, or retired by an operator.
+- A second leaseholder's descent is admitted only when the occupancy fence is empty (see Admission).
 - A disconnected record keeps the underground slot, because absence is not exit. The second miner then does other
   work above ground. It is not underground, so it cannot be stranded by this.
 - An acquire that would make a third is refused. The cap is enforced, not a preference.
@@ -1521,12 +1562,18 @@ The evidence argues for the cap. The interface needed from cooperation-1023 foll
   cap until it is out.
 - **Disconnect.** The record stays; nothing expires it. On reconnect:
   - a bot whose record is certified and not `out` resumes as `ascending`, and runs `stairReturn` first;
-  - an `uncertified` record resumes `uncertified`, and runs today's chain. A bot whose record `gen` is stale (reassigned while it was away; possible
-  only if it died) acquires nothing and ascends.
+  - an `uncertified` record resumes `uncertified`, and runs today's chain.
+  - **A bot whose record is gone or retired, or whose `gen` is stale, and which is below the top** runs today's chain
+    as a non-leaseholder. It uses the evacuation profile, and its own exit is authorized.
+    - It is still the fence's occupant (retiring a record never clears the fence), so no other miner can have been
+      admitted.
+    - A record can be reassigned only after the fence has cleared. So a stale `gen` below the top means the bot was
+      permanently removed and came back anyway. That is a defect row, `_deepmine_fence_violation`, and the gate trips
+      on it.
 - **Absence is never evidence of exit.** A record that is not `out` stays in the cap until its bot is seen at or above
   the top, or dead.
   - After 24 h unseen, `_deepmine_stale` goes into the fleetstatus alarm header.
-  - Only an operator can retire a record, after confirming the bot is out or gone.
+  - Only an operator can retire a record. Retiring frees the job, not the underground slot.
 - **The cap key** is the town (world + town id), so multi-town worlds count each town apart.
 
 **Traffic.** Only one miner is underground, so there is no miner-to-miner traffic. The two lanes give redundancy
@@ -1811,11 +1858,14 @@ no other miner being underground.
 - With one miner underground at a time, no miner's escape can break another's route.
 - **The residual** is today's chain giving up (`uncertified_stranded`), which raises the alarm header.
 - **Under "do not change the world",** the person who sees the alarm can:
-  - retire the record;
-  - restart the bot's process;
-  - or, by the owner's decision, `/kill` the bot so it respawns.
+  - restart the bot's process, which leaves it where it is;
+  - by the owner's decision, `/kill` the bot so it respawns, which frees the fence by death;
+  - or permanently remove the bot, which also frees the fence.
 
-  They may not teleport it or edit the world.
+  Retiring the record alone frees the job, not the slot. The person may not teleport the bot or edit the world.
+- **Consequence:** while a stranded bot holds the fence, that town's deep mining is halted. The same holds for a
+  disconnected occupant, until it reconnects, or until the 24 h alarm and an operator act. This is deliberate. It is
+  what makes single occupancy safe.
 - In peaceful, a stranded bot neither starves nor is attacked.
 - **Recommend accepting the residual, with `/kill` left as the owner's call.**
 

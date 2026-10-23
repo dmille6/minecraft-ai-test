@@ -1027,3 +1027,78 @@ Claude P2-c (reload-diff matching): a change found on reload is matched against 
   the whole unloaded interval; obs_full is stored in the record's own file, rows carry its hash and changed cells.
 Claude P3: the ore-hole cobble seal is a guard exception and a G6 positive control. The G6 table cell (which had
   broken the markdown table with embedded paragraphs) is now one line, with "G6 evidence" below the table.
+
+====================================================================================================
+ROUND 9 (doc r9 @ 0cc787ae): Codex CHANGE (1 P1, 1 P2); Claude APPROVE (0 P1, 2 P2, 3 P3)
+====================================================================================================
+--- Codex r9 (verbatim) ---
+Reviewed `0cc787ae` read-only. I interpret “resolved in r2” as “resolved in r9.” References below are to `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+| Round 8 finding | R9 disposition |
+|---|---|
+| My P1 and Claude’s P1: unbounded peer wait | **Resolved for normal operation and disconnects.** The second miner waits above ground; disconnected records retain occupancy (`1507–1510`). Retirement introduces the separate hole below. |
+| My P2: mutations race with peer movement | **Resolved under single occupancy.** Concurrent underground work is deferred to O13 (`1822–1826`). No movement synchronization is needed while that invariant holds. |
+
+1. **P1 — Retirement can release the underground slot while its former occupant remains underground (§8 M8; §11 O11).**
+
+   Admission explicitly permits the second miner to descend when the first record is **retired** (`1508`). O11 offers **retiring the record** as a response to `uncertified_stranded`, separately from restarting or killing the bot (`1812–1816`). Neither retirement nor process restart establishes that the stranded bot has left.
+
+   This contradicts the new justification for removing coordination: the first bot’s exit mutations are unrestricted because “no other miner is underground” (`1293–1295`). Its later recovery or reconnect can now overlap the replacement miner. The reconnect rule says stale generations are possible “only if it died” (`1522–1525`), overlooking retirement.
+
+   **Required:** separate job retirement from physical occupancy. Retiring a stranded record must retain the occupancy fence until witnessed exit/death, or require permanent removal with reconnect fencing. Reconcile O11’s retirement remedy with M8’s exit requirement. Chain-test retirement and restart of a stranded miner while another requests descent. The accepted stranding residual itself is not the objection; the newly claimed absence of concurrency is.
+
+2. **P2 — G6’s new hash-only logging needs retained historical observations (§7 F6, G6 evidence).**
+
+   R9 moves `obs_full` into the record’s own file and logs only its hash and changed cells (`1361–1364`). It does not specify retaining the referenced generations after replacement or retirement. A hash cannot reconstruct the protected footprint and previous block names needed to replay reload differences.
+
+   The earlier row specification still promises full `obs_full` in `_stair_cert_full` (`1320–1321`), so the two descriptions also conflict.
+
+   Specify immutable, retrievable observations keyed by generation/hash, or retain full observations in the evidence stream. Verify replay after the live record has advanced and been retired.
+
+The six entombment probe results reproduced. Synthetic execution of `d8.py` verified cross-life attribution and right-censoring. The principal code claims match the source. Production measurement totals remain unverified because their JSON inputs are absent. No additional P1 emerged in F1–F5, sequencing, tiers, or the diamond/enchanting sketch; M7–M10 remain respected.
+
+VERDICT: CHANGE
+
+--- Claude r9 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r9 on 0cc787ae. Condensed:
+
+R8 disposition: Claude P1, P2-a, P2-b resolved (r9 removes the class); P2-c resolved; P3s resolved; Codex P1-1 mostly
+(reconnect fencing misstated); Codex P2-2 resolved.
+
+No P1.
+P2-1 §8 cap: "at most 1 below the stair top" is stated but not enforced: no phase for an unadmitted leaseholder;
+  admission is not a deep_miner start precondition; confinement starts only below the top; the 1000 lane exclusion
+  applies only to non-leaseholders, so a model goto/explore could walk a waiting leaseholder down. Make admission a
+  phase change under the keepout pid lock with a gen check; treat an unadmitted leaseholder as a non-leaseholder; gate
+  on simultaneous underground records. A breach falls back to r7's stated residual, so P2.
+P2-2 §8 Disconnect: "a stale gen is possible only if it died" is false once an operator retires a disconnected record
+  and the slot is reassigned -- the old bot can reconnect underground with the new miner down there. Retire only when
+  confirmed gone for good, or a stale-gen reconnect below the top runs the evacuation profile as a non-leaseholder and
+  the new admission accounts for it.
+P3-1 leftover two-miner text ("Bots can pass", "(coordinated)", the enum lacks `uncertified`).
+P3-2 G6 reload diff: unmatched changes from another client's loaded chunk (flow, fall) -- classify by block names or
+  G6 trips falsely; add a positive control for an uncertified bot's own exit.
+P3-3 O11/O13: a stranded uncertified bot keeps the town's only underground slot until retired, halting that town's
+  deep mining; a disconnected record does the same.
+M8 respected as leases; turn-taking underground is put to the owner as O13 (a flag, not a finding). M7, M9, M10,
+tiers, one canary at a time unaffected.
+
+VERDICT: APPROVE
+
+--- r9 -> r10 response (doc r10) ---
+Codex P1-1 / Claude P2-2 (retirement frees the slot; reconnect fencing): occupancy is now its own fence
+  {occupant_bot, occupant_gen, since}, separate from the job record; it clears only on witnessed exit, death, or the
+  operator's PERMANENT removal of the bot (unit disabled, account out of the fleet); retiring a record frees the job,
+  never the slot. A reconnecting bot below the top with a gone/retired/stale record runs today's chain as a
+  non-leaseholder on the evacuation profile (its own exit authorized); since it still holds the fence, no other miner
+  can have been admitted; a stale gen below the top after permanent removal is a defect row
+  (_deepmine_fence_violation). O11 now lists restart (stays), /kill (frees by death, owner's call) and permanent
+  removal (frees), and states that a stranded occupant halts that town's deep mining.
+Claude P2-1 (admission not enforced): phase `waiting`; waiting -> descending is a single compare-and-set under the
+  keepout pid lock with a gen check that succeeds only with an empty fence and writes it; an unadmitted leaseholder is
+  a non-leaseholder (lane/branch exclusions apply; deep_miner declines); gate: at most 1 record underground.
+Codex P2-2 (obs_full retention): obs_full appended immutably to _pool-<pool>/deepstair-obs.jsonl keyed by hash, kept
+  14 days; _stair_cert_full carries the hash and changed cells (the earlier conflicting text removed).
+Claude P3: enum gains waiting and uncertified; "Bots can pass" and "(coordinated)" removed; unmatched reload/blockUpdate
+  changes are classed by block names (air or a placed block with no row = G6 violation; lava/water/gravel/sand =
+  `env`, a break check, not a violation); positive controls add an uncertified own-exit dig and a water flow.
