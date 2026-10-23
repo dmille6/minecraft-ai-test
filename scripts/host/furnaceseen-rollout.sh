@@ -38,13 +38,15 @@ python3 -B "$HERE/furnaceseenread.py" --selftest --golden "$REPO/bots/test/fixtu
   || { cat /tmp/fseenread-selftest.$$; fail "the replay's selftest (the golden table) failed"; }
 echo "== replay selftest: $(tail -1 /tmp/fseenread-selftest.$$)"; rm -f /tmp/fseenread-selftest.$$
 TOKEN="furnaceseen-01-$$-$(date +%s%N)"
+release() {   # the hold is OURS only (holdtoken releases nothing else); a failed release is loud and fails the run
+  python3 "$HERE/holdtoken.py" release "$TOKEN" || { echo "!! the scheduler hold $TOKEN could NOT be released: run  python3 $HERE/holdtoken.py release $TOKEN"; exit 1; }
+}
+trap release EXIT          # registered BEFORE the claim, for --check and --go alike (Codex light r1 P2-3)
 python3 "$HERE/holdtoken.py" claim "$TOKEN" 60 || fail "the scheduler slot is not free (holdtoken claim refused)"
 if [ "$MODE" = --check ]; then
-  python3 "$HERE/holdtoken.py" release "$TOKEN"
-  echo "== CHECK PASSED: the slot was free (claimed and released). Nothing deployed."
+  echo "== CHECK PASSED: the slot was free (claimed; released on exit). Nothing deployed."
   exit 0
 fi
-trap 'python3 "$HERE/holdtoken.py" release "$TOKEN"' EXIT
 NOTES="furnaceseen-01 OWNER-DIRECT (tier 1, cooperation tier B3; OWNER 10-23): the furnace drain skips the walk to a furnace a TOWNMATE found empty < 60 min ago (the town ledger, ledger-01) unless newer contrary evidence; order and skill share one pick; FURNACE_SEEN=off = the base. Tripwire furnaceseentrip.py (the replay check). Rollback = redeploy $BASE"
 T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh || fail "copy the deploy script"
@@ -59,8 +61,17 @@ row = {'ts': t0, 'run': 'furnaceseen-01', 'phase': 'owner-direct',
                % (sha[:8], base[:8], t0, sha[:8], base[:8])}
 open('/home/mike/canary-journal.jsonl', 'a').write(json.dumps(row) + '\n')
 EOF
-mkdir -p "$HOME/mcai-analysis" && cp -p "$HERE/furnaceseentrip.py" "$HERE/furnaceseenread.py" "$HOME/mcai-analysis/"
 echo "== DEPLOYED ${SHA:0:8} fleet-wide at $T0; journalled phase owner-direct."
+if ! { mkdir -p "$HOME/mcai-analysis" && cp -p "$HERE/furnaceseentrip.py" "$HERE/furnaceseenread.py" "$HOME/mcai-analysis/" \
+       && cmp -s "$HERE/furnaceseentrip.py" "$HOME/mcai-analysis/furnaceseentrip.py" && cmp -s "$HERE/furnaceseenread.py" "$HOME/mcai-analysis/furnaceseenread.py"; }; then
+  echo "!! THE TRIPWIRE WAS NOT INSTALLED (the deploy DID happen): copy it by hand --"
+  echo "   mkdir -p ~/mcai-analysis && cp -p $HERE/furnaceseentrip.py $HERE/furnaceseenread.py ~/mcai-analysis/"
+  echo "   or roll back: sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh $BASE furnaceseen-01-rollback \"furnaceseen-01 rollback\""
+  exit 1
+fi
 echo "== TRIPWIRE (every 30-60 min; BREACH -> roll back):"
 echo "   cd ~/mcai-analysis && nice -n 19 python3 furnaceseentrip.py --since $T0 --version ${SHA:0:8}"
-echo "== ROLLBACK: sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh $BASE furnaceseen-01-rollback \"furnaceseen-01 rollback\""
+echo "== ROLLBACK: FIRST confirm no canary is declared (canary_pool empty in $MAN; tear any down in THREE steps), and that"
+echo "   ${BASE:0:8} is still the build to return to (a later promotion makes it stale); then"
+echo "   sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh $BASE furnaceseen-01-rollback \"furnaceseen-01 rollback\""
+echo "   (the one-setting alternative without a redeploy of code: FURNACE_SEEN=off in the fleet env)"
