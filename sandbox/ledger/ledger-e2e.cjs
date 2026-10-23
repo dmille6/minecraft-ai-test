@@ -38,7 +38,8 @@ const exactly = (r, s) => sameSlot(r.in, s.in) && sameSlot(r.fuel, s.fuel) && sa
 /**
  * A record's slots `r` vs the server's `s` -> { verdict: 'exact' | 'timing' | 'fail', k, why }. Pure.
  * timing (only when allowTiming): k >= 0 cooking steps, input -k (same item), output +k of RECIPE[input], fuel used f with
- * 0 <= f <= floor(k / burn items) + 1 (one item ignites the furnace), and something actually moved (k > 0 or f > 0).
+ * 0 <= f <= floor(k / burn items) + 1 (one item ignites the furnace) AND enough burn for the k steps: f x burn items, plus at
+ * most one item's worth of residual burn when the record shows the furnace LIT (Codex r1 P2-7), and something moved.
  */
 function parity (r, s, { allowTiming = false } = {}) {
   if (exactly(r, s)) return { verdict: 'exact', k: 0 }
@@ -57,7 +58,11 @@ function parity (r, s, { allowTiming = false } = {}) {
   const f = ct(r.fuel) - ct(s.fuel)
   const per = BURN_ITEMS[nm(r.fuel)] ?? 1
   if (f < 0 || f > Math.floor(k / per) + 1) return { verdict: 'fail', why: `fuel used ${f} for ${k} steps` }
-  if (k === 0 && f === 0) return { verdict: 'fail', why: 'only the lit flag differs' }
+  // a lit furnace may finish up to one fuel item's burn already under way (an unknown item: a coal's 8)
+  if (f * per + (r.lit ? Math.max(per, 8) : 0) < k) return { verdict: 'fail', why: `${k} steps cooked on ${f} fuel item(s)${r.lit ? ' and one residual burn' : ' from an unlit furnace'}` }
+  // ONLY THE LIT FLAG differs: timing when the record holds input AND fuel (the furnace lights on the next tick, and the
+  // window's lit property can arrive after the slot update -- Claude r1 P3-4); otherwise a parity failure
+  if (k === 0 && f === 0) return r.in && r.fuel && !r.lit && s.lit ? { verdict: 'timing', k: 0, f: 0 } : { verdict: 'fail', why: 'only the lit flag differs' }
   return { verdict: 'timing', k, f }
 }
 /** RCON `data get block <f> Items` reply -> { in, fuel, out } in the record's [name, count] form. Pure. */
@@ -154,7 +159,10 @@ function selftest () {
   ok('parity: output +3 for 2 used -> fail', parity(L, { in: ['raw_copper', 6], fuel: null, out: ['copper_ingot', 3], lit: true }, { allowTiming: true }).verdict, 'fail')
   ok('parity: wrong output item -> fail', parity(L, { in: ['raw_copper', 7], fuel: null, out: ['iron_ingot', 1], lit: true }, { allowTiming: true }).verdict, 'fail')
   ok('parity: 3 coal used for 1 step -> fail', parity({ ...L, fuel: ['coal', 4] }, { in: ['raw_copper', 7], fuel: ['coal', 1], out: ['copper_ingot', 1], lit: true }, { allowTiming: true }).verdict, 'fail')
-  ok('parity: only lit differs -> fail', parity(L, { ...L, lit: true }, { allowTiming: true }).verdict, 'fail')
+  ok('parity: an UNLIT furnace with no fuel cooking 8 items -> fail (Codex r1 P2-7)', parity({ in: ['raw_copper', 8], fuel: null, out: null, lit: false }, { in: null, fuel: null, out: ['copper_ingot', 8], lit: false }, { allowTiming: true }).verdict, 'fail')
+  ok('parity: a LIT furnace (residual burn) finishing 2 items with no fuel -> timing', parity({ in: ['raw_copper', 2], fuel: null, out: null, lit: true }, { in: null, fuel: null, out: ['copper_ingot', 2], lit: false }, { allowTiming: true }).verdict, 'timing')
+  ok('parity: only lit differs, the record holds input and fuel -> timing (about to light)', parity(L, { ...L, lit: true }, { allowTiming: true }).verdict, 'timing')
+  ok('parity: only lit differs, the record holds no fuel -> fail', parity({ ...L, fuel: null }, { ...L, fuel: null, lit: true }, { allowTiming: true }).verdict, 'fail')
   ok('parity: an empty record vs a holding server, live -> fail (no cooking explains it)', parity(E, L, { allowTiming: true }).verdict, 'fail')
   ok('RCON parse', parseFurnaceItems('900 120 905 has the following block data: [{count: 8, Slot: 0b, id: "minecraft:raw_copper"}, {count: 2, Slot: 2b, id: "minecraft:copper_ingot"}]'),
     { in: ['raw_copper', 8], fuel: null, out: ['copper_ingot', 2] })
@@ -183,6 +191,12 @@ function selftest () {
   ok('seen: no walk after the load -> fail', checkSeen({ aEmpty: A, bRows: [sk], loadAt: 30, f: 'F' }).pass, false)
   ok('seen: no skip row -> fail', checkSeen({ aEmpty: A, bRows: [walk(50)], loadAt: 30, f: 'F' }).pass, false)
   ok('seen: a walk whose inputs replay to skip -> fail', checkSeen({ aEmpty: A, bRows: [sk, walk(50)], loadAt: 30, f: 'F', replay: () => ({ skip: true }) }).pass, false)
+  const dr = { scene: 'drains', pass: true, check: { exact: 36, fails: [] } }
+  ok('gate: 36 drain opens alone are NOT a pass (no frozen / live load)', gateOf([dr]).gate, 'FAIL')
+  ok('gate: drains + a frozen exact load + a live timing load pass', gateOf([dr, { scene: 'frozen', pass: true, openExact: true, loadVerdict: 'exact', check: { fails: [] } },
+    { scene: 'live', pass: true, openExact: true, loadVerdict: 'timing', check: { fails: [] } }]).gate, 'PASS')
+  ok('gate: 29 exact opens fail', gateOf([{ ...dr, check: { exact: 27, fails: [] } }, { scene: 'frozen', pass: true, openExact: true, loadVerdict: 'exact', check: { fails: [] } },
+    { scene: 'live', pass: true, openExact: true, loadVerdict: 'timing', check: { fails: [] } }]).gate, 'FAIL')
   console.log(bad ? `SELFTEST FAILED (${bad})` : 'SELFTEST OK')
   return !bad
 }
@@ -291,7 +305,7 @@ async function startBot (tag, NAME = BOT_NAME) {
   procs.push(spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT }, stdio: ['ignore', bo, bo] }))
   const spawned = () => { try { return /spawned pos=/.test(fs.readFileSync(botOut, 'utf8')) } catch { return false } }
   if (!await waitFor(spawned, 90000, 300)) { await stopBot(); throw new Error('no spawn') }
-  rcon(`gamemode survival ${NAME}`, `effect clear ${NAME}`, 'difficulty peaceful', `clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`,
+  rcon(`gamemode survival ${NAME}`, `effect clear ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`,
        ...BAG.map(([id, n], s) => `item replace entity ${NAME} container.${s} with minecraft:${id} ${n}`))
   return `${R}/sandbox/log/ledger-e2e/${tag}/skill-${NAME}.jsonl`
 }
@@ -358,6 +372,8 @@ async function smelt (scene, round) {
   const sess = rows.filter(r => r.name === '_furnace_session' && r.detail.includes(`furnace=${key(ONE)}`)).map(r => r.detail)
   const out = { scene, round, tag, sha, server: SERVER, preset, pre, post, readAfterLoadMs: loadAt, records: mine.length, open: open ?? null, load: load ?? null, check: v,
     sessionRow: sess[0] ?? null, smeltTown: rows.filter(r => r.name === '_smelt_town').map(r => r.detail.slice(0, 200)) }
+  out.openExact = !!open && parity(open.slots, pre).verdict === 'exact'
+  out.loadVerdict = load && post ? parity(load.slots, post, { allowTiming: scene === 'live' }).verdict : null
   out.pass = !!open && !!load && !!post && !v.fails.length && (!open || (sess[0] ?? '').includes(` open=${open.id} `))
   return out
 }
@@ -402,11 +418,29 @@ async function seen (round) {
     bSkips: bRows.filter(r => r.name === '_furnace_seen_skip').map(r => r.detail), bDrains: bRows.filter(r => r.name === '_furnace_drain').map(r => `${r.ts} ${r.detail.slice(0, 200)}`),
     check: { checked: 0, fails: v.why } }
 }
+/**
+ * THE PAPER GATE (design 4.3) -> { gate, opensExact, loadsFrozen, loadsLive, fails, missing }. Pure. PASS needs >= 30 opens
+ * checked EXACTLY against the server (drain opens + smelt opens), at least one frozen-tick LOAD checked exactly, at least one
+ * live LOAD read by the timing rule, every round passing, and no failure (Codex r1 P2-8: drains alone are not the gate).
+ */
+function gateOf (all) {
+  const opensExact = all.reduce((n, r) => n + (r.scene === 'drains' ? (r.check?.exact ?? 0) : 0) + (['frozen', 'live'].includes(r.scene) && r.openExact ? 1 : 0), 0)
+  const loadsFrozen = all.filter(r => r.scene === 'frozen' && r.pass && r.loadVerdict === 'exact').length
+  const loadsLive = all.filter(r => r.scene === 'live' && r.pass && ['exact', 'timing'].includes(r.loadVerdict)).length
+  const fails = all.reduce((n, r) => n + (r.check?.fails?.length ?? 0) + (r.error ? 1 : 0), 0)
+  const smeltOpens = all.filter(r => ['frozen', 'live'].includes(r.scene) && r.openExact).length
+  const missing = [opensExact >= 30 ? null : `opens checked exactly ${opensExact} < 30`, smeltOpens ? null : 'no smelt-type open checked exactly',
+    loadsFrozen ? null : 'no frozen load checked',
+    loadsLive ? null : 'no live load checked'].filter(Boolean)
+  return { gate: !missing.length && !fails && all.every(r => r.pass) ? 'PASS' : 'FAIL', opensExact, loadsFrozen, loadsLive, fails, missing }
+}
 const countBy = (xs, f) => xs.reduce((m, x) => { m[f(x)] = (m[f(x)] || 0) + 1; return m }, {})
 
+let armed = false                 // the lock is ours AND the server was empty: only then may cleanup touch the world
 async function main () {
   sbx.requireSandboxLock(SERVER, 'ledger')
   const pl = rcon('list')[0].reply; if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
+  armed = true
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(BRAIN_PORT, '127.0.0.1', resolve) })
   console.log(`root=${BOT_ROOT} sha=${sha} server=${SERVER} scenes=${SCENES_S} rounds=${ROUNDS} pool=${POOL}`)
   const all = []
@@ -420,16 +454,14 @@ async function main () {
       all.push(r)
     }
   }
-  const sampled = all.reduce((n, r) => n + (r.scene !== 'live' ? (r.check?.checked ?? 0) : 0), 0)
-  const fails = all.reduce((n, r) => n + (r.check?.fails?.length ?? 0) + (r.error ? 1 : 0), 0)
-  const summary = { at: new Date().toISOString(), summary: true, sha, server: SERVER, sampledExact: sampled, fails, rounds: all.length, passed: all.filter(r => r.pass).length,
-    gate: sampled >= 30 && fails === 0 && all.every(r => r.pass) ? 'PASS' : 'FAIL',
+  const summary = { at: new Date().toISOString(), summary: true, sha, server: SERVER, ...gateOf(all), rounds: all.length, passed: all.filter(r => r.pass).length,
     synthetic: 'arena and furnace presets by RCON; bot teleported to town with a light bag; scripted brain (status/short walks); sandbox pacing 10 s' }
   fs.appendFileSync(RES, JSON.stringify(summary) + '\n')
   console.log('SUMMARY ' + JSON.stringify(summary))
   return summary.gate === 'PASS'
 }
 async function cleanup () {
+  if (!armed) { try { brain.close() } catch {} return }        // refused before the lock or on a busy server: touch nothing
   await stopBot().catch(() => {})
   try { brain.close() } catch {}
   for (const n of [BOT_NAME, BOT_B]) { try { fs.unlinkSync(`${R}/sandbox/.env.ledger-${n}`) } catch {} }
