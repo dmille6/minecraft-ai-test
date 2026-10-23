@@ -55,7 +55,7 @@ import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, 
   townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
 // The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
 import { kitSpec } from './toolkit.mjs'   // towniron-01
-import { townIronStock, setTownIronReader, townIronNow, townIronLow, townIronRow, TOWNIRON, deliverPlan, deliverRow, TOWN_IRON_CARRY } from './towniron.mjs'   // towniron-01
+import { townIronStock, setTownIronReader, townIronNow, townIronLow, townIronRow, TOWNIRON, deliverPlan, deliverRow } from './towniron.mjs'   // towniron-01
 import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag,
   KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS, kitVisitStep, kitSearchEnd, kitSearchRow, kitIronNeed, kitIronMissNeeds, kitSticksAtRisk,
   KIT_NO_STICKS_SKIP_MS, kitRoomTakes, ironpickRow, bestIronPickTag, IRONPICK_TRIP_USES, TOOLKIT_IRONPICK, KIT_NARROW, kitNarrows, kitStickHeld } from './toolkit.mjs'
@@ -12499,9 +12499,9 @@ async function deliverIron (ctx, _args, signal) {
   const f = { stop: null, ingot0: h0.iron_ingot ?? 0, raw0: h0.raw_iron ?? 0, ingot1: 0, raw1: 0, depI: 0, depR: 0, keepI: p0.iron_ingot.own, keepR: p0.raw_iron.own }
   let result = null
   try {
-    if (p0.surplus < TOWN_IRON_CARRY) {
+    if (!(p0.surplus > 0)) {
       f.stop = 'none'
-      return (result = { status: 'no_effect', detail: `carrying ${p0.surplus} iron above its own keep: less than a town round (${TOWN_IRON_CARRY}); nothing delivered` })
+      return (result = { status: 'no_effect', detail: 'no iron above the bag\'s own keep: nothing to deliver' })
     }
     for (const name of ['iron_ingot', 'raw_iron']) {
       const plan = deliverPlan(heldMap(bot))[name]
@@ -12524,6 +12524,7 @@ async function deliverIron (ctx, _args, signal) {
   } finally {
     const h1 = heldMap(bot)
     f.ingot1 = h1.iron_ingot ?? 0; f.raw1 = h1.raw_iron ?? 0
+    if (result) result.surplusLeft = deliverPlan(h1).surplus   // the round ends only when none is left (towniron.mjs deliverOutcome)
     try { logEvent({ kind: 'deliver_iron', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: deliverRow(f) }) } catch { /* telemetry */ }
   }
 }

@@ -153,7 +153,7 @@ export function kitDraw (items = [], { credit = 0, ironpick = TOOLKIT_IRONPICK.o
   const want = needs.reduce((t, n) => t + kitSpec(n).ingots, 0)
   const c = Math.max(0, Math.min(Number(credit) || 0, held(items, 'iron_ingot'), want))
   const sticksNeed = needs.reduce((t, n) => t + kitSpec(n).sticks, 0)
-  return { needs, ingots: want - c, sticks: needs.length ? Math.max(0, sticksNeed + STICK_KEEP - held(items, 'stick')) : 0, lowIron: !!lowIron }
+  return { needs, ingots: want - c, sticks: needs.length ? Math.max(0, sticksNeed + STICK_KEEP - held(items, 'stick')) : 0 }
 }
 
 /**

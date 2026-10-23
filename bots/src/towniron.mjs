@@ -95,8 +95,13 @@ export function bagIron (items = []) {
   const list = Array.isArray(items) ? items : []
   return list.reduce((t, it) => t + (it?.name === 'raw_iron' || it?.name === 'iron_ingot' ? (Number(it.count) || 0) : 0), 0)
 }
-/** Is the town task done for this bag? -> bool. Pure: it carries TOWN_IRON_CARRY above its own TOWN_IRON_SELF. */
-export const townTaskCarried = (items = []) => bagIron(items) >= TOWN_IRON_SELF + TOWN_IRON_CARRY
+/** Is the town task done for this bag? -> bool. Pure: it carries TOWN_IRON_CARRY above its OWN keep -- the delivery's own
+ *  calculation (deliverPlan / ironOwnKeep), so the round ends exactly where a delivery has a round to bank (Codex r2 P2). */
+export const townTaskCarried = (items = []) => {
+  const counts = {}
+  for (const it of (Array.isArray(items) ? items : [])) if (it?.name) counts[it.name] = (counts[it.name] ?? 0) + (Number(it.count) || 0)
+  return deliverPlan(counts).surplus >= TOWN_IRON_CARRY
+}
 
 // ---- THE DELIVERY (Codex r1 P1): the round's iron reaches the town chests ------------------------------------------------
 /** The bag's OWN iron the deposit keeps: 3 units per iron craft not made yet (towndeposit.mjs ironUnitsNeeded, restated: that
@@ -122,23 +127,36 @@ export function deliverPlan (counts = {}) {
 }
 export const DELIVER_COOLDOWN_MS = 10 * 60 * 1000
 export const DELIVER_BACKOFF_MS = 30 * 60 * 1000
+/** The town task's id, whatever lap or detour suffix (`#n`, `+prereq`) the controller adds. */
+export const TOWN_TASK_ID = 'gather_iron_ore_town'
+/** A town ROUND is recorded when the town task is the bot's active task (cognitive.mjs, every decision) -> new state. Pure. Only
+ *  a recorded round's iron is town cargo (Codex r2 P2: a bag's own surplus is never delivered on a town it never mined for). */
+export const noteTownRound = (state = {}, taskId = null) =>
+  (String(taskId ?? '').split(/[#+]/)[0] === TOWN_TASK_ID && !state.round ? { ...state, round: true } : state)
 /**
- * THE DELIVERY ORDER -> { order, state, skip }. Pure. At town, with the switch on, a bag carrying at least TOWN_IRON_CARRY above
- * its own keep -- a round of the town task -- delivers it, whatever the town's reading now (the iron was mined for it). Never a
- * trip: the ladder's lap (deposit_surplus, return) brings the bot home; this banks at home.
+ * THE DELIVERY ORDER -> { order, state, skip }. Pure. At town, with the switch on, a bot with a RECORDED town round (state.round)
+ * and any iron above its own keep delivers it, whatever the town's reading now (the iron was mined for it), and keeps retrying
+ * the remainder (Codex r2 P1) until a delivery leaves none (deliverOutcome clears the round). Never a trip: the ladder's lap
+ * (stockpile_stone, patrol, deposit_surplus, return) brings the bot home; this banks at home.
  */
 export function deliverOrder ({ now = 0, on = TOWNIRON.on, atTown = false, counts = {}, state = {} } = {}) {
   const s = { ...state }
   if (!on) return { order: null, state: s, skip: 'off' }
+  if (!s.round) return { order: null, state: s, skip: 'no_round' }
   if (!atTown) return { order: null, state: s, skip: 'away' }
   const p = deliverPlan(counts)
-  if (p.surplus < TOWN_IRON_CARRY) return { order: null, state: s, skip: 'none' }
+  if (!(p.surplus > 0)) { delete s.round; return { order: null, state: s, skip: 'none' } }
   if (now - (s.lastIssuedAt ?? -Infinity) < DELIVER_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return { order: null, state: s, skip: 'cooldown' }
   s.lastIssuedAt = now
   return { order: { skill: 'deliver_iron', args: {}, why: `carrying ${p.surplus} iron above its own ${p.iron_ingot.own + p.raw_iron.own} for the town: bank it (town iron task)` }, state: s, skip: null }
 }
-/** After the delivery ran -> new state: a failure backs off; anything else costs only the cooldown. Pure. */
-export const deliverOutcome = (status, now = 0, state = {}) => (status === 'failed' ? { ...state, backoffUntil: now + DELIVER_BACKOFF_MS } : { ...state })
+/** After the delivery ran -> new state: a failure backs off; the round ends only when the run left NO surplus (`surplusLeft`
+ *  0); anything else keeps it for the next town visit. Pure. */
+export function deliverOutcome (status, now = 0, state = {}, { surplusLeft = null } = {}) {
+  const s = status === 'failed' ? { ...state, backoffUntil: now + DELIVER_BACKOFF_MS } : { ...state }
+  if (surplusLeft === 0) delete s.round
+  return s
+}
 /** The `_deliver_iron` row. Pure. */
 export const deliverRow = ({ stop = '-', ingot0 = 0, raw0 = 0, ingot1 = 0, raw1 = 0, depI = 0, depR = 0, keepI = 0, keepR = 0 } = {}) =>
   `stop=${stop} bag=${ingot0}/${raw0}>${ingot1}/${raw1} dep=${depI}/${depR} keep=${keepI}/${keepR}`
