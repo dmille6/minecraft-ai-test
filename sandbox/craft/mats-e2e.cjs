@@ -16,13 +16,19 @@
 //            every coal and iron unchanged (bag and town); the furnace empty and cold; nothing on the ground; row verdict=ok.
 //   copper   chest A 576 copper_ingot + 128 stone_bricks (bricks at their buffer), a crafting table -> cut_copper +4,
 //            copper_ingot -36 (4 copper blocks on the table, cut 4:4).
-//   furn     MAT-FURN: as bricks, three furnaces: F1 coal in its fuel slot, F2 4 iron_ingot in its output, F3 clean (the
-//            farthest) -> the bricks are made in F3; F1's coal and F2's iron untouched.
+//   furn     MAT-FURN: as bricks, four furnaces: F1 coal in its fuel slot, F2 4 iron_ingot in its output, F4 3 STONE in its
+//            output (nearer than F3: own=null, any output is another session's), F3 clean (the farthest) -> the bricks are made
+//            in F3; F1's coal, F2's iron and F4's stone untouched.
 //   hot      MAT-HOT: as bricks, ONE furnace, lit with an EMPTY fuel slot (still burning) -> nothing made, nothing loaded.
 //   res_at   MAT-RES: chest A exactly 256 cobblestone + 512 oak_log (the reserve) -> no bricks order; the town unchanged.
 //   res_one  MAT-RES: 268 cobblestone + 514 oak_log (one batch above) -> exactly one batch: cobble 256, logs 512 after.
 //   kill     MAT-KILL: as bricks; the bot is SIGKILLed while the furnace burns its batch, then restarted on the same state:
-//            mats_return drains the note's furnace, crafts the stone and banks it -> stone_bricks +12 in town, nothing lost.
+//            mats_return drains the note's furnace, crafts the stone in fours and banks the bricks -> the 12 cobble taken are
+//            all accounted: town bricks + bag stone (a 1-3 remainder) + the bag's unspent cobble = 12; nothing lost.
+//
+// THE GROUND: only names the job or the bag can touch are judged (a dropped input, part, fuel or bag item is a loss). Leaf
+// decay drops saplings, sticks and apples onto an arena cut into a hillside -- reported as ambient, never judged (the r1 run's
+// one failure was exactly this, in the base run too). The arena is cleared to y 140 so no leaves hang over it.
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. sandbox5..8 only, sandbox-* names only.
 // Refuses to run unless a sandbox lock covering SERVER has `mats` as its owner's first word (sandbox/lib/sbxlock.cjs).
@@ -61,9 +67,10 @@ const CHEST_B = { x: 762, y: 120, z: 760 }
 const F1 = { x: 760, y: 120, z: 763 }
 const F2 = { x: 757, y: 120, z: 763 }
 const F3 = { x: 754, y: 120, z: 766 }        // the farthest from the stand
+const F4 = { x: 763, y: 120, z: 766 }        // nearer than F3: its output holds 3 stone (another session's)
 const TABLE = { x: 765, y: 120, z: 763 }
 const STAND = { x: 760.5, y: 120, z: 760.5 }
-const FURNACES = { F1, F2, F3 }
+const FURNACES = { F1, F2, F3, F4 }
 const at = c => `${c.x} ${c.y} ${c.z}`
 const wool = n => Array.from({ length: n }, (_, i) => ['white_wool', 1 + (i % 3)])
 const BAG = [['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ['torch', 8], ['bread', 5], ['coal', 3], ['iron_ingot', 2], ...wool(6)]
@@ -72,7 +79,7 @@ const BRICKS_A = [...stacks('cobblestone', 320), ...stacks('oak_log', 576), ['co
 const SPEC = {
   bricks: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
   copper: { chestA: [...stacks('copper_ingot', 576), ...stacks('stone_bricks', 128)], chestB: [], furnaces: { F1: 'clean' }, table: true },
-  furn: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'coal', F2: 'iron', F3: 'clean' } },
+  furn: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'coal', F2: 'iron', F4: 'stone', F3: 'clean' } },
   hot: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'hot' } },
   res_at: { chestA: [...stacks('cobblestone', 256), ...stacks('oak_log', 512)], chestB: [], furnaces: { F1: 'clean' } },
   res_one: { chestA: [...stacks('cobblestone', 268), ...stacks('oak_log', 514)], chestB: [], furnaces: { F1: 'clean' } },
@@ -82,6 +89,7 @@ const furnaceCmds = (c, kind) => {
   if (kind === 'clean') return [`setblock ${at(c)} minecraft:furnace[facing=north]`]
   if (kind === 'coal') return [`setblock ${at(c)} minecraft:furnace[facing=north]`, `item replace block ${at(c)} container.1 with minecraft:coal 3`]
   if (kind === 'iron') return [`setblock ${at(c)} minecraft:furnace[facing=north]`, `item replace block ${at(c)} container.2 with minecraft:iron_ingot 4`]
+  if (kind === 'stone') return [`setblock ${at(c)} minecraft:furnace[facing=north]`, `item replace block ${at(c)} container.2 with minecraft:stone 3`]
   if (kind === 'hot') return [`setblock ${at(c)} minecraft:furnace[facing=north,lit=true]{lit_time_remaining:6000s,lit_total_time:6000s}`]
   throw new Error(`furnace kind ${kind}`)
 }
@@ -96,7 +104,7 @@ const DONE = (scene, rows) => {
 const WINDOW_MS = Number(process.env.MT_WINDOW_MS || 360000)
 const BASE_WINDOW_MS = Number(process.env.MT_BASE_WINDOW_MS || 150000)
 const arenaCmds = () => ['forceload add 744 744 776 776', `kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`,
-  'fill 746 120 746 774 126 774 minecraft:air', 'fill 746 119 746 774 119 774 minecraft:stone']
+  'fill 746 120 746 774 140 774 minecraft:air', 'fill 746 119 746 774 119 774 minecraft:stone']
 function bagCmds () {
   const c = [`clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`]
   BAG.forEach(([id, n], s) => c.push(`item replace entity ${NAME} container.${s} with minecraft:${id} ${n}`))
@@ -151,6 +159,10 @@ const totals = snap => ({ bag: tot(Object.values(snap.bag)), a: tot(Object.value
   furnace: Object.fromEntries(Object.entries(snap.furnace).map(([k, v]) => [k, tot(Object.values(v))])), ground: tot(snap.ground) })
 const diff = (a, b) => Object.keys({ ...a, ...b }).map(n => [n, (b[n] || 0) - (a[n] || 0)]).filter(([, d]) => d).map(([n, d]) => `${n}${d > 0 ? '+' : ''}${d}`).join(' ')
 const town = (t, n) => (t.a[n] || 0) + (t.b[n] || 0)
+// the names a lost item could be: the job's inputs, intermediates, parts and fuels, the iron ladder, and the bag's own
+const JUDGED = new Set(['cobblestone', 'stone', 'stone_bricks', 'oak_log', 'oak_planks', 'sand', 'glass', 'glass_pane', 'copper_ingot', 'copper_block',
+  'cut_copper', 'copper_door', 'charcoal', 'coal', 'iron_ingot', 'furnace', 'crafting_table', ...BAG.map(([id]) => id)])
+const AMBIENT = /^(stick|apple|[a-z_]+_sapling|[a-z_]+_leaves|leaf_litter)$/
 const dTown = (tb, ta, n) => town(ta, n) - town(tb, n)
 
 const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
@@ -207,10 +219,12 @@ function verdict (scene, tb, ta, rows, a, done) {
     need((ta.bag.iron_ingot || 0) === 2, `the bag keeps its OWN 2 iron_ingot (${ta.bag.iron_ingot || 0})`)
     need(dTown(tb, ta, 'coal') === 0, `the town's coal untouched (${dTown(tb, ta, 'coal')})`)
     need(dTown(tb, ta, 'iron_ingot') === 0, `the town's iron untouched (${dTown(tb, ta, 'iron_ingot')})`)
-    need(!Object.keys(ta.ground).length, `nothing on the ground (${diff({}, ta.ground)})`)
+    const judged = Object.fromEntries(Object.entries(ta.ground).filter(([n]) => JUDGED.has(n) || !AMBIENT.test(n)))
+    need(!Object.keys(judged).length, `nothing the job or the bag holds on the ground (${diff({}, judged)})`)
     need(!rows.some(r => /verdict=(loss|forbidden|overburn)/.test(r.detail)), 'no row with a loss, forbidden or overburn verdict')
   }
   const furnaceEmpty = k => !Object.keys(ta.furnace[k] || {}).length && !a.lit[k]
+  out.ambient = diff({}, Object.fromEntries(Object.entries(ta.ground).filter(([n]) => !JUDGED.has(n) && AMBIENT.test(n))))
   if (!CANDIDATE) {
     for (const n of ['cobblestone', 'oak_log', 'stone_bricks', 'copper_ingot', 'cut_copper', 'coal', 'iron_ingot']) need(dTown(tb, ta, n) === 0, `the base leaves the town's ${n} as it was (${dTown(tb, ta, n)})`)
     need(!jobs.length, 'the base writes no _make_material row')
@@ -241,6 +255,7 @@ function verdict (scene, tb, ta, rows, a, done) {
     bricksMade(12, 2)
     need((ta.furnace.F1.coal || 0) === 3 && Object.keys(ta.furnace.F1).length === 1, `F1's 3 coal untouched (${JSON.stringify(ta.furnace.F1)})`)
     need((ta.furnace.F2.iron_ingot || 0) === 4 && Object.keys(ta.furnace.F2).length === 1, `F2's 4 iron untouched (${JSON.stringify(ta.furnace.F2)})`)
+    need((ta.furnace.F4.stone || 0) === 3 && Object.keys(ta.furnace.F4).length === 1, `F4's 3 stone untouched -- another session's output (${JSON.stringify(ta.furnace.F4)})`)
     need(furnaceEmpty('F3'), 'F3 (the clean one) used and left empty and cold')
   }
   if (scene === 'hot' || scene === 'res_at') {
@@ -251,8 +266,10 @@ function verdict (scene, tb, ta, rows, a, done) {
   }
   if (scene === 'kill') {
     need(rows.some(r => r.name === '_mats_return' && /drained:[1-9]/.test(r.detail)), 'mats_return drained the note\'s furnace')
-    need(dTown(tb, ta, 'stone_bricks') + (ta.bag.stone || 0) === 12, `the 12 are in town as bricks, or kept as stone (bricks ${dTown(tb, ta, 'stone_bricks')}, kept ${ta.bag.stone || 0})`)
-    need((ta.bag.stone || 0) <= 3, `at most a 1-3 stone remainder kept (${ta.bag.stone || 0})`)
+    const acc = dTown(tb, ta, 'stone_bricks') + (ta.bag.stone || 0) + (ta.bag.cobblestone || 0)
+    need(acc === 12 && !Object.keys(ta.furnace.F1 || {}).length, `the 12 cobble taken are accounted: town bricks ${dTown(tb, ta, 'stone_bricks')} + bag stone ${ta.bag.stone || 0} + bag cobble ${ta.bag.cobblestone || 0} = ${acc}`)
+    need((ta.bag.stone || 0) <= 3, `at most a 1-3 stone remainder (${ta.bag.stone || 0})`)
+    need(rows.some(r => r.name === '_mats_return' && /stop=closed/.test(r.detail)), 'the recovery closed the note')
     need(dTown(tb, ta, 'cobblestone') === -12, `the town's cobblestone -12 (${dTown(tb, ta, 'cobblestone')})`)
     need(furnaceEmpty('F1'), 'the furnace is left empty and cold')
   }
@@ -329,7 +346,7 @@ async function runScene (scene) {
       furnace: Object.fromEntries(Object.keys(spec.furnaces).map(k => [k, diff(tb.furnace[k], ta.furnace[k])])) },
     decisions: dec.map(d => `${d.order ? 'ORDER' : 'model'} ${d.skill} ${d.admitted ? d.status : 'REFUSED ' + d.err}`), rows: sceneRows }
   fs.appendFileSync(RES, JSON.stringify(r) + '\n')
-  console.log(`${scene.padEnd(8)} ${v.verdict} done=${r.done} d(bag){${r.d.bag}} d(A){${r.d.chestA}} d(B){${r.d.chestB}} d(furnaces)${JSON.stringify(r.d.furnace)} ground{${r.d.ground}} lit=${JSON.stringify(after.lit)}` +
+  console.log(`${scene.padEnd(8)} ${v.verdict} done=${r.done} d(bag){${r.d.bag}} d(A){${r.d.chestA}} d(B){${r.d.chestB}} d(furnaces)${JSON.stringify(r.d.furnace)} ground{${r.d.ground}} ambient{${v.ambient}} lit=${JSON.stringify(after.lit)}` +
     (v.why.length ? `\n   why: ${v.why.join('; ')}` : ''))
   console.log('   decisions: ' + r.decisions.filter(d => /ORDER/.test(d)).slice(0, 14).join(' | '))
   console.log('   rows: ' + sceneRows.filter(x => x.name !== '_mats_mode').map(x => `${x.name}:${x.status}:${x.detail.slice(0, 260)}`).join(' || '))
@@ -354,7 +371,7 @@ async function cleanup () {
   if (arenaOwned) await stopBot().catch(() => {})
   try { brain.close() } catch {}
   try { fs.unlinkSync(`${R}/${ENV_REL}`) } catch {}
-  if (arenaOwned) { try { rcon(`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`, 'fill 746 120 746 774 126 774 minecraft:air', 'forceload remove 744 744 776 776') } catch {} }
+  if (arenaOwned) { try { rcon(`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`, 'fill 746 120 746 774 140 774 minecraft:air', 'forceload remove 744 744 776 776') } catch {} }
 }
 let cleaning = false
 const finish = code => { if (cleaning) return; cleaning = true; cleanup().then(() => process.exit(code)) }
