@@ -1,16 +1,40 @@
 #!/usr/bin/env python3
-"""mutants.py: each mutant must make `structcount.py selftest` fail for its named case. Anchors are asserted present and
-unique before applying (CLAUDE.md: a mutant that silently fails to apply reads as killed). Run from the tools directory."""
-import subprocess, tempfile, os
+"""mutants.py: each mutant must make `structcount.py selftest` fail FOR ITS NAMED CASE. Anchors are asserted present and
+unique before applying (CLAUDE.md: a mutant that silently fails to apply reads as killed). Exits NONZERO (Codex r2 P2) when a
+mutant survives, its case line is missing from the output, the mutated selftest crashed, or the UNMUTATED selftest fails.
+Run from the tools directory."""
+import subprocess, sys, tempfile, os
 src = open('structcount.py.txt').read()
-muts = [('house joined to a buried stair', "        rooms = rooms_of(w, comp, built)\n", "        rooms = rooms_of(w, comp, built) if bur <= 0.25 else []\n"),
-        ('unlit lamp only', "    return bool(LIGHT_IF_LIT.match(n)) and str(w.props(x, y, z).get('lit', 'false')) == 'true'", "    return bool(LIGHT_IF_LIT.match(n))"),
-        ('light below the floor only', "            if lit_at(w, x, y, z) or lit_at(w, x, y + 1, z): lit = True; break",
-         "            if lit_at(w, x, y, z) or lit_at(w, x, y + 1, z) or lit_at(w, x, y - 2, z): lit = True; break")]
+muts = [
+    ('house joined to a buried stair', "        rooms = rooms_of(w, comp, built)\n", "        rooms = rooms_of(w, comp, built) if bur <= 0.25 else []\n"),
+    ('unlit lamp only', "    return bool(LIGHT_IF_LIT.match(n)) and str(w.props(x, y, z).get('lit', 'false')) == 'true'", "    return bool(LIGHT_IF_LIT.match(n))"),
+    ('light below the floor only', "            if lit_at(w, x, y, z) or lit_at(w, x, y + 1, z): lit = True; break",
+     "            if lit_at(w, x, y, z) or lit_at(w, x, y + 1, z) or lit_at(w, x, y - 2, z): lit = True; break"),
+    ('torch outside the doorway only', "            if any((x + dx, y, z + dz) not in rs and wallish(w.block(x + dx, y, z + dz)) and lit_at(w, x + dx, y, z + dz)",
+     "            if any((x + dx, y, z + dz) not in rs and lit_at(w, x + dx, y, z + dz)"),
+    ('unlit redstone torch only', "                          r'shroomlight|jack_o_lantern|ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod)$')",
+     "                          r'shroomlight|jack_o_lantern|ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod|redstone_torch)$')"),
+    ('a roof of torches', "                    if roofing(m): roofed[(x, y, z)] = (x, y + k, z); break",
+     "                    if material(m): roofed[(x, y, z)] = (x, y + k, z); break"),
+    ('plinth: disconnected cells', "found and n1 == len(found) and not room) else 'FAIL'", "found and not room) else 'FAIL'"),
+    ('plinth: wrong block', "    found = [c for c in cells if built.get(c) in PLINTH_SEEN]", "    found = [c for c in cells if c in built]"),
+]
+base = subprocess.run([sys.executable, 'structcount.py.txt', 'selftest'], capture_output=True, text=True)
+bad = 0
+if base.returncode != 0:
+    print('UNMUTATED SELFTEST FAILS'); print(base.stdout[-2000:]); sys.exit(2)
 for case, old, new in muts:
-    assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + case
+    if src.count(old) != 1:
+        print('%-32s ANCHOR MISSING OR NOT UNIQUE' % case); bad += 1; continue
     f = tempfile.NamedTemporaryFile('w', suffix='.py', delete=False); f.write(src.replace(old, new, 1)); f.close()
-    out = subprocess.run(['python3', f.name, 'selftest'], capture_output=True, text=True).stdout
+    r = subprocess.run([sys.executable, f.name, 'selftest'], capture_output=True, text=True)
     os.unlink(f.name)
-    killed = any(l.startswith(case) and l.rstrip().endswith('FAIL') for l in out.splitlines())
+    lines = [l for l in r.stdout.splitlines() if l.startswith(case + ' ') or l.startswith(case + '\t')]
+    if r.stderr.strip() and 'Traceback' in r.stderr:
+        print('%-32s CRASHED' % case); bad += 1; continue
+    if not lines:
+        print('%-32s CASE LINE MISSING' % case); bad += 1; continue
+    killed = lines[0].rstrip().endswith('FAIL') and r.returncode != 0
     print('%-32s %s' % (case, 'KILLED' if killed else 'SURVIVED'))
+    bad += not killed
+sys.exit(1 if bad else 0)

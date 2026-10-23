@@ -1,14 +1,14 @@
 import json, glob, os, collections
 tot = collections.Counter()
-print('world | chunks ok/all | palette cells | masked stamp/worldgen/zone | stamp present/207 | built cells (core/town/out) | litter cells | structures surface/buried | B5 buildings (unlit rooms) | dirt_path | plinth controls: state planned/found(family)/unobservable/other/one-comp | neg: uninhabited chunks, FP buried/surface')
+print('world | chunks ok/all | palette cells | masked stamp/worldgen/zone | stamp present/207 | built cells (core/town/out) | litter cells | structures surface/buried | B5 buildings (unlit rooms) | dirt_path | plinth controls: state planned/found(family)/unobservable/other/one-comp verdict | neg: uninhabited chunks, FP buried/surface')
 for f in sorted(glob.glob('*.scan.json')):
     if '.old48' in f or '.new48' in f: continue
     r = json.load(open(f)); w = r['world']
     n = json.load(open(w + '.neg.json')) if os.path.exists(w + '.neg.json') else {}
     ch = r['chunks']; ok = ch.get('chunk_ok', 0); al = sum(ch.values())
     m = r['masked']; b = r['built_by_band']
-    pcs = '; '.join('%s %d/%d/%d/%d/%d' % (pc['state'], pc['planned_place_cells'], pc['found_built'], pc['natural_stone_unobservable'],
-                                           pc['other_at_cells'], pc['in_one_component']) for pc in r['plinth_control']) or '-'
+    pcs = '; '.join('%s %d/%d/%d/%d/%d %s' % (pc['state'], pc['planned_place_cells'], pc['found_built'], pc['natural_stone_unobservable'],
+                                           pc['other_at_cells'], pc['in_one_component'], pc['verdict']) for pc in r['plinth_control']) or '-'
     print('%s | %d/%d | %d | %d/%d/%d | %d | %d (%d/%d/%d) | %d | %d/%d | %d (%d) | %d | %s | %d, %d/%d' % (
         w, ok, al, r['raw_palette_cells'], m.get('stamp', 0), m.get('worldgen_piece', 0), m.get('protected_zone', 0), r['stamp_present'],
         r['built_cells'], b.get('core', 0), b.get('town', 0), b.get('out', 0), r['litter_cells'], r['surface_structures'],

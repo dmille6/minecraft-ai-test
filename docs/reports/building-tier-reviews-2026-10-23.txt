@@ -156,3 +156,79 @@ DISPOSITIONS r1 -> r2 (both engines; doc §11 summarises):
   reach; bag cobble first; stone as a delta; conformance state properties; fresh-update re-read; trim as roof edge with its
   own deadline; spatial index; revert story; unenterable houses said plainly. Fixture strips: NOT masked, because
   scripts/host/protectzone-fixture.py writes data only (a zone file), so the blocks inside are bots'.
+
+ROUND 2 (r2 doc, commit 27980d4e)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round 1 status: **fixed at design level: 1, 3, 6, 8, 11, 14, 15, 16, 17. Partially fixed: 2, 4, 5, 7, 9, 10, 13. Finding 12’s composed-site evidence remains deferred.** The saved scan totals reconcile; all nine selftests pass, and the three mutants fail their named cases. Remaining findings:
+
+1. **P1 — §2.4; `structcount.py.txt::lit_at/rooms_of` — R1 #2 remains incomplete.** `LIGHT_ALWAYS` still includes redstone torches regardless of `lit`. An added fixture with `lit=false` returns one building. Also, `material()` accepts passable decorations as roofing: replacing the fixture’s roof with torches still returns one building. Require state-aware redstone lighting and a separate structural roof predicate; add failing controls for both.
+
+2. **P2 — §2.6; `structcount.py.txt::main`, `mutants.py.txt` — failed controls do not stop execution.** All three mutated selftests print `FAIL` but exit **0**. The mutant runner likewise only prints `SURVIVED`, and does not validate subprocess errors. Make failed selftests, surviving mutants, missing case output and subprocess failures exit nonzero; demonstrate that the daily wrapper refuses publication.
+
+3. **P2 — §0/§2.6; `structcount.py.txt::scan` — R1 #4 is only partly fixed.** Material-family matching and record-state reporting are corrected, but `component_is_building` still finds a structure by matching size and bounding-box containment, rather than component identity. Wrong-block, disconnected-cell and empty-plan failure fixtures are absent. Carry explicit component IDs through `describe`, assert the control’s expected result, and add those fixtures.
+
+4. **P1 — §2.5; `copyw.sh.txt` — R1 #5’s freshness gate can pass stale data.** The proposed observation timestamp is the copied region file’s mtime, but the supplied plain `cp` resets that timestamp. Even a fresh **source** region mtime does not establish freshness of every relevant chunk. Record source timestamps and capture boundaries separately, establish per-chunk save coverage, and make affected record scores UNKNOWN. “No dirty chunks pending” needs an actual observation mechanism.
+
+5. **P1 — §3.3/§4.2/§6.2; `funding.py.txt`, `funding-20261023.txt` — R1 #10 remains materially wrong.** The rerun still ignores sand in `admits`, uses the census’s combined cobblestone/deepslate column, and prices **stone-brick slab trim** instead of the specified plank fallback. It neither allocates banked parts after buffer production nor credits batch leftovers between houses. Thus “11/13 funded” and “47 houses” cannot qualify the draw. Generate bills from explicit cells and chosen fallback roles, allocate species-specific stock and all inputs, then regenerate the results. The house wall count also needs correction: a 5×5 perimeter over two layers, minus two door cells and three panes, requires **27**, not 26, planks.
+
+6. **P1 — §3.2/§7 MAT-FURN — R1 #7 misses already-burning fuel.** An empty fuel slot can coexist with remaining burn time from previously consumed coal. Slot checks therefore do not prove a plank-only session, and item-count accounting cannot identify that opening heat. Mineflayer exposes burn state separately from `fuelItem()`. Require a fresh, verified cold furnace before loading, or durable provenance for its remaining heat; test empty slots with an active coal burn. [Mineflayer furnace implementation](https://raw.githubusercontent.com/PrismarineJS/mineflayer/master/lib/plugins/furnace.js)
+
+7. **P2 — §3.2/§3.4/§4.4 — R1 #9 still permits scaffold consumption after interruption.** Carry-note KEEP rules name orders, but movement exclusion applies only during build visits. `PATHFINDER_SCAFFOLD` still includes stone, stone bricks and planks, so restart travel can consume noted materials before `mats_return`. Apply durable carry protection before movement begins, remove finished building stones from ordinary scaffold selection as TP §3.3 requires, and test restart travel plus deposit failure. When stone’s bank target is full, retain the unresolved note rather than simply “banking the rest” and closing it.
+
+8. **P1 — §4.1/§5; SHOP-COOP2 — R1 #13’s settlement barrier remains incomplete.** Waiting for other **live** holders’ last clicks does not cover a crashed/expired holder’s already-sent packet. Nor does acquiring the closer token explicitly stop ordinary holders from issuing another click after the settlement check. Logging a late placement against its old generation cannot prevent an unsafe enclosure. Add a project-wide mutation barrier honored by every sender, durable pre-send intents, and reconciliation of expired holders’ unsettled mutations before closing or changing fallbacks. Test both interleavings.
+
+9. **P2 — §4.3; `fitb.py.txt` — R1 #12’s required composed proof has not run.** Relabeling the counts as geometric upper bounds is correct, but sectors, reservations, complete plinth history, routes and five-house packing remain untested. The `≤43` pad shortcut also does not prove a full one-cell stand ring stays within Euclidean 44 at diagonal corners. Run the actual composed predicate and construction sequence on frozen plans, checking every stand explicitly; report qualified shared towns separately before building the actuator.
+
+10. **P2 — §4.3/§4.6 C3 — ghost-cell recovery is still advisory waiting.** An unconfirmed dig becomes unknown until a fresh server update, but “the next visit” does not cause an unchanged, already-loaded chunk to resend that cell. The project can repeatedly revisit the same poisoned cache without recovering. Specify a deterministic, bounded resurvey route that obtains fresh chunk data, with an executable fallback when that route is unavailable; test a rejected dig followed by no spontaneous block update.
+
+CLAUDE r2 (same reviewer agent, resumed; read-only): VERDICT: CHANGE (0 P1, 1 new P2, P3s). 9 of 10 r1 P2s verified fixed in
+code and data (negctl Status filter real: board-a candidates 471 full vs ~240 partial; component gate fixed and the
+buried-stair fixture really exercises it; parts disposal; fuel; isolated; domain; trees/replant; sealed house); P2-10
+cooperation mostly fixed.
+NEW P2: §4.1 buildEligible / §5 / §6.1: builders draw only from the reserved site chest or their bag; nothing in this design
+  fills the site chest (make_material banks into ordinary chests; every other picker skips the site chest); the only filler is
+  cooperation's SUPPLY job (its B4, after B0-B3), which shop-01 neither carries nor lists. Composed dead end: P1 -> parts
+  banked elsewhere -> builder waits -> 72 h stall -> abandon. Fix: (a) carry SUPPLY + prerequisites, or (b) the build visit
+  withdraws its bill from any fresh town container under the claim set and/or make_material deposits claimed parts into the
+  site chest; add the chain test.
+P3s: lit check counts a torch just outside the doorway / any ring gap (ring lights only when wallish; fixture + mutant);
+  read-time freshness rule cannot be judged from outside (stale only if a placement row postdates the save; or save-all);
+  funding.py says cobblestone-only but uses the combined column, the house list sums to 46 not 47, fallback trim costed as
+  slabs vs planks; tree rule leaves floating trunks (every log of an entering tree reachable, else refuse); houses at
+  Chebyshev >= 17 vs TP 2-8's nothing inside 21; held-out villages test the room test, not the padding (scan their boxes,
+  expect 0 BUILT); cells_waived has no rule (and the walk-probe question); the greenfield storehouse on the showcase needs a
+  named gate; exit_house leaves the door open; make_material's 1-3 stone remainder in an ordinary town furnace is drained
+  into a bag (harmless; MAT-FURN should show it).
+
+DISPOSITIONS r2 -> r3:
+- Codex 1 (P1 lit/roof): redstone torches moved to LIGHT_IF_LIT; `roofing()` = material AND wallish; fixtures "unlit
+  redstone torch only" (0) and "a roof of torches" (0); mutants for both KILLED.
+- Codex 2 (P2 controls stop nothing): selftest exits 1 on any failed case; mutants.py exits nonzero on a survivor, crash,
+  missing case line or a failing unmutated base, and requires the mutated run's nonzero exit; the daily wrapper publishes
+  nothing on a nonzero control (§2.6).
+- Codex 3 (P2 plinth identity): `plinth_check` pure function, component by id (describe carries `cid`), verdicts; fixtures
+  correct / wrong block / disconnected / never built / empty plan; two mutants KILLED; all 11 bench records verdict `pass`.
+- Codex 4 (P1 freshness) / Claude P3: per-chunk timestamps from the region header against placement rows; `cp -p` and source
+  mtimes; quiet chunks fresh; no RCON (§2.5).
+- Codex 5 (P1 funding) / Claude P3: funding.py r3 over a per-species census: bills from the blueprints' cells by role with
+  chosen fallbacks, cobblestone alone, sand in admission (windows fall back to planks while sand is 0), banked planks first,
+  wall planks of one species, parts pool with leftovers, torches; house walls 27 planks. 11 of 13 workshops, 42 of 65 houses.
+- Codex 6 (P1 burning furnace): a cold furnace required: block state lit=false from the server's update and window burn
+  progress 0; MAT-HOT.
+- Codex 7 (P2 scaffold after interruption): carry protection from spawn (noted items out of the bot's scaffold list, set when
+  movements are built), remainders stay under the note and feed the next order, stone_bricks/smooth_stone out of
+  PATHFINDER_SCAFFOLD (D8's unshipped half, verified in scaffold.mjs), MAT-TRAVEL and deposit-failure tests.
+- Codex 8 (P1 barrier): durable pre-send intents; a project-wide mutation barrier taken by closers and fallback transitions,
+  checked by every sender before each click; the holder reconciles live and expired holders' intents first; SHOP-BARRIER.
+- Codex 9 (P2 composed proof): the P0 gate is the first step of shop-01, before any actuator code, on frozen plans with every
+  stand checked and reported with both reviews; fitb now checks every pad+ring cell within straight-line 44 (rerun: 16/16
+  outer candidates remain).
+- Codex 10 (P2 ghost recovery): a deterministic resync probe (use-item-on against a solid neighbour's face into the unknown
+  cell: the server answers with block updates for both), at most 2 per visit, GHOST-RESYNC on Paper; else the chunk reload on
+  the next trip out; then the stall rule.
+- Claude P2 (materials supply): the build visit withdraws its segment bill itself (site chest first, else any fresh known town
+  container, under the claim set); make_material deposits claimed parts into the site chest when one exists; CHAIN-1.
+- Claude P3s: ring lights only when wallish (fixture "torch outside the doorway only" + mutant KILLED); held-out village boxes
+  scanned as towns: 0 BUILT cells in both; whole trees reachable; houses Chebyshev >= 22; waiver rule (3 visits, non-structural
+  roles only); the showcase's own tripwire read under C4(a); exit_house closes the door; MAT-FURN shows the drained remainder.

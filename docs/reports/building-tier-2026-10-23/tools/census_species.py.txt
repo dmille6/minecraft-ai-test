@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""census_species.py <census-goal.json>: per town, the EXACT stock the building bills draw on (Codex r2 P1): cobblestone alone
+(cobbled deepslate smelts to deepslate), logs and planks BY SPECIES, sand, copper ingots, finished parts, torches.
+Read-only over the 00:15Z goal census on 10.0.0.30. Prints JSON lines."""
+import json, re, sys, collections
+d = json.load(open(sys.argv[1]))
+for wn, w in sorted(d['worlds'].items()):
+    c = collections.Counter()
+    for ct in w['containers']:
+        for it in ct.get('items') or []:
+            c[str(it['id']).replace('minecraft:', '')] += int(it['count'])
+    logs = {k[:-4]: v for k, v in c.items() if k.endswith('_log')}
+    planks = {k[:-7]: v for k, v in c.items() if k.endswith('_planks')}
+    parts = {k: c[k] for k in ('stone_bricks', 'glass', 'glass_pane', 'copper_block', 'cut_copper', 'copper_door') if c[k]}
+    print(json.dumps({'world': wn, 'cobblestone': c['cobblestone'], 'cobbled_deepslate': c['cobbled_deepslate'], 'stone': c['stone'],
+                      'logs': logs, 'planks': planks, 'sand': c['sand'] + c['red_sand'], 'copper_ingot': c['copper_ingot'],
+                      'torch': c['torch'], 'stick': c['stick'], 'parts': parts}))

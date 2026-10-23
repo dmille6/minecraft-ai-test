@@ -1,69 +1,115 @@
 #!/usr/bin/env python3
-"""funding.py <census-materials.txt> -- which towns can fund the shared building and five houses from SURPLUS ABOVE THE
-RESERVE (OWNER B3), from the 10-23 00:15Z town-chest census. Chests only (a bag is not the town's).
+"""funding.py <census-species.jsonl> -- which towns can fund the shared building and then houses, one instance at a time,
+from SURPLUS ABOVE THE RESERVE (OWNER B3). Chests only (a bag is not the town's). r3 (Codex r2 P1, Claude r2 P3):
 
-r2 (Codex r1 P1/P2): the bill of materials is built from the blueprints' CELLS by EXECUTABLE batches, not amortised:
-  * stone: smelted from COBBLESTONE only (cobbled deepslate smelts to deepslate, not stone); cobble in batches of 12, each
-    batch one furnace session fuelled by exactly 8 planks (8 x 1.5 = 12 smelts) = 2 logs; bricks crafted 4 at a time;
-  * glass: 6 sand per 16 panes, one session of 6 smelts fuelled by 4 planks (1 log);
-  * planks 4 per log; copper: 9 ingots per copper block, 4 blocks -> 4 cut copper; 6 ingots -> 3 copper doors;
-  * stations (a table: 4 planks; a furnace: 8 cobblestone) and the fill allowance (40 cobble per pad) are in the bill;
-  * ADMISSION is TP 3.2's: the WHOLE bill must allocate within 80% of spendable (stock - reserve).
-Isolated worlds a, c, d are OUT (town plan O8 / TP D2: per-bot town state); isolated-b has been a shared town since 10-21.
-Copper is an UPGRADE: a town that cannot fund it builds the fallback (stone-brick slabs for trim, an open doorway)."""
-import sys, math
-lines = open(sys.argv[1]).read().splitlines()
-hdr = lines[1].split()[2:]
-rows = [l.split() for l in lines[2:] if l and not l.startswith('TOTAL')]
+  * the bill is built from each blueprint's CELLS BY ROLE (§4.2), with the role's fallback chosen per instance:
+      trim  -> cut_copper (9 ingots each, 4 at a time from 4 copper blocks) or its fallback (workshop roof edge: planks;
+               house corners: stone bricks);
+      window-> glass_pane (16 per 6 sand) or its fallback (planks) when sand does not allocate;
+      door  -> copper_door (6 ingots -> 3) or an open doorway;
+  * stone bricks come from COBBLESTONE only (cobbled deepslate smelts to deepslate), in sessions of 12 cobble on exactly 8
+    planks; bricks are crafted 4 at a time; a glass session is 6 sand on 4 planks;
+  * wall planks are of ONE species, the town's most-stocked; fuel planks may be any; banked planks are used before logs;
+  * stations (1 table: 4 planks; 2 furnaces: 8 cobblestone each), torches (from stock above the torch reserve) and the
+    earthwork fill allowance (40 cobblestone per pad) are in the bill;
+  * ADMISSION is TP 3.2's: the instance's WHOLE bill must allocate within 80% of what is spendable for EVERY input;
+  * leftovers (bricks over the need, panes, cut copper, doors) stay in a parts pool and are used by the next instance;
+    banked parts (none today) are used first;
+  * isolated-a, c, d are OUT (TP D2 / town plan O8: per-bot town state). isolated-b is a shared town since 10-21."""
+import json, math, sys
+
 OUT = {'isolated-a', 'isolated-c', 'isolated-d'}
-RESERVE = {'cobble': 256, 'logs': 512, 'copper_ingot': 256}
+RESERVE = {'cobblestone': 256, 'logs': 512, 'planks': 64, 'copper_ingot': 256, 'sand': 16, 'torch': 32}
 
-def bom(bricks, slabs_trim, planks, panes, cut_copper, doors, tables=0, furnaces=0, fill=40, copper=True):
-    b = bricks + (0 if copper else math.ceil(slabs_trim / 2))      # 2 slabs per brick (3 bricks -> 6 slabs)
-    b4 = 4 * math.ceil(b / 4)                                        # bricks crafted 4 at a time
-    batches = math.ceil(b4 / 12)                                     # 12 cobble per furnace session
-    cobble = 12 * batches + 8 * furnaces + fill
-    fuel_logs = 2 * batches + (1 if panes else 0)
-    planks_total = planks + 4 * tables
-    logs = math.ceil(planks_total / 4) + fuel_logs
-    cu = (9 * 4 * math.ceil(cut_copper / 4) + 6 * math.ceil(doors / 3)) if copper else 0
-    sand = 6 * math.ceil(panes / 16) if panes else 0
-    return {'cobble': cobble, 'logs': logs, 'copper_ingot': cu, 'sand': sand}
+WORKSHOP = {'bricks': 63 + 26, 'wall_planks': 34, 'roof_planks': 15, 'windows': 4, 'trim': 20, 'trim_fallback': 'planks',
+            'torches': 2, 'door': 0, 'tables': 1, 'furnaces': 2, 'fill': 40}
+HOUSE = {'bricks': 49 + 23, 'wall_planks': 27, 'roof_planks': 21, 'windows': 3, 'trim': 4, 'trim_fallback': 'bricks',
+         'torches': 1, 'door': 1, 'tables': 0, 'furnaces': 0, 'fill': 40}
 
-W = dict(bricks=89, slabs_trim=20, planks=49, panes=4, cut_copper=20, doors=0, tables=1, furnaces=2)
-H1 = dict(bricks=72, slabs_trim=4, planks=47, panes=3, cut_copper=4, doors=1, fill=40)
-H5 = dict(bricks=5 * 72, slabs_trim=5 * 4, planks=5 * 47, panes=5 * 3, cut_copper=5 * 4, doors=5, fill=5 * 40)
-for name, spec in (('workshop@1', W), ('house@1', H1), ('five house@1', H5)):
-    print('BOM %s copper %s | fallback %s' % (name, bom(**spec), bom(**spec, copper=False)))
+def bill(bp, sp, pool):
+    """The raw draw of ONE instance, after the parts pool, with fallbacks chosen against spendable stock. Returns
+    (draw, new_pool, choices). draw keys: cobblestone, wall_logs, any_logs, planks, sand, copper_ingot, torch."""
+    pool = dict(pool); ch = {}
+    def tryparts(name, n):
+        use = min(pool.get(name, 0), n); pool[name] = pool.get(name, 0) - use; return n - use
+    cu_need = 9 * 4 * math.ceil(bp['trim'] / 4) if bp['trim'] else 0
+    door_cu = 6 if bp['door'] and pool.get('copper_door', 0) < bp['door'] else 0
+    ch['trim'] = 'copper' if (cu_need + door_cu) <= 0.8 * sp['copper_ingot'] else bp['trim_fallback']
+    ch['door'] = 'copper_door' if bp['door'] and ch['trim'] == 'copper' else ('doorway' if bp['door'] else '-')
+    pane_need = tryparts('glass_pane', bp['windows'])
+    sand = 6 * math.ceil(pane_need / 16) if pane_need else 0
+    ch['windows'] = 'glass_pane' if sand <= 0.8 * sp['sand'] else 'planks'
+    bricks = bp['bricks'] + (bp['trim'] if ch['trim'] == 'bricks' else 0)
+    bricks_new = tryparts('stone_bricks', bricks)
+    b4 = 4 * math.ceil(bricks_new / 4)
+    sessions = math.ceil(b4 / 12)
+    pool['stone_bricks'] = pool.get('stone_bricks', 0) + (12 * sessions - bricks_new)     # leftover bricks
+    wall_planks = bp['wall_planks'] + (bp['trim'] if ch['trim'] == 'planks' else 0) + (bp['windows'] if ch['windows'] == 'planks' else 0)
+    roof_planks = bp['roof_planks']
+    fuel_planks = 8 * sessions + (4 if (ch['windows'] == 'glass_pane' and sand) else 0)
+    station_planks = 4 * bp['tables']
+    draw = {'cobblestone': 12 * sessions + 8 * bp['furnaces'] + bp['fill'],
+            'wall_planks': wall_planks + roof_planks + station_planks, 'fuel_planks': fuel_planks,
+            'sand': sand if ch['windows'] == 'glass_pane' else 0,
+            'copper_ingot': (cu_need + door_cu) if ch['trim'] == 'copper' else 0, 'torch': bp['torches']}
+    if ch['windows'] == 'glass_pane' and sand:
+        pool['glass_pane'] = pool.get('glass_pane', 0) + 16 * math.ceil(pane_need / 16) - pane_need
+    if ch['trim'] == 'copper':
+        pool['cut_copper'] = pool.get('cut_copper', 0) + 4 * math.ceil(bp['trim'] / 4) - bp['trim']
+        if door_cu: pool['copper_door'] = pool.get('copper_door', 0) + 3 - bp['door']
+        elif bp['door']: pool['copper_door'] -= bp['door']
+    return draw, pool, ch
 
-def admits(sp, need):                                  # TP 3.2: the whole bill within 80% of spendable
-    return all(need[k] <= 0.8 * sp[k] for k in ('cobble', 'logs', 'copper_ingot') if need[k] > 0)
+def spendable(t):
+    logs_total = sum(t['logs'].values()); planks_total = sum(t['planks'].values())
+    main = max(t['logs'], key=t['logs'].get) if t['logs'] else 'oak'
+    return {'cobblestone': t['cobblestone'] - RESERVE['cobblestone'], 'logs': logs_total - RESERVE['logs'],
+            'main_logs': t['logs'].get(main, 0), 'main': main, 'planks': planks_total - RESERVE['planks'],
+            'sand': t['sand'] - RESERVE['sand'], 'copper_ingot': t['copper_ingot'] - RESERVE['copper_ingot'],
+            'torch': t['torch'] - RESERVE['torch']}
 
-res = {'w_cu': 0, 'w_fb': 0, 'wh_cu': 0, 'wh_fb': 0}; n = 0
-for r in rows:
-    if r[0] in OUT: print('%-11s OUT (isolated, per-bot town state: D2)' % r[0]); continue
+def admits(sp, d):
+    """TP 3.2: every input of the whole bill within 80% of spendable. Planks: banked planks first, then logs (4 each); the wall
+    planks must come from the main species' logs or banked planks."""
+    planks_need = d['wall_planks'] + d['fuel_planks']
+    from_banked = min(max(sp['planks'], 0), planks_need)
+    logs_need = math.ceil((planks_need - from_banked) / 4)
+    wall_logs_need = math.ceil(max(0, d['wall_planks'] - from_banked) / 4)
+    ok = {'cobblestone': d['cobblestone'] <= 0.8 * sp['cobblestone'],
+          'logs': logs_need <= 0.8 * sp['logs'] and wall_logs_need <= 0.8 * sp['main_logs'],
+          'sand': d['sand'] <= 0.8 * sp['sand'] if d['sand'] else True,
+          'copper_ingot': d['copper_ingot'] <= 0.8 * sp['copper_ingot'] if d['copper_ingot'] else True,
+          'torch': d['torch'] <= 0.8 * sp['torch']}
+    return all(ok.values()), ok, logs_need
+
+def spend(sp, d, logs_need):
+    sp = dict(sp)
+    sp['cobblestone'] -= d['cobblestone']; sp['logs'] -= logs_need; sp['main_logs'] -= min(sp['main_logs'], logs_need)
+    sp['planks'] -= min(max(sp['planks'], 0), d['wall_planks'] + d['fuel_planks']); sp['sand'] -= d['sand']
+    sp['copper_ingot'] -= d['copper_ingot']; sp['torch'] -= d['torch']
+    return sp
+
+towns = [json.loads(l) for l in open(sys.argv[1])]
+n = wf = wc = 0; houses = []
+for t in towns:
+    if t['world'] in OUT:
+        print('%-11s OUT (isolated, per-bot town state: D2)' % t['world']); continue
     n += 1
-    v = dict(zip(hdr, map(int, r[2:])))
-    sp = {k: v[k] - RESERVE[k] for k in RESERVE}
-    wc, wf = admits(sp, bom(**W)), admits(sp, bom(**W, copper=False))
-    both = lambda cu: {k: bom(**W, copper=cu)[k] + bom(**H5, copper=cu)[k] for k in ('cobble', 'logs', 'copper_ingot', 'sand')}
-    hc, hf = admits(sp, both(True)), admits(sp, both(False))
-    res['w_cu'] += wc; res['w_fb'] += wc or wf; res['wh_cu'] += hc; res['wh_fb'] += hc or hf
-    # ONE PROJECT AT A TIME (each blueprint instance is admitted on its own): after the workshop's bill is spent, how many
-    # houses are admissible in sequence from today's stock, with no refill (a lower bound: cobble refills at the cap daily)
-    left = dict(sp); wb = bom(**W, copper=wc)
-    if wc or wf:
-        for k in ('cobble', 'logs', 'copper_ingot'): left[k] -= wb[k]
+    sp = spendable(t); pool = dict(t.get('parts') or {})
+    d, pool, ch = bill(WORKSHOP, sp, pool)
+    ok, why, logs_need = admits(sp, d)
     nh = 0
-    while (wc or wf) and nh < 5:
-        hb = bom(**H1, copper=admits(left, bom(**H1)))
-        if not admits(left, hb): break
-        for k in ('cobble', 'logs', 'copper_ingot'): left[k] -= hb[k]
-        nh += 1
-    res.setdefault('houses', []).append(nh)
-    print('%-11s spendable %s  workshop %s  all five houses at once %s  houses one at a time after it: %d' % (
-        r[0], sp, 'copper' if wc else ('fallback' if wf else 'NO'), 'copper' if hc else ('fallback' if hf else 'NO'), nh))
-print('houses admissible one at a time after the workshop, from today\'s stock (no refill): %s' % res['houses'])
-print('of %d eligible towns: workshop funded %d (with copper trim %d); workshop + five houses at once %d (with copper %d). '
-      'Sand is 0 in every town: windows wait on the sand target (then a 24 h fallback to wall cells).' %
-      (n, res['w_fb'], res['w_cu'], res['wh_fb'], res['wh_cu']))
+    if ok:
+        wf += 1; wc += ch['trim'] == 'copper'
+        sp = spend(sp, d, logs_need)
+        while nh < 5:
+            hd, hpool, hch = bill(HOUSE, sp, pool)
+            hok, hwhy, hlogs = admits(sp, hd)
+            if not hok: break
+            sp = spend(sp, hd, hlogs); pool = hpool; nh += 1
+    houses.append(nh)
+    print('%-11s workshop %-4s trim=%-7s windows=%-10s | bill %s | short %s | houses after it, one at a time: %d' % (
+        t['world'], 'YES' if ok else 'NO', ch['trim'], ch['windows'], d, [k for k, v in why.items() if not v] or '-', nh))
+print('of %d eligible towns: workshop admitted in %d (%d with copper trim); houses admissible in sequence from today\'s stock, '
+      'no refill: %d of %d (per town %s). Sand is 0 everywhere today, so every window is the plank fallback until matset-01.'
+      % (n, wf, wc, sum(houses), 5 * n, houses))

@@ -1,4 +1,4 @@
-# The building tier: count what is built, make the materials, build from plans (design only, r2, 2026-10-23)
+# The building tier: count what is built, make the materials, build from plans (design only, r3, 2026-10-23)
 
 OWNER 2026-10-23 ~12:40Z approved the building tier. The goal it serves is the owner's: "build cool structures, survive,
 and work together for long periods of time", in peaceful worlds.
@@ -50,14 +50,15 @@ worlds, not the rows:
 - **Correction to the brief:** of the 305 successful `place` actions, 274 placed saplings, 23 crafting tables, 7 dirt and 1
   granite. Torches: 0 successes (4 failures). Wells are not built through `place` at all.
 
-**2. The instrument passes its controls** (rerun 10-23 ~15:15Z after review round 1).
+**2. The instrument passes its controls** (rerun 10-23 ~15:35Z after review rounds 1 and 2).
 
 | control | what | result |
 |---|---|---|
 | positive | the operator's town stamp (place-town.py: 207 cells per town) | 2,940 of 3,312 found (88.8%), detected and masked. The rest were dug by bots since |
 | positive | plinth wells: the one `complete` record per world that has place steps (10 worlds; `tools/pickplinth.py.txt`) | 588 of 650 planned cells hold a plinth block the palette can see (cobblestone or cobbled deepslate: 90.5%), each well as ONE component. All 62 others hold andesite, diorite or granite, which the plinth may place (`PLINTH_BLOCKS`) and the palette cannot see (§2.7); 0 hold anything else. 0 of 10 is a room. The one record still in state `plan` (placebo-b, 16 cells, never built) finds 0 |
-| positive | synthetic fixtures with a known answer (`structcount.py selftest`) | 9 of 9: one lit house = 1 building; two houses joined by cobble = 2; a house joined to a buried mine stair = 1; an unlit lamp only = 0 (1 unlit room); a lit lamp = 1; a light below the floor only = 0; no doorway, no roof, no walls = 0. Three anchored mutants (`tools/mutants.py.txt`) each fail their case |
-| positive | three showcase villages, each scored against its own piece list: the taiga village east of home (on which the mask padding was tuned), and two HELD-OUT ones, a second taiga and a snowy | first: of 8 house pieces 7 have a room, 6 are B5 buildings. Held-out taiga: 13 houses, 8 rooms, 8 B5. Held-out snowy: 18 houses (3 farm pieces excluded), 8 rooms, 8 B5; the misses are snow-block and packed-ice houses, which are outside the BUILT palette by design. **0 rooms in all 364 non-house pieces** (streets, terminators, decorations, centres, animal pens) |
+| positive | synthetic fixtures with a known answer (`structcount.py selftest`, which exits nonzero on any failure) | **17 of 17**: one lit house = 1 building; two houses joined by cobble = 2; a house joined to a buried mine stair = 1; an unlit lamp only = 0 (1 unlit room); an unlit redstone torch only = 0; a lit lamp = 1; a light below the floor only = 0; a torch just outside the doorway only = 0; a "roof" of torches = 0 rooms; no doorway, no roof, no walls = 0; and the plinth check's own five (correct = pass; wrong block, disconnected cells = FAIL; never built = pass; empty plan = no_cells). **8 anchored mutants** (`tools/mutants.py.txt`, which also exits nonzero if any survives, crashes or loses its case line) each fail their case |
+| positive | three showcase villages, each scored against its own piece list: the taiga village east of home (on which the mask padding was tuned), and two HELD-OUT ones, a second taiga and a snowy | first: of 8 house pieces 6 have a room, 5 are B5 buildings. Held-out taiga: 13 houses, 7 rooms, 7 B5. Held-out snowy: 18 houses (3 farm pieces excluded), 8 rooms, 8 B5; most misses are snow-block and packed-ice houses, outside the BUILT palette by design. In all: 21 of 39 houses have a room, 20 are B5 buildings, and **0 rooms in 364 non-house pieces**. The test is conservative: it misses houses, never invents them |
+| negative | the two held-out villages scanned as towns (`scan` over each village's box, no bot ever there) | **0 BUILT cells** in both (2,097 and 3,296 palette cells, every one inside a padded piece), 0 dirt paths outside pieces: the padding holds out of sample |
 | negative | the showcase world: no bot has ever joined (`usercache` holds only the owner's spectator; 0 player files) | 0 built cells in a 385 x 385 box. All 20,627 palette cells there are inside 995 generated pieces or 19 dungeons. 0 structures, 0 rooms, 0 dirt paths |
 | negative | FULLY GENERATED (`Status` full) chunks no player ever ticked (InhabitedTime 0): 120 per bench world and 150 on the showcase | 0 surface false positives in 2,070 chunks; 1,311 buried ones (mineshaft wood and dungeon fringe; 5 of their starts lie in regions not copied). So buried structures are reported, never scored, and a surface count is the claim. This control cannot see fluid-made cobble (those chunks never ticked): §2.6 bounds it separately |
 | negative | how much of each town the masks cover (`tools/maskarea.py.txt`, Chebyshev ≤ 44) | **0 mask columns reach within 8 of the surface in any of the 16 bench towns** (the masks there are mineshafts and trial chambers, underground: 0-54% of columns, all deep); showcase 0.8% (its village's edge). So the masks cannot hide a bench building |
@@ -80,8 +81,9 @@ So materials need:
 - one deterministic job, `make_material`. It runs at a qualifying town furnace (the workshop's once it exists), makes only
   what an admitted blueprint still needs (or a small buffer), and spends only what is above the reserve.
 
-Funding today (exact bills, TP 3.2's admission, 13 shared towns): the workshop is funded in 11 of 13 (9 with copper trim;
-hive-b and hive-d are log-short), and 47 of the 65 houses are admissible one at a time after it, before any refill.
+Funding today (exact bills from the blueprints' cells, TP 3.2's admission, 13 shared towns): the workshop is admitted in 11
+of 13 (9 with copper trim; hive-b and hive-d are log-short), and 42 of the 65 houses are admissible one at a time after it,
+before any refill.
 
 Its fuel is **planks**: 1 log makes 4 planks, which smelt 6 items. That respects B3 (never coal) and the 10-15 "no charcoal"
 decision (D4).
@@ -267,11 +269,14 @@ its own line.
 - **Counted per distinct room, never per component** (Codex r1 P1). Two lit houses joined by a cobble line are two
   buildings. A building with two rooms separated by a wall with no doorway counts twice; the read lists rooms with their
   centres so that is visible.
-- **LIT means lit** (Codex r1 P1). Block STATES are read from the palette. Torches, wall torches, lanterns, glowstone, sea
-  lanterns, froglights, shroomlights, jack o'lanterns and end rods are always lit; redstone lamps, copper bulbs, campfires
-  and candles count only with `lit=true`.
-- **Inside means inside.** A light counts in a room cell, in the cell directly above a room cell (a hanging or ceiling light),
-  or in a ring cell at the room's own levels (a wall light). Never below the floor, never outside the ring.
+- **LIT means lit** (Codex r1 P1, r2 P1). Block STATES are read from the palette. Torches, wall torches, lanterns, glowstone,
+  sea lanterns, froglights, shroomlights, jack o'lanterns and end rods are always lit; redstone lamps, redstone torches, copper
+  bulbs, campfires and candles count only with `lit=true`.
+- **Inside means inside** (Claude r2 P3). A light counts in a room cell, or in the cell directly above a room cell (a hanging
+  or ceiling light). A light in the ring counts only when the ring cell is WALL (an embedded lamp, glowstone in the wall): a
+  torch beyond the doorway or a gap is outside. Never below the floor.
+- **A roof is structural** (Codex r2 P1). A roof cell is building material a body cannot pass (`roofing`): never a torch, sign,
+  ladder, door, carpet, lantern or chain, which are BUILT palette but roof nothing.
 - **"A door" (B5).** The test accepts a 1x2 passable doorway or a door block in the ring. Whether an open doorway satisfies
   the owner's "a door" is owner question Q2 (§8 C2).
 
@@ -308,10 +313,16 @@ world.
   the affected chunks `unknown` and excludes them from the totals. The totals then say how many cells were excluded. A town
   with more than 2% of its box unknown is `UNKNOWN`.
 - **Atomic publication:** the JSON is written to a temporary file and renamed. A reader never sees half a day.
-- **Canary reads do not wait for the night.** A read at +360 copies the canary and control towns' region files at read time
-  (cp, as the prototype does). Paper autosaves dirty chunks every 5 minutes, so the copy qualifies only if every region file it
-  needs was modified within the last 10 minutes or has no dirty chunks pending: a file older than that in a town where a bot
-  stands is waited on, once, for 10 minutes, then the line is `UNKNOWN`. The read records each file's mtime.
+- **Canary reads do not wait for the night, and freshness is judged per CHUNK** (Codex r2 P1, Claude r2 P3). A read at +360
+  copies the canary and control towns' region files at read time with `cp -p`, recording each SOURCE file's mtime before the
+  copy (a plain `cp` would reset it). Freshness comes from the region file's own per-chunk timestamp table (the second 4 KB of
+  every `.mca`: the time Paper last wrote that chunk):
+  - a chunk holding record cells is FRESH when its timestamp is later than the newest witnessed `_build` placement row in it;
+  - a stale chunk is re-copied once after one autosave interval (5 min + 1 min margin); still stale, the record cells in it
+    are `UNKNOWN` and the record's score says so;
+  - a quiet chunk (no placement row since its last write) is fresh whatever its age, so an unchanged town is never wrongly
+    UNKNOWN.
+  - No RCON `save-all` is used: the read stays read-only.
 
 ### 2.6 The controls (run 10-23; numbers in §0 item 2; tools `structcount.py.txt` `scan` / `village` / `negctl` / `delta` / `selftest`)
 
@@ -327,8 +338,9 @@ reaches within 8 of the surface (10-23: 0 in every bench town). A mask that reac
 it hides are reported as the inside-mask delta (§2.2). Cells masked only by the padding (outside the raw BB): 28 oak planks in
 most bench towns (a mineshaft edge), 657 cells in board-b, 445 in placebo-a, all inside masks that stay at least 8 below the surface within 44 of home.
 
-**The fixtures are part of the instrument.** `selftest` (9 known-answer fixtures) and `mutants.py` (3 anchored mutants, each
-asserted present and unique) run before every daily scan; a failure stops the run and alarms.
+**The fixtures are part of the instrument.** `selftest` (17 known-answer fixtures) and `mutants.py` (8 anchored mutants, each
+asserted present and unique) run before every daily scan and every canary read. Both exit nonzero on any failure, survivor,
+crash or missing case line, and the wrapper then publishes nothing for the day (the BUILD lines say UNKNOWN) and alarms.
 
 **Known false positive, named.** The only room found on the bench (board-b, 76 from home) is a cobble scaffold under a
 jungle canopy, with log walls. B5's light rule makes it a structure.
@@ -426,11 +438,12 @@ already went unchosen in 24 h, and advice printed is not advice taken.
 - the inputs exist above the reserve (§3.3), preferring the bag's own cobble above its keeps first (the owner's cobble-in-bags
   concern), then the town index;
 - a table recipe needs a table in reach: the workshop's, or the bot's own carried one placed as craft does today;
-- a FURNACE QUALIFIES (Codex r1 P1, Claude r1 P2): the furnace lease is ACQUIRED (an unavailable lease store is a refusal, never
-  an open path), and at the open the furnace's fuel slot is empty or planks, its input slot is empty, and its output slot is
-  empty or this job's own part. Anything else (coal in the fuel slot, a foreign input or output) is a free skip: the furnace
-  belongs to `furnace_drain`, which already owns foreign contents. Once the workshop exists, its furnaces are reserved for
-  this job: the milestone `smelt` and `smelt_town` skip them (TP's yard-furnace rule).
+- a FURNACE QUALIFIES (Codex r1 P1 and r2 P1, Claude r1 P2): the furnace lease is ACQUIRED (an unavailable lease store is a
+  refusal, never an open path); the furnace is COLD: its block state reads `lit=false` from the server's own block update,
+  and at the open the window's burn progress (mineflayer's `furnace.fuel`, separate from the fuel slot) is 0, because an empty
+  fuel slot can coexist with coal still burning; its fuel slot is empty or planks, its input slot is empty, and its output
+  slot is empty or this job's own part. Anything else is a free skip: `furnace_drain` owns foreign contents. Once the workshop
+  exists, its furnaces are reserved for this job: the milestone `smelt` and `smelt_town` skip them (TP's yard-furnace rule).
 
 **One order, inside one 180 s skill budget** (as smelt_town):
 1. Write the durable **carry note** (`mats-carry-<bot>.json`, fsync), naming the batch, its inputs and expected outputs.
@@ -439,17 +452,27 @@ already went unchosen in 24 h, and advice printed is not advice taken.
 4. Run one furnace session with an EXPLICIT fuel list of planks only. The existing `smelt` session is not reused as it is,
    because `chooseFuel` (smelting.mjs) ranks coal and charcoal first and the bag may carry coal under the iron ladder's keep.
 5. Take the output **only in multiples of 4 stone**, standing at the furnace, and craft the bricks at once, with no movement in
-   between. A remainder of 1-3 stone stays in the furnace (this job's own) for the next session.
+   between. A remainder of 1-3 stone stays in the furnace (this job's own) for the next session. In an ordinary town furnace
+   (before the workshop exists) `furnace_drain` may take that remainder into a bag first; that is harmless (stone has a 64
+   target) and MAT-FURN shows it.
 6. Craft the parts: glass into panes; ingots into copper blocks and then cut copper or doors (copper orders skip 3-5).
 7. In a `finally`, deposit the parts and every unspent input, then close the note.
 
 **Recovery, `mats_return`** (the tidy-01 carry-note pattern, town plan §7.3): runs first at the next town visit, before any
 other town order.
-- It reconciles by looking (the bag, the furnace, the deposit target), crafts any stone in the bag in fours, banks the rest
-  (stone's stock target is 64), and closes the note.
-- While a note is open, its named items are a KEEP for every other order (deposit, prune, the well, craft ingredients).
+- It reconciles by looking (the bag, the furnace, the deposit target) and crafts any stone in the bag in fours.
+- **A 1-3 stone remainder is never "banked and closed" when stone cannot bank** (Codex r2 P2: stone's 64 target may be full).
+  It stays under the open note as a KEEP and is consumed by the bot's next order, which withdraws 12 minus the remainder.
+- **Carry protection starts at spawn, before any movement** (Codex r2 P2). While a note is open, its named items are a KEEP for
+  every order (deposit, prune, the well, craft ingredients) AND are removed from that bot's pathfinder scaffold list: index.mjs
+  reads the note when it builds the bot's movements on spawn and on every note change, so restart travel cannot spend them.
+- **D8's unshipped half ships in matset-01:** `stone_bricks` and `smooth_stone` are still in `PATHFINDER_SCAFFOLD`
+  (scaffold.mjs) although D8 made them building material; they leave it. Planks and stone stay scaffold for ordinary travel,
+  and the claim/note exclusion above covers them while they are a job's or a segment's.
 - A loss that the bag and furnace do not account for is booked as a conservation defect. A stone spent by a reflex's pillar
   is accounted from that reflex's own placement row and reported, not a defect.
+- Tests: a restart mid-note followed by a long walk home (no noted item spent as scaffold); a deposit that fails with the note
+  open (the note stays open, the KEEP holds).
 
 **Bounds:**
 - 1 order per bot per 10 min; a 20 min backoff on failure.
@@ -487,13 +510,13 @@ intermediates, then raw inputs and their fuel). Each instance is admitted on its
 - **The bill is exact** (`tools/funding.py.txt`): it is computed from the blueprint's cells by executable batches, with the
   stations (a table, two furnaces) and the earthwork fill allowance (40 cobble per pad) included.
 
-**Funding today** (census 10-23, default reserve, chests only; 13 eligible towns: the 12 shared worlds plus isolated-b, which
-became a shared town on 10-21):
+**Funding today** (`tools/funding.py.txt` r3 over `data/census-species-20261023.jsonl`: per-species stock, cobblestone alone,
+the default reserve, chests only; 13 eligible towns, the 12 shared worlds plus isolated-b, which became a shared town on 10-21):
 
-| | bill (copper / fallback) | towns funded now |
+| | bill from the cells (copper trim / plank fallback) | towns admitted now |
 |---|---|---|
-| workshop@1 | 152 cobble, 31 logs, 6 sand, 180 ingots / 164 cobble, 33 logs, 6 sand | **11 of 13** (9 with copper trim). hive-b (252 logs) and hive-d (67) are log-short at a 512 reserve |
-| house@1, one at a time after the workshop | 112 cobble, 25 logs, 6 sand, 42 ingots / 124 cobble, 27 logs | 47 of the 65 houses (13 towns x 5) are admissible in sequence from today's stock with no refill. Cobble refills at the cap every day |
+| workshop@1 | 152 cobblestone (8 sessions of 12, 2 furnaces, the fill allowance); 57 or 77 wall-species planks + 64 fuel planks; 180 ingots or 0; 2 torches; windows as planks while sand is 0 | **11 of 13** (9 with copper trim). hive-b and hive-d are log-short at a 512 reserve; hive-d also has 0 torches in its chests |
+| house@1, one at a time after the workshop | 112 cobblestone; 51 planks + 48 fuel planks; 42 ingots or 0 (stone-brick corners, an open doorway) | **42 of the 65** houses (13 towns x 5) admissible in sequence from today's stock with no refill, per town 0-5. Cobble refills at the cap daily |
 
 **Sand is 0 everywhere today:** glass waits on matset-01's sand target. Windows are an upgrade too: an unplaced window cell
 becomes a plank wall cell after 24 h (`window_shortfall`, the pavilion's `roof_shortfall` pattern), written only by the crew
@@ -510,6 +533,8 @@ holder (§4.1).
   - they get NO stock target, so no cap can ever refuse or prune them;
   - they are always bankable (a `PROJECT_PARTS` set: town_deposit banks them; the deposit plan never keeps them as ballast),
     and `glass` itself gets a bank route, so an interrupted pane craft does not leave glass as bag ballast.
+- **`stone_bricks` and `smooth_stone` leave `PATHFINDER_SCAFFOLD`** (scaffold.mjs still lists them: D8's second half never
+  shipped), so the pathfinder never spends a finished building stone.
 - `BUILD_RESERVE` is declared. Nothing reads it until mats-01.
 - **Test:** a full bag in a town at every cap, holding each part: none is disposed, pruned or thrown; each is banked.
 
@@ -547,29 +572,31 @@ adopted as proposed except where §8 C5 says otherwise:
 | field | meaning |
 |---|---|
 | `seg`, `layer` | the segment (`pad`, `ring`, `wall-N/E/S/W`, `roof-edge`, `roof-inner`, `fit-out`, `door`) and its dependency depth |
-| `cells_open / cells_done / cells_waived` | from the world, every read |
+| `cells_open / cells_done / cells_waived` | from the world, every read. A cell is WAIVED only after `no_step` on 3 visits on different days with the reason recorded, and only for a non-structural role (window, trim); walls, roof, door or doorway and the light are never waived. A failed walk-probe is one such `no_step` (the cooperation design's question). `structure_complete` needs 0 open structural cells |
 | `material_open` | the bill of the segment's open cells only |
 | `deps` | segments that must read COMPLETE in the world first (roof-edge needs every wall; roof-inner needs roof-edge; door needs fit-out) |
 | `lease` | `project-<home>.<plot>.seg<id>.lease.g<N>.json` |
 
 The record also carries `structure_complete`, `layer_open`, `bom_open` (open cells only), `builders_max` and `slots`.
 
-**Fencing and concurrency (Codex r1 P1):**
+**Fencing and concurrency (Codex r1 P1, r2 P1):**
 - **An admission SLOT first.** A builder takes one of `builders_max` slot leases (`project-<home>.<plot>.slot<k>.lease.g<N>`,
   k = 1..builders_max) before any segment. That is the atomic, project-wide builder cap.
 - **A fresh epoch per acquisition.** Every acquisition of a slot or a segment links a NEW generation N. The fencing token
-  checked immediately before every click is (that lease's own N, the record generation). A builder whose lease expired
-  cannot click, even if the next holder of the same segment has the same record generation.
-- **Mutation serialization.** Two segments run concurrently only when no cell, stand or support of one lies in the other's
-  cells.
-  - Cells the offline proof marks as **closers** (a placement that reduces a room's exits, or closes a roof over a room)
-    additionally need the project's single **closer token** (a lease like a slot).
-  - Its holder places only after every other live holder's last click has settled. Each holder records its outstanding click
-    and its settlement in its lease renewal.
-  - `wouldEnclose` is re-evaluated against every body after the adapter's last await, immediately before a closer click.
-- **Fallback transitions** (`window_shortfall`, `trim_shortfall`, `door: doorway`) are written only by the closer token's
-  holder, after all live holders' clicks have settled, under the fence. A click that lands after the transition is judged
-  against the generation its token named, as the pavilion's `roof_shortfall` rule does.
+  checked immediately before every click is (that lease's own N, the record generation, the BARRIER generation below).
+- **Durable pre-send intents.** Before every click, its sender appends an intent (cell, block, lease N, time) to its lease's
+  intent log and fsyncs it; the intent is settled by the cell's server word (the witness) or, after 5 s of silence, by a
+  fresh read. A click is never sent without its intent on disk.
+- **A project-wide mutation BARRIER** (`project-<home>.<plot>.barrier.g<N>.json`): a closer cell (a placement the proof marks
+  as reducing a room's exits or closing a roof over one) and every fallback transition (`window_shortfall`, `trim_shortfall`,
+  `door: doorway`) first take the barrier. EVERY sender checks the barrier generation immediately before each click and sends
+  nothing while another holder has it. The barrier holder then reconciles EVERY recorded unsettled intent, of live holders
+  and of expired ones alike (a crashed holder's packet in flight settles within seconds; its intent is resolved by reading
+  the cell), and only then re-evaluates `wouldEnclose` against every body and clicks, or writes the transition. Two senders can
+  therefore never interleave with a closer or a fallback change.
+- **Concurrency otherwise:** two segments run concurrently only when no cell, stand or support of one lies in the other's cells.
+- Tests (SHOP-BARRIER): an expired holder's in-flight click against a closer; an ordinary click racing the barrier take; a click
+  crossing a `trim_shortfall` transition.
 - **Rows** (the cooperation design's "what the building tier must emit"): a positioned `_build` row per witnessed placement
   (project, segment, cell, block, bot); a row per slot and segment lease taken and lost; `_structure_complete` when the
   in-bot predicate flips. All carried in the detail string: no new ES fields, because an unmapped field rejects whole
@@ -607,11 +634,12 @@ read back.
 
 **house@1, a house per bot (B1 step 2):**
 - pad 7x7 stone bricks (49) and ring (23);
-- walls 5x5 at s+1 and s+2: 26 planks and 3 panes;
+- walls 5x5 at s+1 and s+2: 27 planks and 3 panes (16 wall columns x 2 = 32, less the 2 door cells and 3 panes);
 - roof 5x5 at s+3: 21 planks and 4 cut-copper corners;
 - 1 torch inside; a **copper door placed last, from outside** (fallback: doorway).
 
-That is 129 placements. Per house: 112 cobble, 25 logs, 6 sand (one pane craft covers five houses), 42 ingots. Nothing is
+That is 129 placements (49 + 23 + 30 wall cells + 25 roof + torch + door). Per house: 112 cobblestone, 51 planks + 48 fuel planks (25 logs), 6 sand for 16 panes (one craft covers
+five houses), 42 ingots. Nothing is
 stored inside, and no bed: beds would move respawn. **Once its door is in, a house is not entered again by design** (§4.4 says
 what happens if a bot gets in anyway).
 
@@ -637,7 +665,8 @@ the workshop replaces as the first roofed build. Outside the 16 circle:
 - its furnaces are named by its record, and they are within the drain's 48.
 
 Houses are a new plot kind, `house`, appended to the plan (append-only; no committed plot changes): five 7x7 pads with 2-cell
-gaps in the sectors either side of the gate path, at Chebyshev ≥ 17 and straight-line ≤ 40. The wall is a `wall` plot.
+gaps in the sectors either side of the gate path, at Chebyshev ≥ 22 (TP 2-8: no structure inside 21, which keeps the plinth
+re-site room and the shaft collar) and straight-line ≤ 40. The wall is a `wall` plot.
 Paths are the plan's own.
 
 **Where a 9x7 pad is geometrically possible today** (`tools/fitb.py.txt` on the region copies,
@@ -652,16 +681,18 @@ exist only once townplan-01 writes plans. So its counts are UPPER BOUNDS:
 | near (17-30) | 13 / 16 | not board-c, isolated-d, placebo-c |
 | **outer (Chebyshev 22-44, straight-line ≤ 43)** | **16 / 16** | best earthwork 0-38 cells; up to 266 tree cells above the pad |
 
-**The composed site gate (P0, before shop-01 is registered):** the same predicate run inside the planner on every canary-
+**The composed site gate (P0): the FIRST step of building shop-01, before any actuator code** (Codex r2 P2). It is run on frozen
+plans and region copies, with every stand cell checked explicitly, and reported with both reviews before the actuator is built: the same predicate run inside the planner on every canary-
 eligible town's real plan, adding the reservations above, any existing BUILT cell in the volume (Claude r1 P2: a site holding
 bot-placed tables or pillars is refused, not built around), the tree-height rule below, and a legal replant site. It reports
 qualified sites separately from geometric candidates, n/13. A town without a qualified site is not drawn.
 
 **Clearing (B4).** It happens only inside the claimed plot box, by its builder under the fenced lease, from the record's
 CLEAR LIST. Never in a protected zone, the showcase's village boxes, or another plot.
-- **Trees.** Only trees whose every log in the building volume (s-1 .. s+4, the box + 1) is reachable from a ground or pad stand
-  (dig reach 5.0, as builder.mjs) are clearable. A site whose clear list needs a higher stand is refused by the gate: the
-  builder places no temporary scaffold in v1. Leaves above the volume are left; they decay once their logs are gone.
+- **Trees.** A tree is clearable only when EVERY log of it (the whole trunk and branches of any tree whose trunk enters the
+  volume, Claude r2 P3) is reachable from a ground or pad stand (dig reach 5.0, as builder.mjs). A site needing a higher
+  stand is refused by the gate: no floating trunks, and the builder places no temporary scaffold in v1. Leaves of a fully
+  felled tree decay on their own.
 - **Replant, durable and first** (Codex r1 P2, Claude r1 P2):
   - the gate reserves one legal replant cell per trunk in the record before anything is felled: outside every plan cell and
     reservation (including future house plots), not in a zone, soil with the sapling's clearance, reachable, in a band 8-24
@@ -692,8 +723,15 @@ placement, resume after a disconnect, bystanders) is rebased and extended:
     "ghost blocks are rejected digs"). So:
   - every B4 clear is confirmed by a server packet before any stand or support relies on it;
   - no dig is made in the first 3 s after a spawn or respawn (no `player_loaded` is sent; cause #1 of the ghosts);
-  - a dig with no confirmation within 3 s marks the cell unknown. It is "known" again only from a FRESH server update for
-    that cell (a later block_change, or a chunk resend), never from the client's own world.
+  - a dig with no confirmation within 3 s marks the cell unknown, and it is never stood on or built against.
+  - **Recovery is a deterministic RESYNC PROBE** (Codex r2 P2: waiting is not recovery, because a loaded chunk does not resend
+    an unchanged cell). The builder clicks (use-item-on, empty hand) the face of a solid neighbour that points INTO the unknown
+    cell. Vanilla's use-item-on handler answers every such click with block updates for the clicked block and the adjacent
+    cell, so the server's true state arrives. At most 2 probes per cell per visit. Paper must prove it (scene GHOST-RESYNC)
+    before any blueprint relies on it.
+  - With no solid neighbour face in reach, or 2 probes unanswered, the cell stays unknown: the segment yields and the other
+    segments go on. The bot's next trip out of town beyond view distance reloads the chunk (a fresh chunk resend), and the next
+    visit starts with that cell. After 3 visits the stall rule applies (TP 3.2).
 - **The pathfinder never edits a footprint.** Every record's cells + 1 go into `exclusionAreasBreak` and `exclusionAreasPlace`,
   as treefarm and the well already do, through a spatial index so the A* hot path stays cheap. Build parts are removed from
   scaffolding during visits. Without this, a stray scaffold block gets "fixed" in a loop (Baritone #2173), or a house gets dug
@@ -710,7 +748,7 @@ placement, resume after a disconnect, bystanders) is rebased and extended:
   - the door is the last cell. Immediately before its click (after the adapter's last await), the record's INTERIOR cells are
     checked against every entity position, and the click waits while any body is inside;
   - a bot that is ever inside a sealed interior (it walked in through damage) gets a deterministic exit: `exit_house`, a
-    reflex-scope step that opens the door (`activateBlock`) and walks out by direct control (two cells, no pathfinder, which
+    reflex-scope step that opens the door (`activateBlock`), walks out by direct control and closes it behind it (two cells, no pathfinder, which
     treats any door as an obstacle). If the door is missing, it leaves by the hole it came in;
   - a repair of a sealed house never places a cell that encloses a body (`wouldEnclose` over the interior), so the hole a bot
     came in by is the last cell repaired.
@@ -739,7 +777,7 @@ The CLAUDE.md composition class. Each row is a chain test through the real Cogni
 | # | meets | what happens | next legal move |
 |---|---|---|---|
 | M1 | inputs above the reserve too low | `make_material` not eligible | the bot's other work; the deposit flows refill the town; admission is retried at the next tick |
-| M2 | no furnace qualifies (leased, coal in it, foreign contents, lease store down) | a free skip | another qualifying furnace within 16, or the next decision; `furnace_drain` empties foreign contents |
+| M2 | no furnace qualifies (leased, burning, coal in it, foreign contents, lease store down) | a free skip | another qualifying furnace within 16, or the next decision; `furnace_drain` empties foreign contents |
 | M3 | interrupted mid-session, or killed | the carry note survives; `mats_return` runs first at the next visit | it reconciles by looking, crafts or banks the stone, closes the note |
 | M4 | fewer free slots than the order needs | not eligible | town_deposit first |
 | A1 | a blueprint not admitted (whole bill over 80% of spendable) | no project; nothing is claimed | the buffers fill slowly; admission is re-checked every 30 min |
@@ -760,6 +798,8 @@ The CLAUDE.md composition class. Each row is a chain test through the real Cogni
 | B8 | mine or gather targets a recorded cell | structureguard refuses | mine's walk-off (`exitCell`); gather's search moves on |
 | B9 | a bot inside a sealed house | `exit_house` (reflex scope) | out by the door, or the hole it came in by |
 | P1 | the segment's parts are not made | `make_material` is eligible (a part is short) | the builder takes another segment, or waits; never a model-advice loop |
+| P2 | the segment's materials are in the town but not in the bag (Claude r2 P2) | the BUILD VISIT withdraws its segment's bill itself, from the reserved site chest first when one exists, else from any fresh, known town container under the claim set (TP §5 build job: "withdraw, craft cheap parts, place up to 40, then deposit what is left"); `make_material` deposits CLAIMED parts into the site chest when it exists, else into ordinary town chests | no SUPPLY job is needed for shop-01; cooperation's SUPPLY only adds a second path. Chain test CHAIN-1: an admitted project -> make_material -> parts -> a build visit -> placements, with no other job present |
+| G1 | a dig unconfirmed | the resync probe (§4.4), at most 2 per cell per visit | the other segments; the next trip out reloads the chunk |
 | D1 | the door would face wrong | predicted before the click; the full-state read-back is the judge | a wrong door is removed by its builder (a fenced yield) and re-placed once, then `door: doorway` |
 
 **If a piece is REVERTED** (TP §8's stated loss): the structures stay in the world, unguarded once structureguard's code is gone;
@@ -772,7 +812,8 @@ reconciled by the next build that has `mats_return`, and the rollback build simp
 ## 5. How bots cooperate on a build (the interfaces cooperation-1023 asks for)
 
 - **The unit of work is a SEGMENT** (§4.1), taken after an admission slot. A bot claims the segment's bill from the town's one
-  claim set and draws it from the reserved site chest or its bag. It builds what the world shows open, and returns what is
+  claim set and its build visit withdraws it: from the reserved site chest first when one exists, else from any fresh, known
+  town container (§4.6 P2), so shop-01 never depends on cooperation's SUPPLY job. It builds what the world shows open, and returns what is
   left in a `finally`.
 - **No bot knows another's plans.** The world and the lease files are the whole protocol, so a crash leaves no orphaned
   coordination state. A segment's lease lapses (TTL 4 min, reclaim after TTL + 60 s), and the next claimant reads the world.
@@ -800,9 +841,9 @@ reconciled by the next build that has `mats_return`, and the rollback build simp
 | # | piece | tier | needs | what | read: exposure; effect (structure count); gates |
 |---|---|---|---|---|---|
 | 0 | **structcount** | host script, no canary | — | §2: the daily count + controls + BUILD lines; SC-CTL first | ≥ 3 days of baseline before #3; controls, selftest and mutants every day |
-| 1 | **matset-01** | 1 (owner-direct + tripwire) | — | §3.4: sand target, glass off the junk list, parts PROTECTED and untargeted, `BUILD_RESERVE` declared | tripwire: 0 well disposals or prunes of any part; sand banked > 0 in 24 h; gather and rung rates within the null |
+| 1 | **matset-01** | 1 (owner-direct + tripwire) | — | §3.4: sand target, glass off the junk list, parts PROTECTED and untargeted, building stones out of the pathfinder scaffold list, `BUILD_RESERVE` declared | tripwire: 0 well disposals or prunes of any part; sand banked > 0 in 24 h; gather and rung rates within the null |
 | 2 | **mats-01** | 3 (r2: allocation, withdrawals, furnace policy and recovery are not a small fix) | 1; townindex-01 (KEPT) | §3.2-3.3, buffers only (no project yet) | exposure ≥ 20 parts made with exact conservation, fuel booked by name. REVERT: any forbidden input consumed (coal burned included); the reserve crossed (index); a stone count in a bag that rose across an order with no open note. No-harm DiD: rung completions, gather, smelt `furnace_busy`, bag fill |
-| 3 | **shop-01** | 3 | 2; **townplan-01 and found-01 KEPT** (not yet: their JIT re-variants come after chatgate-01); builder.mjs + structureguard-01 (carried here, rebased, with TP 2-8 §4.1's four changes) | §4: the record, slots and segments (2 builders), workshop@1 (bench) and storehouse@ring (greenfield), B4 clearing and durable replant | **effect:** B5 buildings complete in canary towns (structcount at a read-time copy), control = 0 by construction. Exposure ≥ 1 complete workshop in ≥ 2 canary towns, conformance F1 ≥ 0.98 (name and state). REVERT: an off-record placement; a clear outside the clear list or a plot; any zone cell touched; two leases live on one segment or more holders than slots; builder bag delta ≠ confirmed placements + scaffold; a felling with no planted replant; an unconfirmed dig stood on. No-harm DiD: deaths (two-death floor), immobile bot-h, gather and rung, litter cells added |
+| 3 | **shop-01** | 3 | 2; **townplan-01 and found-01 KEPT** (not yet: their JIT re-variants come after chatgate-01); the composed P0 gate first (§4.3); builder.mjs + structureguard-01 (carried here, rebased, with TP 2-8 §4.1's four changes) | §4: the record, slots and segments (2 builders), workshop@1 (bench) and storehouse@ring (greenfield), B4 clearing and durable replant | **effect:** B5 buildings complete in canary towns (structcount at a read-time copy), control = 0 by construction. Exposure ≥ 1 complete workshop in ≥ 2 canary towns, conformance F1 ≥ 0.98 (name and state). REVERT: an off-record placement; a clear outside the clear list or a plot; any zone cell touched; two leases live on one segment or more holders than slots; builder bag delta ≠ confirmed placements + scaffold; a felling with no planted replant; an unconfirmed dig stood on. No-harm DiD: deaths (two-death floor), immobile bot-h, gather and rung, litter cells added |
 | 4 | **house-01** | 3 | 3 KEPT; houses' composed P0 gate (5 pads per town) | house plots + house@1 + the sealed-door rule + `exit_house` | exposure ≥ 3 complete houses in each canary town; REVERT also on a body inside a sealed interior at a door click |
 | 5 | **paths-01** | 3 | 3 | the town plan's paths + torches | the plan's gates; lit path cells (structcount) |
 | 6 | **wall-01** | 3 | 3, 5 | wall@1 segments | REVERT: any segment longer than 12 without a gap; immobile DiD near the wall line |
@@ -846,7 +887,12 @@ reconciled by the next build that has `mats_return`, and the rollback build simp
 |---|---|---|
 | SC-CTL | structcount | on sandbox 1: a bot-built workshop, a house, a scaffold pillar, a plinth, a bot block inside a padded worldgen box and one on a stamp cell. The count gives exactly 2 buildings, the structures and litter, and F1 = 1.0 for both records. **CoreProtect's placed-and-not-broken set agrees with the BUILT set**, precision and recall reported, with the two masked bot blocks named as known misses and seen in the inside-mask delta |
 | MAT-1 | mats-01 | stone bricks, panes, cut copper and a door made, by server bag and chest deltas; 0 iron, coal or kit consumed, with iron and coal present in the same chest and coal in the bag |
-| MAT-FURN | mats-01 | furnaces holding coal, foreign iron, and the job's own leftover stone: only the last is used |
+| MAT-FURN | mats-01 | furnaces holding coal, foreign iron, and the job's own leftover stone: only the last is used; a remainder in an ordinary town furnace taken by `furnace_drain` |
+| MAT-HOT | mats-01 | an EMPTY fuel slot with coal still burning (`lit=true`, burn progress > 0): a free skip, nothing loaded |
+| MAT-TRAVEL | mats-01 | a restart with an open note, then a long walk home through terrain that needs scaffold: 0 noted items placed |
+| CHAIN-1 | shop-01 | an admitted workshop, no other job running: make_material makes the parts, a build visit withdraws them and places them, the workshop completes |
+| GHOST-RESYNC | shop-01 | a dig the server rejects (made in the first 3 s after spawn), then the probe: the server's block update arrives and the cell is known again; the no-neighbour case yields |
+| SHOP-BARRIER | shop-01 | an expired holder's in-flight click meets a closer; an ordinary click races the barrier take; a click crosses a `trim_shortfall` transition: no enclosure, no stale click accepted |
 | MAT-KILL | mats-01 | SIGKILL after the withdraw, during the session, and holding 1-3 stone: `mats_return` reconciles; nothing lost or thrown |
 | MAT-RES | mats-01 | stock exactly at the reserve: no order; one batch above: one batch |
 | SHOP-FLAT / SHOP-TOWN | shop-01 | the whole workshop on flat ground and on two dug-out fixtures; every cell read in family |
@@ -888,7 +934,9 @@ reconciled by the next build that has `mats_return`, and the rollback build simp
     bench always builds first.
   - Also, the showcase has not started (its start gate waits on the town plan's pieces), and it never draws canaries.
   - **Two honest options:**
-    - **(a) Showcase-first, a requested change to "kept builds only":** the showcase runs each building piece's CANDIDATE sha
+    - **(a) Showcase-first, a requested change to "kept builds only"** (gated: Paper + both reviews first, and on the showcase a
+      daily structcount tripwire read of its own: conformance, zone cells touched, deaths, immobile bot-h; any defect pins the
+      showcase back to the fleet sha): the showcase runs each building piece's CANDIDATE sha
       right after its Paper scenes and both reviews, before or alongside the bench canary of the same sha. It is then the
       piece's first exposure (and the only one for the greenfield storehouse shell, which no bench town can expose). A bench
       REVERT pins the showcase back to the fleet sha; what it built stays (the stated loss).
@@ -986,3 +1034,27 @@ Rounds are recorded in `docs/reports/building-tier-reviews-2026-10-23.txt`.
       encloses; the revert story (§4, §5);
     - **ordering:** prerequisites marked unmet, ≥ 2 pools for shop-01, the tier-2 conditions restated, B6 put as a choice (§6,
       §8 C4).
+- **Round 2 (r2, commit 27980d4e):** Codex CHANGE (5 P1, 5 P2: of its 17 r1 findings, 9 fixed and 7 partly fixed); Claude
+  CHANGE (one new P2; 9 of its 10 r1 P2s verified fixed in code and data).
+  - The P1s: redstone torches lit regardless of state and a roof of torches still roofed; a plain `cp` resets the mtime the
+    freshness rule used; funding still ignored sand, pooled cobble kinds and priced the wrong fallback; an empty fuel slot can
+    hide a burning furnace; the closer's settlement did not cover an expired holder's in-flight click. The P2s: failed
+    controls did not stop the run; the plinth control matched by size, not identity; carried stone could be spent as
+    scaffold on restart travel; the composed site proof had not run; ghost recovery was waiting, not recovery. Claude's P2: the
+    builder had no way to get its materials without cooperation's SUPPLY job.
+  - Addressed in r3:
+    - **the instrument, rerun:** state-aware redstone lights; a structural roof predicate; ring lights only when the ring
+      cell is wall; `plinth_check` by component identity, a pure function with its own five fixtures; 17 fixtures and 8
+      mutants, both exiting nonzero on any failure; the held-out villages scanned as towns (0 BUILT cells); village counts
+      re-scored under the stricter rules (21 rooms, 20 B5, of 39 houses; 0 in 364 non-house pieces) (§0, §2);
+    - **freshness per chunk** from the region header's timestamp table, against placement rows; `cp -p` and source mtimes;
+      no RCON (§2.5);
+    - **funding from the cells** with chosen fallbacks, per-species planks, cobblestone alone, sand in admission, a parts
+      pool and leftovers; 11 of 13 workshops, 42 of 65 houses (§3.3);
+    - **a cold furnace** (`lit=false` and burn progress 0), MAT-HOT; **carry protection from spawn** (noted items out of the
+      scaffold list), remainders kept under the note, building stones out of `PATHFINDER_SCAFFOLD` (§3.2, §3.4);
+    - **a project-wide mutation barrier** with durable pre-send intents, reconciled for expired holders (§4.1);
+    - **the build visit withdraws its own bill** (site chest first), CHAIN-1 (§4.6 P2, §5);
+    - **the resync probe** for unconfirmed digs, GHOST-RESYNC (§4.4);
+    - the composed P0 gate as shop-01's first step; every stand cell checked in fitb; whole trees reachable; houses at
+      Chebyshev ≥ 22; the waiver rule; exit_house closes the door; the showcase's own tripwire read under C4(a).

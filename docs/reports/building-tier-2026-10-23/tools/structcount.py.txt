@@ -114,9 +114,10 @@ SPAWNER = re.compile(r'^minecraft:spawner$')     # a dungeon (a FEATURE: no stru
 DUNGEON_R = 5
 # A light is LIT (Codex r1 P1): always-on emitters by name; lamps, bulbs, campfires and candles only with lit=true.
 LIGHT_ALWAYS = re.compile(r'^minecraft:(torch|wall_torch|soul_torch|soul_wall_torch|lantern|soul_lantern|glowstone|sea_lantern|'
-                          r'shroomlight|jack_o_lantern|ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod|'
+                          r'shroomlight|jack_o_lantern|ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod)$')
+# redstone torches carry `lit` too (Codex r2 P1): they count only when lit=true
+LIGHT_IF_LIT = re.compile(r'^minecraft:(campfire|soul_campfire|redstone_lamp|(waxed_)?(exposed_|weathered_|oxidized_)?copper_bulb|[a-z_]*candle|'
                           r'redstone_torch|redstone_wall_torch)$')
-LIGHT_IF_LIT = re.compile(r'^minecraft:(campfire|soul_campfire|redstone_lamp|(waxed_)?(exposed_|weathered_|oxidized_)?copper_bulb|[a-z_]*candle)$')
 LIGHT = re.compile(LIGHT_ALWAYS.pattern[:-1] + '|' + LIGHT_IF_LIT.pattern[len('^minecraft:'):])
 def lit_at(w, x, y, z):
     n = w.block(x, y, z) or ''
@@ -137,6 +138,9 @@ LOGLIKE = re.compile(r'^minecraft:(stripped_)?[a-z_]+_(log|wood|stem|hyphae)$')
 def passable(n): return n is not None and bool(PASSABLE.match(n))
 def wallish(n): return n is not None and not passable(n) and not NOT_WALL.search(n)
 def material(n): return n is not None and (bool(BUILT.match(n)) or bool(LOGLIKE.match(n)))
+# A ROOF cell is STRUCTURAL material (Codex r2 P1): building material that a body cannot pass -- never a torch, a sign, a
+# ladder, a door, a carpet, a lantern or a chain, which are all BUILT palette but cannot roof anything
+def roofing(n): return material(n) and wallish(n)
 def natural_solid(n): return wallish(n) and not material(n)
 
 # ------------------------------------------------------------------ world access
@@ -302,7 +306,7 @@ def rooms_of(w, comp, built):
                 if not passable(n): continue
                 for k in range(1, ROOF_REACH + 1):
                     m = w.block(x, y + k, z)
-                    if material(m): roofed[(x, y, z)] = (x, y + k, z); break
+                    if roofing(m): roofed[(x, y, z)] = (x, y + k, z); break
                     if not passable(m): break
     # INSIDE, not under the eaves: a horizontal ray hits a wall within 8 cells in at least 3 of the 4 directions
     def rays(q):
@@ -350,7 +354,10 @@ def rooms_of(w, comp, built):
         # directly above a room cell (a ceiling lamp) -- never below the floor, never outside the ring
         for (x, y, z) in room:
             if lit_at(w, x, y, z) or lit_at(w, x, y + 1, z): lit = True; break
-            if any((x + dx, y, z + dz) not in rs and lit_at(w, x + dx, y, z + dz) for dx, dz in H4): lit = True; break
+            # a RING light counts only when the ring cell is WALL (an embedded lamp, glowstone): a passable light outside the
+            # room -- a torch beyond the doorway or a gap -- is outside (Claude r2 P3)
+            if any((x + dx, y, z + dz) not in rs and wallish(w.block(x + dx, y, z + dz)) and lit_at(w, x + dx, y, z + dz)
+                   for dx, dz in H4): lit = True; break
         encl = wall / max(1, wall + gap)
         matf = mat / max(1, wall)
         roofs = {roofed[q] for q in room}
@@ -363,7 +370,7 @@ def rooms_of(w, comp, built):
 
 def describe(w, comps, built, home, names):
     out = []
-    for comp in comps:
+    for cid, comp in enumerate(comps):
         if len(comp) < MIN_STRUCT: continue
         kinds = collections.Counter(names[p] for p in comp)
         xs = [p[0] for p in comp]; zs = [p[2] for p in comp]; ys = [p[1] for p in comp]
@@ -372,13 +379,37 @@ def describe(w, comps, built, home, names):
         # every component is searched (Codex r1 P1): a house joined to a buried mine stair is still a house; each ROOM
         # carries its own buried test, and buildings are counted per distinct room, never per component
         rooms = rooms_of(w, comp, built)
-        out.append({'n': len(comp), 'buried': round(bur, 2), 'surface': bur <= 0.25, 'bbox': [min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)], 'cheb': round(d),
+        out.append({'cid': cid, 'n': len(comp), 'buried': round(bur, 2), 'surface': bur <= 0.25, 'bbox': [min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)], 'cheb': round(d),
                     'kinds': dict(kinds.most_common(6)), 'room': bool(rooms), 'building': any(r['lit'] for r in rooms),
                     'rooms': rooms})
     return out
 
 # ------------------------------------------------------------------ commands
 def parse_home(s): return tuple(int(v) for v in s.split(','))
+
+PLINTH_SEEN = ('minecraft:cobblestone', 'minecraft:cobbled_deepslate')
+PLINTH_UNSEEN = ('minecraft:andesite', 'minecraft:diorite', 'minecraft:granite')
+
+def plinth_check(w, cells, built, comps, structs, state):
+    """The plinth control for ONE record, by COMPONENT IDENTITY (Codex r2 P2). A `complete` record passes when every planned
+    cell holds a plinth block (seen, or a natural stone the palette cannot see), every seen cell lies in ONE component, and
+    that component holds no room. A `plan` record (never built) passes when it finds 0. No planned cells: `no_cells`."""
+    found = [c for c in cells if built.get(c) in PLINTH_SEEN]
+    unseen = sum(1 for c in cells if (w.block(*c) or '') in PLINTH_UNSEEN)
+    comp_of = {p: i for i, comp in enumerate(comps) for p in comp}
+    ids = collections.Counter(comp_of.get(c) for c in found)
+    cid, n1 = ids.most_common(1)[0] if ids else (None, 0)
+    st = next((x for x in structs if x['cid'] == cid), None)
+    room = bool(st and st['room'])
+    if not cells: verdict = 'no_cells'
+    elif state == 'complete': verdict = 'pass' if (len(found) + unseen == len(cells) and found and n1 == len(found) and not room) else 'FAIL'
+    elif state == 'plan': verdict = 'pass' if not found else 'FAIL'
+    else: verdict = 'unscored'
+    kinds = collections.Counter((w.block(*c) or '?')[10:] for c in cells)
+    return {'state': state, 'planned_place_cells': len(cells), 'found_built': len(found), 'natural_stone_unobservable': unseen,
+            'other_at_cells': len(cells) - len(found) - unseen, 'world_kinds_at_cells': dict(kinds.most_common(4)),
+            'in_one_component': n1, 'component_size': len(comps[cid]) if cid is not None else 0, 'component_room': room,
+            'verdict': verdict}
 
 def scan(world, rdir, home, r, stamp, zones, plinths):
     w = World(rdir)
@@ -423,27 +454,14 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
     comps = components(built)
     structs = describe(w, comps, built, home, built)
     litter = sum(len(c) for c in comps if len(c) < MIN_STRUCT)
-    # positive control: plinth wells (the bots' own record)
+    # positive control: plinth wells (the bots' own record) -- plinth_check, a pure function with its own fixtures
     pctl = []
     for pf in plinths or []:
         rec = json.load(open(pf)); plan = rec.get('plan') or {}
-        cells = [tuple(s['c']) for s in plan.get('steps', []) if s.get('op') == 'place']
-        # MATERIAL FAMILY (Codex r1 P2): a planned cell counts only when the world holds a plinth block the palette can see
-        found = [c for c in cells if built.get(c) in ('minecraft:cobblestone', 'minecraft:cobbled_deepslate')]
-        comp_of = {}
-        for i, comp in enumerate(comps):
-            for p in comp: comp_of[p] = i
-        ids = collections.Counter(comp_of.get(c) for c in found)
-        main = ids.most_common(1)[0] if ids else (None, 0)
-        sz = len(comps[main[0]]) if main[0] is not None else 0
-        isb = next((s['building'] for s in structs if main[0] is not None and s['n'] == sz and tuple(comps[main[0]][0]) and
-                    in_box(comps[main[0]][0], s['bbox'])), None)
-        kinds = collections.Counter((w.block(*c) or '?')[10:] for c in cells)
-        unseen = sum(1 for c in cells if (w.block(*c) or '') in ('minecraft:andesite', 'minecraft:diorite', 'minecraft:granite'))
-        pctl.append({'record': os.path.basename(pf), 'state': rec.get('state'), 'planned_place_cells': len(cells),
-                     'natural_stone_unobservable': unseen, 'other_at_cells': len(cells) - len(found) - unseen,
-                     'found_built': len(found), 'world_kinds_at_cells': dict(kinds.most_common(4)),
-                     'in_one_component': main[1], 'component_size': sz, 'component_is_building': isb})
+        cells = [tuple(st['c']) for st in plan.get('steps', []) if st.get('op') == 'place']
+        res_p = plinth_check(w, cells, built, comps, structs, rec.get('state'))
+        res_p['record'] = os.path.basename(pf)
+        pctl.append(res_p)
     band = collections.Counter()
     for s in structs:
         b = 'core<=16' if s['cheb'] <= 16 else ('town<=44' if s['cheb'] <= 44 else 'out<=%d' % r)
@@ -601,6 +619,7 @@ def house(w, x0, z0, light='torch', door=True, roof=True, walls=True):
     elif light == 'lamp_off': w.set(x0 + 2, 65, z0 + 2, 'redstone_lamp', {'lit': 'false'})
     elif light == 'lamp_on': w.set(x0 + 2, 65, z0 + 2, 'redstone_lamp', {'lit': 'true'})
     elif light == 'below': w.set(x0 + 2, 63, z0 + 2, 'glowstone')
+    elif light == 'none': pass
 
 def count(w):
     built = {k: v for k, v in w.b.items() if BUILT.match(v)}
@@ -625,6 +644,28 @@ def selftest():
     w = FakeWorld(); house(w, 0, 0, door=False); cases.append(('no doorway', count(w)[:2], (0, 0)))
     w = FakeWorld(); house(w, 0, 0, roof=False); cases.append(('no roof', count(w)[:2], (0, 0)))
     w = FakeWorld(); house(w, 0, 0, walls=False); cases.append(('no walls (open pavilion)', count(w)[:2], (0, 0)))
+    w = FakeWorld(); house(w, 0, 0, light='none'); w.set(2, 65, -1, 'torch')     # a torch just outside the doorway only
+    cases.append(('torch outside the doorway only', count(w)[:2], (0, 1)))
+    w = FakeWorld(); house(w, 0, 0, light='none'); w.set(2, 65, 2, 'redstone_torch', {'lit': 'false'})
+    cases.append(('unlit redstone torch only', count(w)[:2], (0, 1)))
+    w = FakeWorld(); house(w, 0, 0, roof=False)
+    for x in range(0, 5):
+        for z in range(0, 5): w.set(x, 67, z, 'torch')                         # a "roof" of torches is no roof
+    cases.append(('a roof of torches', count(w)[:2], (0, 0)))
+    # the plinth control's own fixtures: correct, wrong block, disconnected, never built, empty
+    def pl(blocks, state, cells):
+        w = FakeWorld()
+        for c, n in zip(cells, blocks): w.set(*c, n)
+        built = {k: v for k, v in w.b.items() if BUILT.match(v)}
+        comps = components(built); structs = describe(w, comps, built, (0, 64, 0), built)
+        return plinth_check(w, cells, built, comps, structs, state)['verdict']
+    line = [(x, 65, 0) for x in range(14)]
+    cases.append(('plinth: correct', (pl(['cobblestone'] * 14, 'complete', line),), ('pass',)))
+    cases.append(('plinth: wrong block', (pl(['oak_planks'] * 14, 'complete', line),), ('FAIL',)))
+    split = [(x, 65, 0) for x in range(7)] + [(x + 20, 65, 0) for x in range(7)]
+    cases.append(('plinth: disconnected cells', (pl(['cobblestone'] * 14, 'complete', split),), ('FAIL',)))
+    cases.append(('plinth: never built (plan)', (pl([], 'plan', line),), ('pass',)))
+    cases.append(('plinth: empty plan', (pl([], 'complete', []),), ('no_cells',)))
     bad = [c for c in cases if tuple(c[1]) != c[2]]
     for c in cases: print('%-34s got %s want %s %s' % (c[0], c[1], c[2], 'ok' if tuple(c[1]) == c[2] else 'FAIL'))
     return {'cases': len(cases), 'failed': len(bad)}
@@ -644,6 +685,8 @@ def main():
         res = delta(a[1], a[2])
     elif cmd == 'selftest':
         res = selftest()
+        if res['failed']:                      # a failed control STOPS the run (Codex r2 P2): nonzero exit, no publication
+            print(json.dumps(res)); sys.exit(1)
     else:
         sys.exit(__doc__)
     out = opt('--json')
