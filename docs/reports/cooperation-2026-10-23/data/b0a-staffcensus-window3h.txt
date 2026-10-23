@@ -1,0 +1,37 @@
+STAFF CENSUS (S0) -- last 3 h, from ES
+  window 2026-10-23T14:05:00Z .. 2026-10-23T17:05:00Z: 199,115 skill docs from 80 bots, 253 active bot-h; empty 10-min buckets 0
+  project kinds in the window: _farm_place 0, _farm_site 0, _farm_tend 0, _monument 0, _monument_site 0, build_monument 0, tend_farm 0
+  roster 16 shared towns from the pool state dir; seen but not in it []; journal unreadable []; record errors 0
+  caveat: after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects
+  towns 16 (shared pools; isolated pools excluded) over 3.0 h
+  town        valid_h void  at-town bot-h  free  town-job flagged project | project  open_h pending_h builder h/visits/body-s ASSIGNABLE_h placed cells/open-h  blocked-by (h)
+  board-a        3.0    0           2.8   1.0      0.0     1.8     0.0 | (no open project)
+  board-b        3.0    0           4.3   2.3      0.1     1.8     0.0 | (no open project)
+  board-c        3.0    0           1.7   1.1      0.0     0.5     0.0 | (no open project)
+  board-d        3.0    0           2.5   1.2      0.0     1.3     0.0 | (no open project)
+  hive-a         3.0    0           1.7   1.1      0.0     0.6     0.0 | (no open project)
+  hive-b         3.0    0           2.5   1.3      0.0     1.2     0.0 | (no open project)
+  hive-c         3.0    0           3.5   2.4      0.0     1.0     0.0 | (no open project)
+  hive-d         3.0    0           3.6   2.4      0.0     1.2     0.0 | (no open project)
+  isolated-a     1.7   16           2.0   1.1      0.3     0.6     0.0 | (no open project)
+              void: {'town_silent': 16}
+  isolated-b     3.0    0           2.4   1.6      0.1     0.7     0.0 | (no open project)
+  isolated-c     1.7   16           1.0   0.5      0.2     0.2     0.0 | (no open project)
+              void: {'town_silent': 16}
+  isolated-d     1.7   16           2.4   1.3      0.3     0.8     0.0 | (no open project)
+              void: {'town_silent': 16}
+  placebo-a      3.0    0           2.1   1.2      0.1     0.8     0.0 | (no open project)
+  placebo-b      3.0    0           5.3   4.7      0.1     0.6     0.0 | (no open project)
+  placebo-c      3.0    0           2.7   1.3      0.0     1.4     0.0 | (no open project)
+  placebo-d      3.0    0           2.3   1.4      0.0     0.9     0.0 | (no open project)
+  ALL TOWNS: 44.01 valid town-h; at-town 42.77 bot-h = free 25.98 + town job 1.35 + project 0 + flagged 15.43 (death 0.15, drowning 0.08, low_health 0.1, trap 15.1)
+  PROJECTS: none open in any shared town in the window -- the gate cannot be read
+  RECORD WITHOUT CODE (a project record whose module is not running in the town; never open, never assignable), slots: board-a {'treefarm': 36}, hive-c {'treefarm': 36}
+  capability positive control (_townindex_mode): 79 of 79 eligible bots capable (share 1.0)
+  home, shared towns (RECALL gate >= 70%): all 23 of 64 (36%); under the validator's filter 9 of 16 (56%); excluded {'flagged:trap': 26, 'interrupt_trigger': 21, 'flagged:drowning': 1} (health_unknown 0 of 64: a large share means the filtered rate covers a selected subset)
+  home, all pools incl. isolated: all [25, 68], filtered [9, 16]
+  instrument: lease_files_matched: 0 of 0 lease files in the window match a tend_farm interval of their holder
+  instrument: placements_inside_a_visit: 0 of 0 confirmed _farm_place rows
+  instrument: at_town_predicate: 43 of 45 successful town-job rows (95.6%) had the bot at town in the minute track at the minute the job ended
+  instrument: at_town_predicate_ok: True
+  instrument: saplings_in_at_town_bags_last_minute: {'hive-a': 26, 'isolated-d': 48, 'board-b': 34, 'isolated-c': 17, 'isolated-a': 11, 'isolated-b': 9, 'board-d': 16, 'hive-d': 8, 'placebo-b': 32}

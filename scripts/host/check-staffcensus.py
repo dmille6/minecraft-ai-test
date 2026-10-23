@@ -18,6 +18,7 @@ nothing (idle: no new slot; void: every row void; locked; error) never refreshes
   6. the newest recorded slot is older than --behind-min (default 35)     -> StaffCensusBehind (ticking, writing nothing)
      (a healthy census lags up to ~25 min: the 10-min tick settle + the 5-min slot + the 5-min cron period)
   7. the file cannot be read                                              -> StaffCensusMissing
+  8. the newest capability positive control (B0a) is below 95%            -> StaffCensusCapability (an alarm, not a void)
 
 Ad-hoc runs (--window / --report) write heartbeat lines too; they are NOT the standing census and never count as fresh.
 Self-contained (no imports from staffcensus.py), so a broken census cannot break its own alarm. Its cases are exercised
@@ -92,6 +93,12 @@ def assess(lines, now, max_age_min=15.0, behind_min=35.0):
         if n and v / n >= VOID_SHARE:
             alarms.append(f'StaffCensusVoid: {v} of {n} rows of the newest measuring tick are void '
                           f'(limit {100 * VOID_SHARE:.0f}%)')
+    # B0a: the capability positive control (`_townindex_mode` over the bots whose build carries it) is an ALARM, never a
+    # census void: a shortfall means the capability reader (or the fleet) is wrong, and every record_without_code is suspect
+    cc = next((r.get('capability_control') for r in reversed(recs) if r.get('capability_control')), None)
+    if cc and cc.get('alarm'):
+        alarms.append(f'StaffCensusCapability: only {cc.get("capable")} of {cc.get("eligible")} bots whose build carries '
+                      f'townindex read capable (share {cc.get("share")}, limit 0.95) -- the capability reader is suspect')
     newest = next((r.get('newest_slot') for r in reversed(recs) if r.get('newest_slot')), None)
     if newest is None:
         alarms.append('StaffCensusBehind: no tick has recorded a slot yet')

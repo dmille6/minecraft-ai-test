@@ -45,6 +45,20 @@ THE GATE (design 6): >= 20 assignable town-hours/day across eligible towns for 4
 It is decided only on >= 48 h, with >= 90% VALID (of the project's town-hours, of every town's, and of each project
 town's every 24-h block), and EVERY whole 24-h block >= 20 (a mean over 48 h is not "for 48 h"). A single-builder project's assignable hours are reported; its gate line says "not applicable".
 
+CAPABILITY (B0a, cooperation-tier design r9.1 sections 1.6 and 6.4). A project is OPEN in a town only when its RECORD exists
+AND its code is running there: the town has at least one bot whose newest mode row for the project's module
+(`Project.mode_kind`) says on and carries that bot's CURRENT code.version. A record whose code is not running (a reverted
+canary's leftover record, a flag set off, a rollback) is `record_without_code`: reported per slot, never open, never
+assignable. A bot whose current build's spawn rows (SPAWN_MARKERS: every per-spawn `_*_mode` row) are not in view is VOID
+for capability -- unknown, never incapable. Mode rows are written ONCE PER PROCESS, so --tick keeps each bot's newest mode
+row per kind as persistent state (out-dir/capability-state.json); a first tick (or any --window / --report run) seeds it
+by one walk over the mode kinds, bounded to the time since the newest fleet-wide restart in the deploy journal
+(~/canary-journal.jsonl phases promoted / owner-direct / apply-done) minus 1 h, at most 7 days, and never before
+2026-10-08 (estelemetry refuses windows touching 10-07). POSITIVE CONTROL: the same reader on `_townindex_mode`, over the
+bots whose current build has emitted it, must find >= 95% capable (bots spawned < 10 min ago are not yet eligible); a
+shortfall is an ALARM in the heartbeat (`capability_control.alarm`, StaffCensusCapability in check-staffcensus.py), never a
+census void.
+
 VOID, NOT ZERO. A slot is void when ES holds no document in its 10-minute bucket or no positioned event row in it, when a
 town logged nothing in it (the town roster comes from the pool state dir, so a town silent for the whole window still gets
 VOID rows -- so a RETIRED pool reads VOID forever until the census learns to exclude it; see CRON), or (in --report) when the census
@@ -187,6 +201,13 @@ class Project:
     budget = None                 # (window_ms, max body ms) per bot, or None
     live = False                  # False: built from branch code, never seen on the fleet
     kinds = ()                    # ES kinds this adapter reads (besides _work_order and its builder skill)
+    mode_kind = None              # the module's per-spawn licence row (B0a): no such row on a bot = its code is not running
+
+    def mode_on(self, detail):
+        """Does this module's mode row say the module is on? The contract asked of new modules (cooperation design A7):
+        `on=on|off` (or `mode=on|off`) in the detail."""
+        f = kv(detail)
+        return str(f.get('on', f.get('mode', ''))).lower() in ('on', '1', 'true')
 
     def timeline(self, rows):
         """-> ({pool: sorted [(t, state, detail, need)]}, {pool: site time}); state in pending | none | unknown."""
@@ -214,6 +235,7 @@ class TreeFarm(Project):
     cooldown_ms = 5 * 60_000      # treefarm.mjs TEND_COOLDOWN_MS, charged when the order is issued (s.lastTendAt)
     live = True
     kinds = ('_farm_tend', '_farm_place', '_farm_site')
+    mode_kind = '_treefarm_mode'      # treefarm emits none today: on the fleet its leftover records read record_without_code
     SOFT = {'farm_leased', 'farm_unknown'}   # treefarm.mjs TEND_SOFT_FAILS
 
     def backoff_ms(self, status, fail_class):
@@ -300,6 +322,7 @@ def fundable(inv):
 
 class Monument(Project):
     """monument-01 (monumentjob.mjs on monument-on-* d2d7e6ff). Three admission slots. FIXTURE-ONLY until it runs live."""
+    mode_kind = '_monument_mode'
     name = 'monument'
     cap = 3                        # monumentjob.mjs SLOTS
     builder_skill = 'build_monument'
@@ -357,6 +380,146 @@ class Monument(Project):
 
 
 PROJECTS = (TreeFarm(), Monument())
+
+
+# ---------------------------------------------------------------------------------------------- capability (B0a)
+SPAWN_MARKERS = ('_cobblecap_mode', '_lidclear_mode', '_townsearch_mode', '_toolkit_search_mode', '_plinth_mode',
+                 '_wellcare_mode', '_poolescape_mode', '_cobblekeep_mode', '_keepout_mode', '_townindex_mode')
+CONTROL_KIND = '_townindex_mode'
+CAP_ALARM_SHARE = 0.95
+CAP_GRACE_MS = 10 * MIN_MS
+SEED_FLOOR_MS = ms_of('2026-10-08T00:00:00Z')
+SEED_MAX_MS = 7 * DAY_MS
+RESTART_PHASES = ('promoted', 'owner-direct', 'apply-done')
+
+
+def mode_kinds(projects=None):
+    return sorted(set(SPAWN_MARKERS) | {P.mode_kind for P in (projects or PROJECTS) if P.mode_kind})
+
+
+def mode_on_for(kind, detail, projects=None):
+    if kind == CONTROL_KIND:
+        return kv(detail).get('index') == 'on'
+    for P in (projects or PROJECTS):
+        if P.mode_kind == kind:
+            return P.mode_on(detail)
+    return True                       # a spawn marker: only its presence and version matter
+
+
+def mode_index(modes):
+    """[(t, bot, kind, version, on)] -> {bot: [(t, kind, version, on)] sorted by t}. Pure."""
+    out = defaultdict(list)
+    for t, b, k, v, on in modes:
+        out[b].append((t, k, v, on))
+    for b in out:
+        out[b].sort()
+    return out
+
+
+def bot_capability(idx, ver, bot, kind, t):
+    """'capable' | 'not_capable' | 'void' for one bot at time t. Pure.
+    void: the bot's current version is unknown, or no spawn row of its current build is in view (unknown, never 'no').
+    capable: the bot's newest row of `kind` at or before t says on AND carries the bot's current version."""
+    if not ver:
+        return 'void'
+    spawn = newest = None
+    for tr, k, v, on in idx.get(bot) or ():
+        if tr > t:
+            break
+        if k in SPAWN_MARKERS:
+            spawn = (tr, v)
+        if k == kind:
+            newest = (tr, v, on)
+    if spawn is None or spawn[1] != ver:
+        return 'void'
+    return 'capable' if newest and newest[1] == ver and newest[2] else 'not_capable'
+
+
+def town_capability(statuses):
+    """Any capable bot -> capable; every bot void (or none) -> void; else not_capable. Pure."""
+    st = list(statuses)
+    if 'capable' in st:
+        return 'capable'
+    return 'void' if all(x == 'void' for x in st) else 'not_capable'
+
+
+def capability_control(idx, vers, t):
+    """The positive control: `_townindex_mode` over the bots whose CURRENT build has emitted it (any bot), excluding bots
+    whose newest spawn row is under CAP_GRACE_MS old. -> {eligible, capable, share, alarm}. Pure."""
+    builds = {v for b in idx for tr, k, v, on in idx[b] if k == CONTROL_KIND and tr <= t}
+    elig = cap = 0
+    for b, v in vers.items():
+        if v not in builds:
+            continue
+        sp = max((tr for tr, k, vv, on in idx.get(b) or () if k in SPAWN_MARKERS and tr <= t), default=None)
+        if sp is None or t - sp < CAP_GRACE_MS:
+            continue
+        elig += 1
+        cap += bot_capability(idx, v, b, CONTROL_KIND, t) == 'capable'
+    share = round(cap / elig, 3) if elig else None
+    return {'eligible': elig, 'capable': cap, 'share': share, 'alarm': bool(elig) and share < CAP_ALARM_SHARE}
+
+
+def seed_since(until, journal_path=os.path.expanduser('~/canary-journal.jsonl')):
+    """The seed walk's start: the newest fleet-wide restart in the deploy journal minus 1 h, never more than 7 days back,
+    never before 2026-10-08. -> (ms, why)."""
+    newest = None
+    try:
+        with open(journal_path) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get('phase') in RESTART_PHASES and r.get('ts'):
+                    t = ms_of(r['ts'])
+                    if t <= until and (newest is None or t > newest):
+                        newest = t
+    except OSError:
+        pass
+    lo = max(until - SEED_MAX_MS, SEED_FLOOR_MS)
+    if newest is None:
+        return lo, 'no fleet-wide restart found in the journal: the 7-day bound'
+    return max(newest - 3600_000, lo), f'the newest fleet-wide restart {iso(newest)} minus 1 h'
+
+
+def mode_rows(EsEvents, since, until):
+    """Mode rows in [since, until) -> [(t, bot, kind, version, on)]."""
+    ev = EsEvents.load('skill', since=iso(since), until=iso(until))
+    out = []
+    for r in ev.rows(fields=['@timestamp', 'bot.name', 'skill.name', 'skill.detail', 'code.version'],
+                     match={'skill.name': mode_kinds()}, allow_zero=True, max_rows=400_000):
+        k = (r.get('skill') or {}).get('name')
+        v = ((r.get('code') or {}).get('version') or '').split('+')[0] or None
+        out.append((ms_of(r['@timestamp']), (r.get('bot') or {}).get('name'), k, v,
+                    mode_on_for(k, (r.get('skill') or {}).get('detail'))))
+    return out
+
+
+def newest_per_kind(modes):
+    """Keep only each bot's newest row per kind (the persistent state). Pure."""
+    best = {}
+    for m in modes:
+        key = (m[1], m[2])
+        if key not in best or m[0] > best[key][0]:
+            best[key] = m
+    return sorted(best.values())
+
+
+def load_cap_state(out_dir):
+    try:
+        with open(os.path.join(out_dir, 'capability-state.json')) as f:
+            d = json.load(f)
+        return [tuple(x) for x in d['modes']], d.get('seeded')
+    except (OSError, ValueError, KeyError):
+        return None, None
+
+
+def save_cap_state(out_dir, modes, seeded):
+    tmp = os.path.join(out_dir, '.capability-state.json.tmp')
+    with open(tmp, 'w') as f:
+        json.dump({'modes': newest_per_kind(modes), 'seeded': seeded}, f)
+    os.replace(tmp, os.path.join(out_dir, 'capability-state.json'))
 
 
 # ---------------------------------------------------------------------------------------------- the stock journal
@@ -491,6 +654,8 @@ def census(ds, projects=PROJECTS, emit_from=None):
     Every minute is judged at its END (t_m + 59.999 s) on observations at or before it. A tick passes since = start -
     CARRY_MS so the carry is warm, and emit_from = start."""
     flags = build_flags(ds['flags'])
+    # B0a: capability gating is on whenever the dataset carries mode rows (every live mode does; legacy fixtures do not)
+    cap_idx = mode_index(ds['modes']) if 'modes' in ds else None
     slots = list(range(floor_slot(ds['since']), ds['until'] - SLOT_MS + 1, SLOT_MS))
     emit_from = slots[0] if emit_from is None or not slots else emit_from
     jobs_by_pool = defaultdict(list)
@@ -543,7 +708,7 @@ def census(ds, projects=PROJECTS, emit_from=None):
         for m in range(5):
             t_m = s + m * MIN_MS
             for b, v in (track.get(t_m) or {}).items():
-                last_pos[b] = (t_m, v.get('pool'), v.get('pos'), v.get('health'), v.get('inv') or {})
+                last_pos[b] = (t_m, v.get('pool'), v.get('pos'), v.get('health'), v.get('inv') or {}, v.get('ver'))
             minutes.append((t_m + MIN_MS - 1, {b: x for b, x in last_pos.items() if t_m - x[0] < CARRY_MS}))
         if s < emit_from:
             continue
@@ -592,10 +757,27 @@ def census(ds, projects=PROJECTS, emit_from=None):
             row.update(void=False, bots_seen=len(seen), at_town_bots=sorted(union),
                        at_town_max=max(len(h) for _, h, _, _ in per_min), flagged=flagged_all, labour_min=dict(labour))
             pj = {}
+            vers = {}
+            for _, cur in minutes:
+                for b, x in cur.items():
+                    if x[1] == pool:
+                        vers[b] = x[5]
             for P, tl, opened, placed, builds, runs, issues in prj:
                 op = opened.get(pool)
                 if op is None or op >= end:
                     continue
+                capable_bots = None
+                if cap_idx is not None:
+                    st = {b: bot_capability(cap_idx, v, b, P.mode_kind, end - 1) for b, v in vers.items()}
+                    town_st = town_capability(st.values())
+                    if town_st != 'capable':
+                        # B0a: a record whose code is not running here is never open and never assignable
+                        row.setdefault('capability', {})[P.name] = town_st
+                        if town_st == 'not_capable':
+                            row['projects_open'] = [n for n in row['projects_open'] if n != P.name]
+                            row.setdefault('record_without_code', []).append(P.name)
+                        continue
+                    capable_bots = {b for b, x in st.items() if x == 'capable'}
                 ev, evt = tl.get(pool, ([], []))
                 bl = builds.get(pool, [])
                 rec = {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0, 'builder_min': 0,
@@ -622,7 +804,8 @@ def census(ds, projects=PROJECTS, emit_from=None):
                     rec[f'{state}_min'] += 1
                     if state != 'pending':
                         continue
-                    free = [b for b in here if b not in flagged and b not in active]
+                    free = [b for b in here if b not in flagged and b not in active
+                            and (capable_bots is None or b in capable_bots)]
                     holders = [b for b in free if P.has_material(cur[b][4], need)]
                     ready = []
                     for b in holders:
@@ -703,6 +886,14 @@ def summarize(rows, projects=PROJECTS):
     for r in rows:
         for name in list(r.get('projects_open') or []) + list((r.get('projects') or {}).keys()):
             members[name].add(r['town'])
+    rwc = defaultdict(Counter)                                    # town -> {project: slots with a record and no code}
+    capvoid = defaultdict(Counter)
+    for r in rows:
+        for name in r.get('record_without_code') or []:
+            rwc[r['town']][name] += 1
+        for name, st in (r.get('capability') or {}).items():
+            if st == 'void':
+                capvoid[r['town']][name] += 1
     for r in rows:
         T = towns[r['town']]
         T['slots'] += 1
@@ -731,7 +922,9 @@ def summarize(rows, projects=PROJECTS):
             Q['blocked'].update(p.get('blocked') or {})
             blocks[name][(r['town'], blk)][0] += p.get('assignable_min', 0)
     win_h = max([T['slots'] * 5 / 60 for T in towns.values()] or [0])
-    out = {'towns': {}, 'projects': {}, 'window_h': round(win_h, 2)}
+    out = {'towns': {}, 'projects': {}, 'window_h': round(win_h, 2),
+           'record_without_code_slots': {t: dict(c) for t, c in sorted(rwc.items())},
+           'capability_void_slots': {t: dict(c) for t, c in sorted(capvoid.items())}}
     for name, ts in members.items():                              # a project town with no valid row still counts
         for t in ts:
             towns[t]['projects'].setdefault(name, {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0,
@@ -902,7 +1095,7 @@ def minute_track(ev):
         'm': {'date_histogram': {'field': '@timestamp', 'fixed_interval': '1m'},
               'aggs': {'top': {'top_hits': {'size': 1, 'sort': [{'@timestamp': 'desc'}],
                                             '_source': ['bot.pos', 'bot.health', 'bot.inventory', 'exp.pool',
-                                                        '@timestamp']}}}}}}}})
+                                                        'code.version', '@timestamp']}}}}}}}})
     return parse_track(ev._complete(r['aggregations']['b'], 'minute_track: terms on bot.name'))
 
 
@@ -919,14 +1112,24 @@ def parse_track(agg):
             pos = bo.get('pos') or {}
             out[int(mb['key'])][bb['key']] = {'pool': (src.get('exp') or {}).get('pool'),
                                                'pos': (pos.get('x'), pos.get('y'), pos.get('z')), 'health': bo.get('health'),
-                                               'inv': bo.get('inventory') or {}}
+                                               'inv': bo.get('inventory') or {},
+                                               'ver': ((src.get('code') or {}).get('version') or '').split('+')[0] or None}
     return out
 
 
-def dataset_from_es(since, until, state_dir, log=print):
-    """Everything census() needs, read from ES (estelemetry) and the pool state dir. Read only."""
+def dataset_from_es(since, until, state_dir, log=print, cap_state=None):
+    """Everything census() needs, read from ES (estelemetry) and the pool state dir. Read only.
+    cap_state: the persistent newest-mode-row state (a list), or None to seed it by the bounded walk (B0a)."""
     from lib.estelemetry import EsEvents, ZeroLooksWrong
     t0 = time.time()
+    seeded = None
+    if cap_state is None:
+        s0, why = seed_since(until)
+        cap_state = mode_rows(EsEvents, min(s0, since - PROJECT_LOOKBACK_MS), until)
+        seeded = {'since': iso(min(s0, since - PROJECT_LOOKBACK_MS)), 'why': why}
+        log(f'  capability seed walk from {iso(s0)} ({why}): {len(cap_state)} mode rows')
+    fresh = mode_rows(EsEvents, since - PROJECT_LOOKBACK_MS, until)
+    modes = newest_per_kind(list(cap_state) + fresh) + fresh
     whole = EsEvents.load('skill', since=iso(since), until=iso(until))
     total, bots = whole.total(), whole.bots_present()
     if not total:
@@ -991,8 +1194,16 @@ def dataset_from_es(since, until, state_dir, log=print):
     journal = {p: read_journal(state_dir, p, homes[p]) for p in pools}
     log(f'  rows: flags {len(flags)}, job rows {len(jobs)}, home rows {len(homes_rows)}, project rows {len(prows)} '
         f'({time.time() - t0:.0f} s)')
+    idx = mode_index(modes)
+    vers = {}
+    for m in sorted(track):
+        for b, v in track[m].items():
+            if v.get('ver'):
+                vers[b] = v['ver']
+    control = capability_control(idx, vers, until)
     return {'since': since, 'until': until, 'towns': homes, 'track': track, 'void': void, 'flags': flags, 'jobs': jobs,
             'prows': prows, 'records': recs, 'leases': leases, 'journal': journal, 'home_rows': homes_rows,
+            'modes': modes, 'cap_seeded': seeded, 'capability_control': control,
             'meta': {'docs': total, 'bots': len(bots), 'kinds_present': {k: names.get(k, 0) for k in
                                                                          sorted(set(pkinds) | set(jnames))},
                      'coverage_bot_h': cov['bot_hours'], 'empty_10min': cov['empty_10min'], 'caveats': whole.caveats,
@@ -1248,11 +1459,13 @@ def selftest(verbose=True):
     check('job_from_row: the interval starts at @timestamp', (j['start'], j['end'] - j['start']),
           (ms_of('2026-10-19T12:52:54.813Z'), 16026))
     agg = {'buckets': [{'key': 'b1', 'm': {'buckets': [
-        {'key': 1000 * 60_000, 'top': {'hits': {'hits': [{'_source': {'exp': {'pool': 'p'}, 'bot': {
+        {'key': 1000 * 60_000, 'top': {'hits': {'hits': [{'_source': {'exp': {'pool': 'p'}, 'code': {
+            'version': '6e1afb52465d+e8f2f5'}, 'bot': {
             'pos': {'x': 1.5, 'y': 64, 'z': -2}, 'health': 19, 'inventory': {'oak_sapling': 2}}}}]}}},
         {'key': 1001 * 60_000, 'top': {'hits': {'hits': []}}}]}}]}
     check('parse_track', dict(parse_track(agg)),
-          {1000 * 60_000: {'b1': {'pool': 'p', 'pos': (1.5, 64, -2), 'health': 19, 'inv': {'oak_sapling': 2}}}})
+          {1000 * 60_000: {'b1': {'pool': 'p', 'pos': (1.5, 64, -2), 'health': 19, 'inv': {'oak_sapling': 2},
+                                  'ver': '6e1afb52465d'}}})
     # TRANSIENT PRESENCE: C's two minutes at town are seen (a slot-end snapshot would not see them)
     s50 = [r for r in rows if r['slot'] == iso(ds['since'] + 50 * 60_000)][0]
     check('transient visit: C at town in the 50:00 slot', 'fx-C' in s50['at_town_bots'], True)
@@ -1344,6 +1557,100 @@ def selftest(verbose=True):
     check('monument budget: 10 min of body in the last hour blocks the bot',
           bot_block(m, [(0, 600_000, 'success', None)], [], 1_800_000)[0], 'budget')
     check('monument cooldown: 10 min after the order', bot_block(m, [], [0], 599_999)[0], 'cooldown')
+    # ---- B0a CAPABILITY (cooperation design 1.6, 6.4)
+    T0c = ms_of('2026-10-19T00:00:00Z')
+    V1, V2 = 'aaaa1111', 'bbbb2222'
+
+    def idx_of(*rows):
+        return mode_index(list(rows))
+    on = idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True))
+    check('capability: an on row of the current build -> capable', bot_capability(on, V1, 'b', '_treefarm_mode', T0c + 1),
+          'capable')
+    flag_off = idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True),
+                      (T0c + 9e6, 'b', '_cobblecap_mode', V1, True), (T0c + 9e6, 'b', '_treefarm_mode', V1, False))
+    check('capability: on, then a restart on the SAME version with the flag off -> not capable',
+          bot_capability(flag_off, V1, 'b', '_treefarm_mode', T0c + 1e7), 'not_capable')
+    reverted = idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True),
+                      (T0c + 9e6, 'b', '_cobblecap_mode', V2, True))
+    check('capability: on, then a restart into a reverted build that emits no mode row -> not capable',
+          bot_capability(reverted, V2, 'b', '_treefarm_mode', T0c + 1e7), 'not_capable')
+    check('capability: an OLD on row (days before), still on that version -> capable (persistent state)',
+          bot_capability(on, V1, 'b', '_treefarm_mode', T0c + 5 * DAY_MS), 'capable')
+    check('capability: disabled (mode row off) -> not capable',
+          bot_capability(idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, False)), V1, 'b',
+                         '_treefarm_mode', T0c + 1), 'not_capable')
+    check('capability: no spawn row of the CURRENT build in view -> void, never not_capable',
+          bot_capability(on, V2, 'b', '_treefarm_mode', T0c + 1), 'void')
+    check('capability: current version unknown -> void', bot_capability(on, None, 'b', '_treefarm_mode', T0c + 1), 'void')
+    check('capability: a row AFTER t is not used', bot_capability(on, V1, 'b', '_treefarm_mode', T0c - 1), 'void')
+    check('town capability: one capable bot is enough', town_capability(['void', 'not_capable', 'capable']), 'capable')
+    check('town capability: all void (staggered restarts) -> void', town_capability(['void', 'void']), 'void')
+    check('town capability: none capable, one known -> not_capable', town_capability(['void', 'not_capable']),
+          'not_capable')
+    check('mode_on contract (on=on / mode=on; townindex index=on)',
+          (TreeFarm().mode_on('on=on gen=1'), TreeFarm().mode_on('mode=off'), mode_on_for('_townindex_mode', 'phase=mode index=on'),
+           mode_on_for('_townindex_mode', 'phase=mode index=off')), (True, False, True, False))
+    # census integration: the hand-worked fixture with mode rows says nothing changes when the code is running ...
+    def with_modes(ds, tf_on=True, ver=V1):
+        ds['modes'] = []
+        for b in ('fx-A', 'fx-B', 'fx-C'):
+            ds['modes'].append((ds['since'] - 3600_000, b, '_cobblecap_mode', ver, True))
+            if tf_on is not None:
+                ds['modes'].append((ds['since'] - 3600_000, b, '_treefarm_mode', ver, tf_on))
+        for sl in ds['track'].values():
+            for v in sl.values():
+                v['ver'] = V1
+        return ds
+    qc = _tf(with_modes(fixture()))['towns']['fx']['projects']['treefarm']
+    check('capable fixture: the hand-worked assignable minutes are unchanged', qc['assignable_min'],
+          SELFTEST_EXPECT['assignable_min'])
+    # ... and a REVERTED project (its record and rows remain, its module emits no mode row) is record_without_code
+    dsr = with_modes(fixture(), tf_on=None)
+    rr = census(dsr, projects=(TreeFarm(),))
+    Sr = summarize(rr, projects=(TreeFarm(),))
+    check('record without code: never open (every valid slot lists it)',
+          Sr['record_without_code_slots'].get('fx', {}).get('treefarm'), 12)
+    check('record without code: no assignable time', sum((r.get('projects') or {}).get('treefarm', {}).get(
+        'assignable_min', 0) for r in rr), 0)
+    check('record without code: not in projects_open', any('treefarm' in (r.get('projects_open') or []) for r in rr), False)
+    # ... a CAPABLE but STARVED project (record open, code on, no project rows at all) stays OPEN and STALLED, zero placed
+    dss = with_modes(fixture())
+    dss['prows'] = []
+    dss['jobs'] = [j for j in dss['jobs'] if j['name'] != 'tend_farm']
+    dss['records'] = {'treefarm': {'fx': dss['since']}}
+    qs = _tf(dss)['towns']['fx']['projects']['treefarm']
+    check('capable but starved: open all hour, nothing placed, nothing pending (unknown)',
+          (qs['open_min'], qs['placed'], qs['pending_min'], qs['unknown_min']), (60, 0, 0, 60))
+    # ... a town whose bots' current build has no spawn row in view is capability VOID, never record_without_code
+    dsv = with_modes(fixture(), ver=V2)
+    Sv = summarize(census(dsv, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('capability void: counted as void, not as record_without_code',
+          (Sv['capability_void_slots'].get('fx', {}).get('treefarm'), Sv['record_without_code_slots'].get('fx')), (12, None))
+    # the POSITIVE CONTROL (an alarm, never a void)
+    ci = idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True),
+                (T0c, 'b', '_townindex_mode', V1, False), (T0c, 'b', '_cobblecap_mode', V1, True),
+                (T0c + 5 * 60_000, 'c', '_cobblecap_mode', V1, True), (T0c, 'd', '_cobblecap_mode', V2, True))
+    cc = capability_control(ci, {'a': V1, 'b': V1, 'c': V1, 'd': V2}, T0c + 11 * 60_000)
+    check('positive control: d (a build that never emitted it) and c (spawned 6 min ago) are not eligible; b off -> alarm',
+          (cc['eligible'], cc['capable'], cc['alarm']), (2, 1, True))
+    check('positive control: all capable -> no alarm',
+          capability_control(idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True)),
+                             {'a': V1}, T0c + 11 * 60_000)['alarm'], False)
+    # the SEED BOUND (deploy journal; 7 days; never before 10-08)
+    import tempfile
+    with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as tf:
+        tf.write(json.dumps({'ts': '2026-10-23T08:05:35Z', 'phase': 'promoted'}) + '\n')
+        tf.write(json.dumps({'ts': '2026-10-23T09:00:00Z', 'phase': 'read-180'}) + '\n')
+        jp = tf.name
+    u = ms_of('2026-10-23T14:00:00Z')
+    check('seed bound: the newest fleet-wide restart minus 1 h', iso(seed_since(u, jp)[0]), '2026-10-23T07:05:35Z')
+    check('seed bound: no journal -> 7 days, never before 2026-10-08',
+          (iso(seed_since(u, '/nonexistent')[0]), iso(seed_since(ms_of('2026-10-10T00:00:00Z'), '/nonexistent')[0])),
+          ('2026-10-16T14:00:00Z', '2026-10-08T00:00:00Z'))
+    os.unlink(jp)
+    check('state keeps each bot\'s newest row per kind',
+          newest_per_kind([(1, 'b', 'k', V1, True), (5, 'b', 'k', V1, False), (3, 'c', 'k', V1, True)]),
+          [(3, 'c', 'k', V1, True), (5, 'b', 'k', V1, False)])
     # THE STALENESS CHECK (check-staffcensus.py)
     chk = load_checker()
     now = ms_of('2026-10-19T12:00:00Z') / 1000
@@ -1368,6 +1675,10 @@ def selftest(verbose=True):
     check('checker: no heartbeat at all', chk.assess([], now)[0][0].startswith('StaffCensusMissing'), True)
     a = chk.assess([hb('2026-10-19T11:58:00Z', newest='2026-10-19T10:00:00Z')], now)[0]
     check('checker: ticking but writing no new slots is behind', any(x.startswith('StaffCensusBehind') for x in a), True)
+    a = chk.assess([json.dumps(dict(json.loads(hb('2026-10-19T11:58:00Z')), capability_control={
+        'eligible': 60, 'capable': 40, 'share': 0.667, 'alarm': True}))], now)[0]
+    check('checker: a capability-control shortfall is an alarm (StaffCensusCapability)',
+          any(x.startswith('StaffCensusCapability') for x in a), True)
     a = chk.assess([json.dumps({'at': '2026-10-19T11:59:00Z', 'mode': 'window', 'status': 'ok'})], now)[0]
     check('checker: an ad-hoc window run does not count as the standing census',
           bool(a) and a[0].startswith('StaffCensusMissing'), True)
@@ -1503,6 +1814,16 @@ def render(S, ds=None, checks=None, label='', home_all=None):
                  f'= {A["assignable_town_h_per_day"]} town-h/day; placed {A["placed"]}; GATE: {A["gate"]}')
     if not S['projects']:
         L.append('  PROJECTS: none open in any shared town in the window -- the gate cannot be read')
+    if S.get('record_without_code_slots'):
+        L.append('  RECORD WITHOUT CODE (a project record whose module is not running in the town; never open, never '
+                 'assignable), slots: ' + ', '.join(f'{t} {c}' for t, c in S['record_without_code_slots'].items()))
+    if S.get('capability_void_slots'):
+        L.append('  capability VOID (no spawn row of the bots\' current build in view), slots: '
+                 + ', '.join(f'{t} {c}' for t, c in S['capability_void_slots'].items()))
+    if S.get('capability_control'):
+        cc = S['capability_control']
+        L.append(f'  capability positive control ({CONTROL_KIND}): {cc["capable"]} of {cc["eligible"]} eligible bots '
+                 f'capable (share {cc["share"]}){"  ** ALARM: below " + str(CAP_ALARM_SHARE) if cc["alarm"] else ""}')
     h = S.get('home') or {}
     a, f = h.get('all', [0, 0]), h.get('filtered', [0, 0])
     L.append(f'  home, shared towns (RECALL gate >= 70%): all {a[0]} of {a[1]} ({100 * a[0] / max(1, a[1]):.0f}%); under '
@@ -1525,6 +1846,7 @@ def run_window(a):
     ds = dataset_from_es(since - CARRY_MS, until, a.state_dir)
     rows = census(ds, emit_from=since)
     S = summarize(rows)
+    S['capability_control'] = ds['capability_control']
     tr = ds['track']
     home_all = home_success([dict(r, health=health_before(tr, r['bot'], r['start'])) for r in ds['home_rows']
                              if since <= r['start'] < until], ds['flags'])
@@ -1545,7 +1867,7 @@ def run_window(a):
     print(f'  wrote {stem}.json / .slots.jsonl / .txt')
     measured = sum(1 for r in rows if not r.get('void'))
     return {'status': 'ok' if measured else 'void', 'window': [iso(since), iso(until)], 'slots_written': 0,
-            'es_docs': ds['meta']['docs']}
+            'es_docs': ds['meta']['docs'], 'capability_control': ds['capability_control']}
 
 
 def run_tick(a):
@@ -1561,14 +1883,18 @@ def run_tick(a):
         return {'status': 'idle', 'slots_written': 0, 'newest_slot': iso(last) if last else None,
                 'note': 'no new complete slot'}
     # load from start - CARRY_MS so the position carry is warm; write only the new slots
-    ds = dataset_from_es(start - CARRY_MS, end, a.state_dir, log=lambda *x: None)
+    state, seeded = load_cap_state(a.out_dir)
+    ds = dataset_from_es(start - CARRY_MS, end, a.state_dir, log=lambda *x: None, cap_state=state)
     rows = census(ds, emit_from=start)
     write_slots(a.out_dir, rows)
+    save_cap_state(a.out_dir, ds['modes'], ds['cap_seeded'] or seeded)
     void = sum(1 for r in rows if r.get('void'))
     return {'status': 'ok' if void < len(rows) else 'void', 'slots_written': len(rows), 'void_rows': void,
             'towns': len(ds['towns']), 'window': [iso(start), iso(end)], 'newest_slot': iso(end - SLOT_MS),
             'es_docs': ds['meta']['docs'], 'skipped_left_void': skipped, 'not_in_roster': ds['meta']['not_in_roster'],
-            'journal_missing': ds['meta']['journal_missing'], 'record_errors': len(ds['meta']['record_errors'])}
+            'journal_missing': ds['meta']['journal_missing'], 'record_errors': len(ds['meta']['record_errors']),
+            'capability_control': ds['capability_control'],
+            'record_without_code': sorted({f'{r["town"]}:{n}' for r in rows for n in r.get('record_without_code') or []})}
 
 
 def run_report(a):
