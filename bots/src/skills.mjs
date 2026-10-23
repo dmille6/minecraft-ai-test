@@ -14745,9 +14745,11 @@ export function townPlanZones (bot, now = Date.now()) {
     const partial = /^dropped /.test(r.why)
     if (r.ok && !partial) { view = { known: true, zones: r.zones, why: r.why }; zoneMem.good = view } else if (partial && zoneMem.good) {
       // A PARTLY MALFORMED EDIT after a good read (townplan x protectzone, JIT 10-23c): protectzone's guard protects the edit's
-      // VALID zones at once, so the planner avoids them too -- the last good list PLUS them (never fewer than either)
+      // VALID zones at once, so the planner avoids them too -- the last good list PLUS them (never fewer than either). RETAINED as
+      // the new last good list (Codex JIT r1 P2): the guard keeps that edit's zones through a later unreadable or all-malformed read
       const seen = new Set(zoneMem.good.zones.map(z => z.box.join()))
       view = { ...zoneMem.good, zones: [...zoneMem.good.zones, ...r.zones.filter(z => !seen.has(z.box.join()))], why: `stale:${r.why}` }
+      zoneMem.good = view
     } else {
       view = zoneMem.good ? { ...zoneMem.good, why: `stale:${r.why}` } : { known: false, zones: [], why: r.why }
     }

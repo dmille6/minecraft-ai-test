@@ -130,11 +130,26 @@ async function staleEdit (M) {
   assert.equal(v1.known, true); assert.match(v1.why, /^stale:dropped/)
   for (const z of guard.zones()) assert.ok(v1.zones.some(q => q.box.join() === [z.x0, z.y0, z.z0, z.x1, z.y1, z.z1].join()), `the planner avoids ${z.id}`)
   assert.ok(v1.zones.some(z => z.id === 'old'), 'the last good list kept')
+  // SEQUENTIAL EDITS (Codex JIT r1 P2): then an unreadable file, then an all-malformed one -- the guard keeps the partial edit's
+  // zones through both (zoneReader keep()), and so must the planner
+  let tick = 2
+  for (const body of ['{"version": 1, "zones": [', JSON.stringify({ version: 1, hashed_seed: 'w', zones: [{ id: 'bad', box: [1, 2, 3] }] })]) {
+    fs.writeFileSync(file, body)
+    guard.refresh()
+    assert.ok(guard.zones().some(z => z.id === 'new'), `POSITIVE CONTROL: the guard still protects the edit's zone (${body.slice(0, 20)})`)
+    const v = M.townPlanZones(bot, 1e9 + 60_000 * tick++)
+    assert.equal(v.known, true, body)
+    for (const z of guard.zones()) assert.ok(v.zones.some(q => q.box.join() === [z.x0, z.y0, z.z0, z.x1, z.y1, z.z1].join()), `the planner avoids ${z.id} after ${body.slice(0, 20)}`)
+  }
   fs.unlinkSync(file); M.resetPlanZones()
 }
 await t('A PARTLY MALFORMED EDIT after a good read: the guard protects the edit\'s valid zones at once, and the planner avoids them too (last good + them)', () => staleEdit(S))
 await t('MUTANT KILLED: the partial edit keeps only the last good list (the planner would plan over the new zone the guard protects)', async () => {
   const k = await withMutant(SKILLS_PATH, '} else if (partial && zoneMem.good) {', '} else if (false) {', async M => killedBy(() => staleEdit(M)))
+  assert.ok(k, 'the mutant survived')
+})
+await t('MUTANT KILLED: the union not retained (a later unreadable read falls back to the list before the edit)', async () => {
+  const k = await withMutant(SKILLS_PATH, '      zoneMem.good = view\n', '', async M => killedBy(() => staleEdit(M)))
   assert.ok(k, 'the mutant survived')
 })
 
