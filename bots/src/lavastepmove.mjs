@@ -235,6 +235,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
     try { resvGen = runner.reserve?.('lavastep', T.move, 'danger_block')?.gen ?? null } catch {}
     if (fenced()) return
     try { if (bot.targetDigBlock) bot.stopDigging() } catch {}
+    if (fenced()) return
     haltPath(bot)
     if (fenced()) return
     const owns = () => cur === me && !me.ended && !me.check()
@@ -447,7 +448,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         // a missed `in` step goes straight to the aimed escape, as in the decision's own plan (Codex code r2 P2) -- unless
         // the step has already carried the bot out of danger (an overshoot onto stone: Claude code r4 P2-1)
         const ob2 = observeHere()
-        if (!ob2.kase) return `${reason}_plan_missed_safe`
+        if (!ob2.kase) { row.missObs = { origin: ob2.origin, case: ob2.kase, cells: ob2.rec.cells, boxes: ob2.rec.boxes }; return `${reason}_plan_missed_safe` }
         const a = await runAim(ob2, 'in_step_missed')
         return a === 'lost' ? 'lost' : `${reason}_plan_missed_aim`
       }
@@ -474,7 +475,10 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         if (r === 'ok') outcome = 'plan'
         else if (kase === 'in') {        // a missed `in` step goes straight to the aimed escape (no waiting for the next firing)
           const ob2 = observeHere()
-          if (!ob2.kase) outcome = 'plan_missed_safe'   // ...unless it already carried the bot out of danger (Claude code r4 P2-1)
+          if (!ob2.kase) {   // ...unless it already carried the bot out of danger (Claude code r4 P2-1); recorded for the read (r5 P3-1)
+            row.missObs = { origin: ob2.origin, case: ob2.kase, cells: ob2.rec.cells, boxes: ob2.rec.boxes }
+            outcome = 'plan_missed_safe'
+          }
           else {
             const a = await runAim(ob2, 'in_step_missed')
             if (a === 'lost') return end(reasonNow())
