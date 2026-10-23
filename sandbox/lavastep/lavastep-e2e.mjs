@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r7 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r8 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
@@ -24,7 +24,7 @@
 //   - FENCED CRITICAL SECTIONS (driver review r5 Codex P1: a per-host mutex; r6 Codex P1: a lock held across the network
 //     cannot fence commands already issued when the holder's session is lost): every section that must be atomic is ONE
 //     script run on the WORLDS host (10.0.0.30, where RCON executes) as `flock -w 60 ~/mcai-sandbox-mode/<server>.lock
-//     timeout 50 bash -s`. The process holding the lock is the process running the commands, so nothing runs unlocked,
+//     timeout -k 5 50 bash -s`. The process holding the lock is the process running the commands, so nothing runs unlocked,
 //     and `timeout` bounds every holder server-side. The sections: writing this run's AUTHORITATIVE marker
 //     (~/mcai-sandbox-mode/<server>/<run id> on the worlds host) and deleting stale ones; the last-out check-and-restore
 //     (list the markers; if none but this run's and the known-stale ones stands, send `defaultgamemode survival` through
@@ -32,6 +32,18 @@
 //     release. LAUNCHES NEED NO LOCK: a restore runs only inside the fenced section and only when no live marker stands,
 //     and each run's marker is written inside that same section before its first `defaultgamemode adventure`, so once a
 //     run can set adventure no restore can follow it; every launch sends adventure and checks the reply first;
+//   - THE ADVENTURE SEND IS FENCED TOO (r7 Claude P2-2 / Codex P1-1): `defaultgamemode adventure` is sent only from inside a
+//     fenced section that first checks this run's authoritative marker still stands; a late or delayed copy from a run
+//     whose marker was swept therefore refuses itself, and so cannot leave adventure with no marker;
+//   - ORDERING INSIDE PAPER (driver review r7, Codex P1-2: a request still in flight after its sender died): the RCON helper
+//     runs ON the worlds host and talks to the server over localhost, and Paper runs RCON commands on its main thread, one
+//     at a time, in the order they arrive. A dead run's request has therefore either arrived BEFORE the next run's
+//     `defaultgamemode adventure` (which it precedes, so it cannot undo it) or never arrived. Every launch sends adventure
+//     itself, so a stale survival can only land before that launch's own adventure, never between it and the join;
+//   - A DEAD DRIVER IS NOT ENOUGH TO CALL ITS MARKER STALE (r7 Codex P1-1: its bot process can outlive it, still trying
+//     to join): every bot process carries its run in its command line (`lsrun=<run id>`), and a marker counts as stale
+//     only when its driver is gone (pid dead or reused), NO process on this host carries its run tag, and NO player of its
+//     run (`ls<run id>...`) is online. Anything else keeps the marker (and the default at adventure) and is reported;
 //   - the joined mode is READ BACK in the same round trip as the teleport into the box: anything but adventure is FATAL
 //     (below); staging later than 5 s after the join was seen makes the trial INVALID;
 //   - FORCE-GAMEMODE PROBE, every trial: with its own bot staged in survival, the driver re-sends
@@ -253,14 +265,24 @@ const LH = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'mike@10.0.0.31']
 /** A FENCED section: `script` runs on the WORLDS host under flock on ~/mcai-sandbox-mode/<server>.lock, bounded there by
  *  `timeout 50`; the holder of the lock is the process running the commands. -> its stdout (it must end with an OK line). */
 function fenced (script) {
-  const remote = `mkdir -p "$HOME/mcai-sandbox-mode" && flock -w 60 "$HOME/mcai-sandbox-mode/${SERVER}.lock" timeout 50 bash -s`
-  return execFileSync('ssh', [...SSH, remote], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 75000 })
+  const remote = `mkdir -p "$HOME/mcai-sandbox-mode" && flock -w 60 "$HOME/mcai-sandbox-mode/${SERVER}.lock" timeout -k 5 50 bash -s`   // r7 Codex: KILL 5 s after TERM
+  // the client waits longer than the remote bound (60 s for the lock + 50 s + 5 s kill: Claude r7 P3-1); a failing section's
+  // stdout is kept in the error (Claude r7 P3-2)
+  try { return execFileSync('ssh', [...SSH, remote], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 130000 }) } catch (e) {
+    throw new Error(`fenced section failed (${e.status ?? e.code}): ${String(e.stdout ?? '').trim().slice(0, 240)}`)
+  }
 }
 const lh = script => execFileSync('ssh', [...LH, 'bash -s'], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 30000 })
 const HOSTNAME = os.hostname().replace(/[^A-Za-z0-9._-]/g, '_')
+// the machine's id (Claude r7 P3-3: two machines with one hostname must not judge each other's markers)
+const MACHINE = (() => {
+  try { const m = /"IOPlatformUUID" = "([0-9A-F-]+)"/.exec(execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: 5000 })); if (m) return m[1].toLowerCase() } catch {}
+  try { const t = fs.readFileSync('/etc/machine-id', 'utf8').trim(); if (/^[0-9a-f]{32}$/.test(t)) return t } catch {}
+  return 'unknown'
+})()
 // from `ps -o lstart` (the clock staleOwner compares against; Claude r6 P3-3), uptime arithmetic only as a fallback
 const PSTART = (() => { try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', timeout: 5000 }).trim()); if (Number.isFinite(t)) return Math.round(t / 1000) } catch {} return Math.round(Date.now() / 1000 - process.uptime()) })()
-const OWNER = `host=${HOSTNAME} pid=${process.pid} pstart=${PSTART} run=${NONCE}`
+const OWNER = `host=${HOSTNAME} mid=${MACHINE} pid=${process.pid} pstart=${PSTART} run=${NONCE}`
 /** The start time (epoch s) of a live pid on this host, or null. */
 function startOf (pid) {
   try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim()); return Number.isFinite(t) ? Math.round(t / 1000) : null } catch { return null }
@@ -268,13 +290,28 @@ function startOf (pid) {
 const MROOT = '"$HOME/mcai-sandbox-mode"'
 const MDIR = `${MROOT}/${SERVER}`
 const ARENA = `${MROOT}/arenas/${SERVER}-${A.x}-${A.z}`
-// stale = this host, and the pid is gone or now belongs to another process (its start time differs: Claude r5 P3-3)
-const staleOwner = text => {
-  const h = /host=(\S+)/.exec(text)?.[1], p = Number(/pid=(\d+)/.exec(text)?.[1]), ps = Number(/pstart=(\d+)/.exec(text)?.[1])
-  if (h !== HOSTNAME || !(p > 0) || p === process.pid) return false
+// stale = this host, the driver is gone (pid dead, or reused: its start time differs; Claude r5 P3-3), AND none of its run's
+// bot processes survives here (their command lines carry `lsrun=<run>`), AND none of its run's players is online
+// (r7 Codex P1-1: an orphaned bot can still join after its driver died)
+function driverGone (p, ps) {
   if (!alive(p)) return true
   const st = ps ? startOf(p) : null
   return ps > 0 && st != null && Math.abs(st - ps) > 3
+}
+function runDrained (run) {
+  if (!/^[a-z0-9]{8}$/.test(run)) return false
+  let procs = ''
+  try { procs = execFileSync('ps', ['-axo', 'command='], { encoding: 'utf8', timeout: 5000 }) } catch { return false }
+  if (procs.split('\n').some(l => l.includes(`lsrun=${run}`))) return false
+  let who
+  try { who = online() } catch { return false }
+  return !who.some(n => n.startsWith(`ls${run}`))
+}
+const staleOwner = text => {
+  const h = /host=(\S+)/.exec(text)?.[1], p = Number(/pid=(\d+)/.exec(text)?.[1]), ps = Number(/pstart=(\d+)/.exec(text)?.[1])
+  const run = /run=([a-z0-9]+)/.exec(text)?.[1], mid = /mid=([0-9a-f-]+)/.exec(text)?.[1]
+  if (h !== HOSTNAME || mid !== MACHINE || MACHINE === 'unknown' || !(p > 0) || p === process.pid || !run || run === NONCE) return false
+  return driverGone(p, ps) && runDrained(run)
 }
 /** A row that can mean a block edit (the limited log check; see the header). */
 function editRow (r) {
@@ -342,13 +379,17 @@ function releaseArena () {
   if (out !== 'GONE') throw new Error(`arena claim: ${out}`)
 }
 let markerGone = false   // set BEFORE the restore section runs: from then on this run's marker may not stand
+/** The ADVENTURE default, fenced on the worlds host and only while this run's authoritative marker stands. (Survival is
+ *  set only by restoreIfLast.) */
 function setDefault (m) {
-  // Claude r6 P2-1: a trial resuming after the cleanup began (or after its marker went) must never re-send adventure,
-  // which would leave the default with no marker standing
-  if (m === 'adventure' && (stopping || markerGone || !registered)) throw new Fatal(`no adventure default: ${stopping ? 'the cleanup has begun' : markerGone ? "this run's marker may be gone" : 'not registered'}`)
-  const want = m === 'adventure' ? 'Adventure' : 'Survival'
-  const t = r1(`defaultgamemode ${m}`)
-  if (t !== `The default game mode is now ${want} Mode`) throw new Error(`defaultgamemode ${m}: ${t || '(no reply)'}`)
+  if (m !== 'adventure') throw new Error(`setDefault ${m}: only the fenced restore sets survival`)
+  // Claude r6 P2-1: a trial resuming after the cleanup began (or after its marker went) must never re-send adventure
+  if (stopping || markerGone || !registered) throw new Fatal(`no adventure default: ${stopping ? 'the cleanup has begun' : markerGone ? "this run's marker may be gone" : 'not registered'}`)
+  const out = fenced(`[ -f ${MDIR}/${NONCE} ] || { echo NO_MARKER; exit 0; }
+r=$(printf '%s\\n' 'defaultgamemode adventure' | python3 /tmp/sbx-rcon.py ${SERVER} - 2>&1 || true)
+case "$r" in *"The default game mode is now Adventure Mode"*) echo SET;; *) echo "FAILED $(printf '%s' "$r" | tr '\\n' ' ' | head -c 200)";; esac`).trim()
+  if (out === 'NO_MARKER') throw new Fatal(`no adventure default: this run's marker is not on the worlds host`)
+  if (out !== 'SET') throw new Error(`defaultgamemode adventure: ${out}`)
 }
 class Fatal extends Error {}
 // the closed barrier box, then the stone plain and the air inside it
@@ -437,7 +478,8 @@ function launch (k) {
     // home and board 300 blocks east (as r1/r2: no town behaviour near the scene); a walk there stops at the barrier box
     HOME_X: String(A.x + 300), HOME_Y: String(A.y), HOME_Z: String(A.z), BOARD_X: String(A.x + 300), BOARD_Y: String(A.y), BOARD_Z: String(A.z) }
   delete env.LAVASTEP           // both arms run their build's default; a stray LAVASTEP=0 in the shell cannot flip the candidate
-  const child = track(spawn(process.execPath, ['--max-old-space-size=768', 'src/index.mjs'], { cwd: path.join(BOT_ROOT, 'bots'), env, stdio: ['ignore', 'pipe', 'pipe'] }), `bot ${name}`)
+  // `lsrun=<run>` (ignored by the bot) tags the process, so a later run can see it outlived this driver (staleOwner)
+  const child = track(spawn(process.execPath, ['--max-old-space-size=768', 'src/index.mjs', `lsrun=${NONCE}`], { cwd: path.join(BOT_ROOT, 'bots'), env, stdio: ['ignore', 'pipe', 'pipe'] }), `bot ${name}`)
   const out = fs.createWriteStream(path.join(dir, 'bot.out')); out.on('error', () => {}); child.stdout.pipe(out); child.stderr.pipe(out)
   return { name, dir, child, log: path.join(dir, 'log', `skill-${name}.jsonl`) }
 }
@@ -661,6 +703,11 @@ async function main () {
   // default), the stale ones going in the same section (this run's marker now stands for the adventure state)
   claimArena()
   if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
+  // Claude r7 P3-4: a warning copy on the lock host with no authoritative twin on the worlds host means an OLDER driver
+  // (r5/r6 kept its state on the lock host) or a half-written marker: refuse rather than guess
+  const twins = new Set(wMarkers().map(m => m.name))
+  const orphanCopies = parseList(lh(listScript(MDIR))).filter(m => !twins.has(m.name))
+  if (orphanCopies.length) throw new Error(`lock-host marker(s) with no worlds-host twin (an older driver, or a half-written marker; check and remove by hand): ${orphanCopies.map(m => m.text).join(' | ')}`)
   const before = wMarkers().filter(m => m.name !== NONCE)
   const stale = before.filter(m => staleOwner(m.text))
   register(stale.map(m => m.name))
@@ -734,7 +781,9 @@ async function cleanupOnce () {
     // leaves a marker, never a silent adventure default
     markerGone = true
     ok = await step('default mode', () => {
-      const r = restoreIfLast(staleNames().map(m => m.name))
+      const st = staleNames()
+      for (const m of st) P_(`cleanup: stale adventure marker (driver gone, run drained) goes with the restore: ${m.text}`)
+      const r = restoreIfLast(st.map(m => m.name))
       if (r.startsWith('LEFT')) P_(`cleanup: default mode left to the markers${r.slice(4)}`)
     }) && ok
   }
