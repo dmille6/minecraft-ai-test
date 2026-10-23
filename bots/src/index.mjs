@@ -52,6 +52,7 @@ import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
+import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -318,6 +319,8 @@ function connect() {
     try { logEvent({ kind: 'keepout_mode', status: 'success', snapshot: snapshot(bot), detail: keepoutModeDetail(process.env) }) } catch {}
     // townindex-01: the licence row, once per spawn -- `_townindex_mode`, a kind the base cannot write (townindex.mjs)
     try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
+    // ironsmelt-01: the licence row, once per spawn -- `_ironsmelt_mode`, a kind the base cannot write (smeltjob.mjs)
+    try { logEvent({ kind: 'ironsmelt_mode', status: 'success', snapshot: snapshot(bot), detail: ironsmeltModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
