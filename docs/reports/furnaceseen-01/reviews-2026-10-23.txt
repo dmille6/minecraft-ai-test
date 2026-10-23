@@ -1,0 +1,83 @@
+FURNACESEEN-01 (cooperation tier B3) -- code review record. Branch furnaceseen-on-6e1afb5 (on ledger-01 26e76fa0).
+
+== Codex r1 (61fcf20b): CHANGE
+VERDICT: CHANGE
+
+1. **P2 — scripts/host/furnaceseenread.py:256,338:** The pre-period expands with each read, so +180 and +2880 use different baselines and bars. This violates the frozen pre-period requirement. Freeze the pre-window and bar at registration; reuse them in the reader and power simulation. Test the resulting margins through verdict.py, including +180 KEEP and undefined evidence.
+
+2. **P2 — scripts/host/furnaceseenread.py:326:** Towns are inferred from available rows. A drawn canary town with no rows disappears instead of making the effect undefined; remaining towns can produce a passing margin. Initialize the analysis from the registered town set and return UNREADABLE when required exposure is missing. Add a completely missing-town fixture.
+
+3. **P2 — scripts/host/furnaceseenpower.py:55,109:** Power uses minute-presence bot-hours, while the reader uses first-to-last-row spans. It also independently redraws thinning for overlapping +180/final windows, so the reads do not observe one simulated treatment history. Share the reader’s exposure calculation and generate one treated trajectory per simulation, then evaluate both reads. Rerun the power table before relying on the 83% result.
+
+4. **P3 — scripts/host/furnaceseenread.py:351:** The race report requires entry time `<= t0`, excluding the tested append at `t0 + 100`; `off=` is never used. Extract and fixture-test race classification using fold-offset evidence, including an append between pick and open, while keeping it outside D1.
+
+Python golden and Paper selftests passed. Node tests were blocked by sandbox denial of temporary-directory creation.
+
+
+== Codex r2 (a7aeb8ce): CHANGE
+VERDICT: CHANGE
+
+1. **P2 — scripts/host/furnaceseenpower.py:113:** “Full removal” can leave repeats unchanged. With empty drains A@0, B@10m, B@20m, only B@10m is originally marked repeat; removing it makes B@20m a repeat. Verified: count remains 1. Thus the reported power is not a full-removal upper bound and does not establish the underpowered conclusion. Generate the treated trajectory sequentially against retained observations, add this fixture, and rerun power.
+
+2. **P2 — scripts/host/furnaceseenread.py:213,229:** Control membership still depends on post-period evidence, and missing control rates are silently discarded; missing canaries instead undefine the line. The comparison set therefore changes across reads and can selectively lose controls, permitting a KEEP from incomplete evidence. Freeze eligibility using pre-period information and return undefined when any eligible pool lacks either rate; add the symmetric missing-control fixture.
+
+3. **P3 — scripts/host/furnaceseenread.py:464:** Race detection includes the drain’s own open entry when selecting `newest`. That entry normally wins, then `seen_skip` rejects it as `own_entry`, hiding the townmate append between pick and open. Exclude the current open observation before selecting the preceding entry; test the complete pick → townmate append → own open sequence.
+
+Python selftest passed (14 golden rows). Node tests were blocked by sandbox `EPERM` on temporary-directory creation.
+
+
+== Codex r3 (0660cdff): CHANGE
+VERDICT: CHANGE
+
+1. **P2 — scripts/host/furnaceseenpower.py:134:** The simulation calls `eligible_controls(pre_n, {}, set())`; it never loads build versions or computes contamination. Contrary to the r3 README, contaminated pools remain eligible for both arms. Excluding them changes the population, variance and randomization resolution, so 0.72 does not establish power for the registered reader. **Fix:** collect version counts, apply the reader’s contamination rule at each simulated cut, rerun power/null schedules, and update the conclusion.
+
+2. **P3 — docs/reports/furnaceseen-01/README.md:82:** One contaminated dry run supports UNREADABLE for that draw, but does not establish that today’s lane is “mostly UNREADABLE.” **Fix:** measure the fraction across representative cuts/draws, or qualify this as a concern.
+
+The sequential removal, frozen controls, missing-rate handling, final-read registration, race own-entry exclusion and changed-skip dedup fixes are present.
+
+A no-effect canary can still KEEP through statistical false positives—the recorded null simulations include passes. The underpowered statement in registration notes does not itself block KEEP; the host fixtures explicitly demonstrate passing paths.
+
+Both Python self-tests passed, including 14 golden cases. Node testing was blocked by sandbox `mkdtemp` permissions. Paper remains pending.
+
+
+== Codex r4 (5fa83e9b): CHANGE
+VERDICT: CHANGE
+
+1. **P2 — scripts/host/furnaceseenpower.py:140:** Whole-bucket slicing includes rows before `t−24h` and excludes rows immediately before `t`. This differs from the read; a boundary fixture produces clean in the read versus 6% contaminated in simulation. Filter version rows to `[t−24h, t)` before bucketing; add regression coverage and regenerate the log.
+
+2. **P3 — scripts/host/furnaceseenpower.py:144:** Eligibility still requires six pools although the read now requires four canaries plus four controls. Require eight and report undefined outcomes even when `runs == 0`.
+
+3. **P3 — docs/reports/furnaceseen-01/README.md:44:** “Cannot be read at all” exceeds the evidence: zero KEEP does not distinguish undefined reads from defined failures. “Do not queue as is” is supported; qualify the impossibility claim or log all undefined reasons to substantiate it.
+
+Both requested self-tests passed, including all 14 golden rows.
+
+
+== Codex r5 (0f39c0bc): APPROVE
+VERDICT: APPROVE
+
+Self-test: `SELFTEST OK`. Exact contamination windows, eight-pool minimum, r5 log, and README correction verified.
+
+1. P3 — `scripts/host/furnaceseenpower.py:152`: Lower-bound `+1` excludes a valid aligned cut and crashes with exactly sufficient history (`30 1` reproduces). Fix: use ceiling division `(s_ms + P + 59999) // 60000` and guard empty ranges.
+
+
+== Claude r1 (61fcf20b): CHANGE -- 4 P2, 5 P3
+P2-1 the randomization relabelled never-drawable / converted pools (isolated-a/c/d), biasing toward KEEP (dry-run lb 0.0001 with them, -0.067 without) -> a frozen eligible set, the jumping-control fixture.
+P2-2 the only 80% schedule (+2880) is blocked by the tier-2 clean-baseline rule -> fold into power or record INCONCLUSIVE: underpowered.
+P2-3 exposure counted skips that changed no pick -> changed=1.
+P2-4 the verdict-path fixtures with the filed registration were missing.
+P3: one missing pool undefines the line; power vs the read (pools, denominators, 0.83 not established); raced vs ledger_unread; no D1 positive control; no Paper run.
+Checked fine: seenSkip and its port agree on 14 rows; the order path shares the pick (anchored mutant); no dead end (<= 60 min skip, any real open writes holds/lit); the randomization bound is correct.
+
+== Claude r2 (a7aeb8ce): CHANGE -- 2 P2, 5 P3
+P2-1 read_minutes [180, 360] made +360 the final, not +2880; the final fixture ran at an unregistered minute.
+P2-2 the 24 h pre-period can hold another canary's build (tier-2 pools reused after 240 min) -> undefined / dropped on contamination.
+P3: race open_at picks the drain's own entry; skip-row dedup hides a later changed=1; power precision overstated (shared history); eligible set vs draw roster; Paper pending.
+
+== Claude r3 (0660cdff): APPROVE -- 5 P3
+All round-2 P2s fixed; the conclusion (underpowered; mostly UNREADABLE today) supported; no path for a no-effect canary to KEEP beyond chance (null 0.3-0.7%).
+P3: the README overstated what the power simulation modelled (contamination not applied -- fixed in 5fa83e9b/0f39c0bc); a contaminated draw spends a lane slot (a draw preflight: owner option); fewer than 4 controls should be undefined (fixed); contamination docstring unit (fixed); Paper pending.
+
+
+CONVERGED: Codex r5 APPROVE (its P3 applied in the final commit), Claude r3 APPROVE (its P3s applied). npm test 292/292 at
+0660cdff (the bot source last changed there). RECORDED IN ADVANCE: as designed, B3 is UNDEFINED in every sampled draw of today's
+lane (power r5) -- do not queue as is; owner options in README.md. Paper `seen` scene: PENDING (sandbox5-8 locks held all session).

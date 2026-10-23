@@ -149,7 +149,10 @@ def main():
                 print(f'  +{fin}: no history'); continue
             hits = runs = cuts = unreadable = 0
             for _ in range(SIMS):
-                t = random.randint((s_ms + P) // 60000 + 1, (u_ms - W) // 60000) * 60000     # minute-aligned: exact windows
+                lo_m, hi_m = -(-(s_ms + P) // 60000), (u_ms - W) // 60000                    # ceiling / floor: whole minutes in range
+                if hi_m < lo_m:
+                    break
+                t = random.randint(lo_m, hi_m) * 60000     # minute-aligned: exact windows (Codex r5 P3)
                 pre_n = {p: len(sl(ftimes[p], ftimes[p], t - P, t)) for p in pools}
                 # THE READ'S CONTAMINATION RULE at this cut (Codex r3 P2): the pre-period's version counts per bucket and pool
                 contam = contamination(prebuckets(data, pools, t - P, t))
