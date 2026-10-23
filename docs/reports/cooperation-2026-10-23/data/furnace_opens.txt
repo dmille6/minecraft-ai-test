@@ -1,0 +1,14 @@
+board-a 317 249
+board-b 331 299
+board-c 303 248
+board-d 174 123
+hive-a 148 70
+hive-b 183 145
+hive-c 135 77
+hive-d 165 93
+isolated-b 281 212
+placebo-a 164 136
+placebo-b 266 231
+placebo-c 179 128
+placebo-d 269 226
+total 2915 2237

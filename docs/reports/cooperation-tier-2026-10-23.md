@@ -1,4 +1,4 @@
-# The cooperation tier: a frontier overseer as job assigner, the town ledger, and the first shared build (design r6, 2026-10-23)
+# The cooperation tier: a frontier overseer as job assigner, the town ledger, and the first shared build (design r7, 2026-10-23)
 
 OWNER 2026-10-23 ~12:40Z approved designing the cooperation tier: "build cool structures, survive, and work together for
 long periods of time". OWNER ~13:30Z answered C11-C14 (section 7). This is a design. No bot code was written, nothing was
@@ -155,7 +155,7 @@ no other op on that container falls between them.
   `pre` ends at `ver` and is attributed, under the ambiguity rule, to the transfer's bot.
 - **The observation chain (r3, `data/r3fix.out` [P3]):** of 399 consecutive observation pairs of a container that differ,
   398 have exactly one bot's op between them, 0 have ops of two bots, and **1** has none. That one is kept as **unknown**:
-  it removed 121 units (unknown additions elsewhere: 14). Nothing is dropped from the accounting.
+  that one pair carries both the 121 units removed and the 14 units added. Nothing is dropped from the accounting.
 - **With the shipped op lifecycle (r5, `data/r5fix.out`):** an op without a `post` mark stays open until 10 min past its
   latest `pre` or `held` mark (townindex's `OP_TTL_MS`), and a chain pair overlapping an unfinished op is unknown. In this
   window **0 of 412 ops were unfinished and 0 had `held` marks**, so every figure above is unchanged (398 attributed, 1
@@ -194,7 +194,7 @@ r1's overlap used fixed neighbour windows; r2 uses a complete interval sweep for
 **bot-time** as the union, per run, of its overlaps with townmates (r2 reported pair-time). The chance column is an
 approximation: it sums townmates' busy time in the job without taking its union.
 
-| job | runs | starts inside a townmate's run of the same job | expected by chance (approx.) | overlapped bot-time (r3) | no_effect+failed: overlapping v solo |
+| job | runs | starts inside a townmate's run of the same job | expected by chance (approx.) | overlapped bot-time (r3) | no_effect+failed: starts inside another run v other starts |
 |---|---:|---:|---:|---:|---|
 | smelt_town | 1,646 | 107 (6.5%) | 1.95% | 0.47 of 7.31 bot-h (6.4%) | 93% v 87% |
 | furnace_drain (same furnace) | 2,237 | 5 (0.2%) | 2.13% (any furnace) | 0.00 of 7.17 | — |
@@ -293,16 +293,34 @@ allocation is worthless; it shows the measured headroom there is small. The assi
   and its version. **Capability is bound to the running build** (r5, Claude r4: no generic spawn row exists; every row
   carries `code.version`): a bot is capable only if **its newest mode row for that module says `on` and carries the
   bot's current `code.version`**. A flag-off restart on the same version emits an `off` mode row (not capable); a rollback
-  to a build that emits no mode row, or to an earlier sha, leaves the newest mode row on another version (not capable). A
-  project is capable in a town when its bots are. A capable project whose
+  to a build that emits no mode row, or to an earlier sha, leaves the newest mode row on another version (not capable).
+  - **Lookback (r7, Claude r6).** Mode rows are written once per process (`bot.once('spawn')`), and S0 looks back 24 h, so
+    a bot up for more than a day would have no mode row in view and read incapable: a false zero. So S0 keeps **each bot's
+    newest mode row per module (version, on/off) as persistent state across ticks**, seeded once by a walk back to each
+    bot's newest spawn (ES, no window limit) and updated by every new mode row; a bot whose newest row's version differs
+    from its current version is not capable until a new mode row arrives.
+  - **Positive control:** the same reader run on `_townindex_mode` must find about 100% of live bots capable on the fleet
+    today; a lower figure stops the census (it reads VOID, not zero).
+  - **Town capability per minute:** at least one unflagged, capable bot inside 16 h / 12 v (staggered restarts never make
+    a whole town flip).
+  A capable project whose
   record is open but which places nothing is kept as **open and stalled** with zero production, so a starved project stays
   visible. A record without a capable mode row is `record_without_code`: reported, excluded from assignable time. Fixtures:
   capable-but-starved, disabled (mode row `off`), **`on`, then a restart on the same version with the flag off**, and
-  **`on`, then a restart into a reverted build that emits no mode row** (each must read not capable).
+  **`on`, then a restart into a reverted build that emits no mode row** (each must read not capable), and **a bot whose only
+  mode row is older than the lookback, still on that version** (must read capable).
 - **Assignable time, redefined for next-visit leases (r4, Claude r3).** S0 counts a minute assignable at 48 blocks with
   the material in a bag. The workshop adapter (B0) counts it when a project is open with an unclaimed, dependency-complete
   segment and a free slot (or a part short for MAKE), and **at least one unflagged bot is inside the town-job radius (16 h /
-  12 v)**, with the segment's bill available under the claim set. Its **upper bound from this window** (`data/r4b.out`; an open project with demand and
+  12 v)**, with the segment's bill available under the claim set.
+  - **Its inputs (r7, Claude r6), each named:** per segment, the newest `_build_seg` row (A4); failing that, the record's
+    cells minus witnessed `_build` rows, labelled an **upper bound**; dependency completeness from the same; slot and segment
+    liveness from the lease files (`project-<home>.<plot>.slot<k>.lease.g<N>`, `...seg<id>.lease.g<N>`) by their own
+    liveness rule; claim-set availability by calling the building tier's exported spendable function through node (ask
+    A9); "a part short" from `make_material`'s own exported predicate.
+  - **A known-answer fixture:** a recorded town with one project, two dependency-complete segments, one slot held and the
+    bill available, at minute marks with 0, 1 and 2 unflagged bots inside 16 / 12, gives exactly the expected assignable
+    minutes; the same fixture with the claim store unavailable reads VOID, not zero. Its **upper bound from this window** (`data/r4b.out`; an open project with demand and
   material assumed everywhere, other town jobs ignored) is **90.4 town-hours a day across the 13 towns** (3.1-13.8 per
   town), and 14.7 with two or more unflagged bots there. The B7 gates (6.3) are set from this.
 
@@ -645,7 +663,7 @@ canary does not launch (r3's rule).
 
 | type | written by (automatically) | read by | the decision it changes | ships in |
 |---|---|---|---|---|
-| `station` (a furnace's input, fuel, output at an open) | every furnace open: drain, smelt, smelt_town | **furnaceseen-01** (the drain) | the drain skips the walk to a furnace a townmate found empty < 60 min ago, unless newer contrary evidence exists (comms 4.5) | **B2** (consumer B3): 870 repeat empty drains a day |
+| `station` (a furnace's input, fuel, output at an open, with the writing job) | every furnace open: drain, smelt, smelt_town; **a load session also writes a post-load entry** (comms 4.4's transition), and any smelt-type open is contrary evidence to an earlier `empty` | **furnaceseen-01** (the drain) | the drain skips the walk to a furnace a townmate found empty < 60 min ago, unless newer contrary evidence exists (comms 4.5) | **B2** (consumer B3): 870 repeat empty drains a day |
 | `claim` (snapshot mirror of furnace, segment and slot leases) | one reconciler per town per 30 min (comms 4.3) | stage-2 talk only (every gate reads the lease files directly) | none | **deferred to stage 2** (r3: it changes no decision) |
 | `progress` (a mirror of witnessed placements) | the reconciler, from the builder's placement rows | stage-2 talk only | none: **placements are measured from the builder's positioned, server-witnessed placement rows**; what remains open is decided by the builder's world re-read (5.2) | **deferred to stage 2** (r4) |
 | `lease` mirror (issued / honoured / released + reason) | the reconciler, from the `_role_*` rows (the single source, 3.5) | stage-2 talk only | none | **deferred to stage 2** (r4) |
@@ -657,8 +675,20 @@ canary does not launch (r3's rule).
 ### 4.3 Protocol and gates
 - The comms design's file, appender, generations, checkpoint, fold (`ledgerView(entries, now)`), rate rules and dead-end
   table (comms 4.3-4.6) apply unchanged.
-- **Gates (comms 4.7, scoped to `station`):** L1 parity: every `station` entry equals the index `obs` record (and the
-  furnace window it came from) of the same open;
+- **Gates (comms 4.7, scoped to `station`):** L1 parity (r7, Codex r6: furnace opens do not write townindex records, and
+  the index aggregates by item name, so it cannot check slots). ledger-01 itself writes, at every furnace open, a raw
+  **window record** (`furnace_window`: observation id, furnace key, bot, time, and the server's input, fuel and output
+  slots exactly as received) and the `station` entry derived from it, naming that id.
+  - **The independent source is the opening skill row** (r7, Claude r6): furnace_drain already logs the window it read
+    (`out`, `inp`, `fuel`; skills.mjs ~12377), and ledger-01 adds the same three fields to the smelt and smelt_town
+    opens' `_furnace_session` detail where they are missing. L1 requires every `station` entry to equal, slot by slot, the
+    fields of the row of the same open, and to equal its own window record.
+  - **Completeness:** every furnace open in the rows must have a window record and a `station` entry; a missing one fails
+    L1, it is never dropped from the denominator.
+  - **Paper:** an RCON `data get block` read of the furnace immediately after sampled opens must match the entry.
+  - Fixtures: a correct entry passes; a deliberately wrong slot fails; a missing entry fails.
+  - **Line classes:** L1 and L2 are non-nullable own lines with `evidence: defect` (a parity or integrity break reverts);
+    L3 is a REVERT line without evidence (it blocks KEEP; cost is not a defect);
   L2 integrity (0 unparsed lines, 0 dropped transitions, `_ledger_drop` ≤ 1% of observations); L3 cost (append p95 < 5 ms,
   < 2 MB per town per day, fold p95 < 50 ms); L4 no harm by the default gate.
 
@@ -709,10 +739,12 @@ chest in the `work` plot (its §4.5).
 | A1 | the record generation changes only on transitions (a dependency opening, a fallback transition, a state change), never per placement or renewal; counts are read from the world | one builder's work must never invalidate the other's fence; the role lease binds to it as `record_gen` (3.5) | shop-01 |
 | A2 | the build visit and `buildEligible` take from the bag only its surplus above the keep rules | a builder must not place its escape blocks (3.3) | shop-01 |
 | A3 | every site-chest mutation (a `make_material` deposit, a build visit's withdraw and its `finally` return) holds the site-chest lease (5.5), and the build visit's leftovers return **to the site chest** | clean attribution of who fed whom, and no bank-then-fetch churn | shop-01 |
-| A4 | one `_build_seg` row per build visit: the segment's open cells and `material_open` as just read from the world, plus `found_done` (a cell already done with no `_build` row) and `found_open` (a placed cell found missing) | the host cannot read the world, and the overseer's snapshot needs per-segment state | B6 (the overseer); shop-01 if cheap |
-| A5 | whether a failed walk probe (`no_stand`) counts as a visit toward the waiver rule (r3: waived only after `no_step` on 3 visits on different days, non-structural roles only) | if not, an unreachable structural cell is a named stall, which is acceptable; it must not be a silent one | shop-01 |
+| A4 | one `_build_seg` row per build visit: the segment's open cells and `material_open` as just read from the world, plus `found_done` (a cell already done with no `_build` row) and `found_open` (a placed cell found missing) | the host cannot read the world, and the overseer's snapshot needs per-segment state | **B0's workshop adapter and shop-01** (r7), and B6 |
+| A5 | **answered by building-tier r3 §4.1**: a failed walk probe is a `no_step`; only non-structural cells are ever waived (3 visits on different days); a structural cell that stays unreachable follows its stall row (72 h, then abandon, then re-site) | a named stall, never a silent one | — |
 | A6 | `builders_max` ≥ 2 declared for wall@1's segments | B7's primary counts multi-builder work, and the workshop alone will mostly finish before B7's horizon | B7 |
 | A7 | a `_shop_mode` (or per-blueprint) licence row per spawn, like `_mats_mode` | B0's capability check (1.6) | B0 |
+| A9 | an exported spendable function (`spendableFor(project, item)` under the claim set) the host can call through node | B0's workshop adapter (claim availability) | B0 |
+| A8 | `buildEligible`'s host part counts the bill as available when it is in the bag, the site chest **or fresh, known town containers under the claim set** (r3 §4.1 still says bag or site chest, while its §4.6 P2 build visit withdraws from town containers). Test: empty bag and site chest, the whole bill banked in ordinary chests -> eligible, and the visit places | otherwise the fresh-project case is refused by the predicate the visit no longer needs; resolved before shop-01 | shop-01 |
 
 **What the cooperation tier writes into the project:** nothing. It reads the record, the leases, the rows and the index, and
 writes role leases and `_role_*` rows.
@@ -834,7 +866,10 @@ writes role leases and `_role_*` rows.
        with the effect passing (NOT_YET), interim with the effect failing (NOT_YET), interim with a regression and the p
        withheld (NOT_YET, no revert), final with the effect missing (UNREADABLE), final improvement above the bar (KEEP-eligible), final at the
        bar (KEEP-eligible), final no change (INCONCLUSIVE), final regression with p ≤ 0.05 (REVERT), final regression with
-       p > 0.05 (INCONCLUSIVE). The same pattern applies to B3's effect line.
+       p > 0.05 (INCONCLUSIVE).
+     - **For B3 only the non-nullable effect line carries over:** B3 is tier 2, so it may KEEP early (with its
+       Bonferroni-adjusted interval), and it has no REVERT line on its upper bound; "interim reads cannot KEEP" is B7's
+       tier-3 rule.
 5. **Positive controls in every read:** the read sees its own arm's leases, placements and site-chest deposits, and a
    fixture with a known answer passes before the first live reading.
 6. **Exposure before verdict:** unexposed means INCONCLUSIVE early (owner 10-15).
@@ -868,15 +903,16 @@ writes role leases and `_role_*` rows.
 
 | # | step | what | tier / read | depends on | cost |
 |---|---|---|---|---|---|
-| **B0** | S0 capability fix | capability from each project's mode row bound to the running `code.version` (1.6); a capable open project with no placements stays open and stalled; `record_without_code` reported and excluded; the workshop adapter with next-visit assignable time (1.6); three fixtures (starved, reverted, disabled) | host tool, no slot; light two-engine review | — | ~0.5 day |
+| **B0** | S0 capability fix | capability from each project's mode row bound to the running `code.version` (1.6); a capable open project with no placements stays open and stalled; `record_without_code` reported and excluded; the workshop adapter with next-visit assignable time and named inputs (1.6); persistent newest-mode-row state with the `_townindex_mode` positive control; fixtures: starved, disabled, flag-off restart on the same version, reverted build, an old mode row still on its version, and the adapter's known-answer fixture | host tool, no slot; light two-engine review | — | ~0.5 day |
 | **B1** | coopread | the daily cooperation census: per-container provenance bounds (1.1), the overlap sweep with its chance null (1.2), co-presence and arrivals (1.4), multi-builder project-days and site-chest supply (5.5). Positive controls built in (the verified-transfer attribution path; the overlap sweep). A fleetstatus line | host tool, no slot | — | ~1 day |
-| **B2** | ledger-01 | `station` only; observe-only | **tier 2** (4 pools, ≥ 48 bot-h, licence not `rate`); exposure: the read emits one field, `station_exposure` = the pooled count of `station` entries if every drawn town has ≥ 20, else 0, registered as `exposure.min` 120 (r5: verdict.py reads one exposure field) (r4: furnace opens run 243-453 a day per town, about 10-19 an hour, so the slowest town reaches about 30 at best; comms' 200 per town would close unexposed by construction); L1-L4 | townindex (on the fleet) | ~2 days + Paper |
-| **B3** | furnaceseen-01 | the drain skips a walk to a furnace a townmate found empty < 60 min ago | **tier 2**; exposure ≥ 20 skipped walks; gate: 0 drain walks to a furnace with a **valid cached empty** (a live `station` empty < 60 min old, no newer contrary evidence); first observations and expired records legitimately need a walk and are excluded; **effect line** (r4): the field is the **reduction** R = (control's change in repeat empty drains per bot-h) − (canary's change), positive = fewer repeats on the canary; registered as R's lower bound `>=` a bar of 0.25 × the canary pools' frozen pre-period repeat rate, `on_fail: REVERT` without `evidence` (6.1), fixture-tested for improvement, no change, worsening and undefined; so its KEEP is not "nothing objected". **Interval:** randomization over towns, as B7. **Early KEEP is allowed, as tier 2 permits** (r6, Codex r5: verdict.py's tier rule can KEEP at +180 when every line passes, so a "final-only" rule cannot hold for a tier-2 run): the effect line is evaluated at every registered read with a Bonferroni-adjusted interval (confidence 1 − 0.05/k for k registered reads), so the false-KEEP rate over the schedule stays at 5%. **Power and reads:** about 67 repeats per town-day are expected (870 a day over 13 towns; about 33 across 4 canary towns in 3 h), against 2.36x between-pool noise, so the registration's reads (+180, +360, and a last read) are the shortest schedule a pre-launch simulation from the per-town pre-period rates gives 80% power for the bar; if no schedule ≤ 48 h reaches 80%, the plan records in advance that B3 closes INCONCLUSIVE: underpowered. A fixture: a passing effect at +180 with every tier-2 prerequisite met gives KEEP (intended). **Licence:** `kind` = a canary-exclusive `_furnace_seen_skip` row (not `rate`, so its defect line can revert and the tier-2 KEEP is open); guards furnace output wait and smelt ingots. **Paper driver:** two bots, one empty furnace: A drains and finds it empty; B skips; a smelt then loads the furnace; B walks to it on its next drain | B2 promoted | ~1 day; worth up to 2.51 bot-h/day |
+| **B2** | ledger-01 | `station` only; observe-only | **tier 2** (4 pools, ≥ 48 bot-h, licence not `rate`); exposure: the read emits one field, `station_exposure` = the pooled count of `station` entries (after comms' coalescing of identical repeats) if every drawn town has ≥ 10, else 0, registered as `exposure.min` 80 by +180 (r7: furnace sessions run 135-331 a day per town, 2,915 in all, `data/furnace_opens.txt`, about 6-14 an hour, so the slowest town reaches about 17 by +180; comms' 200 per town would close unexposed by construction); **licence `kind`** = `_ledger_station`, a row ledger-01 writes per entry that the base cannot write (not `rate`); L1 and L2 as `defect` lines, L3 blocking, L4 the default gate | townindex (on the fleet) | ~2 days + Paper |
+| **B3** | furnaceseen-01 | the drain skips a walk to a furnace a townmate found empty < 60 min ago | **tier 2**; exposure ≥ 20 skipped walks; gate: 0 drain walks to a furnace with a **valid cached empty** (a live `station` empty < 60 min old, no newer contrary evidence); first observations and expired records legitimately need a walk and are excluded; **effect line** (r4): the field is the **reduction** R = (control's change in repeat empty drains per bot-h) − (canary's change), positive = fewer repeats on the canary; registered as R's lower bound `>=` a bar of 0.25 × the canary pools' frozen pre-period repeat rate, `on_fail: REVERT` without `evidence` (6.1), fixture-tested for improvement, no change, worsening and undefined; so its KEEP is not "nothing objected". **Interval:** randomization over towns, as B7. **Early KEEP is allowed, as tier 2 permits** (r6, Codex r5: verdict.py's tier rule can KEEP at +180 when every line passes, so a "final-only" rule cannot hold for a tier-2 run): the effect line is evaluated at every registered read with a Bonferroni-adjusted interval (confidence 1 − 0.05/k for k registered reads), so the false-KEEP rate over the schedule stays at 5%. **Power and reads:** about 67 repeats per town-day are expected (870 a day over 13 towns; about 33 across 4 canary towns in 3 h), against 2.36x between-pool noise, so the registration's reads (+180, +360, and a last read) are the shortest schedule a pre-launch simulation from the per-town pre-period rates gives 80% power for the bar; if no schedule ≤ 48 h reaches 80%, the plan records in advance that B3 closes INCONCLUSIVE: underpowered. A fixture: a passing effect at +180 with every tier-2 prerequisite met gives KEEP (intended). **Report line:** drain bot-time per bot-h, DiD, so the claimed saving (up to 2.51 bot-h/day) is measured, not inferred from R (which falls mechanically when the skip fires). **Licence:** `kind` = a canary-exclusive `_furnace_seen_skip` row (not `rate`, so its defect line can revert and the tier-2 KEEP is open); guards furnace output wait and smelt ingots. **Paper driver:** two bots, one empty furnace: A drains and finds it empty; B skips; a smelt then loads the furnace; B walks to it on its next drain | B2 promoted | ~1 day; worth up to 2.51 bot-h/day |
 | **B4** | shop-01 | **the building tier's canary** (its registration, after its matset-01 and mats-01; townplan-01 and found-01 KEPT), with 2 builder slots, segment leases, the build visit and the 5.2 interface, and **this design's parts inside it**: the reserved site chest's exclusions (5.3, with its composed test) and the site-chest lease (5.5, ask A3, with its tests). Staffed by today's rotation: no leases yet | **tier 3** (the building tier's registration); this design adds **its own defect lines** (`evidence: defect`): **0 attributed ops on the site chest by any bot job other than `make_material` and the build visit, before its release** (unknown chain steps are reported, not counted); **0 site-chest mutations without the site-chest lease** (from the mutation rows); 0 picker hits on a reserved container; plus report lines: multi-builder project-days, maker-to-builder units. So a REVERT names which part failed | building tier (r4: not B2; `progress` is a stage-2 mirror and no decision needs the ledger) | building tier's estimate + ~2 days for the reservation and the site-chest lease |
 | **B5** | S1 | the bot-side lease reader (one sort key, next-visit, binding checks), its composed chain and starvation tests (both engines), the host/bot eligibility parity test, the spend guard's fixtures, the Paper arms (6.2) | sandbox, no slot | B4 code | ~4 days; ~$1-3 of calls |
 | **B6** | S2 shadow | real time, 3 towns with an open project for the whole 72 h (the building tier's queue), 3.9's gates | host + the operator's caller, no slot; a dedicated vendor workspace or key | B4 KEPT and promoted; B5's oracle gate passes; the next structures queued in the shadow towns | ~$2.70/day |
 | **B7** | assign-01 live in 4 towns | leases delivered in 4 canary towns; **≥ 6 control towns with an open project**; ITT primary: witnessed project cells per randomized town-hour, **counting only projects with `builders_max` ≥ 2** (workshop@1; wall@1's segments; a single-builder house's cells are reported, not counted), with open multi-builder projects required across the **pre-period** as well as the horizon; **effect line: the lower bound of the town-level DiD of witnessed cells per town-hour `>=` an absolute bar** = 0.15 × the frozen pre-period reference rate (witnessed project cells per town-hour pooled over every eligible town's pre-period, frozen in the registration), which keeps r3's +15% while a single town's zero pre-period cannot make a ratio undefined; drawexposure's non-degenerate pre-period required at the draw; **REVERT line:** the upper bound `>= 0` with randomization support p ≤ 0.05 (6.1); **power** computed before launch by simulation from S0's pre-period null for the KEEP rule itself (the lower bound clearing the bar when the true effect is +30% of the reference rate), horizon the shortest giving 80%, refused beyond 7 days; the simulation includes the expected treatment downtime (empty generations from the caller or the Mac being unreachable, guard stops, the 36-h reconciliation stop) at the rate measured in the shadow; **exposure:** one emitted field (verdict.py reads one) = the count of honoured leases ending in a witnessed placement or a verified `make_material` deposit, set to 0 unless the canary also has ≥ 40 next-visit assignable town-hours (B0's definition; the window's upper bound is about 7 per town-day), registered with `exposure.min` 30; licence `kind` = the `_role_*` rows; harm gates: deaths (the owner's death gate, two-death floor, 1.25x control); **rung completions per bot-h** and gather completions per bot-h DiD no worse than -10%, and immobile and stuck DiD within the null, each with `support` (randomization p ≤ 0.05 at the final read, as the effect lines) so a measured harm can revert; **a lease issued to a bot flagged at issue time = `evidence: defect`**. **Open items for B7 (decided before it is built, owner gate):** wall@1's `builders_max` (A6); B7 depends on wall-01 KEPT and promoted; it closes INCONCLUSIVE if fewer than 10 eligible towns (4 canary + 6 control) hold an open multi-builder project | **tier 3**; **holds the one canary slot for up to 7 days**; a 4-pool non-bag-fix draw (needs canary-report support and owner approval, r3 decision 3) | B6 gates; **B0's next-visit assignable time ≥ 30 town-h/day across the eligible towns for 48 h** (r4: about a third of the 90.4 upper bound; if it fails for 7 consecutive days after the workshop's promotion, B7 closes **INCONCLUSIVE: no assignable time**); **the next structures (the building tier's queue) KEPT and promoted before launch**, so every eligible town has work for the whole horizon. **If the power simulation refuses** (no horizon ≤ 7 days reaches 80%), B7 closes **INCONCLUSIVE: underpowered**, recorded with the Paper result, and does not launch | ~$3.59/day; guard earmarks $68.3 worst case at launch |
 | **B8** | DEEP_MINER through the assigner | the `deep_miner` job becomes leasable (5.4) | inside the mineshaft canary first (its own acquire and cap are the assigner until then, ask M-a), then in assign-01's next run; **open items M-a, M-b decided before it is built (owner gate)** | mineshaft-safety; B7 | — |
+| open items | **B4 (shop-01):** the exclusion list and composed test also cover furnace_drain's deposit target and plain deposit and withdraw; `mats_return` gets its own `by` tag and a rule for the site chest, so B4's defect line cannot revert the building tier's own recovery; a build visit's `finally` return goes to ordinary town chests when the site-chest lease is held, never kept as ballast. **B6:** the prompt's `caps.leased_max` becomes a validator-defined cap, and the DEEP_MINER description covers stair-cutting leases. **B8:** re-reconcile with mineshaft-safety r7 (74341530: an `uncertified` record leaves the cap on the surface with `exitDebt` 0) | decided before each stage is built, owner gate | — | — | — |
 | **B9** | SUPPLY (optional) | a non-builder stages claimed parts into the site chest (3.3's B9 notes) | **only if** shop-01's read shows builders' visits dominated by withdrawals; designed then, owner gate | shop-01 KEPT | — |
 | X1 | sighting-quality read | 4.4, for the expansion lane | host read, no slot | — | ~0.5 day |
 | later | stage 2 talk on the showcase from the `progress` / `claim` / `lease` mirrors (comms 5); Contract Net requests (comms 6, if bag surpluses appear); a third builder (tier 1); a wider overseer (only with a cheaper model or a raised cap) | | | | |
@@ -918,7 +954,7 @@ structures are on the fleet.
 | C19 | If Paper shows the frontier no better than greedy, run greedy live (no API spend) | **yes, greedy live, frontier stays in shadow** | a cheaper arm that works is still a cooperation result; the owner keeps the decision |
 | C20 | Shadow also in towns without an open project (self-maintenance) | **no** | 1.5: the measured headroom there is small; it would repeat the mayor at a cost |
 | C21 | A dedicated vendor workspace or key with its own spend limit at the cap | **required before the first call** | the vendor limit is the backstop if the guard has a bug |
-| C22 | Reserve the workshop's site chest from every other picker, an exception to "withdraw checks every town chest" (10-16) and "toolkit searches every chest" (10-19) for one container per project | **yes** | without it other jobs drain or fill the site chest and SUPPLY stalls; the chest is released on completion, stall or abandonment |
+| C22 | Reserve the workshop's site chest from every other picker, an exception to "withdraw checks every town chest" (10-16) and "toolkit searches every chest" (10-19) for one container per project | **yes** | without it other jobs drain or fill the site chest, so the maker's staged parts vanish before the build visit draws them and the maker-to-builder read is unattributable; the chest is released on completion, stall or abandonment |
 | C23 | Where the model call runs: the caller on the operator's Mac (keys stay there), or a dedicated overseer-only key on 10.0.0.31 | **the Mac for Paper and shadow; decide before live** | the Mac keeps the keys with the operator; a key on the fleet host is more robust for a 7-day live run but moves a secret |
 | C24 | SUPPLY in v1 | **no** (r6): building-tier r3's build visit withdraws its own bill and `make_material` stages parts into the site chest, so SUPPLY would only add a second path; B9 if the shop-01 read shows a need | removes a job, its claim accounting and its start-up deadlock |
 
@@ -927,6 +963,19 @@ structures are on the fleet.
 ## 8. Reviews
 
 The prompts and full texts are in `cooperation-tier-reviews-2026-10-23.txt`.
+
+**Round 6 (r6, ec2e65b2): Codex CHANGE (1 P2, 2 P3); Claude CHANGE (0 P1, 3 P2, 13 P3).** Taken into r7:
+- **B0** (Claude P2): persistent newest-mode-row state across ticks (mode rows are once per process), the `_townindex_mode`
+  positive control, town capability per minute, the old-row fixture; the workshop adapter's inputs named (`_build_seg` with
+  an upper-bound fallback, the lease files, the claim function through node, ask A9) with a known-answer fixture.
+- **B2's L1** (Codex P2, Claude P2): against the opening skill row's own window fields and ledger-01's raw window record,
+  with completeness, a Paper RCON spot check, wrong-slot fixtures; L1 and L2 as `defect` lines, L3 blocking; its licence
+  row; exposure from the measured furnace-session rate (135-331 per town-day).
+- **Cheap P3s:** load sessions write post-load `station` entries; B3's relation to B7's read pattern stated; the B0 fixture
+  list complete; the unknown pair's units corrected; A5 answered by building-tier r3; C22's reason updated; B3's drain
+  bot-time report line; ask A8 (claim-aware town stock in `buildEligible`); the overlap outcome column relabelled.
+- **Open items with an owner gate:** B4's exclusion list, `mats_return` tag and return path; B6's prompt caps; B8's
+  re-reconcile with mineshaft-safety r7.
 
 **Round 5 (r5, 7f7a1188): Codex CHANGE (2 P1, 3 P2, 2 P3); Claude CHANGE (1 P1, 5 P2, 9 P3).** Taken into r6:
 - **SUPPLY's start-up deadlock and its claim accounting** (both P1): dissolved by building-tier r3, whose build visit
