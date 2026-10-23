@@ -125,8 +125,8 @@ await t('the pathfinder no longer spends a building stone; nothing that counts s
   assert.equal(scaffoldCount([{ name: 'cobblestone', count: 9 }]), 9, 'positive control: the exit contract counts')
 })
 
-await t('BUILD_RESERVE: declared, 512 for each (OWNER Q6), frozen; nothing in src reads it yet (mats-01 does)', () => {
-  assert.deepEqual(ST.BUILD_RESERVE, { cobblestone: 512, logs: 512, planks: 512, sticks: 512, copper_ingot: 512, sand: 512, torch: 512 })
+await t('BUILD_RESERVE: declared, the OWNER 10-23 table (cobble 256, logs 512, copper 512, torch 32, sand 16, planks 71, sticks 40), frozen; nothing in src reads it yet (mats-01 does)', () => {
+  assert.deepEqual(ST.BUILD_RESERVE, { cobblestone: 256, logs: 512, planks: 71, sticks: 40, copper_ingot: 512, sand: 16, torch: 32 })
   assert.ok(Object.isFrozen(ST.BUILD_RESERVE))
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const dir = new URL('../src/', import.meta.url)
