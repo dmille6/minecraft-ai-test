@@ -1,0 +1,43 @@
+TOWNPLAN-01 + FOUND-01 PAPER RE-RUN ON THE 10-23 RE-STACK (JIT 10-23c)
+Driver: sandbox/townplan/townplan-e2e.cjs as on this branch (moved onto the shared sandbox lock; BRAIN_PORT per run).
+Server read-back + the bots' own plan files and rows. Per-server locks only while running (sandbox7 `townplan` then `found`,
+sandbox8 `found`); all released 16:46Z. Records of the re-stack: docs/reports/townplan-found-jit-1023c-reviews.txt on the
+variant branches.
+
+WHY RE-RUN. The re-stack changed behaviour: readyCell judges protectzone's third place-guard cell; townPlanZones' partial /
+null / guard-dropped handling; found_store/found_work are keepout town jobs and an overridden found order is refunded; and the
+bot now runs beside protectzone-01's guard (findBlocks filter, place/dig wrappers), keepout-01's dig guard, ironpick-01's kit,
+townindex-01's JIT line and poolescape-01 (variant c also indexsearch-01 and chatgate-01).
+
+ROOTS (bot code; the variant tips add records / a test-only re-anchor only):
+  townplan c 4cbb3782 (tip 20ad0ed4)   found c bc39f7ee (tip b8eab7b3)      -- variant (c), on 9d1f6d02
+  townplan a cc3ee8aa (= tip)          found a 0d080107 (= tip)             -- variant (a), on 6e1afb52
+  (b) and (d) carry byte-identical changed lines (sorted +/- of the whole range) and were not re-run.
+
+  scene         root       server    result
+  TP-GREEN      4cbb3782   sandbox7  PASS  the showcase ground rebuilt from the dump: root plan = the offline plan (W, s 70)
+  TP-GREEN      cc3ee8aa   sandbox7  PASS  the same
+  TP-ZONES      4cbb3782   sandbox7  PASS  a zone over the E pad -> orientation S; malformed mid-run: no re-fit (gen 1 kept,
+                                           0 mid rows); a fresh pool with the malformed file: no root, no found row,
+                                           `zones=unknown:unreadable`; the good file -> a root (S)
+  TP-ZONES      cc3ee8aa   sandbox7  PASS  the same
+  TP-RETRO      4cbb3782   sandbox7  PASS  retrofit, cluster store, groups allocated; the 5-station strip all air over a floor,
+                                           inside, none on a pre-existing block; well 13 away; 13/13 containers opened by the
+                                           bot; nothing removed; dispose_well succeeded afterwards
+  TP-TEMP       4cbb3782   sandbox7  PASS  the craft succeeded; no table on a NEVER cell; station 0 still free
+  TP-CAS        bc39f7ee   sandbox8  PASS  three bots: 1 root, 7 generations all accepted, 0 rejected, 0 invalid
+  FOUND-FLAT    bc39f7ee   sandbox8  PASS  table -> station 0, first chest -> the overflow cell, furnace -> station 1, homes
+                                           fuel + metal in store cells; 0 stray, 0 lids
+  FOUND-FLAT    0d080107   sandbox7  PASS  the same, 6 placements (homes fuel, metal + one more)
+  FOUND-RETRO   bc39f7ee   sandbox8  PASS  the bench town: table + furnace in the strip's stations; nothing removed; the givers
+                                           keep a table and a furnace
+  FOUND-HOUR1   bc39f7ee   sandbox8  PASS  from 16 logs + 20 cobble + 1 table: table + overflow chest; pickaxes crafted after
+  FOUND-NOFIT   bc39f7ee   sandbox8  PASS  1-5 READY cells on a 1-wide island: 1 -> table, store unplaced; 2-5 -> table + chests
+  FOUND-PLINTH  bc39f7ee   sandbox8  PASS  the raised well's cap outside every plot box (tier=outside, never=0)
+  FOUND-KILL    bc39f7ee   sandbox8  PASS  killed between reserve and place: the cell free again; killed between the placement
+                                           and its publication: observed `placed` (overflow); no stuck reservation
+
+NOT RE-RUN: FOUND-CANOPY, FOUND-ROUGH, FOUND-NONE, FOUND-SOFT/BOX/ACCESS (READY/ACCESS/recovery tiers: the changed READY rule
+only adds a zone check, and no zone exists in those arenas); FOUND-BARE (never run). NO FIRE-COLUMN SCENE exists: the keepout
+composition (found as a town job; the overridden order refunded) is proven through the real CognitiveLoop in
+bots/test/found-compose.test.mjs, not on Paper.
