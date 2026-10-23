@@ -69,6 +69,10 @@ class Obs:
         self.boxes = boxes or {}
         self.missing = set()
 
+    def has(self, x, y, z):
+        """Was this cell READ (recorded, even as unknown)?"""
+        return ('%d,%d,%d' % (x - self.o[0], y - self.o[1], z - self.o[2])) in self.cells
+
     def at(self, x, y, z):
         k = '%d,%d,%d' % (x - self.o[0], y - self.o[1], z - self.o[2])
         if k not in self.cells:
@@ -290,27 +294,27 @@ def gates(a):
             m0 = len(ob.missing)
             ok, eto, edy, egoal = eval_step(ob.at, frm, dx, dz, first, pkase, porg)
             if len(ob.missing) > m0:
-                # the replay needed a cell the bot never recorded: the read cannot judge this step (Claude code r4 P3-2)
+                # the contract needed a cell the bot never recorded: the COMPARISON is unverifiable (Claude code r4 P3-2), but
+                # the recorded cells below are still inspected -- a missing head never hides a recorded lava floor (Codex r5 P2-1)
                 if v['replay'] in ('agree', None):
                     v['replay'] = 'unverifiable'
-                continue
-            if not ok or tuple(eto) != to or edy != st.get('dy'):
-                v['g1'].append('step %d %s: the step contract refuses %s -> %s (replay ok=%s to=%s dy=%s)' % (i, st.get('plan'), frm, to, ok, eto, edy))
-            plan_len = len(a.get('plan') or []) if st.get('plan') == 'decision' else len((a.get('replan') or {}).get('plan') or [])
-            if ok and st.get('i', 0) == plan_len - 1 and not egoal:
-                v['g1'].append('step %d %s: the last step of the plan is not lava-safe (not a goal)' % (i, st.get('plan')))
+            else:
+                if not ok or tuple(eto) != to or edy != st.get('dy'):
+                    v['g1'].append('step %d %s: the step contract refuses %s -> %s (replay ok=%s to=%s dy=%s)' % (i, st.get('plan'), frm, to, ok, eto, edy))
+                plan_len = len(a.get('plan') or []) if st.get('plan') == 'decision' else len((a.get('replan') or {}).get('plan') or [])
+                if ok and st.get('i', 0) == plan_len - 1 and not egoal:
+                    v['g1'].append('step %d %s: the last step of the plan is not lava-safe (not a goal)' % (i, st.get('plan')))
         cells = [to, (to[0], to[1] + 1, to[2]), (to[0], to[1] - 1, to[2])]
         for lx, lz in lateral_of(dx):
             if not (first and (st.get('case') == 'in' or (lx == 0 and lz == 0))):
                 cells.append((frm[0] + lx, frm[1], frm[2] + lz))
             cells.append((to[0] + lx, to[1], to[2] + lz))
         for c in cells:
-            m1 = len(ob.missing)
-            b = ob.at(*c)
-            if len(ob.missing) > m1:
+            if not ob.has(*c):            # never read: this cell cannot be judged (a RECORDED unknown can, below)
                 if v['replay'] in ('agree', None):
                     v['replay'] = 'unverifiable'
                 continue
+            b = ob.at(*c)
             if b is None or is_danger(b):
                 v['g1'].append('step %d %s: %s at %s' % (i, st.get('plan'), 'unknown' if b is None else b[0], c))
     # G2: an aim while a plan existed
@@ -356,13 +360,13 @@ def gates(a):
         if s.get('item') not in (a.get('items') or []):
             v['g4'].append('seal item %s not among the items the decision saw %s' % (s.get('item'), a.get('items')))
         if dec is not None:
-            m2 = len(dec.missing)
-            tgt = dec.at(*s['cell'])
-            if len(dec.missing) > m2:
+            if not dec.has(*s['cell']):
                 if v['replay'] in ('agree', None):
                     v['replay'] = 'unverifiable'
-            elif tgt is None or tgt[0] not in REPLACEABLE:
-                v['g4'].append('seal aimed at %s' % (None if tgt is None else tgt[0]))
+            else:
+                tgt = dec.at(*s['cell'])
+                if tgt is None or tgt[0] not in REPLACEABLE:
+                    v['g4'].append('seal aimed at %s' % (None if tgt is None else tgt[0]))
         if s.get('witnessed') and (s.get('update') or {}).get('name') != s.get('item'):
             v['g4'].append('claimed witnessed without an update of %s' % s.get('item'))
         if s.get('witnessed') is False and (a.get('replan') is not None or a.get('reclass') is not None
@@ -618,6 +622,15 @@ def selftest():
     vm = gates(g1m); assert vm['replay'] == 'unverifiable' and not vm['g1'], ('G1 missing', vm['replay'], vm['g1'])
     g4m = copy.deepcopy(s); del g4m['cells']['0,-1,0']
     v4 = gates(g4m); assert not v4['g4'] and v4['replay'] == 'unverifiable', ('G4 missing', v4['g4'], v4['replay'])
+    # COMBINATIONS (Codex code r5 P2): a missing head never hides a recorded lava floor; a recorded unknown floor likewise
+    lf = copy.deepcopy(m); lf['cells']['1,-1,0'] = 'lava'; del lf['cells']['1,1,0']
+    vlf = gates(lf); assert vlf['g1'] and vlf['replay'] == 'unverifiable', ('lava floor + missing head', vlf['g1'], vlf['replay'])
+    nf = copy.deepcopy(m); nf['cells']['1,-1,0'] = None; del nf['cells']['1,1,0']
+    assert gates(nf)['g1'], 'a recorded unknown floor + missing head'
+    # ...and a missing seal target is unverifiable even when the decision replay already missed it
+    g4k = copy.deepcopy(s); del g4k['cells']['0,-1,0']; g4k['plan'] = None
+    Obs(g4k['origin'], g4k['cells'], g4k['boxes']).at(1, 63, 0)   # (the earlier replay's miss is per-Obs; the key test is what matters)
+    v4k = gates(g4k); assert not v4k['g4'] and v4k['replay'] == 'unverifiable', ('G4 key', v4k['g4'], v4k['replay'])
     pre = {'phase': 'firing', 'case': 'edge', 'ended': 'air', 'origin': [0, 64, 0], 'steps': [], 'controls': []}
     assert gates(pre)['replay'] is None, 'a firing preempted during setup is not a replay comparison'
     # G5: the facing bearing (east, into the pool) executed
