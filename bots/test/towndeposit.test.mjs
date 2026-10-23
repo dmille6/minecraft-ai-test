@@ -1518,3 +1518,65 @@ test('junkout-01 MUTANT (cognitive): the declined tail\'s restore removed -> the
     assert.notEqual(loop.tailState.armed, 'out:abc-def', 'mutant inert')
   })
 })
+
+// ---- jit-1023: junkout-01 x keepout-01 (Codex rebase review P2) --------------------------------------------------------
+// The keep-out exit is LAST in the decision chain and overrides any order. A visit issued on a decision the exit takes would
+// spend the visit's latch (and the well's / composter's cooldown) on a run that never happens -- for the rest of the stay.
+// THE CHAIN: a not-full bag at town, standing in a NON-yielded fire column -> the exit first, the visit only ticked -> the bot
+// is out (still in the town zone) -> the tail visit issues on the next decision and banks the rows. Controls: a YIELDED (C12)
+// column lets the tail run inside, no exit; the mutant (no exit check) spends the visit behind the exit.
+const KO_SITE = { kind: 'death:fire', x: 3, y: 66, z: 0, count: 4, deaths: 1, last: Date.now(), by: ['x'] }
+async function koTailChain (Loop, { yielded = false } = {}) {
+  const chest = chestAt(2)
+  const bot = tailBot({ chest })
+  bot.fireSitesNow = () => [KO_SITE]
+  bot.keepoutYields = () => yielded
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    ran.push(skill)
+    // the exit gets the body out of the column (9 east of the site's centre; still inside the town deposit's zone)
+    if (skill === 'keepout_exit') { bot.entity.position = new Vec3(12, 70, 0); return { status: 'success', detail: 'out', delta: {}, contractEvidence: ['keepout_exit: left the column'] } }
+    if (skill === 'town_deposit') { const r = await SKILLS[skill].run({ bot }, args ?? {}, null); return { ...r, delta: {} } }
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
+  const loop = new Loop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.start()
+  for (let i = 0; i < 200 && ran.length < 4; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  assert.ok(ran.length >= 4, `the four decisions ran (else the poll expired): ${JSON.stringify(ran)}`)
+  return { ran, loop, chest, bot }
+}
+test('junkout-01 x KEEPOUT CHAIN (real loop): in a non-yielded fire column the exit goes first and the visit is NOT spent; out of the column the tail runs and banks the rows', async () => {
+  const { ran, loop, chest } = await koTailChain(CognitiveLoop)
+  assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
+  assert.ok(ran.slice(1).includes('town_deposit'), `the tail came once the bot was out: ${JSON.stringify(ran)}`)
+  assert.equal(ran.filter(s => s === 'town_deposit').length, 1, `once per stay: ${JSON.stringify(ran)}`)
+  assert.equal(sumOf(chest.items, 'torch'), 11); assert.equal(sumOf(chest.items, 'bone_meal'), 30)
+  assert.equal(loop.tailState.latched, true, 'the visit is spent by the run that happened')
+})
+test('junkout-01 x KEEPOUT CONTROL (real loop): a YIELDED column (C12 town job) -> no exit; the tail runs where the bot stands', async () => {
+  const { ran, chest, bot } = await koTailChain(CognitiveLoop, { yielded: true })
+  assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
+  assert.ok(!ran.includes('keepout_exit'), JSON.stringify(ran))
+  assert.equal(sumOf(chest.items, 'torch'), 11)
+  // the yield is COUNTED once when it starts (the exit order's own counter; the visit's probe never counts one)
+  assert.equal(bot.keepoutStats?.yield_town_job, 1, JSON.stringify(bot.keepoutStats ?? null))
+})
+test('junkout-01 x KEEPOUT MUTANT (cognitive): the visit block without the exit check -> the tail is issued behind the exit and the stay is spent: no tail after the exit (killed)', async () => {
+  await withCogMutant(' || exitFirst()\n', '\n', async M => {
+    const { ran, loop, chest } = await koTailChain(M)
+    assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
+    assert.ok(!ran.includes('town_deposit'), `mutant: the visit was spent behind the exit: ${JSON.stringify(ran)}`)
+    assert.equal(sumOf(chest.items, 'torch'), 0)
+    assert.equal(loop.tailState.latched, true, 'latched by an order that never ran')
+  })
+})
+test('junkout-01 x KEEPOUT MUTANT (cognitive): the exit order without its own `bot` (the split\'s regression, caught by no-undef) -> the C12 yield is never counted (killed)', async () => {
+  await withCogMutant('      const bot = this.bot\n      const d = this.#keepoutExitDecision(order)\n', '      const d = this.#keepoutExitDecision(order)\n', async M => {
+    const { ran, bot } = await koTailChain(M, { yielded: true })
+    assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
+    assert.equal(bot.keepoutStats?.yield_town_job ?? 0, 0, 'mutant inert')
+  })
+})

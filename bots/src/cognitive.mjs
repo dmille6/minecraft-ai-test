@@ -18,6 +18,8 @@ import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, we
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
 import { townWellStandY } from './skills.mjs'
 const WELL_DEEP_ROW_MS = 5 * 60 * 1000
+// junkout-01's three visit orders' skills (well.mjs wellVisitOrder, composter.mjs compostVisitOrder, towndeposit.mjs tailOrder)
+const VISIT_SKILLS = ['dispose_well', 'compost', 'town_deposit']
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
@@ -915,13 +917,20 @@ export class CognitiveLoop {
   }
 
   /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
+  /** KEEPOUT-01: exitDecision's answer for `order` -- the readings only, no counters (jit-1023: the visit orders ask it too). */
+  #keepoutExitDecision(order) {
+    const bot = this.bot
+    const sites = bot.fireSitesNow?.() ?? []
+    if (!sites.length || !bot.entity?.position) return null
+    return exitDecision({ sites, pos: bot.entity.position, home: configuredHome(config.world), skill: order?.skill ?? null,
+      yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
+  }
+
   #keepoutExitOrder(order) {
     try {
       const bot = this.bot
-      const sites = bot.fireSitesNow?.() ?? []
-      if (!sites.length || !bot.entity?.position) return null
-      const d = exitDecision({ sites, pos: bot.entity.position, home: configuredHome(config.world), skill: order?.skill ?? null,
-        yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
+      const d = this.#keepoutExitDecision(order)
+      if (!d) return null
       // a yield is counted when it STARTS (Claude r1 P3-7), not on every tick it holds
       const yk = d.why === 'town_job' || d.why === 'home' ? `${d.why}@${siteKey(d.site)}` : null
       if (yk && yk !== this.keepoutYieldKey) noteKeepout(bot, d.why === 'home' ? 'yield_home' : 'yield_town_job')
@@ -1030,7 +1039,12 @@ export class CognitiveLoop {
     {
       // code r1 (both engines): an order that cannot win this decision is never ISSUED (issuing latches the visit and charges
       // the well's / composter's cooldown) -- the latches are only ticked
-      const blocked = !!order && ['town_deposit', 'build_plinth', 'count_town'].includes(order.skill)
+      // JUNKOUT-01 x KEEPOUT-01 (jit-1023, Codex rebase review P2): nor while the keep-out exit would replace it -- the exit is
+      // LAST in the chain and overrides any order, so a visit issued now would spend its latch and the well's / composter's
+      // cooldown on a run that never happens. Asked for the visit skills themselves (all three are town jobs: a yielded C12
+      // column lets them run). Ticked only: the latch stays armed, and the visit issues on the first decision outside.
+      const exitFirst = () => { try { return VISIT_SKILLS.some(skill => this.#keepoutExitDecision({ skill })?.start === true) } catch { return false } }
+      const blocked = (!!order && ['town_deposit', 'build_plinth', 'count_town'].includes(order.skill)) || exitFirst()
       const visit = this.#visitOrder(milestone, { tickOnly: blocked })
       if (visit) order = visit
     }
