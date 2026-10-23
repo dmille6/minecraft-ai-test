@@ -28,7 +28,12 @@ export const WET = new Set(['water', 'flowing_water', 'bubble_column'])
 export const REPLACEABLE = new Set(['lava', 'flowing_lava', 'fire', 'soul_fire'])
 /** The only seal blocks: the fleet's commonest scaffold, never a tool, a log or a town item. */
 export const SEAL_ITEMS = ['cobblestone', 'cobbled_deepslate']
-/** The only floors a stuck firing may relax: blocks that hurt without burning. Lava and fire are NEVER relaxed. */
+/**
+ * The only floors a stuck firing may relax: blocks that hurt without burning. Lava and fire are NEVER relaxed.
+ * soul_campfire is listed because the design lists it; it is unreachable today (not in DANGER, so the arm never fires on it).
+ * Sneaking stops magma damage (minecraft.wiki); it does NOT stop campfire damage -- a relaxed campfire hands the bot to
+ * the ordinary escape arms while it still takes 1 HP / 0.5 s, so that relaxation buys a handover, not safety.
+ */
 export const RELAXABLE = new Set(['magma_block', 'campfire', 'soul_campfire'])
 
 export const MOVE_MS = 6000            // the reservation and the generation deadline: the whole move, however it ends
@@ -79,12 +84,17 @@ export const lateralOf = (dx) => dx ? [[0, -1], [0, 0], [0, 1]] : [[-1, 0], [0, 
  *   standable  feet and head known, passable, not DANGER; floor known, solid, not DANGER
  *   clearance  dy +1: the cell over the origin's head is passable (the jump); dy -1: the cell over the destination's head
  *   sweep      lavaStandOff's exact test: every lateral cell of the origin and of the destination supported and not lava
- *   goal       the destination is also cellLavaSafe (lavaStandOff's retreat test). An INTERMEDIATE step need not be: it is
- *              verified for body, floor and sweep, so a bot in 1-wide lava can walk onto the shore cell beside it (which
- *              has the origin's lava beside it) and on to a lava-safe one. A strict reading would make every `in` plan
- *              impossible, since every neighbour of a lava origin has lava beside it.
+ *   unknown    every cell read -- body, floor, clearance, each swept cell and the cells under it -- must be known
+ *   lava-safe  every destination is cellLavaSafe. The GOAL strictly (lavaStandOff's retreat test); an INTERMEDIATE step with
+ *              the plan origin's own feet cell -- the hazard being left, exempt like the rest of the origin -- read as air.
+ *              Nothing else is exempt. Without that one exemption no `in` plan could exist (every neighbour of a lava
+ *              origin has the origin's lava beside it), against the design's "a plan exists mainly when the bot stands in
+ *              1-wide lava beside a dry edge"; with it, the bot walks onto the shore cell beside the lava and on to a cell
+ *              with no lava beside it at all.
+ * `origin` is the plan's origin (defaults to `from`).
  */
-export function evalStep (at, from, dx, dz, { first = false, kase = 'edge' } = {}) {
+const AIR = { name: 'air', boundingBox: 'empty' }
+export function evalStep (at, from, dx, dz, { first = false, kase = 'edge', origin = from } = {}) {
   const [fx, fy, fz] = from
   const x = fx + dx, z = fz + dz
   let pick = null, why0 = null
@@ -108,14 +118,23 @@ export function evalStep (at, from, dx, dz, { first = false, kase = 'edge' } = {
     const centre = lx === 0 && lz === 0
     const exempt = first && (centre || kase === 'in')
     if (!exempt) {
+      const o = at(fx + lx, fy, fz + lz)
+      if (o == null) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep unknown at ${fx + lx},${fy},${fz + lz}` }
+      if (isDanger(o)) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${fx + lx},${fy},${fz + lz}` }
       if (!cellSupported(at, fx + lx, fy, fz + lz)) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep unsupported at ${fx + lx},${fy},${fz + lz}` }
-      if (isDanger(at(fx + lx, fy, fz + lz))) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${fx + lx},${fy},${fz + lz}` }
     }
+    const d = at(to[0] + lx, to[1], to[2] + lz)
+    if (d == null) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep unknown at ${to[0] + lx},${to[1]},${to[2] + lz}` }
+    if (isDanger(d)) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${to[0] + lx},${to[1]},${to[2] + lz}` }
     if (!cellSupported(at, to[0] + lx, to[1], to[2] + lz)) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep unsupported at ${to[0] + lx},${to[1]},${to[2] + lz}` }
-    if (isDanger(at(to[0] + lx, to[1], to[2] + lz))) return { ok: false, to, dy: pick.dy, goal: false, why: `sweep danger at ${to[0] + lx},${to[1]},${to[2] + lz}` }
   }
-  const ls = cellLavaSafe(at, to[0], to[1], to[2])
-  return { ok: true, to, dy: pick.dy, goal: ls.safe, why: ls.safe ? 'goal' : `step (not lava-safe: ${ls.why})` }
+  const strict = cellLavaSafe(at, to[0], to[1], to[2])
+  if (strict.safe) return { ok: true, to, dy: pick.dy, goal: true, why: 'goal' }
+  const [ox, oy, oz] = origin
+  const exAt = (x, y, z) => (x === ox && y === oy && z === oz) ? AIR : at(x, y, z)
+  const ls = cellLavaSafe(exAt, to[0], to[1], to[2])
+  if (!ls.safe) return { ok: false, to, dy: pick.dy, goal: false, why: `not lava-safe: ${strict.why} at ${strict.cell?.join(',')}` }
+  return { ok: true, to, dy: pick.dy, goal: false, why: 'step (lava-safe but for the origin)' }
 }
 
 /**
@@ -131,7 +150,7 @@ export function stepPlan (at, origin, kase = 'edge', { maxSteps = PLAN_MAX_STEPS
     const node = queue.shift()
     if (node.depth >= maxSteps) continue
     for (const [dx, dz] of CARD) {
-      const r = evalStep(at, node.cell, dx, dz, { first: node.depth === 0, kase })
+      const r = evalStep(at, node.cell, dx, dz, { first: node.depth === 0, kase, origin })
       if (seen.has(key(r.to))) continue
       candidates.push({ from: node.cell, to: r.to, d: node.depth + 1, why: r.why })
       if (!r.ok) continue
