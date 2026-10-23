@@ -62,9 +62,16 @@ case "$MODE" in
     [ "$RC" = 2 ] && [ "$OUTB" -eq 0 ] || fail "forbidden request [$BAD] was not refused (exit $RC, $OUTB bytes): check the authorized_keys line"
   done
   echo "== 5 forbidden requests refused (exit 2, no bytes)"
-  $S -N -L 0:127.0.0.1:22 -o ExitOnForwardFailure=yes > /dev/null 2>&1 & FP=$!; sleep 3
-  if kill -0 "$FP" 2>/dev/null; then kill "$FP"; fail "port forwarding was NOT refused: is 'restrict' on the line?"; fi
-  echo "== port forwarding refused"
+  # FORWARDING (Codex r1 P2, Claude r1 P2-1): a REMOTE forward is refused by the server at setup, so with
+  # ExitOnForwardFailure the client exits at once and names it; allowed, the client stays up. (A local -L is only refused
+  # when a channel opens, and `-L 0:...` is a client-side syntax error: the r1 probe could not fail.) The allowed manifest
+  # request above is the positive control that this key and channel reach the server.
+  $S -N -o ExitOnForwardFailure=yes -R 0:127.0.0.1:22 > /dev/null 2> "$HOME/structcount/verify.fwd" & FP=$!
+  for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$FP" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$FP" 2>/dev/null; then kill "$FP"; fail "remote port forwarding was ALLOWED: is 'restrict' on the line?"; fi
+  grep -q 'remote port forwarding failed' "$HOME/structcount/verify.fwd" \
+    || fail "the forwarding probe exited for another reason: $(head -2 "$HOME/structcount/verify.fwd")"
+  echo "== port forwarding refused by the server (remote port forwarding failed)"
   if [ "${2:-}" = --install-cron ]; then
     MARK='# structcount mirror (owner Q8)'
     crontab -l > "$HOME/structcount/crontab.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true

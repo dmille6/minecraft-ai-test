@@ -6,15 +6,18 @@
                                                                          `structcount.py daily` runs before every publication)
 
 THE FIXTURE WORLD. A real Anvil region file is WRITTEN by this file (an NBT and region writer below) into a temp dir, with a
-hand-worked answer: the operator's town stamp (207 cells), one lit house (1 building), a buried cobble slab (a buried
+hand-worked answer: the operator's town stamp (207 cells), a torch-lit house and a lamp-lit house (lit=true: 2 buildings),
+an unlit-lamp house (lit=false: 1 unlit room, so the block STATE is read in both directions), a buried cobble slab (a buried
 structure), a dungeon (masked by its spawner), a village house piece at the surface (masked by its structure BB), and around
 the box ~850 fully generated, never-ticked chunks each holding a small surface village piece (masked). The instrument must
 read it back exactly, and `validate()` must find nothing to refuse.
 
 BLIND-INPUT MUTANTS (the class the cooperation host tools failed on: controls that pass when the instrument sees nothing).
 Each mutant blinds one part of the reader -- no chunk readable, no section decoded, an empty palette, no stamp model, no
-negative-control chunks, no structure masks -- and the fixture's `validate()` must then REFUSE (a non-empty problem list).
-A mutant that leaves validation empty SURVIVED: the controls would have published zeros from a blind instrument.
+negative-control chunks, negative-control chunks with nothing in them, no structure masks, block states ignored -- and must
+be stopped FOR ITS NAMED REASON: either `validate()` refuses with the named problem (data-level blindness, which the daily
+run meets on real worlds), or the named fixture case of the daily gate fails (code-level blindness: the daily runs this
+gate on the installed code before every publication). A crash is a FAILURE, never a refusal (Claude r1 P3-3).
 
 BEHAVIOUR MUTANTS: each breaks one decision (a lit rule, a roof rule, a plinth rule, a validation check, the reader) and must
 fail the case written against it.
@@ -41,6 +44,12 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = {'sc': os.path.join(HERE, 'structcount.py'), 'rd': os.path.join(HERE, 'scread.py'), 'sv': os.path.join(HERE, 'serve.py'),
        'pl': os.path.join(HERE, 'pull.py')}
+
+
+class HD(dict):
+    """A hashable block-state dict (the fixture's cells are set members)."""
+    def __hash__(self):
+        return hash(tuple(sorted(self.items())))
 
 
 def load(name, text=None):
@@ -164,7 +173,7 @@ HOME = (256, 64, 256)          # stamp_cells: the platform at home.y - 2 (62), c
 def fixture(dirpath, sc):
     """Write the fixture region; return the hand-worked answer."""
     B = {}
-    def put(x, y, z, n, props=None): B[(x, y, z)] = ('minecraft:' + n, props)
+    def put(x, y, z, n, props=None): B[(x, y, z)] = ('minecraft:' + n, HD(props) if props else None)
     for (x, y, z), k in sc.stamp_cells(HOME).items():                  # the operator's stamp: 207 cells
         put(x, y, z, k)
     for x in range(300, 305):                                         # one lit house: floor, 2-high walls, doorway, roof, torch
@@ -174,6 +183,14 @@ def fixture(dirpath, sc):
                 for y in (64, 65):
                     if (x, z) != (302, 300): put(x, y, z, 'oak_planks')
     put(302, 64, 302, 'torch')
+    for x0, z0, lit in ((330, 330, 'true'), (330, 310, 'false')):      # a lamp house each way: the lamp's `lit` decides it
+        for x in range(x0, x0 + 5):
+            for z in range(z0, z0 + 5):
+                put(x, 63, z, 'stone_bricks'); put(x, 66, z, 'oak_planks')
+                if x in (x0, x0 + 4) or z in (z0, z0 + 4):
+                    for y in (64, 65):
+                        if (x, z) != (x0 + 2, z0): put(x, y, z, 'oak_planks')
+        put(x0 + 2, 64, z0 + 2, 'redstone_lamp', {'lit': lit})
     for x in range(180, 220):                                         # a buried cobble slab: 800 cells under stone
         for z in range(180, 200):
             put(x, 50, z, 'cobblestone')
@@ -203,7 +220,7 @@ def fixture(dirpath, sc):
             chunks[(lcx, lcz)] = chunk(cx, cz, blocks, 0 if not inbox else 72000, starts, refs)
     os.makedirs(dirpath, exist_ok=True)
     write_region(os.path.join(dirpath, 'r.0.0.mca'), chunks)
-    return {'stamp_present': 207, 'buildings': 1, 'box_chunks': 169, 'buried_min': 800}
+    return {'stamp_present': 207, 'buildings': 2, 'unlit_rooms': 1, 'box_chunks': 169, 'buried_min': 800}
 
 
 # ------------------------------------------------------------------ cases
@@ -221,23 +238,28 @@ def gate_cases(sc, rdir):
     out = []
     out.append(('fixture: coverage', (res['box_chunks'], res['box_chunks_ok']), (169, 169)))
     out.append(('fixture: stamp found', res['stamp_present'], 207))
-    out.append(('fixture: one building', res['buildings'], 1))
+    out.append(('fixture: two buildings (torch, lamp lit=true)', res['buildings'], 2))
+    out.append(('fixture: one unlit room (lamp lit=false)', res['unlit_rooms'], 1))
     out.append(('fixture: the buried slab is buried', res['buried_structure_cells'] >= 800, True))
     out.append(('fixture: village and dungeon masked', res['masked'].get('worldgen_piece', 0) >= 18 + 14, True))
     out.append(('fixture: negative control saw 120', neg['uninhabited_full_chunks'], 120))
     out.append(('fixture: negative control 0 surface FP', neg['fp_cells_surface'], 0))
+    out.append(('fixture: negative control observed all 120', neg['observed_chunks'], 120))
     out.append(('fixture: validate passes', bad, []))
     return out
 
 
-BLIND = [   # (name, anchor, replacement): each must make validate() REFUSE on the fixture
-    ('blind: no chunk readable', "    if off == 0: return None, 'absent'", "    return None, 'absent'"),
-    ('blind: no section decoded', "    if dat is None or len(pal) <= 1: return None", "    return None"),
-    ('blind: empty palette', "    r'cobblestone|cobblestone_(slab|stairs|wall)|", "    r'NOTHING_MATCHES_THIS|"),
-    ('blind: no stamp model', "    return c\n\n# ------------------------------------------------------------------ grouping", "    return {}\n\n# ------------------------------------------------------------------ grouping"),
+BLIND = [   # (name, anchor, replacement, how it must be stopped: 'validate:<problem text>' or 'gate:<fixture case>')
+    ('blind: no chunk readable', "    if off == 0: return None, 'absent'", "    return None, 'absent'", 'validate:coverage'),
+    ('blind: no section decoded', "    if dat is None or len(pal) <= 1: return None", "    return None", 'validate:stamp control'),
+    ('blind: empty palette', "BUILT = re.compile(r'^minecraft:('", "BUILT = re.compile(r'(?!)('", 'validate:palette cells'),
+    ('blind: no stamp model', "    return c\n\n# ------------------------------------------------------------------ grouping", "    return {}\n\n# ------------------------------------------------------------------ grouping", 'validate:stamp model'),
     ('blind: negctl sees no never-ticked chunk', "        if w.inhabited.get(c, 1) == 0 and str(w.status.get(c, '')).endswith('full'): zero.append(c)",
-     "        if w.inhabited.get(c, 1) == -1 and str(w.status.get(c, '')).endswith('full'): zero.append(c)"),
-    ('blind: no structure masks', "    return out\n\nPIECE_PAD_H", "    return []\n\nPIECE_PAD_H"),
+     "        if w.inhabited.get(c, 1) == -1 and str(w.status.get(c, '')).endswith('full'): zero.append(c)", 'validate:negative control saw'),
+    ('blind: negctl chunks read empty', "    observed = 0\n", "    for c in zero: w.secs[c] = {}\n    observed = 0\n", 'validate:negative control blind'),
+    ('blind: no structure masks', "    return out\n\nPIECE_PAD_H", "    return []\n\nPIECE_PAD_H", 'validate:surface false positives'),
+    ('blind: block states ignored', "[p.get('Properties') or {} for p in (bs.get('palette') or [])]", "[{} for p in (bs.get('palette') or [])]",
+     'gate:fixture: two buildings (torch, lamp lit=true)'),
 ]
 
 BEHAVIOUR = [   # (case it must fail, anchor, replacement)
@@ -247,8 +269,14 @@ BEHAVIOUR = [   # (case it must fail, anchor, replacement)
     ('validate: palette floor', "    if scan_res.get('raw_palette_cells', 0) < PALETTE_FLOOR:", "    if False:"),
     ('validate: negative chunks', "    if neg_res.get('uninhabited_full_chunks', 0) < NEG_MIN_CHUNKS:", "    if False:"),
     ('validate: negative FP', "    if neg_res.get('fp_cells_surface', 1) != 0:", "    if False:"),
+    ('validate: negative observed', "    if neg_res.get('observed_chunks', 0) < max(NEG_MIN_CHUNKS, neg_res.get('uninhabited_full_chunks', 0)):", "    if False:"),
     ('validate: stamp model', "    if scan_res.get('stamp_cells') != STAMP_CELLS:", "    if False:"),
     ('validate: unresolved starts', "    if scan_res.get('worldgen_starts_unreadable'):", "    if False:"),
+]
+
+PULL = [   # (case, anchor, replacement) on pull.py
+    ('pull: a torn pull leaves the previous mirror whole', "    for gen in {man.get('generation')", "    put(os.path.join(ind, 'manifest.json'), man_b)\n    for gen in {man.get('generation')"),
+    ('pull: a run finishing mid-pull is retried: attempt and manifest agree', "        if att0 == att_b:\n            break", "        break"),
 ]
 
 READER = [   # (case, anchor, replacement) on scread.py
@@ -262,7 +290,7 @@ READER = [   # (case, anchor, replacement) on scread.py
 def validate_cases(sc):
     good = {'box_chunks': 169, 'box_chunks_ok': 169, 'worldgen_starts_unreadable': 0, 'stamp_cells': 207, 'stamp_present': 190,
             'raw_palette_cells': 5000}
-    gneg = {'uninhabited_full_chunks': 120, 'fp_cells_surface': 0}
+    gneg = {'uninhabited_full_chunks': 120, 'observed_chunks': 120, 'fp_cells_surface': 0}
     def v(**kw):
         s = dict(good); n = dict(gneg); last = kw.pop('last', None)
         for k, x in kw.items():
@@ -275,6 +303,7 @@ def validate_cases(sc):
             ('validate: palette floor', v(raw_palette_cells=0), True),
             ('validate: negative chunks', v(uninhabited_full_chunks=0), True),
             ('validate: negative FP', v(fp_cells_surface=3), True),
+            ('validate: negative observed', v(observed_chunks=119), True),
             ('validate: stamp model', v(stamp_cells=0), True),
             ('validate: unresolved starts', v(worldgen_starts_unreadable=2), True)]
 
@@ -345,13 +374,31 @@ def daily_cases(sc, rd, rdir, tmp):
     cases.append(('daily: busy lock exits 8, touches nothing', run(fail_at='selftest'), (8, 'OK')))
     lock.close()
     cases.append(('daily: attempt cannot be recorded', run(fail_at='attempt'), (7, 'OK')))
+    cases.append(('daily: a crash is UNKNOWN with its reason, never RUNNING', run(fail_at='crash'), (4, 'UNKNOWN')))
+    cases.append(('daily: the crash is named in the manifest', 'crash: ValueError' in json.load(open(os.path.join(out, 'manifest.json'))).get('why', ''), True))
+    cases.append(('daily: retry good after the crash', run(), (0, 'OK')))
+    today = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d')
+    log = os.path.join(tmp, 'backup.log')
+    def logrun(lines, **kw):
+        open(log, 'w').write(''.join('2026-01-01T03:15:00Z %s\n' % l for l in lines))
+        return run(skip_backup_check=False, backup_log=log, **kw)
+    START, GOOD = 'start %s: 1 fleet worlds -> nas' % today, 'good %s: 1/1 worlds, raw 1MB -> zst 1MB, 5s' % today
+    cases.append(('daily: backup residual 0 publishes', logrun([START, 'ok fx: raw 9MB zst 7MB files=9 mca=3 residual=0 5s', GOOD]), (0, 'OK')))
+    cases.append(('daily: backup residual 999 is UNKNOWN', logrun([START, 'ok fx: raw 9MB zst 7MB files=9 mca=3 residual=999 5s', GOOD]), (4, 'UNKNOWN')))
+    cases.append(('daily: residual 21 (just over 20) is UNKNOWN', logrun([START, 'ok fx: files=9 mca=3 residual=21 5s', GOOD]), (4, 'UNKNOWN')))
+    cases.append(('daily: residual 20 (at the limit) publishes', logrun([START, 'ok fx: files=9 mca=3 residual=20 5s', GOOD]), (0, 'OK')))
+    cases.append(('daily: no completion line for the world is UNKNOWN', logrun([START, 'ok other: files=9 mca=3 residual=0 5s', GOOD]), (4, 'UNKNOWN')))
+    cases.append(('daily: a later run of the day replaces the earlier', logrun([START, 'ok fx: residual=999 5s', GOOD, START, 'ok fx: residual=0 5s', GOOD]), (0, 'OK')))
+    cases.append(('daily: no good line yet: not yet, nothing touched', logrun([START, 'ok fx: residual=0 5s']), (0, 'OK')))
+    good, res = sc.backup_record(log, today)
+    cases.append(('backup_record: positive control (a started, unfinished run records nothing)', (good, res), (False, {})))
     return cases
 
 
-def hop_cases(sc, rd, rdir, tmp):
+def hop_cases(sc, rd, rdir, tmp, pl_mod=None):
     """Owner Q8: the forced command (serve.py) and the mirror (pull.py), in process: what serve refuses, and a mirror the
     reader reads as OK; a tampered day file is never mirrored."""
-    sv, pl = load('sv'), load('pl')
+    sv, pl = load('sv'), (pl_mod or load('pl'))
     shutil.rmtree(tmp, ignore_errors=True)
     out = os.path.join(tmp, 'out'); att = os.path.join(tmp, 'att'); cen = os.path.join(tmp, 'census')
     os.makedirs(cen)
@@ -392,14 +439,44 @@ def hop_cases(sc, rd, rdir, tmp):
     pl.pull({'in': mirror, 'census_dir': mcen}, fetch=fake)
     cases.append(('pull: the mirror reads OK', rd.status(mirror, os.path.join(mirror, 'attempts'), only=rd.MIRROR_FILES)['status'], 'OK'))
     cases.append(('pull: the census mirrored', os.path.exists(os.path.join(mcen, 'census-goal-20261023T0015Z.json')), True))
-    open(os.path.join(out, gen, 'structcount-day.json'), 'a').write(' ')        # tamper with the source day file
-    shutil.rmtree(os.path.join(mirror, gen))
+    def snap():
+        m = json.loads(ask('manifest')[1])
+        d = {'manifest': ask('manifest')[1], 'attempt': ask('attempt')[1]}
+        for g in {m.get('generation'), (m.get('last_good') or {}).get('generation')} - {None}:
+            d['day ' + g] = ask('day ' + g)[1]
+        return d
+    s1 = snap()
+    with contextlib.redirect_stdout(io.StringIO()):
+        sc.daily(a)                                                     # a second publication at the source: gen B
+    gen2 = json.load(open(os.path.join(out, 'manifest.json')))['generation']
+    s2 = snap()
+    cases.append(('pull: positive control, the source moved to a new generation', gen2 != gen, True))
+    open(os.path.join(out, gen2, 'structcount-day.json'), 'a').write(' ')       # tamper with the NEW day file at the source
     try:
         pl.pull({'in': mirror, 'census_dir': mcen}, fetch=fake); got = 'mirrored'
     except RuntimeError:
         got = 'refused'
     cases.append(('pull: a tampered day file is refused', got, 'refused'))
-    cases.append(('pull: the mirror then reads UNKNOWN, never a mix', rd.status(mirror, os.path.join(mirror, 'attempts'), only=rd.MIRROR_FILES)['status'], 'UNKNOWN'))
+    mman = json.load(open(os.path.join(mirror, 'manifest.json')))
+    cases.append(('pull: a torn pull leaves the previous mirror whole', (mman['generation'], rd.status(mirror, os.path.join(mirror, 'attempts'), only=rd.MIRROR_FILES)['status']), (gen, 'OK')))
+    # a run that finishes BETWEEN the pull's requests (Claude r1 P3-4): the source switches from s1 to s2 after call 2
+    calls = []
+    def racing(req, args):
+        calls.append(req)
+        src = s1 if len(calls) <= 2 else s2
+        if req.startswith('census'):
+            return fake(req, args)
+        if req not in src:
+            raise RuntimeError('refused %s' % req)
+        return src[req]
+    m2 = os.path.join(tmp, 'in2')
+    try:
+        pl.pull({'in': m2, 'census_dir': mcen}, fetch=racing)
+        mm, ma = json.load(open(os.path.join(m2, 'manifest.json'))), json.load(open(os.path.join(m2, 'attempts', 'attempt.json')))
+        got = (ma['attempt'] == mm['attempt'], mm['generation'])
+    except RuntimeError as e:
+        got = ('pull failed', str(e)[:60])
+    cases.append(('pull: a run finishing mid-pull is retried: attempt and manifest agree', got, (True, gen2)))
     return cases
 
 
@@ -436,16 +513,22 @@ def main():
         fixture(rdir, sc)
     results = []
     results += gate_cases(sc, rdir)
-    for name, anchor, repl in BLIND:                                   # blind-input mutants: validation must refuse
+    for name, anchor, repl, how in BLIND:                              # blind-input mutants: stopped for their named reason
         text, err = mutate('sc', anchor, repl)
         if err:
             results.append((name, err, 'applies')); continue
         try:
             m = load('sc', text)
             res, neg, bad = run_fixture(m, rdir)
-            results.append((name, 'REFUSED' if bad else 'SURVIVED (validation empty on a blind read)', 'REFUSED'))
-        except Exception as e:
-            results.append((name, 'REFUSED (crashed: %s)' % type(e).__name__, 'REFUSED (crashed: %s)' % type(e).__name__))
+            kind, what = how.split(':', 1)
+            if kind == 'validate':
+                got = 'STOPPED' if any(what in b for b in bad) else 'SURVIVED (problems: %s)' % (bad or 'none')
+            else:
+                gate = {c[0]: c for c in gate_cases(m, rdir)}
+                got = 'STOPPED' if what in gate and gate[what][1] != gate[what][2] else 'SURVIVED (the gate case %r passed)' % what
+        except Exception as e:                                         # a crash proves nothing about the controls
+            got = 'CRASHED: %s: %s' % (type(e).__name__, e)
+        results.append((name, got, 'STOPPED'))
     if not gate_only:
         st = sc.selftest(quiet=True)
         results.append(('instrument selftest', st['failed'], 0))
@@ -459,6 +542,13 @@ def main():
                 results.append(('mutant ' + case, err, 'applies')); continue
             m = load('sc', text)
             killed = any(c[0] == case and c[1] != c[2] for c in validate_cases(m))
+            results.append(('mutant ' + case, 'KILLED' if killed else 'SURVIVED', 'KILLED'))
+        for case, anchor, repl in PULL:
+            text, err = mutate('pl', anchor, repl)
+            if err:
+                results.append(('mutant ' + case, err, 'applies')); continue
+            m = load('pl', text)
+            killed = any(c[0] == case and c[1] != c[2] for c in hop_cases(sc, rd, rdir, os.path.join(tmp, 'hop2'), pl_mod=m))
             results.append(('mutant ' + case, 'KILLED' if killed else 'SURVIVED', 'KILLED'))
         for case, anchor, repl in READER:
             text, err = mutate('rd', anchor, repl)

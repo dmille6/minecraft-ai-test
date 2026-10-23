@@ -1021,7 +1021,7 @@ def render_html(docs):
                 trend = f'<span class="trend {cls}">{arrow} vs {fmt(avg)} avg</span>'
             den = m.get('denominator') or {}
             badge = ''
-            if m.get('status') in ('not_live_yet', 'no_census', 'census_partial', 'zero_kind_present', 'zero_kind_absent'):
+            if m.get('status') in ('not_live_yet', 'no_census', 'no_structcount', 'census_partial', 'zero_kind_present', 'zero_kind_absent'):
                 badge = f'<span class="badge">{e(m["status"].replace("_", " "))}</span>'
             tip = f'source: {m.get("source", "")}\nwindow: {m.get("window", "")}\ndenominator: {den.get("what", "-")} = {den.get("value", "-")}'
             tiles.append(f'''<div class="tile" title="{e(tip)}"><div class="lab">{e(label)} {badge}</div>

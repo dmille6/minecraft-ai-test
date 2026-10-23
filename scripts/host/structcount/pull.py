@@ -22,7 +22,9 @@ CENSUS_RE = re.compile(r'^census-goal-\d{8}T\d{4}Z\.json$')
 
 
 def fetch(req, a):
+    # accept-new (Claude r1 P3-7): the first pull records 10.0.0.30's host key, as world-backup.sh does; a CHANGED key still fails
     r = subprocess.run(['ssh', '-i', a['key'], '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'IdentitiesOnly=yes',
+                        '-o', 'StrictHostKeyChecking=accept-new',
                         a['host'], req], capture_output=True, timeout=120)
     if r.returncode:
         raise RuntimeError('%s: exit %d %s' % (req, r.returncode, r.stderr.decode(errors='replace')[:200]))
@@ -39,9 +41,17 @@ def put(path, data):
 
 def pull(a, fetch=fetch):
     ind = os.path.expanduser(a['in'])
-    man_b = fetch('manifest', a)
+    # attempt, manifest, attempt (Claude r1 P3-4): a run that starts or finishes between the requests changes the attempt, and
+    # the three are fetched again, so the mirror never pairs one run's attempt with another's manifest
+    for _ in range(3):
+        att0 = fetch('attempt', a)
+        man_b = fetch('manifest', a)
+        att_b = fetch('attempt', a)
+        if att0 == att_b:
+            break
+    else:
+        raise RuntimeError('the count was being written during three tries: the next hourly pull will see it')
     man = json.loads(man_b)
-    att_b = fetch('attempt', a)
     json.loads(att_b)
     for gen in {man.get('generation'), (man.get('last_good') or {}).get('generation')} - {None}:
         if not GEN_RE.match(gen):

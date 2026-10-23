@@ -47,6 +47,8 @@ if __name__ == '__main__':
     bak = '%s.bak-structcount-%s' % (inst, time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()))
     shutil.copy2(inst, bak)
     tmp = inst + '.tmp.%d' % os.getpid()
-    open(tmp, 'w').write(new)
+    with open(tmp, 'w') as f:                                  # Claude r1 P3-8: durable, and the installed file's mode kept
+        f.write(new); f.flush(); os.fsync(f.fileno())
+    shutil.copymode(inst, tmp)
     os.replace(tmp, inst)
     print('%s (backup %s)' % (why, bak))

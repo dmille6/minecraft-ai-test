@@ -559,6 +559,18 @@ def negctl(world, rdir, home, r, n):
         used += 1
         # FULLY GENERATED only (Claude r1 P2): an edge chunk whose features have not generated yet proves nothing
         if w.inhabited.get(c, 1) == 0 and str(w.status.get(c, '')).endswith('full'): zero.append(c)
+    # OBSERVED (Codex r1 P2): a never-ticked chunk counts toward the control only if its blocks were really read -- at least
+    # two sections holding a non-air block, and its lowest mixed section decoding to in-range palette indices of >= 2 kinds.
+    # A blind decoder or empty sections give 0 false positives for free; this is the presence that rules that out.
+    observed = 0
+    for c in zero:
+        d = w.chunk(*c) or {}
+        nonair = [d[Y] for Y in sorted(d) if any(n not in AIR for n in d[Y][0])]
+        mixed = [s for s in nonair if len(s[0]) > 1]
+        if len(nonair) >= 2 and mixed:
+            vals = section_values(mixed[0][1])
+            if vals is not None and len(vals) == 4096 and max(vals) < len(mixed[0][0]) and len(set(vals)) >= 2:
+                observed += 1
     pieces = structure_pieces(w, zero)
     bbs = [padded(bb) for _, _, bb in pieces if bb]
     for c in zero:
@@ -572,7 +584,8 @@ def negctl(world, rdir, home, r, n):
             if w.natural_top(x, z) > y: buried_fp += 1
             else: surface_fp[nm[10:]] += 1
     return {'world': world, 'chunks_read': used, 'chunk_status_read': dict(collections.Counter(w.status.values())),
-            'uninhabited_full_chunks': len(zero), 'uninhabited_chunks': len(zero), 'palette_cells_in_pieces': inpiece,
+            'uninhabited_full_chunks': len(zero), 'uninhabited_chunks': len(zero), 'observed_chunks': observed,
+            'palette_cells_in_pieces': inpiece,
             'false_positive_cells': sum(fps.values()), 'fp_kinds': dict(fps.most_common(10)),
             'fp_cells_buried': buried_fp, 'fp_cells_surface': sum(surface_fp.values()), 'fp_kinds_surface': dict(surface_fp.most_common(10)),
             'worldgen_pieces': len(pieces), 'worldgen_starts_unreadable': sum(1 for p in pieces if p[0] == '?unreadable')}
@@ -702,6 +715,8 @@ def validate(scan_res, neg_res, last=None):
         bad.append('palette cells %s < floor %s' % (scan_res.get('raw_palette_cells'), PALETTE_FLOOR))
     if neg_res.get('uninhabited_full_chunks', 0) < NEG_MIN_CHUNKS:
         bad.append('negative control saw %s never-ticked full chunks < %s' % (neg_res.get('uninhabited_full_chunks'), NEG_MIN_CHUNKS))
+    if neg_res.get('observed_chunks', 0) < max(NEG_MIN_CHUNKS, neg_res.get('uninhabited_full_chunks', 0)):
+        bad.append('negative control blind: observed %s of %s never-ticked chunks' % (neg_res.get('observed_chunks'), neg_res.get('uninhabited_full_chunks')))
     if neg_res.get('fp_cells_surface', 1) != 0:
         bad.append('negative control: %s surface false positives' % neg_res.get('fp_cells_surface'))
     return bad
@@ -733,15 +748,34 @@ def load_json(path):
         return None
 
 
-def backup_done(log_path, day):
-    """The night's backup logged `good <day>:` (world-backup.sh's line for a complete night): the staged worlds are that night's."""
+RESIDUAL_MAX = 20          # design 2.5: a world whose two-pass copy left more than 20 files changing is UNKNOWN for the day
+OK_LINE = re.compile(r' ok ([A-Za-z0-9_.-]+): .*\bresidual=(\d+)\b')
+
+
+def backup_record(log_path, day):
+    """world-backup.sh's record of <day>'s run -> (good, {world: residual}). `good` is the run's `good <day>:` line; the
+    residuals are the per-world `ok <world>: ... residual=N` lines between that run's `start <day>:` and its `good`. A later
+    run of the same day replaces an earlier one. (False, {}) when the day has no good line yet."""
+    good, cur, done = False, None, {}
     try:
         for line in open(log_path, errors='replace'):
-            if (' good %s:' % day) in line:
-                return True
+            if (' start %s:' % day) in line:
+                cur = {}
+            elif (' good %s:' % day) in line:
+                good, done = True, dict(cur or {})
+                cur = None
+            elif cur is not None:
+                m = OK_LINE.search(line)
+                if m:
+                    cur[m.group(1)] = int(m.group(2))
     except OSError:
-        pass
-    return False
+        return False, {}
+    return good, done
+
+
+def backup_done(log_path, day):
+    """The night's backup logged `good <day>:` (world-backup.sh's line for a complete night): the staged worlds are that night's."""
+    return backup_record(log_path, day)[0]
 
 
 def last_good(out):
@@ -827,8 +861,11 @@ def daily(a, fail_at=None):
     newest = load_json(os.path.join(att_dir, 'attempt.json')) or {}
     if not a.get('force') and m.get('day') == day and m.get('status') == 'OK' and m.get('attempt') == newest.get('attempt'):
         print('already published for %s (%s)' % (day, m.get('generation'))); return EXIT['already']
-    if not a.get('skip_backup_check') and not backup_done(a['backup_log'], day):
-        print('not yet: the backup has not logged good %s' % day); return EXIT['not_yet']
+    residual = None                                                  # None: --skip-backup-check (trials and tests only)
+    if not a.get('skip_backup_check'):
+        good, residual = backup_record(a['backup_log'], day)
+        if not good:
+            print('not yet: the backup has not logged good %s' % day); return EXIT['not_yet']
     attempt = now.strftime('%Y%m%dT%H%M%S') + '.%03dZ-%d' % (now.microsecond // 1000, os.getpid())
     try:                                                              # the ATTEMPT, first (design 2.6)
         if fail_at == 'attempt':
@@ -854,6 +891,14 @@ def daily(a, fail_at=None):
             print('manifest not writable (%s): the reader sees an attempt with no manifest = UNKNOWN' % e)
         print('UNKNOWN: %s' % why); return ended(code)
 
+    try:
+        return _daily_body(a, fail_at, out, att_dir, work, day, residual, attempt, ended, unknown)
+    except Exception as e:                                            # noqa: BLE001 -- the alarm must carry the crash
+        shutil.rmtree(work, ignore_errors=True)
+        return unknown('crash: %s: %s' % (type(e).__name__, str(e)[:200]), EXIT['invalid'])
+
+
+def _daily_body(a, fail_at, out, att_dir, work, day, residual, attempt, ended, unknown):
     st = selftest(quiet=True)
     if st['failed'] or fail_at == 'selftest':
         return unknown('selftest failed: ' + '; '.join(l for l in st['lines'] if l.endswith('FAIL')), EXIT['selftest'])
@@ -877,6 +922,12 @@ def daily(a, fail_at=None):
         except Exception:
             old_cells = {}
     for w in worlds:
+        if residual is not None and w not in residual:
+            problems[w] = ['no `ok %s: ... residual=` line in the backup log for %s' % (w, day)]; continue
+        if residual is not None and residual[w] > RESIDUAL_MAX:
+            problems[w] = ['backup residual %d > %d files' % (residual[w], RESIDUAL_MAX)]; continue
+        if fail_at == 'crash':
+            raise ValueError('injected')
         home = a.get('home_fn', world_home)(a['staging'], w)
         if not home:
             problems[w] = ['no home in TOWN-PLACED.json']; continue
@@ -894,7 +945,9 @@ def daily(a, fail_at=None):
         if bad or fail_at == 'scan':
             problems[w] = bad or ['injected']; continue
         cells[w] = res.pop('cells')
-        res['negative_control'] = {k: neg[k] for k in ('uninhabited_full_chunks', 'fp_cells_surface', 'fp_cells_buried')}
+        res['negative_control'] = {k: neg[k] for k in ('uninhabited_full_chunks', 'observed_chunks', 'fp_cells_surface', 'fp_cells_buried')}
+        if residual is not None:
+            res['backup_residual'] = residual[w]
         if w in old_cells:
             res['since_last_good'] = delta_cells(old_cells[w], cells[w], home, a['r'])
         days[w] = res
@@ -937,7 +990,7 @@ def prune(out, keep_days=60):
     cutoff = time.time() - keep_days * 86400
     for name in os.listdir(out):
         p = os.path.join(out, name)
-        if name.startswith('gen-') and name not in keep and os.path.isdir(p) and os.path.getmtime(p) < cutoff:
+        if (name.startswith('gen-') or name.startswith('.gen-')) and name not in keep and os.path.isdir(p) and os.path.getmtime(p) < cutoff:
             shutil.rmtree(p, ignore_errors=True)
 
 
