@@ -84,13 +84,21 @@ wheat_seeds pumpkin_seeds melon_seeds beetroot_seeds wheat apple melon_slice car
 brown_mushroom red_mushroom sugar_cane cactus snowball ice packed_ice salmon cod tropical_fish pufferfish
 cooked_mutton cooked_beef cooked_porkchop cooked_chicken mutton beef porkchop chicken rabbit bread bone_meal
 armadillo_scute rail powered_rail detector_rail activator_rail lead glass glass_pane mossy_cobblestone azalea flowering_azalea
-firefly_bush bush cactus_flower amethyst_block magma_block'''.split())
-ZERO_PATTERNS = re.compile(r'(_wool|_stained_glass|_stained_glass_pane|_button|_pressure_plate|_fence|_carpet)$|^polished_')
+firefly_bush bush cactus_flower amethyst_block magma_block netherrack name_tag big_dripleaf small_dripleaf
+tuff_bricks chiseled_tuff_bricks mossy_stone_bricks cracked_stone_bricks chiseled_stone_bricks bricks brick'''.split())   # well.mjs DECORATIONS
+# waxed_* are copper DECOR blocks (trial chambers), not raw copper: seen 10-08..10-23 at 1-5 a day (Claude r3)
+ZERO_PATTERNS = re.compile(r'(_wool|_stained_glass|_stained_glass_pane|_button|_pressure_plate|_fence|_carpet)$|^polished_|^waxed_')
 # Crafted or smelted PRODUCTS: weighted 0 as intake (made from inputs already counted; a picked-up product is not new).
-# No catch-all suffix like '_block': a renamed raw item must surface as UNWEIGHTED, never be zeroed (Codex r1 P2-3).
-PRODUCT = re.compile(r'(_planks$|^stick$|_pickaxe$|_axe$|_shovel$|_hoe$|_sword$|_ingot$|_nugget$|^crafting_table$|^furnace$'
-                     r'|^chest$|^barrel$|^torch$|^ladder$|_slab$|_stairs$|_trapdoor$|_door$|^bucket$|_bucket$|^composter$|_bed$'
-                     r'|^bowl$|^paper$|^book$|^bricks?$|^stone_bricks$|^smooth_stone$|_bricks$)')
+# No catch-all suffix: a product suffix counts only on a KNOWN stem (Codex r1 P2-3, r4 P2-2: 'diamond_ingot' must surface
+# as unweighted, not be zeroed by '_ingot'). Anything else is UNWEIGHTED, and the look-alike guard judges it.
+_WOODS = '(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)'
+_TIERS = '(wooden|stone|iron|golden|diamond|netherite)'
+_STONES = '(stone|cobblestone|mossy_cobblestone|stone_brick|smooth_stone|sandstone|red_sandstone|cobbled_deepslate|deepslate_brick|' \
+          'deepslate_tile|polished_deepslate|brick|andesite|diorite|granite|tuff|blackstone|mud_brick|prismarine|quartz)'
+PRODUCT = re.compile(rf'^({_WOODS}_planks|stick|{_TIERS}_(pickaxe|axe|shovel|hoe|sword)|(iron|gold|copper|netherite)_ingot'
+                     rf'|(iron|gold)_nugget|crafting_table|furnace|chest|barrel|torch|ladder|bucket|(water|lava|milk)_bucket'
+                     rf'|composter|[a-z_]+_bed|bowl|paper|book|bricks?|stone_bricks|smooth_stone|{_WOODS}_(slab|stairs|trapdoor|door)'
+                     rf'|{_STONES}_(slab|stairs|wall))$')
 
 INTAKE_KINDS = ('gather', 'mine', 'explore', 'goto', 'surface', 'home')
 # A kind with fewer documents than this per 24 h has been renamed or has vanished (measured 10-08..10-22: gather 27-42k/day,
@@ -109,6 +117,7 @@ SENTINELS_PER_DAY = {'cobblestone': 2000, 'raw_iron': 50, '_log': 100}   # measu
 VALUABLE_TOKENS = {'iron', 'copper', 'gold', 'diamond', 'diamonds', 'emerald', 'lapis', 'redstone', 'coal', 'quartz',
                    'amethyst', 'obsidian', 'log', 'logs', 'cobblestone', 'cobble', 'charcoal', 'raw', 'ore', 'sapling'}
 MIN_SENTINEL_HOURS = 3                   # shorter windows skip the sentinel floors (too few units to judge)
+INGEST_LAG_S = 240                       # estelemetry's measured max ingest lag
 MAX_INGEST_GAP_MIN = 15                  # the newest document must be within this of the window end
 CLASSES = (('wood', re.compile(r'(_log|_wood|_stem|_hyphae)$|^bamboo$')), ('stone', re.compile(r'^(cobblestone|cobbled_deepslate|stone|blackstone)$')),
            ('iron', re.compile(r'iron')), ('copper', re.compile(r'copper')), ('coal', re.compile(r'coal|charcoal')),
@@ -201,7 +210,9 @@ def check_output(res, hours=None):
     alike = {i: n for i, n in res['unweighted'].items() if looks_weighted(i)}
     if alike:
         raise ValueBlind(f'unweighted item(s) that look like weighted ones (renamed?): {alike} -- add to WEIGHTS or ZERO')
-    big = {i: n for i, n in res['unweighted'].items() if n > max(5, MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24)}
+    # the per-item COUNT rule is judged on whole-day windows only: short windows trip on geode/trial-chamber bursts (amethyst_block
+    # 26 in 10 h on 10-23; Claude r3). The look-alike rule above still applies at every window length.
+    big = {i: n for i, n in res['unweighted'].items() if n > MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24} if hours >= 24 else {}
     if big:
         raise ValueBlind(f'unweighted item(s) above {MAX_ONE_UNWEIGHTED_PER_DAY}/day: {big} -- a renamed item? add to WEIGHTS or ZERO')
     if hours >= MIN_SENTINEL_HOURS:
@@ -253,6 +264,14 @@ def _estelemetry():
 
 def measure(since, until, old=None):
     EsEvents = _estelemetry()
+    # Clamp the end to now - INGEST_LAG_S (Claude r3 P2-2): names() and rows() are separate snapshots, so a window that ends
+    # at "now" races late documents into one and not the other. The clamp is printed in the header.
+    now = dt.datetime.now(UTC)
+    u = dt.datetime.fromisoformat(until.replace('Z', '+00:00'))
+    clamped = None
+    if u > now - dt.timedelta(seconds=INGEST_LAG_S):
+        clamped = until
+        until = (now - dt.timedelta(seconds=INGEST_LAG_S)).strftime('%Y-%m-%dT%H:%M:%SZ')
     ev = EsEvents.load('skill', since=since, until=until)
     hours = (ev.until - ev.since).total_seconds() / 3600
     total = ev.total()
@@ -294,7 +313,9 @@ def measure(since, until, old=None):
     res.update({'window': [ev.since.isoformat(), ev.until.isoformat()], 'hours': hours, 'docs': total,
                 'bot_hours': cov['bot_hours'], 'kind_docs': {k: names.get(k, 0) for k in INTAKE_KINDS},
                 'kind_delta_docs': {k: delta_docs.get(k, 0) for k in INTAKE_KINDS}, 'weights_version': WEIGHTS_VERSION,
-                'caveats': ev.caveats, 'empty_10min': cov['empty_10min'], 'newest': str(cov['newest'])})
+                'caveats': ev.caveats + ([f'window end clamped from {clamped} to {until} (now - {INGEST_LAG_S} s: ingest lag)']
+                                         if clamped else []),
+                'empty_10min': cov['empty_10min'], 'newest': str(cov['newest'])})
     res['value_per_bot_h'] = res['value'] / cov['bot_hours'] if cov['bot_hours'] else None
     show_old = old if old is not None else ev.until.date().isoformat() <= OLD_COUNTS_UNTIL
     if show_old:

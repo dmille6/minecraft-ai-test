@@ -105,6 +105,15 @@ def cases(v):
     c('blind: a LOW-volume rename (diamond -> diamonds, 8) raises', raises(lambda: v.check_output(mk(ren3), 24), v.ValueBlind))
     ren4 = dict(day); ren4['raw_coper'] = ren4.pop('raw_copper')
     c('blind: a misspelt weighted name (raw_coper) raises', raises(lambda: v.check_output(mk(ren4), 24), v.ValueBlind))
+    ingot = dict(gems); ingot['diamond_ingot'] = ingot.pop('diamond')
+    c('blind: a product-suffixed rename (diamond -> diamond_ingot) raises', raises(lambda: v.check_output(mk(ingot), 24), v.ValueBlind))
+    for item in ('iron_ingot', 'oak_planks', 'stone_pickaxe', 'cobblestone_slab', 'red_bed', 'waxed_oxidized_copper', 'amethyst_block'):
+        c(f'weight {item} = 0', v.weight(item) == 0.0, v.weight(item))
+    for item in ('diamond_ingot', 'emerald_nugget', 'raw_iron_slab'):
+        c(f'weight {item} = None (unknown stem)', v.weight(item) is None, v.weight(item))
+    burst = dict(day); burst['geode_crystal_x'] = 26
+    c('short window: 26 of one unknown item in 10 h passes (count rule is whole-day only)',
+      raises(lambda: v.check_output(mk({k: n * 10 / 24 for k, n in burst.items()} | {'geode_crystal_x': 26}), 10), v.ValueBlind) is False)
     few = dict(day); few['magma_block'] = 3
     c('output: a few stray unweighted units pass', raises(lambda: v.check_output(mk(few), 24), v.ValueBlind) is False)
     stray = dict(day); stray['firefly_lantern'] = 3
@@ -142,7 +151,9 @@ MUTANTS = [
     ("    'raw_iron': 8.0,", "    'raw_iron': 0.0,"),
     ("                if w is None:\n                    unweighted[item] += n\n                    continue",
      "                if w is None:\n                    w = 0.0"),
-    ("|^bowl$|^paper$|^book$|^bricks?$|^stone_bricks$|^smooth_stone$|_bricks$)')", "|^bowl$|^paper$|^book$|_block$)')"),
+    ("                     rf'|{_STONES}_(slab|stairs|wall))$')", "                     rf'|{_STONES}_(slab|stairs|wall)|[a-z_]+_ingot)$')"),
+    ("    big = {i: n for i, n in res['unweighted'].items() if n > MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24} if hours >= 24 else {}",
+     "    big = {i: n for i, n in res['unweighted'].items() if n > MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24}"),
     ("    check_inputs(names, delta_docs, hours)", "    pass"),
 ]
 

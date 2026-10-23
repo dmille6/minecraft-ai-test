@@ -45,9 +45,15 @@ cron_get() {
     if grep -q '^no crontab for' "$TMPD/cron.err"; then return 0; fi
     echo "REFUSED: crontab -l failed: $(cat "$TMPD/cron.err")" >&2; exit 2
   fi
-  printf '%s\n' "$out"
+  [ -z "$out" ] || printf '%s\n' "$out"                         # an empty crontab reads as NO lines, not one blank line
 }
-cron_put() { if [ -s "$1" ]; then crontab "$1"; else crontab -r 2>/dev/null || true; fi; }
+# An empty result removes the crontab; that may only "fail" with "no crontab" (nothing to remove). Any other failure
+# propagates under set -e (Codex r4 P2-1), so a rollback whose job was the sole entry never retires its state on a failed write.
+cron_put() {
+  if [ -s "$1" ]; then crontab "$1"; return; fi
+  crontab -r 2> "$TMPD/cronr.err" || grep -q '^no crontab for' "$TMPD/cronr.err" \
+    || { echo "REFUSED: crontab -r failed: $(cat "$TMPD/cronr.err")" >&2; return 1; }
+}
 [ "$(id -un)" = mike ] || die "run as mike on 10.0.0.31"
 [ "$(hostname)" = block2-bots ] || die "run on 10.0.0.31 (block2-bots), not $(hostname)"
 
@@ -64,7 +70,7 @@ if [ "$MODE" = --rollback ]; then
   if [ "${CRON_ADDED:-0}" = 1 ]; then                            # remove the line only if THIS install added it
     cron_get > "$TMPD/cron.now"
     grep -vxF -- "$CRON_LINE" "$TMPD/cron.now" > "$TMPD/cron.new" || true   # exact line only; an empty result is fine
-    cron_put "$TMPD/cron.new"
+    cron_put "$TMPD/cron.new" || die "rollback stopped before touching files: the cron line could not be removed; re-run when crontab works"
   fi
   cp -p "$SB_BACKUP" "$DEST/scoreboard.py"
   for f in valuescore.py test_valuescore.py; do

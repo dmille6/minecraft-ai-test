@@ -96,5 +96,21 @@ run --apply > "$T/apply3.out" 2>&1; rc=$?
 check 'a crontab -l error refuses' "[ $rc -ne 0 ] && grep -q 'crontab -l failed' '$T/apply3.out'"
 check 'a crontab -l error changes nothing' '[ "$(md5sum < "$T/home/mcai-analysis/scoreboard.py")" = "$before_sb" ] && [ ! -e "$T/home/mcai-analysis/valuescore.py" ] && [ ! -e "$T/home/cron-writes" ]'
 check 'no temporary directory left under HOME' '! ls -d "$T/home"/.valuescore-tmp.* >/dev/null 2>&1'
+# Codex r4 P2-1: the installer's line is the SOLE crontab entry, and `crontab -r` fails: rollback must stop and stay retryable
+cp "$T/crontab.good" "$T/bin/crontab"
+printf '' > "$T/home/crontab.txt"
+run --apply > "$T/apply4.out" 2>&1
+cat > "$T/bin/crontab" <<'EOF4'
+#!/usr/bin/env bash
+F="$HOME/crontab.txt"
+case "${1:-}" in -l) cat "$F" ;; -r) echo "crontab: cannot remove" >&2; exit 1 ;; *) cp "$1" "$F" ;; esac
+EOF4
+chmod +x "$T/bin/crontab"
+run --rollback > "$T/rb4.out" 2>&1; rc=$?
+check 'sole-entry rollback with a failing crontab -r exits non-zero' "[ $rc -ne 0 ]"
+check '... keeps the state and the files (retryable)' 'ls "$T/home/mcai-analysis"/.valuescore-install-*.state >/dev/null 2>&1 && [ -e "$T/home/mcai-analysis/valuescore.py" ]'
+cp "$T/crontab.good" "$T/bin/crontab"
+run --rollback > "$T/rb5.out" 2>&1; rc=$?
+check '... and a re-run with crontab working completes' "[ $rc -eq 0 ] && [ ! -s '$T/home/crontab.txt' ] && [ ! -e '$T/home/mcai-analysis/valuescore.py' ]"
 [ $fail -eq 0 ] && echo "ALL INSTALLER CHECKS PASS" || { echo "INSTALLER CHECKS FAILED"; for f in "$T"/*.out; do echo "--- $f"; tail -5 "$f"; done; }
 exit $fail

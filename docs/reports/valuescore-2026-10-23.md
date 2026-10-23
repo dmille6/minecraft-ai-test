@@ -33,7 +33,8 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 | bamboo | 0.05 | 9 bamboo → 1 block → 2 planks = 0.5 log. |
 | dirt, sand, gravel, the stone junk (andesite, diorite, granite, tuff, calcite, deepslate, dripstone), the owner's well junk and decorations (WELL_JUNK, including rail, lead, wool, glass, fences, polished stone) | 0 | The project's own policy gives these no use: `stocktarget.mjs` town targets 0 and `well.mjs` WELL_JUNK. |
 | flowers, food, compost inputs | 0 | A **scoring choice**, not a junk rule. The code protects them, but the worlds are peaceful (foodskip), and compost is not output. |
-| crafted products (planks, sticks, tools, ingots, stations, bricks, slabs and similar; explicit suffixes, with no `_block` catch-all) | 0 | Made, not found. |
+| crafted products: planks, sticks, tools, ingots, stations, slabs and similar | 0 | Made, not found. A product suffix counts only on a KNOWN stem: `iron_ingot` is a product, but `diamond_ingot` is unweighted (Codex r4). |
+| copper decor (`waxed_*`), netherrack, amethyst_block, magma_block, name_tag, dripleaf, the well's brick decorations | 0 | Seen at low volume 10-08..10-23 (Claude r3). |
 | any item in no table | **unweighted** | Counted and printed by name, never a quiet 0. Over 10 % of intake units raises. A renamed raw item such as `raw_iron_block` lands here and is not zeroed. |
 
 **Gross, not net.** The line counts gains inside intake rows; it does not subtract weighted items lost in the same rows. Cobble placed and later re-mined, or tossed and picked up again, therefore counts twice. The weighted items lost inside intake rows bound this: cobble 15,552 units on 10-09 and 10,013 on 10-22, at most about 14 % of value on both days, so a day-to-day comparison keeps its direction.
@@ -61,10 +62,12 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 - the window has an empty whole hour, or more than 2 empty 10-minute bins. ES caveats, including ingest lag on a window ending now, are printed with the result;
 - the window is empty, the weighted total is 0, or unweighted units exceed 10 %;
 - an unweighted item LOOKS like a weighted one, at any count. That means it shares a valuable token (iron, copper, gold, diamond, emerald, lapis, redstone, coal, log, ore, raw and others), or it is a close spelling of a weighted name. A low-volume rename such as diamond → diamonds (8 a day) is caught by this (Codex r3). On 10-08..10-22 it raised on no day: the only unweighted items were netherrack (up to 6), name_tag and big_dripleaf;
-- any SINGLE unweighted item exceeds 50 units a day, scaled by window length. A renamed raw_iron (512 units, 0.5 % of intake) is caught by this, where the share test could not see it (Claude r1);
+- any SINGLE unweighted item exceeds 50 units a day, judged on whole-day windows only. Short windows trip on geode or trial-chamber bursts: amethyst_block reached 26 in 10 h on 10-23 (Claude r3). The look-alike rule applies at every window length. A renamed raw_iron (512 units, 0.5 % of intake) is caught by this, where the share test could not see it (Claude r1);
 - a SENTINEL item is below its floor on windows of 3 h or more. The floors are cobblestone 2,000, raw_iron 50 and any log 100 a day; the measured minima over 10-08..10-22 were 24,000, 229 and 1,147;
 - the streamed intake rows do not equal the intake kinds' document counts;
 - the newest document is more than 15 minutes before the window end (an ingest stall, or a window running into the future).
+
+**A window ending "now"** is clamped to now − 240 s (estelemetry's measured ingest lag), and the clamp is printed as a caveat. Without it, the per-kind counts and the row stream raced late documents (Claude r3: 75,689 streamed against 75,683 counted).
 
 **Positive controls printed on every run:**
 - the window's document count and active bot-hours;
@@ -75,10 +78,10 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 
 **The old counts** (gather ok/bot-h, mine ok, craft ok, town_deposit ok/all) print alongside until `OLD_COUNTS_UNTIL = 2026-10-31`; after that only with `--old`. 10-31 is one week from an install on 10-24; if the install is later, move the constant. They reproduce the owner's 10-09 and 10-22 figures exactly (7.15 and 6.37; 8,243 and 5,508; 885 and 478; 413/841 and 165/211).
 
-**Tests** (`python3 scripts/host/test_valuescore.py`): 65 behaviour cases and 15 source mutants. A mutant that fails to load or run is a harness ERROR, not a kill. Every mutant is killed, and every anchor is checked unique.
+**Tests** (`python3 scripts/host/test_valuescore.py`): 77 behaviour cases and 16 source mutants. A mutant that fails to load or run is a harness ERROR, not a kill. Every mutant is killed, and every anchor is checked unique.
 - **The blind-input mutant:** renaming `gather` to `gathering` must raise. So must a kind thinning to 100 documents a day, any intake kind losing inventory_delta, a renamed raw item, or a coverage gap.
 - **Wiring:** `measure()` must call all three guards and stream every intake kind.
-- **The installer** has its own test, `scripts/host/test_install_valuescore.sh`, run on 10.0.0.31. It uses a throwaway HOME and a fake `crontab`, so the real ones are never touched, and all 26 checks pass. It covers:
+- **The installer** has its own test, `scripts/host/test_install_valuescore.sh`, run on 10.0.0.31. It uses a throwaway HOME and a fake `crontab`, so the real ones are never touched, and all 29 checks pass. It covers:
   - dry run changes nothing;
   - --apply installs and adds exactly one line, keeping the others;
   - re-apply refuses and changes nothing;
@@ -88,7 +91,10 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
   - a `crontab -l` error other than "no crontab" refuses before any change;
   - rollback refuses when someone else has edited scoreboard.py since the install;
   - no temporary files are left. All temporary files live under `$HOME`;
-  - a crontab write failure during rollback leaves the installed files in place, so the rollback can be re-run. Rollback does cron first, then files.
+  - a crontab write failure during rollback leaves the installed files in place, so the rollback can be re-run. Rollback does cron first, then files;
+  - with the installer's line as the SOLE entry, a failing `crontab -r` stops the rollback, keeps the state, and a re-run completes (Codex r4).
+
+  Writing that last test found a real bug: an empty crontab read as one blank line, so blank lines accumulated and the sole-entry case was never reached. It is fixed.
 
 ## 4. Install (staged; the coordinator runs it)
 
@@ -142,4 +148,13 @@ bash scripts/host/install-valuescore.sh --rollback  # restores scoreboard.py, re
 - **P2:** a low-volume weighted-item rename is caught by the look-alike rule.
 - **P3:** the mutant harness treats load or run errors as failures.
 
-**r4:** pending.
+**r3** (525eaf47), Claude CHANGE: 2 P2s.
+- **P2:** the per-item count rule tripped on the scoreboard's 10 h window (amethyst_block 26). It is now whole-day only, and the observed items are listed.
+- **P2:** the streamed-rows check raced ingest on a window ending now. The end is clamped to now − 240 s.
+- **Checks run after the fixes:** the scoreboard.py 10 h window, `--since` with no end, and every day 10-08..10-22 plus seven 3 h windows on 10-23. None raised.
+
+**r4** (b1ef4669), Codex CHANGE: 2 P2s.
+- **P2:** a failing `crontab -r` was hidden on sole-entry rollback. It now propagates.
+- **P2:** product suffixes zeroed unknown names. They now match only known stems.
+
+**r5:** pending.
