@@ -11,17 +11,28 @@
 // other is the BASE, run as the POSITIVE CONTROL of the instrument (BASE_SHAPE when the town is left exactly as it was).
 //
 // scenes (BAG: the bot's own iron tools, 3 coal, 2 iron_ingot, bread, wool -- the coal and iron the job must never touch):
-//   bricks   MAT-1: chest A 320 cobblestone + 576 oak_log + 4 coal + 10 iron_ingot; one clean furnace -> the job first COUNTS
-//            the never-opened chests (kind=count), then makes 12 stone_bricks: town cobble -12, oak_log -2, stone_bricks +12;
-//            every coal and iron unchanged (bag and town); the furnace empty and cold; nothing on the ground; row verdict=ok.
+//   bricks   MAT-1: chest A 320 cobblestone + 576 oak_log + 4 coal + 10 iron_ingot; one clean furnace -> 12 stone_bricks:
+//            town cobble -12, oak_log -2, stone_bricks +12; every coal, iron and tool unchanged (bag and town); the furnace
+//            empty and cold; nothing on the ground; row verdict=ok. (Whether a count comes first depends on what the town's
+//            other jobs opened first -- smelt_town's look -- so the scene does not claim it: Claude r2 P3-6.)
 //   copper   chest A 576 copper_ingot + 128 stone_bricks (bricks at their buffer), a crafting table -> cut_copper +4,
 //            copper_ingot -36 (4 copper blocks on the table, cut 4:4).
 //   furn     MAT-FURN: as bricks, four furnaces: F1 coal in its fuel slot, F2 4 iron_ingot in its output, F4 3 STONE in its
 //            output (nearer than F3: own=null, any output is another session's), F3 clean (the farthest) -> the bricks are made
-//            in F3; F1's coal, F2's iron and F4's stone untouched.
-//   hot      MAT-HOT: as bricks, ONE furnace, lit with an EMPTY fuel slot (still burning) -> nothing made, nothing loaded.
-//   res_at   MAT-RES: chest A exactly 256 cobblestone + 512 oak_log (the reserve) -> no bricks order; the town unchanged.
+//            in F3 (the job's own session row names it); F1's coal, F2's iron and F4's stone untouched. SMELT_JOB=0 on BOTH arms:
+//            the base's furnace_drain empties F1 first otherwise, and the job never meets a foreign furnace (Claude r2 P2-A).
+//   hot      MAT-HOT: as bricks, ONE furnace, lit with an EMPTY fuel slot (still burning) -> nothing made, nothing loaded; the
+//            skip row's per-kind reasons say bricks:no_furnace at a coverage >= 0.8 (not a vacuous skip before the town is known).
+//   res_at   MAT-RES: chest A exactly 256 cobblestone + 512 oak_log (the reserve) -> no bricks order; the town unchanged; the
+//            skip says bricks:inputs at a coverage >= 0.8.
 //   res_one  MAT-RES: 268 cobblestone + 514 oak_log (one batch above) -> exactly one batch: cobble 256, logs 512 after.
+//   torch    Q3: chest A 576 oak_log only (no cobble, copper or sand: torch is the kind) -> 24 torches in town, oak_log -8 (6
+//            smelted to charcoal on 4 planks, 8 sticks from 4 planks), no charcoal left anywhere, the bag's own 3 coal kept.
+//   door     chest A 576 copper_ingot + 128 stone_bricks + 24 cut_copper (both at their buffers) and a table -> 3 copper_door,
+//            copper_ingot -6.
+//   kill_w   MAT-KILL after the WITHDRAW: SIGKILLed the moment the bag holds the 12 cobble, before any furnace load; restarted ->
+//            mats_return closes the note (nothing was loaded: nothing in flight); the 12 cobble are in the bag (inputs, never
+//            owed) or back in town, nothing lost, nothing on the ground.
 //   kill     MAT-KILL: as bricks; the bot is SIGKILLed while the furnace burns its batch, then restarted on the same state:
 //            mats_return drains the note's furnace, crafts the stone in fours and banks the bricks -> the 12 cobble taken are
 //            all accounted: town bricks + bag stone (a 1-3 remainder) + the bag's unspent cobble = 12; nothing lost.
@@ -84,7 +95,12 @@ const SPEC = {
   res_at: { chestA: [...stacks('cobblestone', 256), ...stacks('oak_log', 512)], chestB: [], furnaces: { F1: 'clean' } },
   res_one: { chestA: [...stacks('cobblestone', 268), ...stacks('oak_log', 514)], chestB: [], furnaces: { F1: 'clean' } },
   kill: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
+  torch: { chestA: stacks('oak_log', 576), chestB: [], furnaces: { F1: 'clean' } },
+  door: { chestA: [...stacks('copper_ingot', 576), ...stacks('stone_bricks', 128), ...stacks('cut_copper', 24)], chestB: [], furnaces: { F1: 'clean' }, table: true },
+  kill_w: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
 }
+// per-scene bot settings (both arms alike): furn holds the town smelt job and its drain off
+SPEC.furn.env = { SMELT_JOB: 0 }
 const furnaceCmds = (c, kind) => {
   if (kind === 'clean') return [`setblock ${at(c)} minecraft:furnace[facing=north]`]
   if (kind === 'coal') return [`setblock ${at(c)} minecraft:furnace[facing=north]`, `item replace block ${at(c)} container.1 with minecraft:coal 3`]
@@ -95,10 +111,14 @@ const furnaceCmds = (c, kind) => {
 }
 // the scene is done at its first job row that is the scene's own (a make_material that MADE something, or a recovery) -- on
 // the base, the window simply elapses
+const covOk = d => { const m = /(?:^| )cov=([0-9.]+)/.exec(d); return !!m && Number(m[1]) >= 0.8 }
+const skipSays = (rows, re) => rows.some(r => r.name === '_mats_skip' && re.test(r.detail) && covOk(r.detail))
 const DONE = (scene, rows) => {
   if (!CANDIDATE) return false
-  if (scene === 'kill') return rows.some(r => r.name === '_mats_return' && /drained:/.test(r.detail))
-  if (scene === 'hot' || scene === 'res_at') return rows.some(r => r.name === '_mats_skip' && /why=(no_furnace|inputs)/.test(r.detail))
+  if (scene === 'kill') return rows.some(r => r.name === '_mats_return' && /drained=drained:/.test(r.detail))
+  if (scene === 'kill_w') return rows.some(r => r.name === '_mats_return' && /stop=closed/.test(r.detail))
+  if (scene === 'hot') return skipSays(rows, /kinds=\S*bricks:no_furnace/)
+  if (scene === 'res_at') return skipSays(rows, /kinds=\S*bricks:inputs/)
   return rows.some(r => r.name === '_make_material' && !/kind=count/.test(r.detail))
 }
 const WINDOW_MS = Number(process.env.MT_WINDOW_MS || 360000)
@@ -222,11 +242,12 @@ function verdict (scene, tb, ta, rows, a, done) {
     const judged = Object.fromEntries(Object.entries(ta.ground).filter(([n]) => JUDGED.has(n) || !AMBIENT.test(n)))
     need(!Object.keys(judged).length, `nothing the job or the bag holds on the ground (${diff({}, judged)})`)
     need(!rows.some(r => /verdict=(loss|forbidden|overburn)/.test(r.detail)), 'no row with a loss, forbidden or overburn verdict')
+    for (const t of ['iron_pickaxe', 'iron_axe', 'iron_shovel']) need((ta.bag[t] || 0) === 1, `the bag keeps its ${t} (${ta.bag[t] || 0}) -- B3: never deposited, never an input (Codex r2 P2-10)`)
   }
   const furnaceEmpty = k => !Object.keys(ta.furnace[k] || {}).length && !a.lit[k]
   out.ambient = diff({}, Object.fromEntries(Object.entries(ta.ground).filter(([n]) => !JUDGED.has(n) && AMBIENT.test(n))))
   if (!CANDIDATE) {
-    for (const n of ['cobblestone', 'oak_log', 'stone_bricks', 'copper_ingot', 'cut_copper', 'coal', 'iron_ingot']) need(dTown(tb, ta, n) === 0, `the base leaves the town's ${n} as it was (${dTown(tb, ta, n)})`)
+    for (const n of ['cobblestone', 'oak_log', 'stone_bricks', 'copper_ingot', 'cut_copper', 'copper_door', 'torch', 'charcoal', 'coal', 'iron_ingot']) need(dTown(tb, ta, n) === 0, `the base leaves the town's ${n} as it was (${dTown(tb, ta, n)})`)
     need(!jobs.length, 'the base writes no _make_material row')
     out.pass = !out.why.length
     out.verdict = out.pass ? 'BASE_SHAPE' : 'BASE_UNEXPECTED'
@@ -240,7 +261,6 @@ function verdict (scene, tb, ta, rows, a, done) {
     need(!(ta.bag.stone > 0) && !(ta.bag.stone_bricks > 0) && !(ta.bag.oak_planks > 0) && !(ta.bag.cobblestone > 0) && !(ta.bag.oak_log > 0), `the bag ends as it began (${diff(tb.bag, ta.bag)})`)
   }
   if (scene === 'bricks' || scene === 'res_one') {
-    need(jobs.some(r => /kind=count/.test(r.detail)), 'the job first counted the never-opened chests (kind=count)')
     need(made.length === 1 && /kind=bricks/.test(made[0].detail), `exactly one bricks order made parts (${made.length})`)
     bricksMade(12, 2)
     need(furnaceEmpty('F1'), 'the furnace is left empty and cold')
@@ -256,13 +276,33 @@ function verdict (scene, tb, ta, rows, a, done) {
     need((ta.furnace.F1.coal || 0) === 3 && Object.keys(ta.furnace.F1).length === 1, `F1's 3 coal untouched (${JSON.stringify(ta.furnace.F1)})`)
     need((ta.furnace.F2.iron_ingot || 0) === 4 && Object.keys(ta.furnace.F2).length === 1, `F2's 4 iron untouched (${JSON.stringify(ta.furnace.F2)})`)
     need((ta.furnace.F4.stone || 0) === 3 && Object.keys(ta.furnace.F4).length === 1, `F4's 3 stone untouched -- another session's output (${JSON.stringify(ta.furnace.F4)})`)
-    need(furnaceEmpty('F3'), 'F3 (the clean one) used and left empty and cold')
+    need(furnaceEmpty('F3'), 'F3 (the clean one) left empty and cold')
+    need(rows.some(r => r.name === '_furnace_session' && /by=make_material/.test(r.detail) && r.detail.includes(`furnace=${F3.x},${F3.y},${F3.z}`)), 'the job\'s own session ran in F3 (its _furnace_session row names it)')
+    need(!rows.some(r => r.name === '_furnace_session' && /by=make_material/.test(r.detail) && !r.detail.includes(`furnace=${F3.x},${F3.y},${F3.z}`)), 'no job session in a foreign furnace')
   }
   if (scene === 'hot' || scene === 'res_at') {
     need(!made.length, 'no part made')
     for (const n of ['cobblestone', 'oak_log', 'stone_bricks']) need(dTown(tb, ta, n) === 0, `the town's ${n} unchanged (${dTown(tb, ta, n)})`)
     if (scene === 'hot') need(!Object.keys(ta.furnace.F1).length, `nothing loaded into the hot furnace (${JSON.stringify(ta.furnace.F1)})`)
-    need(rows.some(r => r.name === '_mats_skip' && new RegExp(`why=${scene === 'hot' ? 'no_furnace' : 'inputs'}`).test(r.detail)), `the skip row names why (${scene === 'hot' ? 'no_furnace' : 'inputs'})`)
+    const want = scene === 'hot' ? 'bricks:no_furnace' : 'bricks:inputs'
+    need(skipSays(rows, new RegExp(`kinds=\\S*${want}`)), `the skip row names ${want} at a coverage >= 0.8 (the town was known)`)
+  }
+  if (scene === 'torch') {
+    need(dTown(tb, ta, 'torch') === 24, `torch +24 in town (${dTown(tb, ta, 'torch')})`)
+    need(dTown(tb, ta, 'oak_log') === -8, `oak_log -8 (${dTown(tb, ta, 'oak_log')})`)
+    need(!(ta.bag.charcoal > 0) && !dTown(tb, ta, 'charcoal') && !Object.keys(ta.furnace.F1 || {}).length, `no charcoal left in the bag, the town or the furnace (bag ${ta.bag.charcoal || 0})`)
+    need((ta.bag.torch || 0) === 8, `the bag's own 8 torches kept (${ta.bag.torch || 0})`)
+    need((ta.bag.stick || 0) <= 2 && !(ta.bag.oak_planks > 0) && !(ta.bag.oak_log > 0), `at most the 2 spare sticks left (${diff(tb.bag, ta.bag)})`)
+  }
+  if (scene === 'door') {
+    need(dTown(tb, ta, 'copper_door') === 3, `copper_door +3 (${dTown(tb, ta, 'copper_door')})`)
+    need(dTown(tb, ta, 'copper_ingot') === -6, `copper_ingot -6 (${dTown(tb, ta, 'copper_ingot')})`)
+    need(!(ta.bag.copper_ingot > 0) && !(ta.bag.copper_door > 0), `the bag holds no copper after (${diff(tb.bag, ta.bag)})`)
+  }
+  if (scene === 'kill_w') {
+    need(rows.some(r => r.name === '_mats_return' && /stop=closed/.test(r.detail) && /batch=0/.test(r.detail)), 'the recovery closed the note with nothing in flight (batch=0)')
+    need(dTown(tb, ta, 'cobblestone') + (ta.bag.cobblestone || 0) === 0, `the 12 cobble are in the bag or back in town (town ${dTown(tb, ta, 'cobblestone')}, bag ${ta.bag.cobblestone || 0})`)
+    need(!dTown(tb, ta, 'stone_bricks') && !(ta.bag.stone > 0), 'nothing was smelted')
   }
   if (scene === 'kill') {
     need(rows.some(r => r.name === '_mats_return' && /drained:[1-9]/.test(r.detail)), 'mats_return drained the note\'s furnace')
@@ -295,6 +335,7 @@ async function runScene (scene) {
   set('MEMORY_SCOPE', 'shared'); set('MINECRAFT_PORT', PORTS[SERVER]); set('STUCK_SECONDS', 20); set('PLANT_ENABLED', 0); set('PLINTH_FIRST', 0)
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`); set('MAX_CONSECUTIVE_FAILURES', 50)
   set('MATS_COOLDOWN_MS', 60000)              // sandbox pacing: one order a minute (the fleet runs 10 min)
+  for (const [k, v] of Object.entries(spec.env ?? {})) set(k, v)
   for (const ax of ['X', 'Y', 'Z']) { set(`HOME_${ax}`, HOME[ax.toLowerCase()]); set(`BOARD_${ax}`, HOME[ax.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   brainLog = `${OUTDIR}/brain-${tag}.log`
@@ -322,6 +363,17 @@ async function runScene (scene) {
     const lit = await waitFor(() => { try { return /Test passed/.test(rcon(`execute if block ${at(F1)} minecraft:furnace[lit=true]`)[0].reply) } catch { return false } }, WINDOW_MS, 2000)
     if (!lit) { await stopBot(); throw new Error('the kill scene never saw its furnace lit') }
     await sleep(4000)
+    killedAt = Date.now()
+    await stopBot('SIGKILL')
+    await sleep(15000)
+    await startBot(envRel, botOut, trace)
+    rcon(`tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`)
+  }
+  if (scene === 'kill_w' && CANDIDATE) {
+    // `clear <player> <item> 0` counts without removing anything (the server's own reply)
+    const held = () => { try { return Number((/Found (\d+) matching/.exec(rcon(`clear ${NAME} minecraft:cobblestone 0`)[0].reply) || [])[1] || 0) } catch { return 0 } }
+    const got = await waitFor(() => held() >= 12, WINDOW_MS, 500)
+    if (!got) { await stopBot(); throw new Error('the kill_w scene never saw the 12 cobble in the bag') }
     killedAt = Date.now()
     await stopBot('SIGKILL')
     await sleep(15000)
