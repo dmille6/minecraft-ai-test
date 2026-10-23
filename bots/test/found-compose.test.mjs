@@ -106,6 +106,31 @@ await t('THE CHAIN CONTROL: the same bot in a column that does NOT cover the tow
   const ran = await decisions(inColumnTown(false).bot, 1)
   assert.equal(ran[0]?.skill, 'keepout_exit', JSON.stringify(ran))
 })
+await t('THE OVERRIDDEN ORDER IS REFUNDED (Codex JIT r1 P2): in a column that does NOT cover the town the exit replaces F1; once out of the column (still in town) the next decision issues F1', async () => {
+  const w = inColumnTown(false)
+  const { Vec3 } = await import('vec3')
+  const ran = await decisions(w.bot, 2, { result: (n, skill) => {
+    if (skill === 'keepout_exit') w.bot.entity.position = new Vec3(-7.5, 64, 0.5)   // out of the column (14.5 from the site), in town
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: ['probe'] }
+  } })
+  assert.deepEqual(ran.map(r => r.skill), ['keepout_exit', 'found_work'], JSON.stringify(ran))
+})
+await t('MUTANT KILLED: the overridden found order not refunded -> the visit is spent on an order that never ran', async () => {
+  const COG_PATH = new URL('../src/cognitive.mjs', import.meta.url)
+  const src = readFileSync(COG_PATH, 'utf8')
+  const old = " if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this));"
+  assert.ok(src.includes(old) && src.split(old).length === 2, 'ANCHOR MISSING or not unique')
+  const k = await withMutant(COG_PATH, old, '', async M => killedBy(async () => {
+    const w = inColumnTown(false)
+    const { Vec3 } = await import('vec3')
+    const ran = await decisions(w.bot, 2, { Loop: M.CognitiveLoop, result: (n, skill) => {
+      if (skill === 'keepout_exit') w.bot.entity.position = new Vec3(-7.5, 64, 0.5)
+      return { status: 'success', detail: 'ok', delta: {}, contractEvidence: ['probe'] }
+    } })
+    assert.deepEqual(ran.map(r => r.skill), ['keepout_exit', 'found_work'])
+  }))
+  assert.ok(k, 'the mutant survived')
+})
 await t('MUTANT KILLED: the found slot dropped from TOWN_JOB_SKILLS -> the exit overrides F1 inside the town\'s own column', async () => {
   const k = await withMutant(KO_PATH, "  'found_store', 'found_work'])", "  ])", async M => killedBy(() => {
     assert.equal(M.exitDecision({ sites: [site], pos: inside, home: { x: 0, y: 64, z: 0 }, skill: 'found_work', yielded: () => true, yieldOn: true }).why, 'town_job')

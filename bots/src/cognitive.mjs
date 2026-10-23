@@ -1261,7 +1261,9 @@ export class CognitiveLoop {
     // in the chain on purpose, so it overrides every order above -- except a town job inside a column that covers the town
     // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
     // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
-    { const ko = this.#keepoutExitOrder(order); if (ko) order = ko }
+    // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
+    // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
+    { const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = ko } }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
