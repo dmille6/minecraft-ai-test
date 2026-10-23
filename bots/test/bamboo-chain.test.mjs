@@ -79,5 +79,65 @@ await t('CHAIN (real loop): the fold is ONE order per cooldown -- a success that
   assert.ok(ran.slice(1).every(s => s === 'status'), `after the fold the model decides: ${JSON.stringify(ran)}`)
 })
 
+// ---- jit-1023 (bamboo-03 on 6e1afb52 = homefix-02 + poolescape-01): THE DECLINE CHAIN -----------------------------------
+// The runner DECLINES a fold it never started (`runner_reserved`: poolescape's or the watchdog's reservation holds it). The
+// chain under test: decline -> no 30-min failure backoff (the `!declined` guard) AND the issue-time 2-min cooldown refunded
+// (refundDeclined's bamboo case) -> the NEXT decision issues the fold again -> the runner, free now, runs it. Codex rebase
+// review P2: before the refund the fold waited out a cooldown for a run that never happened.
+const { withMutant } = await import('./helpers/mutant.mjs')
+const { refundDeclined } = await import('../src/cognitive.mjs')
+const COG = new URL('../src/cognitive.mjs', import.meta.url)
+const fullBag = () => [stack('bamboo', 64), stack('stick', 32), ...fill(34)]
+/** n real decisions; the runner answers each bamboo_sticks run from `script` in turn (then success), anything else success. */
+async function scripted (Loop, w, n, script) {
+  const ran = [], left = [...script]
+  const runner = { isBusy: () => false, run: async skill => {
+    ran.push(skill)
+    if (skill === 'bamboo_sticks' && left.length) return { detail: 'probe', delta: {}, ...left.shift() }
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
+  const loop = new Loop(w.bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.start()
+  for (let i = 0; i < 300 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  assert.ok(ran.length >= n, `only ${ran.length} of ${n} decisions: ${JSON.stringify(ran)}`)
+  return { ran, loop }
+}
+const DECLINED = { status: 'failed', failClass: 'runner_reserved' }
+const REAL_FAIL = { status: 'failed', failClass: 'skill_error' }
+await t('DECLINE CHAIN (real loop): a fold the runner declined is issued again on the next decision and runs; no backoff, no cooldown spent', async () => {
+  const { ran, loop } = await scripted(CognitiveLoop, world(fullBag()), 3, [DECLINED])
+  assert.deepEqual(ran.slice(0, 2), ['bamboo_sticks', 'bamboo_sticks'], `declined, then issued again at once: ${JSON.stringify(ran)}`)
+  assert.ok(!(loop.bambooBackoffUntil > Date.now()), 'a declined fold never charges the 30-min failure backoff')
+  assert.ok(loop.lastBambooAt > 0 && loop.lastBambooAt <= Date.now(), 'the run that DID start charged its cooldown as usual')
+})
+await t('DECLINE CHAIN CONTROL (real loop): a fold that RAN and failed backs off -- one fold, then the model; the cooldown stays charged', async () => {
+  const { ran, loop } = await scripted(CognitiveLoop, world(fullBag()), 3, [REAL_FAIL])
+  assert.equal(ran.filter(s => s === 'bamboo_sticks').length, 1, JSON.stringify(ran))
+  assert.ok(loop.bambooBackoffUntil > Date.now(), 'a real failure backs off')
+  assert.ok(loop.lastBambooAt > 0, 'the cooldown stays charged')
+})
+await t('DECLINE MUTANT KILLED (refund): without refundDeclined\'s bamboo case the declined fold waits out its cooldown -- no second fold', async () => {
+  await withMutant(COG, "  if (skill === 'bamboo_sticks') return st.lastBambooAt != null ? { lastBambooAt: -Infinity } : {}\n", '', async mod => {
+    const { ran } = await scripted(mod.CognitiveLoop, world(fullBag()), 3, [DECLINED])
+    assert.equal(ran.filter(s => s === 'bamboo_sticks').length, 1, `the mutant spends the cooldown on the decline: ${JSON.stringify(ran)}`)
+  })
+})
+await t('DECLINE MUTANT KILLED (guard): without `!declined` on the bamboo outcome a decline charges the 30-min backoff', async () => {
+  await withMutant(COG, "      if (!declined && admitted.skill === 'bamboo_sticks') this.bambooBackoffUntil",
+                        "      if (admitted.skill === 'bamboo_sticks') this.bambooBackoffUntil", async mod => {
+    const { ran, loop } = await scripted(mod.CognitiveLoop, world(fullBag()), 3, [DECLINED])
+    assert.ok(loop.bambooBackoffUntil > Date.now(), 'the mutant backs off on a run that never started')
+    assert.equal(ran.filter(s => s === 'bamboo_sticks').length, 1, JSON.stringify(ran))
+  })
+})
+await t('refundDeclined (pure): bamboo_sticks refunds lastBambooAt only when charged; nothing else is touched', () => {
+  assert.deepEqual(refundDeclined('bamboo_sticks', { lastBambooAt: 5, bambooBackoffUntil: 9 }), { lastBambooAt: -Infinity })
+  assert.deepEqual(refundDeclined('bamboo_sticks', {}), {})
+  assert.deepEqual(refundDeclined('wear_out', { lastBambooAt: 5 }), {})
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

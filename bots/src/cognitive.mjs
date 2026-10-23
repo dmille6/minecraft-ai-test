@@ -213,9 +213,14 @@ export const LIVELOCK_LATCH_MS = 600_000
 
 /**
  * THE DECLINED ORDER'S REFUND -> the state fields to assign (pure; homefix-01, Codex code r1 P2). The four deterministic
- * orders that charge their cooldown at issue and have no decline-aware outcome handler of their own.
+ * orders that charge their cooldown at issue and have no decline-aware outcome handler of their own -- and bamboo_sticks.
  */
 export function refundDeclined (skill, st = {}) {
+  // BAMBOO-03 x HOMEFIX-02 (jit-1023, Codex rebase review P2): bambooOrderStep charges the fold's 2-min cooldown at ISSUE on a
+  // top-level field (lastBambooAt); a fold the runner declined (e.g. `runner_reserved` while poolescape or the watchdog holds
+  // the runner) never ran, so the next decision may issue it again. Its 30-min failure backoff is separately never charged
+  // on a decline (the `!declined` guard on bambooOrderOutcome).
+  if (skill === 'bamboo_sticks') return st.lastBambooAt != null ? { lastBambooAt: -Infinity } : {}
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
   if (!at || !st[at[0]]) return {}

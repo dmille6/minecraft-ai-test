@@ -148,7 +148,9 @@ await t('WIRED (structural): the decision chain is firstOrder(order, wear_out st
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   assert.match(src, /order = firstOrder\(order, \(\) => this\.wearOutOrderStep\(\), \(\) => this\.bambooOrderStep\(\)\)/)
   assert.ok(src.indexOf('order = firstOrder(order,') < src.indexOf('const r = townOrder({'), 'the town orders come after')
-  assert.match(src, /if \(admitted\.skill === 'bamboo_sticks'\) this\.bambooBackoffUntil = bambooOrderOutcome\(r\.status, Date\.now\(\)\)/)
+  // jit-1023 (bamboo-03 on 6e1afb52): homefix-02's `!declined` guard -- a declined fold never charges the failure backoff
+  // (behaviour: bamboo-chain.test.mjs DECLINE CHAIN and its mutants)
+  assert.match(src, /if \(!declined && admitted\.skill === 'bamboo_sticks'\) this\.bambooBackoffUntil = bambooOrderOutcome\(r\.status, Date\.now\(\)\)/)
 })
 
 // ------------------------------------------------------------------ through REAL craftsync + fake Paper
