@@ -97,7 +97,7 @@ bypassed or given up.**
 |---|---:|---:|---:|---|
 | (a) ladder demand: decisions that moved off the production rungs and onto dirt and the lap, at BASE yields | −3,756 (opposite convention −1,428) | −2,624 (−2,474) | −532 (−1,646) | Mechanism: those rungs read as fulfilled (§0.1). Timing: steps on 10-11/12, 10-14, 10-17/18 and 10-20..22, in all four world-age groups, on rollout dates (§4). The deliberate changes and any organic accumulation cannot be separated (§10). |
 | (b) depletion, conditional scenarios | −145 (range −42 to −709) | −124 | 0 | Gather: the fall in log sight on wood-rung decisions (§5.3). Mine: the fall in iron sight among bots that need iron, all of it near the surface (§5.4). Each is "if sight were the only change". |
-| (c) safety: the board-d water pit | −564 (± ≈ 255, a descriptive allowance) | −129 | −22 | A DiD with a pre-trend (§6.1). Separately, exclusive reflex time outside board-d rose by 14 h/day; its cost is not identified and sits in the yield rows (§6.2). |
+| (c) safety: the board-d water pit | −564 (± ≈ 256, a descriptive allowance) | −129 | −22 | A DiD with a pre-trend (§6.1). Separately, exclusive reflex time outside board-d rose by 14 h/day; its cost is not identified and sits in the yield rows (§6.2). |
 | (d) model, GPU, restarts, churn | no loss found | no loss found | no loss found | Decisions per bot-hour held at 83.6 → 83.3, and every bot × 10-minute bin holds a decision (§7). |
 | Yw: wood-rung yield beyond (b) | −411 | +1 | −2 | Unknown cause: chronic zero-success bots (55 % of END wood-rung decisions), depletion of reachable trees, or both (§5.3). |
 | Yo: yield change on every other row (unexplained) | +3,057 | +594 | +260 | Mostly a higher success per dirt decision (0.225 → 0.303). The later step (10-18..21) coincides with toolkit iron shovels (toolkit-02, 10-18); the 10-11 step predates them. Neither is measured. |
@@ -201,7 +201,7 @@ designed after the 10-24 census.
   - 0 of 148,773 sampled decisions in the two periods lack perception.
 - **Uptime proxy** (`skips_uptime.py`). All 11,520 bot × 10-minute bins hold a decision on all six days, so no bot went 20 minutes
   without one.
-  - **Positive control:** the same aggregation over today's window, which runs into empty future bins, reads 9,280 of 11,520. The
+  - **Positive control:** the same aggregation over today's window, which runs into empty future bins, reads 9,280-9,360 of 11,520 (it rises as the day fills). The
     instrument does see empty bins.
 - **Coverage.** Each day loses about 40-60 rows at each of two rotations. Completeness after 10-14 18:46Z is assumed, not
   reconciled, and no bound is claimed. Decisions per bot-hour are 82.3-85.9 on every day.
@@ -401,7 +401,7 @@ change's share is measured.
   - From 10-18 to 10-22 they were 66.3-66.6 h a day, out of its 120 bot-h.
 - **Pre-trend** (`board_d_window.py`).
   - Through 10-15, board-d ran 0.83 gather ok/bot-h above the other 15 (daily SD 1.3). Trapped, it ran 3.75-4.30 below.
-  - That daily SD implies about 1.07/bot-h for the difference of two independent 3-day means, so ±2 SD is about ±255 a day on
+  - That daily SD implies about 1.07/bot-h for the difference of two independent 3-day means, so ±2 SD is about ±256 a day on
     T = −564. It is a descriptive variability allowance, not a confidence interval.
   - The DiD absorbs the level difference. Its BASE gap (+0.60) sits slightly below the pre-trap mean (+0.83), which is worth about
     −28 a day.
@@ -562,6 +562,8 @@ change's share is measured.
      - **The near miss is hive-d.** It meets sight (0.36) and outcome (0.023), and fails only the 5 % share gate (4.8 %). Watch it.
      - On the iron arm all 16 are eligible. board-d and isolated-c meet the outcome condition, but iron sight among their deep,
        iron-needing bots is at least 99 %.
+     - The iron-outcome flag rests on small counts (about 20-140 sampled successes per world-week), so it is noisy near its
+       threshold. Today it is the sight condition that blocks the iron arm.
      - board-a, board-d and placebo-b are flagged trapped by water exposure.
 4. **Record world age as a stratum in the canary draw record.**
 
@@ -622,7 +624,11 @@ The r4 responses:
   - Board-a's exposure is explained.
   - The uptime control is acknowledged as weak.
 
-### r4: pending
+### r4 (2f2c40b6): Codex APPROVE; Claude APPROVE (its r3 APPROVE confirmed)
+
+- Codex reproduced all 16 trigger rows and the ±256 allowance from the archive.
+- Both reviewers' P3s are applied in this final text: ±256, the uptime-control count range, and the iron-outcome small-count
+  caveat.
 
 ## Files
 
