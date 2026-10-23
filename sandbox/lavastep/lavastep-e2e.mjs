@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r10 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r11 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
@@ -42,12 +42,17 @@
 //     change. A command that was not confirmed (a timeout, a kill, a bad reply) leaves that file, and while ANY in-flight
 //     file exists the mode sections refuse (registration, the adventure send, the restore and with it every authoritative
 //     marker deletion; the arena claim/release bookkeeping is not gated -- it changes no mode). The run stops FATAL and
-//     names the file. RESOLVING IT IS BY HAND, and only like this (r9 Codex P1, Claude P3-1/P3-4):
+//     names the file. RESOLVING IT IS BY HAND, and only in this order (r9/r10 Codex P1, Claude P3-1/P3-4):
 //       1. stop every lavastep driver and every `lsrun=` bot process;
-//       2. RESTART that Paper server and check its old JVM has exited (a reply on a new RCON connection does not prove the
+//       2. DRAIN the worlds host: wait until no fenced section or RCON helper of this server is running there --
+//          `pgrep -af 'mcai-sandbox-mode/<server>.lock|sbx-rcon.py <server>'` prints nothing (each section is bounded:
+//          flock -w 60 + timeout -k 5 50, so at most 115 s after the last driver stopped); run it in a shell ON the
+//          worlds host (through `ssh host 'pgrep -af ...'` the remote shell's own command line matches the pattern);
+//       3. RESTART that Paper server and check its old JVM has exited (a reply on a new RCON connection does not prove the
 //          old command cannot still run); its latest.log shows whether the in-flight command (quoted in the file) ran;
-//       3. set the default game mode by RCON and read it back: survival unless a live lavastep run is meant to continue;
-//       4. only then delete ~/mcai-sandbox-mode/<server>/.inflight-* on the worlds host, and the matching markers and
+//       4. send `defaultgamemode survival` by RCON; its reply "The default game mode is now Survival Mode" is the
+//          read-back (there is no query form);
+//       5. only then delete ~/mcai-sandbox-mode/<server>/.inflight-* on the worlds host, and the matching markers and
 //          lock-host warning copies of runs that are gone (or leave them: the next run sweeps drained ones).
 //     The trade, disclosed (Claude r9 P3-5): a command that provably never left the worlds host (the helper could not
 //     connect) also leaves the file and also needs this hand step;
@@ -84,7 +89,8 @@
 // Residuals (disclosed): an adventure-mode bot can still use doors, buttons and chests at world spawn for the ~70 ms
 // before the teleport (its inventory is empty, its cognitive loop not started; the reflex layer has no block-use calls);
 // a bot ORPHANED by a SIGKILLed driver can do the same for as long as it lives (smoke: it died of its closed stdout ~7 s
-// later); the next run on this machine SIGKILLs any `lsrun=` bot whose driver is gone before it judges staleness
+// later); the next run on this machine AGAINST THE SAME SERVER SIGKILLs any `lsrun=` bot whose driver is gone (this
+// drain is deliberately NOT gated by an unresolved mode command: it is step 1 of the recovery) before it judges staleness
 // (Claude r8 P3-2), so that window ends at the next start;
 // markers from another host are never swept, only reported (they hold the default at adventure until removed by hand);
 // a fenced section on a worlds host that is down cannot run, so the driver refuses to start (and a cleanup leaves its
@@ -367,7 +373,8 @@ printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; grep -q 'run=${NONCE}' ${MDIR}/${NO
   if (!/(^|\n)REGISTERED\n?$/.test(out)) throw new Error(`marker not written: ${out.slice(0, 120)}`)
   if (stale.length) lh(stale.map(n => `rm -f ${MDIR}/${nameOk(n)}; `).join('') + 'echo GONE')
 }
-// every fenced section starts with this: any in-flight file = a mode command whose outcome is unknown -> refuse
+// every fenced MODE/MARKER section starts with this (not the arena claim/release bookkeeping): any in-flight file = a mode
+// command whose outcome is unknown -> refuse
 const UNRESOLVED_CHECK = `for f in ${MDIR}/.inflight-*; do if [ -e "$f" ]; then echo "UNRESOLVED $(basename "$f") $(cat "$f" 2>/dev/null | head -c 200)"; exit 0; fi; done`
 function unresolved (out) {
   const m = /(^|\n)UNRESOLVED ([^\n]*)/.exec(out)
@@ -375,7 +382,7 @@ function unresolved (out) {
   // when the file is ours
   if (!m) return
   const mine = m[2].startsWith(`.inflight-${NONCE} `)
-  throw new Fatal(`UNRESOLVED MODE COMMAND on ${SERVER} (${mine ? "this run's own" : 'an earlier run'}): every lavastep driver refuses until it is resolved BY HAND -- stop every lavastep driver and every 'lsrun=' bot process; RESTART that Paper server and check its old JVM exited (its latest.log shows whether the command ran); set the default game mode by RCON and read it back; then delete ~/mcai-sandbox-mode/${SERVER}/.inflight-* on the worlds host (and the gone runs' markers and lock-host warning copies, or let the next run sweep them). The file: ${m[2]}`)
+  throw new Fatal(`UNRESOLVED MODE COMMAND on ${SERVER} (${mine ? "this run's own" : 'an earlier run'}): every lavastep driver refuses until it is resolved BY HAND, in this order -- (1) stop every lavastep driver and every 'lsrun=' bot process; (2) wait until no fenced section or RCON helper of ${SERVER} runs on the worlds host (pgrep -af 'mcai-sandbox-mode/${SERVER}.lock|sbx-rcon.py ${SERVER}' empty; at most 115 s); (3) RESTART that Paper server and check its old JVM exited (its latest.log shows whether the command ran); (4) send 'defaultgamemode survival' by RCON and see the reply 'The default game mode is now Survival Mode'; (5) then delete ~/mcai-sandbox-mode/${SERVER}/.inflight-* on the worlds host (and the gone runs' markers and lock-host warning copies, or let the next run sweep them). The file: ${m[2]}`)
 }
 const inflightOpen = what => `printf '%s\\n' '${what} by ${OWNER} at '"$(date -u +%FT%TZ)" > ${MDIR}/.inflight-${NONCE}`
 /** The LAST-OUT restore, fenced: survival only when no marker but ours and the known-stale ones stands; the reply is
@@ -396,7 +403,7 @@ ${keep.map(n => `rm -f "$d/${n}"; `).join('')}echo RESTORED`).trim()
   if (last.startsWith('LEFT')) { lh(`rm -f ${MDIR}/${NONCE}; echo GONE`); return last }
   throw new Error(`restore: ${out.slice(0, 200)}`)
 }
-let arenaClaimed = false
+let arenaClaimed = false, staleTaken = false
 /** The arena claim, fenced: mkdir, or a compare-and-swap of exactly the owner text this run judged stale. */
 function claimArena () {
   const own = `${OWNER} scene=${SCENE} slot=${SLOT} since ${new Date().toISOString()}`
@@ -407,7 +414,7 @@ function claimArena () {
   const out = fenced(`mkdir -p ${MROOT}/arenas
 if mkdir ${ARENA} 2>/dev/null; then printf '%s\\n' '${own}' > ${ARENA}/owner; echo CLAIMED
 else c=$(cat ${ARENA}/owner 2>/dev/null || true); if [ -n '${expect}' ] && [ "$c" = '${expect}' ]; then printf '%s\\n' '${own}' > ${ARENA}/owner; echo CLAIMED_STALE; else echo "HELD $c"; fi; fi`).trim()
-  if (out === 'CLAIMED' || out === 'CLAIMED_STALE') { arenaClaimed = true; if (out === 'CLAIMED_STALE') P_(`WARNING: stale arena claim taken over: ${expect}`); return }
+  if (out === 'CLAIMED' || out === 'CLAIMED_STALE') { arenaClaimed = true; staleTaken = out === 'CLAIMED_STALE'; if (out === 'CLAIMED_STALE') P_(`WARNING: stale arena claim taken over: ${expect}`); return }
   throw new Error(`arena ${SERVER} ${A.x},${A.z} is claimed: ${out}`)
 }
 function releaseArena () {
@@ -762,7 +769,13 @@ async function main () {
   // STARTUP: the arena CLAIM (fenced; before any world change), then this run's markers (fenced; before any adventure
   // default), the stale ones going in the same section (this run's marker now stands for the adventure state)
   claimArena()
-  if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
+  if (forced().some(Boolean)) {
+    // Claude r10 P3-3: a refusal names the remedy; after a stale takeover the forceload is the dead run's
+    const rm = `forceload remove ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`
+    throw new Error(staleTaken
+      ? `the arena's chunks are still force-loaded by the dead run whose stale claim this run just took over (its box may also be left): restore that arena and send '${rm}' by RCON, then start again`
+      : `the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?); if no run uses this arena, send '${rm}' by RCON`)
+  }
   // Claude r7 P3-4: a warning copy on the lock host with no authoritative twin on the worlds host means an OLDER driver
   // (r5/r6 kept its state on the lock host) or a half-written marker: refuse rather than guess
   let orphanCopies = []
