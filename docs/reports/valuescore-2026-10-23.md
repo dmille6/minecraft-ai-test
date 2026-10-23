@@ -161,4 +161,18 @@ bash scripts/host/install-valuescore.sh --rollback  # restores scoreboard.py, re
 
 **r6** (26abb74d): **Codex APPROVE**, with 1 P3, now applied. The look-alike tokens include the pattern families (wood, stem, hyphae, sapling, propagule), so `oak_woods` and `warped_stems` raise.
 
-**Claude:** r5 pending.
+**Claude** on c25bb82e (r5, r6 and r6.1): **APPROVE.** It re-ran the scoreboard's 10 h window, `--since` with no end (3/3), a scan of every intake row 10-08..10-23, and its own ES re-derivation (10-22 = 17,371). Its P3s are applied in r6.2:
+- raw ore-vein blocks are pre-weighted (×9 their raw item);
+- amethyst growths, iron_bars and the unwaxed copper blocks are pre-listed as 0;
+- the window hours are rounded;
+- a naive `--until` gets a clear error.
+
+**Final: Codex APPROVE (r6) and Claude APPROVE (c25bb82e).**
+
+## 6. Runbook: a new item makes the line raise
+
+ValueBlind names the item ("unweighted item(s) that look like weighted ones", or "above 50/day").
+1. Add it to `WEIGHTS`, with a value in log-equivalents and a reason, or to `ZERO`, in `scripts/host/valuescore.py`.
+2. Run `python3 scripts/host/test_valuescore.py`.
+3. Re-run `install-valuescore.sh --apply`: roll back first, since --apply refuses over its own install. Or copy `valuescore.py` into `~/mcai-analysis/` by hand.
+4. Bump `WEIGHTS_VERSION` if a weight changed.

@@ -65,6 +65,8 @@ WEIGHTS = {
     'lapis_lazuli': 2.0, 'redstone': 2.0, 'quartz': 1.0, 'amethyst_shard': 1.0,
     'emerald': 16.0, 'diamond': 32.0, 'obsidian': 2.0,
     'coal_ore': 1.0, 'deepslate_coal_ore': 1.0,
+    # ore-vein blocks (9 raw each), listed in advance so a first sighting does not stop the line (Claude r6 P3)
+    'raw_iron_block': 72.0, 'raw_copper_block': 18.0, 'raw_gold_block': 72.0,
 }
 # EVERY pattern below names its stems: no rule may zero (or price) a name it does not know (Codex r1 P2-3, r4 P2-2, r5 P2-1).
 _LOG_WOODS = '(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|stripped_oak|stripped_spruce|stripped_birch|' \
@@ -88,7 +90,9 @@ brown_mushroom red_mushroom sugar_cane cactus snowball ice packed_ice salmon cod
 cooked_mutton cooked_beef cooked_porkchop cooked_chicken mutton beef porkchop chicken rabbit bread bone_meal
 armadillo_scute rail powered_rail detector_rail activator_rail lead glass glass_pane mossy_cobblestone azalea flowering_azalea
 firefly_bush bush cactus_flower amethyst_block magma_block netherrack name_tag big_dripleaf small_dripleaf
-mushroom_stem tuff_bricks chiseled_tuff_bricks mossy_stone_bricks cracked_stone_bricks chiseled_stone_bricks bricks brick'''.split())   # well.mjs DECORATIONS
+mushroom_stem amethyst_cluster large_amethyst_bud medium_amethyst_bud small_amethyst_bud budding_amethyst
+iron_bars copper_block exposed_copper weathered_copper oxidized_copper cut_copper chiseled_copper copper_grate copper_bulb
+tuff_bricks chiseled_tuff_bricks mossy_stone_bricks cracked_stone_bricks chiseled_stone_bricks bricks brick'''.split())   # well.mjs DECORATIONS
 # waxed_* are copper DECOR blocks (trial chambers), not raw copper: seen 10-08..10-23 at 1-5 a day (Claude r3)
 _COLOURS = '(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)'
 _DECO_WOODS = '(oak|spruce|birch|jungle|acacia|cherry|dark_oak|pale_oak|mangrove|bamboo|crimson|warped)'
@@ -278,6 +282,8 @@ def measure(since, until, old=None):
     # at "now" races late documents into one and not the other. The clamp is printed in the header.
     now = dt.datetime.now(UTC)
     u = dt.datetime.fromisoformat(until.replace('Z', '+00:00'))
+    if u.tzinfo is None:
+        raise ValueBlind(f'--until {until!r} has no timezone: write it as UTC, e.g. 2026-10-23T00:00:00Z')
     clamped = None
     if u > now - dt.timedelta(seconds=INGEST_LAG_S):
         clamped = until
@@ -339,7 +345,7 @@ def measure(since, until, old=None):
 def render(res):
     bh = res['bot_hours']
     out = [f'VALUE-WEIGHTED INTAKE ({res["weights_version"]}; unit = one log)  window {res["window"][0][:16]}Z -> '
-           f'{res["window"][1][:16]}Z ({res["hours"]:g} h)',
+           f'{res["window"][1][:16]}Z ({res["hours"]:.1f} h)',
            f'  value {res["value"]:,.0f} = {res["value_per_bot_h"]:.2f} per active bot-h (of {bh:,.1f} bot-h)  from '
            f'{res["units"]:,} intake units; {res["zero_units"]:,} of them weigh 0 by policy (dirt, sand, junk, products)',
            '  by class: ' + ', '.join(f'{k} {v:,.0f}' for k, v in sorted(res['by_class'].items(), key=lambda x: -x[1])),

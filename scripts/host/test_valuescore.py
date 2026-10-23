@@ -40,7 +40,7 @@ def cases(v):
     # weights: the table, the patterns, the zero list, products, and the unweighted (None) case
     for item, want in (('dirt', 0.0), ('sand', 0.0), ('andesite', 0.0), ('oak_log', 1.0), ('birch_log', 1.0),
                        ('mangrove_log', 1.0), ('cobblestone', 0.25), ('raw_iron', 8.0), ('raw_copper', 2.0),
-                       ('diamond', 32.0), ('oak_sapling', 0.5), ('iron_pickaxe', 0.0), ('oak_planks', 0.0), ('stick', 0.0),
+                       ('diamond', 32.0), ('raw_iron_block', 72.0), ('oak_sapling', 0.5), ('iron_pickaxe', 0.0), ('oak_planks', 0.0), ('stick', 0.0),
                        ('iron_ingot', 0.0), ('totally_new_item', None)):
         c(f'weight {item} = {want}', v.weight(item) == want, v.weight(item))
     # score: dirt is counted but weighs 0; a log is 1, raw iron 8; negatives and non-numbers are ignored
@@ -71,7 +71,7 @@ def cases(v):
         nd = dict(DELTA); nd[k] = 0
         c(f'blind: {k} rows lose inventory_delta -> raises', raises(lambda: v.check_inputs(FULL, nd, 24), v.ValueBlind))
     # a renamed RAW item must surface as unweighted, never be zeroed by a suffix rule (Codex r1 P2-3)
-    for item in ('raw_iron_block', 'iron_raw', 'coal_block'):
+    for item in ('raw_iron_lump', 'iron_raw', 'coal_block'):
         c(f'weight {item} = None (unweighted)', v.weight(item) is None, v.weight(item))
     for item in ('white_wool', 'rail', 'lead', 'oak_fence', 'polished_andesite', 'stone_bricks'):
         c(f'weight {item} = 0 (listed junk/product)', v.weight(item) == 0.0, v.weight(item))
