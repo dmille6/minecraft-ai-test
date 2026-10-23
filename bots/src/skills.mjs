@@ -3682,7 +3682,7 @@ export function ledgerObserve (bot, pos, furnace, by = '-', phase = 'open', seen
 }
 /** The window fields a `_furnace_session` row carries for L1 (`in`/`fuel`/`out` at the open). Pure. */
 const ledgerRowFields = h => {
-  if (!h?.ledgerOpen) return ''
+  if (!h?.ledgerOpen || h.ledgerOpen.miss === 'off') return ''      // LEDGER=off: the base row, byte for byte
   const { rec, miss } = h.ledgerOpen
   const L = h.ledgerLoads ?? { ok: 0, fail: 0 }
   return (rec ? ` open=${rec.id} in=${rec.slots.in ? rec.slots.in.join(':') : '0'} fuel=${rec.slots.fuel ? rec.slots.fuel.join(':') : '0'} out=${rec.slots.out ? rec.slots.out.join(':') : '0'}` : ` open=${miss}`) +
