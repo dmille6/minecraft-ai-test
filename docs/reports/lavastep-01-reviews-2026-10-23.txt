@@ -1,0 +1,147 @@
+lavastep-01 -- CODE REVIEW RECORD (2026-10-23). F1 of docs/reports/mineshaft-safety-2026-10-23.md (on main d38d7726; both
+engines APPROVE r10; OWNER 2026-10-23 "yes, i agree to all your recommendations", O1-O13).
+Independent reviews, read-only: Codex (`codex exec --sandbox read-only - < brief`, kill watchdog) and a Claude subagent.
+Briefs: one per round, each restating the claims and the previous round's findings with what was done. Findings are
+summarised here with the response; file:line references are to the round's sha.
+
+r1 960190ab  the build: lavastep.mjs (decision), lavastepmove.mjs (executor + in-flight guard), runner reserve() refusal,
+             reflex wiring (arm, ownsBody/arbiterYield/bodyYield, stand-downs), index licence row + outermost guard.
+  Codex r1 CHANGE
+    P1 unknown swept cells could enter a plan (isDanger(null) false)                      -> r2: every swept cell read, null refuses
+    P1 the intermediate exemption accepted any cellLavaSafe failure; narrow it            -> r2: only the plan origin's feet cell masked
+    P1 relaxation could write sneak after air preemption / death (finishRow)              -> r2: decided inside end(), dry + done only
+    P1 the in-flight guard could refuse the air rescue for up to 50 ms                    -> r2: moving() ends the move synchronously
+    P1 G2 not recomputable for fallback aims (aim recorder lacked stepPlan reads)         -> r2: every aim records a full observation
+    P2 `after` was the end state, not +1.5 s                                             -> r2: rowWriter schedules it at the firing
+    P2 handover tests stopped at recoveryArmsMayRun()                                     -> r2: F9 runs a real pillarOut
+  Claude r1 CHANGE
+    P1 relaxation counted wet firings / air-ended firings; sneak held through a drowning rescue (stroke x0.3)
+                                                                                           -> r2: dry ground only; ends on air/water
+    P2 guard window after air (= Codex P1); P2 two moves could overlap at the deadline    -> r2: synchronous end; maybeFire refuses while cur
+    P2 G4 read off the decision's own output                                              -> r2: items seen, held, placeHeld, update recorded
+    P3 replan steps untagged; soul_campfire unreachable; moved never reset per episode; a tautological wiring-mutant test;
+       airborne rows read failed; back/left/right not held false; equip after ownership   -> r2: all addressed
+    P3 the intermediate decision is safe and within the design's intent (no owner round needed) -- recorded as an open item.
+r2 6dcb2402
+  Codex r2 CHANGE
+    P1 a deadline coinciding with the air seize cleared the rescue's stroke                -> r3: check reads air first; cleanup skips while air holds
+    P2 relaxation cleanup sat behind the tick's early returns                              -> r3: the mover's tick is the first statement of the tick
+    P2 a missed re-classified `in` step ended without the aim                              -> r3: mirrors the decision (in_step_missed)
+    P2 H2 passed for the wrong reason (dec.aim null threw)                                 -> r3: H2 is a decision mutant that aims
+    (Codex: the narrow origin exemption is acceptable within the design without going back to the owner.)
+  Claude r2 CHANGE
+    P1 the handover was mostly unreachable with real jump arcs (a held jump re-fires on landing; the move ended airborne)
+                                                                                           -> r3: the aim settles on the ground; landed-cell rule
+    P2 "moved off" ended the relaxation during the handed-over pillar's own jump           -> r3: column change, or on the ground elsewhere
+    P2 a two-cell shuttle never counted as stuck                                           -> r3: epCells (cells stood in this episode)
+    P3 me.end assigned late; relax could arm off the cell; replan in-step missed (= Codex) -> r3
+  Also found while answering (the kinematic fake, F9): a walled bot's aims carry it corner to corner of its own cell
+  (0.56 block), so "< 0.5 block" alone never tripped -> r2/r3 same-cell / episode-cell rule.
+r3 0626ef43  + the read scripts/host/lavastepread.py
+  Codex r3 CHANGE (the executor clean; the read)
+    P1 G5 compared yaw without wrapping (JS due south -pi, Python +pi)                     -> r4: ang_diff on the circle
+    P1 G1 missed lava/unknown under swept lateral cells                                     -> r4: each step re-run through the mirrored contract
+    P1 REPLAY_AGREE certified unreadable observations                                       -> r4: a never-read cell -> unverifiable
+    P2 D23 did not exercise the simultaneous case                                           -> r4: injected clock, one synchronous step, D23b mutant
+  Claude r3 CHANGE
+    P1 the yaw wrap (182 of 1411 aims in 3000 random JS worlds graded G5) + a cross-language parity test
+                                                                                           -> r4: P1/P2 parity tests (real executor, real read)
+    P2 an aim score mismatch graded G5 (the mirror's fault, not the bot's)                  -> r4: it marks the replay
+    P2 an airborne-only canary read exposed / replay ok                                     -> r4: exposure needs a replayed ground firing
+    P3 setup fence; the episode instrument read effective names (asymmetric); registration lines; epCells move-and-return
+                                                                                           -> r4 (epCells accepted as an open item)
+r4 15c26d79
+  Codex r4 APPROVE  P2 an incomplete aim observation still graded G5 optimality -> r4b: optimality only on a complete
+                    observation (unverifiable otherwise); the steering check (executed yaw vs chosen) stands. Agrees that
+                    replay_ok = 1 with no ground firing is right because exposure separately holds KEEP.
+  Claude r4         APPROVE (findings below)
+  Claude r4 APPROVE P2 a missed `in` step aimed even when it had already reached safe ground -> r5 plan_missed_safe (D25);
+                    P3 G1/G4 graded never-read cells as defects; the setup fence ran after the dig stop; setup-preempted
+                    firings in the replay denominator; the parity mutant anchor -> r5.
+r5 32acece5
+  Codex r5 APPROVE  P2 G1 skipped known defects when another cell was missing; P2 G4's missing test used the set size
+                    -> r6 (c797690c, the read only): per-cell Obs.has; the comparison alone becomes unverifiable.
+  Claude r5 APPROVE P3 missObs for the safe verdict; D25b for the re-classification path; one more fence check; a throwing
+                    decision kept in the denominator -> r7 (ed273666).
+r7 ed273666
+  Codex r6 CHANGE   P1 missObs never held the feet/below cells its audit needs (observeHere classified through unrecorded
+                    reads); P2 the audit's two cells not judged independently -> r8.
+  Claude r6 CHANGE  P2 the same as Codex P1; P3 the G4 key self-test did not reach its case; P3 a relaxed cell could raise a
+                    false G2 -> r8.
+  PAPER FINDING (r5, sandbox): the 1-wide ledge between two lakes with NO cobble -- S, SE, SW tied on the aim key and the
+  r2 tie-break (farthest from the facing) took a diagonal, a 41% longer run across lava: 4 of 13 survived against the base's
+  15 of 20. -> r8: ties go to a cardinal bearing first (aimKey, what G5 grades, unchanged).
+r8 f635922d
+  Codex r7 APPROVE  no findings ("cardinal-first is a reasonable tie-break within the design's unspecified ties ... the 41%
+                    rationale is geometric, not a measured damage guarantee" -- the Paper rows on r8 are that measurement).
+  Claude r7 APPROVE P3 (recorded here instead of a post-Paper code change, so the Paper sha is the canary sha): on the
+                    ledge the cardinal-first rule picks S, which is the FACING bearing, so it overrides the "the bot was
+                    walking toward the hazard" reason for the later tie-break; the right trade there (the blind facing
+                    sprint scored 15/20), and the r8 Paper ledge rows measure it.
+
+OPEN ITEMS (carried with the merge; none is a safety or dead-end finding)
+- The intermediate-step exemption: an intermediate plan destination is cellLavaSafe with ONLY the plan origin's feet cell
+  masked (the hazard being left); the goal strictly. Both engines judged it within the design's intent without an owner
+  round (Claude r1 P3-6, Codex r2). To be written into the design's open items (docs/reports/mineshaft-safety-2026-10-23.md
+  section 13) at merge.
+- The stuck rule counts a firing as stationary when it lands in a cell this episode already started from (a walled bot's
+  corner-to-corner sprints, a two-cell shuttle); a genuine move-and-return inside 30 s can also count (only magma and
+  campfire relax). Campfire: sneaking does not stop campfire damage (minecraft.wiki), so a relaxed campfire buys a
+  handover to the escape arms, not safety.
+- The aim's 1.5 s sprint is fixed (the design's O1). On a 1-wide ledge with no cobble the best bearing is still a run
+  across lava; the seal is the remedy that removes that case (fleet bags carry cobble).
+- Known composition: the float hold and the stranded ladder stand down for <= 6 s during a move (the air rescue still
+  preempts); a lavastep refusal makes the watchdog's run decline `runner_reserved` more often (existing behaviour).
+
+PAPER (the main evidence; the design: the death effect is unmeasurable on a canary)
+  Collected 2026-10-23 20:37-21:20Z on sandbox5-8 with Paper driver r4 + paired.sh r4 (branch lavastep-sandbox-on-d1a0a88
+  @ 4b10f503). The base 6e1afb52 and the candidate f635922d ran SIDE BY SIDE on each server, in two closed barrier
+  boxes 32 blocks apart; slots were counterbalanced (base slot 0 on sandbox5/6, slot 1 on sandbox7/8).
+  Each trial used a FRESH bot (new player, 8-char run id later; 2-char in r4), joined in ADVENTURE (no edits before
+  staging) and staged inside the box. Setup was verified: per-verb RCON replies, the scene cells read back, the WHOLE
+  inventory read entry by entry, health/food/fire/deaths, and the start position and rotation. A death needs the
+  server's deathCount score AND the build's `_death` row. Gaps, censored burns and an unproven busy exposure make a
+  trial INVALID.
+  488 trials, 485 valid. The 3 invalid were busy-candidate trials whose goto was not under way before the release,
+  so they are pre-release and outcome-blind.
+  The driver reviews went on to r7 for future-run safety. Both engines judged this r4-collected matrix ADMISSIBLE
+  (Codex r5 and r6, Claude r5): the measurement code is unchanged r4 -> r7, and r5's added validity rules remove 0 of
+  the 485 (scratchpad v4_r5rules.py; joinMode 2 in all 485; every valid busy trial spans its goto). The early-edit
+  rule's positive control was zero in this data. r6.1 re-keyed it on rows that can edit, and its positive control
+  (post-release seals) now counts.
+
+  survived, base vs candidate (Wilson 95%)
+    edge, dry feet over lava, facing the pool (S1)      0/20 [0,.16]   vs 20/20 [.84,1]
+    edge without cobble                                  0/20           vs 20/20
+    deep1, feet in a 1-deep pool (S2)                    0/20           vs 20/20
+    fall 3 blocks into a lava lake (S5)                  0/20           vs 20/20
+    1-wide ledge between two lakes (S3)                 18/20 [.70,.97] vs 20/20
+    ledge without cobble                                20/20           vs 20/20  (unhurt 0 vs 0: both burn)
+    facing cycled over 8 bearings, 2 per bearing:
+      edge   10/16 [.39,.82] vs 16/16 [.81,1]   (base died only on the 3 bearings facing the pool)
+      deep1   6/16 [.19,.61] vs 16/16
+      fall    6/16           vs 16/16
+      ledge   6/16           vs 16/16
+    busy, an AWAY-directed goto running at the release (S7; exposure = the goto spans the release)
+                                                        19/20 vs 17/17 (danger arm cut the goto 11 vs 10)
+    magma floor (S4)                                    20/20 vs 20/20  (no base deaths: no effect measurable)
+    campfire (S6)                                       20/20 vs 20/20  (same)
+  POSITIVE CONTROL met: the base dies or burns in the same scenes where the candidate survives (edge, deep1, fall,
+  cycled facings).
+  mspt median 2.2-3.3 ms (max 4.8) through the observations.
+  The read's gates on all 244 candidate Paper bot logs (lavastepread.py --rows):
+    G1-G5 all 0; replay_agree 1.0 over 244 ground firings (287 firings);
+    cases edge 152, airborne 43, in 92;
+    outcomes sealed 85, plan 60, plan_missed_safe 52, aim 47, released 43;
+    85/85 seals witnessed; 0 deaths; licence 244/244 (base 0/244).
+  Pre-release behaviour, both builds alike: 115/485 trials logged FAILED `_marooned_*` / `_escape_candidate` rows on
+  the staging pad, 0.5 s after the teleport ("0 adjacent block(s) yielded nothing when dug"). These are refused or
+  empty attempts inside the box, 58 base / 57 candidate.
+  Rows: docs/reports/lavastep-01-paper-2026-10-23.jsonl (per scene x bag x facing x arm) and
+  docs/reports/lavastep-01-paper-trials-2026-10-23.jsonl (every trial).
+  Earlier r1/r2-driver runs (indicative only, superseded): candidate edge 20/20, ledge-without-cobble 20/20 after the
+  r8 cardinal tie-break (4/13 before it).
+
+PAPER DRIVER REVIEWS: recorded on the sandbox branch (lavastep-sandbox-on-d1a0a88), in the commit messages r1..r7.
+  The safety machinery added there (barrier box, adventure join, fenced markers on the worlds host, warning copies read
+  by `sbxlock.sh`) concerns FUTURE runs; it does not change this matrix.
