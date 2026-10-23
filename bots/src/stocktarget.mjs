@@ -111,11 +111,13 @@ export const PROJECT_PARTS = Object.freeze([
 ])
 
 /**
- * THE BUILD RESERVE (building tier §3.3, owner B3; OWNER 10-23 Q6 "lets do 512 for each"): what a town keeps that no
+ * THE BUILD RESERVE (building tier §3.3, owner B3; OWNER 10-23: logs 512, copper ingots 512, cobblestone 256, torches 32,
+ * sand 16, planks 71, sticks 40 -- the cobble-256 table of reserve-proposal-2026-10-23.md, superseding Q6's "512 for each",
+ * which funded 0 of 13 workshops): what a town keeps that no
  * building job may spend. DECLARED here; NOTHING READS IT until mats-01, which adds the env override (a setting) and the
  * `_mats_mode` licence row. Keys are the reserved stock classes of §3.3, per town.
  */
-export const BUILD_RESERVE = Object.freeze({ cobblestone: 512, logs: 512, planks: 512, sticks: 512, copper_ingot: 512, sand: 512, torch: 512 })
+export const BUILD_RESERVE = Object.freeze({ cobblestone: 256, logs: 512, planks: 71, sticks: 40, copper_ingot: 512, sand: 16, torch: 32 })
 
 /**
  * NEVER DISPOSED, whatever any table says (the owner's list: iron, ores, ingots, tools, saplings, the composter's inputs;
