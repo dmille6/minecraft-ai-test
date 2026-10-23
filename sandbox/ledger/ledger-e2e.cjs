@@ -479,7 +479,7 @@ async function main () {
     }
   }
   const summary = { at: new Date().toISOString(), summary: true, sha, server: SERVER, ...gateOf(all), rounds: all.length, passed: all.filter(r => r.pass).length,
-    synthetic: 'arena and furnace presets by RCON; bot teleported to town with a light bag; scripted brain (status/short walks); sandbox pacing 10 s' }
+    synthetic: 'arena and furnace presets by RCON; bot teleported to town with a light bag; scripted brain (status/short walks); sandbox pacing 45 s; glass-walled arena; a fresh pool per smelt round' }
   fs.appendFileSync(RES, JSON.stringify(summary) + '\n')
   console.log('SUMMARY ' + JSON.stringify(summary))
   return summary.gate === 'PASS'
