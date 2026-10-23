@@ -1,0 +1,1156 @@
+mineshaft-safety (design, branch mineshaft-safety-1023) -- REVIEW RECORD, 2026-10-23
+FINAL: Codex APPROVE r10 + Claude APPROVE r10 (b1afc0a8), after 10 rounds. Open P2/P3s carried into the build reviews (design section 13).
+Doc: docs/reports/mineshaft-safety-2026-10-23.md. Codex: `codex exec --sandbox read-only - < prompt` with a
+( sleep 1500; kill ) watchdog. Claude: an independent general-purpose subagent, read-only, fresh context each round.
+
+====================================================================================================
+ROUND 1 (doc r1 @ cde81825): Codex CHANGE (11 P1, 5 P2, 1 P3); Claude CHANGE (6 P1)
+====================================================================================================
+--- Codex r1 (verbatim) ---
+1. **P1 — F1’s hold branch is not a safe, complete remedy (§7 F1, lines 585–646).** Clear feet with a dangerous block below does **not** establish solid footing: the bot may be falling over lava, standing on magma, or swimming above magma. The danger arm checks feet **OR below**, without checking support (`bots/src/reflex.mjs:2541–2556`). Sneaking cannot establish missing support, and the proposed hold has no deadline, release condition, or deterministic next action. Meanwhile, `inDanger` suppresses other movement recovery (`reflex.mjs:3035,3342`). Define supported-edge, falling, submerged, and solid-hot-floor cases separately; bound the hold and test control cleanup, skill unwind, and watchdog reservation contention. The proposed chain test also excludes `hold` from its allowed outcomes despite explicitly introducing it.
+
+2. **P1 — F1 verifies a trail destination, not a traversable retreat (§7 F1, lines 573–583).** A safe, supported cell among the last 40 samples may be behind a corner, above a drop, obstructed, or too far away. Turning toward it and holding forward does not retrace the trail. `cellLavaSafe` checks nearby lava; it does not establish body clearance or connectivity (`bots/src/lavaguard.mjs:10–18`). Require a bounded, currently verified sequence of moves, including headroom, support and swept geometry. Define how an in-lava retreat exempts the hazardous origin while validating the remaining route.
+
+3. **P1 — F2’s “exit” can be a sealed chamber, and its promised fixtures do not meet its thresholds (§7 F2, lines 650–705).** More than 24 reachable cells or a cell five blocks away proves room to move, not an exit. A sealed corridor satisfies `far`; an enclosed room satisfies `count`. Conversely, the supplied tunnel fixture extends only three cells, and the stair fixture only two; neither has sky, sufficient distance, or 25 reachable cells (`measure/probe-entombed.mjs:18–26`). F2 therefore cannot deliver its stated results on those fixtures. Its stuck backstop is also conditional: idle, digging and declared-stationary bots reset the timer (`bots/src/reflex.mjs:3339–3342`), and G1 misses healthy trapped bots. Define the intended escape endpoint, deterministically select the route when needed, and test enclosed-room, short-corridor and one-way-drop counterexamples.
+
+4. **P1 — F4’s seal is not yet executable from the specified position (§7 F4, lines 742–765).** “Replaceable lava cell” and “body overlaps no lava” do not establish a reachable placement face, unobstructed interaction, safe footing, sufficient blocks, or a safe approach. Lava behind the next solid head/feet cell may be inaccessible before that cell is opened—the exact ordering the design requires. Specify the placement reference, face, reach, approach and resource checks; an inaccessible seal must turn or stop without opening the barrier. Revalidate before **each** dig, re-dig, placement and movement, rather than only before the step’s first dig. Existing mining performs multiple asynchronous digs and a recovery re-dig (`bots/src/skills.mjs:13021–13025,13148–13158`); poolescape already explicitly requires fresh hazard checks at the swing (`docs/reports/poolescape-01-design-2026-10-22.md:113–115`).
+
+5. **P1 — F4’s return remedy is advisory, and `surface` does not walk the recorded stair (§7 F4, lines 809–815; §7 F6).** Returning a failure naming `surface` does not cause the next decision to execute it. Current `surface` probes altitude goals, can use digging movements, and can invoke `shaftAscend`; it has no certificate-following branch (`bots/src/skills.mjs:15369–15373,15401–15427`). A stop on the first step also has no stair cut by this call. Implement a deterministic return executor and test it from initial refusal, partial descent, depleted resources, zone/keepout restrictions and interrupted execution. Make that executor a prerequisite for granting return credit.
+
+6. **P1 — F6’s debt formula does not price the remaining unverified escape (§7 F6, lines 819–869).** With a certified stair from y=63 to −53, `y_top − y` remains 116: essentially today’s debt, despite the claimed zero-dig return. With a stair starting in an enclosed cave at y=−40, the formula can instead grant substantial credit without proving any route from that cave to safety. The prior shaft certificate certified the landing-to-collar route and collar exit, not merely arrival at an arbitrary top (`docs/reports/ziggurat-mineshaft-2026-10-15.md:783`). Define debt as the unverified remainder beyond a certified safe endpoint, and explicitly specify the separate scaffold and swing policies. “Failed revalidation → today’s debt” is not necessarily safe after earlier credit has already allowed those reserves to be spent.
+
+7. **P1 — F6’s certificate is weaker than the T6 certificate it cites (§7 F6, lines 826–835).** `canDig=false` does not mean zero-place: the walk profile allows towers and scaffold placement (`bots/src/index.mjs:426–450`). F6 also records stair cells but does not require recording/revalidating every node of an alternative probe route or applying the execution-time corridor guard. That guard can reject an otherwise planned route (`index.mjs:1026–1033`; `oretunnel.mjs:83–102`). Use T6’s explicit zero-break/zero-place profile and validate the entire executable return route. Clarify coordinates too: the proposed “tread solid” conflicts with the existing tread/feet cell being opened for occupancy; its supporting floor is a distinct cell (`skills.mjs:14458–14464`). Specify certificate extension across calls—the current mine loop stops after 90 steps (`skills.mjs:12818`).
+
+8. **P1 — The proposed correctness gates cannot be computed from the proposed rows (§7 F1/F4/F6).**
+   - F1 records neither trail candidates nor sampled geometry nor actual sprint/jump controls, yet G1–G3 require them (lines 595–616).
+   - F4 records lava cells and aggregate counts, but not per-dig observations, placement material/reference, or push geometry needed by G1–G3 (lines 774–789).
+   - F6 records a validity conclusion and node count, not the certificate nodes and block observations needed to independently recompute validity (lines 840–856).
+
+   Add bounded structured evidence, operation/certificate IDs and timestamps, plus positive controls demonstrating that each gate detects an injected defect. Re-reading a decision’s own `valid` flag is not independent verification.
+
+9. **P1 — F5 can block escape, and its claimed input and loss instrumentation are incomplete (§7 F5, lines 873–910).** Hard exclusions around remembered lava need an outward-egress rule for bots already inside them, including certificate returns and `keepout_exit`. “Pick another gather target” does not remedy a blocked goto-home or return stair. Specify stale-sighting invalidation after sealing or world changes, and bounded recovery when every target is excluded. Several named input rows do not contain lava coordinates: danger logs only a block name, while stand-off/no-retreat details omit the hazard cell (`bots/src/reflex.mjs:2530,2538,2554`). World-facts contention can skip writes (`bots/src/worldfacts.mjs:185,190–197`); the design does not identify the asserted loss counter or a retry/reconciliation mechanism.
+
+10. **P1 — The diamond job lacks enforceable admission, return and resource invariants (§8, lines 939–979).** “At most 2 … a soft preference” does not enforce M8’s cap. A town-wide stair needs an atomic, recoverable occupancy lease covering descent **and ascent**, including renewals, expiry, disconnects and returning miners. The stated 400-use admission budget does not cover its own example of approximately 351 descent digs plus 200 branch digs; pooled uses also do not reserve an iron-or-better pickaxe for diamonds. Define per-action budgets, food/recovery supplies, and a deterministic return from branches and ore approaches to the stair. The certificate currently covers staircase steps only, yet any lava retreat ends the job and may leave that route.
+
+11. **P1 — “Own stair and branches” does not yet establish the diamond tier’s fall-safety exemption (§3, §8, O4).** F4 checks lava but leaves ordinary void handling “as today.” Today the fall probe permits survivable drops rather than requiring a supported, reversible stair (`bots/src/skills.mjs:12931–12950`). A cut can therefore open into a cave and lose the walk-up invariant. Require verified support and reversible movement for every deep-miner step, branch and ore approach before dismissing falls as an independent workstream. This strengthens M7/M9 without changing either owner decision.
+
+12. **P2 — The lava measurement labels and causal claims exceed what the scripts compute (§§0, 2.3–2.4).**
+   - `d4.py:28` correctly labels nonhazard feet as **hazard below**, not lava below. The row cannot distinguish lava, magma or another `DANGER_BLOCKS` member underneath; `bubble_column` is the feet block, not the below block.
+   - Its conversion window is 20 seconds after the episode’s **first** row (`d4.py:30`), not after any firing or episode end. Later deaths can be labelled “survived.”
+   - `d3.py:34–38` only examines mine/gather skills starting within 60 seconds. Longer-running digs are missed even when their execution overlaps the last 30 seconds. Thus 16 is not an established upper bound on dig-exposed deaths.
+   - “Seen” means a warning somewhere in the preceding 150-second context, without matching the warned cell to the fatal hazard.
+   - `d5.py:25–31` selects the first observed health below 20 in the final 12 seconds, without requiring a preceding full-health observation; that is not necessarily first damage.
+
+   Rename these measures precisely, fix execution-interval matching and episode censoring, and separate temporal association from the claim that the reflex was the last mover.
+
+13. **P2 — Entombment prevalence is supported; resolved episodes, causal dominance and time cost are not (§4).** `e1.py:26` implements the stated proximity/gap grouping, but it does not split on death, respawn or observed recovery. “Cleared” is merely absence of a matched death/unrecoverable row; unrecoverable matching actually extends 60 seconds past the episode (`e1.py:66–69`). Summed spans can include successful intervening activity, so they are not a demonstrated lower bound on entombed time (`e1.py:88`). Multiplying interrupt count by a median from another window likewise does not measure incremental time lost. The supplied scripts contain no implementation of the 20,000-point baseline or the 17/17 climb association. Supply those analyses, control for bot/world clustering, and qualify “dominant cause” and the 3–6% fleet-time estimate.
+
+14. **P2 — Depth rates are a mismatched exposure proxy, not an estimated deep-miner lifetime (§§0, 3, 8).** `es3.py:20–30` assigns an entire ten-minute bucket using its **event-weighted** average height; `d6.py:17–22` assigns deaths by final height. A brief fatal fall can add a deep death without corresponding deep exposure. The caveat is present, but “dies roughly every 2.6 bot-hours” and its use to quantify M7’s alternative overstate what follows. Report the proxy association or recompute time-weighted, pre-death exposure. Also remove the claim that the measurements do not depend on board-a/placebo-a: the extraction scripts include all pools (`es1.py:5`, `es3.py:17`), and the document itself attributes ten deep deaths to placebo-a.
+
+15. **P2 — F3’s ghost trigger cannot reach its stated ghost action, and its fallback can create another hazard (§7 F3).** A client-air ghost with no nearby falling entity fails the proposed trigger, so “send the dig action anyway” is unreachable (lines 725–729). Digging the feet and stepping down also requires verified support, lava/fall checks and an executable movement; `overheadBreakRisk` alone does not establish those. “Existing arms keep the body” is not a remedy when those arms cannot observe the in-wall condition. Keep F3 investigation-only until the trigger, ownership, server witness and complete fallback chain are demonstrated.
+
+16. **P2 — Single-variable and tier claims need narrower registration (§7).** F5 changes both routing exclusions and explore-target selection; F6 adds torch placement independently of exit credit. Split those effects or explicitly justify an inseparable intervention. F1/F2 are plausible tier-2 candidates only after strong Paper evidence exists; a pure-function boundary or “one conjunct” is insufficient. Spell out the tier-2 conditions—four pools, ≥48 bot-hours, declared exposure, clean baseline, no WATCH/HOLD and the required licence—rather than implying +180 follows from high firing counts. F1 appropriately acknowledges low fleet power, but requiring 20-trial constructed scenes to reproduce observational 10%/49% conversion rates is not a sound positive control; demonstrate the failure mechanism and report trial uncertainty.
+
+17. **P3 — Correct internal counts and reproduction details.** The summary says 77 idle deaths and 302 clear-feet episodes, while §2 reports 81 and 303. `es5.py:17` writes `entomb7d.json`, whereas `e1.py:4` reads `entomb7d.json.gz`; document the missing compression step. The JSON inputs are not included, so this checkout supports auditing the calculations but not independently reproducing the reported totals. Finally, “pathfinder never steps into lava” should describe its planning checks, not guarantee physical execution; the document itself identifies execution failures.
+
+VERDICT: CHANGE
+
+--- Claude r1 ---
+Claude (independent general-purpose subagent, read-only), r1 on cde81825. Verbatim findings:
+
+The code facts in section 9 hold (escape() reflex.mjs:5948; danger arm and its `feet?.name ?? below?.name`
+detail 2541-2559; isEntombed geometry 3391-3442; fall probe counting lava as hollow, skills.mjs:12931-12951; lava
+checks on the ceiling neighbours only, 12957-12967; the push with no hazard check, 13146-13181; the swing formula,
+exit-contract.mjs:109-113 with SEA_LEVEL 63; the pathfinder lines). The probe reproduces all six results. The problems
+are in the fix designs and in some of the counting.
+
+P1-1 §7 F1: the sneak-hold is a new dead end. While feet or below are DANGER the danger arm fires every 2.5 s and
+  calls runner.interrupt('danger_block') (reflex.mjs:2552-2557); the movement arms stand down on inDanger. A bot
+  holding with no retreat cell can run no skill and no arm moves it -- permanent. `air` feet over a danger block also
+  happens to a bot in mid-air, and 32 of the deaths were falls into lava. Require onGround, bound the hold, give it a
+  working exit; chain-test S3 through the next decision.
+P1-2 §7 F1: trail cells are never checked for reachability. "Newest lava-safe supported cell in the last 40" has no
+  height or line check; the swept-line check applies only to the cardinal option. After a fall the trail is blocks up.
+  Allow only cells one walk step away (|dy| <= 1) with stepLineSafe/holdForwardSafe on the line.
+P1-3 §7 F1/F4: the gates cannot be computed from the rows. _lava_retreat once per episode while the arm fires every
+  2.5 s; no swept cells, candidates or control states (G1-G3 unrecomputable). _mine_lava holds counts, nothing about
+  pushes (G2) or the placed item (G3). F4 G1 checks the planner against its own row: circular. Under tierrule.py an
+  undefined line blocks a tier-2 KEEP. List the fields each row needs.
+P1-4 §7 F6: the debt formula leaves out the climb above the certificate. max(0, y_top - y) treats the top as the
+  surface, but a certificate starts where the mine call started -- often underground (target bands 16..47 hold 27k
+  calls). Correct debt is descentPickNeed(y_top) + 0 for the stair. Also: how does a certificate chain across calls?
+P1-5 §7 F6: credit can leave a deep bot with no way home, and widens deep exposure. Swing refusals come from worn
+  pickaxes; credit lets them descend; a later failed revalidation stops descent with the bot already deep and short of
+  swings -- "get a pickaxe" at y=-40 is not executable. Keep a swing floor with credit and turn back while swings
+  still cover the climb. Also: expecting fleet-wide time below y=0 to rise conflicts with M8; limit credit to the
+  deep_miner job or a certified town stair, or ask the owner.
+P1-6 §7 F4+F5+F6: remembered lava blocks the stair home. F5 writes _mine_lava cells and blocks their 4 cardinals with
+  no clearing on a later clear read; F4 seals lava beside the stair's cells; the seals then exclude the stair's own
+  cells; F6's walk-only probe and the walk up both fail. A live read must clear a memory cell, sealed cells are
+  recorded as sealed (or not at all), and no exclusion covers a certified cell.
+
+P2: §2.3/d3.py "seen" includes _reflex_danger_block `lava` rows and corridor refusals planned from inside lava (the
+  3-10 s bucket is mostly "already in lava"; the 60 at >= 10 s holds up; classify by health and feet cell); d3.py:34
+  drops skills started > 60 s before death, so 16 is not an upper bound. §2.4/d4.py: air/cave_air feet means any
+  DANGER block below, including a supported magma floor; bubble_column is the feet cell; relabel; F1's `over` must
+  check the below name. §0.2/§4.1 "mostly the predicate misreading" is from hand-built fixtures; the stair fixture is
+  2 high while descentStepCells opens `above`, so a mine-cut stair reads false; soften, or log what walkExit would
+  decide at each firing. F2: via=sky with climbNeedAbove=0 cannot happen (returns >= 1 or the cap, reflex.mjs:369);
+  "does not touch maroonState" is false (isEntombed feeds entombedNow 2634-2641 and escape success 3264; test it);
+  G1 "health falling" misses a healthy bot behind a false exit -- use no displacement; a sealed 6-long tunnel or a
+  sealed 30-cell cave passes far/count -- chain-test through surface. Licences: tierrule.py:103 accepts only `kind`
+  or `text`, not "mechanism"; F2 names none and its primary is a rate, so "+180 KEEP realistic" fails; name kind
+  licences. F4 seal geometry: lava beside an unopened cell shows no face the bot can see; say which block and face,
+  and whether it opens then plugs inside the flow delay; S1 must use the real placement path. F4 is about five
+  changes under one flag (a bundle); magma in LAVA_LIKE makes the stair turn from a diggable cell; flowing lava is
+  still named `lava` (no flowing-variant gap). F6: a straight 117-step stair leaves loaded chunks (use a spiral or a
+  loaded-only rule); surface climbs by pathfinding to a height (skills.mjs:15371), not along the certificate; protect
+  the town stair from other bots' digs. F5 is three changes; the target filter is the part aimed at 61/84 and could
+  move earlier. §8 branches need a horizontal planner including breaking into a cave or void below; D0 should count
+  water. Unscripted numbers: 164/276, 51.9%, 17/17, falls breakdown, "77 idle"; the 52% base is for entombed, the
+  claim says "entombed or marooned"; 0.52^17 assumes independence.
+
+P3: 302 vs 303; 77 vs 81 idle; "81 of 84 bots" should be deaths; the 141,921/142,886 are _explore_toward_known rows
+  against explore rows; the falls breakdown sums to 82; milestone ratios use decisions not bot-time; the "every 2.6
+  deep bot-hours" headline needs §3's caveats; §13's review file does not exist yet; §8 "mined only from above"
+  contradicts "never dig down onto it"; the second miner's wait needs a timeout; natural obsidian under the ore rule
+  is mostly unminable (ruined portals are the realistic source); F3 must take the body grant; F1's trail ring should
+  clear on respawn or relocation.
+
+The order F1 -> F2 -> F4 -> F6 -> F5 is sound once P1-6 is fixed; the diamond tier should also wait for the F6 swing
+floor.
+
+VERDICT: CHANGE
+
+--- r1 -> r2 response (doc r2) ---
+Codex P1-1 / Claude P1-1 (F1 hold dead end): hold removed. Cases airborne / edge / in, by onGround and feet+below
+  names; edge with no verified step -> witnessed seal -> aimed escape; in -> aimed escape. Bounded, every branch moves.
+Codex P1-2 / Claude P1-2 (trail reachability): trail removed; stepPlan BFS <= 3 walk steps, every cell read now,
+  |dy| <= 1, lavaStandOff's swept 3-wide line, only the in-lava origin exempt.
+Codex P1-3 / Claude P2 (F2 false exit, fixtures): endpoint is now a free cell the bot occupied in the last 120 s
+  (isEntombed false there), >= 3 away, reachable by walk-profile moves in <= 64 nodes; two declines per cell per
+  10 min then today's arm; counterexamples (TOMB, sealed-behind tunnel, one-way drop) must stay entombed; G1 uses
+  no displacement, not health.
+Codex P1-4 / Claude P2 (seal geometry): seal only lava VISIBLE from an already-open cell, against a named solid
+  reference face within reach and line of sight, from a solid DANGER-free stand; hidden lava -> turn, never
+  open-then-plug; planner re-run before every dig, re-dig, place and move.
+Codex P1-5 (advisory remedy): F4 now carries a deterministic in-call return (walk the call's own stand cells up on a
+  zero-break zero-place profile), else relocate, else refusal from the call's start cell.
+Codex P1-6 / Claude P1-4 (debt formula): debt = exitDebt(top) (today's contract at the certificate top) + 0 for the
+  stair; certificates chain across calls from the bottom stand cell.
+Claude P1-5 / Codex P1-6 (no way home after credit; M8): swing floor exitDebt(top)+30 and 16 seal blocks always
+  kept; failure after credit -> walk the valid part, re-dig within the floor, then surface; credit below y=0 only
+  under a deep_miner lease (off until cooperation-1023 ships it) -- owner question O7.
+Codex P1-7 (certificate weaker than T6): explicit zero-break zero-place probe profile (no towers/scaffold/parkour,
+  maxDropDown 1), probe nodes through corridorSafe, cells named (feet, head, above, floor), 90-step chaining.
+Codex P1-8 / Claude P1-3 (gates not computable): every row now carries structured args (logger args field):
+  F1 per firing with plan cells, swept names, controls, seal, after-state; F4 per-action faces/seal/push;
+  F6 cells_read and probe_path; every gate has a mutant positive control.
+Codex P1-9 / Claude P1-6 (F5 blocks escape; inputs; losses): F5 split; F5a uses the bot's own coordinate-bearing rows
+  only, target choice only; F5b live re-read clears loaded non-DANGER cells, egress for bots inside (first 6 nodes),
+  never covers certified cells / keepout_exit / home goals, one downgrade re-plan, write retries + skipped counter.
+Codex P1-10 (diamond job invariants): atomic per-town lease (max 2) + a separate stair mutex with expiry; per-action
+  budgets; a reserved iron-or-better pickaxe for ore; budgets for first cut vs certified stair; deterministic
+  end/return including after an F1 move.
+Codex P1-11 (fall-safety for deep miners): reversible-step rule in F6 (solid non-falling floor, one step-up back) and
+  branches never open into air/caves (turn).
+Codex P2-12 / Claude P2 (measurement labels): d7.py -- warnings exclude danger rows, cell-matched (65; 44 >= 10 s);
+  dig by interval overlap (16, not an upper bound); episodes censored at last+20 s (31/303, 32/65, 4/44); first
+  damage after a full-health row (79/84); "hazard below" relabelled; association, not causation, stated.
+Codex P2-13 / Claude P2 (entombment stats): e2.py -- split at deaths (61,538); per-bot base rates; suffocation 17/17
+  vs 8.7 expected (P ~ 1e-5 illustrative; 8 of 17 in hive-d); climbs >= 3 in 10 of 17 (not "each"); "cleared"
+  renamed; spans not a lower bound; interrupt cost labelled an estimate; "mostly the predicate" softened.
+Codex P2-14 / Claude P3 (depth proxy): pre-death-y binning added (bottom band 9 deaths, 23/100 bh); the "every 2.6
+  bot-hours" line removed; board-a/placebo-a statement corrected (included; judged unaffected).
+Codex P2-15 (F3): investigation-only until a mechanism reproduces; trigger must reach it; body grant; fallback with
+  verified support.
+Codex P2-16 / Claude P2 (variables, tiers, licences): F5 split; torches moved out of F6 into the deep-miner
+  procedure; F4 declared a bundle with the reason; tier-2 conditions spelled out (tierrule.py:84-108); licences of
+  class kind named; Paper positive control is the mechanism, with intervals.
+Codex P3-17 / Claude P3: counts reconciled (81 idle, 303); reproduce notes the gzip step and that JSON is
+  regenerated; "pathfinder plans no step into lava" (planning only); magma-as-turn reasoned; flowing-lava gap
+  removed; climbNeedAbove claim removed; obsidian -> ruined portals; second-miner wait times out; "from above"
+  contradiction removed.
+
+
+====================================================================================================
+ROUND 2 (doc r2 @ 8fde2969): Codex CHANGE (8 P1, 2 P2); Claude CHANGE (5 P1)
+====================================================================================================
+--- Codex r2 (verbatim) ---
+Reviewed commit `8fde2969`. References to “design” below mean `docs/reports/mineshaft-safety-2026-10-23.md`; measurement filenames refer to its `.measure/` directory. The JSON inputs are absent, so I audited the calculations but could not independently reproduce the fleet totals.
+
+Round-1 disposition, using the Codex finding numbers:
+
+| R1 | R2 disposition |
+|---|---|
+| P1-1 | **Partial:** unbounded sneak hold removed; replacement branches still have execution gaps. |
+| P1-2 | **Partial:** stale trail removed; proposed step geometry and controls disagree. |
+| P1-3 | **Unresolved:** recent occupancy does not establish an exit from a sealed corridor. |
+| P1-4 | **Resolved at design level:** visible face, reach, safe stand, witness and per-action checks specified. |
+| P1-5 | **Partial:** deterministic return added, but its route need not be reversible and failed returns still hand off without a demonstrated remedy. |
+| P1-6 | **Partial:** debt above the certificate is acknowledged; recovery after invalidation remains unsound. |
+| P1-7 | **Partial:** zero-place profile, coordinates and chaining fixed; full-route revalidation remains incomplete. |
+| P1-8 | **Unresolved:** structured fields added, but sampling and omitted inputs still prevent gate computation. |
+| P1-9 | **Substantially resolved:** target/routing split, live invalidation, exemptions, downgrade and loss counter specified. |
+| P1-10 | **Partial:** admission budgets and atomic cap improved; lease expiry and returning-miner occupancy remain unsafe. |
+| P1-11 | **Partial:** reversible steps specified, but non-reversible steps can start another certificate instead of stopping descent. |
+| P2-12 | **Partial:** interval overlap, warning proximity and episode-end windows improved; the headline still claims an upper bound, and snapshot timing introduces another error. |
+| P2-13 | **Resolved in the document:** association, clustering and time-cost limitations are stated; baseline/climb analyses supplied. Old `e1.py` output labels remain misleading. |
+| P2-14 | **Partial:** lifetime claim removed and included pools acknowledged; the new pre-death position calculation is not reliably pre-death. |
+| P2-15 | **Resolved:** F3 is investigation-only with explicit build prerequisites. |
+| P2-16 | **Resolved at design level:** F5 split, torches separated, F4 declared a bundle, tier-2 conditional on Paper evidence. |
+
+The principal existing-code claims check out: blind sprint-jump, feet **or** below danger trigger, head-level entombment walls, lava counted as hollow, ceiling-only neighbour checks, blind recovery push and the swing formula. Pathfinder planning checks do not guarantee safe physical execution.
+
+1. **P1 — F6’s invalidation remedy cannot get the bot past an unrepairable break (§7 F6; unresolved R1).**  
+   Design:963–968 says to walk upward to the break, repair within 30 swings, and—if repair exceeds that budget—apply `surface` from **above** the break. The bot is still **below** it. A missing floor, lava obstruction, protected obstruction or longer blockage need not be repairable within that allowance. The same problem occurs when keepout invalidates a certificate after credit was spent (design:1012).
+
+   Nor does a valid certificate automatically select a return on every ordinary exit-contract refusal: existing `surface` uses altitude probes and potentially `shaftAscend`, not certificate traversal (`bots/src/skills.mjs:15371,15401`). Specify a deterministic return executor for all credited exits and an executable fallback from the actual stranded position. Price scaffold separately as well as swings; today’s contract requires both (`bots/src/exit-contract.mjs:157–173`). A fixed repair allowance is not proof that arbitrary route loss is recoverable.
+
+2. **P1 — F4 ships before the invariant that makes its return executable (§7 F4/F6 and ordering; unresolved R1).**  
+   F4 records visited stand cells and promises a zero-break, zero-place return (design:864–871). Existing mining can take survivable drops (`bots/src/skills.mjs:12931–12950`); having stood at both endpoints does not make the reverse move possible. Reversibility arrives only in later F6.
+
+   Even F6 says a non-reversible step “ends the certificate” and subsequent steps start another one (design:942–945). That permits losing the original way home, contrary to the diamond-tier fall exemption. Require reversible support **before entering every step**, make this prerequisite part of F4’s return machinery, and explicitly prohibit deep miners from crossing an uncertified transition. A failed return followed by “the marooned and stranded ladders then have the body” is still an unproven refusal chain.
+
+3. **P1 — F1’s replacement state machine contradicts its own execution and gates (§7 F1; new R2 defects).**  
+   - `edge` permits a one-block ascent but forbids jump (design:621,630). Local physics permits only a 0.6-block step without jumping (`bots/node_modules/prismarine-physics/index.js:69`). A full-block exit can therefore be selected but never executed.
+   - The `edge` fallback explicitly sprint-jumps (design:640–642), while G3 forbids sprint or jump on **every** `edge` firing (design:678).
+   - A seal attempt that has a block and face but receives no witness has no specified next transition: step 2 covers “no seal block or no face,” not failed placement (design:637–642).
+   - The cases omit feet in `campfire`/`soul_fire`, both members of the existing danger set (`bots/src/reflex.mjs:74`).
+
+   Make the cases exhaustive, require that selected moves have executable controls, and define failure/timeout transitions. The “never worse than today” claim is unsupported: minimizing nearby DANGER counts can choose an unsupported drop or obstruction over a traversable bearing. Include support, collision and fall outcomes in the fallback evaluation.
+
+4. **P1 — F1 does not establish exclusive control during its longer escape sequence (§7 F1 contention; unresolved composition).**  
+   Clearing a path once and waiting for another owner’s reservation to expire does not cancel that owner’s pending work (design:647–652). `Runner.interrupt()` only aborts the current skill; a matching reservation owner can subsequently start its rescue (`bots/src/runner.mjs:185–189,203–212`). An unwinding skill can also clear controls during F1’s sequence.
+
+   R2 expands the action to multiple steps and placement awaits without specifying a body grant, cancellation acknowledgement, generation checks or ownership-aware cleanup. Define that protocol and test a watchdog rescue starting after F1’s initial `setGoal(null)`, a late skill cleanup, and air-rescue preemption. Poolescape’s existing design explicitly checks ownership after awaits; “reservations expire” is insufficient.
+
+5. **P1 — F2 still accepts a sealed corridor as an exit (§7 F2; unresolved R1).**  
+   A bot walks along a six-cell tunnel, records its middle cells as `isEntombed=false`, and reaches the dead end. Another action seals the mouth. A recorded middle cell three blocks away remains reachable, so `walkBack` returns true although the corridor is sealed. This satisfies design:721–727 but contradicts the intended sealed-tunnel counterexample at 743.
+
+   Two declines per cell does not resolve movement between cells, and G1 expressly ignores cases with displacement ≥2 blocks (design:733–734,769–771). Existing stuck detection also exempts idle and digging bots (`bots/src/reflex.mjs:3339–3342`). Require a meaningful endpoint or deterministic bounded recovery for the whole episode, not just per-cell retries. Clarify whether history uses the original predicate; using the augmented predicate allows declined cells to renew the evidence that caused the decline. The supplied probe still contains the original fixtures and no history-aware r2 tests (`probe-entombed.mjs:14–29`).
+
+6. **P1 — The correctness gates still cannot be independently computed (§7 F1/F4/F5/F6; unresolved R1).**  
+   Concrete omissions remain:
+
+   - **F1 G2:** rows contain the selected plan, not all searched/rejected candidate geometry. An aimed escape with an empty plan cannot prove whether a valid alternative existed (design:655–678).
+   - **F4 G1:** only non-clear planner calls and one clear summary per step are logged, despite multiple digs/re-digs requiring fresh checks. The summary cannot establish each swing’s observations (design:831–833,874–900).
+   - **F6 G1:** validation rows are emitted on state change/every ten steps, and `probe_path` is capped at 32 nodes. That cannot verify every credited step of a 117-step descent (design:979–998).
+   - **F5a G1:** hourly ring dumps and skip rows do not reconstruct the ring at every chosen target. **F5b G1/G2:** sampled route summaries omit executed-node histories and the duration of no-path states (design:817,1043–1058).
+
+   Emit complete, time-associated evidence for every gated action, with operation IDs, or narrow the gates to what is actually observed. Mutants do not repair missing evidence. Also add a gate for the F6 swing floor: the listed “drop the floor” mutant has no corresponding direct correctness condition.
+
+7. **P1 — Certificate revalidation remains weaker than T6 (§7 F6; unresolved R1).**  
+   R2 validates before a step’s **first dig** and rereads recorded stair cells (design:949–954). It does not explicitly retain and freshly validate all body/floor cells of an alternative probe path before subsequent digs and movement. T6 required every route node and revalidation before **every dig or hop** (`docs/reports/ziggurat-mineshaft-2026-10-15.md:783`).
+
+   A path can depend on cells outside the recorded stair, or change during awaited digs. Preserve the entire executable route, validate its support and clearance at action time, and test an obstruction introduced after the first dig. F4’s local next-step checks do not validate the distant return route.
+
+8. **P1 — Lease expiry can violate M8 and strand an ascending miner (§8 M8; new R2 defects).**  
+   The lease expires while the miner may still be underground, but expiry also triggers its return (design:1133,1162–1168). The assigner can admit a replacement while that miner is still ascending. Similarly, a disconnected stair holder’s mutex expires even though it can reconnect midway down the stair; another bot may already hold the mutex.
+
+   A bottom waiter that times out cannot simply “decline the job” and cease needing an exit (design:1136–1139). Separate productive-work expiry from evacuation occupancy, retain returning miners in the cap, and specify fenced reconnect/reacquisition and ascent priority. Test expiry during a blocked ascent, reconnect after mutex reassignment, and two miners simultaneously ending their branches.
+
+9. **P2 — R2’s pre-death depth and first-damage calculations use the wrong observation time (§§2–3; new measurement defect).**  
+   `d7.py:45–50,97–98` treats every row’s `@timestamp` as the time its health/position was observed. Completed skill rows instead carry a **start timestamp** (`bots/src/logger.mjs:59`) and an **end-of-skill snapshot** (`bots/src/runner.mjs:570–575`).
+
+   A skill starting 40 seconds before death and ending beside the fatal hazard can therefore supply the supposedly “30–60 seconds before” position. Health observations can likewise be backdated or reordered. Use contemporaneous event snapshots, or explicitly associate completed-skill snapshots with completion time, then rerun these claims. Keep the depth denominator labelled an event-weighted bucket proxy.
+
+10. **P2 — Several measurement headlines still exceed their classifiers (§§0, 2 and 4).**  
+    - Design:38 still says **“At most 16”**, contradicting the acknowledged incomplete execution window at 195–197.
+    - `d1.py:8–9` classifies every other `fire` death as lava. That cannot independently establish “all 84” or “no burned-to-death deaths.” Add explicit message categories and an unknown category, with positive-control examples.
+    - Danger episodes in `d7.py:68–78` do not split at death/respawn and treat every unrecognized detail as `air/cave_air`. They also do not exclude right-censored episode windows at the extraction boundary. Name the measure precisely and report unmatched/censored cases.
+    - `e1.py` still prints “cleared” and “lower bound on time entombed,” although r2 correctly withdraws those interpretations.
+
+    The revised proximity-matched warning measure is useful, but proximity to death is temporal/spatial association, not identification of the fatal lava cell.
+
+The ordering and M7–M10 direction are otherwise reasonable. Diamond admission must wait for an executable, protected return route and the corrected lease lifecycle—not merely F1/F4/F6 licence rows. F3 and enchanting appropriately remain gated investigations/sketches.
+
+VERDICT: CHANGE
+
+--- Claude r2 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r2 on 8fde2969. Summary of findings
+(the reviewer's own words condensed; numbering kept):
+
+R1 disposition: Codex P1-2, P1-7, P1-9, P1-11, P2-12/14/15 yes; P1-1, P1-4, P1-6, P1-8, P1-10 partly; P1-3 no;
+Claude P1-2/4/6 yes; P1-1/3/5 partly.
+
+P1-A F1 has no body ownership; the airborne case undoes F1's own moves. The reflex tick is an async setInterval with
+  no re-entry guard (reflex.mjs:1596, 3320); an `in` or aimed sprint-jump leaves the bot !onGround, the next tick
+  classifies `airborne` and releases the jump mid-arc; after step 1 inDanger is false so entombed/stuck/stand-off can
+  run in steps 2-3; F1 takes no grant though PRIORITY.lava = 90 exists unused (arbiter.mjs:21); an entombed pillarOut
+  under its grant keeps steering. Take the body, hold an in-flight flag that suppresses airborne and the other arms,
+  chain-test with overlapping ticks.
+P1-B F1 G3 trips on F1's own designed behaviour (edge step 2 is the aimed sprint-jump). Restrict G3.
+P1-C F2's two-decline bound runs out in ~1 s: the arm is evaluated every 500 ms and lastEscapeAt moves only when an
+  escape runs, so declines are not throttled; isEntombed is also called at 2634 and 3264, which would spend the budget.
+  Throttle by time or count per arm firing; keep walkBack out of the shared predicate.
+P1-D F2's endpoint is not "out": tunnel middle cells read false, so in a 6-long tunnel sealed behind the bot the
+  inside cells are free and the bot is declined; with the new predicate in the ring, declines chain. Record the old
+  geometry only; require the endpoint outside the bot's current enclosed component; test with walk-in history.
+P1-E F6: a break bigger than the 30-swing floor strands the bot below it; above y=0 credit applies to every bot on
+  unprotected stairs in hollowed-out towns; "every step executable because the floor reserves the swings" is false.
+  Bound the breaks, protect credited stairs, or take it to the owner.
+
+P2: F1 cases miss a bot in non-DANGER liquid over DANGER (water over magma without a bubble column); edge seal into
+  magma/campfire is impossible (not replaceable); DANGER_BLOCKS vs LAVA_LIKE differ; stepPlan's 3x3-clean goal never
+  exists on a 1-wide ledge (accept stand-off grade); only the in origin is exempt so plans exist mostly in 1-wide lava
+  (say the aimed escape carries `in`); aimed sweep length unspecified (5-7 blocks in 1.5 s). Gates: F1 G2 needs the
+  search neighbourhood; F4 G1 needs faces per action with a join key; F6 G1 rows too sparse and probe_path <= 32 for
+  117 steps; F4 G4 relocation row unnamed. F4 seal geometry: the reference must be beside the lava cell with the face
+  pointing into it; lava touching an open cell has already flowed in, so seal is nearly unreachable and S1 is a turn
+  by the table; tell the owner M7's seal will mostly be turn/stop. Seal-block stock: town deposit keeps 8 cheapest
+  scaffold (bankable.mjs:183, towndeposit.mjs:126); add a keep rule. F6 probe "from the post-step position" before the
+  step is dug fails; units of exitDebt(top)+30. F2 ring needs its own sampler. Mutex/lease: bottom waiter times out
+  before a dead holder's expiry; per-step renewal lets a stalled holder expire; lease expiry must leave time to climb;
+  WF_LOCK_BUSY must be a refusal; a fixed spiral conflicts with F4's turn.
+P3: d7.py air/cave_air bucket catches every other feet name; sort context first; §0.4 "15 ... all lava" vs 14;
+  "fell in from above" and "escape climb" are inferences; F5a has no Paper scene or mutant; F1's >= 3 episodes rarely
+  met by +180; F5b's home-goal exemption covers the 45-block hot spot; check anti-xray before F4; confirm world facts
+  are per world. Numbers checked against the scripts: d7 sums (60+20+4, 44+21+19 = 84), depth table sums to 276,
+  e2's per-bot product consistent with 9.7e-6.
+
+VERDICT: CHANGE
+
+--- r2 -> r3 response (doc r3) ---
+Codex P1-1 / Claude P1-E (F6 break below an unrepairable break): F6 is now ONLY the town's deep stair for
+  deep_miner leaseholders: two lanes, shell lined (falling/liquid/DANGER replaced before opening, shaft T8/T9),
+  envelope reserved (all target/transit digs refused, PF break 1000), route = the certificate's own stand cells.
+  Break -> walk to break -> repair within a 30-swing + 32-block floor -> switch lanes -> stranded ladder with the floor
+  in hand; the both-lanes break is a defect gate (G2). Credit for ordinary bots above y=0 withdrawn (owner Q O7);
+  every leaseholder exit goes through the stairReturn executor, never surface. Scaffold priced in the floor.
+Codex P1-2 (F4 return needs reversibility before F6): reversible-before-entering moved INTO F4 (solid non-falling
+  non-DANGER floor, one step-up back with three passable cells); the in-call return therefore always has one-step-up
+  moves; a failed return leaves today's exit-contract reserve intact (F4 does not touch the contract), so today's
+  surface chain applies from higher up -- argued as not a new dead end. Deep miners never cross a non-reversible step.
+Codex P1-3 / Claude P1-B + P2 (F1 contradictions): edge steps may jump only to a 1-up destination (prismarine 0.6
+  step); G3 restricted to edge PLAN steps; failed/unwitnessed seal -> aimed escape; cases exhaustive (campfire,
+  soul_fire, magma in `in`; non-DANGER liquid over DANGER in `in`); seal only into replaceable cells (lava, fire),
+  reference beside the cell, face pointing into it, visible through fluid; goal is stand-off grade; aimed bearing
+  scored over 6 blocks by support, collision, DANGER; "never worse than today" withdrawn.
+Codex P1-4 / Claude P1-A (F1 exclusive control): an in-flight flag `dangerMoving` for the whole sequence suppresses
+  re-classification (no airborne release mid-arc) and the stand-off/marooned/entombed/stuck arms; running escape
+  routines stop at their ownership checks (alive && !dangerMoving); re-assertion every 50 ms (haltPath + controls);
+  no reservation taken or superseded; air rescue keeps precedence; overlap/pillarOut/watchdog/skill-cleanup/air/death
+  tests named.
+Codex P1-5 / Claude P1-C, P1-D (F2): the conjunct moves to the ARM (isEntombed unchanged for 2634/3264); declines set
+  lastEscapeAt so the 15 s interval throttles them; the free-cell ring has its own sampler and records the original
+  predicate; walkBack also requires an OPEN component (search hits its 64-node cap) -- a closed component (sealed
+  pocket, sealed short tunnel) stays entombed at once; per-area bound (2 declines / 10 min / 8 blocks) covers large
+  sealed spaces (<= ~30 s delay). G1 replays the recorded path.
+Codex P1-6 / Claude P2 (gate evidence): F1 logs every candidate with reject reasons, aim scores, control timings; F4
+  one row per planner call with an op id joinable to _mine_dig, plus _mine_relocate; F6 per-action _stair_cert with
+  op + full route per generation, plus a floor gate (G3) and Paper world-read verification (G5); F5a logs the ring
+  cells within 16 of each chosen target; F5b gates narrowed to plan-time checks the hook can log.
+Codex P1-7 (T6 strength): no alternative probe path; the route is the certificate; every route cell re-read before
+  every dig, place and move (~940 reads); corridorSafe on every node.
+Codex P1-8 / Claude P2 (lease lifecycle): stair mutex removed (two lanes); cap counts records with phase != out; work
+  expiry moves to ascending and stays in the cap until out; disconnect keeps the record, reconnect resumes ascending
+  with stairReturn first; fencing gen; WF_LOCK_BUSY = refusal; world facts are per pool = per world.
+Codex P2-9 (timing): d7.py uses event rows only for health and position; numbers re-run (pre-death bottom band still
+  9 deaths, 23/100 bh; first damage after full health 78/84).
+Codex P2-10 / Claude P3: "at most 16" -> lower bound; fire message table with positive control; danger episodes split
+  at deaths, unrecognised bucket (0), censoring noted; e1.py labels corrected; 14 lava of 15 at death in the bottom
+  band; "fell in" and "escape climb" marked as inferences.
+Claude P2 (seal stock): deep miner precondition withdraws seal blocks from town stock; F1 seals only with what is held.
+Claude P2 (spiral vs turn): the town stair is cut only where D0 found the envelope clean; a turn/stop during the cut
+  ends it at the last certified step.
+Claude P3 (F5a): Paper scene and mutant added. F1 exposure: KEEP at +180 unlikely, reads to +360/+540. F5b home-goal
+  exemption dropped.
+Owner info added: O9 (two-lane stair cost), O10 (M7's seal will mostly be turn/stop in mine).
+
+====================================================================================================
+ROUND 3 (doc r3 @ a0d73dad): Codex CHANGE (6 P1, 3 P2, 1 P3); Claude CHANGE (1 P1, 5 P2)
+====================================================================================================
+--- Codex r3 (verbatim) ---
+Reviewed commit `a0d73dad` read-only. The measurement JSON inputs are absent, so I verified the classifiers and aggregation logic, but could not independently reproduce the reported totals.
+
+References below use `design` for `docs/reports/mineshaft-safety-2026-10-23.md` and `measure/` for its measurement directory.
+
+The principal existing-code claims check out: the blind sprint-jump, feet **or below** danger trigger, head-level entombment walls, lava counted as hollow, ceiling-only neighbour checks, blind recovery push, and exit-contract swing formula. Pathfinder’s planning checks do not establish safe physical execution.
+
+Round-2 finding disposition, checked against r3:
+
+| R2 finding | Resolution |
+|---|---|
+| P1-1: F6 unrepairable break | **Partial.** Deterministic return and scaffold reserve added; protection and fallback still do not establish recoverability. |
+| P1-2: F4 requires reversibility before F6 | **Resolved at design level.** Required before entering steps; F4 retains the existing exit contract (`design:946–969`). |
+| P1-3: F1 contradictory cases/controls | **Mostly resolved.** Step-up jumping, failed seals, omitted hazards and G3 corrected. Case exclusivity and sweep exceptions remain inconsistent. |
+| P1-4: F1 exclusive control | **Not resolved.** Reasserting controls every 50 ms is contention, not ownership. |
+| P1-5: F2 sealed-corridor false exit | **Partial.** The small sealed-corridor counterexample is fixed; a per-area bound still does not establish bounded recovery for an episode moving between areas. |
+| P1-6: independently computable gates | **Partial.** F1/F4 evidence improves substantially; F6 still gates its own validation verdict. |
+| P1-7: T6-strength revalidation | **Partial.** Per-action stair validation added, but a shaft landing can terminate the certificate without the shaft’s complete exit route. |
+| P1-8: lease lifecycle | **Partial.** Work expiry and returning occupancy fixed; the new 24-hour cleanup recreates premature slot reuse. |
+| P2-9: snapshot timing | **Resolved in code.** `d7.py:17,46,98` restricts health and pre-death position to contemporaneous event rows. |
+| P2-10: measurement overclaims | **Partial.** Lower-bound language and `e1.py` labels fixed; fire classification, death splitting and censoring remain defective. |
+
+1. **P1 — F1’s new reassertion loop can override air rescue (§7 F1; unresolved R2-4).**  
+   `design:692–701` unconditionally halts pathfinding and reasserts controls every 50 ms, but checks air ownership only before starting. Air rescue can acquire the body after F1 starts; the independent F1 loop would then keep cancelling its route. The tick’s early return during air-pocket rescue does not stop that loop (`bots/src/reflex.mjs:1617,2351–2352`).
+
+   Likewise, a reservation owner can still start work (`bots/src/runner.mjs:203–220`); repeatedly cancelling its path does not cancel its pending operations. Require an ownership/generation protocol checked after awaits and before every control write, with explicit air-preemption cancellation and ownership-aware cleanup. Naming a preemption test does not specify the missing transition.
+
+2. **P1 — F6’s protection does not justify “only a world edit” can break both lanes (§7 F6; unresolved R2-1).**  
+   The new reservation specifies target/transit dig refusals and pathfinder break cost, but does not explicitly prohibit placements or survival edits (`design:1055–1059`). Existing protectzone deliberately permits survival digs and placements (`bots/src/protectzone.mjs:232–242`). The prior shaft design explicitly addressed this with a structure guard covering every recovery rung and a deterministic `use_ladder` remedy (`ziggurat-mineshaft-2026-10-15.md:779`).
+
+   Consequently, `design:1093–1094` has not excluded ordinary bot actions from damaging or obstructing both lanes. The repair chain also spends the floor before promising that the stranded ladder receives that same floor “in hand” (`1088–1092`). A revert gate cannot rescue an already stranded miner. Specify all protected mutations and their executable alternatives, and account for resources remaining after attempted repairs.
+
+3. **P1 — A shaft landing is credited without certifying the remaining exit (§7 F6; unresolved R2-7).**  
+   The certificate can end at a “verified shaft-01 landing”; its listed route and per-action reads cover the stair up to that endpoint (`design:1061–1074`). No explicit composition includes the landing portal, shaft columns and collar exit, or dispatches the next ascent leg.
+
+   T6 required those exact cells to be freshly validated before every dig or hop (`ziggurat-mineshaft-2026-10-15.md:783`). A blocked shaft above the landing therefore invalidates the claimed zero-debt exit even when every stair cell passes. Compose the complete route to the surface, including its executor and resource accounting.
+
+4. **P1 — The new certificate rejects the proposed branch tunnels (§7 F6 / §8 M9; new).**  
+   F6 requires feet, head **and above** to be passable for every stand cell (`design:1064`). M9 cuts two-high branches and extends that same certificate along them (`1320–1324`). Their third cell remains solid, so the next per-action validation must fail in an otherwise correctly constructed branch.
+
+   Define separate clearance rules for level walking and stair ascent, with certified transitions between them. Demonstrate a complete descent, branch excavation, ore collection and return using those rules before admitting diamond miners.
+
+5. **P1 — The 24-hour cleanup violates the revised occupancy cap (§8 M8; new regression).**  
+   `design:1254–1259` correctly retains disconnected/ascending miners until they are observed out or dead. Line 1260 then marks an unseen miner `out` after 24 hours without either observation. A replacement can be admitted while the original bot remains underground; when it reconnects, the specified “resume ascending” condition no longer applies because its record is already `out`.
+
+   Keep unresolved underground occupancy in the cap. If administrative retirement is necessary, specify a fenced reconnect/evacuation protocol that preserves M8 and never treats absence as evidence of exit.
+
+6. **P1 — F6’s revised correctness gate still trusts the validator being tested (§7 F6; unresolved R2-6).**  
+   `_stair_cert` records a count and a `failed` verdict; `_stair_cert_full` records the route per generation (`design:1096–1100`). G1 accepts credit whenever the matching validation row exists and reports no failure (`1114`). These rows do not contain the fresh observations needed to independently establish clearance, support or corridor safety.
+
+   A defective validator that reads stale geometry and emits `failed=null` passes. The Paper read after a scene (`1109–1118`) cannot reconstruct geometry at each credited action. Emit time-associated observations or changes sufficient to replay validation, and make Paper check action-time conditions. Otherwise narrow the gate’s claim to validation invocation, not certificate correctness.
+
+7. **P2 — D0 cannot supply the whole-envelope evidence now required to site F6 (§7 F6 / §8 M9; new).**  
+   F6 says D0 found the **whole spiral envelope** clean (`design:1049–1051`), but D0 only counts materials in a bottom-depth box at y −60..−50 (`1336–1342`). That does not survey the descent, shell, corner geometry or connection to the surface/shaft. Counts also do not identify a traversable envelope.
+
+   Extend D0 to emit the exact proposed route and shell, per-world obstructions, lining requirements and resource costs. Shared seeds do not establish identical current terrain after bot activity. Live checks remain necessary, but cannot support the claimed prior survey.
+
+8. **P2 — The claimed measurement repairs are incomplete (§§2–4; unresolved R2-10).**  
+   - `design:142` attributes a full death-message tally to `es1.py` and `d1.py`. Neither implements that tally. `d1.py:9–10` still assigns every otherwise-unmatched `fire` death to lava. Add explicit message categories and an unknown category, and commit the tally computation.
+   - `d7.py:64–71` splits danger episodes only at deaths classified as lava/magma, not at **every death** as `design:234` says. Other deaths can join pre-death and post-respawn rows.
+   - `d7.py:76–82` does not identify or remove right-censored windows. `design:236` incorrectly limits censoring to episodes **starting** in the final 20 seconds; an older episode whose **last row** falls there is also censored.
+
+   Report corrected denominators and censored/unmatched counts. The depth analysis appropriately acknowledges its bucket proxy in §3; the headline “2.3% of bot-time” should retain that qualification.
+
+9. **P2 — F1’s revised case and geometry contracts still disagree (§7 F1; residual R2-3).**  
+   An airborne bot with feet in fire satisfies both `airborne` and `in` (`design:644–645`); a bot in water over magma can satisfy both `in` and `edge` (`645–646`). The promised mutually exclusive classification therefore needs explicit precedence.
+
+   The `in` plan exempts origin **and lateral sweep cells** (`645`), while G1 exempts only the origin (`737`). Also, the stated “exact” `lavaStandOff` sweep requires lateral support (`bots/src/lavaguard.mjs:98–101`), so a genuinely one-wide unsupported ledge cannot qualify as claimed at `design:662`. Align the classifier, executor, gates and fixtures.
+
+10. **P3 — Owner questions retain superseded promises (§11).**  
+    O1 still says the aimed sprint is “never worse” (`design:1465–1467`), contradicting the explicit withdrawal at `679–680`. O2 still requests a per-cell bound (`1469–1470`) although F2 now uses a per-area bound. Update these before requesting owner decisions.
+
+The proposed sequencing and M7–M10 direction remain reasonable. Diamond admission still needs the complete protected return route, compatible branch certificate, and corrected lease lifecycle above. Enchanting appropriately remains a gated sketch.
+
+VERDICT: CHANGE
+
+--- Claude r3 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r3 on a0d73dad. Condensed:
+
+R2 disposition: Codex P1-1, P1-2, P1-3 (in §7), P1-5, P1-7, P1-8 resolved; P1-4, P1-6 partly. Claude P1-A partly
+(skills), P1-B, P1-C, P1-D, P1-E resolved. The "failed return keeps today's reserve" argument holds because
+canContinueDescent runs before every dig (skills.mjs:12834).
+
+P1 §8/F6: a leaseholder is not bound to the certified route, and the credit widens deep exposure. Nothing stops a
+  leaseholder at -53 running explore/goto/gather off-route into caves; credit attached to "a leaseholder on a valid
+  certificate" would admit a model-chosen mine toward -59 from a branch; "remaining path priced by today's formula" is
+  undefined. Fix: below the stair top admit only deep_miner and stairReturn for a leaseholder (others decline
+  non-counted); credit only on a certified stair or branch cell, elsewhere 63 - y; gate 0 off-route actions except F1.
+
+P2-1 F1 body control incomplete: danger_block raises a decision trigger (cognitive.mjs:404), so a model skill can start
+  during the move; re-assertion does not cover yaw (lookAt in dig/gather/mine), dig, equip, place. runner.run should
+  decline while dangerMoving; re-assert look; make the 6 s limit a deadline the loop checks.
+P2-2 F6 validation cost understated: corridorSafe over two 117-segment lanes is ~700 samples x ~60 reads = ~40k
+  blockAt per action. Run corridorSafe per certificate generation and on change; re-read the 940 route cells per action.
+P2-3 gates: F2 G1 cannot catch its own mutant (accept-any-cell still yields valid walks) -- log ring membership with
+  sample time and inputs, and nodes == 64; F6 G1 reads the bot's own verdict (independence only via Paper G5);
+  F1 G2 needs cellLavaSafe's neighbour reads; F1 G5 checks only the selection from bot-computed scores.
+P2-4 24 h out-marking: an offline bot below the top is marked out, reconnects without a lease, a third miner may be
+  admitted. On reconnect run stairReturn anyway, or mark out only when last seen at or above the top.
+P2-5 lane traffic: a lane switch walks up the down lane -- head-on deadlock if the lanes are walled; give the ascender
+  priority; ordinary bots are not kept out of the envelope; survival placements (protectzone-exempt; entombed pillars
+  ~105k/week) are the realistic break source, so "only a world edit" overstates it.
+
+P3: §11 O1 "never worse" and O2 "per cell" stale; the wall arm, stranded ladder and pocket rung are not stood down by
+  dangerMoving; first-cut admission 2x351+250 contradicts O9's two or three leases (price on remaining steps); F4 G5
+  trips on a legitimate stop with failed relocation (log failed relocations); the cap is per town but keyed per
+  world; at -53 the both-lanes residual's stranded ladder ends in "get a pickaxe" -- say so plainly; F1: whether the
+  origin counts among the 6 scored cells, collision in the fallback, a timeout per `in` step, a failed `in` post-check
+  should go straight to the aimed escape.
+
+M7-M10 respected throughout.
+
+VERDICT: CHANGE
+
+--- r3 -> r4 response (doc r4) ---
+Codex P1-1 / Claude P2-1 (F1 ownership): F1 now takes runner.reserve('lavastep', 6000) -- aborts the skill,
+  supersedes watchdog/poolescape reservations (their pending runs decline), and runner.run declines everything else
+  incl. a model skill from the danger_block trigger; the one runner change: reserve() refuses to replace a live
+  lavastep reservation (callers decline). dangerMoving = {gen, deadline}; gen, deadline, alive and air ownership
+  checked after every await and before every control write or look; air rescue taking the body ends the move;
+  re-assertion covers controls, pathfinder goal and look; the wall arm, stranded ladder and pocket rung also stand down.
+Codex P1-2 / Claude P2-5 (F6 protection): the envelope refuses EVERY dig and place by every skill and rung, survival
+  included (T2(b)-style structure guard), except the builder and leaseholder repairs; rung 0 `use_stair` precedes every
+  escape rung (always executable, costs nothing); non-leaseholders get a 1000 step exclusion (T10); lanes open to each
+  other, ascender priority, switch after 20 s. Repairs may spend 20 of the 30 swings and 16 of the 32 blocks. The
+  both-lanes residual is stated plainly as a dead end by construction, reachable only by an external edit, alarmed in
+  fleetstatus, and put to the owner (O11). G6 gates envelope mutations.
+Codex P1-3 (shaft landing): the top must be a surface cell; composing with shaft-01 is left to a later design.
+Codex P1-4 (branch clearance): stair cells (3-high) vs level cells (2-high, ceiling may be solid) vs junction cells
+  (cut 3-high, certified as stair cells); each certificate cell carries its rule.
+Codex P1-5 / Claude P2-4 (24 h cleanup): removed. Absence is never evidence of exit; unresolved records stay in the cap;
+  _deepmine_stale alarms after 24 h; only an operator retires a record; cap keyed per town (world + town id).
+Codex P1-6 / Claude P2-3 (F6 gate independence): _stair_cert carries `obs`, one class char per route cell, replayed
+  against the cell rules by G1; Paper G5 pauses the bot at sampled credited actions and RCON-reads the route to check
+  the observation against the world; the fleet-side claim is narrowed accordingly.
+Claude P1 (leaseholder confinement): below the top a leaseholder runs only deep_miner and stairReturn; others decline
+  `lease_confined` (non-counted); credit only on certified stair/branch cells, else 63 - y; gate 0 off-route actions
+  except F1 moves and the walk back; off-route recovery after F1 specified (walk, else F4-planned dig back within 20
+  swings, else the O11 alarm).
+Claude P2-2 (validation cost): route cells (~940) re-read per action; corridorSafe once per generation and on changed
+  segments.
+Codex P2-7 (D0): D0 now emits the exact spiral route and shell per world and site, obstructions, lining and cost; live
+  reads re-check each level.
+Codex P2-8 (measurement): d8.py -- explicit ten-category message tally plus UNKNOWN (0); danger episodes split at every
+  death; right-censored episodes dropped (0); numbers unchanged; "2.3%" carries the proxy qualifier.
+Codex P2-9 (F1 case consistency): precedence in > airborne > edge; G1's exemption aligned (origin + lateral sweep in
+  `in`); the goal is lavaStandOff's exact test, so a 1-wide unsupported ledge is NOT a goal (aimed escape along it);
+  per-step 1 s timeout in `in`; a failed `in` post-check goes straight to the aimed escape; the origin is not scored;
+  collision applies in the fallback. G2 candidates carry cellLavaSafe's neighbour reads; G5 recomputes scores.
+Claude P2-3 (F2 G1 vs its mutant): G1 also replays the free cell's ring entry (sample time, recorded predicate inputs)
+  and checks nodes == 64.
+Claude P3: F4 G5 -- _mine_relocate written on failure too; first-cut admission priced per remaining steps per lease;
+  O1/O2 updated (no "never worse"; per-area bound).
+
+====================================================================================================
+ROUND 4 (doc r4 @ 89aa22e9): Codex CHANGE (3 P1, 3 P2, 1 P3); Claude CHANGE (1 P1, 8 P2)
+====================================================================================================
+--- Codex r4 (verbatim) ---
+Reviewed `89aa22e9` read-only. I interpret “resolved in r2” as “resolved in r4,” the requested revision. The measurement JSON inputs are absent, so reported totals remain unverified; I checked the scripts and ran synthetic counterexamples.
+
+References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+Round 3 finding disposition:
+
+| R3 finding | Status in r4 |
+|---|---|
+| P1-1: F1 ownership and air preemption | **Resolved at design level:** priority reservation, generation checks and explicit air preemption (`design:701–748`). |
+| P1-2: F6 protection and repair resources | **Partial:** survival mutations are now prohibited and remaining resources accounted for, but the replacement remedy and protection scope have gaps below. |
+| P1-3: uncertified shaft endpoint | **Resolved:** surface endpoint required (`1099–1100`). |
+| P1-4: branch clearance incompatible with certificate | **Resolved:** separate stair, level and junction rules (`1117–1121`). |
+| P1-5: 24-hour occupancy cleanup | **Resolved:** unresolved records remain counted (`1319–1335`). |
+| P1-6: certificate gate trusts validator verdict | **Resolved at the stated, narrowed scope:** observations replace verdicts; action-time world checks belong to Paper (`1162–1189`). New G6 has a separate evidence gap below. |
+| P2-7: D0 insufficient envelope survey | **Resolved:** exact route, shell and costs required per world (`1426–1430`). |
+| P2-8: measurement repairs incomplete | **Partial:** message tally, all-death splitting and end censoring are implemented; outcome attribution still crosses deaths. |
+| P2-9: F1 case/geometry inconsistencies | **Resolved:** precedence, sweep exceptions and unsupported-ledge handling now agree (`652–680`, `775`). |
+
+The principal existing-code claims check out: blind sprint-jump, feet **or below** danger trigger, head-level entombment walls, lava counted as hollow, ceiling-only neighbour checks, blind recovery push and exit-contract swing formula. The proposed sequencing respects M7–M10; diamond admission still depends on resolving the F6 issues below.
+
+1. **P1 — F6’s new unconditional `use_stair` remedy is not executable from every protected position (§7 F6).**
+
+   `design:1110–1115` selects this rung whenever the bot is “in or beside” the envelope and says it always wins. But the envelope includes a solid shell (`1101–1105`). A bot outside that shell can be adjacent to the envelope without any walkable connection to either lane. Zero-break routing cannot cross the shell, while the new guard refuses digging it.
+
+   This creates a refusal loop under ordinary geometry, independent of the accepted external-edit residual. Require a verified connection to the lane before selecting `use_stair`; otherwise specify an executable fallback. Include an exterior pocket beside the shell in the chain tests. Also explicitly exempt the evacuation profile from the non-leaseholder exclusion: the prior shaft design did this for `shaft-up` (`ziggurat-mineshaft-2026-10-15.md:787`).
+
+2. **P1 — Zero-debt branch credit extends beyond the protected return infrastructure (§7 F6 / §8 M9).**
+
+   The strengthened envelope protects “both lanes plus the shell” (`design:1104–1108`), and non-leaseholder exclusions cover lane cells (`1114`). However, r4 explicitly gives **branch cells** zero debt (`1133–1135`) and includes their single-width route in the certificate (`1123–1125`).
+
+   No corresponding branch protection, lining or alternate route is specified. Another bot can obstruct or damage that return path; subsequent validation detects the problem but does not establish a repair within 20 swings/16 blocks. Switching stair lanes cannot bypass a blocked branch.
+
+   Extend the protection and executable repair contract to every credited branch segment, or retain sufficient exit resources there. The assertion that stranding requires an external edit does not cover the current branch specification.
+
+3. **P1 — F6’s new corridor cache can retain a stale safety result (§7 F6, Validation).**
+
+   `design:1128–1131` refreshes route-cell classes before each action but reruns `corridorSafe` only for segments whose cells changed class. That function reads substantially beyond the route’s floor/body cells: its nine lateral samples each call `cellLavaSafe` (`bots/src/lavaguard.mjs:48–60`).
+
+   A behavioural probe against the actual function produced:
+
+   - Initially: safe.
+   - Add lava at `(3,10,0)` beside a segment ending at `(1,10,0)`.
+   - All route floor/body observations remain unchanged.
+   - Fresh `corridorSafe`: unsafe, identifying `(3,10,0)`.
+
+   The proposed invalidation would miss this change while continuing to grant exit credit. Track and invalidate the complete read dependency footprint, including unloads, or freshly validate those dependencies before credit. Include this unchanged-route/changed-neighbour case as a mutant.
+
+4. **P2 — The new envelope-mutation gate cannot observe the prohibited placements (§7 F6, G6).**
+
+   `design:1186` computes G6 from structure-guard **refusal** rows and keepout’s `_mine_dig`. A placement that bypasses the guard emits no refusal, and `_mine_dig` records neither placements nor arbitrary recovery digs. Its existing producer is also conditional on nearby keepout sites and runs at the end of `mine` (`bots/src/skills.mjs:12418–12429`).
+
+   Thus an unauthorized survival placement can obstruct the envelope without either evidence source reporting the mutation. Add successful mutation observations at the shared dig/place boundary, with actor, purpose, cell and authorization generation. Demonstrate that both bypassed placement and bypassed recovery-dig mutants trip G6.
+
+5. **P2 — `d8.py` splits episodes at deaths but still attributes a later life’s death to an earlier episode (§2.4).**
+
+   The split uses every death (`measure/d8.py:35`), but outcome matching still searches the full `[first, last + 20 s]` interval (`:46`), without terminating it at the first intervening death.
+
+   Running the actual aggregation with danger at 0 s, drowning at 5 s, danger after respawn at 10 s and lava death at 15 s marks **both episodes** as lava-fatal. The pre-drowning episode should not inherit the later life’s outcome.
+
+   Bound attribution at the first subsequent death and report how many real episodes change. The new tally and right-censoring fixes themselves are present; this counterexample does not establish that the published totals change.
+
+6. **P2 — The new off-route recovery conflicts with its gate and is misrepresented in O11 (§8 M8 / §11).**
+
+   `design:1347` allows only F1 moves and the walk back as off-route actions. Lines `1388–1391` then explicitly authorize off-route digging. A correctly executed fallback would violate the stated gate.
+
+   Additionally, that fallback’s failure is assigned to O11, but O11 describes only externally broken stair lanes (`1596–1599`). Failure to recover from the bot’s own F1 movement is a distinct residual. Explicitly allow and instrument bounded recovery operations, and present that residual separately to the owner. The six-block estimate is not itself a bound on vertical displacement during an unsupported sprint.
+
+7. **P3 — F1’s composition table contradicts its new ownership protocol (§7 F1).**
+
+   `design:812–814` says watchdog/poolescape reservations remain until normal expiry and that F1 neither takes nor supersedes a reservation. Lines `703–711` specify the opposite. Update the table so the build has one ownership contract.
+
+VERDICT: CHANGE
+
+--- Claude r4 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r4 on 89aa22e9. Condensed:
+
+R3 disposition: Codex P1-1 resolved (watchdog's pd.gen = reserve(...).gen comes back null and its run declines
+runner_reserved, runner.mjs:196-200; poolescape's renew() already returns early for another owner, reflex.mjs:1546);
+P1-2 mostly; P1-3, P1-5, P1-6 resolved; P1-4 partly (no full descent/branch/ore/return Paper scene); Claude P1 partly
+(confinement creates a new dead end); P2-7/8/9 resolved; Claude P2-1 partly (in-flight dig/place/equip); P2-2..5
+resolved.
+
+P1 §8 off-route + confinement + O11: when walk-back and dig-back both fail the bot is confined (only deep_miner and
+  stairReturn, both route-dependent; watchdog rescues via runner.run and cognitive's livelock goto also decline
+  lease_confined) with no action left, although it may hold most of its branch budget, 64+ seal blocks and the floor,
+  so today's 63 - y exit chain may be executable. Reachable by the bots alone (repeated F1 firings, airborne, an aimed
+  escape with partial support into a cave; maxDropDown 1 cannot climb back). O11's "only an external edit" does not
+  hold for it. Fix: on any non-both-lanes recovery failure, end credit, lift confinement, run the ordinary exit chain
+  deterministically, alarm only if that fails; restate O11 for the both-lanes case only.
+
+P2: F1 composition table stale (reservation contradictions); F1 in-flight bot.dig/placeBlock of the aborted skill not
+  covered (stopDigging + gen-gated calls); use_stair for a bot beside but outside the shell is not executable (offer
+  rung 0 only on a zero-break path; else normal rungs with envelope excluded; step-away remedy); enclosed unsealable
+  DANGER floor (magma/campfire, walls all round) is an endless non-lethal livelock (handover after k non-moving
+  firings); floor accounting shared or not between dig-back and repairs; who restarts work after F1 (deterministic
+  stairReturn vs "F1 ends the lease"); branches unprotected and single-lane; O11's person -- what may they do under the
+  world rule.
+P3: obs has no water class; gravel/sand scaffold may fall into the open top lanes; pathfinder protection is a cost;
+  "below the stair top" should be scoped to the stair area; after the 6 s deadline in lava controls idle until the
+  next tick (same as today).
+
+VERDICT: CHANGE
+
+--- r4 -> r5 response (doc r5) ---
+Claude P1 / Codex P2-6 (off-route dead end, O11 misstated): any route-recovery failure other than the both-lanes break
+  ends credit and confinement at once (phase `uncertified`, still in the cap) and runs TODAY's exit chain (63 - y,
+  surface, stranded ladder) deterministically with the whole kit; the alarm fires only if that also gives up. The
+  displacement is stated as vertically unbounded. Gate admits bounded recovery ops (`_deepmine_recover`). O11 now covers
+  only the both-lanes case and says what the person may do under the world rule (retire, restart, or by owner decision
+  /kill; never teleport or edit); new O12 for the bot-reachable off-route case (= today's chain).
+Codex P1-1 / Claude P2 (use_stair not executable outside the shell): rung 0 offered only on a verified zero-break path
+  of <= 8 nodes to a lane cell; otherwise the normal rungs run with envelope cells EXCLUDED from their plans; refusal
+  names "step away from the stair"; exterior-pocket and corner chain tests; the evacuation profile has its own
+  exclusion arrays (T10 lesson).
+Codex P1-2 / Claude P2 (branch credit beyond the protected envelope): branch cells carry a re-cut reserve (2 swings +
+  1 block per cell to the junction, <= 64 swings) on top of the floor instead of zero debt; non-leaseholders excluded
+  from branch cells too.
+Codex P1-3 (corridor cache staleness): each corridorSafe run records its full read footprint; a cell->segment index on
+  blockUpdate and chunk-unload marks segments stale; credit waits for recomputation; Codex's unchanged-route/new-lava
+  case is a named mutant.
+Codex P2-4 (G6 evidence): a mutation observer at the shared dig/place boundary logs every successful envelope or branch
+  mutation (`_envelope_mutation`: actor, rung/skill, purpose, cell, before/after, lease gen); bypassed-placement and
+  bypassed-dig mutants must trip G6.
+Codex P2-5 (attribution across lives): d8.py bounds attribution at the first death of any class after the episode
+  starts; counts unchanged (0 episodes change).
+Codex P3-7 / Claude P2 (F1 composition table): rewritten to the reservation contract (watchdog gen null -> declines;
+  poolescape renew returns early -- both verified by Claude in runner.mjs:196-200 and reflex.mjs:1546).
+Claude P2 (in-flight digs): F1 calls stopDigging() and the shared dig/place wrappers refuse non-F1 calls while the gen
+  is live.
+Claude P2 (enclosed unsealable floor): after 3 non-moving firings, sneak (stops magma damage; Paper confirms campfire)
+  and mark the cell danger_stuck for 60 s, relaxing the danger arm for that cell so the ordinary escape arms run.
+Claude P2 (floor accounting): one shared 20-swing/16-block allowance per lease across repairs and dig-back.
+Claude P2 (restart after F1): the cognitive order chain runs stairReturn deterministically (like #keepoutExitOrder);
+  confined declines never idle the bot.
+Claude P3: obs gains W (water); confinement scoped to the stair area; survival reflexes and F1 never confined.
+
+====================================================================================================
+ROUND 5 (doc r5 @ 248be79e): Codex CHANGE (1 P1, 3 P2); Claude CHANGE (1 P1, 6 P2) -- the same P1
+====================================================================================================
+--- Codex r5 (verbatim) ---
+Reviewed commit `248be79e` read-only. I interpret “resolved in r2” as “resolved in r5,” the requested revision. References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+Round 4 disposition:
+
+| R4 finding | Status in r5 |
+|---|---|
+| P1-1: `use_stair` inaccessible outside shell | **Resolved at design level:** verified connection, alternative escape plans and separate evacuation exclusions (`design:1132–1143`). |
+| P1-2: unprotected branch credit | **Not fully resolved:** the new re-cut reserve does not guarantee an executable repair; finding 1 below. |
+| P1-3: stale corridor cache | **Resolved at design level:** full dependency footprint and update/unload invalidation (`1161–1172`). Its new gate claim has a separate gap below. |
+| P2-4: mutation gate misses placements | **Partially resolved:** successful-mutation observations are specified, but the named placement boundary misses an existing producer; finding 3. |
+| P2-5: death attribution crosses lives | **Resolved:** `d8.py:47–49` bounds attribution at the first death. Running the actual script with synthetic inputs correctly classified the pre-drowning episode as non-lava-fatal and the subsequent episode as lava-fatal. |
+| P2-6: off-route recovery/gate/O11 mismatch | **Partially resolved:** bounded digging is admitted and O12 distinguishes the residual, but the new ordinary-exit fallback still violates the gate; finding 4. |
+
+The r4 P3 reservation-table contradiction is also resolved.
+
+The entombment probe reproduced every listed result, including positive and negative controls. The principal code claims check out: blind sprint-jump, feet **or below** danger trigger, head-level entombment walls, lava counted as hollow, ceiling-only neighbour checks, blind recovery push, exit-reserve arithmetic and pathfinder’s lava avoidance. The measurement inputs are absent, so production totals—including “0 episodes change”—remain unverified. The document appropriately qualifies the depth proxy, associations and limited canary power.
+
+1. **P1 — F6’s replacement branch reserve does not establish a recoverable return path (§7 F6, Credit; §8 M9).**
+
+   `design:1176–1178` says an unlined branch can **always** be re-cut under F4 with two swings and one block per cell. That only prices a simple obstruction. It does not establish that F4 permits the repair.
+
+   Protection remains limited to the stair lanes and shell (`1126–1130`); branch cells receive a movement exclusion (`1146–1147`). Another bot can work beside the branch and expose lava or remove support without walking through it. F4 correctly refuses an unsafe opening or a seal without a reachable placement face. More swings cannot make that repair executable, and a branch has no second lane.
+
+   The specified break chain still ends in lane switching (`1193–1199`), while the ordinary-exit fallback is described specifically for displacement after F1 (`1436–1447`). Neither explicitly handles a miner still on-route behind an unrepairable branch break.
+
+   **Required:** protect the complete branch return infrastructure, or explicitly route failed branch repairs through an executable fallback and describe its residual honestly. Also reconcile the new reserve with the floor-only work-stop condition and G3 (`1423`, `1230`): a 32-cell branch requires 64 reserved swings **above** the floor, not merely the floor.
+
+2. **P2 — F6’s new cache mutant cannot trip the specified G1 (§7 F6, Validation/Gates).**
+
+   `design:1171–1172` requires G1 to detect unchanged route cells with newly adjacent lava. But `_stair_cert.obs` contains only route-cell classes (`1210–1216`), and G1 checks only those classes (`1228`). The counterexample deliberately leaves them unchanged. G5 likewise reads only route cells (`1232`).
+
+   The cache-invalidation algorithm is now adequately specified; its claimed evidence is not. Emit dependency observations and invalidation/recomputation information linked to the credited action, or define a separate Paper gate that independently changes and reads the neighbouring cell. Demonstrate that disabling invalidation fails that gate.
+
+3. **P2 — The new placement observer is attached above an existing bypass (§7 F6 G6; §7 F1 wrappers).**
+
+   `design:1233` calls `bot.dig` / `placeBlock` the shared mutation boundary. However, the air-pocket rescue calls **`bot._placeBlockWithOptions` directly** (`bots/src/airpocket.mjs:437–439`). Mineflayer’s implementation does not route that call through `bot.placeBlock`.
+
+   The existing protection code already addresses this distinction by wrapping `_genericPlace` (`bots/src/protectzone.mjs:431–438`). A G6 observer attached only to `placeBlock` can therefore miss a successful recovery placement. F1’s new wrapper wording has the same coverage limitation (`design:827–828`), subject to its intentional air-preemption rules.
+
+   Specify coverage of all placement entry points at the common boundary, with successful world-change observation. Include a direct `_placeBlockWithOptions` placement in the bypass mutant.
+
+4. **P2 — The new `uncertified` exit fallback contradicts the off-route gate (§8 M8).**
+
+   `design:1442–1445` correctly ends credit and confinement and deterministically runs ordinary `surface`/stranded recovery. The record remains in the cap. However, the gate at `1397–1398` still prohibits **all leaseholder off-route actions** except F1 and bounded walk/dig-back operations.
+
+   Ordinary exit-chain digs and placements after phase `uncertified` satisfy neither exception. A correctly executed new fallback therefore fails the stated gate.
+
+   Scope the confinement gate to certified phases and instrument the transition and ordinary recovery separately. Carry that distinction through reconnect handling, which currently resumes every non-`out` record as `ascending` and selects `stairReturn` (`1374–1377`), including an uncertified bot whose route recovery already failed.
+
+M7–M10, the sequential canary order and investigation-only treatment of F3 remain respected. The diamond tier should wait for the branch-return contract above; the enchanting sketch introduces no additional approval-blocking finding.
+
+VERDICT: CHANGE
+
+--- Claude r5 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r5 on 248be79e. Condensed:
+
+R4 disposition: Codex P1-1 resolved; P1-2 partly ("always re-cut" overclaimed, no next rung); P1-3 resolved; P2-4
+partly (observer at the wrong boundary); P2-5 resolved (re-ran Codex's case on d8.py:46-49); P2-6, P3-7 resolved;
+Claude P1 resolved for the F1 off-route case only; Claude P2s mostly resolved.
+
+P1 §7 F6 Credit/A break, §8 M8: a branch break that cannot be re-cut has no next rung. F4 can turn/stop (lava in a
+  branch cell, a refilling gravel column); the break chain's steps (walk up, switch lanes, both-lanes) do not exist on
+  a branch; the `uncertified` handover is scoped only to "off the route after F1" in the doc although the r5 response
+  says "any route-recovery failure other than both lanes". A leaseholder in a blocked branch stays confined and loops
+  on stairReturn. Fix: state the handover for every recovery failure except O11's; chain-test a blocked branch with
+  lava behind the block.
+
+P2-a G6 / F1 in-flight refusal at the wrong boundary: airpocket.mjs:437-439 calls bot._placeBlockWithOptions directly;
+  protectzone.mjs:22 already chokepoints at _genericPlace; a wrapper also cannot see non-bot mutations (flow, falls) --
+  guard at _genericPlace and log blockUpdate on envelope/branch cells.
+P2-b danger_stuck needs exact keys: (cell, block name in {magma_block, campfire, soul_campfire}); lava/fire never
+  relaxed; any blockUpdate or new DANGER at feet/below ends it; who releases the sneak.
+P2-c `uncertified` still treated as a leaseholder by Exits, the homefix row and the forced stairReturn.
+P2-d an `uncertified` bot never leaves the cap if it surfaces elsewhere below the top's y; define `out` for it as on
+  the surface anywhere with exitDebt 0.
+P2-e an unsafe recompute of a stale segment has no defined outcome.
+P2-f O11 overstates the residual: past the 20-swing allowance the bot is stranded by the design's own guards; offer
+  `uncertified` with the shell guard lifted for this bot's own exit, logged as an authorized _envelope_mutation.
+P3: the envelope exclusion needs a fall-through for rungs that do not plan (pillarOut, the stranded ladder's dig-up);
+  a chain test for a pocket under the bottom landing where up is shell. O12 accurate; M7-M10 respected.
+
+VERDICT: CHANGE
+
+--- r5 -> r6 response (doc r6) ---
+Codex P1-1 / Claude P1 (branch break with no next rung; same finding): ONE universal handover now covers every
+  route-recovery failure -- both lanes broken, a branch F4 cannot re-cut, a repair over allowance, the other lane
+  unreachable, off-route after F1: credit and confinement end, phase `uncertified` (still in the cap), today's exit
+  chain runs deterministically with the whole kit, and the envelope/branch guard is lifted for that bot's own exit
+  (each such mutation logged as authorized). Branch cells and their 1-cell shell are guarded like the envelope; the
+  re-cut reserve is stated as a price, not a promise; work stops at floor + reserve and G3 checks floor + reserve;
+  blocked-branch-with-lava and pocket-under-landing chain tests added.
+Claude P2-f: adopted -- with the guard lifted for the bot's own exit, O11 and O12 merge into one residual: today's
+  chain giving up (alarm), never worse than any bot that falls into a deep cave today.
+Codex P2-2 / Claude P2-e (cache gate; unsafe recompute): _exit_credit carries stale_n (must be 0 for credit, in G1);
+  _corridor_recompute rows; Paper G7 changes a non-route footprint cell and requires wait + recompute + break, with a
+  disable-invalidation mutant; an unsafe recompute is a break at that segment (repair / switch / handover).
+Codex P2-3 / Claude P2-a (placement boundary): refusal and observation at bot.dig and _genericPlace (covers
+  placeBlock, _placeBlockWithOptions, placeEntity; protectzone's chokepoint); a blockUpdate watcher on envelope and
+  branch cells logs non-bot changes; mutants include a direct _placeBlockWithOptions placement.
+Codex P2-4 / Claude P2-c, P2-d (uncertified vs gates, rules, cap, reconnect): the off-route gate applies to certified
+  phases only; `uncertified` is not a leaseholder in Exits, the homefix row, the forced stairReturn, confinement or
+  reconnect (it resumes uncertified and runs today's chain); it leaves the cap on the surface anywhere (exitDebt 0) or
+  dead.
+Claude P2-b (danger_stuck): keyed by (cell, block name in magma_block/campfire/soul_campfire); lava and fire never
+  relaxed; any blockUpdate or new DANGER at feet/below, or a move off the cell, ends it; the sneak is released by the
+  arm that takes the body or at 60 s.
+Claude P3 (non-planning rungs): pillarOut and the stranded dig-up check each cell; an envelope cell makes the rung
+  decline to the next rung (except an uncertified bot's own exit).
+
+====================================================================================================
+ROUND 6 (doc r6 @ 4d353fbd): Codex CHANGE (0 P1, 2 P2, 1 P3); Claude CHANGE (1 P1, 4 P2)
+====================================================================================================
+--- Codex r6 (verbatim) ---
+Reviewed `4d353fbd` read-only. I interpret “resolved in r2” as “resolved in r6.” References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+All four Codex r5 findings are **resolved at design level**:
+
+| R5 finding | Resolution in r6 |
+|---|---|
+| P1: failed branch repair has no next rung | Universal handover covers branch failures; reserve accounting and work-stop threshold agree (`design:1201–1247,1475–1481`). |
+| P2: cache mutant cannot trip its gate | Separate Paper G7 exercises neighbour changes and disabled invalidation (`1275–1281`). |
+| P2: placement observer misses direct placement | `_genericPlace` now covers the bypass; successful mutations and block updates are observed (`836–842,1280`). |
+| P2: uncertified fallback contradicts confinement/reconnect | Gate applies only to certified phases; uncertified reconnect resumes ordinary recovery (`1233–1248,1425–1429,1449–1452`). |
+
+New findings:
+
+1. **P2 — The new branch-shell protection lacks an authorization contract for normal mining (§7 F6; §8 M9).**
+
+   Branch cells and their one-cell shell are now “guarded like the envelope” (`design:1205–1206`). The envelope exceptions name stair construction and `stairReturn` repairs (`1146–1150`); G6 additionally allows uncertified exits (`1280`). None explicitly allows ordinary branch extension or ore extraction.
+
+   The next extension digs through the current branch’s end shell, and side-adjacent ore lies within that shell. Both are intended operations (`1515–1529`). Interpreting the guard literally refuses them; allowing them without updating G6 makes legitimate mining fail the gate.
+
+   Define authorization for the active branch builder’s F4-planned extension and ore extraction, including which support cells remain protected. Include successful extension and side-ore extraction as positive controls alongside unauthorized shell-mutation mutants.
+
+2. **P2 — The new guard-lifting exception needs composition with the second miner (§7 F6 universal handover; §8 M8; §11 O11).**
+
+   An uncertified bot may now dig or place on shared envelope and branch cells for its own exit (`design:1246–1247`). Two miners may use that infrastructure concurrently (`1413,1436–1439`). The specified validation occurs before actions, while cache invalidation follows block updates (`1188–1197`).
+
+   Consequently, an authorized escape dig can remove support beneath the other miner during an already-started movement. Revalidation before its next action does not protect that movement, and G6 explicitly accepts the mutation. This newly permitted interaction is not covered by the listed chain scenes (`1164–1168`).
+
+   Specify coordination before an exit mutation affects another miner’s occupied or traversed cells, and add a two-miner Paper scene. O11 should also acknowledge that one bot’s escape can invalidate another bot’s return route; the residual currently describes only the escaping bot’s ordinary exit chain (`1702–1705`).
+
+3. **P3 — F6’s summary still gives the superseded refusal chain (§7 F6).**
+
+   `design:1300–1301` jumps from lane switching directly to the operator alarm and says every envelope refusal offers an executable `use_stair`. That contradicts the universal handover (`1233–1253`) and connection-dependent rung (`1154–1163`). Update the summary to match those detailed rules.
+
+The entombment probe reproduced all six results. Synthetic execution of `d8.py` confirmed correct attribution across deaths. The principal code claims check out; production measurement totals remain unverified because their JSON inputs are absent. M7–M10, sequential canaries, conditional tier-2 eligibility, and investigation-only F3 remain respected.
+
+VERDICT: CHANGE
+
+--- Claude r6 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r6 on 4d353fbd. Condensed:
+
+R5 disposition: Codex P1-1, P2-2, P2-3 (checked: place_block.js:9 and place_entity.js:35 call bot._genericPlace;
+pathfinder calls bot.dig via the property), P2-4 resolved; Claude P1 resolved for break-type failures only; P2-a,
+P2-b, P2-d, P2-e resolved; P2-c partly; P2-f adopted but overstated; P3 partly.
+
+P1 §7 F6 Exits/Confinement, §8 M8: a certified leaseholder whose stairReturn fails with NO break has no next rung --
+  pathfinder stall, empty-path resolve (path_interrupted), both lanes occupied past the 20 s step-aside; every cell
+  still conforms so no break and no handover; confinement re-runs stairReturn forever; the stuck reflex cannot help
+  (neighbours are envelope; non-planning rungs decline); no alarm (the bot is seen). Fix: N attempts or T minutes
+  without a new route cell -> universal handover; chain test.
+
+P2-1 an uncertified bot gets the non-leaseholder 1000 exclusion on lanes for every profile except evacuation, incl.
+  surface's ascent movements, so today's chain digs a fresh way instead of walking intact lanes; its kit (floor +
+  reserve, 30-94 swings at -53) is below today's ~147, so "never worse off than an ordinary deep bot today" overstates
+  -- the cave-fall comparison in O11 is the defensible one. Keep the evacuation profile; walk the valid route or
+  use_stair before surface; state the kit in O11.
+P2-2 G6 vs the miner's own work: cutting branch cell n+1 digs cell n's shell and side ore is mined from the shell, so
+  G6 fails correct operation unless the leaseholder's F4-planned cuts and ore digs are authorized; "by anyone else" is
+  ambiguous about the second leaseholder.
+P2-3 F6's end-of-section refusal chain is stale (skips the handover; use_stair "from where the bot stands").
+P2-4 who walks back after F1: the runner row says the order chain forces stairReturn, M8 says deep_miner walks back.
+P3: G1 cannot see stale-and-recomputed (G7 does); the off-route gate paragraph is garbled; how a blockUpdate one bot
+  sees is matched to another bot's _envelope_mutation, and how unloaded-chunk changes are diffed on reload; keep the
+  danger_stuck sneak until the bot leaves the cell.
+
+M7-M10 respected.
+
+VERDICT: CHANGE
+
+--- r6 -> r7 response (doc r7) ---
+Claude P1 (stairReturn no-progress dead end): no-progress handover -- 3 attempts or 5 min without reaching a new route
+  cell goes to the universal handover even when every cell conforms (stall, empty path, both lanes occupied); chain
+  test with an always-empty path.
+Claude P2-1 (uncertified exclusion; kit overstated): an uncertified bot keeps the evacuation profile and first walks
+  the longest still-valid part of the route (or use_stair), then today's chain; the kit (about 30-94 swings) is stated
+  against today's ~147 at -53, and "never worse" is replaced by the cave-fall comparison; O11 restated.
+Codex P2-1 / Claude P2-2 (branch guard vs normal mining; G6): the active branch's leaseholder is authorized for its own
+  F4-planned extension and ore digs (floor cells and the shell beside the lanes stay protected); "anyone else" defined;
+  G6 positive controls (an extension and a side-ore dig must pass).
+Codex P2-2 (guard lifting vs the second miner): an uncertified exit may not mutate cells within 2 of the other live
+  record's position or its next 8 route cells (published once a second in world facts); it waits up to 60 s, then
+  takes another exit plan; two-miner Paper scene; O11 says one escape can break the other's route (which then hands
+  over too).
+Codex P3-3 / Claude P2-3 (stale F6 refusal chain): replaced with the handover chain and the connection-dependent
+  use_stair / step-away remedies.
+Claude P2-4 (walk-back owner): after F1 the lease has ended, the order chain runs stairReturn, and stairReturn itself
+  begins off-route with walk-back, dig-back, then the handover.
+Claude P3: G7 named as the cache gate; the gate paragraph rewritten; blockUpdate matching by cell and a +-2 s window
+  across all bots' rows, unloaded-chunk changes found by diffing obs on reload; the danger_stuck sneak is kept until
+  the bot leaves the cell.
+
+====================================================================================================
+ROUND 7 (doc r7 @ 74341530): Codex APPROVE (0 P1, 2 P2); Claude CHANGE (1 P1, 3 P2)
+====================================================================================================
+--- Codex r7 (verbatim) ---
+Reviewed `74341530` read-only. I interpret “resolved in r2” as “resolved in r7.” References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+Round 6 disposition:
+
+| My r6 finding | Status in r7 |
+|---|---|
+| P2: branch protection refuses normal mining | **Resolved at design level.** Explicit authorization covers the active branch owner’s F4-planned extension and side-ore extraction, preserves floors, and adds G6 positive controls (`design:1155–1166,1324`). |
+| P2: escape mutations endanger the second miner | **Partially resolved.** Coordination and the cascading-route-break residual are now explicit, but the coordination rule still leaves the race described below. |
+
+I had no r6 P1. The r6 P3 refusal-chain summary is resolved (`1346–1350`). Claude’s certified-return no-progress finding now has an explicit bounded handover (`1283–1290`).
+
+1. **P2 — Coordination still permits removing support during another miner’s movement (§7 F6, universal handover).**
+
+   The new rule protects cells within two cells of a once-per-second published position, plus the next eight **route cells** (`design:1274–1278`). The certificate defines those route cells as **stand cells** (`1200–1202`), so their supporting floors are not covered by the latter protection.
+
+   A miner can advance beyond its published position while an escape dig removes the floor of an upcoming stand cell. Validation before movement does not prevent a dig completing during that movement. The existing block-update rule invalidates credit before the **next** action (`1212–1213`).
+
+   Protect the movement’s full support/body footprint through completion, with a freshness or acknowledgment rule between miners. Extend the two-miner Paper scene to delay publication and complete a support dig during traversal. Record the peer position, generation and protected footprint so G6 can independently check this exception; its current mutation fields omit those inputs (`1324`).
+
+2. **P2 — Reload differencing cannot observe all the changes it now claims to detect (§7 F6, G6).**
+
+   The new text says changes while unloaded are found by diffing route `obs` on reload (`design:1325–1326`). However, `obs` contains only per-route-cell classes (`1300–1306`), while protection covers the envelope and branch shells (`1155–1157,1222–1224`).
+
+   Removing a shell-only block can leave every route observation unchanged. Replacing one solid block with another also leaves its `S` classification unchanged. Neither change is recoverable from this diff.
+
+   Either retain observations for the complete protected footprint at sufficient block-state detail, or narrow the claim to detecting route-conformance changes. Add an unloaded-shell mutation as a positive control.
+
+The six entombment probe results reproduced. Synthetic execution of `d8.py` correctly separated deaths across lives and dropped a right-censored episode. The principal code claims check out. Production measurement totals remain unverified because their JSON inputs are absent; the document appropriately qualifies the depth proxy, associations and canary power.
+
+No P1 remains. M7–M10, sequential canaries, tier conditions and investigation-only F3 remain respected.
+
+VERDICT: APPROVE
+
+--- Claude r7 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r7 on 74341530. Condensed:
+
+R6 disposition: Codex P2-1 resolved; P2-2 partly (the rule can deadlock); P3-3 resolved; Claude P1 resolved for
+stairReturn (the new walk is unbounded); P2-1 resolved (kit checked: 116 + 2 + 29 = 147); P2-2, P2-3, P2-4 resolved;
+P3s resolved except the reload diff misses shell cells.
+
+P1 §7 F6 handover, coordination rule: two uncertified miners can block each other with no defined next step. "The
+  other live record" includes uncertified; nothing says what happens when no exit plan avoids those cells after the
+  60 s wait; r7's own no-progress trigger ("both lanes occupied past the 20 s step-aside") can put both side by side,
+  both uncertified, each unable to dig or place within 2 of the other; in a 1-wide branch or a shell corner today's
+  chain declines every rung and gives up -- a guard-caused stranding O11 does not state. Fix: protect only a
+  certified record's cells; define the no-plan outcome (wait while the other is live, deterministic tie-break);
+  when the blocker is the other record, wait on its no-progress clock instead of handing both over; a side-by-side
+  scene.
+P2-1 the handover walk has no bound (same 3 attempts / 5 min).
+P2-2 coordination input: WorldFacts.read() caches 20 s (worldfacts.mjs:165); routine writes dropped after 200 ms on a
+  busy lock (184-185); the publish rewrites the pool file under the pool lock and competes with death writes -- use a
+  timestamped position checked for age, stale/missing = "here, wait", maybe a separate small file.
+P2-3 a short traffic jam in both lanes ends the certificate and lifts the guard next to the other miner.
+P3: no no-progress trigger in descending/branch (spins until work expiry); after an extension or ore dig the guarded
+  shell has a hole (move the guard or seal); "next 8 route cells" undefined at a branch face; the reload diff uses
+  route obs only; the kit "30-94" is end-of-lease (up to ~250 early).
+
+M7-M10 respected.
+
+VERDICT: CHANGE
+
+--- r7 -> r8 response (doc r8) ---
+Claude P1 (two uncertified miners block each other): coordination protects only a CERTIFIED peer's footprint (body
+  cells + full body/support footprint of its next 8 route cells toward the top; at a branch face, back toward the
+  junction); an uncertified peer is protected in its body cells only, so two uncertified miners never block each
+  other beyond the cells they stand in; a no-plan wait continues only while the peer is certified and is bounded by
+  the peer's own no-progress clock (it passes or hands over within 5 min) -- no tie-break needed; side-by-side scene.
+Claude P2-3 / P1 trigger (traffic): no-progress from lanes blocked by the other leaseholder does not hand over; with
+  at most 2 miners and 2 open lanes one lane is always free of the peer; a miner blocked by its peer waits on the
+  peer's clock.
+Codex P2-1 / Claude P2-2 (coordination freshness, support footprint, evidence): per-record position file
+  (_pool-<pool>/deepmine-pos-<bot>.json, atomic, ~1 Hz, read uncached, NOT the pool world-facts file); older than 3 s
+  or missing = peer certified with its whole return route within 16 protected; the protected footprint includes
+  floors and head/above of the next 8 stand cells; mutation rows carry peer_pos, peer_gen, peer_phase, peer_t,
+  footprint for G6; Paper scene with delayed publication and a planned support dig that must be refused.
+Claude P2-1 (unbounded handover walk): same 3 attempts / 5 min bound, then it stops where it is and today's chain runs.
+Codex P2-2 / Claude P3 (reload diff): obs_full (block names of the whole protected footprint: lanes, branches, both
+  shells) per generation, diffed on chunk reload; an unloaded shell-only mutation is a positive control.
+Claude P3: work no-progress (3 attempts or 10 min without a step, branch block or ore -> ascending); the shell is
+  recomputed after each extension or ore dig (new hole's neighbours become shell; an ore hole that opens onto
+  nothing walkable is sealed); the kit range is stated as 30-94 late in a lease, up to ~250 early.
+
+====================================================================================================
+ROUND 8 (doc r8 @ 939278fa): Codex CHANGE (1 P1, 1 P2); Claude CHANGE (1 P1, 3 P2) -- the same P1
+====================================================================================================
+--- Codex r8 (verbatim) ---
+Reviewed `939278fa` read-only. I interpret “resolved in r2” as “resolved in r8.”
+
+| Round 7 finding | Status in r8 |
+|---|---|
+| My P1 findings | None existed. |
+| P2: coordination permits removing support during peer movement | **Partially resolved.** Support footprints and evidence fields are added, but movement is still not synchronized with mutation authorization; finding 2 below. |
+| P2: reload observations omit protected shell changes | **Resolved at design level.** `obs_full` covers both shells and branches with block names, and an unloaded shell-only mutation is a positive control (`design:1338–1339,1360–1362`). |
+| Other reviewer’s P1: two miners can block each other without a next step | **Partially resolved.** Uncertified-peer protection is narrowed, but the replacement waiting rule introduces another unbounded refusal chain; finding 1 below. |
+
+References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+1. **P1 — F6’s new peer-clock wait has no termination when the peer disconnects (§7 F6 handover; §8 M8).**
+
+   A missing or stale position file makes the peer *certified* and protects its nearby return route. When no exit avoids that footprint, the bot waits until the peer passes or hands over, supposedly within five minutes ([design:1296–1302](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1296)).
+
+   But disconnect explicitly preserves the record indefinitely; recovery resumes only on reconnect ([design:1511–1518](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1511)). A stopped peer cannot advance its no-progress clock or publish its handover. The waiting bot consequently cannot reach ordinary recovery or the `uncertified_stranded` outcome. This is a guard-created dead end, beyond O11’s stated residual of ordinary recovery giving up.
+
+   Even a connected peer still working has a **ten-minute** work no-progress threshold, not the promised five minutes (`design:1584–1585`).
+
+   **Required:** specify a bounded missing/disconnected-peer recovery protocol that does not depend on the peer’s execution, including safe reconnect fencing. Define the no-plan terminal outcome explicitly. Chain-test a peer disconnect immediately before the waiting bot’s required exit mutation.
+
+2. **P2 — The revised footprint still does not protect the peer’s actual movement through completion (§7 F6 coordination).**
+
+   Certified protection covers the next eight cells **toward the top**, while uncertified protection covers only the published body cells. Publication is approximately once per second, and samples remain acceptable for three seconds ([design:1286–1297](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1286)).
+
+   A certified miner descending or extending a branch moves in the opposite direction from that protected return footprint. An uncertified miner can likewise leave its published body cells. An escape dig can therefore be authorized against a still-fresh sample and complete beneath the peer’s next position. The new stale-file Paper scene does not exercise this case (`design:1307–1308`).
+
+   **Should change:** protect the actual pending movement’s complete body/support footprint until completion, using an acknowledgment or equivalent coordination rule. Test a fresh publication followed by movement and a concurrent support dig; retain the movement generation and acknowledgment evidence for G6.
+
+The six entombment probe results reproduced. The principal code claims check out, including the danger trigger, blind sprint, head-level entombment walls, mining lava gaps, exit-reserve formula and pathfinder planning checks. Production measurement totals remain unverified because their JSON inputs are absent. The document appropriately qualifies depth exposure, associations and canary power. No additional approval-blocking issue emerged in F1–F5, sequencing, tiers or the enchanting sketch; M7–M10 remain respected.
+
+VERDICT: CHANGE
+
+--- Claude r8 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r8 on 939278fa. Condensed:
+
+R7 disposition: Claude P1 partly (the peer clock is not always a bound); P2-1, P2-2 resolved; P2-3 partly ("2 open
+lanes" false once one lane is broken); P3s resolved except the ore-hole seal is not in G6's exceptions; Codex P2-1
+partly (lookahead not sized against staleness; wrong direction for a descending peer); Codex P2-2 resolved.
+
+P1 §F6 handover, "No exit plan avoids the protected footprint": the wait can be unbounded and the doc says it ends.
+  A disconnected peer keeps its record forever, its clock does not run, its stale file makes it certified with its
+  whole route within 16 protected -- the waiting uncertified miner waits until an operator retires the record (24 h
+  alarm); a stale uncertified peer is treated as certified, so the r7 deadlock returns via disconnect. A working peer
+  (descending/branch) resets its 10-min work clock with each step or ore, so the wait is bounded only by work expiry
+  (~2 h + return), not 5 min. O11 states neither. Suggested: stale > ~30 s or absent from the player list protects only
+  last body cells; a waiting uncertified bot ends the peer's work; a backstop timer with an alarm; a disconnect scene.
+
+P2-a one broken lane: a head-on meeting in the only open lane has no defined step-aside; resolves only through the
+  descender's work clock if it has no peer exemption; if both clocks are exempt each waits forever.
+P2-b the protected lookahead is not sized (1 s publish + 3 s freshness + dig time can exceed 8 cells); "toward the top"
+  is the wrong direction for a descending peer.
+P2-c reload-diff changes have no timestamp, so the +-2 s match fails and authorized branch work would read as
+  unauthorized -- match against all mutation rows across the unloaded interval.
+P3: the ore-hole seal should be in G6's exceptions and controls; obs_full volume (tens of KB per row); say the
+  traffic exemption covers only a certified blocker.
+
+M7-M10, one canary at a time, tiers respected.
+
+VERDICT: CHANGE
+
+--- r8 -> r9 response (doc r9) ---
+Codex P1-1 / Claude P1 (unbounded peer wait: disconnect, working peer; the same finding from both engines), and the
+  peer-coordination P2s (Codex P2-2 movement sync; Claude P2-a one broken lane, P2-b lookahead sizing): addressed by
+  removing the class rather than patching it again. ONE deep miner underground per town at a time: still at most 2
+  leases (M8), but a second leaseholder's descent is admitted only when the other record is out, dead or retired by
+  an operator; a disconnected record keeps the underground slot (absence is not exit) and the second miner works
+  above ground, where it cannot be stranded. With no peer underground there is no peer footprint, no peer wait, no
+  freshness rule and no miner-to-miner traffic; the guard lift for an uncertified exit needs no coordination; the two
+  lanes remain as break redundancy. Concurrent occupancy is owner question O13 (recommend single occupancy for the
+  first diamond canary; design concurrency separately if yield justifies it) -- four review rounds found a new dead
+  end in it each time.
+Claude P2-c (reload-diff matching): a change found on reload is matched against every mutation row for that cell over
+  the whole unloaded interval; obs_full is stored in the record's own file, rows carry its hash and changed cells.
+Claude P3: the ore-hole cobble seal is a guard exception and a G6 positive control. The G6 table cell (which had
+  broken the markdown table with embedded paragraphs) is now one line, with "G6 evidence" below the table.
+
+====================================================================================================
+ROUND 9 (doc r9 @ 0cc787ae): Codex CHANGE (1 P1, 1 P2); Claude APPROVE (0 P1, 2 P2, 3 P3)
+====================================================================================================
+--- Codex r9 (verbatim) ---
+Reviewed `0cc787ae` read-only. I interpret “resolved in r2” as “resolved in r9.” References below are to `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+| Round 8 finding | R9 disposition |
+|---|---|
+| My P1 and Claude’s P1: unbounded peer wait | **Resolved for normal operation and disconnects.** The second miner waits above ground; disconnected records retain occupancy (`1507–1510`). Retirement introduces the separate hole below. |
+| My P2: mutations race with peer movement | **Resolved under single occupancy.** Concurrent underground work is deferred to O13 (`1822–1826`). No movement synchronization is needed while that invariant holds. |
+
+1. **P1 — Retirement can release the underground slot while its former occupant remains underground (§8 M8; §11 O11).**
+
+   Admission explicitly permits the second miner to descend when the first record is **retired** (`1508`). O11 offers **retiring the record** as a response to `uncertified_stranded`, separately from restarting or killing the bot (`1812–1816`). Neither retirement nor process restart establishes that the stranded bot has left.
+
+   This contradicts the new justification for removing coordination: the first bot’s exit mutations are unrestricted because “no other miner is underground” (`1293–1295`). Its later recovery or reconnect can now overlap the replacement miner. The reconnect rule says stale generations are possible “only if it died” (`1522–1525`), overlooking retirement.
+
+   **Required:** separate job retirement from physical occupancy. Retiring a stranded record must retain the occupancy fence until witnessed exit/death, or require permanent removal with reconnect fencing. Reconcile O11’s retirement remedy with M8’s exit requirement. Chain-test retirement and restart of a stranded miner while another requests descent. The accepted stranding residual itself is not the objection; the newly claimed absence of concurrency is.
+
+2. **P2 — G6’s new hash-only logging needs retained historical observations (§7 F6, G6 evidence).**
+
+   R9 moves `obs_full` into the record’s own file and logs only its hash and changed cells (`1361–1364`). It does not specify retaining the referenced generations after replacement or retirement. A hash cannot reconstruct the protected footprint and previous block names needed to replay reload differences.
+
+   The earlier row specification still promises full `obs_full` in `_stair_cert_full` (`1320–1321`), so the two descriptions also conflict.
+
+   Specify immutable, retrievable observations keyed by generation/hash, or retain full observations in the evidence stream. Verify replay after the live record has advanced and been retired.
+
+The six entombment probe results reproduced. Synthetic execution of `d8.py` verified cross-life attribution and right-censoring. The principal code claims match the source. Production measurement totals remain unverified because their JSON inputs are absent. No additional P1 emerged in F1–F5, sequencing, tiers, or the diamond/enchanting sketch; M7–M10 remain respected.
+
+VERDICT: CHANGE
+
+--- Claude r9 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r9 on 0cc787ae. Condensed:
+
+R8 disposition: Claude P1, P2-a, P2-b resolved (r9 removes the class); P2-c resolved; P3s resolved; Codex P1-1 mostly
+(reconnect fencing misstated); Codex P2-2 resolved.
+
+No P1.
+P2-1 §8 cap: "at most 1 below the stair top" is stated but not enforced: no phase for an unadmitted leaseholder;
+  admission is not a deep_miner start precondition; confinement starts only below the top; the 1000 lane exclusion
+  applies only to non-leaseholders, so a model goto/explore could walk a waiting leaseholder down. Make admission a
+  phase change under the keepout pid lock with a gen check; treat an unadmitted leaseholder as a non-leaseholder; gate
+  on simultaneous underground records. A breach falls back to r7's stated residual, so P2.
+P2-2 §8 Disconnect: "a stale gen is possible only if it died" is false once an operator retires a disconnected record
+  and the slot is reassigned -- the old bot can reconnect underground with the new miner down there. Retire only when
+  confirmed gone for good, or a stale-gen reconnect below the top runs the evacuation profile as a non-leaseholder and
+  the new admission accounts for it.
+P3-1 leftover two-miner text ("Bots can pass", "(coordinated)", the enum lacks `uncertified`).
+P3-2 G6 reload diff: unmatched changes from another client's loaded chunk (flow, fall) -- classify by block names or
+  G6 trips falsely; add a positive control for an uncertified bot's own exit.
+P3-3 O11/O13: a stranded uncertified bot keeps the town's only underground slot until retired, halting that town's
+  deep mining; a disconnected record does the same.
+M8 respected as leases; turn-taking underground is put to the owner as O13 (a flag, not a finding). M7, M9, M10,
+tiers, one canary at a time unaffected.
+
+VERDICT: APPROVE
+
+--- r9 -> r10 response (doc r10) ---
+Codex P1-1 / Claude P2-2 (retirement frees the slot; reconnect fencing): occupancy is now its own fence
+  {occupant_bot, occupant_gen, since}, separate from the job record; it clears only on witnessed exit, death, or the
+  operator's PERMANENT removal of the bot (unit disabled, account out of the fleet); retiring a record frees the job,
+  never the slot. A reconnecting bot below the top with a gone/retired/stale record runs today's chain as a
+  non-leaseholder on the evacuation profile (its own exit authorized); since it still holds the fence, no other miner
+  can have been admitted; a stale gen below the top after permanent removal is a defect row
+  (_deepmine_fence_violation). O11 now lists restart (stays), /kill (frees by death, owner's call) and permanent
+  removal (frees), and states that a stranded occupant halts that town's deep mining.
+Claude P2-1 (admission not enforced): phase `waiting`; waiting -> descending is a single compare-and-set under the
+  keepout pid lock with a gen check that succeeds only with an empty fence and writes it; an unadmitted leaseholder is
+  a non-leaseholder (lane/branch exclusions apply; deep_miner declines); gate: at most 1 record underground.
+Codex P2-2 (obs_full retention): obs_full appended immutably to _pool-<pool>/deepstair-obs.jsonl keyed by hash, kept
+  14 days; _stair_cert_full carries the hash and changed cells (the earlier conflicting text removed).
+Claude P3: enum gains waiting and uncertified; "Bots can pass" and "(coordinated)" removed; unmatched reload/blockUpdate
+  changes are classed by block names (air or a placed block with no row = G6 violation; lava/water/gravel/sand =
+  `env`, a break check, not a violation); positive controls add an uncertified own-exit dig and a water flow.
+
+====================================================================================================
+ROUND 10 (doc r10 @ b1afc0a8): Codex APPROVE (0 P1, 1 P2); Claude APPROVE (0 P1, 4 P2, 4 P3)
+====================================================================================================
+--- Codex r10 (verbatim) ---
+Reviewed `b1afc0a8` read-only. I interpret “resolved in r2” as “resolved in r10.”
+
+| Round 9 finding | R10 disposition |
+|---|---|
+| Codex P1: retirement releases an occupied underground slot | **Resolved at design level.** Retirement preserves the separate occupancy fence; exit, death or permanent removal clears it (§8, lines 1524–1545). O11 now states the resulting town-wide halt. |
+| Codex P2: hash-only observations cannot be replayed after replacement | **Resolved for the stated 14-day retention window.** Immutable observations are retained by hash, and the conflicting full-row specification is removed (§7 F6, lines 1328–1332). |
+| Claude P2-1: admission is asserted but unenforced | **Resolved at design level.** Admission is a generation-checked compare-and-set under the lock; waiting leaseholders receive non-leaseholder exclusions and cannot start `deep_miner` (§8, lines 1530–1534). |
+| Claude P2-2: retirement permits stale-generation reconnect overlap | **Resolved at design level.** Retirement retains occupancy; reconnect uses deterministic evacuation, and reconnect after permanent removal trips the violation gate (§8, lines 1564–1578). |
+
+1. **P2 — G6’s new environmental classifier cannot establish mutation provenance (§7 F6, “G6 evidence”).**  
+   [Lines 1378–1381](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1378) classify unmatched changes to sand/gravel as environmental, but unmatched changes to air as violations.
+
+   This creates both error directions:
+   - An unauthorized sand/gravel placement that bypasses the mutation logger is classified `env`, defeating the bypass-placement mutants specified immediately below.
+   - A falling sand block vacates its original cell without a bot dig. That transition becomes an apparent unauthorized dig. Sand falling when support disappears is documented by [Minecraft’s official description](https://www.minecraft.net/en-us/article/block-week-sand).
+
+   Block names alone cannot distinguish placement from falling. Preserve an unresolved attribution category unless corroborating evidence establishes the cause; independently trigger route revalidation. Add controls covering both cells of a fall and an unlogged sand/gravel placement. This is a gate-correctness issue for the build review, not a newly demonstrated movement dead end.
+
+The six entombment probe results reproduced. Synthetic execution of `d8.py` confirmed cross-life attribution stops at the first death and right-censored episodes are dropped. The principal code claims match the source: blind sprint, feet-or-below danger trigger, head-level entombment walls, mining lava gaps, exit-reserve formula and pathfinder planning checks.
+
+Production totals remain unverified because the telemetry JSON inputs are absent. The document appropriately qualifies the depth proxy, associations and canary power. No new P1 emerged in F1–F6, refusal-chain composition, sequencing, tiers or the diamond/enchanting sketch. M7–M10 remain respected.
+
+VERDICT: APPROVE
+
+--- Claude r10 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r10 on b1afc0a8. Condensed:
+R9 disposition: Codex P1-1 resolved; Codex P2-2 partly (14-day limit); Claude P2-1 resolved; P2-2 partly; P3-1
+resolved; P3-2 partly; P3-3 resolved. No P1.
+P2-1 stale-gen rule contradicts "retiring frees the job": a retired record's legitimate occupant reconnecting below
+  the top with a stale gen would trip _deepmine_fence_violation -- decide by the fence (occupant_bot/occupant_gen).
+P2-2 the fence can stay set after the bot is out (a certified or retired occupant surfacing below the stair top's
+  height never clears it; _deepmine_stale needs 24 h unseen) -- one rule for every occupant, surface anywhere with
+  exitDebt 0, against the fence; a held-fence-while-on-surface alarm.
+P2-3 "kept 14 days" can delete a baseline still in use -- keep while live + 14 days after superseded; missing = error.
+P2-4 normal fluid behaviour reads as a violation (drained flowing cells become air after an upstream seal; fluid
+  meetings produce cobble/stone/obsidian/basalt) -- class by before-state as env; control: a seal drains a lava cell.
+P3: /kill cannot reach an offline player; admission should require the waiting bot to be at the stair top;
+  concurrent appends to deepstair-obs.jsonl (atomic per line or under the lock); operator tooling takes the keepout
+  lock. Compare-and-set admission sound; fencing for gone/retired/stale records safe. M7-M10 respected; O13 correctly
+  left to the owner.
+VERDICT: APPROVE
+
+--- r10 outcome ---
+BOTH ENGINES APPROVE r10 (b1afc0a8). The remaining P2/P3 findings (G6 provenance/fluid classification; fence-keyed
+reconnect fencing; one fence-clearing rule + alarm; obs_full retention while live; P3 tooling items) are recorded in
+the design's section 13 under "Carried into the build reviews"; the approved design text is unchanged.
