@@ -1620,6 +1620,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let healthBeforeTick = null   // for the held-cursor release: damage taken since the last tick
   // THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): a dig reached from the reflex tick is survival.
   const timer = setInterval(digScoped({ purpose: 'survival', by: 'reflex' }, async () => {
+    // lavastep-01: the relaxation's end conditions (no entity, death, the air rescue, in water, expiry, moved off, a new
+    // DANGER cell) run FIRST, before every early return below (Codex code r2 P2); it never throws
+    try { lavastepMover?.tick() } catch { /* the mover's own guard */ }
     if (!bot.entity) return
 
     try {
@@ -2575,7 +2578,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // The escape re-fires every 2.5 s while the danger persists (it clears its controls after 1.5 s).
       // LAVASTEP-01 (F1): the effective names -- a (cell, name) relaxed by the enclosed-unsealable-floor rule reads as no
       // name (magma or campfires only; lava and fire never) -- so the arm and recoveryArmsMayRun see the same thing.
-      lavastepMover?.tick()
       const eff = lavastepMover ? lavastepMover.effective(feet, below) : { feet: feet?.name ?? null, below: below?.name ?? null }
       const dangerHere = !recoveryArmsMayRun({ feetName: eff.feet, belowName: eff.below })
       if (dangerHere && throttled('danger', 2500)) {
