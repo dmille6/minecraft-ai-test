@@ -401,3 +401,36 @@ DISPOSITIONS r5 -> r6 (both engines):
   two fixtures (12 of 12 pass). Unchanged result: 10/13, 26/65.
 - Codex 5 (P3 stale text): §3.2's recovery test and the CUTOFF scene rewritten.
 - Claude P3s: M-b and the deep-stair siting marked as asks of mineshaft; the 5 s clock margin; `_build_mode` named for B0b.
+
+ROUND 6 (r6 doc, commit 65aafa41)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round 5 status: **#1 and #2 remain partially fixed; #3, #4 and #5 are fixed at design level.** Verified 17/17 structure fixtures, eight anchored mutants killed in memory, 12/12 funding cases, and reproduced funding totals.
+
+1. **P2 — Design §2.5/§6.2: the five-second margin still strands quiet buildings.** Per-chunk watermarks fix the cross-chunk problem, and surveys address unsaved damage. But a final placement at `12:00:00`, saved at `12:00:02`, fails the required `save > placement + 5s` forever if that chunk remains unchanged. The survey cannot rescue it because persistence requires an already-SCORED record.  
+   **Fix:** let a verified live survey establish the initial observation when save ordering is ambiguous, followed by another qualifying survey ≥1 hour later. Extend CUTOFF-QUIET to cover a final save inside the margin, without dirtying the world.
+
+2. **P2 — Design §2.6; `tools/daily.sh.txt` / `readmanifest.py.txt`: failed same-day retries can still report OK.** Atomic manifest publication fixes mixed generations. However, a failed manifest replacement—or unwritable output directory—can retain an earlier **same-day OK** manifest, which the reader accepts. I reproduced that acceptance in memory. Demo 6 starts from UNKNOWN; demo 9 starts without a manifest, so neither tests this failure.  
+   **Fix:** validate an externally expected attempt ID or freshness deadline, not merely the UTC day. Demonstrate both failures starting from a valid same-day OK publication; retained data must remain readable as historical data while current status becomes UNKNOWN.
+
+3. **P2 — `tools/daily.sh.txt`, `LAST` selection and stamp validation: UNKNOWN erases the control baseline.** An UNKNOWN manifest carries no generation, and `LAST` is populated only from an OK manifest. Consequently, the next retry skips the stamp comparison entirely. Running the actual validator in memory rejected a drop from 180 stamp cells to 1 with the prior generation supplied, but accepted it with the empty pointer produced after UNKNOWN.  
+   **Fix:** retain a hash-validated `last_good` reference through UNKNOWN publications and use it for control comparisons. Add an OK → failed run → severely depleted stamp → retry fixture; the retry must remain UNKNOWN.
+
+CLAUDE r6 (same reviewer agent, resumed; ran funding --selftest 12/12): VERDICT: APPROVE (0 P1, 0 P2). Verified: per-chunk
+watermark with the 5 s margin; persistence by a live survey with exposure counting PERSISTENT buildings; M-b and deep-stair
+siting marked as asks; F2 corrected and exit_house on its own trigger; `_build_mode` named; readmanifest's rule; the nine
+wrapper demos.
+P3: the survey skips cells the bot dug or clicked in the last 10 s, but a rejected dig's ghost air can outlive 10 s (safe
+  direction: it can fail a real building, never fake one). Skip the bot's own unconfirmed-dig set (§4.4), or run the resync
+  probe on a "missing" cell first.
+
+DISPOSITIONS r6 -> r7:
+- Codex 1 (P2 margin strands quiet buildings): an observation is a scored copy OR a clean survey; two observations >= 1 h
+  apart make a building PERSISTENT, so two surveys suffice; CUTOFF-QUIET covers a final save inside the margin, nothing written.
+- Codex 2 (P2 same-day retry): the wrapper records its attempt first (atomic rename, a separate attempts directory; exit 7 and
+  touch nothing if that fails); the manifest names its attempt; the reader requires it to equal the newest recorded attempt.
+  Demonstrated from a same-day OK: a failed manifest rename and an unwritable output directory both read UNKNOWN, the older
+  generation readable as history.
+- Codex 3 (P2 baseline lost): `last_good` (generation + sha256) carried forward through UNKNOWN manifests and hash-validated
+  before use; demonstrated OK -> failed run -> depleted-stamp retry refused -> normal retry OK.
+- Claude P3: the survey skips the bot's own unconfirmed-dig set and resync-probes a cell before reporting it missing.

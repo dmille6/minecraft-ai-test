@@ -1,4 +1,4 @@
-# The building tier: count what is built, make the materials, build from plans (design only, r6, 2026-10-23)
+# The building tier: count what is built, make the materials, build from plans (design only, r7, 2026-10-23)
 
 OWNER 2026-10-23 ~12:40Z approved the building tier. The goal it serves is the owner's: "build cool structures, survive,
 and work together for long periods of time", in peaceful worlds.
@@ -333,18 +333,22 @@ world.
   - **What a saved-state observation says:** each chunk's part as of that chunk's save. A change by anything without a
     `_build` row (a transit dig, a reflex) after a chunk's save is not in the copy, and is at most one autosave old while the
     chunk stays loaded. The read reports the interval [oldest, newest] save time per record and claims nothing after it.
-  - **Persistence is a live SURVEY, not a second copy** (Codex r5 P1). A `survey` order (TP §5's job: 30 min cooldown, any bot
-    at town) reads every cell of a scored record from the server's chunk data as the bot has it loaded, skipping any cell the
-    bot itself dug or clicked in the last 10 s (its own predictions), and logs `_build_survey` (record, cells read, missing,
-    foreign, unknown, the bot's position). The structure count credits a building as PERSISTENT when a survey made at least
-    one hour after its first scored observation finds every cell in family, the room intact and the light lit. Damage before
-    the survey fails it; damage after it is the next survey's.
+  - **Persistence is a live SURVEY, not a second copy** (Codex r5/r6). A `survey` order (TP §5's job: 30 min cooldown, any bot
+    at town) reads every cell of a record from the server's chunk data as the bot has it loaded, skipping every cell in THAT
+    bot's own unconfirmed-dig set (§4.4: a rejected dig's ghost air can outlive any time window; Claude r6 P3), and logs
+    `_build_survey` (record, cells read, missing, foreign, unknown, the bot's position). Before it reports a cell missing it runs
+    the resync probe on it once (§4.4), so its own stale view cannot fail a real building.
+  - **An OBSERVATION of a record is either a scored region read or a clean survey** (Codex r6 P2: a final save inside the 5 s
+    margin, in a chunk nothing touches again, would otherwise never score). A building is PERSISTENT when two observations at
+    least one hour apart both find every cell in family, the room intact and the light lit. Two surveys qualify on their own, so a
+    quiet building needs no further save. Damage before the second observation fails it; damage after it is the next one's.
   - **One read rule for the canary:** exposure counts PERSISTENT buildings; a scored but not yet surveyed building is
     reported, not counted; an UNKNOWN record is reported as UNKNOWN.
   - **Copies:** `cp -p` on 10.0.0.30 and the SOURCE file's mtime recorded before the copy. No RCON `save-all`.
   - Tests: CUTOFF-SPLIT (a record across two chunks, A finished first, the last placement in B: scored after B's save, with A
     unchanged and unsaved since); CUTOFF-QUIET (a finished building, its chunks unloaded and never re-saved: scored from the old
-    saves, and a survey on the next visit verifies it); CUTOFF-DAMAGE (placement -> save -> a transit dig -> copy before the
+    saves, and a survey on the next visit verifies it; and a final placement whose chunk was saved INSIDE the 5 s margin and
+    never dirtied again: unscored by the copy, made PERSISTENT by two surveys an hour apart, with nothing written to the world); CUTOFF-DAMAGE (placement -> save -> a transit dig -> copy before the
     next save: scored complete from the copy, the survey finds the hole and the building is not PERSISTENT); CUTOFF-SLOW (a
     save delayed by a slow tick rate: `UNKNOWN: not yet saved` until the chunk is saved).
 
@@ -365,17 +369,22 @@ most bench towns (a mineshaft edge), 657 cells in board-b, 445 in placebo-a, all
 **The fixtures are part of the instrument.** `selftest` (17 known-answer fixtures) and `mutants.py` (8 anchored mutants, each
 asserted present and unique) run before every daily scan and every canary read. Both exit nonzero on any failure, survivor,
 crash or missing case line, and the wrapper then publishes nothing for the day (the BUILD lines say UNKNOWN) and alarms.
-The wrapper is `tools/daily.sh.txt` (r6), exercised on 10.0.0.30 (`data/daily-wrapper-demo.txt`; Codex r4/r5 P2). Each run
-writes an IMMUTABLE generation directory (the day's JSON, its gzip cell list, the controls' outputs) and publishes it by
-renaming ONE file, `manifest.json`, which names the day, the status, the generation and every file's sha256; rename(2) of one
-file is atomic, so a reader never sees a mix. Before OK it requires both controls on the same instrument path, and per world a
-scan and a negative control with FULL coverage (every chunk `ok`, no unresolved start), the stamp within 10% of the last OK
-generation and 0 surface false positives. A failed run publishes a manifest with status UNKNOWN and no files. The READER
-(`tools/readmanifest.py.txt`, goalboard's rule) accepts only a manifest for the expected day, status OK, with every hash
-matching; so even when the manifest cannot be written at all, the reader sees an older day and says UNKNOWN. Nine
-demonstrations, including a failure injected at every step (selftest, scan, aggregate, the generation rename, the manifest
-rename), a broken instrument, a stale day and an unwritable directory: each leaves earlier generations untouched and the reader
-at UNKNOWN or at the previous manifest, never a mix.
+The wrapper is `tools/daily.sh.txt` (r7), exercised on 10.0.0.30 (`data/daily-wrapper-demo.txt`; Codex r4-r6 P2).
+- **The attempt is recorded first,** by an atomic rename into a SEPARATE attempts directory, before anything else. If that
+  cannot be written the run stops, touching nothing, and exits 7 (the cron line's exit code reaches the fleetstatus alarm).
+- **Each run writes an immutable generation directory** (the day's JSON, its gzip cell list, the controls' outputs) and
+  publishes it by renaming ONE file, `manifest.json`: the day, the attempt, the status, the generation, every file's sha256, and
+  `last_good` (the newest OK generation and its hash), carried forward through UNKNOWN runs.
+- **Checks before OK:** both controls on the same instrument path; per world a scan and a negative control with FULL coverage
+  (every chunk `ok`, no unresolved start), the stamp within 10% of `last_good` (hash-validated, so an UNKNOWN run cannot erase the
+  baseline), and 0 surface false positives. A failed run publishes a manifest with status UNKNOWN and no files.
+- **The READER** (`tools/readmanifest.py.txt`, goalboard's rule) says OK only for a manifest of the expected day whose attempt
+  equals the newest recorded attempt, with status OK and every hash matching. So a failed manifest replacement, or an unwritable
+  output directory, after a same-day OK reads UNKNOWN (that attempt has no manifest), while the older generation stays readable
+  as history by its name.
+- **Nine demonstrations**, the two failures above each starting FROM a same-day OK, and OK -> a failed run -> a retry with a
+  depleted stamp (1 of 186: refused) -> a normal retry (OK). Earlier rounds' demonstrations (each step's injected failure, a
+  broken instrument, a missing region file) run the same code paths.
 
 **Known false positive, named.** The only room found on the bench (board-b, 76 from home) is a cobble scaffold under a
 jungle canopy, with log walls. B5's light rule makes it a structure.
@@ -1243,3 +1252,12 @@ Rounds are recorded in `docs/reports/building-tier-reviews-2026-10-23.txt`.
     four CUTOFF scenes (§2.5); a manifest-published wrapper and reader with nine demonstrations (§2.6); `exit_house` on its own
     trigger, HOUSE-SEAL from the middle (§4.4, §5a); whole glass batches with two fixtures (§3.3); the stale texts; §5a's asks
     to mineshaft marked as asks; `_build_mode` named for cooperation's B0b.
+- **Round 6 (r6, commit 65aafa41):** **Claude APPROVE** (one P3: the survey's 10 s skip window). Codex CHANGE (3 P2): a final
+  save inside the 5 s margin strands a quiet building, since persistence required a scored copy first; a failed same-day retry
+  (manifest replacement, unwritable directory) left an earlier same-day OK readable as current; an UNKNOWN manifest dropped the
+  stamp control's baseline.
+  - Addressed in r7: an observation is a scored copy OR a clean survey, and two observations an hour apart make a building
+    PERSISTENT (CUTOFF-QUIET extended); the survey skips the bot's own unconfirmed-dig set and probes a cell before calling it
+    missing; the wrapper records its attempt first in a separate directory, the reader requires the manifest's attempt to be
+    the newest, and `last_good` is carried through UNKNOWN runs with its hash; nine demonstrations, both failures from a
+    same-day OK and the depleted-stamp retry.

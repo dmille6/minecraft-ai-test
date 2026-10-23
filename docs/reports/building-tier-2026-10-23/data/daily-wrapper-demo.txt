@@ -1,18 +1,21 @@
-daily.sh r6 (manifest publication) demonstrations, 10.0.0.30 ~/structcount-1023, 2026-10-23 16:57-16:58Z.
-After every run the READER (readmanifest.py: today's day, status OK, the generation present, every sha256 matching) is asked.
+daily.sh r7 (attempt marker + manifest publication + carried last_good) demonstrations, 10.0.0.30 ~/structcount-1023,
+2026-10-23 17:05-17:06Z. After every run the READER (readmanifest.py: the expected day, the manifest's attempt equal to the
+newest recorded attempt, status OK, the generation present, every sha256 matching) is asked.
 
-run                                   wrapper says                                                   exit  reader says
-1 the instrument as shipped           published m-out/gen-20261023T165720Z via manifest.json          0     OK gen-20261023T165720Z 4 files
-2 FAIL_AT=selftest                    selftest failed: nothing published                              3     UNKNOWN selftest failed
-3 FAIL_AT=scan                        scan failed: board-a: nothing published                         4     UNKNOWN scan failed: board-a
-4 FAIL_AT=aggregate                   aggregation failed: nothing published                           5     UNKNOWN aggregation failed
-5 FAIL_AT=gen_rename                  generation rename failed: nothing published                     6     UNKNOWN generation rename failed
-6 FAIL_AT=manifest (the final rename) manifest write failed: readers keep the previous manifest       6     the previous manifest, unchanged (here
-                                                                                                             run 5's UNKNOWN); its generation dir
-                                                                                                             gen-20261023T165752Z stays unnamed
-7 STRUCTCOUNT=broken.py               selftest failed: nothing published                              3     UNKNOWN selftest failed
-8 a reader expecting another day      -                                                               -     UNKNOWN stale manifest (day 2026-10-23)
-9 an unwritable output dir (555)      manifest not writable ...; cannot create a work dir             6     UNKNOWN no readable manifest
-Run 1's generation directory is never modified by later runs (generations are immutable; only manifest.json is replaced).
-Earlier r5 demonstrations (missing region file read as chunk_missing_region -> INVALID) apply unchanged: the coverage check
-is the same code.
+run                                              wrapper                                                   exit  reader
+1 the instrument as shipped                      published gen-20261023T170501Z                             0    OK gen-...170501Z
+2 FROM OK: the manifest rename fails             manifest write failed                                      6    UNKNOWN attempt ...170511Z has no
+                                                                                                                  manifest (history: gen-...170501Z)
+3 good again                                     published gen-...170522Z                                   0    OK
+4 FROM OK: the output dir unwritable (555)       manifest not writable; cannot create a work dir            6    UNKNOWN attempt ...170532Z has no
+                                                                                                                  manifest (history: gen-...170522Z)
+5 good again                                     published gen-...170533Z                                   0    OK
+6 a failed run (FAIL_AT=scan)                    scan failed: nothing published                             4    UNKNOWN scan failed
+  last_good after that UNKNOWN run: gen-20261023T170533Z (carried forward)
+7 retry with a depleted stamp (STAMP_OVERRIDE=1) INVALID board-a stamp control 1 < 90% of 186               4    UNKNOWN invalid scan
+8 retry, stamp normal                            published gen-...170556Z                                   0    OK
+9 the attempts dir unwritable                    cannot record the attempt: nothing touched; exit 7 (alarm) 7    OK gen-...170556Z (no new attempt
+                                                                                                                  exists; the cron exit code alarms)
+Generations are immutable (gen-...170511Z, from run 2, stays on disk unnamed). Earlier r5/r6 demonstrations (a missing
+region read as chunk_missing_region -> INVALID; FAIL_AT selftest / aggregate / gen_rename; a broken instrument) run the same
+code paths.
