@@ -103,7 +103,9 @@ export const PATHFINDER_SCAFFOLD = [
   'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
   'dark_oak_log', 'cherry_log', 'mangrove_log',
   // Common non-falling stone the list simply had not enumerated.
-  'mossy_cobblestone', 'stone_bricks', 'smooth_stone', 'blackstone', 'basalt',
+  // stone_bricks and smooth_stone LEFT (matset-01, building tier §3.4: OWNER D8's unshipped half): they are building
+  // material, so the pathfinder never spends one. The exit contract never counted them (exit-contract.mjs SCAFFOLD).
+  'mossy_cobblestone', 'blackstone', 'basalt',
 ]
 
 /** Blocks that obey gravity: never plannable as a bridge. */

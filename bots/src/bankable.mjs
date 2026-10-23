@@ -6,7 +6,7 @@ import { peacefulFoodActive } from './foodskip.mjs'
 import { admitStacks } from './cobblecap.mjs'
 // STOCK TARGETS (stocktarget-01; design docs/reports/stocktargets-design-2026-10-08.md): every other bulk group and the
 // capped tools, judged against the town's count of the group through the same journal as the cobble cap.
-import { groupOf, targetOf, isToolGroup, roomUnder } from './stocktarget.mjs'
+import { groupOf, targetOf, isToolGroup, roomUnder, PROJECT_PARTS } from './stocktarget.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -440,7 +440,10 @@ export function depositDue ({ bankable, distHome, storageWithin48 = false,
  */
 export const DEPOSIT_VALUE = ['diamond', 'iron_ingot', 'raw_iron', 'iron_ore', 'coal', 'oak_log', 'birch_log', 'jungle_log', 'oak_planks', 'stick', 'stone', 'cobbled_deepslate', 'cobblestone']
 /** Banked whenever carried, wanted or not: ores and rare drops are never ballast. */
-export const DEPOSIT_ALWAYS = ['iron_ore', 'deepslate_iron_ore', 'raw_copper', 'copper_ingot', 'raw_gold', 'gold_ingot', 'redstone', 'lapis_lazuli', 'emerald', 'amethyst_shard']
+// matset-01 (building tier §3.4): sand (a town target of 64 now: below it the well no longer takes sand, so it must have a
+// bank route or it sits in the bag) and every building part (always banked, never ballast; glass gets its route here).
+export const DEPOSIT_ALWAYS = ['iron_ore', 'deepslate_iron_ore', 'raw_copper', 'copper_ingot', 'raw_gold', 'gold_ingot', 'redstone', 'lapis_lazuli', 'emerald', 'amethyst_shard',
+  'sand', 'red_sand', ...PROJECT_PARTS]
 /**
  * THE ONE WANTS AUGMENTATION, IN ONE PLACE. `depositPlan` and `bankableExclusion` must judge
  * the same inventory the same way; the previous attempt at naming the rule computed
