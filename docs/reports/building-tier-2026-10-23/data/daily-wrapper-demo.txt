@@ -1,0 +1,21 @@
+daily.sh r7 (attempt marker + manifest publication + carried last_good) demonstrations, 10.0.0.30 ~/structcount-1023,
+2026-10-23 17:05-17:06Z. After every run the READER (readmanifest.py: the expected day, the manifest's attempt equal to the
+newest recorded attempt, status OK, the generation present, every sha256 matching) is asked.
+
+run                                              wrapper                                                   exit  reader
+1 the instrument as shipped                      published gen-20261023T170501Z                             0    OK gen-...170501Z
+2 FROM OK: the manifest rename fails             manifest write failed                                      6    UNKNOWN attempt ...170511Z has no
+                                                                                                                  manifest (history: gen-...170501Z)
+3 good again                                     published gen-...170522Z                                   0    OK
+4 FROM OK: the output dir unwritable (555)       manifest not writable; cannot create a work dir            6    UNKNOWN attempt ...170532Z has no
+                                                                                                                  manifest (history: gen-...170522Z)
+5 good again                                     published gen-...170533Z                                   0    OK
+6 a failed run (FAIL_AT=scan)                    scan failed: nothing published                             4    UNKNOWN scan failed
+  last_good after that UNKNOWN run: gen-20261023T170533Z (carried forward)
+7 retry with a depleted stamp (STAMP_OVERRIDE=1) INVALID board-a stamp control 1 < 90% of 186               4    UNKNOWN invalid scan
+8 retry, stamp normal                            published gen-...170556Z                                   0    OK
+9 the attempts dir unwritable                    cannot record the attempt: nothing touched; exit 7 (alarm) 7    OK gen-...170556Z (no new attempt
+                                                                                                                  exists; the cron exit code alarms)
+Generations are immutable (gen-...170511Z, from run 2, stays on disk unnamed). Earlier r5/r6 demonstrations (a missing
+region read as chunk_missing_region -> INVALID; FAIL_AT selftest / aggregate / gen_rename; a broken instrument) run the same
+code paths.

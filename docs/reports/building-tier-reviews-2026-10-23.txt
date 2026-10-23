@@ -1,0 +1,455 @@
+building-tier design (docs/reports/building-tier-2026-10-23.md) -- review record
+================================================================================
+
+ROUND 0 (10-23): prior-art search (web search + repository source + issue trackers), summarised in design section 9.
+Sources read (URLs):
+- mineflayer-builder (PrismarineJS, MIT): https://github.com/PrismarineJS/mineflayer-builder  (README: WIP, "not an usable
+  package yet", creative op bot; lib/Build.js y/z/x order + getAvailableActions + getPossibleDirections face filter,
+  facingData.json inverted facing; index.js nearest action; errors console.logged and the action dropped; full state-id diff
+  in updateActions; open issues #6 null boundingBox in getPossibleDirections, #5, #10, #1)
+- prismarine-schematic (MIT): https://github.com/PrismarineJS/prismarine-schematic ; open #82 (Apr 2026) parsePalette decodes
+  int-typed properties with parseInt -> 1.21.x white_stained_glass_pane round-trips as repeater:
+  https://github.com/PrismarineJS/prismarine-schematic/issues/82 ; #39, #7/#38
+- other loaders: https://github.com/ewanhowell5195/minecraft-block-reader (MPL-2.0), https://docs.rs/crate/nucleation/0.3.5 (MIT),
+  Sponge spec https://github.com/SpongePowered/Schematic-Specification
+- Voyager (MIT): voyager/control_primitives/placeItem.js (first non-air neighbour, GoalPlaceBlock, success = item count dropped,
+  throws after 10 failures); paper https://arxiv.org/html/2305.16291 (3D builds only with human critic/curriculum);
+  VoyagerVision https://arxiv.org/abs/2507.00079
+- Mindcraft / MineCollab (MIT, github.com/mindcraft-bots/mindcraft): src/agent/tasks/construction_tasks.js Blueprint.check()
+  (block NAME only; air-air skipped; filled blueprint-air = mismatch; score = matches/(matches+mismatches)); autoBuild via
+  /setblock; paper https://arxiv.org/html/2504.17950 (best ~36% Claude 3.5 Sonnet, ~31% GPT-4o; agents demolish each other's
+  sections, lose track past ~20 steps); skills.js placeBlock (GoalNear 4, GoalInvert, preferred face then all six, no
+  orientation control in survival, sleeps 200 ms and returns true); issues #780 "No real house ever been build", #462 survival
+  schematic builder closed not planned
+- Project Sid (Altera): https://arxiv.org/html/2411.00114 (specialisation prompts: "You CANNOT BUILD"; spatial reasoning named
+  as the limit)
+- Baritone BuilderProcess (LGPL-3.0): https://github.com/cabaletta/baritone/blob/1.21.4/src/main/java/baritone/process/BuilderProcess.java
+  (recalcNearby/fullRecalc each tick; placeable/breakable/missing; GoalPlace/GoalAdjacent; buildInLayers/layerOrder;
+  hasAnyItemThatWouldPlace -> getStateForPlacement + valid(); possibleToPlace ray-traces faces; buildIgnoreDirection,
+  buildIgnoreProperties, buildSubstitutes, okIfAir). Issues: #2173 https://github.com/cabaletta/baritone/issues/2173 (place/break
+  loop on own scaffold), #822 (no temporary support), #4586 (loops; maintainer: builder "not very good"), #4455 (directional
+  blocks), #3995 (latency pillar fall), #4618 (candles -> "missing material")
+- mineflayer lib/plugins/place_block.js (waits 5 s for blockUpdate; success = type changed), generic_place.js (cursor by half);
+  #3537 (use_item rotation), #2600 "Ghosting blocks on servers with lag" (open)
+- mineflayer-pathfinder (MIT): movements.js canOpenDoors = false "Causes issues"; exclusionAreasBreak/Place; issues #296
+  https://github.com/PrismarineJS/mineflayer-pathfinder/issues/296 , #181, #78, #354
+- IGLU gridworld (AGPL-3.0): https://github.com/iglu-contest/gridworld , https://arxiv.org/pdf/2205.13771 (F1 max over shifts and
+  rotations); Minecraft Dialogue Corpus net-action F1 https://aclanthology.org/P19-1537/
+- MC-Bench (pairwise human votes: not a block metric); MineCEraft https://arxiv.org/abs/2608.28884 (metric not verified);
+  MineLand https://arxiv.org/abs/2403.19267 , Odyssey https://arxiv.org/abs/2407.15325 (no building results found);
+  GDPC https://gdpc.readthedocs.io (world edits)
+- Mechanics: https://minecraft.wiki/w/Stairs , /Slab , /Door , /Torch ; Paper client-interaction-leniency-distance
+  https://docs.papermc.io/paper/reference/global-configuration/ ; mineflayer #237 (no stonecutter window); MC-269161
+Not verified: Baritone's exact default settings; torch on a glass side face; MineCEraft's metric; exact vanilla reach geometry.
+
+ROUND 1 (r1 doc, commit 19c00cdf)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+1. **P1 — §2.3–2.4; `structcount.py.txt::describe/rooms_of`: building count changes with incidental scaffold connections.** Two lit houses connected by cobble produce **one building**; attaching enough buried scaffold suppresses room detection for the entire component. The village control bypasses `describe`, so it misses this failure. Count buildings independently of material components, with fixtures for connected houses and a house attached to a mine stair.
+
+2. **P1 — §2.4; `structcount.py.txt::LIGHT/World.block`: “lit” does not mean lit.** The reader discards block properties, and `LIGHT` accepts unlit lamps, candles and campfires. Its neighbourhood search also accepts lights below the floor or outside the room. An in-memory fixture reproduced the unlit-lamp false positive. Preserve states and require an active light at an explicitly permitted interior position.
+
+3. **P1 — §2.2, §2.6, Q9: “BUILT = a bot placed it” is unsupported.** The controls already find 652 natural palette cells surviving the masks. Conversely, stamp coordinates and padded worldgen boxes erase bot replacements and additions indiscriminately. The untouched showcase proves neither attribution nor recall in inhabited worlds. Label this an estimated, observable-palette count; use records or placement provenance for bot attribution, and test additions inside masks and around their padded boundaries.
+
+4. **P2 — §0 controls, §2.6; `scan/*.out`: the plinth control is overstated.** `found_built` accepts any palette block at a planned coordinate, without checking its material family. `isolated-d` is `state: plan` with 66 hits; `isolated-b` is `complete` with zero planned cells. These are not “10 complete wells.” Match explicit component IDs and allowed plinth materials, report actual record states, and demonstrate failures for wrong blocks, disconnected cells and empty plans.
+
+5. **P2 — §2.5–2.8, §6: daily output is not yet a reliable canary instrument.** Fixed cron times do not establish backup completion, freshness or coverage of a +360 read. Unreadable starts are reported but do not invalidate results; the supplied negative controls include them. Require snapshot completion markers, observation timestamps, coverage/validity gates and atomic publication; show UNKNOWN for stale or incomplete data. Schedule canary reads against qualifying snapshots.
+
+6. **P1 — §3.3: the inherited admission rule is reversed.** TP §3.2 requires the whole BOM to fit within **80% of spendable stock**. This document admits when stock covers **80% of the BOM**, allowing an underfunded start. Restore recipe-aware allocation of finished parts, intermediates, raw inputs and fuel, with the intended reserve margin. Test the boundary behaviour; source assertions cannot prove this decision.
+
+7. **P1 — §3.2–3.3; `skills.mjs::smeltInner`: reusing the furnace session can burn forbidden fuel.** The fuel allow-list filters bag planning; existing furnace coal is not cleared before `putInput`. The existing session also handles foreign input/output and fails open when leasing is unavailable. Require verified permitted furnace contents and an acquired lease before loading, plus quantity-bounded building fuel. Test coal already in the furnace, foreign iron, unavailable lease storage and kit fuel in the bag.
+
+8. **P1 — §3.4; `well.mjs::stockWellStacks`: `NEVER_DISPOSE` does not protect the new targeted parts.** Stock-target disposal bypasses `isWellJunk` and checks `stocktarget.isProtected` instead. Adding capped part groups can therefore discard glass, panes or cut copper despite `NEVER_DISPOSE`. Restore TP §3.3’s protected, always-bankable part contract, or explicitly redesign every disposal path. Include copper doors and fallback parts, and test a full bag when the town is at cap.
+
+9. **P2 — §3.2, §4.6 M3–M4: interrupted production breaks the stone guarantee.** An interruption after 1–3 stone outputs cannot craft bricks, and SIGKILL cannot run `finally`. Stone remains scaffold-eligible; “KEEP during the job” neither survives restart nor excludes pathfinder consumption. Carry forward TP’s durable carry-note recovery, with protection before the next movement/order, partial-batch handling and deposit-failure tests. Three free slots must be checked against every intermediate and recovered furnace stack.
+
+10. **P2 — §3.3, §4.2; `funding.py.txt`: funding is not recipe- or execution-exact.** The script ignores sand admission, pools non-interchangeable cobble kinds, omits fallback costs and rounds fuel across sessions. For example, 89 bricks require crafting 92, and eight smelts consume six whole planks per cold session—not an amortized fractional fuel allocation. Stations and earthwork also need funding. Generate BOMs from exact blueprint cells and executable batches, then regenerate both copper and fallback eligibility after buffer production.
+
+11. **P1 — §4.3, §6.2, §8: isolated-world eligibility silently contradicts D2.** Town-plan §4.1 explicitly excludes isolated worlds; their five separate journals cannot provide this design’s single town allocation and lease domain. Nevertheless, four isolated worlds contribute to “14 of 16” eligible towns. Exclude them and recompute denominators, or obtain an explicit scope decision and design shared state before admitting them.
+
+12. **P2 — §4.3; `fitb.py.txt`: the fit evidence does not establish a usable town-plan site.** The screen uses Chebyshev bands instead of the inherited outer Euclidean limit and omits sectors, paths, farm/shaft/monument reservations and complete plinth history. Its accepted sites therefore do not establish draw eligibility or furnace-drain reachability. Run the composed predicate over actual plan reservations, retain the ≤44 Euclidean bound for cells and stands, and report qualified sites separately from geometric candidates.
+
+13. **P1 — §4.1, §5: segment fencing and concurrent mutations are underspecified.** §5 names the frozen **record generation** as the fencing token; successive holders of one segment share it. Independent segment proofs also do not serialize enclosure checks or timeout fallbacks against outstanding clicks. Specify a fresh lease epoch per acquisition, atomic project-wide builder-cap admission, and mutation/settlement serialization. Test expired holders, simultaneous final walls and a click crossing a fallback transition.
+
+14. **P2 — §4.4–4.6: the sealed-house remedy does not survive later damage.** “No bot needs to enter again” conflicts with reopening completed projects for repair. A bot can enter through damage, after which repair must evacuate it or preserve an exit. Blanket exclusions on every movements clone also conflict with the stated survival exemptions. Define deterministic reopening/evacuation and authority-scoped escape behaviour; test damage, entry, repair and restart through the real loop.
+
+15. **P2 — §4.3, §4.6 C1: carrying a sapling does not guarantee replanting.** No reachable, legal replant site is reserved before felling, and no durable obligation survives a crash between clearing and planting. Preflight the clear sequence and replant location against all zones and plots, persist the obligation before felling, and select its recovery deterministically. Refuse or re-site when that complete sequence is impossible.
+
+16. **P2 — §6: tiers and exposure need an executable registration plan.** `mats-01` introduces allocation, withdrawals, crafting, furnace policy and recovery—not an established small fix with strong Paper evidence. Default it to tier 3 unless a narrower tier-2 scope is justified. Also draw at least two towns for shop-01’s two-town exposure requirement; “tier 3 pools as drawn” permits an impossible one-town run. Explicitly retain all CLAUDE.md tier-2 conditions and the 240-minute draw cooldown wherever tier 2 remains.
+
+17. **P2 — §8 C4, §10 Q4: neither recommended wording nor promotion-first execution satisfies B6 literally.** Waiving the follower lag still builds on the bench before the showcase. Present this as a requested change to “showcase built first,” or specify a showcase-first sequence using the same candidate code and the single canary lane. Do not describe promotion-first as already satisfying B6.
+
+CLAUDE r1 (independent Claude review agent, read-only): VERDICT: CHANGE (0 P1, 10 P2, P3s)
+P2-1 §2.6/§0: negative controls could pass for the wrong reason: negctl never checked chunk Status (InhabitedTime-0 edge
+  chunks may lack features); never-ticked chunks cannot show fluid cobble; the showcase masked 100% of its palette cells,
+  which over-wide masks would also produce, and the padding was tuned on that village; no world reports mask coverage.
+  Fix: Status==full + histogram; masked area within 44; a cobble-touching-fluid class; held-out village test; never mask a
+  live record's cells.
+P2-2 §2.3/2.4 describe(): rooms_of only ran on components <=25% buried, so a workshop touching backfill is never tested;
+  the village control bypasses this gate and the masks; nothing showed the pipeline counting a bot-shaped building.
+  Fix: rooms_of on every component; fixtures (workshop/house next to a buried network, mutants); SC-CTL before the baseline.
+P2-3 §2.8/§6.1: reads from the 03:15Z staging copy cannot serve +360/+720 gates. Fix: read-time copies (or RCON on records).
+P2-4 §3.4/§3.2: parts as stock targets reach stockWellStacks (isProtected only) and prune; TP 3.3 says parts PROTECTED,
+  never targets. Fix: PROTECTED, untargeted, PROJECT_PARTS / DEPOSIT_ALWAYS; a bank route for glass.
+P2-5 §3.2 fuel: smelting.mjs chooseFuel ranks coal/charcoal first; coal stranded in town furnaces. Fix: explicit planks,
+  empty/plank-only fuel slot at open, fuel booked by name (coal burned = REVERT), a scene with coal in bag and furnace.
+P2-6 isolated worlds (TP D2): per-bot state in isolated-a/c/d; gate on a shared town and restate the counts.
+P2-7 §4.3 fitb: Chebyshev outer band vs TP's straight-line <= 44 (TOWN_RADIUS/DRAIN_RADIUS 48); the screen misses farm,
+  Z0 apron, M0 collar, keepout, worldgen boxes and existing bot cells: an upper bound; §4.3 said both pavilion sector and
+  inside 16; wall at Chebyshev 44 and houses to 40 break the same rule. Fix: TP domain, the reservations, one domain,
+  screen five house pads.
+P2-8 §4.3 B4: no way to fell tall trees (exclusionAreasPlace forbids scaffold); "felled without replant in 24 h" is a REVERT
+  with no refusal row; plantableSpotNear searches radius 2 with no keep-outs. Fix: screen by reachable log height or a
+  temporary scaffold; plant before felling; a no-replant-spot row; replant into reserved cells away from current/future plots.
+P2-9 §4.4/§4.6 B5, B2: wouldEnclose checks one cell; a bot inside a closed house cannot open doors, cannot dig out (break
+  exclusion), and the entombment reflex does not fire: a trap. Fix: interior-empty check before the door click; an exit
+  (door-open step or a break-cost skip). B2: bot-placed tables/chests/pillars in a footprint -> stall -> abandon; carry
+  projectReservedCells and TP 2-8 rule (a) into place/station/recovery; refuse sites with bot cells or a fenced foreign clear.
+P2-10 §5/§8: cooperation-1023 r1 §5.2 asks for buildEligible host/bot split, a reserved site chest, admission slots with
+  builders_max, a progress row per witnessed placement, material_open/bom_open, structure_complete, a layer frontier, 2
+  builders first, the workshop plot d <= 13. Fix: list each, adopt or reject with a reason; Q5 as 2 vs 3.
+P3s: plinth figures (isolated-b 59/53 omitted; "(k=0)" unexplained); funding.py printed 9/16 and 8/16 (no copper-upgrade
+  variant); walls s+1/s+2 vs "at s+2"; define s the same in fitb and the blueprint; townplan-01/found-01 not KEPT (unmet
+  prerequisites); structureguard must carry TP 2-8 §4.1's four changes; the draw's "site from the planner" cannot run
+  before deploy; mats-01 tier; C3 omits wall torches and the 686 bag torches; buffer + batch vs stock target; table reach;
+  bag cobble first; "stone left in a bag" as a delta; conformance state properties; ghost re-read = fresh server update;
+  copper trim forms the roof edge (own deadline); pathfinder exclusion spatial index; the revert story; tell the owner houses
+  are unenterable; mask fixture strips if operator-placed.
+
+DISPOSITIONS r1 -> r2 (both engines; doc §11 summarises):
+- Codex 1 / Claude 2 (component gate, per-component counting): rooms in every component; buildings = distinct rooms;
+  selftest fixtures "two houses joined by cobble" (2) and "house joined to a buried stair" (1); mutant restoring the gate KILLED.
+- Codex 2 (lit): block states kept; LIGHT_ALWAYS vs LIGHT_IF_LIT (lit=true); positions room / above room / ring only;
+  fixtures unlit lamp (0), lit lamp (1), light below floor (0); two mutants KILLED.
+- Codex 3 (attribution): §2.2 restated as an estimate; records are the evidence; inside-mask delta; SC-CTL vs CoreProtect with
+  bot blocks inside a padded box and on a stamp cell.
+- Codex 4 / Claude P3 (plinth control): material-family match; one `complete` record per world (pickplinth.py); states
+  reported; unbuilt record as the negative; isolated-b 59/53 included; 588/650.
+- Codex 5 / Claude 3 (validity, read timing): completion markers, snapshot times, unknown exclusion, atomic publication,
+  read-time copies with a 10-min freshness rule for canary reads.
+- Codex 6 (admission reversed): TP 3.2's whole-bill-within-80%-of-spendable restored, recipe-aware, per instance.
+- Codex 7 / Claude 5 (fuel): qualifying furnaces (lease acquired, fail closed; plank-or-empty fuel; empty input; own output),
+  explicit plank fuel list, fuel booked by name, workshop furnaces reserved, scenes MAT-1/MAT-FURN.
+- Codex 8 / Claude 4 (disposal): parts PROTECTED (stocktarget), NEVER_DISPOSE, untargeted, PROJECT_PARTS bankable, glass bank
+  route, a full-bag-at-cap test.
+- Codex 9 (stone durability): durable carry note, mats_return first, take output in fours at the furnace, remainder left in
+  the job's own furnace, exact slot needs (4).
+- Codex 10 / Claude P3 (funding exactness): funding.py r2 builds the bill from cells by executable batches (12-cobble
+  sessions on 8 planks; bricks in fours; stations; fill), cobblestone only, copper-upgrade variant, per-instance houses.
+- Codex 11 / Claude 6 (isolated): out of every denominator; 13 eligible towns.
+- Codex 12 / Claude 7 (fit): straight-line <= 43 bound added and rerun (16/16 outer remains); stated as geometric upper bounds;
+  one outer domain; the composed P0 gate with reservations, bot cells, tree height and replant before registration; wall on
+  the straight-line-44 circle; houses straight-line <= 40.
+- Codex 13 (fencing): admission slots; a fresh epoch per acquisition; the closer token; fallback transitions by its holder;
+  SHOP-COOP2 scene.
+- Codex 14 / Claude 9 (sealed house): interior-empty check before the door click; exit_house (reflex scope: open the door,
+  walk out by direct control); repair never encloses; exclusions on work/travel profiles only.
+- Codex 15 / Claude 8 (replant): reserved replant cells in the record, planted and confirmed before the felling, durable,
+  crash recovery first; tree-height rule; no replant cell -> no site.
+- Codex 16 (tiers): mats-01 tier 3; >= 2 pools for shop-01; tier-2 conditions restated.
+- Codex 17 (B6): §8 C4 states the conflict and two options; recommendation (a) showcase-first on the candidate sha.
+- Claude 1 (negctl): Status==full filter and histograms; mask coverage per town (0 surface-reaching columns on the bench);
+  padding-only cells reported; surface cobble touching fluid reported (3,761, an upper bound); two held-out villages scored.
+- Claude 10 (cooperation): §5 table adopts or rejects each field with a reason; builders 2.
+- Claude P3s: s defined once (pad at g0+1); walls s+1..s+2; prerequisites marked unmet; structureguard's four changes; the
+  offline P0 gate for the draw; torch counts include bags and the wall; buffers are production limits, not targets; table
+  reach; bag cobble first; stone as a delta; conformance state properties; fresh-update re-read; trim as roof edge with its
+  own deadline; spatial index; revert story; unenterable houses said plainly. Fixture strips: NOT masked, because
+  scripts/host/protectzone-fixture.py writes data only (a zone file), so the blocks inside are bots'.
+
+ROUND 2 (r2 doc, commit 27980d4e)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round 1 status: **fixed at design level: 1, 3, 6, 8, 11, 14, 15, 16, 17. Partially fixed: 2, 4, 5, 7, 9, 10, 13. Finding 12’s composed-site evidence remains deferred.** The saved scan totals reconcile; all nine selftests pass, and the three mutants fail their named cases. Remaining findings:
+
+1. **P1 — §2.4; `structcount.py.txt::lit_at/rooms_of` — R1 #2 remains incomplete.** `LIGHT_ALWAYS` still includes redstone torches regardless of `lit`. An added fixture with `lit=false` returns one building. Also, `material()` accepts passable decorations as roofing: replacing the fixture’s roof with torches still returns one building. Require state-aware redstone lighting and a separate structural roof predicate; add failing controls for both.
+
+2. **P2 — §2.6; `structcount.py.txt::main`, `mutants.py.txt` — failed controls do not stop execution.** All three mutated selftests print `FAIL` but exit **0**. The mutant runner likewise only prints `SURVIVED`, and does not validate subprocess errors. Make failed selftests, surviving mutants, missing case output and subprocess failures exit nonzero; demonstrate that the daily wrapper refuses publication.
+
+3. **P2 — §0/§2.6; `structcount.py.txt::scan` — R1 #4 is only partly fixed.** Material-family matching and record-state reporting are corrected, but `component_is_building` still finds a structure by matching size and bounding-box containment, rather than component identity. Wrong-block, disconnected-cell and empty-plan failure fixtures are absent. Carry explicit component IDs through `describe`, assert the control’s expected result, and add those fixtures.
+
+4. **P1 — §2.5; `copyw.sh.txt` — R1 #5’s freshness gate can pass stale data.** The proposed observation timestamp is the copied region file’s mtime, but the supplied plain `cp` resets that timestamp. Even a fresh **source** region mtime does not establish freshness of every relevant chunk. Record source timestamps and capture boundaries separately, establish per-chunk save coverage, and make affected record scores UNKNOWN. “No dirty chunks pending” needs an actual observation mechanism.
+
+5. **P1 — §3.3/§4.2/§6.2; `funding.py.txt`, `funding-20261023.txt` — R1 #10 remains materially wrong.** The rerun still ignores sand in `admits`, uses the census’s combined cobblestone/deepslate column, and prices **stone-brick slab trim** instead of the specified plank fallback. It neither allocates banked parts after buffer production nor credits batch leftovers between houses. Thus “11/13 funded” and “47 houses” cannot qualify the draw. Generate bills from explicit cells and chosen fallback roles, allocate species-specific stock and all inputs, then regenerate the results. The house wall count also needs correction: a 5×5 perimeter over two layers, minus two door cells and three panes, requires **27**, not 26, planks.
+
+6. **P1 — §3.2/§7 MAT-FURN — R1 #7 misses already-burning fuel.** An empty fuel slot can coexist with remaining burn time from previously consumed coal. Slot checks therefore do not prove a plank-only session, and item-count accounting cannot identify that opening heat. Mineflayer exposes burn state separately from `fuelItem()`. Require a fresh, verified cold furnace before loading, or durable provenance for its remaining heat; test empty slots with an active coal burn. [Mineflayer furnace implementation](https://raw.githubusercontent.com/PrismarineJS/mineflayer/master/lib/plugins/furnace.js)
+
+7. **P2 — §3.2/§3.4/§4.4 — R1 #9 still permits scaffold consumption after interruption.** Carry-note KEEP rules name orders, but movement exclusion applies only during build visits. `PATHFINDER_SCAFFOLD` still includes stone, stone bricks and planks, so restart travel can consume noted materials before `mats_return`. Apply durable carry protection before movement begins, remove finished building stones from ordinary scaffold selection as TP §3.3 requires, and test restart travel plus deposit failure. When stone’s bank target is full, retain the unresolved note rather than simply “banking the rest” and closing it.
+
+8. **P1 — §4.1/§5; SHOP-COOP2 — R1 #13’s settlement barrier remains incomplete.** Waiting for other **live** holders’ last clicks does not cover a crashed/expired holder’s already-sent packet. Nor does acquiring the closer token explicitly stop ordinary holders from issuing another click after the settlement check. Logging a late placement against its old generation cannot prevent an unsafe enclosure. Add a project-wide mutation barrier honored by every sender, durable pre-send intents, and reconciliation of expired holders’ unsettled mutations before closing or changing fallbacks. Test both interleavings.
+
+9. **P2 — §4.3; `fitb.py.txt` — R1 #12’s required composed proof has not run.** Relabeling the counts as geometric upper bounds is correct, but sectors, reservations, complete plinth history, routes and five-house packing remain untested. The `≤43` pad shortcut also does not prove a full one-cell stand ring stays within Euclidean 44 at diagonal corners. Run the actual composed predicate and construction sequence on frozen plans, checking every stand explicitly; report qualified shared towns separately before building the actuator.
+
+10. **P2 — §4.3/§4.6 C3 — ghost-cell recovery is still advisory waiting.** An unconfirmed dig becomes unknown until a fresh server update, but “the next visit” does not cause an unchanged, already-loaded chunk to resend that cell. The project can repeatedly revisit the same poisoned cache without recovering. Specify a deterministic, bounded resurvey route that obtains fresh chunk data, with an executable fallback when that route is unavailable; test a rejected dig followed by no spontaneous block update.
+
+CLAUDE r2 (same reviewer agent, resumed; read-only): VERDICT: CHANGE (0 P1, 1 new P2, P3s). 9 of 10 r1 P2s verified fixed in
+code and data (negctl Status filter real: board-a candidates 471 full vs ~240 partial; component gate fixed and the
+buried-stair fixture really exercises it; parts disposal; fuel; isolated; domain; trees/replant; sealed house); P2-10
+cooperation mostly fixed.
+NEW P2: §4.1 buildEligible / §5 / §6.1: builders draw only from the reserved site chest or their bag; nothing in this design
+  fills the site chest (make_material banks into ordinary chests; every other picker skips the site chest); the only filler is
+  cooperation's SUPPLY job (its B4, after B0-B3), which shop-01 neither carries nor lists. Composed dead end: P1 -> parts
+  banked elsewhere -> builder waits -> 72 h stall -> abandon. Fix: (a) carry SUPPLY + prerequisites, or (b) the build visit
+  withdraws its bill from any fresh town container under the claim set and/or make_material deposits claimed parts into the
+  site chest; add the chain test.
+P3s: lit check counts a torch just outside the doorway / any ring gap (ring lights only when wallish; fixture + mutant);
+  read-time freshness rule cannot be judged from outside (stale only if a placement row postdates the save; or save-all);
+  funding.py says cobblestone-only but uses the combined column, the house list sums to 46 not 47, fallback trim costed as
+  slabs vs planks; tree rule leaves floating trunks (every log of an entering tree reachable, else refuse); houses at
+  Chebyshev >= 17 vs TP 2-8's nothing inside 21; held-out villages test the room test, not the padding (scan their boxes,
+  expect 0 BUILT); cells_waived has no rule (and the walk-probe question); the greenfield storehouse on the showcase needs a
+  named gate; exit_house leaves the door open; make_material's 1-3 stone remainder in an ordinary town furnace is drained
+  into a bag (harmless; MAT-FURN should show it).
+
+DISPOSITIONS r2 -> r3:
+- Codex 1 (P1 lit/roof): redstone torches moved to LIGHT_IF_LIT; `roofing()` = material AND wallish; fixtures "unlit
+  redstone torch only" (0) and "a roof of torches" (0); mutants for both KILLED.
+- Codex 2 (P2 controls stop nothing): selftest exits 1 on any failed case; mutants.py exits nonzero on a survivor, crash,
+  missing case line or a failing unmutated base, and requires the mutated run's nonzero exit; the daily wrapper publishes
+  nothing on a nonzero control (§2.6).
+- Codex 3 (P2 plinth identity): `plinth_check` pure function, component by id (describe carries `cid`), verdicts; fixtures
+  correct / wrong block / disconnected / never built / empty plan; two mutants KILLED; all 11 bench records verdict `pass`.
+- Codex 4 (P1 freshness) / Claude P3: per-chunk timestamps from the region header against placement rows; `cp -p` and source
+  mtimes; quiet chunks fresh; no RCON (§2.5).
+- Codex 5 (P1 funding) / Claude P3: funding.py r3 over a per-species census: bills from the blueprints' cells by role with
+  chosen fallbacks, cobblestone alone, sand in admission (windows fall back to planks while sand is 0), banked planks first,
+  wall planks of one species, parts pool with leftovers, torches; house walls 27 planks. 11 of 13 workshops, 42 of 65 houses.
+- Codex 6 (P1 burning furnace): a cold furnace required: block state lit=false from the server's update and window burn
+  progress 0; MAT-HOT.
+- Codex 7 (P2 scaffold after interruption): carry protection from spawn (noted items out of the bot's scaffold list, set when
+  movements are built), remainders stay under the note and feed the next order, stone_bricks/smooth_stone out of
+  PATHFINDER_SCAFFOLD (D8's unshipped half, verified in scaffold.mjs), MAT-TRAVEL and deposit-failure tests.
+- Codex 8 (P1 barrier): durable pre-send intents; a project-wide mutation barrier taken by closers and fallback transitions,
+  checked by every sender before each click; the holder reconciles live and expired holders' intents first; SHOP-BARRIER.
+- Codex 9 (P2 composed proof): the P0 gate is the first step of shop-01, before any actuator code, on frozen plans with every
+  stand checked and reported with both reviews; fitb now checks every pad+ring cell within straight-line 44 (rerun: 16/16
+  outer candidates remain).
+- Codex 10 (P2 ghost recovery): a deterministic resync probe (use-item-on against a solid neighbour's face into the unknown
+  cell: the server answers with block updates for both), at most 2 per visit, GHOST-RESYNC on Paper; else the chunk reload on
+  the next trip out; then the stall rule.
+- Claude P2 (materials supply): the build visit withdraws its segment bill itself (site chest first, else any fresh known town
+  container, under the claim set); make_material deposits claimed parts into the site chest when one exists; CHAIN-1.
+- Claude P3s: ring lights only when wallish (fixture "torch outside the doorway only" + mutant KILLED); held-out village boxes
+  scanned as towns: 0 BUILT cells in both; whole trees reachable; houses Chebyshev >= 22; waiver rule (3 visits, non-structural
+  roles only); the showcase's own tripwire read under C4(a); exit_house closes the door; MAT-FURN shows the drained remainder.
+
+ROUND 3 (r3 doc, commit 7689a028)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Selftest: **17/17 passed**. The requested mutant command failed because the read-only sandbox forbids temporary files; running its same eight mutations in memory killed all eight, each with exit 1. Funding output reproduces, and saved scan totals reconcile.
+
+Round-2 status: **#1, #3, #6, #7 and #10 fixed at design/prototype level** (Paper proofs remain prerequisites); **#2, #4, #5 and #8 partially fixed; #9 still unperformed**.
+
+1. **P1 — §2.5: freshness still misses destructive changes (R2 #4).** A chunk saved after the last `_build` placement qualifies forever, even after a reflex breaks its wall or light without another build placement. The saved building can therefore count as complete after destruction. Track all relevant mutations and telemetry coverage through a declared read cutoff; require subsequent chunk-save coverage or mark affected scores UNKNOWN. Test placement → save → break → unsaved copy.
+
+2. **P1 — §3.3; `funding.py.txt::spendable/admits/bill`: allocation remains incorrect (R2 #5).** My fixture with all oak logs reserved and 121 spendable **birch** planks admits the oak workshop, consuming all 121 despite the 80% limit. Species are discarded, and banked planks bypass that limit. Existing cut copper is never consumed from the parts pool; with zero sand, even banked panes select plank fallback because zero is compared against negative spendable sand. Preserve species, clamp spendable quantities, allocate finished parts/intermediates first, and enforce 80% on every actual draw. Regenerate the funding results.
+
+3. **P1 — §3.3/§6.2; `census_species.py.txt`: funding uses the wrong storage population.** The script sums every census-box container without the town-storage boundary, index freshness or outstanding claims required by admission. Town-plan §1.1 explicitly distinguishes this wider census from town storage. Filter and deduplicate eligible containers, attach freshness/claim evidence, and report eligible stock separately before using “11/13” to qualify draws.
+
+4. **P1 — §4.1: the mutation barrier still has a race (R2 #8).** Sender A can pass its barrier check, pause, and send after B acquires the barrier and reconciles A’s intent as absent. A five-second timeout plus a fresh cell read does not prove A cannot subsequently send. Use mutual exclusion covering every sender’s final check/send and barrier acquisition, with acknowledgement or connection retirement before unresolved intents are released. Test process suspension immediately after the check and delayed delivery beyond five seconds.
+
+5. **P2 — §2.6; `runall.sh.txt`: publication failure handling remains unproved (R2 #2).** Selftest and mutant exit codes are corrected, but the supplied scan wrapper invokes neither, lacks fail-fast handling, and writes output files directly. Implement and exercise the promised wrapper: a failed control or scan must prevent replacement of the published result and surface UNKNOWN. Include a deliberately failing control in that demonstration.
+
+6. **P2 — §4.3/§6.2; `fitb.py.txt`: composed feasibility remains deferred (R2 #9).** Explicit stand-ring distance checks fix the diagonal shortcut. The rerun still proves only geometric candidates; it supplies no frozen-plan results for sectors, full reservation history, routes, replanting or construction sequences. Run and publish P0’s qualified shared-town denominator before actuator work; report five-house packing separately.
+
+7. **P2 — §4.1 `buildEligible` versus §4.6 P2/§5: the supply dead end remains in eligibility.** Build visits now withdraw from ordinary town containers, but the host eligibility predicate still requires materials in the bag or reserved site chest. With parts banked elsewhere and no site chest, the visit that would withdraw them is never issued. Make eligibility accept allocatable stock in any eligible town container, and run CHAIN-1 with an empty builder bag and no site chest.
+
+CLAUDE r3 (same reviewer agent, resumed; ran selftest 17/17 exit 0 and mutants 8/8 KILLED exit 0): VERDICT: CHANGE
+(0 P1, 1 new P2, P3s). Verified fixed: its r2 P2 (builder supply: build visit withdraws its own bill; CHAIN-1) and every r2
+P3 (per-chunk freshness, whole trees, houses >= 22, waiver rule, showcase tripwire, exit_house closes the door, MAT-FURN);
+roofing(), wallish ring lights, redstone torches state-aware, plinth_check by id; held-out padding 0 BUILT; village re-scores
+reconcile (21 rooms, 20 B5, 39 houses); funding r3 output reconciles (11/13, 42/65); stone_bricks/smooth_stone really are in
+PATHFINDER_SCAFFOLD.
+NEW P2: §3.2 carry protection is TYPE-level (scafoldingBlocks has no counts); a note can stay open a whole trip; if it names
+  cobblestone or planks the pathfinder cannot scaffold with ANY of them while exit-contract.mjs scaffoldCount still counts
+  them by name -> mine allows a descent the pathfinder cannot climb out of (composed dead end). Fix: remove only job-unique
+  intermediates (stone); let base types be spent, booked as a reported loss; or never remove a type held outside the note;
+  chain test (deposit fails with the note open -> mining -> climbs out).
+P3s: barrier ordering (intent, then check, then click; a `cancelled` settle state); resync probe: "empty hand" invites the
+  unequip-toss bug (empty hotbar slot or the pickaxe; never axe/shovel/hoe; never an interactable neighbour); freshness clock
+  skew between server timestamps and bot-host rows, and non-builder changes (transit digs) with no _build row can read fresh
+  for up to one autosave; mats-01 exposure: count qualifying cold town furnaces from the region copies before registering.
+
+DISPOSITIONS r3 -> r4:
+- Codex 1 (P1 freshness misses destructive changes) / Claude P3 (clock, transit digs): the read declares a CUTOFF C = copy
+  time - 11 min (two 5-min autosave passes, measured in bukkit.yml and paper-world-defaults, read-only), covering every
+  mutation source; per-region evidence that the autosave ran (a chunk timestamp after C); copies on the servers' own host (one
+  clock); CUTOFF scene.
+- Codex 2 (P1 funding allocation): funding r4 is an allocation: pools clamped, every draw within 80%, species kept, parts and
+  intermediates first, leftovers pooled; --selftest with five fixtures including Codex's birch-planks case (all pass).
+- Codex 3 (P1 storage population): census_species r4 counts town storage only (straight-line 16, 12 vertical); stated as an
+  offline proxy for the index (freshness and claims are runtime). 10 of 13 workshops, 26 of 65 houses.
+- Codex 4 (P1 barrier race) / Claude P3: a kernel flock mutex per project around check+send (all of a town's bots on one host,
+  local state dir); intent fsync'd before the mutex; `cancelled`; the barrier taken under the mutex; unsettled intents
+  released only on the sender's settlement or its disconnect (playerLeft) + 1 s, never on a timer; SIGSTOP and delayed-delivery
+  (netem) scenes.
+- Codex 5 (P2 wrapper): tools/daily.sh.txt implemented and exercised on .30: publishes with the shipped instrument; with a
+  broken instrument prints "selftest FAILED: nothing published", exits 3, leaves the earlier file, status UNKNOWN.
+- Codex 6 (P2 composed proof): tools/fitc.py.txt composes the geometry with every plinth record and its prev[] history, tree
+  farms, Z0/M0, the structure count's BUILT cells in the volume, whole-tree reach, replant cells and a walk route: 8 of 13
+  eligible towns sited, 5 of 13 funded and sited; five houses fit within 40 nowhere and within 60 everywhere sited (Q10). The
+  planner's own run on frozen plans stays the first build step.
+- Codex 7 (P2 buildEligible): its host part takes the bill as allocatable from the bag, the site chest or any fresh known town
+  container in the index; CHAIN-1 with an empty bag and no site chest.
+- Claude P2 (type-level scaffold): only `stone` leaves the scaffold list under a note; base types stay scaffold, a spend is a
+  reported loss; MINE-NOTE chain test.
+- Claude P3s: probe with an empty hotbar slot (setQuickBarSlot, never unequip) or the pickaxe; never axe/shovel/hoe; never an
+  interactable neighbour. Cold furnaces counted (tools/coldfurnace.py.txt): 34 of 35 town furnaces qualify today.
+"""
+
+ROUND 4 (r4 doc, commit 0514d3b1)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round 3 status: **#1 remains unfixed; #2–#5 are partially fixed; #6 has a broader screen, with the full proof still build-gated; #7 is fixed at design level.** Verification: 17/17 structure-count fixtures pass, all eight in-memory mutants are killed, and funding output reproduces.
+
+1. **P1 — Design §2.5 / CUTOFF: the copy is not “the world as of C.”** A break after C that gets saved before T appears in the copy, contradicting the claim that changes after C are excluded. Conversely, one recently saved chunk does not establish save coverage for every relevant chunk in its region. Autosave settings specify intervals in **ticks**, not guaranteed wall-clock completion. [Paper configuration](https://docs.papermc.io/paper/reference/world-configuration/#chunks)  
+   **Fix:** report the snapshot’s observation interval and establish coverage per relevant chunk; mark uncertain records UNKNOWN. Exact cutoff reconstruction requires mutation history. Test both saved and unsaved post-cutoff damage, plus delayed saves.
+
+2. **P2 — §3.3; `tools/funding.py.txt::take/plan`: allocation still admits non-executable bills.** With **523 oak logs and 172 oak planks**, otherwise ample inputs, the workshop passes. After reserves and the 80% caps, only **8 whole logs + 86 planks = 118 planks** are drawable; the bill needs 121. Fractional log crafting supplies the difference. Banked stone, glass and copper blocks are also ignored; fallback branches consume unused banked panes/cut copper, and `planks_spare` is never reused.  
+   **Fix:** use integral withdrawals and crafts, allocate intermediates, preserve species-specific leftovers, and roll back unsuccessful role allocations completely. Add these fixtures and regenerate funding.
+
+3. **P2 — §3.3/§6.2; `census_species.py.txt`: the offline proxy still qualifies the draw.** The storage boundary is corrected, and the script honestly says it lacks freshness and claims and “qualifies nothing by itself.” §6.2 nevertheless uses that script on the newest census to declare towns funded.  
+   **Fix:** require draw-time allocation from fresh, known index entries minus outstanding claims. Keep census funding and the five-town intersection explicitly provisional. Also correct “five eligible towns cannot support a four-pool draw,” or name the additional restriction.
+
+4. **P1 — §4.1: the mutex fixes check/send exclusion, but settlement still permits the delayed-packet race.** An intent may still be settled by a “fresh read.” After the five-second mutex release, the sender can read the unchanged cell and record settlement while its original click remains delayed; the closer then proceeds before that click arrives.  
+   **Fix:** distinguish observing a cell from acknowledging completion of the pending command. Require causally ordered acknowledgement or confirmed connection retirement before clearing an unresolved intent. SHOP-BARRIER must explicitly exercise **delayed click → fresh read → closer**.
+
+5. **P2 — §2.6; `tools/daily.sh.txt`: publication is only partially fail-closed.** A scan against a nonexistent region directory returns valid JSON containing zero buildings and missing-chunk counters; the wrapper accepts it and publishes OK. It checks neither coverage nor the promised daily negative control/stamp change. Aggregation and rename failures are also unchecked.  
+   **Fix:** validate coverage and controls before publication, check aggregation/publication exit codes, and demonstrate missing-region and aggregation failures preserving the previous result while reporting UNKNOWN.
+
+6. **P3 — §4.3/§10 Q10; `tools/fitc.py.txt`: label the results as screening candidates.** The full planner proof is appropriately build-gated. This screen does not establish whole-tree reach, return routes, or jointly reserved replant locations; its greedy packing failure also does not prove five houses cannot fit within 40.  
+   **Fix:** remove “qualified” and impossibility claims until the frozen-plan proof runs; retain radius 60 as a proposal supported by candidate layouts.
+
+7. **P3 — §3.2/§7 MAT-TRAVEL: the acceptance criterion contradicts the revised carry policy.** Base materials may now be spent as scaffold and booked as losses, but MAT-TRAVEL still requires zero noted items placed.  
+   **Fix:** require zero protected-intermediate scaffold consumption and exact accounting for permitted base-material consumption.
+
+CLAUDE r4 (same reviewer agent, resumed; ran funding --selftest 5/5): VERDICT: APPROVE (0 P1, 0 P2). Verified: its r3 P2
+(only `stone` leaves the scaffold list; MINE-NOTE); r3 P3s (intent -> flock -> check -> send, `cancelled`, release only on
+settlement or playerLeft + 1 s; probe with an empty hotbar slot or the pickaxe; one clock and the cutoff; 34 of 35 cold
+furnaces); funding output reconciles (10/13, 26/65); daily.sh fails closed; buildEligible from the index; fitc 8/13 sited,
+5/13 funded and sited.
+P3s: §4.1 Node has no native flock: take it LOCK_NB (a free skip when busy), never a blocking or spawned flock around an
+  await (memory "canary-sched takes its own lock"); the SIGSTOP scene should show the other builder skipping. daily.sh:
+  mutants.py opens structcount.py.txt by a fixed name while the wrapper runs structcount.py (pass the path); the aggregate
+  drops the cell list the next delta needs (write it in the same atomic step). Q10: houses at 22-60 are beyond TOWN_RADIUS 48:
+  say a house build visit starts at town and its walk is not re-gated by 48, and whether every stand still walks back at 60.
+
+DISPOSITIONS r4 -> r5:
+- Codex 1 (P1 cutoff): no single cutoff; per-record observation intervals from the chunks' own save times; a record scored
+  only when every chunk was saved after its newest _build row (else UNKNOWN: not yet saved); exposure counts persistence
+  across two reads at least one autosave apart; CUTOFF scenes for saved and unsaved damage and a delayed save.
+- Codex 2 (P2 funding): funding r5: integral crafts with per-species spare planks, intermediates before raw, full rollback of
+  a failed role, leftovers reused; 10 fixtures including the 523-log/172-plank case (refused). Unchanged result: 10/13, 26/65.
+- Codex 3 (P2 proxy): census funding and the screen labelled PROVISIONAL; the draw qualifies a pool from the bots' own index by
+  the exported spendableFor (cooperation A9) plus the frozen-plan proof; the 4-pool sentence restated (3 towns today).
+- Codex 4 (P1 delayed click): settlement only by the server's acknowledge_block_change for the click's own sequence number
+  (one shared counter with digs); a fresh read settles nothing; release only by acknowledgement or connection retirement;
+  scene: delayed click -> fresh read -> closer waits.
+- Codex 5 (P2 wrapper): daily.sh r5 validates coverage, controls and the stamp, checks aggregation and publication, writes the
+  cell list atomically; five demonstrations, the previous file byte-identical on every refusal.
+- Codex 6 (P3): screen results relabelled candidates; greedy failures not called impossible; the screen re-run with a two-way
+  walk (5 of 13 candidates, 3 funded and screened).
+- Codex 7 (P3): MAT-TRAVEL requires 0 stone placed and exact accounting of permitted base-material spend.
+- Claude P3s: LOCK_NB through a native binding, free skip, SIGSTOP scene shows skipping; mutants.py takes the instrument path;
+  the cell list published with the day's file; house visits start at town, not re-gated by 48, two-way walk in the screen.
+- Coordinator 10-23: reconciled with mineshaft-safety r10 (8bffc295: deep-stair envelope as a reservation, exit_house as a
+  pre-escape rung under F2, seal blocks in the claim set, lane order Q11) and cooperation r8 (ad1aa9ef: A1-A4, A6, A7, A9
+  adopted; its shop-01 open items answered).
+
+ROUND 5 (r5 doc, commit 9012b452)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round-4 status: **#1 and #5 remain partially fixed; #2’s reported allocation bugs are fixed, with a new batch mismatch below; #3, #4 and #6 are fixed at design level; #7’s acceptance criterion is fixed, but stale text remains.** Verified: 17/17 structure fixtures, eight in-memory mutants killed, 10/10 funding fixtures, and reproduced funding totals.
+
+1. **P1 — Design §2.5/§6.2: persistence still lacks a reliable qualification rule.** A completed chunk saved before another chunk’s final placement fails the record-wide `_build` timestamp requirement indefinitely if it stays unchanged. Requiring advancing save timestamps for two reads likewise depends on further dirtying. Conversely, damage after the second save but before its copy remains invisible, contradicting “damaged in between fails the second read.”  
+   **Fix:** compare each chunk against its own mutation watermark; distinguish saved-state observations from verified persistence. Qualify persistence through repeated fresh record surveys or explicit mutation/save coverage. Add an unchanged, unloaded building spanning two chunks as a positive control, alongside unsaved damage.
+
+2. **P2 — §2.6; `tools/daily.sh.txt`: publication is still not atomic or reliably UNKNOWN on failure.** The cell list, daily JSON and last-result file are replaced separately. Failure after the first rename leaves a mixed publication; failure copying `.last.tmp` occurs after the daily result was replaced. Failure creating the temporary directory exits before updating status, potentially leaving an earlier `OK`. The unwritable-directory demonstration does not establish the claimed UNKNOWN result.  
+   **Fix:** publish immutable generation files through one atomic manifest replacement, including their hashes and status; require readers to validate freshness. Inject failures between publication steps and during status writing, checking both retained data and reader-visible UNKNOWN.
+
+3. **P2 — §5a F2 reconciliation / §4.4: sealed-house recovery relies on a false trigger assumption.** Mineshaft F2 adds a condition to the entombment arm; it does not make every closed room entombed. `bots/src/reflex.mjs::isEntombed` still requires three adjacent walls and elevated surrounding terrain. A bot in the house’s central interior fails that predicate. Merely placing `exit_house` before escape rungs does not guarantee it runs.  
+   **Fix:** trigger `exit_house` directly from recorded-interior occupancy, independently of escape detection. Extend HOUSE-SEAL to start centrally inside a closed house with `isEntombed=false` and verify automatic departure.
+
+4. **P2 — §3.1–3.3; `tools/funding.py.txt::panes`: mixed glass stock admits a batch the job does not implement.** With two banked glass and 23 sand, the allocator permits one glass plus five sand after caps and selects pane windows. The specified job withdraws **six sand** per session, exceeding that allocation; smelting five on four planks also contradicts the exact-burn claim.  
+   **Fix:** either allocate full six-sand sessions and retain surplus glass, or explicitly support partial sessions with corresponding fuel/remainder accounting. Add this mixed-intermediate fixture to funding and MAT-1.
+
+5. **P3 — §3.2 recovery tests and §7 CUTOFF: obsolete requirements remain.** §3.2 still says “no noted item spent as scaffold,” despite corrected MAT-TRAVEL allowing accounted base-material consumption. CUTOFF still says “complete as of its cutoff,” despite r5 abandoning a single cutoff.  
+   **Fix:** update these two specifications to the revised carry policy and observation semantics.
+
+CLAUDE r5 (same reviewer agent, resumed; ran funding --selftest 10/10): VERDICT: CHANGE (0 P1, 1 P2, P3s). Verified: daily.sh
+r5's five refusals (checksum unchanged), its r4 P3s, acknowledgement-by-sequence settlement, cooperation A1-A9 against its
+§5.2, Q11 keeping mineshaft's own order.
+P2: §2.5's record-wide rule (every chunk saved after the record's newest _build row): quiet chunks are not re-saved, so a
+  multi-chunk record whose first-finished chunk is quiet stays UNKNOWN forever; workshop@1's 11x9 footprint fits in one chunk
+  in about 19% of positions. Fix: per-chunk watermark (r3's rule) plus r5's persistence; a CUTOFF case across two chunks.
+P3s: M-b is cooperation's open item for mineshaft, which itself says the deep miner withdraws from town stock; mark it an ask of
+  deepminer-01. The F6 "a deep-stair site never meets a recorded plot" is also an ask. F2 narrows entombment; a bot in the
+  middle of a house is not isEntombed, so exit_house needs its own trigger (as r2-r4 had). Two clocks (.31 rows vs .30 saves):
+  a margin. A7: tell cooperation's B0b the row is `_build_mode`.
+
+DISPOSITIONS r5 -> r6 (both engines):
+- Claude P2 / Codex 1 (P1): per-chunk watermarks (the newest _build row in THAT chunk, + 5 s cross-host margin); a record is
+  scored when every chunk is current; persistence is verified by a live `survey` order (_build_survey) at least 1 h after the
+  first scored observation, not by a second copy; exposure counts PERSISTENT buildings; scenes CUTOFF-SPLIT, -QUIET, -DAMAGE,
+  -SLOW.
+- Codex 2 (P2 wrapper): daily.sh r6 publishes immutable generation directories through ONE manifest rename with sha256s and
+  status; failed runs publish an UNKNOWN manifest; the reader (readmanifest.py) accepts only today's OK manifest with matching
+  hashes. Nine demonstrations with failures injected at every step (data/daily-wrapper-demo.txt).
+- Codex 3 (P2) / Claude P3 (F2): exit_house has its own reflex-tick trigger (feet in a recorded sealed interior), independent
+  of every escape detector; §5a's F2 row corrected; HOUSE-SEAL starts a bot in the middle with isEntombed false.
+- Codex 4 (P2 glass batches): funding r6 uses banked glass only in whole 6-glass crafts and sand only in full 6-sand sessions;
+  two fixtures (12 of 12 pass). Unchanged result: 10/13, 26/65.
+- Codex 5 (P3 stale text): §3.2's recovery test and the CUTOFF scene rewritten.
+- Claude P3s: M-b and the deep-stair siting marked as asks of mineshaft; the 5 s clock margin; `_build_mode` named for B0b.
+
+ROUND 6 (r6 doc, commit 65aafa41)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round 5 status: **#1 and #2 remain partially fixed; #3, #4 and #5 are fixed at design level.** Verified 17/17 structure fixtures, eight anchored mutants killed in memory, 12/12 funding cases, and reproduced funding totals.
+
+1. **P2 — Design §2.5/§6.2: the five-second margin still strands quiet buildings.** Per-chunk watermarks fix the cross-chunk problem, and surveys address unsaved damage. But a final placement at `12:00:00`, saved at `12:00:02`, fails the required `save > placement + 5s` forever if that chunk remains unchanged. The survey cannot rescue it because persistence requires an already-SCORED record.  
+   **Fix:** let a verified live survey establish the initial observation when save ordering is ambiguous, followed by another qualifying survey ≥1 hour later. Extend CUTOFF-QUIET to cover a final save inside the margin, without dirtying the world.
+
+2. **P2 — Design §2.6; `tools/daily.sh.txt` / `readmanifest.py.txt`: failed same-day retries can still report OK.** Atomic manifest publication fixes mixed generations. However, a failed manifest replacement—or unwritable output directory—can retain an earlier **same-day OK** manifest, which the reader accepts. I reproduced that acceptance in memory. Demo 6 starts from UNKNOWN; demo 9 starts without a manifest, so neither tests this failure.  
+   **Fix:** validate an externally expected attempt ID or freshness deadline, not merely the UTC day. Demonstrate both failures starting from a valid same-day OK publication; retained data must remain readable as historical data while current status becomes UNKNOWN.
+
+3. **P2 — `tools/daily.sh.txt`, `LAST` selection and stamp validation: UNKNOWN erases the control baseline.** An UNKNOWN manifest carries no generation, and `LAST` is populated only from an OK manifest. Consequently, the next retry skips the stamp comparison entirely. Running the actual validator in memory rejected a drop from 180 stamp cells to 1 with the prior generation supplied, but accepted it with the empty pointer produced after UNKNOWN.  
+   **Fix:** retain a hash-validated `last_good` reference through UNKNOWN publications and use it for control comparisons. Add an OK → failed run → severely depleted stamp → retry fixture; the retry must remain UNKNOWN.
+
+CLAUDE r6 (same reviewer agent, resumed; ran funding --selftest 12/12): VERDICT: APPROVE (0 P1, 0 P2). Verified: per-chunk
+watermark with the 5 s margin; persistence by a live survey with exposure counting PERSISTENT buildings; M-b and deep-stair
+siting marked as asks; F2 corrected and exit_house on its own trigger; `_build_mode` named; readmanifest's rule; the nine
+wrapper demos.
+P3: the survey skips cells the bot dug or clicked in the last 10 s, but a rejected dig's ghost air can outlive 10 s (safe
+  direction: it can fail a real building, never fake one). Skip the bot's own unconfirmed-dig set (§4.4), or run the resync
+  probe on a "missing" cell first.
+
+DISPOSITIONS r6 -> r7:
+- Codex 1 (P2 margin strands quiet buildings): an observation is a scored copy OR a clean survey; two observations >= 1 h
+  apart make a building PERSISTENT, so two surveys suffice; CUTOFF-QUIET covers a final save inside the margin, nothing written.
+- Codex 2 (P2 same-day retry): the wrapper records its attempt first (atomic rename, a separate attempts directory; exit 7 and
+  touch nothing if that fails); the manifest names its attempt; the reader requires it to equal the newest recorded attempt.
+  Demonstrated from a same-day OK: a failed manifest rename and an unwritable output directory both read UNKNOWN, the older
+  generation readable as history.
+- Codex 3 (P2 baseline lost): `last_good` (generation + sha256) carried forward through UNKNOWN manifests and hash-validated
+  before use; demonstrated OK -> failed run -> depleted-stamp retry refused -> normal retry OK.
+- Claude P3: the survey skips the bot's own unconfirmed-dig set and resync-probes a cell before reporting it missing.
+
+ROUND 7 (r7 doc, commit f60ab0c1): BOTH APPROVE
+-----------------------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: APPROVE
+Round-6 status: **all three findings are fixed at design level**: #1 two surveys can qualify a quiet building; #2 a newer attempt invalidates a retained same-day OK manifest; #3 hash-validated `last_good` survives UNKNOWN publications. Verified 17/17 structure fixtures, eight anchored mutants killed, 12/12 funding fixtures, reproduced funding totals, and exercised the reader and depleted-stamp validator in memory.
+
+1. **P3 — Design §2.5, §6.1 and §7: reconcile the persistence wording.** “Two observations” permits two region reads, but the adjacent rule excludes unsurveyed buildings, and §6.1 still requires copy-then-survey, excluding the newly allowed survey-then-survey route. The explicit survey gate and CUTOFF-DAMAGE scene keep this nonblocking. **Fix:** state one rule everywhere: first observation = qualifying copy or clean survey; second = clean survey ≥1 hour later. Update §7’s CUTOFF-QUIET summary accordingly.
+
+2. **P3 — `tools/daily.sh.txt`: attempt identities and temporary names assume serialized runs.** IDs have only second resolution, and overlapping invocations share `.attempt.tmp` and `.manifest.tmp`; generation names can also collide. **Fix:** serialize the wrapper with a nonblocking host lock and use unique attempt IDs and temporary paths. Add an overlapping-run fixture before installing cron.
+
+No P1 or P2 remains.
+
+CLAUDE r7 (same reviewer agent, resumed): VERDICT: APPROVE (0 P1, 0 P2). Its r6 P3 fixed; the observation/persistence rule
+sound; readmanifest r7 correct; last_good keeps the baseline.
+P3: while a run is in progress its attempt has no manifest, so goalboard reads UNKNOWN for minutes: say "run in progress".
+
+DISPOSITIONS (r7.1 polish after approval): Codex P3 1: one persistence rule everywhere (§2.5, §6.1, §7). Codex P3 2: a
+non-blocking host lock, attempt ids to the millisecond plus pid, unique temp and generation names, an overlapping-run fixture
+before cron. Claude P3: the reader says RUNNING for an attempt younger than 60 min with no manifest.

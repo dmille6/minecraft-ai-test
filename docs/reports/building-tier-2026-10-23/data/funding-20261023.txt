@@ -1,0 +1,17 @@
+board-a     storage 32 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
+board-b     storage 19 containers | workshop YES trim=planks  windows=planks     short=- | houses after it, one at a time: 2
+board-c     storage 31 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
+board-d     storage 31 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
+hive-a      storage 24 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 2
+hive-b      storage 11 containers | workshop NO  trim=copper  windows=planks     short=['wall_planks_oak', 'fuel_planks'] | houses after it, one at a time: 0
+hive-c      storage 26 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 2
+hive-d      storage 13 containers | workshop NO  trim=copper  windows=planks     short=['torch', 'wall_planks_oak', 'fuel_planks'] | houses after it, one at a time: 0
+isolated-a  OUT (isolated, per-bot town state: D2)
+isolated-b  storage 20 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
+isolated-c  OUT (isolated, per-bot town state: D2)
+isolated-d  OUT (isolated, per-bot town state: D2)
+placebo-a   storage 16 containers | workshop YES trim=planks  windows=planks     short=- | houses after it, one at a time: 2
+placebo-b   storage 20 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
+placebo-c   storage 26 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
+placebo-d   storage 13 containers | workshop NO  trim=copper  windows=planks     short=['fuel_planks'] | houses after it, one at a time: 0
+PROVISIONAL (census proxy; the draw uses the index): of 13 eligible towns the workshop allocates in 10 (8 with copper trim); houses in sequence from today's town storage, no refill: 26 of 65 (per town [3, 2, 3, 3, 2, 0, 2, 0, 3, 2, 3, 3, 0]). Sand is 0 everywhere.

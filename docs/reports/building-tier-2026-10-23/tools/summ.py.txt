@@ -1,0 +1,42 @@
+import json, glob, os, collections
+tot = collections.Counter()
+print('world | chunks ok/all | palette cells | masked stamp/worldgen/zone | stamp present/207 | built cells (core/town/out) | litter cells | structures surface/buried | B5 buildings (unlit rooms) | dirt_path | plinth controls: state planned/found(family)/unobservable/other/one-comp verdict | neg: uninhabited chunks, FP buried/surface')
+for f in sorted(glob.glob('*.scan.json')):
+    if '.old48' in f or '.new48' in f: continue
+    r = json.load(open(f)); w = r['world']
+    n = json.load(open(w + '.neg.json')) if os.path.exists(w + '.neg.json') else {}
+    ch = r['chunks']; ok = ch.get('chunk_ok', 0); al = sum(ch.values())
+    m = r['masked']; b = r['built_by_band']
+    pcs = '; '.join('%s %d/%d/%d/%d/%d %s' % (pc['state'], pc['planned_place_cells'], pc['found_built'], pc['natural_stone_unobservable'],
+                                           pc['other_at_cells'], pc['in_one_component'], pc['verdict']) for pc in r['plinth_control']) or '-'
+    print('%s | %d/%d | %d | %d/%d/%d | %d | %d (%d/%d/%d) | %d | %d/%d | %d (%d) | %d | %s | %d, %d/%d' % (
+        w, ok, al, r['raw_palette_cells'], m.get('stamp', 0), m.get('worldgen_piece', 0), m.get('protected_zone', 0), r['stamp_present'],
+        r['built_cells'], b.get('core', 0), b.get('town', 0), b.get('out', 0), r['litter_cells'], r['surface_structures'],
+        r['structures'] - r['surface_structures'], r['buildings'], r['unlit_rooms'], r['dirt_path_cells_near_home_y'], pcs,
+        n.get('uninhabited_chunks', 0), n.get('fp_cells_buried', 0), n.get('fp_cells_surface', 0)))
+    for k in ('built_cells', 'litter_cells', 'surface_structures', 'buildings', 'unlit_rooms', 'surface_structure_cells', 'buried_structure_cells', 'raw_palette_cells', 'structures', 'stamp_present', 'stamp_cells'):
+        tot[k] += r[k]
+    for k, v in r['built_kinds'].items(): tot['kind:' + k[10:]] += v
+    for pc in r['plinth_control']:
+        s = pc['state']
+        tot['plinth_%s_records' % s] += 1; tot['plinth_%s_planned' % s] += pc['planned_place_cells']; tot['plinth_%s_found' % s] += pc['found_built']
+        tot['plinth_%s_unobservable' % s] += pc['natural_stone_unobservable']; tot['plinth_%s_other' % s] += pc['other_at_cells']
+        tot['plinth_%s_onecomp' % s] += pc['in_one_component']
+    tot['neg_chunks'] += n.get('uninhabited_chunks', 0); tot['neg_fp_surface'] += n.get('fp_cells_surface', 0); tot['neg_fp_buried'] += n.get('fp_cells_buried', 0)
+    tot['worldgen_starts_unreadable'] += r.get('worldgen_starts_unreadable', 0); tot['neg_starts_unreadable'] += n.get('worldgen_starts_unreadable', 0)
+print('TOTAL', json.dumps(dict(tot)))
+print('MASKS AND FLUID (Claude r1 P2): per world, cells masked ONLY by the piece padding; surface cobble touching water/lava/obsidian; chunk status; village box; negctl status')
+for f in sorted(glob.glob('*.scan.json')):
+    if '.old48' in f or '.new48' in f: continue
+    r = json.load(open(f)); w = r['world']
+    n = json.load(open(w + '.neg.json')) if os.path.exists(w + '.neg.json') else {}
+    print(w, 'padding_only', r.get('masked_by_padding_only'), 'fluid_cobble', r.get('surface_cobble_touching_fluid'),
+          'status', r.get('chunk_status'), 'village_box', r.get('village_box'), 'neg_status_read', n.get('chunk_status_read'))
+print('ROOMS (every room found, lit or not)')
+for f in sorted(glob.glob('*.scan.json')):
+    if '.old48' in f or '.new48' in f: continue
+    r = json.load(open(f))
+    for rm in r.get('building_rooms', []): print(r['world'], rm)
+print('DELTAS (10-20 12:12Z copy -> this copy, home +-48)')
+for f in sorted(glob.glob('*.delta.out')):
+    print(f.split('.')[0], open(f).read().strip()[:400])

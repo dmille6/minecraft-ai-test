@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""census_species.py <census-goal.json> <worlds.json>: per town, the stock the building bills draw on, restricted to TOWN
+STORAGE (Codex r3 P1): containers within straight-line 16 of home horizontally and 12 vertically (chestfull `inTown`), not
+the wider census box. Each chest half is its own block entity with its own 27 slots, so halves are summed, never doubled.
+Cobblestone alone (cobbled deepslate smelts to deepslate), logs and planks BY SPECIES, sand, copper ingots, finished parts,
+torches. Read-only over the 00:15Z goal census on 10.0.0.30. Prints JSON lines with the container counts in and out of
+town storage. Index freshness and outstanding claims are RUNTIME facts (townindex-01); this offline proxy has neither and
+says so: it qualifies nothing by itself."""
+import json, math, sys, collections
+d = json.load(open(sys.argv[1])); homes = json.load(open(sys.argv[2]))
+for wn, w in sorted(d['worlds'].items()):
+    hx, hy, hz = homes[wn]
+    c = collections.Counter(); inn = out = 0
+    for ct in w['containers']:
+        x, y, z = ct['pos']
+        if math.hypot(x - hx, z - hz) > 16 or abs(y - hy) > 12: out += 1; continue
+        inn += 1
+        for it in ct.get('items') or []:
+            c[str(it['id']).replace('minecraft:', '')] += int(it['count'])
+    logs = {k[:-4]: v for k, v in c.items() if k.endswith('_log')}
+    planks = {k[:-7]: v for k, v in c.items() if k.endswith('_planks')}
+    parts = {k: c[k] for k in ('stone_bricks', 'glass', 'glass_pane', 'copper_block', 'cut_copper', 'copper_door') if c[k]}
+    print(json.dumps({'world': wn, 'containers_in_town_storage': inn, 'containers_outside': out,
+                      'cobblestone': c['cobblestone'], 'cobbled_deepslate': c['cobbled_deepslate'], 'stone': c['stone'],
+                      'logs': logs, 'planks': planks, 'sand': c['sand'] + c['red_sand'], 'copper_ingot': c['copper_ingot'],
+                      'torch': c['torch'], 'stick': c['stick'], 'parts': parts}))

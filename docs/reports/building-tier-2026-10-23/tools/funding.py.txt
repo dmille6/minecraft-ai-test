@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""funding.py <census-species.jsonl> | --selftest -- which towns can fund the shared building and then houses, one instance at
+a time, from SURPLUS ABOVE THE RESERVE (OWNER B3). A PROVISIONAL offline estimate: the census is a proxy for the runtime index,
+which alone qualifies a draw (fresh known entries minus claims; §6.2). r5 (Codex r4 P2): an EXECUTABLE allocation.
+
+  * Stock is TOWN STORAGE only (census_species.py: straight-line 16 / 12 vertical).
+  * Every pool is clamped at 0 after the reserve; every draw is INTEGRAL and within floor(80%) of its pool (TP 3.2).
+  * Logs are crafted whole (1 log -> 4 planks); the spare planks of a craft stay in a per-species leftover pool and are used
+    first next time. Wall and roof planks are of the town's most-stocked species; fuel planks may be any.
+  * Finished parts first, then INTERMEDIATES, then raw inputs: stone bricks <- banked bricks, then banked stone (crafted in 4s),
+    then cobblestone (sessions of 12 on exactly 8 planks); panes <- banked panes, then banked glass (6 per 16), then sand (one
+    session of 6 on 4 planks); cut copper <- banked cut copper, then banked copper blocks (4 per 4), then ingots (9 per block).
+  * A role is attempted on a COPY of every pool and committed only if it succeeds; a failed role is rolled back completely
+    before its fallback is tried (trim: planks for the workshop roof edge, stone bricks for house corners; windows: planks;
+    door: doorway). Leftovers of one instance (bricks, panes, cut copper, doors, planks) carry to the next.
+  * Stations (a table: 4 planks; 2 furnaces: 8 cobblestone each), torches and the fill allowance (40 cobblestone) are billed.
+  * isolated-a, c, d are OUT (TP D2 / town plan O8)."""
+import copy, json, math, sys
+
+OUT = {'isolated-a', 'isolated-c', 'isolated-d'}
+RESERVE = {'cobblestone': 256, 'logs': 512, 'planks': 64, 'copper_ingot': 256, 'sand': 16, 'torch': 32}
+WORKSHOP = dict(bricks=89, wall=34 + 15, windows=4, trim=20, trim_fb='planks', torches=2, door=0, tables=1, furnaces=2, fill=40)
+HOUSE = dict(bricks=72, wall=27 + 21, windows=3, trim=4, trim_fb='bricks', torches=1, door=1, tables=0, furnaces=0, fill=40)
+
+def cap(v): return max(0, int(math.floor(0.8 * max(0, v))))
+
+class Pools:
+    def __init__(self, t):
+        logs, planks = dict(t['logs']), dict(t['planks'])
+        lt, pt = sum(logs.values()) or 1, sum(planks.values()) or 1
+        self.main = max(logs, key=logs.get) if logs else 'oak'
+        self.logs = {k: cap(v - RESERVE['logs'] * v / lt) for k, v in logs.items()}
+        self.planks = {k: cap(v - RESERVE['planks'] * v / pt) for k, v in planks.items()}
+        self.raw = {k: cap(t[k] - RESERVE[k]) for k in ('cobblestone', 'sand', 'copper_ingot', 'torch')}
+        parts = dict(t.get('parts') or {}); parts['stone'] = t.get('stone', 0)
+        self.parts = {k: cap(v) for k, v in parts.items()}
+        self.left = {}
+    def draw(self, pool, name, n):
+        """Take exactly n (integral) or nothing: True on success."""
+        d = getattr(self, pool)
+        if d.get(name, 0) >= n: d[name] = d.get(name, 0) - n; return True
+        return False
+    def upto(self, pool, name, n):
+        d = getattr(self, pool); got = min(n, d.get(name, 0)); d[name] = d.get(name, 0) - got; return got
+
+def planks(P, n, species=None):
+    """n planks of one species (walls) or any (fuel): leftovers, then banked planks, then whole logs. All or nothing."""
+    order = [species] if species else sorted(set(P.planks) | set(P.logs) | {k[7:] for k in P.left if k.startswith('planks:')}, key=lambda k: k == P.main)
+    for sp in order:
+        n -= P.upto('left', 'planks:' + sp, n)
+        if not n: return True
+        n -= P.upto('planks', sp, n)
+        if not n: return True
+    for sp in order:
+        logs = math.ceil(n / 4)
+        have = min(logs, P.logs.get(sp, 0))
+        if have:
+            P.logs[sp] -= have; made = 4 * have; used = min(made, n); n -= used
+            P.left['planks:' + sp] = P.left.get('planks:' + sp, 0) + made - used
+        if not n: return True
+    return False
+
+def bricks(P, n):
+    n -= P.upto('left', 'stone_bricks', n); n -= P.upto('parts', 'stone_bricks', n)
+    if not n: return 0
+    from_stone = min(4 * (P.parts.get('stone', 0) // 4), 4 * math.ceil(n / 4))
+    if from_stone:
+        P.parts['stone'] -= from_stone; made = from_stone; used = min(made, n); n -= used
+        P.left['stone_bricks'] = P.left.get('stone_bricks', 0) + made - used
+    if not n: return 0
+    sessions = math.ceil(4 * math.ceil(n / 4) / 12)
+    if not P.draw('raw', 'cobblestone', 12 * sessions): return None
+    P.left['stone_bricks'] = P.left.get('stone_bricks', 0) + 12 * sessions - n
+    return sessions                                            # furnace sessions to fuel
+
+def panes(P, n):
+    n -= P.upto('left', 'glass_pane', n); n -= P.upto('parts', 'glass_pane', n)
+    if not n: return 0
+    crafts = math.ceil(n / 16)
+    # WHOLE batches only (Codex r5 P2): banked glass covers whole crafts of 6; every other craft is one full 6-sand session
+    # on exactly 4 planks. Banked glass short of a full craft is not mixed with sand; it stays banked.
+    from_glass = min(crafts, P.parts.get('glass', 0) // 6); P.parts['glass'] = P.parts.get('glass', 0) - 6 * from_glass
+    sand_sessions = crafts - from_glass
+    if sand_sessions and not P.draw('raw', 'sand', 6 * sand_sessions): return None
+    P.left['glass_pane'] = P.left.get('glass_pane', 0) + 16 * crafts - n
+    return sand_sessions                                       # glass sessions to fuel (4 planks each)
+
+def cutcopper(P, n):
+    n -= P.upto('left', 'cut_copper', n); n -= P.upto('parts', 'cut_copper', n)
+    if not n: return True
+    blocks = 4 * math.ceil(n / 4)
+    from_blocks = min(P.parts.get('copper_block', 0), blocks); P.parts['copper_block'] = P.parts.get('copper_block', 0) - from_blocks
+    if not P.draw('raw', 'copper_ingot', 9 * (blocks - from_blocks)): return False
+    P.left['cut_copper'] = P.left.get('cut_copper', 0) + blocks - n
+    return True
+
+def doors(P, n):
+    n -= P.upto('left', 'copper_door', n); n -= P.upto('parts', 'copper_door', n)
+    if not n: return True
+    crafts = math.ceil(n / 3)
+    if not P.draw('raw', 'copper_ingot', 6 * crafts): return False
+    P.left['copper_door'] = P.left.get('copper_door', 0) + 3 * crafts - n
+    return True
+
+def attempt(P, fn):
+    """Run fn on a copy; commit on success. Returns (ok, value, pools)."""
+    Q = copy.deepcopy(P); v = fn(Q)
+    good = v is not None and v is not False
+    return good, v, (Q if good else P)
+
+def plan(P, bp):
+    ch = {}; short = []
+    ok, _, P = attempt(P, lambda Q: (cutcopper(Q, bp['trim']) and (doors(Q, bp['door']) if bp['door'] else True)) or None)
+    ch['trim'] = 'copper' if ok else bp['trim_fb']; ch['door'] = ('copper_door' if ok else 'doorway') if bp['door'] else '-'
+    ok, glass_sessions, P2 = attempt(P, lambda Q: panes(Q, bp['windows']))
+    if ok: P = P2; ch['windows'] = 'glass_pane'
+    else: ch['windows'] = 'planks'; glass_sessions = 0
+    nb = bp['bricks'] + (bp['trim'] if ch['trim'] == 'bricks' else 0)
+    ok, sessions, P2 = attempt(P, lambda Q: bricks(Q, nb))
+    if not ok: return False, ['cobblestone'], ch, P
+    P = P2
+    if not P.draw('raw', 'cobblestone', 8 * bp['furnaces'] + bp['fill']): short.append('cobblestone')
+    if not P.draw('raw', 'torch', bp['torches']): short.append('torch')
+    wall = bp['wall'] + 4 * bp['tables'] + (bp['trim'] if ch['trim'] == 'planks' else 0) + (bp['windows'] if ch['windows'] == 'planks' else 0)
+    if not planks(P, wall, P.main): short.append('wall_planks_' + P.main)
+    if not planks(P, 8 * sessions + 4 * glass_sessions): short.append('fuel_planks')
+    return (not short), short, ch, P
+
+def run_instance(P, bp):
+    ok, short, ch, Q = plan(copy.deepcopy(P), bp)
+    return ok, short, ch, (Q if ok else P)
+
+def selftest():
+    base = dict(world='t', containers_in_town_storage=1, cobblestone=2000, cobbled_deepslate=0, stone=0, sand=0, copper_ingot=2000,
+                torch=64, stick=64, logs={'oak': 2000}, planks={'oak': 200}, parts={})
+    def go(**kw):
+        t = copy.deepcopy(base); t.update(kw); return run_instance(Pools(t), WORKSHOP)
+    cases = [
+        ('oak walls never from birch planks', go(logs={'oak': 512}, planks={'birch': 185})[0], False),
+        ('Codex r4: 523 oak logs + 172 oak planks (118 drawable)', go(logs={'oak': 523}, planks={'oak': 172})[0], False),
+        ('a rich town', go()[0], True),
+        ('banked panes, no sand -> glass windows', go(parts={'glass_pane': 40})[2]['windows'], 'glass_pane'),
+        ('banked glass, no sand -> glass windows', go(parts={'glass': 10})[2]['windows'], 'glass_pane'),
+        ('Codex r5: 2 banked glass + 23 drawable sand -> a full 6-sand session, the glass untouched (1 drawable)', go(sand=16 + 29, parts={'glass': 2})[3].parts.get('glass'), 1),
+        ('2 banked glass + 5 drawable sand -> plank windows', go(sand=16 + 7, parts={'glass': 2})[2]['windows'], 'planks'),
+        ('banked cut copper, no ingots -> copper trim', go(copper_ingot=0, parts={'cut_copper': 40})[2]['trim'], 'copper'),
+        ('banked copper blocks, no ingots -> copper trim', go(copper_ingot=0, parts={'copper_block': 40})[2]['trim'], 'copper'),
+        ('banked stone counts toward bricks', go(cobblestone=256 + 100, stone=200)[0], True),
+        ('cobblestone over 80% of spendable -> refused', go(cobblestone=256 + 100)[0], False),
+    ]
+    ok, short, ch, P = go(copper_ingot=0, parts={'cut_copper': 10})          # 8 drawable: below the 20 needed
+    cases.append(('failed copper role leaves banked cut copper', P.parts.get('cut_copper'), 8))
+    bad = [c for c in cases if c[1] != c[2]]
+    for c in cases: print('%-56s got %s want %s %s' % (c[0], c[1], c[2], 'ok' if c[1] == c[2] else 'FAIL'))
+    sys.exit(1 if bad else 0)
+
+if __name__ == '__main__':
+    if sys.argv[1] == '--selftest': selftest()
+    towns = [json.loads(l) for l in open(sys.argv[1])]
+    n = wf = wc = 0; houses = []
+    for t in towns:
+        if t['world'] in OUT:
+            print('%-11s OUT (isolated, per-bot town state: D2)' % t['world']); continue
+        n += 1
+        P = Pools(t)
+        ok, short, ch, P = run_instance(P, WORKSHOP)
+        nh = 0
+        if ok:
+            wf += 1; wc += ch['trim'] == 'copper'
+            while nh < 5:
+                hok, hshort, hch, P = run_instance(P, HOUSE)
+                if not hok: break
+                nh += 1
+        houses.append(nh)
+        print('%-11s storage %2d containers | workshop %-3s trim=%-7s windows=%-10s short=%s | houses after it, one at a time: %d' % (
+            t['world'], t['containers_in_town_storage'], 'YES' if ok else 'NO', ch['trim'], ch['windows'], short or '-', nh))
+    print('PROVISIONAL (census proxy; the draw uses the index): of %d eligible towns the workshop allocates in %d (%d with copper '
+          'trim); houses in sequence from today\'s town storage, no refill: %d of %d (per town %s). Sand is 0 everywhere.'
+          % (n, wf, wc, sum(houses), 5 * n, houses))

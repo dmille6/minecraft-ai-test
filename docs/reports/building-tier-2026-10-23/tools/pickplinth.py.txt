@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""pickplinth.py <world>: the plinth records the structure count's control uses for one world, as --plinth args.
+One COMPLETE record with planned place cells (shared pools: the pool's own; isolated worlds: the first complete per-bot
+copy), plus every shared-pool record still in state `plan` (an unbuilt well: the negative arm, which must find 0)."""
+import glob, json, sys
+w = sys.argv[1]
+pats = ['bt-plinths/_pool-%s--junkwell-plinth-*.json' % w, 'bt-plinths/_pool-self-%s-*--junkwell-plinth-*.json' % w]
+files = [f for p in pats for f in sorted(glob.glob(p)) if 'caprefused' not in f]
+out, done = [], False
+for f in files:
+    d = json.load(open(f)); n = sum(1 for s in (d.get('plan') or {}).get('steps', []) if s.get('op') == 'place')
+    if d.get('state') == 'complete' and n and not done:
+        out.append(f); done = True
+    elif d.get('state') == 'plan' and n and '_pool-self-' not in f:
+        out.append(f)
+print(' '.join('--plinth ' + f for f in out))

@@ -1,0 +1,17 @@
+{"world": "board-a", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "board-b", "columns": 7921, "masked_columns": 4274, "masked_share": 0.54, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "board-c", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "board-d", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "hive-a", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "hive-b", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "hive-c", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "hive-d", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "isolated-a", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "isolated-b", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "isolated-c", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "isolated-d", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "placebo-a", "columns": 7921, "masked_columns": 2418, "masked_share": 0.305, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "placebo-b", "columns": 7921, "masked_columns": 1631, "masked_share": 0.206, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "placebo-c", "columns": 7921, "masked_columns": 0, "masked_share": 0.0, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "placebo-d", "columns": 7921, "masked_columns": 36, "masked_share": 0.005, "masked_reaching_surface": 0, "surface_share": 0.0, "surface_by_piece": {}}
+{"world": "showcase", "columns": 7921, "masked_columns": 5167, "masked_share": 0.652, "masked_reaching_surface": 60, "surface_share": 0.008, "surface_by_piece": {"minecraft:village_taiga": 60}}

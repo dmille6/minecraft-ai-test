@@ -1,0 +1,24 @@
+#!/bin/bash
+# runall.sh: copy (cp, read-only on the live files) and scan every bench world; then the 10-20 -> 10-23 delta on the town-plan copies.
+cd ~/structcount-1023
+python3 - <<'EOF' > worlds.tsv
+import json
+w = json.load(open('/home/mike/townplan-1020/worlds.json'))
+for k, v in sorted(w.items()): print(k, '%d,%d,%d' % tuple(v))
+EOF
+date -u > run.started
+while read W H; do
+  HX=${H%%,*}; REST=${H#*,}; HZ=${REST#*,}
+  bash copyw.sh "$W" "/srv/block2/$W/world" "$HX" "$HZ" >/dev/null
+  PL=$(python3 pickplinth.py "$W")
+  Z=bt-plinths/_pool-$W--zones.json
+  nice -n 19 python3 structcount.py scan "$W" "$W/region" "$H" --r 96 --stamp --zones "$Z" $PL --json "$W.scan.json" > "$W.scan.out" 2>&1
+  nice -n 19 python3 structcount.py negctl "$W" "$W/region" "$H" --r 96 --n 120 --json "$W.neg.json" > "$W.neg.out" 2>&1
+  # the 10-20 12:12Z copies cover home +-48: scan both snapshots at r 48 for the delta
+  if [ -d /var/tmp/townplan-1020/$W/region ]; then
+    nice -n 19 python3 structcount.py scan "$W" "/var/tmp/townplan-1020/$W/region" "$H" --r 48 --stamp --zones "$Z" --json "$W.old48.json" > "$W.old48.out" 2>&1
+    nice -n 19 python3 structcount.py scan "$W" "$W/region" "$H" --r 48 --stamp --zones "$Z" --json "$W.new48.json" > "$W.new48.out" 2>&1
+    nice -n 19 python3 structcount.py delta "$W.old48.json" "$W.new48.json" > "$W.delta.out" 2>&1
+  fi
+done < worlds.tsv
+date -u > run.finished

@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""readmanifest.py <out-dir> <attempts-dir> <expected-day>: the READER's rule (goalboard). CURRENT status is OK only when
+manifest.json names the expected day, status OK, the SAME attempt as the newest recorded attempt (attempts-dir/attempt.json:
+a later attempt with no manifest of its own means that attempt failed), a generation that exists, and every listed file's
+sha256 matching. Anything else prints UNKNOWN. The data of an older OK generation stays readable as HISTORY by its name."""
+import hashlib, json, os, sys
+out, attempts, day = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    m = json.load(open(os.path.join(out, 'manifest.json')))
+except Exception:
+    print('UNKNOWN no readable manifest'); sys.exit(1)
+try:
+    a = json.load(open(os.path.join(attempts, 'attempt.json')))
+except Exception:
+    print('UNKNOWN no recorded attempt'); sys.exit(1)
+if m.get('day') != day: print('UNKNOWN stale manifest (day %s)' % m.get('day')); sys.exit(1)
+if m.get('attempt') != a.get('attempt'):
+    print('UNKNOWN attempt %s has no manifest (the manifest is attempt %s; history: %s)' % (a.get('attempt'), m.get('attempt'), (m.get('last_good') or {}).get('generation'))); sys.exit(1)
+if m.get('status') != 'OK': print('UNKNOWN', m.get('why')); sys.exit(1)
+g = os.path.join(out, m['generation'])
+for f, h in m['files'].items():
+    p = os.path.join(g, f)
+    if not os.path.exists(p) or hashlib.sha256(open(p, 'rb').read()).hexdigest() != h:
+        print('UNKNOWN hash mismatch', f); sys.exit(1)
+print('OK', m['generation'], len(m['files']), 'files')

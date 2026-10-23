@@ -1,0 +1,18 @@
+one lit house                      got (1, 0) want (1, 0) ok
+two houses joined by cobble        got (2, 0) want (2, 0) ok
+house joined to a buried stair     got (1, 0) want (1, 0) ok
+unlit lamp only                    got (0, 1) want (0, 1) ok
+lit lamp                           got (1, 0) want (1, 0) ok
+light below the floor only         got (0, 1) want (0, 1) ok
+no doorway                         got (0, 0) want (0, 0) ok
+no roof                            got (0, 0) want (0, 0) ok
+no walls (open pavilion)           got (0, 0) want (0, 0) ok
+torch outside the doorway only     got (0, 1) want (0, 1) ok
+unlit redstone torch only          got (0, 1) want (0, 1) ok
+a roof of torches                  got (0, 0) want (0, 0) ok
+plinth: correct                    got ('pass',) want ('pass',) ok
+plinth: wrong block                got ('FAIL',) want ('FAIL',) ok
+plinth: disconnected cells         got ('FAIL',) want ('FAIL',) ok
+plinth: never built (plan)         got ('pass',) want ('pass',) ok
+plinth: empty plan                 got ('no_cells',) want ('no_cells',) ok
+{"cases": 17, "failed": 0}

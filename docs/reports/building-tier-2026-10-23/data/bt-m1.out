@@ -1,0 +1,34 @@
+window 2026-10-22 14:00:00+00:00 2026-10-23 14:00:00+00:00 caveats ['after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).', 'window crosses 1 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).']
+total docs 1540540 bots 80
+build all 0
+build success 0
+place all 336
+place success 305
+gather all 28223
+gather success 12725
+craft all 769
+craft success 408
+smelt all 667
+smelt success 399
+smelt_town all 1665
+smelt_town success 151
+build_well all 0
+build_well success 0
+build_plinth all 0
+build_plinth success 0
+build_composter all ZERO-GUARD: 'build_composter' has 0 docs, but these exist: _compost (97), compost (97) -- almost certainly the name, not the fleet
+build_composter success ZERO-GUARD: 'build_composter' has 0 docs, but these exist: _compost (97), compost (97) -- almost certainly the name, not the fleet
+tend_farm all 0
+tend_farm success 0
+_project_place all ZERO-GUARD: '_project_place' has 0 docs, but these exist: _protect_zone (24316), _relocate_landed (3729) -- almost certainly the name, not the fleet
+_project_place success ZERO-GUARD: '_project_place' has 0 docs, but these exist: _protect_zone (24316), _relocate_landed (3729) -- almost certainly the name, not the fleet
+_monument all 0
+_monument success 0
+_found all 0
+_found success 0
+_townplan all ZERO-GUARD: '_townplan' has 0 docs, but these exist: _mine_plan (3226) -- almost certainly the name, not the fleet
+_townplan success ZERO-GUARD: '_townplan' has 0 docs, but these exist: _mine_plan (3226) -- almost certainly the name, not the fleet
+deposit all 505
+deposit success 198
+town_deposit all 205
+town_deposit success 146

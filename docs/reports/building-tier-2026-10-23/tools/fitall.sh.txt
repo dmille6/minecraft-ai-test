@@ -1,0 +1,20 @@
+#!/bin/bash
+# fitall.sh: run fitb.py on every bench world's region copy (made by runall.sh) -> fit-<world>.json
+cd ~/structcount-1023
+while read W H; do
+  case $W in
+    isolated-a|isolated-c|isolated-d) f=$(ls bt-plinths/_pool-self-$W-Alpha--junkwell-plinth-*.json 2>/dev/null | grep -v caprefused | head -1);;
+    *) f=$(ls bt-plinths/_pool-$W--junkwell-plinth-*.json 2>/dev/null | grep -v caprefused | head -1);;
+  esac
+  [ -z "$f" ] && f=-
+  Z=bt-plinths/_pool-$W--zones.json; [ -f "$Z" ] || Z=-
+  nice -n 19 python3 fitb.py "$W" "$W/region" "$H" "$f" "$Z" > "fit-$W.json" 2> "fit-$W.err"
+done < worlds.tsv
+python3 - <<'EOF'
+import json, glob
+for f in sorted(glob.glob('fit-*.json')):
+    try: d = json.load(open(f))
+    except Exception as e: print(f, 'ERR', e); continue
+    print(d['world'], 'furniture cols', d['furniture_columns'], ' | '.join('%s %d (0-earthwork %d, best %s)' % (b, d[b]['placements'], d[b]['zero_earthwork'],
+          (d[b]['best'][0]['earthwork'], d[b]['best'][0]['tree_cells']) if d[b]['best'] else '-') for b in ('inner_7_16', 'near_17_30', 'outer_22_44')))
+EOF

@@ -1,0 +1,94 @@
+#!/bin/bash
+# daily.sh <out-dir> <world> <region-dir> <hx,hy,hz> [<world> <region-dir> <home> ...]
+# The publication wrapper, r7 (Codex r5/r6 P2). ONE atomic step publishes; readers trust nothing else.
+#   * ATTEMPT FIRST. Before anything else the run records its attempt id (UTC stamp) in $ATTEMPTS/attempt.json by an atomic
+#     rename. $ATTEMPTS is a different directory from $OUT (default ~/structcount/attempts). The manifest names the attempt it
+#     belongs to, and the READER (readmanifest.py) accepts a manifest only if its attempt equals the newest recorded attempt. So
+#     a failed manifest replacement, or an unwritable $OUT, after a same-day OK reads UNKNOWN: the newer attempt has no
+#     manifest. If the attempt itself cannot be recorded the run stops at once, touching nothing, and exits 7 (the cron line's
+#     exit code goes to the fleetstatus header's alarm).
+#   * Every run writes an IMMUTABLE generation directory gen-<stamp>/ and publishes by renaming ONE file, manifest.json: the
+#     day, the attempt, the status, the generation and every file's sha256, and `last_good` (the newest OK generation and the
+#     sha256 of its structcount-day.json), carried forward through UNKNOWN runs so the stamp control's baseline survives them.
+#   * Checks before OK: selftest and mutants on the same instrument path; per world a scan and negctl with FULL coverage (every
+#     chunk ok, no unresolved start), the stamp within 10% of last_good (hash-validated), 0 surface false positives.
+#   * Demonstration hooks: FAIL_AT=<step> (selftest | scan | aggregate | gen_rename | manifest) injects a failure;
+#     STAMP_OVERRIDE=<n> replaces the scanned stamp count, to show a depleted stamp is refused.
+set -u
+OUT=$1; shift
+ATTEMPTS=${ATTEMPTS:-$HOME/structcount/attempts}
+SC=${STRUCTCOUNT:-structcount.py.txt}
+DAY=$(date -u +%F); STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+GEN="gen-$STAMP"
+fail_at() { [ "${FAIL_AT:-}" = "$1" ]; }
+mkdir -p "$ATTEMPTS" 2>/dev/null
+printf '{"attempt":"%s","day":"%s"}\n' "$STAMP" "$DAY" > "$ATTEMPTS/.attempt.tmp" 2>/dev/null && mv -f "$ATTEMPTS/.attempt.tmp" "$ATTEMPTS/attempt.json" ||
+  { echo "cannot record the attempt: nothing touched; exit 7 (alarm)"; exit 7; }
+manifest() {   # manifest <status> <why> [gen]  -- temp file, fsync, ONE rename
+  python3 - "$OUT" "$DAY" "$STAMP" "$1" "$2" "${3:-}" <<'EOF' || return 1
+import hashlib, json, os, sys
+out, day, attempt, status, why, gen = sys.argv[1:7]
+sha = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest()
+prev = {}
+try: prev = json.load(open(os.path.join(out, 'manifest.json')))
+except Exception: pass
+files = {f: sha(os.path.join(out, gen, f)) for f in sorted(os.listdir(os.path.join(out, gen)))} if gen else {}
+last_good = {'generation': gen, 'sha': files['structcount-day.json']} if status == 'OK' else prev.get('last_good')
+m = {'day': day, 'attempt': attempt, 'status': status, 'why': why, 'generation': gen or None, 'files': files, 'last_good': last_good}
+tmp = os.path.join(out, '.manifest.tmp')
+with open(tmp, 'w') as f: json.dump(m, f); f.flush(); os.fsync(f.fileno())
+os.replace(tmp, os.path.join(out, 'manifest.json'))
+EOF
+}
+unknown() { if fail_at manifest || ! manifest UNKNOWN "$1"; then echo "manifest not writable: the reader sees an attempt with no manifest = UNKNOWN"; fi; echo "$1: nothing published"; exit "$2"; }
+mkdir -p "$OUT" 2>/dev/null
+WORK=$(mktemp -d "$OUT/.work.XXXXXX" 2>/dev/null) || unknown "cannot create a work dir" 6
+trap 'rm -rf "$WORK"' EXIT
+{ ! fail_at selftest && python3 "$SC" selftest > "$WORK/selftest.out" 2>&1; } || unknown "selftest failed" 3
+python3 mutants.py "$SC" > "$WORK/mutants.out" 2>&1 || unknown "a mutant survived" 3
+# the stamp baseline: last_good, VALIDATED by its sha256 (a missing or altered baseline file is itself a refusal)
+BASE=$(python3 - "$OUT" <<'EOF'
+import hashlib, json, os, sys
+try: m = json.load(open(os.path.join(sys.argv[1], 'manifest.json')))
+except Exception: print(''); sys.exit(0)
+lg = m.get('last_good')
+if not lg: print(''); sys.exit(0)
+p = os.path.join(sys.argv[1], lg['generation'], 'structcount-day.json')
+if not os.path.exists(p) or hashlib.sha256(open(p, 'rb').read()).hexdigest() != lg['sha']: print('INVALID'); sys.exit(0)
+print(p)
+EOF
+)
+[ "$BASE" = "INVALID" ] && unknown "the last_good baseline fails its hash" 4
+while [ $# -ge 3 ]; do
+  W=$1; R=$2; H=$3; shift 3
+  { ! fail_at scan && python3 "$SC" scan "$W" "$R" "$H" --r 96 --stamp --json "$WORK/$W.scan.json" > "$WORK/$W.out" 2>&1 &&
+    python3 "$SC" negctl "$W" "$R" "$H" --r 96 --n 120 --json "$WORK/$W.neg.json" > "$WORK/$W.negout" 2>&1; } || unknown "scan failed: $W" 4
+  python3 - "$WORK/$W.scan.json" "$WORK/$W.neg.json" "$BASE" "$W" "${STAMP_OVERRIDE:-}" <<'EOF' || unknown "invalid scan: $W" 4
+import json, os, sys
+s = json.load(open(sys.argv[1])); n = json.load(open(sys.argv[2])); w = sys.argv[4]; bad = []
+if sys.argv[5]: s['stamp_present'] = int(sys.argv[5])
+ch = s.get('chunks', {})
+if not ch or set(ch) != {'chunk_ok'}: bad.append('coverage %s' % ch)
+if s.get('worldgen_starts_unreadable'): bad.append('unresolved starts %s' % s['worldgen_starts_unreadable'])
+if n.get('fp_cells_surface', 1) != 0 or not n.get('uninhabited_chunks'): bad.append('negative control')
+if sys.argv[3]:
+    last = (json.load(open(sys.argv[3])).get(w) or {}).get('stamp_present')
+    if last and s.get('stamp_present', 0) < 0.9 * last: bad.append('stamp control %s < 90%% of %s' % (s.get('stamp_present'), last))
+if bad: print('INVALID', w, '; '.join(bad)); sys.exit(1)
+EOF
+done
+mkdir "$WORK/$GEN" || unknown "aggregation failed" 5
+{ ! fail_at aggregate && python3 - "$WORK" "$WORK/$GEN" <<'EOF'
+import glob, gzip, json, os, shutil, sys
+work, gen = sys.argv[1], sys.argv[2]
+d, cells = {}, {}
+for f in sorted(glob.glob(os.path.join(work, '*.scan.json'))):
+    r = json.load(open(f)); cells[r['world']] = r.pop('cells'); d[r['world']] = r
+json.dump(d, open(os.path.join(gen, 'structcount-day.json'), 'w'))
+with gzip.open(os.path.join(gen, 'cells.json.gz'), 'wt') as g: json.dump(cells, g)
+for f in ('selftest.out', 'mutants.out'): shutil.copy(os.path.join(work, f), gen)
+EOF
+} || unknown "aggregation failed" 5
+{ ! fail_at gen_rename && mv "$WORK/$GEN" "$OUT/$GEN"; } || unknown "generation rename failed" 6
+{ ! fail_at manifest && manifest OK "controls passed" "$GEN"; } || { echo "manifest write failed: the reader sees an attempt with no manifest = UNKNOWN"; exit 6; }
+echo "published $OUT/$GEN via manifest.json (attempt $STAMP)"

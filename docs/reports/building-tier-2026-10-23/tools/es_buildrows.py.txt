@@ -1,0 +1,15 @@
+import sys, re, collections, json
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents, ZeroLooksWrong
+UNTIL = '2026-10-23T14:00:00Z'
+ev = EsEvents.load('skill', since_minutes=24 * 60, until=UNTIL)
+print('window', ev.since, ev.until, 'caveats', ev.caveats)
+print('total docs', ev.total(), 'bots', len(ev.bots_present()))
+for k in ['build', 'place', 'gather', 'craft', 'smelt', 'smelt_town', 'build_well', 'build_plinth',
+          'build_composter', 'tend_farm', '_project_place', '_monument', '_found', '_townplan', 'deposit', 'town_deposit']:
+    for st in [None, 'success']:
+        try:
+            c = ev.count(k, status=st) if st else ev.count(k)
+            print(k, st or 'all', int(c))
+        except ZeroLooksWrong as e:
+            print(k, st or 'all', 'ZERO-GUARD:', str(e)[:240])
