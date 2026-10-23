@@ -397,46 +397,52 @@ await t('THE READER (installTownIron over the bot\'s real town index): a town of
 })
 
 // ---- mutants -------------------------------------------------------------------------------------------------------------------
-await t('MUTANTS: each removes one part of the change and a behaviour test above fails for it', async () => {
+// EVERY PROBE PASSES ON THE ORIGINAL FIRST (Codex r5 P3: a probe that fails on both reads as a kill): probeKill runs the probe
+// against the real module, then against the mutant; only an AssertionError on the mutant is a kill
+const probeKill = async (path_, pairs, probe, real) => {
+  await probe(real)
+  return withMutants(path_, pairs, M => killedBy(() => probe(M)))
+}
+await t('MUTANTS: each removes one part of the change; its probe passes on the original and fails on the mutant', async () => {
   const kills = {}
-  kills.noTierSwap = await withMutant(SRC('toolkit.mjs'), "    if (n === 'iron_shovel' && lowIron) return stoneShovelNeed(items) ? ['stone_shovel'] : []\n", '', KK => killedBy(() => shovelOrder(KK)))
-  kills.anyShovelIgnored = await withMutant(SRC('toolkit.mjs'), "  !list(items).some(it => SHOVEL_RE.test(it.name) && usable(it)) && list(items)", '  list(items)', KK => killedBy(() => {
+  kills.noTierSwap = await probeKill(SRC('toolkit.mjs'), [["    if (n === 'iron_shovel' && lowIron) return stoneShovelNeed(items) ? ['stone_shovel'] : []\n", '']], KK => shovelOrder(KK), K)
+  kills.anyShovelIgnored = await probeKill(SRC('toolkit.mjs'), [['  !list(items).some(it => SHOVEL_RE.test(it.name) && usable(it)) && list(items)', '  list(items)']], KK => {
     assert.deepEqual(KK.kitNeeds([PICK(), AXE(), stack('cobblestone', 3), tool('stone_shovel', 0)], { lowIron: true }), [])
-  }))
-  kills.skillIgnoresLow = await withMutant(SRC('skills.mjs'), '  const lowIron = !!args?.low', '  const lowIron = false', S => killedBy(() => skillStone(S, K)))
-  kills.rungIgnoresTown = await withMutant(SRC('milestones.mjs'), '  }, b => townIronLow(townIronNow()) === true && ironInReach(b)', '  }, b => ironInReach(b)', M => killedBy(() => {
+  }, K)
+  kills.skillIgnoresLow = await probeKill(SRC('skills.mjs'), [['  const lowIron = !!args?.low', '  const lowIron = false']], S => skillStone(S, K), S0)
+  kills.rungIgnoresTown = await probeKill(SRC('milestones.mjs'), [['  }, b => townIronLow(townIronNow()) === true && ironInReach(b)', '  }, b => ironInReach(b)']], M => {
     readerSays({ units: 90 }); try { assert.equal(M.SUSTAINING.find(m => m.id === 'gather_iron_ore_town').done(ladderBot({ inv: DONE_BAG })), true) } finally { TIM.setTownIronReader(null) }
-  }))
-  kills.noCarryCap = await withMutant(SRC('towniron.mjs'), '  return deliverPlan(counts).surplus >= TOWN_IRON_CARRY\n}', '  return false\n}', M => killedBy(() => {
-    assert.equal(M.townTaskCarried([{ name: 'raw_iron', count: 19 }]), true)
-  }))
-  kills.noMinContainers = await withMutant(SRC('towniron.mjs'), '  if (containers < min) return null\n', '', M => killedBy(() => {
+  }, MS)
+  kills.noCarryCap = await probeKill(SRC('towniron.mjs'), [['  return deliverPlan(counts).surplus >= TOWN_IRON_CARRY\n}', '  return false\n}']], M => {
+    assert.equal(M.townTaskCarried([{ name: 'raw_iron', count: 19 }, { name: 'bucket', count: 1 }, { name: 'iron_pickaxe', count: 1 }]), true)
+  }, TIM)
+  kills.noMinContainers = await probeKill(SRC('towniron.mjs'), [['  if (containers < min) return null\n', '']], M => {
     assert.equal(M.townIronStock({ a: obs('a', { iron_ingot: [1, 1] }) }, NOW), null)
-  }))
-  kills.unknownIsLow = await withMutant(SRC('towniron.mjs'), '  (!on || !stock ? null : stock.units < reserve)', '  (!on ? null : !stock ? true : stock.units < reserve)', M => killedBy(() => {
+  }, TIM)
+  kills.unknownIsLow = await probeKill(SRC('towniron.mjs'), [['  (!on || !stock ? null : stock.units < reserve)', '  (!on ? null : !stock ? true : stock.units < reserve)']], M => {
     assert.equal(M.townIronLow(null), null)
-  }))
-  kills.deliverNoHold = await withMutant(SRC('skills.mjs'), "      const restore = swapWithdrawHold(name, plan.own, Date.now() + 10 * 60_000)\n      try { await deposit(ctx, { item: name }, signal, { noRecovery: true }) } finally { restore() }",
-    "      const restore = () => {}\n      try { await deposit(ctx, { item: name }, signal, { noRecovery: true }) } finally { restore() }", S => killedBy(() => deliverScene(S)))
-  kills.noStoneOnly = await withMutant(SRC('toolkit.mjs'), "  const stoneOnly = lowIron && full.needs.includes('stone_shovel') && full.needs.length > 1 ? [{ only: 'stone_shovel' }] : []",
-    '  const stoneOnly = []', KK => killedBy(() => stoneBehindAxe(KK)))
-  kills.dirtyCounts = await withMutant(SRC('towniron.mjs'), "    if (indexStateOf(e, now, obsMs) !== 'known' || !Number.isFinite(at) || at > now + 60_000) continue",
-    "    if (!o || !Number.isFinite(at) || at > now + 60_000) continue", M => killedBy(() => {
-      const e = { a: obs('a', { raw_iron: [7, 1] }), b: obs('b', { dirt: [1, 1] }), c: obs('c', { dirt: [1, 1] }), d: { ...obs('d', { iron_ingot: [50, 1] }), last: { t: 'dirty', at: NOW - 10 } } }
-      assert.equal(M.townIronStock(e, NOW).units, 7)
-    }))
+  }, TIM)
+  kills.deliverNoHold = await probeKill(SRC('skills.mjs'), [["      const restore = swapWithdrawHold(name, plan.own, Date.now() + 10 * 60_000)\n      try { await deposit(ctx, { item: name }, signal, { noRecovery: true }) } finally { restore() }",
+    "      const restore = () => {}\n      try { await deposit(ctx, { item: name }, signal, { noRecovery: true }) } finally { restore() }"]], S => deliverScene(S), S0)
+  kills.noStoneOnly = await probeKill(SRC('toolkit.mjs'), [["  const stoneOnly = lowIron && full.needs.includes('stone_shovel') && full.needs.length > 1 ? [{ only: 'stone_shovel' }] : []",
+    '  const stoneOnly = []']], KK => stoneBehindAxe(KK), K)
+  kills.dirtyCounts = await probeKill(SRC('towniron.mjs'), [["    if (indexStateOf(e, now, obsMs) !== 'known' || !Number.isFinite(at) || at > now + 60_000) continue",
+    "    if (!o || !Number.isFinite(at) || at > now + 60_000) continue"]], M => {
+    const e = { a: obs('a', { raw_iron: [7, 1] }), b: obs('b', { dirt: [1, 1] }), c: obs('c', { dirt: [1, 1] }), d: { ...obs('d', { iron_ingot: [50, 1] }), last: { t: 'dirty', at: NOW - 10 } } }
+    assert.equal(M.townIronStock(e, NOW).units, 7)
+  }, TIM)
   // THE ORDER (Codex r2 P2): the town rung moved AHEAD of the bot's own crafts -> the chain scene's "own bucket first" fails
-  kills.townRungFirst = await withMutants(SRC('milestones.mjs'), [['  TOWN_IRON_RUNG,\n]', ']'], ['const TECH_LADDER = [\n', 'const TECH_LADDER = [\n  TOWN_IRON_RUNG,\n']], M => killedBy(() => chainScene(M)))
-  kills.noRoundGate = await withMutant(SRC('towniron.mjs'), "  if (!s.round) return { order: null, state: s, skip: 'no_round' }\n", '', M => killedBy(() => {
+  kills.townRungFirst = await probeKill(SRC('milestones.mjs'), [['  TOWN_IRON_RUNG,\n]', ']'], ['const TECH_LADDER = [\n', 'const TECH_LADDER = [\n  TOWN_IRON_RUNG,\n']], M => chainScene(M), MS)
+  kills.noRoundGate = await probeKill(SRC('towniron.mjs'), [["  if (!s.round) return { order: null, state: s, skip: 'no_round' }\n", '']], M => {
     assert.equal(M.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 19 } }).skip, 'no_round')
-  }))
-  kills.roundErasedEarly = await withMutant(SRC('towniron.mjs'), "  if (!(p.surplus > 0)) return { order: null, state: s, skip: 'none' }",
-    "  if (!(p.surplus > 0)) { delete s.round; return { order: null, state: s, skip: 'none' } }", M => killedBy(() => {
-      assert.equal(M.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 3 }, state: { round: true } }).state.round, true)
-    }))
-  kills.retryOnlyRound = await withMutant(SRC('towniron.mjs'), '  if (surplusLeft === 0) delete s.round', '  delete s.round', M => killedBy(() => {
+  }, TIM)
+  kills.roundErasedEarly = await probeKill(SRC('towniron.mjs'), [["  if (!(p.surplus > 0)) return { order: null, state: s, skip: 'none' }",
+    "  if (!(p.surplus > 0)) { delete s.round; return { order: null, state: s, skip: 'none' } }"]], M => {
+    assert.equal(M.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 3 }, state: { round: true } }).state.round, true)
+  }, TIM)
+  kills.retryOnlyRound = await probeKill(SRC('towniron.mjs'), [['  if (surplusLeft === 0) delete s.round', '  delete s.round']], M => {
     assert.equal(M.deliverOutcome('aborted', 1e12, { round: true }, { surplusLeft: null }).round, true)
-  }))
+  }, TIM)
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
