@@ -40,8 +40,11 @@ for pool in POOLS:
                 PB['ops_with_held'] += 1
             if o['post'] is None:
                 PB['ops_unfinished'] += 1
+            if o['pre'] is None:
+                PB['ops_missing_pre'] += 1
     def span(o):
-        start = o['pre'] if o['pre'] is not None else (o['held'] or o['post'])
+        # r6 (Codex r5): as townindex.mjs openAt, an op with no `pre` mark is open from -infinity
+        start = o['pre'] if o['pre'] is not None else float('-inf')
         if o['post'] is not None:
             return start, o['post'], True
         return start, max(o['pre'] or 0, o['held'] or 0) + OP_TTL, False
@@ -98,7 +101,7 @@ for pool in POOLS:
             w = chain_who.get((x['pre'], x['ver']), 'not_a_chain_pair')
             V['attributed_to_xfer_bot' if w == x['bot'] else ('not_a_chain_pair' if w == 'not_a_chain_pair' else 'unknown')] += 1
 print('== [P5] observation-chain provenance with the shipped op lifecycle (unfinished ops open to OP_TTL past pre/held)')
-print('  ops:', {k: PB[k] for k in ('ops', 'ops_unfinished', 'ops_with_held')})
+print('  ops:', {k: PB[k] for k in ('ops', 'ops_unfinished', 'ops_with_held', 'ops_missing_pre')})
 print('  changed pairs:', {k: PB[k] for k in ('pairs_changed', 'pairs_attributed', 'pairs_no_op', 'pairs_with_unfinished_op', 'pairs_multi_bot')})
 print(f"  unknown additions {PB['unknown_added']}, unknown removals {PB['unknown_removed']}")
 print(f"  attributed withdrawals {PB['withdrawn']} units; from another bot's deposit: lower bound {PB['lb']}, upper bound {PB['ub']}")

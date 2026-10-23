@@ -1,5 +1,5 @@
 == [P5] observation-chain provenance with the shipped op lifecycle (unfinished ops open to OP_TTL past pre/held)
-  ops: {'ops': 412, 'ops_unfinished': 0, 'ops_with_held': 0}
+  ops: {'ops': 412, 'ops_unfinished': 0, 'ops_with_held': 0, 'ops_missing_pre': 0}
   changed pairs: {'pairs_changed': 399, 'pairs_attributed': 398, 'pairs_no_op': 1, 'pairs_with_unfinished_op': 0, 'pairs_multi_bot': 0}
   unknown additions 14, unknown removals 121
   attributed withdrawals 629 units; from another bot's deposit: lower bound 78, upper bound 161
