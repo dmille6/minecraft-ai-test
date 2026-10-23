@@ -125,6 +125,27 @@ const abortMidWithdraw = async S => {
 await t('ABORT MID-WITHDRAW (Codex code r1 P1): a verified take of 5 raw iron, then the next walk aborted -> the row is the iron job\'s (in=fe withdrawn=5 stop=interrupted)', async () => {
   await abortMidWithdraw(S0)
 })
+// AN ABORT DURING THE ERROR EXIT'S BANK (Claude code r2 P3-1): the error is caught, the bank starts, and the reflex takes the body
+// on the bank's walk -> the abort is rethrown and the row says interrupted (never `error`)
+const abortInErrorBank = async S => {
+  const w = town({ bag: [stack('cobblestone', 3), stack('raw_iron', 3), stack('iron_ingot', 2)], stock: { [kOf(FAR)]: [stack('raw_iron', 8), stack('coal', 4)] } })
+  const ctl = new AbortController()
+  let failed = false
+  const fb = w.bot.findBlock
+  w.bot.findBlock = o => { if (count(w.bag, 'raw_iron') > 3) { failed = true; throw new Error('a world read failed') } return fb.call(w.bot, o) }
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = async (...a) => { if (failed) ctl.abort(); return goto(...a) }
+  const n0 = RECS.length
+  let threw = null
+  try { await S.SKILLS.smelt_town.run({ bot: w.bot }, {}, ctl.signal) } catch (e) { threw = e }
+  const row = RECS.slice(n0).filter(x => x?.skill?.name === '_smelt_town').at(-1)?.skill?.detail ?? ''
+  assert.ok(threw, `the abort is rethrown, not swallowed as an error: ${row}`)
+  assert.equal(field(row, 'stop'), 'interrupted', row)
+  assert.equal(field(row, 'verdict'), 'unreconciled', row)
+}
+await t('AN ABORT DURING THE ERROR EXIT\'S BANK: rethrown; the row says stop=interrupted, unreconciled (Claude code r2 P3-1)', async () => {
+  await abortInErrorBank(S0)
+})
 const errorAfterTake = async S0 => {
   const w = town({ bag: [stack('cobblestone', 3), stack('raw_iron', 3), stack('iron_ingot', 2)], stock: { [kOf(FAR)]: [stack('raw_iron', 8), stack('coal', 4)] } })
   const fb = w.bot.findBlock
@@ -146,6 +167,8 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
   kills.noAdopt = await withMutant(SKILLS_PATH, 'signal, w) } finally { adopt() }', 'signal, w); adopt() } finally { }', S => killedBy(() => abortMidWithdraw(S)))
   kills.fedUncapped = await withMutant(SKILLS_PATH, 'f.n = IN === SMELT_IRON_INPUT ? ironSmeltCount({ withdrawn: f.withdrawn, raw0, rawNow: have }) : Math.min(SMELT_JOB_BATCH, have)',
     'f.n = IN === SMELT_IRON_INPUT ? Math.min(SMELT_JOB_BATCH, have) : Math.min(SMELT_JOB_BATCH, have)', S => killedBy(() => ironShort(S)))
+  kills.abortSwallowed = await withMutant(SKILLS_PATH, "catch (e2) { if (e2?.aborted || signal?.aborted) { f.stop = 'interrupted'; throw e2 } /* else: the read counts town iron left in bags */ }",
+    'catch (e2) { /* swallowed */ }', S => killedBy(() => abortInErrorBank(S)))
   kills.noErrorBank = await withMutant(SKILLS_PATH, "      try { await bankCopper() } catch (e2) { if (e2?.aborted || signal?.aborted) { f.stop = 'interrupted'; throw e2 } /* else: the read counts town iron left in bags */ }\n",
     '', S => killedBy(() => errorAfterTake(S)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
