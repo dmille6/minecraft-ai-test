@@ -31,8 +31,10 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 | raw_gold, lapis, redstone, quartz, amethyst, emerald, diamond, obsidian | 8, 2, 2, 1, 1, 16, 32, 2 | Rare; none moves a day's total today. |
 | saplings | 0.5 | Tree-farm input. |
 | bamboo | 0.05 | 9 bamboo → 1 block → 2 planks = 0.5 log. |
-| dirt, sand, gravel, the stone junk (andesite, diorite, granite, tuff, calcite, deepslate, dripstone), the owner's well junk, flowers, food | 0 | The project's own policy gives them no use (`stocktarget.mjs` targets 0, `well.mjs` WELL_JUNK). They are listed, so they are not counted as unweighted. |
-| any item in no table | **unweighted** | Counted and printed by name, never a quiet 0. Over 10 % of intake units raises. |
+| dirt, sand, gravel, the stone junk (andesite, diorite, granite, tuff, calcite, deepslate, dripstone), the owner's well junk and decorations (WELL_JUNK, including rail, lead, wool, glass, fences, polished stone) | 0 | The project's own policy gives these no use: `stocktarget.mjs` town targets 0 and `well.mjs` WELL_JUNK. |
+| flowers, food, compost inputs | 0 | A **scoring choice**, not a junk rule. The code protects them, but the worlds are peaceful (foodskip), and compost is not output. |
+| crafted products (planks, sticks, tools, ingots, stations, bricks, slabs and similar; explicit suffixes, with no `_block` catch-all) | 0 | Made, not found. |
+| any item in no table | **unweighted** | Counted and printed by name, never a quiet 0. Over 10 % of intake units raises. A renamed raw item such as `raw_iron_block` lands here and is not zeroed. |
 
 **Why frozen.** A weight that tracked current effort would rise as the world depletes, and that would hide the depletion. Bot-minutes per unit is shown as evidence for the relative sizes, not as the weight.
 
@@ -52,7 +54,8 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 
 `ValueBlind` is raised when:
 - an intake kind falls below its document floor for the window. Floors are per 24 h, scaled by window length: gather 5,000, mine 1,500, explore 3,000, goto 3,000, surface 100, home 50. Measured 10-08..10-22: gather 27-42k a day, home 0.3-0.9k. A similarly named kind is named in the message;
-- gather or mine rows stop carrying `skill.inventory_delta` (under 10 %; BASE about 57 % and 67 %);
+- any intake kind's rows stop carrying `skill.inventory_delta`. The floors are 10 % for gather and mine, and 5 % for explore, goto, surface and home. The shares measured were 57/67/26/22/40/38 % on 10-09 and 58/74/24/21/52/50 % on 10-22;
+- the window has an empty whole hour, or more than 2 empty 10-minute bins. ES caveats, including ingest lag on a window ending now, are printed with the result;
 - the window is empty, the weighted total is 0, or unweighted units exceed 10 %.
 
 **Positive controls printed on every run:**
@@ -60,11 +63,19 @@ OWNER 10-23 "yes to all" on the production report's follow-ups (production-break
 - per-kind document counts and their inventory_delta counts;
 - the number of streamed rows. It must equal the per-kind sum, and `EsEvents.rows` raises otherwise.
 
+**Per-world values** divide by that world's own active bot-hours ((bot, hour) pairs with at least one document), not by a fleet share.
+
 **The old counts** (gather ok/bot-h, mine ok, craft ok, town_deposit ok/all) print alongside until `OLD_COUNTS_UNTIL = 2026-10-31`; after that only with `--old`. They reproduce the owner's 10-09 and 10-22 figures exactly (7.15 and 6.37; 8,243 and 5,508; 885 and 478; 413/841 and 165/211).
 
-**Tests** (`python3 scripts/host/test_valuescore.py`): 36 behaviour cases and 8 source mutants. Every mutant is killed, and every anchor is checked unique.
-- **The blind-input mutant:** renaming `gather` to `gathering` must raise. It also must when a kind thins to 100 documents a day, or when gather rows lose inventory_delta.
-- **Wiring:** `measure()` must call both guards and stream every intake kind.
+**Tests** (`python3 scripts/host/test_valuescore.py`): 54 behaviour cases and 12 source mutants. Every mutant is killed, and every anchor is checked unique.
+- **The blind-input mutant:** renaming `gather` to `gathering` must raise. So must a kind thinning to 100 documents a day, any intake kind losing inventory_delta, a renamed raw item, or a coverage gap.
+- **Wiring:** `measure()` must call all three guards and stream every intake kind.
+- **The installer** has its own test, `scripts/host/test_install_valuescore.sh`, run on 10.0.0.31. It uses a throwaway HOME and a fake `crontab`, so the real ones are never touched, and all 18 checks pass. It covers:
+  - dry run changes nothing;
+  - --apply installs and adds exactly one line, keeping the others;
+  - re-apply refuses and changes nothing;
+  - --rollback restores scoreboard.py, removes only its own exact cron line, and keeps a look-alike comment;
+  - a --apply that fails after installing restores files and crontab.
 
 ## 4. Install (staged; the coordinator runs it)
 
@@ -76,11 +87,21 @@ bash scripts/host/install-valuescore.sh --rollback  # restores scoreboard.py, re
 ```
 
 - **The cron line:** 00:50Z daily, nice 19. It writes `~/digest/valuescore/<day>.json` and appends to `~/digest/valuescore.log`; its marker is `# valuescore-1023`.
-- **The dry run passed on 10.0.0.31 at 21:24Z:** 36/36 cases, 8/8 mutants, estelemetry md5 c3444ffe = repo, installed scoreboard md5 a27acb0e as expected, and the smoke run for 10-22 succeeded. Nothing was changed.
+- **The dry run passed on 10.0.0.31:** all cases and mutants, estelemetry md5 c3444ffe = repo, installed scoreboard md5 a27acb0e as expected, and the smoke run succeeded. Nothing was changed, and the real crontab has no valuescore line.
 - **What --apply refuses to do:** overwrite a scoreboard.py that differs from the one this branch was written against, or install against a stale `~/estel` copy.
+- **How --apply records its work:** it writes a state file with every backup path, whether each companion file existed, and the crontab backup. Any failure after the files are installed restores all of it.
+- **What --rollback undoes:** exactly what that state file recorded, removing the one exact cron line.
 
 **Not done (owner's choice later):** a fleetstatus header line and a goalboard field. goalboard has its own documented row families, and adding there needs its own review.
 
 ## 5. Reviews
 
-(See the end of this file.)
+**r1** (254f7f3a), Codex CHANGE: 6 P2s and 2 P3s.
+- **Delta floors** now cover every intake kind.
+- **Coverage gaps** are rejected, and caveats are printed.
+- **The `_block` product catch-all** is removed.
+- **Per-world values** use per-world bot-hours.
+- **The installer** keeps a state file, restores on any failure, rolls back exactly, matches cron lines exactly and handles an absent crontab. It now has its own test.
+- **The zero-weight wording** is corrected, and rail, lead and the decorations are added.
+
+**r2:** pending.

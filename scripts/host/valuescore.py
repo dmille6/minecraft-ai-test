@@ -69,7 +69,10 @@ PATTERNS = [
     (re.compile(r'(_log|_wood|_stem|_hyphae)$'), 1.0),        # every log species (WOOD IS WOOD, milestones.mjs)
     (re.compile(r'(_sapling|_propagule)$'), 0.5),             # the tree farm's input (treefarm, the planting obligation)
 ]
-# Weighted 0 ON PURPOSE (listed, so they are not "unweighted"): the project's own policy gives them no use.
+# Weighted 0 ON PURPOSE (listed, so they are not "unweighted"). These are SCORING CHOICES, grounded where the project has a
+# policy: stocktarget.mjs town targets 0 (dirt, sand, gravel, deepslate, tuff, calcite, sandstone), well.mjs WELL_JUNK (the
+# owner's 10-04 junk list, DECORATIONS, the stone junk). Food and compost inputs are NOT junk in the code (stocktarget PROTECTED,
+# the composter takes plants): they weigh 0 here because the worlds are peaceful (foodskip) and compost is not output.
 ZERO = set('''dirt grass_block coarse_dirt rooted_dirt podzol mud sand red_sand gravel clay_ball clay flint
 andesite diorite granite tuff calcite deepslate dripstone_block pointed_dripstone smooth_basalt basalt sandstone red_sandstone
 leaf_litter short_grass tall_grass fern large_fern dead_bush seagrass vine kelp dried_kelp wildflowers dandelion poppy
@@ -78,17 +81,23 @@ sunflower lilac rose_bush peony pink_petals moss_block moss_carpet glow_lichen s
 egg brown_egg blue_egg ink_sac glow_ink_sac feather string bone rotten_flesh gunpowder spider_eye leather white_wool
 wheat_seeds pumpkin_seeds melon_seeds beetroot_seeds wheat apple melon_slice carrot potato beetroot cocoa_beans
 brown_mushroom red_mushroom sugar_cane cactus snowball ice packed_ice salmon cod tropical_fish pufferfish
-cooked_mutton cooked_beef cooked_porkchop cooked_chicken mutton beef porkchop chicken rabbit bread bone_meal'''.split())
+cooked_mutton cooked_beef cooked_porkchop cooked_chicken mutton beef porkchop chicken rabbit bread bone_meal
+armadillo_scute rail powered_rail detector_rail activator_rail lead glass glass_pane mossy_cobblestone azalea flowering_azalea
+firefly_bush bush cactus_flower'''.split())
+ZERO_PATTERNS = re.compile(r'(_wool|_stained_glass|_stained_glass_pane|_button|_pressure_plate|_fence|_carpet)$|^polished_')
 # Crafted or smelted PRODUCTS: weighted 0 as intake (made from inputs already counted; a picked-up product is not new).
+# No catch-all suffix like '_block': a renamed raw item must surface as UNWEIGHTED, never be zeroed (Codex r1 P2-3).
 PRODUCT = re.compile(r'(_planks$|^stick$|_pickaxe$|_axe$|_shovel$|_hoe$|_sword$|_ingot$|_nugget$|^crafting_table$|^furnace$'
                      r'|^chest$|^barrel$|^torch$|^ladder$|_slab$|_stairs$|_trapdoor$|_door$|^bucket$|_bucket$|^composter$|_bed$'
-                     r'|_block$|^glass$|^bowl$|^paper$|^book$)')
+                     r'|^bowl$|^paper$|^book$|^bricks?$|^stone_bricks$|^smooth_stone$|_bricks$)')
 
 INTAKE_KINDS = ('gather', 'mine', 'explore', 'goto', 'surface', 'home')
 # A kind with fewer documents than this per 24 h has been renamed or has vanished (measured 10-08..10-22: gather 27-42k/day,
 # mine 7.7-12k, explore 15-23k, goto 16-23k, surface 0.8-1.6k, home 0.3-0.9k). Scaled by the window's length.
 MIN_DOCS_PER_DAY = {'gather': 5000, 'mine': 1500, 'explore': 3000, 'goto': 3000, 'surface': 100, 'home': 50}
-MIN_DELTA_SHARE = {'gather': 0.10, 'mine': 0.10}   # rows carrying inventory_delta (BASE: about 56 % and 65 %)
+# rows carrying inventory_delta, every intake kind (BASE 10-09: gather 57 %, mine 67 %, explore 26 %, goto 22 %,
+# surface 40 %, home 38 %; 10-22: 58, 74, 24, 21, 52, 50 %): a floor well under each, so a renamed field raises
+MIN_DELTA_SHARE = {'gather': 0.10, 'mine': 0.10, 'explore': 0.05, 'goto': 0.05, 'surface': 0.05, 'home': 0.05}
 MAX_UNWEIGHTED_SHARE = 0.10
 CLASSES = (('wood', re.compile(r'(_log|_wood|_stem|_hyphae)$|^bamboo$')), ('stone', re.compile(r'^(cobblestone|cobbled_deepslate|stone|blackstone)$')),
            ('iron', re.compile(r'iron')), ('copper', re.compile(r'copper')), ('coal', re.compile(r'coal|charcoal')),
@@ -107,7 +116,7 @@ def weight(item):
     for rx, w in PATTERNS:
         if rx.search(item):
             return w
-    if item in ZERO or PRODUCT.search(item):
+    if item in ZERO or ZERO_PATTERNS.search(item) or PRODUCT.search(item):
         return 0.0
     return None
 
@@ -129,8 +138,8 @@ def check_inputs(kind_docs, delta_docs, hours):
             near = [x for x in kind_docs if x != k and (k in x or x in k)]
             problems.append(f'intake kind {k!r} has {n} docs in {hours:g} h (floor {floor:.0f})'
                             + (f'; similar names present: {near}' if near else '') + ' -- renamed or vanished?')
-        share = MIN_DELTA_SHARE.get(k)
-        if share is not None and n and delta_docs.get(k, 0) / n < share:
+        share = MIN_DELTA_SHARE[k]
+        if n and delta_docs.get(k, 0) / n < share:
             problems.append(f'{k!r}: only {delta_docs.get(k, 0)} of {n} rows carry skill.inventory_delta (< {share:.0%})'
                             f' -- field renamed?')
     if problems:
@@ -172,6 +181,18 @@ def check_output(res):
     if uw > MAX_UNWEIGHTED_SHARE * res['units']:
         raise ValueBlind(f'{uw} of {res["units"]} intake units are UNWEIGHTED (> {MAX_UNWEIGHTED_SHARE:.0%}): '
                          f'{Counter(res["unweighted"]).most_common(8)} -- add them to WEIGHTS or ZERO')
+
+
+MAX_EMPTY_10MIN = 2      # whole 10-minute bins with NO document from any bot; a stall longer than that is not a day to score
+
+
+def check_coverage(cov):
+    """Raise ValueBlind on a materially incomplete window: an empty whole hour, or more than MAX_EMPTY_10MIN empty
+    10-minute bins (EsEvents.coverage reports both; the count floors alone would pass a day with a 6-hour ingest stall)."""
+    if cov.get('empty_hours'):
+        raise ValueBlind(f'window has empty whole hours (no document from any bot): {cov["empty_hours"][:6]}')
+    if len(cov.get('empty_10min') or []) > MAX_EMPTY_10MIN:
+        raise ValueBlind(f'{len(cov["empty_10min"])} empty 10-minute bins (> {MAX_EMPTY_10MIN}): {cov["empty_10min"][:6]}')
 
 
 def world_of(pool):
@@ -217,10 +238,23 @@ def measure(since, until, old=None):
     res = score(rows_by_kind)
     check_output(res)
     cov = ev.coverage()
+    check_coverage(cov)
+    # per-world ACTIVE bot-hours: (bot, hour) pairs with >= 1 document, by world (Codex r1 P2-4)
+    r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'h': {
+        'date_histogram': {'field': '@timestamp', 'fixed_interval': '1h', 'min_doc_count': 1},
+        'aggs': {'p': {'terms': {'field': 'exp.pool', 'size': 500}, 'aggs': {'b': {'cardinality': {'field': 'bot.name'}}}}}}}})
+    wbh = Counter()
+    for hb in r['aggregations']['h']['buckets']:
+        lo = max(dt.datetime.fromisoformat(hb['key_as_string'].replace('Z', '+00:00')), ev.since)
+        hi = min(dt.datetime.fromisoformat(hb['key_as_string'].replace('Z', '+00:00')) + dt.timedelta(hours=1), ev.until)
+        frac = max(0.0, (hi - lo).total_seconds() / 3600)
+        for pb in ev._complete(hb['p'], 'pool terms')['buckets']:
+            wbh[world_of(pb['key'])] += pb['b']['value'] * frac
+    res['world_bot_hours'] = dict(wbh)
     res.update({'window': [ev.since.isoformat(), ev.until.isoformat()], 'hours': hours, 'docs': total,
                 'bot_hours': cov['bot_hours'], 'kind_docs': {k: names.get(k, 0) for k in INTAKE_KINDS},
                 'kind_delta_docs': {k: delta_docs.get(k, 0) for k in INTAKE_KINDS}, 'weights_version': WEIGHTS_VERSION,
-                'caveats': ev.caveats})
+                'caveats': ev.caveats, 'empty_10min': cov['empty_10min'], 'newest': str(cov['newest'])})
     res['value_per_bot_h'] = res['value'] / cov['bot_hours'] if cov['bot_hours'] else None
     show_old = old if old is not None else ev.until.date().isoformat() <= OLD_COUNTS_UNTIL
     if show_old:
@@ -239,12 +273,14 @@ def render(res):
            f'{res["units"]:,} intake units; {res["zero_units"]:,} of them weigh 0 by policy (dirt, sand, junk, products)',
            '  by class: ' + ', '.join(f'{k} {v:,.0f}' for k, v in sorted(res['by_class'].items(), key=lambda x: -x[1])),
            '  top items: ' + ', '.join(f'{k} {v:,.0f}' for k, v in Counter(res['by_item']).most_common(6)),
-           '  per world (value/bot-h at 5 bots): ' + ', '.join(f'{w} {v / (bh / 16) if bh else 0:.1f}'
-                                                              for w, v in sorted(res['by_world'].items())),
+           '  per world (value per ACTIVE bot-h of that world): ' + ', '.join(
+               f'{w} {res["by_world"].get(w, 0) / h:.1f}' if h else f'{w} n/a' for w, h in sorted(res['world_bot_hours'].items())),
            f'  unweighted units {sum(res["unweighted"].values()):,}' + (f': {Counter(res["unweighted"]).most_common(5)}'
                                                                       if res['unweighted'] else ''),
            '  positive controls: window docs {:,}; intake kind docs {}; rows with inventory_delta {}; streamed rows {:,}'.format(
                res['docs'], res['kind_docs'], res['kind_delta_docs'], res['rows'])]
+    for c in res.get('caveats') or []:
+        out.append('  caveat: ' + c)
     if res.get('old'):
         o = res['old']
         out.append(f'  OLD COUNTS (side by side until {OLD_COUNTS_UNTIL}): gather ok {o["gather_ok"]:,} '

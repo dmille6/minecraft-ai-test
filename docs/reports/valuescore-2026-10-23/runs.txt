@@ -1,19 +1,22 @@
 VALUE-WEIGHTED INTAKE (v1-2026-10-23; unit = one log)  window 2026-10-09T00:00Z -> 2026-10-10T00:00Z (24 h)
-  value 28,706 = 14.95 per active bot-h (of 1,920.0 bot-h)  from 102,077 intake units; 40,508 of them weigh 0 by policy (dirt, sand, junk, products)
+  value 28,706 = 14.95 per active bot-h (of 1,920.0 bot-h)  from 102,077 intake units; 40,518 of them weigh 0 by policy (dirt, sand, junk, products)
   by class: wood 12,668, stone 11,310, iron 2,584, saplings 985, copper 902, coal 211, gems 46
   top items: oak_log 12,089, cobblestone 11,218, raw_iron 2,584, oak_sapling 947, raw_copper 902, spruce_log 324
-  per world (value/bot-h at 5 bots): board-a 12.8, board-b 23.9, board-c 16.9, board-d 14.6, hive-a 15.9, hive-b 9.0, hive-c 22.5, hive-d 9.0, isolated-a 16.9, isolated-b 19.2, isolated-c 13.1, isolated-d 13.2, placebo-a 15.9, placebo-b 16.7, placebo-c 7.4, placebo-d 12.2
-  unweighted units 12: [('rail', 5), ('azalea', 3), ('stone_bricks', 2), ('flowering_azalea', 1), ('lead', 1)]
+  per world (value per ACTIVE bot-h of that world): board-a 12.8, board-b 23.9, board-c 16.9, board-d 14.6, hive-a 15.9, hive-b 9.0, hive-c 22.5, hive-d 9.0, isolated-a 16.9, isolated-b 19.2, isolated-c 13.1, isolated-d 13.2, placebo-a 15.9, placebo-b 16.7, placebo-c 7.4, placebo-d 12.2
+  unweighted units 2: [('magma_block', 2)]
   positive controls: window docs 1,270,309; intake kind docs {'gather': 32255, 'mine': 12049, 'explore': 15179, 'goto': 16573, 'surface': 879, 'home': 320}; rows with inventory_delta {'gather': 18253, 'mine': 8079, 'explore': 3907, 'goto': 3716, 'surface': 355, 'home': 120}; streamed rows 77,255
+  caveat: window crosses 2 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).
   OLD COUNTS (side by side until 2026-10-31): gather ok 13,731 (7.15/bot-h), mine ok 8,243, craft ok 885, town_deposit 413/841
 
 VALUE-WEIGHTED INTAKE (v1-2026-10-23; unit = one log)  window 2026-10-22T00:00Z -> 2026-10-23T00:00Z (24 h)
-  value 17,371 = 9.05 per active bot-h (of 1,920.0 bot-h)  from 99,017 intake units; 55,698 of them weigh 0 by policy (dirt, sand, junk, products)
+  value 17,371 = 9.05 per active bot-h (of 1,920.0 bot-h)  from 99,017 intake units; 55,701 of them weigh 0 by policy (dirt, sand, junk, products)
   by class: stone 9,845, iron 4,096, wood 1,645, copper 1,094, coal 297, gems 262, saplings 132
   top items: cobblestone 8,880, raw_iron 4,096, oak_log 1,562, raw_copper 1,094, cobbled_deepslate 965, coal 297
-  per world (value/bot-h at 5 bots): board-a 10.2, board-b 7.7, board-c 10.3, board-d 3.7, hive-a 12.3, hive-b 6.9, hive-c 11.8, hive-d 6.2, isolated-a 10.2, isolated-b 14.3, isolated-c 9.6, isolated-d 10.1, placebo-a 9.5, placebo-b 6.5, placebo-c 8.5, placebo-d 7.1
-  unweighted units 8: [('firefly_bush', 2), ('lead', 2), ('oak_fence', 2), ('rail', 1), ('azalea', 1)]
+  per world (value per ACTIVE bot-h of that world): board-a 10.2, board-b 7.7, board-c 10.3, board-d 3.7, hive-a 12.3, hive-b 6.9, hive-c 11.8, hive-d 6.2, isolated-a 10.2, isolated-b 14.3, isolated-c 9.6, isolated-d 10.1, placebo-a 9.5, placebo-b 6.5, placebo-c 8.5, placebo-d 7.1
+  unweighted units 5: [('amethyst_block', 4), ('magma_block', 1)]
   positive controls: window docs 1,537,816; intake kind docs {'gather': 27587, 'mine': 7702, 'explore': 20998, 'goto': 21406, 'surface': 1034, 'home': 539}; rows with inventory_delta {'gather': 16080, 'mine': 5693, 'explore': 5023, 'goto': 4447, 'surface': 538, 'home': 272}; streamed rows 79,266
+  caveat: after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).
+  caveat: window crosses 2 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).
   OLD COUNTS (side by side until 2026-10-31): gather ok 12,222 (6.37/bot-h), mine ok 5,508, craft ok 478, town_deposit 165/211
 
 scenario                      day A /bot-h  day B /bot-h   change

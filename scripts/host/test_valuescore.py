@@ -12,7 +12,7 @@ import importlib.util, os, re, sys, tempfile
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'valuescore.py')
 FULL = {'gather': 30000, 'mine': 8000, 'explore': 20000, 'goto': 20000, 'surface': 1000, 'home': 500, 'craft': 900}
-DELTA = {'gather': 15000, 'mine': 5000, 'explore': 500, 'goto': 9000, 'surface': 300, 'home': 100}
+DELTA = {'gather': 17000, 'mine': 5400, 'explore': 5000, 'goto': 4400, 'surface': 400, 'home': 190}   # 10-22-like shares
 
 
 def load(text=None):
@@ -67,6 +67,20 @@ def cases(v):
              v.ValueBlind) is False)
     nodelta = dict(DELTA); nodelta['gather'] = 0
     c('blind: inventory_delta renamed (gather rows carry none) raises', raises(lambda: v.check_inputs(FULL, nodelta, 24), v.ValueBlind))
+    for k in ('explore', 'goto', 'surface', 'home'):
+        nd = dict(DELTA); nd[k] = 0
+        c(f'blind: {k} rows lose inventory_delta -> raises', raises(lambda: v.check_inputs(FULL, nd, 24), v.ValueBlind))
+    # a renamed RAW item must surface as unweighted, never be zeroed by a suffix rule (Codex r1 P2-3)
+    for item in ('raw_iron_block', 'iron_raw', 'coal_block'):
+        c(f'weight {item} = None (unweighted)', v.weight(item) is None, v.weight(item))
+    for item in ('white_wool', 'rail', 'lead', 'oak_fence', 'polished_andesite', 'stone_bricks'):
+        c(f'weight {item} = 0 (listed junk/product)', v.weight(item) == 0.0, v.weight(item))
+    # coverage: an empty hour or > 2 empty 10-minute bins is not a day to score
+    c('coverage: a whole day with no gaps passes', raises(lambda: v.check_coverage({'empty_hours': [], 'empty_10min': []}), v.ValueBlind) is False)
+    c('coverage: an empty hour raises', raises(lambda: v.check_coverage({'empty_hours': ['2026-10-22T03'], 'empty_10min': []}), v.ValueBlind))
+    c('coverage: 3 empty 10-min bins raise',
+      raises(lambda: v.check_coverage({'empty_hours': [], 'empty_10min': ['a', 'b', 'c']}), v.ValueBlind))
+    c('coverage: 2 empty 10-min bins pass', raises(lambda: v.check_coverage({'empty_hours': [], 'empty_10min': ['a', 'b']}), v.ValueBlind) is False)
     # outputs
     c('output: zero rows raises', raises(lambda: v.check_output(v.score({})), v.ValueBlind))
     c('output: all-dirt day (value 0) raises', raises(lambda: v.check_output(v.score({'gather': [{'delta': {'dirt': 50}}]})), v.ValueBlind))
@@ -86,18 +100,23 @@ def wiring(src):
     body = strip_comments(src).split('def measure(', 1)[1].split('\ndef ', 1)[0]
     return [('wired: measure calls check_inputs', 'check_inputs(names, delta_docs, hours)' in body),
             ('wired: measure calls check_output', 'check_output(res)' in body),
+            ('wired: measure calls check_coverage', 'check_coverage(cov)' in body),
             ('wired: measure streams every INTAKE kind', 'for k in INTAKE_KINDS:' in body)]
 
 
 MUTANTS = [
     ("        if n < floor:", "        if n < 0:"),                                     # the vanished/renamed-kind guard
-    ("        if share is not None and n and delta_docs.get(k, 0) / n < share:", "        if False:"),
+    ("        if n and delta_docs.get(k, 0) / n < share:", "        if False:"),
+    ("    if cov.get('empty_hours'):", "    if False:"),
+    ("    if len(cov.get('empty_10min') or []) > MAX_EMPTY_10MIN:", "    if False:"),
+    ("    if item in ZERO or ZERO_PATTERNS.search(item) or PRODUCT.search(item):", "    if item in ZERO or PRODUCT.search(item):"),
+    ("    check_coverage(cov)", "    pass"),
     ("    if res['value'] <= 0:", "    if res['value'] < 0:"),
     ("    if uw > MAX_UNWEIGHTED_SHARE * res['units']:", "    if False:"),
     ("    'raw_iron': 8.0,", "    'raw_iron': 0.0,"),
     ("                if w is None:\n                    unweighted[item] += n\n                    continue",
      "                if w is None:\n                    w = 0.0"),
-    ("    if item in ZERO or PRODUCT.search(item):", "    if PRODUCT.search(item):"),
+    ("|^bowl$|^paper$|^book$|^bricks?$|^stone_bricks$|^smooth_stone$|_bricks$)')", "|^bowl$|^paper$|^book$|_block$)')"),
     ("    check_inputs(names, delta_docs, hours)", "    pass"),
 ]
 
