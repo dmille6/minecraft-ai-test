@@ -223,9 +223,13 @@ export function aimScores (at, origin) {
 
 /**
  * THE BEST BEARING (O1). A bearing with full support and no collision, fewest DANGER cells; else (none has both) the
- * collision-free first, then the most supported cells, then the fewest DANGER, then the fewest collisions. Ties go to the
- * bearing FARTHEST from the facing (the bot was walking toward the hazard; the way it came is the cells it just stood
- * on), then clockwise. -> { index, b, key }. `aimKey` is what G5 recomputes; any bearing with the best key passes G5.
+ * collision-free first, then the most supported cells, then the fewest DANGER, then the fewest collisions.
+ * TIES (the design leaves them open): a CARDINAL bearing before a diagonal -- six diagonal cells are 8.5 blocks of travel
+ * against 6, so an equal count of lava cells is 41% more time in lava, and a diagonal sprint clips block corners. Paper
+ * 10-23 (sandbox, 1-wide ledge between two lava lakes, no cobble): S, SE and SW tied (3 supported, 3 lava) and the earlier
+ * tie-break took a diagonal: 4 of 13 survived against the blind facing sprint's 15 of 20. Then the bearing FARTHEST from
+ * the facing (the bot was walking toward the hazard), then clockwise. -> { index, b, key }. `aimKey` is what G5
+ * recomputes; any bearing with the best key passes G5.
  */
 export function aimKey (s) {
   const full = s.support === AIM_CELLS && s.collision === 0
@@ -235,10 +239,12 @@ const cmpKey = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i])
 export function chooseBearing (scores, yaw0 = 0) {
   const f = facingIndex(yaw0)
   const turn = i => { const d = Math.abs(i - f) % 8; return Math.min(d, 8 - d) }
+  const diag = i => (i % 2 === 1 ? 1 : 0)            // BEARINGS alternate cardinal (even) and diagonal (odd)
+  const tie = (i, j) => diag(i) !== diag(j) ? diag(i) - diag(j) : turn(j) - turn(i)   // < 0: i before j
   let best = null
   scores.forEach((s, i) => {
     const k = aimKey(s)
-    if (!best || cmpKey(k, best.key) < 0 || (cmpKey(k, best.key) === 0 && turn(i) > turn(best.index))) best = { index: i, b: s.b, key: k }
+    if (!best || cmpKey(k, best.key) < 0 || (cmpKey(k, best.key) === 0 && tie(i, best.index) < 0)) best = { index: i, b: s.b, key: k }
   })
   return best
 }

@@ -245,6 +245,15 @@ def obs_of(a, which):
     return Obs(aim['origin'], aim.get('cells'), aim.get('boxes')) if aim.get('cells') is not None else None
 
 
+def seal_target(dec, cell):
+    """The seal target in the decision observation -> 'ok' | 'unverifiable' (never read) | the bad name. Presence by KEY: an
+    earlier replay may already have missed the cell, so the missing-set size proves nothing (Codex code r5 P2-2)."""
+    if not dec.has(*cell):
+        return 'unverifiable'
+    tgt = dec.at(*cell)
+    return 'ok' if (tgt is not None and tgt[0] in REPLACEABLE) else str(None if tgt is None else tgt[0])
+
+
 def gates(a):
     """One `_lava_retreat` firing row's args -> {g1..g5: [reasons], replay: 'agree'|'disagree'|None, missing: n}. Pure."""
     v = {'g1': [], 'g2': [], 'g3': [], 'g4': [], 'g5': [], 'replay': None, 'missing': 0}
@@ -325,13 +334,18 @@ def gates(a):
         else:
             ob3 = Obs(mo['origin'], mo['cells'], mo.get('boxes'))
             o3 = tuple(mo['origin'])
-            if not ob3.has(*o3) or not ob3.has(o3[0], o3[1] - 1, o3[2]):
-                if v['replay'] in ('agree', None):
-                    v['replay'] = 'unverifiable'
-            else:
-                f3, b3 = ob3.at(*o3), ob3.at(o3[0], o3[1] - 1, o3[2])
-                if (f3 is not None and f3[0] in DANGER) or (b3 is not None and b3[0] in DANGER):
-                    v['g2'].append('plan_missed_safe while its own observation shows DANGER at the feet or below (the skipped aim was owed)')
+            # each of the two cells on its own: a present one is judged, a missing one is unverifiable (Codex code r6 P2)
+            for c3 in (o3, (o3[0], o3[1] - 1, o3[2])):
+                if not ob3.has(*c3):
+                    if v['replay'] in ('agree', None):
+                        v['replay'] = 'unverifiable'
+                    continue
+                b3 = ob3.at(*c3)
+                rl = mo.get('relax') or {}
+                if rl.get('cell') and tuple(rl['cell']) == c3 and b3 is not None and b3[0] == rl.get('name'):
+                    continue                      # the relaxed (cell, name): non-DANGER to the bot by design
+                if b3 is not None and b3[0] in DANGER:
+                    v['g2'].append('plan_missed_safe while its own observation shows %s at %s (the skipped aim was owed)' % (b3[0], c3))
     # G2: an aim while a plan existed
     aim = a.get('aim')
     if aim:
@@ -375,13 +389,12 @@ def gates(a):
         if s.get('item') not in (a.get('items') or []):
             v['g4'].append('seal item %s not among the items the decision saw %s' % (s.get('item'), a.get('items')))
         if dec is not None:
-            if not dec.has(*s['cell']):
+            st4 = seal_target(dec, s['cell'])
+            if st4 == 'unverifiable':
                 if v['replay'] in ('agree', None):
                     v['replay'] = 'unverifiable'
-            else:
-                tgt = dec.at(*s['cell'])
-                if tgt is None or tgt[0] not in REPLACEABLE:
-                    v['g4'].append('seal aimed at %s' % (None if tgt is None else tgt[0]))
+            elif st4 != 'ok':
+                v['g4'].append('seal aimed at %s' % st4)
         if s.get('witnessed') and (s.get('update') or {}).get('name') != s.get('item'):
             v['g4'].append('claimed witnessed without an update of %s' % s.get('item'))
         if s.get('witnessed') is False and (a.get('replan') is not None or a.get('reclass') is not None
@@ -644,8 +657,11 @@ def selftest():
     assert gates(nf)['g1'], 'a recorded unknown floor + missing head'
     # ...and a missing seal target is unverifiable even when the decision replay already missed it
     g4k = copy.deepcopy(s); del g4k['cells']['0,-1,0']; g4k['plan'] = None
-    Obs(g4k['origin'], g4k['cells'], g4k['boxes']).at(1, 63, 0)   # (the earlier replay's miss is per-Obs; the key test is what matters)
     v4k = gates(g4k); assert not v4k['g4'] and v4k['replay'] == 'unverifiable', ('G4 key', v4k['g4'], v4k['replay'])
+    # the case a size test gets wrong: the observation's replay has ALREADY missed the target before G4 asks
+    pre_missed = Obs(g4k['origin'], g4k['cells'], g4k['boxes']); pre_missed.at(1, 63, 0)
+    assert seal_target(pre_missed, [1, 63, 0]) == 'unverifiable', 'presence by key, whatever the replay read before'
+    assert seal_target(Obs(s['origin'], s['cells'], s['boxes']), [1, 63, 0]) == 'ok'
     pre = {'phase': 'firing', 'case': 'edge', 'ended': 'air', 'origin': [0, 64, 0], 'steps': [], 'controls': []}
     assert gates(pre)['replay'] is None, 'a firing preempted during setup is not a replay comparison'
     assert gates(dict(pre, error='boom'))['replay'] == 'unverifiable', 'a decision that threw stays in the denominator'
@@ -655,6 +671,11 @@ def selftest():
     assert not gates(ms)['g2'], gates(ms)['g2']
     ms2 = copy.deepcopy(ms); ms2['missObs']['cells']['0,-1,0'] = 'lava'
     assert gates(ms2)['g2'], 'a false safe claim is caught'
+    ms3 = copy.deepcopy(ms2); del ms3['missObs']['cells']['0,0,0']
+    v3 = gates(ms3); assert v3['g2'] and v3['replay'] == 'unverifiable', ('a missing feet cell never hides recorded lava below', v3)
+    # a relaxed magma cell under a `plan_missed_safe` verdict is the bot's design, not a defect (Claude code r6 P3-3)
+    rx = copy.deepcopy(ms); rx['missObs']['cells']['0,-1,0'] = 'magma_block'; rx['missObs']['relax'] = {'cell': [-1, 63, 0], 'name': 'magma_block'}
+    assert not gates(rx)['g2'], gates(rx)['g2']
     # G5: the facing bearing (east, into the pool) executed
     g5 = copy.deepcopy(p); g5['aim']['yaw'] = round(yaw_of(BEARINGS[2]), 2)
     assert gates(g5)['g5'], 'G5 yaw'

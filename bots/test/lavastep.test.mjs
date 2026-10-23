@@ -208,17 +208,25 @@ await t('C2 aim: facing the pool, the chosen bearing is the fully supported one 
   assert.notEqual(ch.index, facingIndex(s.yaw))
   assert.equal(sc[ch.index].support, AIM_CELLS); assert.equal(sc[ch.index].collision, 0)
 })
-await t('C3 aim ordering: full support beats partial; with none full, collision-free first, then most support, then fewest DANGER; ties go AWAY from the facing', () => {
+await t('C3 aim ordering: full support beats partial; with none full, collision-free first, then most support, then fewest DANGER; ties go to a CARDINAL bearing, then away from the facing', () => {
   const mk = (support, collision, danger) => ({ b: [0, 0], support, collision, danger })
   const sc = [mk(3, 0, 2), mk(6, 0, 1), mk(6, 0, 0), mk(5, 1, 0), mk(0, 6, 0), mk(6, 1, 0), mk(2, 0, 0), mk(6, 0, 0)]
   sc.forEach((s, i) => { s.b = BEARINGS[i] })
-  assert.equal(chooseBearing(sc, yawOf(BEARINGS[7])).index, 2, 'tie between 2 and 7, facing 7: the farther one (2) wins')
-  assert.equal(chooseBearing(sc, yawOf(BEARINGS[2])).index, 7, 'facing 2: 7 wins')
-  assert.equal(chooseBearing(sc, yawOf(BEARINGS[4])).index, 7, 'facing 4: 2 and 7 are 2 and 3 turns away -> 7')
+  assert.equal(chooseBearing(sc, yawOf(BEARINGS[7])).index, 2, 'tie between 2 (cardinal) and 7 (diagonal): the cardinal')
+  assert.equal(chooseBearing(sc, yawOf(BEARINGS[2])).index, 2, 'facing 2: still the cardinal, never the diagonal')
+  const cards = BEARINGS.map(b => ({ b, support: 6, collision: 0, danger: 0 }))
+  assert.equal(chooseBearing(cards, yawOf(BEARINGS[2])).index, 6, 'all tied: the cardinal farthest from the facing')
   const none = [mk(3, 0, 2), mk(4, 1, 0), mk(3, 0, 1), mk(0, 6, 0), mk(5, 2, 0), mk(1, 0, 0), mk(3, 0, 1), mk(2, 0, 0)]
   none.forEach((s, i) => { s.b = BEARINGS[i] })
   assert.equal(chooseBearing(none, 0).index, 2, 'collision-free, most support (3), fewest DANGER (1)')
   assert.ok(aimKey(mk(6, 0, 5)) < aimKey(mk(5, 0, 0)) || aimKey(mk(6, 0, 5))[0] === 0)
+})
+await t('C3b the 1-wide ledge between two lakes, no cobble (Paper 10-23): S, SE and SW tie, and the CARDINAL S is the aim -- the diagonal crossing of a lake is 41% more lava', () => {
+  const s = SCENES.ledge(); const w = World(s.cells)
+  const sc = aimScores(w.at, [0, 64, 1])
+  const keys = [3, 4, 5].map(i => JSON.stringify(aimKey(sc[i])))
+  assert.equal(new Set(keys).size, 1, `S, SE, SW tie: ${keys}`)
+  assert.equal(chooseBearing(sc, s.yaw).index, 4, 'S, the cardinal')
 })
 await t('C4 stuck: three firings under 0.5 block on magma or a campfire relax it; lava and fire never; one real move resets it', () => {
   assert.equal(stuckRelax([0.1, 0.2, 0.0], 'magma_block'), true)
@@ -666,6 +674,9 @@ await t('D25 a missed `in` step that has already carried the bot onto safe groun
   const r = firing(h.rows)[0].args
   assert.equal(r.steps[0].post, false, 'the step missed its target')
   assert.equal(r.outcome, 'plan_missed_safe'); assert.ok(!r.aim, 'no aimed sprint from a safe cell')
+  // the verdict's own cells are in the row (Codex code r6 P1): the feet and the cell below, as read
+  assert.ok('0,0,0' in r.missObs.cells && '0,-1,0' in r.missObs.cells, JSON.stringify(Object.keys(r.missObs.cells).slice(0, 8)))
+  assert.equal(r.missObs.cells['0,-1,0'], 'stone')
 })
 await t('D25b the same after a witnessed seal: a re-classification `in` step that overshoots onto stone ends sealed_plan_missed_safe, no aim (Claude code r5 P3-2)', async () => {
   const h = harness('poolEdge', { items: ['cobblestone'], physics: false })
@@ -678,6 +689,7 @@ await t('D25b the same after a witnessed seal: a re-classification `in` step tha
   const r = firing(h.rows)[0].args
   assert.equal(r.reclass, 'in'); assert.equal(r.outcome, 'sealed_plan_missed_safe', r.outcome); assert.ok(!r.aim, 'no aim from safe ground')
   assert.ok(r.missObs && r.missObs.case === null && r.missObs.cells, 'the safe verdict is recorded with its observation')
+  assert.ok('0,0,0' in r.missObs.cells && '0,-1,0' in r.missObs.cells, 'with the feet and below cells it was decided on')
 })
 await t('D26 a move ended INSIDE runner.reserve() (the air rescue took the body during the abort unwind): no dig stop, no path halt, no timer, no control write, the reservation released', async () => {
   const scene = SCENES.poolEdge(); const bot = fakeBot(scene, { physics: false }); const rows = []
