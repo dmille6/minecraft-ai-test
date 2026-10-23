@@ -221,7 +221,10 @@ export function readyCell (read, [x, y, z], ctx = {}, kind = null) {
   if (ctx.solid?.has(k3(x, y, z))) return 'a well or stair cell'
   if (typeof ctx.cellForbid === 'function') { const why = ctx.cellForbid([x, y, z], kind); if (why) return why }
   if (home && x === home.x && z === home.z) return 'the home column'
-  if (cellInZones(x, y, z, ctx.zones) || cellInZones(x, s, z, ctx.zones)) return 'protected zone'
+  // the three cells protectzone-01's place guard judges for a placement at this cell (protectzone.mjs attachProtectZone
+  // `_genericPlace`: the reference = the floor, the destination, and the cell above it) -- a cell under a zone's bottom face
+  // is never READY, or found's click would be refused at the guard every visit (protectzone x townplan composition)
+  if (cellInZones(x, y, z, ctx.zones) || cellInZones(x, s, z, ctx.zones) || cellInZones(x, y + 1, z, ctx.zones)) return 'protected zone'
   const floor = read(x, s, z), cell = read(x, y, z), lid = read(x, y + 1, z)
   if (!floor || !cell || !lid) return 'unknown'
   if (!isSolidFull(floor)) return `floor ${nm(floor)}`
