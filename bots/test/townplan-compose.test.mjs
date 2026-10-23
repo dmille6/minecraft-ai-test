@@ -118,7 +118,8 @@ await t('SUPERSET THROUGH THE REAL READERS (fuzz, 150 edit pairs: a good file, t
     const guard = PZ.zoneReader({ file: () => file, worldId: () => 'w' }); guard.refresh()
     S.townPlanZones(bot, 1e9 + f * 1e6)
     const edit = { version: pick([1, 1, 1, 2]), hashed_seed: pick(['w', 'w', undefined]), zones: Array.from({ length: 1 + Math.floor(rnd() * 4) }, (_, i) => fuzzZone(i)) }
-    fs.writeFileSync(file, rnd() < 0.1 ? '{"version": 1, "zones": [' : JSON.stringify(edit))
+    const roll = rnd()
+    fs.writeFileSync(file, roll < 0.08 ? '{"version": 1, "zones": [' : roll < 0.16 ? 'null' : JSON.stringify(edit))   // torn, JSON null, an edit
     guard.refresh()
     const v = S.townPlanZones(bot, 1e9 + f * 1e6 + 60_000)
     if (/^stale:(dropped|guard_drops)/.test(v.why)) partial++
