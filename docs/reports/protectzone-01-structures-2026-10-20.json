@@ -1,0 +1,4025 @@
+{
+ "home": [
+  0,
+  0
+ ],
+ "radius": 1000,
+ "chunks_walked": 23956,
+ "structures": [
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    0,
+    2
+   ],
+   "box": [
+    -71,
+    -6,
+    -34,
+    93,
+    29,
+    106
+   ],
+   "pieces": 261,
+   "dist": 36
+  },
+  {
+   "structure": "minecraft:village_taiga",
+   "chunk": [
+    6,
+    1
+   ],
+   "box": [
+    44,
+    62,
+    -51,
+    149,
+    90,
+    37
+   ],
+   "pieces": 92,
+   "dist": 96,
+   "markers": 1470,
+   "marker_counts": {
+    "dirt_path": 650,
+    "cobblestone": 500,
+    "spruce_planks": 100,
+    "spruce_trapdoor": 87,
+    "glass_pane": 28,
+    "wall_torch": 19,
+    "spruce_door": 18,
+    "torch": 13,
+    "spruce_stairs": 10,
+    "cobblestone_wall": 9,
+    "cobblestone_stairs": 8,
+    "purple_bed": 8
+   },
+   "houses": 9,
+   "lowest_block": 62,
+   "zone": "village-taiga-6_1",
+   "special": [
+    [
+     64,
+     70,
+     -11,
+     "crafting_table"
+    ],
+    [
+     66,
+     70,
+     -11,
+     "blue_bed"
+    ],
+    [
+     66,
+     70,
+     -10,
+     "blue_bed"
+    ],
+    [
+     78,
+     73,
+     -10,
+     "purple_bed"
+    ],
+    [
+     78,
+     73,
+     -9,
+     "purple_bed"
+    ],
+    [
+     110,
+     66,
+     -13,
+     "purple_bed"
+    ],
+    [
+     110,
+     66,
+     -12,
+     "purple_bed"
+    ],
+    [
+     122,
+     64,
+     -15,
+     "grindstone"
+    ],
+    [
+     122,
+     64,
+     -13,
+     "grindstone"
+    ],
+    [
+     124,
+     64,
+     -13,
+     "chest"
+    ],
+    [
+     123,
+     74,
+     -1,
+     "chest"
+    ],
+    [
+     124,
+     74,
+     -1,
+     "purple_bed"
+    ],
+    [
+     125,
+     74,
+     -1,
+     "purple_bed"
+    ],
+    [
+     86,
+     76,
+     8,
+     "water_cauldron"
+    ],
+    [
+     87,
+     76,
+     8,
+     "water_cauldron"
+    ],
+    [
+     86,
+     76,
+     12,
+     "chest"
+    ],
+    [
+     109,
+     76,
+     11,
+     "fletching_table"
+    ],
+    [
+     111,
+     76,
+     12,
+     "chest"
+    ],
+    [
+     93,
+     77,
+     25,
+     "bell"
+    ],
+    [
+     101,
+     77,
+     26,
+     "chest"
+    ],
+    [
+     101,
+     77,
+     27,
+     "purple_bed"
+    ],
+    [
+     101,
+     77,
+     28,
+     "purple_bed"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    2,
+    5
+   ],
+   "box": [
+    -16,
+    -43,
+    69,
+    84,
+    27,
+    160
+   ],
+   "pieces": 255,
+   "dist": 114
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -13,
+    -8
+   ],
+   "box": [
+    -248,
+    20,
+    -164,
+    -120,
+    46,
+    -33
+   ],
+   "pieces": 106,
+   "dist": 184
+  },
+  {
+   "structure": "minecraft:buried_treasure",
+   "chunk": [
+    -13,
+    -10
+   ],
+   "box": [
+    -199,
+    59,
+    -151,
+    -199,
+    59,
+    -151
+   ],
+   "pieces": 1,
+   "dist": 199
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    13,
+    8
+   ],
+   "box": [
+    168,
+    20,
+    92,
+    296,
+    46,
+    223
+   ],
+   "pieces": 106,
+   "dist": 232
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -6,
+    -15
+   ],
+   "box": [
+    -173,
+    -13,
+    -318,
+    -16,
+    10,
+    -161
+   ],
+   "pieces": 175,
+   "dist": 240
+  },
+  {
+   "structure": "minecraft:ruined_portal",
+   "chunk": [
+    15,
+    0
+   ],
+   "box": [
+    240,
+    75,
+    0,
+    248,
+    86,
+    8
+   ],
+   "pieces": 1,
+   "dist": 244
+  },
+  {
+   "structure": "minecraft:igloo",
+   "chunk": [
+    -17,
+    -18
+   ],
+   "box": [
+    -274,
+    90,
+    -286,
+    -267,
+    94,
+    -280
+   ],
+   "pieces": 1,
+   "dist": 283
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    3,
+    -20
+   ],
+   "box": [
+    0,
+    -45,
+    -331,
+    118,
+    12,
+    -240
+   ],
+   "pieces": 293,
+   "dist": 286
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    21,
+    20
+   ],
+   "box": [
+    303,
+    46,
+    287,
+    350,
+    69,
+    327
+   ],
+   "pieces": 24,
+   "dist": 326
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    9,
+    21
+   ],
+   "box": [
+    84,
+    -31,
+    259,
+    208,
+    -15,
+    401
+   ],
+   "pieces": 125,
+   "dist": 330
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -9,
+    -21
+   ],
+   "box": [
+    -182,
+    22,
+    -414,
+    -78,
+    47,
+    -281
+   ],
+   "pieces": 115,
+   "dist": 348
+  },
+  {
+   "structure": "minecraft:ruined_portal",
+   "chunk": [
+    22,
+    -17
+   ],
+   "box": [
+    344,
+    9,
+    -272,
+    352,
+    15,
+    -264
+   ],
+   "pieces": 1,
+   "dist": 348
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    -22,
+    12
+   ],
+   "box": [
+    -415,
+    -39,
+    135,
+    -323,
+    11,
+    239
+   ],
+   "pieces": 242,
+   "dist": 369
+  },
+  {
+   "structure": "minecraft:village_taiga",
+   "chunk": [
+    23,
+    -20
+   ],
+   "box": [
+    309,
+    62,
+    -396,
+    446,
+    78,
+    -264
+   ],
+   "pieces": 122,
+   "dist": 378,
+   "markers": 2524,
+   "marker_counts": {
+    "dirt_path": 929,
+    "cobblestone": 878,
+    "spruce_trapdoor": 195,
+    "spruce_planks": 151,
+    "cobblestone_wall": 62,
+    "glass_pane": 53,
+    "wall_torch": 50,
+    "spruce_fence": 38,
+    "cobblestone_stairs": 27,
+    "torch": 27,
+    "spruce_door": 26,
+    "purple_carpet": 20
+   },
+   "houses": 14,
+   "lowest_block": 62,
+   "zone": "village-taiga-23_-20",
+   "special": [
+    [
+     388,
+     67,
+     -368,
+     "chest"
+    ],
+    [
+     389,
+     67,
+     -368,
+     "purple_bed"
+    ],
+    [
+     390,
+     67,
+     -368,
+     "purple_bed"
+    ],
+    [
+     422,
+     68,
+     -339,
+     "grindstone"
+    ],
+    [
+     360,
+     65,
+     -322,
+     "blue_bed"
+    ],
+    [
+     360,
+     65,
+     -321,
+     "blue_bed"
+    ],
+    [
+     378,
+     66,
+     -332,
+     "brewing_stand"
+    ],
+    [
+     358,
+     65,
+     -320,
+     "crafting_table"
+    ],
+    [
+     360,
+     65,
+     -320,
+     "chest"
+    ],
+    [
+     354,
+     65,
+     -311,
+     "chest"
+    ],
+    [
+     354,
+     65,
+     -310,
+     "purple_bed"
+    ],
+    [
+     354,
+     65,
+     -309,
+     "purple_bed"
+    ],
+    [
+     372,
+     70,
+     -316,
+     "bell"
+    ],
+    [
+     387,
+     66,
+     -317,
+     "grindstone"
+    ],
+    [
+     387,
+     66,
+     -315,
+     "grindstone"
+    ],
+    [
+     389,
+     66,
+     -315,
+     "chest"
+    ],
+    [
+     389,
+     68,
+     -306,
+     "loom"
+    ],
+    [
+     390,
+     68,
+     -306,
+     "loom"
+    ],
+    [
+     401,
+     65,
+     -316,
+     "lectern"
+    ],
+    [
+     413,
+     66,
+     -315,
+     "lectern"
+    ],
+    [
+     377,
+     68,
+     -291,
+     "grindstone"
+    ],
+    [
+     411,
+     68,
+     -299,
+     "grindstone"
+    ],
+    [
+     349,
+     70,
+     -276,
+     "chest"
+    ],
+    [
+     364,
+     68,
+     -278,
+     "chest"
+    ],
+    [
+     366,
+     68,
+     -278,
+     "crafting_table"
+    ],
+    [
+     364,
+     68,
+     -277,
+     "blue_bed"
+    ],
+    [
+     364,
+     68,
+     -276,
+     "blue_bed"
+    ],
+    [
+     353,
+     70,
+     -275,
+     "smithing_table"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:ruined_portal",
+   "chunk": [
+    -25,
+    -16
+   ],
+   "box": [
+    -399,
+    8,
+    -247,
+    -391,
+    15,
+    -238
+   ],
+   "pieces": 1,
+   "dist": 395
+  },
+  {
+   "structure": "minecraft:trail_ruins",
+   "chunk": [
+    1,
+    -26
+   ],
+   "box": [
+    6,
+    48,
+    -426,
+    29,
+    70,
+    -375
+   ],
+   "pieces": 16,
+   "dist": 400
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -26,
+    -25
+   ],
+   "box": [
+    -472,
+    -13,
+    -473,
+    -348,
+    4,
+    -309
+   ],
+   "pieces": 85,
+   "dist": 410
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -27,
+    15
+   ],
+   "box": [
+    -482,
+    2,
+    177,
+    -340,
+    30,
+    330
+   ],
+   "pieces": 189,
+   "dist": 411
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    27,
+    -15
+   ],
+   "box": [
+    351,
+    -20,
+    -301,
+    500,
+    -1,
+    -171
+   ],
+   "pieces": 131,
+   "dist": 426
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    26,
+    25
+   ],
+   "box": [
+    379,
+    39,
+    338,
+    484,
+    52,
+    427
+   ],
+   "pieces": 85,
+   "dist": 432
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    29,
+    25
+   ],
+   "box": [
+    453,
+    36,
+    411,
+    468,
+    44,
+    419
+   ],
+   "pieces": 1,
+   "dist": 460
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    13,
+    28
+   ],
+   "box": [
+    206,
+    50,
+    459,
+    227,
+    58,
+    467
+   ],
+   "pieces": 1,
+   "dist": 463
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    33,
+    20
+   ],
+   "box": [
+    432,
+    27,
+    242,
+    586,
+    48,
+    418
+   ],
+   "pieces": 228,
+   "dist": 509
+  },
+  {
+   "structure": "minecraft:trail_ruins",
+   "chunk": [
+    -33,
+    20
+   ],
+   "box": [
+    -538,
+    50,
+    309,
+    -489,
+    69,
+    331
+   ],
+   "pieces": 20,
+   "dist": 514
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    31,
+    -6
+   ],
+   "box": [
+    463,
+    -31,
+    -164,
+    585,
+    -11,
+    -6
+   ],
+   "pieces": 103,
+   "dist": 524
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -33,
+    -20
+   ],
+   "box": [
+    -607,
+    15,
+    -359,
+    -452,
+    41,
+    -227
+   ],
+   "pieces": 156,
+   "dist": 530
+  },
+  {
+   "structure": "minecraft:igloo",
+   "chunk": [
+    33,
+    -31
+   ],
+   "box": [
+    528,
+    63,
+    -498,
+    534,
+    94,
+    -489
+   ],
+   "pieces": 9,
+   "dist": 531
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    -34,
+    -15
+   ],
+   "box": [
+    -550,
+    62,
+    -240,
+    -544,
+    68,
+    -235
+   ],
+   "pieces": 3,
+   "dist": 547
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -35,
+    -34
+   ],
+   "box": [
+    -599,
+    -45,
+    -602,
+    -496,
+    -27,
+    -488
+   ],
+   "pieces": 75,
+   "dist": 548
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    30,
+    -35
+   ],
+   "box": [
+    422,
+    -3,
+    -626,
+    552,
+    17,
+    -473
+   ],
+   "pieces": 164,
+   "dist": 550
+  },
+  {
+   "structure": "minecraft:buried_treasure",
+   "chunk": [
+    22,
+    -35
+   ],
+   "box": [
+    361,
+    37,
+    -551,
+    361,
+    37,
+    -551
+   ],
+   "pieces": 1,
+   "dist": 551
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    33,
+    19
+   ],
+   "box": [
+    491,
+    -26,
+    216,
+    612,
+    0,
+    382
+   ],
+   "pieces": 133,
+   "dist": 552
+  },
+  {
+   "structure": "minecraft:buried_treasure",
+   "chunk": [
+    18,
+    -36
+   ],
+   "box": [
+    297,
+    54,
+    -567,
+    297,
+    54,
+    -567
+   ],
+   "pieces": 1,
+   "dist": 567
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    -34,
+    -16
+   ],
+   "box": [
+    -624,
+    -54,
+    -304,
+    -516,
+    25,
+    -207
+   ],
+   "pieces": 273,
+   "dist": 570
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    35,
+    34
+   ],
+   "box": [
+    510,
+    -6,
+    479,
+    631,
+    9,
+    609
+   ],
+   "pieces": 126,
+   "dist": 570
+  },
+  {
+   "structure": "minecraft:ruined_portal",
+   "chunk": [
+    -37,
+    24
+   ],
+   "box": [
+    -582,
+    82,
+    384,
+    -573,
+    89,
+    392
+   ],
+   "pieces": 1,
+   "dist": 578
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -36,
+    -30
+   ],
+   "box": [
+    -660,
+    -55,
+    -528,
+    -504,
+    -26,
+    -391
+   ],
+   "pieces": 162,
+   "dist": 582
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -4,
+    -39
+   ],
+   "box": [
+    -101,
+    -17,
+    -646,
+    6,
+    1,
+    -529
+   ],
+   "pieces": 102,
+   "dist": 588
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -36,
+    -11
+   ],
+   "box": [
+    -671,
+    23,
+    -243,
+    -511,
+    45,
+    -95
+   ],
+   "pieces": 194,
+   "dist": 591
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    36,
+    -30
+   ],
+   "box": [
+    520,
+    -27,
+    -538,
+    666,
+    1,
+    -385
+   ],
+   "pieces": 169,
+   "dist": 593
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    38,
+    -36
+   ],
+   "box": [
+    553,
+    3,
+    -662,
+    666,
+    23,
+    -483
+   ],
+   "pieces": 129,
+   "dist": 610
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    36,
+    11
+   ],
+   "box": [
+    560,
+    -4,
+    94,
+    670,
+    11,
+    201
+   ],
+   "pieces": 46,
+   "dist": 615
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -38,
+    -36
+   ],
+   "box": [
+    -690,
+    -9,
+    -640,
+    -541,
+    9,
+    -514
+   ],
+   "pieces": 147,
+   "dist": 616
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    40,
+    37
+   ],
+   "box": [
+    581,
+    -57,
+    507,
+    657,
+    -42,
+    603
+   ],
+   "pieces": 27,
+   "dist": 619
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -40,
+    -37
+   ],
+   "box": [
+    -683,
+    -62,
+    -644,
+    -568,
+    -34,
+    -509
+   ],
+   "pieces": 179,
+   "dist": 626
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    -33,
+    40
+   ],
+   "box": [
+    -539,
+    -40,
+    569,
+    -447,
+    12,
+    688
+   ],
+   "pieces": 229,
+   "dist": 628
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -11,
+    -40
+   ],
+   "box": [
+    -231,
+    -39,
+    -709,
+    -112,
+    -11,
+    -550
+   ],
+   "pieces": 174,
+   "dist": 630
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    40,
+    5
+   ],
+   "box": [
+    626,
+    46,
+    49,
+    665,
+    62,
+    88
+   ],
+   "pieces": 15,
+   "dist": 646
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    2,
+    -41
+   ],
+   "box": [
+    32,
+    67,
+    -656,
+    40,
+    75,
+    -641
+   ],
+   "pieces": 1,
+   "dist": 648
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    11,
+    40
+   ],
+   "box": [
+    121,
+    -39,
+    571,
+    240,
+    -11,
+    730
+   ],
+   "pieces": 174,
+   "dist": 650
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -41,
+    12
+   ],
+   "box": [
+    -723,
+    9,
+    119,
+    -579,
+    28,
+    281
+   ],
+   "pieces": 221,
+   "dist": 651
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -42,
+    -25
+   ],
+   "box": [
+    -726,
+    -44,
+    -475,
+    -602,
+    -26,
+    -317
+   ],
+   "pieces": 156,
+   "dist": 664
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -43,
+    -32
+   ],
+   "box": [
+    -745,
+    -7,
+    -565,
+    -594,
+    16,
+    -443
+   ],
+   "pieces": 149,
+   "dist": 670
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -42,
+    27
+   ],
+   "box": [
+    -731,
+    -38,
+    338,
+    -612,
+    -18,
+    509
+   ],
+   "pieces": 151,
+   "dist": 672
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    42,
+    -14
+   ],
+   "box": [
+    672,
+    49,
+    -224,
+    677,
+    55,
+    -218
+   ],
+   "pieces": 3,
+   "dist": 674
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    30,
+    42
+   ],
+   "box": [
+    480,
+    49,
+    672,
+    485,
+    55,
+    678
+   ],
+   "pieces": 3,
+   "dist": 675
+  },
+  {
+   "structure": "minecraft:igloo",
+   "chunk": [
+    -23,
+    42
+   ],
+   "box": [
+    -368,
+    62,
+    672,
+    -362,
+    66,
+    679
+   ],
+   "pieces": 1,
+   "dist": 676
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    42,
+    25
+   ],
+   "box": [
+    626,
+    -48,
+    313,
+    734,
+    -19,
+    494
+   ],
+   "pieces": 178,
+   "dist": 680
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    41,
+    -12
+   ],
+   "box": [
+    631,
+    15,
+    -275,
+    731,
+    37,
+    -113
+   ],
+   "pieces": 108,
+   "dist": 681
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    42,
+    -27
+   ],
+   "box": [
+    610,
+    -3,
+    -476,
+    761,
+    21,
+    -338
+   ],
+   "pieces": 152,
+   "dist": 686
+  },
+  {
+   "structure": "minecraft:ruined_portal",
+   "chunk": [
+    -31,
+    44
+   ],
+   "box": [
+    -495,
+    62,
+    715,
+    -486,
+    69,
+    726
+   ],
+   "pieces": 1,
+   "dist": 720
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    46,
+    44
+   ],
+   "box": [
+    664,
+    -43,
+    623,
+    783,
+    7,
+    734
+   ],
+   "pieces": 266,
+   "dist": 724
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    13,
+    44
+   ],
+   "box": [
+    161,
+    -44,
+    690,
+    260,
+    33,
+    784
+   ],
+   "pieces": 245,
+   "dist": 737
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    46,
+    25
+   ],
+   "box": [
+    736,
+    37,
+    400,
+    741,
+    43,
+    406
+   ],
+   "pieces": 3,
+   "dist": 738
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    41,
+    46
+   ],
+   "box": [
+    650,
+    38,
+    736,
+    656,
+    44,
+    741
+   ],
+   "pieces": 3,
+   "dist": 738
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -35,
+    -47
+   ],
+   "box": [
+    -655,
+    -11,
+    -820,
+    -484,
+    4,
+    -682
+   ],
+   "pieces": 126,
+   "dist": 751
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -49,
+    -20
+   ],
+   "box": [
+    -813,
+    3,
+    -381,
+    -697,
+    25,
+    -289
+   ],
+   "pieces": 79,
+   "dist": 755
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    -19,
+    -49
+   ],
+   "box": [
+    -325,
+    35,
+    -793,
+    -283,
+    74,
+    -758
+   ],
+   "pieces": 21,
+   "dist": 776
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    48,
+    -14
+   ],
+   "box": [
+    716,
+    -44,
+    -287,
+    835,
+    -6,
+    -191
+   ],
+   "pieces": 235,
+   "dist": 776
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    48,
+    -29
+   ],
+   "box": [
+    731,
+    -18,
+    -538,
+    824,
+    -1,
+    -367
+   ],
+   "pieces": 146,
+   "dist": 778
+  },
+  {
+   "structure": "minecraft:trail_ruins",
+   "chunk": [
+    -49,
+    5
+   ],
+   "box": [
+    -797,
+    65,
+    39,
+    -771,
+    86,
+    90
+   ],
+   "pieces": 17,
+   "dist": 784
+  },
+  {
+   "structure": "minecraft:village_snowy",
+   "chunk": [
+    -50,
+    49
+   ],
+   "box": [
+    -847,
+    62,
+    698,
+    -727,
+    74,
+    857
+   ],
+   "pieces": 112,
+   "dist": 787,
+   "markers": 3528,
+   "marker_counts": {
+    "dirt_path": 854,
+    "spruce_planks": 838,
+    "stripped_spruce_log": 469,
+    "snow_block": 316,
+    "stripped_spruce_wood": 218,
+    "packed_ice": 155,
+    "spruce_slab": 144,
+    "spruce_fence": 112,
+    "spruce_stairs": 56,
+    "farmland": 55,
+    "blue_ice": 42,
+    "potatoes": 41
+   },
+   "houses": 23,
+   "lowest_block": 62,
+   "zone": "village-snowy--50_49",
+   "special": [
+    [
+     -841,
+     67,
+     725,
+     "white_bed"
+    ],
+    [
+     -841,
+     67,
+     726,
+     "white_bed"
+    ],
+    [
+     -839,
+     67,
+     726,
+     "furnace"
+    ],
+    [
+     -817,
+     66,
+     728,
+     "composter"
+    ],
+    [
+     -814,
+     64,
+     725,
+     "furnace"
+    ],
+    [
+     -812,
+     64,
+     725,
+     "blue_bed"
+    ],
+    [
+     -812,
+     64,
+     726,
+     "blue_bed"
+    ],
+    [
+     -816,
+     63,
+     746,
+     "blue_bed"
+    ],
+    [
+     -815,
+     63,
+     746,
+     "blue_bed"
+    ],
+    [
+     -801,
+     65,
+     759,
+     "furnace"
+    ],
+    [
+     -805,
+     65,
+     760,
+     "stonecutter"
+    ],
+    [
+     -801,
+     65,
+     760,
+     "furnace"
+    ],
+    [
+     -801,
+     65,
+     761,
+     "furnace"
+    ],
+    [
+     -772,
+     63,
+     759,
+     "white_bed"
+    ],
+    [
+     -770,
+     63,
+     759,
+     "white_bed"
+    ],
+    [
+     -772,
+     63,
+     760,
+     "white_bed"
+    ],
+    [
+     -770,
+     63,
+     760,
+     "white_bed"
+    ],
+    [
+     -757,
+     63,
+     759,
+     "red_bed"
+    ],
+    [
+     -759,
+     63,
+     760,
+     "chest"
+    ],
+    [
+     -757,
+     63,
+     760,
+     "red_bed"
+    ],
+    [
+     -833,
+     64,
+     770,
+     "furnace"
+    ],
+    [
+     -831,
+     64,
+     770,
+     "blue_bed"
+    ],
+    [
+     -831,
+     64,
+     771,
+     "blue_bed"
+    ],
+    [
+     -810,
+     63,
+     776,
+     "red_bed"
+    ],
+    [
+     -808,
+     63,
+     776,
+     "chest"
+    ],
+    [
+     -810,
+     63,
+     777,
+     "red_bed"
+    ],
+    [
+     -786,
+     64,
+     772,
+     "cartography_table"
+    ],
+    [
+     -785,
+     64,
+     772,
+     "chest"
+    ],
+    [
+     -795,
+     65,
+     775,
+     "bell"
+    ],
+    [
+     -758,
+     63,
+     770,
+     "red_bed"
+    ],
+    [
+     -756,
+     63,
+     770,
+     "chest"
+    ],
+    [
+     -758,
+     63,
+     771,
+     "red_bed"
+    ],
+    [
+     -801,
+     64,
+     798,
+     "blue_bed"
+    ],
+    [
+     -801,
+     64,
+     799,
+     "blue_bed"
+    ],
+    [
+     -788,
+     65,
+     794,
+     "composter"
+    ],
+    [
+     -791,
+     65,
+     798,
+     "furnace"
+    ],
+    [
+     -789,
+     65,
+     798,
+     "chest"
+    ],
+    [
+     -737,
+     65,
+     786,
+     "furnace"
+    ],
+    [
+     -739,
+     65,
+     787,
+     "blue_bed"
+    ],
+    [
+     -739,
+     65,
+     788,
+     "blue_bed"
+    ],
+    [
+     -737,
+     65,
+     788,
+     "chest"
+    ],
+    [
+     -731,
+     65,
+     784,
+     "composter"
+    ],
+    [
+     -801,
+     65,
+     805,
+     "smithing_table"
+    ],
+    [
+     -790,
+     65,
+     800,
+     "blue_bed"
+    ],
+    [
+     -789,
+     65,
+     800,
+     "blue_bed"
+    ],
+    [
+     -788,
+     65,
+     810,
+     "barrel"
+    ],
+    [
+     -788,
+     65,
+     811,
+     "barrel"
+    ],
+    [
+     -788,
+     66,
+     811,
+     "barrel"
+    ],
+    [
+     -787,
+     68,
+     822,
+     "blast_furnace"
+    ],
+    [
+     -790,
+     68,
+     824,
+     "chest"
+    ],
+    [
+     -788,
+     69,
+     834,
+     "blue_bed"
+    ],
+    [
+     -788,
+     69,
+     835,
+     "blue_bed"
+    ],
+    [
+     -790,
+     69,
+     851,
+     "white_bed"
+    ],
+    [
+     -789,
+     69,
+     851,
+     "white_bed"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -14,
+    49
+   ],
+   "box": [
+    -292,
+    -5,
+    727,
+    -141,
+    25,
+    859
+   ],
+   "pieces": 141,
+   "dist": 793
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -2,
+    -49
+   ],
+   "box": [
+    -114,
+    -11,
+    -870,
+    51,
+    17,
+    -718
+   ],
+   "pieces": 216,
+   "dist": 794
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    2,
+    49
+   ],
+   "box": [
+    -30,
+    -9,
+    724,
+    97,
+    16,
+    870
+   ],
+   "pieces": 194,
+   "dist": 797
+  },
+  {
+   "structure": "minecraft:igloo",
+   "chunk": [
+    -50,
+    -31
+   ],
+   "box": [
+    -804,
+    57,
+    -494,
+    -795,
+    94,
+    -488
+   ],
+   "pieces": 11,
+   "dist": 800
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -38,
+    50
+   ],
+   "box": [
+    -647,
+    1,
+    716,
+    -537,
+    17,
+    885
+   ],
+   "pieces": 84,
+   "dist": 800
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    50,
+    31
+   ],
+   "box": [
+    789,
+    46,
+    507,
+    810,
+    54,
+    515
+   ],
+   "pieces": 1,
+   "dist": 800
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    49,
+    20
+   ],
+   "box": [
+    726,
+    27,
+    233,
+    879,
+    48,
+    408
+   ],
+   "pieces": 107,
+   "dist": 802
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    51,
+    21
+   ],
+   "box": [
+    731,
+    -6,
+    252,
+    872,
+    21,
+    415
+   ],
+   "pieces": 193,
+   "dist": 802
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -51,
+    -21
+   ],
+   "box": [
+    -877,
+    -50,
+    -415,
+    -731,
+    -19,
+    -259
+   ],
+   "pieces": 221,
+   "dist": 804
+  },
+  {
+   "structure": "minecraft:buried_treasure",
+   "chunk": [
+    -51,
+    -49
+   ],
+   "box": [
+    -807,
+    66,
+    -775,
+    -807,
+    66,
+    -775
+   ],
+   "pieces": 1,
+   "dist": 807
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    -34,
+    -49
+   ],
+   "box": [
+    -617,
+    -26,
+    -865,
+    -496,
+    11,
+    -750
+   ],
+   "pieces": 256,
+   "dist": 808
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    38,
+    -50
+   ],
+   "box": [
+    561,
+    14,
+    -879,
+    678,
+    36,
+    -738
+   ],
+   "pieces": 132,
+   "dist": 808
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    0,
+    -51
+   ],
+   "box": [
+    -6,
+    48,
+    -816,
+    0,
+    54,
+    -811
+   ],
+   "pieces": 3,
+   "dist": 814
+  },
+  {
+   "structure": "minecraft:monument",
+   "chunk": [
+    51,
+    22
+   ],
+   "box": [
+    787,
+    39,
+    323,
+    844,
+    61,
+    380
+   ],
+   "pieces": 1,
+   "dist": 816
+  },
+  {
+   "structure": "minecraft:ruined_portal",
+   "chunk": [
+    51,
+    -27
+   ],
+   "box": [
+    816,
+    66,
+    -439,
+    824,
+    74,
+    -432
+   ],
+   "pieces": 1,
+   "dist": 820
+  },
+  {
+   "structure": "minecraft:village_snowy",
+   "chunk": [
+    -52,
+    -48
+   ],
+   "box": [
+    -874,
+    63,
+    -813,
+    -768,
+    86,
+    -734
+   ],
+   "pieces": 59,
+   "dist": 821,
+   "markers": 1608,
+   "marker_counts": {
+    "dirt_path": 429,
+    "stripped_spruce_log": 369,
+    "spruce_planks": 343,
+    "spruce_fence": 117,
+    "stripped_spruce_wood": 66,
+    "spruce_stairs": 57,
+    "spruce_slab": 56,
+    "farmland": 36,
+    "potatoes": 27,
+    "lantern": 22,
+    "snow_block": 15,
+    "wall_torch": 14
+   },
+   "houses": 9,
+   "lowest_block": 63,
+   "zone": "village-snowy--52_-48",
+   "special": [
+    [
+     -867,
+     65,
+     -801,
+     "composter"
+    ],
+    [
+     -856,
+     66,
+     -781,
+     "chest"
+    ],
+    [
+     -855,
+     66,
+     -781,
+     "cartography_table"
+    ],
+    [
+     -825,
+     69,
+     -779,
+     "furnace"
+    ],
+    [
+     -823,
+     69,
+     -779,
+     "chest"
+    ],
+    [
+     -824,
+     69,
+     -777,
+     "blue_bed"
+    ],
+    [
+     -823,
+     69,
+     -777,
+     "blue_bed"
+    ],
+    [
+     -829,
+     72,
+     -771,
+     "bell"
+    ],
+    [
+     -834,
+     71,
+     -755,
+     "furnace"
+    ],
+    [
+     -834,
+     71,
+     -754,
+     "furnace"
+    ],
+    [
+     -832,
+     71,
+     -755,
+     "blue_bed"
+    ],
+    [
+     -832,
+     71,
+     -754,
+     "blue_bed"
+    ],
+    [
+     -784,
+     74,
+     -764,
+     "composter"
+    ],
+    [
+     -825,
+     71,
+     -739,
+     "chest"
+    ],
+    [
+     -824,
+     71,
+     -739,
+     "cartography_table"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    52,
+    -4
+   ],
+   "box": [
+    748,
+    -3,
+    -138,
+    894,
+    20,
+    24
+   ],
+   "pieces": 176,
+   "dist": 821
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -52,
+    43
+   ],
+   "box": [
+    -879,
+    -57,
+    625,
+    -765,
+    -29,
+    770
+   ],
+   "pieces": 134,
+   "dist": 822
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    -51,
+    50
+   ],
+   "box": [
+    -883,
+    -41,
+    719,
+    -769,
+    14,
+    811
+   ],
+   "pieces": 228,
+   "dist": 826
+  },
+  {
+   "structure": "minecraft:igloo",
+   "chunk": [
+    -52,
+    19
+   ],
+   "box": [
+    -831,
+    92,
+    306,
+    -824,
+    96,
+    312
+   ],
+   "pieces": 1,
+   "dist": 828
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    49,
+    51
+   ],
+   "box": [
+    776,
+    49,
+    827,
+    803,
+    57,
+    835
+   ],
+   "pieces": 1,
+   "dist": 831
+  },
+  {
+   "structure": "minecraft:monument",
+   "chunk": [
+    46,
+    52
+   ],
+   "box": [
+    707,
+    39,
+    803,
+    764,
+    61,
+    860
+   ],
+   "pieces": 1,
+   "dist": 832
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -49,
+    53
+   ],
+   "box": [
+    -849,
+    -29,
+    786,
+    -700,
+    -8,
+    893
+   ],
+   "pieces": 131,
+   "dist": 840
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    -50,
+    -52
+   ],
+   "box": [
+    -815,
+    49,
+    -863,
+    -782,
+    68,
+    -832
+   ],
+   "pieces": 9,
+   "dist": 848
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    49,
+    -53
+   ],
+   "box": [
+    730,
+    -32,
+    -926,
+    829,
+    -1,
+    -783
+   ],
+   "pieces": 151,
+   "dist": 854
+  },
+  {
+   "structure": "minecraft:ruined_portal_ocean",
+   "chunk": [
+    47,
+    53
+   ],
+   "box": [
+    751,
+    57,
+    853,
+    757,
+    63,
+    857
+   ],
+   "pieces": 1,
+   "dist": 855
+  },
+  {
+   "structure": "minecraft:village_snowy",
+   "chunk": [
+    1,
+    54
+   ],
+   "box": [
+    -58,
+    58,
+    790,
+    86,
+    83,
+    934
+   ],
+   "pieces": 192,
+   "dist": 862,
+   "markers": 3724,
+   "marker_counts": {
+    "dirt_path": 1033,
+    "spruce_planks": 828,
+    "stripped_spruce_wood": 363,
+    "stripped_spruce_log": 351,
+    "snow_block": 346,
+    "spruce_slab": 208,
+    "spruce_fence": 120,
+    "spruce_stairs": 114,
+    "farmland": 54,
+    "lantern": 43,
+    "spruce_door": 42,
+    "potatoes": 39
+   },
+   "houses": 22,
+   "lowest_block": 59,
+   "zone": "village-snowy-1_54",
+   "special": [
+    [
+     -19,
+     70,
+     869,
+     "white_bed"
+    ],
+    [
+     -19,
+     70,
+     870,
+     "white_bed"
+    ],
+    [
+     -2,
+     67,
+     879,
+     "chest"
+    ],
+    [
+     -12,
+     68,
+     869,
+     "white_bed"
+    ],
+    [
+     -12,
+     68,
+     870,
+     "white_bed"
+    ],
+    [
+     -3,
+     69,
+     868,
+     "white_bed"
+    ],
+    [
+     -3,
+     69,
+     869,
+     "white_bed"
+    ],
+    [
+     -15,
+     72,
+     878,
+     "white_bed"
+    ],
+    [
+     -15,
+     72,
+     879,
+     "white_bed"
+    ],
+    [
+     -9,
+     72,
+     879,
+     "blue_bed"
+    ],
+    [
+     -9,
+     72,
+     880,
+     "blue_bed"
+    ],
+    [
+     -7,
+     72,
+     880,
+     "furnace"
+    ],
+    [
+     31,
+     68,
+     815,
+     "composter"
+    ],
+    [
+     30,
+     63,
+     826,
+     "white_bed"
+    ],
+    [
+     31,
+     63,
+     826,
+     "white_bed"
+    ],
+    [
+     19,
+     63,
+     827,
+     "chest"
+    ],
+    [
+     30,
+     63,
+     828,
+     "furnace"
+    ],
+    [
+     19,
+     63,
+     829,
+     "red_bed"
+    ],
+    [
+     20,
+     63,
+     829,
+     "red_bed"
+    ],
+    [
+     17,
+     64,
+     819,
+     "composter"
+    ],
+    [
+     4,
+     64,
+     841,
+     "chest"
+    ],
+    [
+     4,
+     64,
+     842,
+     "cartography_table"
+    ],
+    [
+     29,
+     64,
+     838,
+     "chest"
+    ],
+    [
+     28,
+     64,
+     844,
+     "grindstone"
+    ],
+    [
+     32,
+     64,
+     839,
+     "grindstone"
+    ],
+    [
+     2,
+     64,
+     853,
+     "furnace"
+    ],
+    [
+     3,
+     64,
+     853,
+     "furnace"
+    ],
+    [
+     2,
+     64,
+     855,
+     "blue_bed"
+    ],
+    [
+     3,
+     64,
+     855,
+     "blue_bed"
+    ],
+    [
+     19,
+     71,
+     861,
+     "bell"
+    ],
+    [
+     29,
+     74,
+     855,
+     "blue_bed"
+    ],
+    [
+     31,
+     74,
+     855,
+     "furnace"
+    ],
+    [
+     29,
+     74,
+     856,
+     "blue_bed"
+    ],
+    [
+     31,
+     74,
+     856,
+     "furnace"
+    ],
+    [
+     40,
+     73,
+     856,
+     "white_bed"
+    ],
+    [
+     40,
+     73,
+     857,
+     "white_bed"
+    ],
+    [
+     0,
+     67,
+     878,
+     "red_bed"
+    ],
+    [
+     0,
+     67,
+     879,
+     "red_bed"
+    ],
+    [
+     13,
+     76,
+     867,
+     "blue_bed"
+    ],
+    [
+     15,
+     76,
+     867,
+     "furnace"
+    ],
+    [
+     13,
+     76,
+     868,
+     "blue_bed"
+    ],
+    [
+     15,
+     76,
+     868,
+     "furnace"
+    ],
+    [
+     26,
+     75,
+     870,
+     "composter"
+    ],
+    [
+     30,
+     77,
+     878,
+     "blue_bed"
+    ],
+    [
+     30,
+     77,
+     879,
+     "blue_bed"
+    ],
+    [
+     32,
+     77,
+     879,
+     "furnace"
+    ],
+    [
+     49,
+     74,
+     870,
+     "white_bed"
+    ],
+    [
+     50,
+     74,
+     870,
+     "white_bed"
+    ],
+    [
+     47,
+     69,
+     898,
+     "lectern"
+    ],
+    [
+     45,
+     68,
+     917,
+     "smithing_table"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -54,
+    28
+   ],
+   "box": [
+    -940,
+    -46,
+    387,
+    -787,
+    -25,
+    540
+   ],
+   "pieces": 176,
+   "dist": 864
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    -12,
+    -55
+   ],
+   "box": [
+    -203,
+    50,
+    -869,
+    -176,
+    58,
+    -861
+   ],
+   "pieces": 1,
+   "dist": 865
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    54,
+    28
+   ],
+   "box": [
+    811,
+    -20,
+    396,
+    920,
+    -2,
+    506
+   ],
+   "pieces": 67,
+   "dist": 866
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    54,
+    -4
+   ],
+   "box": [
+    795,
+    -1,
+    -156,
+    945,
+    24,
+    22
+   ],
+   "pieces": 164,
+   "dist": 870
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -6,
+    -55
+   ],
+   "box": [
+    -153,
+    17,
+    -961,
+    -45,
+    45,
+    -792
+   ],
+   "pieces": 164,
+   "dist": 876
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -54,
+    -4
+   ],
+   "box": [
+    -939,
+    -43,
+    -126,
+    -818,
+    -21,
+    -22
+   ],
+   "pieces": 139,
+   "dist": 878
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -21,
+    54
+   ],
+   "box": [
+    -396,
+    -57,
+    804,
+    -268,
+    -40,
+    956
+   ],
+   "pieces": 125,
+   "dist": 880
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -56,
+    3
+   ],
+   "box": [
+    -934,
+    -12,
+    -23,
+    -829,
+    15,
+    106
+   ],
+   "pieces": 87,
+   "dist": 882
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    6,
+    55
+   ],
+   "box": [
+    42,
+    10,
+    793,
+    160,
+    32,
+    977
+   ],
+   "pieces": 105,
+   "dist": 885
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    54,
+    5
+   ],
+   "box": [
+    835,
+    -37,
+    -7,
+    945,
+    3,
+    128
+   ],
+   "pieces": 317,
+   "dist": 890
+  },
+  {
+   "structure": "minecraft:ruined_portal_ocean",
+   "chunk": [
+    3,
+    -56
+   ],
+   "box": [
+    48,
+    46,
+    -896,
+    56,
+    57,
+    -888
+   ],
+   "pieces": 1,
+   "dist": 892
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    4,
+    -55
+   ],
+   "box": [
+    37,
+    25,
+    -951,
+    139,
+    52,
+    -834
+   ],
+   "pieces": 81,
+   "dist": 892
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    21,
+    54
+   ],
+   "box": [
+    279,
+    -58,
+    823,
+    402,
+    -45,
+    965
+   ],
+   "pieces": 108,
+   "dist": 894
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    -45,
+    -57
+   ],
+   "box": [
+    -716,
+    48,
+    -901,
+    -701,
+    56,
+    -893
+   ],
+   "pieces": 1,
+   "dist": 897
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    56,
+    3
+   ],
+   "box": [
+    833,
+    -12,
+    7,
+    964,
+    6,
+    131
+   ],
+   "pieces": 97,
+   "dist": 898
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    37,
+    -57
+   ],
+   "box": [
+    563,
+    -35,
+    -955,
+    655,
+    12,
+    -845
+   ],
+   "pieces": 298,
+   "dist": 900
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -57,
+    40
+   ],
+   "box": [
+    -960,
+    -28,
+    588,
+    -848,
+    -18,
+    675
+   ],
+   "pieces": 51,
+   "dist": 904
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    56,
+    -6
+   ],
+   "box": [
+    844,
+    -36,
+    -170,
+    968,
+    -6,
+    -34
+   ],
+   "pieces": 159,
+   "dist": 906
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -10,
+    -58
+   ],
+   "box": [
+    -203,
+    29,
+    -975,
+    -92,
+    47,
+    -845
+   ],
+   "pieces": 89,
+   "dist": 910
+  },
+  {
+   "structure": "minecraft:ruined_portal_ocean",
+   "chunk": [
+    56,
+    -57
+   ],
+   "box": [
+    894,
+    53,
+    -919,
+    909,
+    69,
+    -909
+   ],
+   "pieces": 1,
+   "dist": 914
+  },
+  {
+   "structure": "minecraft:shipwreck_beached",
+   "chunk": [
+    57,
+    -33
+   ],
+   "box": [
+    912,
+    61,
+    -525,
+    920,
+    69,
+    -498
+   ],
+   "pieces": 1,
+   "dist": 916
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    57,
+    -40
+   ],
+   "box": [
+    864,
+    -28,
+    -692,
+    976,
+    -18,
+    -605
+   ],
+   "pieces": 51,
+   "dist": 920
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    12,
+    -57
+   ],
+   "box": [
+    104,
+    1,
+    -1004,
+    283,
+    16,
+    -838
+   ],
+   "pieces": 157,
+   "dist": 921
+  },
+  {
+   "structure": "minecraft:village_snowy",
+   "chunk": [
+    -58,
+    -14
+   ],
+   "box": [
+    -1005,
+    63,
+    -248,
+    -846,
+    110,
+    -149
+   ],
+   "pieces": 147,
+   "dist": 926,
+   "markers": 3165,
+   "marker_counts": {
+    "dirt_path": 986,
+    "spruce_planks": 863,
+    "stripped_spruce_wood": 377,
+    "stripped_spruce_log": 293,
+    "spruce_slab": 186,
+    "snow_block": 90,
+    "spruce_fence": 74,
+    "spruce_stairs": 63,
+    "farmland": 37,
+    "lantern": 30,
+    "potatoes": 27,
+    "glass_pane": 26
+   },
+   "houses": 13,
+   "lowest_block": 63,
+   "zone": "village-snowy--58_-14",
+   "special": [
+    [
+     -995,
+     68,
+     -239,
+     "furnace"
+    ],
+    [
+     -993,
+     68,
+     -239,
+     "blue_bed"
+    ],
+    [
+     -995,
+     68,
+     -238,
+     "furnace"
+    ],
+    [
+     -993,
+     68,
+     -238,
+     "blue_bed"
+    ],
+    [
+     -947,
+     85,
+     -234,
+     "smithing_table"
+    ],
+    [
+     -925,
+     87,
+     -227,
+     "bell"
+    ],
+    [
+     -950,
+     85,
+     -220,
+     "composter"
+    ],
+    [
+     -916,
+     90,
+     -215,
+     "lectern"
+    ],
+    [
+     -903,
+     87,
+     -218,
+     "furnace"
+    ],
+    [
+     -901,
+     87,
+     -218,
+     "chest"
+    ],
+    [
+     -902,
+     87,
+     -216,
+     "blue_bed"
+    ],
+    [
+     -901,
+     87,
+     -216,
+     "blue_bed"
+    ],
+    [
+     -864,
+     70,
+     -219,
+     "fletching_table"
+    ],
+    [
+     -918,
+     91,
+     -199,
+     "smithing_table"
+    ],
+    [
+     -939,
+     94,
+     -189,
+     "furnace"
+    ],
+    [
+     -937,
+     94,
+     -189,
+     "blue_bed"
+    ],
+    [
+     -937,
+     94,
+     -188,
+     "blue_bed"
+    ],
+    [
+     -926,
+     96,
+     -188,
+     "composter"
+    ],
+    [
+     -921,
+     96,
+     -177,
+     "white_bed"
+    ],
+    [
+     -920,
+     96,
+     -177,
+     "white_bed"
+    ],
+    [
+     -931,
+     97,
+     -167,
+     "smoker"
+    ],
+    [
+     -917,
+     98,
+     -159,
+     "furnace"
+    ],
+    [
+     -919,
+     98,
+     -157,
+     "stonecutter"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -57,
+    15
+   ],
+   "box": [
+    -1005,
+    -39,
+    155,
+    -847,
+    -11,
+    326
+   ],
+   "pieces": 147,
+   "dist": 926
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -52,
+    -57
+   ],
+   "box": [
+    -875,
+    -5,
+    -993,
+    -743,
+    20,
+    -862
+   ],
+   "pieces": 175,
+   "dist": 928
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    58,
+    10
+   ],
+   "box": [
+    917,
+    71,
+    171,
+    944,
+    79,
+    179
+   ],
+   "pieces": 1,
+   "dist": 930
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    57,
+    -15
+   ],
+   "box": [
+    856,
+    -39,
+    -300,
+    1009,
+    -23,
+    -191
+   ],
+   "pieces": 104,
+   "dist": 932
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -12,
+    57
+   ],
+   "box": [
+    -232,
+    26,
+    858,
+    -106,
+    51,
+    1008
+   ],
+   "pieces": 129,
+   "dist": 933
+  },
+  {
+   "structure": "minecraft:village_snowy",
+   "chunk": [
+    59,
+    -30
+   ],
+   "box": [
+    876,
+    62,
+    -516,
+    993,
+    77,
+    -427
+   ],
+   "pieces": 127,
+   "dist": 934,
+   "markers": 3919,
+   "marker_counts": {
+    "spruce_planks": 1024,
+    "stripped_spruce_log": 697,
+    "dirt_path": 655,
+    "stripped_spruce_wood": 377,
+    "spruce_slab": 284,
+    "snow_block": 217,
+    "spruce_fence": 210,
+    "spruce_stairs": 116,
+    "lantern": 46,
+    "spruce_door": 40,
+    "farmland": 37,
+    "glass_pane": 35
+   },
+   "houses": 23,
+   "lowest_block": 62,
+   "zone": "village-snowy-59_-30",
+   "special": [
+    [
+     917,
+     70,
+     -506,
+     "chest"
+    ],
+    [
+     919,
+     70,
+     -506,
+     "blue_bed"
+    ],
+    [
+     919,
+     70,
+     -505,
+     "blue_bed"
+    ],
+    [
+     917,
+     70,
+     -504,
+     "furnace"
+    ],
+    [
+     931,
+     69,
+     -507,
+     "smithing_table"
+    ],
+    [
+     956,
+     68,
+     -505,
+     "composter"
+    ],
+    [
+     964,
+     65,
+     -507,
+     "smoker"
+    ],
+    [
+     971,
+     65,
+     -497,
+     "furnace"
+    ],
+    [
+     976,
+     65,
+     -507,
+     "furnace"
+    ],
+    [
+     978,
+     65,
+     -507,
+     "blue_bed"
+    ],
+    [
+     978,
+     65,
+     -506,
+     "blue_bed"
+    ],
+    [
+     885,
+     69,
+     -483,
+     "red_bed"
+    ],
+    [
+     887,
+     69,
+     -483,
+     "chest"
+    ],
+    [
+     885,
+     69,
+     -482,
+     "red_bed"
+    ],
+    [
+     917,
+     70,
+     -483,
+     "blast_furnace"
+    ],
+    [
+     955,
+     65,
+     -483,
+     "red_bed"
+    ],
+    [
+     957,
+     65,
+     -483,
+     "chest"
+    ],
+    [
+     948,
+     65,
+     -482,
+     "white_bed"
+    ],
+    [
+     955,
+     65,
+     -482,
+     "red_bed"
+    ],
+    [
+     948,
+     65,
+     -481,
+     "white_bed"
+    ],
+    [
+     970,
+     65,
+     -495,
+     "white_bed"
+    ],
+    [
+     971,
+     65,
+     -495,
+     "white_bed"
+    ],
+    [
+     973,
+     68,
+     -484,
+     "white_bed"
+    ],
+    [
+     974,
+     68,
+     -484,
+     "white_bed"
+    ],
+    [
+     893,
+     69,
+     -473,
+     "white_bed"
+    ],
+    [
+     893,
+     69,
+     -472,
+     "white_bed"
+    ],
+    [
+     941,
+     66,
+     -477,
+     "bell"
+    ],
+    [
+     929,
+     69,
+     -469,
+     "fletching_table"
+    ],
+    [
+     945,
+     64,
+     -468,
+     "blue_bed"
+    ],
+    [
+     946,
+     64,
+     -468,
+     "blue_bed"
+    ],
+    [
+     920,
+     69,
+     -459,
+     "blue_bed"
+    ],
+    [
+     922,
+     69,
+     -459,
+     "furnace"
+    ],
+    [
+     920,
+     69,
+     -458,
+     "blue_bed"
+    ],
+    [
+     922,
+     69,
+     -458,
+     "furnace"
+    ],
+    [
+     923,
+     70,
+     -449,
+     "chest"
+    ],
+    [
+     924,
+     70,
+     -449,
+     "cartography_table"
+    ],
+    [
+     945,
+     64,
+     -462,
+     "red_bed"
+    ],
+    [
+     946,
+     64,
+     -462,
+     "red_bed"
+    ],
+    [
+     946,
+     67,
+     -462,
+     "furnace"
+    ],
+    [
+     964,
+     68,
+     -453,
+     "cartography_table"
+    ],
+    [
+     964,
+     68,
+     -452,
+     "chest"
+    ],
+    [
+     932,
+     69,
+     -447,
+     "composter"
+    ],
+    [
+     958,
+     68,
+     -440,
+     "fletching_table"
+    ]
+   ]
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    48,
+    -59
+   ],
+   "box": [
+    711,
+    26,
+    -1021,
+    838,
+    50,
+    -848
+   ],
+   "pieces": 179,
+   "dist": 934
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    -59,
+    -29
+   ],
+   "box": [
+    -992,
+    -42,
+    -475,
+    -898,
+    13,
+    -384
+   ],
+   "pieces": 193,
+   "dist": 945
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    28,
+    -59
+   ],
+   "box": [
+    393,
+    -60,
+    -1033,
+    546,
+    -40,
+    -862
+   ],
+   "pieces": 160,
+   "dist": 948
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    59,
+    -54
+   ],
+   "box": [
+    946,
+    -36,
+    -862,
+    955,
+    -32,
+    -852
+   ],
+   "pieces": 1,
+   "dist": 950
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -59,
+    54
+   ],
+   "box": [
+    -1022,
+    7,
+    796,
+    -891,
+    28,
+    962
+   ],
+   "pieces": 167,
+   "dist": 956
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    60,
+    28
+   ],
+   "box": [
+    955,
+    37,
+    442,
+    960,
+    43,
+    448
+   ],
+   "pieces": 3,
+   "dist": 958
+  },
+  {
+   "structure": "minecraft:ruined_portal_ocean",
+   "chunk": [
+    60,
+    8
+   ],
+   "box": [
+    960,
+    57,
+    136,
+    968,
+    68,
+    144
+   ],
+   "pieces": 1,
+   "dist": 964
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -62,
+    -7
+   ],
+   "box": [
+    -1006,
+    -28,
+    -166,
+    -929,
+    -16,
+    -68
+   ],
+   "pieces": 44,
+   "dist": 968
+  },
+  {
+   "structure": "minecraft:ocean_ruin_cold",
+   "chunk": [
+    61,
+    41
+   ],
+   "box": [
+    976,
+    21,
+    651,
+    982,
+    27,
+    656
+   ],
+   "pieces": 3,
+   "dist": 979
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -14,
+    63
+   ],
+   "box": [
+    -273,
+    12,
+    928,
+    -176,
+    37,
+    1059
+   ],
+   "pieces": 108,
+   "dist": 994
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    -62,
+    -63
+   ],
+   "box": [
+    -1041,
+    27,
+    -1070,
+    -910,
+    50,
+    -921
+   ],
+   "pieces": 95,
+   "dist": 996
+  },
+  {
+   "structure": "minecraft:shipwreck",
+   "chunk": [
+    62,
+    -20
+   ],
+   "box": [
+    984,
+    55,
+    -309,
+    1011,
+    63,
+    -301
+   ],
+   "pieces": 1,
+   "dist": 998
+  },
+  {
+   "structure": "minecraft:trial_chambers",
+   "chunk": [
+    3,
+    -62
+   ],
+   "box": [
+    38,
+    -42,
+    -1050,
+    129,
+    5,
+    -949
+   ],
+   "pieces": 240,
+   "dist": 1000
+  },
+  {
+   "structure": "minecraft:mineshaft",
+   "chunk": [
+    62,
+    7
+   ],
+   "box": [
+    946,
+    5,
+    34,
+    1053,
+    31,
+    194
+   ],
+   "pieces": 118,
+   "dist": 1000
+  }
+ ]
+}
