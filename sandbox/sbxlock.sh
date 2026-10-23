@@ -19,12 +19,29 @@
 #
 # Runs locally on the lock host (or with SBXLOCK_LOCAL=1, which the tests use with LOCK_ROOT=<tmpdir>); from anywhere
 # else it re-runs itself there over ssh.
+#
+# ADVENTURE MARKERS (2026-10-23, lavastep-01): a driver that sets a server's DEFAULT game mode to adventure (new players
+# then cannot dig or place) first writes a marker to $HOME/mcai-sandbox-mode/<server>/<run> on this host -- not /tmp, so
+# an outage does not erase it -- and removes it when it restores survival. `take` and `status` print a WARNING for every
+# marker: a sandbox silently left in adventure makes every later harness's digs read as zero. To clear one by hand:
+# RCON `defaultgamemode survival` on that server, then delete the marker.
 set -euo pipefail
 NAMES="sandbox sandbox2 sandbox3 sandbox4 sandbox5 sandbox6 sandbox7 sandbox8"   # == sandbox/sandboxes.json (tested)
 if [[ -z "${SBXLOCK_LOCAL:-}" && "$(hostname)" != block2-bots ]]; then
   exec ssh -o BatchMode=yes "${SBXLOCK_HOST:-mike@10.0.0.31}" "SBXLOCK_LOCAL=1 bash -s -- $(printf '%q ' "$@")" < "${BASH_SOURCE[0]}"
 fi
 R="${LOCK_ROOT:-/tmp}"; G="$R/mcai-sandbox.lock"
+if [[ -n "${SBXLOCK_MODE_ROOT:-}" ]]; then MR="$SBXLOCK_MODE_ROOT"; elif [[ -n "${LOCK_ROOT:-}" ]]; then MR="$LOCK_ROOT/mcai-sandbox-mode"; else MR="$HOME/mcai-sandbox-mode"; fi
+mode_warn() {   # mode_warn <server|all>: one WARNING per adventure marker
+  local n f
+  for n in $NAMES; do
+    [[ "$1" == all || "$1" == "$n" ]] || continue
+    for f in "$MR/$n"/*; do
+      [[ -f "$f" ]] && echo "WARNING: $n's default game mode may be ADVENTURE (new players cannot dig or place): $f: $(head -c 300 "$f" | tr '\n' ' ')"
+    done
+  done
+  return 0
+}
 M="$R/mcai-sandbox.lock-mutex"
 mutex() {
   local i; for i in $(seq 1 "${SBXLOCK_MUTEX_TRIES:-100}"); do
@@ -63,7 +80,8 @@ case "$CMD" in
       rm -f "$T/owner"; rmdir "$T" || echo "STUCK: could not back out of $T (it now has NO owner file and blocks everyone); remove it by hand"
       echo "REFUSED (backed out of $T): held by $conflict"; exit 1
     fi
-    echo "TAKEN $T: $(owner_of "$T")" ;;
+    echo "TAKEN $T: $(owner_of "$T")"
+    mode_warn "$S" ;;
   release)
     S="${1:?server|all}"; TAG="${2:?tag}"; T="$(target_of "$S")"; mutex
     [[ -d "$T" ]] || { echo "NOT HELD $T"; exit 1; }
@@ -81,6 +99,7 @@ case "$CMD" in
     for T in "$G" $(for n in $NAMES; do echo "$G.$n"; done); do
       [[ -d "$T" ]] && { echo "HELD $T: $(owner_of "$T")"; any=1; }
     done
-    [[ "$any" == 1 ]] || echo "all sandbox locks free" ;;
+    [[ "$any" == 1 ]] || echo "all sandbox locks free"
+    mode_warn all ;;
   *) echo "usage: $0 take <server|all> <tag> [note] | release <server|all> <tag> | status"; exit 2 ;;
 esac

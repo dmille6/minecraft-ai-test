@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r4 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r5 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
@@ -18,12 +18,37 @@
 // the bot is moved into the box the moment it appears in `list` (before its cognitive loop starts, 5 s after spawn), and its
 // respawn point is set inside the box (the staging pad), so a death respawns it there too.
 // BEFORE THE TELEPORT THE BOT CANNOT EDIT ANYTHING (driver review r3, Codex P1: its reflexes start at spawn, before the
-// cognitive loop): every trial bot is a NEW player (a per-run nonce in its name) and joins in ADVENTURE mode, which the
-// server enforces (no block breaking or placing). The queue script sets `defaultgamemode adventure` while none of its bots is
-// online, and restores survival after both drivers have exited; this driver never changes it (a change while the other
-// slot's bot is mid-trial could flip that bot under force-gamemode). The joined bot's mode is READ BACK in the same round
-// trip as the teleport into the box: anything but adventure, or staging later than 5 s after the join was seen, makes the
-// trial INVALID. Only once it is in the box does it get `gamemode survival`.
+// cognitive loop): every trial bot is a NEW player and joins in ADVENTURE mode, which the server enforces (no block breaking
+// or placing). THIS DRIVER OWNS THAT SAFEGUARD (driver review r4, Codex P1: standalone runs must be safe too):
+//   - names are `ls` + an 8-character random run id + the trial number (36^8 ids: never a returning player);
+//   - every launch happens inside a per-server MUTEX shared by the drivers on this host (<tmp>/lavastep-mode-<server>.mutex),
+//     right after `defaultgamemode adventure` is sent and its reply confirmed: the bot is launched only behind a confirmed
+//     server-side safeguard; the mutex is held until the bot is in the box and set to survival, so no other driver's
+//     restore can land between the confirmation and the join;
+//   - the joined mode is READ BACK in the same round trip as the teleport into the box: anything but adventure, or staging
+//     later than 5 s after the join was seen, makes the trial INVALID;
+//   - FORCE-GAMEMODE PROBE, every trial: with its own bot staged in survival (still inside the mutex), the driver re-sends
+//     `defaultgamemode adventure` and reads its bot's mode back: still survival proves the server does not force modes
+//     onto online players, so a launch by the other slot's driver cannot flip this bot mid-trial; a flip STOPS THE RUN
+//     (FATAL). Each trial also reads its bot's mode at the end of the observation: anything but survival is INVALID;
+//   - a bot that joins in any mode but adventure ENDS THE RUN (FATAL; Claude r4 P2-2): at most one bot is ever exposed;
+//   - REBOOT-SURVIVING MARKER (Claude r4 P2-3: a sandbox silently left in adventure makes every later harness's digs read
+//     zero): before its first `defaultgamemode adventure`, the driver writes `adventure since <T> host= pid= run=` to
+//     ~/mcai-sandbox-mode/<server>/<run id> on the LOCK host (10.0.0.31; not /tmp, so an outage does not erase it), and
+//     `sandbox/sbxlock.sh take|status` print a WARNING for every marker there. Survival is restored only by the LAST driver
+//     to leave the server: under the mutex it removes its own marker, sweeps STALE ones (this host, pid gone), and restores
+//     only when no marker is left (confirmed by the reply; a failure makes the exit status 3). At STARTUP the driver sweeps
+//     stale markers too and, if it found any and none is live, restores survival at once and says so;
+//   - an ATOMIC ARENA CLAIM (Claude r4 P2-1: two runs of one scene and slot could both pass the forceload check, and the
+//     loser's cleanup would restore over the winner's live box): mkdir ~/mcai-sandbox-mode/arenas/<server>-<x>-<z> on the
+//     lock host, owner `host= pid= run=`; a held claim refuses the run before ANY world change (a stale one, this host and
+//     pid gone, is swept); released at the end only when it is still this run's;
+//   - a trial is INVALID if the build logged a successful dig/place/harvest/pillar/scaffold action before its bot was set
+//     to survival (Claude r4 P3-4: residual (i) measured, not argued).
+// Residuals (disclosed): an adventure-mode bot can still use doors, buttons and chests at world spawn for the ~70 ms
+// before the teleport (its inventory is empty, its cognitive loop not started; the reflex layer has no block-use calls);
+// the launch mutex is per host (markers and claims are on the lock host); markers from another host are never swept,
+// only reported (and they hold the default at adventure until removed by hand).
 // WHAT IS SYNTHETIC, said so in every result row: the arena (a stone plain in a barrier box, the scene's lava/magma/campfire set
 // by RCON); the bot is staged on a dry stone pad in the box (a fresh bot is not burning; that is read back), healed
 // (instant_health + saturation), given its bag, then teleported to the scene's start pose. (r1/r2 rested it in a sunk 1x1
@@ -57,7 +82,7 @@
 //     magma     S4  a magma floor block in the plain
 //     fall      S5  falling 3 blocks past the edge of a 1-deep lava lake, facing into it
 //     campfire  S6  a campfire underfoot
-//     busy      S7  the S1 pool with the bot released while its `goto` to a point beside an iron ore across the pool runs
+//     busy      S7  the S1 pool with the bot released while an AWAY-directed `goto` (to an iron ore in the far corner) runs
 //   env LS_BAG=cobble|none (default cobble); LS_YAW=cycle (trial k faces the scene yaw + 45 deg x (k mod 8); trials must be a
 //   multiple of 8); LS_SLOT=0|1 (an arena offset, so two arms run side by side on one server); LS_OUT (default $TMPDIR/lavastep-e2e)
 // Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `lavastep` as its owner's first word;
@@ -94,7 +119,8 @@ fs.mkdirSync(OUT, { recursive: true })
 const RES = `${OUT}/results.jsonl`
 const TRIALS_FILE = `${OUT}/trials.jsonl`
 const RUN = fs.mkdtempSync(path.join(OUT, `${LABEL}-${SCENE}-`))
-const NONCE = crypto.randomBytes(2).readUInt16BE(0).toString(36).padStart(2, '0').slice(-2)
+// 8 base-36 characters from 6 random bytes (driver review r4, Codex P2: two characters gave only 1,296 run ids)
+const NONCE = BigInt('0x' + crypto.randomBytes(6).toString('hex')).toString(36).padStart(8, '0').slice(-8)
 const T0 = Date.now()
 const P_ = (...a) => { const s = `[${LABEL}/${SCENE}/${SERVER} ${((Date.now() - T0) / 1000).toFixed(1)}] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' '); fs.appendFileSync(`${OUT}/driver.log`, s + '\n'); console.log(s) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -151,7 +177,7 @@ function batch (cmds) {
 const DATA = /has the following entity data: (.*)$/s
 const dataOf = r => { const m = DATA.exec(r?.reply ?? ''); return m ? m[1] : null }
 const scoreOf = r => { const t = r?.reply ?? ''; const m = /has (\d+) \[/.exec(t); return m ? +m[1] : /none is set/.test(t) ? 0 : null }
-const OBJ = `ls${NONCE}${SERVER.slice(-1)}${SLOT}d`
+const OBJ = `ls${NONCE}d`
 /** One COMPLETE observation: position, health, fire ticks, deaths; `ok` only when all four replies parse. */
 function probe (name) {
   let rs
@@ -205,6 +231,73 @@ const OWN = `x=${A.x - R},y=${A.y - 8},z=${A.z - R},dx=${2 * R},dy=20,dz=${2 * R
 const inBox = p => Math.abs(p.x - (A.x + 0.5)) <= R + 0.5 && Math.abs(p.z - (A.z + 0.5)) <= R + 0.5 && p.y >= A.y - 8 && p.y <= A.y + 13
 // non-player entities (the bag a dead bot dropped) in the owned volume
 const killCmd = `kill @e[type=!player,${OWN}]`
+// ---------------------------------------------------------------- the join safeguard: the server's default game mode
+const MUTEX = path.join(os.tmpdir(), `lavastep-mode-${SERVER}.mutex`)   // the launch mutex (per host)
+const alive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e.code === 'EPERM' } }
+async function withMutex (fn) {
+  const until = Date.now() + 180_000
+  for (;;) {
+    try { fs.mkdirSync(MUTEX); fs.writeFileSync(path.join(MUTEX, 'pid'), String(process.pid)); break } catch (e) {
+      if (e.code !== 'EEXIST') throw e
+      let holder = null; try { holder = Number(fs.readFileSync(path.join(MUTEX, 'pid'), 'utf8')) } catch {}
+      // a holder that died (or never wrote its pid within 5 s) is broken; anything else is waited for
+      let age = 0; try { age = Date.now() - fs.statSync(MUTEX).mtimeMs } catch {}
+      if ((holder && !alive(holder)) || (!holder && age > 5000)) { try { fs.rmSync(MUTEX, { recursive: true, force: true }) } catch {} continue }
+      if (Date.now() > until) throw new Error(`the mode mutex ${MUTEX} is held by ${holder}`)
+      await sleep(100)
+    }
+  }
+  try { return await fn() } finally { try { fs.rmSync(MUTEX, { recursive: true, force: true }) } catch {} }
+}
+// the LOCK host (10.0.0.31) keeps the reboot-surviving state: adventure markers and arena claims under ~/mcai-sandbox-mode
+const LH = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'mike@10.0.0.31']
+const lh = script => execFileSync('ssh', [...LH, 'bash -s'], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 30000 })
+const HOSTNAME = os.hostname().replace(/[^A-Za-z0-9._-]/g, '_')
+const OWNER = `host=${HOSTNAME} pid=${process.pid} run=${NONCE}`
+const MROOT = '"$HOME/mcai-sandbox-mode"'
+const MDIR = `${MROOT}/${SERVER}`
+const ARENA = `${MROOT}/arenas/${SERVER}-${A.x}-${A.z}`
+const staleOwner = text => { const h = /host=(\S+)/.exec(text)?.[1], p = Number(/pid=(\d+)/.exec(text)?.[1]); return h === HOSTNAME && p > 0 && p !== process.pid && !alive(p) }
+function markers () {
+  const out = lh(`mkdir -p ${MDIR}; for f in ${MDIR}/*; do [ -f "$f" ] || continue; printf '%s\\t%s\\n' "$(basename "$f")" "$(head -c 300 "$f" | tr '\\n\\t' '  ')"; done; echo END`)
+  if (!/(^|\n)END\n?$/.test(out)) throw new Error('markers: no END line from the lock host')
+  return out.split('\n').filter(l => l && l !== 'END').map(l => { const [name, text = ''] = l.split('\t'); return { name, text } })
+}
+const rmMarker = name => { if (!/^[a-z0-9]+$/.test(name)) throw new Error(`marker name ${name}`); lh(`rm -f ${MDIR}/${name}; [ ! -e ${MDIR}/${name} ] && echo GONE`) }
+/** Sweep stale markers (this host, pid gone); -> the markers still standing (live, or another host's), our own excluded. */
+function sweepMarkers () {
+  const left = []
+  for (const m of markers()) {
+    if (m.name === NONCE) continue
+    if (staleOwner(m.text)) { P_(`WARNING: stale adventure marker swept: ${SERVER}/${m.name}: ${m.text}`); rmMarker(m.name) } else left.push(m)
+  }
+  return left
+}
+let registered = false
+function register () {
+  registered = true      // marked BEFORE the write: a lost acknowledgement still gets a removal attempt
+  const out = lh(`mkdir -p ${MDIR}; printf '%s\\n' 'adventure since ${new Date().toISOString()} by lavastep-e2e ${OWNER}' > ${MDIR}/${NONCE}; cat ${MDIR}/${NONCE}`)
+  if (!out.includes(OWNER)) throw new Error(`marker not written: ${out.slice(0, 120)}`)
+}
+let arenaClaimed = false
+function claimArena () {
+  for (let t = 0; t < 2; t++) {
+    const out = lh(`mkdir -p ${MROOT}/arenas; if mkdir ${ARENA} 2>/dev/null; then printf '%s\\n' '${OWNER} scene=${SCENE} slot=${SLOT} since ${new Date().toISOString()}' > ${ARENA}/owner; echo CLAIMED; else echo "HELD $(cat ${ARENA}/owner 2>/dev/null || echo '(no owner)')"; fi`).trim()
+    if (out === 'CLAIMED') { arenaClaimed = true; return }
+    if (t === 0 && staleOwner(out)) { P_(`WARNING: stale arena claim swept: ${out}`); lh(`rm -f ${ARENA}/owner; rmdir ${ARENA}`); continue }
+    throw new Error(`arena ${SERVER} ${A.x},${A.z} is claimed: ${out}`)
+  }
+}
+function releaseArena () {
+  const out = lh(`if grep -q 'run=${NONCE} ' ${ARENA}/owner 2>/dev/null; then rm -f ${ARENA}/owner; rmdir ${ARENA}; fi; [ -e ${ARENA} ] && echo "STILL $(cat ${ARENA}/owner 2>/dev/null)" || echo GONE`).trim()
+  if (out !== 'GONE') throw new Error(`arena claim: ${out}`)
+}
+function setDefault (m) {
+  const want = m === 'adventure' ? 'Adventure' : 'Survival'
+  const t = r1(`defaultgamemode ${m}`)
+  if (t !== `The default game mode is now ${want} Mode`) throw new Error(`defaultgamemode ${m}: ${t || '(no reply)'}`)
+}
+class Fatal extends Error {}
 // the closed barrier box, then the stone plain and the air inside it
 const boxCmds = () => [f(-R, R, -8, 12, -R, R, 'barrier'), f(-R + 1, R - 1, -7, -1, -R + 1, R - 1, 'stone'), f(-R + 1, R - 1, 0, 11, -R + 1, R - 1, 'air')]
 // the driver's OWN plain, restored at the end (stone below the feet level, air above; no barrier left)
@@ -268,8 +361,8 @@ function track (child, label) {
   child.on('exit', () => procs.delete(child))
   return child
 }
-const prefix = `ls${LABEL}${SCENE.slice(0, 2)}${SERVER.slice(-1)}${SLOT}${NONCE}`
-if (prefix.length > 14) throw new Error(`bot name prefix ${prefix} too long`)
+const prefix = `ls${NONCE}`        // the label, scene, server and slot are in the run's directory and every row, not the name
+if (prefix.length !== 10) throw new Error(`bot name prefix ${prefix} is not 10 characters`)
 const nameFor = k => `${prefix}${k}`
 function launch (k) {
   if (stopping) throw new Error('stopping: no bot is launched once the cleanup has begun')
@@ -330,27 +423,40 @@ async function trial (k) {
   const invalid = (why, extra = {}) => { P_('INVALID', { trial: k, why }); return { trial: k, invalid: why, ...extra } }
   try { buildArena() } catch (e) { return invalid(`arena: ${e.message}`) }
   brain.mode = 'status'; brain.gotoServedAt = null
-  const b = launch(k)
+  let b = null, tSurvival = null
   try {
-    // STAGE: into the box the moment the bot appears, its respawn point there too
-    let joined = false
-    for (let w = 0; w < 160; w++) { await sleep(250); if (online().includes(b.name)) { joined = true; break } if (b.child.exitCode !== null) break }
-    if (!joined) return invalid('the bot did not join')
-    const tJoin = Date.now()
+    // LAUNCH behind a confirmed server-side safeguard, and STAGE, all inside the per-server mode mutex
+    const st = await withMutex(async () => {
+      setDefault('adventure')
+      b = launch(k)
+      let joined = false
+      for (let w = 0; w < 160; w++) { await sleep(250); if (online().includes(b.name)) { joined = true; break } if (b.child.exitCode !== null) break }
+      if (!joined) return { bad: 'the bot did not join' }
+      const tJoin = Date.now()
     // the joined mode is read in the SAME round trip as the teleport into the box
     const stg = [`data get entity ${b.name} playerGameType`, `tp ${b.name} ${REST.x + 0.5} ${REST.y} ${REST.z + 0.5}`, `spawnpoint ${b.name} ${REST.x} ${REST.y} ${REST.z}`]
-    const stgr = rcon(...stg)
-    if (stgr.length !== 3 || stgr.some((x, i) => x.cmd !== stg[i])) return invalid('staging: replies do not match the commands')
-    const joinMode = dataOf(stgr[0])
-    if (joinMode !== '2') return invalid(`joined in mode ${joinMode}, not adventure: confinement before staging is not guaranteed`)
-    if (!/^Teleported /.test(stgr[1].reply) || !/^Set spawn point to/.test(stgr[2].reply)) return invalid(`staging: ${stgr[1].reply} | ${stgr[2].reply}`)
-    const joinToStagedMs = Date.now() - tJoin
-    if (joinToStagedMs > 5000) return invalid(`staging took ${joinToStagedMs} ms after the join was seen`)
-    const staged = probe(b.name)
-    if (!staged.ok || !inBox(staged.pos)) return invalid(`not staged: ${staged.why ?? JSON.stringify(staged.pos)}`)
-    batch([`gamemode survival ${b.name}`, `clear ${b.name}`])
-    const mode2 = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
-    if (mode2 !== '0') return invalid(`staged but mode ${mode2}, not survival`)
+      const stgr = rcon(...stg)
+      if (stgr.length !== 3 || stgr.some((x, i) => x.cmd !== stg[i])) return { bad: 'staging: replies do not match the commands' }
+      const joinMode = dataOf(stgr[0])
+      if (joinMode !== '2') throw new Fatal(`joined in mode ${joinMode}, not adventure: the join safeguard did not hold on ${SERVER}; stopping the run`)
+      if (!/^Teleported /.test(stgr[1].reply) || !/^Set spawn point to/.test(stgr[2].reply)) return { bad: `staging: ${stgr[1].reply} | ${stgr[2].reply}` }
+      const joinToStagedMs = Date.now() - tJoin
+      if (joinToStagedMs > 5000) return { bad: `staging took ${joinToStagedMs} ms after the join was seen` }
+      const staged = probe(b.name)
+      if (!staged.ok || !inBox(staged.pos)) return { bad: `not staged: ${staged.why ?? JSON.stringify(staged.pos)}` }
+      batch([`gamemode survival ${b.name}`, `clear ${b.name}`])
+      tSurvival = Date.now()
+      const mode2 = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
+      if (mode2 !== '0') return { bad: `staged but mode ${mode2}, not survival` }
+      // the FORCE-GAMEMODE PROBE: re-send the default with this bot online in survival; a flip means the server forces
+      // modes onto online players, so the other slot's launches could flip a bot mid-trial: stop the run
+      setDefault('adventure')
+      const mode3 = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
+      if (mode3 !== '0') { try { batch([`gamemode survival ${b.name}`]) } catch {} throw new Fatal(`force-gamemode: defaultgamemode flipped an online bot to mode ${mode3}; concurrent arms are unsafe on ${SERVER}`) }
+      return { tJoin, joinMode, joinToStagedMs }
+    })
+    if (st.bad) return invalid(st.bad)
+    const { tJoin, joinMode, joinToStagedMs } = st
     const servedAtJoin = brain.served
     for (let w = 0; w < 60 && brain.served === servedAtJoin; w++) await sleep(250)    // the cognitive loop is running
     if (brain.served === servedAtJoin) return invalid('no decision within 15 s of joining')
@@ -427,6 +533,10 @@ async function trial (k) {
       if (phase === 1 && !died && !out) censored = true
     }
     if (left) return invalid(`left arena alive at ${JSON.stringify(left)}`)
+    if (!died) {   // its mode at the end: still survival (nothing flipped it mid-trial)
+      const mEnd = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
+      if (mEnd !== '0') return invalid(`mode ${mEnd} at the end of the observation, not survival`)
+    }
     if (gaps > 0.1 * probes) return invalid(`observation gaps ${gaps}/${probes}`, { gaps, probes })
     // DEATH, AFFIRMED: the server's score, read again (respawn settled), against the build's row and health 0
     let score = null
@@ -438,6 +548,10 @@ async function trial (k) {
     const deathRow = rows.some(r => kind(r) === '_death')
     if (died !== (score > 0) || (score > 0) !== deathRow) return invalid(`death evidence disagrees: probe ${died} score ${score} row ${deathRow}`)
     if (!died && last == null) return invalid('no complete observation after the release')
+    // residual (i) MEASURED: no successful block action by the build before its bot was set to survival
+    const ACT = /dig|place|harvest|pillar|scaffold|tunnel/i
+    const early = all.filter(r => tsOf(r) < tSurvival && r.skill?.status === 'success' && ACT.test(kind(r)))
+    if (early.length) return invalid(`a block action before survival: ${early.map(kind).join(',')}`)
     if (censored) return invalid('censored: still burning 20 s after the window', { censored: true, minHp })
     const firstDanger = rows.filter(r => kind(r) === '_reflex_danger_block').map(tsOf).sort((a, c) => a - c)[0] ?? null
     const standOffFirst = rows.some(r => kind(r) === '_lava_adjacent_stand_off' && (firstDanger == null || tsOf(r) <= firstDanger))
@@ -449,6 +563,8 @@ async function trial (k) {
         tsOf(r) >= brain.gotoServedAt - 500 && tsOf(r) < t0 && tsOf(r) + (r.skill?.duration_ms ?? 0) >= t0)
       gotoSpan = spans.length > 0
       gotoDangerCut = spans.some(r => r.skill?.status !== 'success' && /danger_block/.test(`${r.trigger ?? ''} ${r.skill?.detail ?? ''}`))
+      // Claude r4 P3-1: a trial proven mid-goto before the release (busyPre) but with no span row is not quietly dropped
+      if (!gotoSpan) return invalid('busy: exposure unproven (no goto row spans the release)')
     }
     let endCell = null, endHazard = null
     if (!died) {
@@ -470,10 +586,10 @@ async function trial (k) {
     P_('TRIAL', res)
     return res
   } catch (e) {
-    if (/sandbox lock/i.test(e.message)) throw e
+    if (e instanceof Fatal || /sandbox lock/i.test(e.message)) throw e
     return invalid(`error: ${e.message.slice(0, 200)}`)
   } finally {
-    await retire(b)
+    if (b) await retire(b)
   }
 }
 
@@ -482,8 +598,17 @@ async function main () {
   for (let k = 0; k < 30 && online().some(n => n.startsWith(prefix)); k++) await sleep(2000)
   if (online().some(n => n.startsWith(prefix))) throw new Error('a bot of this run is still online: ' + online().join(','))
   P_(`root=${BOT_ROOT} sha=${sha} lavastep_build=${lavastepBuild} server=${SERVER} slot=${SLOT} scene=${SCENE} bag=${BAG} yaw=${YAW} trials=${TRIALS} secs=${SECS} arena=${A.x},${A.y},${A.z} nonce=${NONCE} objective=${OBJ}`)
-  // another run on this server and slot holds the same arena: refuse rather than share it
+  // the arena is CLAIMED atomically on the lock host before any world change; a forced chunk is refused too
+  claimArena()
   if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
+  // STARTUP: stale adventure markers (this host, pid gone) are swept; if any was found and none is live, survival now
+  await withMutex(async () => {
+    const before = markers().filter(m => m.name !== NONCE)
+    const left = sweepMarkers()
+    if (before.length && !left.length) { setDefault('survival'); P_(`WARNING: ${before.length} stale adventure marker(s) on ${SERVER}: survival restored at startup`) }
+    for (const m of left) P_(`note: adventure marker of another live driver on ${SERVER}: ${m.text}`)
+    register()
+  })
   setupBegan = true
   forceAdded = true      // marked BEFORE the add is sent: a lost acknowledgement must still get a removal
   batch([`forceload add ${A.x - R} ${A.z - R} ${A.x + R} ${A.z + R}`])
@@ -545,8 +670,19 @@ async function cleanupOnce () {
       const l = r1('scoreboard objectives list')
       if (!/^There are/.test(l) || l.includes(`[${OBJ}]`)) throw new Error(`objective still listed: ${l.slice(0, 120)}`)
     }) && ok
-    try { P_(ok ? 'cleanup ok' : 'cleanup INCOMPLETE', online().join(',')) } catch {}
   }
+  if (registered) {
+    // the LAST driver to leave the server restores survival as its default (under the mode mutex): its own marker goes,
+    // stale ones are swept, and survival is set only when no marker is left
+    ok = await step('default mode', () => withMutex(async () => {
+      rmMarker(NONCE)
+      const left = sweepMarkers()
+      if (left.length) { P_(`cleanup: default mode left to ${left.map(m => m.text).join(' | ')}`); return }
+      setDefault('survival')
+    })) && ok
+  }
+  if (arenaClaimed) ok = await step('arena claim', () => releaseArena()) && ok
+  if (setupBegan) { try { P_(ok ? 'cleanup ok' : 'cleanup INCOMPLETE', online().join(',')) } catch {} }
   // this process's SSH master: closed and verified gone (`-O check` fails once no master listens)
   const sshCtl = op => { try { execFileSync('ssh', [...SSH.slice(0, -1), '-O', op, SSH[SSH.length - 1]], { stdio: 'ignore', timeout: 10000 }); return true } catch { return false } }
   if (sshCtl('check')) { sshCtl('exit'); if (sshCtl('check')) { P_('cleanup: the SSH master is still running'); ok = false } }
