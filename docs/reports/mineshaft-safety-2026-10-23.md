@@ -1,4 +1,4 @@
-# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r4)
+# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r5)
 
 OWNER 2026-10-23 ~12:40Z: "mineshaft safety (lava + entombment underground) -> diamonds -> enchanting". Earlier
 owner decision (10-19): "diamond after mineshaft safety". The owner answered M7-M10 at ~13:30Z (section 8).
@@ -14,7 +14,16 @@ placebo-a at 12:17Z, during this measurement. Its read belongs to the operator l
 canary. The 7-day window does include those two pools, and their last 2 h of rows ran the canary build. indexsearch
 changes a town-index search and touches no movement or mining path. That is a judgement, not a measured exclusion.
 
-**r4** takes in the r3 reviews: Codex CHANGE (6 P1), Claude CHANGE (1 P1).
+**r5** takes in the r4 reviews (Codex: 3 P1, Claude: 1 P1).
+- A failed route recovery now ends the credit and the confinement, and today's exit chain runs.
+- `use_stair` runs only where a verified connection exists.
+- Branches carry a re-cut reserve instead of zero debt.
+- `corridorSafe`'s cache is invalidated by block updates over its full read footprint.
+- A mutation observer feeds G6.
+- An enclosed unsealable floor hands over after three firings that do not move the bot.
+- F1's composition table is corrected.
+
+**r4** took in the r3 reviews: Codex CHANGE (6 P1), Claude CHANGE (1 P1).
 - F1 owns the body: a priority runner reservation, a generation token, and air preemption.
 - F6's envelope refuses every mutation, survival included, with a `use_stair` rung.
 - Stair and branch clearance rules are separated.
@@ -242,8 +251,10 @@ await sleep(1500); bot.clearControlStates()
 
 **Episodes.** An episode is a run of rows on one bot no more than 30 s apart, split at **any** death (`d8.py`). A death
 counts against an episode if it falls between the episode's first row and 20 s after its last. An episode whose last
-row + 20 s runs past the window's end is right-censored and dropped. There were 0 such episodes. The counts are the
-same whether episodes split at every death or at lava deaths only.
+row + 20 s runs past the window's end is right-censored and dropped. There were 0 such episodes. Attribution stops at
+the first death of any class after the episode starts, so a later life's death is never credited to an earlier
+episode. The counts come out the same under every variant tried: splitting at every death or at lava deaths only,
+with attribution bounded or not.
 
 | First row | Episodes | Lava death in the episode window |
 |---|---|---|
@@ -809,12 +820,23 @@ and S3. The fleet's own rates (10% / 43%) are not reproduced, and are not claime
 |---|---|
 | keepout | No digs. A destination inside a fire column is allowed, and the row names it: leaving lava outranks the column. |
 | protectzone | Walks are not wrapped. The seal is a survival placement (exempt). |
-| poolescape and the homefix watchdog | Their routes are halted for the duration of the move, and their reservations run to their normal expiry. |
+| poolescape and the homefix watchdog | F1's `lavastep` reservation supersedes theirs, so their pending runs decline. While F1's is live, their `reserve()` is refused: watchdog's `gen` comes back null and its run declines `runner_reserved`, and poolescape's `renew()` already returns early for another owner (reflex.mjs:1546). They resume after F1 releases. |
 | minewell | No interaction. |
-| runner reservation | Not taken and not superseded. |
+| runner reservation | F1 takes `lavastep`, at most 6 s, and only it can hold one during the move (see Body control). |
 
-**Refusal chain.** Search → seal (`edge` only) → aimed escape. Each one either acts from where the bot is or hands
-over to the next, and the aimed escape always moves.
+**In-flight digs and places.** At the start, F1 calls `bot.stopDigging()`. While the gen is live, the shared `bot.dig`
+and `placeBlock` wrappers refuse any call that is not F1's own seal. That covers an unwinding `mine` dig.
+
+**The enclosed unsealable floor.** Magma or campfire under a bot walled in on every side gives no plan and no seal,
+and the aimed escape cannot move it. After **3 consecutive firings that moved the bot less than 0.5 block**:
+- F1 sneaks. Sneaking stops magma damage, and Paper confirms whether it stops campfire damage.
+- It marks the cell `danger_stuck` for 60 s. For that cell only, the danger arm stops interrupting and reserving, and
+  `inDanger` is relaxed. The ordinary escape arms (pillar, dig, ramp) then run under their own lava checks.
+- This is bounded, it is non-lethal in peaceful on magma, and it hands over to rungs that can move a walled bot. It
+  is chain-tested.
+
+**Refusal chain.** Search → seal (`edge` only) → aimed escape → (no movement three times) the stuck-cell handover to
+the ordinary escape arms. Each step acts from where the bot is or hands over to the next.
 
 The chain test runs every Paper scene through to the next decision. It asserts the bot ends:
 - on a safe cell;
@@ -1108,11 +1130,23 @@ rung, survival included. The exceptions:
 - `stairReturn` repairs, by a leaseholder.
 
 So that refusal is not a dead end, a new **rung 0, `use_stair`**, comes before every escape rung (entombed, marooned,
-stranded, wall, stuck). When the bot's feet are in or beside the envelope, the rung walks the up lane on the zero-break
-profile. It costs nothing, so it always wins.
+stranded, wall, stuck).
+- **It is offered only on a verified connection:** a zero-break path of ≤ 8 nodes from the bot's feet to a lane cell.
+  It then walks the up lane. That costs nothing, so it wins.
+- **With no connection** (a bot outside the shell, or in a pocket beside it), rung 0 is not offered. The normal rungs
+  run with every envelope cell **excluded from their plans**, not refused mid-plan, so each one re-plans in the
+  directions that remain.
+- A refusal row names the remedy "step away from the stair": walk or dig away from it, as protectzone's `zoneRemedy`
+  does.
+- Chain tests: a bot in an exterior pocket against the shell, and one wedged in a corner of the shell.
+- The evacuation profile used by `use_stair` and `stairReturn` has **its own exclusion arrays**, so the
+  non-leaseholder lane exclusion does not apply to it. That is the T10 lesson: `exclusionAreasStep` is shared by
+  reference.
 
-**Non-leaseholders** get a step exclusion of 1000 on the lane cells for every profile, as in T10, so they do not path
-through. A bot already inside one leaves through `use_stair`.
+**Non-leaseholders** get a step exclusion of 1000 on the lane **and branch** cells for every profile except the
+evacuation profile, as in T10, so they do not path through. A bot already inside one leaves through `use_stair`.
+
+Water in a lane is its own class in `obs` (W), not P.
 
 **Clearance rules.** Each certificate cell carries its rule.
 - **Stair cell:** feet, head and above passable; floor solid, non-falling and not DANGER.
@@ -1127,14 +1161,27 @@ zero-break, zero-place profile (no dig, no towers, no scaffold, no parkour, `max
 **Validation.**
 - **Before every dig, placement and move** a leaseholder makes, every route cell is re-read: about 940 cells, each
   classed S, P, D, U or F (solid, passable, DANGER, unloaded, falling).
-- **`corridorSafe` runs once per certificate generation**, and again on the segments whose cells changed class. That
-  is about 700 samples, around 40k reads, which is too many for every action.
+- **`corridorSafe` runs once per certificate generation.** A run is about 700 samples, around 40k reads, which is
+  too many for every action.
+  - Each run records its **full read footprint**: every cell it read, including the lateral `cellLavaSafe` cells and
+    the drop cells.
+  - A cell→segment index subscribes to mineflayer's `blockUpdate` and chunk-unload events.
+  - **Any** update or unload of a footprint cell marks its segments stale. Stale segments are recomputed before the
+    next credited action, and credit waits for them.
+  - Mutant: an unchanged route with lava added beside a segment, which Codex reproduced against the real
+    `corridorSafe`. G1 must see the segment marked stale and recomputed unsafe.
 
 **Credit.**
-- On a certified stair or branch cell, a leaseholder's debt is 0, plus the floor.
+- On a certified **stair** cell (lined, guarded, two lanes), a leaseholder's debt is 0, plus the floor.
+- On a certified **branch** cell (single lane, unlined), the debt is the **re-cut reserve**, on top of the floor: 2
+  swings and 1 block per branch cell between the bot and the junction. A blocked or damaged branch can therefore
+  always be re-cut back to the stair under F4's planner. Branches are at most 32 long, so at most 64 swings.
 - **Anywhere else** (off the route, after an F1 move), the debt is today's `63 − y`.
 
-**Floor.** 30 swings and 32 scaffold blocks, always kept. Repairs may spend at most 20 swings and 16 blocks of it.
+**Floor.** 30 swings and 32 scaffold blocks, always kept.
+- **One shared repair allowance per lease:** 20 swings and 16 blocks, across lane repairs **and** the off-route dig
+  back.
+- So at least 10 swings and 16 blocks always remain.
 
 **Exits.** Every exit of a leaseholder goes through `stairReturn`:
 - the lease ending;
@@ -1183,7 +1230,7 @@ zero-break, zero-place profile (no dig, no towers, no scaffold, no parkour, `max
 | G3 | a credited action with `swings_left` or `blocks_left` below the floor |
 | G4 | a credit without a lease, or with `on_route` false |
 | G5 (Paper) | at sampled credited actions, the sandbox driver pauses the bot and RCON-reads every route cell; the world must match that action's `obs` |
-| G6 | an envelope dig or place by anyone other than the builder or a leaseholder's repair (from the structure guard's refusal rows and keepout's `_mine_dig`) |
+| G6 | an envelope dig or place by anyone other than the builder or a leaseholder's repair. The evidence is a new **mutation observer** at the shared `bot.dig` / `placeBlock` boundary (index.mjs). It logs every **successful** mutation of an envelope or branch cell as `_envelope_mutation` (actor, skill or rung, purpose, cell, block before and after, lease gen), so a guard bypass is still seen. Mutants: a bypassed placement and a bypassed recovery dig, both must trip G6. |
 
 **What G1 does and does not cover.** On the fleet, G1 checks that each credited action had a full, conforming
 observation. Whether the observation matched the world is checked on Paper, by G5.
@@ -1199,7 +1246,7 @@ dig the envelope.
 | protectzone | the envelope is its own guarded structure kind |
 | minewell | siting avoids well shells |
 | homefix | a leaseholder below the top is not relocated; `stairReturn` runs instead |
-| runner reservation | `stairReturn` is a skill holding the `'stair'` claim. F1's `lavastep` reservation outranks it, and it resumes after F1 |
+| runner reservation | `stairReturn` is a skill holding the `'stair'` claim. F1's `lavastep` reservation outranks it. After F1, the lease has ended (section 8), and the cognitive order chain runs `stairReturn` deterministically as the next action, the way `#keepoutExitOrder` runs, not by model choice |
 | F5b | never excludes envelope cells |
 
 **Refusal chain.** Validation failure → walk up → repair → switch lanes → (the residual) the operator alarm. Every
@@ -1339,12 +1386,16 @@ The evidence argues for the cap. The interface needed from cooperation-1023 foll
 - A bot blocked for more than 20 s steps into the other lane.
 - An ascender has priority: a descender that meets one in its lane steps aside.
 
-**Confinement.** Below the stair top, a leaseholder runs only `deep_miner` and `stairReturn`. Any other skill (explore,
-goto, gather, mine) declines with `lease_confined`. The decline is added to the runner's non-counted declines, like
-`runner_reserved`.
+**Confinement.** Inside the stair area (within the stair's footprint and branches, below the top), a **certified**
+leaseholder runs only `deep_miner` and `stairReturn`. Any other skill (explore, goto, gather, mine) declines with
+`lease_confined`. The decline is added to the runner's non-counted declines, like `runner_reserved`.
+- Survival reflexes and F1 are not skills, and are never confined.
+- The next action after any confined decline is chosen by the cognitive order chain, not the model: `deep_miner` while
+  working, `stairReturn` when ascending. The bot never idles on declines.
 - So no model-chosen skill can take a leaseholder off the route, or below the −53 floor.
 - After an F1 move off-route, `deep_miner` first walks back to the nearest route cell on the zero-break profile.
-- **Gate:** 0 leaseholder actions off-route, except F1's own moves and that walk back.
+- **Gate:** 0 leaseholder actions off-route, except F1's own moves and the bounded recovery operations (the walk
+  back and the dig back). Those log `_deepmine_recover`, and the gate admits them.
 
 **Preconditions.** The assigner checks them, and the skill re-checks them at its start. A failure is a decline, not a
 counted failure.
@@ -1383,12 +1434,17 @@ counted failure.
 5. Phase `out`.
 
 **Off the route after an F1 move.**
-- F1 moves the bot at most 3 steps, or 6 blocks of sprint, and branches never open into caves. So the route is at most
-  about 6 blocks away.
-- The bot first walks back on the zero-break profile.
-- If that fails, it digs back to the nearest route cell under F4's planner, using up to 20 swings of the floor.
-- If that fails too, the same alarm is raised as for F6's residual (`_deepmine` `end=offroute_stranded`, in the
-  fleetstatus header). It is the same class of residual, owner question O11.
+- **The displacement is not bounded vertically.** Repeated firings, an `airborne` fall, or an aimed escape with partial
+  support can drop the bot into a cave below a branch.
+- **Recovery:**
+  1. Walk back on the zero-break profile.
+  2. If that fails, dig back to the nearest route cell under F4's planner, within the shared repair allowance.
+  3. **If that fails too, the credit and the confinement end at once.** The record goes to phase `uncertified`, which
+     still counts in the cap. The bot runs today's ordinary exit chain deterministically: today's contract at 63 − y,
+     `surface` and the stranded ladder, with its whole kit. That kit is the unspent branch budget, its seal blocks and
+     the floor.
+- **This is today's chain for any bot at depth, not a new dead end.** It is raised in the alarm header only if that
+  chain also ends in a give-up (`_deepmine end=uncertified_stranded`). That is owner question O12, separate from O11.
 
 **Rows.** `_deepmine`, per phase change: gen, steps, branch blocks, ores seen and mined by kind, seals, end reason,
 diamonds banked.
@@ -1593,11 +1649,22 @@ the reversible-step rule.
 - **Recommend yes.** A 1-wide shared stair needs a mutex with expiry and reconnect rules, and both reviewers found
   dead ends in that.
 
-**O11: the F6 residual.** If both lanes of the lined, guarded town stair are broken at the same height, beyond the
-repair allowance, a deep miner is stranded. The design makes that reachable only by an edit outside the bots, and
-raises it in the alarm header.
-- **Recommend accepting it,** since no design can make an arbitrary world edit recoverable.
-- The alternative is no deep tier.
+**O11: the F6 residual (both lanes).** If both lanes of the lined, guarded town stair are broken at the same height,
+beyond the repair allowance, a deep miner is stranded.
+- The design makes that reachable only by an edit outside the bots, and raises it in the alarm header.
+- Under "do not change the world", the person who sees the alarm can:
+  - retire the lease record;
+  - restart the bot's process;
+  - or, by the owner's own decision, use a server command on the bot (`/kill`, so it respawns).
+
+  They may not teleport it or edit the stair.
+- In peaceful, a stranded bot does not starve or get attacked. It waits.
+- **Recommend accepting the residual, with `/kill` as the owner's call.**
+
+**O12: off-route after F1 (bot-reachable).** If an F1 move drops a deep miner off its route, and both the walk back and
+the dig back fail, it falls back to today's exit chain at 63 − y. That is exactly where any bot that falls into a deep
+cave is today. **Recommend accepting it.** It is not a new dead end, and the alarm fires only if today's chain also
+gives up.
 
 **O10: what M7's "seal" will mostly look like.**
 - Lava that touches an open cell has usually flowed into it already. Lava behind stone is never opened into.

@@ -43,7 +43,10 @@ for e in eps:
     k = ('feet in a DANGER block' if e['d0'] in ('lava', 'magma_block', 'fire', 'soul_fire', 'campfire') else
          'feet bubble_column' if e['d0'] == 'bubble_column' else
          'feet air/cave_air' if e['d0'] in ('air', 'cave_air') else 'UNRECOGNISED ' + str(e['d0']))
-    t2[(k, any(e['first'] <= ft <= e['last'] + 20 for ft in lava[e['bot']]))] += 1
+    # r5 (Codex r4 P2-5): attribution ends at the FIRST death after the episode starts, of any class
+    nxt = min((ft for ft in alld[e['bot']] if ft >= e['first']), default=None)
+    hi = min(e['last'] + 20, nxt) if nxt is not None else e['last'] + 20
+    t2[(k, any(e['first'] <= ft <= hi for ft in lava[e['bot']]) and nxt is not None and nxt <= e['last'] + 20 and nxt in lava[e['bot']])] += 1
 print('danger episodes split at every death; right-censored (last row + 20 s past the window end) dropped:', cens)
 for k, v in sorted(t2.items()):
     print(f'  {v:4} {k}')
