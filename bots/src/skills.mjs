@@ -79,7 +79,7 @@ import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsF
          decodeMultiRecord } from './blueprint.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
-         farmWellAvoid, inFloorBand, farmYields, farmKeepOut, farmPlannerKeepOut, farmCellTest, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE, farmCellZoned } from './treefarm.mjs'
+         farmWellAvoid, inFloorBand, farmYields, farmKeepOut, farmPlannerKeepOut, farmCellTest, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE, farmCellZoned, farmMutationZoned } from './treefarm.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
 import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold, wellBreakCost } from './well.mjs'
@@ -8115,7 +8115,10 @@ const pastBorder = c => horizontalDistanceFromSpawn(c) > config.world.borderRadi
 function farmOff (bot) {
   let zones = []
   try { zones = bot?.protectZones?.() ?? [] } catch { zones = [] }
-  return c => pastBorder(c) || (zones.length > 0 && !!farmCellZoned(zones, c))
+  const off = c => pastBorder(c) || (zones.length > 0 && !!farmCellZoned(zones, c))
+  // the visit's belt and braces on ONE mutation cell: the plot's footprint already passed, so this is never stricter
+  off.cell = c => pastBorder(c) || (zones.length > 0 && !!farmMutationZoned(zones, c))
+  return off
 }
 /** keepout-01: a farm log in the column above a live fire death site is not planned for a dig (treefarm.mjs tendPlan). */
 function farmDigBlocked (bot) {
@@ -8435,7 +8438,7 @@ async function tendFarm (ctx, _args, signal) {
         if (Date.now() > deadline) { stop = 'budget'; break }
         // STRUCTURAL: a mutation outside the record never happens (and the read gates on this count staying 0).
         if (!onFarmPlan(idx, a)) { f.offplan++; continue }
-        if (off(a.cell)) continue   // belt and braces: the plan was built from in-border, out-of-zone cells only
+        if (off.cell(a.cell)) continue   // belt and braces: the plan was built from in-border, out-of-zone plots only
         const r = a.kind === 'dig' ? await digOne(a) : a.kind === 'bonemeal' ? await boneOne(a) : await placeOne(a)
         if (r === null) break
         if (!r) continue

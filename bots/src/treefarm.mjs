@@ -91,16 +91,22 @@ function surfaceAt (read, x, z, y0, dy) {
  */
 /**
  * TREEFARM-03 x PROTECTZONE-01 (jit-1023, Codex rebase review P2) -> the zone closing any cell of a farm cell's footprint,
- * or null. Pure. A plot's footprint is its soil (y - 1) and its column to CLEAR_ABOVE; a torch's is its floor and its cell
- * (inside the same span). protectzone's global wrappers already refuse every dig, place and use there, so a farm laid out
- * across a zone could only generate refused visits; as a `reserved` predicate the site search keeps off it and a recorded
- * farm whose usable plots fall below MIN_PLOTS is re-founded (the border's rule). No zones: null.
+ * or null. Pure. A plot's footprint is every cell its work clicks: its column to CLEAR_ABOVE (the sapling, the logs cleared),
+ * its soil (y - 1), and the REFERENCES a soil restore may click (refFaceFor without needsBelow: the block under the soil,
+ * y - 2, then the four side neighbours at y - 1 -- protectzone's place wrapper judges the reference cell too: Codex and
+ * Claude fix review r1); a torch's footprint is the same span (its floor is y - 1). protectzone's global wrappers refuse
+ * every dig, place and use there, so a farm laid out across a zone could only generate refused visits; as a `reserved`
+ * predicate the site search keeps off it and a recorded farm whose usable plots fall below MIN_PLOTS is re-founded (the
+ * border's rule). No zones: null.
  */
 export function farmCellZoned (zones, c) {
   if (!zones || !zones.length || !c) return null
-  for (let y = c.y - 1; y <= c.y + CLEAR_ABOVE; y++) { const z = zoneBlocked(zones, c.x, y, c.z, null); if (z) return z }
+  for (let y = c.y - 2; y <= c.y + CLEAR_ABOVE; y++) { const z = zoneBlocked(zones, c.x, y, c.z, null); if (z) return z }
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const z = zoneBlocked(zones, c.x + dx, c.y - 1, c.z + dz, null); if (z) return z }
   return null
 }
+/** The visit's last check on ONE mutation cell (never a footprint at the action's height: Codex fix review r1 P2) -> zone | null. */
+export const farmMutationZoned = (zones, cell) => (zones && zones.length && cell ? zoneBlocked(zones, cell.x, cell.y, cell.z, null) : null)
 
 export function plotRefusal (read, plot, { reserved = null } = {}) {
   const cell = read(plot.x, plot.y, plot.z), soil = read(plot.x, plot.y - 1, plot.z)

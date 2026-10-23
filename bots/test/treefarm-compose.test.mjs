@@ -802,13 +802,22 @@ await t('jit-1023 KEEP-OUT REFUSAL CHAIN (real loop): the farm\'s only work is l
 })
 
 // ---- (3) protectzone-01: the farm is never laid out, kept or worked in a protected zone ---------------------------------------
-await t('jit-1023 farmCellZoned (pure): a plot cell is zoned when its soil, its cell or its column to CLEAR_ABOVE is in a zone; no zones -> null', () => {
+await t('jit-1023 farmCellZoned (pure): a plot cell is zoned when its column to CLEAR_ABOVE, its soil or a soil reference (under it; the four sides at y-1) is in a zone; no zones -> null', () => {
   const z = { x0: 10, x1: 12, y0: 70, y1: 80, z0: 10, z1: 12, floorY: null }
   assert.equal(TF.farmCellZoned([], { x: 11, y: 64, z: 11 }), null)
   assert.equal(TF.farmCellZoned([z], { x: 11, y: 64, z: 11 }), z, 'the column reaches the zone (64 + CLEAR_ABOVE >= 70)')
   assert.equal(TF.farmCellZoned([z], { x: 11, y: 62, z: 11 }), null, 'a column that ends below the zone')
   assert.equal(TF.farmCellZoned([z], { x: 11, y: 81, z: 11 }), z, 'the soil (y - 1 = 80) is in the zone')
-  assert.equal(TF.farmCellZoned([z], { x: 13, y: 72, z: 11 }), null, 'beside it')
+  assert.equal(TF.farmCellZoned([z], { x: 14, y: 72, z: 11 }), null, 'beside it (two away)')
+  // r2 (Codex + Claude fix review r1): the soil restore's REFERENCES -- the block under the soil and the four side cells at y-1
+  assert.equal(TF.farmCellZoned([z], { x: 11, y: 82, z: 11 }), z, 'the block under the soil (y - 2 = 80) is in the zone')
+  assert.equal(TF.farmCellZoned([z], { x: 13, y: 72, z: 11 }), z, 'a side reference at y - 1 (12,71,11) is in the zone')
+  assert.equal(TF.farmCellZoned([z], { x: 13, y: 72, z: 13 }), null, 'a diagonal is no reference')
+  // the visit's check is ONE mutation cell (Codex fix review r1 P2): a log at 67 under a zone from 72 is not zoned
+  const high = { x0: 10, x1: 12, y0: 72, y1: 90, z0: 10, z1: 12, floorY: null }
+  assert.equal(TF.farmCellZoned([high], { x: 11, y: 64, z: 11 }), null, 'the plot at 64 (footprint to 71) is clear of a zone from 72')
+  assert.equal(TF.farmMutationZoned([high], { x: 11, y: 67, z: 11 }), null, 'its log at 67 is worked')
+  assert.ok(TF.farmCellZoned([high], { x: 11, y: 67, z: 11 }), 'the r1 check (a footprint at the log\'s height) would have refused it')
 })
 await t('jit-1023 ZONE FOUNDING: a zone over a canonical plot -> the founded farm keeps every cell out of it; control: no zone -> that plot is used', async () => {
   const canon = TF.canonicalFarm({ home: HOME, read: world().read }).record
@@ -845,7 +854,7 @@ await t('jit-1023 ZONE RECORD: a recorded farm a zone now covers is re-founded (
   assert.ok(!plan.actions.some(x => x.cell.x === p0.x && x.cell.z === p0.z), `the zoned plot is planned: ${JSON.stringify(plan.actions)}`)
 })
 await t('jit-1023 ZONE MUTANT KILLED: farmOff without the zone test -> the founded farm puts a plot in the zone', async () => {
-  await withMutant(SKPP, '  return c => pastBorder(c) || (zones.length > 0 && !!farmCellZoned(zones, c))\n', '  return c => pastBorder(c)\n', async mod => {
+  await withMutant(SKPP, '  const off = c => pastBorder(c) || (zones.length > 0 && !!farmCellZoned(zones, c))\n', '  const off = c => pastBorder(c)\n', async mod => {
     const canon = TF.canonicalFarm({ home: HOME, read: world().read }).record
     const p0 = plotsOf(canon)[0]
     const zone = { x0: p0.x - 1, x1: p0.x + 1, y0: 0, y1: 255, z0: p0.z - 1, z1: p0.z + 1, floorY: null }
@@ -853,6 +862,87 @@ await t('jit-1023 ZONE MUTANT KILLED: farmOff without the zone test -> the found
     a.bot.protectZones = () => [zone]
     await mod.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
     assert.ok(mod.knownFarmRecord(a.bot).cells.some(c => TF.farmCellZoned([zone], c)), 'the mutant lays a plot in the zone')
+  })
+})
+
+// ---- r2 (Codex fix review r1: CHANGE, 2 P2; Claude fix review r1: APPROVE + P3s) --------------------------------------------
+await t('jit-1023 r2 ZONE VISIT: the real tend never mutates a zoned plot while it works the rest (the visit\'s own filters)', async () => {
+  const storeDir = pool('jit-zone-visit')
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: first.bot }, {}, new AbortController().signal)
+  const rec = SK.knownFarmRecord(first.bot)
+  const over = {}
+  for (const c of plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'air'
+  const b = fakeTown({ items: [S('oak_sapling', 9)], over, storeDir })
+  const p0 = plotsOf(rec)[0]
+  const one = { x0: p0.x, x1: p0.x, y0: 0, y1: 255, z0: p0.z, z1: p0.z, floorY: null }
+  b.bot.protectZones = () => [one]
+  const r = await SK.SKILLS.tend_farm.run({ bot: b.bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(b.state.places.length >= 1, 'the other plots were planted')
+  for (const pl of b.state.places) { const [x, , z] = pl.at.split(',').map(Number); assert.ok(!(x === p0.x && z === p0.z), `placed in the zoned plot: ${pl.at}`) }
+})
+await t('jit-1023 r2 ZONE VISIT MUTANT KILLED: the visit\'s plot filter AND its cell check back on pastBorder only -> the real tend plants the zoned plot', async () => {
+  const { withMutantsAll } = await import('./helpers/mutant.mjs')
+  await withMutantsAll(SKPP, [
+    ['    const states = plotsOf(rec).filter(p => !off(p)).map(p => ({ plot: p, ...plotState(read, p) }))\n    for (const s of states) census',
+     '    const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))\n    for (const s of states) census'],
+    ['        if (off.cell(a.cell)) continue', '        if (pastBorder(a.cell)) continue'],
+  ], async mod => {
+    const storeDir = pool('jit-zone-visit-mut')
+    const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+    await mod.SKILLS.tend_farm.run({ bot: first.bot }, {}, new AbortController().signal)
+    const rec = mod.knownFarmRecord(first.bot)
+    const over = {}
+    for (const c of plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'air'
+    const b = fakeTown({ items: [S('oak_sapling', 9)], over, storeDir })
+    const p0 = plotsOf(rec)[0]
+    b.bot.protectZones = () => [{ x0: p0.x, x1: p0.x, y0: 0, y1: 255, z0: p0.z, z1: p0.z, floorY: null }]
+    await mod.SKILLS.tend_farm.run({ bot: b.bot }, {}, new AbortController().signal)
+    assert.ok(b.state.places.some(pl => { const [x, , z] = pl.at.split(',').map(Number); return x === p0.x && z === p0.z }), 'the mutant plants the zoned plot')
+  })
+})
+await t('jit-1023 r2 ZONE RELOCATION: a recorded farm a zone covers is re-founded by the real visit, the new farm is out of the zone, and a second visit keeps it (no flapping)', async () => {
+  const storeDir = pool('jit-zone-reloc')
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: first.bot }, {}, new AbortController().signal)
+  const rec = SK.knownFarmRecord(first.bot)
+  const xs = rec.cells.map(c => c.x), zs = rec.cells.map(c => c.z)
+  const all = { x0: Math.min(...xs), x1: Math.max(...xs), y0: 0, y1: 255, z0: Math.min(...zs), z1: Math.max(...zs), floorY: null }
+  const b = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  b.bot.protectZones = () => [all]
+  const r = await SK.SKILLS.tend_farm.run({ bot: b.bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  const BPm = await import('../src/blueprint.mjs')
+  const g2 = BPm.readRecord(storeDir, 'treefarm-0_64_0')
+  assert.equal(g2.gen, 2, 'a new generation')
+  for (const c of g2.record.cells) assert.equal(TF.farmCellZoned([all], c), null, `the new farm is in the zone: ${JSON.stringify(c)}`)
+  const c2 = fakeTown({ items: [S('oak_sapling', 4)], storeDir, shared: b.w })
+  c2.bot.protectZones = () => [all]
+  await SK.SKILLS.tend_farm.run({ bot: c2.bot }, {}, new AbortController().signal)
+  assert.equal(BPm.readRecord(storeDir, 'treefarm-0_64_0').gen, 2, 'the next visit keeps the relocated farm')
+})
+await t('jit-1023 r2 HIGH ZONE (Codex fix review r1 P2): a plot clear of a zone that starts above its footprint gets its log cleared by the real visit', async () => {
+  const a = await loggedFarm('jit-zone-high', { withSite: false })
+  const zone = { x0: a.p.x, x1: a.p.x, y0: a.p.y + TF.CLEAR_ABOVE + 1, y1: 255, z0: a.p.z, z1: a.p.z, floorY: null }
+  a.bot.protectZones = () => [zone]
+  assert.equal(TF.farmCellZoned([zone], a.p), null, 'the plot is clear of the zone')
+  await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.ok(a.state.digs.some(d => { const [x, , z] = d.at.split(',').map(Number); return x === a.p.x && z === a.p.z }), `p's logs were cleared: ${JSON.stringify(a.state.digs)}`)
+})
+await t('jit-1023 r2 HIGH ZONE MUTANT KILLED: the visit checking a whole footprint at the log\'s height (the r1 code) skips the log every visit', async () => {
+  await withMutant(SKPP, '        if (off.cell(a.cell)) continue', '        if (off(a.cell)) continue', async mod => {
+    const a = await loggedFarm('jit-zone-high-mut', { withSite: false })
+    const zone = { x0: a.p.x, x1: a.p.x, y0: a.p.y + TF.CLEAR_ABOVE + 1, y1: 255, z0: a.p.z, z1: a.p.z, floorY: null }
+    a.bot.protectZones = () => [zone]
+    await mod.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+    assert.ok(!a.state.digs.some(d => { const [x, , z] = d.at.split(',').map(Number); return x === a.p.x && z === a.p.z }), 'the mutant skips p\'s logs')
+  })
+})
+await t('jit-1023 r2 TOWN-JOB MUTANT KILLED: without tend_farm in TOWN_JOB_SKILLS a yielded column starts the exit over a tend', async () => {
+  await withMutant(new URL('../src/keepout.mjs', import.meta.url), "  'tend_farm'])", '  ])', async mod => {
+    const site = { kind: 'death:fire', x: 10, y: 60, z: 10, count: 4, deaths: 1, last: Date.now() }
+    assert.equal(mod.exitDecision({ sites: [site], pos: { x: 10.5, y: 64, z: 10.5 }, skill: 'tend_farm', yielded: () => true, yieldOn: true }).start, true, 'the mutant evicts the tend')
   })
 })
 
