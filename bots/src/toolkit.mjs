@@ -22,6 +22,7 @@
 // queued entry pinned. wear_out destroys a 1-use copy with one dig, verified by the slot, and creates no item entity at
 // all. The owner's "else stay until worn out" is this path.
 
+import { townIronLowNow } from './towniron.mjs'   // towniron-01: the shovel tier
 import { remaining, FLOOR, HARD_STOP, tier, isPickaxe } from './toolfor.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 
@@ -101,6 +102,12 @@ export const spentStoneKept = (items = [], base = 3, on = TOOLKIT.on) => (on && 
 export const KIT = Object.freeze({ iron_pickaxe: Object.freeze({ ingots: 3, sticks: 2 }), iron_axe: Object.freeze({ ingots: 3, sticks: 2 }),
                                    iron_shovel: Object.freeze({ ingots: 1, sticks: 2 }) })
 export const KIT_NAMES = Object.freeze(Object.keys(KIT))
+/** TOWNIRON-01: the shovel the kit makes while the town's iron is below its reserve (towniron.mjs) -- no ingot; 1 cobblestone-
+ *  family block from the bag and 2 sticks (1.21: stone_tool_materials). Not in KIT (KIT_NAMES, the iron kit, is unchanged). */
+export const STONE_KIT = Object.freeze({ stone_shovel: Object.freeze({ ingots: 0, sticks: 2 }) })
+export const kitSpec = n => KIT[n] ?? STONE_KIT[n]
+const STONE_TOOL_MATERIALS = Object.freeze(['cobblestone', 'cobbled_deepslate', 'blackstone'])
+const SHOVEL_RE = /_shovel$/
 /** The most ingots one kit run draws: the whole kit's (7), or the axe and shovel's (4) with TOOLKIT_IRONPICK off. Pure. */
 export const kitMaxIngots = (ironpick = TOOLKIT_IRONPICK.on) => KIT_NAMES.reduce((t, n) => t + (n === 'iron_pickaxe' && !ironpick ? 0 : KIT[n].ingots), 0)
 /** Sticks the bag keeps after the kit: the stone-pickaxe recipe's two (bankable.mjs RESERVE_RECIPE). */
@@ -117,8 +124,18 @@ const held = (items, name) => list(items).reduce((n, it) => n + (it.name === nam
 
 /** The kit tools this bag has no USABLE copy of (a spent copy is a consumable toolfor uses up first: not "held"); the iron
  *  pickaxe by ironPickNeed (the trip line, not FLOOR: a worn copy is replaced, never moved). */
-export const kitNeeds = (items = [], { ironpick = TOOLKIT_IRONPICK.on } = {}) =>
-  KIT_NAMES.filter(n => (n === 'iron_pickaxe' ? ironPickNeed(items, { on: ironpick }) : !list(items).some(it => it.name === n && usable(it))))
+// TOWNIRON-01 (`lowIron`, default: the town's reading now): while the town's iron is KNOWN below its reserve, the shovel is
+// stone -- a bag holding ANY usable shovel needs none; a bag with none, and a cobblestone-family block to make one, needs a
+// stone_shovel; else nothing. Known at or above the reserve, or unknown: the base exactly (an iron shovel when no usable one).
+export const kitNeeds = (items = [], { ironpick = TOOLKIT_IRONPICK.on, lowIron = townIronLowNow() } = {}) =>
+  KIT_NAMES.flatMap(n => {
+    if (n === 'iron_pickaxe') return ironPickNeed(items, { on: ironpick }) ? [n] : []
+    if (n === 'iron_shovel' && lowIron) return stoneShovelNeed(items) ? ['stone_shovel'] : []
+    return !list(items).some(it => it.name === n && usable(it)) ? [n] : []
+  })
+/** The low-iron shovel rule -> bool. Pure: no usable shovel of any tier, and a stone-tool material in the bag. */
+export const stoneShovelNeed = (items = []) =>
+  !list(items).some(it => SHOVEL_RE.test(it.name) && usable(it)) && list(items).some(it => STONE_TOOL_MATERIALS.includes(it.name) && (it.count ?? 0) > 0)
 
 /**
  * WHAT THE KIT MUST DRAW FROM TOWN -> { ingots, sticks, needs }. Pure.
@@ -128,13 +145,15 @@ export const kitNeeds = (items = [], { ironpick = TOOLKIT_IRONPICK.on } = {}) =>
  */
 // `limit` (ironpick-01, Claude r1 P2): the first `limit` needs in kit order only -- the PREFIX a run may draw for when the town
 // cannot give the whole kit's draw from one container (kitPrefixes)
-export function kitDraw (items = [], { credit = 0, ironpick = TOOLKIT_IRONPICK.on, limit = null } = {}) {
-  const all = kitNeeds(items, { ironpick })
-  const needs = Number.isInteger(limit) && limit >= 1 ? all.slice(0, limit) : all
-  const want = needs.reduce((t, n) => t + KIT[n].ingots, 0)
+// `only` (towniron-01, Codex r1 P2): the stone shovel alone, when the town cannot fund the iron needs before it -- a stone-only
+// run, never a prefix of the iron kit
+export function kitDraw (items = [], { credit = 0, ironpick = TOOLKIT_IRONPICK.on, limit = null, lowIron = townIronLowNow(), only = null } = {}) {
+  const all = kitNeeds(items, { ironpick, lowIron })
+  const needs = only ? all.filter(n => n === only) : Number.isInteger(limit) && limit >= 1 ? all.slice(0, limit) : all
+  const want = needs.reduce((t, n) => t + kitSpec(n).ingots, 0)
   const c = Math.max(0, Math.min(Number(credit) || 0, held(items, 'iron_ingot'), want))
-  const sticksNeed = needs.reduce((t, n) => t + KIT[n].sticks, 0)
-  return { needs, ingots: want - c, sticks: needs.length ? Math.max(0, sticksNeed + STICK_KEEP - held(items, 'stick')) : 0 }
+  const sticksNeed = needs.reduce((t, n) => t + kitSpec(n).sticks, 0)
+  return { needs, ingots: want - c, sticks: needs.length ? Math.max(0, sticksNeed + STICK_KEEP - held(items, 'stick')) : 0, lowIron: !!lowIron }
 }
 
 /**
@@ -325,11 +344,11 @@ export const kitStickHeld = (had, draw = {}, sticksMakeable = 0, { ironpick = TO
   had == null || !Number.isFinite(Number(had)) || Number(had) + (Number(sticksMakeable) || 0) < (Number(draw.sticks) || 0)
 
 export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRONPICK.on, atTown = false, items = [], credit = 0, container = false, townMiss = false,
-                                room = true, tableNear = false, state = {} } = {}) {
+                                room = true, tableNear = false, state = {}, lowIron = townIronLowNow() } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!on || !atTown) return none()
-  const full = kitDraw(items, { credit, ironpick })
+  const full = kitDraw(items, { credit, ironpick, lowIron })
   if (!full.needs.length) return none()
   if (now - (s.lastIssuedAt ?? -Infinity) < TOOLKIT_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
   if (!lazy(container)) return none()
@@ -344,22 +363,31 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRO
     if (ironpick && dk.needs.includes('iron_pickaxe') && dk.ingots === 0) return BAG_SLOTS - list(items).length >= dk.needs.length + (dk.sticks > 0 ? 1 : 0)
     return !((dk.ingots > 0 || dk.sticks > 0) && typeof room === 'function' && !room(dk))
   }
+  // A STONE SHOVEL RUN draws no iron and may visit no chest, so its room is the bag's EXISTING empty slots: the tool's, and the
+  // sticks' when it takes any (Codex r1 P2: an uncraftable order repeated on a full bag)
+  const stoneRoom = dk => BAG_SLOTS - list(items).length >= 1 + (dk.sticks > 0 ? 1 : 0)
   let d = null, tabled = false
-  for (const k of kitPrefixes(full.needs, { ironpick })) {
-    const dk = k === full.needs.length ? full : kitDraw(items, { credit, ironpick, limit: k })
+  const prefixes = kitPrefixes(full.needs, { ironpick })
+  // the stone shovel alone, LAST: only when no iron draw (the kit or a prefix) can be issued (Codex r1 P2: an unfundable iron
+  // axe ahead of it blocked the zero-ingot shovel)
+  const stoneOnly = lowIron && full.needs.includes('stone_shovel') && full.needs.length > 1 ? [{ only: 'stone_shovel' }] : []
+  for (const k of [...prefixes, ...stoneOnly]) {
+    const dk = typeof k === 'object' ? kitDraw(items, { credit, ironpick, lowIron, only: k.only }) : k === full.needs.length ? full : kitDraw(items, { credit, ironpick, limit: k, lowIron })
     if (dk.ingots > 0 && missFor(dk)) continue
     // THE TABLE: carried or 4 planks' worth of wood (from the bag), else near (the craft's 32-block search, asked LAST: a world
     // scan on a decision that may decline -- Claude r1 P3-3) -- else the craft cannot run (any prefix alike)
     if (!tabled) { if (!kitMeans(items).tableOk && !lazy(tableNear)) return none(); tabled = true }
-    if (!roomFor(dk)) continue
-    d = dk; break
+    if (dk.ingots === 0 && dk.needs.length === 1 && dk.needs[0] === 'stone_shovel' ? !stoneRoom(dk) : !roomFor(dk)) continue
+    d = dk; if (typeof k === 'object') d.only = k.only
+    break
   }
   if (!d) return none()
   s.lastIssuedAt = now
   const label = n => (n === 'iron_pickaxe' ? `iron_pickaxe above ${IRONPICK_TRIP_USES} uses` : n)
   // `n` (a prefix of the kit, only when it is one) rides in args: skill.args is `flattened` in the mapping (no new field)
-  return { order: { skill: 'toolkit', args: { credit: Math.max(0, Number(credit) || 0), ...(d.needs.length < full.needs.length ? { n: d.needs.length } : {}) },
-                    why: `at town with no usable ${d.needs.map(label).join(' or ')}: the town's iron makes ${d.needs.length > 1 ? 'them' : 'it'} (${d.ingots} ingot(s) drawn${d.sticks ? `, ${d.sticks} stick(s)` : ''})` }, state: s }
+  // `low` (towniron-01) rides in args too: the run keeps the order's reading (its tier choice), whatever the memo says later
+  return { order: { skill: 'toolkit', args: { credit: Math.max(0, Number(credit) || 0), ...(d.only ? { only: d.only } : d.needs.length < full.needs.length ? { n: d.needs.length } : {}), ...(lowIron ? { low: 1 } : {}) },
+                    why: `at town with no usable ${d.needs.map(label).join(' or ')}: ${d.ingots > 0 ? "the town's iron makes" : 'the bag makes'} ${d.needs.length > 1 ? 'them' : 'it'} (${d.ingots} ingot(s) drawn${d.sticks ? `, ${d.sticks} stick(s)` : ''}${lowIron ? '; the town is short of iron, so the shovel is stone' : ''})` }, state: s }
 }
 
 /**
@@ -373,7 +401,7 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRO
  * runs exactly as before -- the chain never has both orders refusing the same bag.
  */
 export const withdrawDefersToKit = (pickNeed, kitOrder, items = [], { ironpick = TOOLKIT_IRONPICK.on } = {}) =>
-  pickNeed != null && kitOrder?.skill === 'toolkit' && kitNeeds(items, { ironpick }).includes('iron_pickaxe')
+  pickNeed != null && kitOrder?.skill === 'toolkit' && kitNeeds(items, { ironpick, lowIron: false }).includes('iron_pickaxe')
 
 /** The `_toolkit_ironpick_mode` licence row (once per spawn): a kind the base cannot write. */
 export const ironpickModeDetail = (m = TOOLKIT_IRONPICK, kit = TOOLKIT) =>

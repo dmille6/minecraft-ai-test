@@ -50,7 +50,7 @@ export const KEEPOUT_KIND = 'lava'                     // the keep-out kind mine
 export const KEEPOUT_TOWN_YIELD = true
 /** The town jobs a yielded column stands down for (cognitive.mjs's deterministic town orders, plus home and deposit). */
 export const TOWN_JOB_SKILLS = new Set(['town_deposit', 'withdraw_pick', 'withdraw', 'count_town', 'prune_town', 'smelt_town',
-  'furnace_drain', 'toolkit', 'compost', 'build_composter', 'dispose_well', 'build_well', 'close_well', 'build_plinth', 'deposit', 'home'])
+  'furnace_drain', 'toolkit', 'deliver_iron', 'compost', 'build_composter', 'dispose_well', 'build_well', 'close_well', 'build_plinth', 'deposit', 'home'])
 /** A bot this close to home (horizontally; |dy| <= 6) is AT home: a yielded column never pushes it out. */
 export const HOME_YIELD_RADIUS = 4
 const TOWN_BLOCKS = /^(chest|trapped_chest|barrel|furnace|blast_furnace|smoker)$/
