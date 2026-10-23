@@ -85,11 +85,15 @@ def own_delivered(d):
 
 
 def shovel_left(before):
-    """PURE. A kit row's before= 'tool@uses,...' -> the most uses left on any shovel (or -1: none)."""
+    """PURE. A kit row's before= 'tool@uses,...' -> the most uses left on any shovel (-1: none; None: before= unavailable).
+    `@full` (unknown durability: toolfor counts it full) is usable (Codex r3 P2)."""
+    if before is None or before == '' or before == '-':
+        return None
     best = -1
-    for t in (before or '').split(','):
+    for t in str(before).split(','):
         if '_shovel@' in t:
-            u = num(t.split('@')[1])
+            v = t.split('@')[1]
+            u = 10**6 if v == 'full' else num(v)
             if u is not None and u > best:
                 best = u
     return best
@@ -104,9 +108,14 @@ def window_rate(ts, per_ms=3600_000):
     return best
 
 
+OP_TTL_MS = 10 * 60 * 1000
+
+
 def known_at(records, at_ms, stale_ms=STALE_MS):
-    """PURE. {(world, k): names} of the containers KNOWN at at_ms (latest record an observation, < stale_ms old)."""
-    last = {}
+    """PURE. {(world, k): names} of the containers KNOWN at at_ms -- townindex.mjs indexStateOf, reproduced (Codex r3 P2): the
+    latest record at or before at_ms is an observation, younger than stale_ms, and NOT captured while a mutation of that
+    container was open (a pre or held mark with no post mark, within OP_TTL_MS of the pre/held mark)."""
+    last, ops = {}, {}
     for r in records:
         at = r.get('at')
         if r.get('t') not in ('obs', 'dirty') or not isinstance(at, (int, float)) or at > at_ms or r.get('k') is None:
@@ -115,7 +124,45 @@ def known_at(records, at_ms, stale_ms=STALE_MS):
         cur = last.get(key)
         if cur is None or at > cur['at'] or (at == cur['at'] and r.get('t') == 'dirty'):
             last[key] = r
-    return {key: (r.get('names') or {}) for key, r in last.items() if r.get('t') == 'obs' and at_ms - r['at'] < stale_ms}
+        if r.get('t') == 'dirty' and r.get('op') is not None and r.get('phase') in ('pre', 'post', 'held'):
+            o = ops.setdefault(key, {}).setdefault(r['op'], {})
+            ph = r['phase']
+            o[ph] = min(o.get(ph, at), at) if ph == 'pre' else max(o.get(ph, at), at)
+    def open_at(key, t):
+        for o in ops.get(key, {}).values():
+            if o.get('post') is not None:
+                continue
+            start = o.get('pre', o.get('held'))
+            if start is None:
+                continue
+            until = max(o.get('pre', -1), o.get('held', -1)) + OP_TTL_MS
+            if start <= t < until:
+                return True
+        return False
+    return {key: (r.get('names') or {}) for key, r in last.items()
+            if r.get('t') == 'obs' and at_ms - r['at'] < stale_ms and not open_at(key, r['at'])}
+
+
+def ckpt_records(rr):
+    """PURE. A rotation checkpoint record (townindex.mjs rotateIndex: the fold of the generations it replaced) -> records:
+    each entry's observation and its last mark, so a fold across a rotation still sees the containers (Codex r3 P2)."""
+    out = []
+    for w_, ents in (rr.get('worlds') or {}).items():
+        try:
+            w = json.loads(w_)
+        except Exception:
+            w = w_
+        for k_, e_ in (ents or {}).items():
+            o_ = (e_ or {}).get('obs'); l_ = (e_ or {}).get('last') or {}
+            if o_ and isinstance(o_.get('at'), (int, float)):
+                out.append({'t': 'obs', 'k': k_, 'w': w, 'at': o_['at'], 'names': o_.get('names') or {}})
+            if l_.get('t') == 'dirty' and isinstance(l_.get('at'), (int, float)):
+                out.append({'t': 'dirty', 'k': k_, 'w': w, 'at': l_['at']})
+            for op, o in ((e_ or {}).get('ops') or {}).items():
+                for ph in ('pre', 'post', 'held'):
+                    if isinstance(o.get(ph), (int, float)):
+                        out.append({'t': 'dirty', 'k': k_, 'w': w, 'at': o[ph], 'op': op, 'phase': ph})
+    return out
 
 
 def stock_change(records, a_ms, b_ms, first_ms=None):
@@ -141,6 +188,10 @@ _R = [{'t': 'obs', 'k': 'a', 'at': 10, 'w': 'W', 'names': {'raw_iron': [5, 1]}},
       {'t': 'obs', 'k': 'b', 'at': 12, 'w': 'W', 'names': {'iron_ingot': [4, 1]}}, {'t': 'dirty', 'k': 'b', 'at': 18, 'w': 'W'}]
 assert stock_change(_R, 15, 25, first_ms=10) == (4, 1), stock_change(_R, 15, 25, first_ms=10)
 assert stock_change(_R, 5, 25, first_ms=10) == (None, 0)
+_O = [{'t': 'dirty', 'k': 'a', 'at': 9, 'w': 'W', 'op': 'x', 'phase': 'pre'}, {'t': 'obs', 'k': 'a', 'at': 10, 'w': 'W', 'names': {'iron_ingot': [5, 1]}}]
+assert known_at(_O, 20) == {}, 'an observation captured inside an open mutation is not known'
+assert known_at(_O + [{'t': 'dirty', 'k': 'a', 'at': 11, 'w': 'W', 'op': 'x', 'phase': 'post'}, {'t': 'obs', 'k': 'a', 'at': 12, 'w': 'W', 'names': {}}], 20) != {}
+assert shovel_left('-') is None and shovel_left('iron_shovel@full') == 10**6
 
 if __name__ == '__main__':
     from lib.telemetry import Events
@@ -210,21 +261,30 @@ if __name__ == '__main__':
         elif k == 'toolkit':
             n[(period, arm, 'kit_runs')] += 1
             args = sk.get('args') or {}
-            if 'iron_shovel' in d and str(args.get('low')) == '1' and arm == 'canary' and period == 'post':
-                g1.append((b, d[:120]))
+            if str(args.get('low')) == '1' and arm == 'canary' and period == 'post':
+                n['low_orders'] += 1
+                if 'iron_shovel' in d:
+                    g1.append((b, d[:120]))
             if 'iron_shovel' in d:
                 iron_sh[(period, arm)] += 1
         elif k == '_toolkit':
             f = fields(d)
-            if f.get('phase') == 'kit':
+            # the STRUCTURED args (toolkit.mjs toolkitArgs) carry the whole before=/crafted= (the detail is cut at 300 chars)
+            a_ = sk.get('args') or {}
+            phase = a_.get('phase') or f.get('phase')
+            if phase == 'kit':
                 n[(period, arm, 'kit')] += 1
-                if f.get('outcome') == 'no_iron':
+                if (a_.get('outcome') or f.get('outcome')) == 'no_iron':
                     n[(period, arm, 'kit_no_iron')] += 1
-                crafted = f.get('crafted') or ''
+                crafted = str(a_.get('crafted') or f.get('crafted') or '')
                 if 'stone_shovel' in crafted:
                     stone[(period, arm)] += 1
-                    if arm == 'canary' and period == 'post' and shovel_left(f.get('before')) > 1:
-                        g2.append((b, f.get('before')))
+                    if arm == 'canary' and period == 'post':
+                        left = shovel_left(a_.get('before') if a_.get('before') not in (None, '') else f.get('before'))
+                        if left is None:
+                            n['g2_unavailable'] += 1
+                        elif left > 1:
+                            g2.append((b, a_.get('before') or f.get('before')))
         elif k == '_pickups':
             n[(period, arm, 'pickups')] += 1
             for part in d.split(' | ')[0].split('; '):
@@ -247,7 +307,8 @@ if __name__ == '__main__':
     dep_i = sum(f['depI'] for _, _, f in deliv); dep_r = sum(f['depR'] for _, _, f in deliv)
     delivered = sum(1 for _, _, f in deliv if f['depI'] + f['depR'] > 0)
     stones = stone[('post', 'canary')]
-    exposure = int(len(low_bots) >= 2 and (stones + delivered) >= 3)
+    # BOTH consumers exercised, each on its own (Codex r3 P2): >= 2 low-tier kit orders that made a stone shovel AND >= 2 deliveries
+    exposure = int(len(low_bots) >= 2 and stones >= 2 and delivered >= 2)
     can_bh = bot_hours('post', 'canary')
     ctl_kit = n[('post', 'control', 'kit_runs')]; ctl_pick = n[('post', 'control', 'pickups')]
 
@@ -267,6 +328,8 @@ if __name__ == '__main__':
                     continue
                 if rr.get('t') in ('obs', 'dirty'):
                     recs.append(rr)
+                elif rr.get('t') == 'ckpt':
+                    recs.extend(ckpt_records(rr))
         if not recs:
             continue
         first = min(r['at'] for r in recs if isinstance(r.get('at'), (int, float)))
@@ -283,7 +346,8 @@ if __name__ == '__main__':
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
              len(bots[('pre', 'control')]), len(bots[('post', 'control')]), can_bh, offbuild, noversion))
     print('LIVENESS     canary licence rows %d | canary bots that read their town LOW %d %s' % (n['licence'], len(low_bots), sorted(low_bots)[:6]))
-    print('EXPOSURE     low-reading bots %d (need 2) | stone shovels made %d + deliveries that banked %d (need 3) -> %s' % (len(low_bots), stones, delivered, 'READY' if exposure else 'NOT YET'))
+    print('EXPOSURE     low-reading bots %d (need 2) | low-tier kit orders %d, stone shovels made %d (need 2) | deliveries that banked %d (need 2) -> %s'
+          % (len(low_bots), n['low_orders'], stones, delivered, 'READY' if exposure else 'NOT YET'))
     print('PRIMARY      iron delivered to town: %d ingots + %d raw (%.2f per canary bot-h) in %d delivery rows' % (dep_i, dep_r, per_bh(dep_i + dep_r, 'post', 'canary'), len(deliv)))
     print('             iron shovels per kit run canary %.3f -> %.3f control %.3f -> %.3f | stone shovels canary %d control %d'
           % (iron_sh[('pre', 'canary')] / max(1, n[('pre', 'canary', 'kit_runs')]), iron_sh[('post', 'canary')] / max(1, n[('post', 'canary', 'kit_runs')]),
@@ -291,7 +355,7 @@ if __name__ == '__main__':
     print('WORLD        index-known town iron change per pool (paired pools %d): canary %s -> %s, control %s -> %s, DiD %s'
           % (len(paired), wm['canary']['pre'][0], wm['canary']['post'][0], wm['control']['pre'][0], wm['control']['post'][0], world_did))
     print('G1 (gate)    low=1 orders that made an iron shovel: %d %s' % (len(g1), g1[:3]))
-    print('G2 (gate)    stone shovels made over a usable shovel: %d %s' % (len(g2), g2[:3]))
+    print('G2 (gate)    stone shovels made over a usable shovel: %d %s | before= unavailable (not judged) %d' % (len(g2), g2[:3], n['g2_unavailable']))
     print('G3 (gate)    deliveries that took the bag below its own keep: %d %s' % (len(g3_rows), g3_rows[:3]))
     print('G4 (gate)    canary bots over 7 deliveries in any 60 min: %d %s' % (len(loop_bots), loop_bots[:5]))
     print('ARMS         control towniron rows post %d (blocks KEEP)' % leak)

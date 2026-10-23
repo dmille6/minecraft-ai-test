@@ -119,7 +119,7 @@ await t('deliverOrder: only a RECORDED round is town cargo; at town any surplus 
   assert.equal(o.order?.skill, 'deliver_iron'); assert.equal(o.state.lastIssuedAt, 1e12)
   assert.equal(TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 4 }, state: R }).order?.skill, 'deliver_iron', 'a remainder of 1 is retried (Codex r2 P1)')
   const none = TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 3 }, state: R })
-  assert.equal(none.skip, 'none'); assert.equal(none.state.round, undefined, 'nothing above the keep: the round is over')
+  assert.equal(none.skip, 'none'); assert.equal(none.state.round, true, 'nothing above the keep YET (at town before the mining): the round stays (Codex r3 P1)')
   assert.equal(TIM.deliverOrder({ now: 1e12, atTown: false, counts: { ...own, raw_iron: 19 }, state: R }).skip, 'away')
   assert.equal(TIM.deliverOrder({ now: 1e12, on: false, atTown: true, counts: { ...own, raw_iron: 19 }, state: R }).skip, 'off')
   assert.equal(TIM.deliverOrder({ now: 1e12 + 1000, atTown: true, counts: { ...own, raw_iron: 19 }, state: o.state }).skip, 'cooldown')
@@ -325,6 +325,10 @@ const deliverScene = async S => {
     assert.equal(c.current()?.id, 'gather_iron_ore_town')
     let st = TIM.noteTownRound({}, c.current()?.id)
     assert.equal(st.round, true, 'the round is recorded while the task is active')
+    // AT TOWN BEFORE THE MINING (Codex r3 P1): the delivery order is asked with nothing above the keep -> no order, the round kept
+    const pre = TIM.deliverOrder({ now: CLOCK, atTown: true, counts: { ...inv }, state: st })
+    assert.equal(pre.order, null); assert.equal(pre.state.round, true, 'the round survives the pre-gather check')
+    st = TIM.noteTownRound(pre.state, c.current()?.id)
     inv.iron_ingot = 0; inv.raw_iron = 19                                // mined, and the ingots went into its bucket/pickaxe long ago
     c.refresh(); assert.notEqual(c.current()?.id, 'gather_iron_ore_town', 'the round carried: the ladder moves on (to the lap home)')
     st = TIM.noteTownRound(st, c.current()?.id)
@@ -426,6 +430,10 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
   kills.noRoundGate = await withMutant(SRC('towniron.mjs'), "  if (!s.round) return { order: null, state: s, skip: 'no_round' }\n", '', M => killedBy(() => {
     assert.equal(M.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 19 } }).skip, 'no_round')
   }))
+  kills.roundErasedEarly = await withMutant(SRC('towniron.mjs'), "  if (!(p.surplus > 0)) return { order: null, state: s, skip: 'none' }",
+    "  if (!(p.surplus > 0)) { delete s.round; return { order: null, state: s, skip: 'none' } }", M => killedBy(() => {
+      assert.equal(M.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 3 }, state: { round: true } }).state.round, true)
+    }))
   kills.retryOnlyRound = await withMutant(SRC('towniron.mjs'), '  if (surplusLeft === 0) delete s.round', '  delete s.round', M => killedBy(() => {
     assert.equal(M.deliverOutcome('aborted', 1e12, { round: true }, { surplusLeft: null }).round, true)
   }))
