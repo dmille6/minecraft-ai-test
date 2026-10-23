@@ -1,0 +1,11 @@
+rows walked (compacted) 1729038  |  canary board-a,hive-b,hive-c,placebo-a  sha 6e1afb52  cutoff 15:40Z  window +180 min, FROZEN pre-period 1440 min  |  offbuild canary rows 0, no-version 0
+POOLS        controls (frozen: >= 40 pre drains, >= 2 post bot-h) 4: board-c,isolated-b,placebo-b,placebo-c | dropped {'board-b': 'pre-period ran another build (6081 of 86265 rows)', 'board-d': 'pre-period ran another build (22285 of 124794 rows)', 'hive-a': 'pre-period ran another build (4802 of 93881 rows)', 'hive-d': 'pre-period ran another build (26271 of 104068 rows)', 'isolated-a': 'pre drains 5 < 40', 'isolated-c': 'pre drains 3 < 40', 'isolated-d': 'pre drains 3 < 40', 'placebo-d': 'pre-period ran another build (26096 of 97587 rows)'}
+LIVENESS     canary _furnace_seen_mode on=on 0 | canary drains 62
+EXPOSURE     skipped walks that CHANGED the pick (distinct furnace x entry x bot) 0 of 0 skip rows (registered min 20)
+D1 (defect)  0 defects | walks replayed 0, skips replayed 0, unresolved 0 -> instrument 0 | lit-released walks 0 | []
+EFFECT       repeat empty drains per bot-h: canary pre [0.5418, 0.2417, 0.2334, 0.6501] post [0.267, 0.1336, 0.0, 0.2004] | R = None, lower bound (alpha 0.025, randomization) None, bar None -> margin None canary pre-period ran another build: {'board-a': '19654 of 98601 rows', 'hive-b': '27331 of 97384 rows', 'hive-c': '22060 of 94756 rows', 'placebo-a': '34630 of 93856 rows'}
+REPORT       drains by stop class {('canary', 'post', 'empty'): 28, ('canary', 'post', 'other'): 5, ('canary', 'post', 'unreachable'): 29, ('canary', 'pre', 'empty'): 370, ('canary', 'pre', 'other'): 28, ('canary', 'pre', 'unreachable'): 196, ('control', 'post', 'empty'): 36, ('control', 'post', 'other'): 3, ('control', 'post', 'unreachable'): 30, ('control', 'pre', 'drained'): 1, ('control', 'pre', 'empty'): 444, ('control', 'pre', 'other'): 28, ('control', 'pre', 'unreachable'): 271}
+             drain body-s per bot-h DiD by stop class {'empty': 1.08, 'drained': 0.0, 'unreachable': 0.47, 'lit': 0.0, 'busy': 0.0, 'other': 0.62} (the saving, measured) | races (reported) -
+ARMS         control skip / mode rows post 0 (blocks KEEP)
+INSTRUMENT   control repeat empty drains post 11 | control _ledger_station post 0
+emit failed: CANARY_DRYRUN set -- not emitting

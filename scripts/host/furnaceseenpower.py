@@ -18,10 +18,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from furnaceseenread import fields, repeat_empties, effect_line, eligible_controls, PRE_MIN, MIN_POOL_BH, REPEAT_MS   # noqa: E402
 
-HOURS = float(sys.argv[1]) if len(sys.argv) > 1 else 120
+SELFTEST = sys.argv[1:2] == ['--selftest']
+HOURS = float(sys.argv[1]) if len(sys.argv) > 1 and not SELFTEST else 120
 SIMS = int(sys.argv[2]) if len(sys.argv) > 2 else 1000
 EFFECT = sys.argv[3] if len(sys.argv) > 3 else 'auto'
-FINALS = (720, 1440, 2880)
+FINALS = (360, 720, 1440, 2880)
 random.seed(20261023)
 
 
@@ -75,6 +76,33 @@ def repeats_with_flags(drains, loads):
     return out
 
 
+def treat(rows, loads, removal, rnd=random.random):
+    """The treated trajectory of ONE pool's drains (sorted rows (t, bot, furnace, stop, t0)): walking the drains in order, a drain
+    is SKIPPED (removed) when the newest RETAINED empty finding on its furnace is ANOTHER bot's, < REPEAT_MS old, logged before
+    this drain's pick, with no load between -- with probability `removal`. Later drains compare to what was retained, as the
+    skip rule does. -> the retained rows."""
+    last, kept = {}, []
+    lb = defaultdict(list)
+    for t, f in loads:
+        lb[f].append(t)
+    for row in rows:
+        t, b, f, stop, t0 = row
+        if stop == 'empty':
+            e = last.get(f)
+            if e and e[1] != b and t - e[0] < REPEAT_MS and e[0] < t0 and not any(e[0] < tl < t for tl in lb[f]) and rnd() < removal:
+                continue
+            last[f] = (t, b)
+        kept.append(row)
+    return kept
+
+
+# Codex r2 P2-1's fixture: A@0, B@10m, B@20m empties on one furnace -> full removal keeps only A@0 (zero repeats left)
+_rows = [(0, 'A', 'F', 'empty', 0), (600_000, 'B', 'F', 'empty', 590_000), (1_200_000, 'B', 'F', 'empty', 1_190_000)]
+assert [r[0] for r in treat(_rows, [], 1.0)] == [0]
+assert repeat_empties([r[:4] for r in treat(_rows, [], 1.0)], []) == 0 and repeat_empties([r[:4] for r in _rows], []) == 1
+assert [r[0] for r in treat(_rows, [], 0.0)] == [0, 600_000, 1_200_000]
+
+
 def main():
     until = dt.datetime.now(dt.timezone.utc).replace(second=0, microsecond=0)
     since = until - dt.timedelta(hours=HOURS)
@@ -90,8 +118,8 @@ def main():
     eff = share if EFFECT == 'auto' else float(EFFECT)
     s_ms, u_ms = int(since.timestamp() * 1000), int(until.timestamp() * 1000)
     print(f'history {HOURS:g} h to {until:%m-%d %H:%MZ} | pools {len(pools)} | repeats {reps}, removable (the earlier empty logged before the pick) {rem} = {share:.3f} | effect used {eff:.3f} | sims {SIMS}')
-    def rate(p, lo, hi, removed):
-        drains = [row[:4] for row, rep, rm in sl(flags[p], ftimes[p], lo, hi) if row not in removed]
+    def rate(p, lo, hi, kept=None):
+        drains = [row[:4] for row in (kept if kept is not None else [r for r, _, _ in sl(flags[p], ftimes[p], lo, hi)]) if lo <= row[0] < hi]
         h = data[p][2](lo, hi)
         return repeat_empties(drains, sl(data[p][1], ltimes[p], lo, hi)) / h if h >= MIN_POOL_BH else None
     for e in (eff, 0.0):
@@ -103,29 +131,33 @@ def main():
             for _ in range(SIMS):
                 t = random.randint(s_ms + P, u_ms - W)
                 pre_n = {p: len(sl(ftimes[p], ftimes[p], t - P, t)) for p in pools}
-                post_h = {p: data[p][2](t, t + W) for p in pools}
-                el, _ = eligible_controls(pre_n, post_h, set())
+                el, _ = eligible_controls(pre_n, {}, set())
                 if len(el) < 6:
                     continue
                 can = random.sample(el, 4)
                 ctl = [p for p in el if p not in can]
-                # ONE treated trajectory: each removable canary repeat in the post window is removed (or not) ONCE
-                removed = {row for p in can for row, rep, rm in sl(flags[p], ftimes[p], t, t + W) if rep and rm and random.random() < (e / share if share else 0)}
+                # ONE treated trajectory per canary pool, SEQUENTIAL (treat), seen by both reads
+                kept = {p: treat([r for r, _, _ in sl(flags[p], ftimes[p], t, t + W)], sl(data[p][1], ltimes[p], t, t + W), e) for p in can}
                 ok = False
                 for read in (180, fin):
                     w = read * 60000
                     rates = {}
                     for p in can + ctl:
-                        rates[('pre', p)] = rate(p, t - P, t, set())
-                        rates[('post', p)] = rate(p, t, t + w, removed)
+                        rates[('pre', p)] = rate(p, t - P, t)
+                        rates[('post', p)] = rate(p, t, t + w, kept.get(p))
                     m = effect_line(rates, can, ctl)['margin']
                     if m is not None and m >= 0:
                         ok = True
                 runs += 1; hits += ok
             if runs:
                 ph = hits / runs; ci = 1.96 * math.sqrt(ph * (1 - ph) / runs)
-                print(f'  {"POWER" if e else "NULL "} effect {e:.2f}  +180/+{fin}: {hits}/{runs} = {ph:.3f} (95% {max(0, ph - ci):.3f}-{min(1, ph + ci):.3f})')
+                indep = max(1, int((u_ms - s_ms - P - W) // W) + 1)
+                print(f'  {"POWER" if e else "NULL "} removal {e:.2f}  +180/+{fin}: {hits}/{runs} = {ph:.3f} (binomial 95% {max(0, ph - ci):.3f}-{min(1, ph + ci):.3f}; '
+                      f'NOT binomial in truth: the cuts share history -- about {indep} non-overlapping post-window(s) in the range)')
 
 
 if __name__ == '__main__':
-    main()
+    if SELFTEST:
+        print('SELFTEST OK')                  # the fixtures above ran on import
+    else:
+        main()
