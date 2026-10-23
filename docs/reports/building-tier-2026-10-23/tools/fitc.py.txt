@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""fitc.py <world> <region-copy> <hx,hy,hz> -- the P0 site screen COMPOSED with every record that exists today (Codex r2/r3
+P2). READ-ONLY on region copies. On top of fitb.py's geometry (furniture +-1, zones, liquid, B4 earthwork, Chebyshev >= 22 and
+straight-line <= 44 for every pad and stand-ring cell) it adds:
+  * reservations: every plinth record's cells and its prev[] history (+2), tree-farm record cells (+2), the Z0 ziggurat
+    footprint (centre +-24) and M0 shaft origin, each + 8 (TP 2-8: 8 from the monument apron and the shaft collar);
+  * existing BUILT cells (the structure count's own set, data from <world>.scan.json) anywhere in the pad volume
+    (ground-1 .. ground+5) or its ring: such a site is REFUSED, not built around;
+  * the tree rule: every log over the pad and its ring and the next column out (the trunk and branches of a tree that enters
+    the volume) at most ground+7 (dig reach 5.0 from a ground stand: eye ground+2.62);
+  * replant: at least one soil column per trunk felled (grass/dirt with 7 cells of air above: oak's clearance plus one), 8-24
+    from the pad, outside every reservation and plot;
+  * a walk route: a breadth-first walk over ground columns from home (steps up <= 1, down <= 3, no liquid, inside +-48) that
+    reaches the stand ring;
+  * houses: after the best workshop, five 7x7 pads (Chebyshev >= 22, straight-line <= 40 with their ring) packed greedily with
+    2 cells between plots, under the same rules.
+NOT included, because they exist only once townplan-01 writes plans: the ring@1 sector assignment, path segments and the
+well and farm sectors. The candidate's 45-degree sector is reported so the planner's choice can be checked against it."""
+import importlib.util, json, math, os, re, sys, collections
+here = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location('sc', os.path.join(here, 'structcount.py')); sc = importlib.util.module_from_spec(spec); spec.loader.exec_module(sc)
+
+FURN = re.compile(r'^minecraft:(chest|trapped_chest|barrel|furnace|blast_furnace|smoker|crafting_table|[a-z_]+_bed|lectern|composter)$')
+LIQ = re.compile(r'(water|lava|bubble_column|seagrass|kelp)')
+LOG = re.compile(r'_(log|wood)$')
+SOIL = ('minecraft:grass_block', 'minecraft:dirt', 'minecraft:podzol', 'minecraft:coarse_dirt', 'minecraft:rooted_dirt')
+SECT = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE']
+STATION = re.compile(r'(chest|barrel|furnace|smoker|crafting_table|_bed|lectern|composter|torch|lantern|ladder|door|sign)')
+
+def main():
+    world, rdir, home = sys.argv[1], sys.argv[2], tuple(int(v) for v in sys.argv[3].split(','))
+    hx, hy, hz = home
+    w = sc.World(rdir); R = max(48, int(os.environ.get('HOUSE_R', '40')) + 4)
+    furn = set()
+    for cx in range((hx - R) >> 4, ((hx + R) >> 4) + 1):
+        for cz in range((hz - R) >> 4, ((hz + R) >> 4) + 1):
+            for x, y, z, n in w.cells_matching(cx, cz, FURN, hy - 12, hy + 12): furn.add((x, z))
+    furnset = {(x + a, z + b) for x, z in furn for a in (-1, 0, 1) for b in (-1, 0, 1)}
+    blocked = set()
+    reason_cells = collections.Counter()
+    def reserve(cells, pad, why):
+        for x, z in cells:
+            for a in range(-pad, pad + 1):
+                for b in range(-pad, pad + 1):
+                    blocked.add((x + a, z + b))
+        reason_cells[why] += len(cells)
+    import glob
+    for f in glob.glob('bt-plinths/_pool-%s--junkwell-plinth-*.json' % world) + glob.glob('bt-plinths/_pool-self-%s-*--junkwell-plinth-*.json' % world):
+        d = json.load(open(f)); plans = [d.get('plan') or {}] + [p for p in (d.get('prev') or []) if isinstance(p, dict)]
+        cells = []
+        for pl in plans:
+            cells += [(s['c'][0], s['c'][2]) for s in pl.get('steps', []) if s.get('c')]
+            if pl.get('cap'): cells.append((pl['cap']['x'], pl['cap']['z']))
+        reserve(cells, 2, 'plinth')
+    for f in glob.glob('bt-tf/_pool-%s--treefarm-*.json' % world):
+        d = json.load(open(f)); reserve([(c['x'], c['z']) for c in d.get('cells', [])], 2, 'treefarm')
+    zz = (json.load(open('zig-z0m0-2026-10-15.json'))['worlds'].get(world) or {})
+    zig = zz.get('ziggurat') or {}; sh = zz.get('shaft') or {}
+    if zig.get('centre'):
+        c = zig['centre']; reserve([(x, z) for x in range(c['x'] - 24, c['x'] + 25) for z in range(c['z'] - 24, c['z'] + 25)], 8, 'z0')
+    if sh.get('origin'):
+        reserve([(sh['origin']['x'], sh['origin']['z'])], 8, 'm0')
+    zones = []
+    zf = 'bt-plinths/_pool-%s--zones.json' % world
+    if os.path.exists(zf): zones = [z['box'] for z in json.load(open(zf)).get('zones', [])]
+    built_cols = collections.defaultdict(list)
+    sj = '%s.scan.json' % world
+    if os.path.exists(sj):
+        for x, y, z, n in json.load(open(sj))['cells']: built_cols[(x, z)].append((y, n))
+    col = {}
+    def column(x, z):
+        if (x, z) in col: return col[(x, z)]
+        g = w.natural_top(x, z)
+        liq = any(LIQ.search(w.block(x, y, z) or '') for y in range(g, g + 5))
+        logs = [y for y in range(g + 1, g + 30) if LOG.search(w.block(x, y, z) or '')]
+        trunk = bool(logs) and logs[0] == g + 1
+        soil = (w.block(x, g, z) in SOIL) and all((w.block(x, y, z) or '') in sc.AIR for y in range(g + 1, g + 8))
+        # the WALKING surface: the highest solid that is not leaves (built platforms and paths included)
+        hm = w.hm.get((x >> 4, z >> 4))
+        y = (hm[(z & 15) * 16 + (x & 15)] - 65) if hm else g
+        while y > g and not sc.wallish(w.block(x, y, z)): y -= 1
+        col[(x, z)] = (g, liq, max(logs) if logs else None, trunk, soil, len(logs), y)
+        return col[(x, z)]
+    # the walk from home over ground columns
+    start = (hx, hz); seen = {start}; q = collections.deque([start])
+    while q:
+        x, z = q.popleft()
+        c0 = column(x, z); g0 = c0[6]
+        for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (x + a, z + b)
+            if n in seen or abs(n[0] - hx) > R or abs(n[1] - hz) > R: continue
+            c1 = column(*n); g1, liq1 = c1[6], c1[1]
+            if liq1 or g1 - g0 > 1 or g0 - g1 > 3: continue
+            seen.add(n); q.append(n)
+    reach = seen
+    def judge(x0, z0, W, D, maxr, taken):
+        cells = [(x, z) for x in range(x0, x0 + W) for z in range(z0, z0 + D)]
+        ring = [(x, z) for x in range(x0 - 1, x0 + W + 1) for z in range(z0 - 1, z0 + D + 1)]
+        if min(max(abs(x - hx), abs(z - hz)) for x, z in ring) < 22: return None, 'inside_22'
+        if any(math.hypot(x - hx, z - hz) > maxr for x, z in ring): return None, 'beyond_%d' % maxr
+        if any(c in furnset for c in ring): return None, 'town_furniture'
+        if zones and any(zb[0] <= x <= zb[3] and zb[2] <= z <= zb[5] for zb in zones for x, z in ring): return None, 'zone'
+        cs = [column(x, z) for x, z in cells]
+        if any(c[1] for c in cs): return None, 'liquid'
+        gs = collections.Counter(c[0] for c in cs); top = max(gs.values()); g0 = min(k for k, v in gs.items() if v == top)
+        fill = sum(g0 - c[0] for c in cs if c[0] < g0); cut = sum(c[0] - g0 for c in cs if c[0] > g0)
+        if any(abs(c[0] - g0) > 3 for c in cs) or fill > 40 or cut > 30: return None, 'earthwork'
+        # ---- everything above is fitb's GEOMETRY; everything below is the COMPOSITION with today's records ----
+        if any(c in blocked for c in ring): return None, 'reserved_plinth_farm_z0_m0'
+        if any(c in taken for c in ring): return None, 'other_plot'
+        # bot cells in the volume: a container or station refuses the site; scaffold-class litter (cobble, dirt, planks,
+        # natural stone placed by the pathfinder) is a fenced `scaffold` clear, capped at 40 cells per plot
+        litter = 0
+        for x, z in ring:
+            for y, n in built_cols.get((x, z), []):
+                if g0 - 1 <= y <= g0 + 5:
+                    if STATION.search(n): return None, 'bot_station_or_container_in_volume'
+                    litter += 1
+        if litter > 40: return None, 'bot_litter_over_40'
+        far = [(x, z) for x in range(x0 - 2, x0 + W + 2) for z in range(z0 - 2, z0 + D + 2)]
+        if any((column(x, z)[2] or -999) > g0 + 7 for x, z in far): return None, 'tree_too_tall'
+        trunks = sum(1 for x, z in ring if column(x, z)[3])
+        if trunks:
+            pad = set(ring); soil = 0
+            for x in range(x0 - 24, x0 + W + 24):
+                for z in range(z0 - 24, z0 + D + 24):
+                    d = max(x0 - x, x - (x0 + W - 1), z0 - z, z - (z0 + D - 1), 0)
+                    if 8 <= d <= 24 and (x, z) not in pad and (x, z) not in blocked and (x, z) not in taken and column(x, z)[4]:
+                        soil += 1
+                        if soil >= trunks: break
+                if soil >= trunks: break
+            if soil < trunks: return None, 'no_replant_cell'
+        if not any(c in reach for c in ring): return None, 'no_walk_route'
+        cxm, czm = x0 + W / 2 - hx, z0 + D / 2 - hz
+        sect = SECT[int(((math.degrees(math.atan2(czm, cxm)) + 22.5) % 360) // 45)]
+        return {'x0': x0, 'z0': z0, 'w': W, 'd': D, 'g0': g0, 'earthwork': fill + cut, 'trunks': trunks, 'litter': litter, 'sector': sect}, 'ok'
+    why = collections.Counter(); ok = []
+    for W, D in ((9, 7), (7, 9)):
+        for x0 in range(hx - 44, hx + 45 - W):
+            for z0 in range(hz - 44, hz + 45 - D):
+                r, y = judge(x0, z0, W, D, 44, set()); why[y] += 1
+                if r: ok.append(r)
+    geo = sum(v for k, v in why.items() if k not in ('inside_22', 'beyond_44', 'town_furniture', 'zone', 'liquid', 'earthwork'))
+    out = {'world': world, 'reserved_cells': dict(reason_cells), 'walkable_columns': len(reach),
+           'geometric_candidates': geo,
+           'workshop_candidates_qualified': len(ok), 'sectors': dict(collections.Counter(r['sector'] for r in ok)),
+           'rejects': dict(why.most_common(12))}
+    if ok:
+        best = min(ok, key=lambda r: (r['earthwork'], r['trunks']))
+        taken = {(x, z) for x in range(best['x0'] - 3, best['x0'] + best['w'] + 3) for z in range(best['z0'] - 3, best['z0'] + best['d'] + 3)}
+        houses = []
+        HR = int(os.environ.get('HOUSE_R', '40'))
+        for x0 in range(hx - HR, hx + HR + 1 - 7):
+            for z0 in range(hz - HR, hz + HR + 1 - 7):
+                if len(houses) >= 5: break
+                r, y = judge(x0, z0, 7, 7, HR, taken)
+                if r:
+                    houses.append(r)
+                    taken |= {(x, z) for x in range(x0 - 3, x0 + 10) for z in range(z0 - 3, z0 + 10)}
+        out['best_workshop'] = best; out['houses_packed'] = len(houses); out['house_r'] = HR
+    print(json.dumps(out))
+
+if __name__ == '__main__':
+    main()

@@ -1,4 +1,4 @@
-# The building tier: count what is built, make the materials, build from plans (design only, r3, 2026-10-23)
+# The building tier: count what is built, make the materials, build from plans (design only, r4, 2026-10-23)
 
 OWNER 2026-10-23 ~12:40Z approved the building tier. The goal it serves is the owner's: "build cool structures, survive,
 and work together for long periods of time", in peaceful worlds.
@@ -50,7 +50,7 @@ worlds, not the rows:
 - **Correction to the brief:** of the 305 successful `place` actions, 274 placed saplings, 23 crafting tables, 7 dirt and 1
   granite. Torches: 0 successes (4 failures). Wells are not built through `place` at all.
 
-**2. The instrument passes its controls** (rerun 10-23 ~15:35Z after review rounds 1 and 2).
+**2. The instrument passes its controls** (rerun 10-23 ~15:35-16:05Z after review rounds 1-3).
 
 | control | what | result |
 |---|---|---|
@@ -81,9 +81,10 @@ So materials need:
 - one deterministic job, `make_material`. It runs at a qualifying town furnace (the workshop's once it exists), makes only
   what an admitted blueprint still needs (or a small buffer), and spends only what is above the reserve.
 
-Funding today (exact bills from the blueprints' cells, TP 3.2's admission, 13 shared towns): the workshop is admitted in 11
-of 13 (9 with copper trim; hive-b and hive-d are log-short), and 42 of the 65 houses are admissible one at a time after it,
-before any refill.
+Funding today (an allocation over TOWN STORAGE only, every draw within 80% of its pool, species kept; 13 shared towns): the
+workshop is admitted in 10 of 13 (8 with copper trim; hive-b, hive-d and placebo-d are plank-short at a 512 log reserve), and 26
+of the 65 houses are admissible one at a time after it, before any refill. Sites (the composed P0 screen, §4.3): the workshop
+has a qualified site in 8 of the 13; houses fit five per town only if their band reaches straight-line 60 (owner Q10).
 
 Its fuel is **planks**: 1 log makes 4 planks, which smelt 6 items. That respects B3 (never coal) and the 10-15 "no charcoal"
 decision (D4).
@@ -125,7 +126,8 @@ Blueprints are JSON, built from the world (progress is what the world shows), sp
 - B6: "same code as the fleet" and "built first" cannot both hold; which one gives (§8 C4);
 - 2 builders in shop-01, so the workshop is the cooperation design's first multi-bot project;
 - the reserve's numbers;
-- the wall's gaps.
+- the wall's gaps;
+- where the houses go: five fit within straight-line 40 of home in no town, within 60 in every town with a workshop site (Q10).
 
 ---
 
@@ -313,16 +315,21 @@ world.
   the affected chunks `unknown` and excludes them from the totals. The totals then say how many cells were excluded. A town
   with more than 2% of its box unknown is `UNKNOWN`.
 - **Atomic publication:** the JSON is written to a temporary file and renamed. A reader never sees half a day.
-- **Canary reads do not wait for the night, and freshness is judged per CHUNK** (Codex r2 P1, Claude r2 P3). A read at +360
-  copies the canary and control towns' region files at read time with `cp -p`, recording each SOURCE file's mtime before the
-  copy (a plain `cp` would reset it). Freshness comes from the region file's own per-chunk timestamp table (the second 4 KB of
-  every `.mca`: the time Paper last wrote that chunk):
-  - a chunk holding record cells is FRESH when its timestamp is later than the newest witnessed `_build` placement row in it;
-  - a stale chunk is re-copied once after one autosave interval (5 min + 1 min margin); still stale, the record cells in it
-    are `UNKNOWN` and the record's score says so;
-  - a quiet chunk (no placement row since its last write) is fresh whatever its age, so an unchanged town is never wrongly
-    UNKNOWN.
+- **Canary reads do not wait for the night, and every read declares a CUTOFF** (Codex r2 P1 and r3 P1, Claude r2/r3 P3).
+  Paper writes every dirty chunk at each autosave (measured in the servers' own config, read-only: bukkit.yml
+  `ticks-per.autosave: 6000` = 5 min; paper-world-defaults `max-auto-save-chunks-per-tick: 24`, so a pass is not throttled at
+  town scale). So a copy taken at time T holds EVERY change made before T - 10 min (two autosave passes), whatever made it: a
+  build placement, a transit dig, a reflex breaking a wall or a light. The read therefore judges the world AS OF its cutoff
+  C = T - 11 min and says so; a change after C is outside the read, never misread as absent.
+  - **Evidence the autosave ran:** each copied region file that holds a record or a canary town must show a chunk timestamp
+    (the region file's own per-chunk table, the second 4 KB of every `.mca`) later than C. Board-a's live region at 15:33Z:
+    newest chunk write 63 s earlier, 19 chunks written in the last 10 min. A region without one is `UNKNOWN` for the read.
+  - **One clock:** the copy runs on 10.0.0.30, the host the servers run on, so the region timestamps and T come from the same
+    clock (NTP); a 60 s margin is inside the 11 min anyway.
+  - **Copies:** `cp -p` and the SOURCE file's mtime recorded before the copy.
   - No RCON `save-all` is used: the read stays read-only.
+  - Test (Paper): placement -> autosave -> break -> copy before the next autosave: the read's cutoff precedes the break and
+    the score is "complete as of C"; a copy after the next autosave shows the break.
 
 ### 2.6 The controls (run 10-23; numbers in §0 item 2; tools `structcount.py.txt` `scan` / `village` / `negctl` / `delta` / `selftest`)
 
@@ -341,6 +348,10 @@ most bench towns (a mineshaft edge), 657 cells in board-b, 445 in placebo-a, all
 **The fixtures are part of the instrument.** `selftest` (17 known-answer fixtures) and `mutants.py` (8 anchored mutants, each
 asserted present and unique) run before every daily scan and every canary read. Both exit nonzero on any failure, survivor,
 crash or missing case line, and the wrapper then publishes nothing for the day (the BUILD lines say UNKNOWN) and alarms.
+The wrapper is `tools/daily.sh.txt`, exercised on 10.0.0.30 (`data/daily-wrapper-demo.txt`): with the instrument as shipped it
+published the day's file and status OK; with a deliberately broken instrument (the lit rule made state-blind) it printed
+"selftest FAILED: nothing published", exited 3, left the earlier file untouched and wrote status UNKNOWN. goalboard reads
+`status.json`, so an UNKNOWN day is UNKNOWN even when an older file exists.
 
 **Known false positive, named.** The only room found on the bench (board-b, 76 from home) is a cobble scaffold under a
 jungle canopy, with log walls. B5's light rule makes it a structure.
@@ -463,9 +474,16 @@ other town order.
 - It reconciles by looking (the bag, the furnace, the deposit target) and crafts any stone in the bag in fours.
 - **A 1-3 stone remainder is never "banked and closed" when stone cannot bank** (Codex r2 P2: stone's 64 target may be full).
   It stays under the open note as a KEEP and is consumed by the bot's next order, which withdraws 12 minus the remainder.
-- **Carry protection starts at spawn, before any movement** (Codex r2 P2). While a note is open, its named items are a KEEP for
-  every order (deposit, prune, the well, craft ingredients) AND are removed from that bot's pathfinder scaffold list: index.mjs
-  reads the note when it builds the bot's movements on spawn and on every note change, so restart travel cannot spend them.
+- **Carry protection starts at spawn, and removes only what is the job's alone** (Codex r2 P2, Claude r3 P2). The scaffold list
+  is TYPE-level (mineflayer's `scafoldingBlocks` has no counts), and `exit-contract.mjs` `scaffoldCount` counts the bag by
+  name. Removing a base type a bot also carries (cobblestone, planks, logs) would leave the pathfinder unable to climb while the
+  exit contract still counts the blocks: a composed dead end. So:
+  - **only `stone`**, the job-only intermediate that bots almost never carry otherwise, leaves that bot's scaffold list while a
+    note names it (index.mjs reads the note when it builds the bot's movements, on spawn and on every note change);
+  - noted cobblestone, planks and logs stay scaffold. The KEEP still protects them from deposit, prune, the well and crafts;
+    a pathfinder spend of them is booked from the bot's own place rows as a REPORTED loss of the note, never a defect;
+  - chain test MINE-NOTE: a deposit fails with a note open, the bot goes mining, and the exit contract's count equals what the
+    movements can place: the bot climbs out.
 - **D8's unshipped half ships in matset-01:** `stone_bricks` and `smooth_stone` are still in `PATHFINDER_SCAFFOLD`
   (scaffold.mjs) although D8 made them building material; they leave it. Planks and stone stay scaffold for ordinary travel,
   and the claim/note exclusion above covers them while they are a job's or a segment's.
@@ -480,6 +498,10 @@ other town order.
 - BUFFERS, per town, a setting: stone_bricks 128, glass_pane 32, cut_copper 24, copper_door 3. Buffers limit PRODUCTION; they
   are not stock targets (§3.4).
 - With no admitted project nothing is made beyond the buffers, so a town cannot be hollowed into parts.
+- **Exposure is reachable before the workshop exists** (Claude r3 P3): the region copies' furnace block entities
+  (`tools/coldfurnace.py.txt`, `data/coldfurnace-20261023.jsonl`) show 1-5 town furnaces per town within 16 of home, 35
+  in 16 towns, and 34 of them QUALIFY today (`lit_time_remaining` 0, empty input, empty or plank fuel, empty output; the one
+  that does not holds iron output). One order makes 12 bricks, so mats-01's ≥ 20 parts need two orders per canary town.
 
 ### 3.3 The reserve (B3) and why it cannot eat the tools
 
@@ -510,13 +532,16 @@ intermediates, then raw inputs and their fuel). Each instance is admitted on its
 - **The bill is exact** (`tools/funding.py.txt`): it is computed from the blueprint's cells by executable batches, with the
   stations (a table, two furnaces) and the earthwork fill allowance (40 cobble per pad) included.
 
-**Funding today** (`tools/funding.py.txt` r3 over `data/census-species-20261023.jsonl`: per-species stock, cobblestone alone,
-the default reserve, chests only; 13 eligible towns, the 12 shared worlds plus isolated-b, which became a shared town on 10-21):
+**Funding today** (`tools/funding.py.txt` r4 over `data/census-species-20261023.jsonl`: TOWN STORAGE only (straight-line 16,
+12 vertical: 10-35 containers per town), an offline proxy for the runtime index, which adds freshness and claims; every pool
+clamped at 0 after the reserve, and every draw capped at 80% of its pool; species kept; parts and intermediates allocated before
+raw inputs; 13 eligible towns). Its own fixtures (`data/funding-selftest.out`, 5 of 5): oak walls are never paid with birch
+planks; banked panes are used with no sand; banked cut copper is used with no ingots; a draw over 80% is refused.
 
 | | bill from the cells (copper trim / plank fallback) | towns admitted now |
 |---|---|---|
-| workshop@1 | 152 cobblestone (8 sessions of 12, 2 furnaces, the fill allowance); 57 or 77 wall-species planks + 64 fuel planks; 180 ingots or 0; 2 torches; windows as planks while sand is 0 | **11 of 13** (9 with copper trim). hive-b and hive-d are log-short at a 512 reserve; hive-d also has 0 torches in its chests |
-| house@1, one at a time after the workshop | 112 cobblestone; 51 planks + 48 fuel planks; 42 ingots or 0 (stone-brick corners, an open doorway) | **42 of the 65** houses (13 towns x 5) admissible in sequence from today's stock with no refill, per town 0-5. Cobble refills at the cap daily |
+| workshop@1 | 152 cobblestone (8 sessions of 12, 2 furnaces, the fill allowance); 57 or 77 wall-species planks + 64 fuel planks; 180 ingots or 0; 2 torches; windows as planks while sand is 0 | **10 of 13** (8 with copper trim). hive-b, hive-d and placebo-d are plank-short at a 512 log reserve; hive-d also has 0 torches in its chests |
+| house@1, one at a time after the workshop | 112 cobblestone; 51 planks + 48 fuel planks; 42 ingots or 0 (stone-brick corners, an open doorway) | **26 of the 65** houses (13 towns x 5) admissible in sequence from today's town storage with no refill, 0-3 per town. Cobble refills at the cap daily, and the wood stockpile with gathering |
 
 **Sand is 0 everywhere today:** glass waits on matset-01's sand target. Windows are an upgrade too: an unplaced window cell
 becomes a plank wall cell after 24 h (`window_shortfall`, the pavilion's `roof_shortfall` pattern), written only by the crew
@@ -584,16 +609,22 @@ The record also carries `structure_complete`, `layer_open`, `bom_open` (open cel
   k = 1..builders_max) before any segment. That is the atomic, project-wide builder cap.
 - **A fresh epoch per acquisition.** Every acquisition of a slot or a segment links a NEW generation N. The fencing token
   checked immediately before every click is (that lease's own N, the record generation, the BARRIER generation below).
-- **Durable pre-send intents.** Before every click, its sender appends an intent (cell, block, lease N, time) to its lease's
-  intent log and fsyncs it; the intent is settled by the cell's server word (the witness) or, after 5 s of silence, by a
-  fresh read. A click is never sent without its intent on disk.
-- **A project-wide mutation BARRIER** (`project-<home>.<plot>.barrier.g<N>.json`): a closer cell (a placement the proof marks
-  as reducing a room's exits or closing a roof over one) and every fallback transition (`window_shortfall`, `trim_shortfall`,
-  `door: doorway`) first take the barrier. EVERY sender checks the barrier generation immediately before each click and sends
-  nothing while another holder has it. The barrier holder then reconciles EVERY recorded unsettled intent, of live holders
-  and of expired ones alike (a crashed holder's packet in flight settles within seconds; its intent is resolved by reading
-  the cell), and only then re-evaluates `wouldEnclose` against every body and clicks, or writes the transition. Two senders can
-  therefore never interleave with a closer or a fallback change.
+- **One OS mutex per project, around every final check and send** (Codex r3 P1). Every bot of a town runs on one host (the
+  bench on 10.0.0.31, the showcase on 10.0.0.40) and the town's state directory is local there, so a real kernel lock serves:
+  `flock` on `project-<home>.<plot>.mutate.lock`. A sender, in this order: (1) appends its intent (cell, block, lease N,
+  time) to its lease's intent log and fsyncs it; (2) takes the mutex; (3) checks its lease, the record generation and the
+  barrier; (4) sends the click; (5) releases the mutex when the server's word for the cell arrives, or after 5 s. If (3) fails
+  it marks the intent `cancelled` and sends nothing. A process that dies releases the mutex in the kernel.
+- **The BARRIER** (`project-<home>.<plot>.barrier.g<N>.json`): a closer cell (a placement the proof marks as reducing a room's
+  exits or closing a roof over one) and every fallback transition (`window_shortfall`, `trim_shortfall`, `door: doorway`)
+  first take the mutex and write a new barrier generation; from then no other sender passes step (3). The holder then
+  reconciles EVERY intent that is not settled or cancelled, live or expired: an intent is settled by its cell's server word or
+  a fresh read. **An unsettled intent of a sender that may still deliver is never released on a timer:** it is released only
+  when that sender has recorded its settlement, or its bot's server connection is gone (the holder sees `playerLeft` for it)
+  plus 1 s. Only then does the holder re-evaluate `wouldEnclose` against every body and click, or write the transition.
+- Tests (SHOP-BARRIER, on Paper): a sender SIGSTOPped right after its check while holding the mutex (no closer click until it
+  resumes or dies); a delivery delayed beyond 5 s (netem on that bot's connection: the barrier waits on its unsettled intent);
+  an ordinary click racing the barrier take; a click crossing a `trim_shortfall` transition.
 - **Concurrency otherwise:** two segments run concurrently only when no cell, stand or support of one lies in the other's cells.
 - Tests (SHOP-BARRIER): an expired holder's in-flight click against a closer; an ordinary click racing the barrier take; a click
   crossing a `trim_shortfall` transition.
@@ -603,8 +634,8 @@ The record also carries `structure_complete`, `layer_open`, `bom_open` (open cel
   documents (town plan §4.2).
 - **The in-bot predicate** is the structure count's: every record cell in family, and the record's interior passing the
   room test with a lit light. It is one pure function with one fixture suite, ported from `rooms_of`.
-- **Exposed pure functions:** `buildEligible(bot, record, seg)` split into a host part (material for the segment in the bag or
-  the site chest, a free slot, the segment unleased, no flag, health > 10) and a bot part (a stand reachable by the walk
+- **Exposed pure functions:** `buildEligible(bot, record, seg)` split into a host part (the segment's bill ALLOCATABLE from the bag,
+  the site chest or any fresh, known town container in the index, under the claim set: Codex r3 P2, a free slot, the segment unleased, no flag, health > 10) and a bot part (a stand reachable by the walk
   probe); `segmentDone`; `segmentBom`; `concurrentOk`.
 
 ### 4.2 The blueprints (B2 palette)
@@ -666,7 +697,7 @@ the workshop replaces as the first roofed build. Outside the 16 circle:
 
 Houses are a new plot kind, `house`, appended to the plan (append-only; no committed plot changes): five 7x7 pads with 2-cell
 gaps in the sectors either side of the gate path, at Chebyshev ≥ 22 (TP 2-8: no structure inside 21, which keeps the plinth
-re-site room and the shaft collar) and straight-line ≤ 40. The wall is a `wall` plot.
+re-site room and the shaft collar) and straight-line ≤ 60 (owner Q10: five fit within 40 in no town). The wall is a `wall` plot.
 Paths are the plan's own.
 
 **Where a 9x7 pad is geometrically possible today** (`tools/fitb.py.txt` on the region copies,
@@ -681,11 +712,24 @@ exist only once townplan-01 writes plans. So its counts are UPPER BOUNDS:
 | near (17-30) | 13 / 16 | not board-c, isolated-d, placebo-c |
 | **outer (Chebyshev 22-44, straight-line ≤ 43)** | **16 / 16** | best earthwork 0-38 cells; up to 266 tree cells above the pad |
 
-**The composed site gate (P0): the FIRST step of building shop-01, before any actuator code** (Codex r2 P2). It is run on frozen
-plans and region copies, with every stand cell checked explicitly, and reported with both reviews before the actuator is built: the same predicate run inside the planner on every canary-
-eligible town's real plan, adding the reservations above, any existing BUILT cell in the volume (Claude r1 P2: a site holding
-bot-placed tables or pillars is refused, not built around), the tree-height rule below, and a legal replant site. It reports
-qualified sites separately from geometric candidates, n/13. A town without a qualified site is not drawn.
+**The composed site gate (P0), run now as a screen** (`tools/fitc.py.txt`, `data/fitc-composed-20261023.jsonl`; Codex r2/r3 P2):
+the geometry above composed with every record that exists today: every plinth record with its `prev[]` history (+2), the tree-
+farm records (+2), the Z0 ziggurat footprints and M0 shaft origins (+8, TP 2-8), the structure count's own BUILT cells in the
+pad volume (a container, station, torch, ladder, door or sign refuses the site; more than 40 cells of scaffold litter refuses
+it; fewer are a fenced `scaffold` clear), the whole-tree reach rule, a legal replant cell per trunk, and a walk route from home
+(steps up ≤ 1, down ≤ 3, no liquid). Every stand cell is checked:
+
+| | towns |
+|---|---|
+| workshop@1 qualified site | **9 of 16; 8 of the 13 eligible** (board-a, board-d, hive-b, hive-d, isolated-b, placebo-a, placebo-b, placebo-d; plus isolated-c, which is out). What kills the rest after the geometry: trees too tall for a ground stand (board-b, board-c, hive-a, hive-c, ...), no walk route (hive-c, isolated-a, placebo-c), reservations |
+| funded AND sited today | **5 of 13**: board-a, board-d, isolated-b, placebo-a, placebo-b. Enough for a 2-pool draw, not a 4-pool one |
+| five house@1 plots at straight-line ≤ 40 | **0 towns** (0-3 per town) |
+| five house@1 plots at straight-line ≤ 60 | **every town with a workshop site** (`data/fitc-composed-house60-20261023.jsonl`) |
+
+Not in the screen, because they exist only once townplan-01 writes plans: the ring@1 sector assignment (each candidate's 45°
+sector is reported so the planner's choice can be checked against it), path segments, and the well and farm sectors. The walk
+rule is a conservative proxy for the pathfinder (which can scaffold). **The runtime planner's run on frozen plans remains the
+first step of building shop-01, before any actuator code, reported with both reviews.**
 
 **Clearing (B4).** It happens only inside the claimed plot box, by its builder under the fenced lease, from the record's
 CLEAR LIST. Never in a protected zone, the showcase's village boxes, or another plot.
@@ -725,8 +769,10 @@ placement, resume after a disconnect, bystanders) is rebased and extended:
   - no dig is made in the first 3 s after a spawn or respawn (no `player_loaded` is sent; cause #1 of the ghosts);
   - a dig with no confirmation within 3 s marks the cell unknown, and it is never stood on or built against.
   - **Recovery is a deterministic RESYNC PROBE** (Codex r2 P2: waiting is not recovery, because a loaded chunk does not resend
-    an unchanged cell). The builder clicks (use-item-on, empty hand) the face of a solid neighbour that points INTO the unknown
-    cell. Vanilla's use-item-on handler answers every such click with block updates for the clicked block and the adjacent
+    an unchanged cell). The builder clicks (use-item-on) the face of a solid neighbour that points INTO the unknown
+    cell, holding an EMPTY HOTBAR SLOT selected by `setQuickBarSlot` (never `unequip`: the unequip-on-full-bag toss bug), else
+    its pickaxe (no use-on-block action); never an axe, shovel or hoe (they strip, path or till), and the clicked neighbour is
+    never interactable (a container, station, door, trapdoor, gate, bed, button or lever). Vanilla's use-item-on handler answers every such click with block updates for the clicked block and the adjacent
     cell, so the server's true state arrives. At most 2 probes per cell per visit. Paper must prove it (scene GHOST-RESYNC)
     before any blueprint relies on it.
   - With no solid neighbour face in reach, or 2 probes unanswered, the cell stays unknown: the segment yields and the other
@@ -854,7 +900,7 @@ reconciled by the next build that has `mats_return`, and the rollback build simp
 - **The pool must hold the population the fix targets** (CLAUDE.md). shop-01 draws **at least 2** canary pools, each from a
   town that is funded at draw time (the funding script on the newest census) AND has a qualified site from the composed P0
   gate (run offline on the newest region copies, because the runtime planner is not on the fleet before the deploy). Today
-  that is at most 11 of 13 towns (funding), and the gate has not run.
+  that is 5 of 13 (§4.3: funded and sited), so shop-01 can draw 2 pools now; a 4-pool draw would wait for stock.
 - **Expected time:** 167 placements at 1.14 s is ≈ 3 min of clicks. With TP's 3-5x production overhead, the material jobs
   (8 sessions ≈ 16 furnace-minutes on 1 furnace) and the clearing, that is a few bot-hours per town.
 - **Reads:** +360, extended to +720 / +1080 / +1440 until the exposure is met. Deadline: INCONCLUSIVE. Each read copies the
@@ -890,9 +936,11 @@ reconciled by the next build that has `mats_return`, and the rollback build simp
 | MAT-FURN | mats-01 | furnaces holding coal, foreign iron, and the job's own leftover stone: only the last is used; a remainder in an ordinary town furnace taken by `furnace_drain` |
 | MAT-HOT | mats-01 | an EMPTY fuel slot with coal still burning (`lit=true`, burn progress > 0): a free skip, nothing loaded |
 | MAT-TRAVEL | mats-01 | a restart with an open note, then a long walk home through terrain that needs scaffold: 0 noted items placed |
-| CHAIN-1 | shop-01 | an admitted workshop, no other job running: make_material makes the parts, a build visit withdraws them and places them, the workshop completes |
+| CHAIN-1 | shop-01 | an admitted workshop, no other job running, the builder's bag EMPTY and no site chest: make_material makes the parts into town chests, `buildEligible` is true from the index, a build visit withdraws them and places them, the workshop completes |
 | GHOST-RESYNC | shop-01 | a dig the server rejects (made in the first 3 s after spawn), then the probe: the server's block update arrives and the cell is known again; the no-neighbour case yields |
-| SHOP-BARRIER | shop-01 | an expired holder's in-flight click meets a closer; an ordinary click races the barrier take; a click crosses a `trim_shortfall` transition: no enclosure, no stale click accepted |
+| SHOP-BARRIER | shop-01 | a sender SIGSTOPped after its check holding the mutex; a delivery delayed > 5 s; an expired holder's in-flight click meets a closer; an ordinary click races the barrier take; a click crosses a `trim_shortfall` transition: no enclosure, no stale click accepted |
+| MINE-NOTE | mats-01 | a deposit fails with a note naming cobblestone open; the bot goes mining: the exit contract's count matches the movements' placeable blocks and the bot climbs out |
+| CUTOFF | structcount | placement -> autosave -> break -> copy before the next autosave: the read says complete as of its cutoff; after the next autosave the break is seen |
 | MAT-KILL | mats-01 | SIGKILL after the withdraw, during the session, and holding 1-3 stone: `mats_return` reconciles; nothing lost or thrown |
 | MAT-RES | mats-01 | stock exactly at the reserve: no order; one batch above: one batch |
 | SHOP-FLAT / SHOP-TOWN | shop-01 | the whole workshop on flat ground and on two dug-out fixtures; every cell read in family |
@@ -1000,6 +1048,7 @@ The full search notes, with URLs, are in the reviews file, round 0.
 | **Q6** (B3) | the reserve defaults: cobble 256, logs 512, planks 64, sticks 64, copper ingots 256, sand 16, torches 32. hive-b and hive-d are log-short at 512 | **as listed**; revisit hive-b/d after a week of the BUILD line |
 | **Q7** | the wall: 2-high segments of ≤ 12 with 2-cell gaps on the straight-line-44 circle (bots range a median 57 blocks from home, so a closed ring would be crossed by digging) | **gaps every 12** |
 | **Q8** | carrying structcount's daily file (and the chest census) from 10.0.0.30 to goalboard on 10.0.0.31: a forced-command key, or a copy from the controller | **a forced-command key on .30 that only cats the two newest files** |
+| **Q10** (B1 step 2) | where the houses go: five 7x7 house plots fit inside straight-line 40 of home in 0 of 16 towns (the composed screen), and in every town with a workshop site within straight-line 60. Houses hold no containers or furnaces, so nothing ties them to the 48-block town radius | **straight-line 22-60** for houses; the town wall (if any) then runs outside them or the houses sit outside it (Q7) |
 | **Q9** | CoreProtect on the fleet servers, for attribution by player | **no**. The region read with its controls is the fleet-wide estimate, the records are the evidence for the tier's own work, and SC-CTL validates both against CoreProtect on sandbox 1 |
 
 ---
@@ -1058,3 +1107,28 @@ Rounds are recorded in `docs/reports/building-tier-reviews-2026-10-23.txt`.
     - **the resync probe** for unconfirmed digs, GHOST-RESYNC (§4.4);
     - the composed P0 gate as shop-01's first step; every stand cell checked in fitb; whole trees reachable; houses at
       Chebyshev ≥ 22; the waiver rule; exit_house closes the door; the showcase's own tripwire read under C4(a).
+- **Round 3 (r3, commit 7689a028):** Codex CHANGE (4 P1, 3 P2; its r2 #1, #3, #6, #7, #10 fixed); Claude CHANGE (one new P2;
+  its r2 P2 and every r2 P3 verified fixed, by running selftest and mutants).
+  - The P1s: the per-chunk freshness rule missed destructive changes with no `_build` row; funding still let birch planks pay
+    for oak walls, bypassed the 80% cap on banked planks and never used banked cut copper or panes; funding summed the whole
+    census box, not town storage; a sender could pass its barrier check and send after the barrier was taken. The P2s: the
+    publication wrapper was not shown to refuse; the composed P0 proof had not run; `buildEligible` still required the bag or
+    the site chest. Claude's P2: removing a noted base type (cobblestone, planks) from the type-level scaffold list would leave
+    the pathfinder unable to climb while the exit contract still counted the blocks.
+  - Addressed in r4:
+    - **a read CUTOFF** two autosave passes before the copy (autosave measured at 5 min, unthrottled), with evidence per region
+      that the autosave ran, so every mutation source is covered and a later change is outside the read (§2.5, CUTOFF scene);
+    - **funding r4:** an allocation over town storage only (straight-line 16, 12 vertical), every pool clamped and every draw
+      within 80%, species kept, parts first, five fixtures (all pass): 10 of 13 workshops, 26 of 65 houses (§3.3);
+    - **one kernel mutex** (`flock`) around every final check and send, intent before check, `cancelled` intents, and unsettled
+      intents released only on the sender's settlement or its disconnect; SIGSTOP and delayed-delivery scenes (§4.1);
+    - **the wrapper** `daily.sh` exercised: shipped instrument publishes; a broken one publishes nothing, exits 3, status
+      UNKNOWN (§2.6, `data/daily-wrapper-demo.txt`);
+    - **the composed P0 screen run** (`fitc.py`): 8 of 13 eligible towns have a qualified workshop site, 5 of 13 are both
+      funded and sited; five houses fit within 40 in no town and within 60 everywhere sited, so owner Q10 (§4.3);
+    - `buildEligible` from the index; CHAIN-1 with an empty bag and no site chest (§4.1, §7);
+    - **only `stone` leaves the scaffold list** under a note; base types stay scaffold and a spend is a reported loss;
+      MINE-NOTE (§3.2);
+    - Claude's P3s: intent-then-check order and `cancelled`; the resync probe with an empty hotbar slot or the pickaxe, never
+      an axe, shovel or hoe, never an interactable neighbour; one clock (copies on the servers' host); cold town furnaces
+      counted from the region copies (34 of 35 qualify today).

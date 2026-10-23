@@ -1,0 +1,16 @@
+{"world": "board-a", "town_furnaces": 4, "qualify": 4, "why": {"QUALIFIES": 4}}
+{"world": "board-b", "town_furnaces": 3, "qualify": 3, "why": {"QUALIFIES": 3}}
+{"world": "board-c", "town_furnaces": 5, "qualify": 5, "why": {"QUALIFIES": 5}}
+{"world": "board-d", "town_furnaces": 2, "qualify": 2, "why": {"QUALIFIES": 2}}
+{"world": "hive-a", "town_furnaces": 2, "qualify": 2, "why": {"QUALIFIES": 2}}
+{"world": "hive-b", "town_furnaces": 2, "qualify": 2, "why": {"QUALIFIES": 2}}
+{"world": "hive-c", "town_furnaces": 2, "qualify": 2, "why": {"QUALIFIES": 2}}
+{"world": "hive-d", "town_furnaces": 1, "qualify": 1, "why": {"QUALIFIES": 1}}
+{"world": "isolated-a", "town_furnaces": 1, "qualify": 1, "why": {"QUALIFIES": 1}}
+{"world": "isolated-b", "town_furnaces": 2, "qualify": 2, "why": {"QUALIFIES": 2}}
+{"world": "isolated-c", "town_furnaces": 1, "qualify": 1, "why": {"QUALIFIES": 1}}
+{"world": "isolated-d", "town_furnaces": 4, "qualify": 3, "why": {"QUALIFIES": 3, "output:iron_ingot": 1}}
+{"world": "placebo-a", "town_furnaces": 1, "qualify": 1, "why": {"QUALIFIES": 1}}
+{"world": "placebo-b", "town_furnaces": 2, "qualify": 2, "why": {"QUALIFIES": 2}}
+{"world": "placebo-c", "town_furnaces": 1, "qualify": 1, "why": {"QUALIFIES": 1}}
+{"world": "placebo-d", "town_furnaces": 3, "qualify": 3, "why": {"QUALIFIES": 3}}

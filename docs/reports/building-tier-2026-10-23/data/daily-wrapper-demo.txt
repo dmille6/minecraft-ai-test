@@ -1,0 +1,3 @@
+daily.sh demonstration, 10.0.0.30 ~/structcount-1023, 2026-10-23 16:03Z
+run 1 (instrument as shipped): selftest + mutants pass, board-a scanned -> published demo-out/structcount-2026-10-23.json, status OK, exit 0
+run 2 (STRUCTCOUNT=broken.py: lit_at made state-blind by sed, 1 anchor replaced): "selftest FAILED: nothing published", exit 3; the published file is run 1's (5,433 bytes, unchanged); status.json -> UNKNOWN "selftest failed"

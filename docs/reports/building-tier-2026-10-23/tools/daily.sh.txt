@@ -1,0 +1,34 @@
+#!/bin/bash
+# daily.sh <out-dir> <world> <region-dir> <hx,hy,hz> [<world> <region-dir> <home> ...]
+# The publication wrapper (Codex r3 P2): the controls run FIRST and the result is published ATOMICALLY, or not at all.
+#   1. structcount.py selftest and mutants.py must both exit 0 -- else status UNKNOWN, nothing replaced, exit 3;
+#   2. each world is scanned into a private temp dir; a scan that fails (nonzero, or no JSON) makes the day UNKNOWN, exit 4;
+#   3. only then is the day's file renamed into place (rename(2) is atomic on one filesystem) and status OK written.
+# STRUCTCOUNT may point at another copy of the instrument (the failure demonstration passes a broken one).
+set -u
+OUT=$1; shift
+SC=${STRUCTCOUNT:-structcount.py}
+DAY=$(date -u +%F)
+mkdir -p "$OUT"
+TMP=$(mktemp -d "$OUT/.tmp.XXXXXX")
+trap 'rm -rf "$TMP"' EXIT
+status() { printf '{"day":"%s","status":"%s","why":"%s","at":"%s"}\n' "$DAY" "$1" "$2" "$(date -u +%FT%TZ)" > "$TMP/status.json"; mv -f "$TMP/status.json" "$OUT/status.json"; }
+if ! python3 "$SC" selftest > "$TMP/selftest.out" 2>&1; then status UNKNOWN "selftest failed"; echo "selftest FAILED: nothing published"; exit 3; fi
+if [ -z "${STRUCTCOUNT:-}" ] && ! python3 mutants.py > "$TMP/mutants.out" 2>&1; then status UNKNOWN "a mutant survived"; echo "mutants FAILED: nothing published"; exit 3; fi
+while [ $# -ge 3 ]; do
+  W=$1; R=$2; H=$3; shift 3
+  if ! python3 "$SC" scan "$W" "$R" "$H" --r 96 --stamp --json "$TMP/$W.json" > "$TMP/$W.out" 2>&1 || [ ! -s "$TMP/$W.json" ]; then
+    status UNKNOWN "scan failed: $W"; echo "scan FAILED for $W: nothing published"; exit 4
+  fi
+done
+python3 - "$TMP" > "$TMP/structcount-$DAY.json" <<'EOF'
+import glob, json, os, sys
+d = {}
+for f in sorted(glob.glob(os.path.join(sys.argv[1], '*.json'))):
+    if os.path.basename(f).startswith(('structcount-', 'status')): continue
+    r = json.load(open(f)); r.pop('cells', None); d[r['world']] = r
+print(json.dumps(d))
+EOF
+mv -f "$TMP/structcount-$DAY.json" "$OUT/structcount-$DAY.json"
+status OK "controls passed"
+echo "published $OUT/structcount-$DAY.json"

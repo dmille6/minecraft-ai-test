@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""coldfurnace.py <world> <region-copy> <hx,hy,hz>: before a workshop exists, which town furnaces would QUALIFY for
+make_material (§3.2; Claude r3 P3): within Chebyshev 16 of home and 12 vertically, BurnTime 0 (cold), input slot (0) empty,
+fuel slot (1) empty or planks, output slot (2) empty or stone. Read from the furnace block entities in the region copy
+(chunk NBT block_entities: id, BurnTime, Items[{Slot, id, count}]). Read-only."""
+import importlib.util, json, os, sys, collections
+here = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location('sc', os.path.join(here, 'structcount.py')); sc = importlib.util.module_from_spec(spec); spec.loader.exec_module(sc)
+world, rdir, home = sys.argv[1], sys.argv[2], tuple(int(v) for v in sys.argv[3].split(','))
+hx, hy, hz = home
+why = collections.Counter(); n = 0
+for cx in range((hx - 16) >> 4, ((hx + 16) >> 4) + 1):
+    for cz in range((hz - 16) >> 4, ((hz + 16) >> 4) + 1):
+        ch, st = sc.chunk_nbt(rdir, cx, cz)
+        if ch is None: why['chunk_' + st] += 1; continue
+        for be in ch.get('block_entities') or []:
+            if be.get('id') != 'minecraft:furnace': continue
+            x, y, z = be.get('x'), be.get('y'), be.get('z')
+            if max(abs(x - hx), abs(z - hz)) > 16 or abs(y - hy) > 12: continue
+            n += 1
+            slots = {it.get('Slot'): str(it.get('id', '')).replace('minecraft:', '') for it in be.get('Items') or []}
+            burn = be.get('lit_time_remaining', be.get('BurnTime', 0)) or 0
+            if burn > 0: why['burning'] += 1
+            elif 0 in slots: why['input_occupied:' + slots[0]] += 1
+            elif 1 in slots and not slots[1].endswith('_planks'): why['fuel:' + slots[1]] += 1
+            elif 2 in slots and slots[2] != 'stone': why['output:' + slots[2]] += 1
+            else: why['QUALIFIES'] += 1
+print(json.dumps({'world': world, 'town_furnaces': n, 'qualify': why.get('QUALIFIES', 0), 'why': dict(why.most_common(8))}))

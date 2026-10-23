@@ -232,3 +232,67 @@ DISPOSITIONS r2 -> r3:
 - Claude P3s: ring lights only when wallish (fixture "torch outside the doorway only" + mutant KILLED); held-out village boxes
   scanned as towns: 0 BUILT cells in both; whole trees reachable; houses Chebyshev >= 22; waiver rule (3 visits, non-structural
   roles only); the showcase's own tripwire read under C4(a); exit_house closes the door; MAT-FURN shows the drained remainder.
+
+ROUND 3 (r3 doc, commit 7689a028)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Selftest: **17/17 passed**. The requested mutant command failed because the read-only sandbox forbids temporary files; running its same eight mutations in memory killed all eight, each with exit 1. Funding output reproduces, and saved scan totals reconcile.
+
+Round-2 status: **#1, #3, #6, #7 and #10 fixed at design/prototype level** (Paper proofs remain prerequisites); **#2, #4, #5 and #8 partially fixed; #9 still unperformed**.
+
+1. **P1 — §2.5: freshness still misses destructive changes (R2 #4).** A chunk saved after the last `_build` placement qualifies forever, even after a reflex breaks its wall or light without another build placement. The saved building can therefore count as complete after destruction. Track all relevant mutations and telemetry coverage through a declared read cutoff; require subsequent chunk-save coverage or mark affected scores UNKNOWN. Test placement → save → break → unsaved copy.
+
+2. **P1 — §3.3; `funding.py.txt::spendable/admits/bill`: allocation remains incorrect (R2 #5).** My fixture with all oak logs reserved and 121 spendable **birch** planks admits the oak workshop, consuming all 121 despite the 80% limit. Species are discarded, and banked planks bypass that limit. Existing cut copper is never consumed from the parts pool; with zero sand, even banked panes select plank fallback because zero is compared against negative spendable sand. Preserve species, clamp spendable quantities, allocate finished parts/intermediates first, and enforce 80% on every actual draw. Regenerate the funding results.
+
+3. **P1 — §3.3/§6.2; `census_species.py.txt`: funding uses the wrong storage population.** The script sums every census-box container without the town-storage boundary, index freshness or outstanding claims required by admission. Town-plan §1.1 explicitly distinguishes this wider census from town storage. Filter and deduplicate eligible containers, attach freshness/claim evidence, and report eligible stock separately before using “11/13” to qualify draws.
+
+4. **P1 — §4.1: the mutation barrier still has a race (R2 #8).** Sender A can pass its barrier check, pause, and send after B acquires the barrier and reconciles A’s intent as absent. A five-second timeout plus a fresh cell read does not prove A cannot subsequently send. Use mutual exclusion covering every sender’s final check/send and barrier acquisition, with acknowledgement or connection retirement before unresolved intents are released. Test process suspension immediately after the check and delayed delivery beyond five seconds.
+
+5. **P2 — §2.6; `runall.sh.txt`: publication failure handling remains unproved (R2 #2).** Selftest and mutant exit codes are corrected, but the supplied scan wrapper invokes neither, lacks fail-fast handling, and writes output files directly. Implement and exercise the promised wrapper: a failed control or scan must prevent replacement of the published result and surface UNKNOWN. Include a deliberately failing control in that demonstration.
+
+6. **P2 — §4.3/§6.2; `fitb.py.txt`: composed feasibility remains deferred (R2 #9).** Explicit stand-ring distance checks fix the diagonal shortcut. The rerun still proves only geometric candidates; it supplies no frozen-plan results for sectors, full reservation history, routes, replanting or construction sequences. Run and publish P0’s qualified shared-town denominator before actuator work; report five-house packing separately.
+
+7. **P2 — §4.1 `buildEligible` versus §4.6 P2/§5: the supply dead end remains in eligibility.** Build visits now withdraw from ordinary town containers, but the host eligibility predicate still requires materials in the bag or reserved site chest. With parts banked elsewhere and no site chest, the visit that would withdraw them is never issued. Make eligibility accept allocatable stock in any eligible town container, and run CHAIN-1 with an empty builder bag and no site chest.
+
+CLAUDE r3 (same reviewer agent, resumed; ran selftest 17/17 exit 0 and mutants 8/8 KILLED exit 0): VERDICT: CHANGE
+(0 P1, 1 new P2, P3s). Verified fixed: its r2 P2 (builder supply: build visit withdraws its own bill; CHAIN-1) and every r2
+P3 (per-chunk freshness, whole trees, houses >= 22, waiver rule, showcase tripwire, exit_house closes the door, MAT-FURN);
+roofing(), wallish ring lights, redstone torches state-aware, plinth_check by id; held-out padding 0 BUILT; village re-scores
+reconcile (21 rooms, 20 B5, 39 houses); funding r3 output reconciles (11/13, 42/65); stone_bricks/smooth_stone really are in
+PATHFINDER_SCAFFOLD.
+NEW P2: §3.2 carry protection is TYPE-level (scafoldingBlocks has no counts); a note can stay open a whole trip; if it names
+  cobblestone or planks the pathfinder cannot scaffold with ANY of them while exit-contract.mjs scaffoldCount still counts
+  them by name -> mine allows a descent the pathfinder cannot climb out of (composed dead end). Fix: remove only job-unique
+  intermediates (stone); let base types be spent, booked as a reported loss; or never remove a type held outside the note;
+  chain test (deposit fails with the note open -> mining -> climbs out).
+P3s: barrier ordering (intent, then check, then click; a `cancelled` settle state); resync probe: "empty hand" invites the
+  unequip-toss bug (empty hotbar slot or the pickaxe; never axe/shovel/hoe; never an interactable neighbour); freshness clock
+  skew between server timestamps and bot-host rows, and non-builder changes (transit digs) with no _build row can read fresh
+  for up to one autosave; mats-01 exposure: count qualifying cold town furnaces from the region copies before registering.
+
+DISPOSITIONS r3 -> r4:
+- Codex 1 (P1 freshness misses destructive changes) / Claude P3 (clock, transit digs): the read declares a CUTOFF C = copy
+  time - 11 min (two 5-min autosave passes, measured in bukkit.yml and paper-world-defaults, read-only), covering every
+  mutation source; per-region evidence that the autosave ran (a chunk timestamp after C); copies on the servers' own host (one
+  clock); CUTOFF scene.
+- Codex 2 (P1 funding allocation): funding r4 is an allocation: pools clamped, every draw within 80%, species kept, parts and
+  intermediates first, leftovers pooled; --selftest with five fixtures including Codex's birch-planks case (all pass).
+- Codex 3 (P1 storage population): census_species r4 counts town storage only (straight-line 16, 12 vertical); stated as an
+  offline proxy for the index (freshness and claims are runtime). 10 of 13 workshops, 26 of 65 houses.
+- Codex 4 (P1 barrier race) / Claude P3: a kernel flock mutex per project around check+send (all of a town's bots on one host,
+  local state dir); intent fsync'd before the mutex; `cancelled`; the barrier taken under the mutex; unsettled intents
+  released only on the sender's settlement or its disconnect (playerLeft) + 1 s, never on a timer; SIGSTOP and delayed-delivery
+  (netem) scenes.
+- Codex 5 (P2 wrapper): tools/daily.sh.txt implemented and exercised on .30: publishes with the shipped instrument; with a
+  broken instrument prints "selftest FAILED: nothing published", exits 3, leaves the earlier file, status UNKNOWN.
+- Codex 6 (P2 composed proof): tools/fitc.py.txt composes the geometry with every plinth record and its prev[] history, tree
+  farms, Z0/M0, the structure count's BUILT cells in the volume, whole-tree reach, replant cells and a walk route: 8 of 13
+  eligible towns sited, 5 of 13 funded and sited; five houses fit within 40 nowhere and within 60 everywhere sited (Q10). The
+  planner's own run on frozen plans stays the first build step.
+- Codex 7 (P2 buildEligible): its host part takes the bill as allocatable from the bag, the site chest or any fresh known town
+  container in the index; CHAIN-1 with an empty bag and no site chest.
+- Claude P2 (type-level scaffold): only `stone` leaves the scaffold list under a note; base types stay scaffold, a spend is a
+  reported loss; MINE-NOTE chain test.
+- Claude P3s: probe with an empty hotbar slot (setQuickBarSlot, never unequip) or the pickaxe; never axe/shovel/hoe; never an
+  interactable neighbour. Cold furnaces counted (tools/coldfurnace.py.txt): 34 of 35 town furnaces qualify today.
+"""
