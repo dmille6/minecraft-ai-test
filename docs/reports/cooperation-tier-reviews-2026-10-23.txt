@@ -885,3 +885,108 @@ I found three P2s, all in B0 and B2, the stages the convergence rule says must b
 
 No files were modified. On 10.0.0.31 I ran one read-only `ps` (process uptimes), nothing else. Sibling designs were read with `git show`, with copies saved to the scratchpad only.
 r7 CHANGES: every B0-B3 finding fixed; later-stage P3s recorded as open items with an owner gate; listed in section 8 of the design (round 6).
+
+=====================================================================================================================
+ROUND 7 -- on r7 (67277995). Prompt (both engines):
+
+You are an independent reviewer of a DESIGN DOCUMENT in this repository (read-only review; do not modify any file).
+
+Document: docs/reports/cooperation-tier-2026-10-23.md
+Its measurement scripts and outputs: docs/reports/cooperation-2026-10-23/tools/*.py.txt and docs/reports/cooperation-2026-10-23/data/*
+Read CLAUDE.md first (the repo's working rules: positive controls, denominators, difference-in-differences, no dead ends for refusals, done means read on the fleet, KEEP must not mean "nothing objected").
+
+It must BUILD ON (not redo) these approved designs, which you should read where relevant:
+- docs/reports/overseer-assigner-design-2026-10-19.md (r3: S0 census first, role leases that only reorder, validator, ITT primary, Paper oracle)
+- docs/reports/comms-design-2026-10-21.md (typed town ledger, stage 2 chat, Contract Net later)
+- docs/reports/shadow-mayor-plan-2026-10-03.md and docs/reports/jobs-mayor-spec-2026-09-29.md (the deterministic mayor tied random on all duties)
+- docs/reports/town-plan-2026-10-20.md (townindex, ring@1 workshop plot)
+- docs/reports/ziggurat-mineshaft-2026-10-15.md section 3.3 (monument-01 slot/segment leases)
+- scripts/host/staffcensus.py (S0) and scripts/host/RULE.md (verdict rules, v25)
+- bots/src/townindex.mjs (the index record formats)
+
+The owner's task: design the cooperation tier (the overseer as job assigner; the comms ledger stage 1 on townindex records; a first multi-bot build project; measurement and canary plan; prior art). Owner answers designed to: C11 a frontier model (Claude or GPT) is the overseer, shadow first then live in a few towns; C12 $150/month cap with a hard spend guard that stops the overseer, not the bots; C13 flexible jobs with a soft preference, not fixed roles; C14 2-3 bots build their town's workshop together (the parallel building-tier design owns the blueprint and the structure count); deep miners (1-2 per town) from a parallel mineshaft design are assigned by this job assigner. Constraint: a bot must never wait on an assignment it cannot perform from where it is.
+
+This is ROUND 7. The document is now r7 (the newest commit on this branch). Rounds 1-6 (both engines) and the change lists are in docs/reports/cooperation-tier-reviews-2026-10-23.txt and section 8 of the document. New data: data/furnace_opens.txt (furnace sessions and drains per town). tools/system_prompt.txt was revised in r6. r6 is reconciled with the sibling designs' NEWEST versions on origin: docs/reports/building-tier-2026-10-23.md on origin/building-tier-1023 (r3, 7689a028: its build visit now withdraws its own bill, and make_material deposits claimed parts into the site chest) and docs/reports/mineshaft-safety-2026-10-23.md on origin/mineshaft-safety-1023 (r5, 248be79e); read them with read-only git commands and check sections 3.3 and 5.1-5.4.
+
+CONVERGENCE RULE FOR THIS ROUND (from the operator): stages B0-B3 (S0 capability fix, coopread, ledger-01, furnaceseen-01) and the measurements in section 1 are what gets built first and must be fully specified; a P1/P2 there must be fixed. For stages B4-B9 (shop-01 is the building tier's canary; the live overseer, the multi-builder effect read, deep miners, SUPPLY), a missing detail that the document already records as an open item for that stage, decided before that stage is built with an owner gate, is NOT a blocking finding; report a NEW later-stage gap as a P3 'open item for Bn' unless it is a safety defect or makes the design as a whole unsound. APPROVE when no blocking P1/P2 remains. First check that every finding of rounds 1-6 is resolved (say which are not), then review the whole r2 document again for anything new.
+
+Review for:
+1. Correctness of the measurements: do the scripts compute what the document says? Denominators, positive controls, timing rules (skill rows stamped at START with END snapshots; event rows at emission), attribution logic in indexflow (obs/dirty/xfer), overlap sweeps, the explore-duplicate outcome comparison, and any overclaim. Check numbers in the doc against data/*.out.
+2. The job assigner: is it genuinely different from the shadow mayor in ways that matter? Dead ends (refusal chains, starvation, a lease to an infeasible job, overseer outage, budget exhaustion). Lease/claim/fence semantics vs r3 and monument-01. Is the soft preference safe?
+3. The spend guard and cost estimate: arithmetic, token estimates, whether the guard truly enforces the cap (pre-call worst case, post-call ledger, failure modes), and whether stopping the overseer leaves bots safe.
+4. The ledger: consistent with the comms design and with townindex as shipped? Does each type have a consumer and a decision it changes?
+5. The workshop interface with the building tier and the deep-miner interface with the mineshaft design: are they sufficient, minimal, and free of shared mutable state? Is "2 builders first" justified?
+6. Measurement/canary plan: tiers, ITT, the effect line under verdict.py v25 semantics (check RULE.md and scripts/host for how own_lines with on_fail REVERT and no evidence behave), exposure, power, the horizon problem, Paper arms. Does it avoid "KEEP means nothing objected"?
+7. Prior art: accurate and honestly labelled?
+
+Output: a verdict line "VERDICT: APPROVE" or "VERDICT: CHANGE", then numbered findings each tagged P1 (must fix: wrong, unsafe, or a dead end), P2 (should fix), or P3 (minor), each with the file/section and a concrete fix. Be specific and terse. Do not rewrite the document.
+
+
+--- CODEX r7 (final answer) ---
+VERDICT: CHANGE
+
+Rounds 1–5 are addressed or covered by later-stage owner gates. Round 6 remains partly unresolved: **Codex #1 and Claude #2 (L1), Claude #3 (B0 inputs), and Claude #6 (exposure evidence)**. Saved headline measurements match the cited outputs; raw fleet inputs were not replayed.
+
+Findings refer to `docs/reports/cooperation-tier-2026-10-23.md`.
+
+1. **P2 — §4.3, B2: completeness contradicts coalescing.** L1 requires a `station` entry for **every** furnace open, while the unchanged comms protocol coalesces identical observations and permits capped observation drops. Two identical opens within ten minutes can therefore trigger a defect REVERT on correct behavior. **Fix:** retain raw evidence for every open, record its append/coalesce/drop disposition, and check station completeness against the protocol’s required writes. Add fixtures for coalesced repeats and permitted drops.
+
+2. **P2 — §§4.2–4.3, B2: post-load entries cannot match opening evidence.** A session opening an empty furnace and then loading it must write a post-load station entry, but L1 requires every entry to equal the opening row’s slots; raw window records are specified only at opens. Correct loading fails parity, or its transition lacks evidence. **Fix:** distinguish open and post-load observations with separate IDs, timestamps and retained server-read evidence; compare each entry to its corresponding observation. Test empty → loaded, including a missing or incorrect post-load record.
+
+3. **P2 — §§1.6, 5.2/A4/A7/A9, B0: required adapter inputs remain unresolved asks.** A4, A7 and A9 are explicitly needed by B0, yet §5.2 says none blocks B0–B3. Naming `spendableFor(project, item)` still leaves the claim-store source and host-readable input contract unspecified—the outstanding Claude r6 #3 issue. **Fix:** settle these contracts before declaring the workshop adapter build-ready, including unavailable/stale-input behavior. Alternatively, explicitly separate the immediately buildable capability fix from the adapter and gate the adapter on those contracts.
+
+4. **P3 — §6.3/B2, `data/furnace_opens.txt`: sessions do not establish station-entry exposure.** `_furnace_session` records lease intervals, including attempts that fail before opening (`bots/src/skills.mjs`, furnaceDrain’s `finally`). Counts also precede coalescing. Thus “the slowest town reaches about 17” does not establish 17 eligible entries. **Fix:** label these as session counts; derive exposure estimates from confirmed opens followed by the specified coalescing rules, or explicitly leave expected exposure unverified.
+
+No files were modified.
+codex exit 0
+
+--- CLAUDE r7 (independent subagent; final message) ---
+VERDICT: CHANGE
+
+**Rounds 1-6 resolution check.** Codex r6 #2 and #3 are resolved. Claude r6 #1, #3, #5, #7-#11, #14 and #16 are resolved, and #12, #13 and #15 are recorded as owner-gated open items. Three are only partly resolved:
+- **Codex r6 #1 / Claude r6 #2 (L1):** the evidence now exists (a raw window record plus the opening row's fields), but L1 still contradicts the comms rules it adopts. See finding 1.
+- **Claude r6 #6 (B2 exposure source):** `data/furnace_opens.txt` counts lease sessions, not furnace opens, and no script produced it. See finding 2.
+- **Claude r6 #4 (post-load entries):** they were added in 4.2 but have no source under L1. See finding 1.
+
+Rounds 1-5 show no regressions. The cost arithmetic re-checks: $0.017 and $0.046 per call, $2.70 and $3.59 per day, earmarks of $68.3 and $21.9, a daily allowance of $4.84. The section 1 counts I re-derived from `~/coop-1023/out2` also match: 1,435 empty drains and 678 non-drain sessions (582 smelt, 96 smelt_town).
+
+**P2 (all in B2 and B3, so blocking under the convergence rule)**
+
+1. **P2, §4.3 L1 (B2): the completeness and parity rules fail entries that the comms protocol legitimately suppresses or derives.** L1 is a `defect` line, so each of these cases is a false REVERT:
+   - **Coalescing:** comms 4.4 coalesces identical repeat observations per writer (one durable refresh per subject per 10 min). A bot running `smelt` twice on one furnace within 10 min with identical at-open slots gets no new `station` entry.
+   - **The cap:** comms 4.4 drops observations above 120 per bot-h, and L2 tolerates `_ledger_drop` up to 1%. L1's "a missing one fails L1" makes any single drop a defect.
+   - **Post-load entries:** 4.2 adds a post-load `station` entry for load sessions. A load is not an open, so that entry has no window record and no matching at-open row fields. It fails "equal, slot by slot, the row of the same open" by construction.
+   - **The opener set:** L1 assumes drain, smelt and smelt_town are the only openers. Building-tier r4 §4.6 runs `make_material` at ordinary town furnaces. If mats-01 is on the fleet before B2, its opens are a fourth class with no window record.
+   - **The denominator is undefined:** a `_furnace_session` row exists for every lease, including leases that never opened the furnace (drain `stop=unreachable` or `interrupted`, `out=-`).
+
+   **Fix:**
+   - Write the window record at every open, never coalesced or capped. Each record maps to exactly one of: a `station` entry, a `coalesced_into: <entry id>` reference whose slots equal that entry, or a `_ledger_drop` naming it. L1 checks that mapping; drops are bounded by L2.
+   - Give post-load entries their own window record, taken at the load's verifying view, and their own row fields (for example `ld_out`, `ld_in`, `ld_fuel`), compared in the same way.
+   - Define the denominator as rows with a window read (`out != '-'`).
+   - Define the opener set as every `openFurnace` call site in B2's base. Add a comment-stripped structural test that each call site writes a window record, and a mutant proving the test fails.
+
+2. **P2, B2 exposure (§6.3, `data/furnace_opens.txt`): the figure counts lease sessions, not opens, and min 80 is unmet by the document's own numbers.**
+   - Column 2 is `_furnace_session` rows (2,915). Of the 2,237 drain sessions, 800 never opened a furnace (694 `unreachable`, 106 `interrupted`). Only 1,437 drains read a window: 1,435 empty and 2 drained.
+   - Real opens are at most 2,115 a day (1,437 + 678), or 111-245 per town-day, not 135-331. The slowest town (hive-c, at most 111) reaches about 14 by +180, not about 17.
+   - Even on sessions, the slowest 4-town draw reaches 76.5 by +180, below 80. On opens it reaches about 58, before coalescing.
+   - This is not a dead end: verdict.py reads NOT_YET and KEEPs at the final read. But the +180 tier-2 KEEP is closed to slow draws, and the stated basis is wrong.
+   - **Fix:** add the script that produced the file. Recount opens per town and apply the comms coalescing rule. Set `exposure.min` and the per-town floor of 10 from the slowest admissible 4-pool draw, or state that slow draws can only KEEP at the final read.
+
+3. **P2, B3 gate "0 drain walks to a furnace with a valid cached empty": as written, the host cannot evaluate it.**
+   - Comms 4.5 counts "seeing F lit" as contrary evidence. That fact is bot-local (`bot.furnaceSeen.litSince` via `noteFurnacesLit`) and appears in no ledger entry or row.
+   - A townmate's `station` append can also land between the bot's fold read and its pick. The same-furnace drain overlap is 5 a day (1.2), so the race is real.
+   - Either case makes a zero-tolerance defect line revert a correct canary.
+   - **Fix:** the drain logs its decision inputs at pick time (the fold generation or offset it read, the `station` entry id it relied on, its own `litSince`). The defect line counts only walks where those logged inputs showed a valid cached empty, which is a code bug. Ledger-visible entries the fold had not yet read are reported, not counted. Add a fixture for each case: an append racing the pick, and a lit-seen furnace.
+
+**P3**
+
+4. **§6.3 B3, Bonferroni k:** verdict.py and tierrule can KEEP a tier-2 run only at +180 (`minute != TIER2_KEEP_MIN` returns False) or at the final read; +360 is NOT_YET unless it is the last read. So k = 2 is enough. k = 3 is valid but costs power. Claude r6's "KEEP also possible at +360" is not what the code does.
+5. **§1.6 B0 seeding:** "a walk back to each bot's newest spawn (ES, no window limit)" can touch 10-07, which `estelemetry` refuses. Bound the seed walk (for example to after the last fleet-wide restart), and read VOID for a bot whose spawn is not found.
+6. **§1.6 B0 positive control:** a `_townindex_mode` shortfall voids the whole census. That couples S0's liveness to one module's flag. Restrict the control's denominator to bots whose build carries townindex, or make it an alarm line rather than a census void.
+7. **§4.3 L1 independence:** for smelt and smelt_town, ledger-01's own diff writes both the row fields and the entry from the same in-memory read, so parity there only tests serialization. Independence of the read itself comes only from the Paper RCON check. Also, "immediately after" an open is after the drain's take or the smelt's load. Time the RCON read before any mutation, or compare against the post-state, and give the check a sample size and a pass rule. (Nit: the drain row's field is `in=`, not `inp`.)
+8. **B3 order path:** if `drainOrder` still issues an order that the skill's re-pick turns into `no_target`, the saved walk becomes a wasted decision. Say whether the order-level eligibility also consults the cache. The drain bot-time report line would show this.
+9. **Open item for B4 / mats-01:** `make_material`'s furnace opens and loads must write `station` entries. Otherwise B3 can skip a furnace that `make_material` loaded for up to 60 min.
+10. **Open item for B4-B8, re-reconcile with the siblings' new heads:** building-tier is now r4 (0514d3b1), whose `buildEligible` host part counts fresh, known town containers under the claim set, so ask A8 can be marked answered. Mineshaft-safety is now r10 (b1afc0a8); r9 fixed an "unbounded peer wait" P1 that the DEEP_MINER dead-end row (§3.6) should be checked against. Update the r7-only note in §6.3's open items.
+
+No files were modified. On 10.0.0.31 I ran only `nice -n 19` reads of `~/coop-1023/out2`. The sibling designs were read with `git show` and `git diff`. One scratch file, `/tmp/x`, came from a `git show` I ran by mistake; it is outside the repository and I deleted it.
+r8 CHANGES: every B0-B3 finding fixed (B2/B3 mechanics as acceptance criteria per the operator's convergence steer); later-stage P3s recorded as open items; listed in section 8 of the design (round 7).
