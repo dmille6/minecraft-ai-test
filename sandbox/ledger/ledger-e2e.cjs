@@ -314,7 +314,10 @@ async function startBot (tag, NAME = BOT_NAME) {
   const set = (k, v) => { env = new RegExp(`^${k}=`, 'm').test(env) ? env.replace(new RegExp(`^${k}=.*$`, 'm'), `${k}=${v}`) : env + `\n${k}=${v}` }
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/ledger-${RUN}/${tag}-${NAME}`); set('MEMORY_POOL', `sbxld-${RUN}`)
   set('MEMORY_SCOPE', 'shared'); set('POOL_STATE_DIR', POOL); set('MINECRAFT_PORT', PORTS[SERVER]); set('STUCK_SECONDS', 20); set('PLANT_ENABLED', 0)
-  set('SMELT_JOB_COOLDOWN_MS', 10000); set('DRAIN_COOLDOWN_MS', 10000)        // sandbox pacing only
+  // sandbox pacing only. 45 s, not 10 s (Paper 10-23 22:36Z): back-to-back drain orders 12 s apart are FOUR identical actions in
+  // a row, and the decision loop's repeat_loop guard then rejects every further drain -- the round stalled at 4 of 12 furnaces.
+  // At 45 s the scripted brain's own decisions interleave, as the fleet's 10-min cooldown always does.
+  set('SMELT_JOB_COOLDOWN_MS', 45000); set('DRAIN_COOLDOWN_MS', 45000)
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`); set('MAX_CONSECUTIVE_FAILURES', 50)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
