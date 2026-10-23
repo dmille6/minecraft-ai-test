@@ -1,0 +1,32 @@
+COOPERATION CENSUS (B1) 2026-10-22T17:00:00Z .. 2026-10-23T17:00:00Z
+coop 24h to 2026-10-23T17:00:00Z: chests other-bot 114-258 of 1189 withdrawn (10-22%) over 227 town-h of index; furnace re-found empty 786 (2.30 bot-h); >=2 together 94 min/town-day; multi-builder project-days idle (no _build rows); controls OK; void 0, partial 13
+  [P] chain pairs changed 618: attributed 617, no op 1, unfinished op 0, two bots 0; unknown +14 / -121
+  [O] smelt_town     runs  1689 start inside  119 (7.0%); overlapped bot-time 0.73 of 8.32 bot-h
+  [O] furnace_drain  runs  2155 start inside    4 (0.2%); overlapped bot-time 0.00 of 6.79 bot-h
+  [O] toolkit        runs   644 start inside    3 (0.5%); overlapped bot-time 0.01 of 1.53 bot-h
+  [O] deposit        runs   505 start inside    1 (0.2%); overlapped bot-time 0.00 of 1.34 bot-h
+  [O] town_deposit   runs   213 start inside    1 (0.5%); overlapped bot-time 0.00 of 0.13 bot-h
+  [O] withdraw_pick  runs    90 start inside    0 (0.0%); overlapped bot-time 0.00 of 0.49 bot-h
+  [O] dispose_well   runs   206 start inside    1 (0.5%); overlapped bot-time 0.00 of 0.73 bot-h
+  [O] compost        runs   101 start inside    0 (0.0%); overlapped bot-time 0.00 of 0.18 bot-h
+  [F] empty drains 1393; after a townmate 786; after itself 28; invalidated 40
+  [C] inside 16/12 9834 of 115200 bot-minutes; arrivals within 30 min 18163 of 44309 away, unflagged minutes; >=2 1512, >=3 202 town-minutes
+  [B] _build rows 0; project-days 0; multi-builder 0
+  control xfer_through_chain: ok -- 122 of 122 verified transfers attributed to their own bot; 147 successful town_deposit rows (transfers must exist when they do)
+  control overlap_sweep_sees: ok -- 119 smelt_town overlaps in 1689 runs (1688 _smelt_town events; overlaps required from 200 runs)
+  control furnace_rows_parsed: ok -- 1393 empty drains and 808 non-drain sessions parsed from 2155 drain runs
+  control positions_seen: ok -- 115156 of 115200 bot-minutes observed
+  control provenance_read: ok -- 16 of 16 towns with a readable index
+  PARTIAL board-a: index journal covers 15.39 h of 24 (rotated)
+  PARTIAL board-b: index journal covers 15.52 h of 24 (rotated)
+  PARTIAL board-c: index journal covers 15.84 h of 24 (rotated)
+  PARTIAL board-d: index journal covers 15.83 h of 24 (rotated)
+  PARTIAL hive-a: index journal covers 15.82 h of 24 (rotated)
+  PARTIAL hive-b: index journal covers 15.46 h of 24 (rotated)
+  PARTIAL isolated-a: index journal covers 1.54 h of 24 (rotated)
+  PARTIAL isolated-b: index journal covers 15.78 h of 24 (rotated)
+  PARTIAL isolated-c: index journal covers 1.53 h of 24 (rotated)
+  PARTIAL isolated-d: index journal covers 1.52 h of 24 (rotated)
+  PARTIAL placebo-a: index journal covers 15.55 h of 24 (rotated)
+  PARTIAL placebo-b: index journal covers 15.75 h of 24 (rotated)
+  PARTIAL placebo-c: index journal covers 15.74 h of 24 (rotated)

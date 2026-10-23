@@ -1,0 +1,29 @@
+SIGHTING-QUALITY READ (X1) 2026-10-22T12:14:00Z .. 2026-10-23T12:14:00Z: 21215 explore runs toward a known sighting (every shared town on disk now, so the denominator differs from the design's 13-town 16,958)
+  distinct sightings 2282 (median 3 runs each); by their median dy: {'below-20..-6': 865, 'below<-20': 744, 'level-5..5': 340, 'above>5': 333}
+  by_reach:
+    not_reached        n  21169  reached     0 (  0.0%)  horizontally   249 (  1.2%)  iron near   11 ( 0.05%)  iron anywhere  117 ( 0.55%)
+    reached            n     46  reached    46 (100.0%)  horizontally    46 (100.0%)  iron near    0 ( 0.00%)  iron anywhere    0 ( 0.00%)
+  by_dy:
+    above>5            n   3047  reached     5 (  0.2%)  horizontally    50 (  1.6%)  iron near    1 ( 0.03%)  iron anywhere   39 ( 1.28%)
+    below-20..-6       n   6670  reached    11 (  0.2%)  horizontally   101 (  1.5%)  iron near    5 ( 0.07%)  iron anywhere   37 ( 0.55%)
+    below<-20          n   9015  reached     2 (  0.0%)  horizontally    97 (  1.1%)  iron near    1 ( 0.01%)  iron anywhere   22 ( 0.24%)
+    level-5..5         n   2475  reached    28 (  1.1%)  horizontally    47 (  1.9%)  iron near    4 ( 0.16%)  iron anywhere   19 ( 0.77%)
+    unknown            n      8  reached     0 (  0.0%)  horizontally     0 (  0.0%)  iron near    0 ( 0.00%)  iron anywhere    0 ( 0.00%)
+  by_distance:
+    25-48              n  19532  reached    37 (  0.2%)  horizontally   228 (  1.2%)  iron near   10 ( 0.05%)  iron anywhere  109 ( 0.56%)
+    <=24               n   1134  reached     2 (  0.2%)  horizontally    19 (  1.7%)  iron near    0 ( 0.00%)  iron anywhere    3 ( 0.26%)
+    >48                n    549  reached     7 (  1.3%)  horizontally    48 (  8.7%)  iron near    1 ( 0.18%)  iron anywhere    5 ( 0.91%)
+  by_cotarget:
+    co-targeted        n   9901  reached    13 (  0.1%)  horizontally   106 (  1.1%)  iron near    3 ( 0.03%)  iron anywhere   35 ( 0.35%)
+    fresh              n  11314  reached    33 (  0.3%)  horizontally   189 (  1.7%)  iron near    8 ( 0.07%)  iron anywhere   82 ( 0.72%)
+  by_known_now:
+    not_in_file_now    n   5278  reached    16 (  0.3%)  horizontally    82 (  1.6%)  iron near    6 ( 0.11%)  iron anywhere   55 ( 1.04%)
+    still_known        n  15937  reached    30 (  0.2%)  horizontally   213 (  1.3%)  iron near    5 ( 0.03%)  iron anywhere   62 ( 0.39%)
+  by_status:
+    aborted            n   2314  reached    18 (  0.8%)  horizontally   101 (  4.4%)  iron near    3 ( 0.13%)  iron anywhere   23 ( 0.99%)
+    failed             n   4918  reached     0 (  0.0%)  horizontally     0 (  0.0%)  iron near    0 ( 0.00%)  iron anywhere   24 ( 0.49%)
+    no_effect          n   1219  reached     1 (  0.1%)  horizontally     7 (  0.6%)  iron near    1 ( 0.08%)  iron anywhere    9 ( 0.74%)
+    success            n  12764  reached    27 (  0.2%)  horizontally   187 (  1.5%)  iron near    7 ( 0.05%)  iron anywhere   61 ( 0.48%)
+  control rise_events_in_window: 826
+  control runs_with_a_heading: 21215
+  control note: still_known reads the CURRENT world-facts file: a proxy, not the sighting at the time

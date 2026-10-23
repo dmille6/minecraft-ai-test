@@ -1,0 +1,19 @@
+COOPERATION CENSUS (B1) 2026-10-22T12:14:00Z .. 2026-10-23T12:14:00Z
+coop 24h to 2026-10-23T12:14:00Z: chests other-bot 78-161 of 629 withdrawn (12-26%); furnace re-found empty 870 (2.51 bot-h); >=2 together 100 min/town-day; multi-builder project-days idle (no _build rows); controls OK; void 0
+  [P] chain pairs changed 399: attributed 398, no op 1, unfinished op 0, two bots 0; unknown +14 / -121
+  [O] smelt_town     runs  1646 start inside  107 (6.5%); overlapped bot-time 0.47 of 7.31 bot-h
+  [O] furnace_drain  runs  2237 start inside    5 (0.2%); overlapped bot-time 0.00 of 7.17 bot-h
+  [O] toolkit        runs   604 start inside    3 (0.5%); overlapped bot-time 0.01 of 1.56 bot-h
+  [O] deposit        runs   502 start inside    1 (0.2%); overlapped bot-time 0.00 of 1.50 bot-h
+  [O] town_deposit   runs   214 start inside    1 (0.5%); overlapped bot-time 0.00 of 0.13 bot-h
+  [O] withdraw_pick  runs    87 start inside    0 (0.0%); overlapped bot-time 0.00 of 0.52 bot-h
+  [O] dispose_well   runs   212 start inside    1 (0.5%); overlapped bot-time 0.00 of 0.74 bot-h
+  [O] compost        runs   100 start inside    1 (1.0%); overlapped bot-time 0.00 of 0.18 bot-h
+  [O] craft          runs   813 start inside    1 (0.1%); overlapped bot-time 0.00 of 1.47 bot-h
+  [F] empty drains 1435; after a townmate 870; after itself 38; invalidated 36
+  [C] inside 16/12 10124 of 115200 bot-minutes; arrivals within 30 min 18475 of 44248 away, unflagged minutes; >=2 1603, >=3 220 town-minutes
+  [B] _build rows 0; project-days 0; multi-builder 0
+  control xfer_through_chain: ok -- 88 of 88 verified transfers attributed to their own bot
+  control overlap_sweep_sees: ok -- 107 smelt_town overlaps in 1646 runs (checked from 200 runs)
+  control furnace_sessions_parsed: ok -- 795 non-drain sessions with t0/t1
+  control positions_seen: ok -- 115200 bot-minutes

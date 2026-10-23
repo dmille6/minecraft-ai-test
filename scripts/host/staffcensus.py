@@ -45,6 +45,22 @@ THE GATE (design 6): >= 20 assignable town-hours/day across eligible towns for 4
 It is decided only on >= 48 h, with >= 90% VALID (of the project's town-hours, of every town's, and of each project
 town's every 24-h block), and EVERY whole 24-h block >= 20 (a mean over 48 h is not "for 48 h"). A single-builder project's assignable hours are reported; its gate line says "not applicable".
 
+CAPABILITY (B0a, cooperation-tier design r9.1 sections 1.6 and 6.4). A project is OPEN in a town only when its RECORD exists
+AND its code is running there: the town has at least one bot whose newest mode row for the project's module
+(`Project.mode_kind`) says on and carries that bot's CURRENT code.version. A record whose code is not running (a reverted
+canary's leftover record, a flag set off, a rollback) is `record_without_code`: reported per slot, never open, never
+assignable. A bot whose current build's spawn rows (SPAWN_MARKERS: every per-spawn `_*_mode` row) are not in view is VOID
+for capability -- unknown, never incapable. Mode rows are written ONCE PER PROCESS, so --tick keeps each bot's newest mode
+row per kind as persistent state (out-dir/capability-state.json). The SEED is PER BOT: a first tick (or any --window run)
+walks the mode kinds back 1, then 3, then 7 days until every present bot's current build has a spawn row, never past
+7 days or before 2026-10-08 (estelemetry refuses windows touching 10-07); a tick re-walks hourly while any present bot is
+still missing one; an empty walk is never saved. Every mode query is bounded the same way. POSITIVE CONTROL: the same
+reader on `_townindex_mode` over EVERY present bot with a known version (a bot whose version changed < 10 min ago is not
+yet eligible; a VOID bot counts as not capable) must find >= 95% capable; a shortfall, or bots present with none
+eligible, is an ALARM in the heartbeat (`capability_control.alarm`, StaffCensusCapability in check-staffcensus.py), never a
+census void. CAPABILITY IS JUDGED PER MINUTE from each bot's version at that minute: not_capable minutes are not open; VOID
+minutes (and pending minutes where only a VOID bot could have been the free one) leave the project's denominator.
+
 VOID, NOT ZERO. A slot is void when ES holds no document in its 10-minute bucket or no positioned event row in it, when a
 town logged nothing in it (the town roster comes from the pool state dir, so a town silent for the whole window still gets
 VOID rows -- so a RETIRED pool reads VOID forever until the census learns to exclude it; see CRON), or (in --report) when the census
@@ -187,6 +203,13 @@ class Project:
     budget = None                 # (window_ms, max body ms) per bot, or None
     live = False                  # False: built from branch code, never seen on the fleet
     kinds = ()                    # ES kinds this adapter reads (besides _work_order and its builder skill)
+    mode_kind = None              # the module's per-spawn licence row (B0a): no such row on a bot = its code is not running
+
+    def mode_on(self, detail):
+        """Does this module's mode row say the module is on? The contract asked of new modules (cooperation design A7):
+        `on=on|off` (or `mode=on|off`) in the detail."""
+        f = kv(detail)
+        return str(f.get('on', f.get('mode', ''))).lower() in ('on', '1', 'true')
 
     def timeline(self, rows):
         """-> ({pool: sorted [(t, state, detail, need)]}, {pool: site time}); state in pending | none | unknown."""
@@ -214,6 +237,7 @@ class TreeFarm(Project):
     cooldown_ms = 5 * 60_000      # treefarm.mjs TEND_COOLDOWN_MS, charged when the order is issued (s.lastTendAt)
     live = True
     kinds = ('_farm_tend', '_farm_place', '_farm_site')
+    mode_kind = '_treefarm_mode'      # treefarm emits none today: on the fleet its leftover records read record_without_code
     SOFT = {'farm_leased', 'farm_unknown'}   # treefarm.mjs TEND_SOFT_FAILS
 
     def backoff_ms(self, status, fail_class):
@@ -300,6 +324,7 @@ def fundable(inv):
 
 class Monument(Project):
     """monument-01 (monumentjob.mjs on monument-on-* d2d7e6ff). Three admission slots. FIXTURE-ONLY until it runs live."""
+    mode_kind = '_monument_mode'
     name = 'monument'
     cap = 3                        # monumentjob.mjs SLOTS
     builder_skill = 'build_monument'
@@ -357,6 +382,163 @@ class Monument(Project):
 
 
 PROJECTS = (TreeFarm(), Monument())
+
+
+# ---------------------------------------------------------------------------------------------- capability (B0a)
+SPAWN_MARKERS = ('_cobblecap_mode', '_lidclear_mode', '_townsearch_mode', '_toolkit_search_mode', '_plinth_mode',
+                 '_wellcare_mode', '_poolescape_mode', '_cobblekeep_mode', '_keepout_mode', '_townindex_mode')
+CONTROL_KIND = '_townindex_mode'
+CAP_ALARM_SHARE = 0.95
+CAP_GRACE_MS = 10 * MIN_MS
+SEED_FLOOR_MS = ms_of('2026-10-08T00:00:00Z')
+SEED_MAX_MS = 7 * DAY_MS
+SEED_STEPS_MS = (DAY_MS, 3 * DAY_MS, 7 * DAY_MS)     # walk back until every present bot's current build has a spawn row
+RESEED_EVERY_MS = 3600_000                            # a tick re-walks for still-VOID bots at most hourly
+
+
+def mode_kinds(projects=None):
+    return sorted(set(SPAWN_MARKERS) | {P.mode_kind for P in (projects or PROJECTS) if P.mode_kind})
+
+
+def mode_on_for(kind, detail, projects=None):
+    if kind == CONTROL_KIND:
+        return kv(detail).get('index') == 'on'
+    for P in (projects or PROJECTS):
+        if P.mode_kind == kind:
+            return P.mode_on(detail)
+    return True                       # a spawn marker: only its presence and version matter
+
+
+def mode_index(modes):
+    """[(t, bot, kind, version, on)] -> {bot: [(t, kind, version, on)] sorted by t}. Pure."""
+    out = defaultdict(list)
+    for t, b, k, v, on in modes:
+        out[b].append((t, k, v, on))
+    for b in out:
+        out[b].sort()
+    return out
+
+
+def bot_capability(idx, ver, bot, kind, t):
+    """'capable' | 'not_capable' | 'void' for one bot at time t. Pure.
+    void: the bot's current version is unknown, or no spawn row of its current build is in view (unknown, never 'no').
+    capable: the bot's newest row of `kind` at or before t says on AND carries the bot's current version."""
+    if not ver:
+        return 'void'
+    spawn = newest = None
+    for tr, k, v, on in idx.get(bot) or ():
+        if tr > t:
+            break
+        if k in SPAWN_MARKERS:
+            spawn = (tr, v)
+        if k == kind:
+            newest = (tr, v, on)
+    if spawn is None or spawn[1] != ver:
+        return 'void'
+    return 'capable' if newest and newest[1] == ver and newest[2] else 'not_capable'
+
+
+def town_capability(statuses):
+    """Any capable bot -> capable; every bot void (or none) -> void; else not_capable. Pure."""
+    st = list(statuses)
+    if 'capable' in st:
+        return 'capable'
+    return 'void' if all(x == 'void' for x in st) else 'not_capable'
+
+
+def capability_control(idx, vers, t, changed_at=None):
+    """The positive control (Claude r1 P1-2: it must fail on what it exists to catch). EVERY present bot with a known
+    current version is eligible, except one whose version changed (in the track) under CAP_GRACE_MS ago; a VOID bot
+    (no spawn row of its build in view: a blind or short reader) counts as NOT capable. Every fleet build since townindex-01
+    carries `_townindex_mode`, so a healthy reader reads ~100%. Alarm when the share is < CAP_ALARM_SHARE, or when bots are
+    present and none is eligible (the control could not be evaluated). -> {present, eligible, capable, void, share, alarm}."""
+    changed_at = changed_at or {}
+    present = sum(1 for v in vers.values() if v)
+    elig = cap = void = 0
+    for b, v in vers.items():
+        if not v or t - changed_at.get(b, -10**15) < CAP_GRACE_MS:
+            continue
+        elig += 1
+        st = bot_capability(idx, v, b, CONTROL_KIND, t)
+        cap += st == 'capable'
+        void += st == 'void'
+    share = round(cap / elig, 3) if elig else None
+    return {'present': present, 'eligible': elig, 'capable': cap, 'void': void, 'share': share,
+            'alarm': (present > 0 and elig == 0) or (elig > 0 and share < CAP_ALARM_SHARE)}
+
+
+def mode_floor(until):
+    """The earliest instant any mode query may read: 7 days back, never before 2026-10-08 (estelemetry refuses 10-07)."""
+    return max(until - SEED_MAX_MS, SEED_FLOOR_MS)
+
+
+def missing_spawn(idx, vers, t):
+    """Bots whose CURRENT build has no spawn row in view at t -> sorted [bot]. Pure."""
+    out = []
+    for b, v in vers.items():
+        if v and not any(k in SPAWN_MARKERS and vv == v and tr <= t for tr, k, vv, on in idx.get(b) or ()):
+            out.append(b)
+    return sorted(out)
+
+
+def seed_walk(fetch, until, vers, have=(), start=None):
+    """The PER-BOT seed: walk back from `start` (default `until`) in SEED_STEPS_MS steps (bounded by mode_floor(until))
+    until every present bot's current build has a spawn row at or before `until`, counting the rows already in `have`.
+    fetch(since, until) -> rows. -> (new rows, info). Pure apart from fetch."""
+    have = list(have)
+    start = until if start is None else start
+    rows, since = [], start
+    missing = missing_spawn(mode_index(have), vers, until)
+    for step in SEED_STEPS_MS:
+        if not missing:
+            break
+        lo = max(until - step, mode_floor(until))
+        if lo < since:
+            rows += fetch(lo, since)
+            since = lo
+        missing = missing_spawn(mode_index(have + rows), vers, until)
+        if lo <= mode_floor(until):
+            break
+    return rows, {'since': iso(since), 'rows': len(rows), 'missing': missing}
+
+
+def mode_rows(EsEvents, since, until):
+    """Mode rows in [since, until) -> [(t, bot, kind, version, on)]."""
+    ev = EsEvents.load('skill', since=iso(since), until=iso(until))
+    out = []
+    for r in ev.rows(fields=['@timestamp', 'bot.name', 'skill.name', 'skill.detail', 'code.version'],
+                     match={'skill.name': mode_kinds()}, allow_zero=True, max_rows=400_000):
+        k = (r.get('skill') or {}).get('name')
+        v = ((r.get('code') or {}).get('version') or '').split('+')[0] or None
+        out.append((ms_of(r['@timestamp']), (r.get('bot') or {}).get('name'), k, v,
+                    mode_on_for(k, (r.get('skill') or {}).get('detail'))))
+    return out
+
+
+def newest_per_kind(modes):
+    """Keep only each bot's newest row per kind (the persistent state). Pure."""
+    best = {}
+    for m in modes:
+        key = (m[1], m[2])
+        if key not in best or m[0] > best[key][0]:
+            best[key] = m
+    return sorted(best.values())
+
+
+def load_cap_state(out_dir):
+    try:
+        with open(os.path.join(out_dir, 'capability-state.json')) as f:
+            d = json.load(f)
+        return [tuple(x) for x in d['modes']], d.get('seeded')
+    except (OSError, ValueError, KeyError):
+        return None, None
+
+
+def save_cap_state(out_dir, modes, seeded):
+    tmp = os.path.join(out_dir, '.capability-state.json.tmp')
+    with open(tmp, 'w') as f:
+        json.dump({'modes': newest_per_kind(modes), 'seeded': seeded}, f)
+    os.replace(tmp, os.path.join(out_dir, 'capability-state.json'))
 
 
 # ---------------------------------------------------------------------------------------------- the stock journal
@@ -491,6 +673,8 @@ def census(ds, projects=PROJECTS, emit_from=None):
     Every minute is judged at its END (t_m + 59.999 s) on observations at or before it. A tick passes since = start -
     CARRY_MS so the carry is warm, and emit_from = start."""
     flags = build_flags(ds['flags'])
+    # B0a: capability gating is on whenever the dataset carries mode rows (every live mode does; legacy fixtures do not)
+    cap_idx = mode_index(ds['modes']) if 'modes' in ds else None
     slots = list(range(floor_slot(ds['since']), ds['until'] - SLOT_MS + 1, SLOT_MS))
     emit_from = slots[0] if emit_from is None or not slots else emit_from
     jobs_by_pool = defaultdict(list)
@@ -543,7 +727,7 @@ def census(ds, projects=PROJECTS, emit_from=None):
         for m in range(5):
             t_m = s + m * MIN_MS
             for b, v in (track.get(t_m) or {}).items():
-                last_pos[b] = (t_m, v.get('pool'), v.get('pos'), v.get('health'), v.get('inv') or {})
+                last_pos[b] = (t_m, v.get('pool'), v.get('pos'), v.get('health'), v.get('inv') or {}, v.get('ver'))
             minutes.append((t_m + MIN_MS - 1, {b: x for b, x in last_pos.items() if t_m - x[0] < CARRY_MS}))
         if s < emit_from:
             continue
@@ -592,10 +776,36 @@ def census(ds, projects=PROJECTS, emit_from=None):
             row.update(void=False, bots_seen=len(seen), at_town_bots=sorted(union),
                        at_town_max=max(len(h) for _, h, _, _ in per_min), flagged=flagged_all, labour_min=dict(labour))
             pj = {}
+            vers = {}
+            for _, cur in minutes:
+                for b, x in cur.items():
+                    if x[1] == pool:
+                        vers[b] = x[5]
             for P, tl, opened, placed, builds, runs, issues in prj:
                 op = opened.get(pool)
                 if op is None or op >= end:
                     continue
+                # B0a: CAPABILITY PER MINUTE, from each of the town's bots' version AT THAT MINUTE (a restart mid-slot
+                # changes only the minutes after it). not_capable minutes are not open (the record's code is not
+                # running); void minutes leave the denominator (unknown is never zero)
+                cap_min = None
+                if cap_idx is not None:
+                    cap_min = {}
+                    for tm, here, flagged, cur in per_min:
+                        bs = {b: bot_capability(cap_idx, x[5], b, P.mode_kind, tm) for b, x in cur.items() if x[1] == pool}
+                        # the TOWN's capability is judged over the unflagged bots INSIDE 16/12 (design 6.4: a town with
+                        # only VOID bots there voids the minute; Codex r2 P2-1: a far incapable bot must not turn it into
+                        # record_without_code); with nobody there, over the pool's bots (is the code running at all)
+                        near = [bs[b] for b in here if b not in flagged and b in bs]
+                        cap_min[tm] = (town_capability(near if near else bs.values()), bs)
+                    sts = [cap_min[tm][0] for tm, *_ in per_min if tm >= op]
+                    if sts and all(x == 'not_capable' for x in sts):
+                        row.setdefault('capability', {})[P.name] = 'not_capable'
+                        row['projects_open'] = [n for n in row['projects_open'] if n != P.name]
+                        row.setdefault('record_without_code', []).append(P.name)
+                        continue
+                    if sts and all(x == 'void' for x in sts):
+                        row.setdefault('capability', {})[P.name] = 'void'
                 ev, evt = tl.get(pool, ([], []))
                 bl = builds.get(pool, [])
                 rec = {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0, 'builder_min': 0,
@@ -603,10 +813,19 @@ def census(ds, projects=PROJECTS, emit_from=None):
                        'placed': sum(1 for t in placed.get(pool, []) if s <= t < end),
                        # exact body seconds in the project's skill (a visit is often shorter than the sampled minute)
                        'builder_s': round(sum(max(0, min(e, end) - max(st, s)) for st, e, b in bl) / 1000, 1),
-                       'visits': sum(1 for st, e, b in bl if s <= st < end)}
+                       'visits': sum(1 for st, e, b in bl if s <= st < end), 'cap_void_min': 0, 'rwc_min': 0}
                 for tm, here, flagged, cur in per_min:
                     if tm < op:
                         continue
+                    bs = None
+                    if cap_min is not None:
+                        st_tm, bs = cap_min[tm]
+                        if st_tm == 'not_capable':
+                            rec['rwc_min'] += 1
+                            continue
+                        if st_tm == 'void':
+                            rec['cap_void_min'] += 1
+                            continue
                     rec['open_min'] += 1
                     i = bisect.bisect_right(evt, tm)
                     state, why, need, since = ('unknown', 'no evidence yet', None, None) if not i else \
@@ -623,29 +842,41 @@ def census(ds, projects=PROJECTS, emit_from=None):
                     if state != 'pending':
                         continue
                     free = [b for b in here if b not in flagged and b not in active]
-                    holders = [b for b in free if P.has_material(cur[b][4], need)]
-                    ready = []
-                    for b in holders:
-                        why_b, ready_from = bot_block(P, runs[pool].get(b, []), issues[pool].get(b, []), tm)
-                        if why_b is None:
-                            ready.append(max(since, ready_from))
-                    if len(active) >= P.cap:
-                        reason = 'cap_full'
-                    elif len(here) == 0:
-                        reason = 'nobody_at_town'
-                    elif len(here) < 2:
-                        reason = 'one_at_town'
-                    elif not free:
-                        reason = 'all_flagged_or_building'
-                    elif not holders:
-                        reason = f'no_material:{need}'
-                    elif not ready:
-                        reason = 'all_in_own_cooldown'
-                    elif all(tm - r0 < P.scan_ms for r0 in ready):
-                        reason = 'within_rotation_latency'
-                    else:
-                        reason = 'assignable'
+                    void_free = []
+                    if bs is not None:
+                        void_free = [b for b in free if bs.get(b) == 'void']
+                        free = [b for b in free if bs.get(b) == 'capable']
+                    def reason_for(free):
+                        holders = [b for b in free if P.has_material(cur[b][4], need)]
+                        ready = []
+                        for b in holders:
+                            why_b, ready_from = bot_block(P, runs[pool].get(b, []), issues[pool].get(b, []), tm)
+                            if why_b is None:
+                                ready.append(max(since, ready_from))
+                        if len(active) >= P.cap:
+                            return 'cap_full'
+                        if len(here) == 0:
+                            return 'nobody_at_town'
+                        if len(here) < 2:
+                            return 'one_at_town'
+                        if not free:
+                            return 'all_flagged_or_building'
+                        if not holders:
+                            return f'no_material:{need}'
+                        if not ready:
+                            return 'all_in_own_cooldown'
+                        if all(tm - r0 < P.scan_ms for r0 in ready):
+                            return 'within_rotation_latency'
+                        return 'assignable'
+                    reason = reason_for(free)
+                    if reason == 'assignable':
                         rec['assignable_min'] += 1
+                    elif void_free and reason_for(free + void_free) == 'assignable':
+                        # a bot whose capability is unknown WOULD have made the minute assignable: not a zero, a void
+                        # minute. When the VOID bots change nothing (no material, own cooldown...) the known reason
+                        # stands (Claude r2 P3-1: dropping known-zero minutes would inflate the assignable rate)
+                        reason = 'capability_void'
+                        rec['cap_void_min'] += 1
                     rec['blocked'][reason] += 1
                     rec['demand_why'] = why
                 rec['blocked'] = dict(rec['blocked'])
@@ -703,6 +934,14 @@ def summarize(rows, projects=PROJECTS):
     for r in rows:
         for name in list(r.get('projects_open') or []) + list((r.get('projects') or {}).keys()):
             members[name].add(r['town'])
+    rwc = defaultdict(Counter)                                    # town -> {project: slots with a record and no code}
+    capvoid = defaultdict(Counter)
+    for r in rows:
+        for name in r.get('record_without_code') or []:
+            rwc[r['town']][name] += 1
+        for name, st in (r.get('capability') or {}).items():
+            if st == 'void':
+                capvoid[r['town']][name] += 1
     for r in rows:
         T = towns[r['town']]
         T['slots'] += 1
@@ -724,20 +963,24 @@ def summarize(rows, projects=PROJECTS):
         for name, p in (r.get('projects') or {}).items():
             Q = T['projects'].setdefault(name, {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0,
                                                 'builder_min': 0, 'assignable_min': 0, 'placed': 0, 'blocked': Counter(),
-                                                'cap': p.get('cap'), 'builder_s': 0.0, 'visits': 0})
+                                                'cap': p.get('cap'), 'builder_s': 0.0, 'visits': 0, 'cap_void_min': 0,
+                                                'rwc_min': 0})
             for k in ('open_min', 'pending_min', 'none_min', 'unknown_min', 'builder_min', 'assignable_min', 'placed',
-                      'builder_s', 'visits'):
+                      'builder_s', 'visits', 'cap_void_min', 'rwc_min'):
                 Q[k] += p.get(k, 0)
             Q['blocked'].update(p.get('blocked') or {})
             blocks[name][(r['town'], blk)][0] += p.get('assignable_min', 0)
+            blocks[name][(r['town'], blk)][1] += p.get('cap_void_min', 0)
     win_h = max([T['slots'] * 5 / 60 for T in towns.values()] or [0])
-    out = {'towns': {}, 'projects': {}, 'window_h': round(win_h, 2)}
+    out = {'towns': {}, 'projects': {}, 'window_h': round(win_h, 2),
+           'record_without_code_slots': {t: dict(c) for t, c in sorted(rwc.items())},
+           'capability_void_slots': {t: dict(c) for t, c in sorted(capvoid.items())}}
     for name, ts in members.items():                              # a project town with no valid row still counts
         for t in ts:
             towns[t]['projects'].setdefault(name, {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0,
                                                    'builder_min': 0, 'assignable_min': 0, 'placed': 0,
                                                    'blocked': Counter(), 'cap': caps.get(name), 'builder_s': 0.0,
-                                                   'visits': 0})
+                                                   'visits': 0, 'cap_void_min': 0, 'rwc_min': 0})
     # EVERY town must be valid, not the fleet on average: one never-written town among eleven good ones is 92% of the
     # fleet and 0% of itself (Codex r3)
     out['min_town_valid_share'] = round(min((T['slots'] - T['void_slots']) / T['slots'] for T in towns.values()
@@ -757,9 +1000,12 @@ def summarize(rows, projects=PROJECTS):
                                                   'visits': 0, 'town_names': []})
             A['towns'] += 1
             A['town_names'].append(t)
-            A['valid_h'] += valid_h
+            # B0a: minutes whose capability is VOID leave THIS project's denominator (unknown is never zero)
+            pvh = max(0.0, valid_h - Q.get('cap_void_min', 0) / 60)
+            A['valid_h'] += pvh
+            A['cap_void_h'] = round(A.get('cap_void_h', 0.0) + Q.get('cap_void_min', 0) / 60, 2)
             # the daily rate is per town over the hours the census could SEE (void hours leave the denominator)
-            A['per_day'] += (Q['assignable_min'] / 60) * 24 / valid_h if valid_h else 0.0
+            A['per_day'] += (Q['assignable_min'] / 60) * 24 / pvh if pvh else 0.0
             A['builder_s'] = round(A['builder_s'] + Q['builder_s'], 1)
             A['visits'] += Q['visits']
             for k in ('open_min', 'pending_min', 'builder_min', 'assignable_min', 'placed'):
@@ -775,12 +1021,13 @@ def summarize(rows, projects=PROJECTS):
         A['valid_share'] = round(A['valid_h'] / (A['towns'] * win_h), 3) if win_h and A['towns'] else 0.0
         A['valid_h'] = round(A['valid_h'], 2)
         A['per_day_by_24h_block'] = []
-        tb = [valid_slots[(t, blk)] / 288 for t in A['town_names'] for blk in range(nblocks)]
+        tb = [max(0.0, valid_slots[(t, blk)] * 5 - blocks[name][(t, blk)][1]) / 1440 for t in A['town_names']
+              for blk in range(nblocks)]
         A['min_town_block_valid_share'] = round(min(tb), 3) if tb else 0.0
         for blk in range(nblocks):
             rate = 0.0
             for t in A['town_names']:
-                vh = valid_slots[(t, blk)] * 5 / 60
+                vh = max(0.0, valid_slots[(t, blk)] * 5 - blocks[name][(t, blk)][1]) / 60
                 rate += (blocks[name][(t, blk)][0] / 60) * 24 / vh if vh else 0.0
             A['per_day_by_24h_block'].append(round(rate, 3))
         multi = (A['cap'] or 1) >= 2
@@ -902,7 +1149,7 @@ def minute_track(ev):
         'm': {'date_histogram': {'field': '@timestamp', 'fixed_interval': '1m'},
               'aggs': {'top': {'top_hits': {'size': 1, 'sort': [{'@timestamp': 'desc'}],
                                             '_source': ['bot.pos', 'bot.health', 'bot.inventory', 'exp.pool',
-                                                        '@timestamp']}}}}}}}})
+                                                        'code.version', '@timestamp']}}}}}}}})
     return parse_track(ev._complete(r['aggregations']['b'], 'minute_track: terms on bot.name'))
 
 
@@ -919,12 +1166,14 @@ def parse_track(agg):
             pos = bo.get('pos') or {}
             out[int(mb['key'])][bb['key']] = {'pool': (src.get('exp') or {}).get('pool'),
                                                'pos': (pos.get('x'), pos.get('y'), pos.get('z')), 'health': bo.get('health'),
-                                               'inv': bo.get('inventory') or {}}
+                                               'inv': bo.get('inventory') or {},
+                                               'ver': ((src.get('code') or {}).get('version') or '').split('+')[0] or None}
     return out
 
 
-def dataset_from_es(since, until, state_dir, log=print):
-    """Everything census() needs, read from ES (estelemetry) and the pool state dir. Read only."""
+def dataset_from_es(since, until, state_dir, log=print, cap_state=None, reseed_due=None):
+    """Everything census() needs, read from ES (estelemetry) and the pool state dir. Read only.
+    cap_state: the persistent newest-mode-row state (a list), or None to seed it by the bounded walk (B0a)."""
     from lib.estelemetry import EsEvents, ZeroLooksWrong
     t0 = time.time()
     whole = EsEvents.load('skill', since=iso(since), until=iso(until))
@@ -991,8 +1240,34 @@ def dataset_from_es(since, until, state_dir, log=print):
     journal = {p: read_journal(state_dir, p, homes[p]) for p in pools}
     log(f'  rows: flags {len(flags)}, job rows {len(jobs)}, home rows {len(homes_rows)}, project rows {len(prows)} '
         f'({time.time() - t0:.0f} s)')
+    # B0a: MODE ROWS, read after the track so the seed knows which bots and builds it must cover
+    vers, changed_at = {}, {}
+    for m in sorted(track):
+        for b, v in track[m].items():
+            if v.get('ver'):
+                if b in vers and vers[b] != v['ver']:
+                    changed_at[b] = m
+                vers[b] = v['ver']
+    fetch = lambda a, b: mode_rows(EsEvents, max(a, mode_floor(until)), b)   # noqa: E731 -- every query bounded
+    fresh = fetch(since - PROJECT_LOOKBACK_MS, until)
+    seeded = None
+    state = list(cap_state or ())
+    need = missing_spawn(mode_index(state + fresh), vers, until)
+    if cap_state is None or (need and (reseed_due if reseed_due is not None else True)):
+        extra, seeded = seed_walk(fetch, until, vers, have=state + fresh,
+                                  start=max(since - PROJECT_LOOKBACK_MS, mode_floor(until)))
+        state += extra
+        seeded['at'] = iso(until)
+        log(f'  capability seed walk back to {seeded["since"]}: {seeded["rows"]} rows; still missing {len(seeded["missing"])}')
+    # FULL history for the census (a persisted predecessor must survive a fresh row of the same kind); compacted only
+    # when saved
+    modes = sorted(set(state) | set(fresh))
+    idx = mode_index(modes)
+    control = capability_control(idx, vers, until, changed_at)
     return {'since': since, 'until': until, 'towns': homes, 'track': track, 'void': void, 'flags': flags, 'jobs': jobs,
             'prows': prows, 'records': recs, 'leases': leases, 'journal': journal, 'home_rows': homes_rows,
+            'modes': modes, 'cap_seeded': seeded, 'capability_control': control,
+            'cap_missing': missing_spawn(idx, vers, until),
             'meta': {'docs': total, 'bots': len(bots), 'kinds_present': {k: names.get(k, 0) for k in
                                                                          sorted(set(pkinds) | set(jnames))},
                      'coverage_bot_h': cov['bot_hours'], 'empty_10min': cov['empty_10min'], 'caveats': whole.caveats,
@@ -1248,11 +1523,13 @@ def selftest(verbose=True):
     check('job_from_row: the interval starts at @timestamp', (j['start'], j['end'] - j['start']),
           (ms_of('2026-10-19T12:52:54.813Z'), 16026))
     agg = {'buckets': [{'key': 'b1', 'm': {'buckets': [
-        {'key': 1000 * 60_000, 'top': {'hits': {'hits': [{'_source': {'exp': {'pool': 'p'}, 'bot': {
+        {'key': 1000 * 60_000, 'top': {'hits': {'hits': [{'_source': {'exp': {'pool': 'p'}, 'code': {
+            'version': '6e1afb52465d+e8f2f5'}, 'bot': {
             'pos': {'x': 1.5, 'y': 64, 'z': -2}, 'health': 19, 'inventory': {'oak_sapling': 2}}}}]}}},
         {'key': 1001 * 60_000, 'top': {'hits': {'hits': []}}}]}}]}
     check('parse_track', dict(parse_track(agg)),
-          {1000 * 60_000: {'b1': {'pool': 'p', 'pos': (1.5, 64, -2), 'health': 19, 'inv': {'oak_sapling': 2}}}})
+          {1000 * 60_000: {'b1': {'pool': 'p', 'pos': (1.5, 64, -2), 'health': 19, 'inv': {'oak_sapling': 2},
+                                  'ver': '6e1afb52465d'}}})
     # TRANSIENT PRESENCE: C's two minutes at town are seen (a slot-end snapshot would not see them)
     s50 = [r for r in rows if r['slot'] == iso(ds['since'] + 50 * 60_000)][0]
     check('transient visit: C at town in the 50:00 slot', 'fx-C' in s50['at_town_bots'], True)
@@ -1344,13 +1621,170 @@ def selftest(verbose=True):
     check('monument budget: 10 min of body in the last hour blocks the bot',
           bot_block(m, [(0, 600_000, 'success', None)], [], 1_800_000)[0], 'budget')
     check('monument cooldown: 10 min after the order', bot_block(m, [], [0], 599_999)[0], 'cooldown')
+    # ---- B0a CAPABILITY (cooperation design 1.6, 6.4)
+    T0c = ms_of('2026-10-19T00:00:00Z')
+    V1, V2 = 'aaaa1111', 'bbbb2222'
+
+    def idx_of(*rows):
+        return mode_index(list(rows))
+    on = idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True))
+    check('capability: an on row of the current build -> capable', bot_capability(on, V1, 'b', '_treefarm_mode', T0c + 1),
+          'capable')
+    flag_off = idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True),
+                      (T0c + 9e6, 'b', '_cobblecap_mode', V1, True), (T0c + 9e6, 'b', '_treefarm_mode', V1, False))
+    check('capability: on, then a restart on the SAME version with the flag off -> not capable',
+          bot_capability(flag_off, V1, 'b', '_treefarm_mode', T0c + 1e7), 'not_capable')
+    reverted = idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True),
+                      (T0c + 9e6, 'b', '_cobblecap_mode', V2, True))
+    check('capability: on, then a restart into a reverted build that emits no mode row -> not capable',
+          bot_capability(reverted, V2, 'b', '_treefarm_mode', T0c + 1e7), 'not_capable')
+    check('capability: an OLD on row (days before), still on that version -> capable (persistent state)',
+          bot_capability(on, V1, 'b', '_treefarm_mode', T0c + 5 * DAY_MS), 'capable')
+    check('capability: disabled (mode row off) -> not capable',
+          bot_capability(idx_of((T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, False)), V1, 'b',
+                         '_treefarm_mode', T0c + 1), 'not_capable')
+    check('capability: no spawn row of the CURRENT build in view -> void, never not_capable',
+          bot_capability(on, V2, 'b', '_treefarm_mode', T0c + 1), 'void')
+    check('capability: current version unknown -> void', bot_capability(on, None, 'b', '_treefarm_mode', T0c + 1), 'void')
+    check('capability: a row AFTER t is not used', bot_capability(on, V1, 'b', '_treefarm_mode', T0c - 1), 'void')
+    check('town capability: one capable bot is enough', town_capability(['void', 'not_capable', 'capable']), 'capable')
+    check('town capability: all void (staggered restarts) -> void', town_capability(['void', 'void']), 'void')
+    check('town capability: none capable, one known -> not_capable', town_capability(['void', 'not_capable']),
+          'not_capable')
+    check('mode_on contract (on=on / mode=on; townindex index=on)',
+          (TreeFarm().mode_on('on=on gen=1'), TreeFarm().mode_on('mode=off'), mode_on_for('_townindex_mode', 'phase=mode index=on'),
+           mode_on_for('_townindex_mode', 'phase=mode index=off')), (True, False, True, False))
+    # census integration: the hand-worked fixture with mode rows says nothing changes when the code is running ...
+    def with_modes(ds, tf_on=True, ver=V1):
+        ds['modes'] = []
+        for b in ('fx-A', 'fx-B', 'fx-C'):
+            ds['modes'].append((ds['since'] - 3600_000, b, '_cobblecap_mode', ver, True))
+            if tf_on is not None:
+                ds['modes'].append((ds['since'] - 3600_000, b, '_treefarm_mode', ver, tf_on))
+        for sl in ds['track'].values():
+            for v in sl.values():
+                v['ver'] = V1
+        return ds
+    qc = _tf(with_modes(fixture()))['towns']['fx']['projects']['treefarm']
+    check('capable fixture: the hand-worked assignable minutes are unchanged', qc['assignable_min'],
+          SELFTEST_EXPECT['assignable_min'])
+    # ... and a REVERTED project (its record and rows remain, its module emits no mode row) is record_without_code
+    dsr = with_modes(fixture(), tf_on=None)
+    rr = census(dsr, projects=(TreeFarm(),))
+    Sr = summarize(rr, projects=(TreeFarm(),))
+    check('record without code: never open (every valid slot lists it)',
+          Sr['record_without_code_slots'].get('fx', {}).get('treefarm'), 12)
+    check('record without code: no assignable time', sum((r.get('projects') or {}).get('treefarm', {}).get(
+        'assignable_min', 0) for r in rr), 0)
+    check('record without code: not in projects_open', any('treefarm' in (r.get('projects_open') or []) for r in rr), False)
+    # ... a CAPABLE but STARVED project (record open, code on, no project rows at all) stays OPEN and STALLED, zero placed
+    dss = with_modes(fixture())
+    dss['prows'] = []
+    dss['jobs'] = [j for j in dss['jobs'] if j['name'] != 'tend_farm']
+    dss['records'] = {'treefarm': {'fx': dss['since']}}
+    qs = _tf(dss)['towns']['fx']['projects']['treefarm']
+    check('capable but starved: open all hour, nothing placed, nothing pending (unknown)',
+          (qs['open_min'], qs['placed'], qs['pending_min'], qs['unknown_min']), (60, 0, 0, 60))
+    # ... a town whose bots' current build has no spawn row in view is capability VOID, never record_without_code
+    dsv = with_modes(fixture(), ver=V2)
+    Sv = summarize(census(dsv, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('capability void: counted as void, not as record_without_code',
+          (Sv['capability_void_slots'].get('fx', {}).get('treefarm'), Sv['record_without_code_slots'].get('fx')), (12, None))
+    # ... VOID bots at town and an INCAPABLE bot far away: the minutes are VOID, never record_without_code (Codex r2 P2-1)
+    dsm = with_modes(fixture())
+    dsm['modes'] = [(t, b, k, V2 if b in ('fx-A', 'fx-B') else v, (False if (b == 'fx-C' and k == '_treefarm_mode') else on))
+                    for t, b, k, v, on in dsm['modes']]
+    Sm = summarize(census(dsm, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    # 11 of 12: in the 50:00 slot C (incapable) is at town for two minutes, so that slot is mixed (neither all-VOID nor
+    # all-incapable), as it should be
+    check('VOID bots at town + an incapable bot 400 blocks away: VOID slots, no record_without_code',
+          (Sm['capability_void_slots'].get('fx', {}).get('treefarm'), Sm['record_without_code_slots'].get('fx')), (11, None))
+    dsm2 = with_modes(fixture())
+    dsm2['modes'] = [(t, b, k, v, (False if (b in ('fx-A', 'fx-B') and k == '_treefarm_mode') else on))
+                     for t, b, k, v, on in dsm2['modes']]
+    Sm2 = summarize(census(dsm2, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('control for the above: the same town with A and B INCAPABLE (not VOID) at town is record_without_code',
+          (Sm2['record_without_code_slots'].get('fx', {}).get('treefarm'), Sm2['capability_void_slots'].get('fx')), (11, None))
+    # the POSITIVE CONTROL (an alarm, never a void): every present bot with a known version is eligible; VOID = not capable
+    ci = idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True),
+                (T0c, 'b', '_townindex_mode', V1, False), (T0c, 'b', '_cobblecap_mode', V1, True),
+                (T0c, 'd', '_cobblecap_mode', V2, True))
+    cc = capability_control(ci, {'a': V1, 'b': V1, 'c': V1, 'd': V2}, T0c + 11 * 60_000, changed_at={'c': T0c + 6 * 60_000})
+    check('positive control: c changed version 5 min ago (not eligible); b off, d a build without it -> 1 of 3, alarm',
+          (cc['eligible'], cc['capable'], cc['void'], cc['alarm']), (3, 1, 0, True))
+    check('positive control: a bot with no spawn row of its build in view counts VOID and not capable',
+          capability_control(ci, {'a': V1, 'e': V1}, T0c + 11 * 60_000)['void'], 1)
+    check('positive control: all capable -> no alarm',
+          capability_control(idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True)),
+                             {'a': V1}, T0c + 11 * 60_000)['alarm'], False)
+    check('positive control MUTANT: an EMPTY reader (no mode rows) alarms, never reads healthy',
+          capability_control(idx_of(), {'a': V1, 'b': V1}, T0c)['alarm'], True)
+    check('positive control MUTANT: a SHORT seed (half the bots VOID) alarms',
+          capability_control(idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True)),
+                             {'a': V1, 'b': V1}, T0c + 1)['alarm'], True)
+    check('positive control: bots present but none eligible (every version just changed) alarms',
+          capability_control(idx_of(), {'a': V1}, T0c, changed_at={'a': T0c})['alarm'], True)
+    # the SEED WALK is per bot: back 1, 3, 7 days until every present bot's current build has a spawn row
+    calls = []
+
+    def fetch(lo, hi, rows=((T0c - 2 * DAY_MS, 'old', '_cobblecap_mode', V1, True),
+                            (T0c - 1000, 'new', '_cobblecap_mode', V1, True))):
+        calls.append((lo, hi))
+        return [r for r in rows if lo <= r[0] < hi]
+    got, info = seed_walk(fetch, T0c, {'old': V1, 'new': V1})
+    check('seed walk: one day misses the bot that spawned 2 days ago, three days finds it',
+          (len(calls), info['missing'], len(got)), (2, [], 2))
+    calls.clear()
+    got, info = seed_walk(fetch, T0c, {'gone': V1})
+    check('seed walk: a bot never found stops at the 7-day bound and is reported missing (VOID, never incapable)',
+          (len(calls), info['missing'], iso(ms_of(info['since']))), (3, ['gone'], iso(T0c - 7 * DAY_MS)))
+    check('seed walk: never before 2026-10-08', iso(mode_floor(ms_of('2026-10-10T00:00:00Z'))), '2026-10-08T00:00:00Z')
+    # FULL HISTORY (Codex r1 P2-2): an old capable state row, then a fresh restart with the flag off: a minute BEFORE the
+    # restart still reads capable
+    hist = mode_index(sorted({(T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True)} |
+                             {(T0c + 9e6, 'b', '_cobblecap_mode', V1, True), (T0c + 9e6, 'b', '_treefarm_mode', V1, False)}))
+    check('state + fresh: a minute before the restart is capable, after it not',
+          (bot_capability(hist, V1, 'b', '_treefarm_mode', T0c + 1e6), bot_capability(hist, V1, 'b', '_treefarm_mode', T0c + 1e7)),
+          ('capable', 'not_capable'))
+    # VOID LEAVES THE DENOMINATOR (Claude r1 P1-3): every bot VOID -> no valid project hours (not 0 town-h/day at 100%)
+    Sv2 = summarize(census(with_modes(fixture(), ver=V2), projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('every bot VOID: the project has no valid hours, its share is 0, the gate cannot read a zero',
+          (Sv2['projects']['treefarm']['valid_h'], Sv2['projects']['treefarm']['valid_share']), (0.0, 0.0))
+    # only fx-A VOID (its build's spawn row is not in view): minutes where A was the only possible free holder are
+    # capability_void, and they leave the denominator
+    dsa = with_modes(fixture())
+    dsa['modes'] = [m for m in dsa['modes'] if m[1] != 'fx-A']
+    qa = _tf(dsa)['towns']['fx']['projects']['treefarm']
+    # (B, capable, is still assignable on its own: the same 10 minutes as the flagged-holder fixture below, ds6)
+    # 01:00-20:00 stay no_material (18 min): B has no sapling and A, VOID or not, is in its own backoff until 23:00, so A
+    # could not have made them assignable (Claude r2 P3-1); 23:00 onward, where A would have been free, is capability_void
+    check('one bot VOID: only the minutes it could have made assignable are capability_void; B still counts',
+          (qa['assignable_min'], qa['blocked'].get('capability_void', 0) > 0, qa['blocked'].get('no_material:sapling', 0)),
+          (10, True, 18))
+    Sa = summarize(census(dsa, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('one bot VOID: those minutes leave the project\'s valid hours',
+          round(Sa['projects']['treefarm']['valid_h'] + qa['cap_void_min'] / 60, 2), 1.0)
+    check('every project adapter declares its mode row', all(P.mode_kind for P in PROJECTS), True)
+    # ... a VOID bot that could not have made the minute assignable leaves the KNOWN reason (Claude r2 P3-1): B is VOID and
+    # holds no sapling before 20:00, A (capable) is in its own backoff until 23:00, so 01:00-20:00 stays a known zero
+    dsk = with_modes(fixture())
+    dsk['modes'] = [m for m in dsk['modes'] if m[1] != 'fx-B']
+    qk = _tf(dsk)['towns']['fx']['projects']['treefarm']
+    qb = _tf(with_modes(fixture()))['towns']['fx']['projects']['treefarm']
+    check('VOID bot without material: its minutes keep their known reason, not capability_void',
+          (qk['blocked'].get('capability_void', 0) < qb['open_min'] - qb['assignable_min'],
+           qk['blocked'].get('all_in_own_cooldown', 0) + qk['blocked'].get('no_material:sapling', 0) > 0), (True, True))
+    check('state keeps each bot\'s newest row per kind',
+          newest_per_kind([(1, 'b', 'k', V1, True), (5, 'b', 'k', V1, False), (3, 'c', 'k', V1, True)]),
+          [(3, 'c', 'k', V1, True), (5, 'b', 'k', V1, False)])
     # THE STALENESS CHECK (check-staffcensus.py)
     chk = load_checker()
     now = ms_of('2026-10-19T12:00:00Z') / 1000
 
     def hb(at, st='ok', newest='2026-10-19T11:50:00Z', n=12, void=0):
         return json.dumps({'at': at, 'mode': 'tick', 'status': st, 'newest_slot': newest, 'slots_written': n,
-                           'void_rows': void})
+                           'void_rows': void, 'capability_control': {'present': 60, 'eligible': 60, 'capable': 60,
+                                                                     'void': 0, 'share': 1.0, 'alarm': False}})
     check('checker: fresh measuring tick is healthy', chk.assess([hb('2026-10-19T11:58:00Z')], now)[0], [])
     a = chk.assess([hb('2026-10-19T11:20:00Z', newest='2026-10-19T11:10:00Z')], now)[0]
     check('checker: 40-min-old tick is stale', any(x.startswith('StaffCensusStale: the newest tick is') for x in a), True)
@@ -1368,6 +1802,15 @@ def selftest(verbose=True):
     check('checker: no heartbeat at all', chk.assess([], now)[0][0].startswith('StaffCensusMissing'), True)
     a = chk.assess([hb('2026-10-19T11:58:00Z', newest='2026-10-19T10:00:00Z')], now)[0]
     check('checker: ticking but writing no new slots is behind', any(x.startswith('StaffCensusBehind') for x in a), True)
+    a = chk.assess([json.dumps(dict(json.loads(hb('2026-10-19T11:58:00Z')), capability_control={
+        'eligible': 60, 'capable': 40, 'share': 0.667, 'alarm': True}))], now)[0]
+    check('checker: a capability-control shortfall is an alarm (StaffCensusCapability)',
+          any(x.startswith('StaffCensusCapability') for x in a), True)
+    a = chk.assess([json.dumps({'at': '2026-10-19T11:59:00Z', 'mode': 'window', 'status': 'ok'})], now)[0]
+    a = chk.assess([json.dumps({k: v for k, v in json.loads(hb('2026-10-19T11:58:00Z')).items()
+                                if k != 'capability_control'})], now)[0]
+    check('checker: a measuring tick WITHOUT a capability control alarms', any(x.startswith('StaffCensusCapability')
+                                                                               for x in a), True)
     a = chk.assess([json.dumps({'at': '2026-10-19T11:59:00Z', 'mode': 'window', 'status': 'ok'})], now)[0]
     check('checker: an ad-hoc window run does not count as the standing census',
           bool(a) and a[0].startswith('StaffCensusMissing'), True)
@@ -1503,6 +1946,16 @@ def render(S, ds=None, checks=None, label='', home_all=None):
                  f'= {A["assignable_town_h_per_day"]} town-h/day; placed {A["placed"]}; GATE: {A["gate"]}')
     if not S['projects']:
         L.append('  PROJECTS: none open in any shared town in the window -- the gate cannot be read')
+    if S.get('record_without_code_slots'):
+        L.append('  RECORD WITHOUT CODE (a project record whose module is not running in the town; never open, never '
+                 'assignable), slots: ' + ', '.join(f'{t} {c}' for t, c in S['record_without_code_slots'].items()))
+    if S.get('capability_void_slots'):
+        L.append('  capability VOID (no spawn row of the bots\' current build in view), slots: '
+                 + ', '.join(f'{t} {c}' for t, c in S['capability_void_slots'].items()))
+    if S.get('capability_control'):
+        cc = S['capability_control']
+        L.append(f'  capability positive control ({CONTROL_KIND}): {cc["capable"]} of {cc["eligible"]} eligible bots '
+                 f'capable (share {cc["share"]}){"  ** ALARM: below " + str(CAP_ALARM_SHARE) if cc["alarm"] else ""}')
     h = S.get('home') or {}
     a, f = h.get('all', [0, 0]), h.get('filtered', [0, 0])
     L.append(f'  home, shared towns (RECALL gate >= 70%): all {a[0]} of {a[1]} ({100 * a[0] / max(1, a[1]):.0f}%); under '
@@ -1525,6 +1978,7 @@ def run_window(a):
     ds = dataset_from_es(since - CARRY_MS, until, a.state_dir)
     rows = census(ds, emit_from=since)
     S = summarize(rows)
+    S['capability_control'] = ds['capability_control']
     tr = ds['track']
     home_all = home_success([dict(r, health=health_before(tr, r['bot'], r['start'])) for r in ds['home_rows']
                              if since <= r['start'] < until], ds['flags'])
@@ -1545,7 +1999,7 @@ def run_window(a):
     print(f'  wrote {stem}.json / .slots.jsonl / .txt')
     measured = sum(1 for r in rows if not r.get('void'))
     return {'status': 'ok' if measured else 'void', 'window': [iso(since), iso(until)], 'slots_written': 0,
-            'es_docs': ds['meta']['docs']}
+            'es_docs': ds['meta']['docs'], 'capability_control': ds['capability_control']}
 
 
 def run_tick(a):
@@ -1561,14 +2015,20 @@ def run_tick(a):
         return {'status': 'idle', 'slots_written': 0, 'newest_slot': iso(last) if last else None,
                 'note': 'no new complete slot'}
     # load from start - CARRY_MS so the position carry is warm; write only the new slots
-    ds = dataset_from_es(start - CARRY_MS, end, a.state_dir, log=lambda *x: None)
+    state, seeded = load_cap_state(a.out_dir)
+    due = not seeded or not seeded.get('at') or end - ms_of(seeded['at']) >= RESEED_EVERY_MS
+    ds = dataset_from_es(start - CARRY_MS, end, a.state_dir, log=lambda *x: None, cap_state=state, reseed_due=due)
     rows = census(ds, emit_from=start)
     write_slots(a.out_dir, rows)
+    if ds['modes']:                      # NEVER save an empty seed (an ES gap must not freeze every bot VOID)
+        save_cap_state(a.out_dir, ds['modes'], ds['cap_seeded'] or seeded)
     void = sum(1 for r in rows if r.get('void'))
     return {'status': 'ok' if void < len(rows) else 'void', 'slots_written': len(rows), 'void_rows': void,
             'towns': len(ds['towns']), 'window': [iso(start), iso(end)], 'newest_slot': iso(end - SLOT_MS),
             'es_docs': ds['meta']['docs'], 'skipped_left_void': skipped, 'not_in_roster': ds['meta']['not_in_roster'],
-            'journal_missing': ds['meta']['journal_missing'], 'record_errors': len(ds['meta']['record_errors'])}
+            'journal_missing': ds['meta']['journal_missing'], 'record_errors': len(ds['meta']['record_errors']),
+            'capability_control': ds['capability_control'], 'capability_missing_spawn': len(ds['cap_missing']),
+            'record_without_code': sorted({f'{r["town"]}:{n}' for r in rows for n in r.get('record_without_code') or []})}
 
 
 def run_report(a):
