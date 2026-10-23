@@ -53,6 +53,7 @@ import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
+import { furnaceSeenModeDetail } from './smeltjob.mjs'   // furnaceseen-01's mode row
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -322,6 +323,8 @@ function connect() {
     try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
     // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
     try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
+    // furnaceseen-01: its mode row (the A7 contract `on=on|off`); the LICENCE is `_furnace_seen_skip` (one per skipped walk)
+    try { logEvent({ kind: 'furnace_seen_mode', status: 'success', snapshot: snapshot(bot), detail: furnaceSeenModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
