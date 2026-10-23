@@ -72,7 +72,14 @@ function town ({ coalAt = null, coal = 4, copperMissAt = [], bag = [stack('cobbl
   w.stock(...COPPER, [stack('raw_copper', 8)])
   if (coalAt) w.stock(...coalAt, [stack('coal', coal)])
   if (copperMissAt.length) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.noteItemMisses(e, SJ.COPPER_MISS_KEY, SJ.COPPER_MISS_TTL_MS, copperMissAt.map(kOf)))
+  ironDone(w)
   return w
+}
+// IRONSMELT-01: the job searches the town's RAW IRON first. These scenes are the COPPER flow's (toolkit-03), so their towns
+// are towns whose iron is all looked at -- every container a live iron miss -- and the job then runs the base's copper flow
+// exactly (the iron-first scenes are test/ironsmelt.test.mjs's)
+function ironDone (w) {
+  CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.noteItemMisses(e, SJ.IRON_MISS_KEY, SJ.IRON_MISS_TTL_MS, [...w.containers.keys()]))
 }
 const chest = (w, c) => w.containers.get(kOf(c)).slots
 const job = (S, w) => S.SKILLS.smelt_town.run({ bot: w.bot }, {}, sig())
@@ -287,10 +294,11 @@ await t('A COPPER SEARCH CUT BY ITS BUDGET with candidates left: stop=search_mor
     if (Math.hypot(x, z) > 13 || CHESTS.some(c => c[0] === x && c[2] === z) || (x === 6 && z === 0)) continue
     w.set(x, 64, z, 'chest'); w.stock(x, 64, z, [stack('dirt', 5)])
   }
+  ironDone(w)
   const r = await job(S0, w)
   assert.equal(r.stop, SJ.SMELT_SEARCH_MORE, `${r.status} ${r.stop} ${r.detail}`)
   assert.equal(w.spy.opened.length, SJ.SMELT_COPPER_VISITS)
-  assert.match(lastRow(), / looked=12 more=cu$/, lastRow())
+  assert.match(lastRow(), / looked=12 more=cu /, lastRow())
   const streak = SJm => {
     let s = {}
     for (let i = 0; i < SJm.SMELT_MORE_MAX; i++) { s = SJm.smeltTownOutcome('no_effect', SJm.SMELT_SEARCH_MORE, 1e12, s); assert.equal(s.backoffUntil ?? 0, 0, `more #${i + 1}`) }
@@ -319,14 +327,15 @@ await t('missTtlOf: a number is every need\'s TTL; a map names a need\'s own, SE
 await t('MUTANTS: each removes one part of the job\'s search and a behaviour test above fails for it', async () => {
   const kills = {}
   // the coordinator's cause (2): the coal looked for over the copper's container list
-  kills.coalOnCopperList = await withMutant(SKILLS_PATH, 'out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COAL_TTL))',
-    'out.coalMore = !!(await pass(SMELT_JOB_INPUT, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COPPER_TTL))', S => killedBy(() => coalInCopperMiss(S)))
+  kills.coalOnCopperList = await withMutant(SKILLS_PATH, 'out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0))',
+    'out.coalMore = !!(await pass(SMELT_JOB_INPUT, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0))', S => killedBy(() => coalInCopperMiss(S)))
   // cause (1): three containers
   kills.coalCap3 = await withMutant(SKILLS_PATH, 'pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS,', 'pass(SMELT_JOB_FUEL, 2,', S => killedBy(() => coalFar(S)))
   kills.noPrecheck = await withMutant(SKILLS_PATH, 'if (needCoal > 0 && townCoalMiss(bot)) { out.noCoal = true; return out }', '', S => killedBy(() => precheck(S)))
-  kills.noStalled = await withMutant(SKILLS_PATH, 'f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED', 'f.stop = SMELT_SEARCH_MORE', S => killedBy(() => stalled(S)))
+  kills.noStalled = await withMutant(SKILLS_PATH, "f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED\n        return (result = { status: 'no_effect', detail: `no raw copper",
+    "f.stop = SMELT_SEARCH_MORE\n        return (result = { status: 'no_effect', detail: `no raw copper", S => killedBy(() => stalled(S)))
   kills.noStreakCap = await withMutant(SJ_PATH, '    if (s.moreStreak <= SMELT_MORE_MAX) return s', '    return s', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
-  kills.oldGate = await withMutant(SKILLS_PATH, 'try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }',
+  kills.oldGate = await withMutant(SKILLS_PATH, 'try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }',
     `try {
     const home = homeVec()
     const found = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: 256,
