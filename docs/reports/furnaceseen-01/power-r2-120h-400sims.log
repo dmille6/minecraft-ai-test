@@ -1,0 +1,7 @@
+history 120 h to 10-23 19:36Z | pools 16 | repeats 2465, removable (the earlier empty logged before the pick) 2465 = 1.000 | effect used 1.000 | sims 400
+  POWER effect 1.00  +180/+720: 273/400 = 0.682 (95% 0.637-0.728)
+  POWER effect 1.00  +180/+1440: 297/400 = 0.743 (95% 0.700-0.785)
+  POWER effect 1.00  +180/+2880: 277/400 = 0.693 (95% 0.647-0.738)
+  NULL  effect 0.00  +180/+720: 3/400 = 0.007 (95% 0.000-0.016)
+  NULL  effect 0.00  +180/+1440: 6/400 = 0.015 (95% 0.003-0.027)
+  NULL  effect 0.00  +180/+2880: 2/400 = 0.005 (95% 0.000-0.012)
