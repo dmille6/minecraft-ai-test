@@ -1,19 +1,49 @@
 --- a/mcai-analysis/drawrec.sh
 +++ b/mcai-analysis/drawrec.sh
-@@ -13,6 +13,12 @@
- bash -c 'cd /opt/minecraft-ai; POOLS=1 python3 /tmp/immobiledid.py 2>/dev/null; python3 /tmp/poolrank2.py 2>/dev/null; echo "=== LEDGER"; tail -40 /var/log/mcai/_canary-decisions.jsonl; echo "=== MANIFEST"; cat /srv/mcbots/trial-manifest.json' > /tmp/drawrec.txt 2>&1
+@@ -10,10 +10,17 @@
+ # A pool with a trapped bot is preferred but not required.
+ RUN=${1:-}
+ export DRAW_RUN="$RUN"
+-bash -c 'cd /opt/minecraft-ai; POOLS=1 python3 /tmp/immobiledid.py 2>/dev/null; python3 /tmp/poolrank2.py 2>/dev/null; echo "=== LEDGER"; tail -40 /var/log/mcai/_canary-decisions.jsonl; echo "=== MANIFEST"; cat /srv/mcbots/trial-manifest.json' > /tmp/drawrec.txt 2>&1
++bash -c 'cd /opt/minecraft-ai; POOLS=1 python3 /tmp/immobiledid.py 2>/dev/null; python3 /tmp/poolrank2.py 2>/dev/null; echo "=== LEDGER"; tail -40 /var/log/mcai/_canary-decisions.jsonl; echo "=== MANIFEST"; cat /srv/mcbots/trial-manifest.json' > "${DRAW_TXT:-/tmp/drawrec.txt}" 2>&1
  python3 - <<'PY'
  import re, secrets, datetime as dt, os, sys
+-txt = open('/tmp/drawrec.txt').read()
 +# DRAW_REGDIR (queue-speed-1023, proposed): canary-sched's R12 PROBE draws for a run that is not launched yet, so its
 +# registration is not staged; it passes a temp dir holding only the queued bytes, as R10 does for drawexposure. Every
 +# lookup below and drawsteady's (STEADY_REGDIR) read it. Unset = exactly the paths as before.
 +_REGDIR = os.environ.get('DRAW_REGDIR') or os.path.expanduser('~/mcai-analysis/registrations')
 +if os.environ.get('DRAW_REGDIR'):
 +    os.environ['STEADY_REGDIR'] = _REGDIR
- txt = open('/tmp/drawrec.txt').read()
++# DRAW_TXT (queue-speed-1023): the scheduler's probe keeps its working text in its own temp dir; unset = as before
++txt = open(os.environ.get('DRAW_TXT') or '/tmp/drawrec.txt').read()
  expo = {m.group(1): (int(m.group(2)), int(m.group(3)), int(m.group(4))) for m in re.finditer(r'^\s+(\S+)\s+livelock\s+(\d+) climbs\s+(\d+) immobile>=30m (\d+)', txt, re.M)}
  band = {m.group(1): (m.group(2), float(m.group(3))) for m in re.finditer(r'^(\S+)\s+(5080|3090)\s+bots \d+\s+items/bh\s+([\d.]+)', txt, re.M)}
-@@ -104,12 +110,12 @@
+ # THE BAND CENTRE MUST COVER THE POOLS THE BAND JUDGES.
+@@ -30,6 +37,11 @@
+ print('band centre: all-pool median %.1f (5080-half median %.1f, %+.0f%%)'
+       % (med, med5080, 100 * (med - med5080) / med5080 if med5080 else 0))
+ now = dt.datetime.now(dt.timezone.utc)
++# INSTRUMENTS (queue-speed-1023, Claude r1 P1): how many pools the band (poolrank2) and the exposure table (immobiledid
++# POOLS=1) answered for. A missing /tmp read gives an EMPTY table, which then reads as "fewer than 2 eligible" -- the
++# scheduler's probe treats this line's zero as a refusal, not scarcity. Printed before the DRAW line, so the loop's
++# `tail -4` is unchanged.
++print('instruments: band rows %d, exposure rows %d' % (len(band), len(expo)))
+ # EXCLUSIONS COME FROM THE LEDGER AND THE MANIFEST, NEVER FROM A TYPED LIST (2026-09-14: a typed dict with duplicate
+ # keys let stale times overwrite fresh ones and the draw offered pools that were still excluded). A pool is excluded
+ # for 12 h after its last canary DECISION (the ledger's ts; conservative, later than declared_at) and while it is the
+@@ -68,7 +80,9 @@
+ # A REFUSAL IS PAGED (v35.1, round 1 Claude: v35's refusal ran SILENTLY for 8.5 h and cost an idle slot). Once per 6 h,
+ # deduplicated by ~/digest/steady-refusal.stamp; the page goes to the loop's own ~/digest/page.jsonl. A normal "no candidate"
+ # is not a refusal and never pages. Paging failures are printed, never fatal: the draw goes on at 12 h.
+-if _refused:
++if _refused and os.environ.get('DRAW_PROBE') == '1':
++    print('STEADY refusal NOT paged (DRAW_PROBE: the scheduler\'s read-only probe; the loop\'s own draw pages it)')
++elif _refused:
+     try:
+         _st = os.path.expanduser('~/digest/steady-refusal.stamp')
+         _last = float(open(_st).read().strip()) if os.path.exists(_st) else 0.0
+@@ -104,12 +118,12 @@
  ALLOWED = None
  if RUN:
      _r = subprocess.run(['python3', os.path.expanduser('~/mcai-analysis/drawexposure.py'), RUN,
@@ -28,10 +58,11 @@
          if not os.path.exists(_rp):
              _rp = '/tmp/registrations/%s.json' % RUN
          _declared = bool(json.load(open(_rp)).get('draw_exposure'))
-@@ -138,6 +144,18 @@
+@@ -138,6 +152,19 @@
          try: _p, _until = _line.split()[:2]; _u = _dt.datetime.fromisoformat(_until.replace('Z', '+00:00'))
          except Exception: raise SystemExit(f'draw-exclude.txt: malformed line {_line!r}; refusing to draw')
          if _u > now: excl.add(_p); print('manual exclusion:', _p, 'until', _until)
++# (drawrec's other write, /tmp/drawrec.txt, goes to DRAW_TXT in a probe: see the top of this block)
 +# LOOKAHEAD RESERVE (queue-speed-1023 design 2, proposed): a run the scheduler launched AHEAD of a draw-blocked head
 +# carries DRAW_RESERVE (the head's exposure-eligible pools) in its environment; the loop's drawrec inherits it. Those
 +# pools are excluded from THIS draw only -- they stay in its control arm -- so the skipped head does not lose them. A
@@ -47,7 +78,7 @@
  # THE INFERENCE HALF IS NO LONGER HELD CONSTANT -- IT IS RECORDED AS A COVARIATE.
  #
  # This term used to read `h == '5080' and`. It made 3 of 12 pools permanently
-@@ -287,7 +305,7 @@
+@@ -287,7 +314,7 @@
      # FAIL CLOSED (Codex r1): a registration that cannot be read, or a model-env one without a valid draw_k, draws
      # NOTHING rather than the default four pools -- a Studio canary on 20 bots is exactly the failure this cap prevents.
      _r, _x = None, None
@@ -56,7 +87,7 @@
          try:
              _r = json.load(open(_rp)); break
          except Exception as _e:
-@@ -319,7 +337,7 @@
+@@ -319,7 +346,7 @@
      try:
          sys.path.insert(0, os.path.expanduser('~/mcai-analysis'))
          import drawrequire as _DRQ

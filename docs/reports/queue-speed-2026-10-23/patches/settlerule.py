@@ -32,6 +32,8 @@ residual, design doc 1.6) -- the v36 gate's baseline_clean refuses a tier-2 KEEP
 import datetime as dt, re
 
 EXCL_H = 12
+MAX_FLOOR_MIN = 720
+SETTLE_BUDGET_S = 240         # drawsteady's settle measurement gives up (today's release stands) past this wall time
 DEATH_REVERT = re.compile(r'death gate:|death gate trip|rung-linked death|linked death|death-linked|death window', re.I)
 NO_SETTLE_CLASSES = ('bag-fix', 'model-env', 'underground-safety')
 MIN_CONTROLS = 4
@@ -39,17 +41,17 @@ DEPTH_Y = 50
 MIN_POS_ROWS = 20
 
 # THE TABLE: incoming tier -> predecessor kind -> floor (min); a cell may be {predecessor tier: minutes}. A missing
-# cell or None = no settle release: today's rule alone decides. PROPOSED = iteration I8 (design doc 1.5), the only
-# iteration with no re-runnable verdict flip: TODAY'S timer (a tier-3 KEEP promoted fleet-wide, 360 min from its
-# promotion) for TIER-3 incoming runs, measured by S1-S4 instead of "one build in the last hour". Tier-2 incoming draws
-# keep exactly today's v36 release: every iteration that changed a tier-2 draw flipped a recorded KEEP through the v36
-# baseline (I2-I4, design doc 1.6). The wider tables are kept for the record and for the replay:
+# cell or None = no settle release: today's rule alone decides. The default below is iteration I8 (design doc 1.4):
+# TODAY'S timer (a tier-3 KEEP promoted fleet-wide, 360 min from its promotion) for TIER-3 incoming runs, measured by
+# S1-S4 instead of "one build in the last hour". IT DOES NOT MEET THE OWNER'S BAR (round 2, with the cascade: it flips
+# protectzone-01's +180 KEEP), and NO iteration that changes a draw was shown to: the module is offered as the
+# mechanism a later replay can be run against, NOT for install. The wider tables are kept for the record:
 TABLE = {
     2: {},
     3: {'keep-promoted': 360},
 }
 TABLE_I3 = {2: {'keep-promoted': {2: 240, 3: 360}, 'inconclusive': 240, 'revert': 240},
-            3: {'keep-promoted': 360, 'inconclusive': 360, 'revert': 360}}      # REJECTED: flips toolkit-03 (+720)
+            3: {'keep-promoted': 360, 'inconclusive': 360, 'revert': 360}}      # NOT SHOWN TO MEET THE BAR (round 2)
 
 
 def _int(x):
@@ -98,7 +100,10 @@ def floor_for(reg, tier, row, how, table=None, pred_tier=3):
     if f is None:
         return None
     lb = (reg.get('settle') or {}).get('lookback_min') if isinstance(reg.get('settle'), dict) else None
-    return max(f, lb) if _int(lb) else f
+    f = max(f, lb) if _int(lb) else f
+    # a floor past 12 h can never release before today's 12-h exclusion does, and its S2 window would be a 12-h+ log
+    # read inside drawrec's 600-s drawsteady timeout (Claude r1 P2): no settle release
+    return f if f <= MAX_FLOOR_MIN else None
 
 
 def hold_settle(row, how, mins_since_close, floor):

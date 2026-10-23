@@ -22,3 +22,4 @@ STEADY settle REL board-c (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2
 STEADY settle held hive-a (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2 360 min: every canary row on the control majority build over 360 min (5 of 5 canary bots seen, 122 transition rows); control heterogeneity 26.8% (reported, not gated) | bag fill, second half +29.07 outside the controls' +29.15..+33.24 (carryover not cleared)
 STEADY settle REL placebo-d (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2 360 min: every canary row on the control majority build over 360 min (5 of 5 canary bots seen, 247 transition rows); control heterogeneity 26.7% (reported, not gated) | homefix-02 KEEP+promoted 10-22T00:18Z; 5 bots on 2719ee0 only for 60 min; bag fill 29.7 (halves 29.9 -> 29.5) inside 4 controls | depth y<50 share 0.347 inside 0.081..0.594
 STEADY RELEASE ['board-b', 'board-c', 'placebo-d']
+HOSTCONTROL wall time 36 s (drawrec gives drawsteady 600 s)

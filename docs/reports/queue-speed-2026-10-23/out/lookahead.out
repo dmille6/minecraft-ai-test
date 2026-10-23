@@ -1,51 +1,27 @@
 MODE: the proposed rule (every `after` binds)
 
-gridfix-01: loop in draw 10-12T03:02Z -> 10-12T09:03Z (6.0 h) [queue canary-queue.json.bak-ap2-20261012T131935Z]
-   behind: bamboo-01        state ready    hold False after_unmet gridfix-01                   variant on base NO
-   behind: stocktarget-01   state ready    hold True  after_unmet bamboo-01                    variant on base NO
-   behind: orderroom-01     state ready    hold False after_unmet stocktarget-01               variant on base NO
-   behind: airpocket-02     state ready    hold False after_unmet bamboo-01                    variant on base NO
-   depth 1     -> L4 bamboo-01 (position 1 behind the head) is blocked: after gridfix-01 not closed; no variant for the fleet base -- never looked past
-   first ready -> L4 bamboo-01 (position 1 behind the head) is blocked: after gridfix-01 not closed; no variant for the fleet base -- never looked past
+gridfix-01: loop in draw 10-12T03:02Z -> 10-12T09:03Z (6.0 h)
+   depth 1     -> no launch in 34 checks: L4 bamboo-01 (position 1 behind the head) is blocked: after gridfix-01 not closed; no variant for the fleet ba x34
+   first ready -> no launch in 34 checks: L4 bamboo-01 (position 1 behind the head) is blocked: after gridfix-01 not closed; no variant for the fleet ba x34
 
-townsearch-01: loop in draw 10-16T23:18Z -> 10-17T04:57Z (5.7 h) [queue canary-queue.json.bak-ksfirst-20261017T115944Z]
-   behind: plinth-02        state ready    hold False after_unmet townsearch-01                variant on base yes
-   behind: toolkit-01       state ready    hold False after_unmet plinth-02                    variant on base NO
-   behind: kitshrink-01     state ready    hold False after_unmet toolkit-01                   variant on base yes
-   behind: bamboo-02        state ready    hold False after_unmet kitshrink-01                 variant on base NO
-   depth 1     -> L4 plinth-02 (position 1 behind the head) is blocked: after townsearch-01 not closed -- never looked past
-   first ready -> L4 plinth-02 (position 1 behind the head) is blocked: after townsearch-01 not closed -- never looked past
+townsearch-01: loop in draw 10-16T23:18Z -> 10-17T04:57Z (5.7 h)
+   depth 1     -> no launch in 31 checks: L4 plinth-02 (position 1 behind the head) is blocked: after townsearch-01 not closed x31
+   first ready -> no launch in 31 checks: L4 plinth-02 (position 1 behind the head) is blocked: after townsearch-01 not closed x31
 
-toolkit-02: loop in draw 10-17T22:58Z -> 10-18T00:07Z (1.2 h) [queue canary-queue.json.bak-tfadbec-20261019T122759Z]
-   behind: wellcare-01      state ready    hold False after_unmet toolkit-02                   variant on base NO
-   behind: townsearch-02    state ready    hold False after_unmet wellcare-01                  variant on base NO
-   behind: bamboo-02        state ready    hold False after_unmet townsearch-02                variant on base NO
-   behind: treefarm-02      state ready    hold False after_unmet bamboo-02                    variant on base NO
-   depth 1     -> L4 wellcare-01 (position 1 behind the head) is blocked: after toolkit-02 not closed; no variant for the fleet base -- never looked past
-   first ready -> L4 wellcare-01 (position 1 behind the head) is blocked: after toolkit-02 not closed; no variant for the fleet base -- never looked past
+toolkit-02: loop in draw 10-17T22:58Z -> 10-18T00:07Z (1.2 h)
+   depth 1     -> no launch in 4 checks: L4 wellcare-01 (position 1 behind the head) is blocked: after toolkit-02 not closed; no variant for the fleet  x4
+   first ready -> no launch in 4 checks: L4 wellcare-01 (position 1 behind the head) is blocked: after toolkit-02 not closed; no variant for the fleet  x4
 
-townindex-01: loop in draw 10-22T16:58Z -> 10-22T18:56Z (2.0 h) [queue canary-queue.json.bak-move-poolescape-01-20261022T212630Z]
-   behind: indexsearch-01   state ready    hold False after_unmet townindex-01                 variant on base NO
-   behind: chatgate-01      state ready    hold False after_unmet indexsearch-01               variant on base NO
-   behind: bamboo-03        state ready    hold False after_unmet -                            variant on base NO
-   behind: junkout-01       state ready    hold False after_unmet bamboo-03                    variant on base NO
-   depth 1     -> L4 indexsearch-01 (position 1 behind the head) is blocked: after townindex-01 not closed; no variant for the fleet base -- never looked past
-   first ready -> L4 indexsearch-01 (position 1 behind the head) is blocked: after townindex-01 not closed; no variant for the fleet base -- never looked past
+townindex-01: loop in draw 10-22T16:58Z -> 10-22T18:56Z (2.0 h)
+   depth 1     -> no launch in 9 checks: L4 indexsearch-01 (position 1 behind the head) is blocked: after townindex-01 not closed; no variant for the f x9
+   first ready -> no launch in 9 checks: L4 indexsearch-01 (position 1 behind the head) is blocked: after townindex-01 not closed; no variant for the f x9
 
-indexsearch-01: scheduler WAIT R10 10-23T08:50Z -> 10-23T09:45Z (0.9 h) [queue canary-queue.json.bak-jit1023b-20261023T101051Z]
-   behind: chatgate-01      state ready    hold False after_unmet indexsearch-01               variant on base yes
-   behind: bamboo-03        state ready    hold False after_unmet -                            variant on base NO
-   behind: junkout-01       state ready    hold False after_unmet bamboo-03                    variant on base NO
-   behind: foldwatch-01     state ready    hold False after_unmet bamboo-03                    variant on base NO
-   depth 1     -> L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed -- never looked past
-   first ready -> L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed -- never looked past
+indexsearch-01: scheduler WAIT R10 10-23T08:50Z -> 10-23T09:45Z (0.9 h)
+   depth 1     -> no launch in 3 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x3
+   first ready -> no launch in 3 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x3
 
-indexsearch-01: loop in draw 10-23T09:53Z -> 10-23T12:14Z (2.4 h) [queue canary-queue.json.bak-jit1023b-20261023T101051Z]
-   behind: chatgate-01      state ready    hold False after_unmet indexsearch-01               variant on base yes
-   behind: bamboo-03        state ready    hold False after_unmet -                            variant on base NO
-   behind: junkout-01       state ready    hold False after_unmet bamboo-03                    variant on base NO
-   behind: foldwatch-01     state ready    hold False after_unmet bamboo-03                    variant on base NO
-   depth 1     -> L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed -- never looked past
-   first ready -> L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed -- never looked past
+indexsearch-01: loop in draw 10-23T09:53Z -> 10-23T12:14Z (2.4 h)
+   depth 1     -> no launch in 12 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x12
+   first ready -> no launch in 12 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x12
 
-idle lane hours filled: depth 1 0.0 h, first-ready 0.0 h
+idle lane hours filled (only for candidates that ran later, so a duration exists): depth 1 0.0 h, first-ready 0.0 h

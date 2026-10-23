@@ -104,8 +104,14 @@ def main():
     if '--mutants' not in sys.argv:
         sys.exit(1 if bad else 0)
     src = open(SRC).read()
-    assert all(src.count(a) == 0 for a, b in MUTANTS if b is None), 'positive-control anchor exists'
-    print('positive control: an absent anchor is refused, never scored')
+    fired = 0
+    for a in [a for a, b in MUTANTS if b is None]:
+        try:
+            assert src.count(a) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+        except AssertionError:
+            fired += 1
+    assert fired == len([1 for _a, b in MUTANTS if b is None]) and fired, 'the anchor assertion did not fire'
+    print('positive control: the anchor assertion fired on %d absent anchor(s); refused, never scored' % fired)
     survived = 0
     real = [m for m in MUTANTS if m[1] is not None]
     for old, new in real:

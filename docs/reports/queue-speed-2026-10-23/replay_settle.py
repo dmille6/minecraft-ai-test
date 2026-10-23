@@ -133,31 +133,59 @@ def main():
             continue
         print('\n== %s' % name)
         nch = 0
+        # THE CASCADE (Claude r1 P1): a counterfactual draw is carried forward -- its run decides on its counterfactual
+        # pools, which then sit in the 12-h exclusion (and the live set) for every later draw of this iteration
+        sim.override = {}
         for x in D:
             kt, mk = sim.k_target(x['run'])
             f0, e0, _r0, _i0 = base[x['run']]
             f1, e1, rel, info = walk(sim, x, rule)
             n0, n1 = min(kt, len(e0)), min(kt, len(e1))
             earlier = f1 is not None and (f0 is None or f1[0] < f0[0])
-            more = n1 > n0
             rels = dict(f1[2]) if (earlier and f1) else {}
             rels.update(rel)
+            # the counterfactual set (section 1.3): an EARLIER draw takes the pools eligible at its first attempt;
+            # otherwise the actual pools that are still drawable in this iteration's world plus the released ones it
+            # can draw, at most kt (released first: the worst case for the draws after it). The actual pools are
+            # taken as drawable even where the reconstruction missed them (the band-edge misses of the control).
+            excl_now = set(info['excl'])
+            if earlier:
+                elig = list(f1[1])
+                cf = sorted(elig) if len(elig) <= kt else sorted(
+                    [p for p in elig if p in rels][:kt] + [p for p in elig if p not in rels])[:kt]
+                ambiguous = len(elig) > kt
+            else:
+                keep = [p for p in x['pools'] if p not in excl_now]
+                add = [p for p in sorted(rels) if p in e1 and p not in keep]
+                cf = sorted((add + keep)[:kt]) if len(add + keep) > kt else sorted(add + keep)
+                ambiguous = len(add + keep) > kt
+            changed = earlier or set(cf) != set(x['pools'])
+            short = len(cf) < mk
+            if changed and not short:
+                sim.override[x['run']] = set(cf)
             rec = {'variant': name, 'run': x['run'], 'start': x['start'].isoformat(), 'drawn': x['drawn'].isoformat(),
                    'pools': x['pools'], 'today_first': f0[0].isoformat() if f0 else None,
                    'variant_first': f1[0].isoformat() if f1 else None, 'today_n': n0, 'variant_n': n1,
-                   'today_eligible': e0, 'variant_eligible': e1, 'earlier': earlier, 'more': more,
-                   'variant_first_eligible': f1[1] if f1 else None,
+                   'today_eligible': e0, 'variant_eligible': e1, 'earlier': earlier, 'more': len(cf) > len(x['pools']),
+                   'variant_first_eligible': f1[1] if f1 else None, 'cf': cf, 'changed': changed, 'short': short,
+                   'ambiguous': ambiguous, 'cascade_lost': sorted(set(x['pools']) & excl_now),
                    'released': {p: [c[0], c[4], c[3].isoformat(), c[5]] for p, c in rels.items()},
                    'settle_notes': [n for n in info['notes'] if n.startswith('settle')]}
             out.append(rec)
-            if earlier or more:
+            if changed:
                 nch += 1
-                print('  CHANGED %-16s today-recon: first %s, %d pools at the draw | %s: first %s, %d pools %s | released %s'
-                      % (x['run'], ISO(f0[0]) if f0 else 'NONE', n0, name.split()[0], ISO(f1[0]) if f1 else 'NONE', n1,
-                         ','.join(e1), {p: '%s %s %s floor %d' % (v[0], v[1], v[2][5:16], v[3]) for p, v in rec['released'].items()}))
+                print('  CHANGED %-16s actual %s %d pools %s | %s: %s%s %d pools %s%s%s | released %s' % (
+                    x['run'], ISO(x['drawn']), len(x['pools']), ','.join(x['pools']), name.split()[0],
+                    'EARLIER at %s, ' % ISO(f1[0]) if earlier else '', '', len(cf), ','.join(cf),
+                    ' (a random draw of several)' if ambiguous else '',
+                    ' -- CASCADE: lost %s to an earlier counterfactual run' % rec['cascade_lost'] if rec['cascade_lost'] else '',
+                    {p: '%s %s %s floor %d' % (v[0], v[1], v[2][5:16], v[3]) for p, v in rec['released'].items()}))
+                if short:
+                    print('      ... and with %d pool(s) it would have WAITED (< %d): its later draw is not modelled' % (len(cf), mk))
             elif rels:
                 print('  (released, no change) %-16s %s' % (x['run'], sorted(rels)))
         print('  %d of %d draws changed' % (nch, len(D)))
+        sim.override = {}
     if a.json:
         with open(a.json, 'w') as f:
             for r in out:

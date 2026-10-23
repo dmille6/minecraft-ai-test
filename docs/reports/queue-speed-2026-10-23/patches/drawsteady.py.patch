@@ -22,10 +22,13 @@
              return None, '%s: builds %s in the last %d min, not only %s (restart lag)' % (b, sorted(s['versions']), STEADY_MIN, fv)
          if s['h1'] is None or s['h2'] is None:
              return None, '%s: no bag reading in one half of the hour' % b
-@@ -370,6 +371,106 @@
-     return out
- 
- 
+@@ -367,6 +368,115 @@
+                 out.append(json.loads(l))
+             except ValueError:
+                 continue        # a lost journal row can only lose a `promoted` row: that HOLDS (fail safe)
++    return out
++
++
 +def _incoming_reg(run, regdir=None):
 +    """The INCOMING run's registration, looked up exactly as incoming_tier (and drawrec) do; None when unreadable."""
 +    if not run or '/' in run:
@@ -66,12 +69,20 @@
 +def settle_release(scand, rel, by_pool, touched, fv, now, man, settlerule, tierrule):
 +    """DESIGN 1 (proposed) measuring half: S1-S4 for every settle candidate today's rule did not release.
 +    -> the pools released. Its controls: untouched pools passing S1 + S2 over the hour's 240-min window."""
-+    import bagread
++    import bagread, time
 +    roster = sorted(b for pool in by_pool.values() for b in pool)
 +    fleet_bots = [b for b in roster if not b.startswith('isolated')]
 +    cache = {}
++    t_start = time.time()
++
++    def budget():
++        # drawrec gives drawsteady 600 s in all; the settle path stops at SETTLE_BUDGET_S and releases nothing early,
++        # so it can never make drawrec time out and lose today's release with it (Claude r1 P2)
++        if time.time() - t_start > settlerule.SETTLE_BUDGET_S:
++            raise TimeoutError('settle measurement over %d s' % settlerule.SETTLE_BUDGET_S)
 +
 +    def s2(pool, minutes):
++        budget()
 +        since = now - dt.timedelta(minutes=minutes)
 +        if minutes not in cache:
 +            cache[minutes] = tierrule.load_buckets(LOGROOT, fleet_bots, since, now)
@@ -82,6 +93,7 @@
 +                                          {b: v for b, v in bk.items() if b not in mine}, mine, since, now)
 +
 +    def s1(pool):
++        budget()
 +        since = now - dt.timedelta(minutes=STEADY_MIN)
 +        st, dn = {}, [0, 0]
 +        for b in by_pool.get(pool, {}):
@@ -123,13 +135,10 @@
 +                                                                    c[3].strftime('%m-%dT%H:%MZ'), c[5], why))
 +        if ok:
 +            out.append(p)
-+    return out
-+
-+
- def main():
-     now = dt.datetime.now(dt.timezone.utc)
-     if os.environ.get('STEADY_NOW'):         # REPLAY ONLY (scripts/host/drawsteady_replay.sh); printed, never silent
-@@ -400,7 +501,25 @@
+     return out
+ 
+ 
+@@ -400,7 +510,25 @@
          cand, held = candidates(ledger, journal, now)
      for p, why in sorted(held.items()):
          print('STEADY 12h %s: %s' % (p, why))
@@ -156,25 +165,32 @@
          print('STEADY no KEEP+promoted pool between %d and %d h' % (EARLY_H, EXCL_H)); print('STEADY RELEASE []'); return 0
      try:
          import bagread
-@@ -409,7 +528,7 @@
-         for b, active in units.items():
-             by_pool.setdefault(pool_of(b), {})[b] = active
-         fv = str(man.get('declared_code_version') or '')[:7]
--        touched = set(held) | set(cand) | pools_in(man)
-+        touched = set(held) | set(cand) | pools_in(man) | set(scand) | set(sheld)
-         since = now - dt.timedelta(minutes=STEADY_MIN)
- 
-         def summary_of(pool):
-@@ -446,6 +565,12 @@
+@@ -419,7 +547,7 @@
+                 st[b] = bot_stats(rows, since, bad, corrupt) if (rows or bad or corrupt) else None
+             return qualify(st, by_pool.get(pool, {}), fv)
+         ctl = {}
+-        for p in sorted(by_pool):
++        for p in sorted(by_pool) if cand else ():       # no today's candidate: today printed nothing here (it returned)
+             if p in touched or p == 'placebo-c' or p.startswith('isolated'):
+                 continue
+             s, why = summary_of(p)
+@@ -446,7 +574,19 @@
              print('STEADY %s %s: %s' % (('early' if T2 else '6h') if ok else '12h', p, why if s else why + ': ' + qwhy))
              if ok:
                  rel.append(p)
 +        if scand:
 +            # its own failure never costs today's release: the settle path then releases nothing, today's stands
 +            try:
-+                rel += settle_release(scand, rel, by_pool, touched, fv, now, man, settlerule, tierrule)
++                rel += settle_release(scand, rel, by_pool, touched | set(scand) | set(sheld), fv, now, man, settlerule,
++                                      tierrule)
 +            except Exception as e:
 +                print('STEADY settle measurement failed (%s: %s): today\'s release only' % (type(e).__name__, str(e)[:160]))
      except Exception as e:
++        if not cand:
++            # today's rule had nothing to measure (it would have printed "no KEEP+promoted" and released nothing): a
++            # failure here is the settle path's alone, and is NOT a steady refusal for drawrec to page (Claude r1 P2)
++            print('STEADY settle measurement failed (%s: %s): nothing released early' % (type(e).__name__, str(e)[:160]))
++            print('STEADY RELEASE []'); return 0
          print('STEADY measurement failed (%s: %s): 12 h for every pool' % (type(e).__name__, str(e)[:160])); print('STEADY RELEASE []'); return 0
      print('STEADY RELEASE %r' % rel)
+     return 0

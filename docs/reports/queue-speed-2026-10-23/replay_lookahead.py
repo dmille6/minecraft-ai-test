@@ -121,60 +121,68 @@ def main():
     sched = lanetime.sched_lines(os.path.join(a.snap, 'digest', 'sched.log'))
     eps = episodes(sim, T(a.since), sched)
     saved = {1: 0.0, 0: 0.0}
+    # EVERY 10 MIN through each episode (Codex r1 P2: one sampled instant is screening, not a replay), with the queue
+    # as it stood at that minute; the first launch ends the episode. Still a per-episode replay: the slot is taken as
+    # free (the episode is defined by it), no R11 / NEXT-SLOT occurred in these windows (sched.log), and the episodes
+    # are independent (no lookahead launched in any of them under the rule, so no skipped history to carry).
+    import collections
     for ep in eps:
-        t = ep['from'] + dt.timedelta(minutes=30)
-        q, src = queue_at(a.queues, ep['from'])
-        ents = q.get('entries') or []
-        idx = next((i for i, e in enumerate(ents) if e.get('run') == ep['head']), None)
-        print('\n%s: %s %s -> %s (%.1f h) [queue %s]' % (ep['head'], ep['kind'], ISO(ep['from']), ISO(ep['to']),
-                                                        (ep['to'] - ep['from']).total_seconds() / 3600, src))
-        if idx is None:
-            print('   head not in that queue snapshot (an operator launch): no lookahead'); continue
-        behind = [classify(sim, e, t) for e in ents[idx + 1:]]
-        behind = [x for x in behind if x.state not in ('done', 'cancelled')]
-        for x in behind[:4]:
-            print('   behind: %-16s state %-8s hold %-5s after_unmet %-28s variant on base %s' % (
-                x.run, x.state, x.hold, ','.join(x.after_unmet) or '-', 'yes' if x.has_variant else 'NO'))
+        print('\n%s: %s %s -> %s (%.1f h)' % (ep['head'], ep['kind'], ISO(ep['from']), ISO(ep['to']),
+                                             (ep['to'] - ep['from']).total_seconds() / 3600))
         head = lookahead.Head(run=ep['head'], hard_blockers=[], draw_blocked_since=ep['from'], skipped_last=False)
-        tg = t.replace(second=0, microsecond=0) - dt.timedelta(minutes=t.minute % 5)
-        # the head's reserve: its draw_exposure pools (if it declares one) plus whatever it could draw now
-        e_head, _ih = sim.eligible(tg, ep['head'])
-        reserve = set(sim.allowed(ep['head'], tg) or []) | set(e_head)
         for depth in (1, 0):
             tag = 'depth 1' if depth == 1 else 'first ready'
-            pool = list(behind)
-            while True:
-                dec = lookahead.decide(head, pool, t, slot_free=True, death_hold=False, next_slot=False, depth=depth)
-                if dec[0] != 'lookahead':
-                    print('   %-11s -> %s' % (tag, dec[1])); cand = None; break
-                cand = dec[1]
-                e, info = sim.eligible(tg, cand)
-                e2 = [p for p in e if p not in reserve]
-                kt, mk = sim.k_target(cand)
-                if len(e2) >= mk:
-                    break
-                print('   %-11s -> candidate %s draw-blocked too: with the head\'s pools %s reserved it has %s (< %d)'
-                      % (tag, cand, sorted(reserve) or '-', e2 or 'none', mk))
-                if depth == 1:
-                    cand = None; break
-                # first-ready: a draw-blocked entry is not a hard blocker; look at the next one
-                pool = [x for x in pool if x.run != cand]
-            if cand is None:
+            why_no = collections.Counter()
+            launched = None
+            t = ep['from'] + dt.timedelta(minutes=30)
+            steps = 0
+            while t < ep['to'] and launched is None:
+                steps += 1
+                q, src = queue_at(a.queues, t)
+                ents = q.get('entries') or []
+                idx = next((i for i, e in enumerate(ents) if e.get('run') == ep['head']), None)
+                if idx is None:
+                    why_no['the head is not in the queue (an operator launch)'] += 1
+                    t += dt.timedelta(minutes=10); continue
+                behind = [x for x in (classify(sim, e, t) for e in ents[idx + 1:]) if x.state not in ('done', 'cancelled')]
+                tg = t.replace(second=0, microsecond=0) - dt.timedelta(minutes=t.minute % 5)
+                e_head, _ih = sim.eligible(tg, ep['head'])
+                reserve = set(sim.allowed(ep['head'], tg) or []) | set(e_head)
+                pool = list(behind)
+                while True:
+                    dec = lookahead.decide(head, pool, t, slot_free=True, death_hold=False, next_slot=False, depth=depth)
+                    if dec[0] != 'lookahead':
+                        why_no[dec[1].split(' -- ')[0][:110]] += 1; break
+                    cand = dec[1]
+                    e, _info = sim.eligible(tg, cand)
+                    e2 = [p for p in e if p not in reserve]
+                    kt, mk = sim.k_target(cand)
+                    if len(e2) >= mk:
+                        launched = (t, cand, e2[:kt], sorted(reserve), src); break
+                    why_no['candidate %s draw-blocked too (reserve %s)' % (cand, sorted(reserve))] += 1
+                    if depth == 1:
+                        break
+                    pool = [x for x in pool if x.run != cand]
+                t += dt.timedelta(minutes=10)
+            if launched is None:
+                print('   %-11s -> no launch in %d checks: %s' % (tag, steps, '; '.join('%s x%d' % kv for kv in why_no.most_common(3))))
                 continue
+            t, cand, pools, reserve, src = launched
             dur, verdict = duration(sim, cand)
             if dur is None:
-                print('   %-11s -> LAUNCH %s at %s on %s (reserve %s) -- it never ran later, so its duration is unknown'
-                      % (tag, cand, ISO(t), ','.join(e2[:kt]), sorted(reserve))); continue
+                print('   %-11s -> LAUNCH %s at %s on %s (reserve %s) [queue %s] -- it has never run, so its duration and '
+                      'verdict are unknown: any lane-time figure is HYPOTHETICAL' % (tag, cand, ISO(t), ','.join(pools), reserve, src))
+                continue
             lclose = t + dt.timedelta(minutes=5) + dur
             head_start = max(ep['to'], lclose + dt.timedelta(minutes=5))
-            delay = (head_start - ep['to']).total_seconds() / 3600
             fill = min((ep['to'] - t).total_seconds(), (lclose - t).total_seconds()) / 3600
-            print('   %-11s -> LAUNCH %s at %s on %s (head reserve %s); it ran %.1f h when it did run (%s) -> closes ~%s; '
-                  'head %s starts ~%s (%+.1f h vs actual); idle lane filled %.1f h' % (
-                      tag, cand, ISO(t), ','.join(e2[:kt]), sorted(reserve) or '-', dur.total_seconds() / 3600,
-                      str(verdict)[:12], ISO(lclose), ep['head'], ISO(head_start), delay, fill))
+            print('   %-11s -> LAUNCH %s at %s on %s (reserve %s); its recorded duration %.1f h -> closes ~%s; head starts '
+                  '~%s (%+.1f h); idle filled %.1f h (HYPOTHETICAL: other pools, other time)' % (
+                      tag, cand, ISO(t), ','.join(pools), reserve, dur.total_seconds() / 3600, ISO(lclose), ISO(head_start),
+                      (head_start - ep['to']).total_seconds() / 3600, fill))
             saved[depth] += fill
-    print('\nidle lane hours filled: depth 1 %.1f h, first-ready %.1f h' % (saved[1], saved[0]))
+    print('\nidle lane hours filled (only for candidates that ran later, so a duration exists): depth 1 %.1f h, '
+          'first-ready %.1f h' % (saved[1], saved[0]))
 
 
 if __name__ == '__main__':

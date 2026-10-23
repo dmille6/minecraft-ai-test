@@ -73,7 +73,9 @@ def tests(S):
     t('floor: tier-3 incoming, tier-3 KEEP promoted -> 360', S.floor_for(REG3, 3, keep, 'promoted') == 360)
     t('floor: tier-3 incoming, INCONCLUSIVE -> none (12 h, I8)', S.floor_for(REG3, 3, {'decision': 'INCONCLUSIVE'}, 'torn-down') is None)
     t('floor: tier-2 incoming -> none (today\'s v36 release only)', S.floor_for(REG2, 2, keep, 'promoted') is None)
-    t('floor: a declared lookback raises the floor', S.floor_for(dict(REG3, settle={'lookback_min': 1440}), 3, keep, 'promoted') == 1440)
+    t('floor: a declared lookback raises the floor', S.floor_for(dict(REG3, settle={'lookback_min': 600}), 3, keep, 'promoted') == 600)
+    t('floor: past 12 h there is no settle release (today\'s 12 h is shorter; no 24-h log read in drawrec\'s timeout)',
+      S.floor_for(dict(REG3, settle={'lookback_min': 1440}), 3, keep, 'promoted') is None)
     t('floor: the wider I3 table reads a predecessor-tier cell',
       S.floor_for(REG2, 2, keep, 'promoted', S.TABLE_I3, 2) == 240 and S.floor_for(REG2, 2, keep, 'promoted', S.TABLE_I3, 3) == 360)
     # hold_settle
@@ -126,7 +128,8 @@ MUTANTS = [
     # opt-in: an absent settle block treated as {'lookback_min': 0} (the equivalent "if False:" is not a mutant: the
     # malformed check below refuses None too -- found by this harness, round 0)
     ("    if st is None:\n        return False,", "    if st is None:\n        st = {'lookback_min': 0}\n    if False:\n        return False,"),
-    ("    return max(f, lb) if _int(lb) else f", "    return f"),
+    ("    f = max(f, lb) if _int(lb) else f", "    f = f"),
+    ("    return f if f <= MAX_FLOOR_MIN else None", "    return f"),
     ("        if how == 'promoted' and s != str(sha or '')[:7]:", None),     # lives in tierrule: see the positive control
     ("    if (reg.get('class') or '') in NO_SETTLE_CLASSES:", "    if False:"),
     ("        if age_s < -600 or age_s >= EXCL_H * 3600:", "        if age_s < -600:"),
@@ -148,9 +151,17 @@ def main():
         sys.exit(1 if bad else 0)
     src = open(SRC).read()
     # POSITIVE CONTROL of the harness: an anchor that is not in this file must be reported, never scored as killed
+    # the harness's own anchor assertion must FIRE on an anchor that is not in the file (Claude r1 P3: asserting the
+    # string's absence is not the same as seeing the guard refuse it)
     missing = [a for a, b in MUTANTS if b is None]
-    assert missing and all(src.count(a) == 0 for a in missing), 'the positive-control anchor unexpectedly exists'
-    print('positive control: %d anchor(s) absent from settlerule.py are refused, not scored' % len(missing))
+    fired = 0
+    for a in missing:
+        try:
+            assert src.count(a) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+        except AssertionError:
+            fired += 1
+    assert missing and fired == len(missing), 'the anchor assertion did not fire on an absent anchor'
+    print('positive control: the anchor assertion fired on %d absent anchor(s); they are refused, never scored' % fired)
     survived = 0
     for old, new in MUTANTS:
         if new is None:

@@ -36,7 +36,10 @@ def _inj(run, regdir=None):
 D._incoming_reg = _inj
 os.environ['STEADY_NOW'] = %(now)r
 os.environ['DRAW_RUN'] = %(run)r
+import time as _time
+_t0 = _time.time()
 D.main()
+print('HOSTCONTROL wall time %%.0f s (drawrec gives drawsteady 600 s)' %% (_time.time() - _t0))
 ''' % {'src': repr({'drawsteady': open(ds).read(), 'settlerule': open(sr).read()}),
        'man': repr({'declared_code_version': sha, 'declared_at': decl, 'canary_pool': None,
                     'canary_code_version': None}), 'now': now, 'run': run}

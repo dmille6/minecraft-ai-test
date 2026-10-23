@@ -90,18 +90,37 @@ def recorded(sim, run):
     return D, (m.group(1), int(m.group(2))) if m else (rec[-1]['note'] if rec else None, None), dec
 
 
-def main(snap, scan, hostmods, patches, settle_json):
-    sim = drawsim.Sim(snap, scan, hostmods, patches)
+def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('snap'); ap.add_argument('scan'); ap.add_argument('hostmods'); ap.add_argument('patches')
+    ap.add_argument('settle_json')
+    ap.add_argument('--emit-queries', default=None, help='write every R1 baseline query (for hostbaseline.py)')
+    ap.add_argument('--host-r1', default=None, help='R1 answers computed ON THE HOST by the gate\'s own loader')
+    a = ap.parse_args()
+    sim = drawsim.Sim(a.snap, a.scan, a.hostmods, a.patches)
     # the bundle's deathgate.py (md5 450d32bf = the live gate 635ad8d8's part), copied with ~/gate-v36
-    sys.path.append(os.path.join(os.path.dirname(hostmods.rstrip('/')), 'gate-v36'))
+    sys.path.append(os.path.join(os.path.dirname(a.hostmods.rstrip('/')), 'gate-v36'))
     import deathgate
     sim.DG = deathgate
-    recs = [json.loads(l) for l in open(settle_json)]
-    reads = os.path.join(snap, 'reads')
+    host = json.load(open(a.host_r1)) if a.host_r1 else None
+    queries = {}
+
+    def r1(pools, D, L):
+        """R1 -- EXACT when --host-r1 holds the host's answer (tierrule.load_buckets + asymmetric_rows on the host, the
+        gate's own code path, Codex r1 P1); otherwise the 5-min-bucket approximation, labelled as such."""
+        key = '%s|%s|%d' % (','.join(sorted(pools)), D.isoformat(), L)
+        queries[key] = {'pools': sorted(pools), 'D': D.isoformat(), 'L': L}
+        if host is not None and key in host:
+            return host[key]['ok'], host[key]['why'], 'host'
+        ok, why = baseline(sim, set(pools), D, L)
+        return ok, why, 'approx'
+    recs = [json.loads(l) for l in open(a.settle_json)]
+    reads = os.path.join(a.snap, 'reads')
     print('== POSITIVE CONTROLS (actual arms, actual declared_at)')
     seen = set()
     for r in recs:
-        if (r['earlier'] or r['more']) and r['run'] not in seen:
+        if r.get('changed') and r['run'] not in seen:
             seen.add(r['run'])
             D, (v, M), dec = recorded(sim, r['run'])
             if not D or not M:
@@ -111,71 +130,89 @@ def main(snap, scan, hostmods, patches, settle_json):
             print('  %-16s %s +%d recorded: %s | recomputed: deaths %d / %.0f bh vs %d / %.0f bh, trips %s' % (
                 r['run'], v, M, line.group(0) if line else '?', cd, cbh, kd, kbh, trips[:1] or 'none'))
             if sim.TR.tier_of(sim.reg(r['run']) or {}) == 2:
-                ok, why = baseline(sim, set(r['pools']), D, max(240, M))
-                print('      baseline recomputed at +%d: %s %s' % (M, 'CLEAN' if ok else 'NOT CLEAN', why[:120]))
+                ok, why, src = r1(set(r['pools']), D, max(240, M))
+                print('      baseline recomputed at +%d [%s]: %s %s' % (M, src, 'CLEAN' if ok else 'NOT CLEAN', why[:120]))
+    summary = {}
     for var in sorted({r['variant'] for r in recs}):
         print('\n== %s' % var)
-        for r in [x for x in recs if x['variant'] == var and (x['earlier'] or x['more'])]:
+        flips, reasoned = [], []
+        for r in [x for x in recs if x['variant'] == var and x.get('changed')]:
             run = r['run']; reg = sim.reg(run) or {}
             tier = sim.TR.tier_of(reg)
             D, (v, M), dec = recorded(sim, run)
-            kt, _mk = sim.k_target(run)
-            # an EARLIER draw is made at its first attempt, from the pools eligible THEN
-            ve = r['variant_first_eligible'] if (r['earlier'] and r.get('variant_first_eligible')) else r['variant_eligible']
-            cf = set(ve) if len(ve) <= kt else None
+            cf = set(r['cf'])
             Dc = (T(r['variant_first']) + dt.timedelta(minutes=5)) if r['earlier'] else D
-            print('  %s (tier %d) recorded %s at +%s on %s, declared %s' % (run, tier, v, M, ','.join(r['pools']),
-                                                                         ISO(D) if D else '?'))
-            if cf is None:
-                print('     counterfactual: %d eligible > %d: a RANDOM draw of %d -- the released pool(s) %s may or may '
-                      'not be in it; analysed WITH them (worst case)' % (len(ve), kt, kt, sorted(r['released'])))
-                cf = set(r['pools']) | set(r['released'])
-            print('     counterfactual canary %s declared ~%s (%d pools); released %s' % (
-                ','.join(sorted(cf)), ISO(Dc), len(cf), {p: '%s %s, %.0f min before the counterfactual declare' % (
-                    x[0], x[1], (Dc - T(x[2])).total_seconds() / 60) for p, x in r['released'].items()}))
+            print('  %s (tier %d) recorded %s at +%s on %s (%d pools), declared %s' % (
+                run, tier, v, M, ','.join(r['pools']), len(r['pools']), ISO(D) if D else '?'))
+            print('     counterfactual canary %s declared ~%s (%d pools)%s%s; released %s' % (
+                ','.join(sorted(cf)), ISO(Dc), len(cf), ' -- ONE OF SEVERAL VALID DRAWS (released pools taken first)'
+                if r.get('ambiguous') else '', ' -- CASCADE: lost %s' % r['cascade_lost'] if r.get('cascade_lost') else '',
+                {p: '%s %s, %.0f min before' % (x[0], x[1], (Dc - T(x[2])).total_seconds() / 60) for p, x in r['released'].items()}))
+            if r.get('short'):
+                print('     >>> UNMODELLED: with %d pool(s) the run would have WAITED; its later draw and verdict are '
+                      'unknown -- counted as REASONED' % len(cf))
+                reasoned.append(run); continue
             if not M:
-                print('     R4 REASONED: the run was closed by hand (%s); nothing to re-run' % v); continue
+                print('     R4 REASONED: the run was closed by hand (%s); nothing to re-run' % v)
+                reasoned.append(run); continue
+            flipped = False
+            # the tier-2 pool-count rule (tierrule.keep_early: EXACTLY 4 pools at +180) -- deterministic, no logs needed
+            if tier == 2 and v == 'KEEP' and M == 180 and len(cf) != 4:
+                print('     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has %d -> it '
+                      'reads on to +360 (its verdict there is REASONED)' % len(cf))
+                flipped = True
             # R1
             reads_to = [M] + ([180] if tier == 2 and len(cf) == 4 and M != 180 else [])
             for m in reads_to:
-                ok, why = baseline(sim, cf, Dc, max(240, m))
-                tag = '' if tier == 2 else ' (tier 3: no gate checks it -- R4 contamination if NOT CLEAN)'
-                print('     R1 baseline at +%d (lookback %d): %s %s%s' % (m, max(240, m), 'CLEAN' if ok else 'NOT CLEAN',
-                                                                         why[:110], tag))
+                ok, why, src = r1(cf, Dc, max(240, m))
+                tag = '' if tier == 2 else ' (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)'
+                print('     R1 baseline at +%d (lookback %d) [%s]: %s %s%s' % (m, max(240, m), src,
+                                                                         'CLEAN' if ok else 'NOT CLEAN', why[:110], tag))
                 if tier == 2 and m == M and v == 'KEEP' and not ok:
                     print('     >>> FLIP: the recorded KEEP at +%d cannot be printed on this baseline -> read on / '
                           'INCONCLUSIVE at the final read' % M)
+                    flipped = True
             # R2
             cd, kd, cbh, kbh, trips = death_polls(sim, cf, Dc, M)
-            print('     R2 death gate to +%d: canary %d / %.0f bh vs control %d / %.0f bh; trips %s' % (
-                M, cd, cbh, kd, kbh, trips[:1] or 'none'))
+            print('     R2 death gate to +%d (null effect on pools that did not run it): canary %d / %.0f bh vs control '
+                  '%d / %.0f bh; trips %s' % (M, cd, cbh, kd, kbh, trips[:1] or 'none'))
             if trips and v != 'REVERT':
                 print('     >>> FLIP: the death gate trips at +%d on the counterfactual arms (recorded %s)' % (trips[0][0], v))
+                flipped = True
             # R3
-            if tier == 2 and len(cf) == 4:
+            if tier == 2 and len(cf) == 4 and M != 180:
                 try:
-                    a = json.load(open(os.path.join(reads, '%s-verdict-180.json' % run)))
+                    art = json.load(open(os.path.join(reads, '%s-verdict-180.json' % run)))
                 except Exception:
-                    a = None
-                if a:
-                    why = a.get('why') or []
+                    art = None
+                if art:
+                    why = art.get('why') or []
                     watch = [w for w in why if w.startswith('WATCH')]
                     blocked = [w for w in why if ' fails ' in w and 'evidence=defect' not in w]
                     m_ex = next((re.search(r'exposure \S+ = (\S+)', w) for w in why if w.startswith('exposure ')), None)
                     exv = float(m_ex.group(1)) if m_ex else None
                     cd1, kd1, cbh1, kbh1, _t = death_polls(sim, cf, Dc, 180)
-                    ok1, w1 = baseline(sim, cf, Dc, 240)
+                    ok1, w1, _src = r1(cf, Dc, 240)
                     lic = (reg.get('licence') or {}).get('class')
                     k, kw = sim.TR.keep_early(reg, 4, False, 180, reg.get('read_minutes'), watch, blocked, [],
                                               reg.get('exposure'), exv, True, lic, cd1, cbh1, kd1, kbh1, ok1, w1)
                     print('     R3 REASONED +180 tier-2 KEEP with 4 pools: %s (%s)' % ('YES' if k else 'no', kw[:150]))
                     if k and v != 'KEEP':
                         print('     >>> FLIP (reasoned): a +180 KEEP where the run was recorded %s' % v)
-                    elif k:
-                        print('     (same verdict, KEEP 180 min earlier: saves ~%d min of lane)' % (M - 180))
-            if tier != 2:
-                print('     R4 REASONED: tier 3; the run\'s own reads on the added pool cannot be re-run')
+                        flipped = True
+            if flipped:
+                flips.append(run)
+            else:
+                reasoned.append(run)
+                print('     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED')
+        summary[var] = (flips, reasoned)
+    print('\n== SUMMARY (per iteration: flips found by a re-runnable check | changed verdicts that are reasoned only)')
+    for var, (f, rz) in summary.items():
+        print('  %-70s flips %d %s | reasoned %d %s' % (var[:70], len(f), f, len(rz), rz))
+    if a.emit_queries:
+        json.dump(queries, open(a.emit_queries, 'w'), indent=0)
+        print('wrote %d R1 queries to %s' % (len(queries), a.emit_queries))
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:6])
+    main()

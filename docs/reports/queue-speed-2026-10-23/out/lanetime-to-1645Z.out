@@ -1,0 +1,80 @@
+window 2026-10-19T00:00:00Z -> 2026-10-23T16:45:00Z = 112.8 h
+live                             88.0 h
+idle: BLOCK R11                   6.1 h
+          6.1 h  R11 the last closed run bamboo-02 was a death-driven REVERT (the REVERT line is decided by a death); the owner held afte
+idle: BUSY S8                     5.7 h
+          4.1 h  S8 INSTALL-HOLD by isolated2shared-01:659585:1792590800230694144 until 2026-10-21T18:53:20Z
+          1.2 h  S8 INSTALL-HOLD by isolated2shared-01:1416438:1792769170333611008 until 2026-10-23T20:26:10Z
+          0.3 h  S8 INSTALL-HOLD by operator-ram201 until 2026-10-20T20:20:00Z
+draw-wait                         5.2 h
+          2.4 h  indexsearch-01
+          2.0 h  townindex-01
+          0.4 h  poolescape-01
+          0.1 h  treefarm-02
+          0.1 h  cobblekeep-01
+          0.1 h  homefix-01
+          0.1 h  toolkit-03
+          0.1 h  ironpick-01
+idle: BUSY S2                     2.2 h
+          0.5 h  S2 running: install-*.sh (pid 3884560: bash /home/mike/gate-v36/install-gate-v36.sh --then /home/mike/gate-v36/install-b
+          0.4 h  S2 running: install-*.sh (pid 285281: bash /home/mike/changerows-1020/stage/install-changerows-1020.sh --dry-run)
+          0.3 h  S2 running: install-*.sh (pid 328120: bash /home/mike/changerows-1020/stage/install-changerows-1020.sh)
+          0.2 h  S2 running: fleet-deploy (pid 3340576: /bin/bash /home/mike/bin/fleet-deploy adbec4f4cbd0dd08e33671d37868e06259ac72f7 pl
+          0.1 h  S2 running: fleet-deploy (pid 84935: /bin/bash /home/mike/bin/fleet-deploy 9e7d998003aeead7a2763958f1147f76e3b4a3f3 cobb
+          0.1 h  S2 running: canary-loop.sh (pid 3358729: bash /home/mike/canary-loop.sh bamboo-02)
+          0.1 h  S2 running: install-*.sh (pid 328120: bash /home/mike/changerows-1020/stage/install-changerows-1020.sh); canary-loop.sh 
+          0.1 h  S2 running: canary-loop.sh (pid 1207894: bash /home/mike/canary-loop.sh poolescape-01); fleet-deploy (pid 1302246: /bin/
+idle: BLOCK H2                    1.4 h
+          1.1 h  H2 treefarm-02: no variant for the fleet base adbec4f (have: 5e66386, 8cd0bc6, a8af87d, 3b1ae8b, 75cfb44, 0fe9225, ce178
+          0.3 h  H2 indexsearch-01: no variant for the fleet base 6e1afb5 (have: 630a0cb, db148fb, 1b0cca7, fab4329, a7b0d77, 36e43e3, 14
+idle: WAIT R10                    1.2 h
+          1.0 h  R10 indexsearch-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['placebo-a']); re-checked every 
+          0.2 h  R10 treefarm-02: WAIT fewer than two pools can expose it now (eligible on exposure: ['hive-b']); re-checked every tick
+idle: BLOCK H1                    0.8 h
+          0.5 h  H1 bamboo-02: held: OPERATOR 10-19 01:10Z: held for the plinth-first direct rollout after townsearch-02 promotes; needs 
+          0.2 h  H1 homefix-02: held: OPERATOR 10-21 04:40Z: gap work after toolkit-03 (5080 move, isolated-b pilot 240-min quiet); then 
+          0.1 h  H1 protectzone-01: held: OPERATOR 10-22: before release install the CORRECTED bench test-strip fixture ~/mcai-analysis/j
+idle: LAUNCH                      0.8 h
+          0.1 h  cobblekeep-01 (variant on adbec4f, canary 9e7d998)
+          0.1 h  bamboo-02 (variant on adbec4f, canary dffd97e)
+          0.1 h  bagbudget-01 (variant on 9e7d998, canary 31416ee)
+          0.1 h  homefix-01 (variant on 9e7d998, canary a52d075)
+          0.1 h  toolkit-03 (variant on 9e7d998, canary 34d3e5e)
+          0.1 h  homefix-02 (variant on 34d3e5e, canary d014ec2)
+          0.1 h  ironpick-01 (variant on d014ec2, canary 2719ee0)
+          0.1 h  keepout-01 (variant on 2719ee0, canary f39471b)
+deploying                         0.7 h
+          0.1 h  cobblekeep-01
+          0.1 h  homefix-02
+          0.1 h  bamboo-02
+          0.1 h  homefix-01
+          0.1 h  toolkit-03
+          0.1 h  protectzone-01
+          0.1 h  townindex-01
+          0.1 h  poolescape-01
+idle: BUSY S3                     0.3 h
+          0.3 h  S3 the loop lock is held (pid 1307889)
+idle: BLOCK S7                    0.2 h
+          0.1 h  S7 run brain-01 drew or deployed and is not closed (no promoted|torn-down + recorded + ledger row, no live loop): finish
+          0.1 h  S7 run indexsearch-01 drew or deployed and is not closed (no promoted|torn-down + recorded + ledger row, no live loop): 
+idle: BLOCK S5                    0.1 h
+          0.1 h  S5 0 builds on the active units: {}
+          0.1 h  S5 2 builds on the active units: {'31416ee5e1a89e8e1c745750d84ad0b90d863a68+c6daa9': 3, '9e7d998003aeead7a2763958f1147f7
+idle: BLOCK H3                    0.1 h
+          0.1 h  H3 cobblekeep-01: blocked since its last attempt (predeploy): fix it, then `rearm cobblekeep-01 <why>` or `cancel cobble
+live by run (positive control: each = close - deployed, clipped to the window):
+   townsearch-02        1.3 h
+   bamboo-02            3.1 h
+   treefarm-02          3.1 h
+   brain-01            12.2 h
+   cobblekeep-01        6.2 h
+   bagbudget-01         6.3 h
+   homefix-01           5.6 h
+   toolkit-03          12.4 h
+   homefix-02           6.3 h
+   ironpick-01          6.3 h
+   keepout-01           6.2 h
+   protectzone-01       3.2 h
+   townindex-01         6.3 h
+   poolescape-01        6.2 h
+   indexsearch-01       3.1 h

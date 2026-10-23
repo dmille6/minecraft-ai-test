@@ -110,9 +110,10 @@ class Sim:
 
     def live_pools(self, t):
         out = set()
-        for d, c, ps, _r in self.live:
+        ov = getattr(self, 'override', {})
+        for d, c, ps, r in self.live:
             if d <= t and (c is None or t < c):
-                out |= ps
+                out |= set(ov.get(r, ps))
         return out
 
     # ------------------------------------------------------------------------------------------ measurements --
@@ -268,7 +269,13 @@ class Sim:
 
     # ----------------------------------------------------------------------------------------------- the draw --
     def ledger_rows(self, t):
-        return self.DS.parse_ledger(self.ledger_lines, t)
+        """The ledger as of t; a run in self.override (the CASCADE, Claude r1 P1) decided on its counterfactual pools."""
+        rows, fleet = self.DS.parse_ledger(self.ledger_lines, t)
+        ov = getattr(self, 'override', {})
+        if ov:
+            rows = [dict(r, canary_pool=','.join(sorted(ov[self.TR.run_of(r)])))
+                    if self.TR.run_of(r) in ov else r for r in rows]
+        return rows, fleet
 
     def journal_upto(self, t):
         return [r for r in self.journal if T(r['ts']) <= t]
@@ -408,7 +415,7 @@ class Sim:
                 ct, how = self.TR.close_of(run_, str(r.get('canary_sha') or '')[:7], T(r['ts']), cl, t)
                 age = (t - ct).total_seconds() / 60 if ct else None
                 d = str(r.get('decision')).upper()
-                if self.SR.death_driven(r):
+                if d == 'REVERT' and self.SR.kind_of(r, how) is None:
                     cats.append(('death-REVERT 12h', run_, age))
                 elif d in ('REVERT', 'INCONCLUSIVE'):
                     cats.append(('%s 12h' % d, run_, age))
