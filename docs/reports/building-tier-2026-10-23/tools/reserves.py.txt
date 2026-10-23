@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""reserves.py <funding.py.txt> <census-species.jsonl> -- the BUILD_RESERVE tables (owner Q6 follow-up, 10-23) run through the
+design's own funding estimate (funding.py, unchanged: loaded as a module, only its RESERVE table swapped per run). Prints, per
+table, the reserve per item and the result per town: workshop fundable (yes/no, what is short) and houses fundable after it,
+one at a time, no refill (the funding.py rules: 80% of the pool above the reserve, executable batches, copper/glass upgrades
+with fallbacks). Sticks are in no bill (torches are billed as torches), so the stick reserve is printed but changes nothing.
+
+POSITIVE CONTROL: table A (the design's defaults) must reproduce funding-20261023.txt: 10 of 13 workshops, 26 of 65 houses.
+The census is town STORAGE only (census_species.py); isolated-a, c, d are OUT (D2), as in funding.py."""
+import importlib.machinery, importlib.util, json, statistics, sys
+
+F = sys.argv[1]
+loader = importlib.machinery.SourceFileLoader('funding', F)
+spec = importlib.util.spec_from_loader('funding', loader)
+fd = importlib.util.module_from_spec(spec)
+loader.exec_module(fd)
+towns = [json.loads(l) for l in open(sys.argv[2])]
+eligible = [t for t in towns if t['world'] not in fd.OUT]
+med = lambda k: int(statistics.median(k(t) for t in eligible))
+MED_PLANKS = med(lambda t: sum(t['planks'].values()))
+MED_STICKS = med(lambda t: t.get('stick', 0))
+
+TABLES = [
+    ('A design defaults (positive control)', {'cobblestone': 256, 'logs': 512, 'planks': 64, 'stick': 64, 'copper_ingot': 256, 'sand': 16, 'torch': 32}, None),
+    ('B owner Q6 as answered: 512 for each', {'cobblestone': 512, 'logs': 512, 'planks': 512, 'stick': 512, 'copper_ingot': 512, 'sand': 512, 'torch': 512}, None),
+    ('C operator proposal: bulk 512, torch 32, sand 16, planks/sticks = the median town holding',
+     {'cobblestone': 512, 'logs': 512, 'planks': MED_PLANKS, 'stick': MED_STICKS, 'copper_ingot': 512, 'sand': 16, 'torch': 32}, None),
+    ('C2 as C, planks/sticks = EACH town\'s own holding (nothing above today\'s stock is spendable)',
+     {'cobblestone': 512, 'logs': 512, 'copper_ingot': 512, 'sand': 16, 'torch': 32}, 'own'),
+    ('C3 as C, sand = its stock target 64 (the upper end of "at or below its target")',
+     {'cobblestone': 512, 'logs': 512, 'planks': MED_PLANKS, 'stick': MED_STICKS, 'copper_ingot': 512, 'sand': 64, 'torch': 32}, None),
+    # WHICH RESERVE BINDS C's houses: C with ONE bulk reserve back at the design default, the others unchanged
+    ('D as C, cobblestone 256 (the design default): is cobble what binds the houses?',
+     {'cobblestone': 256, 'logs': 512, 'planks': MED_PLANKS, 'stick': MED_STICKS, 'copper_ingot': 512, 'sand': 16, 'torch': 32}, None),
+    ('E as C, copper_ingot 256 (the design default): is copper what binds the houses?',
+     {'cobblestone': 512, 'logs': 512, 'planks': MED_PLANKS, 'stick': MED_STICKS, 'copper_ingot': 256, 'sand': 16, 'torch': 32}, None),
+]
+
+
+def run(table, own):
+    out = []
+    for t in towns:
+        if t['world'] in fd.OUT:
+            continue
+        r = dict(table)
+        if own == 'own':
+            r['planks'] = sum(t['planks'].values()); r['stick'] = t.get('stick', 0)
+        fd.RESERVE = {k: v for k, v in r.items() if k != 'stick'}
+        P = fd.Pools(t)
+        ok, short, ch, P = fd.run_instance(P, fd.WORKSHOP)
+        nh = 0
+        if ok:
+            while nh < 5:
+                hok, _s, _c, P = fd.run_instance(P, fd.HOUSE)
+                if not hok:
+                    break
+                nh += 1
+        out.append((t['world'], ok, short, ch.get('trim'), nh, r))
+    return out
+
+
+for name, table, own in TABLES:
+    res = run(table, own)
+    shown = dict(table) if own != 'own' else dict(table, planks='own holding', stick='own holding')
+    print('== %s' % name)
+    print('   reserve: ' + ', '.join('%s %s' % kv for kv in shown.items()))
+    for w, ok, short, trim, nh, r in res:
+        print('   %-11s workshop %-3s %-15s houses %d%s' % (w, 'YES' if ok else 'NO', ('trim=' + str(trim)) if ok else 'short=' + ','.join(short or []), nh,
+                                                         ('   (planks reserve %d, sticks %d)' % (r['planks'], r['stick'])) if own == 'own' else ''))
+    print('   TOTAL: workshops %d of %d, houses %d of %d (per town %s)\n' % (sum(r[1] for r in res), len(res), sum(r[4] for r in res), 5 * len(res), [r[4] for r in res]))
+print('median town holding over the %d eligible towns: planks %d, sticks %d' % (len(eligible), MED_PLANKS, MED_STICKS))

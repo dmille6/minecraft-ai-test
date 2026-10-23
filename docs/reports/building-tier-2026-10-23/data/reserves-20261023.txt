@@ -1,0 +1,120 @@
+== A design defaults (positive control)
+   reserve: cobblestone 256, logs 512, planks 64, stick 64, copper_ingot 256, sand 16, torch 32
+   board-a     workshop YES trim=copper     houses 3
+   board-b     workshop YES trim=planks     houses 2
+   board-c     workshop YES trim=copper     houses 3
+   board-d     workshop YES trim=copper     houses 3
+   hive-a      workshop YES trim=copper     houses 2
+   hive-b      workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   hive-c      workshop YES trim=copper     houses 2
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   isolated-b  workshop YES trim=copper     houses 3
+   placebo-a   workshop YES trim=planks     houses 2
+   placebo-b   workshop YES trim=copper     houses 3
+   placebo-c   workshop YES trim=copper     houses 3
+   placebo-d   workshop NO  short=fuel_planks houses 0
+   TOTAL: workshops 10 of 13, houses 26 of 65 (per town [3, 2, 3, 3, 2, 0, 2, 0, 3, 2, 3, 3, 0])
+
+== B owner Q6 as answered: 512 for each
+   reserve: cobblestone 512, logs 512, planks 512, stick 512, copper_ingot 512, sand 512, torch 512
+   board-a     workshop NO  short=torch     houses 0
+   board-b     workshop NO  short=torch     houses 0
+   board-c     workshop NO  short=torch     houses 0
+   board-d     workshop NO  short=torch     houses 0
+   hive-a      workshop NO  short=torch     houses 0
+   hive-b      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   hive-c      workshop NO  short=torch     houses 0
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   isolated-b  workshop NO  short=torch     houses 0
+   placebo-a   workshop NO  short=torch     houses 0
+   placebo-b   workshop NO  short=torch     houses 0
+   placebo-c   workshop NO  short=torch     houses 0
+   placebo-d   workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   TOTAL: workshops 0 of 13, houses 0 of 65 (per town [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+== C operator proposal: bulk 512, torch 32, sand 16, planks/sticks = the median town holding
+   reserve: cobblestone 512, logs 512, planks 71, stick 40, copper_ingot 512, sand 16, torch 32
+   board-a     workshop YES trim=copper     houses 1
+   board-b     workshop YES trim=planks     houses 1
+   board-c     workshop YES trim=copper     houses 2
+   board-d     workshop YES trim=copper     houses 1
+   hive-a      workshop YES trim=copper     houses 0
+   hive-b      workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   hive-c      workshop YES trim=planks     houses 1
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   isolated-b  workshop YES trim=copper     houses 1
+   placebo-a   workshop YES trim=planks     houses 0
+   placebo-b   workshop YES trim=planks     houses 1
+   placebo-c   workshop YES trim=copper     houses 2
+   placebo-d   workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   TOTAL: workshops 10 of 13, houses 10 of 65 (per town [1, 1, 2, 1, 0, 0, 1, 0, 1, 0, 1, 2, 0])
+
+== C2 as C, planks/sticks = EACH town's own holding (nothing above today's stock is spendable)
+   reserve: cobblestone 512, logs 512, copper_ingot 512, sand 16, torch 32, planks own holding, stick own holding
+   board-a     workshop YES trim=copper     houses 1   (planks reserve 81, sticks 32)
+   board-b     workshop YES trim=planks     houses 1   (planks reserve 68, sticks 131)
+   board-c     workshop YES trim=copper     houses 2   (planks reserve 119, sticks 165)
+   board-d     workshop YES trim=copper     houses 1   (planks reserve 74, sticks 134)
+   hive-a      workshop YES trim=copper     houses 0   (planks reserve 77, sticks 22)
+   hive-b      workshop NO  short=wall_planks_oak,fuel_planks houses 0   (planks reserve 64, sticks 40)
+   hive-c      workshop YES trim=planks     houses 1   (planks reserve 67, sticks 14)
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0   (planks reserve 3, sticks 14)
+   isolated-b  workshop YES trim=copper     houses 1   (planks reserve 73, sticks 78)
+   placebo-a   workshop YES trim=planks     houses 0   (planks reserve 66, sticks 0)
+   placebo-b   workshop YES trim=planks     houses 1   (planks reserve 71, sticks 141)
+   placebo-c   workshop YES trim=copper     houses 2   (planks reserve 84, sticks 103)
+   placebo-d   workshop NO  short=wall_planks_oak,fuel_planks houses 0   (planks reserve 16, sticks 0)
+   TOTAL: workshops 10 of 13, houses 10 of 65 (per town [1, 1, 2, 1, 0, 0, 1, 0, 1, 0, 1, 2, 0])
+
+== C3 as C, sand = its stock target 64 (the upper end of "at or below its target")
+   reserve: cobblestone 512, logs 512, planks 71, stick 40, copper_ingot 512, sand 64, torch 32
+   board-a     workshop YES trim=copper     houses 1
+   board-b     workshop YES trim=planks     houses 1
+   board-c     workshop YES trim=copper     houses 2
+   board-d     workshop YES trim=copper     houses 1
+   hive-a      workshop YES trim=copper     houses 0
+   hive-b      workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   hive-c      workshop YES trim=planks     houses 1
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   isolated-b  workshop YES trim=copper     houses 1
+   placebo-a   workshop YES trim=planks     houses 0
+   placebo-b   workshop YES trim=planks     houses 1
+   placebo-c   workshop YES trim=copper     houses 2
+   placebo-d   workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   TOTAL: workshops 10 of 13, houses 10 of 65 (per town [1, 1, 2, 1, 0, 0, 1, 0, 1, 0, 1, 2, 0])
+
+== D as C, cobblestone 256 (the design default): is cobble what binds the houses?
+   reserve: cobblestone 256, logs 512, planks 71, stick 40, copper_ingot 512, sand 16, torch 32
+   board-a     workshop YES trim=copper     houses 3
+   board-b     workshop YES trim=planks     houses 2
+   board-c     workshop YES trim=copper     houses 3
+   board-d     workshop YES trim=copper     houses 3
+   hive-a      workshop YES trim=copper     houses 2
+   hive-b      workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   hive-c      workshop YES trim=planks     houses 1
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   isolated-b  workshop YES trim=copper     houses 3
+   placebo-a   workshop YES trim=planks     houses 2
+   placebo-b   workshop YES trim=planks     houses 3
+   placebo-c   workshop YES trim=copper     houses 3
+   placebo-d   workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   TOTAL: workshops 10 of 13, houses 25 of 65 (per town [3, 2, 3, 3, 2, 0, 1, 0, 3, 2, 3, 3, 0])
+
+== E as C, copper_ingot 256 (the design default): is copper what binds the houses?
+   reserve: cobblestone 512, logs 512, planks 71, stick 40, copper_ingot 256, sand 16, torch 32
+   board-a     workshop YES trim=copper     houses 1
+   board-b     workshop YES trim=planks     houses 1
+   board-c     workshop YES trim=copper     houses 2
+   board-d     workshop YES trim=copper     houses 1
+   hive-a      workshop YES trim=copper     houses 0
+   hive-b      workshop NO  short=wall_planks_oak,fuel_planks houses 0
+   hive-c      workshop YES trim=copper     houses 1
+   hive-d      workshop NO  short=torch,wall_planks_oak,fuel_planks houses 0
+   isolated-b  workshop YES trim=copper     houses 1
+   placebo-a   workshop YES trim=planks     houses 0
+   placebo-b   workshop YES trim=copper     houses 1
+   placebo-c   workshop YES trim=copper     houses 2
+   placebo-d   workshop NO  short=fuel_planks houses 0
+   TOTAL: workshops 10 of 13, houses 10 of 65 (per town [1, 1, 2, 1, 0, 0, 1, 0, 1, 0, 1, 2, 0])
+
+median town holding over the 13 eligible towns: planks 71, sticks 40
