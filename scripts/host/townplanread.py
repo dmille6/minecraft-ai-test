@@ -428,9 +428,14 @@ def zones_of(d, world):
         z = json.load(open(os.path.join(d, 'protected-zones.json')))
     except Exception:
         return []
+    # a file holding JSON null, a list or a zone that is not an object is broken: no box from it, never a crash (Claude JIT
+    # 10-23c r2: `z.get` on null raised AttributeError and the whole read failed)
+    if not isinstance(z, dict):
+        return []
     if z.get('hashed_seed') is not None and world is not None and str(z.get('hashed_seed')) != str(world):
         return []
-    return [q['box'] for q in z.get('zones') or [] if isinstance(q.get('box'), list) and len(q['box']) == 6]
+    zl = z.get('zones')
+    return [q['box'] for q in (zl if isinstance(zl, list) else []) if isinstance(q, dict) and isinstance(q.get('box'), list) and len(q['box']) == 6]
 
 
 def in_box(b, a):
@@ -693,6 +698,12 @@ def selftest():
     assert pl['chain_invalid'] == 0 and pl['plan_towns_canary'] == 1 and pl['gens_after_root_canary'] == 2 and pl['zone_cells'] == 0, pl
     json.dump({'version': 1, 'hashed_seed': W_, 'zones': [{'id': 'z', 'box': [9, -64, -2, 9, 90, -2]}]}, open(os.path.join(d, 'protected-zones.json'), 'w'))
     assert judge_plans(read_plans(tmp), {'board-a'}, 0)['zone_cells'] == 1
+    os.remove(os.path.join(d, 'protected-zones.json'))
+    # a BROKEN zones file (JSON null, a list, a zone that is not an object) is no zone and never a crash (Claude JIT 10-23c r2)
+    for broken in ('null', '[1, 2]', '{"version": 1, "zones": [null, 7, {"id": "z", "box": [9, -64, -2, 9, 90, -2]}]}'):
+        open(os.path.join(d, 'protected-zones.json'), 'w').write(broken)
+        assert zones_of(d, W_) == ([[9, -64, -2, 9, 90, -2]] if 'box' in broken else []), broken
+        judge_plans(read_plans(tmp), {'board-a'}, 0)
     os.remove(os.path.join(d, 'protected-zones.json'))
     # the plan's own seed avoid box (recorded by the writer since code r1) over the same cell -> D4 too
     d2 = os.path.join(tmp, '_pool-hive-a'); os.makedirs(d2, exist_ok=True)
