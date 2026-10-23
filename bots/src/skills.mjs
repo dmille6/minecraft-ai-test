@@ -12112,11 +12112,13 @@ const familyIn = (held, input) => (held[input] ?? 0) + (held[SMELT_OUTPUT_OF[inp
  * pass leaves out that input's index rule-out (jobRuledOut), recomputed at each view (Codex design r1 P2). `ru`: the most
  * containers a view ruled out. The room-making deposits never bank the bag's own iron (the keep; Codex design r1 P2).
  */
-async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0 }, signal) {
+const jobWithdrawOut = () => ({ took: {}, input: null, chest: null, unsettled: false, looked: 0, misses: 0, more: false, ironMore: false, coalMore: false,
+  noCoal: false, tried: [], progressed: false, ironProgressed: false, ru: 0 })
+// `out` is the CALLER'S (Codex code r1 P1): a visit that throws or aborts after a verified take must not lose which input was
+// taken and how much -- smeltTown reads it on every exit, its catch and finally included
+async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, ingots = 0 }, signal, out = jobWithdrawOut()) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
-  const out = { took: {}, input: null, chest: null, unsettled: false, looked: 0, misses: 0, more: false, ironMore: false, coalMore: false, noCoal: false,
-                tried: [], progressed: false, ru: 0 }
   const keep = IRONSMELT.on ? [...roomKeep(bot.currentWants ?? []), SMELT_IRON_INPUT, SMELT_IRON_OUTPUT] : roomKeep(bot.currentWants ?? [])
   const need = { [SMELT_IRON_INPUT]: 0, [SMELT_JOB_INPUT]: 0 }
   let needCoal = coal
@@ -12157,9 +12159,10 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0 }
       out.looked++
       out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
       if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
-      // PROGRESS (Codex r2 P2): something the next job's search uses -- a miss for this pass's need, or a container left out
-      if (v.result && SEARCH_FAIL_SKIP.has(v.result.failClass)) out.progressed = true
-      if (v.saw && lacks(v.saw, nd)) out.progressed = true
+      // PROGRESS (Codex r2 P2): something the next job's search uses -- a miss for this pass's need, or a container left out.
+      // The IRON pass keeps its own flag (Claude code r1 P3-1): the copper and coal passes share theirs, as on the base
+      const learned = (v.result && SEARCH_FAIL_SKIP.has(v.result.failClass)) || (v.saw && lacks(v.saw, nd))
+      if (learned) { if (nd === SMELT_IRON_INPUT) out.ironProgressed = true; else out.progressed = true }
       // WHAT IT HELD, remembered for both halves and every need: no raw copper, no raw iron (IRONSMELT on), no coal
       if (v.saw) {
         const keys = halvesOf(bot, cb.position, v.double)
@@ -12197,7 +12200,8 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0 }
     if (out.unsettled) return out
     if (out.input !== SMELT_IRON_INPUT) {
       need[SMELT_IRON_INPUT] = 0; passInput = null
-      if (cut && !(carried > 0)) { out.ironMore = true; return out }
+      // ...unless the bag carries copper -- raw (smelted this job) or ingots (banked this job: the carry return; Claude code r1 P3-2)
+      if (cut && !(carried > 0) && !(ingots > 0)) { out.ironMore = true; return out }
     }
   }
   if (out.input !== SMELT_IRON_INPUT) {
@@ -12304,10 +12308,11 @@ async function smeltTown (ctx, _args, signal) {
       f.fuelBack = Math.max(0, had - (heldMap(bot)[ret.fuel.name] ?? 0))
     }
   }
-  try {
-    const held0 = heldMap(bot)
-    const carried = held0[SMELT_JOB_INPUT] ?? 0
-    const w = await jobWithdraw(ctx, { iron: IRONSMELT.on ? SMELT_JOB_BATCH : 0, copper: carried < 1 ? SMELT_JOB_BATCH : 0, carried, coal: 1 }, signal)
+  // THE WITHDRAW'S STATE IS OURS (Codex code r1 P1): adopted after the withdraw returns AND on a throw out of it, so the bank,
+  // the balance and the row see a verified take whatever exit follows (adopt is idempotent: the same object, read again)
+  const w = jobWithdrawOut()
+  const held0 = heldMap(bot)
+  const adopt = () => {
     if (w.input === SMELT_IRON_INPUT) { IN = SMELT_IRON_INPUT; OUT = SMELT_IRON_OUTPUT }
     f.in = !IRONSMELT.on ? '-' : w.input === SMELT_IRON_INPUT ? 'fe' : w.input === SMELT_JOB_INPUT ? 'cu' : '-'
     f.ru = SMELT_RULEOUT.on ? w.ru : '-'
@@ -12317,11 +12322,15 @@ async function smeltTown (ctx, _args, signal) {
     fuelBag0 = fuelName ? (held0[fuelName] ?? 0) : 0
     f.chest = w.chest ?? '-'
     f.looked = w.looked; f.more = w.more ? 'cu' : w.ironMore ? 'fe' : w.coalMore ? 'coal' : '-'
+  }
+  try {
+    const carried = held0[SMELT_JOB_INPUT] ?? 0
+    try { await jobWithdraw(ctx, { iron: IRONSMELT.on ? SMELT_JOB_BATCH : 0, copper: carried < 1 ? SMELT_JOB_BATCH : 0, carried, ingots: held0[SMELT_JOB_OUTPUT] ?? 0, coal: 1 }, signal, w) } finally { adopt() }
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from the town chest could not be confirmed; the job stops until the bag settles' }) }
     // THE IRON SEARCH IS NOT DONE (ironsmelt-01): no iron in hand, candidates left, no copper carried -- no answer about the town's
     // iron yet: search_more when the pass learned something (no strike), search_stalled when it learned nothing (a strike)
     if (w.ironMore) {
-      f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED
+      f.stop = w.ironProgressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED
       return (result = { status: 'no_effect', detail: `no raw iron in the ${w.looked} town container(s) looked in yet; others are not yet looked in -- the next job continues the iron search first` })
     }
     const have = heldMap(bot)[IN] ?? 0
