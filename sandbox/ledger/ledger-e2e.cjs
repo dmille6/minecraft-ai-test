@@ -155,7 +155,8 @@ function checkSeen ({ aEmpty, bRows = [], loadAt = null, f, replay = () => ({ sk
  */
 function parseSlotReply (reply, slot) {
   const t = String(reply ?? '').trim()
-  if (/^Found no elements matching Items\[\{Slot:\db\}\]$/.test(t)) return null
+  const e = /^Found no elements matching Items\[\{Slot:(\d)b\}\]$/.exec(t)
+  if (e) { if (Number(e[1]) !== slot) throw new Error(`slot ${slot}: an empty reply for slot ${e[1]}`); return null }
   const m = /^-?\d+, -?\d+, -?\d+ has the following block data: \{Slot: (\d)b, id: "minecraft:([a-z0-9_]+)", count: (\d+)\}$/.exec(t)
   if (!m || Number(m[1]) !== slot) throw new Error(`slot ${slot}: an incomplete or unexpected RCON reply: ${t.slice(0, 160)}`)
   return [m[2], Number(m[3])]
@@ -186,6 +187,7 @@ function selftest () {
   const throws = fn => { try { fn(); return false } catch { return true } }
   ok('slot reply: TRUNCATED (no closing brace) THROWS, never empty', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 0b, id: "minecraft:raw_', 0)), true)
   ok('slot reply: a "..." truncation THROWS', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 0b, id: "...', 0)), true)
+  ok('slot reply: an EMPTY reply for another slot THROWS', throws(() => parseSlotReply('Found no elements matching Items[{Slot:2b}]', 0)), true)
   ok('slot reply: the wrong slot THROWS', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 2b, id: "minecraft:gold_ingot", count: 1}', 0)), true)
   ok('slot reply: an error text THROWS', throws(() => parseSlotReply('That position is not loaded', 0)), true)
   ok('slot reply: no count THROWS (a count is never assumed)', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 0b, id: "minecraft:raw_gold"}', 0)), true)
