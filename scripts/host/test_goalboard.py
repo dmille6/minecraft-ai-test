@@ -114,10 +114,36 @@ def cases(g):
     # metric: a rate only per bot-hour
     c('metric: % is not divided again', 'rate' not in g.metric(67.7, '%', 's', 'w', ('deaths with a position', 31)))
     c('metric: per bot-hour rate', g.metric(31, 'deaths', 's', 'w', ('active bot-hours', 1920))['rate'] == round(31 / 1920, 4))
+    # structcount: an OK publication for the day is a number; anything else is a GAP, never a zero
+    import hashlib, json as _json
+    d = tempfile.mkdtemp(); os.makedirs(os.path.join(d, 'gen-1')); os.makedirs(os.path.join(d, 'attempts'))
+    pday = os.path.join(d, 'gen-1', 'structcount-day.json'); _json.dump({'hive-a': {'buildings': 2}}, open(pday, 'w'))
+    h = hashlib.sha256(open(pday, 'rb').read()).hexdigest()
+    def man(status='OK', day='2026-10-18'):
+        _json.dump({'day': day, 'attempt': 'A1', 'status': status, 'why': 'x', 'generation': 'gen-1',
+                    'files': {'structcount-day.json': h}, 'totals': {'buildings': 2, 'worlds': 16, 'unlit_rooms': 0,
+                    'surface_structures': 9}}, open(os.path.join(d, 'manifest.json'), 'w'))
+        _json.dump({'attempt': 'A1', 'day': day, 'started': '2026-10-18T03:45:00+00:00'}, open(os.path.join(d, 'attempts', 'attempt.json'), 'w'))
+    reader = os.path.join(os.path.dirname(SRC), 'structcount', 'scread.py')
+    man()
+    m1 = g.structcount_metric(T0.date(), d, reader)
+    c('structcount: OK day -> the count', m1['value'] == 2 and m1['status'] == 'live' and m1['by_world'] == {'hive-a': 2}, m1)
+    man(status='UNKNOWN')
+    m2 = g.structcount_metric(T0.date(), d, reader)
+    c('structcount: UNKNOWN -> a gap, never 0', m2['value'] is None and m2['status'] == 'no_structcount', m2)
+    man(day='2026-10-17')
+    m3 = g.structcount_metric(T0.date(), d, reader)
+    c('structcount: another day -> a gap', m3['value'] is None and m3['status'] == 'no_structcount', m3)
+    m4 = g.structcount_metric(T0.date(), d, '/nonexistent/scread.py')
+    c('structcount: no reader -> a gap', m4['value'] is None and m4['status'] == 'no_structcount', m4)
+    row = g.headline({'day': 'x', 'partial': False, 'build': {'buildings_b5': dict(m2, value=0)}, 'survive': {}, 'together': {}, 'health': {}})
+    c('structcount: a gap stays a gap in the trend', row['build.buildings_b5.value'] is None, row)
     return out
 
 
 MUTANTS = [
+    ('structcount UNKNOWN read as a number', "    if r['status'] != 'OK':\n        return metric(None, 'buildings'", "    if False:\n        return metric(None, 'buildings'"),
+    ('structcount gap counted as zero in the trend', "('not_live_yet', 'no_census', 'no_structcount')", "('not_live_yet', 'no_census')"),
     ('wood floor removed', '    return max(0.0, -eq)', '    return -eq'),
     ('truncated rows invent wells', "                if k not in keys[w]:\n                    keys[w].append(k)\n        out.append((r, w, k))",
      "                if k not in keys[w]:\n                    keys[w].append(k)\n            else:\n                k = b\n        out.append((r, w, k))"),

@@ -14,6 +14,17 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, 'scripts/host/fleetstatus.py')
 MUT = [
+    ('structcount UNKNOWN not an alarm', "            return f'!! structcount (B5 buildings, from the world): {r[\"status\"]}",
+     "            return f'structcount (B5 buildings, from the world): {r[\"status\"]}", 'structcount_line_unknown_is_an_alarm'),
+    ('structcount yesterday accepted all day', "        if r['status'] != 'OK' and now.time() < STRUCTCOUNT_DUE:",
+     "        if r['status'] != 'OK':", 'structcount_line_before_due_shows_yesterday'),
+    ('structcount line not in header', "'structcount': structcount_line(now), ", "", 'structcount_line_is_in_the_header'),
+    ('structcount never-raises dropped',
+     "    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line\n        return f'!! structcount",
+     "    except OSError as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line\n        return f'!! structcount",
+     'structcount_line_never_raises'),
+    ('structcount mirror files not restricted', "r = rd.status(d, att, today, now, only=rd.MIRROR_FILES)", "r = rd.status(d, att, today, now)",
+     'structcount_line_ok'),
     ('stale ignored', "if age > FRONTIER_STALE:", "if False:", 'frontier_stale_tick_is_an_alarm'),
     ('void quiet', "elif st == 'void':", "elif False:", 'frontier_void_reads_void_never_zero'),
     ('behind ignored', "elif lag > FRONTIER_BEHIND:", "elif False:", 'frontier_error_instrument_behind_and_towns_are_alarms'),
