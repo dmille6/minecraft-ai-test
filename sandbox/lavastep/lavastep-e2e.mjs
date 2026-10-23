@@ -27,8 +27,8 @@
 //     session ends, so a killed driver never leaves it held and there is no stale-lock recovery to race. Under it run: the
 //     arena claim (with its stale recovery), the marker writes and deletions, every launch from `defaultgamemode adventure`
 //     (sent, reply confirmed) through the join, the staging and the switch to survival, and the last-out restore;
-//   - the joined mode is READ BACK in the same round trip as the teleport into the box: anything but adventure, or staging
-//     later than 5 s after the join was seen, makes the trial INVALID;
+//   - the joined mode is READ BACK in the same round trip as the teleport into the box: anything but adventure is FATAL
+//     (below); staging later than 5 s after the join was seen makes the trial INVALID;
 //   - FORCE-GAMEMODE PROBE, every trial: with its own bot staged in survival (still inside the mutex), the driver re-sends
 //     `defaultgamemode adventure` and reads its bot's mode back: still survival proves the server does not force modes
 //     onto online players, so a launch by the other slot's driver cannot flip this bot mid-trial; a flip STOPS THE RUN
@@ -47,10 +47,12 @@
 //     loser's cleanup would restore over the winner's live box): mkdir ~/mcai-sandbox-mode/arenas/<server>-<x>-<z> on the
 //     lock host, owner `host= pid= run=`, taken and (if stale: this host, pid gone) recovered UNDER THE HOST LOCK, so two runs
 //     cannot both own it; a held claim refuses the run before ANY world change; released only while it is still this run's;
-//   - a LIMITED LOG CHECK, not proof (r5 Codex P2): a trial is INVALID if the build logged, before its bot was set to
-//     survival, a successful row of a block-acting kind (dig, place, harvest, pillar, scaffold, tunnel, bridge, break) or
-//     ANY `_marooned_self_sourced` row (the reflex's adjacent harvest, reflex.mjs ~2698); a block change that logs under
-//     another kind, and door/button/chest use, are not covered (adventure mode is what stops the edits).
+//   - a LIMITED LOG CHECK, not proof (r5 Codex P2, Claude P2-B): a trial is INVALID if the build logged, before its bot was
+//     set to survival, a row that can mean a block edit (editRow below: any `_lava_retreat`, any `_marooned_self_sourced`
+//     -- the reflex's adjacent harvest, reflex.mjs ~2698 --, a `_marooned_*` / `_escape_candidate` row reporting >= 1
+//     block dug, or a successful dig/place/harvest/pillar/scaffold/tunnel/bridge/break row). Its POSITIVE CONTROL is
+//     reported per trial as editRowsAfter (the candidate's post-release seals and steps match it). A change logged under
+//     any other kind, and door/button/chest use, are not covered: adventure mode is what stops the edits.
 // Residuals (disclosed): an adventure-mode bot can still use doors, buttons and chests at world spawn for the ~70 ms
 // before the teleport (its inventory is empty, its cognitive loop not started; the reflex layer has no block-use calls);
 // the launch mutex is per host (markers and claims are on the lock host); markers from another host are never swept,
@@ -105,7 +107,7 @@ const SCENES = ['edge', 'deep1', 'ledge', 'magma', 'fall', 'campfire', 'busy']
 const [BOT_ROOT, LABEL, SCENE, SERVER = 'sandbox5', TRIALS_S = '20', SECS_S = '20'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENE) throw new Error('usage: lavastep-e2e.mjs <botRoot> <label> <scene> [server] [trials] [seconds]')
 if (!SCENES.includes(SCENE)) throw new Error(`unknown scene ${SCENE} (${SCENES.join(', ')})`)
-if (!/^[a-z0-9]{1,6}$/i.test(LABEL)) throw new Error('label: 1-6 letters/digits (it is part of the bot name)')
+if (!/^[a-z0-9]{1,6}$/i.test(LABEL)) throw new Error('label: 1-6 letters/digits (it names the run directory and every row)')
 // sandbox names/ports and the lock from the shared registry (sandbox/sandboxes.json via sandbox/lib/sbxlock.cjs);
 // sandbox4 stays excluded: it is the model benchmark's
 const require = createRequire(import.meta.url)
@@ -264,11 +266,30 @@ async function withHostLock (fn) {
 }
 const lh = script => execFileSync('ssh', [...LH, 'bash -s'], { input: 'set -eu\n' + script, encoding: 'utf8', timeout: 30000 })
 const HOSTNAME = os.hostname().replace(/[^A-Za-z0-9._-]/g, '_')
-const OWNER = `host=${HOSTNAME} pid=${process.pid} run=${NONCE}`
+const PSTART = Math.round(Date.now() / 1000 - process.uptime())
+const OWNER = `host=${HOSTNAME} pid=${process.pid} pstart=${PSTART} run=${NONCE}`
+/** The start time (epoch s) of a live pid on this host, or null. */
+function startOf (pid) {
+  try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 }).trim()); return Number.isFinite(t) ? Math.round(t / 1000) : null } catch { return null }
+}
 const MROOT = '"$HOME/mcai-sandbox-mode"'
 const MDIR = `${MROOT}/${SERVER}`
 const ARENA = `${MROOT}/arenas/${SERVER}-${A.x}-${A.z}`
-const staleOwner = text => { const h = /host=(\S+)/.exec(text)?.[1], p = Number(/pid=(\d+)/.exec(text)?.[1]); return h === HOSTNAME && p > 0 && p !== process.pid && !alive(p) }
+// stale = this host, and the pid is gone or now belongs to another process (its start time differs: Claude r5 P3-3)
+const staleOwner = text => {
+  const h = /host=(\S+)/.exec(text)?.[1], p = Number(/pid=(\d+)/.exec(text)?.[1]), ps = Number(/pstart=(\d+)/.exec(text)?.[1])
+  if (h !== HOSTNAME || !(p > 0) || p === process.pid) return false
+  if (!alive(p)) return true
+  const st = ps ? startOf(p) : null
+  return ps > 0 && st != null && Math.abs(st - ps) > 3
+}
+/** A row that can mean a block edit (the limited log check; see the header). */
+function editRow (r) {
+  const k = r?.skill?.name ?? '', d = `${r?.skill?.detail ?? ''}`
+  if (k === '_lava_retreat' || k === '_marooned_self_sourced') return true
+  if ((k.startsWith('_marooned_') || k === '_escape_candidate') && /\b([1-9]\d*) adjacent block|\bblocks=([1-9]\d*)|\(([1-9]\d*)\/\d+ dug\)/.test(d)) return true
+  return r?.skill?.status === 'success' && /dig|place|harvest|pillar|scaffold|tunnel|bridge|break/i.test(k)
+}
 function markers () {
   const out = lh(`mkdir -p ${MDIR}; for f in ${MDIR}/*; do [ -f "$f" ] || continue; printf '%s\\t%s\\n' "$(basename "$f")" "$(head -c 300 "$f" | tr '\\n\\t' '  ')"; done; echo END`)
   if (!/(^|\n)END\n?$/.test(out)) throw new Error('markers: no END line from the lock host')
@@ -540,25 +561,26 @@ async function trial (k) {
       if (phase === 1 && !died && !out) censored = true
     }
     if (left) return invalid(`left arena alive at ${JSON.stringify(left)}`)
-    if (!died) {   // its mode at the end: still survival (nothing flipped it mid-trial)
-      const mEnd = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
-      if (mEnd !== '0') return invalid(`mode ${mEnd} at the end of the observation, not survival`)
-    }
     if (gaps > 0.1 * probes) return invalid(`observation gaps ${gaps}/${probes}`, { gaps, probes })
     // DEATH, AFFIRMED: the server's score, read again (respawn settled), against the build's row and health 0
     let score = null
     for (let w = 0; w < 6 && score == null; w++) { await sleep(died ? 1500 : 200); const p = probe(b.name); if (p.ok) score = p.deaths }
     if (score == null) return invalid('the death score is unreadable at the end')
+    // its mode at the end, dead or alive (a respawn keeps it): still survival, so nothing flipped it mid-trial (Claude r5
+    // P3-2); after a death, it respawned inside the box (Claude r5 P3-7)
+    const mEnd = dataOf(rcon(`data get entity ${b.name} playerGameType`)[0])
+    if (mEnd !== '0') return invalid(`mode ${mEnd} at the end of the observation, not survival`)
+    if (died) { const pr = probe(b.name); if (!pr.ok || !inBox(pr.pos)) return invalid(`after the death: not seen inside the box (${pr.why ?? JSON.stringify(pr.pos)})`) }
     let all = rowsOf(b)
     if (score > 0) for (let w = 0; w < 20 && !all.some(r => kind(r) === '_death' && tsOf(r) >= t0 - 200); w++) { await sleep(500); all = rowsOf(b) }
     const rows = all.filter(r => tsOf(r) >= t0 - 200)
     const deathRow = rows.some(r => kind(r) === '_death')
     if (died !== (score > 0) || (score > 0) !== deathRow) return invalid(`death evidence disagrees: probe ${died} score ${score} row ${deathRow}`)
     if (!died && last == null) return invalid('no complete observation after the release')
-    // a LIMITED log check (see the header): block-acting kinds that succeeded, or any self-sourced harvest, before survival
-    const ACT = /dig|place|harvest|pillar|scaffold|tunnel|bridge|break/i
-    const early = all.filter(r => tsOf(r) < tSurvival && ((r.skill?.status === 'success' && ACT.test(kind(r))) || kind(r) === '_marooned_self_sourced'))
-    if (early.length) return invalid(`a block action before survival: ${early.map(kind).join(',')}`)
+    // the LIMITED log check (see the header), and its positive control (the same predicate after the release)
+    const early = all.filter(r => tsOf(r) < tSurvival && editRow(r))
+    if (early.length) return invalid(`a possible block edit before survival: ${early.map(kind).join(',')}`)
+    const editRowsAfter = rows.filter(editRow).length
     if (censored) return invalid('censored: still burning 20 s after the window', { censored: true, minHp })
     const firstDanger = rows.filter(r => kind(r) === '_reflex_danger_block').map(tsOf).sort((a, c) => a - c)[0] ?? null
     const standOffFirst = rows.some(r => kind(r) === '_lava_adjacent_stand_off' && (firstDanger == null || tsOf(r) <= firstDanger))
@@ -588,7 +610,7 @@ async function trial (k) {
       licence: all.some(r => kind(r) === '_lavastep_mode' && /on=1/.test(r.skill?.detail ?? '')),   // written at spawn, before t0
       retreats: retreats.map(a => ({ case: a.case, outcome: a.outcome, path: (a.path || []).join('>'), ended: a.ended, seal: a.seal?.witnessed ?? null, aim: a.aim?.chosen ?? null })),
       deathMsg: rows.filter(r => kind(r) === '_death').map(r => String(r.skill?.detail ?? '').slice(0, 120)),
-      mspt: { pre: tick, obsAvg5s: obsMspt, obsMax: obsMspt.length ? Math.max(...obsMspt) : null }, releasedAt, joinMode, joinToStagedMs, joinToReleaseMs: t0 - tJoin, busyPre,
+      editRowsAfter, mspt: { pre: tick, obsAvg5s: obsMspt, obsMax: obsMspt.length ? Math.max(...obsMspt) : null }, releasedAt, joinMode, joinToStagedMs, joinToReleaseMs: t0 - tJoin, busyPre,
     }
     P_('TRIAL', res)
     return res
@@ -644,6 +666,7 @@ async function main () {
     busy_exposed: exposed ? sum(exposed) : null, by_yaw: yaws,
     median_min_hp: valid.map(r => r.minHp).sort((a, c) => a - c)[Math.floor(valid.length / 2)] ?? null,
     mspt_avg5s: ms.length ? { median: ms[Math.floor(ms.length / 2)], max: ms[ms.length - 1] } : null,
+    editRowsAfter: valid.reduce((n, r) => n + (r.editRowsAfter || 0), 0),
     outcomes: Object.entries(valid.flatMap(r => r.retreats.map(x => x.outcome)).reduce((m, o) => (m[o] = (m[o] || 0) + 1, m), {})),
     synthetic: 'arena by RCON in a closed barrier box; a fresh bot per trial, staged on a dry pad in the box on join, healed + fed, given the scene bag, teleported to the start pose (all verified); joined in adventure mode (no edits before staging); scripted in-process brain (status; busy: an away-directed goto, released mid-goto)' }
   fs.appendFileSync(RES, JSON.stringify({ ...summary, results }) + '\n')
@@ -689,7 +712,10 @@ async function cleanupOnce () {
     })) && ok
   }
   if (arenaClaimed) ok = await step('arena claim', () => withHostLock(async () => releaseArena())) && ok
-  if (setupBegan) { try { P_(ok ? 'cleanup ok' : 'cleanup INCOMPLETE', online().join(',')) } catch {} }
+  if (setupBegan) {   // printed whether or not RCON still answers (Claude r5 P2-A)
+    let who = '(online unknown)'; try { who = online().join(',') } catch {}
+    P_(ok ? 'cleanup ok' : 'cleanup INCOMPLETE', who)
+  }
   // this process's SSH master: closed and verified gone (`-O check` fails once no master listens)
   const sshCtl = op => { try { execFileSync('ssh', [...SSH.slice(0, -1), '-O', op, SSH[SSH.length - 1]], { stdio: 'ignore', timeout: 10000 }); return true } catch { return false } }
   if (sshCtl('check')) { sshCtl('exit'); if (sshCtl('check')) { P_('cleanup: the SSH master is still running'); ok = false } }
