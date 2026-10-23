@@ -126,6 +126,8 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
          COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
+import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut,
+         ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
@@ -10939,7 +10941,9 @@ function townSearchView (bot, needs, tried = new Set()) {
   // a pickaxe miss (no usable copy at all) is a trip miss too: the later of the two rules a container out for 'trippick'
   // (Claude trip review P3: otherwise trip-line bots reopen containers already known to hold no pickaxe)
   // smeltjob's copper miss is its own map (COPPER_MISS_KEY, 2 h): toolkit-03 routes the job's draw through this search too
+  // ironsmelt-01: the iron's miss is its own map too (IRON_MISS_KEY, 2 h)
   const missOf = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : need === SMELT_JOB_INPUT ? mem?.[COPPER_MISS_KEY]?.[h]
+    : need === SMELT_IRON_INPUT ? mem?.[IRON_MISS_KEY]?.[h]
     : need === SMELT_JOB_FUEL ? mem?.[COAL_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
   const missAt = (h, need) => need === 'trippick' ? Math.max(missOf(h, 'pick') ?? -Infinity, missOf(h, 'trippick') ?? -Infinity) : missOf(h, need)
   const latest = vals => vals.reduce((a, v) => (Number.isFinite(v) && v > a ? v : a), -Infinity)
@@ -12031,7 +12035,29 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
  *  town container a live copper miss, out of this bot's search, or shut)? For the order. toolkit-03: the SAME rule the job
  *  searches by (the old gate judged every findBlocks key while the sweep skipped shut ones: an order that opened nothing). */
 export function townCopperMiss (bot) {
-  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }
+  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }
+}
+/** ironsmelt-01: the same for RAW IRON (its own 2 h miss and the index rule-out). For the order, which smelts iron first. */
+export function townIronMiss (bot) {
+  try { return townSearchEmpty(bot, [SMELT_IRON_INPUT], { missTtl: { [SMELT_IRON_INPUT]: IRON_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_IRON_INPUT).keys }) } catch { return false }
+}
+/**
+ * THE INDEX RULE-OUT FOR A JOB INPUT, NOW -> { keys, n } (smeltjob.mjs indexRuledOut over the town index's fold and the town
+ * memory's deposit marks). Empty with SMELT_RULEOUT off (IRONSMELT off included), the index unreadable, or `need` not an input:
+ * the base's search exactly. The order's gate and every view of the job's passes ask this, so they agree by construction.
+ */
+export function jobRuledOut (bot, need) {
+  const none = { keys: new Set(), n: 0 }
+  if (!SMELT_RULEOUT.on || (need !== SMELT_IRON_INPUT && need !== SMELT_JOB_INPUT)) return none
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return none
+    let mem = {}
+    try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    const tookAt = {}
+    for (const [h, e] of Object.entries(mem ?? {})) if (e?.o === 'took' && Number.isFinite(e.at)) tookAt[h] = e.at
+    return indexRuledOut(entries, need, Date.now(), { ttl: need === SMELT_IRON_INPUT ? IRON_MISS_TTL_MS : COPPER_MISS_TTL_MS, tookAt })
+  } catch { return none }
 }
 
 /** Would the job's COAL search find no candidate (townSearchEmpty over coal, its own 2 h miss)? The precheck before any
@@ -12068,39 +12094,61 @@ export function furnaceLeasedNow (k) {
 }
 
 const copperIn = held => (held[SMELT_JOB_INPUT] ?? 0) + (held[SMELT_JOB_OUTPUT] ?? 0)
+/** ironsmelt-01: the job's FAMILY count of an input (the input and what it smelts into) -- the balance's unit. */
+const familyIn = (held, input) => (held[input] ?? 0) + (held[SMELT_OUTPUT_OF[input]] ?? 0)
 
 /**
- * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, chest, unsettled, looked, misses, more, coalMore, tried }. The town
- * search (toolkit-03; withdraw_pick's townSearchOrder over townSearchView): the COPPER pass first -- every town container
- * not a live copper miss (2 h), nearest the bot, each once, up to SMELT_COPPER_VISITS, inside its clock -- taking the coal
- * alongside when a copper container has it; then, with copper in hand and no coal yet, the COAL pass, coal as its own need
- * (its own 60 min miss, NEVER skipped for lacking copper), up to SMELT_COAL_VISITS. Every opened container's facts are
- * remembered: no raw copper (the copper miss), no coal (the coal miss). `more` / `coalMore`: that pass ran out of budget or
- * clock with candidates left (the caller's stop is then search_more, never town_has_none / no_fuel).
+ * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, input, chest, unsettled, looked, misses, more, ironMore, coalMore, noCoal,
+ * tried, progressed, ru }. The town search (toolkit-03; withdraw_pick's townSearchOrder over townSearchView), one pass per need,
+ * each its own visit budget and clock, nearest the bot first, each container once per pass:
+ *   1. THE IRON (ironsmelt-01, IRONSMELT on): raw iron only (its own 2 h miss), the copper pass's budget and reserve, until 8 are
+ *      taken or the pass ends. Any raw iron taken makes the job an IRON job. None in hand: a pass cut with candidates left is
+ *      `ironMore` (the caller's search_more / search_stalled), UNLESS the bag carries raw copper, which this job then smelts (an
+ *      unfinished iron search never idles copper in hand -- Codex design r1 P2); a complete iron search falls through to
+ *   2. THE COPPER (the base): the bag's own first (no copper pass), else the copper pass (its own 2 h miss);
+ *   3. THE COAL, as its own need, with input in hand only (its own 2 h miss, never skipped for lacking copper or iron).
+ * Each pass takes ONLY its own input (and coal once input is in hand): one input per job by construction (Claude design r1 P3-2).
+ * Every opened container's facts are remembered for every need (no raw copper, no raw iron, no coal). Every view of an INPUT
+ * pass leaves out that input's index rule-out (jobRuledOut), recomputed at each view (Codex design r1 P2). `ru`: the most
+ * containers a view ruled out. The room-making deposits never bank the bag's own iron (the keep; Codex design r1 P2).
  */
-async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
+async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0 }, signal) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
-  const out = { took: {}, chest: null, unsettled: false, looked: 0, misses: 0, more: false, coalMore: false, noCoal: false, tried: [], progressed: false }
-  const keep = roomKeep(bot.currentWants ?? [])
-  let needCopper = copper, needCoal = coal
-  // FUEL ONLY WITH COPPER IN HAND (Claude code r2 P3): a look that finds no copper must not carry town coal away (the town
-  // deposit never banks coal back) -- coal is taken from a container only once the bag holds copper or this one has it
-  let copperInHand = copper <= 0
+  const out = { took: {}, input: null, chest: null, unsettled: false, looked: 0, misses: 0, more: false, ironMore: false, coalMore: false, noCoal: false,
+                tried: [], progressed: false, ru: 0 }
+  const keep = IRONSMELT.on ? [...roomKeep(bot.currentWants ?? []), SMELT_IRON_INPUT, SMELT_IRON_OUTPUT] : roomKeep(bot.currentWants ?? [])
+  const need = { [SMELT_IRON_INPUT]: 0, [SMELT_JOB_INPUT]: 0 }
+  let needCoal = coal
+  // FUEL ONLY WITH INPUT IN HAND (Claude code r2 P3): a look that finds no input must not carry town coal away (the town
+  // deposit never banks coal back) -- coal is taken from a container only once the job holds its input or this one has it
+  let inHand = false
+  let passInput = null       // the input THIS pass takes; in the coal pass, the job's chosen input (its top-up) or none
   const decide = (inChest, bag, { chestEmpty }) => {
     const takes = []
-    const cu = Math.min(needCopper, haveIn(inChest, SMELT_JOB_INPUT))
-    if (cu > 0) takes.push({ name: SMELT_JOB_INPUT, count: cu })
-    const fuel = needCoal > 0 && (copperInHand || cu > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
+    const nm = passInput
+    const n = nm ? Math.min(need[nm] ?? 0, haveIn(inChest, nm)) : 0
+    if (n > 0) takes.push({ name: nm, count: n })
+    const fuel = needCoal > 0 && (inHand || n > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
     if (fuel) takes.push({ name: fuel, count: 1 })
     return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
   }
-  const COPPER_TTL = { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, COAL_TTL = { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS }
-  // ONE PASS: `need` the search's need, `want` -> true while this pass still wants something
-  const pass = async (need, visits, reserveMs, want, missTtl) => {
+  const TTL = { [SMELT_IRON_INPUT]: { [SMELT_IRON_INPUT]: IRON_MISS_TTL_MS }, [SMELT_JOB_INPUT]: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS },
+                [SMELT_JOB_FUEL]: { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS } }
+  const lacks = (saw, nm) => (nm === SMELT_JOB_FUEL ? !saw.some(it => JOB_FUELS.includes(it.name)) : !saw.some(it => it.name === nm))
+  // ONE PASS: `nd` the search's need, `want` -> true while this pass still wants something
+  const pass = async (nd, visits, reserveMs, want) => {
     const pc = passClock(deadline, reserveMs)
     const passTried = new Set()
-    let next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+    let firstView = true
+    const view = () => {
+      const ro = nd === SMELT_JOB_FUEL ? null : jobRuledOut(bot, nd)
+      // `ru` is what the job STARTED with: the first view's rule-outs (later views also hold this pass's own opens)
+      if (ro && firstView && ro.n > out.ru) out.ru = ro.n
+      firstView = false
+      return townSearchNext(bot, [nd], ro?.keys?.size ? new Set([...passTried, ...ro.keys]) : passTried, {}, { missTtl: TTL[nd] })
+    }
+    let next = view()
     for (let n = 0; n < visits && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
       check(signal)
       const cb = next.block
@@ -12111,16 +12159,17 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
       if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
       // PROGRESS (Codex r2 P2): something the next job's search uses -- a miss for this pass's need, or a container left out
       if (v.result && SEARCH_FAIL_SKIP.has(v.result.failClass)) out.progressed = true
-      if (v.saw && (need === SMELT_JOB_INPUT ? !v.saw.some(it => it.name === SMELT_JOB_INPUT) : !v.saw.some(it => JOB_FUELS.includes(it.name)))) out.progressed = true
-      // WHAT IT HELD, remembered for both halves: no raw copper -> the copper miss; no coal -> the coal's own miss
+      if (v.saw && lacks(v.saw, nd)) out.progressed = true
+      // WHAT IT HELD, remembered for both halves and every need: no raw copper, no raw iron (IRONSMELT on), no coal
       if (v.saw) {
         const keys = halvesOf(bot, cb.position, v.double)
-        const noCu = !v.saw.some(it => it.name === SMELT_JOB_INPUT), noCoal = !v.saw.some(it => JOB_FUELS.includes(it.name))
-        if (noCu) out.misses++
-        if (noCu || noCoal) {
+        const noCu = lacks(v.saw, SMELT_JOB_INPUT), noCoal = lacks(v.saw, SMELT_JOB_FUEL), noFe = IRONSMELT.on && lacks(v.saw, SMELT_IRON_INPUT)
+        if (nd !== SMELT_JOB_FUEL && lacks(v.saw, nd)) out.misses++
+        if (noCu || noCoal || noFe) {
           try {
             updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {
               if (noCu) noteItemMisses(e, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)
+              if (noFe) noteItemMisses(e, IRON_MISS_KEY, IRON_MISS_TTL_MS, keys)
               if (noCoal) noteItemMisses(e, COAL_MISS_KEY, COAL_MISS_TTL_MS, keys)
             })
           } catch { /* advisory */ }
@@ -12129,49 +12178,79 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
       if (v.result?.failClass === 'transfer_unsettled') { out.unsettled = true; return }
       const took = v.verified ? (v.moved?.took ?? {}) : {}
       for (const [k, c] of Object.entries(took)) out.took[k] = (out.took[k] ?? 0) + c
-      if (took[SMELT_JOB_INPUT]) { needCopper = Math.max(0, needCopper - took[SMELT_JOB_INPUT]); out.chest = posKey(cb.position); copperInHand = true }
+      for (const nm of [SMELT_IRON_INPUT, SMELT_JOB_INPUT]) {
+        if (took[nm]) { need[nm] = Math.max(0, need[nm] - took[nm]); out.chest = posKey(cb.position); inHand = true; out.input ??= nm }
+      }
       if (JOB_FUELS.some(f => took[f])) needCoal = 0
       if (v.result && !v.verified && v.moved) { out.unsettled = true; return }
-      next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+      next = view()
     }
     return want() && next.order.length > 0   // cut with candidates left
   }
   // 0. NO COAL ANYWHERE IN TOWN (the coal search has no candidate: every container a live coal miss, out of this bot's search,
-  //    or shut, over a town wholly in view): no copper is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
+  //    or shut, over a town wholly in view): no input is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
   if (needCoal > 0 && townCoalMiss(bot)) { out.noCoal = true; return out }
-  // 1. THE COPPER (the bag's own first: copper 0 skips it)
-  if (needCopper > 0) out.more = !!(await pass(SMELT_JOB_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => needCopper > 0, COPPER_TTL))
-  if (out.unsettled) return out
-  // only the copper still wanted keeps `more` meaningful: some copper in hand is a job to run
-  if (copperInHand) out.more = false
-  // 2. THE COAL, as its own need -- with copper in hand only
-  if (needCoal > 0 && copperInHand && !out.unsettled) out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COAL_TTL))
+  // 1. THE IRON (ironsmelt-01): the town's, first
+  if (iron > 0) {
+    need[SMELT_IRON_INPUT] = iron; passInput = SMELT_IRON_INPUT
+    const cut = !!(await pass(SMELT_IRON_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => need[SMELT_IRON_INPUT] > 0))
+    if (out.unsettled) return out
+    if (out.input !== SMELT_IRON_INPUT) {
+      need[SMELT_IRON_INPUT] = 0; passInput = null
+      if (cut && !(carried > 0)) { out.ironMore = true; return out }
+    }
+  }
+  if (out.input !== SMELT_IRON_INPUT) {
+    // 2. THE COPPER (the base): the bag's own first (copper 0 skips the pass)
+    if (carried > 0) { out.input = SMELT_JOB_INPUT; inHand = true }
+    if (copper > 0) {
+      need[SMELT_JOB_INPUT] = copper; passInput = SMELT_JOB_INPUT
+      out.more = !!(await pass(SMELT_JOB_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => need[SMELT_JOB_INPUT] > 0))
+      if (out.unsettled) return out
+    }
+    // only the copper still wanted keeps `more` meaningful: some copper in hand is a job to run
+    if (inHand) out.more = false
+  }
+  // 3. THE COAL, as its own need -- with input in hand only (and the job's input topped up where a coal container has it)
+  passInput = out.input
+  if (needCoal > 0 && inHand && !out.unsettled) out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0))
   return out
 }
 
 /**
- * smelt_town -- the town order (smeltjob.mjs smeltTownOrder): take up to 8 raw copper (the bag's own first) and ONE coal
- * (coal only: JOB_FUELS) from the town -- always from the town, never the bag's own fuel, which the town deposit keeps for the iron
- * ladder (Claude code r1 P2-2) -- smelt in a LEASED furnace (the job fails closed when the lease cannot be recorded) with
- * the EXISTING `smelt`, burning only coal, and bank the ingots and any unsmelted input -- one skill, one
- * budget, so no other order comes between the withdraw and the deposit. One `_smelt_town` row, ALWAYS, with the copper
- * balance (smeltjob.mjs copperBalance) the read re-derives.
+ * smelt_town -- the town order (smeltjob.mjs smeltTownOrder): take up to 8 of ONE input -- the town's raw iron first
+ * (ironsmelt-01), else raw copper (the bag's own first) -- and ONE coal (coal only: JOB_FUELS) from the town -- always from the
+ * town, never the bag's own fuel, which the town deposit keeps for the iron ladder (Claude code r1 P2-2) -- smelt in a LEASED
+ * furnace (the job fails closed when the lease cannot be recorded) with the EXISTING `smelt`, burning only coal, and bank the
+ * ingots and any unsmelted input -- one skill, one budget, so no other order comes between the withdraw and the deposit. One
+ * `_smelt_town` row, ALWAYS, with the balance (smeltjob.mjs copperBalance) in the job's family, which the read re-derives.
  *
- * CARRY RECOVERY (Codex code r1 P2-6): an interrupted job leaves what it took in the bag. It is not stranded: the order's
+ * ONLY THE TOWN'S IRON IS THE JOB'S (ironsmelt-01): the bag's own raw_iron and iron_ingot are the bot's iron ladder. The furnace
+ * is fed at most the town take (ironSmeltCount), and the bank deposits exactly what the bag holds above its opening count of
+ * each name, the opening count held back for that one deposit call (ironBankPlan + swapWithdrawHold).
+ *
+ * CARRY RECOVERY (Codex code r1 P2-6): an interrupted job leaves what it took in the bag. Copper is not stranded: the order's
  * own eligibility takes the BAG'S raw copper first and needs no town copper for it, so the bot's next smelt_town at town
- * (after the 10 min cooldown) smelts it and banks it -- and its ingots, which every job banks. After a restart the
- * withdraw hold is gone and raw_copper/copper_ingot are DEPOSIT_ALWAYS.
+ * (after the 10 min cooldown) smelts it and banks it -- and its ingots, which every job banks. After a restart the withdraw
+ * hold is gone and raw_copper/copper_ingot are DEPOSIT_ALWAYS. Town iron left by an interrupted iron job becomes the bot's own
+ * (a standing target: its town deposit banks it above the ladder's keep); the read counts it.
  */
 async function smeltTown (ctx, _args, signal) {
   const { bot } = ctx
   const f = { stop: null, n: 0, bag0: 0, withdrawn: 0, coal: 0, smelted: 0, prior: 0, deposited: 0, depI: 0, depR: 0, bag1: 0, furnaceLeft: 0,
-              furnace: '-', lease: '-', verdict: null, diff: null, chest: '-', t0: Date.now() }
+              furnace: '-', lease: '-', verdict: null, diff: null, chest: '-', t0: Date.now(), in: '-', fed: '-', ru: '-', fe: '-' }
   let uncertain = false, result = null
   const home = homeVec()
-  f.bag0 = copperIn(heldMap(bot))
-  // BANK THE COPPER: the job's own hold on the input it did not smelt is given back first (the withdraw held it from every
-  // deposit), then one deposit per name, into the chest it came from when that has room. Every exit after a withdraw
-  // passes here, so the job never leaves town copper in a bag.
+  const held00 = heldMap(bot)
+  // BOTH FAMILIES AT THE START (Claude design r1 P3-3): the input is known only after the withdraw
+  const bag0Of = { [SMELT_JOB_INPUT]: copperIn(held00), [SMELT_IRON_INPUT]: familyIn(held00, SMELT_IRON_INPUT) }
+  const raw0 = held00[SMELT_IRON_INPUT] ?? 0, ingot0 = held00[SMELT_IRON_OUTPUT] ?? 0
+  // the job's input and its ingot: copper until the withdraw says iron
+  let IN = SMELT_JOB_INPUT, OUT = SMELT_JOB_OUTPUT
+  let priorRaw = 0
+  // BANK THE JOB'S OUTPUT: the job's own hold on the input it did not smelt is given back first (the withdraw held it from every
+  // deposit), then one deposit per name, into the chest it came from when that has room. Every exit after a withdraw passes
+  // here, so the job never leaves town copper in a bag -- and an IRON job banks exactly what it holds above the bag's own.
   // THE JOB'S WHOLE HOLD GOES AT ITS EXIT, and unburnt town fuel goes back (smeltjob.mjs jobReturns; Claude rebase review
   // 10-15 P2/P3): released ONCE, whichever exit path runs this.
   let fuelName = null, fuelBag0 = 0, released = false, fuelDone = false
@@ -12179,18 +12258,36 @@ async function smeltTown (ctx, _args, signal) {
     const ret = jobReturns({ withdrawn: f.withdrawn, fuelName, fuelTaken: f.coal, fuelBag0, fuelNow: fuelName ? (heldMap(bot)[fuelName] ?? 0) : 0 })
     if (!released) {
       released = true
-      if (ret.releaseRaw > 0) releaseWithdrawHold(SMELT_JOB_INPUT, ret.releaseRaw)
+      if (ret.releaseRaw > 0) releaseWithdrawHold(IN, ret.releaseRaw)
       if (ret.fuel) releaseWithdrawHold(ret.fuel.name, ret.fuel.release)
     }
     const preferAt = f.chest !== '-' ? keyVec(f.chest) : null
-    for (const name of [SMELT_JOB_OUTPUT, SMELT_JOB_INPUT]) {
-      const had = heldMap(bot)[name] ?? 0
-      if (!(had > 0)) continue
-      check(signal)
-      await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt })
-      const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
-      if (name === SMELT_JOB_OUTPUT) f.depI += gone; else f.depR += gone
-      f.deposited += gone
+    if (IN === SMELT_IRON_INPUT) {
+      // PER NAME, the bag's own count held back for exactly this one call, then the name's hold put back as it was (count AND
+      // clock) -- after the job's own take-hold was released above (Claude design r1 P3-3: never the other way round)
+      for (const name of [SMELT_IRON_OUTPUT, SMELT_IRON_INPUT]) {
+        const h = heldMap(bot)
+        const plan = ironBankPlan({ raw0, ingot0, rawNow: h[SMELT_IRON_INPUT] ?? 0, ingotNow: h[SMELT_IRON_OUTPUT] ?? 0, withdrawn: f.withdrawn, priorRaw })
+        const dep = plan[name].deposit
+        if (!(dep > 0)) continue
+        const had = h[name] ?? 0
+        check(signal)
+        const restore = swapWithdrawHold(name, plan[name].own, Date.now() + 10 * 60_000)
+        try { await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt }) } finally { restore() }
+        const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+        if (name === SMELT_IRON_OUTPUT) f.depI += gone; else f.depR += gone
+        f.deposited += gone
+      }
+    } else {
+      for (const name of [SMELT_JOB_OUTPUT, SMELT_JOB_INPUT]) {
+        const had = heldMap(bot)[name] ?? 0
+        if (!(had > 0)) continue
+        check(signal)
+        await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt })
+        const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+        if (name === SMELT_JOB_OUTPUT) f.depI += gone; else f.depR += gone
+        f.deposited += gone
+      }
     }
     // the town's unburnt fuel: `deposit` banks every unit of a name it may, so the bag's OWN fuel (the iron ladder's keep)
     // is held back for this one call by a hold of exactly that count (holds are what deposit already respects)
@@ -12210,21 +12307,30 @@ async function smeltTown (ctx, _args, signal) {
   try {
     const held0 = heldMap(bot)
     const carried = held0[SMELT_JOB_INPUT] ?? 0
-    const w = await jobWithdraw(ctx, { copper: carried < 1 ? SMELT_JOB_BATCH : 0, coal: 1 }, signal)
-    f.withdrawn = w.took[SMELT_JOB_INPUT] ?? 0
+    const w = await jobWithdraw(ctx, { iron: IRONSMELT.on ? SMELT_JOB_BATCH : 0, copper: carried < 1 ? SMELT_JOB_BATCH : 0, carried, coal: 1 }, signal)
+    if (w.input === SMELT_IRON_INPUT) { IN = SMELT_IRON_INPUT; OUT = SMELT_IRON_OUTPUT }
+    f.in = !IRONSMELT.on ? '-' : w.input === SMELT_IRON_INPUT ? 'fe' : w.input === SMELT_JOB_INPUT ? 'cu' : '-'
+    f.ru = SMELT_RULEOUT.on ? w.ru : '-'
+    f.withdrawn = w.took[IN] ?? 0
     f.coal = JOB_FUELS.reduce((t, n) => t + (w.took[n] ?? 0), 0)
     fuelName = JOB_FUELS.find(n => (w.took[n] ?? 0) > 0) ?? null
     fuelBag0 = fuelName ? (held0[fuelName] ?? 0) : 0
     f.chest = w.chest ?? '-'
-    f.looked = w.looked; f.more = w.more ? 'cu' : w.coalMore ? 'coal' : '-'
+    f.looked = w.looked; f.more = w.more ? 'cu' : w.ironMore ? 'fe' : w.coalMore ? 'coal' : '-'
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from the town chest could not be confirmed; the job stops until the bag settles' }) }
-    const have = heldMap(bot)[SMELT_JOB_INPUT] ?? 0
-    // THE TOWN HAS NO COAL (jobWithdraw step 0): nothing was taken; with carried copper the fuel check below says the same
-    if (w.noCoal && have < 1 && !((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) > 0)) {
-      f.stop = 'no_fuel'
-      return (result = { status: 'no_effect', detail: 'no coal in any town container (each looked in lately); the job does not burn the bag\'s own fuel, so it takes no copper and waits' })
+    // THE IRON SEARCH IS NOT DONE (ironsmelt-01): no iron in hand, candidates left, no copper carried -- no answer about the town's
+    // iron yet: search_more when the pass learned something (no strike), search_stalled when it learned nothing (a strike)
+    if (w.ironMore) {
+      f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED
+      return (result = { status: 'no_effect', detail: `no raw iron in the ${w.looked} town container(s) looked in yet; others are not yet looked in -- the next job continues the iron search first` })
     }
-    if (have < 1) {
+    const have = heldMap(bot)[IN] ?? 0
+    // THE TOWN HAS NO COAL (jobWithdraw step 0): nothing was taken; with carried copper the fuel check below says the same
+    if (w.noCoal && !((heldMap(bot)[SMELT_JOB_INPUT] ?? 0) > 0) && !((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) > 0)) {
+      f.stop = 'no_fuel'
+      return (result = { status: 'no_effect', detail: 'no coal in any town container (each looked in lately); the job does not burn the bag\'s own fuel, so it takes no input and waits' })
+    }
+    if (IN === SMELT_JOB_INPUT && have < 1) {
       // NOTHING TO SMELT -- BUT INGOTS IN THE BAG ARE BANKED (Codex code r2: the deterministic carry return). An earlier job
       // interrupted after its smelt, or a deposit that found the chest full, leaves ingots; the order fires on them and
       // this banks them.
@@ -12241,18 +12347,26 @@ async function smeltTown (ctx, _args, signal) {
         return (result = { status: 'no_effect', detail: `no raw copper in the ${w.looked} town container(s) looked in yet; others are not yet looked in -- the next job continues the search` })
       }
       f.stop = 'town_has_none'
-      return (result = { status: 'no_effect', detail: 'no raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt' })
+      return (result = { status: 'no_effect', detail: IRONSMELT.on
+        ? 'no raw iron or raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt'
+        : 'no raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt' })
     }
-    // NO TOWN FUEL: the job does not burn the bot's own (the iron ladder's keep) -- the copper goes back and the job waits.
+    // NO TOWN FUEL: the job does not burn the bot's own (the iron ladder's keep) -- the input goes back and the job waits.
     if (f.coal < 1) {
-      // a coal search cut with candidates left: search_more (the copper goes back either way; the next job continues)
-      // (the copper's deposit back ends that container's coal miss: the next job looks there once more -- no re-note, which
+      // a coal search cut with candidates left: search_more (the input goes back either way; the next job continues)
+      // (the input's deposit back ends that container's coal miss: the next job looks there once more -- no re-note, which
       // could hide a coal another bot put there meanwhile (Codex r2 P2); the 6-in-a-row pause bounds the repeat)
       f.stop = w.coalMore ? (w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED) : 'no_fuel'
       await bankCopper()
-      return (result = { status: 'no_effect', detail: 'no coal in the town containers looked in; the job does not burn the bag\'s own fuel, so the copper goes back and the job waits' })
+      return (result = { status: 'no_effect', detail: `no coal in the town containers looked in; the job does not burn the bag's own fuel, so the ${IN === SMELT_IRON_INPUT ? 'raw iron' : 'copper'} goes back and the job waits` })
     }
-    f.n = Math.min(SMELT_JOB_BATCH, have)
+    // the iron job feeds the furnace at most the town take, never the bag's own (smeltjob.mjs ironSmeltCount)
+    f.n = IN === SMELT_IRON_INPUT ? ironSmeltCount({ withdrawn: f.withdrawn, raw0, rawNow: have }) : Math.min(SMELT_JOB_BATCH, have)
+    if (!(f.n > 0)) {
+      f.stop = 'input_gone'
+      await bankCopper()
+      return (result = { status: 'no_effect', detail: 'the raw iron taken from town is no longer in the bag above its own; nothing to smelt' })
+    }
     // NO FURNACE IN REACH AND NONE CARRIED: the remedy `smelt` would print ("craft item=furnace (8 cobblestone); smelt
     // places it for you") is PERFORMED here, deterministically (CLAUDE.md: advice printed is not advice taken) -- only
     // when no furnace exists within smelt's 32 at all (a leased one is a skip, never a reason to craft: Claude r2 N4).
@@ -12272,7 +12386,7 @@ async function smeltTown (ctx, _args, signal) {
         return (result = { status: 'no_effect', detail: `no furnace within 32 blocks and crafting one did not work (${c.failClass ?? c.status}); the job waits` })
       }
     }
-    const ingots0 = heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0
+    const ingots0 = heldMap(bot)[OUT] ?? 0
     check(signal)
     // the job's smelt: town furnaces only (never one more than TOWN_DY above or below home: Claude code r1 P2-3), coal or
     // charcoal only, and a lease that could be recorded (fail closed)
@@ -12283,36 +12397,48 @@ async function smeltTown (ctx, _args, signal) {
     if (smeltDeadline - Date.now() < SMELT_MIN_SMELT_MS) {
       f.stop = SMELT_LATE
       await bankCopper()
-      return (result = { status: 'no_effect', detail: `the town search used the job's clock (${Math.round((smeltDeadline - Date.now()) / 1000)} s left for the smelt); the copper and coal go back and the next job smelts` })
+      return (result = { status: 'no_effect', detail: `the town search used the job's clock (${Math.round((smeltDeadline - Date.now()) / 1000)} s left for the smelt); the input and coal go back and the next job smelts` })
     }
-    const r = await smelt(ctx, { item: SMELT_JOB_INPUT, count: f.n }, signal,
+    const rawBefore = heldMap(bot)[IN] ?? 0
+    const r = await smelt(ctx, { item: IN, count: f.n }, signal,
       { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town', deadline: smeltDeadline })
     f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'
-    f.prior = (r.prior?.[SMELT_JOB_OUTPUT] ?? 0) + (r.prior?.[SMELT_JOB_INPUT] ?? 0)
-    f.smelted = Math.max(0, ((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) - ingots0) - (r.prior?.[SMELT_JOB_OUTPUT] ?? 0))
-    // WHAT THE FURNACE STILL HOLDS AT THE CLOSE (Codex code r1 P1-3): known copper there is OUT of the boundary (the drain
+    priorRaw = r.prior?.[IN] ?? 0
+    f.prior = (r.prior?.[OUT] ?? 0) + (r.prior?.[IN] ?? 0)
+    f.smelted = Math.max(0, ((heldMap(bot)[OUT] ?? 0) - ingots0) - (r.prior?.[OUT] ?? 0))
+    // WHAT THE BAG FED THE FURNACE (Codex design r1 P1): a bag delta of the input across the smelt -- the furnace's own prior
+    // input, merged into the batch and returned by the drain, makes `smelted` larger without costing the bag anything
+    if (IN === SMELT_IRON_INPUT) f.fed = Math.max(0, rawBefore - (heldMap(bot)[IN] ?? 0))
+    // WHAT THE FURNACE STILL HOLDS AT THE CLOSE (Codex code r1 P1-3): known input there is OUT of the boundary (the drain
     // job will take it); an unreadable slot, or a drain that stopped, cannot be closed from the bag -> UNRECONCILED
     if (r.furnace) {
       const cc = closingContents(r.closing)
-      f.furnaceLeft = (cc.items[SMELT_JOB_INPUT] ?? 0) + (cc.items[SMELT_JOB_OUTPUT] ?? 0)
+      f.furnaceLeft = (cc.items[IN] ?? 0) + (cc.items[OUT] ?? 0)
       if (cc.unreadable || r.drainStop) uncertain = true
     }
     if (r.status !== 'success') f.stop = `smelt:${r.failClass ?? r.status}`
     check(signal)
     await bankCopper()
+    const what = IN === SMELT_IRON_INPUT ? 'iron' : 'copper'
     if (r.status !== 'success') {
       return (result = { status: r.status === 'unknown' ? 'unknown' : (f.smelted > 0 ? 'success' : 'no_effect'), failClass: r.status === 'unknown' ? r.failClass : null,
-                         detail: `the smelt did not finish (${r.failClass ?? r.status}: ${String(r.detail ?? '').slice(0, 120)}); banked ${f.deposited} copper` })
+                         detail: `the smelt did not finish (${r.failClass ?? r.status}: ${String(r.detail ?? '').slice(0, 120)}); banked ${f.deposited} ${what}` })
     }
     f.stop = f.stop ?? (f.depI >= f.smelted ? 'done' : 'deposit_short')
-    return (result = { status: 'success', detail: `smelted ${f.smelted} raw copper into ingots and banked ${f.depI} ingots (and ${f.depR} raw) in town (${f.withdrawn} taken from the town chest)` })
+    return (result = { status: 'success', detail: `smelted ${f.smelted} raw ${what} into ingots and banked ${f.depI} ingots (and ${f.depR} raw) in town (${f.withdrawn} taken from the town chest)` })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; throw e }
     f.stop = f.stop ?? 'error'
     uncertain = true
+    // AN IRON JOB'S ERROR EXIT STILL BANKS (Claude design r1 P2-5): the order never fires on the bag's iron, so the town's would
+    // otherwise stay in the bag -- best effort, inside its own guard (copper keeps the base: its carry return recovers it)
+    if (IN === SMELT_IRON_INPUT) { try { await bankCopper() } catch { /* the read counts town iron left in bags */ } }
     return (result = { status: 'failed', failClass: 'other', detail: `the town smelt job stopped: ${String(e?.message ?? e).slice(0, 120)}` })
   } finally {
-    f.bag1 = copperIn(heldMap(bot))
+    const h1 = heldMap(bot)
+    f.bag0 = bag0Of[IN]
+    f.bag1 = familyIn(h1, IN)
+    if (IRONSMELT.on && IN === SMELT_IRON_INPUT) f.fe = `${raw0}/${ingot0}>${h1[SMELT_IRON_INPUT] ?? 0}/${h1[SMELT_IRON_OUTPUT] ?? 0}`
     if (f.stop === 'interrupted' || f.stop === 'error') uncertain = true
     const b = copperBalance({ bag0: f.bag0, withdrawn: f.withdrawn, prior: f.prior, deposited: f.deposited, bag1: f.bag1, furnaceLeft: Number(f.furnaceLeft) || 0, uncertain })
     f.verdict = b.verdict; f.diff = b.diff
@@ -14659,7 +14785,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   // A RECOUNT CHANGES THE TOWN'S JOURNAL AND NOTHING ELSE: its own verified count of containers counted (countTown)
   if (expects.includes('count_effect') && (delta.counted ?? 0) > 0) because.push(`count_effect: ${delta.counted} town container(s) counted`)
   // THE TOWN SMELT JOB's own count of ingots the furnace made from the job's input (smeltTown; prior output excluded)
-  if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw copper smelted into ingots`)
+  if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw ore smelted into ingots`)   // ironsmelt-01: iron or copper
   // THE TOOLKIT MADE A TOOL: its own verified count (a new usable iron axe/shovel copy in the bag after the craft). An abort or
   // a draw with no craft has none, so drawn ingots alone never read as "it worked".
   if (expects.includes('kit_effect') && (delta.kitCrafted ?? 0) > 0) because.push(`kit_effect: ${delta.kitCrafted} kit tool(s) crafted`)
