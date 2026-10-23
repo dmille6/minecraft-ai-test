@@ -1,0 +1,89 @@
+cols x=356..362 left->right, rows z=184..190 top->bottom (north at top); [] = the bot column 359,_,187
+y=46 (+6)
+  z184  w1   C    .    d    S    S    G   
+  z185  wf   wf   .    D    S    S    S   
+  z186  P    wf   d    d    S    .    C   
+  z187  k    .    .   [.]   S    S    C   
+  z188  wf   .    S    .    S    S    S   
+  z189  .    G    .    S    S    .    S   
+  z190  G    G    .    G    S    C    S   
+y=45 (+5)
+  z184  wf   A    .    d    .    S    C   
+  z185  wf   wf   .    .    .    S    S   
+  z186  w1   wf   d    d    .    C    C   
+  z187  w1   .    A   [.]   S    S    S   
+  z188  wf   G    .    .    S    S    S   
+  z189  w1   G    .    G    S    S    S   
+  z190  G    G    .    G    G    C    S   
+y=44 (+4)
+  z184  wf   w1   w2   .    .    S    C   
+  z185  wf   wf   G    .    .    S    S   
+  z186  wf   wf   d    .    .    C    S   
+  z187  wf   w1   A   [.]   S    .    S   
+  z188  D    w2   .    .    S    S    S   
+  z189  wf   G    .    G    S    S    S   
+  z190  G    G    G    G    G    C    S   
+y=43 (+3)
+  z184  wf   wf   wf   w1   G    .    .   
+  z185  wf   wf   d    G    .    .    S   
+  z186  wf   D    .    Cu   .    C    .   
+  z187  wf   D    A   [Cu]  .    .    .   
+  z188  C    wf   .    .    S    S    S   
+  z189  wf   G    Cu   G    S    S    S   
+  z190  w1   G    .    G    G    .    S   
+y=42 (+2)
+  z184  wf   wf   D    d    .    .    C   
+  z185  wf   wf   G    .    S    .    .   
+  z186  wf   w1   w2   Cu   G    C    .   
+  z187  D    w1   D   [Cu]  .    .    .   
+  z188  D    wf   w1   C    .    S    S   
+  z189  C    w1   G    G    S    S    S   
+  z190  wf   G    .    .    .    .    .   
+y=41 (+1)
+  z184  wf   G    .    .    S    S    C   
+  z185  wf   D    C    D    .    .    .   
+  z186  wf   D    wf   w1   S    G    .   
+  z187  D    wf   D   [w2]  L    .    .   
+  z188  C    D    wf   D    .    S    S   
+  z189  C    wf   G    .    .    S    S   
+  z190  wf   G    G    .    .    .    .   
+y=40 (+0)
+  z184  wf   w1   S    .    .    .    S   
+  z185  C    S    .    T    S    S    S   
+  z186  D    .    S    wf   S    G    S   
+  z187  S    S    w1  [wf]  D    .    S   
+  z188  B    .    S    S    .    .    S   
+  z189  B    S    S    .    .    S    S   
+  z190  D    G    S    .    .    C    .   
+y=39 (-1)
+  z184  wf   wf   w1   D    S    S    S   
+  z185  w1   .    .    S    S    S    S   
+  z186  C    .    .    D    .    .    S   
+  z187  .    .    S   [wf]  D    S    S   
+  z188  .    w3   w2   w1   S    S    d   
+  z189  p    S    S    S    .    S    d   
+  z190  C    S    S    .    .    C    d   
+y=38 (-2)
+  z184  D    wf   wf   D    S    S    S   
+  z185  wf   .    C    .    S    S    S   
+  z186  w1   w2   w3   C    .    .    d   
+  z187  w1   w1   S   [S]   .    S    d   
+  z188  w1   wf   S    S    S    d    d   
+  z189  w1   S    S    S    S    d    d   
+  z190  D    S    .    .    .    C    d   
+y=37 (-3)
+  z184  C    wf   A    A    S    S    S   
+  z185  wf   C    A    S    S    S    S   
+  z186  wf   D    G    .    .    .    d   
+  z187  wf   S    .   [.]   S    d    d   
+  z188  G    S    S    S    S    d    d   
+  z189  wf   S    S    S    S    d    d   
+  z190  G    .    .    .    C    C    d   
+y=36 (-4)
+  z184  A    A    A    S    S    S    S   
+  z185  A    A    S    S    S    S    S   
+  z186  S    S    S    S    .    .    d   
+  z187  S    S    S   [S]   S    d    d   
+  z188  S    S    S    S    S    d    d   
+  z189  B    .    S    S    S    d    d   
+  z190  .    .    .    C    .    C    .   

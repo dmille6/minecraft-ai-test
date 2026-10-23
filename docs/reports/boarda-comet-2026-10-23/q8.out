@@ -1,0 +1,754 @@
+02:30:29 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'z': 204.3, 'x': 331.5, 'y': 38}
+02:30:30 _dig_collision failed | dig of stone@331,37,204 cancelled — stopDigging called from digging.js:187 <- skills.mjs:169 | None
+02:31:03 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'x': 331.5, 'y': 38, 'z': 204.3}
+02:31:37 explore success | explored 33 blocks to 299,202 in 14 legs (some legs blocked: Took to long to decide path to goal!) | {'y': 36, 'z': 202, 'x': 298.7}
+02:31:37 _explore_toward_known success | heading for iron_ore at 304,49,223 (33b) instead of a random bearing | {'z': 204.3, 'x': 331.5, 'y': 38}
+02:33:07 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'y': 36, 'z': 202.5, 'x': 298.7}
+02:33:08 _dig_collision failed | dig of stone@299,37,202 cancelled — stopDigging called from digging.js:187 <- skills.mjs:169 | None
+02:33:44 explore no_effect | explored 13 blocks to 303,192 in 14 legs (some legs blocked: Path was stopped before it could be comp) — barely moved | {'x': 302.7, 'y': 43, 'z': 192.3}
+02:33:44 _explore_toward_known success | heading for iron_ore at 302,53,163 (40b) instead of a random bearing | {'z': 202.5, 'x': 298.7, 'y': 36}
+02:35:00 _explore_toward_known success | heading for iron_ore at 302,53,163 (29b) instead of a random bearing | {'x': 302.7, 'y': 43, 'z': 192.3}
+02:35:00 explore failed | could not explore: explored 0 blocks to 303,192 in 14 legs | {'x': 302.7, 'y': 43, 'z': 192.3}
+02:35:35 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'y': 43, 'z': 192.3, 'x': 302.7}
+02:35:36 _dig_collision failed | dig of stone@303,43,192 cancelled — stopDigging called from digging.js:187 <- skills.mjs:169 | None
+02:35:37 _stagnation failed | no progress across 105s of ACTIVE skill time (moved 0.0 blocks, items +0, frozen 105s; window 180s, threshold 8 blocks); escalation 1 | {'z': 192.3, 'x': 302.7, 'y': 43}
+02:36:11 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 147 s (rejections 1, repeat_loop) | {'y': 43, 'z': 192.3, 'x': 302.7}
+02:36:43 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 136 s (rejections 2, repeat_loop) | {'x': 302.7, 'y': 43, 'z': 192.3}
+02:37:16 goto failed | no route exists toward 260,208 — after 5 leg(s), still 38 blocks short | {'x': 297.3, 'y': 34.4, 'z': 202.4}
+02:37:17 _lava_corridor no_effect | lava_corridor: lava below at 333,35,207 after 113 samples; the leg is refused | {'z': 194.5, 'x': 303.7, 'y': 42.5}
+02:37:21 _livelock_escape success | fixated on one action; relocating to 260,208 -- moved 11 of the 45 blocks asked for (walk; dy -8.6, blocks spent 0) | {'x': 297.3, 'y': 34.4, 'z': 202.4}
+02:37:53 explore no_effect | explored 10 blocks to 299,209 in 14 legs (some legs blocked: No path to the goal!) — barely moved | {'x': 298.5, 'y': 26, 'z': 209.5}
+02:37:53 _explore_toward_known success | heading for iron_ore at 302,53,163 (40b) instead of a random bearing | {'x': 297.3, 'y': 33, 'z': 202.3}
+02:38:42 _plant_spot success | none at=- item=oak_sapling sap=26 kinds=2 ordered=0 | {'x': 300.1, 'y': 28, 'z': 209.5}
+02:38:43 explore no_effect | explored 8 blocks to 294,210 in 14 legs (some legs blocked: No path to the goal!) — barely moved | {'y': 26, 'z': 210.5, 'x': 293.5}
+02:38:43 _explore_toward_known success | heading for iron_ore at 302,53,163 (46b) instead of a random bearing | {'x': 300.7, 'y': 28, 'z': 209.5}
+02:39:07 _marooned_ramp_cut success | no route from y=26 and 2 adjacent block(s) yielded nothing when dug; steps=2 climbed=0.0 — stopped because cut a step at y=26 but could not stand in it | {'x': 296.7, 'y': 26, 'z': 210.5}
+02:39:23 _explore_toward_known success | heading for iron_ore at 302,53,163 (48b) instead of a random bearing | {'z': 210.5, 'x': 296.7, 'y': 26}
+02:39:23 explore aborted | stagnation | {'x': 301.5, 'y': 29, 'z': 208.7}
+02:39:37 _stagnation failed | no progress across 90s of ACTIVE skill time (moved 7.7 blocks, items +0, frozen 0s; window 180s, threshold 8 blocks); escalation 1 | {'x': 301.5, 'y': 29, 'z': 208.7}
+02:40:09 explore no_effect | explored 17 blocks to 286,206 in 14 legs (some legs blocked: No path to the goal!) — barely moved | {'x': 285.5, 'y': 26, 'z': 205.9}
+02:40:09 _explore_toward_known success | heading for iron_ore at 302,53,163 (46b) instead of a random bearing | {'x': 301.5, 'y': 29, 'z': 208.7}
+02:41:29 _livelock_not_fixated no_effect | moved: moved 14.95429218473491 gained 0 over 5 samples / 166 s (rejections 2, repeat_loop) | {'x': 285.6, 'y': 26, 'z': 205.8}
+02:42:01 _livelock_not_fixated no_effect | moved: moved 12.127492997900763 gained 0 over 5 samples / 157 s (rejections 3, repeat_loop) | {'z': 205.8, 'x': 285.6, 'y': 26}
+02:42:32 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 143 s (rejections 4, repeat_loop) | {'z': 205.8, 'x': 285.6, 'y': 26}
+02:43:03 _livelock_not_fixated no_effect | moved: moved 16.218613057381138 gained 0 over 6 samples / 175 s (rejections 5, repeat_loop) | {'x': 285.6, 'y': 26, 'z': 205.8}
+02:43:34 goto failed | no route exists toward 299,167 — after 0 leg(s), still 41 blocks short | {'x': 285.6, 'y': 26, 'z': 205.8}
+02:43:35 _config_drift failed | pathfinder Movements was replaced during goto; restored. canDig: true -> false | {'x': 285.6, 'y': 26, 'z': 205.8}
+02:43:35 goto failed | no route exists toward 299,167 — after 0 leg(s), still 41 blocks short | {'y': 26, 'z': 205.8, 'x': 285.7}
+02:43:35 _livelock_escape failed | fixated on one action; relocating to 299,167 -- moved 0 of the 41 blocks asked for (dig; latched; dy 0.0, blocks spent 0) | {'z': 205.8, 'x': 285.7, 'y': 26}
+02:45:22 _stranded_underground failed | y=26, -3b net gain over 6m, no milestone change, no inventory change; climb-out attempt 1 | {'z': 205.9, 'x': 285.8, 'y': 26}
+02:45:22 surface unknown | pathfinding exceeded 40000ms | {'z': 208.6, 'x': 327.5, 'y': 49.8}
+02:45:48 _entombed failed | walled in at y=45 | {'x': 326.5, 'y': 45, 'z': 209.5}
+02:45:48 _maroon_climb_refused failed | will not start a 3-block climb with 3 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'y': 45, 'z': 209.5, 'x': 326.5}
+02:46:11 _livelock_not_fixated no_effect | moved: moved 42.029740288770476 gained 6 over 5 samples / 155 s (rejections 4, repeat_loop) | {'y': 49, 'z': 208.6, 'x': 327.5}
+02:46:42 _livelock_not_fixated no_effect | moved: moved 41.80436585166251 gained 6 over 5 samples / 156 s (rejections 5, repeat_loop) | {'x': 327.5, 'y': 49, 'z': 208.6}
+02:47:14 _livelock_not_fixated no_effect | moved: moved 41.80436585166251 gained 6 over 5 samples / 156 s (rejections 6, repeat_loop) | {'z': 208.6, 'x': 327.5, 'y': 49}
+02:47:46 _livelock_not_fixated no_effect | moved: moved 41.80436585166251 gained 6 over 5 samples / 157 s (rejections 7, repeat_loop) | {'y': 49, 'z': 208.6, 'x': 327.5}
+02:47:46 _milestone_skipped failed | no progress after 25 attempts; moved on to patrol#2381 | {'x': 327.5, 'y': 49, 'z': 208.6}
+02:47:46 _milestone_complete success | completed stockpile_stone#2381; now return#2381 | {'z': 208.6, 'x': 327.5, 'y': 49}
+02:48:18 deposit failed | The goal was changed before it could be completed! | {'x': 329.4, 'y': 48, 'z': 206.8}
+02:48:19 _lava_corridor no_effect | lava_corridor: lava below at 333,35,207 after 35 samples; the leg is refused | {'x': 329.5, 'y': 48, 'z': 206.8}
+02:48:49 _plant_spot success | none at=- item=oak_sapling sap=26 kinds=2 ordered=0 | {'y': 48, 'z': 206.9, 'x': 329.3}
+02:48:52 goto failed | a competing goal replaced the route to 355,147 — after 0 leg(s), still 65 blocks short | {'x': 329.3, 'y': 48, 'z': 207}
+02:48:52 _lava_corridor no_effect | lava_corridor: lava below at 333,35,205 after 39 samples; the leg is refused | {'x': 329.3, 'y': 48, 'z': 206.9}
+02:49:04 _fall_path no_effect | candidate damage: fell 7, hp -4; descent 0s ago: path ACTIVE; path 0s old, still active (partial 22n walk mdd=6 liqdrop=true): max 2, 0>6, water 0, lava 0, unk 0 [2a@331,48,215]; goal ?; idle; ctl none; feet air head air | {'z': 207.5, 'x': 329.3, 'y': 41}
+02:51:00 deposit failed | The goal was changed before it could be completed! | {'y': 41, 'z': 207.5, 'x': 329.3}
+02:51:00 _lava_corridor no_effect | lava_corridor: lava below at 333,35,205 after 13 samples; the leg is refused | {'x': 329.3, 'y': 41, 'z': 207.5}
+02:51:32 goto failed | a competing goal replaced the route to 355,147 — after 0 leg(s), still 69 blocks short | {'x': 334.5, 'y': 41, 'z': 212.5}
+02:51:32 _lava_corridor no_effect | lava_corridor: lava beside at 334,41,210 after 1 samples; the leg is refused | {'z': 212.5, 'x': 334.5, 'y': 41}
+02:52:04 deposit failed | The goal was changed before it could be completed! | {'x': 334.5, 'y': 41, 'z': 212.5}
+02:52:04 _lava_corridor no_effect | lava_corridor: lava beside at 334,41,210 after 1 samples; the leg is refused | {'x': 334.5, 'y': 41, 'z': 212.5}
+02:52:05 _entombed failed | walled in at y=41 | {'z': 211.5, 'x': 336.3, 'y': 41}
+02:52:05 _maroon_climb_refused failed | will not start a 24-block climb with 5 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:52:20 _entombed failed | walled in at y=41 | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:52:20 _maroon_climb_refused failed | will not start a 24-block climb with 5 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'y': 41, 'z': 211.5, 'x': 336.3}
+02:52:24 _lava_adjacent_no_retreat no_effect | lava within a block and no verified retreat cell: holding still | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:52:35 _entombed failed | walled in at y=41 | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:52:35 _maroon_climb_refused failed | will not start a 24-block climb with 5 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'y': 41, 'z': 211.5, 'x': 336.3}
+02:52:35 _entombed_needs_blocks failed | pillar declined 4x (needs_blocks) at y=41; no ramp was cut: 3 of the last refusals were from here, so the bot is not pinned to one hole; asked the goal layer for 26x dirt | {'y': 41, 'z': 211.5, 'x': 336.3}
+02:53:07 _prereq_adopted failed | the escape reflex needs 26x dirt or cobblestone or stone (the climb declined 4x (needs_blocks) at y=41 and no ramp was cut: 3 of the last refusals were from here, so the bot is not pinned to one hole); it is now the task until sat | {'z': 211.5, 'x': 336.3, 'y': 41}
+02:53:24 _lava_adjacent_no_retreat no_effect | lava within a block and no verified retreat cell: holding still | {'z': 211.5, 'x': 336.3, 'y': 41}
+02:53:51 _entombed failed | walled in at y=41 | {'z': 211.5, 'x': 336.3, 'y': 41}
+02:53:51 _maroon_climb_refused failed | will not start a 24-block climb with 5 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:54:06 _entombed failed | walled in at y=41 | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:54:06 _maroon_climb_refused failed | will not start a 24-block climb with 5 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'z': 211.5, 'x': 336.3, 'y': 41}
+02:54:14 gather failed | dirt found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: arrived_out_of_reach: [pathfinder said: GoalChanged, no dig-approach (approach search said partial)] eye is 24.5 blocks   | {'z': 211.5, 'x': 335.2, 'y': 41}
+02:54:14 _gather_via_source success | every dirt candidate was buried or unsafe; grass_block yields dirt — 30 reachable | {'x': 336.3, 'y': 41, 'z': 211.5}
+02:54:14 _lava_corridor no_effect | lava_corridor: lava beside at 335,41,210 after 1 samples; the leg is refused | {'y': 41, 'z': 211.5, 'x': 336.3}
+02:54:14 _dig_approach fail | dirt 331,39,213: planned 0 block(s), in_reach=false (GoalChanged) [visited=2 ms=1 walk_ms=50 dig_ms=0 attempted=none dug=none unharvestable=none] | None
+02:54:15 _dig_approach fail | dirt 327,47,210: planned 0 block(s), in_reach=false (GoalChanged) [visited=60 ms=24 walk_ms=35 dig_ms=0 attempted=none dug=none unharvestable=none] | None
+02:54:35 _lava_adjacent_no_retreat no_effect | lava within a block and no verified retreat cell: holding still | {'x': 335.2, 'y': 41, 'z': 211.5}
+02:54:46 explore aborted | entombed | {'z': 202.6, 'x': 297.8, 'y': 36}
+02:54:46 _explore_toward_known success | heading for iron_ore at 347,54,188 (26b) instead of a random bearing | {'z': 211.5, 'x': 335.2, 'y': 41}
+02:54:46 _lava_corridor no_effect | lava_corridor: lava beside at 334,41,210 after 1 samples; the leg is refused | {'x': 335.2, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'y': 41, 'z': 211.5, 'x': 335.2}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'z': 211.5, 'x': 335.2, 'y': 41}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 335.2, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'x': 335.2, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'y': 41, 'z': 211.5, 'x': 333.7}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 333.7, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 333.7, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 333.7, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'z': 211.5, 'x': 335, 'y': 41}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'x': 335, 'y': 41, 'z': 211.5}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'y': 41, 'z': 211.5, 'x': 335}
+02:54:46 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 335, 'y': 41, 'z': 211.5}
+02:54:47 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'y': 41, 'z': 211.5, 'x': 333.7}
+02:54:47 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'y': 41, 'z': 211.5, 'x': 333.7}
+02:54:47 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'z': 211.5, 'x': 333.7, 'y': 41}
+02:54:47 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 333.7, 'y': 41, 'z': 211.5}
+02:55:20 _entombed failed | walled in at y=36 | {'x': 297.8, 'y': 36, 'z': 202.6}
+02:55:20 _maroon_climb_refused failed | will not start a 24-block climb with 3 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 297.8, 'y': 36, 'z': 202.6}
+02:55:35 _entombed failed | walled in at y=36 | {'x': 297.8, 'y': 36, 'z': 202.6}
+02:55:35 _maroon_climb_refused failed | will not start a 24-block climb with 2 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 297.8, 'y': 36, 'z': 202.6}
+02:55:35 _entombed_needs_blocks failed | pillar declined 8x (needs_blocks) at y=36; no ramp was cut: 2 of the last refusals were from here, so the bot is not pinned to one hole; asked the goal layer for 26x dirt | {'x': 297.8, 'y': 36, 'z': 202.6}
+02:55:56 _explore_toward_known success | heading for iron_ore at 330,56,206 (32b) instead of a random bearing | {'x': 297.8, 'y': 36, 'z': 202.6}
+02:55:56 explore success | explored 20 blocks to 316,211 in 14 legs (some legs blocked: The goal was changed before it could be ) | {'z': 210.5, 'x': 315.5, 'y': 40}
+02:56:10 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 327.5, 'y': 38.9, 'z': 212.5}
+02:56:10 _lava_corridor no_effect | lava_corridor: lava beside at 334,38,210 after 13 samples; the leg is refused | {'z': 212.5, 'x': 327.5, 'y': 38.3}
+02:56:11 _water_float_ended success | held 1.0s; head started in air, ended in air; dAir ?; dHealth 0; lowest air ?/20; ended because ashore (health 20) | {'x': 327.9, 'y': 39, 'z': 211.4}
+02:56:15 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 217.6, 'x': 327.3, 'y': 38}
+02:56:28 _water_float_ended success | held 13.0s; head started in air, ended in air; dAir ?; dHealth 0; lowest air ?/20; ended because no longer in water (health 20) | {'x': 326.3, 'y': 39.4, 'z': 217.9}
+02:56:28 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 38.9, 'z': 217.9, 'x': 326.3}
+02:56:29 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir ?; dHealth 0; lowest air ?/20; ended because no longer in water (health 20) | {'y': 39, 'z': 217.4, 'x': 325.8}
+02:56:34 _lava_corridor no_effect | lava_corridor: lava beside at 334,41,210 after 4 samples; the leg is refused | {'x': 333.3, 'y': 41, 'z': 214.5}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'y': 41, 'z': 211.4, 'x': 335.6}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'z': 211.4, 'x': 335.6, 'y': 41}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'x': 335.6, 'y': 41, 'z': 211.4}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'z': 211.4, 'x': 335.6, 'y': 41}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'x': 334.8, 'y': 41, 'z': 211.7}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'y': 41, 'z': 211.7, 'x': 334.8}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,41,210: the fallback walk is refused | {'z': 211.7, 'x': 334.8, 'y': 41}
+02:56:35 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,41,210: the fallback walk is refused | {'z': 211.7, 'x': 334.8, 'y': 41}
+02:57:13 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'x': 315.5, 'y': 40, 'z': 210.5}
+02:57:47 explore success | explored 50 blocks to 360,187 in 14 legs (some legs blocked: Took to long to decide path to goal!) | {'x': 359.6, 'y': 37.5, 'z': 186.5}
+02:57:47 _explore_toward_known success | heading for iron_ore at 347,54,188 (39b) instead of a random bearing | {'x': 315.5, 'y': 40, 'z': 210.5}
+02:57:55 _lava_corridor no_effect | lava_corridor: lava beside at 334,35,204 after 16 samples; the leg is refused | {'x': 332.5, 'y': 41, 'z': 202.7}
+02:58:15 _lava_corridor no_effect | lava_corridor: lava beside at 335,35,205 after 16 samples; the leg is refused | {'z': 201.5, 'x': 343.5, 'y': 36}
+02:58:29 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.5, 'z': 187.7, 'x': 355.8}
+02:58:29 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir ?; dHealth 0; lowest air ?/20; ended because no longer in water (health 20) | {'x': 357, 'y': 38, 'z': 187.6}
+02:59:01 _plant_spot success | none at=- item=oak_sapling sap=26 kinds=2 ordered=0 | {'x': 359.6, 'y': 37, 'z': 186.5}
+02:59:02 gather failed | oak_log found but all 4 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:3 falling:1] | {'x': 364.4, 'y': 48.4, 'z': 159.5}
+02:59:03 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.1, 'z': 185.5, 'x': 357.5}
+02:59:03 _water_float_ended success | held 0.3s; head started in air, ended in air; dAir ?; dHealth 0; lowest air ?/20; ended because no longer in water (health 20) | {'x': 357.2, 'y': 38.2, 'z': 185}
+02:59:04 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.4, 'z': 184.3}
+02:59:05 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 355.6, 'y': 38, 'z': 184.4}
+02:59:50 _explore_toward_known success | heading for iron_ore at 361,43,130 (30b) instead of a random bearing | {'z': 159.5, 'x': 364.4, 'y': 48}
+02:59:50 explore no_effect | explored 11 blocks to 375,159 in 14 legs (some legs blocked: Took to long to decide path to goal!) — barely moved | {'y': 50, 'z': 159.3, 'x': 374.7}
+03:00:55 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 3 samples / 113 s (rejections 1, repeat_loop) | {'x': 374.7, 'y': 50, 'z': 159.3}
+03:01:28 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 4 samples / 145 s (rejections 2, repeat_loop) | {'z': 159.3, 'x': 374.7, 'y': 50}
+03:02:00 _livelock_not_fixated no_effect | moved: moved 31.111303873479653 gained 0 over 5 samples / 178 s (rejections 3, repeat_loop) | {'y': 50, 'z': 159.3, 'x': 374.7}
+03:02:31 _livelock_not_fixated no_effect | moved: moved 10.345708002184729 gained 0 over 5 samples / 163 s (rejections 4, repeat_loop) | {'x': 374.7, 'y': 50, 'z': 159.3}
+03:03:04 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 129 s (rejections 5, repeat_loop) | {'y': 50, 'z': 159.3, 'x': 374.7}
+03:03:36 goto failed | path to 400,196 was stopped — after 1 leg(s), still 56 blocks short | {'x': 356.3, 'y': 55.3, 'z': 160.4}
+03:04:02 _livelock_escape success | fixated on one action; relocating to 400,196 -- moved 18 of the 44 blocks asked for (walk; dy 5.3, blocks spent 0) | {'x': 356.3, 'y': 55.3, 'z': 160.4}
+03:04:02 _milestone_skipped failed | no progress after 25 attempts; moved on to idle | {'z': 160.4, 'x': 356.3, 'y': 55.3}
+03:04:02 _milestone_complete success | completed return#2381+prereq; now gather_oak_log_12 | {'y': 55.3, 'z': 160.4, 'x': 356.3}
+03:04:33 explore success | explored 60 blocks to 323,210 in 14 legs (some legs blocked: The goal was changed before it could be ) | {'x': 323.5, 'y': 39.9, 'z': 210.4}
+03:04:33 _explore_toward_known success | heading for iron_ore at 347,54,188 (26b) instead of a random bearing | {'z': 168.5, 'x': 364.5, 'y': 51}
+03:04:52 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 185.3, 'x': 352.4, 'y': 37.8}
+03:04:53 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 353, 'y': 37.2, 'z': 184.6}
+03:04:58 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 353.5, 'y': 37.4, 'z': 185.4}
+03:04:59 _water_float_ended success | held 1.1s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 353.1, 'y': 38.5, 'z': 186}
+03:05:10 _lava_corridor no_effect | lava_corridor: lava beside at 334,35,204 after 6 samples; the leg is refused | {'x': 338.5, 'y': 35, 'z': 201.5}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava below at 333,35,205: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.5}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.5}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.5}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava below at 333,35,205: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.5}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 332.7, 'y': 35.8, 'z': 204.7}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava beside at 333,35,205: the fallback walk is refused | {'z': 204.7, 'x': 332.7, 'y': 35.8}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava beside at 333,35,205: the fallback walk is refused | {'x': 332.7, 'y': 35.8, 'z': 204.7}
+03:05:12 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 332.7, 'y': 35.8, 'z': 204.7}
+03:05:14 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,38,209: the fallback walk is refused | {'y': 38, 'z': 209.1, 'x': 332.5}
+03:05:14 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,38,208: the fallback walk is refused | {'y': 38, 'z': 209.1, 'x': 332.5}
+03:05:14 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,38,208: the fallback walk is refused | {'x': 332.5, 'y': 38, 'z': 209.1}
+03:05:14 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,38,209: the fallback walk is refused | {'x': 332.5, 'y': 38, 'z': 209.1}
+03:05:49 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'y': 39, 'z': 210.4, 'x': 323.5}
+03:06:23 gather failed | oak_log found but all 9 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:9] | {'y': 39, 'z': 210.4, 'x': 323.5}
+03:06:54 _explore_toward_known success | heading for iron_ore at 295,36,200 (30b) instead of a random bearing | {'x': 323.5, 'y': 39, 'z': 210.4}
+03:06:54 explore aborted | entombed | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:04 _entombed failed | walled in at y=36 | {'z': 202.5, 'x': 297.5, 'y': 36}
+03:07:04 _maroon_climb_refused failed | will not start a 24-block climb with 0 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 297.5, 'y': 36, 'z': 202.5}
+03:07:19 _entombed failed | walled in at y=36 | {'y': 36, 'z': 202.7, 'x': 297.3}
+03:07:19 _maroon_climb_refused failed | will not start a 24-block climb with 0 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:34 _entombed failed | walled in at y=36 | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:34 _maroon_climb_refused failed | will not start a 24-block climb with 0 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:41 gather failed | oak_log found but every candidate is buried — use mine to dig down — you are at y=36, 27 blocks below sea level; wood, plants and animals only exist above ground, so run surface first | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:50 _entombed failed | walled in at y=36 | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:50 _maroon_climb_refused failed | will not start a 24-block climb with 0 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 297.3, 'y': 36, 'z': 202.7}
+03:07:57 _entombed_ramp_cut success | pillar declined (needs_blocks) at y=36 for want of blocks; steps=1 breached=1 climbed=1.0 — stopped because a route exists again | {'x': 296.3, 'y': 37, 'z': 202.7}
+03:08:11 _prereq_abandoned failed | dirt-class: had 4/26 after 904s | {'x': 302.5, 'y': 36, 'z': 209.5}
+03:09:17 _plant_spot success | none at=- item=oak_sapling sap=26 kinds=2 ordered=0 | {'z': 209.5, 'x': 302.5, 'y': 36}
+03:09:54 gather failed | oak_log found but every candidate is buried — use mine to dig down — you are at y=36, 27 blocks below sea level; wood, plants and animals only exist above ground, so run surface first | {'y': 36, 'z': 209.5, 'x': 302.5}
+03:10:27 mine failed | stopped at y=36 to keep an exit: 4 scaffold blocks against a 27-block climb out (need 35 with reserve). Run surface now, or gather blocks before going deeper. | {'z': 209.5, 'x': 302.5, 'y': 36}
+03:10:27 _exit_reserve_abort failed | scaffold: 4 scaffold blocks against a 27-block climb out (need 35 with reserve) | {'z': 209.5, 'x': 302.5, 'y': 36}
+03:10:27 _prereq_adopted failed | mine needs 31x cobblestone or cobbled_deepslate or dirt (descent aborted to preserve an exit); it is now the task until satisfied | {'x': 302.5, 'y': 36, 'z': 209.5}
+03:11:00 gather failed | oak_log found but every candidate is buried — use mine to dig down — you are at y=36, 27 blocks below sea level; wood, plants and animals only exist above ground, so run surface first | {'z': 209.5, 'x': 302.5, 'y': 36}
+03:13:09 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'z': 209.5, 'x': 302.5, 'y': 36}
+03:14:17 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'y': 36, 'z': 209.5, 'x': 302.5}
+03:14:53 gather aborted | stagnation | {'x': 302.5, 'y': 36, 'z': 209.5}
+03:14:54 _stagnation failed | no progress across 105s of ACTIVE skill time (moved 0.0 blocks, items +0, frozen 165s; window 180s, threshold 8 blocks); escalation 1 | {'x': 302.5, 'y': 36, 'z': 209.5}
+03:15:26 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'z': 209.5, 'x': 302.5, 'y': 36}
+03:16:35 gather failed | oak_log found but every candidate is buried — use mine to dig down — you are at y=36, 27 blocks below sea level; wood, plants and animals only exist above ground, so run surface first | {'x': 302.5, 'y': 36, 'z': 209.5}
+03:17:08 gather success | collected 11 dirt (the rest could not be reached from here) | {'y': 38, 'z': 201.5, 'x': 335.5}
+03:17:18 _gather_via_source success | every dirt candidate was buried or unsafe; grass_block yields dirt — 32 reachable | {'x': 314.5, 'y': 39, 'z': 210.4}
+03:17:21 _lava_corridor no_effect | lava_corridor: lava below at 333,35,207 after 35 samples; the leg is refused | {'z': 211.5, 'x': 321.8, 'y': 39.2}
+03:17:22 _gather_via_source success | every dirt candidate was buried or unsafe; grass_block yields dirt — 32 reachable | {'y': 38, 'z': 211.5, 'x': 319.5}
+03:17:34 _pickup_skipped success | drop 645080 refused the walk; retired it and kept sweeping (1 retired, attempt 1/4) | None
+03:17:35 _dig_approach success | dirt 322,40,219: planned 0 block(s), in_reach=true [visited=1 ms=1 walk_ms=1056 dig_ms=0 attempted=none dug=none unharvestable=none] | None
+03:17:35 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 324.5, 'y': 38.9, 'z': 216.4}
+03:17:37 _water_float_ended success | held 1.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 324.3, 'y': 39.4, 'z': 216.7}
+03:17:37 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 324.3, 'y': 38.4, 'z': 216.7}
+03:17:38 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 216.7, 'x': 324.3, 'y': 39}
+03:17:38 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 324.3, 'y': 38.9, 'z': 216.7}
+03:17:39 _water_float_ended success | held 1.0s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 216.7, 'x': 324.3, 'y': 39.4}
+03:17:40 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 38, 'z': 216.7, 'x': 324.3}
+03:17:40 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 324.5, 'y': 39.6, 'z': 216.7}
+03:17:41 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 325.3, 'y': 38.2, 'z': 216.7}
+03:17:41 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 39.3, 'z': 217.3, 'x': 325.6}
+03:17:52 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 214.4, 'x': 330.3, 'y': 38}
+03:17:52 _water_float_ended success | held 0.6s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 330.7, 'y': 39.5, 'z': 214.2}
+03:17:53 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 330.7, 'y': 38.2, 'z': 213.6}
+03:17:53 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 331.5, 'y': 39.3, 'z': 213.6}
+03:17:54 _lava_corridor no_effect | lava_corridor: lava beside at 334,38,210 after 5 samples; the leg is refused | {'z': 213.6, 'x': 331.5, 'y': 39}
+03:17:54 _dig_approach fail | dirt 333,37,207: planned 0 block(s), in_reach=false (GoalChanged) [visited=3 ms=1 walk_ms=49 dig_ms=0 attempted=none dug=none unharvestable=none] | None
+03:18:43 gather success | entombed — but inventory_gain: dirt +10, which is what gather is for, so it worked | {'x': 352.6, 'y': 36, 'z': 192.5}
+03:18:43 _lava_corridor no_effect | lava_corridor: lava below at 334,35,204 after 8 samples; the leg is refused | {'x': 335.5, 'y': 38, 'z': 201.5}
+03:18:43 _dig_approach fail | dirt 333,37,207: planned 0 block(s), in_reach=false (GoalChanged) [visited=4 ms=2 walk_ms=51 dig_ms=0 attempted=none dug=none unharvestable=none] | None
+03:19:14 _pickup_skipped success | drop 645283 refused the walk; retired it and kept sweeping (1 retired, attempt 1/4) | None
+03:19:24 _pickup_skipped success | drop 645307 refused the walk; retired it and kept sweeping (1 retired, attempt 1/4) | None
+03:19:32 _entombed failed | walled in at y=36 | {'z': 194.5, 'x': 351.3, 'y': 36}
+03:19:38 _rule_contradicted failed | gather:{"block":"dirt","count":16} disproved after 1 recorded failure(s), stood 175m; reporters=-; self-corrected; evidence=inventory_gain: dirt +10 | None
+03:19:45 _inventory_mutation success | cause=entombed_escape dirt -2 | {'x': 352.6, 'y': 37, 'z': 192.5}
+03:20:08 _plant_spot success | found at=350,36,192 item=oak_sapling sap=26 kinds=2 ordered=1 | {'y': 37, 'z': 192.5, 'x': 352.6}
+03:20:08 _work_order success | place {"item":"oak_sapling","x":350,"y":36,"z":192} — holding 24 oak_sapling on plantable ground; the fleet takes 3,605 logs a day and plants none | {'x': 352.6, 'y': 37, 'z': 192.5}
+03:20:08 place success | placed oak_sapling at (350, 36, 192) | {'x': 352.6, 'y': 37, 'z': 192.5}
+03:20:41 gather success | entombed — but inventory_gain: dirt +1, which is what gather is for, so it worked | {'y': 34.2, 'z': 190.5, 'x': 353.5}
+03:21:00 _pickup_skipped success | drop 645467 refused the walk; retired it and kept sweeping (2 retired, attempt 2/4) | None
+03:21:10 _pickup_skipped success | drop 645467 refused the walk; retired it and kept sweeping (2 retired, attempt 2/4) | None
+03:21:20 _pickup_skipped success | drop 645467 refused the walk; retired it and kept sweeping (2 retired, attempt 2/4) | None
+03:21:26 _pickup_skipped success | drop 645467 refused the walk; retired it and kept sweeping (2 retired, attempt 2/4) | None
+03:21:27 _pickup_skipped success | drop 645467 refused the walk; retired it and kept sweeping (1 retired, attempt 1/4) | None
+03:21:28 _entombed failed | walled in at y=34 | {'z': 190.5, 'x': 353.5, 'y': 34}
+03:21:59 gather failed | dirt found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect threw nothing -- it returned without gathering] | {'x': 354.5, 'y': 34, 'z': 191.5}
+03:22:01 _path_no_legal_move failed | no_legal_move status=noPath visited=1 startLiquid=false h=2.4 | None
+03:22:01 _path_no_legal_move failed | no_legal_move status=noPath visited=1 startLiquid=false h=3.0 | None
+03:22:02 _path_no_legal_move failed | no_legal_move status=noPath visited=1 startLiquid=false h=3.0 | None
+03:22:24 _stagnation failed | no progress across 75s of ACTIVE skill time (moved 0.2 blocks, items -1, frozen 0s; window 180s, threshold 8 blocks); escalation 1 | {'x': 354.5, 'y': 38, 'z': 191.5}
+03:22:24 goto failed | path to 394,215 was stopped — after 1 leg(s), still 48 blocks short | {'x': 354.5, 'y': 38.4, 'z': 187.5}
+03:22:25 _inventory_mutation success | cause=entombed_escape dirt -4 | {'x': 354.5, 'y': 37.4, 'z': 188.3}
+03:22:43 gather failed | oak_log found but all 12 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:11 falling:1] | {'y': 38, 'z': 187.5, 'x': 354.5}
+03:23:16 deposit failed | Took to long to decide path to goal! | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:23:16 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.5, 'z': 187.5, 'x': 356}
+03:23:17 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because ashore (health 20) | {'y': 38, 'z': 187.5, 'x': 357}
+03:23:30 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:25:28 _prereq_abandoned failed | cobblestone-class: had 21/31 after 901s | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:25:30 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:25:31 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:26:01 _prereq_adopted failed | the escape reflex needs 1x wooden_pickaxe or stone_pickaxe or iron_pickaxe (no path can start from y=36; the open shaft is capped by stone 3 blocks overhead); it is now the task until satisfied | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:26:01 _prereq_satisfied success | wooden_pickaxe-class: had 12/1 after 0s | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:26:36 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:27:31 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:27:39 _prereq_adopted failed | the escape reflex needs 1x wooden_pickaxe or stone_pickaxe or iron_pickaxe (no path can start from y=36; the open shaft is capped by stone 3 blocks overhead); it is now the task until satisfied | {'y': 36, 'z': 186.5, 'x': 360.6}
+03:27:39 _prereq_satisfied success | wooden_pickaxe-class: had 12/1 after 0s | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:27:41 _explore_toward_known success | heading for iron_ore at 388,63,203 (32b) instead of a random bearing | {'y': 36, 'z': 186.5, 'x': 360.6}
+03:27:41 explore failed | could not explore: explored 0 blocks to 361,186 in 14 legs | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:29:32 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:29:47 _prereq_adopted failed | the escape reflex needs 1x wooden_pickaxe or stone_pickaxe or iron_pickaxe (no path can start from y=36; the open shaft is capped by stone 3 blocks overhead); it is now the task until satisfied | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:29:47 _prereq_satisfied success | wooden_pickaxe-class: had 12/1 after 0s | {'y': 36, 'z': 186.5, 'x': 360.6}
+03:29:51 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:30:21 _plant_spot success | none at=- item=oak_sapling sap=25 kinds=2 ordered=0 | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:30:24 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:30:56 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:31:32 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:32:01 _prereq_adopted failed | the escape reflex needs 1x wooden_pickaxe or stone_pickaxe or iron_pickaxe (no path can start from y=36; the open shaft is capped by stone 3 blocks overhead); it is now the task until satisfied | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:32:01 _prereq_satisfied success | wooden_pickaxe-class: had 12/1 after 0s | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:33:07 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:33:32 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:33:37 _prereq_adopted failed | the escape reflex needs 1x wooden_pickaxe or stone_pickaxe or iron_pickaxe (no path can start from y=36; the open shaft is capped by stone 3 blocks overhead); it is now the task until satisfied | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:33:37 _prereq_satisfied success | wooden_pickaxe-class: had 12/1 after 0s | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:34:11 _explore_toward_known success | heading for iron_ore at 388,63,203 (32b) instead of a random bearing | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:34:11 explore failed | could not explore: explored 0 blocks to 361,186 in 14 legs | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:34:44 gather failed | oak_log found but all 11 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:10 falling:1] | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:35:16 _milestone_skipped failed | no progress after 25 attempts; moved on to gather_sand_8 | {'y': 36, 'z': 186.5, 'x': 360.6}
+03:35:16 _milestone_complete success | completed gather_oak_log_12; now idle | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:35:33 _marooned_needs_pickaxe failed | no route from y=36, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:35:46 _prereq_adopted failed | the escape reflex needs 1x wooden_pickaxe or stone_pickaxe or iron_pickaxe (no path can start from y=36; the open shaft is capped by stone 3 blocks overhead); it is now the task until satisfied | {'z': 186.5, 'x': 360.6, 'y': 36}
+03:35:46 _prereq_satisfied success | wooden_pickaxe-class: had 12/1 after 0s | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:36:54 gather failed | sand found but all 14 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:7 both:7] | {'x': 360.6, 'y': 36, 'z': 186.5}
+03:37:26 gather aborted | entombed | {'z': 186.5, 'x': 359.5, 'y': 37}
+03:37:27 _entombed failed | walled in at y=37 | {'x': 360.1, 'y': 37.1, 'z': 186.5}
+03:37:27 _maroon_climb_refused failed | will not start a 20-block climb with 21 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 360.1, 'y': 37.1, 'z': 186.5}
+03:37:59 gather failed | sand found but all 15 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:7 both:7 falling:1] | {'z': 186.5, 'x': 359.5, 'y': 37}
+03:38:33 smelt failed | no raw_iron to smelt — gather raw_iron first | {'z': 186.5, 'x': 359.5, 'y': 37}
+03:38:33 _prereq_adopted failed | smelt needs 1x raw_iron (smelt has no input); it is now the task until satisfied | {'x': 359.5, 'y': 37, 'z': 186.5}
+03:40:38 _plant_spot success | none at=- item=oak_sapling sap=25 kinds=2 ordered=0 | {'x': 359.5, 'y': 37, 'z': 186.5}
+03:41:13 gather failed | iron_ore found but unreachable after 3 attempts [probe: partial, slate 4, A* reached none] [collect said: arrived_out_of_reach: [pathfinder said: pathfinding exceeded 15000ms, no dig-approach (approach search said partial)] ey | a | {'x': 359.4, 'y': 38, 'z': 182.5}
+03:41:14 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 357.3, 'y': 37, 'z': 185.3}
+03:41:16 _water_float_ended success | held 1.6s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.5, 'z': 184.3}
+03:41:17 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.3, 'z': 184.3}
+03:41:19 _water_float_ended success | held 1.9s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 38.3, 'z': 184.3, 'x': 356.3}
+03:41:20 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.1, 'z': 184.3}
+03:41:21 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:23 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.1, 'z': 184.3, 'x': 356.3}
+03:41:24 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:25 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.1, 'z': 184.3, 'x': 356.3}
+03:41:26 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:28 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.1, 'z': 184.3}
+03:41:28 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:30 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 184.3, 'x': 356.3, 'y': 37.1}
+03:41:31 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 38.3, 'z': 184.3, 'x': 356.3}
+03:41:32 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.1, 'z': 184.3}
+03:41:33 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 184.3, 'x': 356.3, 'y': 38.3}
+03:41:35 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.1, 'z': 184.3}
+03:41:36 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:37 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.1, 'z': 184.3, 'x': 356.3}
+03:41:38 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:40 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 356.3, 'y': 37.1, 'z': 184.3}
+03:41:40 _water_float_ended success | held 0.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:42 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 184.3, 'x': 356.3, 'y': 37.1}
+03:41:43 _water_float_ended success | held 0.9s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.3, 'y': 38.3, 'z': 184.3}
+03:41:46 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 358.9, 'y': 39.9, 'z': 182.5}
+03:41:48 _water_surface_ended success | held 1.7s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 359.6, 'y': 40.4, 'z': 182.4}
+03:41:50 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 182.3, 'x': 359.2, 'y': 39.5}
+03:41:50 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 39.2, 'z': 182, 'x': 356.7}
+03:41:51 _entombed failed | walled in at y=38 | {'x': 359.2, 'y': 38, 'z': 186.4}
+03:41:51 _maroon_climb_refused failed | will not start a 24-block climb with 20 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'x': 359.2, 'y': 38, 'z': 186.4}
+03:42:06 _entombed failed | walled in at y=38 | {'x': 359.2, 'y': 38, 'z': 186.4}
+03:42:06 _maroon_climb_refused failed | will not start a 24-block climb with 20 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'y': 38, 'z': 186.4, 'x': 359.2}
+03:42:21 _entombed failed | walled in at y=38 | {'z': 186.4, 'x': 359.2, 'y': 38}
+03:42:21 _maroon_climb_refused failed | will not start a 24-block climb with 20 placeable block(s): running out partway seals the bot higher than it started, holding nothing | {'z': 186.4, 'x': 359.2, 'y': 38}
+03:42:39 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.2, 'y': 38, 'z': 186.4}
+03:42:41 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'z': 186.4, 'x': 359.2, 'y': 38}
+03:42:41 _drowning_route success | out dist=1 at 359,38,186 scoop=flowing | {'x': 359.2, 'y': 38, 'z': 186.4}
+03:42:41 _drowning_to_air success | phase to_air | {'x': 359.2, 'y': 38, 'z': 186.4}
+03:42:41 _entombed_ramp_cut failed | pillar declined (needs_blocks) at y=38 for want of blocks; steps=0 breached=1 climbed=0.0 — stopped because dig failed on stone: Digging aborted | {'z': 186.4, 'x': 359.2, 'y': 38}
+03:42:41 _entombed_needs_blocks failed | pillar declined 4x (needs_blocks) at y=38; the escape ramp stopped because dig failed on stone: Digging aborted; asked the goal layer for 26x dirt | {'z': 186.4, 'x': 359.2, 'y': 38}
+03:42:42 _oxygen_reading_suspect success | oxygen 5 but head block is air and health is 20; not interrupting | {'x': 358.6, 'y': 38.2, 'z': 186.4}
+03:42:43 _drowning_breathing success | breathing after 2s (oxygen 8, health 20); still in water: no — which is terrain, not a failure | {'z': 186.5, 'x': 355.4, 'y': 37.8}
+03:42:54 gather failed | iron_ore found but every candidate is buried — use mine to dig down [mine said: stopped at y=41 to keep an exit: 20 scaffold blocks against a 22-block climb out (need 30 with reserve). Run s] | {'x': 360.5, 'y': 41.3, 'z': 175.5}
+03:42:54 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 37.6, 'z': 186.1, 'x': 354.5}
+03:42:56 _water_float_ended success | held 1.8s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 355.7, 'y': 38.4, 'z': 184.3}
+03:42:57 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 357, 'y': 39.1, 'z': 183.5}
+03:42:57 _water_surface_ended success | held 0.5s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 356.6, 'y': 40, 'z': 183.2}
+03:43:01 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.5, 'y': 40.2, 'z': 176.6}
+03:43:01 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because ashore (health 20) | {'z': 176.7, 'x': 360.5, 'y': 40}
+03:43:03 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 40.8, 'z': 176.5, 'x': 360.5}
+03:43:04 _water_float_ended success | held 1.0s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 175.9, 'x': 360.5, 'y': 41.4}
+03:43:04 _gather_escalated_to_mine success | iron_ore: every candidate buried, digging toward y=40 | None
+03:43:04 _mine_bearing_turned success | stair bearing (1,0) instead of the facing (0,1): 4 dry steps ahead vs 0 | {'x': 360.5, 'y': 41.3, 'z': 175.5}
+03:43:04 _exit_reserve_abort failed | scaffold: 20 scaffold blocks against a 22-block climb out (need 30 with reserve) | {'z': 175.5, 'x': 360.5, 'y': 41.3}
+03:44:10 _livelock_not_fixated no_effect | moved: moved 11.045104728524766 gained 0 over 5 samples / 177 s (rejections 2, repeat_loop) | {'x': 360.5, 'y': 41, 'z': 175.5}
+03:44:41 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 141 s (rejections 3, repeat_loop) | {'x': 360.5, 'y': 41, 'z': 175.5}
+03:45:14 _livelock_not_fixated no_effect | moved: moved 11.009646891966888 gained 0 over 6 samples / 173 s (rejections 4, repeat_loop) | {'x': 360.5, 'y': 41, 'z': 175.5}
+03:45:46 _livelock_not_fixated no_effect | moved: moved 12.680099529007007 gained 0 over 6 samples / 173 s (rejections 5, repeat_loop) | {'z': 175.5, 'x': 360.5, 'y': 41}
+03:46:19 goto failed | a competing goal replaced the route to 308,182 — after 2 leg(s), still 47 blocks short | {'x': 353.5, 'y': 41, 'z': 180.6}
+03:46:20 _lava_corridor no_effect | lava_corridor: lava beside at 334,35,204 after 90 samples; the leg is refused | {'z': 178.1, 'x': 357.9, 'y': 42}
+03:46:21 _livelock_escape success | fixated on one action; relocating to 308,182 -- moved 9 of the 53 blocks asked for (walk; dy 0.0, blocks spent 0) | {'x': 353.5, 'y': 41, 'z': 180.6}
+03:48:34 _explore_toward_known success | heading for iron_ore at 330,56,206 (34b) instead of a random bearing | {'x': 353.4, 'y': 37, 'z': 181.6}
+03:48:34 explore success | explored 29 blocks to 334,204 in 14 legs (some legs blocked: The goal was changed before it could be ) | {'x': 334.5, 'y': 36.3, 'z': 203.6}
+03:48:48 _lava_corridor no_effect | lava_corridor: lava beside at 334,35,204 after 4 samples; the leg is refused | {'x': 338.7, 'y': 35, 'z': 202.3}
+03:48:48 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 338.7, 'y': 35, 'z': 202.3}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'y': 36.3, 'z': 204.4, 'x': 333.3}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 36.3, 'z': 204.4}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava below at 333,35,205: the fallback walk is refused | {'x': 333.3, 'y': 36.3, 'z': 204.4}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'y': 36.3, 'z': 204.4, 'x': 333.3}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35.4, 'z': 204.8, 'x': 333.6}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35.4, 'z': 204.8, 'x': 333.6}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 333.6, 'y': 35.4, 'z': 204.8}
+03:48:49 _explore_blind_step_refused no_effect | blind_step: lava beside at 333,35,205: the fallback walk is refused | {'x': 333.6, 'y': 35.4, 'z': 204.8}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.6, 'y': 36, 'z': 204.8}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 333,35,205: the fallback walk is refused | {'y': 36, 'z': 204.8, 'x': 333.6}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'y': 36, 'z': 204.8, 'x': 333.6}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 333,35,205: the fallback walk is refused | {'x': 333.6, 'y': 36, 'z': 204.8}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.8, 'y': 36, 'z': 204.5}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.8, 'y': 36, 'z': 204.5}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.8, 'y': 36, 'z': 204.5}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.8, 'y': 36, 'z': 204.5}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334.4, 'y': 35.5, 'z': 203.7}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35.5, 'z': 203.7, 'x': 334.4}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334.4, 'y': 35.5, 'z': 203.7}
+03:48:50 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334.4, 'y': 35.5, 'z': 203.7}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35, 'z': 202.5, 'x': 335.4}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'z': 202.5, 'x': 335.4, 'y': 35}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 335.4, 'y': 35, 'z': 202.5}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35, 'z': 202.5, 'x': 335.4}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334.4, 'y': 35, 'z': 202.7}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334.4, 'y': 35, 'z': 202.7}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'z': 202.7, 'x': 334.4, 'y': 35}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334.4, 'y': 35, 'z': 202.7}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 333.8, 'y': 35.8, 'z': 204.3}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35.8, 'z': 204.3, 'x': 333.8}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'y': 35.8, 'z': 204.3, 'x': 333.8}
+03:48:51 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'z': 204.3, 'x': 333.8, 'y': 35.8}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.1}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'z': 204.1, 'x': 333.3, 'y': 36.2}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava below at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.1}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava below at 333,35,205: the fallback walk is refused | {'x': 333.3, 'y': 36.2, 'z': 204.1}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'z': 203.7, 'x': 334, 'y': 35}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'z': 203.7, 'x': 334, 'y': 35}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 334, 'y': 35, 'z': 203.7}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'z': 203.7, 'x': 334, 'y': 35}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 35, 'z': 204.3}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 35, 'z': 204.3}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 35, 'z': 204.3}
+03:48:52 _explore_blind_step_refused no_effect | blind_step: lava beside at 334,35,204: the fallback walk is refused | {'x': 333.3, 'y': 35, 'z': 204.3}
+03:48:53 _lava_corridor no_effect | lava_corridor: lava beside at 334,35,204 after 1 samples; the leg is refused | {'x': 335.5, 'y': 35, 'z': 203.3}
+03:49:25 gather failed | iron_ore found but unreachable after 3 attempts [probe: success, slate 4, A* reached none] [collect said: arrived_out_of_reach: [pathfinder said: GoalChanged, no dig-approach (approach path does not end within reach)] eye is 6 | a | {'x': 337.5, 'y': 35, 'z': 205.5}
+03:49:25 _lava_corridor no_effect | lava_corridor: lava beside at 335,35,205 after 1 samples; the leg is refused | {'z': 205.5, 'x': 337.5, 'y': 35}
+03:49:53 _marooned_needs_pickaxe failed | no route from y=35, column above is capped by stone, and no usable tool is available — asked for pickaxe | {'y': 35, 'z': 205.5, 'x': 337.5}
+03:49:58 _explore_toward_known success | heading for iron_ore at 363,71,215 (27b) instead of a random bearing | {'y': 35, 'z': 205.5, 'x': 337.5}
+03:49:58 explore success | explored 29 blocks to 359,187 in 14 legs (some legs blocked: Took to long to decide path to goal!) | {'y': 40, 'z': 186.9, 'x': 359.3}
+03:49:58 _lava_corridor no_effect | lava_corridor: lava beside at 335,35,205 after 1 samples; the leg is refused | {'x': 337.5, 'y': 35, 'z': 205.5}
+03:49:58 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,35,205: the fallback walk is refused | {'x': 337.5, 'y': 35, 'z': 205.5}
+03:49:58 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,35,205: the fallback walk is refused | {'x': 337.5, 'y': 35, 'z': 205.5}
+03:49:58 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,35,205: the fallback walk is refused | {'x': 337.5, 'y': 35, 'z': 205.5}
+03:49:58 _explore_blind_step_refused no_effect | blind_step: lava beside at 335,35,205: the fallback walk is refused | {'x': 337.5, 'y': 35, 'z': 205.5}
+03:50:11 _water_surface_out success | afloat and unowned — surface_out (head water, health 20) | {'z': 186.5, 'x': 359.7, 'y': 38}
+03:50:45 _plant_spot success | none at=- item=oak_sapling sap=25 kinds=2 ordered=0 | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+03:50:46 gather failed | iron_ore found but unreachable after 3 attempts [probe: noPath, slate 4, A* reached none] [collect said: arrived_out_of_reach: [pathfinder said: NoPath, no dig-approach (approach search said partial)] eye is 18.0 blocks from  | ar | {'x': 359.4, 'y': 40.2, 'z': 186.5}
+03:51:52 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 146 s (rejections 2, repeat_loop) | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+03:52:23 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 146 s (rejections 3, repeat_loop) | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+03:52:54 _livelock_not_fixated no_effect | moved: moved 28.460248964296586 gained 0 over 6 samples / 178 s (rejections 4, repeat_loop) | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+03:53:27 goto aborted | timeout | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+03:56:27 _goto_float_dig failed | copper_ore at 359,42,187 priced 375000ms took 179796ms confirmed=null Digging aborted | None
+03:56:27 _config_drift failed | pathfinder Movements was replaced during goto; restored. canDig: true -> false | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+03:56:27 goto failed | pathfinder returned an empty path from 359,40,188 — no route out of here even with digging allowed, 52 blocks short of 358,240 | {'z': 187.6, 'x': 359.3, 'y': 40.1}
+03:56:27 _water_surface_out_ended failed | held 376.2s; head started SUBMERGED, ended SUBMERGED; dAir 4; dHealth 0; lowest air 15/20; ended because ashore (health 20) | {'x': 359.5, 'y': 40, 'z': 187.6}
+03:56:36 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:56:38 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:56:38 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:56:38 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.6, 'x': 359.3}
+03:56:38 _goto_float_dig failed | copper_ore at 359,42,187 priced 375000ms took 11006ms confirmed=null Digging aborted | None
+03:56:38 _lava_corridor no_effect | lava_corridor: lava beside at 335,35,205 after 94 samples; the leg is refused | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:56:38 _goto_dig_retry failed | The goal was changed before it could be completed! wet=true->true from 359.6,40.1,187.6 in 11790ms budget=240000ms plan=partial planned_dig=1987500ms floating=true float_dug=0 | None
+03:56:39 _livelock_escape failed | fixated on one action; relocating to 358,240 -- moved 0 of the 52 blocks asked for (dig; latched; dy -0.1, blocks spent 0) | {'x': 359.3, 'y': 40.1, 'z': 187.6}
+03:56:39 _loop_restart failed | cognitive loop produced no decision for 192s | {'y': 40.1, 'z': 187.6, 'x': 359.3}
+03:56:39 _prereq_abandoned failed | raw_iron-class: had 0/1 after 1086s | {'x': 359.3, 'y': 40.1, 'z': 187.6}
+03:56:40 _explore_toward_known success | heading for iron_ore at 363,71,215 (28b) instead of a random bearing | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:56:40 explore failed | could not explore: explored 0 blocks to 359,188 in 14 legs | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:56:58 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+03:56:58 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+03:57:07 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:57:09 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:57:09 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:57:09 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.6, 'x': 359.3}
+03:57:30 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+03:57:39 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:57:39 _drowning_rescue_yielded success | 2 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:57:41 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:57:44 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 3 samples / 64 s (rejections 2, repeat_loop) | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:57:46 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.6, 'x': 359.3}
+03:57:46 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:58:06 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+03:58:06 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+03:58:15 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:58:15 _drowning_rescue_yielded success | 3 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:58:18 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:58:23 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.6, 'x': 359.3}
+03:58:23 _drowning_to_air success | phase to_air | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:58:26 _stagnation failed | no progress across 75s of ACTIVE skill time (moved 0.4 blocks, items +0, frozen 180s; window 180s, threshold 8 blocks); escalation 1 | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+03:58:26 goto aborted | stagnation | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+03:58:33 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:58:35 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=true swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:58:41 _stagnation failed | no progress across 180s of ACTIVE skill time (moved 0.4 blocks, items +0, frozen 180s; window 180s, threshold 8 blocks); escalation 2 | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+03:58:41 _goto_float_dig failed | copper_ore at 359,42,187 priced 375000ms took 14750ms confirmed=null Digging aborted | None
+03:58:43 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 4, health 20) — sealed, no route up or out | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:58:45 _drowning_rescue_yielded success | 4 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'y': 40, 'z': 187.6, 'x': 359.3}
+03:58:47 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'z': 187.6, 'x': 359.3, 'y': 40}
+03:58:47 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+03:58:48 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:58:54 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:58:56 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=true swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:07 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.7, 'x': 359.7}
+03:59:07 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+03:59:16 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:16 _drowning_rescue_yielded success | 5 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:18 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.7, 'x': 359.3}
+03:59:23 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:23 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:23 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:43 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+03:59:52 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:52 _drowning_rescue_yielded success | 6 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:55 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+03:59:57 gather failed | stone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'y': 40.1, 'z': 187.7, 'x': 359.4}
+04:00:00 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:00:00 _drowning_to_air success | phase to_air | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:00:20 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+04:00:20 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+04:00:29 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:00:29 _drowning_rescue_yielded success | 7 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'y': 40, 'z': 187.7, 'x': 359.3}
+04:00:31 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:00:36 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:00:36 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:00:56 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+04:01:02 _plant_spot success | none at=- item=oak_sapling sap=25 kinds=2 ordered=0 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:06 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:06 _drowning_rescue_yielded success | 8 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:01:08 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:13 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:13 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:33 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+04:01:33 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+04:01:42 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:42 _drowning_rescue_yielded success | 9 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:01:44 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.7, 'x': 359.3}
+04:01:49 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.7, 'x': 359.3}
+04:01:49 _drowning_to_air success | phase to_air | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:02:10 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+04:02:19 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:02:19 _drowning_rescue_yielded success | 10 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:02:21 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.7, 'x': 359.3}
+04:02:26 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:02:26 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:02:46 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+04:02:46 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+04:02:55 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:02:55 _drowning_rescue_yielded success | 11 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:02:58 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:03:03 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:03:03 _drowning_to_air success | phase to_air | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:03:23 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.7, 'x': 359.7}
+04:03:32 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:03:32 _drowning_rescue_yielded success | 12 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:03:34 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.7, 'x': 359.3}
+04:03:39 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'z': 187.7, 'x': 359.3, 'y': 40}
+04:03:39 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+04:04:00 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+04:04:00 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:04:09 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:04:09 _drowning_rescue_yielded success | 13 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:04:11 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:04:16 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:04:16 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:04:26 _stranded_underground failed | y=40, 0b net gain over 6m, no milestone change, no inventory change; climb-out attempt 1 | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:04:26 surface failed | The goal was changed before it could be completed! | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:04:35 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:04:36 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 7, health 20) — sealed, no route up or out | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:04:37 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:04:39 _drowning_rescue_yielded success | 14 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:04:42 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:04:42 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:02 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:05:02 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:05:11 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:11 _drowning_rescue_yielded success | 15 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:05:14 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:05:19 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:19 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:39 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:05:41 _stagnation failed | no progress across 60s of ACTIVE skill time (moved 0.4 blocks, items +0, frozen 165s; window 180s, threshold 8 blocks); escalation 1 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:48 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:48 _drowning_rescue_yielded success | 16 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:51 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:05:56 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:05:56 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:06:05 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 4 samples / 178 s (rejections 6, repeat_loop) | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:06:16 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+04:06:16 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+04:06:25 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:06:25 _drowning_rescue_yielded success | 17 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:06:27 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:06:32 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:06:32 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:06:38 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 4 samples / 176 s (rejections 7, repeat_loop) | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:06:52 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:07:01 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:07:01 _drowning_rescue_yielded success | 18 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:07:04 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:07:09 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:07:09 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:07:10 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 4 samples / 176 s (rejections 8, repeat_loop) | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:07:29 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+04:07:29 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+04:07:38 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:07:38 _drowning_rescue_yielded success | 19 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:07:40 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:07:42 gather failed | cobblestone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:07:45 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:07:45 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:05 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+04:08:14 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:14 _drowning_rescue_yielded success | 20 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:17 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:08:18 _livelock_not_fixated no_effect | insufficient coverage: moved ? gained ? over 5 samples / 131 s (rejections 1, repeat_loop) | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:08:22 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'z': 187.6, 'x': 359.3, 'y': 40}
+04:08:22 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:42 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+04:08:42 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:08:51 gather failed | cobblestone found but unreachable after 3 attempts [probe: success, slate 4, A* reached a candidate] [collect said: Digging aborted] | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:51 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:08:51 _drowning_rescue_yielded success | 21 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:53 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:58 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:08:58 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.6, 'x': 359.3}
+04:09:18 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+04:09:27 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:09:27 _drowning_rescue_yielded success | 22 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:09:30 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:09:35 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:09:35 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+04:09:55 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+04:09:55 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'y': 40.2, 'z': 187.6, 'x': 359.7}
+=========== 14:55-16:45
+15:00:15 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:00:24 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:00:24 _drowning_rescue_yielded success | 397 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:00:26 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:00:31 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:00:31 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:00:52 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:00:52 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:01:01 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:01 _drowning_rescue_yielded success | 398 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:01:03 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:08 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:08 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:27 gather failed | oak_log found but all 12 candidates are beside water or under falling blocks — digging them would flood or bury this spot [liquid:9 falling:2 both:1] | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:01:28 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 19, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:01:36 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:36 _drowning_rescue_yielded success | 399 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:39 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:01:44 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:01:44 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:02:00 _explore_toward_known success | heading for iron_ore at 363,71,215 (28b) instead of a random bearing | {'y': 40.2, 'z': 187.7, 'x': 359.7}
+15:02:00 explore failed | could not explore: explored 0 blocks to 359,188 in 14 legs | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:02:04 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 14, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:02:04 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:02:08 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:02:08 _drowning_rescue_yielded success | 400 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:02:11 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:02:16 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:02:16 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:02:32 smelt failed | no raw_iron to smelt — gather raw_iron first | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+15:02:32 _prereq_adopted failed | smelt needs 1x raw_iron (smelt has no input); it is now the task until satisfied | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:02:36 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 15, health 20) — sealed, no route up or out | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:02:42 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:02:42 _drowning_rescue_yielded success | 401 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:02:44 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'z': 187.7, 'x': 359.3, 'y': 40}
+15:02:49 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:02:49 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:03:09 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:03:09 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.7}
+15:03:18 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:03:18 _drowning_rescue_yielded success | 402 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:03:20 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:03:25 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:03:25 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:03:46 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.7, 'x': 359.7, 'y': 40.2}
+15:03:55 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:03:55 _drowning_rescue_yielded success | 403 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:03:57 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:04:02 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:04:02 _drowning_to_air success | phase to_air | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:04:22 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'z': 187.6, 'x': 359.7, 'y': 40.2}
+15:04:22 _flooded_pocket_rung no_effect | refused: no dry opening above the column | {'x': 359.7, 'y': 40.2, 'z': 187.6}
+15:04:31 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+15:04:31 _drowning_rescue_yielded success | 404 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.6}
+15:04:34 _oxygen_critical_state failed | air fell to 25% (5/20); rescuing=false swimming=false health 20 | {'y': 40, 'z': 187.6, 'x': 359.3}
+15:04:39 _drowning_route success | out dist=1 at 359,40,188 scoop=flowing | {'y': 40, 'z': 187.6, 'x': 359.3}
+15:04:39 _drowning_to_air success | phase to_air | {'x': 359.3, 'y': 40, 'z': 187.6}
+15:04:40 mine unknown | stopped at y=40: cut a step but could not stand in it (moved 1.28 blocks, wrong cell). The shaft was not widened further. Try goto to reposition, or gather to clear what is in the way. | {'x': 360.6, 'y': 40.2, 'z': 187.6}
+15:04:59 _drowning_ceiling_no_air failed | held 20s and never reached air (oxygen 20, health 20) — sealed, no route up or out | {'y': 40.2, 'z': 187.2, 'x': 359.7}
+15:05:08 _air_drowning_observed success | oxygen 8, head block water, health 20 | {'y': 40, 'z': 187.7, 'x': 359.3}
+15:05:08 _drowning_rescue_yielded success | 405 ceilings expired here with no air and no harm (health 20, moved on) — yielding the body to the escape handlers | {'x': 359.3, 'y': 40, 'z': 187.7}
+15:05:08 _water_surface_out success | afloat and unowned — surface_out (head water, health 20) | {'x': 359.3, 'y': 40.1, 'z': 187.7}
+15:05:09 _mine_stair_step_failed failed | dug the tread at (360,39,187) but ended at (360,40,187) after moving 1.28 horizontally — the stair was cut and not taken | {'z': 187.6, 'x': 360.6, 'y': 40.2}
+15:05:11 _water_surface_out_ended success | held 3.0s; head started SUBMERGED, ended in air; dAir 12; dHealth 0; lowest air 8/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.2, 'z': 187.6}
+15:05:11 _entombed failed | walled in at y=41 | {'z': 187.6, 'x': 360.7, 'y': 41.2}
+15:05:12 _tool_gone no_effect | wooden_pickaxe x1; the lost copy had 56 of 59 uses left | {'z': 187.6, 'x': 360.7, 'y': 39.7}
+15:05:12 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.1, 'z': 187.6}
+15:05:13 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.1, 'z': 187.6}
+15:05:13 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.6, 'z': 187.6}
+15:05:14 _water_surface_ended success | held 0.5s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.1, 'z': 187.6}
+15:05:14 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.6, 'z': 187.6}
+15:05:19 _water_surface_ended success | held 5.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.2}
+15:05:20 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.6, 'z': 187.6}
+15:05:25 _water_surface_ended success | held 5.1s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.2, 'z': 187.6}
+15:05:25 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.6, 'z': 187.6}
+15:05:30 _water_surface_ended success | held 5.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.2, 'z': 187.6}
+15:05:31 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.6, 'z': 187.6}
+15:05:36 _water_surface_ended success | held 5.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.2}
+15:05:36 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.6, 'z': 187.6}
+15:05:41 _water_surface_ended success | held 5.1s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.1, 'z': 187.6}
+15:05:42 gather failed | iron_ore found but unreachable after 3 attempts [probe: noPath, slate 4, A* reached none] [collect said: arrived_out_of_reach: [pathfinder said: NoPath, no dig-approach (approach search said partial)] | {'y': 39, 'z': 187.6, 'x': 360.7}
+15:05:42 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.1, 'z': 187.6}
+15:05:43 _water_surface_ended failed | held 0.5s; head started SUBMERGED, ended SUBMERGED; dAir -1; dHealth 0; lowest air 20/20; ended because ashore (health 20) | {'x': 360.7, 'y': 39, 'z': 187.6}
+15:05:50 _water_surface success | afloat and unowned — surface (head water, health 20) | {'z': 187.6, 'x': 360.7, 'y': 39.4}
+15:05:53 _water_surface_ended success | held 2.5s; head started SUBMERGED, ended in air; dAir 11; dHealth 0; lowest air 9/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.3}
+15:05:54 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.8, 'z': 187.6}
+15:05:54 _water_surface_ended success | held 0.5s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.6, 'z': 187.6}
+15:05:55 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.2, 'z': 187.6}
+15:05:56 _water_surface_ended success | held 1.5s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.2, 'z': 187.6}
+15:05:57 _water_surface success | afloat and unowned — surface (head water, health 20) | {'z': 187.6, 'x': 360.7, 'y': 39}
+15:05:58 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 41.6, 'z': 187.6, 'x': 360.7}
+15:05:58 _water_surface success | afloat and unowned — surface (head water, health 20) | {'z': 187.6, 'x': 360.7, 'y': 39.1}
+15:05:59 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:00 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.5, 'z': 187.6}
+15:06:03 _water_surface_ended success | held 3.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:03 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39, 'z': 187.6}
+15:06:04 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:05 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.3, 'z': 187.6}
+15:06:07 _water_surface_ended failed | held 2.0s; head started SUBMERGED, ended SUBMERGED; dAir 0; dHealth 0; lowest air 20/20; ended because ashore (health 20) | {'y': 39, 'z': 187.6, 'x': 360.7}
+15:06:07 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.8, 'z': 187.6}
+15:06:08 _water_surface_ended success | held 0.5s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.6, 'z': 187.6}
+15:06:08 _water_surface success | afloat and unowned — surface (head water, health 20) | {'z': 187.6, 'x': 360.7, 'y': 39.2}
+15:06:09 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.2, 'z': 187.6}
+15:06:10 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.9, 'z': 187.6}
+15:06:11 _water_surface_ended success | held 1.5s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 41, 'z': 187.6, 'x': 360.7}
+15:06:12 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39, 'z': 187.6}
+15:06:13 _water_surface_ended success | held 1.3s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:13 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39, 'z': 187.6}
+15:06:14 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.6, 'z': 187.6}
+15:06:15 mine failed | stopped at y=39: water beside the ceiling cell ahead — opening it would let it in | {'y': 39.1, 'z': 187.6, 'x': 360.7}
+15:06:15 _mine_bearing_turned success | stair bearing (0,1) instead of the facing (-1,0): 4 dry steps ahead vs 0 | {'z': 187.6, 'x': 360.7, 'y': 39.1}
+15:06:15 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.1, 'z': 187.6}
+15:06:16 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 41.6, 'z': 187.6, 'x': 360.7}
+15:06:16 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.1, 'z': 187.6}
+15:06:17 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 41.4, 'z': 187.6, 'x': 360.7}
+15:06:18 _water_surface success | afloat and unowned — surface (head water, health 20) | {'z': 187.6, 'x': 360.7, 'y': 39.5}
+15:06:21 _water_surface_ended success | held 3.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.5}
+15:06:21 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39, 'z': 187.6}
+15:06:22 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:23 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.3, 'z': 187.6}
+15:06:24 _water_surface_ended success | held 1.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:24 _water_surface success | afloat and unowned — surface (head water, health 20) | {'x': 360.7, 'y': 39.5, 'z': 187.6}
+15:06:27 _water_surface_ended success | held 3.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:28 _water_surface success | afloat and unowned — surface (head water, health 20) | {'z': 187.6, 'x': 360.7, 'y': 39}
+15:06:30 _water_surface_ended success | held 2.0s; head started SUBMERGED, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.2, 'z': 187.6}
+15:06:31 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 187.6, 'x': 360.7, 'y': 40.1}
+15:06:32 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:32 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.3, 'z': 187.6}
+15:06:33 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.3, 'z': 187.6}
+15:06:33 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.5, 'z': 187.6}
+15:06:35 _water_float_ended success | held 1.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:35 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 187.6, 'x': 360.7, 'y': 40.4}
+15:06:36 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41}
+15:06:36 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.9, 'z': 187.6}
+15:06:37 _water_float_ended success | held 1.0s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:38 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 40, 'z': 187.6, 'x': 360.7}
+15:06:38 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.6}
+15:06:39 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.2, 'z': 187.6}
+15:06:39 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:40 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 40.1, 'z': 187.6, 'x': 360.7}
+15:06:40 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:41 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 187.6, 'x': 360.7, 'y': 40.3}
+15:06:41 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.4, 'z': 187.6}
+15:06:42 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.4, 'z': 187.6}
+15:06:42 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41, 'z': 187.6}
+15:06:43 _water_float success | afloat and unowned — float (head air, health 20) | {'z': 187.6, 'x': 360.7, 'y': 40.9}
+15:06:44 _water_float_ended success | held 1.0s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'y': 41.4, 'z': 187.6, 'x': 360.7}
+15:06:44 _water_float success | afloat and unowned — float (head air, health 20) | {'y': 40, 'z': 187.6, 'x': 360.7}
+15:06:45 _plant_spot success | none at=- item=oak_sapling sap=25 kinds=2 ordered=0 | {'z': 187.6, 'x': 360.7, 'y': 41.6}
+15:06:45 _water_float_ended success | held 0.9s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.6, 'z': 187.6}
+15:06:46 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.3, 'z': 187.6}
+15:06:46 _water_float_ended success | held 0.4s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41, 'z': 187.6}
+15:06:47 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.9, 'z': 187.6}
+15:06:48 _water_float_ended success | held 1.0s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.4}
+15:06:48 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40, 'z': 187.6}
+15:06:49 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'z': 187.6, 'x': 360.7, 'y': 41.6}
+15:06:49 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.1, 'z': 187.6}
+15:06:50 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.5, 'z': 187.6}
+15:06:50 _water_float success | afloat and unowned — float (head air, health 20) | {'x': 360.7, 'y': 40.3, 'z': 187.6}
+15:06:51 _water_float_ended success | held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (health 20) | {'x': 360.7, 'y': 41.3, 'z': 187.6}

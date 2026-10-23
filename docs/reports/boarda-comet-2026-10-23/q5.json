@@ -1,0 +1,1521 @@
+{
+ "_affordance_scan": {
+  "statuses": {
+   "('success', None)": 1711
+  },
+  "details": [
+   [
+    "visible=# usable=# unsafe=# scan_ms=# | dirt:#/#/# oak_log:#/#/# grass_block:#/#/# stone:#/#/# coal_ore:#/#/# iron_ore:#/#/#",
+    1190
+   ],
+   [
+    "visible=# usable=# unsafe=# scan_ms=# | oak_log:#/#/# dirt:#/#/# grass_block:#/#/# stone:#/#/# coal_ore:#/#/# iron_ore:#/#/#",
+    498
+   ],
+   [
+    "visible=# usable=# unsafe=# scan_ms=# | sand:#/#/# oak_log:#/#/# dirt:#/#/# grass_block:#/#/# stone:#/#/# coal_ore:#/#/#",
+    23
+   ]
+  ]
+ },
+ "_entombed": {
+  "statuses": {
+   "('failed', None)": 624
+  },
+  "details": [
+   [
+    "walled in at y=#",
+    624
+   ]
+  ]
+ },
+ "_maroon_climb_refused": {
+  "statuses": {
+   "('failed', None)": 624
+  },
+  "details": [
+   [
+    "will not start a #-block climb with # placeable block(s): running out partway seals the bot higher than it started, holding nothing",
+    624
+   ]
+  ]
+ },
+ "gather": {
+  "statuses": {
+   "('failed', 'no_safe_target')": 185,
+   "('failed', 'no_path')": 263,
+   "('aborted', 'interrupted')": 32,
+   "('unknown', 'collect_budget')": 46
+  },
+  "details": [
+   [
+    "oak_log found but all # candidates are beside water or under falling blocks \u2014 digging them would flood or bury this spot [liquid:# falling:#]",
+    172
+   ],
+   [
+    "oak_sapling found but unreachable after # attempts [probe: noPath, slate #, A* reached none] [collect said: arrived_out_of_reach: [pathfinder said: NoPath, no dig-approach (approach digs would take #ms, over the #ms walk | arrived_out_of_reach: [pathfinder said: NoPath, no dig-approach (approach search said partial)] eye is # blocks from ]",
+    135
+   ],
+   [
+    "dirt found but unreachable after # attempts [collect said: arrived_out_of_reach: [pathfinder said: NoPath, no dig-approach (approach search said partial)] eye is # blocks from  | arrived_out_of_reach: [pathfinder said: NoPath, no dig-approach (approach search said partial)] eye is # blocks from ]",
+    101
+   ],
+   [
+    "ran out of time reaching stone (#/# attempts timed out at #s)",
+    34
+   ],
+   [
+    "stagnation",
+    19
+   ],
+   [
+    "sand found but all # candidates are beside water or under falling blocks \u2014 digging them would flood or bury this spot [liquid:# both:# falling:#]",
+    13
+   ],
+   [
+    "ran out of time reaching cobblestone (#/# attempts timed out at #s)",
+    12
+   ],
+   [
+    "entombed",
+    11
+   ]
+  ]
+ },
+ "_veto_faces": {
+  "statuses": {
+   "('no_effect', None)": 185
+  },
+  "details": [
+   [
+    "oak_log # unsafe candidate(s) [liquid:# falling:#] faces side_waterx#:# side_waterx#:# above_water+side_waterx#:# above_water+side_waterx#:# none:# side_waterx#:# (+# more of #)",
+    172
+   ],
+   [
+    "sand # unsafe candidate(s) [liquid:# both:# falling:#] faces side_waterx#:# above_water+side_waterx#:# none:# side_waterx#:# side_waterx#:# above_water+side_waterx#:# (# kind(s))",
+    7
+   ],
+   [
+    "sand # unsafe candidate(s) [liquid:# both:# falling:#] faces side_waterx#:# above_water+side_waterx#:# side_waterx#:# side_waterx#:# above_water+side_waterx#:# none:# (# kind(s))",
+    6
+   ]
+  ]
+ },
+ "_dig_town_sum": {
+  "statuses": {
+   "('success', None)": 757
+  },
+  "details": [
+   [
+    "w=#s all=# conf=# unconf=# foreign=# rej=# abort=# death=# err=# hung=# pend=# ovf=# ierr=#",
+    757
+   ]
+  ]
+ },
+ "_dig_collision": {
+  "statuses": {
+   "('failed', None)": 408
+  },
+  "details": [
+   [
+    "dig of copper_ore@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- skills.mjs:# <- skills.mjs:#",
+    168
+   ],
+   [
+    "dig of copper_ore@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- reflex.mjs:#",
+    105
+   ],
+   [
+    "dig of copper_ore@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- reflex.mjs:# <- reflex.mjs:# <- reflex.mjs:#",
+    49
+   ],
+   [
+    "dig of stone@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- skills.mjs:# <- skills.mjs:#",
+    38
+   ],
+   [
+    "dig of cobblestone@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- skills.mjs:# <- skills.mjs:#",
+    22
+   ],
+   [
+    "dig of copper_ore@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- skills.mjs:#",
+    13
+   ],
+   [
+    "dig of copper_ore@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- digging.js:#",
+    12
+   ],
+   [
+    "dig of cobblestone@#,#,# cancelled \u2014 stopDigging called from digging.js:# <- reflex.mjs:# <- reflex.mjs:# <- reflex.mjs:#",
+    1
+   ]
+  ]
+ },
+ "_entombed_ramp_cut": {
+  "statuses": {
+   "('failed', None)": 154
+  },
+  "details": [
+   [
+    "pillar declined (needs_blocks) at y=# for want of blocks; steps=# breached=# climbed=# \u2014 stopped because ceiling dig failed on copper_ore: dig exceeded #ms",
+    122
+   ],
+   [
+    "pillar declined (needs_blocks) at y=# for want of blocks; steps=# breached=# climbed=# \u2014 stopped because ceiling dig failed on copper_ore: Digging aborted",
+    31
+   ],
+   [
+    "pillar declined (needs_blocks) at y=# for want of blocks; steps=# breached=# climbed=# \u2014 stopped because yielded the body to the drowning rescue",
+    1
+   ]
+  ]
+ },
+ "_entombed_needs_blocks": {
+  "statuses": {
+   "('failed', None)": 154
+  },
+  "details": [
+   [
+    "pillar declined #x (needs_blocks) at y=#; the escape ramp stopped because ceiling dig failed on copper_ore: dig exceeded #ms; asked the goal layer for #x dirt",
+    122
+   ],
+   [
+    "pillar declined #x (needs_blocks) at y=#; the escape ramp stopped because ceiling dig failed on copper_ore: Digging aborted; asked the goal layer for #x dirt",
+    31
+   ],
+   [
+    "pillar declined #x (needs_blocks) at y=#; the escape ramp stopped because yielded the body to the drowning rescue; asked the goal layer for #x dirt",
+    1
+   ]
+  ]
+ },
+ "_path_failure_shapes": {
+  "statuses": {
+   "('failed', None)": 876
+  },
+  "details": [
+   [
+    "disconnected=#(#%) total=#",
+    625
+   ],
+   [
+    "disconnected=#(#%) budget=#(#%) total=#",
+    251
+   ]
+  ]
+ },
+ "_prereq_adopted": {
+  "statuses": {
+   "('failed', None)": 72
+  },
+  "details": [
+   [
+    "the escape reflex needs #x dirt or cobblestone or stone (the climb declined #x (needs_blocks) at y=# and the escape ramp stopped because ceiling dig failed on copper_ore: dig exceeded #ms); it is now the task until satisfied named=# usable=#",
+    43
+   ],
+   [
+    "the escape reflex needs #x dirt or cobblestone or stone (the climb declined #x (needs_blocks) at y=# and the escape ramp stopped because ceiling dig failed on copper_ore: Digging aborted); it is now the task until satisfied named=# usable=#",
+    20
+   ],
+   [
+    "mine needs #x cobblestone or cobbled_deepslate or dirt (descent aborted to preserve an exit); it is now the task until satisfied named=# usable=#",
+    7
+   ],
+   [
+    "home needs #x wooden_pickaxe or stone_pickaxe or iron_pickaxe (the climb stopped on stone it could not break); it is now the task until satisfied named=# usable=#",
+    1
+   ],
+   [
+    "the escape reflex needs #x dirt or cobblestone or stone (the climb declined #x (needs_blocks) at y=# and the escape ramp stopped because yielded the body to the drowning rescue); it is now the task until satisfied named=# usable=#",
+    1
+   ]
+  ]
+ },
+ "_explore_toward_known": {
+  "statuses": {
+   "('success', None)": 308
+  },
+  "details": [
+   [
+    "heading for iron_ore at #,#,# (#b) instead of a random bearing",
+    308
+   ]
+  ]
+ },
+ "explore": {
+  "statuses": {
+   "('failed', 'no_path')": 291,
+   "('aborted', 'interrupted')": 17
+  },
+  "details": [
+   [
+    "could not explore: explored # blocks to #,# in # legs (some legs blocked: No path to the goal!)",
+    291
+   ],
+   [
+    "stagnation",
+    8
+   ],
+   [
+    "entombed",
+    8
+   ],
+   [
+    "stranded",
+    1
+   ]
+  ]
+ },
+ "_path_noPath": {
+  "statuses": {
+   "('success', None)": 5848
+  },
+  "details": [
+   [
+    "noPath after # nodes, #ms",
+    5848
+   ]
+  ]
+ },
+ "_reach_probe": {
+  "statuses": {
+   "('no_effect', None)": 462,
+   "('success', None)": 185
+  },
+  "details": [
+   [
+    "oak_sapling slate=# status=noPath hit=none moved_to_front=no visited=# nearest=# ms=#",
+    444
+   ],
+   [
+    "stone slate=# status=success hit=#,#,# moved_to_front=yes visited=# nearest=# ms=#",
+    128
+   ],
+   [
+    "cobblestone slate=# status=success hit=#,#,# moved_to_front=yes visited=# nearest=# ms=#",
+    57
+   ],
+   [
+    "coal_ore slate=# status=noPath hit=none moved_to_front=no visited=# nearest=# ms=#",
+    18
+   ]
+  ]
+ },
+ "_path_reset": {
+  "statuses": {
+   "('success', None)": 1430
+  },
+  "details": [
+   [
+    "goal_updated",
+    1153
+   ],
+   [
+    "movements_updated",
+    277
+   ]
+  ]
+ },
+ "_water_no_air_route_ended": {
+  "statuses": {
+   "('failed', None)": 221
+  },
+  "details": [
+   [
+    "held #s; head started SUBMERGED, ended SUBMERGED; dAir #; dHealth #; lowest air #/#; ended because ashore (health #)",
+    214
+   ],
+   [
+    "held #s; head started SUBMERGED, ended SUBMERGED; dAir ?; dHealth #; lowest air #/#; ended because ashore (health #)",
+    6
+   ],
+   [
+    "held #s; head started SUBMERGED, ended SUBMERGED; dAir ?; dHealth #; lowest air ?/#; ended because ashore (health #)",
+    1
+   ]
+  ]
+ },
+ "_water_no_air_route": {
+  "statuses": {
+   "('success', None)": 230
+  },
+  "details": [
+   [
+    "afloat and unowned \u2014 no_air_route (head water, health #)",
+    230
+   ]
+  ]
+ },
+ "_stranded_underground": {
+  "statuses": {
+   "('failed', None)": 151
+  },
+  "details": [
+   [
+    "y=#, #b net gain over #m, no milestone change, no inventory change; climb-out attempt #",
+    151
+   ]
+  ]
+ },
+ "_watchdog_rescue": {
+  "statuses": {
+   "('no_effect', None)": 803,
+   "('failed', None)": 285,
+   "('success', None)": 1
+  },
+  "details": [
+   [
+    "attempt mvl#z# level # surface: requested",
+    2
+   ],
+   [
+    "attempt mvl#z# level # surface: started",
+    2
+   ],
+   [
+    "attempt mvl#z# level # surface: tick_seen",
+    2
+   ],
+   [
+    "attempt mvk#t## level # climb_out: requested",
+    1
+   ],
+   [
+    "attempt mvk#t## level # climb_out: started",
+    1
+   ],
+   [
+    "attempt mvk#t## level # climb_out: tick_seen",
+    1
+   ],
+   [
+    "attempt mvk#t## level # climb_out: completed:unknown",
+    1
+   ],
+   [
+    "attempt mvk#o## level # relocate: requested",
+    1
+   ]
+  ]
+ },
+ "surface": {
+  "statuses": {
+   "('unknown', 'no_measurable_change')": 169,
+   "('aborted', 'interrupted')": 54
+  },
+  "details": [
+   [
+    "no altitude gained from #,#,# in #s of trying (Took to long to decide path to goal!) [stop: dig failed on copper_ore by hand: dig exceeded #ms] \u2014 this stone needs a pickaxe: gather wood, craft a pickaxe, then run surface again",
+    169
+   ],
+   [
+    "entombed",
+    49
+   ],
+   [
+    "stuck (threw GoalChanged: The goal was changed before it could be completed!)",
+    2
+   ],
+   [
+    "entombed (threw GoalChanged: The goal was changed before it could be completed!)",
+    1
+   ],
+   [
+    "entombed (threw Timeout: Took to long to decide path to goal!)",
+    1
+   ],
+   [
+    "stagnation (threw Timeout: Took to long to decide path to goal!)",
+    1
+   ]
+  ]
+ },
+ "_path_timeout": {
+  "statuses": {
+   "('success', None)": 252
+  },
+  "details": [
+   [
+    "timeout after # nodes, #ms",
+    252
+   ]
+  ]
+ },
+ "_chunks_evicted": {
+  "statuses": {
+   "('success', None)": 146
+  },
+  "details": [
+   [
+    "sweep #: evicted # beyond # chunks, holding #; arrayBuffers now #MB, rss #MB",
+    146
+   ]
+  ]
+ },
+ "_loop_restart": {
+  "statuses": {
+   "('failed', None)": 97
+  },
+  "details": [
+   [
+    "cognitive loop produced no decision for #s",
+    97
+   ]
+  ]
+ },
+ "_plant_spot": {
+  "statuses": {
+   "('success', None)": 134
+  },
+  "details": [
+   [
+    "none at=- item=oak_sapling sap=# kinds=# ordered=#",
+    134
+   ]
+  ]
+ },
+ "_stagnation": {
+  "statuses": {
+   "('failed', None)": 239
+  },
+  "details": [
+   [
+    "no progress across #s of ACTIVE skill time (moved # blocks, items +#, frozen #s; window #s, threshold # blocks); escalation #",
+    239
+   ]
+  ]
+ },
+ "goto": {
+  "statuses": {
+   "('failed', 'no_path')": 65,
+   "('aborted', 'interrupted')": 20,
+   "('failed', 'stranded')": 9,
+   "('unknown', 'no_measurable_change')": 1
+  },
+  "details": [
+   [
+    "no route exists toward #,# \u2014 after # leg(s), still # blocks short",
+    65
+   ],
+   [
+    "stagnation",
+    9
+   ],
+   [
+    "pathfinder returned an empty path from #,#,# \u2014 no route out of here even with digging allowed, # blocks short of #,#",
+    9
+   ],
+   [
+    "entombed",
+    6
+   ],
+   [
+    "timeout",
+    5
+   ],
+   [
+    "arrived at #,#,# \u2014 but nothing changed that goto exists to change (expected position); cannot tell whether it worked",
+    1
+   ]
+  ]
+ },
+ "_relocate_landed": {
+  "statuses": {
+   "('failed', None)": 40
+  },
+  "details": [
+   [
+    "attempt mvk#o##: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#sksi#: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#oezr#: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#cwxk#: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#y#a#: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#bk##: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#yfi##: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ],
+   [
+    "attempt mvk#ip#x#: failed WET feet=water head=water in_region=# region_now=dry",
+    1
+   ]
+  ]
+ },
+ "_smelt_job_tally": {
+  "statuses": {
+   "('success', None)": 127
+  },
+  "details": [
+   [
+    "secs=# paused=#",
+    46
+   ],
+   [
+    "secs=# cooldown=# town_has_none=#",
+    25
+   ],
+   [
+    "secs=# +drain_issued=# cooldown=# issued=#",
+    17
+   ],
+   [
+    "secs=# +drain_issued=# cooldown=# town_has_none=#",
+    16
+   ],
+   [
+    "secs=# cooldown=# issued=#",
+    14
+   ],
+   [
+    "secs=# +drain_issued=# cooldown=# issued=# town_has_none=#",
+    4
+   ],
+   [
+    "secs=# cooldown=# issued=# town_has_none=#",
+    3
+   ],
+   [
+    "secs=# +drain_issued=# issued=# paused=#",
+    1
+   ]
+  ]
+ },
+ "_stranded_escape_try": {
+  "statuses": {
+   "('success', None)": 28
+  },
+  "details": [
+   [
+    "stranded #h at y=# with no escape (plan=ride_floor_down, blocks=#, drop=#); running the rung the lattice chose, which the ceiling gate never let it try",
+    28
+   ]
+  ]
+ },
+ "_stranded_escape_result": {
+  "statuses": {
+   "('failed', None)": 28
+  },
+  "details": [
+   [
+    "rode down # (placed #, nothing underfoot to stand on)",
+    28
+   ]
+  ]
+ },
+ "_stranded_unrecoverable": {
+  "statuses": {
+   "('failed', None)": 103
+  },
+  "details": [
+   [
+    "y=#: two climb-out attempts produced under #b of gain each. Deterministic rescue has been exhausted; escalating rather than repeating it.",
+    103
+   ]
+  ]
+ },
+ "_prereq_abandoned": {
+  "statuses": {
+   "('failed', None)": 63
+  },
+  "details": [
+   [
+    "dirt-class: had #/# after #s",
+    56
+   ],
+   [
+    "cobblestone-class: had #/# after #s",
+    7
+   ]
+  ]
+ },
+ "_goto_float_dig": {
+  "statuses": {
+   "('failed', None)": 18
+  },
+  "details": [
+   [
+    "copper_ore at #,#,# priced #ms took #ms confirmed=null Digging aborted",
+    18
+   ]
+  ]
+ },
+ "_livelock_escape": {
+  "statuses": {
+   "('no_effect', None)": 21,
+   "('failed', None)": 15
+  },
+  "details": [
+   [
+    "fixated on one action; relocating to #,# -- moved # of the # blocks asked for (dig; latched; dy #, blocks spent #)",
+    15
+   ],
+   [
+    "fixated on one action; the relocation was declined by the runner (runner_paused) -- not an attempt, retried next tick",
+    13
+   ],
+   [
+    "fixated on one action; the relocation was declined by the runner (runner_reserved) -- not an attempt, retried next tick",
+    8
+   ]
+  ]
+ },
+ "_livelock_not_fixated": {
+  "statuses": {
+   "('no_effect', None)": 36
+  },
+  "details": [
+   [
+    "insufficient coverage: moved ? gained ? over # samples / # s (rejections #, repeat_loop)",
+    35
+   ],
+   [
+    "insufficient coverage: moved ? gained ? over # samples / # s (rejections #)",
+    1
+   ]
+  ]
+ },
+ "home": {
+  "statuses": {
+   "('failed', 'no_measurable_change')": 14,
+   "('aborted', 'interrupted')": 11
+  },
+  "details": [
+   [
+    "cannot go home yet: no altitude gained from #,#,# in #s of trying (Took to long to decide path to goal!) [stop: dig failed on copper_ore by hand: dig exceeded #ms] \u2014 this stone needs a pickaxe: gather wood, craft a pickaxe, then run surface again",
+    13
+   ],
+   [
+    "entombed",
+    7
+   ],
+   [
+    "stagnation",
+    2
+   ],
+   [
+    "entombed (threw Timeout: Took to long to decide path to goal!)",
+    1
+   ],
+   [
+    "entombed (threw GoalChanged: The goal was changed before it could be completed!)",
+    1
+   ],
+   [
+    "cannot go home yet: no altitude gained from #,#,# in #s of trying (pathfinding exceeded #ms) [stop: dig failed on copper_ore by hand: dig exceeded #ms] \u2014 this stone needs a pickaxe: gather wood, craft a pickaxe, then run surface again",
+    1
+   ]
+  ]
+ },
+ "_stranded": {
+  "statuses": {
+   "('failed', None)": 177
+  },
+  "details": [
+   [
+    "escalation #; no first leg exists from this position",
+    177
+   ]
+  ]
+ },
+ "_milestone_skipped": {
+  "statuses": {
+   "('failed', None)": 28
+  },
+  "details": [
+   [
+    "no serving progress in # min (skip ## of stockpile_wood); moved on to craft_crafting_table_###",
+    4
+   ],
+   [
+    "no serving progress in # min (skip ## of stockpile_stone); moved on to patrol##",
+    4
+   ],
+   [
+    "no serving progress in # min (skip ## of return); moved on to idle",
+    4
+   ],
+   [
+    "no serving progress in # min (skip ## of gather_dirt_#); moved on to gather_oak_log_#",
+    3
+   ],
+   [
+    "no serving progress in # min (skip ## of gather_oak_log_#); moved on to gather_sand_#",
+    3
+   ],
+   [
+    "no serving progress in # min (skip ## of gather_sand_#); moved on to gather_cobblestone_#",
+    3
+   ],
+   [
+    "no serving progress in # min (skip ## of gather_cobblestone_#); moved on to stockpile_wood##",
+    3
+   ],
+   [
+    "# serving attempts failed (skip ## of patrol); moved on to deposit_surplus##",
+    2
+   ]
+  ]
+ },
+ "_milestone_complete": {
+  "statuses": {
+   "('success', None)": 17
+  },
+  "details": [
+   [
+    "completed stockpile_wood##+prereq; now idle",
+    4
+   ],
+   [
+    "completed patrol##; now idle",
+    2
+   ],
+   [
+    "completed gather_sand_#+prereq; now idle",
+    2
+   ],
+   [
+    "completed patrol##+prereq; now return##",
+    1
+   ],
+   [
+    "completed gather_cobblestone_#; now idle",
+    1
+   ],
+   [
+    "completed stockpile_stone##+prereq; now idle",
+    1
+   ],
+   [
+    "completed patrol##+prereq; now idle",
+    1
+   ],
+   [
+    "completed gather_oak_log_#+prereq; now idle",
+    1
+   ]
+  ]
+ },
+ "_gather_via_source": {
+  "statuses": {
+   "('success', None)": 322
+  },
+  "details": [
+   [
+    "every dirt candidate was buried or unsafe; grass_block yields dirt \u2014 # reachable",
+    322
+   ]
+  ]
+ },
+ "_town_ground": {
+  "statuses": {
+   "('success', None)": 106
+  },
+  "details": [
+   [
+    "gather_skipped=#",
+    106
+   ]
+  ]
+ },
+ "_config_drift": {
+  "statuses": {
+   "('failed', None)": 15
+  },
+  "details": [
+   [
+    "pathfinder Movements was replaced during goto; restored. canDig: true -> false",
+    15
+   ]
+  ]
+ },
+ "_goto_dig_retry": {
+  "statuses": {
+   "('failed', None)": 10
+  },
+  "details": [
+   [
+    "Took to long to decide path to goal! wet=true->true from #,#,# in #ms budget=#ms plan=partial planned_dig=#ms floating=true float_dug=#",
+    9
+   ],
+   [
+    "Took to long to decide path to goal! wet=true->true from #,#,# in #ms budget=#ms plan=grounded planned_dig=#ms floating=false float_dug=#",
+    1
+   ]
+  ]
+ },
+ "_death_site_route_crossed": {
+  "statuses": {
+   "('no_effect', None)": 4
+  },
+  "details": [
+   [
+    "death:fire x# at #,#,#; the planned route passes #,#,# (# nodes)",
+    4
+   ]
+  ]
+ },
+ "_stagnation_reconnect": {
+  "statuses": {
+   "('failed', None)": 1
+  },
+  "details": [
+   [
+    "escalation #; route exists but no movement",
+    1
+   ]
+  ]
+ },
+ "_cobblecap_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode cap=#",
+    9
+   ]
+  ]
+ },
+ "_lidclear_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode recount=clear dig=equip breakable=cobble budget_max=#",
+    9
+   ]
+  ]
+ },
+ "_townsearch_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode search=town trigger=trip_line order=journal,unknown,nearest visits=#+# miss_ttl_min=# fail_skip_min=#",
+    9
+   ]
+  ]
+ },
+ "_toolkit_search_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode search=town need=kit_iron order=unknown,nearest visits=# craft_reserve_s=# no_backoff=kit_search_more",
+    9
+   ]
+  ]
+ },
+ "_toolkit_ironpick_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode on=# mode=on toolkit=# trip_uses=# kit=iron_pickaxe+iron_axe+iron_shovel max_ingots=# note=TOOLKIT_IRONPICK_unset",
+    9
+   ]
+  ]
+ },
+ "_plinth_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode v=# table=below_stand w=#:#",
+    9
+   ]
+  ]
+ },
+ "_plinth021_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode v=# shared=# lost=evidence dy=# env=cap w=#:#",
+    9
+   ]
+  ]
+ },
+ "_plinthfirst_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode v=# policy=# shared=# minraise=# lost=evidence dy=# w=#:#",
+    9
+   ]
+  ]
+ },
+ "_wellcare_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode v=# reach_below=# station_keepout=# mine_shell=wellCellAt",
+    9
+   ]
+  ]
+ },
+ "_cobblekeep_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode well=admission lid=dirt,grass_block open=leaves,glass cap=#",
+    9
+   ]
+  ]
+ },
+ "_keepout_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode keepout=on radius=# height=# trigger=fire_site_live search=# cooldown_min=# town_yield=on",
+    9
+   ]
+  ]
+ },
+ "_protectzone_mode": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "zones=# why=ok ids=fixture-board-a world=#:#",
+    9
+   ]
+  ]
+ },
+ "_tool_hygiene": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "tool hygiene ON: mode=on (TOOL_HYGIENE unset)",
+    9
+   ]
+  ]
+ },
+ "_toolkit": {
+  "statuses": {
+   "('success', None)": 9
+  },
+  "details": [
+   [
+    "phase=mode on=# mode=on note=TOOLKIT_unset",
+    9
+   ]
+  ]
+ },
+ "_work_order": {
+  "statuses": {
+   "('success', None)": 111
+  },
+  "details": [
+   [
+    "furnace_drain {} \u2014 the idle furnace at #,#,# may hold items a stopped smelt left behind: empty it (furnace drain)",
+    56
+   ],
+   [
+    "smelt_town {} \u2014 the town holds raw copper and nothing turns it into anything: smelt # into copper ingots and bank them (town smelt job)",
+    55
+   ]
+  ]
+ },
+ "smelt_town": {
+  "statuses": {
+   "('no_effect', None)": 36
+  },
+  "details": [
+   [
+    "no raw copper in the bag or in the town containers looked in (each is remembered for # h); nothing to smelt",
+    35
+   ],
+   [
+    "no raw copper in the # town container(s) looked in yet; others are not yet looked in -- the next job continues the search",
+    1
+   ]
+  ]
+ },
+ "_smelt_town": {
+  "statuses": {
+   "('no_effect', None)": 36
+  },
+  "details": [
+   [
+    "stop=town_has_none n=# bag#=# withdrawn=# coal=# smelted=# prior=# deposited=# dep_i=# dep_r=# bag#=# left=# furnace=- lease=- verdict=ok diff=# chest=- t#=# fb=- looked=# more=-",
+    35
+   ],
+   [
+    "stop=search_more n=# bag#=# withdrawn=# coal=# smelted=# prior=# deposited=# dep_i=# dep_r=# bag#=# left=# furnace=- lease=- verdict=ok diff=# chest=- t#=# fb=- looked=# more=cu",
+    1
+   ]
+  ]
+ },
+ "furnace_drain": {
+  "statuses": {
+   "('failed', 'no_path')": 41
+  },
+  "details": [
+   [
+    "the furnace at #,#,# is # blocks away and could not be reached",
+    41
+   ]
+  ]
+ },
+ "_furnace_drain": {
+  "statuses": {
+   "('failed', None)": 41
+  },
+  "details": [
+   [
+    "stop=unreachable furnace=#,#,# lease=# out=- in=- fuel=- taken=# left=- t#=#",
+    41
+   ]
+  ]
+ },
+ "_furnace_session": {
+  "statuses": {
+   "('success', None)": 41
+  },
+  "details": [
+   [
+    "furnace=#,#,# lease=# t#=# t#=# by=drain",
+    41
+   ]
+  ]
+ },
+ "_protect_zone": {
+  "statuses": {
+   "('success', None)": 52
+  },
+  "details": [
+   [
+    "find_filtered=#",
+    52
+   ]
+  ]
+ },
+ "_smelt_job_skip": {
+  "statuses": {
+   "('no_effect', None)": 51
+  },
+  "details": [
+   [
+    "why=town_has_none free=# copper=# fuel=#",
+    51
+   ]
+  ]
+ },
+ "mine": {
+  "statuses": {
+   "('failed', 'exit_capability_reserve')": 12
+  },
+  "details": [
+   [
+    "stopped at y=# to keep an exit: # scaffold blocks against a #-block climb out (need # with reserve). Run surface now, or gather blocks before going deeper.",
+    12
+   ]
+  ]
+ },
+ "_mine_plan": {
+  "statuses": {
+   "('success', None)": 12
+  },
+  "details": [
+   [
+    "from=#,#,# bear=#,# goal_y=# cells=# in_column=# sites=#,#,#",
+    12
+   ]
+  ]
+ },
+ "_mine_bearing_turned": {
+  "statuses": {
+   "('success', None)": 12
+  },
+  "details": [
+   [
+    "stair bearing (#,#) instead of the facing (#,#): # dry steps ahead vs #",
+    12
+   ]
+  ]
+ },
+ "_exit_reserve_abort": {
+  "statuses": {
+   "('failed', None)": 12
+  },
+  "details": [
+   [
+    "scaffold: # scaffold blocks against a #-block climb out (need # with reserve)",
+    12
+   ]
+  ]
+ },
+ "_mine_dig": {
+  "statuses": {
+   "('success', None)": 12
+  },
+  "details": [
+   [
+    "n=# in_column=# sites=#,#,#",
+    12
+   ]
+  ]
+ },
+ "_marooned_needs_pickaxe": {
+  "statuses": {
+   "('failed', None)": 3
+  },
+  "details": [
+   [
+    "no route from y=#, column above is capped by copper_ore, and no usable tool is available \u2014 asked for pickaxe",
+    3
+   ]
+  ]
+ },
+ "_air_drowning_observed": {
+  "statuses": {
+   "('success', None)": 5
+  },
+  "details": [
+   [
+    "oxygen #, head block water, health #",
+    5
+   ]
+  ]
+ },
+ "_oxygen_critical_state": {
+  "statuses": {
+   "('failed', None)": 5
+  },
+  "details": [
+   [
+    "air fell to #% (#/#); rescuing=false swimming=false health #",
+    5
+   ]
+  ]
+ },
+ "_drowning_route": {
+  "statuses": {
+   "('success', None)": 5
+  },
+  "details": [
+   [
+    "sealed dist=# at #,#,# scoop=flowing axes=+x:dirt@#,-x:stone@#,+z:stone@#,-z:crafting_table@# head=water head_box=empty",
+    5
+   ]
+  ]
+ },
+ "_air_pocket_refused": {
+  "statuses": {
+   "('no_effect', None)": 5
+  },
+  "details": [
+   [
+    "reason=needs # ms, budget # ms (health #, # HP/s) at=#,#,# health=# difficulty=peaceful hunger=# trigger_route=sealed:# held_ms=#",
+    4
+   ],
+   [
+    "reason=needs # ms, budget # ms (health #, # HP/s) (an escape is in flight; not pre-empted) at=#,#,# health=# difficulty=peaceful hunger=# trigger_route=sealed:# held_ms=#",
+    1
+   ]
+  ]
+ },
+ "_drowning_up": {
+  "statuses": {
+   "('success', None)": 5
+  },
+  "details": [
+   [
+    "phase up",
+    5
+   ]
+  ]
+ },
+ "_drowning_ceiling_no_air": {
+  "statuses": {
+   "('failed', None)": 5
+  },
+  "details": [
+   [
+    "held #s and never reached air (oxygen #, health #) \u2014 sealed, no route up or out",
+    5
+   ]
+  ]
+ },
+ "_flooded_pocket_rung": {
+  "statuses": {
+   "('no_effect', None)": 4
+  },
+  "details": [
+   [
+    "refused: need # placeable block(s), have #",
+    4
+   ]
+  ]
+ },
+ "_craft_admit": {
+  "statuses": {
+   "('success', None)": 3
+  },
+  "details": [
+   [
+    "item=stone_pickaxe count=# task=gather_dirt_#+prereq source=model",
+    1
+   ],
+   [
+    "item=furnace count=# task=idle source=model",
+    1
+   ],
+   [
+    "item=stone_pickaxe count=# task=stockpile_wood##+prereq source=model",
+    1
+   ]
+  ]
+ },
+ "_townindex_mode": {
+  "statuses": {
+   "('success', None)": 8
+  },
+  "details": [
+   [
+    "phase=mode index=on v=# groups=# stale_h=# rotate_mb=# records=obs,dirty,xfer count_town=index_unknown",
+    8
+   ]
+  ]
+ },
+ "_progress_restored": {
+  "statuses": {
+   "('success', None)": 8
+  },
+  "details": [
+   [
+    "shared=# run=# skipped=# cycle=# blocked=# attempts=#",
+    8
+   ]
+  ]
+ },
+ "_skill_versions_reconciled": {
+  "statuses": {
+   "('success', None)": 3
+  },
+  "details": [
+   [
+    "cleared judgements for: toolkit",
+    2
+   ],
+   [
+    "cleared judgements for: deposit, town_deposit, count_town",
+    1
+   ]
+  ]
+ },
+ "_food_skip": {
+  "statuses": {
+   "('success', None)": 8
+  },
+  "details": [
+   [
+    "food skip ON: mode=auto difficulty=peaceful active=#",
+    8
+   ]
+  ]
+ },
+ "_peaceful_kit": {
+  "statuses": {
+   "('success', None)": 8
+  },
+  "details": [
+   [
+    "peaceful kit ON: swords=no_bank,no_craft,no_chase,burn_wooden compost=plants mode=auto difficulty=peaceful active=#",
+    8
+   ]
+  ]
+ },
+ "withdraw": {
+  "statuses": {
+   "('failed', 'chest_unreachable')": 1
+  },
+  "details": [
+   [
+    "could not reach the chest at #,#,#",
+    1
+   ]
+  ]
+ },
+ "_withdraw_pick": {
+  "statuses": {
+   "('failed', None)": 1
+  },
+  "details": [
+   [
+    "outcome=chest_unreachable need=stone_sword:# uses=- verification=- cursor=- err=- chest_room=- plan=- srv=- bag=#-># deposited=- took=- verb=withdraw tried=[#,#,#:chest_unreachable]",
+    1
+   ]
+  ]
+ },
+ "_redundant_craft": {
+  "statuses": {
+   "('no_effect', None)": 1
+  },
+  "details": [
+   [
+    "item=crafting_table held=crafting_table:carried need=# kind=station task=idle+prereq wanted=# source=model pick_uses=- exit_need=-",
+    1
+   ]
+  ]
+ },
+ "craft": {
+  "statuses": {
+   "('failed', 'missing_ingredients')": 2,
+   "('failed', 'not_craftable')": 1
+  },
+  "details": [
+   [
+    "cannot craft furnace -- gather cobblestone first, nothing crafts it (short #x cobblestone for the whole tree) (you have #x cobblestone, #x furnace, #x melon_slice, #x leaf_litter, #x oak_sapling, #x pointed_dripstone (+# more)) \u2014 you are at y=#, # blocks below sea level; wood, plants and animals only exist above ground, so run surface first",
+    1
+   ],
+   [
+    "stone cannot be crafted -- nothing makes it; gather it instead",
+    1
+   ],
+   [
+    "cannot craft stone_pickaxe -- gather cobblestone and oak_log first, nothing crafts it (short #x cobblestone and #x oak_log for the whole tree) (you have #x cobblestone, #x oak_log, #x stone_pickaxe, #x melon_slice, #x leaf_litter, #x oak_sapling (+# more)) \u2014 you are at y=#, # blocks below sea level; wood, plants and animals only exist above ground, so run surface first",
+    1
+   ]
+  ]
+ },
+ "status": {
+  "statuses": {
+   "('no_effect', None)": 3
+  },
+  "details": [
+   [
+    "hp # food # at #,#,# | # stacks",
+    3
+   ]
+  ]
+ },
+ "_poolescape_mode": {
+  "statuses": {
+   "('success', None)": 5
+  },
+  "details": [
+   [
+    "on=# max_steps=# budget_s=# swim=# reserve=last_pickaxe_kept backoff_min=#/#/#/#/#",
+    5
+   ]
+  ]
+ },
+ "_explore_target_skipped_death_site": {
+  "statuses": {
+   "('no_effect', None)": 5
+  },
+  "details": [
+   [
+    "# sighting(s) within # blocks of a recorded death were not steered at; heading for iron_ore instead",
+    5
+   ]
+  ]
+ },
+ "_indexsearch_mode": {
+  "statuses": {
+   "('success', None)": 1
+  },
+  "details": [
+   [
+    "phase=mode rank=index kitsticks=on needs=kit_iron,coal,raw_copper,stick,cobblestone,planks fresh_h=# positive_only=#",
+    1
+   ]
+  ]
+ },
+ "_index_search": {
+  "statuses": {
+   "('no_effect', None)": 6
+  },
+  "details": [
+   [
+    "by=smelt_town need=raw_copper town=# cand=# ix=# first=near visits=# took=# hit=# tried=[#,#,#]",
+    2
+   ],
+   [
+    "by=smelt_town need=raw_copper town=# cand=# ix=# first=near visits=# took=# hit=# tried=[#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#]",
+    1
+   ],
+   [
+    "by=smelt_town need=raw_copper town=# cand=# ix=# first=near visits=# took=# hit=# tried=[#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#]",
+    1
+   ],
+   [
+    "by=smelt_town need=raw_copper town=# cand=# ix=# first=near visits=# took=# hit=# tried=[#,#,#;#,#,#]",
+    1
+   ],
+   [
+    "by=smelt_town need=raw_copper town=# cand=# ix=# first=near visits=# took=# hit=# tried=[#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#;#,#,#]",
+    1
+   ]
+  ]
+ },
+ "smelt": {
+  "statuses": {
+   "('failed', 'missing_ingredients')": 1
+  },
+  "details": [
+   [
+    "no raw_iron to smelt \u2014 gather raw_iron first",
+    1
+   ]
+  ]
+ },
+ "_reflex_stuck": {
+  "statuses": {
+   "('success', None)": 2
+  },
+  "details": [
+   [
+    "no movement for #s",
+    2
+   ]
+  ]
+ },
+ "_pathfinder_wedged": {
+  "statuses": {
+   "('failed', None)": 2
+  },
+  "details": [
+   [
+    "goal held with an empty path and no movement for #s \u2014 clearing it (upstream issue ## emits no event for this state)",
+    2
+   ]
+  ]
+ }
+}
