@@ -171,8 +171,9 @@ smelt count is capped by the town take; the existing guards are unaffected. Chan
   is safe there); an `error` exit of an iron job now attempts the bank (best effort, inside its own try). Interrupted iron jobs
   leave town iron in the bag (it becomes the bot's own); the read counts it ("town iron left in bags").
 - **The stacked variant (Codex P2, Claude P2-4).** On indexsearch-01, `indexNeed` learns `raw_iron` (min 1), so the iron pass
-  opens the index's known holders first; its mode row and indexsearchread are told that smelt_town's needs are no longer
-  positive-only.
+  opens the index's known holders first; its mode row's needs= lists raw_iron. (Corrected r4, Claude r3 P3-6: the mode row
+  keeps positive_only=1 -- the index's RANKING is still positive-only; the rule-out is ironsmelt's own, named in
+  `_ironsmelt_mode`; indexsearchread's D4 budget for by=smelt_town stays 16, above the iron pass's 12.)
 - **Measurement (Codex P2, Claude P2-1, P3-4).** Shared-town stocks only: raw_iron 739, iron_ingot 1,638, coal 2,467 (13
   pools). Rates per hour on one window: the index's deposits (unverified deposit-verb xfers included) put ~13 iron ingots/h into
   the shared towns against the toolkit's ~19/h (149 pickaxes x 3 in 24 h, axes and shovels besides). The raw-iron stock is ~92
@@ -223,3 +224,23 @@ Two earlier runs' first scenes are void: the two drivers shared one env file (`s
 took the other's server and name and they logged each other out every 20 s; the driver now writes `.env.isab-<server>-<pid>`.
 Every scene above ran after the fix or with no other driver running. r3 changes no container, furnace or search path (an abort
 inside an exit, a row field, tests), so Paper was not re-run on it.
+
+## 7. Review round 3 and what changed (r4)
+
+Round 3 (one brief: A = r3 21f766d3 + the read, B = the stacked variants, C = the Paper driver). Codex: A CHANGE (3 P2, the read),
+B **APPROVE** (the d4a0f424 resolution correct; all three stacks' +/- lines equal their parents': 1,770 and 1,729 lines), C CHANGE
+(P1 cleanup on a refused lock, P2 the oracle). Claude: A **APPROVE** (P3s), B **APPROVE** (P3-6, this doc), C CHANGE (P2 the same
+cleanup, P3s). r4 changes the READ, the DRIVER and tests only -- no bot source:
+- The read: pickup summaries loaded to END + 2 min; a job ending in the window's last 60 s is immature; a gain inside a summary
+  that hides groups or errored is inconclusive (never a defect); an aborted row is an interruption whatever its stop; G2 judges
+  `error` exits (they bank); the world evidence is the stock over containers KNOWN at both ends of each period, per pool and
+  per world, arms compared by per-pool means with pool counts, a boundary before the index began is unavailable (None), and
+  KNOWN container counts are printed at PRE / CUT / END; the population is the pools that run the job (data-driven: the
+  isolated-b pilot is in, the job-off isolated pools out). Dry run 10-23 (board-a,placebo-a, base build, 120 min): 13 pools;
+  canary 45 / 43 / 45 known containers, control 211 / 209 / 211; G1-G4 0; instrument 96 control jobs, 1,626 pickups.
+- The driver: no world edit and no `list` polling unless this run passed the lock and the empty-server checks and built the
+  arena (checked live: a refused lock on sandbox7 exits at once); every slot read must be an item or the server's explicit
+  "no elements", else the scene stops; the scene is asserted exactly as specified before anything is measured; the run tag
+  carries the server; the brain port defaults per server; a failed spawn ends the scene.
+- Tests: the dirty mark's own effect asserted after the took mark (P3-3); `more=fe+` asserted (P3-4); an abort during the
+  error exit's bank is rethrown as interrupted, with a mutant (P3-4).
