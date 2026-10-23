@@ -84,8 +84,10 @@ const COLOURS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', '
  * pillar block in desert worlds), calcite and tuff (raw ballast the stone rung counts), magma_block, amethyst, and
  * anything compostable (flowers, moss, wildflowers: the composter's -- isWellJunk refuses those anyway).
  */
+// matset-01 (OWNER 10-23, building tier §3.4): plain glass and glass_pane LEFT this list -- they are building parts now
+// (stocktarget.mjs PROJECT_PARTS: protected, never disposed, always banked). Stained glass stays junk.
 export const DECORATIONS = Object.freeze([
-  'glass', 'glass_pane', ...COLOURS.map(c => `${c}_stained_glass`), ...COLOURS.map(c => `${c}_stained_glass_pane`),
+  ...COLOURS.map(c => `${c}_stained_glass`), ...COLOURS.map(c => `${c}_stained_glass_pane`),
   ...COLOURS.map(c => `${c}_wool`),
   ...DECO_WOODS.map(w => `${w}_button`), 'stone_button', 'polished_blackstone_button',
   ...DECO_WOODS.map(w => `${w}_pressure_plate`), 'stone_pressure_plate', 'polished_blackstone_pressure_plate',
@@ -125,7 +127,7 @@ export const WELL_JUNK = Object.freeze(new Set([...OWNER_JUNK_1004, ...DECORATIO
 
 /** Belt and braces: never disposed whatever a list says. (andesite, diorite and granite left this guard on the owner's
  *  10-07 "yes"; STONE_GUARD holds them back instead.) */
-const NEVER_DISPOSE = /(^(stone_bricks|smooth_stone)$|_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|_slab$|_trapdoor$|_bed$|^(cobblestone|cobbled_deepslate|stone|dirt|tuff|gravel|sand|netherrack|calcite|deepslate|sandstone|red_sandstone)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
+const NEVER_DISPOSE = /(^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$|^(stone_bricks|smooth_stone)$|_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|_slab$|_trapdoor$|_bed$|^(cobblestone|cobbled_deepslate|stone|dirt|tuff|gravel|sand|netherrack|calcite|deepslate|sandstone|red_sandstone)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
 
 /** May this item go down the well? On the list, AND not a guarded kind, AND not something the composter takes. */
 export function isWellJunk (name) {

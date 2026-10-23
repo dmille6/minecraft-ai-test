@@ -193,9 +193,15 @@ test('REMEDY: the iron ladder is not the price of a stone pickaxe -- another sta
   b.items[b.items.length - 1] = item('iron_ingot', 9, 44)
   assert.equal(SK.roomRemedy(b.bot, b.items, keep).item, 'oak_log', 'oak_log frees a stack: it goes, the ingots stay')
   assert.equal(CR.depositTarget(b.items, await_plan(b), keep), 'iron_ingot', 'positive control: the plain advice would name the ingots')
+  // matset-01: sand is always banked now (DEPOSIT_ALWAYS), so a bag whose other stacks are wool frees the SAND's slot first,
+  // never the ingots'
+  const sandy = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) })
+  for (const it of sandy.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
+  sandy.items[sandy.items.length - 1] = item('iron_ingot', 9, 44)
+  assert.equal(SK.roomRemedy(sandy.bot, sandy.items, keep).item, 'sand', 'sand goes before the iron ladder')
   // only ingots can free a stack -> they are named (the slot must still come free)
   const only = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) })
-  for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
+  for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper' || it.name === 'sand') it.name = 'white_wool'
   only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
   assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot')
   // ...and of the ladder, the cheapest rung first -- but NEVER THE FUEL RESERVE (Claude st-r1 1b): banking all 20 coal would
@@ -237,7 +243,7 @@ test('MUTANT KILLED: without the fuel reserve the coal is banked to make a picka
   await withMutant(SKILLS_PATH, 'export const ROOM_FUEL_RESERVE = 16', 'export const ROOM_FUEL_RESERVE = 0', async mod => {
     const keep = [{ name: 'cobblestone', count: 1 }, { name: 'stick', count: 1 }]
     const only = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) })
-    for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
+    for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper' || it.name === 'sand') it.name = 'white_wool'
     only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
     only.items.push(item('coal', 20, 45)); only.items.splice(only.items.findIndex(i => i.name === 'white_wool'), 1)
     assert.equal(mod.roomRemedy(only.bot, only.items, keep).item, 'coal', 'the mutant takes the fuel')

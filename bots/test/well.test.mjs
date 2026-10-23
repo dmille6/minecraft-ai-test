@@ -41,7 +41,7 @@ const within = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTime
 await t('the list is the owner\'s eleven (10-04) plus the 10-07 decorations, every one a real item, and nothing the guards forbid', () => {
   for (const n of ['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute', 'dead_bush', 'pointed_dripstone', 'rail',
     // the owner's 10-07 examples and the census's decorations (glass 59 slots, lead 20, oak_button 17, wool, brick, fences, plates)
-    'glass', 'white_wool', 'oak_button', 'lead', 'powered_rail', 'brick', 'bricks', 'oak_fence', 'oak_pressure_plate', 'smooth_basalt', 'polished_diorite',
+    'white_stained_glass', 'white_wool', 'oak_button', 'lead', 'powered_rail', 'brick', 'bricks', 'oak_fence', 'oak_pressure_plate', 'smooth_basalt', 'polished_diorite',
     'diorite', 'granite', 'andesite', 'mossy_cobblestone']) {
     assert.ok(W.isWellJunk(n), `positive control: ${n} is on the list`)
   }
@@ -53,7 +53,8 @@ await t('the list is the owner\'s eleven (10-04) plus the 10-07 decorations, eve
   // scripts/host/wellread.py keeps a Python copy (its C3 gate). OWNER D8 (10-15, smeltjob-01) took stone_bricks and
   // smooth_stone OFF the list: 124 -> 122. The read's copy is a SUPERSET by those two until its owner drops them, which
   // cannot false-trip C3 (no build throws them any more); change both together when wellread is next edited.
-  assert.equal(W.WELL_JUNK.size, 122)
+  // matset-01 (OWNER 10-23, building tier §3.4) took glass and glass_pane off too: 122 -> 120 (wellread's copy: a superset by 4).
+  assert.equal(W.WELL_JUNK.size, 120)
   for (const n of ['cobblestone', 'cobbled_deepslate', 'dirt', 'gravel', 'sand', 'oak_log', 'oak_planks', 'stick', 'oak_sapling',
     'stone_pickaxe', 'wooden_axe', 'apple', 'bread', 'beef', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'wheat_seeds', 'poppy', 'bamboo', 'bone_meal',
     // 10-07: what the decoration list must NOT take -- the composter's recipe (wooden slabs), the well's own trapdoors, the
@@ -61,7 +62,9 @@ await t('the list is the owner\'s eleven (10-04) plus the 10-07 decorations, eve
     'oak_slab', 'birch_slab', 'oak_trapdoor', 'red_bed', 'white_bed', 'sandstone', 'red_sandstone', 'calcite', 'tuff', 'stone', 'deepslate',
     'wildflowers', 'moss_carpet', 'moss_block', 'kelp', 'dried_kelp', 'furnace', 'crafting_table', 'chest', 'ladder', 'torch', 'bucket', 'string',
     // OWNER D8 (10-15): building stone for the town projects (the hall's bricks, the blast furnaces' smooth stone)
-    'stone_bricks', 'smooth_stone']) {
+    'stone_bricks', 'smooth_stone',
+    // matset-01 (OWNER 10-23): building parts
+    'glass', 'glass_pane', 'stone_brick_slab', 'cut_copper', 'copper_door']) {
     assert.equal(W.isWellJunk(n), false, `${n} must never go down the well`)
   }
 })
@@ -92,12 +95,13 @@ await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag KEEP
   assert.equal(W.STONE_GUARD, 64)
   assert.deepEqual([...W.RESERVE_STONE].sort(), ['andesite', 'cobbled_deepslate', 'cobblestone', 'diorite', 'granite'])
   // plain decorations never touch the reserve
-  assert.equal(names(W.disposePlan([{ name: 'glass', count: 5, slot: 9 }])), 'glass:5')
+  assert.equal(names(W.disposePlan([{ name: 'white_stained_glass', count: 5, slot: 9 }])), 'white_stained_glass:5')
+  assert.equal(names(W.disposePlan([{ name: 'glass', count: 5, slot: 9 }])), '', 'matset-01: plain glass is a building part, never junk')
   // diorite 10 + cobble 63: reserve 73, the diorite would leave 63 -> kept; at cobble 64 it leaves 64 -> goes
-  const bag = cobble => [{ name: 'diorite', count: 10, slot: 9 }, { name: 'cobblestone', count: cobble, slot: 10 }, { name: 'glass', count: 5, slot: 11 }]
-  assert.equal(names(W.disposePlan(bag(63))), 'glass:5')
+  const bag = cobble => [{ name: 'diorite', count: 10, slot: 9 }, { name: 'cobblestone', count: cobble, slot: 10 }, { name: 'white_stained_glass', count: 5, slot: 11 }]
+  assert.equal(names(W.disposePlan(bag(63))), 'white_stained_glass:5')
   assert.equal(W.disposePlan(bag(63)).junkStacks, 1, 'the trigger counts only what may go')
-  assert.equal(names(W.disposePlan(bag(64))), 'diorite:10,glass:5')
+  assert.equal(names(W.disposePlan(bag(64))), 'diorite:10,white_stained_glass:5')
   assert.equal(W.disposePlan(bag(64)).stone, 74)
   // mossy_cobblestone is pathfinder scaffold but not reserve stone: it goes while the reserve stays at 64+, and costs none of it
   // (stone_bricks was this example until OWNER D8 took it off the list -- it never goes now)
@@ -111,7 +115,7 @@ await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag KEEP
   assert.equal(names(W.disposePlan([{ name: 'diorite', count: 40, slot: 9 }, { name: 'granite', count: 40, slot: 10 }, { name: 'cobblestone', count: 64, slot: 11 }])), 'diorite:40,granite:40')
   assert.equal(names(W.disposePlan([{ name: 'diorite', count: 40, slot: 9 }, { name: 'granite', count: 40, slot: 10 }, { name: 'cobblestone', count: 30, slot: 11 }])), 'diorite:40')
   assert.equal(W.disposableIn({ name: 'cobblestone', count: 64 }, [{ name: 'cobblestone', count: 640 }]), false, 'the guard never lists anything')
-  assert.equal(W.guardLeft('glass', 64, 0), 0, 'a plain decoration passes with any reserve')
+  assert.equal(W.guardLeft('white_stained_glass', 64, 0), 0, 'a plain decoration passes with any reserve')
   assert.equal(W.guardLeft('diorite', 10, 73), null)
   assert.equal(W.guardLeft('diorite', 10, 74), 64)
   assert.equal(W.guardLeft('mossy_cobblestone', 64, 64), 64)
