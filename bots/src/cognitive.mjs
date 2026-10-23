@@ -31,6 +31,7 @@ import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
+import { deliverOrder, deliverOutcome } from './towniron.mjs'   // towniron-01
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -216,7 +217,7 @@ export const LIVELOCK_LATCH_MS = 600_000
  */
 export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
-               furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
+               furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'], deliver_iron: ['deliverState', 'lastIssuedAt'] }[skill]
   if (!at || !st[at[0]]) return {}
   return { [at[0]]: { ...st[at[0]], [at[1]]: -Infinity } }
 }
@@ -715,6 +716,19 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  // TOWNIRON-01: the delivery order (towniron.mjs deliverOrder): at town, a town round's iron above the bag's own keep
+  #deliverIronOrder() {
+    try {
+      const bot = this.bot
+      const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+      const counts = {}
+      for (const it of bot.inventory?.items?.() ?? []) counts[it.name] = (counts[it.name] ?? 0) + (it.count ?? 0)
+      const r = deliverOrder({ now: Date.now(), atTown: inTown(home, bot.entity?.position), counts, state: this.deliverState ?? {} })
+      this.deliverState = r.state
+      return r.order
+    } catch { return null }
+  }
+
   // `dry` (ironpick-01): the same decision with its state NOT kept -- withdraw_pick asks whether the kit would make the iron
   // pickaxe now (toolkit.mjs withdrawDefersToKit); a dry run never charges the cooldown
   #toolkitOrder({ dry = false } = {}) {
@@ -1102,6 +1116,8 @@ export class CognitiveLoop {
     // ready milestone step is never displaced. AHEAD of the town smelt job and the furnace drain (smeltjob-01), which run only
     // with nothing chosen above (their tally counts a toolkit decision as `taken`): the kit is a bounded once-per-bot need
     // (no order once both tools are held), the smelt job a repeating one. Only planting and the model come after them.
+    // TOWNIRON-01: a town round's iron is banked before the kit draws (the delivery funds it); after every order above
+    if (!order) order = this.#deliverIronOrder()
     if (!order) order = this.#toolkitOrder()
     // THE TOWN SMELT JOB AND THE FURNACE DRAIN (smeltjob-01; smeltjob.mjs decides, this supplies readings and keeps the
     // state). After every deterministic order but sapling planting, and only with NOTHING chosen above -- the milestone's
@@ -1287,6 +1303,7 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
       if (!declined && admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
       // THE TOOLKIT: a failure backs off, a decline is refunded (what a run drew and did not use is on the bot: bot.kitCredit)
+      if (!declined && admitted.skill === 'deliver_iron') this.deliverState = deliverOutcome(r.status, Date.now(), this.deliverState ?? {})
       if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)

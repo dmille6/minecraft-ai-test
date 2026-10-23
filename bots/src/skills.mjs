@@ -54,6 +54,8 @@ import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, 
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete, containerIngredientMiss,
   townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
 // The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
+import { kitSpec } from './toolkit.mjs'   // towniron-01
+import { townIronStock, setTownIronReader, townIronNow, townIronLow, townIronRow, TOWNIRON, deliverPlan, deliverRow, TOWN_IRON_CARRY } from './towniron.mjs'   // towniron-01
 import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag,
   KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS, kitVisitStep, kitSearchEnd, kitSearchRow, kitIronNeed, kitIronMissNeeds, kitSticksAtRisk,
   KIT_NO_STICKS_SKIP_MS, kitRoomTakes, ironpickRow, bestIronPickTag, IRONPICK_TRIP_USES, TOOLKIT_IRONPICK, KIT_NARROW, kitNarrows, kitStickHeld } from './toolkit.mjs'
@@ -3624,6 +3626,25 @@ export function townIndexTransfers (bot, pos, moves = [], { op = null, pre = nul
 }
 /** The town's index, folded now -> { k: entry }, or null when it cannot be read or the index is off (then no reader acts on
  *  it: an unreadable index is never "every container unknown" -- Claude code r1 P3). */
+/**
+ * TOWNIRON-01: install the town-iron reader for this bot (towniron.mjs; one bot per process) -- the town index's fold of the
+ * bot's own town, read through townIndexEntries (null when unreadable: the reading is then unknown, both consumers the base).
+ * A `_town_iron` change row is written when this bot's view of its town flips (low / ok / unknown), so the read can see the
+ * state without re-deriving it.
+ */
+export function installTownIron (bot) {
+  let last = undefined
+  setTownIronReader(now => {
+    const stock = townIronStock(townIndexEntries(bot), now)
+    const low = townIronLow(stock)
+    const state = low == null ? 'unknown' : low ? 'low' : 'ok'
+    if (TOWNIRON.on && state !== last) {
+      last = state
+      try { logEvent({ kind: 'town_iron', status: 'success', snapshot: snapshot(bot), detail: townIronRow(stock, low) }) } catch { /* telemetry */ }
+    }
+    return stock
+  })
+}
 export function townIndexEntries (bot) {
   if (!TOWNINDEX.on) return null
   try { const r = readIndex(townDir(), indexHk(), bot?.worldId ?? null); return r.ok ? r.entries : null } catch { return null }
@@ -11146,6 +11167,7 @@ async function toolkit (ctx, args, signal) {
   // a kit tool counts as made only as a NEW usable copy -- for the iron pickaxe a NEW copy above the trip line (ironpick-01:
   // the worn copy it replaces is usable too)
   const usableOf = name => items().filter(it => it?.name === name && remaining(it) > (name === 'iron_pickaxe' ? IRONPICK_TRIP_USES : FLOOR)).length
+  const lowIron = !!args?.low   // towniron-01: the order's reading (toolkitOrder passes low: 1 only when the town is short)
   const t0 = Date.now()
   const before = toolsTag(items())
   const bestBefore = bestIronPickTag(items())
@@ -11194,7 +11216,10 @@ async function toolkit (ctx, args, signal) {
   try {
     if (!TOOLKIT.on) return out('no_effect', 'off', 'the toolkit is switched off (TOOLKIT=off)')
     // args.n (ironpick-01): the order's prefix of the kit when the town could not give the whole draw (toolkitOrder)
-    const draw = kitDraw(items(), { credit: creditIn, limit: Number.isInteger(args?.n) && args.n >= 1 ? args.n : null })
+    // args.low (towniron-01): the ORDER's reading of the town's iron -- the run keeps the order's shovel tier throughout
+    // args.only (towniron-01): the stone shovel alone, when the order found no iron draw it could issue
+    const only = args?.only === 'stone_shovel' && lowIron ? 'stone_shovel' : null
+    const draw = kitDraw(items(), { credit: creditIn, limit: Number.isInteger(args?.n) && args.n >= 1 ? args.n : null, lowIron, only })
     st.needs = draw.needs
     if (!draw.needs.length) return out('no_effect', 'nothing', 'already carrying a usable iron axe and a usable iron shovel')
     // ---- 1. the draw
@@ -11292,7 +11317,7 @@ async function toolkit (ctx, args, signal) {
         // ironpick-01: the whole town short of THIS draw (iron or sticks), but not of the pickaxe's own prefix -> `narrow`, no
         // backoff: the next order takes the prefix the town can give (toolkitOrder kitPrefixes). Decided BEFORE the search row,
         // so the row says what the run says (Claude r2 P3)
-        const d1 = () => kitDraw(items(), { credit: bot.kitCredit ?? 0, limit: 1 })
+        const d1 = () => kitDraw(items(), { credit: bot.kitCredit ?? 0, limit: 1, lowIron, only })
         // a prefix the credit funds is meetable only when its sticks are too: none needed, or the bag's wood makes them (Claude r3 P3)
         const p1 = (end.outcome === 'no_iron' || end.outcome === 'no_sticks') ? d1() : null
         const narrow = kitNarrows({ on: TOOLKIT_IRONPICK.on, needs: draw.needs, outcome: end.outcome,
@@ -11320,8 +11345,8 @@ async function toolkit (ctx, args, signal) {
     // ---- 2. the crafts, in KIT order
     for (const name of draw.needs) {
       check(signal)
-      if (!kitNeeds(items()).includes(name)) continue
-      if (funded() < KIT[name].ingots || ingots() < KIT[name].ingots) { st.stop = `short_of_drawn_iron_for_${name}`; break }
+      if (!kitNeeds(items(), { lowIron }).includes(name)) continue
+      if (funded() < kitSpec(name).ingots || ingots() < kitSpec(name).ingots) { st.stop = `short_of_drawn_iron_for_${name}`; break }
       const had = usableOf(name), ing0 = ingots()
       let r, err = null
       // ctx.kitCraft: a TEST SEAM only (the unit suite's fake world cannot craft); production always runs `craft` itself
@@ -12318,6 +12343,47 @@ async function smeltTown (ctx, _args, signal) {
     f.verdict = b.verdict; f.diff = b.diff
     try { logEvent({ kind: 'smelt_town', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: smeltTownDetail(f) }) } catch { /* never break the job */ }
     if (result) { result.smelted = f.smelted; result.stop = f.stop }
+  }
+}
+
+/**
+ * deliver_iron -- the town order (towniron.mjs deliverOrder; towniron-01, Codex r1 P1): bank the town task's iron. The bag's OWN
+ * iron (towniron.mjs deliverPlan: 3 units per iron craft not made yet, ingots first) is held back for each deposit call by a
+ * hold of exactly that count (bankable.mjs swapWithdrawHold, put back as it was after the call) -- the town deposit could not do
+ * it, as it moves whole stacks of a name or none. Ingots first, then raw iron. One `_deliver_iron` row, always.
+ */
+async function deliverIron (ctx, _args, signal) {
+  const { bot } = ctx
+  const h0 = heldMap(bot), p0 = deliverPlan(h0)
+  const f = { stop: null, ingot0: h0.iron_ingot ?? 0, raw0: h0.raw_iron ?? 0, ingot1: 0, raw1: 0, depI: 0, depR: 0, keepI: p0.iron_ingot.own, keepR: p0.raw_iron.own }
+  let result = null
+  try {
+    if (p0.surplus < TOWN_IRON_CARRY) {
+      f.stop = 'none'
+      return (result = { status: 'no_effect', detail: `carrying ${p0.surplus} iron above its own keep: less than a town round (${TOWN_IRON_CARRY}); nothing delivered` })
+    }
+    for (const name of ['iron_ingot', 'raw_iron']) {
+      const plan = deliverPlan(heldMap(bot))[name]
+      if (!(plan.deposit > 0)) continue
+      const had = heldMap(bot)[name] ?? 0
+      check(signal)
+      const restore = swapWithdrawHold(name, plan.own, Date.now() + 10 * 60_000)
+      try { await deposit(ctx, { item: name }, signal, { noRecovery: true }) } finally { restore() }
+      const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+      if (name === 'iron_ingot') f.depI += gone; else f.depR += gone
+    }
+    f.stop = f.depI + f.depR > 0 ? 'done' : 'not_banked'
+    return (result = f.depI + f.depR > 0
+      ? { status: 'success', detail: `banked ${f.depI} iron ingot(s) and ${f.depR} raw iron for the town; kept the bag's own ${f.keepI} + ${f.keepR}` }
+      : { status: 'no_effect', detail: 'the town chests took none of the iron here now; it stays in the bag for the next town visit' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.stop = 'interrupted'; throw e }
+    f.stop = 'error'
+    return (result = { status: 'failed', failClass: 'other', detail: `the iron delivery stopped: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    const h1 = heldMap(bot)
+    f.ingot1 = h1.iron_ingot ?? 0; f.raw1 = h1.raw_iron ?? 0
+    try { logEvent({ kind: 'deliver_iron', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: deliverRow(f) }) } catch { /* telemetry */ }
   }
 }
 
@@ -14521,6 +14587,8 @@ export const SKILL_CONTRACTS = {
   // its evidence is its own verified count of ingots the furnace made (smelt_effect), never a bag delta.
   // ...and a bank-only run (ingots carried from an interrupted job) is the bag's loss of them
   smelt_town: { expects: ['smelt_effect', 'inventory_loss'], maxMs: 180_000 },
+  // towniron-01: the town task's iron banked at town (inventory_loss: the bag's own keep stays)
+  deliver_iron: { expects: ['inventory_loss'], maxMs: 120_000 },
   // THE FURNACE DRAIN: what an idle furnace held comes into the bag.
   furnace_drain: { expects: ['inventory_gain'], maxMs: 90_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
@@ -15657,6 +15725,7 @@ export const SKILLS = {
   prune_town: { run: pruneTown, usage: 'prune_town', args: [], chatOnly: true },
   count_town: { run: countTown, usage: 'count_town', args: [], chatOnly: true },
   smelt_town: { run: smeltTown, usage: 'smelt_town', args: [], chatOnly: true },
+  deliver_iron: { run: deliverIron, usage: 'deliver_iron', args: [], chatOnly: true },   // towniron-01
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
