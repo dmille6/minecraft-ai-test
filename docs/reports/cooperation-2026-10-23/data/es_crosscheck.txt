@@ -1,0 +1,11 @@
+ES window 10-22 12:14Z..10-23 12:14Z, 13 shared towns: total docs 1279199 bots 65
+  gather 23566
+  smelt_town 1646
+  furnace_drain 2237
+  toolkit 514
+  town_deposit 153
+  deposit 400
+  explore 17070
+  _explore_toward_known 17112
+  _death 29
+bags at window end (distinct item kinds as a slot proxy): bots 65 >=34: 0 median 26

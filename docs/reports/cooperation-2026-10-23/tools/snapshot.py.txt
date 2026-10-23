@@ -1,0 +1,84 @@
+# cooperation design 2026-10-23: build the overseer's per-town INPUT SNAPSHOT from real rows, to size it (read-only).
+# No model is called. The snapshot is the compact JSON the design (section 3.4) specifies, filled from the 24 h extract at
+# a fixed instant (10-23 10:00Z) for each of the 13 shared towns, plus a FIXTURE workshop project (the building tier owns
+# the real record; its shape here is the interface of section 5, sized like a 7x5 workshop: 4 segments, 9 BOM lines).
+# Prints characters and a token range (JSON at 3.0-3.6 chars/token; the operator re-measures with count_tokens before
+# any call, section 3.6).
+import gzip, json, glob, os, re, math, bisect, collections, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+AT = dt.datetime(2026, 10, 23, 10, 0, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+KEY = ('iron_ingot', 'raw_iron', 'coal', 'charcoal', 'cobblestone', 'oak_planks', 'oak_log', 'spruce_log', 'birch_log',
+       'stick', 'glass', 'sand', 'torch', 'oak_door', 'crafting_table', 'furnace', 'chest', 'dirt')
+TRAP = re.compile(r'entomb|strand|maroon|trapped|wedged|reflex_stuck|flooded_pocket|drown|lava_adjacent')
+BOM = {'cobblestone': 96, 'oak_planks': 64, 'oak_log': 16, 'glass_pane': 8, 'oak_door': 1, 'torch': 4, 'crafting_table': 2,
+       'furnace': 3, 'oak_stairs': 24}
+
+def homeof(pool):
+    f = glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')[0]
+    return tuple(int(v) for v in re.search(r'town-index-(-?\d+)_(-?\d+)_(-?\d+)\.g', f).groups()), f
+
+sizes = []
+for pool in POOLS:
+    home, idxf = homeof(pool)
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows = [r for r in rows if r['t'] <= AT]
+    rows.sort(key=lambda r: r['t'])
+    bots = sorted({r['bot'] for r in rows if r.get('bot')})
+    roster = []
+    for b in bots:
+        mine = [r for r in rows if r.get('bot') == b]
+        pos = next((r['p'] for r in reversed(mine) if r['k'].startswith('_') and r.get('p')), None)
+        inv = next((r['inv'] for r in reversed(mine) if r.get('inv')), {}) or {}
+        hp = next((r['hp'] for r in reversed(mine) if r.get('hp') is not None), None)
+        last = [r for r in mine if not r['k'].startswith('_')][-3:]
+        flags = sorted({re.sub(r'^_', '', r['k']) for r in mine if r['t'] >= AT - 300 and TRAP.search(r['k'])})[:3]
+        jobs24 = collections.Counter(r['k'] for r in mine if r.get('s') == 'success' and r['k'] in
+                                     ('gather', 'mine', 'smelt_town', 'craft', 'town_deposit', 'deposit', 'toolkit', 'build'))
+        picks = [k for k in inv if k.endswith('_pickaxe')]
+        roster.append({
+            'bot': b.split('-')[-1], 'at_town': bool(pos and math.hypot(pos[0] - home[0], pos[2] - home[2]) <= 48 and abs(pos[1] - home[1]) <= 12),
+            'dist': round(math.hypot(pos[0] - home[0], pos[2] - home[2])) if pos else None, 'dy': round(pos[1] - home[1]) if pos else None,
+            'hp': hp, 'kinds': len(inv), 'items': {k: inv[k] for k in KEY if inv.get(k)}, 'picks': picks,
+            'doing': [(r['k'], r.get('s')) for r in last], 'flags': flags, 'done24': dict(jobs24.most_common(4)),
+            'eligible': ['SUPPLY:cobblestone', 'SUPPLY:oak_planks', 'BUILD:seg2', 'BANK'] if pos else [],
+        })
+    stock = collections.Counter(); state = collections.Counter()
+    last = {}
+    for l in open(idxf, errors='replace'):
+        try:
+            r = json.loads(l)
+        except Exception:
+            continue
+        if r.get('t') == 'obs' and r.get('at', 0) <= AT * 1000:
+            last[r['k']] = r
+    for k, r in last.items():
+        state['known' if AT * 1000 - r['at'] < 6 * 3600e3 else 'stale'] += 1
+        for n, (c, s) in (r.get('names') or {}).items():
+            if n in BOM or n in KEY:
+                stock[n] += c
+    snap = {
+        'v': 1, 'town': pool, 'gen': 1234, 'at': '2026-10-23T10:00:00Z', 'home': home,
+        'budget': {'calls_left_today': 41, 'usd_left_month': 118.4},
+        'project': {'id': 'workshop', 'state': 'building', 'layer': 2, 'cells': {'done': 61, 'open': 74, 'waived': 0},
+                    'segments': [{'seg': i, 'state': s, 'holder': h, 'open': o} for i, (s, h, o) in
+                                 enumerate([('done', None, 0), ('leased', 'Bravo', 18), ('open', None, 31), ('open', None, 25)])],
+                    'bom': {n: {'need': q, 'site': q // 3, 'town': stock.get(n, 0)} for n, q in BOM.items()},
+                    'stall_min': 0},
+        'jobs_open': ['BUILD:seg2', 'BUILD:seg3', 'SUPPLY:cobblestone', 'SUPPLY:glass_pane', 'SUPPLY:oak_stairs', 'DEEP_MINE', 'BANK'],
+        'caps': {'BUILD': 2, 'DEEP_MINE': 2, 'leased_max': 3},
+        'stock_state': dict(state), 'stock': {n: stock[n] for n in KEY if stock.get(n)},
+        'roster': roster,
+        'last_gen': {'leases': [{'bot': 'Bravo', 'role': 'BUILD:seg1', 'outcome': 'honoured', 'cells': 9},
+                                {'bot': 'Delta', 'role': 'SUPPLY:cobblestone', 'outcome': 'released:refused_bag_full'}]},
+    }
+    s = json.dumps(snap, separators=(',', ':'))
+    sizes.append(len(s))
+    if pool == 'hive-a':
+        print('EXAMPLE (hive-a):', s)
+    del rows
+sp = open(os.path.expanduser('~/coop-1023/system_prompt.txt')).read()
+print(f'snapshot chars per town: min {min(sizes)}, median {sorted(sizes)[len(sizes)//2]}, max {max(sizes)}')
+print(f'  tokens at 3.0-3.6 chars/token: median {sorted(sizes)[len(sizes)//2]/3.6:.0f}-{sorted(sizes)[len(sizes)//2]/3.0:.0f}, max {max(sizes)/3.6:.0f}-{max(sizes)/3.0:.0f}')
+print(f'system prompt chars {len(sp)} -> tokens {len(sp)/4.2:.0f}-{len(sp)/3.6:.0f} (English prose at 3.6-4.2 chars/token)')

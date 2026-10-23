@@ -1,0 +1,7 @@
+== [V] town visits (minute samples; at town = <=48 h, <=12 v of home)
+  arrivals per bot-day: median 105, p25 78, p75 131 (65 bots)
+  dwell per visit (min): median 2.0, p75 3, p90 5; visits 7046
+  longest stretch with >= 2 / >= 3 bots at town together (min): {'board-a': (9, 4), 'board-b': (17, 6), 'board-c': (14, 5), 'board-d': (11, 3), 'hive-a': (8, 3), 'hive-b': (25, 5), 'hive-c': (10, 5), 'hive-d': (20, 8), 'placebo-a': (19, 9), 'placebo-b': (18, 5), 'placebo-c': (12, 8), 'placebo-d': (29, 8), 'isolated-b': (11, 4)}
+== [X] explore runs by whether a TOWNMATE headed for the same sighting in the 30 min before
+  fresh_for_the_town                 runs   7800  bot-h   53.0  then gathered the headed-for block within 10 min: 96/7800
+  peer_headed_same_sighting_30min    runs   9270  bot-h   69.4  then gathered the headed-for block within 10 min: 60/9270

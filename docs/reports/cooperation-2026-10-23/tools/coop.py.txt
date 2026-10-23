@@ -1,0 +1,284 @@
+# cooperation design 2026-10-23: what cooperation looks like today, measured (read-only; host 10.0.0.31, nice -n 19).
+# Input: extract.py's fixed 24 h window (10-22 12:14Z .. 10-23 12:14Z, 13 shared towns) + the town index journals.
+# Timing rule (comms design 2026-10-21): a skill row (no leading underscore) is stamped at its START and its bot.pos /
+# bot.inventory are the snapshot at its END (t + dur); an event row (leading underscore) is stamped at emission.
+# Every count prints its denominator; every zero is printed beside a positive control from the same pass.
+import gzip, json, glob, os, re, math, collections, bisect, statistics, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+TOWN_R, TOWN_DY, CARRY = 48, 12, 600
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+TOWNJOBS = ('smelt_town', 'furnace_drain', 'toolkit', 'withdraw_pick', 'withdraw', 'deposit', 'town_deposit', 'compost',
+            'dispose_well', 'count_town', 'build_well', 'build_plinth', 'craft')
+
+def homeof(pool):
+    fs = glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')
+    m = re.search(r'town-index-(-?\d+)_(-?\d+)_(-?\d+)\.g', fs[0])
+    return tuple(int(v) for v in m.groups()), fs
+
+def load(pool):
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows.sort(key=lambda r: r['t'])
+    return rows
+
+def end(r):
+    return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+
+def hd(a, b):
+    return math.hypot(a[0] - b[0], a[2] - b[2])
+
+def pct(a, b):
+    return f'{a}/{b} ({100.0 * a / b:.1f}%)' if b else f'{a}/0'
+
+def q(xs, p):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(p * len(xs)))] if xs else None
+
+TOT = collections.Counter()
+B = collections.Counter(); BODY = collections.Counter(); BODY_IDLE = collections.Counter(); TRG = collections.Counter()
+OUTC = collections.defaultdict(collections.Counter)
+POS = collections.Counter(); DIST = []; PATH = 0.0; PATH_H = 0.0; UND = 0; CO = collections.Counter()
+TJ_RUNS = collections.Counter(); TJ_OVER = collections.Counter(); TJ_OVER_S = collections.defaultdict(collections.Counter)
+TJ_SOLO_S = collections.defaultdict(collections.Counter)
+TJ_TOP = collections.defaultdict(list)
+GC = collections.Counter(); GC_S = collections.Counter(); GC_H = collections.Counter()
+MC = collections.Counter()
+EXP = collections.Counter()
+DR = collections.Counter()
+CRAFT = collections.Counter()
+NEED = collections.Counter()
+TOWNSET = {}
+
+for pool in POOLS:
+    home, _ = homeof(pool)
+    TOWNSET[pool] = home
+    rows = load(pool)
+    bots = sorted({r['bot'] for r in rows if r.get('bot')})
+    TOT['rows'] += len(rows); TOT['bots'] += len(bots); TOT['bot_h'] += len(bots) * (T1 - T0) / 3600
+    TOT['pos_rows'] += sum(1 for r in rows if r['k'].startswith('_') and r.get('p'))
+    # ---------- [B] time budget: union of skill intervals per bot ----------
+    for b in bots:
+        iv = sorted((r['t'], end(r), r) for r in rows if r.get('bot') == b and not r['k'].startswith('_') and r.get('dur'))
+        cov = 0.0; cur_s = cur_e = None
+        for s, e, r in iv:
+            s = max(s, T0); e = min(e, T1)
+            if e <= s:
+                continue
+            BODY[r['k']] += e - s
+            OUTC[r['k']][r.get('s')] += e - s
+            if r.get('trg') == 'llm:idle':
+                BODY_IDLE[r['k']] += e - s
+            if cur_e is None or s > cur_e:
+                if cur_e is not None:
+                    cov += cur_e - cur_s
+                cur_s, cur_e = s, e
+            else:
+                cur_e = max(cur_e, e)
+        if cur_e is not None:
+            cov += cur_e - cur_s
+        B['covered_s'] += cov
+    for r in rows:
+        if not r['k'].startswith('_'):
+            TRG[r.get('trg')] += 1
+    # ---------- [C] where the bots are: per bot per minute, the newest instant (event) row with a position ----------
+    per = collections.defaultdict(list)
+    for r in rows:
+        if r['k'].startswith('_') and r.get('p') and r.get('bot'):
+            per[r['bot']].append((r['t'], r['p']))
+    minute_pos = collections.defaultdict(dict)  # minute -> bot -> pos
+    for b, lst in per.items():
+        ts = [x[0] for x in lst]
+        prev = None
+        for m in range(int(T0 // 60) + 1, int(T1 // 60) + 1):
+            j = bisect.bisect_right(ts, m * 60) - 1
+            if j < 0 or m * 60 - ts[j] > CARRY:
+                POS['void'] += 1; prev = None; continue
+            p = lst[j][1]
+            POS['ok'] += 1
+            d = hd(p, home)
+            DIST.append(d)
+            if d <= TOWN_R and abs(p[1] - home[1]) <= TOWN_DY:
+                POS['at_town'] += 1
+            if p[1] < home[1] - 12:
+                UND += 1
+            minute_pos[m][b] = p
+            if prev is not None:
+                PATH += hd(p, prev); PATH_H += 1 / 60
+            prev = p
+    for m, bp in minute_pos.items():
+        at = [b for b, p in bp.items() if hd(p, home) <= TOWN_R and abs(p[1] - home[1]) <= TOWN_DY]
+        CO['town_minutes'] += 1
+        CO[f'at_town_{min(len(at), 5)}'] += 1
+        for b, p in bp.items():
+            CO['bot_minutes'] += 1
+            near = any(o != b and hd(p, op) <= 16 and abs(p[1] - op[1]) <= 8 for o, op in bp.items())
+            if near:
+                CO['bot_minutes_mate_16'] += 1
+    # ---------- [D1] concurrent same town job (interval sweep; furnace_drain keyed by furnace) ----------
+    tj = [r for r in rows if r['k'] in TOWNJOBS and r.get('dur') is not None and r.get('bot')]
+    for k in TOWNJOBS:
+        runs = sorted((r for r in tj if r['k'] == k), key=lambda r: r['t'])
+        for i, r in enumerate(runs):
+            TJ_RUNS[k] += 1
+            key = None
+            if k == 'furnace_drain':
+                m = re.search(r'furnace at (-?\d+,-?\d+,-?\d+)', r.get('d') or '')
+                key = m.group(1) if m else None
+            over = False
+            for o in runs[max(0, i - 400):i]:
+                if o['bot'] != r['bot'] and o['t'] <= r['t'] < end(o):
+                    if k == 'furnace_drain':
+                        m2 = re.search(r'furnace at (-?\d+,-?\d+,-?\d+)', o.get('d') or '')
+                        if not key or not m2 or m2.group(1) != key:
+                            continue
+                    over = True; break
+            if over:
+                TJ_OVER[k] += 1; TJ_OVER_S[k][r.get('s')] += 1
+            else:
+                TJ_SOLO_S[k][r.get('s')] += 1
+        succ = collections.Counter(r['bot'] for r in runs if r.get('s') == 'success')
+        if sum(succ.values()) >= 5:
+            TJ_TOP[k].append((max(succ.values()) / sum(succ.values()), len(succ)))
+    # ---------- [D2] field concurrency: gathers of the same block by >= 2 townmates at once, within 16 / dy 8 ----------
+    g = [r for r in rows if r['k'] == 'gather' and r.get('p') and r.get('dur') and r.get('s') in ('success', 'failed', 'aborted', 'no_effect')]
+    def blk(r):
+        try:
+            return json.loads(r.get('a') or '{}').get('block')
+        except Exception:
+            return None
+    gs = sorted(g, key=lambda r: r['t'])
+    for i, r in enumerate(gs):
+        b = blk(r)
+        cont = False
+        for o in gs[max(0, i - 300):i] + gs[i + 1:i + 300]:
+            if o['bot'] == r['bot'] or blk(o) != b:
+                continue
+            if o['t'] < end(r) and r['t'] < end(o) and hd(o['p'], r['p']) <= 16 and abs(o['p'][1] - r['p'][1]) <= 8:
+                cont = True; break
+        c = 'contested' if cont else 'solo'
+        GC[c] += 1; GC_S[(c, r['s'])] += 1; GC_H[c] += (r.get('dur') or 0) / 3.6e6
+        GC[('blk', b, c)] += 1
+    mn = sorted([r for r in rows if r['k'] == 'mine' and r.get('p') and r.get('dur')], key=lambda r: r['t'])
+    for i, r in enumerate(mn):
+        cont = any(o['bot'] != r['bot'] and o['t'] < end(r) and r['t'] < end(o) and hd(o['p'], r['p']) <= 16
+                   for o in mn[max(0, i - 200):i] + mn[i + 1:i + 200])
+        MC['contested' if cont else 'solo'] += 1
+    # ---------- [D3] explore toward the SAME known sighting by two townmates within 30 min ----------
+    HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+    heads = []
+    for r in rows:
+        if r['k'] == '_explore_toward_known':
+            m = HEAD.search(r.get('d') or '')
+            if m:
+                heads.append((r['t'], r['bot'], m.group(1), (int(m.group(2)), int(m.group(3)), int(m.group(4)))))
+    for i, (t, b, item, xyz) in enumerate(heads):
+        EXP['heads'] += 1
+        dup = any(b2 != b and xyz2 == xyz and t - t2 <= 1800 for (t2, b2, i2, xyz2) in heads[max(0, i - 500):i])
+        if dup:
+            EXP['same_sighting_other_bot_30min'] += 1
+        selfdup = any(b2 == b and xyz2 == xyz and t - t2 <= 1800 for (t2, b2, i2, xyz2) in heads[max(0, i - 500):i])
+        if selfdup:
+            EXP['same_sighting_same_bot_30min'] += 1
+    # ---------- [D4] furnace found empty again by ANOTHER bot within 60 min, with no non-drain session between ----------
+    sess = collections.defaultdict(list)
+    for r in rows:
+        if r['k'] == '_furnace_session':
+            m = re.search(r'furnace=(-?\d+,-?\d+,-?\d+).*by=(\w+)', r.get('d') or '')
+            if m and m.group(2) != 'drain':
+                sess[m.group(1)].append(r['t'])
+    empt = []
+    for r in rows:
+        if r['k'] == 'furnace_drain':
+            m = re.search(r'furnace at (-?\d+,-?\d+,-?\d+) is empty', r.get('d') or '')
+            if m:
+                empt.append((end(r), r['t'], r['bot'], m.group(1)))
+    empt.sort()
+    for i, (e, s, b, f) in enumerate(empt):
+        DR['empty'] += 1
+        prev = [x for x in empt[:i] if x[3] == f and s - x[0] <= 3600 and x[0] <= s]
+        if prev:
+            last = prev[-1]
+            if not any(last[0] <= ts <= s for ts in sess.get(f, [])):
+                DR['repeat_after_peer' if last[2] != b else 'repeat_after_self'] += 1
+    DR['load_sessions'] += sum(len(v) for v in sess.values())
+    # ---------- [D5] the same item crafted by two townmates within 10 min ----------
+    cr = []
+    for r in rows:
+        if r['k'] == 'craft' and r.get('s') == 'success':
+            try:
+                it = json.loads(r.get('a') or '{}').get('item')
+            except Exception:
+                it = None
+            cr.append((r['t'], r['bot'], it))
+    for i, (t, b, it) in enumerate(cr):
+        CRAFT['crafts'] += 1
+        if any(b2 != b and it2 == it and t - t2 <= 600 for (t2, b2, it2) in cr[max(0, i - 200):i]):
+            CRAFT['same_item_other_bot_10min'] += 1
+            CRAFT[('item', it)] += 1
+    # ---------- [N] the town-supply refusals that remain ----------
+    for r in rows:
+        d = r.get('d') or ''
+        if r['k'] == 'toolkit':
+            NEED['toolkit_runs'] += 1
+            if 'iron ingot' in d and 'no town container' in d:
+                NEED['toolkit_no_iron'] += 1
+        if r['k'] == 'smelt_town':
+            NEED['smelt_runs'] += 1
+            if 'no coal' in d:
+                NEED['smelt_no_coal'] += 1
+            if 'no raw copper' in d:
+                NEED['smelt_no_copper'] += 1
+        if r['k'] == 'withdraw_pick':
+            NEED['wp_runs'] += 1
+            if 'no usable pickaxe' in d:
+                NEED['wp_none'] += 1
+    del rows
+
+print('== [A] window and positive controls')
+print(f"  window 2026-10-22T12:14Z .. 2026-10-23T12:14Z; towns {len(POOLS)}; rows {TOT['rows']:,}; bots {TOT['bots']}; bot-h {TOT['bot_h']:.0f}; positioned event rows {TOT['pos_rows']:,}")
+print('  homes', TOWNSET)
+bh = TOT['bot_h']
+print('== [B] time budget (skill rows, start..start+duration, union per bot)')
+print(f"  inside any skill: {B['covered_s']/3600:.0f} bot-h of {bh:.0f} ({100*B['covered_s']/3600/bh:.1f}%); outside any skill {bh - B['covered_s']/3600:.0f} bot-h")
+for k, s in BODY.most_common(16):
+    oc = OUTC[k]; tot = sum(oc.values())
+    print(f"  {k:16s} {s/3600:7.1f} bot-h ({100*s/3600/bh:5.2f}%)  of it under llm:idle {BODY_IDLE[k]/3600:6.1f}  outcome-h " +
+          ', '.join(f'{o}:{v/3600:.1f}' for o, v in oc.most_common(4)))
+tj_h = sum(BODY[k] for k in TOWNJOBS if k != 'craft') / 3600
+print(f"  town jobs (excl. craft) body: {tj_h:.1f} bot-h ({100*tj_h/bh:.2f}%)")
+print('  skill-row triggers:', TRG.most_common(8))
+print('== [C] where the bots are (newest positioned event row per bot-minute, carried <= 10 min)')
+ok = POS['ok']
+print(f"  bot-minutes with a position {pct(ok, ok + POS['void'])}; at town (<=48 h, <=12 v) {pct(POS['at_town'], ok)}; more than 12 below home's y {pct(UND, ok)}")
+print(f"  distance from home: median {q(DIST, .5):.0f}, p75 {q(DIST, .75):.0f}, p90 {q(DIST, .9):.0f}, p99 {q(DIST, .99):.0f}")
+print(f"  minute-to-minute horizontal displacement: {PATH/PATH_H:.0f} blocks per bot-h over {PATH_H:.0f} bot-h (a lower bound on travel)")
+tm = CO['town_minutes']
+print(f"  town-minutes {tm}: bots at town 0:{CO['at_town_0']} 1:{CO['at_town_1']} 2:{CO['at_town_2']} 3:{CO['at_town_3']} 4:{CO['at_town_4']} 5:{CO['at_town_5']}")
+print(f"  >=2 bots at town together {pct(sum(CO[f'at_town_{i}'] for i in (2,3,4,5)), tm)}")
+print(f"  bot-minutes with a townmate within 16 (dy 8): {pct(CO['bot_minutes_mate_16'], CO['bot_minutes'])}")
+print('== [D1] concurrent town jobs (a run starting while another townmate is inside the same job; the drain keyed by furnace)')
+for k in TOWNJOBS:
+    if TJ_RUNS[k]:
+        o = TJ_OVER_S[k]; s = TJ_SOLO_S[k]
+        ne = lambda c: (c.get('no_effect', 0) + c.get('failed', 0)) / max(1, sum(c.values()))
+        tops = TJ_TOP[k]
+        topmed = statistics.median([x[0] for x in tops]) if tops else None
+        print(f"  {k:14s} runs {TJ_RUNS[k]:6d}  overlapping {pct(TJ_OVER[k], TJ_RUNS[k])}  no_effect+failed: overlap {100*ne(o):.0f}% solo {100*ne(s):.0f}%  top-bot share of successes (median over towns with >=5) {topmed if topmed is None else round(topmed, 2)}")
+print('== [D2] field concurrency')
+print(f"  gather runs {GC['contested'] + GC['solo']}: contested (same block, townmate's gather overlapping in time, end positions within 16 / dy 8) {pct(GC['contested'], GC['contested'] + GC['solo'])}; bot-h contested {GC_H['contested']:.1f} of {GC_H['contested'] + GC_H['solo']:.1f}")
+for c in ('contested', 'solo'):
+    n = sum(v for (cc, s), v in GC_S.items() if cc == c)
+    print(f"    {c}: success {pct(GC_S[(c, 'success')], n)}")
+topb = collections.Counter({k[1]: v for k, v in GC.items() if isinstance(k, tuple) and k[2] == 'contested'})
+print('    contested by block:', topb.most_common(6))
+print(f"  mine runs {MC['contested'] + MC['solo']}: a townmate mining within 16 at the same time {pct(MC['contested'], MC['contested'] + MC['solo'])}")
+print('== [D3] explore toward a known sighting')
+print(f"  headings {EXP['heads']}: same sighting as ANOTHER bot's heading in the 30 min before {pct(EXP['same_sighting_other_bot_30min'], EXP['heads'])}; same bot's own {pct(EXP['same_sighting_same_bot_30min'], EXP['heads'])}")
+print('== [D4] furnace found empty again (60 min, no non-drain session on that furnace between)')
+print(f"  'is empty' drains {DR['empty']}: repeat after a TOWNMATE {pct(DR['repeat_after_peer'], DR['empty'])}; after itself {pct(DR['repeat_after_self'], DR['empty'])}; positive control: non-drain sessions parsed {DR['load_sessions']}")
+print('== [D5] the same item crafted by two townmates within 10 min')
+print(f"  successful crafts {CRAFT['crafts']}: {pct(CRAFT['same_item_other_bot_10min'], CRAFT['crafts'])}; items", collections.Counter({k[1]: v for k, v in CRAFT.items() if isinstance(k, tuple)}).most_common(8))
+print('== [N] town supply refusals left')
+print(f"  toolkit no-iron {pct(NEED['toolkit_no_iron'], NEED['toolkit_runs'])}; smelt_town no-coal {pct(NEED['smelt_no_coal'], NEED['smelt_runs'])}, no-copper {pct(NEED['smelt_no_copper'], NEED['smelt_runs'])}; withdraw_pick none {pct(NEED['wp_none'], NEED['wp_runs'])}")

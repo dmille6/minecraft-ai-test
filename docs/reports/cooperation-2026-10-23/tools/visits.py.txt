@@ -1,0 +1,95 @@
+# cooperation design 2026-10-23: town visits (arrivals, dwell, overlap) and the explore time spent on a sighting another
+# townmate headed for in the 30 min before (read-only; same extract and window as coop.py).
+import gzip, json, glob, os, re, math, collections, bisect, statistics, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+HEAD = re.compile(r'heading for (\w+) at (-?\d+),(-?\d+),(-?\d+)')
+
+def homeof(pool):
+    f = glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')[0]
+    return tuple(int(v) for v in re.search(r'town-index-(-?\d+)_(-?\d+)_(-?\d+)\.g', f).groups())
+
+EXG = collections.Counter(); ARR = []; DWELL = []; EXH = collections.Counter(); EXN = collections.Counter(); JOINT = collections.Counter()
+for pool in POOLS:
+    home = homeof(pool)
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows.sort(key=lambda r: r['t'])
+    per = collections.defaultdict(list)
+    for r in rows:
+        if r['k'].startswith('_') and r.get('p') and r.get('bot'):
+            per[r['bot']].append((r['t'], r['p']))
+    attown = {}
+    for b, lst in per.items():
+        ts = [x[0] for x in lst]; seq = []
+        for m in range(int(T0 // 60) + 1, int(T1 // 60) + 1):
+            j = bisect.bisect_right(ts, m * 60) - 1
+            ok = j >= 0 and m * 60 - ts[j] <= 600
+            p = lst[j][1] if ok else None
+            seq.append(bool(p and math.hypot(p[0] - home[0], p[2] - home[2]) <= 48 and abs(p[1] - home[1]) <= 12))
+        attown[b] = seq
+        n = 0; run = 0
+        for i, a in enumerate(seq):
+            if a:
+                run += 1
+                if i == 0 or not seq[i - 1]:
+                    n += 1
+            elif run:
+                DWELL.append(run); run = 0
+        if run:
+            DWELL.append(run)
+        ARR.append(n)
+    # joint presence: minutes with k bots at town, and the longest stretch with >= 2 / >= 3 together
+    bots = sorted(attown)
+    L = len(next(iter(attown.values()))) if attown else 0
+    best2 = best3 = cur2 = cur3 = 0
+    for m in range(L):
+        k = sum(attown[b][m] for b in bots)
+        cur2 = cur2 + 1 if k >= 2 else 0; cur3 = cur3 + 1 if k >= 3 else 0
+        best2 = max(best2, cur2); best3 = max(best3, cur3)
+        if k >= 2:
+            JOINT['ge2_min'] += 1
+    JOINT[('best2', pool)] = best2; JOINT[('best3', pool)] = best3
+    heads = []
+    for r in rows:
+        if r['k'] == '_explore_toward_known':
+            m = HEAD.search(r.get('d') or '')
+            if m:
+                heads.append((r['t'], r['bot'], (int(m.group(2)), int(m.group(3)), int(m.group(4)))))
+    hts = [h[0] for h in heads]
+    heads_item = {}
+    for r in rows:
+        if r['k'] == '_explore_toward_known':
+            m = HEAD.search(r.get('d') or '')
+            if m:
+                heads_item[(r['t'], r['bot'])] = m.group(1)
+    gath = [r for r in rows if r['k'] == 'gather']
+    gts = [r['t'] for r in gath]
+    for r in rows:
+        if r['k'] != 'explore' or not r.get('dur'):
+            continue
+        i, j = bisect.bisect_left(hts, r['t'] - 2), bisect.bisect_right(hts, r['t'] + 10)
+        mine = [h for h in heads[i:j] if h[1] == r['bot']]
+        if not mine:
+            EXH['no_heading'] += r['dur'] / 3.6e6; EXN['no_heading'] += 1; continue
+        t, b, xyz = mine[0]
+        k = bisect.bisect_left(hts, t - 1800)
+        dup = any(h[1] != b and h[2] == xyz and h[0] < t for h in heads[k:bisect.bisect_left(hts, t)])
+        c = 'peer_headed_same_sighting_30min' if dup else 'fresh_for_the_town'
+        EXH[c] += r['dur'] / 3.6e6; EXN[c] += 1
+        # outcome: the same bot gathers the headed-for block successfully within 10 min of the explore run's end
+        e = r['t'] + r['dur'] / 1000.0
+        got = any(g['bot'] == r['bot'] and g['k'] == 'gather' and g.get('s') == 'success' and e <= g['t'] <= e + 600
+                  and heads_item.get((t, b)) and heads_item[(t, b)] in (g.get('a') or '') for g in gath[bisect.bisect_left(gts, e):bisect.bisect_right(gts, e + 600)])
+        EXG[(c, got)] += 1
+    del rows
+
+print('== [V] town visits (minute samples; at town = <=48 h, <=12 v of home)')
+print(f'  arrivals per bot-day: median {statistics.median(ARR)}, p25 {sorted(ARR)[len(ARR)//4]}, p75 {sorted(ARR)[3*len(ARR)//4]} (65 bots)')
+print(f'  dwell per visit (min): median {statistics.median(DWELL)}, p75 {sorted(DWELL)[3*len(DWELL)//4]}, p90 {sorted(DWELL)[9*len(DWELL)//10]}; visits {len(DWELL)}')
+print('  longest stretch with >= 2 / >= 3 bots at town together (min):', {p: (JOINT[('best2', p)], JOINT[('best3', p)]) for p in POOLS})
+print('== [X] explore runs by whether a TOWNMATE headed for the same sighting in the 30 min before')
+for c in EXH:
+    print(f'  {c:34s} runs {EXN[c]:6d}  bot-h {EXH[c]:6.1f}  then gathered the headed-for block within 10 min: {EXG[(c, True)]}/{EXG[(c, True)] + EXG[(c, False)]}')

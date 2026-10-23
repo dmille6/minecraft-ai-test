@@ -1,0 +1,32 @@
+STAFF CENSUS (S0) -- recorded ticks, last 72 h (296 of 11232 town-slots void)
+  towns 13 (shared pools; isolated pools excluded) over 72.0 h
+  town        valid_h void  at-town bot-h  free  town-job flagged project | project  open_h pending_h builder h/visits/body-s ASSIGNABLE_h placed cells/open-h  blocked-by (h)
+  board-a       71.9    1          64.2  30.3      2.2    31.7     0.0 | treefarm  71.92      0.00  0.00/0v/0s         0.00      0          0.0  -
+              void: {'census_absent': 1}
+  board-b       71.9    1         123.0  79.7      1.7    41.6     0.0 | (no open project)
+              void: {'census_absent': 1}
+  board-c       71.9    1          82.0  52.0      2.9    27.1     0.0 | (no open project)
+              void: {'census_absent': 1}
+  board-d       71.9    1          43.5  25.5      1.0    17.0     0.0 | (no open project)
+              void: {'census_absent': 1}
+  hive-a        71.9    1          60.7  37.9      2.6    20.2     0.0 | (no open project)
+              void: {'census_absent': 1}
+  hive-b        71.9    1          61.0  36.8      1.1    23.1     0.0 | (no open project)
+              void: {'census_absent': 1}
+  hive-c        71.9    1          69.2  40.7      1.7    26.8     0.0 | treefarm  71.92      0.00  0.00/0v/0s         0.00      0          0.0  -
+              void: {'census_absent': 1}
+  hive-d        71.9    1          80.7  48.9      1.1    30.7     0.0 | (no open project)
+              void: {'census_absent': 1}
+  isolated-b    48.3  284          46.7  26.3      2.9    17.5     0.0 | (no open project)
+              void: {'census_absent': 282, 'town_silent': 2}
+  placebo-a     71.9    1          81.7  58.9      1.2    21.7     0.0 | (no open project)
+              void: {'census_absent': 1}
+  placebo-b     71.9    1         129.2 101.4      2.7    25.1     0.0 | (no open project)
+              void: {'census_absent': 1}
+  placebo-c     71.9    1          62.0  28.0      2.5    31.5     0.0 | (no open project)
+              void: {'census_absent': 1}
+  placebo-d     71.9    1          73.0  45.6      1.1    26.3     0.0 | (no open project)
+              void: {'census_absent': 1}
+  ALL TOWNS: 911.37 valid town-h; at-town 976.92 bot-h = free 611.97 + town job 24.63 + project 0 + flagged 340.32 (death 1.83, drowning 2.48, low_health 0.67, trap 335.33)
+  PROJECT treefarm (cap 1): 2 town(s) open; open 143.833 town-h; 0 builder visits, 0 body-s; assignable 0.0 town-h = 0.0 town-h/day; placed 0; GATE: not applicable: single-builder project (cap 1) -- the gate is judged on a multi-bot project
+  home, shared towns (RECALL gate >= 70%): all 343 of 1165 (29%); under the validator's filter 84 of 177 (47%); excluded {'interrupt_trigger': 533, 'flagged:trap': 448, 'flagged:drowning': 4, 'flagged:low_health': 2, 'flagged:death': 1} (health_unknown 0 of 1165: a large share means the filtered rate covers a selected subset)
