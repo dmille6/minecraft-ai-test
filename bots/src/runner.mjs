@@ -55,6 +55,8 @@ export class Runner {
   static RECENT_MAX = 6
   /** The longest a reservation may hold the runner (the measured p95 unwind, docs/reports/expansion-plan-2026-10-19.md §2). */
   static RESERVE_MAX_MS = 20_000
+  /** The danger mover's reservation owner (lavastepmove.mjs): no other owner may replace it while it lives. */
+  static DANGER_OWNER = 'lavastep'
 
   /** Recent attempts as "skill->status", oldest first. Empty if nothing has run. */
   recentSummary() {
@@ -79,6 +81,12 @@ export class Runner {
    * cognitive loop: a cancelled livelock rung returns and the next rung starts a goto before any timer fires.
    */
   reserve (owner, ms = Runner.RESERVE_MAX_MS, reason = 'stagnation') {
+    // LAVASTEP-01 (F1 "the one runner change"): a live danger-move reservation is never replaced by another owner. The
+    // caller gets { gen: null, refused: 'lavastep' } and declines: the watchdog's run then meets `runner_reserved`,
+    // poolescape's renew() already returns for another owner's reservation. Nothing is interrupted. They resume once the
+    // move releases it (<= 6 s). The danger mover itself may renew its own.
+    const live = this.activeReservation()
+    if (live && live.owner === Runner.DANGER_OWNER && owner !== Runner.DANGER_OWNER) return { gen: null, aborted: false, refused: Runner.DANGER_OWNER }
     const gen = ++this.reserveGen
     const span = Math.max(0, Math.min(Number(ms) || 0, Runner.RESERVE_MAX_MS))
     this.reservation = { owner, gen, until: Date.now() + span, at: Date.now() }
