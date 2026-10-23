@@ -11,8 +11,9 @@
 //      store never adopts the village's chest); positive control without the guard.
 //   4. PATHFINDER: the plan's furniture price, the junk well's and the zone price are all in the SHARED break array, set before
 //      the clones copy it (index.mjs wiring: a structural invariant behaviour cannot reach from a unit test).
-//   5. POOLESCAPE: its stair and plug never cut or click a plan's furniture (INTERACTIVE covers every kind the plan places), and
-//      a plug cell (water) is never a READY plan cell.
+//   5. POOLESCAPE: its stair and plug never CLICK a plan's furniture as a reference (INTERACTIVE covers every kind the plan
+//      places), and a plug cell (water) is never a READY plan cell. NOT COVERED (and not true): poolescape's dig list can CUT a
+//      station or chest at its head/clearance cell -- base behaviour for any town block, a named follow-up (JIT 10-23c Q1).
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -35,6 +36,7 @@ const PE = await import('../src/poolescape.mjs')
 const S = await import('../src/skills.mjs')
 const { fakeWorld } = await import('./fakeworld.mjs')
 const TP_PATH = new URL('../src/townplan.mjs', import.meta.url)
+const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
 const require_ = createRequire(import.meta.url)
 const mcData = require_('minecraft-data')('1.21.8')
 
@@ -92,7 +94,7 @@ await t('SUPERSET (fuzz, 400 files): every zone the guard protects is a zone the
     const g = PZ.parseZones(json, { worldId: 'w' })
     const p = T.parseZones(json, 'w')
     // townPlanZones: known only when ok and nothing dropped (a partly malformed file is stale/unknown -> no root, no fit, no found)
-    const plannerUses = p.ok && !/^dropped /.test(p.why)
+    const plannerUses = p.ok && !/^(dropped|guard_drops) /.test(p.why)
     for (const z of g.zones) {
       protectedSeen++
       if (!plannerUses) { plannerRefused++; continue }
@@ -103,7 +105,59 @@ await t('SUPERSET (fuzz, 400 files): every zone the guard protects is a zone the
   }
   // POSITIVE CONTROLS: the fuzz reached both branches
   assert.ok(protectedSeen > 200, `zones protected ${protectedSeen}`)
-  assert.ok(plannerKept > 100 && plannerRefused > 20, `kept ${plannerKept} refused ${plannerRefused}`)
+  assert.ok(plannerKept > 50 && plannerRefused > 20, `kept ${plannerKept} refused ${plannerRefused}`)
+})
+await t('SUPERSET THROUGH THE REAL READERS (fuzz, 150 edit pairs: a good file, then a fuzzed edit): whenever the planner says known, it avoids every zone the guard protects', () => {
+  const dir = process.env.POOL_STATE_DIR, file = path.join(dir, 'protected-zones.json')
+  const bot = { worldId: 'w' }
+  let checked = 0, unknown = 0, partial = 0
+  for (let f = 0; f < 150; f++) {
+    S.resetPlanZones()
+    const good = { version: 1, hashed_seed: 'w', zones: Array.from({ length: 1 + Math.floor(rnd() * 3) }, (_, i) => ({ id: `g${i}`, box: [i * 50, -64, 0, i * 50 + 9, 90, 9] })) }
+    fs.writeFileSync(file, JSON.stringify(good))
+    const guard = PZ.zoneReader({ file: () => file, worldId: () => 'w' }); guard.refresh()
+    S.townPlanZones(bot, 1e9 + f * 1e6)
+    const edit = { version: pick([1, 1, 1, 2]), hashed_seed: pick(['w', 'w', undefined]), zones: Array.from({ length: 1 + Math.floor(rnd() * 4) }, (_, i) => fuzzZone(i)) }
+    fs.writeFileSync(file, rnd() < 0.1 ? '{"version": 1, "zones": [' : JSON.stringify(edit))
+    guard.refresh()
+    const v = S.townPlanZones(bot, 1e9 + f * 1e6 + 60_000)
+    if (/^stale:(dropped|guard_drops)/.test(v.why)) partial++
+    if (!v.known) { unknown++; continue }
+    for (const z of guard.zones()) {
+      checked++
+      assert.ok(v.zones.some(q => q.box.join() === [z.x0, z.y0, z.z0, z.x1, z.y1, z.z1].join()), `the guard protects ${z.id} after ${JSON.stringify(edit)}; the planner (${v.why}) does not avoid it`)
+    }
+  }
+  fs.unlinkSync(file); S.resetPlanZones()
+  assert.ok(checked > 150 && partial > 10, `checked ${checked}, partial edits ${partial}, unknown ${unknown}`)
+})
+async function guardDropsEdit (M) {
+  const dir = process.env.POOL_STATE_DIR, file = path.join(dir, 'protected-zones.json')
+  M.resetPlanZones()
+  const bot = { worldId: 'w' }
+  fs.writeFileSync(file, JSON.stringify({ version: 1, hashed_seed: 'w', zones: [{ id: 'old', box: [0, -64, 0, 5, 90, 5] }] }))
+  const guard = PZ.zoneReader({ file: () => file, worldId: () => 'w' }); guard.refresh()
+  M.townPlanZones(bot, 2e9)
+  // an edit whose ONLY zone has no id: the guard drops it and keeps `old` (all_malformed); townplan can parse it
+  fs.writeFileSync(file, JSON.stringify({ version: 1, hashed_seed: 'w', zones: [{ box: [20, -64, 20, 30, 90, 30] }] }))
+  guard.refresh()
+  assert.deepEqual(guard.zones().map(z => z.id), ['old'], 'POSITIVE CONTROL: the guard keeps its last good list')
+  const v = M.townPlanZones(bot, 2e9 + 60_000)
+  assert.equal(v.known, true)
+  assert.ok(v.zones.some(z => z.id === 'old'), `the planner still avoids old (${v.why}: ${JSON.stringify(v.zones)})`)
+  assert.ok(v.zones.some(z => z.box.join() === '20,-64,20,30,90,30'), '...and the id-less box (avoided, not trusted)')
+  fs.unlinkSync(file); M.resetPlanZones()
+}
+await t('AN EDIT WHOSE EVERY ZONE THE GUARD DROPS (no id): the guard keeps its last good list, and so does the planner (plus the box)', () => guardDropsEdit(S))
+await t('MUTANT KILLED: guard-dropped zones not a partial read (the planner replaces its last good list with the id-less zone)', async () => {
+  const k = await withMutant(SKILLS_PATH, 'const partial = /^(dropped|guard_drops) /.test(r.why)', 'const partial = /^(dropped) /.test(r.why)', async M => killedBy(() => guardDropsEdit(M)))
+  assert.ok(k, 'the mutant survived')
+})
+await t('THE UNKNOWN WORLD ID (\'\'): the guard honours the file, and so does the planner\'s parser (Claude JIT r1 P3)', () => {
+  const json = { version: 1, hashed_seed: 'w', zones: [{ id: 'z', box: [0, -64, 0, 5, 90, 5] }] }
+  assert.equal(PZ.parseZones(json, { worldId: '' }).zones.length, 1, 'POSITIVE CONTROL: the guard protects it')
+  assert.equal(T.parseZones(json, '').zones.length, 1)
+  assert.equal(T.parseZones(json, 'other').why, 'another world', 'a KNOWN other world still drops it')
 })
 await t('SUPERSET (the showcase file, protectzone-01\'s own infra copy): the planner reads the same 7 zones with the same boxes', () => {
   const doc = JSON.parse(readFileSync(new URL('../../infra/showcase/protected-zones.showcase.json', import.meta.url), 'utf8'))
@@ -113,7 +167,6 @@ await t('SUPERSET (the showcase file, protectzone-01\'s own infra copy): the pla
   for (const z of g.zones) assert.ok(p.zones.some(q => q.id === z.id && q.box.join() === [z.x0, z.y0, z.z0, z.x1, z.y1, z.z1].join()), z.id)
 })
 
-const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
 async function staleEdit (M) {
   // the REAL readers over the same file in the pool's directory: townplan's townPlanZones and protectzone's zoneReader
   const dir = process.env.POOL_STATE_DIR, file = path.join(dir, 'protected-zones.json')

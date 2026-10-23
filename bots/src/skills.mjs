@@ -14755,7 +14755,7 @@ export function townPlanZones (bot, now = Date.now()) {
     view = zoneMem.good ? { ...zoneMem.good, why: 'stale:unreadable' } : { known: false, zones: [], why: 'unreadable' }
   } else {
     const r = parseZones(json, world)
-    const partial = /^dropped /.test(r.why)
+    const partial = /^(dropped|guard_drops) /.test(r.why)   // a zone the guard drops makes the read partial too (townplan.mjs parseZones)
     if (r.ok && !partial) { view = { known: true, zones: r.zones, why: r.why }; zoneMem.good = view } else if (partial && zoneMem.good) {
       // A PARTLY MALFORMED EDIT after a good read (townplan x protectzone, JIT 10-23c): protectzone's guard protects the edit's
       // VALID zones at once, so the planner avoids them too -- the last good list PLUS them (never fewer than either). RETAINED as
