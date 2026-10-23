@@ -1,0 +1,25 @@
+STEADY REPLAY at 2026-10-22T07:00:00+00:00 (STEADY_NOW): not a live answer
+STEADY 12h hive-c: ironpick-01 KEEP+promoted 0.2 h ago (< 6 h)
+STEADY 12h hive-d: ironpick-01 KEEP+promoted 0.2 h ago (< 6 h)
+STEADY 12h placebo-b: ironpick-01 KEEP+promoted 0.2 h ago (< 6 h)
+STEADY settle held hive-c: ironpick-01: KEEP closed (promoted) 3 min ago (< the floor 360)
+STEADY settle held hive-d: ironpick-01: KEEP closed (promoted) 3 min ago (< the floor 360)
+STEADY settle held placebo-b: ironpick-01: KEEP closed (promoted) 3 min ago (< the floor 360)
+STEADY control board-a: NOT QUALIFIED: board-a-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY control board-d: NOT QUALIFIED: board-d-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY control hive-b: NOT QUALIFIED: hive-b-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY control placebo-a: NOT QUALIFIED: placebo-a-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY 12h board-b: the pool did not qualify: board-b-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY 12h board-c: the pool did not qualify: board-c-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY 12h hive-a: the pool did not qualify: hive-a-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY 12h placebo-d: the pool did not qualify: placebo-d-Alpha: builds ['2719ee0', 'd014ec2'] in the last 60 min, not only 2719ee0 (restart lag)
+STEADY settle control board-a: bag 29.2 deep 0.519827247742442
+STEADY settle control board-d: bag 33.2 deep 0.08059051306873184
+STEADY settle control hive-b: bag 30.4 deep 0.5035945363048167
+STEADY settle control placebo-a: bag 29.5 deep 0.5936210131332083
+STEADY settle REL board-b (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2 360 min: every canary row on the control majority build over 360 min (5 of 5 canary bots seen, 386 transition rows); control heterogeneity 26.7% (reported, not gated) | homefix-02 KEEP+promoted 10-22T00:18Z; 5 bots on 2719ee0 only for 60 min; bag fill 30.7 (halves 30.7 -> 30.5) inside 4 controls | depth y<50 share 0.510 inside 0.081..0.594
+STEADY settle REL board-c (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2 360 min: every canary row on the control majority build over 360 min (5 of 5 canary bots seen, 249 transition rows); control heterogeneity 26.8% (reported, not gated) | homefix-02 KEEP+promoted 10-22T00:18Z; 5 bots on 2719ee0 only for 60 min; bag fill 30.1 (halves 30.4 -> 29.7) inside 4 controls | depth y<50 share 0.360 inside 0.081..0.594
+STEADY settle held hive-a (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2 360 min: every canary row on the control majority build over 360 min (5 of 5 canary bots seen, 122 transition rows); control heterogeneity 26.8% (reported, not gated) | bag fill, second half +29.07 outside the controls' +29.15..+33.24 (carryover not cleared)
+STEADY settle REL placebo-d (pred homefix-02 promoted 10-22T00:28Z, floor 360): S2 360 min: every canary row on the control majority build over 360 min (5 of 5 canary bots seen, 247 transition rows); control heterogeneity 26.7% (reported, not gated) | homefix-02 KEEP+promoted 10-22T00:18Z; 5 bots on 2719ee0 only for 60 min; bag fill 29.7 (halves 29.9 -> 29.5) inside 4 controls | depth y<50 share 0.347 inside 0.081..0.594
+STEADY RELEASE ['board-b', 'board-c', 'placebo-d']
+HOSTCONTROL wall time 36 s (drawrec gives drawsteady 600 s)

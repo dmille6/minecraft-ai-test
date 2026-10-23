@@ -1,0 +1,45 @@
+
+4. **P2 — H2 passes for the wrong reason.** [bots/test/lavastep.test.mjs:750](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-ad6fff25b2e413fbd/bots/test/lavastep.test.mjs:750) sets the executor’s plan to null, but a successful decision has `dec.aim === null`. The fallback throws while reading `dec.aim.scores`; H2’s assertions accept that error without any aim occurring. An in-memory reproduction confirmed both assertions pass with `ended: "error"` and no aim.  
+   **Remedy:** make the mutant execute a valid aimed fallback despite the available plan, then require an actual aim, no runtime error, and a replayed plan.
+
+The remaining r1 fixes check out by inspection:
+
+- Unknown swept cells now refuse. Intermediate destinations receive only the origin-feet exemption; goals remain strictly lava-safe. **That narrow exemption is acceptable within the design’s stated escape intent without returning to the owner.**
+- Relaxation creation is now lifecycle-bound and excludes interrupted/wet firings. The remaining integration issue is finding 2.
+- Synchronous `moving()` cleanup resolves the ordinary guard window and overlap problem. Its callers appear compatible apart from finding 1; I found no additional move overlap or airborne mid-move release.
+- Aim observations/reasons, seal inputs, step provenance, scheduled `after`, and separate `end` provide the claimed replay inputs.
+- F9 now exercises real `pillarOut`, though its independent 100 ms ticker does not verify production scheduling. Counting a return to the starting cell as stationary reasonably addresses the demonstrated corner-to-corner deadlock.
+- The episode reset, unused-control clearing, airborne status, soul-campfire comment, and pre-equip ownership check are present.
+
+Confirmed **59 test declarations and all nine mutation anchors present exactly once**. I did not execute the full suite because it creates directories and mutant files. No files were modified.
+
+VERDICT: CHANGE
+tokens used
+86,312
+Found **one P1 and three P2 issues**.
+
+1. **P1 — Deadline cleanup can cancel the air rescue’s stroke.** [bots/src/lavastepmove.mjs:220](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-ad6fff25b2e413fbd/bots/src/lavastepmove.mjs:220) checks the deadline before air ownership, while `end()` preserves rescue controls only for `why === 'air'`. If air takes ownership when the deadline expires, `moving()` ends the move as `deadline` and clears the rescue’s controls. A read-only reproduction produced `ended: "deadline"` and writes setting sprint, jump, and forward false after air takeover.  
+   **Remedy:** make cleanup respect current air ownership independently of the recorded termination reason. Add a simultaneous deadline/air-takeover test through `moving()` and the guard.
+
+2. **P2 — Relaxation cleanup is behind early returns in the real reflex loop.** [bots/src/reflex.mjs:2578](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-ad6fff25b2e413fbd/bots/src/reflex.mjs:2578) is the only call to `mover.tick()`, but no entity, active air-pocket work, and drowning rescue return earlier. Consequently, the new cleanup conditions are correct locally but do not reliably run in production; D20 calls `tick()` directly and misses this integration gap.  
+   **Remedy:** run relaxation invalidation before early returns, including the no-entity return. Keep sneak reassertion separately gated if necessary. Test through the actual reflex loop.
+
+3. **P2 — A missed reclassified `in` step omits the required aimed escape.** [bots/src/lavastepmove.mjs:419](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-ad6fff25b2e413fbd/bots/src/lavastepmove.mjs:419) returns `sealed_plan_missed` for every failed replan. If the bot moves into lava while the seal is pending, the witnessed seal can reclassify it as `in`; a missed step then ends the firing instead of immediately aiming, unlike the initial-plan branch.  
+   **Remedy:** apply the same `in_step_missed` fallback to replans, with a fresh recorded observation. Add a witnessed-seal → `in` → missed-step test.
+
+4. **P2 — H2 passes for the wrong reason.** [bots/test/lavastep.test.mjs:750](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-ad6fff25b2e413fbd/bots/test/lavastep.test.mjs:750) sets the executor’s plan to null, but a successful decision has `dec.aim === null`. The fallback throws while reading `dec.aim.scores`; H2’s assertions accept that error without any aim occurring. An in-memory reproduction confirmed both assertions pass with `ended: "error"` and no aim.  
+   **Remedy:** make the mutant execute a valid aimed fallback despite the available plan, then require an actual aim, no runtime error, and a replayed plan.
+
+The remaining r1 fixes check out by inspection:
+
+- Unknown swept cells now refuse. Intermediate destinations receive only the origin-feet exemption; goals remain strictly lava-safe. **That narrow exemption is acceptable within the design’s stated escape intent without returning to the owner.**
+- Relaxation creation is now lifecycle-bound and excludes interrupted/wet firings. The remaining integration issue is finding 2.
+- Synchronous `moving()` cleanup resolves the ordinary guard window and overlap problem. Its callers appear compatible apart from finding 1; I found no additional move overlap or airborne mid-move release.
+- Aim observations/reasons, seal inputs, step provenance, scheduled `after`, and separate `end` provide the claimed replay inputs.
+- F9 now exercises real `pillarOut`, though its independent 100 ms ticker does not verify production scheduling. Counting a return to the starting cell as stationary reasonably addresses the demonstrated corner-to-corner deadlock.
+- The episode reset, unused-control clearing, airborne status, soul-campfire comment, and pre-equip ownership check are present.
+
+Confirmed **59 test declarations and all nine mutation anchors present exactly once**. I did not execute the full suite because it creates directories and mutant files. No files were modified.
+
+VERDICT: CHANGE
+CODEX_EXIT=0

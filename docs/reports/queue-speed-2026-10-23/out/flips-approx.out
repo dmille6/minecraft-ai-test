@@ -1,0 +1,467 @@
+== POSITIVE CONTROLS (actual arms, actual declared_at)
+  stocktarget-02   KEEP +360 recorded: deaths 1 (0.017/bh over 60.0 measured bot-h) vs control 7 (0.023/bh over 300.0) | recomputed: deaths 1 / 60 bh vs 7 / 300 bh, trips none
+  wellsite-02      REVERT +360 recorded: deaths 1 (0.008/bh over 120.0 measured bot-h) vs control 6 (0.025/bh over 240.0) | recomputed: deaths 1 / 120 bh vs 6 / 240 bh, trips none
+  ironpick-01      KEEP +360 recorded: deaths 1 (0.011/bh over 90.0 measured bot-h) vs control 5 (0.019/bh over 270.0) | recomputed: deaths 1 / 90 bh vs 5 / 270 bh, trips none
+      baseline recomputed at +360 [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 807 transition rows); control he
+  keepout-01       KEEP +360 recorded: deaths 1 (0.017/bh over 60.0 measured bot-h) vs control 2 (0.007/bh over 300.0) | recomputed: deaths 1 / 60 bh vs 2 / 300 bh, trips none
+  poolescape-01    KEEP +360 recorded: deaths 0 (0.000/bh over 90.0 measured bot-h) vs control 6 (0.022/bh over 270.0) | recomputed: deaths 0 / 90 bh vs 6 / 270 bh, trips none
+      baseline recomputed at +360 [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1345 transition rows); control h
+  indexsearch-01   no scheduled verdict line (closed by hand): INCONCLUSIVE
+  townsearch-01    no scheduled verdict line (closed by hand): INCONCLUSIVE
+  kitshrink-01     no scheduled verdict line (closed by hand): INCONCLUSIVE
+  smeltjob-01      KEEP +360 recorded: deaths 0 (0.000/bh over 120.0 measured bot-h) vs control 2 (0.008/bh over 240.0) | recomputed: deaths 0 / 120 bh vs 2 / 240 bh, trips none
+  wellcare-01      KEEP +360 recorded: deaths 1 (0.008/bh over 120.0 measured bot-h) vs control 4 (0.017/bh over 240.0) | recomputed: deaths 1 / 120 bh vs 4 / 240 bh, trips none
+  bagbudget-01     no scheduled verdict line (closed by hand): INCONCLUSIVE
+  homefix-01       no scheduled verdict line (closed by hand): REVERT
+  toolkit-03       KEEP +720 recorded: deaths 7 (0.039/bh over 180.0 measured bot-h) vs control 12 (0.022/bh over 540.0) | recomputed: deaths 7 / 180 bh vs 12 / 540 bh, trips none
+      baseline recomputed at +720 [approx]: CLEAN every canary row on the control majority build over 720 min (15 of 15 canary bots seen, 0 transition rows); control hete
+  homefix-02       KEEP +360 recorded: deaths 3 (0.025/bh over 120.0 measured bot-h) vs control 2 (0.008/bh over 240.0) | recomputed: deaths 3 / 120 bh vs 2 / 240 bh, trips none
+  protectzone-01   KEEP +180 recorded: deaths 1 (0.017/bh over 60.0 measured bot-h) vs control 2 (0.017/bh over 120.0) | recomputed: deaths 1 / 60 bh vs 2 / 120 bh, trips none
+      baseline recomputed at +180 [approx]: CLEAN every canary row on the control majority build over 240 min (20 of 20 canary bots seen, 576 transition rows); control he
+  townindex-01     KEEP +360 recorded: deaths 2 (0.022/bh over 90.0 measured bot-h) vs control 3 (0.011/bh over 270.0) | recomputed: deaths 2 / 90 bh vs 3 / 270 bh, trips none
+      baseline recomputed at +360 [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 2029 transition rows); control h
+
+== I1 floor = every read incl. extensions
+
+== I2 today's timers + symmetric build test
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  ironpick-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-b (3 pools), declared 10-22T00:36Z
+     counterfactual canary hive-b,hive-c,hive-d,placebo-b declared ~10-22T00:36Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first); released {'placebo-a': 'toolkit-03 promoted, 658 min before', 'hive-b': 'toolkit-03 promoted, 658 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN bucket 35 of 36 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30)
+     >>> FLIP: the recorded KEEP at +360 cannot be printed on this baseline -> read on / INCONCLUSIVE at the final read
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 5 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (baseline not single-build over the +180 lookback: bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8b)
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary placebo-a declared ~10-22T07:05Z (1 pools) -- CASCADE: lost ['hive-b']; released {}
+     >>> UNMODELLED: with 1 pool(s) the run would have WAITED; its later draw and verdict are unknown -- counted as REASONED
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-d,hive-a declared ~10-23T01:25Z (2 pools); released {'hive-a': 'protectzone-01 promoted, 511 min before', 'board-c': 'protectzone-01 promoted, 511 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 836 transition rows); 
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 6 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a,placebo-a declared ~10-23T11:25Z (2 pools); released {'hive-c': 'townindex-01 promoted, 608 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+
+== I3 I2 + INCONCLUSIVE / non-death REVERT at 240 (t2) / 360 (t3)
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  townsearch-01 (tier 3) recorded INCONCLUSIVE at +None on board-c,placebo-d (2 pools), declared 10-17T04:57Z
+     counterfactual canary hive-d,placebo-d declared ~10-17T00:30Z (2 pools); released {'hive-d': 'plinth-01 torn-down, 457 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  kitshrink-01 (tier 3) recorded INCONCLUSIVE at +None on board-a,board-b,hive-c,hive-d (4 pools), declared 10-17T12:10Z
+     counterfactual canary board-a,board-b,hive-b,hive-c declared ~10-17T12:10Z (4 pools) -- CASCADE: lost ['hive-d']; released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  smeltjob-01 (tier 3) recorded KEEP at +360 on board-d,hive-a,hive-b,placebo-a (4 pools), declared 10-17T13:40Z
+     counterfactual canary board-c,board-d,hive-a,placebo-a declared ~10-17T13:40Z (4 pools) -- CASCADE: lost ['hive-b']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN board-c-Alpha ran 27908be4e5a12a3c7a4e in the bucket at 10-17T07:40Z while the controls ran 0152baeb868c284136 (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['townsearch-01', 'kitshrink-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 1 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellcare-01 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-c,hive-d (4 pools), declared 10-18T06:34Z
+     counterfactual canary board-b,hive-b,hive-c,hive-d declared ~10-18T06:34Z (4 pools) -- CASCADE: lost ['board-c']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (20 of 20 canary bots seen, 358 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 4 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  bagbudget-01 (tier 2) recorded INCONCLUSIVE at +None on board-d,hive-a (2 pools), declared 10-20T11:35Z
+     counterfactual canary board-c,board-d,hive-a declared ~10-20T11:35Z (3 pools); released {'board-c': 'brain-01 torn-down, 400 min before', 'hive-d': 'brain-01 torn-down, 400 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  homefix-01 (tier 3) recorded REVERT at +None on board-c,hive-d,placebo-b,placebo-d (4 pools), declared 10-20T19:21Z
+     counterfactual canary hive-d,placebo-b,placebo-d declared ~10-20T19:21Z (3 pools) -- CASCADE: lost ['board-c']; released {}
+     R4 REASONED: the run was closed by hand (REVERT); nothing to re-run
+  toolkit-03 (tier 2) recorded KEEP at +720 on board-a,hive-b,placebo-a (3 pools), declared 10-21T01:11Z
+     counterfactual canary board-a,hive-a,hive-b,placebo-a declared ~10-21T01:11Z (4 pools); released {'hive-a': 'bagbudget-01 torn-down, 434 min before'}
+     R1 baseline at +720 (lookback 720) [approx]: NOT CLEAN hive-a-Alpha ran 31416ee5e1a89e8e1c74 in the bucket at 10-20T13:11Z while the controls ran 9e7d998003aeead7a27 -- CASCADE-BLIND: ['bagbudget-01', 'homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (20 of 20 canary bots seen, 0 transition rows); co -- CASCADE-BLIND: ['homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +720 (null effect on pools that did not run it): canary 10 / 240 bh vs control 9 / 480 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (a guard, line or the death gate is on WATCH/HOLD: WATCH: death gate held (v21))
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  homefix-02 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-a,placebo-d (4 pools), declared 10-21T18:05Z
+     counterfactual canary board-b,board-c,placebo-d declared ~10-21T18:05Z (3 pools) -- CASCADE: lost ['hive-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1753 transition rows); (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['toolkit-03'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 4 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  ironpick-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-b (3 pools), declared 10-22T00:36Z
+     counterfactual canary hive-b,hive-c,hive-d,placebo-b declared ~10-22T00:36Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first); released {'placebo-a': 'toolkit-03 promoted, 658 min before', 'hive-b': 'toolkit-03 promoted, 658 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN bucket 35 of 36 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 5 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (baseline not single-build over the +180 lookback: bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8b)
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary board-b,placebo-a declared ~10-22T07:05Z (2 pools) -- CASCADE: lost ['hive-b']; released {'placebo-d': 'homefix-02 promoted, 397 min before', 'board-c': 'homefix-02 promoted, 397 min before', 'board-b': 'homefix-02 promoted, 397 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 810 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['ironpick-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 3 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  protectzone-01 (tier 2) recorded KEEP at +180 on board-a,board-b,board-c,hive-a (4 pools), declared 10-22T13:36Z
+     counterfactual canary board-a,board-c,hive-a declared ~10-22T13:36Z (3 pools) -- CASCADE: lost ['board-b']; released {}
+     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has 3 -> it reads on to +360 (its verdict there is REASONED)
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (15 of 15 canary bots seen, 415 transition rows);  -- CASCADE-BLIND: ['keepout-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +180 (null effect on pools that did not run it): canary 1 / 45 bh vs control 2 / 135 bh; trips none
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-b,board-d,hive-a declared ~10-23T01:25Z (3 pools); released {'hive-a': 'protectzone-01 promoted, 511 min before', 'board-a': 'protectzone-01 promoted, 511 min before', 'board-c': 'protectzone-01 promoted, 511 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 2160 transition rows);
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a,placebo-a declared ~10-23T11:25Z (2 pools); released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+
+== I4 I3 + tier-2 incoming after a tier-3 KEEP at 240
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  townsearch-01 (tier 3) recorded INCONCLUSIVE at +None on board-c,placebo-d (2 pools), declared 10-17T04:57Z
+     counterfactual canary hive-d,placebo-d declared ~10-17T00:30Z (2 pools); released {'hive-d': 'plinth-01 torn-down, 457 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  kitshrink-01 (tier 3) recorded INCONCLUSIVE at +None on board-a,board-b,hive-c,hive-d (4 pools), declared 10-17T12:10Z
+     counterfactual canary board-a,board-b,hive-b,hive-c declared ~10-17T12:10Z (4 pools) -- CASCADE: lost ['hive-d']; released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  smeltjob-01 (tier 3) recorded KEEP at +360 on board-d,hive-a,hive-b,placebo-a (4 pools), declared 10-17T13:40Z
+     counterfactual canary board-c,board-d,hive-a,placebo-a declared ~10-17T13:40Z (4 pools) -- CASCADE: lost ['hive-b']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN board-c-Alpha ran 27908be4e5a12a3c7a4e in the bucket at 10-17T07:40Z while the controls ran 0152baeb868c284136 (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['townsearch-01', 'kitshrink-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 1 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellcare-01 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-c,hive-d (4 pools), declared 10-18T06:34Z
+     counterfactual canary board-b,hive-b,hive-c,hive-d declared ~10-18T06:34Z (4 pools) -- CASCADE: lost ['board-c']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (20 of 20 canary bots seen, 358 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 4 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  bagbudget-01 (tier 2) recorded INCONCLUSIVE at +None on board-d,hive-a (2 pools), declared 10-20T11:35Z
+     counterfactual canary board-c,board-d,hive-a declared ~10-20T11:35Z (3 pools); released {'board-c': 'brain-01 torn-down, 400 min before', 'hive-d': 'brain-01 torn-down, 400 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  homefix-01 (tier 3) recorded REVERT at +None on board-c,hive-d,placebo-b,placebo-d (4 pools), declared 10-20T19:21Z
+     counterfactual canary hive-d,placebo-b,placebo-d declared ~10-20T19:21Z (3 pools) -- CASCADE: lost ['board-c']; released {}
+     R4 REASONED: the run was closed by hand (REVERT); nothing to re-run
+  toolkit-03 (tier 2) recorded KEEP at +720 on board-a,hive-b,placebo-a (3 pools), declared 10-21T01:11Z
+     counterfactual canary board-a,hive-a,hive-b,placebo-a declared ~10-21T01:11Z (4 pools); released {'hive-a': 'bagbudget-01 torn-down, 434 min before'}
+     R1 baseline at +720 (lookback 720) [approx]: NOT CLEAN hive-a-Alpha ran 31416ee5e1a89e8e1c74 in the bucket at 10-20T13:11Z while the controls ran 9e7d998003aeead7a27 -- CASCADE-BLIND: ['bagbudget-01', 'homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (20 of 20 canary bots seen, 0 transition rows); co -- CASCADE-BLIND: ['homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +720 (null effect on pools that did not run it): canary 10 / 240 bh vs control 9 / 480 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (a guard, line or the death gate is on WATCH/HOLD: WATCH: death gate held (v21))
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  homefix-02 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-a,placebo-d (4 pools), declared 10-21T18:05Z
+     counterfactual canary board-b,board-c,placebo-d declared ~10-21T18:05Z (3 pools) -- CASCADE: lost ['hive-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1753 transition rows); (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['toolkit-03'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 4 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  ironpick-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-b (3 pools), declared 10-22T00:36Z
+     counterfactual canary hive-b,hive-c,hive-d,placebo-b declared ~10-22T00:36Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first); released {'placebo-a': 'toolkit-03 promoted, 658 min before', 'hive-b': 'toolkit-03 promoted, 658 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN bucket 35 of 36 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 5 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (baseline not single-build over the +180 lookback: bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8b)
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary board-b,placebo-a declared ~10-22T07:05Z (2 pools) -- CASCADE: lost ['hive-b']; released {'placebo-d': 'homefix-02 promoted, 397 min before', 'board-c': 'homefix-02 promoted, 397 min before', 'board-b': 'homefix-02 promoted, 397 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 810 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['ironpick-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 3 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  protectzone-01 (tier 2) recorded KEEP at +180 on board-a,board-b,board-c,hive-a (4 pools), declared 10-22T13:36Z
+     counterfactual canary board-a,board-c,hive-a declared ~10-22T13:36Z (3 pools) -- CASCADE: lost ['board-b']; released {}
+     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has 3 -> it reads on to +360 (its verdict there is REASONED)
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (15 of 15 canary bots seen, 415 transition rows);  -- CASCADE-BLIND: ['keepout-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +180 (null effect on pools that did not run it): canary 1 / 45 bh vs control 2 / 135 bh; trips none
+  townindex-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-d (3 pools), declared 10-22T18:56Z
+     counterfactual canary hive-c,hive-d,placebo-a,placebo-d declared ~10-22T18:56Z (4 pools); released {'placebo-a': 'keepout-01 promoted, 334 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN placebo-a-Alpha ran f39471bb9a77c2cee388 in the bucket at 10-22T12:56Z while the controls ran 2719ee0e946d1998 -- CASCADE-BLIND: ['keepout-01', 'protectzone-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (20 of 20 canary bots seen, 1654 transition rows); -- CASCADE-BLIND: ['protectzone-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 2 / 120 bh vs control 3 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (exposure not ready (0.0))
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-b,board-d,hive-a declared ~10-23T01:25Z (3 pools) -- CASCADE: lost ['placebo-a']; released {'hive-a': 'protectzone-01 promoted, 511 min before', 'board-a': 'protectzone-01 promoted, 511 min before', 'board-c': 'protectzone-01 promoted, 511 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 2160 transition rows); -- CASCADE-BLIND: ['townindex-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a declared ~10-23T12:14Z (1 pools) -- CASCADE: lost ['placebo-a']; released {}
+     >>> UNMODELLED: with 1 pool(s) the run would have WAITED; its later draw and verdict are unknown -- counted as REASONED
+
+== I5 I2 + siblings-out bag reference
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  ironpick-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-b (3 pools), declared 10-22T00:36Z
+     counterfactual canary hive-b,hive-c,hive-d,placebo-b declared ~10-22T00:36Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first); released {'placebo-a': 'toolkit-03 promoted, 658 min before', 'hive-b': 'toolkit-03 promoted, 658 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN bucket 35 of 36 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30)
+     >>> FLIP: the recorded KEEP at +360 cannot be printed on this baseline -> read on / INCONCLUSIVE at the final read
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 5 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (baseline not single-build over the +180 lookback: bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8b)
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary placebo-a declared ~10-22T07:05Z (1 pools) -- CASCADE: lost ['hive-b']; released {}
+     >>> UNMODELLED: with 1 pool(s) the run would have WAITED; its later draw and verdict are unknown -- counted as REASONED
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-d,hive-a declared ~10-23T01:25Z (2 pools); released {'hive-a': 'protectzone-01 promoted, 511 min before', 'board-c': 'protectzone-01 promoted, 511 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 836 transition rows); 
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 6 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a,placebo-a declared ~10-23T11:25Z (2 pools); released {'hive-c': 'townindex-01 promoted, 608 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+
+== I6 I3 + siblings-out bag reference
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  townsearch-01 (tier 3) recorded INCONCLUSIVE at +None on board-c,placebo-d (2 pools), declared 10-17T04:57Z
+     counterfactual canary hive-d,placebo-d declared ~10-17T00:30Z (2 pools); released {'hive-d': 'plinth-01 torn-down, 457 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  kitshrink-01 (tier 3) recorded INCONCLUSIVE at +None on board-a,board-b,hive-c,hive-d (4 pools), declared 10-17T12:10Z
+     counterfactual canary board-a,board-b,hive-b,hive-c declared ~10-17T12:10Z (4 pools) -- CASCADE: lost ['hive-d']; released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  smeltjob-01 (tier 3) recorded KEEP at +360 on board-d,hive-a,hive-b,placebo-a (4 pools), declared 10-17T13:40Z
+     counterfactual canary board-c,board-d,hive-a,placebo-a declared ~10-17T13:40Z (4 pools) -- CASCADE: lost ['hive-b']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN board-c-Alpha ran 27908be4e5a12a3c7a4e in the bucket at 10-17T07:40Z while the controls ran 0152baeb868c284136 (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['townsearch-01', 'kitshrink-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 1 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellcare-01 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-c,hive-d (4 pools), declared 10-18T06:34Z
+     counterfactual canary board-b,hive-b,hive-c,hive-d declared ~10-18T06:34Z (4 pools) -- CASCADE: lost ['board-c']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (20 of 20 canary bots seen, 358 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 4 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  bagbudget-01 (tier 2) recorded INCONCLUSIVE at +None on board-d,hive-a (2 pools), declared 10-20T11:35Z
+     counterfactual canary board-c,board-d,hive-a declared ~10-20T11:35Z (3 pools); released {'board-c': 'brain-01 torn-down, 400 min before', 'hive-d': 'brain-01 torn-down, 400 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  homefix-01 (tier 3) recorded REVERT at +None on board-c,hive-d,placebo-b,placebo-d (4 pools), declared 10-20T19:21Z
+     counterfactual canary hive-d,placebo-b,placebo-d declared ~10-20T19:21Z (3 pools) -- CASCADE: lost ['board-c']; released {}
+     R4 REASONED: the run was closed by hand (REVERT); nothing to re-run
+  toolkit-03 (tier 2) recorded KEEP at +720 on board-a,hive-b,placebo-a (3 pools), declared 10-21T01:11Z
+     counterfactual canary board-a,hive-a,hive-b,placebo-a declared ~10-21T01:11Z (4 pools); released {'hive-a': 'bagbudget-01 torn-down, 434 min before'}
+     R1 baseline at +720 (lookback 720) [approx]: NOT CLEAN hive-a-Alpha ran 31416ee5e1a89e8e1c74 in the bucket at 10-20T13:11Z while the controls ran 9e7d998003aeead7a27 -- CASCADE-BLIND: ['bagbudget-01', 'homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (20 of 20 canary bots seen, 0 transition rows); co -- CASCADE-BLIND: ['homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +720 (null effect on pools that did not run it): canary 10 / 240 bh vs control 9 / 480 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (a guard, line or the death gate is on WATCH/HOLD: WATCH: death gate held (v21))
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  homefix-02 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-a,placebo-d (4 pools), declared 10-21T18:05Z
+     counterfactual canary board-b,board-c,placebo-d declared ~10-21T18:05Z (3 pools) -- CASCADE: lost ['hive-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1753 transition rows); (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['toolkit-03'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 4 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  ironpick-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-b (3 pools), declared 10-22T00:36Z
+     counterfactual canary hive-b,hive-c,hive-d,placebo-b declared ~10-22T00:36Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first); released {'placebo-a': 'toolkit-03 promoted, 658 min before', 'hive-b': 'toolkit-03 promoted, 658 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN bucket 35 of 36 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 5 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (baseline not single-build over the +180 lookback: bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8b)
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary board-b,placebo-a declared ~10-22T07:05Z (2 pools) -- CASCADE: lost ['hive-b']; released {'placebo-d': 'homefix-02 promoted, 397 min before', 'board-c': 'homefix-02 promoted, 397 min before', 'board-b': 'homefix-02 promoted, 397 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 810 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['ironpick-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 3 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  protectzone-01 (tier 2) recorded KEEP at +180 on board-a,board-b,board-c,hive-a (4 pools), declared 10-22T13:36Z
+     counterfactual canary board-a,board-c,hive-a declared ~10-22T13:36Z (3 pools) -- CASCADE: lost ['board-b']; released {}
+     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has 3 -> it reads on to +360 (its verdict there is REASONED)
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (15 of 15 canary bots seen, 415 transition rows);  -- CASCADE-BLIND: ['keepout-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +180 (null effect on pools that did not run it): canary 1 / 45 bh vs control 2 / 135 bh; trips none
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-b,board-d,hive-a declared ~10-23T01:25Z (3 pools); released {'hive-a': 'protectzone-01 promoted, 511 min before', 'board-a': 'protectzone-01 promoted, 511 min before', 'board-c': 'protectzone-01 promoted, 511 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 2160 transition rows);
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a,placebo-a declared ~10-23T11:25Z (2 pools); released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+
+== I7 I4 + siblings-out bag reference
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  townsearch-01 (tier 3) recorded INCONCLUSIVE at +None on board-c,placebo-d (2 pools), declared 10-17T04:57Z
+     counterfactual canary hive-d,placebo-d declared ~10-17T00:30Z (2 pools); released {'hive-d': 'plinth-01 torn-down, 457 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  kitshrink-01 (tier 3) recorded INCONCLUSIVE at +None on board-a,board-b,hive-c,hive-d (4 pools), declared 10-17T12:10Z
+     counterfactual canary board-a,board-b,hive-b,hive-c declared ~10-17T12:10Z (4 pools) -- CASCADE: lost ['hive-d']; released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  smeltjob-01 (tier 3) recorded KEEP at +360 on board-d,hive-a,hive-b,placebo-a (4 pools), declared 10-17T13:40Z
+     counterfactual canary board-c,board-d,hive-a,placebo-a declared ~10-17T13:40Z (4 pools) -- CASCADE: lost ['hive-b']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN board-c-Alpha ran 27908be4e5a12a3c7a4e in the bucket at 10-17T07:40Z while the controls ran 0152baeb868c284136 (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['townsearch-01', 'kitshrink-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 1 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellcare-01 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-c,hive-d (4 pools), declared 10-18T06:34Z
+     counterfactual canary board-b,hive-b,hive-c,hive-d declared ~10-18T06:34Z (4 pools) -- CASCADE: lost ['board-c']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (20 of 20 canary bots seen, 358 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 4 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  bagbudget-01 (tier 2) recorded INCONCLUSIVE at +None on board-d,hive-a (2 pools), declared 10-20T11:35Z
+     counterfactual canary board-c,board-d,hive-a declared ~10-20T11:35Z (3 pools); released {'board-c': 'brain-01 torn-down, 400 min before', 'hive-d': 'brain-01 torn-down, 400 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  homefix-01 (tier 3) recorded REVERT at +None on board-c,hive-d,placebo-b,placebo-d (4 pools), declared 10-20T19:21Z
+     counterfactual canary hive-d,placebo-b,placebo-d declared ~10-20T19:21Z (3 pools) -- CASCADE: lost ['board-c']; released {}
+     R4 REASONED: the run was closed by hand (REVERT); nothing to re-run
+  toolkit-03 (tier 2) recorded KEEP at +720 on board-a,hive-b,placebo-a (3 pools), declared 10-21T01:11Z
+     counterfactual canary board-a,hive-a,hive-b,placebo-a declared ~10-21T01:11Z (4 pools); released {'hive-a': 'bagbudget-01 torn-down, 434 min before'}
+     R1 baseline at +720 (lookback 720) [approx]: NOT CLEAN hive-a-Alpha ran 31416ee5e1a89e8e1c74 in the bucket at 10-20T13:11Z while the controls ran 9e7d998003aeead7a27 -- CASCADE-BLIND: ['bagbudget-01', 'homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (20 of 20 canary bots seen, 0 transition rows); co -- CASCADE-BLIND: ['homefix-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +720 (null effect on pools that did not run it): canary 10 / 240 bh vs control 9 / 480 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (a guard, line or the death gate is on WATCH/HOLD: WATCH: death gate held (v21))
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  homefix-02 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-a,placebo-d (4 pools), declared 10-21T18:05Z
+     counterfactual canary board-b,board-c,placebo-d declared ~10-21T18:05Z (3 pools) -- CASCADE: lost ['hive-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1753 transition rows); (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['toolkit-03'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 4 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  ironpick-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-b (3 pools), declared 10-22T00:36Z
+     counterfactual canary hive-b,hive-c,hive-d,placebo-b declared ~10-22T00:36Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first); released {'placebo-a': 'toolkit-03 promoted, 658 min before', 'hive-b': 'toolkit-03 promoted, 658 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN bucket 35 of 36 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8bd4ca', 30) -- CASCADE-BLIND: ['homefix-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 5 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (baseline not single-build over the +180 lookback: bucket 23 of 24 (10-22T00:16Z): tied control majority [('34d3e5e9629a45bcdb54c0e88870dacf09b8a22b+8b)
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary board-b,placebo-a declared ~10-22T07:05Z (2 pools) -- CASCADE: lost ['hive-b']; released {'placebo-d': 'homefix-02 promoted, 397 min before', 'board-c': 'homefix-02 promoted, 397 min before', 'board-b': 'homefix-02 promoted, 397 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 810 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['ironpick-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 3 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  protectzone-01 (tier 2) recorded KEEP at +180 on board-a,board-b,board-c,hive-a (4 pools), declared 10-22T13:36Z
+     counterfactual canary board-a,board-c,hive-a declared ~10-22T13:36Z (3 pools) -- CASCADE: lost ['board-b']; released {}
+     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has 3 -> it reads on to +360 (its verdict there is REASONED)
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (15 of 15 canary bots seen, 415 transition rows);  -- CASCADE-BLIND: ['keepout-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +180 (null effect on pools that did not run it): canary 1 / 45 bh vs control 2 / 135 bh; trips none
+  townindex-01 (tier 2) recorded KEEP at +360 on hive-c,hive-d,placebo-d (3 pools), declared 10-22T18:56Z
+     counterfactual canary placebo-a,placebo-d declared ~10-22T18:10Z (2 pools); released {'placebo-a': 'keepout-01 promoted, 287 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN placebo-a-Alpha ran f39471bb9a77c2cee388 in the bucket at 10-22T12:10Z while the controls ran 2719ee0e946d1998 -- CASCADE-BLIND: ['keepout-01', 'protectzone-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 8 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-b,board-d,hive-a,hive-c declared ~10-23T01:25Z (4 pools) -- ONE OF SEVERAL VALID DRAWS (released pools taken first) -- CASCADE: lost ['placebo-a']; released {'hive-a': 'protectzone-01 promoted, 511 min before', 'board-a': 'protectzone-01 promoted, 511 min before', 'board-c': 'protectzone-01 promoted, 511 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN hive-c-Alpha ran c0fec81273e256e672e4 in the bucket at 10-22T19:25Z while the controls ran 1f5b4b4e28685fefffa -- CASCADE-BLIND: ['townindex-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R1 baseline at +180 (lookback 240) [approx]: NOT CLEAN hive-c-Alpha ran c0fec81273e256e672e4 in the bucket at 10-22T21:25Z while the controls ran 1f5b4b4e28685fefffa -- CASCADE-BLIND: ['townindex-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 2 / 120 bh vs control 4 / 240 bh; trips none
+     R3 REASONED +180 tier-2 KEEP with 4 pools: no (canary death rate 2/60.0 bh is above the control's 2/120.0 bh (or unmeasured))
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+
+== I8 I2 for tier-3 incoming only
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary board-b,hive-b,placebo-a declared ~10-22T07:05Z (3 pools); released {'board-c': 'homefix-02 promoted, 397 min before', 'board-b': 'homefix-02 promoted, 397 min before', 'placebo-d': 'homefix-02 promoted, 397 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1074 transition rows); (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 2 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  protectzone-01 (tier 2) recorded KEEP at +180 on board-a,board-b,board-c,hive-a (4 pools), declared 10-22T13:36Z
+     counterfactual canary board-a,board-c,hive-a declared ~10-22T13:36Z (3 pools) -- CASCADE: lost ['board-b']; released {}
+     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has 3 -> it reads on to +360 (its verdict there is REASONED)
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (15 of 15 canary bots seen, 415 transition rows);  -- CASCADE-BLIND: ['keepout-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +180 (null effect on pools that did not run it): canary 1 / 45 bh vs control 2 / 135 bh; trips none
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-b,board-d declared ~10-23T01:25Z (2 pools); released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 1753 transition rows);
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 6 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a,placebo-a declared ~10-23T11:25Z (2 pools); released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+
+== I9 I3 for tier-3 incoming only
+  stocktarget-02 (tier 3) recorded KEEP at +360 on board-c,hive-b (2 pools), declared 10-14T11:30Z
+     counterfactual canary board-a,board-c,hive-b declared ~10-14T11:30Z (3 pools); released {'board-a': 'orderroom-01 promoted, 550 min before', 'board-d': 'orderroom-01 promoted, 550 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 319 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 7 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellsite-02 (tier 3) recorded REVERT at +360 on board-a,board-b,board-d,placebo-b (4 pools), declared 10-14T17:50Z
+     counterfactual canary board-b,board-d,placebo-b declared ~10-14T17:50Z (3 pools) -- CASCADE: lost ['board-a']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 907 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['stocktarget-02'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 6 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  townsearch-01 (tier 3) recorded INCONCLUSIVE at +None on board-c,placebo-d (2 pools), declared 10-17T04:57Z
+     counterfactual canary hive-d,placebo-d declared ~10-17T00:30Z (2 pools); released {'hive-d': 'plinth-01 torn-down, 457 min before'}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  kitshrink-01 (tier 3) recorded INCONCLUSIVE at +None on board-a,board-b,hive-c,hive-d (4 pools), declared 10-17T12:10Z
+     counterfactual canary board-a,board-b,hive-b,hive-c declared ~10-17T12:10Z (4 pools) -- CASCADE: lost ['hive-d']; released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+  smeltjob-01 (tier 3) recorded KEEP at +360 on board-d,hive-a,hive-b,placebo-a (4 pools), declared 10-17T13:40Z
+     counterfactual canary board-c,board-d,hive-a,placebo-a declared ~10-17T13:40Z (4 pools) -- CASCADE: lost ['hive-b']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: NOT CLEAN board-c-Alpha ran 27908be4e5a12a3c7a4e in the bucket at 10-17T07:40Z while the controls ran 0152baeb868c284136 (tier 3: no gate checks it; a dirty PRE here is a REASONED risk) -- CASCADE-BLIND: ['townsearch-01', 'kitshrink-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 1 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  wellcare-01 (tier 3) recorded KEEP at +360 on board-b,board-c,hive-c,hive-d (4 pools), declared 10-18T06:34Z
+     counterfactual canary board-b,hive-b,hive-c,hive-d declared ~10-18T06:34Z (4 pools) -- CASCADE: lost ['board-c']; released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (20 of 20 canary bots seen, 358 transition rows);  (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 120 bh vs control 4 / 240 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  keepout-01 (tier 3) recorded KEEP at +360 on hive-b,placebo-a (2 pools), declared 10-22T07:05Z
+     counterfactual canary board-b,hive-b,placebo-a declared ~10-22T07:05Z (3 pools); released {'board-c': 'homefix-02 promoted, 397 min before', 'board-b': 'homefix-02 promoted, 397 min before', 'placebo-d': 'homefix-02 promoted, 397 min before'}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (15 of 15 canary bots seen, 1074 transition rows); (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)
+     R2 death gate to +360 (null effect on pools that did not run it): canary 1 / 90 bh vs control 2 / 270 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  protectzone-01 (tier 2) recorded KEEP at +180 on board-a,board-b,board-c,hive-a (4 pools), declared 10-22T13:36Z
+     counterfactual canary board-a,board-c,hive-a declared ~10-22T13:36Z (3 pools) -- CASCADE: lost ['board-b']; released {}
+     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has 3 -> it reads on to +360 (its verdict there is REASONED)
+     R1 baseline at +180 (lookback 240) [approx]: CLEAN every canary row on the control majority build over 240 min (15 of 15 canary bots seen, 415 transition rows);  -- CASCADE-BLIND: ['keepout-01'] changed inside this lookback, so the real logs are not this world's; REASONED
+     R2 death gate to +180 (null effect on pools that did not run it): canary 1 / 45 bh vs control 2 / 135 bh; trips none
+  poolescape-01 (tier 2) recorded KEEP at +360 on board-d,hive-b,placebo-a (3 pools), declared 10-23T01:48Z
+     counterfactual canary board-b,board-d declared ~10-23T01:25Z (2 pools); released {}
+     R1 baseline at +360 (lookback 360) [approx]: CLEAN every canary row on the control majority build over 360 min (10 of 10 canary bots seen, 1753 transition rows);
+     R2 death gate to +360 (null effect on pools that did not run it): canary 0 / 60 bh vs control 6 / 300 bh; trips none
+     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED
+  indexsearch-01 (tier 2) recorded INCONCLUSIVE at +None on board-a,placebo-a (2 pools), declared 10-23T12:14Z
+     counterfactual canary board-a,placebo-a declared ~10-23T11:25Z (2 pools); released {}
+     R4 REASONED: the run was closed by hand (INCONCLUSIVE); nothing to re-run
+
+== SUMMARY (per iteration: flips found by a re-runnable check | changed verdicts that are reasoned only)
+  I1 floor = every read incl. extensions                         flips 0 [] | conditional flips 0 [] | reasoned 0 []
+  I2 today's timers + symmetric build test                       flips 1 ['ironpick-01'] | conditional flips 0 [] | reasoned 5 ['stocktarget-02', 'wellsite-02', 'keepout-01', 'poolescape-01', 'indexsearch-01']
+  I3 I2 + INCONCLUSIVE / non-death REVERT at 240 (t2) / 360 (t3) flips 1 ['protectzone-01'] | conditional flips 0 [] | reasoned 14 ['stocktarget-02', 'wellsite-02', 'townsearch-01', 'kitshrink-01', 'smeltjob-01', 'wellcare-01', 'bagbudget-01', 'homefix-01', 'toolkit-03', 'homefix-02', 'ironpick-01', 'keepout-01', 'poolescape-01', 'indexsearch-01']
+  I4 I3 + tier-2 incoming after a tier-3 KEEP at 240             flips 1 ['protectzone-01'] | conditional flips 0 [] | reasoned 15 ['stocktarget-02', 'wellsite-02', 'townsearch-01', 'kitshrink-01', 'smeltjob-01', 'wellcare-01', 'bagbudget-01', 'homefix-01', 'toolkit-03', 'homefix-02', 'ironpick-01', 'keepout-01', 'townindex-01', 'poolescape-01', 'indexsearch-01']
+  I5 I2 + siblings-out bag reference                             flips 1 ['ironpick-01'] | conditional flips 0 [] | reasoned 5 ['stocktarget-02', 'wellsite-02', 'keepout-01', 'poolescape-01', 'indexsearch-01']
+  I6 I3 + siblings-out bag reference                             flips 1 ['protectzone-01'] | conditional flips 0 [] | reasoned 14 ['stocktarget-02', 'wellsite-02', 'townsearch-01', 'kitshrink-01', 'smeltjob-01', 'wellcare-01', 'bagbudget-01', 'homefix-01', 'toolkit-03', 'homefix-02', 'ironpick-01', 'keepout-01', 'poolescape-01', 'indexsearch-01']
+  I7 I4 + siblings-out bag reference                             flips 1 ['protectzone-01'] | conditional flips 0 [] | reasoned 14 ['stocktarget-02', 'wellsite-02', 'townsearch-01', 'kitshrink-01', 'smeltjob-01', 'wellcare-01', 'bagbudget-01', 'homefix-01', 'toolkit-03', 'homefix-02', 'ironpick-01', 'keepout-01', 'townindex-01', 'poolescape-01']
+  I8 I2 for tier-3 incoming only                                 flips 1 ['protectzone-01'] | conditional flips 0 [] | reasoned 5 ['stocktarget-02', 'wellsite-02', 'keepout-01', 'poolescape-01', 'indexsearch-01']
+  I9 I3 for tier-3 incoming only                                 flips 1 ['protectzone-01'] | conditional flips 0 [] | reasoned 9 ['stocktarget-02', 'wellsite-02', 'townsearch-01', 'kitshrink-01', 'smeltjob-01', 'wellcare-01', 'keepout-01', 'poolescape-01', 'indexsearch-01']
+wrote 25 R1 queries to /private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/out3/r1-queries.json

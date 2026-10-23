@@ -1,0 +1,399 @@
+--- a/scripts/host/canary-sched.py
++++ b/scripts/host/canary-sched.py
+@@ -45,6 +45,14 @@
+   H4 every read in /tmp has the queued md5 (an ABSENT one is staged from reads_src; a different one is never overwritten)
+   H5 NEXT-SLOT.json admits only underground-safety    H6 a bag fix needs drawrec TARGET_K >= 4
+   R10 drawexposure.py answers for the head
++  R12 (queue-speed-1023 design 2, proposed) the DRAW PROBE: drawrec.sh for the head, read-only, at most every
++      PROBE_EVERY_MIN, draws at least its minimum -- otherwise the head WAITS here instead of parking a loop in `draw`
++
++LOOKAHEAD (design 2, owner criteria 10-23): when the ONLY thing stopping the head is the draw (R10 WAIT or R12) and it
++has been so for lookahead.WAIT_MIN, the entry IMMEDIATELY behind it may launch instead, if it passes every check the
++head would (H1-H6, R10, R12 with the head's pools RESERVED); never past a HOLD, a refusal, an unmet `after`, a missing
++variant or R11; and never twice in a row past the same head (the `launching` row records `lookahead_past`). The
++decision is lookahead.decide (pure, tested); this file only gathers its inputs and acts on its answer.
+ """
+ import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, datetime as dt
+ 
+@@ -63,6 +71,10 @@
+ # "rung-linked death on a non-ladder change", the change-row licence "linked death"
+ DEATH_REVERT = re.compile(r'death gate:|death gate trip|rung-linked death|linked death|death-linked|death window', re.I)
+ ABANDON_AFTER_DRAWN_MIN = 20
++PROBE_EVERY_MIN = 20          # R12: the loop re-draws every 20 min; probing more often only costs drawrec runs
++DRAW_LINE = re.compile(r"DRAW \((.*?)\): (\[.*\]|NONE.*)$", re.M)
++POOL_TOKEN = re.compile(r"'([a-z]+-[a-z])'")
++R10_ELIG = {}                 # run -> the pools drawexposure said can expose it, from this process's last R10
+ HEX40 = re.compile(r'^[0-9a-f]{40}$')
+ SLOT_PROCS = (  # basename of argv[0] or argv[1]; never a substring of the whole command line (pgrep -f self-matches)
+     ('canary-loop.sh', lambda b: b == 'canary-loop.sh'),
+@@ -113,6 +125,7 @@
+         'openloop_lib': g('SCHED_OPENLOOP_LIB', os.path.join(H, 'mcai-analysis', 'lib')),
+         'proc': g('SCHED_PROC', '/proc'),
+         'out': g('SCHED_OUT_DIR', H),
++        'lookahead_lib': g('SCHED_LOOKAHEAD_LIB', os.path.dirname(os.path.abspath(__file__))),
+     }
+ 
+ 
+@@ -434,9 +447,229 @@
+         return ('wait' if all(w for _, _, w in hb) else 'block', [(c, '%s: %s' % (e.get('run'), r)) for c, r, _ in hb])
+     if st.get('r10'):
+         return ('wait' if st['r10'].startswith('WAIT') else 'block', [('R10', '%s: %s' % (e.get('run'), st['r10']))])
++    if st.get('r12'):
++        return ('wait' if st['r12'].startswith('WAIT') else 'block', [('R12', '%s: %s' % (e.get('run'), st['r12']))])
+     return ('launch', e, e['variants'][st['base_full']])
++
++
++# ------------------------------------------------------------------------------- design 2: R12 + the lookahead --
++# A probe WAITS only on SCARCITY -- drawrec's own "fewer than N eligible", or a required pool still excluded /
++# without data ("...: waiting"). Anything else that draws nothing is a REFUSAL (Codex r1 P1): it BLOCKS the head,
++# which is never looked past, and the line names what to fix.
++PROBE_REFUSAL_LINES = ('draw_exposure: REFUSED', 'draw_k: REGISTRATION UNREADABLE', 'draw_k: refusing',
++                       'DRAW_RESERVE malformed', 'draw-exclude.txt: malformed')
++SCARCITY = re.compile(r'^NONE \((fewer than \d+ eligible|draw_require_pools: .*: waiting)\)\s*$')
++INSTRUMENTS = re.compile(r'^instruments: band rows (\d+), exposure rows (\d+)', re.M)
++
++
++def parse_probe(txt, min_k, rc=0):
++    """PURE. drawrec.sh's output and exit status -> (answer, the pools it would draw, the pools eligible). answer is ''
++    (it draws enough), 'WAIT ...' (scarcity: the pools are not there yet), or a refusal (anything else -- a crash, a
++    non-zero exit, a refusal line, a NONE for any reason but scarcity). The DRAW line is drawrec's own."""
++    txt = txt or ''
++    if rc != 0:
++        return 'drawrec.sh exited %s for the probe: %s -- fix drawrec or the registration; re-probed every %d min' % (
++            rc, ' '.join(txt.split())[-200:], PROBE_EVERY_MIN), [], []
++    ref = [l for l in txt.splitlines() if l.startswith(PROBE_REFUSAL_LINES)]
++    if ref:
++        return 'drawrec REFUSED for the probe: %s -- fix it; re-probed every %d min' % (ref[0][:200], PROBE_EVERY_MIN), [], []
++    ins = INSTRUMENTS.search(txt)
++    if not ins or int(ins.group(1)) < 2 or int(ins.group(2)) < 2:
++        return ('the draw\'s instruments did not answer (%s): /tmp/poolrank2.py or /tmp/immobiledid.py missing or '
++                'failing? -- restore them (~/bin/restore-reads.sh); re-probed every %d min'
++                % (ins.group(0) if ins else 'no instruments line', PROBE_EVERY_MIN)), [], []
++    m = DRAW_LINE.search(txt)
++    if not m:
++        return 'drawrec.sh gave no DRAW line: %s' % ' '.join(txt.split())[-200:], [], []
++    el = next((l for l in txt.splitlines() if l.startswith('eligible ')), '')
++    elig = sorted(set(POOL_TOKEN.findall(el.split('|')[0])))
++    if not m.group(2).startswith('['):
++        if not SCARCITY.match(m.group(2)):
++            return 'drawrec drew nothing for a reason that is not scarcity: %s -- fix it; re-probed every %d min' % (
++                m.group(2)[:200], PROBE_EVERY_MIN), [], elig
++        return 'WAIT the draw would take 0 pools: %s' % m.group(0)[:160], [], elig
++    drawn = POOL_TOKEN.findall(m.group(2))
++    if len(drawn) < min_k:
++        return 'WAIT the draw would take %d pool(s) (< %d): %s' % (len(drawn), min_k, m.group(0)[:160]), drawn, elig
++    return '', drawn, elig
++
++
++def probe_min_k(reg):
++    """PURE. The fewest pools the loop deploys: a bag fix 3 (its 4-pool target falls to 3 after an hour of draw-short,
++    in the loop), a draw_k cap its cap, anything else drawrec's MIN_K 2."""
++    if (reg or {}).get('class') == 'bag-fix':
++        return 3
++    dk = (reg or {}).get('draw_k')
++    return dk if isinstance(dk, int) and 1 <= dk < 2 else 2
++
++
++def draw_probe(P, run, reg_path, reserve=()):
++    """R12 (impure): drawrec.sh for `run`, read-only, against a temp registrations dir holding ONLY the QUEUED
++    registration (DRAW_REGDIR, as R10 does with --registrations: a not-yet-launched run has nothing staged yet), with
++    DRAW_RESERVE when given. -> parse_probe(...). DRAW_PROBE=1 + DRAW_TXT (Codex r1 P2): drawrec writes its working
++    text into the temp dir instead of /tmp/drawrec.txt and pages nothing (its steady-refusal page and stamp are the
++    loop's); so the probe writes nothing outside its temp dir, under --no-act too."""
++    d = tempfile.mkdtemp(prefix='sched-r12-')
++    try:
++        with open(reg_path) as f:
++            reg = json.load(f)
++        shutil.copy(reg_path, os.path.join(d, '%s.json' % run))
++        env = dict(os.environ)
++        env.pop('DRAW_RESERVE', None)                 # a probe of the HEAD never inherits a reservation
++        env.update({'DRAW_REGDIR': d, 'DRAW_PROBE': '1', 'DRAW_TXT': os.path.join(d, 'drawrec.txt')})
++        if reserve:
++            env['DRAW_RESERVE'] = ','.join(sorted(reserve))
++        r = subprocess.run(['bash', P['drawrec'], run], capture_output=True, text=True, timeout=1200, env=env)
++        return parse_probe(r.stdout + r.stderr, probe_min_k(reg), r.returncode)
++    except Exception as x:
++        return 'probe failed: %s' % x, [], []
++    finally:
++        shutil.rmtree(d, ignore_errors=True)
+ 
+ 
++def lookahead_inputs(st, head, lib):
++    """PURE given st. -> (Head, [Entry behind the head]) for lookahead.decide. A behind-entry's own blockers are the
++    scheduler's: entry_state, its hold, every `after` not closed, a variant keyed by the full base; H3-H6 are added by
++    the caller for the ONE candidate it then checks in full (variant_checks is impure)."""
++    rows = st.get('state_rows') or []
++    hreg = ((head.get('variants') or {}).get(st.get('base_full') or '') or {}).get('registration_sha256')
++    since = lib.draw_blocked_since(rows, head.get('run'), st['now'], reg=hreg)
++    hd = lib.Head(run=head.get('run'), hard_blockers=[], draw_blocked_since=ts(since) if since else None,
++                  skipped_last=lib.skipped_last(rows, head.get('run')))
++    ents = (st.get('queue') or {}).get('entries') or []
++    idx = next((i for i, x in enumerate(ents) if x.get('run') == head.get('run')), len(ents))
++    out = []
++    for e in ents[idx + 1:]:
++        es = entry_state(e, st)
++        nb = ts(e.get('not_before')) if e.get('not_before') else None
++        other = ['not before %s' % e['not_before']] if (e.get('not_before') and (nb is None or nb > st['now'])) else []
++        klass = e.get('class') or ''
++        if st.get('next_slot') and klass != 'underground-safety':      # H5, as head_blockers
++            other.append('H5 NEXT-SLOT')
++        if klass == 'bag-fix' and not st.get('drawrec_k4'):              # H6, as head_blockers
++            other.append('H6 TARGET_K')
++        out.append(lib.Entry(run=e.get('run'), state=es, hold=bool(e.get('hold')),
++                             after_unmet=[a for a in e.get('after') or [] if journal_status(a, st) != 'closed'],
++                             has_variant=bool(st.get('base_full') and st['base_full'] in (e.get('variants') or {})),
++                             klass=e.get('class') or '', other_blockers=other))
++    return hd, out
++
++
++def load_lookahead(P):
++    """lookahead.py, next to this file on the host (~/lookahead.py) or SCHED_LOOKAHEAD_LIB (a fixture); absent or
++    unloadable = no lookahead at all (today's behaviour)."""
++    try:
++        import importlib.util as _u
++        spec = _u.spec_from_file_location('sched_lookahead', os.path.join(P['lookahead_lib'], 'lookahead.py'))
++        m = _u.module_from_spec(spec)
++        spec.loader.exec_module(m)
++        return m
++    except Exception:
++        return None
++
++
++def revalidate(P, L, head_run, cand_run, base, reg_sha, head_reg_sha=None):
++    """The last check before a lookahead launch, on a FRESH gather. -> (ok, why, st, entry, variant). The slot is free
++    (S1-S8 + R11), the head is unchanged and still the head, the fleet base is unchanged, lookahead.decide on FRESH
++    inputs names the same candidate, and the candidate -- re-read from the queue -- passes variant_checks and every
++    head_blocker, with the registration bytes it was probed with."""
++    st = gather(P, full=False)
++    busy, block = slot_blockers(st)
++    if busy or block:
++        return False, 'the slot changed: %s' % '; '.join('%s %s' % x for x in (busy + block)[:3]), st, None, None
++    h = head_entry(st)
++    if (h or {}).get('run') != head_run or st.get('base_full') != base:
++        return False, 'the head or the fleet base changed', st, None, None
++    # the HEAD again, in full (Codex r2 P1): a hold, not_before, `after`, its variant, H3-H6 and its state -- anything
++    # but the draw now stopping the head means it may not be looked past
++    hv = (h.get('variants') or {}).get(base)
++    if not hv:
++        return False, 'the head has no variant for the base any more', st, None, None
++    # the head's draw evidence (R10/R12, the reserve) was taken for ONE registration: a replaced one may be drawable
++    # now or need other pools (Codex r3 P2) -- defer; the next tick probes the new identity from scratch
++    if hv.get('registration_sha256') != head_reg_sha:
++        return False, 'the head\'s registration changed during the checks (its draw evidence is stale)', st, None, None
++    st['variant_checks'], _stage = variant_checks(P, h, hv, base, st)
++    hhb = head_blockers(h, st)
++    if hhb or entry_state(h, st) != 'ready':
++        return False, 'the head gained a non-draw blocker: %s' % '; '.join(r for _c, r, _w in hhb), st, None, None
++    hd, behind = lookahead_inputs(st, h, L)
++    dec = L.decide(hd, behind, st['now'], slot_free=True, death_hold=bool(st.get('death_hold')),
++                   next_slot=bool(st.get('next_slot')))
++    if dec[0] != 'lookahead' or dec[1] != cand_run:
++        return False, 'the lookahead decision changed: %s' % (dec[1],), st, None, None
++    e = next(x for x in st['queue']['entries'] if x.get('run') == cand_run)
++    v = (e.get('variants') or {}).get(base)
++    if not v or v.get('registration_sha256') != reg_sha:
++        return False, 'the candidate\'s variant changed during the checks', st, None, None
++    st['variant_checks'], st['stage'] = variant_checks(P, e, v, base, st)
++    hb = head_blockers(e, st)
++    if hb or entry_state(e, st) != 'ready':
++        return False, 'the candidate is no longer launchable: %s' % '; '.join(r for _c, r, _w in hb), st, None, None
++    return True, '', st, e, v
++
++
++def try_lookahead(P, st, head, stamp, no_act):
++    """Design 2. True when a lookahead launch was made (or, --no-act, would be). Every failure is printed and returns
++    False: the head keeps waiting exactly as today."""
++    L = load_lookahead(P)
++    if L is None:
++        print('%s LOOKAHEAD off: lookahead.py not loadable' % stamp); return False
++    busy, block = slot_blockers(st)
++    hd, behind = lookahead_inputs(st, head, L)
++    dec = L.decide(hd, behind, st['now'], slot_free=not (busy or block), death_hold=bool(st.get('death_hold')),
++                   next_slot=bool(st.get('next_slot')))
++    if dec[0] != 'lookahead':
++        print('%s LOOKAHEAD no: %s' % (stamp, dec[1])); return False
++    e2 = next(x for x in st['queue']['entries'] if x.get('run') == dec[1])
++    v2 = e2['variants'][st['base_full']]
++    # CACHED (Claude r1 P2): the candidate's R10 (<= 15 min) and R12 (<= 20 min) run at most once per PROBE_EVERY_MIN
++    # for one (head, candidate, base, registration): a failed try is recorded and not repeated every 5-min tick, so the
++    # tick lock (which installers' holdtoken claim and every human verb wait on) is not held for an hour
++    key = [head['run'], e2['run'], st['base_full'], v2.get('registration_sha256')]
++    for r in reversed(st.get('state_rows') or []):
++        if r.get('state') == 'lookahead-try' and r.get('key') == key:
++            w = ts(r.get('at'))
++            if w and (st['now'] - w).total_seconds() < PROBE_EVERY_MIN * 60:
++                print('%s LOOKAHEAD no (cached %s): %s' % (stamp, r.get('at'), r.get('why')))
++                return False
++            break
++
++    def tried(why):
++        print('%s LOOKAHEAD no: %s' % (stamp, why))
++        if not no_act:
++            append_state(P, {'state': 'lookahead-try', 'key': key, 'why': why[:300]})
++        return False
++    st2 = dict(st)
++    st2['variant_checks'], st2['stage'] = variant_checks(P, e2, v2, st['base_full'], st)
++    hb = head_blockers(e2, st2)
++    if hb or entry_state(e2, st2) != 'ready':
++        return tried('candidate %s is not launchable: %s' % (e2['run'], '; '.join(r for _c, r, _w in hb)))
++    r10 = r10_check(P, e2, v2)
++    if r10:
++        return tried('candidate %s R10: %s' % (e2['run'], r10))
++    reserve = sorted(set(R10_ELIG.get(head['run']) or []) | set(st.get('r12_elig') or []))
++    why, drawn, _el = draw_probe(P, e2['run'], v2['registration'], reserve)
++    if why:
++        return tried('candidate %s R12 with the head\'s pools %s reserved: %s' % (e2['run'], reserve, why))
++    # The checks above took minutes. EVERYTHING is decided again on a fresh gather before anything is touched (Codex r1
++    # P1): the slot, R11/NEXT-SLOT, the head, L0-L4 on fresh queue entries, and the candidate's own full checks.
++    ok3, why3, st3, e3, v3 = revalidate(P, L, head['run'], e2['run'], st['base_full'], v2.get('registration_sha256'),
++                                        ((head.get('variants') or {}).get(st['base_full']) or {}).get('registration_sha256'))
++    if not ok3:
++        print('%s LOOKAHEAD deferred: %s' % (stamp, why3)); return False
++    e2, v2 = e3, v3
++    print('%s LAUNCH %s AHEAD OF %s (draw-blocked since %s; reserve %s; variant on %s, canary %s)%s' % (
++        stamp, e2['run'], head['run'], hd.draw_blocked_since, reserve, st['base_full'][:7],
++        str(v2.get('canary_sha'))[:7], ' -- NO-ACT' if no_act else ''))
++    if not no_act:
++        launch(P, st3, e2, v2, lookahead_past=head['run'], reserve=reserve)
++        page(P, st3, 'flag', '%s|lookahead' % e2['run'], 'LOOKAHEAD: launched %s ahead of %s (draw-blocked since %s); %s '
++             'goes first at the next opening and is never skipped twice in a row' % (e2['run'], head['run'],
++                                                                                   hd.draw_blocked_since, head['run']))
++    return True
++
++
+ # ------------------------------------------------------------------------------------------------------ gather --
+ def read_jsonl(p):
+     rows = []
+@@ -681,6 +914,8 @@
+         r = subprocess.run(['python3', P['drawexposure'], e['run'], '--registrations', d], capture_output=True, text=True,
+                            timeout=900)
+         txt = r.stdout + r.stderr
++        el = next((l for l in txt.splitlines() if l.startswith('eligible on exposure:')), '')
++        R10_ELIG[e['run']] = sorted(set(POOL_TOKEN.findall(el)))      # design 2: the head's reserve
+         with open(v['registration']) as f:
+             declared = bool(json.load(f).get('draw_exposure'))
+         # V3: declaration, exit status and output TOGETHER
+@@ -898,9 +1133,27 @@
+             else:
+                 st['r10'] = r10[1]
+             st['r10_key'] = key
++            if not st['r10']:
++                st['r12'], st['r12_elig'] = r12_answer(P, st, e, v, key, full)
+     return st
+ 
+ 
++def r12_answer(P, st, e, v, key, full=True):
++    """R12 for an otherwise-launchable entry: the newest `drawprobe` row for this identity if younger than
++    PROBE_EVERY_MIN, else a fresh probe (st['r12_ran'] tells _tick to record it). -> (answer, eligible pools)."""
++    for r in reversed(st.get('state_rows') or []):
++        if r.get('state') == 'drawprobe' and r.get('run') == key[0] and r.get('key') == list(key):
++            w = ts(r.get('at'))
++            if w and (st['now'] - w).total_seconds() < PROBE_EVERY_MIN * 60:
++                return r.get('why') or '', r.get('elig') or []
++            break
++    if not full:
++        return '', []
++    why, drawn, elig = draw_probe(P, e['run'], v['registration'])
++    st['r12_ran'] = {'state': 'drawprobe', 'run': e['run'], 'key': list(key), 'why': why, 'drawn': drawn, 'elig': elig}
++    return why, elig
++
++
+ # ------------------------------------------------------------------------------------------------------ act --
+ def append_state(P, row):
+     os.makedirs(os.path.dirname(P['state']), exist_ok=True)
+@@ -934,13 +1187,18 @@
+     os.replace(tmp, dst)
+ 
+ 
+-def launch(P, st, e, v):
++def launch(P, st, e, v, lookahead_past=None, reserve=()):
+     """L1-L3. `launching` is written BEFORE anything is touched (a crash before the Popen leaves an attempt with no pid:
+     blocked on the next tick, recoverable by `rearm`). The pid IS the loop (no setsid binary), recorded with its
+-    /proc starttime so a reused pid can never pass for it."""
++    /proc starttime so a reused pid can never pass for it. A LOOKAHEAD launch (design 2) records the head it skipped
++    (lookahead.skipped_last reads it) and the reserve, and hands the reserve to the loop's drawrec as DRAW_RESERVE."""
+     run = e['run']
+     t0 = iso(now())                 # whole seconds, like the journal: a same-second first line counts
+-    append_state(P, {'state': 'launching', 'run': run, 't0': t0, 'base': st['base_full'], 'canary_sha': v.get('canary_sha')})
++    row = {'state': 'launching', 'run': run, 't0': t0, 'base': st['base_full'], 'canary_sha': v.get('canary_sha')}
++    if lookahead_past:
++        row['lookahead_past'] = lookahead_past
++        row['reserve'] = sorted(reserve)
++    append_state(P, row)
+     for src, dst in st.get('stage') or []:
+         if not os.path.exists(dst):                     # never overwrite (R9), even if one appeared since gather
+             atomic_copy(src, dst)
+@@ -963,9 +1221,13 @@
+         page(P, st, 'error', '%s|preverify|%s' % (run, t0), '%s NOT launched: %s -- fix, then `rearm %s <why>`'
+              % (run, '; '.join(bad), run))
+         return None
++    env = dict(os.environ)
++    env.pop('DRAW_RESERVE', None)
++    if lookahead_past and reserve:
++        env['DRAW_RESERVE'] = ','.join(sorted(reserve))
+     with open(os.path.join(P['out'], 'canary-loop-%s.out' % run), 'a') as out:
+         p = subprocess.Popen(['bash', P['loop'], run], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+-                             cwd=P['home'], start_new_session=True)
++                             cwd=P['home'], start_new_session=True, env=env)
+     append_state(P, {'state': 'launched-pid', 'run': run, 'pid': p.pid, 'start': starttime(P, p.pid)})
+     page(P, st, 'info', '%s|launch|%s' % (run, t0), 'launched %s (canary %s on base %s, pid %d)'
+          % (run, str(v.get('canary_sha'))[:7], st['base_full'][:7], p.pid))
+@@ -1064,6 +1326,8 @@
+             page(P, st, 'error', 'queue|unreadable', 'the queue file does not parse: %s' % st['queue']['error'])
+         return 2
+     d = decide(st)
++    if st.get('r12_ran') and not no_act:
++        append_state(P, dict(st.pop('r12_ran')))        # recorded NOW, so the re-gather below reads it from the cache
+     if d[0] == 'launch' and st.get('r10_ran') and not no_act:
+         # R10 ran drawexposure (up to 15 min): re-gather everything cheap and decide again with its answer carried over
+         r10 = (st['r10_key'], st['r10'])        # bound to (run, base, registration sha256): another variant re-checks
+@@ -1076,6 +1340,8 @@
+             # fleet since that second check: never launch on it -- the next tick starts over (Codex IMPL-3)
+             print('%s RE-CHECK: the head/base changed during the exposure check; deferring to the next tick' % stamp)
+             return 0
++    if st.get('r12_ran') and not no_act:
++        append_state(P, dict(st['r12_ran']))            # the R12 cache (PROBE_EVERY_MIN) and the record of the probe
+     if d[0] == 'launch':
+         e, v = d[1], d[2]
+         print('%s LAUNCH %s (variant on %s, canary %s)%s' % (stamp, e['run'], st['base_full'][:7],
+@@ -1083,6 +1349,22 @@
+         if not no_act:
+             launch(P, st, e, v)
+         return 0
++    # DESIGN 2: is the head blocked ONLY by the draw? Record the episode (lookahead.draw_blocked_since reads it).
++    head = head_entry(st)
++    draw_wait = d[0] == 'wait' and head is not None and all(c in ('R10', 'R12') for c, _ in d[1])
++    if head is not None and not no_act:
++        hr = [r for r in st.get('state_rows') or [] if r.get('run') == head.get('run')
++              and r.get('state') in ('drawwait', 'drawclear', 'launching')]
++        last = hr[-1]['state'] if hr else None
++        hreg = ((head.get('variants') or {}).get(st.get('base_full') or '') or {}).get('registration_sha256')
++        if draw_wait and (last != 'drawwait' or hr[-1].get('reg') != hreg):
++            # a new episode, or the same head with a REPLACED registration: its own 30 min starts now (Codex r3 P2)
++            append_state(P, {'state': 'drawwait', 'run': head['run'], 'reg': hreg, 'why': d[1][0][1][:200]})
++            st.setdefault('state_rows', []).append({'state': 'drawwait', 'run': head['run'], 'reg': hreg, 'at': stamp})
++        elif not draw_wait and last == 'drawwait':
++            append_state(P, {'state': 'drawclear', 'run': head['run'], 'why': '%s %s' % (d[0], d[1][0][0] if d[1] else '')})
++    if draw_wait and try_lookahead(P, st, head, stamp, no_act):
++        return 0
+     print('%s %s: %s' % (stamp, d[0].upper(), ' | '.join('%s %s' % (c, r) for c, r in d[1])))
+     if st.get('inactive_units'):
+         print('%s note: enabled but inactive units (no drop-in, so they start on baseline): %s'
+@@ -1107,6 +1389,17 @@
+                 page(P, st, 'flag', '%s|r10wait' % run, '%s has waited %.1f h because fewer than two pools can expose it '
+                      '(%s). The scheduler never skips the head: `queue hold`/reorder, or edit its draw_exposure'
+                      % (run, h, d[1][0][1][:200]))
++    if d[0] == 'wait' and any(c == 'R12' for c, _ in d[1]):
++        # W5 (design 2, Claude r1 P1): the draw wait now happens HERE, not in a loop's `draw` phase, so the loop's draw-
++        # stall page (watch) can no longer fire; this one replaces it -- at STALL_H and every STALL_H, naming the head
++        run = d[1][0][1].split(':')[0]
++        dw = [r for r in st.get('state_rows') or [] if r.get('run') == run and r.get('state') in ('drawwait', 'drawclear', 'launching')]
++        if dw and dw[-1].get('state') == 'drawwait':
++            h = (st['now'] - (ts(dw[-1].get('at')) or st['now'])).total_seconds() / 3600
++            if h > STALL_H:
++                page(P, st, 'flag', '%s|r12wait' % run, '%s has waited %.1f h for a draw (R12: %s). The scheduler re-probes '
++                     'every %d min; `queue hold`/reorder to move on (the lookahead, when on, may launch the entry behind it)'
++                     % (run, h, d[1][0][1][:200], PROBE_EVERY_MIN))
+     if d[0] == 'block' and head_entry(st) is not None:     # an empty queue blocks nothing: print, do not page
+         c, r = d[1][0]
+         page(P, st, 'error', 'block|%s|%s' % (c, r[:60]), 'BLOCKED %s %s' % (c, r))

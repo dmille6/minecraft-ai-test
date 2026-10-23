@@ -1,0 +1,225 @@
+--- a/scripts/drawsteady.py
++++ b/scripts/drawsteady.py
+@@ -287,9 +287,10 @@
+             'm': mean(all_), 'h1': mean(h1), 'h2': mean(h2)}
+ 
+ 
+-def qualify(stats, units, fv):
++def qualify(stats, units, fv, one_build=True):
+     """PURE. One pool. stats: {bot: bot_stats} for EVERY unit of the pool (a unit with no logs maps to None);
+-    units: {bot: active}. -> ({'m','h1','h2','d','bots'} or None, why). The same test for a candidate and a control."""
++    units: {bot: active}. -> ({'m','h1','h2','d','bots'} or None, why). The same test for a candidate and a control.
++    one_build=False (design 1's settle path only): the build is tested by settlerule's SYMMETRIC test instead."""
+     if not fv:
+         return None, 'fleet version unreadable'
+     if not units:
+@@ -304,7 +305,7 @@
+             return None, '%s: %d unreadable file(s), %d corrupt row(s) in the hour' % (b, s['bad'], s['corrupt'])
+         if s['rows'] < MIN_ROWS:
+             return None, '%s: %d rows in %d min (< %d)' % (b, s['rows'], STEADY_MIN, MIN_ROWS)
+-        if s['versions'] != {fv}:
++        if one_build and s['versions'] != {fv}:
+             return None, '%s: builds %s in the last %d min, not only %s (restart lag)' % (b, sorted(s['versions']), STEADY_MIN, fv)
+         if s['h1'] is None or s['h2'] is None:
+             return None, '%s: no bag reading in one half of the hour' % b
+@@ -368,8 +369,117 @@
+             except ValueError:
+                 continue        # a lost journal row can only lose a `promoted` row: that HOLDS (fail safe)
+     return out
++
++
++def _incoming_reg(run, regdir=None):
++    """The INCOMING run's registration, looked up exactly as incoming_tier (and drawrec) do; None when unreadable."""
++    if not run or '/' in run:
++        return None
++    try:
++        p = os.path.join(regdir or os.path.expanduser('~/mcai-analysis/registrations'), '%s.json' % run)
++        if not os.path.exists(p):
++            p = '/tmp/registrations/%s.json' % run
++        return json.load(open(p))
++    except Exception:
++        return None
++
++
++def _depth_counts(bot, since, until, root=None):
++    """(position rows, rows below settlerule.DEPTH_Y) for one bot over [since, until), every generation by time span
++    (bagread.bot_rows' own prefilter); an unreadable file raises (the settle path then releases nothing)."""
++    import glob, gzip, re as _re, settlerule
++    lo, hi = since.strftime('%Y-%m-%dT%H:%M:%S'), until.strftime('%Y-%m-%dT%H:%M:%S')
++    ts_re = _re.compile(r'"@timestamp":\s*"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)')
++    n = deep = 0
++    for f in sorted(glob.glob(os.path.join(root or LOGROOT, bot, 'skill-*.jsonl*'))):
++        if dt.datetime.fromtimestamp(os.path.getmtime(f), dt.timezone.utc) < since:
++            continue
++        with (gzip.open(f, 'rt', errors='replace') if f.endswith('.gz') else open(f, errors='replace')) as fh:
++            for line in fh:
++                m = ts_re.search(line[:200])
++                if not m or not (lo <= m.group(1) < hi):
++                    continue
++                try:
++                    y = ((json.loads(line).get('bot') or {}).get('pos') or {}).get('y')
++                except ValueError:
++                    continue
++                if isinstance(y, (int, float)):
++                    n += 1; deep += y < settlerule.DEPTH_Y
++    return n, deep
++
+ 
++def settle_release(scand, rel, by_pool, touched, fv, now, man, settlerule, tierrule):
++    """DESIGN 1 (proposed) measuring half: S1-S4 for every settle candidate today's rule did not release.
++    -> the pools released. Its controls: untouched pools passing S1 + S2 over the hour's 240-min window."""
++    import bagread, time
++    roster = sorted(b for pool in by_pool.values() for b in pool)
++    fleet_bots = [b for b in roster if not b.startswith('isolated')]
++    cache = {}
++    t_start = time.time()
+ 
++    def budget():
++        # drawrec gives drawsteady 600 s in all; the settle path stops at SETTLE_BUDGET_S and releases nothing early,
++        # so it can never make drawrec time out and lose today's release with it (Claude r1 P2)
++        if time.time() - t_start > settlerule.SETTLE_BUDGET_S:
++            raise TimeoutError('settle measurement over %d s' % settlerule.SETTLE_BUDGET_S)
++
++    def s2(pool, minutes):
++        budget()
++        since = now - dt.timedelta(minutes=minutes)
++        if minutes not in cache:
++            cache[minutes] = tierrule.load_buckets(LOGROOT, fleet_bots, since, now)
++        bk, bad = cache[minutes]
++        mine = sorted(by_pool.get(pool, {}))
++        return settlerule.symmetric_build(lambda a, c, r, s0, s1, _b: tierrule.asymmetric_rows(a, c, r, s0, s1, bad),
++                                          {b: bk.get(b, {}) for b in mine},
++                                          {b: v for b, v in bk.items() if b not in mine}, mine, since, now)
++
++    def s1(pool):
++        budget()
++        since = now - dt.timedelta(minutes=STEADY_MIN)
++        st, dn = {}, [0, 0]
++        for b in by_pool.get(pool, {}):
++            rows, bad, corrupt, _d = bagread.bot_rows(b, since, now, root=LOGROOT)
++            st[b] = bot_stats(rows, since, bad, corrupt) if (rows or bad or corrupt) else None
++            n, d = _depth_counts(b, since, now)
++            dn[0] += n; dn[1] += d
++        s, why = qualify(st, by_pool.get(pool, {}), fv, one_build=False)
++        if s is not None:
++            s['deep'] = settlerule.depth_share(dn[0], dn[1])
++        return s, why
++    sctl = {}
++    for p in sorted(by_pool):
++        if p in touched or p == 'placebo-c' or p.startswith('isolated'):
++            continue
++        s, why = s1(p)
++        if s is not None:
++            ok, w2 = s2(p, 240)
++            s = s if ok else None
++            why = why if ok else 'S2 (240 min): ' + w2
++        sctl[p] = s
++        print('STEADY settle control %s: %s' % (p, ('bag %.1f deep %s' % (s['m'], s['deep'])) if s else 'NOT QUALIFIED: ' + why))
++    out = []
++    for p, c in sorted(scand.items()):
++        if p in rel:
++            continue
++        s, why = s1(p)
++        ok = s is not None
++        if ok:
++            ok, why = s2(p, max(240, c[5]))
++            why = 'S2 %d min: %s' % (max(240, c[5]), why)
++        if ok:
++            ok, bwhy = steady(c[:3], s, sctl, man.get('declared_code_version'), c[3])
++            why += ' | ' + bwhy
++        if ok:
++            ok, dwhy = settlerule.band_ok(s['deep'], [x['deep'] for x in sctl.values() if x], 'depth y<%d share' % settlerule.DEPTH_Y)
++            why += ' | ' + dwhy
++        print('STEADY settle %s %s (pred %s %s %s, floor %d): %s' % ('REL' if ok else 'held', p, c[0], c[4],
++                                                                    c[3].strftime('%m-%dT%H:%MZ'), c[5], why))
++        if ok:
++            out.append(p)
++    return out
++
++
+ def main():
+     now = dt.datetime.now(dt.timezone.utc)
+     if os.environ.get('STEADY_NOW'):         # REPLAY ONLY (scripts/host/drawsteady_replay.sh); printed, never silent
+@@ -400,7 +510,25 @@
+         cand, held = candidates(ledger, journal, now)
+     for p, why in sorted(held.items()):
+         print('STEADY 12h %s: %s' % (p, why))
+-    if not cand:
++    # DESIGN 1 (queue-speed-1023, PROPOSED, iteration I8): the SETTLE path -- an extra way OUT, never a way in. Its
++    # candidates come from settlerule (pure); anything unreadable here means no settle release, today's answer stands.
++    scand, sheld, sreg = {}, {}, None
++    try:
++        import settlerule, tierrule
++        sreg = _incoming_reg(os.environ.get('DRAW_RUN', ''), os.environ.get('STEADY_REGDIR') or None)
++        if sreg is not None and settlerule.incoming_ok(sreg)[0]:
++            sjr = _journal_strict(JOURNAL)
++            scand, sheld = settlerule.candidates_settle(ledger, sjr, now, sreg, tierrule.tier_of(sreg), pools_in,
++                                                        tierrule.close_of, tierrule.closes, tierrule.run_of,
++                                                        None, tierrule.ledger_tier)
++            for p, why in sorted(sheld.items()):
++                print('STEADY settle held %s: %s' % (p, why))
++        elif sreg is not None:
++            print('STEADY settle path closed for %s: %s' % (os.environ.get('DRAW_RUN'), settlerule.incoming_ok(sreg)[1]))
++    except Exception as e:
++        scand = {}
++        print('STEADY settle path unreadable (%s: %s): today\'s release only' % (type(e).__name__, str(e)[:120]))
++    if not cand and not scand:
+         print('STEADY no KEEP+promoted pool between %d and %d h' % (EARLY_H, EXCL_H)); print('STEADY RELEASE []'); return 0
+     try:
+         import bagread
+@@ -419,7 +547,7 @@
+                 st[b] = bot_stats(rows, since, bad, corrupt) if (rows or bad or corrupt) else None
+             return qualify(st, by_pool.get(pool, {}), fv)
+         ctl = {}
+-        for p in sorted(by_pool):
++        for p in sorted(by_pool) if cand else ():       # no today's candidate: today printed nothing here (it returned)
+             if p in touched or p == 'placebo-c' or p.startswith('isolated'):
+                 continue
+             s, why = summary_of(p)
+@@ -446,7 +574,46 @@
+             print('STEADY %s %s: %s' % (('early' if T2 else '6h') if ok else '12h', p, why if s else why + ': ' + qwhy))
+             if ok:
+                 rel.append(p)
++        if scand:
++            # its own failure never costs today's release: the settle path then releases nothing, today's stands
++            # A HARD deadline (Codex r2 P2): SIGALRM interrupts the log scans themselves, so the settle path can never
++            # push drawsteady past drawrec's 600-s timeout and lose today's release with it
++            import signal
++
++            class SettleDeadline(BaseException):
++                """NOT an Exception (Claude r3 P2): the log scanners catch Exception (load_buckets) and OSError
++                (bagread.bot_rows, and TimeoutError is an OSError), so an Exception raised mid-scan would be swallowed
++                as one bad line and the scan would run on."""
++
++            def _late(_s, _f):
++                raise SettleDeadline('settle measurement over %d s' % settlerule.SETTLE_BUDGET_S)
++            old = signal.signal(signal.SIGALRM, _late)
++            got = []
++            try:          # the outer catch also covers an alarm that lands inside the inner finally (Claude r4 P3)
++                signal.alarm(int(settlerule.SETTLE_BUDGET_S))
++                try:
++                    got = settle_release(scand, rel, by_pool, touched | set(scand) | set(sheld), fv, now, man,
++                                         settlerule, tierrule)
++                except SettleDeadline as e:
++                    got = []
++                    print('STEADY settle measurement failed (SettleDeadline: %s): today\'s release only' % e)
++                except Exception as e:
++                    got = []
++                    print('STEADY settle measurement failed (%s: %s): today\'s release only' % (type(e).__name__, str(e)[:160]))
++                finally:
++                    signal.alarm(0)
++            except SettleDeadline as e:
++                got = []
++                print('STEADY settle measurement failed (SettleDeadline: %s): today\'s release only' % e)
++            finally:
++                signal.signal(signal.SIGALRM, old)
++            rel += got
+     except Exception as e:
++        if not cand:
++            # today's rule had nothing to measure (it would have printed "no KEEP+promoted" and released nothing): a
++            # failure here is the settle path's alone, and is NOT a steady refusal for drawrec to page (Claude r1 P2)
++            print('STEADY settle measurement failed (%s: %s): nothing released early' % (type(e).__name__, str(e)[:160]))
++            print('STEADY RELEASE []'); return 0
+         print('STEADY measurement failed (%s: %s): 12 h for every pool' % (type(e).__name__, str(e)[:160])); print('STEADY RELEASE []'); return 0
+     print('STEADY RELEASE %r' % rel)
+     return 0

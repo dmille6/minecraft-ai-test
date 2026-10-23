@@ -1,0 +1,12 @@
+--- a/scripts/test_threepool.py
++++ b/scripts/test_threepool.py
+@@ -627,7 +627,8 @@
+     ('drawsteady.py', 'an unreadable ts tolerated', "        if t is None:\n            raise ValueError('ledger line %d: not a row", "        if t is None:\n            continue\n            raise ValueError('ledger line %d: not a row"),
+     ('drawsteady.py', 'down unit ignored', "        if not units[b]:", "        if False:"),
+     ('drawsteady.py', 'a member with no logs dropped', "        if s is None:\n            return None, '%s: no log rows", "        if s is None and False:\n            return None, '%s: no log rows"),
+-    ('drawsteady.py', 'restart lag ignored', "        if s['versions'] != {fv}:", "        if fv not in s['versions']:"),
++    # re-anchored for queue-speed-1023 design 1 (qualify gained one_build=; the default path is unchanged)
++    ('drawsteady.py', 'restart lag ignored', "        if one_build and s['versions'] != {fv}:", "        if one_build and fv not in s['versions']:"),
+     ('drawsteady.py', 'row floor ignored', "        if s['rows'] < MIN_ROWS:", "        if False:"),
+     ('drawsteady.py', 'unreadable or corrupt logs ignored', "        if s['bad'] or s['corrupt']:", "        if False:"),
+     ('drawsteady.py', 'a half without a bag reading accepted', "        if s['h1'] is None or s['h2'] is None:", "        if False:"),

@@ -1,0 +1,482 @@
+--- a/scripts/host/test_canary_sched.py
++++ b/scripts/host/test_canary_sched.py
+@@ -14,6 +14,8 @@
+ SRC = os.path.join(HERE, 'canary-sched.py')
+ LIB = next(d for d in (os.path.normpath(os.path.join(HERE, '..', 'lib')), os.path.join(HERE, 'lib'),
+                        os.path.expanduser('~/mcai-analysis/lib')) if os.path.exists(os.path.join(d, 'openloop.py')))
++LOOKAHEAD_LIB = next((d for d in (HERE, os.environ.get('LOOKAHEAD_LIB', ''), os.path.expanduser('~'))
++                      if d and os.path.exists(os.path.join(d, 'lookahead.py'))), HERE)
+ NOW = dt.datetime(2026, 10, 8, 12, 0, 0, tzinfo=dt.timezone.utc)
+ POOLS = ['board-a', 'hive-a']
+ BOTS = ['%s-%s' % (p, n) for p in POOLS for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')]
+@@ -72,11 +74,27 @@
+             open(os.path.join(self.home, 'mcai-analysis', '%s.py' % r), 'w').write('# %s v1\n' % r)
+         self.reg = os.path.join(self.home, 'mcai-analysis', 'foo-01.json')
+         self.write_reg({'sha': self.canary[:7], 'reads': ['fooread', 'immobiledid'], 'read_minutes': [180, 360]})
+-        open(os.path.join(self.home, 'mcai-analysis', 'drawrec.sh'), 'w').write('x\nTARGET_K = 4\nMIN_K = 2\n')
++        # design 2 (R12): the drawrec STUB prints drawrec's own DRAW line. FIX_DRAW_NONE = runs that draw nothing;
++        # FIX_DRAW_LOG = a file each call appends "<run> reserve=<DRAW_RESERVE> regdir=<DRAW_REGDIR>" to. The quoted
++        # heredoc keeps the TARGET_K line at the start of a line for H6's regex without bash executing it.
++        open(os.path.join(self.home, 'mcai-analysis', 'drawrec.sh'), 'w').write(
++            "#!/bin/bash\n: <<'K'\nTARGET_K = 4\nMIN_K = 2\nK\n"
++            '[ -n "${FIX_DRAW_LOG:-}" ] && echo "$1 reserve=${DRAW_RESERVE:-} regdir=$( [ -f "${DRAW_REGDIR:-/x}/$1.json" ] && echo ok || echo none) probe=${DRAW_PROBE:-} txt=$( [ "$(dirname "${DRAW_TXT:-/x/y}")" = "${DRAW_REGDIR:-/z}" ] && echo private || echo shared)" >> "$FIX_DRAW_LOG"\n'
++            '[ -n "${FIX_HOOK_RUN:-}" ] && [ "$1" = "$FIX_HOOK_RUN" ] && eval "$FIX_HOOK_CMD"\n'
++            'echo "instruments: band rows ${FIX_BAND_ROWS:-11}, exposure rows ${FIX_EXPO_ROWS:-11}"\n'
++            'case ",${FIX_DRAW_REFUSE:-}," in *",$1,"*) echo "draw_exposure: REFUSED for $1 -- it declares draw_exposure"; echo "DRAW (none, owner C): NONE (fewer than 2 eligible)"; exit 0;; esac\n'
++            'case ",${FIX_DRAW_CRASH:-}," in *",$1,"*) echo "Traceback: boom"; exit 1;; esac\n'
++            'case ",${FIX_DRAW_THREE:-}," in *",$1,"*) echo "DRAW (3 pools = 15 bots, owner C): [\'board-c\', \'hive-c\', \'hive-d\']"; exit 0;; esac\n'
++            'case ",${FIX_DRAW_NONE:-}," in\n'
++            "  *\",$1,\"*) echo \"eligible [('board-a', 'e', 1.0, (9, 9, 0))] | with a trapped bot: []\"; echo \"DRAW (none, owner C): NONE (fewer than 2 eligible)\";;\n"
++            "  *) echo \"eligible [('board-c', 'e', 1.0, (9, 9, 0)), ('hive-c', 'e', 1.0, (9, 9, 0))] | with a trapped bot: []\";"
++            " echo \"DRAW (2 pools = 10 bots, owner C): ['board-c', 'hive-c']\";;\n"
++            'esac\n')
+         shutil.copy(os.path.join(LIB, 'openloop.py'), os.path.join(self.home, 'mcai-analysis', 'lib', 'openloop.py'))
+         self.loop = os.path.join(d, 'loop.sh')
+         open(self.loop, 'w').write(
+             '#!/bin/bash\n# stub loop: FIX_LOOP=ok|refuse|none|drawn\n'
++            '[ -n "${FIX_LOOP_ENVLOG:-}" ] && echo "$1 reserve=${DRAW_RESERVE:-}" >> "$FIX_LOOP_ENVLOG"\n'
+             'case "${FIX_LOOP:-ok}" in\n'
+             '  none) exit 3;;\n'
+             '  refuse) printf \'{"ts":"%sZ","run":"%s","phase":"preflight-refused","note":"stub refusal"}\\n\' "${SCHED_FAKE_NOW:0:19}" "$1" >> "$SCHED_JOURNAL";;\n'
+@@ -102,7 +120,7 @@
+              'SCHED_LOG_GLOB': os.path.join(self.logs, '*', 'skill-*.jsonl'), 'SCHED_LOOP_LOCK': self.lock,
+              'SCHED_PROC_LOCKS': self.locks, 'SCHED_GIT_DIR': self.git, 'SCHED_LOOP': self.loop,
+              'SCHED_DRAWEXPOSURE': self.de, 'SCHED_PROC': self.proc, 'SCHED_FAKE_NOW': Z(NOW), 'SCHED_MIN_FRESH': '8',
+-             'SCHED_CANARY_TREE': '/srv/mcbots/harness-canary/'}
++             'SCHED_CANARY_TREE': '/srv/mcbots/harness-canary/', 'SCHED_LOOKAHEAD_LIB': LOOKAHEAD_LIB}
+         e.update(extra)
+         return e
+ 
+@@ -568,7 +586,9 @@
+ def t_h6_bagfix_needs_k4(CS, F):
+     F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'class': 'bag-fix'})
+     e = dict(F.entry); e['class'] = 'bag-fix'; F.enqueue(CS, e)
+-    expect(CS, F, 'launch')
++    # R12 (design 2): a bag fix is never deployed on two pools, so a two-pool draw makes it WAIT; three launch it
++    expect(CS, F, 'wait', 'R12')
++    expect(CS, F, 'launch', FIX_DRAW_THREE='foo-01')
+     open(os.path.join(F.home, 'mcai-analysis', 'drawrec.sh'), 'w').write('TARGET_K = 2\n')
+     expect(CS, F, 'block', 'H6')
+ 
+@@ -1017,8 +1037,373 @@
+         CS.gather = real
+     time.sleep(0.3)
+     assert len(calls) == 2 and open(F.journal).read() == '', (calls, open(F.journal).read())
++
++
++# ------------------------------------------------------------------- design 2 (queue-speed-1023): R12 + lookahead --
++def two_entries(CS, F, after=None, nb=None, hold=None):
++    """foo-01 (the head) and bar-01 behind it, both on the fleet base, the same canary sha."""
++    reg2 = os.path.join(F.home, 'mcai-analysis', 'bar-01.json')
++    json.dump({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'read_minutes': [180, 360]}, open(reg2, 'w'))
++    with Env(F.env()):
++        e1 = json.loads(json.dumps(F.entry))
++        e2 = {'run': 'bar-01', 'class': '', 'after': after or [], 'not_before': None, 'hold': hold,
++              'variants': {F.base: {'registration': reg2, 'approved': 'test fixture'}}}
++        if nb:
++            e1['not_before'] = nb
++        for e in (e1, e2):
++            bad = CS.validate_entry(CS.paths(), e, [])
++            assert not bad, bad
++        json.dump({'version': 1, 'entries': [e1, e2]}, open(F.queue, 'w'))
++    return e1, e2
++
++
++def head_reg(F):
++    """The queued head's registration sha256 on the fixture base (drawwait rows carry it since round 3)."""
++    q = json.load(open(F.queue))
++    return q['entries'][0]['variants'][F.base]['registration_sha256']
++
++
++def sched_rows(F):
++    p = os.path.join(F.home, 'digest', 'sched-state.jsonl')
++    return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
++
++
++INS = 'instruments: band rows 11, exposure rows 11\n'
++
++
++def t_r12_parse_probe(CS, F):
++    w, d, e = CS.parse_probe(INS + "eligible [('board-a', 'x', 1.0, (1, 1, 0))] | t\nDRAW (2 pools = 10 bots, owner C): ['board-a', 'hive-b']", 2)
++    assert w == '' and d == ['board-a', 'hive-b'] and e == ['board-a'], (w, d, e)
++    w, d, e = CS.parse_probe(INS + 'DRAW (none, owner C): NONE (fewer than 2 eligible)', 2)
++    assert w.startswith('WAIT') and d == [], w
++    w, d, e = CS.parse_probe(INS + "DRAW (3 pools = 15 bots, owner C): ['a-a', 'b-b', 'c-c']", 3)
++    assert w == '', w
++    w, _d, _e = CS.parse_probe('Traceback: boom', 2)
++    assert w and not w.startswith('WAIT'), 'no DRAW line must BLOCK, not wait: %s' % w
++    assert CS.probe_min_k({'class': 'bag-fix'}) == 3 and CS.probe_min_k({'draw_k': 1}) == 1 and CS.probe_min_k({}) == 2
++    # an empty exposure table (a /tmp read missing) reads as "fewer than 2 eligible": it must BLOCK (Claude r1 P1)
++    w, _d, _e = CS.parse_probe('instruments: band rows 11, exposure rows 0\nDRAW (none, owner C): NONE (fewer than 2 eligible)', 2)
++    assert w and not w.startswith('WAIT') and 'instruments' in w, w
++    w, _d, _e = CS.parse_probe('DRAW (none, owner C): NONE (fewer than 2 eligible)', 2)
++    assert w and not w.startswith('WAIT'), 'no instruments line must BLOCK: %s' % w
++    # SCARCITY waits; every REFUSAL blocks (Codex r1 P1): a head that is refused is never looked past
++    wait = lambda txt, rc=0: CS.parse_probe(INS + txt, 2, rc)[0].startswith('WAIT')
++    assert wait("DRAW (none, owner C): NONE (draw_require_pools: required pool hive-d is excluded (its 12-h/6-h window, "
++                "the live canary or a manual exclusion): waiting)")
++    assert not wait('DRAW (none, owner C): NONE (draw_require_pools REFUSED: registration or drawrequire.py unreadable (ImportError))')
++    assert not wait("draw_exposure: REFUSED for x -- it declares draw_exposure\nDRAW (none, owner C): NONE (fewer than 2 eligible)")
++    assert not wait("draw_k: refusing to draw for x (model-env needs draw_k 1..2)\nDRAW (none, owner C): NONE (fewer than 1 eligible)")
++    assert not wait('DRAW (none, owner C): NONE (fewer than 2 eligible)', rc=1)
++    assert not wait('DRAW (none, owner C): NONE (draw_require_pools: requires 5 pools, more than the 4-pool target)')
++
++
++def t_r12_refusal_blocks_and_is_never_looked_past(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    expect(CS, F, 'block', 'R12', FIX_DRAW_REFUSE='foo-01')
++    expect(CS, F, 'block', 'R12', FIX_DRAW_CRASH='foo-01')
++    with Env(F.env(FIX_DRAW_REFUSE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'looked past a REFUSED head'
++
++
++def t_r12_missing_instrument_blocks_and_pages(CS, F):
++    """A /tmp read gone (exposure table empty) BLOCKS with its remedy -- never an endless silent WAIT (Claude r1 P1)."""
++    F.enqueue(CS)
++    d, _st = expect(CS, F, 'block', 'R12', FIX_EXPO_ROWS='0', FIX_DRAW_NONE='foo-01')
++    assert any('restore-reads' in r for _c, r in d[1]), d
++
++
++def t_r12_long_wait_pages(CS, F):
++    """W5: an R12 wait older than STALL_H pages, naming the head (the loop's draw-stall page cannot fire any more)."""
++    F.enqueue(CS)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(hours=3, minutes=5))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01')):
++        assert CS.tick(CS.paths()) == 0
++    pages = open(os.path.join(F.home, 'digest', 'page.jsonl')).read()
++    assert 'waited 3.1 h for a draw' in pages, pages
++
++
++def t_r12_probe_is_private(CS, F):
++    """The probe runs drawrec with DRAW_PROBE=1 and its working text in its own temp dir (Codex r1 P2)."""
++    F.enqueue(CS)
++    log = os.path.join(F.d, 'draw.log')
++    expect(CS, F, 'launch', FIX_DRAW_LOG=log)
++    assert 'probe=1 txt=private' in open(log).read(), open(log).read()
++
++
++def t_la_loop_inherits_the_reserve(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    envlog = os.path.join(F.d, 'loopenv.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_LOOP_ENVLOG=envlog)):
++        assert CS.tick(CS.paths()) == 0
++    time.sleep(0.5)
++    assert 'bar-01 reserve=board-a' in open(envlog).read(), open(envlog).read()
++
++
++def t_la_ordinary_launch_carries_no_reserve(CS, F):
++    """Positive control of the handoff: an ordinary launch's loop sees NO reserve, even if the scheduler's own
++    environment carried one."""
++    F.enqueue(CS)
++    envlog = os.path.join(F.d, 'loopenv.log')
++    with Env(F.env(FIX_LOOP='ok', FIX_LOOP_ENVLOG=envlog, DRAW_RESERVE='hive-a')):
++        assert CS.tick(CS.paths()) == 0
++    time.sleep(0.5)
++    assert 'foo-01 reserve=\n' in open(envlog).read(), open(envlog).read()
++
++
++def t_la_revalidates_after_the_probes(CS, F):
++    """The candidate is HELD while its probe runs: the fresh re-check before launch must see it (Codex r1 P1)."""
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    hook = ('python3 -c "import json,sys; p=sys.argv[1]; q=json.load(open(p)); q[\'entries\'][1][\'hold\']=\'held mid-probe\'; '
++            'json.dump(q, open(p, \'w\'))" %s' % F.queue)
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_HOOK_RUN='bar-01', FIX_HOOK_CMD=hook)):
++        assert CS.tick(CS.paths()) == 0
++    assert json.load(open(F.queue))['entries'][1]['hold'] == 'held mid-probe', 'the hook did not run (positive control)'
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched a candidate held during the probe'
++
++
++def _hooked_tick(CS, F, hook):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_HOOK_RUN='bar-01', FIX_HOOK_CMD=hook)):
++        assert CS.tick(CS.paths()) == 0
++    return [r for r in sched_rows(F) if r.get('state') == 'launching']
++
++
++def t_la_revalidates_a_pause(CS, F):
++    p = os.path.join(F.home, 'digest', 'SCHED-PAUSE')
++    assert not _hooked_tick(CS, F, 'touch %s' % p), 'launched although SCHED-PAUSE appeared during the probes'
++    assert os.path.exists(p), 'hook did not run (positive control)'
++
++
++def t_la_revalidates_the_episode(CS, F):
++    """The head's draw-blocked episode ends during the probes (a drawclear row): only L2 on fresh inputs sees it."""
++    sp = os.path.join(F.home, 'digest', 'sched-state.jsonl')
++    hook = "echo '{\"state\": \"drawclear\", \"run\": \"foo-01\", \"at\": \"%s\"}' >> %s" % (Z(NOW), sp)
++    assert not _hooked_tick(CS, F, hook), 'launched after the head stopped being draw-blocked'
++
++
++def t_la_revalidates_the_registration(CS, F):
++    """The candidate's registration is edited during the probes: only its fresh variant_checks (H3) see it."""
++    reg2 = os.path.join(F.home, 'mcai-analysis', 'bar-01.json')
++    hook = 'echo "{}" > %s' % reg2
++    assert not _hooked_tick(CS, F, hook), 'launched a candidate whose registration changed during the probes'
++
++
++def t_la_revalidates_a_held_head(CS, F):
++    """The HEAD is held while the candidate's probe runs: the fresh re-check must refuse (Codex r2 P1)."""
++    hook = ('python3 -c "import json,sys; p=sys.argv[1]; q=json.load(open(p)); q[\'entries\'][0][\'hold\']=\'owner: hold\'; '
++            'json.dump(q, open(p, \'w\'))" %s' % F.queue)
++    assert not _hooked_tick(CS, F, hook), 'launched past a head that was HELD during the probes'
++    assert json.load(open(F.queue))['entries'][0]['hold'] == 'owner: hold', 'hook did not run (positive control)'
++
++
++def t_la_revalidates_the_head_variant(CS, F):
++    """The head's variant is removed during the probe (a missing variant is never looked past)."""
++    hook = ('python3 -c "import json,sys; p=sys.argv[1]; q=json.load(open(p)); q[\'entries\'][0][\'variants\']={}; '
++            'json.dump(q, open(p, \'w\'))" %s' % F.queue)
++    assert not _hooked_tick(CS, F, hook), 'launched past a head whose variant vanished during the probes'
++
++
++def t_la_revalidates_a_replaced_head(CS, F):
++    """The head's variant is REPLACED by a valid one (new registration bytes, new sha256) during the candidate's probe:
++    its draw evidence is stale, so nothing launches this tick (Codex r3 P2)."""
++    reg1 = F.reg
++    hook = ('python3 -c "import json,sys,hashlib; p,r,b=sys.argv[1:4]; d=json.load(open(r)); d[\'notes\']=\'v2\'; '
++            'json.dump(d, open(r, \'w\')); q=json.load(open(p)); '
++            'q[\'entries\'][0][\'variants\'][b][\'registration_sha256\']=hashlib.sha256(open(r,\'rb\').read()).hexdigest(); '
++            'json.dump(q, open(p, \'w\'))" %s %s %s' % (F.queue, reg1, F.base))
++    assert not _hooked_tick(CS, F, hook), 'launched past a head whose registration was replaced during the probes'
++    assert json.load(open(reg1)).get('notes') == 'v2', 'hook did not run (positive control)'
++
++
++def t_la_replaced_head_restarts_its_30_min(CS, F):
++    """A drawwait episode recorded for the OLD registration does not count for the new one."""
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': 'an-older-registration', 'at': Z(NOW - dt.timedelta(minutes=90))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'an old registration\'s episode was counted'
++    rows = [r for r in sched_rows(F) if r.get('state') == 'drawwait']
++    assert rows and rows[-1].get('reg') == head_reg(F), 'a new episode was not started for the new registration'
+ 
+ 
++def t_la_hooked_positive_control(CS, F):
++    """The hook machinery itself does not stop a launch: a harmless hook still launches bar-01."""
++    la = _hooked_tick(CS, F, 'true')
++    assert la and la[-1]['run'] == 'bar-01', la
++
++
++def t_la_revalidates_next_slot(CS, F):
++    """A NEXT-SLOT reservation that appears during the probes stops the launch."""
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    hook = 'echo "{}" > %s' % os.path.join(F.home, 'digest', 'NEXT-SLOT.json')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_HOOK_RUN='bar-01', FIX_HOOK_CMD=hook)):
++        assert CS.tick(CS.paths()) == 0
++    assert os.path.exists(os.path.join(F.home, 'digest', 'NEXT-SLOT.json')), 'hook did not run (positive control)'
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched past a new NEXT-SLOT'
++
++
++def t_r12_draw_none_waits(CS, F):
++    F.enqueue(CS)
++    expect(CS, F, 'wait', 'R12', FIX_DRAW_NONE='foo-01')
++
++
++def t_r12_probe_uses_the_queued_registration(CS, F):
++    F.enqueue(CS)
++    log = os.path.join(F.d, 'draw.log')
++    expect(CS, F, 'launch', FIX_DRAW_LOG=log)
++    assert 'foo-01 reserve= regdir=ok' in open(log).read(), open(log).read()
++
++
++def t_r12_cached_within_probe_every(CS, F):
++    F.enqueue(CS)
++    with Env(F.env(FIX_DRAW_NONE='foo-01')):
++        assert CS.tick(CS.paths()) == 0                 # probes once and records it
++    probes = [r for r in sched_rows(F) if r.get('state') == 'drawprobe']
++    assert len(probes) == 1 and probes[0]['why'].startswith('WAIT'), probes
++    # 10 min later the pools are back, but the cached probe still answers (no second drawrec run within 20 min)
++    expect(CS, F, 'wait', 'R12', SCHED_FAKE_NOW=Z(NOW + dt.timedelta(minutes=10)))
++    for b in BOTS:                                       # keep S5 fresh at +21 min
++        F.log(b, NOW + dt.timedelta(minutes=20), F.base[:7] + '+abc123')
++    expect(CS, F, 'launch', SCHED_FAKE_NOW=Z(NOW + dt.timedelta(minutes=21)))
++
++
++def t_la_launches_behind_a_draw_blocked_head(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    log = os.path.join(F.d, 'draw.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_DRAW_LOG=log)):
++        assert CS.tick(CS.paths()) == 0
++    la = [r for r in sched_rows(F) if r.get('state') == 'launching']
++    assert la and la[-1]['run'] == 'bar-01' and la[-1].get('lookahead_past') == 'foo-01', la
++    # the candidate's probe carried the head's pools as a reserve (the head's R12 eligible set)
++    assert 'bar-01 reserve=board-a regdir=ok' in open(log).read(), open(log).read()
++
++
++def t_la_waits_30_min(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=20))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched before 30 min'
++
++
++def t_la_first_drawwait_row_starts_the_clock(CS, F):
++    two_entries(CS, F)
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    rows = sched_rows(F)
++    assert [r for r in rows if r.get('state') == 'drawwait' and r.get('run') == 'foo-01'], rows
++    assert not [r for r in rows if r.get('state') == 'launching'], 'launched on the first blocked tick'
++
++
++def t_la_never_twice_in_a_row(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=300))})
++    F.state({'state': 'launching', 'run': 'zzz-01', 't0': Z(NOW - dt.timedelta(minutes=200)), 'lookahead_past': 'foo-01',
++             'at': Z(NOW - dt.timedelta(minutes=200))})
++    log = os.path.join(F.d, 'draw.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_DRAW_LOG=log)):
++        assert CS.tick(CS.paths()) == 0
++    la = [r for r in sched_rows(F) if r.get('state') == 'launching' and r.get('run') == 'bar-01']
++    assert not la, 'skipped the same head twice in a row'
++    # refused at the FIRST decision, before any candidate probe (the re-check is a second line, not the only one)
++    assert 'bar-01' not in open(log).read(), 'the candidate was probed although L3 forbids the skip'
++
++
++def t_la_not_past_an_unmet_after(CS, F):
++    two_entries(CS, F, after=['foo-01'])
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'looked past an unmet after'
++
++
++def t_la_not_past_a_held_candidate(CS, F):
++    two_entries(CS, F, hold='operator: wait')
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched a held entry'
++
++
++def t_la_not_past_a_head_waiting_on_not_before(CS, F):
++    """A head that WAITS for a non-draw reason (H1 not_before) is never looked past, even when it is also old."""
++    two_entries(CS, F, nb=Z(NOW + dt.timedelta(hours=2)))
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'looked past a head held by not_before'
++
++
++def t_la_candidate_draw_blocked_too(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01,bar-01', FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched a candidate that cannot draw'
++
++
++def t_la_failed_try_is_cached(CS, F):
++    """A failed candidate try is not repeated on the next 5-min tick (Claude r1 P2: the tick lock)."""
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    log = os.path.join(F.d, 'draw.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01,bar-01', FIX_LOOP='ok', FIX_DRAW_LOG=log)):
++        assert CS.tick(CS.paths()) == 0
++    assert 'bar-01' in open(log).read(), 'positive control: the first tick probed the candidate'
++    open(log, 'w').close()
++    with Env(F.env(FIX_DRAW_NONE='foo-01,bar-01', FIX_LOOP='ok', FIX_DRAW_LOG=log,
++                   SCHED_FAKE_NOW=Z(NOW + dt.timedelta(minutes=5)))):
++        assert CS.tick(CS.paths()) == 0
++    assert 'bar-01' not in open(log).read(), 'the candidate was probed again within %d min' % CS.PROBE_EVERY_MIN
++
++
++def t_la_head_goes_first_after(CS, F):
++    """Once the head can draw, it launches (it is still the head); the lookahead never re-orders the queue."""
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=300))})
++    F.state({'state': 'launching', 'run': 'zzz-01', 't0': Z(NOW - dt.timedelta(minutes=200)), 'lookahead_past': 'foo-01',
++             'at': Z(NOW - dt.timedelta(minutes=200))})
++    d, _st = expect(CS, F, 'launch')
++    assert d[1]['run'] == 'foo-01', d[1]['run']
++
++
++def t_la_candidate_must_pass_h3(CS, F):
++    """The candidate gets the head's FULL checks: its registration edited after queueing (H3) stops it."""
++    _e1, e2 = two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    reg2 = e2['variants'][F.base]['registration']
++    r = json.load(open(reg2)); r['notes'] = 'edited after queueing'; json.dump(r, open(reg2, 'w'))
++    log = os.path.join(F.d, 'draw.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_DRAW_LOG=log)):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched a candidate failing H3'
++    assert 'bar-01' not in open(log).read(), 'a candidate failing H3 was probed (minutes of the tick lock for nothing)'
++
++
++def t_la_episode_ends_on_a_non_draw_reason(CS, F):
++    two_entries(CS, F, nb=Z(NOW + dt.timedelta(hours=2)))
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_LOOP='ok')):
++        assert CS.tick(CS.paths()) == 0
++    rows = [r for r in sched_rows(F) if r.get('run') == 'foo-01' and r.get('state') in ('drawwait', 'drawclear')]
++    assert rows and rows[-1]['state'] == 'drawclear', rows
++
++
++def t_la_off_without_the_module(CS, F):
++    two_entries(CS, F)
++    F.state({'state': 'drawwait', 'run': 'foo-01', 'reg': head_reg(F), 'at': Z(NOW - dt.timedelta(minutes=40))})
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', SCHED_LOOKAHEAD_LIB=os.path.join(F.d, 'nowhere'))):
++        assert CS.tick(CS.paths()) == 0
++    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'lookahead ran without lookahead.py'
++
++
+ TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
+ 
+ 
+@@ -1116,6 +1501,47 @@
+     ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
+      "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
+     ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
++    # design 2 (queue-speed-1023): R12 and the lookahead wiring
++    ("    if st.get('r12'):\n        return ('wait'", "    if False:\n        return ('wait'"),
++    ("    if len(drawn) < min_k:", "    if len(drawn) < 0:"),
++    ("        return 3\n    dk = (reg or {}).get('draw_k')", "        return 2\n    dk = (reg or {}).get('draw_k')"),
++    ("            if w and (st['now'] - w).total_seconds() < PROBE_EVERY_MIN * 60:\n                return r.get('why') or ''",
++     "            if w:\n                return r.get('why') or ''"),
++    # (round-1 mutant on `env['DRAW_REGDIR'] = d` retired: the line became env.update(...), mutated below -- Codex r2)
++    # (the mutant on revalidate's `hv.get('registration_sha256') != head_reg_sha` is EQUIVALENT and retired: every
++    # replacement changes the head's registration sha256, which also restarts its draw-wait episode, so the fresh
++    # lookahead.decide refuses on L2 first -- the full run showed it surviving; the check stays as a second line)
++    ("        if draw_wait and (last != 'drawwait' or hr[-1].get('reg') != hreg):",
++     "        if draw_wait and last != 'drawwait':"),
++    ("    since = lib.draw_blocked_since(rows, head.get('run'), st['now'], reg=hreg)",
++     "    since = lib.draw_blocked_since(rows, head.get('run'), st['now'])"),
++    ("    hhb = head_blockers(h, st)\n    if hhb or entry_state(h, st) != 'ready':",
++     "    hhb = head_blockers(h, st)\n    if False:"),
++    ("        row['lookahead_past'] = lookahead_past", "        pass"),
++    ("    draw_wait = d[0] == 'wait' and head is not None and all(c in ('R10', 'R12') for c, _ in d[1])",
++     "    draw_wait = d[0] == 'wait' and head is not None and all(c in ('R10', 'R12', 'H1') for c, _ in d[1])"),
++    ("        elif not draw_wait and last == 'drawwait':", "        elif False:"),
++    ("    reserve = sorted(set(R10_ELIG.get(head['run']) or []) | set(st.get('r12_elig') or []))", "    reserve = []"),
++    ("    if hb or entry_state(e2, st2) != 'ready':", "    if False:"),
++    ("    if why:\n        return tried('candidate %s R12", "    if False:\n        return tried('candidate %s R12"),
++    ("            if w and (st['now'] - w).total_seconds() < PROBE_EVERY_MIN * 60:\n                print('%s LOOKAHEAD no (cached",
++     "            if False:\n                print('%s LOOKAHEAD no (cached"),
++    ("    if d[0] == 'wait' and any(c == 'R12' for c, _ in d[1]):", "    if False:"),
++    ("    if not ins or int(ins.group(1)) < 2 or int(ins.group(2)) < 2:", "    if not ins:"),
++    ("    dec = L.decide(hd, behind, st['now'], slot_free=not (busy or block), death_hold=bool(st.get('death_hold')),",
++     "    dec = L.decide(hd._replace(skipped_last=False), behind, st['now'], slot_free=not (busy or block), death_hold=bool(st.get('death_hold')),"),
++    # round 2 (Codex r1): refusal vs scarcity, the private probe, the fresh re-check before launch
++    ("    if rc != 0:\n        return 'drawrec.sh exited", "    if False:\n        return 'drawrec.sh exited"),
++    ("    if ref:\n        return 'drawrec REFUSED", "    if False:\n        return 'drawrec REFUSED"),
++    ("        if not SCARCITY.match(m.group(2)):", "        if False:"),
++    ("        env.update({'DRAW_REGDIR': d, 'DRAW_PROBE': '1', 'DRAW_TXT': os.path.join(d, 'drawrec.txt')})",
++     "        env.update({'DRAW_REGDIR': d})"),
++    ("    if busy or block:\n        return False, 'the slot changed", "    if False:\n        return False, 'the slot changed"),
++    ("    if dec[0] != 'lookahead' or dec[1] != cand_run:", "    if False:"),
++    ("    if hb or entry_state(e, st) != 'ready':\n        return False, 'the candidate is no longer",
++     "    if False:\n        return False, 'the candidate is no longer"),
++    ("    ok3, why3, st3, e3, v3 = revalidate(", "    ok3, why3, st3, e3, v3 = (lambda *a: (True, '', st, e2, v2))("),
++    ("    env.pop('DRAW_RESERVE', None)\n    if lookahead_past and reserve:", "    pass\n    if lookahead_past and reserve:"),
+ ]
+ 
+ 

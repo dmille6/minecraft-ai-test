@@ -1,0 +1,27 @@
+MODE: the proposed rule (every `after` binds)
+
+gridfix-01: loop in draw 10-12T03:02Z -> 10-12T09:03Z (6.0 h)
+   depth 1     -> no launch in 34 checks: L4 bamboo-01 (position 1 behind the head) is blocked: after gridfix-01 not closed; no variant for the fleet ba x34
+   first ready -> no launch in 34 checks: L4 bamboo-01 (position 1 behind the head) is blocked: after gridfix-01 not closed; no variant for the fleet ba x34
+
+townsearch-01: loop in draw 10-16T23:18Z -> 10-17T04:57Z (5.7 h)
+   depth 1     -> no launch in 31 checks: L4 plinth-02 (position 1 behind the head) is blocked: after townsearch-01 not closed x31
+   first ready -> no launch in 31 checks: L4 plinth-02 (position 1 behind the head) is blocked: after townsearch-01 not closed x31
+
+toolkit-02: loop in draw 10-17T22:58Z -> 10-18T00:07Z (1.2 h)
+   depth 1     -> no launch in 4 checks: L4 wellcare-01 (position 1 behind the head) is blocked: after toolkit-02 not closed; no variant for the fleet  x4
+   first ready -> no launch in 4 checks: L4 wellcare-01 (position 1 behind the head) is blocked: after toolkit-02 not closed; no variant for the fleet  x4
+
+townindex-01: loop in draw 10-22T16:58Z -> 10-22T18:56Z (2.0 h)
+   depth 1     -> no launch in 9 checks: L4 indexsearch-01 (position 1 behind the head) is blocked: after townindex-01 not closed; no variant for the f x9
+   first ready -> no launch in 9 checks: L4 indexsearch-01 (position 1 behind the head) is blocked: after townindex-01 not closed; no variant for the f x9
+
+indexsearch-01: scheduler WAIT R10 10-23T08:50Z -> 10-23T09:45Z (0.9 h)
+   depth 1     -> no launch in 3 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x3
+   first ready -> no launch in 3 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x3
+
+indexsearch-01: loop in draw 10-23T09:53Z -> 10-23T12:14Z (2.4 h)
+   depth 1     -> no launch in 12 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x12
+   first ready -> no launch in 12 checks: L4 chatgate-01 (position 1 behind the head) is blocked: after indexsearch-01 not closed x12
+
+idle lane hours filled (only for candidates that ran later, so a duration exists): depth 1 0.0 h, first-ready 0.0 h
