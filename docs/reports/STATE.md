@@ -101,6 +101,18 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-23 08:30Z — FLEET 6e1afb52 (poolescape-01 KEPT +360 07:55Z, promoted 08:05Z); lane BLOCKED H2 pending JIT variants; drop16 applying
+
+- **poolescape-01** KEEP +360: marooned-water spell bot-h canary 18.0 -> 0.0 v control 0.0 -> 0.5 (DiD per bot -1.21); coverage
+  0.94-1.0; G2-G4 0; 3 firings (2 out, 1 refused), yielded 0; deaths 0 v 6. Merged f52aa902 + its Paper driver 96463bd5 (registry
+  wired drivers 18 -> 19). Board-d trap (owner priority 10-22) CLOSED: SHIPPED.
+- **Lane:** scheduler blocks H2 (indexsearch-01 has no 6e1afb52 variant). A JIT agent is re-stacking indexsearch-01 first, then
+  chatgate-01, bamboo-03, junkout-01, foldwatch-01, treefarm-03 onto 6e1afb52 (registrations + entry fragments in ~/mcai-analysis;
+  the operator applies `queue replace-variant`).
+- **drop16 (learning loop M2b)** in this gap: dry run OK 08:12Z, `--apply` started ~08:14Z (80 env files -> OLLAMA_BASE_URLS .72
+  only; restart 12 s apart under its own install-hold). Then `--verify <restart ISO>` now and again at +24 h; training on .16 only
+  after the 24 h verify shows 0 fleet rows on .16.
+
 ## 10-23 02:05Z — FLEET c0fec812 (townindex-01 KEPT +360, promoted 01:17Z); poolescape-01 LIVE 01:48:44Z (3 pools); protectzone + townindex merged
 
 - **keepout-01** KEPT +360 10-22 13:13Z, promoted 13:22Z (merged 45497e34). **protectzone-01** `1f5b4b4e` KEPT +180 16:44Z (tier 2,
