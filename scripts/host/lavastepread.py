@@ -224,6 +224,11 @@ def yaw_of(b):
     return math.atan2(-b[0], -b[1])
 
 
+def ang_diff(a, b):
+    """|a - b| on the circle: JavaScript's atan2(-0, -1) is -pi where Python's atan2(0, -1) is +pi (the same heading)."""
+    return abs(math.atan2(math.sin(a - b), math.cos(a - b)))
+
+
 # ------------------------------------------------------------------------------------------------ the gates, per row
 def obs_of(a, which):
     """The observation a part of the row was decided on: 'row' (the decision), 'replan', or an aim's own."""
@@ -243,12 +248,27 @@ def gates(a):
         return v
     kase = a.get('case')
     dec = obs_of(a, 'row')
-    # the replay's faithfulness: the decision's plan, replayed on its own cells, equals the bot's recorded plan
-    if dec is not None:
-        rp = step_plan(dec.at, dec.o, kase)
-        mine = [tuple(s[:3]) for s in (a.get('plan') or [])]
-        rel = [tuple(t[i] - dec.o[i] for i in range(3)) for t, _ in rp] if rp else []
-        v['replay'] = 'agree' if mine == rel else 'disagree'
+
+    def replay(ob, k, recorded):
+        # the plan replayed on the observation's own cells must equal the plan the bot recorded, with NO never-read cell
+        # consulted: a missing read makes the replay say "unknown, no plan", which would "agree" with a null plan while
+        # proving nothing (Codex code r3 P1-3)
+        before = len(ob.missing)
+        rp = step_plan(ob.at, ob.o, k)
+        if len(ob.missing) > before:
+            return 'unverifiable'
+        mine = [tuple(x[:3]) for x in (recorded or [])]
+        rel = [tuple(t[i] - ob.o[i] for i in range(3)) for t, _ in rp] if rp else []
+        return 'agree' if mine == rel else 'disagree'
+    # THE REPLAY'S FAITHFULNESS: every ground firing must carry its decision observation, and it must reproduce the plan
+    if dec is None:
+        v['replay'] = 'unverifiable'
+    else:
+        v['replay'] = replay(dec, kase, a.get('plan'))
+    rpl = a.get('replan')
+    if rpl and rpl.get('case') in ('in', 'edge') and v['replay'] == 'agree':
+        rob = obs_of(a, 'replan')
+        v['replay'] = 'unverifiable' if rob is None else replay(rob, rpl['case'], rpl.get('plan'))
     # G1: every executed step
     steps = a.get('steps') or []
     for i, st in enumerate(steps):
@@ -261,6 +281,17 @@ def gates(a):
         frm = tuple(prev[-1]['to']) if prev else tuple(st.get('origin') or ob.o)
         dx, dz = (1 if to[0] > frm[0] else -1 if to[0] < frm[0] else 0), (1 if to[2] > frm[2] else -1 if to[2] < frm[2] else 0)
         first = st.get('i', 0) == 0
+        porg = tuple(st.get('origin') or ob.o)
+        pkase = st.get('case')
+        if abs(to[0] - frm[0]) + abs(to[2] - frm[2]) != 1:
+            v['g1'].append('step %d %s: not one cardinal step from %s to %s' % (i, st.get('plan'), frm, to))
+        else:
+            ok, eto, edy, egoal = eval_step(ob.at, frm, dx, dz, first, pkase, porg)
+            if not ok or tuple(eto) != to or edy != st.get('dy'):
+                v['g1'].append('step %d %s: the step contract refuses %s -> %s (replay ok=%s to=%s dy=%s)' % (i, st.get('plan'), frm, to, ok, eto, edy))
+            plan_len = len(a.get('plan') or []) if st.get('plan') == 'decision' else len((a.get('replan') or {}).get('plan') or [])
+            if ok and st.get('i', 0) == plan_len - 1 and not egoal:
+                v['g1'].append('step %d %s: the last step of the plan is not lava-safe (not a goal)' % (i, st.get('plan')))
         cells = [to, (to[0], to[1] + 1, to[2]), (to[0], to[1] - 1, to[2])]
         for lx, lz in lateral_of(dx):
             if not (first and (st.get('case') == 'in' or (lx == 0 and lz == 0))):
@@ -333,10 +364,15 @@ def gates(a):
             ch = aim.get('chosen')
             if ch is None or aim_key(sc[ch]) != best:
                 v['g5'].append('chosen %s key %s, best %s' % (ch, None if ch is None else aim_key(sc[ch]), best))
-            elif abs(float(aim.get('yaw', 99)) - yaw_of(BEARINGS[ch])) > YAW_TOL:
+            elif ang_diff(float(aim.get('yaw', 99)), yaw_of(BEARINGS[ch])) > YAW_TOL:
                 v['g5'].append('executed yaw %s is not bearing %d (%.2f)' % (aim.get('yaw'), ch, yaw_of(BEARINGS[ch])))
-            if [tuple(x) for x in (aim.get('scores') or [])] != sc:
-                v['g5'].append('recorded scores differ from the recomputed ones')
+            # A MIRROR DISAGREEMENT IS THE READ'S, NOT THE BOT'S (Claude code r3 P2-2): recomputed scores that differ from the
+            # recorded ones, or an aim observation with a never-read cell, mark the firing's replay -- never a G5 defect
+            if v['replay'] == 'agree':     # only an agreeing replay is downgraded; an unverifiable one stays so
+                if ob.missing:
+                    v['replay'] = 'unverifiable'
+                elif [tuple(x) for x in (aim.get('scores') or [])] != sc:
+                    v['replay'] = 'disagree'
             v['missing'] += len(ob.missing)
     if dec is not None:
         v['missing'] += len(dec.missing)
@@ -406,10 +442,12 @@ def judge(rows, *, cut, cans):
     fir = [r for r in can if r['name'] == '_lava_retreat' and (r.get('args') or {}).get('phase') == 'firing']
     res['licence_canary'] = sum(1 for r in can if r['name'] == '_lavastep_mode' and 'on=1' in (r.get('detail') or ''))
     res['firings_canary'] = len(fir)
+    # ground firings whose decision the read could replay (airborne firings decide nothing: Claude code r3 P2-3)
+    res['ground_replayed_canary'] = sum(1 for r in fir if gates(r['args'])['replay'] in ('agree', 'disagree'))
     res['rows_control'] = sum(1 for r in rows if r['arm'] == 'control' and r['per'] == 'post' and r['name'] in ('_lava_retreat', '_lavastep_mode', '_lavastep_refused'))
     g = {k: 0 for k in ('g1', 'g2', 'g3', 'g4', 'g5')}
     examples = defaultdict(list)
-    agree = disagree = missing = 0
+    agree = disagree = unver = missing = 0
     for r in fir:
         v = gates(r['args'])
         for k in g:
@@ -417,11 +455,15 @@ def judge(rows, *, cut, cans):
                 g[k] += 1
                 if len(examples[k]) < 3:
                     examples[k].append('%s %s: %s' % (r['bot'], dt.datetime.fromtimestamp(r['t'], dt.timezone.utc).strftime('%H:%M:%S'), v[k][0]))
-        agree += v['replay'] == 'agree'; disagree += v['replay'] == 'disagree'; missing += v['missing']
+        agree += v['replay'] == 'agree'; disagree += v['replay'] == 'disagree'; unver += v['replay'] == 'unverifiable'; missing += v['missing']
     res.update({'%s_%s' % (k, n): g[k] for k, n in (('g1', 'step_unsafe'), ('g2', 'aim_over_plan'), ('g3', 'edge_sprint'), ('g4', 'seal_bad'), ('g5', 'aim_not_best'))})
     res['_examples'] = dict(examples)
-    res['replay_agree'] = round(agree / (agree + disagree), 4) if (agree + disagree) else None
-    res['replay_ok'] = 1 if (agree + disagree == 0 or agree / (agree + disagree) >= REPLAY_AGREE_MIN) else 0
+    ground = agree + disagree + unver
+    res['replay_agree'] = round(agree / ground, 4) if ground else None
+    res['replay_unverifiable'] = unver
+    # no ground firing: nothing to vouch for (the exposure gate already holds the read); any ground firing: >= 99% of them
+    # must replay to the bot's own plan with every consulted cell recorded
+    res['replay_ok'] = 1 if (ground == 0 or agree / ground >= REPLAY_AGREE_MIN) else 0
     res['missing_reads'] = missing
     args = [r['args'] for r in fir]
     res['cases'] = dict(Counter(x.get('case') for x in args))
@@ -435,7 +477,8 @@ def judge(rows, *, cut, cans):
     res['deaths_canary'] = [(r['bot'], r.get('fc'), round(r['t'])) for r in can if r['name'] == '_death']
     res['episodes_canary_post'] = cnt[('post', 'canary')]
     res['instrument_control'] = 1 if any(r['name'] == '_reflex_danger_block' for r in rows) else 0
-    res['exposure_ready'] = 1 if (cnt[('post', 'canary')] >= EXPOSURE_EPISODES and len(fir) >= 1) else 0
+    # EXPOSED = >= 3 canary episodes AND >= 1 GROUND firing whose decision replayed (an airborne-only canary tested nothing)
+    res['exposure_ready'] = 1 if (cnt[('post', 'canary')] >= EXPOSURE_EPISODES and res['ground_replayed_canary'] >= 1) else 0
     return res
 
 
@@ -526,6 +569,21 @@ def selftest():
                      (lambda x: x['seal'].update(witnessed=False, update=None), 'unwitnessed then re-classified')):
         g4 = copy.deepcopy(s); mut(g4)
         assert gates(g4)['g4'], 'G4 ' + why
+    # G1: lava or an unknown cell UNDER a swept lateral cell (the step contract's support reads)
+    g1s = copy.deepcopy(m); g1s['cells']['1,-1,1'] = 'lava'
+    assert gates(g1s)['g1'], 'G1 lava under the sweep'
+    g1n = copy.deepcopy(m); g1n['cells']['1,-1,1'] = None
+    assert gates(g1n)['g1'], 'G1 unknown under the sweep'
+    # REPLAY: an observation with every cell missing never counts as agreement
+    blank = copy.deepcopy(p); blank['cells'] = {}
+    assert gates(blank)['replay'] == 'unverifiable', gates(blank)['replay']
+    # G5: due south recorded as JavaScript writes it (-pi) is the same heading as +pi
+    SOUTH = {(x, 63, z): 'lava' for x in range(-7, 8) for z in range(-7, 8) if not (x == 0 and z >= 1)}
+    south = firing(SOUTH, (0, 64, 0), 'edge')
+    assert south['plan'] is None and south['aim']['chosen'] == 4, south.get('aim')
+    south['aim']['yaw'] = -3.14                       # what JavaScript's atan2(-0, -1) records
+    assert not gates(south)['g5'], ('G5 wrap', gates(south)['g5'])
+    assert ang_diff(-3.14, math.pi) < YAW_TOL and ang_diff(-3.14, 0) > 3
     # G5: the facing bearing (east, into the pool) executed
     g5 = copy.deepcopy(p); g5['aim']['yaw'] = round(yaw_of(BEARINGS[2]), 2)
     assert gates(g5)['g5'], 'G5 yaw'
@@ -542,6 +600,10 @@ def selftest():
     rs = [R('hive-a-Alpha', 1001, '_lavastep_mode', detail='on=1'), R('hive-a-Alpha', 1100, '_lava_retreat', m), R('hive-a-Alpha', 1200, '_lava_retreat', p)]
     rs += [R('hive-a-Alpha', t, '_reflex_danger_block') for t in (1100, 1300, 1500, 1700)] + [R('board-c-Bravo', 1100, '_reflex_danger_block')]
     j = judge(rs, cut=1000, cans={'hive-a'})
+    air_only = [x for x in rs if x['name'] != '_lava_retreat'] + [R('hive-a-Alpha', 1100, '_lava_retreat', {'phase': 'firing', 'case': 'airborne'})]
+    assert judge(air_only, cut=1000, cans={'hive-a'})['exposure_ready'] == 0, 'airborne firings alone never expose'
+    sm = copy.deepcopy(p); sm['aim']['scores'][0][0] += 1
+    assert gates(sm)['replay'] == 'disagree' and not gates(sm)['g5'], 'a score mismatch is the replay\'s, not G5'
     assert j['exposure_ready'] == 1 and j['licence_canary'] == 1 and j['rows_control'] == 0 and j['g1_step_unsafe'] == 0 and j['replay_ok'] == 1, j
     jb = judge(rs + [R('hive-a-Alpha', 1250, '_lava_retreat', g3)], cut=1000, cans={'hive-a'})
     assert jb['g3_edge_sprint'] == 1, jb
@@ -642,13 +704,13 @@ if __name__ == '__main__':
           % (json.dumps(res['episodes']), json.dumps(res['lava_deaths_in_episodes']), res['lava_death_rate_did']))
     print('DEFECTS      G1 step_unsafe %d | G2 aim_over_plan %d | G3 edge_sprint %d | G4 seal_bad %d | G5 aim_not_best %d | examples %s'
           % (res['g1_step_unsafe'], res['g2_aim_over_plan'], res['g3_edge_sprint'], res['g4_seal_bad'], res['g5_aim_not_best'], json.dumps(res['_examples'])))
-    print('REPLAY       the mirrored search reproduces the bot\'s own plan on %s of firings (need >= %.2f: %s) | missing reads %d'
-          % (res['replay_agree'], REPLAY_AGREE_MIN, 'ok' if res['replay_ok'] else 'NOT MET (BLOCKS KEEP)', res['missing_reads']))
+    print('REPLAY       the mirrored search reproduces the bot\'s own plan on %s of ground firings (need >= %.2f: %s) | unverifiable (a never-read cell consulted) %d | missing reads %d'
+          % (res['replay_agree'], REPLAY_AGREE_MIN, 'ok' if res['replay_ok'] else 'NOT MET (BLOCKS KEEP)', res['replay_unverifiable'], res['missing_reads']))
     print('LIVENESS     licence %d | firings %d | cases %s | outcomes %s | ended %s | aims %s | seals %s | relaxations %d | guard refusals %d | ARMS control rows %d'
           % (res['licence_canary'], res['firings_canary'], res['cases'], res['outcomes'], res['ended'], res['aim_reasons'], res['seals'], res['relaxations'], res['guard_refused'], res['rows_control']))
     print('REPORTED     canary deaths %s' % (res['deaths_canary'] or '-'))
-    print('EXPOSURE     -> %s (canary episodes post %d, need %d; firings %d) | INSTRUMENT -> %s'
-          % ('READY' if res['exposure_ready'] else 'NOT YET', res['episodes_canary_post'], EXPOSURE_EPISODES, res['firings_canary'], 'ok' if res['instrument_control'] else 'BLIND'))
+    print('EXPOSURE     -> %s (canary episodes post %d, need %d; firings %d, ground firings replayed %d, need 1) | INSTRUMENT -> %s'
+          % ('READY' if res['exposure_ready'] else 'NOT YET', res['episodes_canary_post'], EXPOSURE_EPISODES, res['firings_canary'], res['ground_replayed_canary'], 'ok' if res['instrument_control'] else 'BLIND'))
     try:
         if ovr:
             raise RuntimeError('CANARY_DRYRUN set -- not emitting')

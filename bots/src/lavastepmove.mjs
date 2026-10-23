@@ -231,6 +231,9 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
     try { resvGen = runner.reserve?.('lavastep', T.move, 'danger_block')?.gen ?? null } catch {}
     try { if (bot.targetDigBlock) bot.stopDigging() } catch {}
     haltPath(bot)
+    // ENDED DURING ITS OWN SETUP (a synchronous unwind inside reserve/stopDigging/haltPath asked moving() while the check
+    // failed): release what was taken and stop here -- no timer, no control writes (Claude code r3 P3-4)
+    if (me.ended) { if (resvGen != null) { try { runner.releaseReservation?.(resvGen) } catch {} } return }
     const owns = () => cur === me && !me.ended && !me.check()
     const reasonNow = () => me.ended ?? (cur !== me ? 'superseded' : me.check() ?? 'done')
     const setCtl = (name, v) => {
@@ -298,7 +301,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
     }, T.reassert)
     // every movement control the move does not use is held false from the start (an unwinding skill's `back` or `left`
     // must not survive the move: Claude code r1 P3)
-    for (const c of MOVEMENT) { if (me.ctl[c] === undefined) { me.ctl[c] = false; try { bot.setControlState(c, false) } catch {} } }
+    if (owns()) for (const c of MOVEMENT) { if (me.ctl[c] === undefined) { me.ctl[c] = false; try { bot.setControlState(c, false) } catch {} } }
     const stop = () => { setCtl('forward', false); setCtl('sprint', false); setCtl('jump', false) }
     const nowCell = () => cellOf(bot.entity.position)
     const dangerHere = () => {
