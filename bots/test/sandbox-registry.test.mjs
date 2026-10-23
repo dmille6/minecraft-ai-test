@@ -164,7 +164,8 @@ t('WIRED: no driver reads the lock by hand any more; every lock-checking driver 
   // 13 from sandbox58 + homefix-e2e, homefix2-e2e and drown/hf2-ab (homefix-02's drivers) + keepout/keepout-e2e (keepout-01's)
   // + protectzone/protectzone-e2e (protectzone-01's), moved onto the shared check at merge
   // + poolescape/poolescape-e2e (poolescape-01's, written on the shared check from the start)
-  assert.equal(wired.length, 19, `expected the 19 lock-checking drivers, saw ${wired.map(f => path.basename(f))}`)
+  // + ledger/ledger-e2e (ledger-01's, cooperation tier B2, written on the shared check from the start)
+  assert.equal(wired.length, 20, `expected the 20 lock-checking drivers, saw ${wired.map(f => path.basename(f))}`)
   for (const f of wired) assert.match(code(f), /require\('\.\.\/lib\/sbxlock\.cjs'\)|from '\.\.\/lib\/sbxlock\.cjs'/, `${path.basename(f)} never imports sbx`)
 })
 t("sbxlock.sh's own name list is the registry's", () => {
