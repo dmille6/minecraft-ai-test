@@ -56,6 +56,7 @@ import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence
 import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
+import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -333,6 +334,8 @@ function connect() {
       logEvent({ kind: 'townplan_mode', status: 'success', snapshot: snapshot(bot), detail: townPlanModeDetail({ seed: sd.use ? 'ok' : `${sd.ok ? '' : 'bad:'}${sd.why}`, zones: z.known ? `${z.zones.length}` : `unknown:${z.why}` }) })
     } catch {}
     if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
+    // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
+    try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {

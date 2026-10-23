@@ -406,5 +406,7 @@ export function smeltTownDetail (f = {}) {
 export function drainDetail (f = {}) {
   const v = x => (x == null ? '-' : String(x))
   return [`stop=${v(f.stop)}`, `furnace=${v(f.furnace)}`, `lease=${v(f.lease)}`, `out=${v(f.out)}`, `in=${v(f.inp)}`,
-          `fuel=${v(f.fuel)}`, `taken=${v(f.taken)}`, `left=${v(f.left)}`, `t0=${v(f.t0)}`].join(' ')
+          `fuel=${v(f.fuel)}`, `taken=${v(f.taken)}`, `left=${v(f.left)}`, `t0=${v(f.t0)}`]
+    // ledger-01: the station record of this drain's open (its id joins the record to this row for the L1 gate)
+    .concat(f.ledger != null ? [`ledger=${v(f.ledger)}`] : []).join(' ')
 }
