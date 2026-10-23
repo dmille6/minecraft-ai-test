@@ -1,0 +1,41 @@
+import sys, re, collections, json
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents, ZeroLooksWrong
+UNTIL = '2026-10-23T14:00:00Z'
+ev = EsEvents.load('skill', since_minutes=120, until=UNTIL)
+lat = ev.latest(require='bot.pos.x', fields=['bot.inventory', 'exp.pool', 'bot.name'])
+items = lat.items() if hasattr(lat, 'items') else enumerate(lat)
+G = {'cobble': r'^(cobblestone|cobbled_deepslate)$', 'sand': r'^(sand|red_sand)$', 'glass': r'glass', 'logs': r'_log$',
+     'planks': r'_planks$', 'stone': r'^stone$', 'stone_bricks': r'stone_bricks', 'copper_ingot': r'^copper_ingot$',
+     'coal': r'^(coal|charcoal)$', 'iron_ingot': r'^iron_ingot$', 'torch': r'^torch$', 'dirt': r'^dirt$', 'andesite|diorite|granite': r'^(andesite|diorite|granite)$'}
+tot = collections.Counter(); holders = collections.Counter(); nb = 0
+sample = None
+for k, row in items:
+    inv = None
+    if isinstance(row, dict):
+        inv = (row.get('bot') or {}).get('inventory')
+    if inv is None: continue
+    nb += 1
+    if sample is None: sample = str(inv)[:300]
+    seen = set()
+    if isinstance(inv, dict):
+        it = inv.items()
+    else:
+        it = [((x.get('name') or x.get('id')), x.get('count', 1)) for x in inv if isinstance(x, dict)]
+    for name, cnt in it:
+        name = str(name).replace('minecraft:', '')
+        for g, rx in G.items():
+            if re.search(rx, name):
+                tot[g] += int(cnt or 0); seen.add(g)
+    for g in seen: holders[g] += 1
+print('bots with a newest inventory', nb)
+print('sample', sample)
+for g in G: print(g, tot[g], 'held by', holders[g])
+# sand gather yield in 24 h
+ev24 = EsEvents.load('skill', since_minutes=24 * 60, until=UNTIL)
+got = 0; n = 0
+for r in ev24.rows('gather', fields=['skill.status', 'skill.detail'], max_rows=60000, status='success'):
+    d = (r.get('skill') or {}).get('detail') or ''
+    m = re.search(r'collected (\d+)(?:/\d+)? sand', d)
+    if m: got += int(m.group(1)); n += 1
+print('sand gathered in 24h (success rows naming sand):', got, 'in', n, 'rows')

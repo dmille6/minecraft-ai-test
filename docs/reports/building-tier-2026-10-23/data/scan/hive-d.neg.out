@@ -1,0 +1,1 @@
+{"world": "hive-d", "chunks_read": 182, "uninhabited_chunks": 120, "palette_cells_in_pieces": 221, "false_positive_cells": 53, "fp_kinds": {"cobblestone": 53}, "fp_cells_buried": 53, "fp_cells_surface": 0, "fp_kinds_surface": {}, "worldgen_pieces": 1893, "worldgen_starts_unreadable": 0}

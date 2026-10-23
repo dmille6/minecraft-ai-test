@@ -1,0 +1,548 @@
+#!/usr/bin/env python3
+"""structcount.py -- the STRUCTURE COUNT prototype (building tier design, 2026-10-23). READ-ONLY.
+
+    structcount.py scan   <world-name> <region-dir> <hx,hy,hz> [--r 96] [--stamp] [--zones FILE] [--plinth FILE ...] [--json OUT]
+    structcount.py village <world-name> <region-dir> <x0,z0,x1,z1> [--json OUT]
+    structcount.py negctl <world-name> <region-dir> <hx,hy,hz> [--r 96] [--n 120] [--json OUT]
+    structcount.py delta  <old.json> <new.json>
+
+It reads COPIES of Anvil region files (cp the live files first; nothing here can write a world) and answers, from the
+WORLD rather than from any bot row:
+  * BUILT cells: blocks of the placed-only palette (BUILT below) that are NOT inside a world-generated structure's piece
+    bounding box (chunk NBT structures.starts.*.Children[].BB, found through each chunk's structures.References) and not
+    in the operator's town stamp (place-town.py town_plan()). In these worlds nobody but the bots places blocks (no
+    players, mobGriefing false, peaceful: no endermen), so a BUILT cell is a block a bot placed that persists.
+  * STRUCTURES: 26-connected components of BUILT cells. A component of >= MIN_STRUCT cells is a structure; smaller ones
+    are "litter" (scaffold pillars, a lone table).
+  * ROOMS: >= 4 standing cells (floor solid, 2 passable cells above) under a roof of building material (within 5 cells),
+    inside walls (a horizontal ray meets a wall within 8 in >= 3 of 4 directions), not buried, whose foot+head ring is
+    >= 70% wall and >= 60% building material, with >= 1 doorway (a 1x2 passable gap in the ring), touching the component.
+  * BUILDINGS (OWNER B5, 10-23): a structure with a room that is LIT (a light source in the room or on its ring). Anything
+    less is a structure; both are counted.
+Pure python (zlib + struct). Runs on 10.0.0.30 under nice. Prints its denominators: chunks read, chunks unreadable,
+cells by class, and the masks' sizes.
+"""
+import json, os, re, struct, sys, zlib, collections
+
+MIN_STRUCT = 12
+ROOF_REACH = 5
+
+# ------------------------------------------------------------------ NBT / Anvil (same reader as townmap.py / scripts/lib/anvil.py)
+def read_nbt(b):
+    i = 0
+    def payload(t):
+        nonlocal i
+        if t == 1: v = struct.unpack_from('>b', b, i)[0]; i += 1; return v
+        if t == 2: v = struct.unpack_from('>h', b, i)[0]; i += 2; return v
+        if t == 3: v = struct.unpack_from('>i', b, i)[0]; i += 4; return v
+        if t == 4: v = struct.unpack_from('>q', b, i)[0]; i += 8; return v
+        if t == 5: v = struct.unpack_from('>f', b, i)[0]; i += 4; return v
+        if t == 6: v = struct.unpack_from('>d', b, i)[0]; i += 8; return v
+        if t == 7: n = struct.unpack_from('>i', b, i)[0]; i += 4; v = b[i:i + n]; i += n; return v
+        if t == 8: n = struct.unpack_from('>H', b, i)[0]; i += 2; v = b[i:i + n].decode('utf-8', 'replace'); i += n; return v
+        if t == 9:
+            et = b[i]; i += 1; n = struct.unpack_from('>i', b, i)[0]; i += 4
+            return [payload(et) for _ in range(n)]
+        if t == 10:
+            d = {}
+            while True:
+                tt = b[i]; i += 1
+                if tt == 0: return d
+                n = struct.unpack_from('>H', b, i)[0]; i += 2; k = b[i:i + n].decode('utf-8', 'replace'); i += n
+                d[k] = payload(tt)
+        if t == 11: n = struct.unpack_from('>i', b, i)[0]; i += 4; v = struct.unpack_from('>%di' % n, b, i); i += 4 * n; return v
+        if t == 12: n = struct.unpack_from('>i', b, i)[0]; i += 4; v = struct.unpack_from('>%dq' % n, b, i); i += 8 * n; return v
+        raise ValueError('tag %d' % t)
+    t = b[i]; i += 1
+    n = struct.unpack_from('>H', b, i)[0]; i += 2 + n
+    return payload(t)
+
+_regions = {}
+def chunk_nbt(rdir, cx, cz):
+    p = os.path.join(rdir, 'r.%d.%d.mca' % (cx >> 5, cz >> 5))
+    if p not in _regions:
+        _regions[p] = open(p, 'rb').read() if os.path.exists(p) else b''
+    data = _regions[p]
+    if not data: return None, 'missing_region'
+    idx = 4 * ((cx & 31) + (cz & 31) * 32)
+    off = int.from_bytes(data[idx:idx + 3], 'big') * 4096
+    if off == 0: return None, 'absent'
+    ln = int.from_bytes(data[off:off + 4], 'big'); comp = data[off + 4]; raw = data[off + 5:off + 4 + ln]
+    try:
+        if comp == 2: raw = zlib.decompress(raw)
+        elif comp == 1: raw = zlib.decompress(raw, 16 + zlib.MAX_WBITS)
+        elif comp != 3: return None, 'external'
+        return read_nbt(raw), 'ok'
+    except Exception:
+        return None, 'error'
+
+def section_values(bs):
+    pal = bs.get('palette') or []
+    dat = bs.get('data')
+    if dat is None or len(pal) <= 1: return None
+    bits = max(4, (len(pal) - 1).bit_length()); per = 64 // bits; mask = (1 << bits) - 1
+    vals = []
+    for lo in dat:
+        lo &= (1 << 64) - 1
+        for k in range(per):
+            vals.append((lo >> (k * bits)) & mask)
+            if len(vals) >= 4096: return vals
+    return vals
+
+# ------------------------------------------------------------------ the palettes
+# BUILT: blocks world generation does not place OUTSIDE a generated structure's pieces, and that the bots can place.
+# Deliberately NOT here: logs (trees), leaves, stone/andesite/diorite/granite/tuff/deepslate, dirt, sand, gravel,
+# mossy cobblestone (forest rocks), terracotta (badlands), dirt_path (villages only, kept as its own PATH class),
+# crops and saplings (planting is not building), snow, ice.
+BUILT = re.compile(r'^minecraft:('
+    r'cobblestone|cobblestone_(slab|stairs|wall)|cobbled_deepslate(_slab|_stairs|_wall)?|'
+    r'stone_bricks|stone_brick_(slab|stairs|wall)|cracked_stone_bricks|chiseled_stone_bricks|'
+    r'smooth_stone|smooth_stone_slab|stone_slab|stone_stairs|bricks|brick_(slab|stairs|wall)|'
+    r'polished_(andesite|diorite|granite|deepslate|tuff)(_slab|_stairs|_wall)?|deepslate_(bricks|tiles)|'
+    r'[a-z_]+_planks|[a-z_]+_wood_slab|(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo|crimson|warped)_(slab|stairs|fence|fence_gate|door|trapdoor|sign|wall_sign|hanging_sign|wall_hanging_sign|pressure_plate|button)|'
+    r'bamboo_mosaic(_slab|_stairs)?|'
+    r'glass|[a-z_]+_stained_glass|glass_pane|[a-z_]+_glass_pane|tinted_glass|'
+    r'(waxed_)?(exposed_|weathered_|oxidized_)?(copper_block|cut_copper|cut_copper_slab|cut_copper_stairs|copper_grate|copper_door|copper_trapdoor|copper_bulb|chiseled_copper)|'
+    r'iron_block|gold_block|diamond_block|lapis_block|emerald_block|coal_block|redstone_block|iron_bars|iron_door|iron_trapdoor|chain|'
+    r'lantern|soul_lantern|torch|wall_torch|soul_torch|soul_wall_torch|redstone_torch|redstone_wall_torch|glowstone|sea_lantern|'
+    r'chest|trapped_chest|barrel|crafting_table|furnace|blast_furnace|smoker|stonecutter|composter|lectern|bookshelf|ladder|scaffolding|'
+    r'[a-z_]+_bed|[a-z_]+_wool|(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)_carpet|[a-z_]+_concrete|[a-z_]+_glazed_terracotta|hay_block|lightning_rod|anvil|cauldron|'
+    r'smithing_table|cartography_table|fletching_table|loom|grindstone|bell|campfire|item_frame'
+    r')$')
+PATH = re.compile(r'^minecraft:dirt_path$')
+SPAWNER = re.compile(r'^minecraft:spawner$')     # a dungeon (a FEATURE: no structure BB) -- its cobble and chests are masked
+DUNGEON_R = 5
+LIGHT = re.compile(r'^minecraft:(torch|wall_torch|soul_torch|soul_wall_torch|lantern|soul_lantern|glowstone|sea_lantern|'
+                   r'campfire|soul_campfire|shroomlight|jack_o_lantern|redstone_lamp|(waxed_)?(exposed_|weathered_|oxidized_)?copper_bulb|'
+                   r'ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod|[a-z_]*candle|redstone_torch|redstone_wall_torch)$')
+AIR = {'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:light', 'minecraft:structure_void'}
+# passable for a body: what a room's standing cells and a doorway may hold
+PASSABLE = re.compile(r'^minecraft:(air|cave_air|void_air|light|short_grass|tall_grass|grass|fern|large_fern|dead_bush|vine|glow_lichen|'
+                      r'[a-z_]+_carpet|torch|wall_torch|soul_torch|soul_wall_torch|redstone_torch|redstone_wall_torch|'
+                      r'[a-z_]+_sign|[a-z_]+_wall_sign|[a-z_]+_hanging_sign|[a-z_]+_wall_hanging_sign|[a-z_]+_door|ladder|'
+                      r'[a-z_]+_pressure_plate|[a-z_]+_button|lever|rail|powered_rail|detector_rail|activator_rail|'
+                      r'[a-z_]+_sapling|dandelion|poppy|blue_orchid|allium|azure_bluet|[a-z_]+_tulip|oxeye_daisy|cornflower|'
+                      r'lily_of_the_valley|sunflower|lilac|rose_bush|peony|brown_mushroom|red_mushroom|snow|item_frame|'
+                      r'pink_petals|leaf_litter|wildflowers|bush|firefly_bush|short_dry_grass|tall_dry_grass|cobweb|'
+                      r'wheat|carrots|potatoes|beetroots|sweet_berry_bush|flower_pot|potted_[a-z_]+|lantern|soul_lantern|chain)$')
+NOT_WALL = re.compile(r'(leaves|water|lava|bubble_column|seagrass|kelp)')
+LOGLIKE = re.compile(r'^minecraft:(stripped_)?[a-z_]+_(log|wood|stem|hyphae)$')
+def passable(n): return n is not None and bool(PASSABLE.match(n))
+def wallish(n): return n is not None and not passable(n) and not NOT_WALL.search(n)
+def material(n): return n is not None and (bool(BUILT.match(n)) or bool(LOGLIKE.match(n)))
+def natural_solid(n): return wallish(n) and not material(n)
+
+# ------------------------------------------------------------------ world access
+class World:
+    def __init__(self, rdir):
+        self.rdir = rdir; self.secs = {}; self.stats = collections.Counter(); self.inhabited = {}; self.refs = {}
+        self.hm = {}; self.ntop = {}
+    def natural_top(self, x, z):
+        """The highest NATURAL solid block of the column (terrain, not a built block, a log or leaves). A cell below it is
+        buried: underground fill, a tunnel lining, a mine stair -- never a building."""
+        key = (x, z)
+        if key in self.ntop: return self.ntop[key]
+        self.chunk(x >> 4, z >> 4)
+        hm = self.hm.get((x >> 4, z >> 4))
+        y = (hm[(z & 15) * 16 + (x & 15)] - 64 - 1) if hm else 200
+        while y > -64 and not natural_solid(self.block(x, y, z)): y -= 1
+        self.ntop[key] = y
+        return y
+    def chunk(self, cx, cz):
+        key = (cx, cz)
+        if key in self.secs: return self.secs[key]
+        ch, st = chunk_nbt(self.rdir, cx, cz)
+        self.stats['chunk_' + st] += 1
+        if ch is None: self.secs[key] = None; return None
+        d = {}
+        for s in ch.get('sections', []):
+            bs = s.get('block_states') or {}
+            pal = [p.get('Name', '?') for p in (bs.get('palette') or [])]
+            if pal: d[s['Y']] = [pal, bs, None]
+        self.secs[key] = d
+        self.inhabited[key] = ch.get('InhabitedTime', 0)
+        hm = (ch.get('Heightmaps') or {}).get('MOTION_BLOCKING_NO_LEAVES')
+        if hm:
+            vals = []
+            for lo in hm:
+                lo &= (1 << 64) - 1
+                for k in range(7):
+                    vals.append((lo >> (k * 9)) & 511)
+            self.hm[key] = vals[:256]
+        refs = ((ch.get('structures') or {}).get('References') or {})
+        self.refs[key] = {k: list(v) for k, v in refs.items()}
+        return d
+    def block(self, x, y, z):
+        d = self.chunk(x >> 4, z >> 4)
+        if d is None: return None
+        s = d.get(y >> 4)
+        if s is None: return 'minecraft:air'
+        pal, bs, vals = s
+        if len(pal) == 1: return pal[0]
+        if vals is None: vals = s[2] = section_values(bs)
+        if vals is None: return pal[0]
+        v = vals[(y & 15) * 256 + (z & 15) * 16 + (x & 15)]
+        return pal[v] if v < len(pal) else None
+    def cells_matching(self, cx, cz, rx, ylo=-64, yhi=320):
+        """(x, y, z, name) for every cell in chunk (cx,cz) whose name matches rx (palette-skipped sections are free)."""
+        d = self.chunk(cx, cz)
+        if d is None: return
+        for Y, s in d.items():
+            pal, bs, vals = s
+            hit = {i for i, n in enumerate(pal) if rx.match(n)}
+            if not hit or Y * 16 + 15 < ylo or Y * 16 > yhi: continue
+            if len(pal) == 1:
+                for ly in range(16):
+                    for lz in range(16):
+                        for lx in range(16): yield cx * 16 + lx, Y * 16 + ly, cz * 16 + lz, pal[0]
+                continue
+            if vals is None: vals = s[2] = section_values(bs)
+            if vals is None: continue
+            for k, v in enumerate(vals):
+                if v in hit:
+                    yield cx * 16 + (k & 15), Y * 16 + (k >> 8), cz * 16 + ((k >> 4) & 15), pal[v]
+
+def structure_pieces(w, chunks):
+    """Every generated structure piece BB referenced by the given chunks: [(start_id, piece_id, (x0,y0,z0,x1,y1,z1))]."""
+    starts = set()
+    for key in chunks:
+        for sid, longs in (w.refs.get(key) or {}).items():
+            for L in longs:
+                L &= (1 << 64) - 1
+                sx = L & 0xffffffff; sz = (L >> 32) & 0xffffffff
+                if sx >= 1 << 31: sx -= 1 << 32
+                if sz >= 1 << 31: sz -= 1 << 32
+                starts.add((sx, sz))
+    out = []
+    for sx, sz in sorted(starts):
+        ch, st = chunk_nbt(w.rdir, sx, sz)
+        if ch is None: out.append(('?unreadable', '?', None)); continue
+        for sid, s in ((ch.get('structures') or {}).get('starts') or {}).items():
+            if s.get('id') == 'INVALID': continue
+            for c in s.get('Children') or []:
+                bb = c.get('BB')
+                pe = c.get('pool_element') or {}
+                loc = pe.get('location') if isinstance(pe, dict) else None
+                if loc is None and isinstance(pe, dict):
+                    el = pe.get('elements')
+                    if isinstance(el, list) and el and isinstance(el[0], dict): loc = el[0].get('location')
+                out.append((sid, loc or c.get('id'), tuple(bb) if bb else None))
+    return out
+
+PIECE_PAD_H, PIECE_PAD_V = 2, 8   # terrain_matching jigsaw pieces (village streets) put blocks at the surface, outside their nominal BB y
+def padded(bb):
+    return (bb[0] - PIECE_PAD_H, bb[1] - PIECE_PAD_V, bb[2] - PIECE_PAD_H, bb[3] + PIECE_PAD_H, bb[4] + PIECE_PAD_V, bb[5] + PIECE_PAD_H)
+
+def in_box(p, bb):
+    x, y, z = p
+    return bb[0] <= x <= bb[3] and bb[1] <= y <= bb[4] and bb[2] <= z <= bb[5]
+
+def stamp_cells(home):
+    """place-town.py town_plan(x, y, z) with y = home.y - 1 (board = x+3, y, z): the operator's stamp, cell by cell."""
+    hx, hy, hz = home; x, y, z = hx, hy - 1, hz
+    c = {}
+    for dx in range(-6, 7):
+        for dz in range(-6, 7): c[(x + dx, y - 1, z + dz)] = 'stone_bricks'
+    for p in ((x, y, z), (x + 1, y, z), (x - 1, y, z)): c[p] = 'chest'
+    for i in range(5):
+        c[(x - 4 + i * 2, y, z + 4)] = 'red_bed'; c[(x - 4 + i * 2, y, z + 3)] = 'red_bed'
+    for d in range(-6, 7, 2):
+        for cx, cz in ((x + d, z - 6), (x + d, z + 6), (x - 6, z + d), (x + 6, z + d)): c[(cx, y, cz)] = 'torch'
+    c[(x + 3, y, z)] = 'lectern'
+    return c
+
+# ------------------------------------------------------------------ grouping and the building test
+N26 = [(dx, dy, dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1) if (dx, dy, dz) != (0, 0, 0)]
+H4 = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+
+def components(cells):
+    seen = set(); comps = []
+    for p in cells:
+        if p in seen: continue
+        stack = [p]; seen.add(p); comp = []
+        while stack:
+            q = stack.pop(); comp.append(q)
+            for dx, dy, dz in N26:
+                r = (q[0] + dx, q[1] + dy, q[2] + dz)
+                if r in cells and r not in seen: seen.add(r); stack.append(r)
+        comps.append(comp)
+    return comps
+
+def rooms_of(w, comp, built):
+    """The building test on one component. Returns a list of room dicts (empty: not a building)."""
+    xs = [p[0] for p in comp]; ys = [p[1] for p in comp]; zs = [p[2] for p in comp]
+    # the box is the component's, grown by 2: log walls and log roofs are building MATERIAL but never seed a component
+    x0, x1, y0, y1, z0, z1 = min(xs) - 2, max(xs) + 2, min(ys) - 1, max(ys) + 2, min(zs) - 2, max(zs) + 2
+    compset = set(comp)
+    roofed = {}
+    for x in range(x0, x1 + 1):
+        for z in range(z0, z1 + 1):
+            for y in range(y0, y1):
+                n = w.block(x, y, z)
+                if not passable(n): continue
+                for k in range(1, ROOF_REACH + 1):
+                    m = w.block(x, y + k, z)
+                    if material(m): roofed[(x, y, z)] = (x, y + k, z); break
+                    if not passable(m): break
+    # INSIDE, not under the eaves: a horizontal ray hits a wall within 8 cells in at least 3 of the 4 directions
+    def rays(q):
+        hits = 0
+        for dx, dz in H4:
+            for k in range(1, 9):
+                n = w.block(q[0] + dx * k, q[1], q[2] + dz * k)
+                if passable(n): continue
+                hits += wallish(n); break
+        return hits
+    roofed = {q: r for q, r in roofed.items() if rays(q) >= 3}
+    if not roofed: return []
+    seen = set(); rooms = []
+    for p in roofed:
+        if p in seen: continue
+        stack = [p]; seen.add(p); room = []
+        while stack:
+            q = stack.pop(); room.append(q)
+            for dx, dy, dz in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)):
+                r = (q[0] + dx, q[1] + dy, q[2] + dz)
+                if r in roofed and r not in seen: seen.add(r); stack.append(r)
+        rs = set(room)
+        floor = [q for q in room if (q[0], q[1] + 1, q[2]) in rs and wallish(w.block(q[0], q[1] - 1, q[2]))]
+        if len(floor) < 4: continue
+        # the component must take part: some roof cell of the room, or some ring cell, is one of its BUILT cells
+        touches = any(roofed[q] in compset for q in room)
+        buried = sum(1 for (x, y, z) in floor if w.natural_top(x, z) > y)
+        if buried > 0.25 * len(floor): continue
+        wall = gap = 0; doors = set(); lit = False; mat = 0
+        for (x, y, z) in floor:
+            for dy in (0, 1):
+                for dx, dz in H4:
+                    q = (x + dx, y + dy, z + dz)
+                    if q in rs: continue
+                    n = w.block(*q)
+                    if wallish(n):
+                        wall += 1
+                        if material(n): mat += 1
+                        if q in compset: touches = True
+                    else:
+                        gap += 1
+                        if dy == 0 and passable(n) and passable(w.block(q[0], q[1] + 1, q[2])) and wallish(w.block(q[0], q[1] - 1, q[2])):
+                            doors.add(q)
+            for dy in (-1, 0, 1, 2):
+                for dx in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        if LIGHT.match(w.block(x + dx, y + dy, z + dz) or ''): lit = True
+        encl = wall / max(1, wall + gap)
+        matf = mat / max(1, wall)
+        roofs = {roofed[q] for q in room}
+        roof_built = sum(1 for c in roofs if BUILT.match(w.block(*c) or '')) / max(1, len(roofs))
+        if encl >= 0.70 and doors and matf >= 0.60 and touches:
+            fx = sum(q[0] for q in floor) / len(floor); fz = sum(q[2] for q in floor) / len(floor)
+            rooms.append({'floor': len(floor), 'enclosure': round(encl, 2), 'wall_material': round(matf, 2), 'roof_built': round(roof_built, 2), 'doors': len(doors), 'lit': lit,
+                          'centre': [round(fx, 1), floor[0][1], round(fz, 1)]})
+    return rooms
+
+def describe(w, comps, built, home, names):
+    out = []
+    for comp in comps:
+        if len(comp) < MIN_STRUCT: continue
+        kinds = collections.Counter(names[p] for p in comp)
+        xs = [p[0] for p in comp]; zs = [p[2] for p in comp]; ys = [p[1] for p in comp]
+        d = max(abs((min(xs) + max(xs)) / 2 - home[0]), abs((min(zs) + max(zs)) / 2 - home[2]))
+        bur = sum(1 for p in comp if w.natural_top(p[0], p[2]) > p[1]) / len(comp)
+        rooms = rooms_of(w, comp, built) if bur <= 0.25 else []
+        out.append({'n': len(comp), 'buried': round(bur, 2), 'surface': bur <= 0.25, 'bbox': [min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)], 'cheb': round(d),
+                    'kinds': dict(kinds.most_common(6)), 'room': bool(rooms), 'building': any(r['lit'] for r in rooms),
+                    'rooms': rooms})
+    return out
+
+# ------------------------------------------------------------------ commands
+def parse_home(s): return tuple(int(v) for v in s.split(','))
+
+def scan(world, rdir, home, r, stamp, zones, plinths):
+    w = World(rdir)
+    hx, hy, hz = home
+    chunks = [(cx, cz) for cx in range((hx - r) >> 4, ((hx + r) >> 4) + 1) for cz in range((hz - r) >> 4, ((hz + r) >> 4) + 1)]
+    raw = {}
+    pathcells = []; spawners = []
+    for cx, cz in chunks:
+        for x, y, z, n in w.cells_matching(cx, cz, BUILT):
+            if abs(x - hx) <= r and abs(z - hz) <= r: raw[(x, y, z)] = n
+        for x, y, z, n in w.cells_matching(cx, cz, PATH, hy - 16, hy + 16):
+            if abs(x - hx) <= r and abs(z - hz) <= r: pathcells.append((x, y, z))
+        for x, y, z, n in w.cells_matching(cx, cz, SPAWNER):
+            spawners.append((x, y, z))
+    pieces = structure_pieces(w, chunks)
+    bbs = [padded(bb) for _, _, bb in pieces if bb]
+    bbs += [(x - DUNGEON_R, y - DUNGEON_R, z - DUNGEON_R, x + DUNGEON_R, y + DUNGEON_R, z + DUNGEON_R) for x, y, z in spawners]
+    paths = sum(1 for p in pathcells if not any(in_box(p, bb) for bb in bbs))
+    st = stamp_cells(home) if stamp else {}
+    zl = []
+    if zones and os.path.exists(zones):
+        zl = [z['box'] for z in json.load(open(zones)).get('zones', []) if z.get('kind') != 'fixture']
+    masked = collections.Counter(); built = {}
+    for p, n in raw.items():
+        if p in st: masked['stamp'] += 1; continue
+        if any(in_box(p, bb) for bb in bbs): masked['worldgen_piece'] += 1; continue
+        if any(in_box(p, b) for b in zl): masked['protected_zone'] += 1; continue
+        built[p] = n
+    stamp_present = sum(1 for p, k in st.items() if (raw.get(p) or '').endswith(k))
+    comps = components(built)
+    structs = describe(w, comps, built, home, built)
+    litter = sum(len(c) for c in comps if len(c) < MIN_STRUCT)
+    # positive control: plinth wells (the bots' own record)
+    pctl = []
+    for pf in plinths or []:
+        rec = json.load(open(pf)); plan = rec.get('plan') or {}
+        cells = [tuple(s['c']) for s in plan.get('steps', []) if s.get('op') == 'place']
+        found = [c for c in cells if c in built]
+        comp_of = {}
+        for i, comp in enumerate(comps):
+            for p in comp: comp_of[p] = i
+        ids = collections.Counter(comp_of.get(c) for c in found)
+        main = ids.most_common(1)[0] if ids else (None, 0)
+        sz = len(comps[main[0]]) if main[0] is not None else 0
+        isb = next((s['building'] for s in structs if main[0] is not None and s['n'] == sz and tuple(comps[main[0]][0]) and
+                    in_box(comps[main[0]][0], s['bbox'])), None)
+        kinds = collections.Counter((w.block(*c) or '?')[10:] for c in cells)
+        pctl.append({'record': os.path.basename(pf), 'state': rec.get('state'), 'planned_place_cells': len(cells),
+                     'found_built': len(found), 'world_kinds_at_cells': dict(kinds.most_common(4)),
+                     'in_one_component': main[1], 'component_size': sz, 'component_is_building': isb})
+    band = collections.Counter()
+    for s in structs:
+        b = 'core<=16' if s['cheb'] <= 16 else ('town<=44' if s['cheb'] <= 44 else 'out<=%d' % r)
+        band[(b, 'building' if s['building'] else ('surface' if s['surface'] else 'buried'))] += 1
+    res = {'world': world, 'home': list(home), 'r': r, 'chunks': dict(w.stats), 'raw_palette_cells': len(raw),
+           'masked': dict(masked), 'stamp_cells': len(st), 'stamp_present': stamp_present, 'worldgen_pieces': len(pieces),
+           'worldgen_starts_unreadable': sum(1 for p in pieces if p[0] == '?unreadable'), 'dungeons_masked': len(spawners),
+           'built_cells': len(built), 'built_kinds': dict(collections.Counter(built.values()).most_common(15)),
+           'built_by_band': dict(collections.Counter(('core' if max(abs(p[0]-hx), abs(p[2]-hz)) <= 16 else
+                                                     'town' if max(abs(p[0]-hx), abs(p[2]-hz)) <= 44 else 'out')
+                                                    for p in built)),
+           'components': len(comps), 'structures': len(structs), 'litter_cells': litter,
+           'surface_structures': sum(1 for s in structs if s['surface']),
+           'surface_structure_cells': sum(s['n'] for s in structs if s['surface']),
+           'buried_structure_cells': sum(s['n'] for s in structs if not s['surface']),
+           'buildings': sum(1 for s in structs if s['building']),
+           'unlit_rooms': sum(1 for s in structs if s['room'] and not s['building']),
+           'by_band': {'%s/%s' % k: v for k, v in sorted(band.items())}, 'dirt_path_cells_near_home_y': paths,
+           'plinth_control': pctl,
+           'top_structures': sorted(structs, key=lambda s: -s['n'])[:6],
+           'top_surface': sorted([s for s in structs if s['surface']], key=lambda s: -s['n'])[:10],
+           'cells': sorted([list(p) + [n[10:]] for p, n in built.items()])}
+    return res
+
+def village(world, rdir, box):
+    """POSITIVE CONTROL for the building test: run it on a generated village's own blocks (worldgen palette INSIDE the
+    village pieces) and score it against the piece list (a piece whose pool location names houses/ is a house)."""
+    x0, z0, x1, z1 = box
+    w = World(rdir)
+    chunks = [(cx, cz) for cx in range(x0 >> 4, (x1 >> 4) + 1) for cz in range(z0 >> 4, (z1 >> 4) + 1)]
+    for c in chunks: w.chunk(*c)
+    pieces = [p for p in structure_pieces(w, chunks) if p[2] and 'village' in (p[0] or '')]
+    cells = {}
+    for cx, cz in chunks:
+        for x, y, z, n in w.cells_matching(cx, cz, BUILT):
+            if any(in_box((x, y, z), bb) for _, _, bb in pieces): cells[(x, y, z)] = n
+    comps = components(cells)
+    found = []
+    for comp in comps:
+        if len(comp) < MIN_STRUCT: continue
+        for room in rooms_of(w, comp, cells):
+            found.append(room)
+    houses = [(loc, bb) for _, loc, bb in pieces if loc and '/houses/' in loc]
+    nonhouse = [(loc, bb) for _, loc, bb in pieces if not (loc and '/houses/' in loc)]
+    def piece_of(room, plist):
+        cx, cy, cz = room['centre']
+        return [(loc, bb) for loc, bb in plist if bb[0] <= cx <= bb[3] and bb[2] <= cz <= bb[5] and bb[1] - 1 <= cy <= bb[4]]
+    hit_houses = set(); fp = []; lit_houses = set()
+    for room in found:
+        h = piece_of(room, houses)
+        if h:
+            hit_houses.update(h)
+            if room['lit']: lit_houses.update(h)
+        else: fp.append({'centre': room['centre'], 'in': [l for l, _ in piece_of(room, nonhouse)[:2]]})
+    hl = collections.Counter(loc.split('/')[-1] for loc, _ in houses)
+    missed = sorted(loc for loc, bb in houses if (loc, bb) not in hit_houses)
+    lit = sum(1 for r in found if r['lit'])
+    return {'world': world, 'box': box, 'chunks': dict(w.stats), 'village_pieces': len(pieces), 'house_pieces': len(houses),
+            'house_kinds': dict(hl), 'palette_cells_in_pieces': len(cells), 'rooms_found': len(found), 'rooms_lit': lit,
+            'nonhouse_pieces': len(nonhouse), 'nonhouse_kinds': dict(collections.Counter((l or '?').split('/')[-2] if l and '/' in l else str(l) for l, _ in nonhouse).most_common(8)),
+            'houses_with_a_room': len(hit_houses), 'houses_with_a_lit_room (B5 buildings)': len(lit_houses),
+            'houses_missed': [m.split('/')[-1] for m in missed],
+            'rooms_outside_any_house': fp}
+
+def negctl(world, rdir, home, r, n):
+    """NEGATIVE CONTROL for the BUILT filter: chunks no player ever ticked (InhabitedTime == 0) in the copied regions,
+    outside the scan box. Every BUILT cell found there outside a worldgen piece is a false positive of the palette."""
+    w = World(rdir)
+    hx, hy, hz = home
+    rx0, rz0 = (hx - r) >> 9, (hz - r) >> 9
+    cand = []
+    for f in sorted(os.listdir(rdir)):
+        m = re.match(r'r\.(-?\d+)\.(-?\d+)\.mca$', f)
+        if not m: continue
+        RX, RZ = int(m.group(1)), int(m.group(2))
+        for lx in range(32):
+            for lz in range(32):
+                cx, cz = RX * 32 + lx, RZ * 32 + lz
+                if abs(cx * 16 + 8 - hx) <= r + 16 and abs(cz * 16 + 8 - hz) <= r + 16: continue
+                cand.append((cx, cz))
+    cand.sort(key=lambda c: (hash((c[0] * 73856093) ^ (c[1] * 19349663)) & 0xffff, c))
+    zero, used = [], 0
+    for c in cand:
+        if len(zero) >= n: break
+        d = w.chunk(*c)
+        if d is None: continue
+        used += 1
+        if w.inhabited.get(c, 1) == 0: zero.append(c)
+    pieces = structure_pieces(w, zero)
+    bbs = [padded(bb) for _, _, bb in pieces if bb]
+    for c in zero:
+        for x, y, z, nm in w.cells_matching(*c, SPAWNER):
+            bbs.append((x - DUNGEON_R, y - DUNGEON_R, z - DUNGEON_R, x + DUNGEON_R, y + DUNGEON_R, z + DUNGEON_R))
+    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0
+    for c in zero:
+        for x, y, z, nm in w.cells_matching(*c, BUILT):
+            if any(in_box((x, y, z), bb) for bb in bbs): inpiece += 1; continue
+            fps[nm[10:]] += 1
+            if w.natural_top(x, z) > y: buried_fp += 1
+            else: surface_fp[nm[10:]] += 1
+    return {'world': world, 'chunks_read': used, 'uninhabited_chunks': len(zero), 'palette_cells_in_pieces': inpiece,
+            'false_positive_cells': sum(fps.values()), 'fp_kinds': dict(fps.most_common(10)),
+            'fp_cells_buried': buried_fp, 'fp_cells_surface': sum(surface_fp.values()), 'fp_kinds_surface': dict(surface_fp.most_common(10)),
+            'worldgen_pieces': len(pieces), 'worldgen_starts_unreadable': sum(1 for p in pieces if p[0] == '?unreadable')}
+
+def delta(a, b):
+    A = {tuple(c[:3]): c[3] for c in json.load(open(a))['cells']}
+    B = {tuple(c[:3]): c[3] for c in json.load(open(b))['cells']}
+    ra = json.load(open(a)); rb = json.load(open(b))
+    same_r = min(ra['r'], rb['r']); hx, _, hz = rb['home']
+    inr = lambda p: max(abs(p[0] - hx), abs(p[2] - hz)) <= same_r
+    A = {p: n for p, n in A.items() if inr(p)}; B = {p: n for p, n in B.items() if inr(p)}
+    added = {p: n for p, n in B.items() if A.get(p) != n}
+    gone = {p: n for p, n in A.items() if B.get(p) != n}
+    return {'r': same_r, 'old_cells': len(A), 'new_cells': len(B), 'added': len(added), 'removed': len(gone),
+            'added_kinds': dict(collections.Counter(added.values()).most_common(10)),
+            'removed_kinds': dict(collections.Counter(gone.values()).most_common(10))}
+
+def main():
+    a = sys.argv[1:]
+    opt = lambda k, d=None: a[a.index(k) + 1] if k in a else d
+    cmd = a[0]
+    if cmd == 'scan':
+        plinths = [a[i + 1] for i, v in enumerate(a) if v == '--plinth']
+        res = scan(a[1], a[2], parse_home(a[3]), int(opt('--r', 96)), '--stamp' in a, opt('--zones'), plinths)
+    elif cmd == 'village':
+        res = village(a[1], a[2], parse_home(a[3]))
+    elif cmd == 'negctl':
+        res = negctl(a[1], a[2], parse_home(a[3]), int(opt('--r', 96)), int(opt('--n', 120)))
+    elif cmd == 'delta':
+        res = delta(a[1], a[2])
+    else:
+        sys.exit(__doc__)
+    out = opt('--json')
+    if out: json.dump(res, open(out, 'w'))
+    show = {k: v for k, v in res.items() if k != 'cells'}
+    print(json.dumps(show, indent=None)[:6000])
+
+if __name__ == '__main__':
+    main()

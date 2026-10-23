@@ -1,0 +1,38 @@
+import json, glob, os, collections
+rows = []
+tot = collections.Counter()
+print('world | chunks ok/all | palette cells | masked stamp/worldgen/zone | stamp present/207 | built cells (core/town/out) | litter cells | structures surface/buried | buildings B5 (unlit rooms) | dirt_path | plinth: planned/found/one-comp/size/building | neg: uninhabited chunks, FP buried/surface')
+for f in sorted(glob.glob('*.scan.json')):
+    if '.old48' in f or '.new48' in f: continue
+    r = json.load(open(f)); w = r['world']
+    n = json.load(open(w + '.neg.json')) if os.path.exists(w + '.neg.json') else {}
+    ch = r['chunks']; ok = ch.get('chunk_ok', 0); al = sum(ch.values())
+    m = r['masked']; b = r['built_by_band']
+    pc = r['plinth_control'][0] if r['plinth_control'] else None
+    pcs = '%d/%d/%d/%d/%s' % (pc['planned_place_cells'], pc['found_built'], pc['in_one_component'], pc['component_size'], pc['component_is_building']) if pc else '-'
+    print('%s | %d/%d | %d | %d/%d/%d | %d | %d (%d/%d/%d) | %d | %d/%d | %d (%d) | %d | %s | %d, %d/%d' % (
+        w, ok, al, r['raw_palette_cells'], m.get('stamp', 0), m.get('worldgen_piece', 0), m.get('protected_zone', 0), r['stamp_present'],
+        r['built_cells'], b.get('core', 0), b.get('town', 0), b.get('out', 0), r['litter_cells'], r['surface_structures'],
+        r['structures'] - r['surface_structures'], r['buildings'], r['unlit_rooms'], r['dirt_path_cells_near_home_y'], pcs,
+        n.get('uninhabited_chunks', 0), n.get('fp_cells_buried', 0), n.get('fp_cells_surface', 0)))
+    for k in ('built_cells', 'litter_cells', 'surface_structures', 'buildings', 'surface_structure_cells', 'buried_structure_cells', 'raw_palette_cells'):
+        tot[k] += r[k]
+    for k, v in r['built_kinds'].items(): tot['kind:' + k[10:]] += v
+    tot['structures'] += r['structures']
+    if pc:
+        tot['plinth_planned'] += pc['planned_place_cells']; tot['plinth_found'] += pc['found_built']; tot['plinths'] += 1
+        tot['plinth_onecomp'] += pc['in_one_component']
+        for k, v in pc['world_kinds_at_cells'].items(): tot['plinthkind:' + k] += v
+    tot['neg_chunks'] += n.get('uninhabited_chunks', 0); tot['neg_fp_surface'] += n.get('fp_cells_surface', 0); tot['neg_fp_buried'] += n.get('fp_cells_buried', 0)
+    tot['stamp_present'] += r['stamp_present']; tot['stamp_cells'] += r['stamp_cells']
+print('TOTAL', dict(tot))
+print('DELTAS (10-20 12:12Z copy -> 10-23 ~14:30Z copy, home +-48)')
+for f in sorted(glob.glob('*.delta.out')):
+    print(f.split('.')[0], open(f).read().strip()[:400])
+# biggest surface structures fleet-wide
+allsurf = []
+for f in sorted(glob.glob('*.scan.json')):
+    if '.old48' in f or '.new48' in f: continue
+    r = json.load(open(f))
+    for s in r['top_surface'][:3]: allsurf.append((s['n'], r['world'], s['cheb'], s['bbox'], s['kinds']))
+for t in sorted(allsurf, reverse=True)[:12]: print('SURF', t)

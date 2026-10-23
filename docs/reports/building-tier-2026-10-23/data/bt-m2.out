@@ -1,0 +1,30 @@
+NAME _protect_zone 24316
+NAME _milestone_complete 10825
+NAME _milestone_skipped 839
+NAME _well_deep 728
+NAME _plinth021_mode 598
+NAME _plinth_mode 598
+NAME _plinthfirst_mode 598
+NAME _wellcare_mode 598
+NAME _protectzone_mode 594
+NAME _milestone_skip_reset 385
+NAME place 336
+NAME dispose_well 197
+NAME _well_dispose 161
+NAME _compost 97
+NAME compost 97
+NAME _well_refused 31
+NAME _protect_zone_refused 13
+NAME _mine_well_guard 6
+PLACE ('oak_sapling', 'success') 269 | placed oak_sapling at (284, 68, -256)
+PLACE ('crafting_table', 'success') 23 | placed crafting_table at (561, 61, 198)
+PLACE ('crafting_table', 'failed') 20 | place crafting_table failed after 1 of 1 spot(s): placing exceeded 3000ms
+PLACE ('dirt', 'success') 7 | placed dirt at (267, 49, -376)
+PLACE ('birch_sapling', 'success') 5 | placed birch_sapling at (174, 74, 71)
+PLACE ('torch', 'failed') 4 | nowhere to place torch: no solid block with a free space above it within reach — no_support=20 blocked_above=4 [water,stone,furnace,crafting_table,ladder,air]
+PLACE ('dirt', 'failed') 2 | place dirt failed after 1 of 1 spot(s): placing exceeded 3000ms
+PLACE ('bucket', 'failed') 2 | place bucket failed after 2 of 2 spot(s): placing exceeded 3000ms
+PLACE ('granite', 'failed') 1 | place granite failed after 1 of 1 spot(s): placing exceeded 3000ms
+PLACE ('granite', 'success') 1 | placed granite at (72, 48, -2)
+PLACE ('stone_shovel', 'failed') 1 | nowhere to place stone_shovel: no solid block with a free space above it within reach — no_support=20 blocked_above=4 [water,stone,furnace,crafting_table,ladder,air]
+PLACE ('oak_sapling', 'failed') 1 | place oak_sapling failed after 1 of 1 spot(s): placing exceeded 3000ms

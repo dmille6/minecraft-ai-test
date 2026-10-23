@@ -1,0 +1,26 @@
+import sys, re, collections, json
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents, ZeroLooksWrong
+UNTIL = '2026-10-23T14:00:00Z'
+ev = EsEvents.load('skill', since_minutes=24 * 60, until=UNTIL)
+names = ev.names()
+items = names.items() if hasattr(names, 'items') else [(n, None) for n in names]
+for n, c in sorted(items, key=lambda kv: -(kv[1] or 0)):
+    if re.search(r'well|plinth|build|place|torch|compost|farm|floor|struct|zone|sand|glass|brick|copper|stone', n):
+        print('NAME', n, c)
+rows = ev.rows('place', fields=['skill.status', 'skill.detail', 'skill.args', 'bot.name', 'exp.pool', 'bot.pos'])
+c = collections.Counter(); cs = collections.Counter(); samp = {}
+for r in rows:
+    sk = r.get('skill') or {}
+    d = sk.get('detail') or ''
+    a = sk.get('args') or {}
+    item = None
+    if isinstance(a, dict):
+        item = a.get('item')
+    if not item:
+        m = re.search(r'placed (?:a |an )?([a-z_]+)', d) or re.search(r'no ([a-z_]+) in inventory', d)
+        item = m.group(1) if m else '?'
+    c[(item, sk.get('status'))] += 1
+    samp.setdefault((item, sk.get('status')), d[:200])
+for k, v in c.most_common(40):
+    print('PLACE', k, v, '|', samp[k])

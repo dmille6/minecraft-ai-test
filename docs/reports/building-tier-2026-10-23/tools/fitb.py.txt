@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""fitb.py <world> <region-copy> <hx,hy,hz> <plinths.json|-> <zones.json|-> -- OFFLINE SCREEN (P0 preview) for the shared building's
+pad: where could a 9x7 pad (the workshop@1 shell 7x5 + its step ring) go in each band, under OWNER B4 (trees and small hills
+inside the plot may be cleared; protected zones never). READ-ONLY on copies of region files. A screen, not the planner: a
+rejected cell is certainly unusable; an accepted one still needs the runtime planner's proof (stands, sight lines, walk-back).
+
+Rules per pad cell (x, z), pad level s = the most common ground level of the pad (ties lower):
+  * ground g = the column's highest NATURAL solid (logs and leaves are trees: clearable under B4, counted, never ground);
+  * no town furniture (chest, barrel, furnace, crafting table, bed, lectern, composter, smoker, blast furnace) within 1;
+  * no plinth well cell or cap within 2; not in a protected zone; no liquid at s..s+3; not the stamp platform (Chebyshev <= 6);
+  * fill = sum(s - g) over cells below s, each <= 3 deep;  cut = sum(g - s) over cells above s, each <= 3 high (B4 "small hills");
+  * a pad passes with fill <= 40 and cut <= 30.
+Bands by the pad's Chebyshev distance to home (every cell): inner 7..16 (inside the town-storage circle), near 17..30, outer 22..44.
+"""
+import importlib.util, json, os, re, sys, collections
+here = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location('sc', os.path.join(here, 'structcount.py')); sc = importlib.util.module_from_spec(spec); spec.loader.exec_module(sc)
+
+FURN = re.compile(r'^minecraft:(chest|trapped_chest|barrel|furnace|blast_furnace|smoker|crafting_table|[a-z_]+_bed|lectern|composter)$')
+LIQ = re.compile(r'(water|lava|bubble_column|seagrass|kelp)')
+TREE = re.compile(r'(_log|_wood|leaves)$')
+
+def main():
+    world, rdir, home, pl, zf = sys.argv[1], sys.argv[2], tuple(int(v) for v in sys.argv[3].split(',')), sys.argv[4], sys.argv[5]
+    hx, hy, hz = home
+    w = sc.World(rdir)
+    R = 46
+    furn = set()
+    for cx in range((hx - R) >> 4, ((hx + R) >> 4) + 1):
+        for cz in range((hz - R) >> 4, ((hz + R) >> 4) + 1):
+            for x, y, z, n in w.cells_matching(cx, cz, FURN, hy - 12, hy + 12):
+                furn.add((x, z))
+    near_furn = {(x + dx, z + dz) for x, z in furn for dx in (-1, 0, 1) for dz in (-1, 0, 1)}
+    wellc = set()
+    if pl != '-' and os.path.exists(pl):
+        rec = json.load(open(pl)); plan = rec.get('plan') or {}
+        cells = [tuple(s['c']) for s in plan.get('steps', [])] + ([(plan['cap']['x'], plan['cap']['y'], plan['cap']['z'])] if plan.get('cap') else [])
+        wellc = {(x + dx, z + dz) for x, _, z in cells for dx in range(-2, 3) for dz in range(-2, 3)}
+    zones = []
+    if zf != '-' and os.path.exists(zf):
+        zones = [z['box'] for z in json.load(open(zf)).get('zones', [])]
+    col = {}
+    def column(x, z):
+        if (x, z) in col: return col[(x, z)]
+        g = w.natural_top(x, z)
+        liq = any(LIQ.search(w.block(x, y, z) or '') for y in range(g, g + 5))
+        trees = sum(1 for y in range(g + 1, g + 20) if TREE.search(w.block(x, y, z) or ''))
+        col[(x, z)] = (g, liq, trees)
+        return col[(x, z)]
+    res = collections.defaultdict(list)
+    for W, D in ((9, 7), (7, 9)):
+        for x0 in range(hx - 44, hx + 44 - W + 2):
+            for z0 in range(hz - 44, hz + 44 - D + 2):
+                cells = [(x, z) for x in range(x0, x0 + W) for z in range(z0, z0 + D)]
+                ch = [max(abs(x - hx), abs(z - hz)) for x, z in cells]
+                lo, hi = min(ch), max(ch)
+                if lo <= 6: continue
+                bands = []
+                if lo >= 7 and hi <= 16: bands.append('inner_7_16')
+                if lo >= 17 and hi <= 30: bands.append('near_17_30')
+                if lo >= 22 and hi <= 44: bands.append('outer_22_44')
+                if not bands: continue
+                if any(c in near_furn or c in wellc for c in cells): continue
+                if zones and any(z[0] <= x <= z[3] and z[2] <= zz <= z[5] for z in zones for x, zz in cells): continue
+                cs = [column(x, z) for x, z in cells]
+                if any(c[1] for c in cs): continue
+                gs = collections.Counter(c[0] for c in cs)
+                top = max(gs.values()); s = min(k for k, v in gs.items() if v == top)
+                fill = sum(s - c[0] for c in cs if c[0] < s); cut = sum(c[0] - s for c in cs if c[0] > s)
+                if any(s - c[0] > 3 or c[0] - s > 3 for c in cs): continue
+                if fill > 40 or cut > 30: continue
+                trees = sum(c[2] for c in cs)
+                for b in bands: res[b].append((fill + cut, fill, cut, trees, x0, z0, W, D, s))
+    out = {'world': world, 'home': list(home), 'furniture_columns': len(furn), 'chunks': dict(w.stats)}
+    for b in ('inner_7_16', 'near_17_30', 'outer_22_44'):
+        L = sorted(res.get(b, []))
+        out[b] = {'placements': len(L), 'zero_earthwork': sum(1 for t in L if t[0] == 0),
+                  'best': [{'earthwork': t[0], 'fill': t[1], 'cut': t[2], 'tree_cells': t[3], 'x0': t[4], 'z0': t[5], 'w': t[6], 'd': t[7], 's': t[8]} for t in L[:2]]}
+    print(json.dumps(out))
+
+if __name__ == '__main__':
+    main()

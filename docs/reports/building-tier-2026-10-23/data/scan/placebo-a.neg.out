@@ -1,0 +1,1 @@
+{"world": "placebo-a", "chunks_read": 197, "uninhabited_chunks": 120, "palette_cells_in_pieces": 510, "false_positive_cells": 1, "fp_kinds": {"chain": 1}, "fp_cells_buried": 1, "fp_cells_surface": 0, "fp_kinds_surface": {}, "worldgen_pieces": 2580, "worldgen_starts_unreadable": 0}

@@ -1,0 +1,18 @@
+BOM workshop@1 {'cobble': 89, 'logs': 29, 'copper_ingot': 180, 'sand': 6} | BOM five house@1 {'cobble': 360, 'logs': 120, 'copper_ingot': 192, 'sand': 6}
+board-a     spendable {'cobble': 1017, 'logs': 2260, 'copper_ingot': 1041}  workshop yes  +5 houses yes 
+board-b     spendable {'cobble': 744, 'logs': 1087, 'copper_ingot': 157}  workshop NO  +5 houses NO short: copper_ingot
+board-c     spendable {'cobble': 744, 'logs': 552, 'copper_ingot': 1109}  workshop yes  +5 houses yes 
+board-d     spendable {'cobble': 744, 'logs': 156, 'copper_ingot': 592}  workshop yes  +5 houses yes 
+hive-a      spendable {'cobble': 744, 'logs': 260, 'copper_ingot': 1525}  workshop yes  +5 houses yes 
+hive-b      spendable {'cobble': 744, 'logs': -260, 'copper_ingot': 627}  workshop NO  +5 houses NO short: logs
+hive-c      spendable {'cobble': 743, 'logs': 104, 'copper_ingot': 456}  workshop yes  +5 houses NO short: logs
+hive-d      spendable {'cobble': 744, 'logs': -445, 'copper_ingot': 508}  workshop NO  +5 houses NO short: logs
+isolated-a  spendable {'cobble': 804, 'logs': 558, 'copper_ingot': -192}  workshop NO  +5 houses NO short: copper_ingot
+isolated-b  spendable {'cobble': 771, 'logs': 471, 'copper_ingot': 1058}  workshop yes  +5 houses yes 
+isolated-c  spendable {'cobble': 1000, 'logs': 990, 'copper_ingot': -233}  workshop NO  +5 houses NO short: copper_ingot
+isolated-d  spendable {'cobble': 744, 'logs': 314, 'copper_ingot': -218}  workshop NO  +5 houses NO short: copper_ingot
+placebo-a   spendable {'cobble': 743, 'logs': 139, 'copper_ingot': 148}  workshop NO  +5 houses NO short: logs,copper_ingot
+placebo-b   spendable {'cobble': 743, 'logs': 814, 'copper_ingot': 388}  workshop yes  +5 houses yes 
+placebo-c   spendable {'cobble': 936, 'logs': 1333, 'copper_ingot': 585}  workshop yes  +5 houses yes 
+placebo-d   spendable {'cobble': 1000, 'logs': 154, 'copper_ingot': 372}  workshop yes  +5 houses yes 
+funded today: workshop 9 of 16 towns; workshop + five houses 8 of 16 (sand is 0 in every town: glass waits on the sand target)

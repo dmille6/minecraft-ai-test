@@ -1,0 +1,1 @@
+{"world": "isolated-b", "chunks_read": 296, "uninhabited_chunks": 120, "palette_cells_in_pieces": 1744, "false_positive_cells": 8, "fp_kinds": {"cobblestone": 7, "chest": 1}, "fp_cells_buried": 8, "fp_cells_surface": 0, "fp_kinds_surface": {}, "worldgen_pieces": 3619, "worldgen_starts_unreadable": 0}

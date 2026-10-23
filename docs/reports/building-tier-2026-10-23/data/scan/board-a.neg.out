@@ -1,0 +1,1 @@
+{"world": "board-a", "chunks_read": 255, "uninhabited_chunks": 120, "palette_cells_in_pieces": 2508, "false_positive_cells": 31, "fp_kinds": {"cobblestone": 31}, "fp_cells_buried": 31, "fp_cells_surface": 0, "fp_kinds_surface": {}, "worldgen_pieces": 3723, "worldgen_starts_unreadable": 0}

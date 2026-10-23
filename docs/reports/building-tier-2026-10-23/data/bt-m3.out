@@ -1,0 +1,57 @@
+gather rows walked 28223
+TGT ('dirt', 'success') 11087
+TGT ('dirt', 'failed') 5524
+TGT ('sand', 'failed') 3964
+TGT ('dirt', 'aborted') 2128
+TGT ('iron_ore', 'failed') 1304
+TGT ('oak_log', 'failed') 1140
+TGT ('iron_ore', 'success') 410
+TGT ('oak_log', 'success') 347
+TGT ('cobblestone', 'success') 335
+TGT ('iron_ore', 'aborted') 292
+TGT ('stone', 'success') 260
+TGT ('sand', 'success') 248
+TGT ('stone', 'failed') 215
+TGT ('oak_sapling', 'failed') 180
+TGT ('cobblestone', 'failed') 121
+TGT ('spruce_log', 'failed') 92
+TGT ('sand', 'aborted') 91
+TGT ('oak_log', 'aborted') 79
+TGT ('cobblestone', 'aborted') 64
+TGT ('coal_ore', 'failed') 59
+TGT ('birch_log', 'failed') 50
+TGT ('iron_ore', 'unknown') 32
+TGT ('stone', 'aborted') 29
+TGT ('stone', 'unknown') 29
+TGT ('bamboo', 'failed') 24
+TGT ('spruce_log', 'success') 22
+TGT ('dirt', 'unknown') 21
+TGT ('cobblestone', 'unknown') 15
+TGT ('sand', 'unknown') 9
+TGT ('coal_ore', 'success') 8
+sand bots {'sand': 78}
+SAND 2585 ('failed', 'no_safe_target', 'sand found but all N candidates are beside water or under falling blocks — digging them would flood or bury th')
+SAND 352 ('failed', 'unreachable', 'sand found but every candidate is buried — use mine to dig down')
+SAND 346 ('failed', 'unreachable', 'sand found but every candidate is buried — use mine to dig down — you are at y=N, N blocks below sea level; wo')
+SAND 250 ('failed', 'unreachable', 'sand: all N candidate(s) in range refused — could not stand within reach of any of them')
+SAND 243 ('failed', 'nothing_found', 'no sand within N blocks')
+SAND 100 ('success', None, 'collected N sand')
+SAND 77 ('success', None, 'collected N sand (the rest are buried or unsafe)')
+SAND 53 ('aborted', 'interrupted', 'entombed')
+SAND 53 ('failed', 'no_path', 'sand found but unreachable after N attempts [probe: noPath, slate N, A* reached none] [collect said: arrived_o')
+SAND 48 ('failed', 'nothing_found', 'no sand within N blocks — you are at y=N, N blocks below sea level; wood, plants and animals only exist above ')
+SAND 19 ('success', None, 'entombed — but inventory_gain: sand +N, which is what gather is for, so it worked')
+SAND 17 ('failed', 'no_path', 'sand found but unreachable after N attempts [probe: success, slate N, A* reached a candidate] [collect threw n')
+SAND 17 ('success', None, 'collected N sand (the rest could not be reached from here)')
+SAND 17 ('aborted', 'interrupted', 'stagnation')
+SAND 15 ('aborted', 'interrupted', 'stuck')
+SAND 15 ('failed', 'unreachable', 'sand found but every candidate is buried — use mine to dig down — you are at y=-N, N blocks below sea level; w')
+SAND 13 ('failed', 'nothing_found', 'no sand within N blocks — you are at y=-N, N blocks below sea level; wood, plants and animals only exist above')
+SAND 11 ('failed', 'no_path', 'sand found but unreachable after N attempts [probe: success, slate N, A* reached a candidate] [collect said: a')
+SAND 10 ('failed', 'no_path', 'sand found but unreachable after N attempts [probe: partial, slate N, A* reached none] [collect said: arrived_')
+SAND 9 ('unknown', 'collect_budget', 'ran out of time reaching sand (N/N attempts timed out at Ns)')
+SAND 8 ('success', None, 'entombed — but inventory_gain: cobblestone +N, which is what gather is for, so it worked')
+SAND 7 ('failed', 'canopy_refused', 'stranded on foliage: water below the foliage (a swim, not a dig); not digging down — the escape ladder owns th')
+SAND 6 ('aborted', 'interrupted', 'timeout')
+SAND 6 ('success', None, 'collected N/N sand; sand found but unreachable after N attempts [probe: success, slate N, A* reached a candida')
+SAND 5 ('failed', 'nothing_found', "no sand within N blocks outside the town's ground (N blocks around home is kept: walk N+ blocks from home)")

@@ -1,0 +1,12 @@
+#!/bin/bash
+# copyw.sh <world> <srcdir-of-world> <hx> <hz> : cp (read-only on the live files) the 3x3 region files around home into ~/structcount-1023/<world>/region
+set -eu
+W=$1; SRC=$2; HX=$3; HZ=$4
+DST=~/structcount-1023/$W/region
+mkdir -p "$DST"
+RX=$(( HX >> 9 )); RZ=$(( HZ >> 9 ))
+for dx in -1 0 1; do for dz in -1 0 1; do
+  f="$SRC/region/r.$((RX+dx)).$((RZ+dz)).mca"
+  [ -f "$f" ] && cp "$f" "$DST/" || true
+done; done
+ls "$DST" | wc -l

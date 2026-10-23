@@ -1,0 +1,43 @@
+building-tier design (docs/reports/building-tier-2026-10-23.md) -- review record
+================================================================================
+
+ROUND 0 (10-23): prior-art search (web search + repository source + issue trackers), summarised in design section 9.
+Sources read (URLs):
+- mineflayer-builder (PrismarineJS, MIT): https://github.com/PrismarineJS/mineflayer-builder  (README: WIP, "not an usable
+  package yet", creative op bot; lib/Build.js y/z/x order + getAvailableActions + getPossibleDirections face filter,
+  facingData.json inverted facing; index.js nearest action; errors console.logged and the action dropped; full state-id diff
+  in updateActions; open issues #6 null boundingBox in getPossibleDirections, #5, #10, #1)
+- prismarine-schematic (MIT): https://github.com/PrismarineJS/prismarine-schematic ; open #82 (Apr 2026) parsePalette decodes
+  int-typed properties with parseInt -> 1.21.x white_stained_glass_pane round-trips as repeater:
+  https://github.com/PrismarineJS/prismarine-schematic/issues/82 ; #39, #7/#38
+- other loaders: https://github.com/ewanhowell5195/minecraft-block-reader (MPL-2.0), https://docs.rs/crate/nucleation/0.3.5 (MIT),
+  Sponge spec https://github.com/SpongePowered/Schematic-Specification
+- Voyager (MIT): voyager/control_primitives/placeItem.js (first non-air neighbour, GoalPlaceBlock, success = item count dropped,
+  throws after 10 failures); paper https://arxiv.org/html/2305.16291 (3D builds only with human critic/curriculum);
+  VoyagerVision https://arxiv.org/abs/2507.00079
+- Mindcraft / MineCollab (MIT, github.com/mindcraft-bots/mindcraft): src/agent/tasks/construction_tasks.js Blueprint.check()
+  (block NAME only; air-air skipped; filled blueprint-air = mismatch; score = matches/(matches+mismatches)); autoBuild via
+  /setblock; paper https://arxiv.org/html/2504.17950 (best ~36% Claude 3.5 Sonnet, ~31% GPT-4o; agents demolish each other's
+  sections, lose track past ~20 steps); skills.js placeBlock (GoalNear 4, GoalInvert, preferred face then all six, no
+  orientation control in survival, sleeps 200 ms and returns true); issues #780 "No real house ever been build", #462 survival
+  schematic builder closed not planned
+- Project Sid (Altera): https://arxiv.org/html/2411.00114 (specialisation prompts: "You CANNOT BUILD"; spatial reasoning named
+  as the limit)
+- Baritone BuilderProcess (LGPL-3.0): https://github.com/cabaletta/baritone/blob/1.21.4/src/main/java/baritone/process/BuilderProcess.java
+  (recalcNearby/fullRecalc each tick; placeable/breakable/missing; GoalPlace/GoalAdjacent; buildInLayers/layerOrder;
+  hasAnyItemThatWouldPlace -> getStateForPlacement + valid(); possibleToPlace ray-traces faces; buildIgnoreDirection,
+  buildIgnoreProperties, buildSubstitutes, okIfAir). Issues: #2173 https://github.com/cabaletta/baritone/issues/2173 (place/break
+  loop on own scaffold), #822 (no temporary support), #4586 (loops; maintainer: builder "not very good"), #4455 (directional
+  blocks), #3995 (latency pillar fall), #4618 (candles -> "missing material")
+- mineflayer lib/plugins/place_block.js (waits 5 s for blockUpdate; success = type changed), generic_place.js (cursor by half);
+  #3537 (use_item rotation), #2600 "Ghosting blocks on servers with lag" (open)
+- mineflayer-pathfinder (MIT): movements.js canOpenDoors = false "Causes issues"; exclusionAreasBreak/Place; issues #296
+  https://github.com/PrismarineJS/mineflayer-pathfinder/issues/296 , #181, #78, #354
+- IGLU gridworld (AGPL-3.0): https://github.com/iglu-contest/gridworld , https://arxiv.org/pdf/2205.13771 (F1 max over shifts and
+  rotations); Minecraft Dialogue Corpus net-action F1 https://aclanthology.org/P19-1537/
+- MC-Bench (pairwise human votes: not a block metric); MineCEraft https://arxiv.org/abs/2608.28884 (metric not verified);
+  MineLand https://arxiv.org/abs/2403.19267 , Odyssey https://arxiv.org/abs/2407.15325 (no building results found);
+  GDPC https://gdpc.readthedocs.io (world edits)
+- Mechanics: https://minecraft.wiki/w/Stairs , /Slab , /Door , /Torch ; Paper client-interaction-leniency-distance
+  https://docs.papermc.io/paper/reference/global-configuration/ ; mineflayer #237 (no stonecutter window); MC-269161
+Not verified: Baritone's exact default settings; torch on a glass side face; MineCEraft's metric; exact vanilla reach geometry.

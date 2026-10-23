@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""funding.py <census-materials.txt> -- which towns can fund the shared building and five houses from SURPLUS ABOVE THE
+RESERVE (OWNER B3), from the 10-23 00:15Z town-chest census. Bags are not counted (a bag is not the town's)."""
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+hdr = lines[1].split()[2:]
+rows = [l.split() for l in lines[2:] if l and not l.startswith('TOTAL')]
+RESERVE = {'cobble': 256, 'logs': 512, 'copper_ingot': 256}
+
+def bom(stone_bricks, planks, panes, cut_copper, doors):
+    smelts = stone_bricks + (6 if panes else 0)              # glass: 6 sand -> 6 glass -> 16 panes
+    fuel_logs = -(-smelts // 6)                              # 1 log -> 4 planks -> 4 x 1.5 = 6 smelts
+    logs = -(-planks // 4) + fuel_logs
+    cu = cut_copper * 9 + (6 * -(-doors // 3) if doors else 0)   # 9 ingots per cut copper; 6 ingots -> 3 copper doors
+    return {'cobble': stone_bricks, 'logs': logs, 'copper_ingot': cu, 'sand': 6 * -(-panes // 16) if panes else 0}
+
+W = bom(89, 49, 4, 20, 0)
+H5 = bom(5 * 72, 5 * 47, 5 * 3, 5 * 4, 5)
+print('BOM workshop@1', W, '| BOM five house@1', H5)
+okw = okh = 0
+for r in rows:
+    v = dict(zip(hdr, map(int, r[2:])))
+    sp = {k: v[k] - RESERVE[k] for k in RESERVE}
+    a = all(sp[k] >= W[k] for k in sp)
+    b = all(sp[k] >= W[k] + H5[k] for k in sp)
+    okw += a; okh += b
+    short = [k for k in sp if sp[k] < W[k] + H5[k]]
+    print('%-11s spendable %s  workshop %s  +5 houses %s %s' % (r[0], sp, 'yes' if a else 'NO', 'yes' if b else 'NO', ('short: ' + ','.join(short)) if short else ''))
+print('funded today: workshop %d of %d towns; workshop + five houses %d of %d (sand is 0 in every town: glass waits on the sand target)' % (okw, len(rows), okh, len(rows)))

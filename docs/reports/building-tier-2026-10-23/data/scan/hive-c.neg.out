@@ -1,0 +1,1 @@
+{"world": "hive-c", "chunks_read": 167, "uninhabited_chunks": 120, "palette_cells_in_pieces": 975, "false_positive_cells": 83, "fp_kinds": {"oak_planks": 56, "cobblestone": 19, "oak_fence": 8}, "fp_cells_buried": 83, "fp_cells_surface": 0, "fp_kinds_surface": {}, "worldgen_pieces": 1768, "worldgen_starts_unreadable": 4}
