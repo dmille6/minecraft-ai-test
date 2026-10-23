@@ -50,6 +50,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
   let lastGround = -Infinity, lastAir = -Infinity, lastFiring = -Infinity
   let episode = 0, n = 0
   const moved = []                  // displacement of each COMPLETED dry ground move this episode, newest last
+  const epCells = new Set()         // every cell a ground firing of this episode started in ("x,y,z")
   let relax = null                  // { cell: [x,y,z], name, until, sneak }
   let sealToken = false
   const at = (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)) } catch { return null } }
@@ -108,8 +109,11 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
     if (wet()) return endRelax('in water')
     if (now() >= relax.until) return endRelax('expired')
     const feet = at(fl(p.x), fl(p.y), fl(p.z)), below = at(fl(p.x), fl(p.y) - 1, fl(p.z))
+    // MOVED OFF = another column, or ON THE GROUND in another cell (a block placed on it, a step): never mid-jump, where the
+    // handed-over pillar's own arc lifts the feet two cells above the relaxed floor (Claude code r2 P2-2)
+    if (fl(p.x) !== relax.cell[0] || fl(p.z) !== relax.cell[2]) return endRelax('moved off')
     const onIt = sameCell(feet, relax.cell) || sameCell(below, relax.cell)
-    if (!onIt) return endRelax('moved off')
+    if (!onIt && bot.entity.onGround !== false) return endRelax('moved off')
     for (const b of [feet, below]) {
       if (b && DANGER.has(b.name) && !(b.name === relax.name && sameCell(b, relax.cell))) return endRelax(`new danger ${b.name}`)
     }
@@ -145,7 +149,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
   }
 
   function nextEpisode (t) {
-    if (t - lastFiring > EPISODE_GAP_MS) { episode = t; n = 0; moved.length = 0 }   // "3 consecutive" is within one episode
+    if (t - lastFiring > EPISODE_GAP_MS) { episode = t; n = 0; moved.length = 0; epCells.clear() }   // "3 consecutive" is within one episode
     lastFiring = t
     n++
     return { episode: episode.toString(36), n }
@@ -217,8 +221,12 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
     row.path = []
     row.steps = []
     const me = { gen, deadline: t0 + T.move, ctl: {}, set: new Set(), look: null, ended: null, phase: 'start' }
-    me.check = () => now() >= me.deadline ? 'deadline' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : airHolds() ? 'air' : null
+    // AIR FIRST (Codex code r2 P1): a deadline that coincides with the air rescue's seize is the air rescue's
+    me.check = () => airHolds() ? 'air' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : now() >= me.deadline ? 'deadline' : null
+    me.end = why => end(why)          // assigned before `cur = me`: a synchronous unwind inside reserve() can already ask
+    let timer = null
     cur = me
+    epCells.add(row.origin.join())
     let resvGen = null
     try { resvGen = runner.reserve?.('lavastep', T.move, 'danger_block')?.gen ?? null } catch {}
     try { if (bot.targetDigBlock) bot.stopDigging() } catch {}
@@ -242,7 +250,9 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
       if (me.ended) return
       me.ended = why
       clearInterval(timer)
-      if (why !== 'air') { for (const c of me.set) { try { bot.setControlState(c, false) } catch {} } }
+      // the controls the move set are cleared -- unless the air rescue holds the body NOW, whatever ended the move: its
+      // stroke is the rescue's (Codex code r2 P1)
+      if (why !== 'air' && !airHolds()) { for (const c of me.set) { try { bot.setControlState(c, false) } catch {} } }
       if (resvGen != null) { try { runner.releaseReservation?.(resvGen) } catch {} }
       if (cur === me) cur = null
       sealToken = false
@@ -255,15 +265,22 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
       const dry = row.onGround && !row.inWater && !WET.has(row.feet)
       if (why === 'done' && dry) {
         const p = bot.entity?.position
-        // A FIRING THAT ENDS IN THE CELL IT STARTED IN DID NOT MOVE THE BOT (Paper of the fake, F9): a walled bot's aimed
-        // sprints carry it corner to corner of its own cell, 0.56 block apart, so "< 0.5 block" alone never trips and the
-        // handover to the escape arms would be unreachable
-        const sameC = !!p && cellOf(p).join() === row.origin.join()
-        const d = !p ? Infinity : sameC ? 0 : Math.hypot(p.x - startPos.x, p.y - startPos.y, p.z - startPos.z)
+        // A FIRING THAT ENDS IN A CELL THIS EPISODE ALREADY STOOD IN DID NOT MOVE THE BOT. A walled bot's aimed sprints carry
+        // it corner to corner of its own cell (0.56 block, the kinematic fake), or between two magma cells (Claude code
+        // r2 P2-3), so "< 0.5 block" alone never trips and the handover would be unreachable. The aim settles on the
+        // ground before the move ends, so the cell is the landed one (Claude code r2 P1).
+        const landed = !!p && bot.entity?.onGround !== false
+        const sameC = landed && epCells.has(cellOf(p).join())
+        const d = !p ? Infinity : sameC ? 0 : !landed ? Infinity : Math.hypot(p.x - startPos.x, p.y - startPos.y, p.z - startPos.z)
         moved.push(d); if (moved.length > STUCK_FIRINGS) moved.shift()
-        const dname = DANGER.has(row.feet) ? row.feet : row.below
-        const cell = DANGER.has(row.feet) ? row.origin : [row.origin[0], row.origin[1] - 1, row.origin[2]]
-        if (!relax && stuckRelax(moved, dname) && alive() && !airHolds() && !wet() && bot.entity?.onGround !== false && at(...cell)?.name === dname) {
+        // THE (cell, name) RELAXED IS THE DANGER BLOCK THE BOT IS ON NOW -- the feet cell, else the one below -- read at the
+        // landed position (Claude code r2 P3-7: never a cell it has already left; a bot shuttling between two magma cells
+        // relaxes the one it stands on); stuckRelax admits only RELAXABLE names, so lava and fire never
+        const fb = p ? [at(fl(p.x), fl(p.y), fl(p.z)), at(fl(p.x), fl(p.y) - 1, fl(p.z))] : []
+        const under = fb.find(b => b && DANGER.has(b.name)) ?? null
+        const dname = under?.name ?? null
+        const cell = under?.position ? [under.position.x, under.position.y, under.position.z] : null
+        if (!relax && cell && stuckRelax(moved, dname) && alive() && !airHolds() && !wet() && landed) {
           relax = { cell, name: dname, until: now() + T.relax, sneak: true }
           moved.length = 0
           try { bot.setControlState('sneak', true) } catch {}
@@ -272,8 +289,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
       } else moved.length = 0
       writer.ended()
     }
-    me.end = end
-    const timer = setInterval(() => {
+    timer = setInterval(() => {
       if (me.ended) return
       if (!owns()) return end(reasonNow())
       try { if (bot.pathfinder?.goal) haltPath(bot) } catch {}
@@ -357,6 +373,10 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
       const until = now() + T.aim
       while (now() < until) { await sleep(T.reassert); if (!owns()) return 'lost' }
       stop()
+      // SETTLE: the held jump re-fires on every landing (prismarine-physics autojump), so the bot is usually airborne at
+      // +1.5 s; the move owns the body until it lands (<= 600 ms, inside the deadline), so the next firing and the stuck
+      // counter see where it came down (Claude code r2 P1)
+      for (let w = 0; w < 12 && bot.entity?.onGround === false; w++) { await sleep(T.reassert); if (!owns()) return 'lost' }
       return 'ok'
     }
     // ---- the seal (edge, a replaceable cell under the centre, a seal block held)
@@ -416,7 +436,11 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
       if (ob.plan) {
         const r = await runPlan(ob.plan, ob.kase, 'replan', ob.origin)
         if (r === 'lost') return 'lost'
-        return r === 'ok' ? `${reason}_plan` : `${reason}_plan_missed`
+        if (r === 'ok') return `${reason}_plan`
+        if (ob.kase !== 'in') return `${reason}_plan_missed`
+        // a missed `in` step goes straight to the aimed escape, as in the decision's own plan (Codex code r2 P2)
+        const a = await runAim(observeHere(), 'in_step_missed')
+        return a === 'lost' ? 'lost' : `${reason}_plan_missed_aim`
       }
       const a = await runAim(ob, reason, 'replan')
       return a === 'lost' ? 'lost' : `${reason}_aim`
@@ -459,7 +483,9 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
           outcome = 'seal_failed_aim'
         }
       } else {
-        const a = await runAim({ origin, rec, kase, scores: dec.aim.scores, choice: dec.aim.choice, plan: null, candidates: dec.candidates }, 'no_plan', 'row')
+        const a = dec.aim
+          ? await runAim({ origin, rec, kase, scores: dec.aim.scores, choice: dec.aim.choice, plan: null, candidates: dec.candidates }, 'no_plan', 'row')
+          : await runAim(observeHere(), 'no_plan')
         if (a === 'lost') return end(reasonNow())
         outcome = 'aim'
       }
