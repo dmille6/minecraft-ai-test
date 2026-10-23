@@ -103,7 +103,10 @@ def classify(rows, known_now=()):
         runs.append({'end': e, 'bot': b, 'item': item, 'xyz': xyz, 'dist': dist, 'peer': peer,
                      'dy': (xyz[1] - pre[1]) if pre else None,
                      'reached': bool(r.get('p')) and hd(r['p'], xyz) <= REACH_H and abs(r['p'][1] - xyz[1]) <= REACH_V,
-                     'known_now': any(hd(xyz, k) <= 24 and abs(xyz[1] - k[1]) <= 24 for k in known_now),
+                     # HORIZONTAL reach alone (Claude r1 P2-7): if bots rarely get even horizontally close, depth is not
+                     # the explanation
+                     'reached_h': bool(r.get('p')) and hd(r['p'], xyz) <= REACH_H,
+                     'known_now': any(kk == item and hd(xyz, k) <= 24 and abs(xyz[1] - k[1]) <= 24 for kk, k in known_now),
                      'status': r.get('s'), 'rises': []})
     byb = collections.defaultdict(list)
     for n, x in enumerate(runs):
@@ -126,6 +129,11 @@ def classify(rows, known_now=()):
     return runs, sum(len(v) for v in rises.values())
 
 
+def censor(runs, t1):
+    """Runs whose 10-min follow-up ends after the window -> dropped (an incomplete follow-up is not a miss). Pure."""
+    return [x for x in runs if x['end'] <= t1 - FOLLOW_S]
+
+
 def table(runs, key):
     T = collections.defaultdict(collections.Counter)
     for x in runs:
@@ -134,11 +142,24 @@ def table(runs, key):
         T[k]['near'] += x['near']
         T[k]['any'] += x['any']
         T[k]['reached'] += x['reached']
+        T[k]['reached_h'] += x['reached_h']
     return {k: dict(v) for k, v in sorted(T.items(), key=lambda kv: str(kv[0]))}
 
 
+def sightings(runs):
+    """Distinct sightings (pool, item, xyz) -> their height relative to the bots that headed for them (median dy), so a
+    claim about SIGHTINGS is not made from RUNS (repeated runs at one sighting dominate). Pure."""
+    by = collections.defaultdict(list)
+    for x in runs:
+        if x['dy'] is not None:
+            by[(x.get('pool'), x['item'], x['xyz'])].append(x['dy'])
+    med = [sorted(v)[len(v) // 2] for v in by.values()]
+    return {'distinct': len(by), 'by_median_dy': dict(collections.Counter(dy_bucket(d) for d in med)),
+            'runs_per_sighting_median': sorted(len(v) for v in by.values())[len(by) // 2] if by else None}
+
+
 def summarize(runs):
-    return {'runs': len(runs),
+    return {'runs': len(runs), 'sightings': sightings(runs),
             'by_reach': table(runs, lambda x: 'reached' if x['reached'] else 'not_reached'),
             'by_dy': table(runs, lambda x: 'unknown' if x['dy'] is None else dy_bucket(x['dy'])),
             'by_distance': table(runs, lambda x: dist_bucket(x['dist'])),
@@ -148,12 +169,16 @@ def summarize(runs):
 
 
 def render(S, controls, window):
-    L = [f'SIGHTING-QUALITY READ (X1) {window[0]} .. {window[1]}: {S["runs"]} explore runs toward a known sighting']
+    L = [f'SIGHTING-QUALITY READ (X1) {window[0]} .. {window[1]}: {S["runs"]} explore runs toward a known sighting '
+         f'(every shared town on disk now, so the denominator differs from the design\'s 13-town 16,958)',
+         f'  distinct sightings {S["sightings"]["distinct"]} (median {S["sightings"]["runs_per_sighting_median"]} runs each); '
+         f'by their median dy: {S["sightings"]["by_median_dy"]}']
     for k in ('by_reach', 'by_dy', 'by_distance', 'by_cotarget', 'by_known_now', 'by_status'):
         L.append(f'  {k}:')
         for b, c in S[k].items():
             n = c['n']
-            L.append(f'    {b:18s} n {n:6d}  reached {c["reached"]:5d} ({100 * c["reached"] / n:5.1f}%)  iron near '
+            L.append(f'    {b:18s} n {n:6d}  reached {c["reached"]:5d} ({100 * c["reached"] / n:5.1f}%)  horizontally '
+                     f'{c["reached_h"]:5d} ({100 * c["reached_h"] / n:5.1f}%)  iron near '
                      f'{c["near"]:4d} ({100 * c["near"] / n:5.2f}%)  iron anywhere {c["any"]:4d} ({100 * c["any"] / n:5.2f}%)')
     for k, v in controls.items():
         L.append(f'  control {k}: {v}')
@@ -182,15 +207,30 @@ def selftest(verbose=True):
         {'t': 400, 'bot': 'B', 'k': 'explore', 'dur': 60_000, 's': 'failed', 'p': [110, 70, 0], 'inv': {'raw_iron': 1}},
         {'t': 600, 'bot': 'B', 'k': 'mine', 'dur': 0, 'p': [300, 20, 0], 'inv': {'raw_iron': 3}},
     ]
-    runs, nr = classify(rows, known_now=[(12, 41, 2)])
+    runs, nr = classify(rows, known_now=[('iron_ore', (12, 41, 2)), ('coal_ore', (300, 20, 0))])
     S = summarize(runs)
     check('two runs, two rise events', (len(runs), nr), (2, 2))
-    check('A reached, B not', S['by_reach'], {'not_reached': {'n': 1, 'near': 0, 'any': 1, 'reached': 0},
-                                              'reached': {'n': 1, 'near': 1, 'any': 1, 'reached': 1}})
+    check('A reached, B not', S['by_reach'], {'not_reached': {'n': 1, 'near': 0, 'any': 1, 'reached': 0, 'reached_h': 0},
+                                              'reached': {'n': 1, 'near': 1, 'any': 1, 'reached': 1, 'reached_h': 1}})
+    check('runs ending inside the last 10 min of the window are censored (their follow-up is incomplete)',
+          len(censor(runs, 400 + 60 + FOLLOW_S - 1)), 1)
     check('dy bucket from the position before the run', sorted(S['by_dy']), ['below<-20'])
     check('co-targeted split', (S['by_cotarget']['co-targeted']['n'], S['by_cotarget']['fresh']['n']), (1, 1))
     check('heading distance buckets', sorted(S['by_distance']), ['<=24', '>48'])
-    check('still known now (within 24 of a current sighting)', S['by_known_now'].get('still_known', {}).get('n'), 2)
+    check('still known now (within 24 of a current sighting OF ITS KIND)', S['by_known_now'].get('still_known', {}).get('n'), 2)
+    check('horizontal reach is its own column', (S['by_reach']['reached']['reached_h'], S['by_reach']['not_reached']['reached_h']),
+          (1, 0))
+    check('distinct sightings, not runs', (S['sightings']['distinct'], S['sightings']['runs_per_sighting_median']), (1, 2))
+    # TWO RUNS BY ONE BOT before one rise: only the LATER run gets it (each rise to at most one run)
+    rows2 = [{'t': 0, 'bot': 'A', 'k': '_x', 'p': [0, 70, 0]},
+             {'t': 1, 'bot': 'A', 'k': '_explore_toward_known', 'd': 'heading for iron_ore at 10,40,0 (10b)'},
+             {'t': 1, 'bot': 'A', 'k': 'explore', 'dur': 10_000, 's': 'success', 'p': [9, 42, 0], 'inv': {'raw_iron': 0}},
+             {'t': 20, 'bot': 'A', 'k': '_explore_toward_known', 'd': 'heading for iron_ore at 500,40,0 (10b)'},
+             {'t': 20, 'bot': 'A', 'k': 'explore', 'dur': 10_000, 's': 'success', 'p': [9, 42, 0], 'inv': {'raw_iron': 0}},
+             {'t': 100, 'bot': 'A', 'k': 'gather', 'dur': 0, 'p': [9, 42, 0], 'inv': {'raw_iron': 1}}]
+    r2, _ = classify(rows2)
+    check('one rise, two earlier runs: only the later run is credited', [x['any'] for x in sorted(r2, key=lambda x: x['end'])],
+          [False, True])
     if fails:
         print('SELFTEST FAILED:')
         for f in fails:
@@ -240,14 +280,14 @@ def main():
         known = []
         for f in glob.glob(os.path.join(a.state_dir, f'_pool-{pool}', 'world-facts-*.json')):
             try:
-                known += [(x['x'], x['y'], x['z']) for x in json.load(open(f)).get('resources', [])
+                known += [(x['kind'], (x['x'], x['y'], x['z'])) for x in json.load(open(f)).get('resources', [])
                           if x.get('kind') in RAW]
             except (OSError, ValueError, KeyError):
                 pass
         runs, nr = classify(rows, known)
         for x in runs:
             x['pool'] = pool
-        allruns += [x for x in runs if x['end'] <= t1.timestamp() - FOLLOW_S]
+        allruns += censor(runs, t1.timestamp())
         rises += nr
     S = summarize(allruns)
     controls = {'rise_events_in_window': rises, 'runs_with_a_heading': len(allruns),

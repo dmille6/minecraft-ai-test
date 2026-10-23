@@ -95,7 +95,10 @@ def assess(lines, now, max_age_min=15.0, behind_min=35.0):
                           f'(limit {100 * VOID_SHARE:.0f}%)')
     # B0a: the capability positive control (`_townindex_mode` over the bots whose build carries it) is an ALARM, never a
     # census void: a shortfall means the capability reader (or the fleet) is wrong, and every record_without_code is suspect
-    cc = next((r.get('capability_control') for r in reversed(recs) if r.get('capability_control')), None)
+    # read from the newest MEASURING tick only (Claude r1 P3-9: an error tick must not fall back to an older OK control)
+    cc = good[-1].get('capability_control') if good else None
+    if good and cc is None:
+        alarms.append('StaffCensusCapability: the newest measuring tick carries no capability control')
     if cc and cc.get('alarm'):
         alarms.append(f'StaffCensusCapability: only {cc.get("capable")} of {cc.get("eligible")} bots whose build carries '
                       f'townindex read capable (share {cc.get("share")}, limit 0.95) -- the capability reader is suspect')

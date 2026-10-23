@@ -62,8 +62,7 @@ OP_TTL_MS = 10 * 60 * 1000              # townindex.mjs OP_TTL_MS
 TOWN_R, TOWN_DY = 16, 12                # the town-job radius (chestfull inTown)
 CARRY_S = 600                           # a position is carried for at most 10 min
 FLAG_S = 300
-JOBS = ('smelt_town', 'furnace_drain', 'toolkit', 'deposit', 'town_deposit', 'withdraw_pick', 'dispose_well', 'compost',
-        'craft')
+JOBS = ('smelt_town', 'furnace_drain', 'toolkit', 'deposit', 'town_deposit', 'withdraw_pick', 'dispose_well', 'compost')
 TRAP = re.compile(r'entomb|strand|maroon|trapped|wedged|reflex_stuck|flooded_pocket|drown|lava_adjacent|_death$')
 FURN = re.compile(r'furnace at (-?\d+,-?\d+,-?\d+)')
 SESS = re.compile(r'furnace=(-?\d+,-?\d+,-?\d+).*?t0=(\d+) t1=(\d+) by=(\w+)')
@@ -119,8 +118,14 @@ def op_spans(ops):
     return out
 
 
-def provenance(recs, t1_ms):
-    """Index journal records (one town) -> the [P] counters. Pure."""
+PROV_MIN_COVER_H = 20.0                 # a town whose journal covers less of the 24 h is PARTIAL (journals rotate by size)
+
+
+def provenance(recs, t0_ms, t1_ms):
+    """Index journal records (one town) -> the [P] counters over [t0, t1). Pure. Records before t0 are CONTEXT only: the
+    last observation of a container before t0 is its starting stock, and ops before t0 still bound the first pair; only
+    pairs whose later observation falls in [t0, t1), and transfers in [t0, t1), are counted. `cover_h` is how much of the
+    window the journal actually covers (from its first record or t0, whichever is later, to t1)."""
     recs = sorted((r for r in recs if r.get('t') in ('obs', 'dirty', 'xfer') and r.get('at') and r['at'] < t1_ms),
                   key=lambda r: (r['at'], r.get('id', '')))
     obs, ops = collections.defaultdict(list), collections.defaultdict(dict)
@@ -135,15 +140,21 @@ def provenance(recs, t1_ms):
             elif ph in ('pre', 'post'):
                 o[ph] = r['at']
     P = collections.Counter()
+    first = recs[0]['at'] if recs else t1_ms
+    P['cover_h'] = round(max(0.0, (t1_ms - max(first, t0_ms)) / 3.6e6), 2)
     P['ops'] = sum(len(v) for v in ops.values())
     P['ops_unfinished'] = sum(1 for v in ops.values() for o in v.values() if o['post'] is None)
     chain_who = {}
     units = collections.Counter()
     for k, lst in obs.items():
         spans = op_spans(ops[k])
-        stock0 = {n: c for n, (c, s) in (lst[0].get('names') or {}).items()}
+        before = [o for o in lst if o['at'] < t0_ms]
+        base = before[-1] if before else lst[0]
+        stock0 = {n: c for n, (c, s) in (base.get('names') or {}).items()}
         ev = []
         for o1, o2 in zip(lst, lst[1:]):
+            if o2['at'] < t0_ms:
+                continue
             between = [x for x in spans if x[1] >= o1['at'] and x[0] <= o2['at']]
             who = between[0][2] if between and len({x[2] for x in between}) == 1 and all(x[3] for x in between) else None
             chain_who[(o1['id'], o2['id'])] = who
@@ -184,7 +195,7 @@ def provenance(recs, t1_ms):
                 P['other_lb'] += lb
                 P['other_ub'] += min(W, cap)
     for x in recs:
-        if x['t'] == 'xfer' and x.get('ok'):
+        if x['t'] == 'xfer' and x.get('ok') and x['at'] >= t0_ms:
             P['xfer_verified'] += 1
             if chain_who.get((x.get('pre'), x.get('ver'))) == x.get('bot'):
                 P['xfer_through_chain'] += 1
@@ -296,12 +307,18 @@ def together(rows, home, t0, t1):
                 stays.append(run)
                 run = 0
         C['bot_min'] += len(seq)
+        C['observed_min'] += sum(1 for x in seq if x[0] is not None)
+        C['unknown_min'] += sum(1 for x in seq if x[0] is None)
         C['inside_min'] += sum(1 for x in seq if x[0])
         for i, (x, fl) in enumerate(seq):
             if x is False and not fl and i + 30 < len(seq):
-                C['away_unflagged'] += 1
                 win = [s[0] for s in seq[i + 1:i + 31]]
-                C['arrive_30'] += any(win[q] and win[q + 1] for q in range(len(win) - 1))
+                arrived = any(win[q] and win[q + 1] for q in range(len(win) - 1))
+                if not arrived and any(w is None for w in win):
+                    C['arrival_censored'] += 1          # an unobserved stretch cannot be read as "did not arrive"
+                    continue
+                C['away_unflagged'] += 1
+                C['arrive_30'] += arrived
     best2 = best3 = c2 = c3 = 0
     n = (m1 - m0)
     for i in range(n):
@@ -324,9 +341,11 @@ def built_together(rows):
     days = collections.defaultdict(set)
     n = 0
     for r in rows:
-        if r['k'] != '_build' or r.get('s') != 'success':
+        if r['k'] != '_build':
             continue
         n += 1
+        if r.get('s') != 'success':
+            continue
         f = dict(re.findall(r'(\w+)=(\S+)', r.get('d') or ''))
         days[(f.get('project', '?'), iso(r['t'])[:10])].add(r['bot'])
     return {'rows': n, 'project_days': len(days), 'multi_builder_project_days': sum(1 for v in days.values() if len(v) >= 2)}
@@ -399,7 +418,11 @@ def run_day(a):
         ev = Events.load(paths=f'/var/log/mcai/{pool}-*/skill-*.jsonl*', since=t0, until=t1)
         rows = compact_rows(ev)
         del ev
-        T = {'rows': len(rows), 'bots': len({r['bot'] for r in rows if r.get('bot')})}
+        T = {'rows': len(rows), 'bots': len({r['bot'] for r in rows if r.get('bot')}),
+             # the controls' POPULATIONS (Claude r1 P1-5: a control must fail when its population exists and it sees none)
+             'pop': {'town_deposit_success': sum(1 for r in rows if r['k'] == 'town_deposit' and r.get('s') == 'success'),
+                     'smelt_town_events': sum(1 for r in rows if r['k'] == '_smelt_town'),
+                     'furnace_drain_runs': sum(1 for r in rows if r['k'] == 'furnace_drain')}}
         if not rows:
             res['void'][pool] = 'no skill row in the window'
             continue
@@ -411,9 +434,12 @@ def run_day(a):
         T['furnace'] = dict(furnace_repeats(rows))
         T['built'] = built_together(rows)
         idx = read_index(a.state_dir, pool)
-        T['provenance'] = dict(provenance(idx, t1.timestamp() * 1000)) if idx is not None else None
+        T['provenance'] = dict(provenance(idx, t0.timestamp() * 1000, t1.timestamp() * 1000)) if idx is not None else None
         if idx is None:
             res['void'].setdefault(pool, 'index journal unreadable: provenance VOID')
+        elif T['provenance']['cover_h'] < PROV_MIN_COVER_H:
+            res.setdefault('partial', {})[pool] = f'index journal covers {T["provenance"]["cover_h"]} h of 24 (rotated)'
+
         res['towns'][pool] = T
         del rows
     res['fleet'] = fleet_totals(res)
@@ -424,6 +450,12 @@ def run_day(a):
 def fleet_totals(res):
     F = collections.Counter()
     for T in res['towns'].values():
+        if T.get('provenance') is not None:
+            F['prov_towns'] += 1
+        if T.get('together'):
+            F['together_towns'] += 1
+        for k, v in (T.get('pop') or {}).items():
+            F['pop_' + k] += v
         for k, v in (T.get('provenance') or {}).items():
             F['prov_' + k] += v
         for k, v in T['furnace'].items():
@@ -442,30 +474,44 @@ def fleet_totals(res):
 
 
 def controls(res):
-    """The census's own positive controls -> {name: ok | detail}. A failed control is a DEFECT of the census."""
+    """The census's own positive controls -> {name: {ok, detail}}. A failed control is a DEFECT of the census. Each one
+    requires PRESENCE whenever its population exists (Claude r1 P1-5): a blind reader fails, it never passes on a zero."""
     F = res['fleet']
     out = {}
-    v, c = F.get('prov_xfer_verified', 0), F.get('prov_xfer_through_chain', 0)
-    out['xfer_through_chain'] = {'ok': v == 0 or c == v, 'detail': f'{c} of {v} verified transfers attributed to their own bot'}
-    sm, si = F.get('ov_smelt_town_runs', 0), F.get('ov_smelt_town_start_inside', 0)
-    out['overlap_sweep_sees'] = {'ok': sm < SMELT_CONTROL_MIN_RUNS or si > 0,
-                                 'detail': f'{si} smelt_town overlaps in {sm} runs (checked from {SMELT_CONTROL_MIN_RUNS} runs)'}
-    out['furnace_sessions_parsed'] = {'ok': F.get('furnace_empty', 0) == 0 or F.get('furnace_sessions', 0) > 0,
-                                      'detail': f'{F.get("furnace_sessions", 0)} non-drain sessions with t0/t1'}
-    out['positions_seen'] = {'ok': F.get('together_bot_min', 0) > 0, 'detail': f'{F.get("together_bot_min", 0)} bot-minutes'}
+    v, c, pop = F.get('prov_xfer_verified', 0), F.get('prov_xfer_through_chain', 0), F.get('pop_town_deposit_success', 0)
+    out['xfer_through_chain'] = {'ok': (v > 0 or pop == 0) and c == v,
+                                 'detail': f'{c} of {v} verified transfers attributed to their own bot; '
+                                           f'{pop} successful town_deposit rows (transfers must exist when they do)'}
+    sm, si, ev = F.get('ov_smelt_town_runs', 0), F.get('ov_smelt_town_start_inside', 0), F.get('pop_smelt_town_events', 0)
+    out['overlap_sweep_sees'] = {'ok': (sm > 0 or ev == 0) and (sm < SMELT_CONTROL_MIN_RUNS or si > 0),
+                                 'detail': f'{si} smelt_town overlaps in {sm} runs ({ev} _smelt_town events; overlaps '
+                                           f'required from {SMELT_CONTROL_MIN_RUNS} runs)'}
+    dr = F.get('pop_furnace_drain_runs', 0)
+    out['furnace_rows_parsed'] = {'ok': dr < 100 or (F.get('furnace_empty', 0) > 0 and F.get('furnace_sessions', 0) > 0),
+                                  'detail': f'{F.get("furnace_empty", 0)} empty drains and {F.get("furnace_sessions", 0)} '
+                                            f'non-drain sessions parsed from {dr} drain runs'}
+    obs, tot = F.get('together_observed_min', 0), F.get('together_bot_min', 0)
+    out['positions_seen'] = {'ok': tot > 0 and obs / tot >= 0.5,
+                             'detail': f'{obs} of {tot} bot-minutes observed'}
+    out['provenance_read'] = {'ok': F.get('prov_towns', 0) > 0 or not res['towns'],
+                              'detail': f'{F.get("prov_towns", 0)} of {len(res["towns"])} towns with a readable index'}
     return out
 
 
 def line(res):
     F = res['fleet']
-    n = len(res['towns']) or 1
+    n = F.get('together_towns', 0) or 1
     w = F.get('prov_withdrawn', 0)
-    return (f'coop 24h to {res["window"][1]}: chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of '
-            f'{w} withdrawn ({100 * F.get("prov_other_lb", 0) / max(1, w):.0f}-{100 * F.get("prov_other_ub", 0) / max(1, w):.0f}%); '
+    chests = (f'chests VOID (no readable index)' if not F.get('prov_towns') else
+              f'chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of {w} withdrawn '
+              f'({100 * F.get("prov_other_lb", 0) / max(1, w):.0f}-{100 * F.get("prov_other_ub", 0) / max(1, w):.0f}%) over '
+              f'{F.get("prov_cover_h", 0):.0f} town-h of index')
+    return (f'coop 24h to {res["window"][1]}: {chests}; '
             f'furnace re-found empty {F.get("furnace_peer", 0)} ({F.get("furnace_peer_s", 0) / 3600:.2f} bot-h); '
             f'>=2 together {F.get("together_ge2_min", 0) / n:.0f} min/town-day; multi-builder project-days '
             f'{F.get("built_multi_builder_project_days", 0) if F.get("built_rows") else "idle (no _build rows)"}; '
-            f'controls {"OK" if all(c["ok"] for c in res["controls"].values()) else "FAILED"}; void {len(res["void"])}')
+            f'controls {"OK" if all(c["ok"] for c in res["controls"].values()) else "FAILED"}; void {len(res["void"])}, '
+            f'partial {len(res.get("partial") or {})}')
 
 
 def render(res):
@@ -491,6 +537,8 @@ def render(res):
         L.append(f'  control {k}: {"ok" if c["ok"] else "FAILED"} -- {c["detail"]}')
     for p, why in res['void'].items():
         L.append(f'  VOID {p}: {why}')
+    for p, why in (res.get('partial') or {}).items():
+        L.append(f'  PARTIAL {p}: {why}')
     return '\n'.join(L)
 
 
@@ -511,7 +559,7 @@ def selftest(verbose=True):
     recs = [o('o1', 100, 10), d('op1', 'A', 'pre', 101), d('op1', 'A', 'post', 102), o('o2', 103, 15),
             d('op2', 'B', 'pre', 200), d('op2', 'B', 'post', 201), o('o3', 202, 3),
             {'t': 'xfer', 'id': 'x1', 'k': 'K', 'at': 102, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'o2'}]
-    P = provenance(recs, 10_000)
+    P = provenance(recs, 0, 10_000)
     check('[P] bounds on another bot\'s units (lower, upper, withdrawn)', (P['other_lb'], P['other_ub'], P['withdrawn']),
           (2, 5, 12))
     check('[P] positive control: the verified transfer is its own chain pair', (P['xfer_verified'], P['xfer_through_chain']),
@@ -519,21 +567,43 @@ def selftest(verbose=True):
     # a pair overlapped by two bots' ops, and one by an UNFINISHED op, reads unknown, never misattributed
     recs2 = [o('o1', 100, 10), d('a', 'A', 'pre', 101), d('a', 'A', 'post', 105), d('b', 'B', 'pre', 102),
              d('b', 'B', 'post', 104), o('o2', 106, 4), d('c', 'C', 'pre', 200), o('o3', 300, 2)]
-    P2 = provenance(recs2, 10_000)
+    P2 = provenance(recs2, 0, 10_000)
     check('[P] two bots between one pair -> unknown', P2['pairs_multi_bot'], 1)
     check('[P] an unfinished op (no post) inside its TTL -> unknown', P2['pairs_unfinished_op'], 1)
     check('[P] unknown removals kept, never dropped', P2['unknown_removed'], 8)
     # a held-only op (no pre) is open from -infinity (townindex.mjs openAt)
     recs3 = [o('o1', 130_000, 10), o('o2', 160_000, 6), {'t': 'dirty', 'id': 'h', 'op': 'h', 'k': 'K', 'at': 200_000,
                                                           'bot': 'A', 'phase': 'held'}]
-    check('[P] a missing-pre op covers earlier pairs', provenance(recs3, 10**9)['pairs_unfinished_op'], 1)
+    check('[P] a missing-pre op covers earlier pairs', provenance(recs3, 0, 10**9)['pairs_unfinished_op'], 1)
+    # PRIOR-DAY activity is context, not counted (Codex r1 P1-5): the same journal read from t0 = 150 sees only B's
+    # withdrawal, and its starting stock is the 15 left by A's deposit before t0
+    Pw = provenance(recs, 150, 10_000)
+    check('[P] window start: only in-window changes; the stock at t0 is the base', (Pw['withdrawn'], Pw['other_lb'],
+                                                                                    Pw['xfer_verified']), (12, 0, 0))
+    check('[P] coverage: the journal covers the window from its first record', provenance(recs, 0, 3_600_100)['cover_h'], 1.0)
     # a verified transfer whose chain pair is attributed to ANOTHER bot is a failed control
     bad = [o('o1', 100, 10), d('op', 'B', 'pre', 101), d('op', 'B', 'post', 102), o('o2', 103, 15),
            {'t': 'xfer', 'id': 'x', 'k': 'K', 'at': 102, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'o2'}]
-    Pb = provenance(bad, 10_000)
+    Pb = provenance(bad, 0, 10_000)
+
+    def ctl(**F):
+        return controls({'fleet': F, 'towns': {'x': {}}})
     check('[P] mutant: a transfer attributed to another bot fails the control',
-          controls({'fleet': {'prov_xfer_verified': Pb['xfer_verified'],
-                              'prov_xfer_through_chain': Pb['xfer_through_chain']}})['xfer_through_chain']['ok'], False)
+          ctl(prov_xfer_verified=Pb['xfer_verified'], prov_xfer_through_chain=Pb['xfer_through_chain'],
+              pop_town_deposit_success=5)['xfer_through_chain']['ok'], False)
+    # BLIND-INPUT MUTANTS (Claude r1 P1-5): each control fails when its population exists and the reader saw nothing
+    check('control mutant: no verified transfer while town_deposit succeeded -> FAILED',
+          ctl(pop_town_deposit_success=150)['xfer_through_chain']['ok'], False)
+    check('control mutant: no smelt_town run while _smelt_town events exist -> FAILED',
+          ctl(pop_smelt_town_events=40)['overlap_sweep_sees']['ok'], False)
+    check('control mutant: 2,000 drain runs and no empty drain parsed -> FAILED',
+          ctl(pop_furnace_drain_runs=2000)['furnace_rows_parsed']['ok'], False)
+    check('control mutant: no observed position -> FAILED', ctl(together_bot_min=1440)['positions_seen']['ok'], False)
+    check('control mutant: no readable index -> FAILED', ctl()['provenance_read']['ok'], False)
+    check('controls: a healthy day passes', all(c['ok'] for c in ctl(
+        prov_xfer_verified=88, prov_xfer_through_chain=88, pop_town_deposit_success=150, ov_smelt_town_runs=1646,
+        ov_smelt_town_start_inside=107, pop_smelt_town_events=1646, pop_furnace_drain_runs=2237, furnace_empty=1435,
+        furnace_sessions=795, together_bot_min=1440, together_observed_min=1400, prov_towns=1).values()), True)
     # [O] three smelt_town runs: A 0-100, B 50-150 (starts inside A), C 200-210; drains on two furnaces never overlap
     rows = [{'t': 0, 'bot': 'A', 'k': 'smelt_town', 'dur': 100_000}, {'t': 50, 'bot': 'B', 'k': 'smelt_town', 'dur': 100_000},
             {'t': 200, 'bot': 'C', 'k': 'smelt_town', 'dur': 10_000},
@@ -561,11 +631,40 @@ def selftest(verbose=True):
     C = together(tr, (0, 64, 0), 0, 3600)
     check('[C] together >= 2 (minutes), longest stretch', (C['ge2_min'], C['longest_ge2']), (6, 6))
     check('[C] stays and their median', (C['stays'], C['stay_median_min']), (2, 9.0))
+    check('[C] observed minutes (every bot has a position each minute)', (C['observed_min'], C['unknown_min']), (180, 0))
+    # an UNOBSERVED stretch is censored, never "did not arrive" (Codex r1 P2-7): D seen once, then silent
+    C2 = together([{'t': 59, 'bot': 'D', 'k': '_x', 'p': [300, 64, 0]}], (0, 64, 0), 0, 3600)
+    check('[C] one snapshot: 10 observed minutes, the rest unknown, no arrival read', (C2['observed_min'],
+                                                                                         C2['away_unflagged']), (10, 0))
     # [B] idle until _build rows exist; with two bots on one project-day it counts one multi-builder day
     check('[B] idle instrument', built_together([])['rows'], 0)
     b = [{'t': 86400 * 3, 'bot': 'A', 'k': '_build', 's': 'success', 'd': 'project=workshop seg=wall-N cell=1,2,3'},
          {'t': 86400 * 3 + 60, 'bot': 'B', 'k': '_build', 's': 'success', 'd': 'project=workshop seg=wall-S cell=4,5,6'}]
     check('[B] one multi-builder project-day', built_together(b)['multi_builder_project_days'], 1)
+    # THE FLEETSTATUS LINE (design 6.3 B1): absent, failed and healthy daily files, read by fleetstatus.coop_line
+    fsp = os.path.join(HERE, 'fleetstatus.py')
+    if os.path.exists(fsp):
+        import importlib.util
+        import tempfile
+        spec = importlib.util.spec_from_file_location('fleetstatus_for_test', fsp)
+        try:
+            fsm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(fsm)
+        except Exception as e:                   # noqa: BLE001 -- fleetstatus needs the ES client: test the line if it loads
+            fsm = None
+            if verbose:
+                print(f'  (fleetstatus not importable here: {type(e).__name__}; its line is tested on the host)')
+        if fsm is not None:
+            now = dt.datetime(2026, 10, 24, 3, 0, tzinfo=UTC)
+            with tempfile.TemporaryDirectory() as d:
+                check('fleetstatus: no daily file is an alarm line', fsm.coop_line(now, d).startswith('!!'), True)
+                os.makedirs(os.path.join(d, 'daily'))
+                good = {'window': ['2026-10-23T02:00:00Z', '2026-10-24T02:00:00Z'], 'fleet': {}, 'controls': {'a': {'ok': True}}}
+                json.dump(good, open(os.path.join(d, 'daily', 'a.json'), 'w'))
+                check('fleetstatus: a healthy fresh day is a plain line', fsm.coop_line(now, d).startswith('!!'), False)
+                check('fleetstatus: a 2-day-old file is STALE', 'STALE' in fsm.coop_line(now + dt.timedelta(days=2), d), True)
+                json.dump(dict(good, controls={'a': {'ok': False}}), open(os.path.join(d, 'daily', 'b.json'), 'w'))
+                check('fleetstatus: a failed control is an alarm line', fsm.coop_line(now, d).startswith('!! cooperation census (B1): controls FAILED'), True)
     if fails:
         print('SELFTEST FAILED:')
         for f in fails:
@@ -613,7 +712,7 @@ def main():
             json.dump(res, f, indent=1, sort_keys=True)
         with open(stem + '.txt', 'w') as f:
             f.write(txt + '\n')
-        ok = all(c['ok'] for c in res['controls'].values())
+        ok = all(c['ok'] for c in res['controls'].values()) and bool(res['towns'])
         hb.update(status='ok' if ok else 'control_failed', window=res['window'], void=len(res['void']),
                   controls={k: c['ok'] for k, c in res['controls'].items()})
         return 0 if ok else 1

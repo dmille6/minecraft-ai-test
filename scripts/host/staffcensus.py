@@ -51,13 +51,15 @@ AND its code is running there: the town has at least one bot whose newest mode r
 canary's leftover record, a flag set off, a rollback) is `record_without_code`: reported per slot, never open, never
 assignable. A bot whose current build's spawn rows (SPAWN_MARKERS: every per-spawn `_*_mode` row) are not in view is VOID
 for capability -- unknown, never incapable. Mode rows are written ONCE PER PROCESS, so --tick keeps each bot's newest mode
-row per kind as persistent state (out-dir/capability-state.json); a first tick (or any --window / --report run) seeds it
-by one walk over the mode kinds, bounded to the time since the newest fleet-wide restart in the deploy journal
-(~/canary-journal.jsonl phases promoted / owner-direct / apply-done) minus 1 h, at most 7 days, and never before
-2026-10-08 (estelemetry refuses windows touching 10-07). POSITIVE CONTROL: the same reader on `_townindex_mode`, over the
-bots whose current build has emitted it, must find >= 95% capable (bots spawned < 10 min ago are not yet eligible); a
-shortfall is an ALARM in the heartbeat (`capability_control.alarm`, StaffCensusCapability in check-staffcensus.py), never a
-census void.
+row per kind as persistent state (out-dir/capability-state.json). The SEED is PER BOT: a first tick (or any --window run)
+walks the mode kinds back 1, then 3, then 7 days until every present bot's current build has a spawn row, never past
+7 days or before 2026-10-08 (estelemetry refuses windows touching 10-07); a tick re-walks hourly while any present bot is
+still missing one; an empty walk is never saved. Every mode query is bounded the same way. POSITIVE CONTROL: the same
+reader on `_townindex_mode` over EVERY present bot with a known version (a bot whose version changed < 10 min ago is not
+yet eligible; a VOID bot counts as not capable) must find >= 95% capable; a shortfall, or bots present with none
+eligible, is an ALARM in the heartbeat (`capability_control.alarm`, StaffCensusCapability in check-staffcensus.py), never a
+census void. CAPABILITY IS JUDGED PER MINUTE from each bot's version at that minute: not_capable minutes are not open; VOID
+minutes (and pending minutes where only a VOID bot could have been the free one) leave the project's denominator.
 
 VOID, NOT ZERO. A slot is void when ES holds no document in its 10-minute bucket or no positioned event row in it, when a
 town logged nothing in it (the town roster comes from the pool state dir, so a town silent for the whole window still gets
@@ -390,7 +392,8 @@ CAP_ALARM_SHARE = 0.95
 CAP_GRACE_MS = 10 * MIN_MS
 SEED_FLOOR_MS = ms_of('2026-10-08T00:00:00Z')
 SEED_MAX_MS = 7 * DAY_MS
-RESTART_PHASES = ('promoted', 'owner-direct', 'apply-done')
+SEED_STEPS_MS = (DAY_MS, 3 * DAY_MS, 7 * DAY_MS)     # walk back until every present bot's current build has a spawn row
+RESEED_EVERY_MS = 3600_000                            # a tick re-walks for still-VOID bots at most hourly
 
 
 def mode_kinds(projects=None):
@@ -443,44 +446,60 @@ def town_capability(statuses):
     return 'void' if all(x == 'void' for x in st) else 'not_capable'
 
 
-def capability_control(idx, vers, t):
-    """The positive control: `_townindex_mode` over the bots whose CURRENT build has emitted it (any bot), excluding bots
-    whose newest spawn row is under CAP_GRACE_MS old. -> {eligible, capable, share, alarm}. Pure."""
-    builds = {v for b in idx for tr, k, v, on in idx[b] if k == CONTROL_KIND and tr <= t}
-    elig = cap = 0
+def capability_control(idx, vers, t, changed_at=None):
+    """The positive control (Claude r1 P1-2: it must fail on what it exists to catch). EVERY present bot with a known
+    current version is eligible, except one whose version changed (in the track) under CAP_GRACE_MS ago; a VOID bot
+    (no spawn row of its build in view: a blind or short reader) counts as NOT capable. Every fleet build since townindex-01
+    carries `_townindex_mode`, so a healthy reader reads ~100%. Alarm when the share is < CAP_ALARM_SHARE, or when bots are
+    present and none is eligible (the control could not be evaluated). -> {present, eligible, capable, void, share, alarm}."""
+    changed_at = changed_at or {}
+    present = sum(1 for v in vers.values() if v)
+    elig = cap = void = 0
     for b, v in vers.items():
-        if v not in builds:
-            continue
-        sp = max((tr for tr, k, vv, on in idx.get(b) or () if k in SPAWN_MARKERS and tr <= t), default=None)
-        if sp is None or t - sp < CAP_GRACE_MS:
+        if not v or t - changed_at.get(b, -10**15) < CAP_GRACE_MS:
             continue
         elig += 1
-        cap += bot_capability(idx, v, b, CONTROL_KIND, t) == 'capable'
+        st = bot_capability(idx, v, b, CONTROL_KIND, t)
+        cap += st == 'capable'
+        void += st == 'void'
     share = round(cap / elig, 3) if elig else None
-    return {'eligible': elig, 'capable': cap, 'share': share, 'alarm': bool(elig) and share < CAP_ALARM_SHARE}
+    return {'present': present, 'eligible': elig, 'capable': cap, 'void': void, 'share': share,
+            'alarm': (present > 0 and elig == 0) or (elig > 0 and share < CAP_ALARM_SHARE)}
 
 
-def seed_since(until, journal_path=os.path.expanduser('~/canary-journal.jsonl')):
-    """The seed walk's start: the newest fleet-wide restart in the deploy journal minus 1 h, never more than 7 days back,
-    never before 2026-10-08. -> (ms, why)."""
-    newest = None
-    try:
-        with open(journal_path) as f:
-            for line in f:
-                try:
-                    r = json.loads(line)
-                except ValueError:
-                    continue
-                if r.get('phase') in RESTART_PHASES and r.get('ts'):
-                    t = ms_of(r['ts'])
-                    if t <= until and (newest is None or t > newest):
-                        newest = t
-    except OSError:
-        pass
-    lo = max(until - SEED_MAX_MS, SEED_FLOOR_MS)
-    if newest is None:
-        return lo, 'no fleet-wide restart found in the journal: the 7-day bound'
-    return max(newest - 3600_000, lo), f'the newest fleet-wide restart {iso(newest)} minus 1 h'
+def mode_floor(until):
+    """The earliest instant any mode query may read: 7 days back, never before 2026-10-08 (estelemetry refuses 10-07)."""
+    return max(until - SEED_MAX_MS, SEED_FLOOR_MS)
+
+
+def missing_spawn(idx, vers, t):
+    """Bots whose CURRENT build has no spawn row in view at t -> sorted [bot]. Pure."""
+    out = []
+    for b, v in vers.items():
+        if v and not any(k in SPAWN_MARKERS and vv == v and tr <= t for tr, k, vv, on in idx.get(b) or ()):
+            out.append(b)
+    return sorted(out)
+
+
+def seed_walk(fetch, until, vers, have=(), start=None):
+    """The PER-BOT seed: walk back from `start` (default `until`) in SEED_STEPS_MS steps (bounded by mode_floor(until))
+    until every present bot's current build has a spawn row at or before `until`, counting the rows already in `have`.
+    fetch(since, until) -> rows. -> (new rows, info). Pure apart from fetch."""
+    have = list(have)
+    start = until if start is None else start
+    rows, since = [], start
+    missing = missing_spawn(mode_index(have), vers, until)
+    for step in SEED_STEPS_MS:
+        if not missing:
+            break
+        lo = max(until - step, mode_floor(until))
+        if lo < since:
+            rows += fetch(lo, since)
+            since = lo
+        missing = missing_spawn(mode_index(have + rows), vers, until)
+        if lo <= mode_floor(until):
+            break
+    return rows, {'since': iso(since), 'rows': len(rows), 'missing': missing}
 
 
 def mode_rows(EsEvents, since, until):
@@ -766,18 +785,23 @@ def census(ds, projects=PROJECTS, emit_from=None):
                 op = opened.get(pool)
                 if op is None or op >= end:
                     continue
-                capable_bots = None
+                # B0a: CAPABILITY PER MINUTE, from each of the town's bots' version AT THAT MINUTE (a restart mid-slot
+                # changes only the minutes after it). not_capable minutes are not open (the record's code is not
+                # running); void minutes leave the denominator (unknown is never zero)
+                cap_min = None
                 if cap_idx is not None:
-                    st = {b: bot_capability(cap_idx, v, b, P.mode_kind, end - 1) for b, v in vers.items()}
-                    town_st = town_capability(st.values())
-                    if town_st != 'capable':
-                        # B0a: a record whose code is not running here is never open and never assignable
-                        row.setdefault('capability', {})[P.name] = town_st
-                        if town_st == 'not_capable':
-                            row['projects_open'] = [n for n in row['projects_open'] if n != P.name]
-                            row.setdefault('record_without_code', []).append(P.name)
+                    cap_min = {}
+                    for tm, here, flagged, cur in per_min:
+                        bs = {b: bot_capability(cap_idx, x[5], b, P.mode_kind, tm) for b, x in cur.items() if x[1] == pool}
+                        cap_min[tm] = (town_capability(bs.values()), bs)
+                    sts = [cap_min[tm][0] for tm, *_ in per_min if tm >= op]
+                    if sts and all(x == 'not_capable' for x in sts):
+                        row.setdefault('capability', {})[P.name] = 'not_capable'
+                        row['projects_open'] = [n for n in row['projects_open'] if n != P.name]
+                        row.setdefault('record_without_code', []).append(P.name)
                         continue
-                    capable_bots = {b for b, x in st.items() if x == 'capable'}
+                    if sts and all(x == 'void' for x in sts):
+                        row.setdefault('capability', {})[P.name] = 'void'
                 ev, evt = tl.get(pool, ([], []))
                 bl = builds.get(pool, [])
                 rec = {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0, 'builder_min': 0,
@@ -785,10 +809,19 @@ def census(ds, projects=PROJECTS, emit_from=None):
                        'placed': sum(1 for t in placed.get(pool, []) if s <= t < end),
                        # exact body seconds in the project's skill (a visit is often shorter than the sampled minute)
                        'builder_s': round(sum(max(0, min(e, end) - max(st, s)) for st, e, b in bl) / 1000, 1),
-                       'visits': sum(1 for st, e, b in bl if s <= st < end)}
+                       'visits': sum(1 for st, e, b in bl if s <= st < end), 'cap_void_min': 0, 'rwc_min': 0}
                 for tm, here, flagged, cur in per_min:
                     if tm < op:
                         continue
+                    bs = None
+                    if cap_min is not None:
+                        st_tm, bs = cap_min[tm]
+                        if st_tm == 'not_capable':
+                            rec['rwc_min'] += 1
+                            continue
+                        if st_tm == 'void':
+                            rec['cap_void_min'] += 1
+                            continue
                     rec['open_min'] += 1
                     i = bisect.bisect_right(evt, tm)
                     state, why, need, since = ('unknown', 'no evidence yet', None, None) if not i else \
@@ -804,8 +837,11 @@ def census(ds, projects=PROJECTS, emit_from=None):
                     rec[f'{state}_min'] += 1
                     if state != 'pending':
                         continue
-                    free = [b for b in here if b not in flagged and b not in active
-                            and (capable_bots is None or b in capable_bots)]
+                    free = [b for b in here if b not in flagged and b not in active]
+                    void_free = []
+                    if bs is not None:
+                        void_free = [b for b in free if bs.get(b) == 'void']
+                        free = [b for b in free if bs.get(b) == 'capable']
                     holders = [b for b in free if P.has_material(cur[b][4], need)]
                     ready = []
                     for b in holders:
@@ -829,6 +865,10 @@ def census(ds, projects=PROJECTS, emit_from=None):
                     else:
                         reason = 'assignable'
                         rec['assignable_min'] += 1
+                    if reason not in ('assignable', 'cap_full', 'nobody_at_town', 'one_at_town') and void_free:
+                        # a bot whose capability is unknown might have been the free one: not a zero, a void minute
+                        reason = 'capability_void'
+                        rec['cap_void_min'] += 1
                     rec['blocked'][reason] += 1
                     rec['demand_why'] = why
                 rec['blocked'] = dict(rec['blocked'])
@@ -915,12 +955,14 @@ def summarize(rows, projects=PROJECTS):
         for name, p in (r.get('projects') or {}).items():
             Q = T['projects'].setdefault(name, {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0,
                                                 'builder_min': 0, 'assignable_min': 0, 'placed': 0, 'blocked': Counter(),
-                                                'cap': p.get('cap'), 'builder_s': 0.0, 'visits': 0})
+                                                'cap': p.get('cap'), 'builder_s': 0.0, 'visits': 0, 'cap_void_min': 0,
+                                                'rwc_min': 0})
             for k in ('open_min', 'pending_min', 'none_min', 'unknown_min', 'builder_min', 'assignable_min', 'placed',
-                      'builder_s', 'visits'):
+                      'builder_s', 'visits', 'cap_void_min', 'rwc_min'):
                 Q[k] += p.get(k, 0)
             Q['blocked'].update(p.get('blocked') or {})
             blocks[name][(r['town'], blk)][0] += p.get('assignable_min', 0)
+            blocks[name][(r['town'], blk)][1] += p.get('cap_void_min', 0)
     win_h = max([T['slots'] * 5 / 60 for T in towns.values()] or [0])
     out = {'towns': {}, 'projects': {}, 'window_h': round(win_h, 2),
            'record_without_code_slots': {t: dict(c) for t, c in sorted(rwc.items())},
@@ -930,7 +972,7 @@ def summarize(rows, projects=PROJECTS):
             towns[t]['projects'].setdefault(name, {'open_min': 0, 'pending_min': 0, 'none_min': 0, 'unknown_min': 0,
                                                    'builder_min': 0, 'assignable_min': 0, 'placed': 0,
                                                    'blocked': Counter(), 'cap': caps.get(name), 'builder_s': 0.0,
-                                                   'visits': 0})
+                                                   'visits': 0, 'cap_void_min': 0, 'rwc_min': 0})
     # EVERY town must be valid, not the fleet on average: one never-written town among eleven good ones is 92% of the
     # fleet and 0% of itself (Codex r3)
     out['min_town_valid_share'] = round(min((T['slots'] - T['void_slots']) / T['slots'] for T in towns.values()
@@ -950,9 +992,12 @@ def summarize(rows, projects=PROJECTS):
                                                   'visits': 0, 'town_names': []})
             A['towns'] += 1
             A['town_names'].append(t)
-            A['valid_h'] += valid_h
+            # B0a: minutes whose capability is VOID leave THIS project's denominator (unknown is never zero)
+            pvh = max(0.0, valid_h - Q.get('cap_void_min', 0) / 60)
+            A['valid_h'] += pvh
+            A['cap_void_h'] = round(A.get('cap_void_h', 0.0) + Q.get('cap_void_min', 0) / 60, 2)
             # the daily rate is per town over the hours the census could SEE (void hours leave the denominator)
-            A['per_day'] += (Q['assignable_min'] / 60) * 24 / valid_h if valid_h else 0.0
+            A['per_day'] += (Q['assignable_min'] / 60) * 24 / pvh if pvh else 0.0
             A['builder_s'] = round(A['builder_s'] + Q['builder_s'], 1)
             A['visits'] += Q['visits']
             for k in ('open_min', 'pending_min', 'builder_min', 'assignable_min', 'placed'):
@@ -968,12 +1013,13 @@ def summarize(rows, projects=PROJECTS):
         A['valid_share'] = round(A['valid_h'] / (A['towns'] * win_h), 3) if win_h and A['towns'] else 0.0
         A['valid_h'] = round(A['valid_h'], 2)
         A['per_day_by_24h_block'] = []
-        tb = [valid_slots[(t, blk)] / 288 for t in A['town_names'] for blk in range(nblocks)]
+        tb = [max(0.0, valid_slots[(t, blk)] * 5 - blocks[name][(t, blk)][1]) / 1440 for t in A['town_names']
+              for blk in range(nblocks)]
         A['min_town_block_valid_share'] = round(min(tb), 3) if tb else 0.0
         for blk in range(nblocks):
             rate = 0.0
             for t in A['town_names']:
-                vh = valid_slots[(t, blk)] * 5 / 60
+                vh = max(0.0, valid_slots[(t, blk)] * 5 - blocks[name][(t, blk)][1]) / 60
                 rate += (blocks[name][(t, blk)][0] / 60) * 24 / vh if vh else 0.0
             A['per_day_by_24h_block'].append(round(rate, 3))
         multi = (A['cap'] or 1) >= 2
@@ -1117,19 +1163,11 @@ def parse_track(agg):
     return out
 
 
-def dataset_from_es(since, until, state_dir, log=print, cap_state=None):
+def dataset_from_es(since, until, state_dir, log=print, cap_state=None, reseed_due=None):
     """Everything census() needs, read from ES (estelemetry) and the pool state dir. Read only.
     cap_state: the persistent newest-mode-row state (a list), or None to seed it by the bounded walk (B0a)."""
     from lib.estelemetry import EsEvents, ZeroLooksWrong
     t0 = time.time()
-    seeded = None
-    if cap_state is None:
-        s0, why = seed_since(until)
-        cap_state = mode_rows(EsEvents, min(s0, since - PROJECT_LOOKBACK_MS), until)
-        seeded = {'since': iso(min(s0, since - PROJECT_LOOKBACK_MS)), 'why': why}
-        log(f'  capability seed walk from {iso(s0)} ({why}): {len(cap_state)} mode rows')
-    fresh = mode_rows(EsEvents, since - PROJECT_LOOKBACK_MS, until)
-    modes = newest_per_kind(list(cap_state) + fresh) + fresh
     whole = EsEvents.load('skill', since=iso(since), until=iso(until))
     total, bots = whole.total(), whole.bots_present()
     if not total:
@@ -1194,16 +1232,34 @@ def dataset_from_es(since, until, state_dir, log=print, cap_state=None):
     journal = {p: read_journal(state_dir, p, homes[p]) for p in pools}
     log(f'  rows: flags {len(flags)}, job rows {len(jobs)}, home rows {len(homes_rows)}, project rows {len(prows)} '
         f'({time.time() - t0:.0f} s)')
-    idx = mode_index(modes)
-    vers = {}
+    # B0a: MODE ROWS, read after the track so the seed knows which bots and builds it must cover
+    vers, changed_at = {}, {}
     for m in sorted(track):
         for b, v in track[m].items():
             if v.get('ver'):
+                if b in vers and vers[b] != v['ver']:
+                    changed_at[b] = m
                 vers[b] = v['ver']
-    control = capability_control(idx, vers, until)
+    fetch = lambda a, b: mode_rows(EsEvents, max(a, mode_floor(until)), b)   # noqa: E731 -- every query bounded
+    fresh = fetch(since - PROJECT_LOOKBACK_MS, until)
+    seeded = None
+    state = list(cap_state or ())
+    need = missing_spawn(mode_index(state + fresh), vers, until)
+    if cap_state is None or (need and (reseed_due if reseed_due is not None else True)):
+        extra, seeded = seed_walk(fetch, until, vers, have=state + fresh,
+                                  start=max(since - PROJECT_LOOKBACK_MS, mode_floor(until)))
+        state += extra
+        seeded['at'] = iso(until)
+        log(f'  capability seed walk back to {seeded["since"]}: {seeded["rows"]} rows; still missing {len(seeded["missing"])}')
+    # FULL history for the census (a persisted predecessor must survive a fresh row of the same kind); compacted only
+    # when saved
+    modes = sorted(set(state) | set(fresh))
+    idx = mode_index(modes)
+    control = capability_control(idx, vers, until, changed_at)
     return {'since': since, 'until': until, 'towns': homes, 'track': track, 'void': void, 'flags': flags, 'jobs': jobs,
             'prows': prows, 'records': recs, 'leases': leases, 'journal': journal, 'home_rows': homes_rows,
             'modes': modes, 'cap_seeded': seeded, 'capability_control': control,
+            'cap_missing': missing_spawn(idx, vers, until),
             'meta': {'docs': total, 'bots': len(bots), 'kinds_present': {k: names.get(k, 0) for k in
                                                                          sorted(set(pkinds) | set(jnames))},
                      'coverage_bot_h': cov['bot_hours'], 'empty_10min': cov['empty_10min'], 'caveats': whole.caveats,
@@ -1626,28 +1682,64 @@ def selftest(verbose=True):
     Sv = summarize(census(dsv, projects=(TreeFarm(),)), projects=(TreeFarm(),))
     check('capability void: counted as void, not as record_without_code',
           (Sv['capability_void_slots'].get('fx', {}).get('treefarm'), Sv['record_without_code_slots'].get('fx')), (12, None))
-    # the POSITIVE CONTROL (an alarm, never a void)
+    # the POSITIVE CONTROL (an alarm, never a void): every present bot with a known version is eligible; VOID = not capable
     ci = idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True),
                 (T0c, 'b', '_townindex_mode', V1, False), (T0c, 'b', '_cobblecap_mode', V1, True),
-                (T0c + 5 * 60_000, 'c', '_cobblecap_mode', V1, True), (T0c, 'd', '_cobblecap_mode', V2, True))
-    cc = capability_control(ci, {'a': V1, 'b': V1, 'c': V1, 'd': V2}, T0c + 11 * 60_000)
-    check('positive control: d (a build that never emitted it) and c (spawned 6 min ago) are not eligible; b off -> alarm',
-          (cc['eligible'], cc['capable'], cc['alarm']), (2, 1, True))
+                (T0c, 'd', '_cobblecap_mode', V2, True))
+    cc = capability_control(ci, {'a': V1, 'b': V1, 'c': V1, 'd': V2}, T0c + 11 * 60_000, changed_at={'c': T0c + 6 * 60_000})
+    check('positive control: c changed version 5 min ago (not eligible); b off, d a build without it -> 1 of 3, alarm',
+          (cc['eligible'], cc['capable'], cc['void'], cc['alarm']), (3, 1, 0, True))
+    check('positive control: a bot with no spawn row of its build in view counts VOID and not capable',
+          capability_control(ci, {'a': V1, 'e': V1}, T0c + 11 * 60_000)['void'], 1)
     check('positive control: all capable -> no alarm',
           capability_control(idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True)),
                              {'a': V1}, T0c + 11 * 60_000)['alarm'], False)
-    # the SEED BOUND (deploy journal; 7 days; never before 10-08)
-    import tempfile
-    with tempfile.NamedTemporaryFile('w', suffix='.jsonl', delete=False) as tf:
-        tf.write(json.dumps({'ts': '2026-10-23T08:05:35Z', 'phase': 'promoted'}) + '\n')
-        tf.write(json.dumps({'ts': '2026-10-23T09:00:00Z', 'phase': 'read-180'}) + '\n')
-        jp = tf.name
-    u = ms_of('2026-10-23T14:00:00Z')
-    check('seed bound: the newest fleet-wide restart minus 1 h', iso(seed_since(u, jp)[0]), '2026-10-23T07:05:35Z')
-    check('seed bound: no journal -> 7 days, never before 2026-10-08',
-          (iso(seed_since(u, '/nonexistent')[0]), iso(seed_since(ms_of('2026-10-10T00:00:00Z'), '/nonexistent')[0])),
-          ('2026-10-16T14:00:00Z', '2026-10-08T00:00:00Z'))
-    os.unlink(jp)
+    check('positive control MUTANT: an EMPTY reader (no mode rows) alarms, never reads healthy',
+          capability_control(idx_of(), {'a': V1, 'b': V1}, T0c)['alarm'], True)
+    check('positive control MUTANT: a SHORT seed (half the bots VOID) alarms',
+          capability_control(idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True)),
+                             {'a': V1, 'b': V1}, T0c + 1)['alarm'], True)
+    check('positive control: bots present but none eligible (every version just changed) alarms',
+          capability_control(idx_of(), {'a': V1}, T0c, changed_at={'a': T0c})['alarm'], True)
+    # the SEED WALK is per bot: back 1, 3, 7 days until every present bot's current build has a spawn row
+    calls = []
+
+    def fetch(lo, hi, rows=((T0c - 2 * DAY_MS, 'old', '_cobblecap_mode', V1, True),
+                            (T0c - 1000, 'new', '_cobblecap_mode', V1, True))):
+        calls.append((lo, hi))
+        return [r for r in rows if lo <= r[0] < hi]
+    got, info = seed_walk(fetch, T0c, {'old': V1, 'new': V1})
+    check('seed walk: one day misses the bot that spawned 2 days ago, three days finds it',
+          (len(calls), info['missing'], len(got)), (2, [], 2))
+    calls.clear()
+    got, info = seed_walk(fetch, T0c, {'gone': V1})
+    check('seed walk: a bot never found stops at the 7-day bound and is reported missing (VOID, never incapable)',
+          (len(calls), info['missing'], iso(ms_of(info['since']))), (3, ['gone'], iso(T0c - 7 * DAY_MS)))
+    check('seed walk: never before 2026-10-08', iso(mode_floor(ms_of('2026-10-10T00:00:00Z'))), '2026-10-08T00:00:00Z')
+    # FULL HISTORY (Codex r1 P2-2): an old capable state row, then a fresh restart with the flag off: a minute BEFORE the
+    # restart still reads capable
+    hist = mode_index(sorted({(T0c, 'b', '_cobblecap_mode', V1, True), (T0c, 'b', '_treefarm_mode', V1, True)} |
+                             {(T0c + 9e6, 'b', '_cobblecap_mode', V1, True), (T0c + 9e6, 'b', '_treefarm_mode', V1, False)}))
+    check('state + fresh: a minute before the restart is capable, after it not',
+          (bot_capability(hist, V1, 'b', '_treefarm_mode', T0c + 1e6), bot_capability(hist, V1, 'b', '_treefarm_mode', T0c + 1e7)),
+          ('capable', 'not_capable'))
+    # VOID LEAVES THE DENOMINATOR (Claude r1 P1-3): every bot VOID -> no valid project hours (not 0 town-h/day at 100%)
+    Sv2 = summarize(census(with_modes(fixture(), ver=V2), projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('every bot VOID: the project has no valid hours, its share is 0, the gate cannot read a zero',
+          (Sv2['projects']['treefarm']['valid_h'], Sv2['projects']['treefarm']['valid_share']), (0.0, 0.0))
+    # only fx-A VOID (its build's spawn row is not in view): minutes where A was the only possible free holder are
+    # capability_void, and they leave the denominator
+    dsa = with_modes(fixture())
+    dsa['modes'] = [m for m in dsa['modes'] if m[1] != 'fx-A']
+    qa = _tf(dsa)['towns']['fx']['projects']['treefarm']
+    # (B, capable, is still assignable on its own: the same 10 minutes as the flagged-holder fixture below, ds6)
+    check('one bot VOID: its would-be minutes are capability_void, never no_material or a zero; B still counts',
+          (qa['assignable_min'], qa['blocked'].get('capability_void', 0) > 0, qa['blocked'].get('no_material:sapling', 0)),
+          (10, True, 0))
+    Sa = summarize(census(dsa, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('one bot VOID: those minutes leave the project\'s valid hours',
+          round(Sa['projects']['treefarm']['valid_h'] + qa['cap_void_min'] / 60, 2), 1.0)
+    check('every project adapter declares its mode row', all(P.mode_kind for P in PROJECTS), True)
     check('state keeps each bot\'s newest row per kind',
           newest_per_kind([(1, 'b', 'k', V1, True), (5, 'b', 'k', V1, False), (3, 'c', 'k', V1, True)]),
           [(3, 'c', 'k', V1, True), (5, 'b', 'k', V1, False)])
@@ -1657,7 +1749,8 @@ def selftest(verbose=True):
 
     def hb(at, st='ok', newest='2026-10-19T11:50:00Z', n=12, void=0):
         return json.dumps({'at': at, 'mode': 'tick', 'status': st, 'newest_slot': newest, 'slots_written': n,
-                           'void_rows': void})
+                           'void_rows': void, 'capability_control': {'present': 60, 'eligible': 60, 'capable': 60,
+                                                                     'void': 0, 'share': 1.0, 'alarm': False}})
     check('checker: fresh measuring tick is healthy', chk.assess([hb('2026-10-19T11:58:00Z')], now)[0], [])
     a = chk.assess([hb('2026-10-19T11:20:00Z', newest='2026-10-19T11:10:00Z')], now)[0]
     check('checker: 40-min-old tick is stale', any(x.startswith('StaffCensusStale: the newest tick is') for x in a), True)
@@ -1679,6 +1772,11 @@ def selftest(verbose=True):
         'eligible': 60, 'capable': 40, 'share': 0.667, 'alarm': True}))], now)[0]
     check('checker: a capability-control shortfall is an alarm (StaffCensusCapability)',
           any(x.startswith('StaffCensusCapability') for x in a), True)
+    a = chk.assess([json.dumps({'at': '2026-10-19T11:59:00Z', 'mode': 'window', 'status': 'ok'})], now)[0]
+    a = chk.assess([json.dumps({k: v for k, v in json.loads(hb('2026-10-19T11:58:00Z')).items()
+                                if k != 'capability_control'})], now)[0]
+    check('checker: a measuring tick WITHOUT a capability control alarms', any(x.startswith('StaffCensusCapability')
+                                                                               for x in a), True)
     a = chk.assess([json.dumps({'at': '2026-10-19T11:59:00Z', 'mode': 'window', 'status': 'ok'})], now)[0]
     check('checker: an ad-hoc window run does not count as the standing census',
           bool(a) and a[0].startswith('StaffCensusMissing'), True)
@@ -1884,16 +1982,18 @@ def run_tick(a):
                 'note': 'no new complete slot'}
     # load from start - CARRY_MS so the position carry is warm; write only the new slots
     state, seeded = load_cap_state(a.out_dir)
-    ds = dataset_from_es(start - CARRY_MS, end, a.state_dir, log=lambda *x: None, cap_state=state)
+    due = not seeded or not seeded.get('at') or end - ms_of(seeded['at']) >= RESEED_EVERY_MS
+    ds = dataset_from_es(start - CARRY_MS, end, a.state_dir, log=lambda *x: None, cap_state=state, reseed_due=due)
     rows = census(ds, emit_from=start)
     write_slots(a.out_dir, rows)
-    save_cap_state(a.out_dir, ds['modes'], ds['cap_seeded'] or seeded)
+    if ds['modes']:                      # NEVER save an empty seed (an ES gap must not freeze every bot VOID)
+        save_cap_state(a.out_dir, ds['modes'], ds['cap_seeded'] or seeded)
     void = sum(1 for r in rows if r.get('void'))
     return {'status': 'ok' if void < len(rows) else 'void', 'slots_written': len(rows), 'void_rows': void,
             'towns': len(ds['towns']), 'window': [iso(start), iso(end)], 'newest_slot': iso(end - SLOT_MS),
             'es_docs': ds['meta']['docs'], 'skipped_left_void': skipped, 'not_in_roster': ds['meta']['not_in_roster'],
             'journal_missing': ds['meta']['journal_missing'], 'record_errors': len(ds['meta']['record_errors']),
-            'capability_control': ds['capability_control'],
+            'capability_control': ds['capability_control'], 'capability_missing_spawn': len(ds['cap_missing']),
             'record_without_code': sorted({f'{r["town"]}:{n}' for r in rows for n in r.get('record_without_code') or []})}
 
 

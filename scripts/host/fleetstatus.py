@@ -119,6 +119,40 @@ def frontier_line(now, path=None):
         return f'!! frontier census (E0): UNREADABLE heartbeat ({type(e).__name__}: {str(e)[:80]}) at {p}'
 
 
+# >>> coop_line (installed by patch-fleetstatus-coop.py)
+# COOPERATION CENSUS (B1, cooperation-tier design r9.1 6.3): coopread.py --day runs daily from mike's crontab and writes
+# ~/coopread/out/daily/<until>.json. Its line opens every report: stale (> 30 h), a failed control, or no file is '!! '.
+COOP_DIR = '~/coopread/out'
+COOP_STALE = dt.timedelta(hours=30)
+
+
+def coop_line(now, out_dir=None):
+    """One header line for the daily cooperation census. NEVER raises."""
+    d = os.path.expanduser(out_dir or COOP_DIR)
+    try:
+        fs = sorted(f for f in os.listdir(os.path.join(d, 'daily')) if f.endswith('.json'))
+        if not fs:
+            raise FileNotFoundError('no daily file')
+        with open(os.path.join(d, 'daily', fs[-1])) as fh:
+            res = json.load(fh)
+        end = _ts(res['window'][1])
+        F, C = res.get('fleet') or {}, res.get('controls') or {}
+        bad = [k for k, c in C.items() if not c.get('ok')]
+        age = now - end
+        w = F.get('prov_withdrawn', 0)
+        what = (f'chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of {w} withdrawn; furnace '
+                f're-found empty {F.get("furnace_peer", 0)}; multi-builder project-days '
+                f'{F.get("built_multi_builder_project_days", 0) if F.get("built_rows") else "idle"}; void {len(res.get("void") or {})}')
+        if bad or age > COOP_STALE or not C:
+            why = (f'controls FAILED {bad}' if bad else 'no controls' if not C else '') + \
+                  (f' STALE {age.total_seconds() / 3600:.0f} h' if age > COOP_STALE else '')
+            return f'!! cooperation census (B1): {why.strip()} -- {what}; read {d}'
+        return f'cooperation census (B1): {age.total_seconds() / 3600:.0f} h old, {what}'
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! cooperation census (B1): NO DAILY FILE ({type(e).__name__}) in {d} -- not a quiet census, an absent one'
+# <<< coop_line
+
+
 def _frontier_line(now, p):
     try:
         with open(p) as fh:
@@ -448,6 +482,8 @@ def show(rep):
         print(rep['opsaudit'])
     if rep.get('frontier'):
         print(rep['frontier'])
+    if rep.get('coop'):
+        print(rep['coop'])
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -496,7 +532,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'coop': coop_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
