@@ -379,7 +379,7 @@ await ta('WIRED: hook (b) asks wading BEFORE taking the body; both stand-asides;
   const g = code.indexOf("const g = await takeBody(bot, runner, 'marooned', PRIORITY.escape)")
   assert.ok(w > 0 && g > w, 'wading is asked before the grant')
   assert.ok(/longEnough && !poolEscaping &&/.test(code), 'the stranded ladder stands aside while a firing runs')
-  assert.ok(/if \(!pocketing && !poolEscaping\) \{/.test(code), 'the float hold stands aside while a firing runs')
+  assert.ok(/if \(!pocketing && !poolEscaping && !dangerMovingNow\(\)\) \{/.test(code), 'the float hold stands aside while a firing runs (and, lavastep-01, while a danger move holds the body)')
   assert.ok(/resv = runner\.reserve\('poolescape', 20_000, 'poolescape'\)/.test(code) && /runner\.releaseReservation\(resv\.gen\)/.test(code))
   assert.ok(/alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current/.test(code))
   // Claude code r2 P2 / P3, Codex code r2 P2: never over another reservation; kept alive on a timer; the cancelled skill unwinds first
