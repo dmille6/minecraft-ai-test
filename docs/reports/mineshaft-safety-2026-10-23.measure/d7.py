@@ -14,6 +14,7 @@ def P(t):
     return dt.datetime.fromisoformat(t.replace('Z', '+00:00')).timestamp()
 
 
+EVENT = lambda r: (r.get('trigger') == 'reflex' and (r.get('skill', {}).get('name') or '').startswith('_'))
 LAVA = lambda d: cls(d) in ('lava', 'lava-fall', 'magma')
 SEEN = ('_lava_corridor', '_explore_blind_step_refused', '_lava_adjacent_no_retreat')   # danger_block rows mean IN or OVER lava already: excluded
 tab = collections.defaultdict(C)
@@ -42,7 +43,7 @@ for x in X:
                 dig = True
         if nm in ('_mine_dig', '_dig_approach', '_mine_stair_step_failed') and dtt <= 30:
             dig = True
-        h = (r.get('bot') or {}).get('health')
+        h = (r.get('bot') or {}).get('health') if EVENT(r) else None   # r3: event rows only (a skill row's snapshot is its END)
         if h is not None and dtt <= 15:
             if h >= 20:
                 full_seen = True; first_hurt = None
@@ -67,14 +68,14 @@ for d in deaths:
 eps = []; cur = None
 for r in sorted(DG['_reflex_danger_block'], key=lambda r: (r['bot']['name'], r['@timestamp'])):
     b = r['bot']['name']; t = P(r['@timestamp'])
-    if cur and cur['bot'] == b and t - cur['last'] <= 30:
+    if cur and cur['bot'] == b and t - cur['last'] <= 30 and not any(cur['last'] < ft <= t for ft in fire[b]):
         cur['last'] = t; continue
     cur = {'bot': b, 'first': t, 'last': t, 'd0': r['skill'].get('detail')}
     eps.append(cur)
 t2 = C()
 for e in eps:
     k = 'feet in a DANGER block' if e['d0'] in ('lava', 'magma_block', 'fire', 'soul_fire', 'campfire') else (
-        'feet bubble_column (DANGER block below)' if e['d0'] == 'bubble_column' else 'feet air/cave_air (DANGER block below)')
+        'feet bubble_column (DANGER block below)' if e['d0'] == 'bubble_column' else ('feet air/cave_air (DANGER block below)' if e['d0'] in ('air', 'cave_air') else 'UNRECOGNISED detail ' + str(e['d0'])))
     died = any(e['first'] <= ft <= e['last'] + 20 for ft in fire[e['bot']])
     t2[(k, died)] += 1
 print('danger episodes (death within first..last+20 s):', dict(t2))
@@ -94,7 +95,7 @@ for k, n in E['depth_avg_y_by8'].items():
 pre = collections.defaultdict(C)
 for x in X:
     d = x['death']; t = P(d['@timestamp'])
-    ys = [(t - P(r['@timestamp']), r['bot']['pos']['y']) for r in x['ctx'] if (r.get('bot') or {}).get('pos') and 30 <= t - P(r['@timestamp']) <= 60]
+    ys = [(t - P(r['@timestamp']), r['bot']['pos']['y']) for r in x['ctx'] if EVENT(r) and (r.get('bot') or {}).get('pos') and 30 <= t - P(r['@timestamp']) <= 60]
     yb = band(ys[-1][1]) if ys else 'no position 30-60 s before'
     g = 'lava' if LAVA(d) else cls(d)
     pre[yb][g] += 1; pre[yb]['ALL'] += 1

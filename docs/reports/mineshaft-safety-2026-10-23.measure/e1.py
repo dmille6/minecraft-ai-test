@@ -66,7 +66,7 @@ for e in eps:
     unr = len(within(UNR, b, e['first'], e['last'] + 60))
     died = [d for t, d in DE.get(b, []) if e['first'] <= t <= e['last'] + 600]
     resc = len(within(WR, b, e['first'], e['last'] + 60))
-    out = ('died ' + died[0]['skill']['fail_class']) if died else ('gave up (unrecoverable)' if unr else 'cleared')
+    out = ('died ' + died[0]['skill']['fail_class']) if died else ('gave up (unrecoverable)' if unr else 'no death or give-up recorded')
     dbin = '1 firing' if e['n'] == 1 else ('<=2 min' if dur <= 120 else ('2-10 min' if dur <= 600 else ('10-60 min' if dur <= 3600 else '>1 h')))
     e.update(cause=cause, depth=depth, dur=dur, out=out, dbin=dbin)
     cgrp = cause.split(':')[0]
@@ -85,7 +85,7 @@ for k, v in tab.items():
     for kk, vv in sorted(v.items(), key=lambda kv: -kv[1])[:30]:
         print(f'  {vv:6} {kk}')
 tot = sum(e['dur'] for e in eps)
-print('\nsum of episode spans (lower bound on time entombed): %.1f bot-h of 13440 (%.2f%%)' % (tot / 3600, 100 * tot / 3600 / 13440))
+print('\nsum of episode spans (NOT a lower bound on time entombed: spans can include intervening activity): %.1f bot-h of 13440 (%.2f%%)' % (tot / 3600, 100 * tot / 3600 / 13440))
 for k in sorted(dur_by, key=lambda k: -dur_by[k]):
     print(f'  {k:28} {n_by[k]:6} eps  {dur_by[k]/3600:7.1f} h')
 long = sorted(eps, key=lambda e: -e['dur'])[:15]

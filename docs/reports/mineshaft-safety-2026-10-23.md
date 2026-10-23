@@ -1,4 +1,4 @@
-# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r2)
+# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r3)
 
 OWNER 2026-10-23 ~12:40Z: "mineshaft safety (lava + entombment underground) -> diamonds -> enchanting". Earlier
 owner decision (10-19): "diamond after mineshaft safety". The owner answered M7-M10 at ~13:30Z (section 8).
@@ -14,7 +14,16 @@ placebo-a at 12:17Z, during this measurement. Its read belongs to the operator l
 canary. The 7-day window does include those two pools, and their last 2 h of rows ran the canary build. indexsearch
 changes a town-index search and touches no movement or mining path. That is a judgement, not a measured exclusion.
 
-**r2** takes in the r1 reviews. Codex returned CHANGE with 11 P1; Claude returned CHANGE with 6 P1. Section 13 has the
+**r3** takes in the r2 reviews: Codex CHANGE (8 P1), Claude CHANGE (5 P1).
+- F1 gains an in-flight body flag, exhaustive cases, executable steps and a seal for replaceable cells only.
+- F2 moves to the arm, is throttled, and needs an open component.
+- F4 requires reversible steps.
+- F6 becomes the town's two-lane, reserved, lined deep stair, for leaseholders only.
+- The lease separates work expiry from evacuation and drops the stair mutex.
+- Every gated action logs its own inputs.
+- Measurements use event-row timing.
+
+**r2** took in the r1 reviews. Codex returned CHANGE with 11 P1; Claude returned CHANGE with 6 P1. Section 13 has the
 record. The main changes:
 - F1 is now a bounded, verified move sequence with no trail and no open-ended hold.
 - F2 compares against the bot's own recent free cell instead of a room-size rule.
@@ -35,12 +44,14 @@ record. The main changes:
      3 s before death. In 65 the named cell was within 3 blocks of where it died; in 44 of those, 10 s or more before.
    - **Idle at death.** 81 were "idle at the moment of death": between skills, after a movement skill was refused or
      aborted beside the lava.
-   - **Not digging.** 1 died while `mine` was running. At most 16 had any mine or gather executing in the last 30 s.
+   - **Not digging.** 1 died while `mine` was running. 16 had a mine or gather executing in the last 30 s. The context
+     is 150 s, so that is a lower bound on dig exposure, not a cap.
    - **The danger reflex's blind sprint.** 67 of the 84 deaths came during or within 20 s of a danger-block episode,
      which is the reflex that calls `escape()`. `escape()` is a blind 1.5 s sprint-jump forward, in whatever
      direction the bot faces (reflex.mjs:5948).
    - **How often episodes kill.** An episode that starts with dry feet over a DANGER block below ended in a lava death
-     31 times out of 303 (10%). One that starts with the feet already in lava did so 32 times out of 65 (49%).
+     31 times out of 303 (10%). One that starts with the feet already in lava did so 32 times out of 74 (43%).
+     Episodes split at deaths.
    - **The claim is association, not proof** that the sprint is the killer. Fix F1 replaces it with a verified move.
 2. **"Entombed" fires on ordinary dug geometry, at a large cost.** There were 87,090 `_entombed` rows in 7 days, on
    all 80 bots.
@@ -64,18 +75,18 @@ record. The main changes:
      bot's own walkable stair behind it.
    - **No diamond goal.** There is no diamond rung.
 4. **Deep is lethal per hour.** The bottom band, y −64..−33, has 39 bot-h of exposure.
-   - **The rate.** It holds 15 deaths by death position, or 9 by the bot's position 30-60 s before death, all of them
-     lava. That is 23-39 deaths per 100 bot-h, against about 1 at the surface.
+   - **The rate.** It holds 15 deaths by death position (14 of them lava), or 9 by the bot's event-row position 30-60 s
+     before death (all 9 lava). That is 23-39 deaths per 100 bot-h, against about 1 at the surface.
    - **Caveat.** The exposure proxy is coarse, and one world (placebo-a) holds 10 of the 15.
-   - **The consequence.** The diamond tier waits for F1, F4 and F6. M8's cap of one or two deep miners per town is the
-     right bound on exposure.
+   - **The consequence.** The diamond tier waits for F1 and F4, and it ships with F6. M8's cap of one or two deep
+     miners per town is the right bound on exposure.
 5. **The safe descent built here follows M7 and M9.**
    - **The stair.** A 1-wide, 3-high staircase. Before every dig, placement and move, every opened cell has all six
      faces read, and the cells beyond any open face. Unknown counts as unsafe.
    - **Lava.** Lava visible from an open cell is sealed with a placed, server-witnessed block. Lava hidden behind
      unopened stone is never opened into; the stair turns or stops. There are no water buckets.
-   - **The way home.** The stair is recorded and certified as the walkable way home. The exit contract credits it
-     only through a deep-miner lease.
+   - **The way home.** It is one town stair: two lanes, lined and reserved like the shaft. It is certified as the
+     walkable way home, and the exit contract credits it only for a deep-miner leaseholder.
    - **Branches.** Branch tunnels run at feet y=−53, above the generated lava band.
 
 **Ordered fixes:**
@@ -86,12 +97,11 @@ record. The main changes:
 | 2 | F2 `tombexit-01` | entombed only if the bot's recent free cell is not reachable on foot | 2 candidate (after Paper) |
 | 3 | F5a `lavatarget-01` | explore-toward-known skips iron targets beside lava the bot has seen | 2 candidate |
 | 4 | F4 `minelava-01` | `mine` reads six faces, seals visible lava, never opens into hidden lava, no blind push, deterministic in-call return | 3 |
-| 5 | F6 `deepstair-01` | certified own-stair return route, with credit gated by a lease below y=0 | 3 |
-| 6 | F5b `lavasight-01` | per-world lava memory in routing, with egress rules | 3 |
+| 5 | F5b `lavasight-01` | per-world lava memory in routing, with egress rules | 3 |
+| 6 | F6 `deepstair-01` + `deepminer-01` | the town's two-lane reserved deep stair, its certificate and credit, and the deep-miner job | 3 |
 | — | F3 `inwall-01` | Paper investigation only, until a mechanism is shown | — |
 
-Then the diamond tier: `deepminer-01` (job, spiral stair, branches), `diamond-01` (banking and pickaxes), then
-`enchant-01`.
+Then `diamond-01` (banking and pickaxes), then `enchant-01`.
 
 ---
 
@@ -129,12 +139,15 @@ Then the diamond tier: `deepminer-01` (job, spiral stair, branches), `diamond-01
 
 ### 2.1 What they are
 
-All 84 `fire` deaths are lava:
+All 84 `fire` deaths are lava, by the full message table (es1 + `d1.py`'s message tally; there is no unknown
+category):
 - "tried to swim in lava": 48;
 - "... after falling N blocks": 32, falls of 4-29 blocks, median 6;
 - "discovered the floor was lava" (magma): 4.
 
-There were no "burned to death" deaths.
+Positive control: the same tally finds 91 "drowned", 46 "fell from a high place", 32 stalagmite, 17 "suffocated in a
+wall", 5 stalactite and 1 "doomed to fall". No other fire message ("burned", "walked into fire", "went up in flames")
+occurs in the 276.
 
 ### 2.2 Depth, skill, and what the bot did in the last 60 s
 
@@ -193,8 +206,8 @@ lava takes a few seconds to kill. The robust number is **44 cell-matched warning
 
 **Digging.**
 - A `mine` or `gather` was executing (interval overlap) in the last 30 s, or was running at death, in **16** cases.
-- The context is only 150 s, so a skill that started earlier and ended inside the 30 s is missed. 16 is therefore
-  not a hard upper bound.
+- The context is only 150 s, so a skill that started earlier and ended inside the 30 s is missed. **16 is a lower
+  bound.**
 - The death row itself names `mine` once and `gather` never.
 
 This agrees with phase 2 on 10-07: 30 of 59 deaths "walked in after a warning", and at most 2 dug in.
@@ -218,17 +231,19 @@ await sleep(1500); bot.clearControlStates()
 - `bubble_column` is the feet cell, with magma below.
 - The detail does not say whether the bot was on the ground or in the air.
 
-**Episodes.** An episode is a run of rows on one bot no more than 30 s apart. A death counts against an episode if
-it falls between the episode's first row and 20 s after its last.
+**Episodes.** An episode is a run of rows on one bot no more than 30 s apart, split at a death. A death counts
+against an episode if it falls between the episode's first row and 20 s after its last. Right-censoring at the
+window's end affects only episodes starting in its last 20 s.
 
 | First row | Episodes | Lava death in the episode window |
 |---|---|---|
 | feet `air`/`cave_air` (DANGER below) | 303 | **31 (10%)** |
-| feet `bubble_column` (magma below) | 44 | 4 |
-| feet already in a DANGER block | 65 | **32 (49%)** |
+| feet `bubble_column` (magma below) | 45 | 4 |
+| feet already in a DANGER block | 74 | **32 (43%)** |
+| any other feet name | 0 | — |
 
 - 67 distinct lava deaths fall inside an episode window.
-- Health at the first row was ≥ 16 in 59 of the 63 fatal `air`/`lava` episodes.
+- Health at the first row was ≥ 16 in 59 of the 63 fatal `air`/`lava` episodes. These are event rows.
 - Of the 32 falls into lava, `_fall_path` saw no active path in 16, an active path in 7, and could not tell in 9.
 
 **A typical timeline** (isolated-b-Bravo, 10-17 06:46Z):
@@ -306,23 +321,29 @@ lava deaths:
 
 ## 3. Depth: exposure and death rate
 
-Deaths are binned two ways against the same exposure: by the death position, and by the bot's position 30-60 s
-before death (pre-death; `d7.py`).
+Deaths are binned two ways against the same exposure:
+- by the death position;
+- by the bot's position 30-60 s before death (pre-death; `d7.py`). This uses **event rows only**, because a skill row
+  is stamped at its start but carries its end snapshot.
+
+The exposure is the event-weighted 10-minute bucket proxy from section 1.
 
 | y band | bot-h | deaths (at death) | per 100 bot-h | deaths (pre-death y) | per 100 bot-h | lava (pre-death) |
 |---|---:|---:|---:|---:|---:|---:|
-| ≥ 64 | 3,699 | 34 | 0.92 | 39 | 1.05 | 24 |
-| 48..63 | 5,802 | 103 | 1.78 | 108 | 1.86 | 13 |
-| 32..47 | 2,448 | 40 | 1.63 | 41 | 1.68 | 23 |
-| 16..31 | 756 | 10 | 1.32 | 34 | 4.49 | 4 |
-| 0..15 | 421 | 32 | 7.61 | 21 | 4.99 | 1 |
-| −32..−1 | 273 | 42 | 15.4 | 6 | 2.20 | 5 |
+| ≥ 64 | 3,699 | 34 | 0.92 | 37 | 1.00 | 24 |
+| 48..63 | 5,802 | 103 | 1.78 | 105 | 1.81 | 13 |
+| 32..47 | 2,448 | 40 | 1.63 | 40 | 1.63 | 21 |
+| 16..31 | 756 | 10 | 1.32 | 35 | 4.63 | 3 |
+| 0..15 | 421 | 32 | 7.61 | 19 | 4.52 | 1 |
+| −32..−1 | 273 | 42 | 15.4 | 7 | 2.56 | 5 |
 | **−64..−33** | **39** | **15** | **38.8** | **9** | **23.3** | **9** |
 
-18 deaths had no position row 30-60 s before death.
+24 deaths had no event row 30-60 s before death.
 
 **Binning by pre-death position moves the falls up**, which is the point of doing it.
-- Under −32..−1, 42 deaths by death position become 6 by pre-death position. Those bots fell in from above.
+- Under −32..−1, 42 deaths by death position become 7 by pre-death position. That is consistent with falls from
+  above: the band's death-position deaths are 20 falls and 19 dripstone. It is an inference; no per-death trajectory
+  was traced.
 - **The bottom band stays lethal under either binning.**
 - The bottom band's numbers are small, and 10 of its 15 deaths are in one world (placebo-a, a deep cave reaching the
   −55 band).
@@ -427,7 +448,8 @@ expected count comes from each dead bot's **own** episode coverage (2,000 random
 The fleet base rate is 51.6% of random bot-time points.
 
 **Entombment is not a death precursor in general. Suffocation is the exception.**
-- In 10 of the 17, the entombed and marooned rows rise 3 or more blocks: an escape climb.
+- In 10 of the 17, the entombed and marooned rows rise 3 or more blocks. That is consistent with an escape climb,
+  but it is an inference from positions.
 - The last row is 68-195 s before death. Health falls over about 25 s while the bot is idle.
 - 8 of the 17 are hive-d bots, one world, so the deaths are clustered and not independent. The P value is an
   illustration, not a test.
@@ -606,191 +628,256 @@ A fix registers as tier 2 only once its Paper evidence exists.
 
 ### F1 `lavastep-01`: the danger arm makes a verified, bounded move
 
-**The variable.** The danger arm's `escape()` becomes `dangerMove(at, state)`, a pure function that returns
-`{case, moves[], controls}`. The movement code executes it, and stops on any failed post-check.
+**The variable.** The danger arm's `escape()` is replaced by `dangerMove(at, state)`, a pure function that returns
+`{case, candidates[], plan[], controls}`. A small executor runs that plan. Every step is followed by a post-check, and
+any failed post-check ends the move.
 
-**Inputs, read live on each firing:**
-- feet cell, the cell below, `onGround`, `isInWater`, position, yaw;
+**Inputs** (re-read on every firing):
+- feet cell, the cell below, `onGround`, `isInWater`, position and yaw;
 - block reads within 3.
 
-**Cases:**
+**Cases.** Every state in which the arm fires falls into exactly one case. The arm's trigger is the feet cell OR the
+cell below being in `DANGER_BLOCKS`: lava, fire, campfire, soul_fire, magma.
 
-| Case | When | Moves |
+| Case | When | What happens |
 |---|---|---|
-| `airborne` | `!onGround`, feet not in liquid | Release forward/sprint/jump. No steering. The arm re-evaluates every tick until landing, instead of every 2.5 s. |
-| `edge` | `onGround`, feet clear, below is a DANGER block (lava under the centre; magma floor) | A breadth-first search of ≤ 3 walk steps (`stepPlan`, below). Executed **without sprint or jump**: a walk, look first, centred arrival, ≤ 1.5 s per step. |
-| `in` | Feet cell is lava, fire or magma, or a `bubble_column` with magma under it | The same search, but the **first** step may leave a hazard cell: only the origin is exempt. The first step is taken with sprint and jump (climbing out of lava needs a jump); later steps walk. |
+| `airborne` | `!onGround`, the feet are not in liquid, **and no `dangerMove` sequence is in flight** | Release forward, sprint and jump; no steering. The arm re-evaluates every reflex tick (500 ms), not every 2.5 s, until the bot lands. |
+| `in` | the feet cell is any DANGER block (lava, fire, campfire, soul_fire, magma); **or the feet are in any non-DANGER liquid (`bubble_column`, water, flowing water) with DANGER below** | The `stepPlan` search. The origin and its lateral sweep cells are exempt. The first step uses sprint + jump, because leaving lava or water needs the jump; later steps walk. In practice the aimed escape carries most `in` cases: a plan exists mainly when the bot stands in 1-wide lava beside a dry edge. |
+| `edge` | `onGround`, the feet cell is not DANGER, and the cell below is DANGER (lava under the centre, or a magma or campfire floor) | The `stepPlan` search, executed as walks. **Jump only on a step whose destination is 1 block up** (prismarine-physics steps 0.6 without a jump). Never sprint. |
 
-**`stepPlan` validates each step:**
-- the destination is a body cell with feet and head passable and not DANGER;
-- the floor is solid and not DANGER, and is known;
-- `cellLavaSafe` holds at the destination;
-- the swept 3-wide line from origin to destination is supported and lava-free (`lavaStandOff`'s exact sweep; only the
-  origin is exempt);
-- |dy| ≤ 1 per step.
+**`stepPlan`.** A breadth-first search of at most 3 steps, with |dy| ≤ 1 per step and no more than 4 neighbours each,
+so at most about 40 cells are read.
 
-Unknown cells refuse. Every cell is read now: there is no trail, so a stale or remote cell cannot be chosen. The
-search stops at the first cell that is `cellLavaSafe` with no DANGER block in its 3x3 at feet and below. That cell is
-the **safe cell**.
+Each step's destination must have:
+- feet and head passable and not DANGER;
+- a solid, known floor that is not DANGER;
+- `cellLavaSafe` true at the destination.
 
-**When no plan exists.** This is deterministic and bounded. It replaces r1's open-ended hold.
-- **`edge`, step 1: seal.** If the bot holds a seal block (cobble or cobbled_deepslate; never dirt or gravel), it
-  places one into the DANGER cell under its centre, against a visible solid face (section F4's placement rule). The
-  seal must be witnessed by a `blockUpdate` within 1 s. After a witnessed seal the case is re-evaluated.
-- **`edge`, step 2: aimed escape.** If there is no seal block or no face, it runs today's escape, but aimed. The bot
-  first turns to the bearing with the fewest DANGER cells in its swept 3-wide line (ties: away from the nearest
-  DANGER cell), then runs today's sprint-jump.
-- **`in`: aimed escape.** It turns as above, then sprint-jumps.
-- **Never worse than today.** Today's sprint goes wherever the bot faces. The aimed sprint goes the same way only when
-  no better bearing exists.
+The swept 3-wide line from origin to destination must be supported and DANGER-free, using `lavaStandOff`'s exact
+sweep.
 
-**Contention.**
-- F1 calls `bot.pathfinder.setGoal(null)` before moving, so it halts a concurrent path. That includes a watchdog
-  relocation or poolescape route. It uses the existing `haltPath` helper (the 09-29 stale-stop lesson: `setGoal(null)`
-  then `stop()` left a flag set).
-- It takes no runner reservation. A watchdog reservation expires on its own (≤ 20 s) with its existing
-  `reserve_expired` decline.
-- Leaving lava outranks every recovery, as the tick comment already says.
+Unknown cells refuse. **Every candidate is recorded, with the reason it was rejected.**
 
-**Rows.** `_lava_retreat` is written **per firing**, at most one per 2.5 s while it is not airborne. Its args:
-- `episode`, `n`;
-- `case`, `onGround`, `feet`, `below`, `from` (x,y,z floats), `yaw0`;
-- `plan`: up to 3 cells, each with feet/head/floor names and the swept-cell names;
-- `seal` (cell, face, item, witnessed);
-- `aim` (bearing, danger count per bearing);
-- `controls` (forward/sprint/jump/sneak, as set);
-- `after` (position, feet and below names, hp at +1.5 s).
+**Goal.** The first cell that is stand-off grade: the test `lavaStandOff` applies to its retreat cell (`cellLavaSafe`,
+supported, passable feet and head). A 1-wide ledge can qualify. The 3x3 does not have to be clean.
 
-Also `_lavastep_mode`, the licence and kind. Rollback is `LAVASTEP=0`.
+**With no plan.** The fallbacks are bounded and deterministic, and every branch moves or seals:
+1. **`edge`: seal**, only when the DANGER cell under the bot's centre is **replaceable** (lava, flowing lava, fire or
+   soul_fire; magma and campfires are blocks and cannot be sealed). If the bot holds cobble or cobbled_deepslate, it
+   places one into that cell. The reference is a solid block adjacent to the cell, and the face clicked is the one
+   pointing into the cell. That face is in reach and visible through the fluid; raycasts ignore fluids. The placement is witnessed by a `blockUpdate` within 1 s.
+   - **Witnessed:** re-classify the case at once.
+   - **Not witnessed, or no block, or no face:** go to step 2.
+2. **`edge` and `in`: aimed escape.** For each of the 8 bearings, score the first **6** blocks along its swept line
+   (1.5 s of sprint) by:
+   - support (a solid, non-DANGER floor under each cell);
+   - collision (the body cells are passable);
+   - DANGER cells, counted.
+
+   Pick the bearing with full support and no collision and the fewest DANGER cells. If none has full support, pick the
+   one with the most supported cells, then the fewest DANGER cells. Then run the 1.5 s sprint-jump on that bearing.
+   - Today's choice is the facing bearing, whatever lies along it. Paper compares the two. **This is not claimed to be
+     never worse.**
+
+**Body control: an in-flight flag plus re-assertion. No reservation is taken.**
+- **The in-flight flag.** The reflex tick is an async `setInterval` with no re-entry guard (reflex.mjs:1596), so ticks
+  overlap. `dangerMove` sets `dangerMoving` for its whole sequence: up to 3 steps, or the 1.5 s aimed escape plus its
+  landing. While the flag is set:
+  - a new danger firing does not re-classify (so `airborne` cannot release a jump mid-arc);
+  - the stand-off, marooned, entombed and stuck arms stand down, as they do for `inDanger`;
+  - any escape routine already running stops at its next ownership check. The entombed arm's `alive()`, pillarOut,
+    the ramp and poolescape's checks each gain `&& !dangerMoving`.
+
+  The flag clears when the sequence ends, on death, or after a hard 6 s limit.
+- **Re-assertion.** While the sequence runs, every 50 ms the executor:
+  - clears any pathfinder goal (`haltPath`, the 09-29 stale-stop helper);
+  - re-sets its own controls.
+
+  A watchdog rescue's `goto` that starts mid-move, a skill whose late unwind clears controls, or a poolescape renewal
+  are therefore overridden within 50 ms. It takes no runner reservation and supersedes none, so poolescape and
+  watchdog reservations keep their own expiry semantics.
+- The danger arm keeps interrupting the runner every 2.5 s, as today.
+- **Air rescue runs before the danger arm in the tick.** If the air arm holds the body (a submerged bot in a bubble
+  column), `dangerMove` does not start. The air rescue owns the body, as today.
+- At the end, `dangerMove` clears only the controls it set.
+- **Tests:**
+  - overlapping ticks during an `in` sprint-jump (no `airborne` release);
+  - an entombed pillarOut running when the danger arm fires (it stops);
+  - a watchdog `goto` starting 100 ms after the move begins;
+  - a skill `finally` that clears controls 200 ms in;
+  - an air-rescue preemption;
+  - a death mid-move;
+  - a respawn.
+
+**Rows.**
+- `_lava_retreat`, **one per firing**: at most one per 2.5 s on the ground, and one per 500 ms while airborne. Its
+  args:
+  - `episode`, `n`;
+  - `case`, `onGround`, `feet`, `below`, `from` (floats), `yaw0`;
+  - `candidates`: every cell read, with its feet, head and floor names, its swept-cell names, and its reject reason;
+  - `plan`;
+  - `seal`: ref cell, face, item, witnessed;
+  - `aim`: per-bearing support, collision and DANGER counts, and the bearing chosen;
+  - `controls`: each control and the time it was set;
+  - `after`: position, feet and below names, and hp at +1.5 s.
+- `_lavastep_mode`: the licence (class `kind`).
+- Rollback: `LAVASTEP=0`.
 
 **Read.**
 
-*Effect: lava deaths within an episode window, per episode, DiD.*
-- **Power is low.** The fleet has about 412 episodes a week. Four pools for 6 h expect about 4.
-- So the canary read is a tripwire plus correctness gates. The effect evidence is Paper.
+**Effect.** Lava deaths inside an episode window, per episode, as a DiD. **Power is low:** about 412 episodes a week
+fleet-wide, and about 4 expected on 4 pools in 6 h. The canary is therefore a tripwire plus correctness gates, and
+the effect evidence is Paper.
 
-*Correctness gates* (evidence = defect; each recomputed from `plan`, `seal` and `controls`):
+**Correctness gates.** Each is recomputed from `candidates`, `plan`, `aim`, `seal` and `controls`. None is read off the
+decision's own verdict.
 
-| Gate | Condition |
+| Gate | Fails if |
 |---|---|
-| G1 | 0 executed steps whose recorded destination, floor or swept cells include a DANGER or unknown cell, other than the `in` origin |
-| G2 | 0 aimed or legacy escapes while a valid plan existed (`stepPlan` replayed on the recorded cells) |
-| G3 | 0 `edge` or `airborne` firings with sprint or jump set |
-| G4 | 0 seals of dirt or gravel, or unwitnessed seals treated as done |
+| G1 | an executed step's recorded destination, floor or swept cells hold a DANGER or unknown cell (the `in` origin excepted) |
+| G2 | an aimed escape ran while `stepPlan`, replayed on the recorded `candidates`, finds a plan |
+| G3 | an `edge` **plan step** (not the aimed escape) was executed with sprint set, or with jump set when its destination was not 1 up |
+| G4 | a seal used anything other than cobble or cobbled_deepslate, was aimed at a non-replaceable block, or was unwitnessed and still followed by re-classification |
+| G5 | the aimed bearing is not the best by the recorded `aim` scores |
 
-Each gate's mutant is replayed on Paper: allow lava in the sweep; skip the plan; sprint on `edge`; accept an
-unwitnessed seal.
+Each gate has a mutant, replayed on Paper:
+- allow DANGER in the sweep;
+- skip the plan;
+- sprint on an `edge` step;
+- accept an unwitnessed seal;
+- aim at the facing bearing.
 
-*Exposure declared:* ≥ 3 episodes on the canary arm. Otherwise INCONCLUSIVE at +360 (owner 10-15 early close).
+**Exposure declared.** At least 3 episodes on the canary arm. About 2 are expected by +180, so a tier-2 KEEP at +180
+is unlikely, and the read usually goes on to +360/+540. Below 3 by +360, it is INCONCLUSIVE.
 
-*Paper evidence* (main):
+**Paper (the main evidence).** Each scene runs base vs variant, 20 trials each, and reports survival with a 95%
+interval:
+- S1: a pool edge, facing the pool;
+- S2: 1-deep lava, 1 block from shore;
+- S3: a 1-wide ledge over a cave lava lake;
+- S4: a magma floor;
+- S5: falling past the edge of a lava lake;
+- S6: a campfire underfoot.
 
-| Scene | Setup |
-|---|---|
-| S1 | pool edge, facing the pool |
-| S2 | 1-deep lava, 1 block from shore |
-| S3 | 1-wide ledge over a cave lava lake |
-| S4 | magma floor |
-| S5 | falling past a lava lake edge |
+The positive control is the mechanism. In the base arm the sprint must carry the bot from a dry edge into lava in S1
+and S3. The fleet's own rates (10% / 43%) are not reproduced, and are not claimed.
 
-- Base and variant, 20 trials each. Report survival with a 95% interval.
-- The positive control is the **mechanism**: base trials record the sprint carrying the bot from a dry edge into lava
-  (S1, S3). Matching the fleet's 10% / 49% rates is not required. Constructed scenes do not sample the fleet's
-  situations.
-
-**Draw exposure.** Pools with ≥ 20 danger episodes in 7 days: placebo-a 30, hive-a 28, hive-b 28, board-c 28,
-placebo-c 26, placebo-d 23. `draw_require`: 2 of them.
+**Draw exposure.** Pools with ≥ 20 danger episodes a week: placebo-a, hive-a, hive-b, board-c, placebo-c, placebo-d.
+`draw_require`: 2 of them.
 
 **Composition.**
 
 | Component | Effect |
 |---|---|
-| keepout | No digs. A seal is a placement. A destination inside a fire column is allowed: leaving lava outranks the column, as survival digs do today. The row names it. |
-| protectzone | Walks are not wrapped. A seal is a survival placement and is exempt. |
-| poolescape, homefix | Their paths are halted. Their reservations expire as today. Unchanged otherwise. |
-| minewell | None. A seal is never placed in a well shell: the shell is water and stone, not DANGER. |
-| runner reservation | F1 takes none. |
+| keepout | No digs. A destination inside a fire column is allowed, and the row names it: leaving lava outranks the column. |
+| protectzone | Walks are not wrapped. The seal is a survival placement (exempt). |
+| poolescape and the homefix watchdog | Their routes are halted for the duration of the move, and their reservations run to their normal expiry. |
+| minewell | No interaction. |
+| runner reservation | Not taken and not superseded. |
 
-**Refusal chain.** The search, then the seal (`edge`), then the aimed escape. Every branch is executable from where
-the bot stands. The chain test covers every scene start through to the next decision, and asserts that the bot ends
-on a safe cell, in the aimed escape, or airborne, which re-evaluates on landing. There is no fourth state.
+**Refusal chain.** Search → seal (`edge` only) → aimed escape. Each one either acts from where the bot is or hands
+over to the next, and the aimed escape always moves.
+
+The chain test runs every Paper scene through to the next decision. It asserts the bot ends:
+- on a safe cell;
+- after an aimed escape, re-classified on the next firing;
+- or airborne, re-evaluated on landing.
+
+No other end state is allowed.
 
 ### F2 `tombexit-01`: entombed only if the bot cannot walk back to where it was just free
 
-**The variable.** `isEntombed` gains a last conjunct, `!walkBack(at, feet, freeCells)`.
-- `freeCells` is a ring of the bot's last 120 s of ground cells at which `isEntombed` was false. It is cleared on
-  death, respawn, relocation and teleport.
-- `walkBack` is a breadth-first search of at most 64 nodes over the walk profile's own moves:
-  - same level; step up 1 with headroom; drop ≤ 3 onto solid;
-  - no dig, no place;
-  - every cell known, with no DANGER cell.
-- It returns true when the search reaches any cell in `freeCells` that is at least 3 blocks from the feet.
+**The variable.** The entombed **arm's** firing condition gains `&& !walkBack(at, feet, freeCells)`.
+- `isEntombed` itself is unchanged, so its other callers are unaffected: the marooned state (reflex.mjs:2634) and
+  escape success (3264).
+- A decline sets `lastEscapeAt` as a firing does. The arm's 15 s interval therefore throttles declines too.
 
-**Why this endpoint.** The bot was not entombed there moments ago and it walked here from there. So F2 never declares
-a bot less trapped than it was at a cell it occupied in the last 2 minutes. A sealed pocket the bot was pushed or
-spawned into has no free cell, and stays entombed. That includes the suite's TOMB and a covered 2-cell pocket.
+**`freeCells`.** A ring of the ground cells the bot stood on in the last 120 s at which `isEntombed` was false.
+- It has its own sampler, every reflex tick while on ground, and does not depend on the arm's short-circuit chain.
+- A declined firing never adds a cell.
+- The ring clears on death, respawn, relocation and teleport.
 
-**The bound.** A decline happens at most **twice per cell (1 block) per 10 minutes**. The third firing there runs
-today's arm. A bot misled by a decline cannot loop.
+**`walkBack`.** A breadth-first search of at most 64 nodes over the walk profile's own moves:
+- same level;
+- step up 1, with headroom;
+- drop ≤ 3 onto solid ground;
+- no dig, no place;
+- every cell known, and no DANGER cell.
 
-**Probe fixtures.** The r1 fixtures are re-built for r2 with a `freeCells` history:
-- a tunnel walked into from its mouth;
-- a 2-high stair walked down;
-- an alcove stepped into.
+It returns the path when **both** of these hold:
+- the search reaches a `freeCells` cell at least 3 blocks from the feet;
+- **the bot's component is open**: the search hits its 64-node cap without exhausting.
 
-Counterexamples that must stay entombed:
-- TOMB, with no history;
-- a 6-long tunnel sealed behind the bot after it entered, with no reachable free cell;
-- a one-way drop into a pit: the free cell is above a 4-block drop and cannot be walked back to.
+A component that exhausts in under 64 nodes is closed: a sealed pocket, or a sealed short tunnel. There, a free cell
+inside it does not count, and the bot stays entombed at once.
+
+**The bound: per area, per episode.** At most **2 declines in 10 minutes within 8 blocks** of the first decline,
+counted at the arm's throttled firings, which are at least 15 s apart. The third firing in that area runs today's
+arm.
+- **A small sealed space is not delayed at all.** The component is closed, so the bot stays entombed at once.
+- **A large sealed space** (open beyond 64 nodes, with the bot's free cells inside it) gets two declines, about 30 s,
+  then today's arm. It is delayed, never stranded.
+
+**Fixtures** (history-aware build tests; the committed `probe-entombed.mjs` is the r1 predicate probe only).
+
+Declined, given a walk-in history:
+- a tunnel dead end;
+- a 2-high stair;
+- an alcove.
+
+Stay entombed at once:
+- the suite's TOMB, with no history;
+- a one-way 4-block drop, whose free cell is not walkable back;
+- a 6-long tunnel sealed behind the bot (a closed component);
+- a covered 2-cell pocket.
+
+Declined twice, then today's arm:
+- a large sealed cave that is open beyond 64 nodes, where the bot's free cells are inside.
 
 **Rows.**
-- `_entombed_declined`, sampled at most once a minute per bot. Args: `cell`, `free_cell`, `free_age_s`, `path_len`,
-  `nodes`, `decline_n`.
-- `_tombexit_mode`, the licence and kind.
+- `_entombed_declined`, written on every decline (at most 2 per area per 10 min, by the bound). Args:
+  - `cell`, `free_cell`, `free_age_s`;
+  - `path`: the cells of the path, with their feet, head and floor names;
+  - `nodes`, `area_n`.
+- `_entombed_bound`: written when the bound hands a firing to today's arm.
+- `_tombexit_mode`: licence class `kind`.
 - Rollback: `TOMBEXIT=0`.
 
 **Read.**
 
-*Effect* (DiD): `_entombed` rows per bot-h. The baseline is about 6.5. This is the measurement of r1's open question:
-what share were walk-back geometry.
+**Effect** (DiD). `_entombed` rows per bot-h (baseline about 6.5).
 
-*Companions:*
-- interrupts by entombed per bot-h;
-- scaffold spent in entombed escapes per bot-h (`_inventory_mutation`);
+Companion metrics, also DiD:
+- interrupts per bot-h;
+- scaffold spent in escapes per bot-h;
 - gather successes per bot-h.
 
-*Guards* (WATCH/HOLD):
-- entombed spells longer than 10 min;
-- `_entombed_unrecoverable`;
-- `_reflex_stuck` and `_livelock_escape` per bot-h. These are the backstops that see a bot whose decline was wrong.
+**Guards (WATCH/HOLD):**
+- `_entombed_bound` per bot-h: how often a decline was followed by being sealed in;
+- spells longer than 10 min;
+- `_entombed_unrecoverable`.
 
-*Tripwires:* drowning and suffocation, on the two-death floor.
+**Tripwires.** Drowning and suffocation, on the two-death floor.
 
-*Correctness gate G1:* 0 `_entombed_declined` rows followed within 120 s by **no displacement ≥ 2 blocks** and a
-third firing at the same cell. That is the "declined, but could not leave" defect. It is computable from
-`_entombed_declined`, `_entombed` and positions.
+**Correctness gate G1.** No decline whose recorded `path`, replayed with the walk-profile move rules on its recorded
+cell names, is not a valid walk to a cell at least 3 blocks away. Its mutant accepts any cell as free.
 
-*Mutant control:* `walkBack` accepts any cell. On Paper's sealed-tunnel scene, G1 must trip.
+**Exposure.** Minutes on any pool. Tier-2 conditions as listed above.
 
-*Exposure* is met in minutes. Tier 2 with licence kind `_tombexit_mode` and evidence kind `_entombed_declined`.
-
-**Draw exposure.** Every pool. The lowest is board-d, at 1,857 episodes a week.
+**Draw exposure.** Every pool.
 
 **Composition.**
 
 | Component | Effect |
 |---|---|
-| mine / tunnel `'stair'` claim | Unchanged. |
-| marooned state and escape success (reflex.mjs:2634-2641, 3264) | Both read `isEntombed`. Under a ceiling the marooned branch is already inert (`!upIsOpen`). The success test reads "no longer entombed" and stays truthful: a bot with a walk-back is not entombed. Both get chain tests. |
-| air / pocket / poolescape | Run before the entombed arm. Unchanged. |
-| keepout, protectzone | Fewer escape digs and survival placements inside them. |
-| homefix, runner reservation | Fewer interrupts; no reservation taken. |
+| `'stair'` claim | unchanged |
+| marooned state and escape success (reflex.mjs:2634-2641, 3264) | Both read `isEntombed`. Under a ceiling the marooned branch is inert (`!upIsOpen`). The escape-success test stays truthful, because a bot with a walk-back path is not entombed. Both get chain tests. |
+| air, pocket, poolescape | run before this arm; unchanged |
+| keepout, protectzone | fewer survival digs and placements inside them |
+| homefix, runner reservation | fewer interrupts; no reservation taken |
 
-**Refusal chain.** A decline is not a refusal. It hands the bot to the next decision, with a real walk route (the
-search used the walk profile's own moves). The bound hands the third firing to today's arm. The stuck arm and the
-livelock escape remain behind both.
-
-Gather deliberately does not take a `'stair'` claim. That would also silence real entombments.
+**Refusal chain.** A decline is not a refusal. It returns the bot to its next decision with a recorded walk path.
+After the bound, today's arm and its chain run unchanged. Gather does not take a `'stair'` claim.
 
 ### F5a `lavatarget-01`: explore-toward-known skips iron beside lava the bot has seen
 
@@ -814,7 +901,13 @@ shared store and no routing change.
 |---|---|
 | Effect (DiD) | `_lava_corridor` refusals per explore-hour; danger episodes per bot-h |
 | No-harm | explore success per bot-h; iron gathered per bot-h |
-| Gate G1 | 0 explore-toward targets chosen with a ring cell within 6 (recomputed from the skip rows and the ring dump on `_lavatarget_mode` each hour) |
+| Gate G1 | 0 explore-toward targets chosen with a ring cell within 6 |
+
+**Gate G1.** No explore-toward target was chosen with a ring cell within 6 of it. Each `_explore_toward_known` choice
+logs, in args, the ring cells within 16 of the chosen target and the ring's size and age, so every choice can be
+recomputed.
+
+Mutant: ignore the ring. Paper scene: an iron ore beside a lava pool that the bot has seen, and a second iron ore that is clear. The variant picks the clear one, the base picks the nearer.
 
 **Tier 2 candidate.** Draw: pools with ≥ 1,000 `_lava_corridor` rows a week.
 
@@ -823,203 +916,223 @@ unchanged.
 
 **Refusal chain.** It refuses nothing. The fallback is today's random bearing.
 
-### F4 `minelava-01`: `mine`'s stair reads six faces, never opens into hidden lava, seals visible lava, and returns deterministically
+### F4 `minelava-01`: `mine` reads six faces, never opens into hidden lava, seals visible lava, takes only reversible steps, and returns deterministically
 
-This is a **bundle**, registered as one canary. Its parts cannot be separated without creating the dead end CLAUDE.md
-names: a stop with no return.
+This is a **bundle**, registered as one canary. The parts cannot be split: a stop without a return is the dead end
+CLAUDE.md names, and a return over a step that cannot be reversed is not a return.
 
-**The planner.** `stairLavaPlan(at, action, bot)` is pure. It is called fresh before **every** dig, re-dig,
-placement and move of a step. That includes the falling-block re-open and the recovery re-dig (skills.mjs:13021,
-13148).
+**The planner.** `stairLavaPlan(at, action, bot)` is pure. It is called fresh before **every** dig, re-dig, placement,
+push and move. That includes mine's falling-block re-open and the recovery re-dig (skills.mjs:13021, 13148).
 
-**What it reads.**
-- For each cell the action opens, or the body enters: all six faces, plus the cell beyond any face that is air or
-  liquid.
-- The step's floor cell (y−2) and the cell under it.
-- DANGER = `LAVA_LIKE`. **Unknown = unsafe.**
+What it reads, for every cell that the action opens or that the body enters:
+- all six faces;
+- the cell beyond any face that is air or liquid;
+- the step's floor (y−2) and the cell under it.
 
-**Verdicts:**
+DANGER is `LAVA_LIKE`. Unknown is unsafe.
 
-| Verdict | When | Then |
+**The verdicts:**
+
+| Verdict | When | What happens |
 |---|---|---|
-| `clear` | no DANGER and no unknown | proceed |
-| `seal` | a DANGER cell **is visible from a cell already open** (the bot's current body cells, or a cell this step already opened): it touches that open cell, and some solid neighbour of it shows a face toward that open cell within 4.5 blocks of the eye, with a clear line | place a seal block (cobble or cobbled_deepslate) against that face, into the DANGER cell; witness a `blockUpdate` within 1 s, re-read, re-plan |
-| `turn` | a DANGER cell lies behind a cell not yet opened; or under the floor; or more than one face deep; or any face is unknown | the bearing is excluded for the rest of this call, and `chooseStairBearing` re-plans the remaining bearings |
-| `stop` | no bearing can `clear` or `seal` | stop (refusal chain below) |
+| `clear` | nothing DANGER or unknown, and the step is reversible | go ahead |
+| `seal` | a **replaceable** DANGER cell (lava, flowing lava, fire) lies in, or touches, a cell the step needs, and is reachable. The reference is a solid block adjacent to the DANGER cell, and the face clicked is the one pointing into it. That face is within 4.5 blocks of the eye, and the ray to it is clear apart from fluids. The bot stands on a solid, non-DANGER floor, its body cells are DANGER-free, it holds a seal block, and the target is not in a zone. **In practice:** lava that touches an open cell has usually flowed into it already, so the seal mostly applies to lava that has entered the stair's own cells (from above, or after a block fell). Most lava meetings end in `turn`. | Place cobble or cobbled_deepslate against that face, into the DANGER cell. Wait for a `blockUpdate` within 1 s, then re-read and re-plan. **Unwitnessed means not sealed:** re-plan, which will `turn` if the lava is still there. |
+| `turn` | lava is behind a cell not yet opened; or under the floor; or more than one face deep; or any face is unknown; or the step is **not reversible**; or the seal is refused in a zone | exclude this bearing for the rest of the call and re-plan the others with `chooseStairBearing` |
+| `stop` | no bearing can `clear` or `seal` | the refusal chain below |
 
-**Seal conditions.**
-- The bot stands on a solid, non-DANGER floor, and its body cells are DANGER-free.
-- It holds ≥ 1 seal block.
-- The placement is not into a protected zone. A placement there is refused, so the verdict becomes `turn` with
-  `zone`.
-- A **hidden lava cell is never opened into, then plugged.** Lava flows 4 blocks at 30 ticks per block. Racing it is
-  not "slower but safer" (M7).
+**A hidden lava cell is never opened and then plugged.** Lava flows 4 blocks at 30 ticks per block. Racing that is not
+M7.
+
+**Reversible, required before entering any step.** The step's floor is solid, non-falling and not DANGER, and the walk
+back up is one step-up move with headroom: the three cells above the lower stand cell are all passable.
+- This forbids mine's survivable-drop steps, where the probe accepts a hollow of 1-2 below the tread.
+- The no-harm read watches what that costs.
 
 **Also in the bundle:**
-- `stairLiquid`'s lava branch uses `LAVA_LIKE`. Magma under a tread counts as `turn`, not a dig: the stair must never
-  rest on magma. The water behaviour is unchanged, because water is terrain.
-- The fall probe counts lava as lava. Lava under the tread means `turn`.
-- The step-recovery push requires the planner's `clear` on the push line (feet and feet−1, 3 wide, 2 ahead), and is
-  skipped otherwise.
-- **Deterministic in-call return.** `mine` records the stand cells of the steps it cut **in this call**. On `stop`,
-  it walks them back up, newest first, with `GoalBlock` on a zero-break, zero-place profile, to the call's start cell:
-  a cell the bot stood on before the call.
-  - If no steps were cut, the bot is already at its start cell, and `mine`'s existing relocation runs
-    (`planMineStart`: a walk ≤ 8, else ≤ 16).
-  - If that finds nothing, the skill returns `hazard_interrupt` naming "lava on every bearing here".
-  - A failed return step stops the return and returns `unverified`, naming the cell. The marooned and stranded
-    ladders then have the body, as today.
+- `stairLiquid`'s lava branch uses `LAVA_LIKE`. Magma under a tread is a `turn`. Water behaviour is unchanged (water is
+  terrain).
+- The fall probe counts lava as lava.
+- The recovery push needs the planner's `clear` on its line and is skipped otherwise.
+- **The in-call return.** `mine` records the stand cells of the steps it cut in this call. Every step was reversible,
+  so the walk back is a sequence of one-step-up moves.
+  - On `stop`, it walks them back newest-first. Each move is a `GoalBlock` on a zero-break, zero-place profile (no
+    dig, no towers, no scaffold, no parkour, `maxDropDown` 1), and each move is re-planned by `stairLavaPlan` first.
+    It ends at the call's start cell.
+  - **No steps cut:** `mine`'s existing relocation (`planMineStart`, a walk of ≤ 8, else ≤ 16).
+  - **No relocation:** `hazard_interrupt`, "lava on every bearing here", from the start cell.
+  - **A return step fails** (a cell changed under the bot: gravel, another bot's dig): the return stops, and
+    `unverified` names the cell.
+
+**Why the failed-return case is safe.** F4 does not touch the exit contract. Every step was admitted under today's
+swing and scaffold reserve for the bot's depth, so a bot whose return fails still holds today's reserve. The `surface`
+chain the contract was designed for applies from where it stands. This is today's chain, entered later and from
+higher up. It is not a new dead end.
 
 **Rows.**
-- `_mine_lava`, per planner call that is not `clear`, plus one `clear` summary per step. Args:
-  - `step`, `action`, `bearing`, `verdict`;
-  - `faces`: per opened cell, the six neighbour names plus beyond-cells;
-  - `seal`: ref cell, face, item, witnessed;
+- `_mine_lava`, **one per planner call**. Args:
+  - `op` (an id per action), `step`, `action` (dig / re-dig / place / push / move), `bearing`;
+  - `faces`: per opened or entered cell, the six neighbour names and the beyond-cells;
+  - `floor`, `reversible`, `verdict`;
+  - `seal`: ref, face, item, witnessed;
   - `push`: the swept cells read;
   - `unknown`.
-- `_mine_return`: `steps`, `from`, `to`, `ok`, `fail_cell`.
+- `_mine_return`: `op`, `steps`, `from`, `to`, `ok`, `fail_cell`.
 - `_minelava_mode`.
 - Rollback: `MINELAVA=0`.
 
-**Tier 3.** It changes `mine`'s geometry. Today mine meets lava about 4 times a week, so the canary's job is **no
-harm**. The effect evidence is Paper.
+The per-action volume is about 3-4 rows per step, at about 5.7 mine calls per bot-h. That is small.
+
+**Tier 3.** Today mine meets lava about 4 times a week, so the canary's job is **no harm**. The effect evidence is
+Paper.
 
 **Read.**
 
-*No-harm* (DiD):
+No-harm, as DiD:
 - mine success rate;
 - mine-attributed cobble per bot-h;
-- iron gathered per bot-h;
-- `exit_capability_reserve` and `hazard_interrupt`;
-- `_mine_return` failure rate.
+- iron per bot-h;
+- the `turn:not_reversible` share;
+- `exit_capability_reserve`;
+- the `_mine_return` failure rate.
 
-*Correctness gates* (recomputed from `faces`, `seal` and `push`, not from `verdict`):
+**Correctness gates**, each recomputed from `faces`, `floor`, `seal` and `push`, joined to keepout's `_mine_dig` rows
+by time and cell:
 
-| Gate | Condition |
+| Gate | Fails if |
 |---|---|
-| G1 | 0 executed digs (keepout's `_mine_dig` row) whose cell's recorded faces at plan time held a DANGER or unknown cell without a witnessed seal of that face |
-| G2 | 0 pushes with a DANGER cell in the recorded sweep |
-| G3 | 0 seals of anything other than cobble or cobbled_deepslate |
-| G4 | 0 `stop`s without a `_mine_return` or relocation row within 5 s |
+| G1 | a dig whose cell's faces, recorded in that action's `_mine_lava` row, held DANGER or unknown without a witnessed seal of that face |
+| G2 | a push with DANGER in the recorded sweep |
+| G3 | a step entered whose recorded floor or headroom makes it not reversible |
+| G4 | a seal of anything other than cobble or cobbled_deepslate |
+| G5 | a `stop` without a `_mine_return` or a `_mine_relocate` row (a new row in this bundle) within 5 s |
 
-Mutants: drop the six-face read; seal with dirt; push blind; omit the return.
+Mutants: drop the six-face read; skip the reversibility check; seal with dirt; push blind; omit the return.
 
-*Paper* (main; base must fail S1, S2 and S5):
+**Paper.** The base arm must fail S1, S2, S5 and S6.
 
 | Scene | Setup | Expected |
 |---|---|---|
-| S1 | the next head cell borders a lava source visible from the bot's cell | seal, then dig |
+| S1 | flowing lava entering the stair's next head cell from an opened ceiling | seal, then dig |
 | S2 | hidden lava behind the next tread | turn |
-| S3 | lava on three bearings | relocate, or stop and return up the call's steps |
-| S4 | lava behind an unloaded chunk edge | turn or stop |
-| S5 | the 10-16 step-failure push, replayed | no push |
+| S3 | lava on three bearings | stop, then return up the call's steps |
+| S4 | an unloaded edge | turn or stop |
+| S5 | the 10-16 step-failure push | no push |
+| S6 | a 2-deep void under the next tread | turn |
 
-**Draw exposure.** Any 4 pools. mine runs about 5.7 calls per bot-h everywhere.
+**Draw exposure.** Any 4 pools.
 
 **Composition.**
 
 | Component | Effect |
 |---|---|
-| keepout | A seal is a PLACE; keepout wraps digs. `turn` re-plans through `planMineStart`'s keep-out filter. |
-| protectzone | Seals are not survival placements, so they are refused in zones; the verdict becomes `turn`. |
-| minewell | The re-planned bearing passes the well-shell filter. |
-| homefix | The watchdog may reserve the runner mid-return. The return aborts like any skill, and the next decision sees the bot on its own stair, not in lava. |
-| runner reservation | `mine` keeps its `'stair'` claim through seal and return. |
-| poolescape | None. |
+| keepout | wraps digs; a seal is a placement; `turn` re-plans through the keep-out filter |
+| protectzone | a seal in a zone is refused, which becomes `turn` |
+| minewell | the re-planned bearing passes the shell filter |
+| homefix | a watchdog reservation aborts the return like any skill; the bot is on its own reversible stair |
+| runner reservation | `mine` keeps its `'stair'` claim |
 
-**Refusal chain.** It ends in `stop`, then one of three branches, each executable from where the bot stands:
-- with steps cut: a deterministic walk back up the call's own steps;
-- with none: relocate;
-- else: name "lava on every bearing", from the call's start cell, which the bot reached by walking.
+**Refusal chain.** `stop` leads to one of: the in-call return, relocation, or "lava on every bearing" from the start
+cell. If the return itself fails, today's `surface` runs with today's reserve intact. The chain is tested with every
+reflex armed, and with interrupted-return, zone and keepout variants.
 
-The chain test covers each branch, with every reflex armed, plus interrupted-return, zone and keepout variants.
+### F6 `deepstair-01`: the town's certified deep stair (deep miners only)
 
-### F6 `deepstair-01`: a certified stair home, credited with a swing floor and gated below y=0
+**Scope (M8).** F6 exists only for the town's deep stair and its `deep_miner` leaseholders. Ordinary bots keep today's
+exit contract everywhere. r2's above-y=0 credit for every bot is withdrawn. A bot's own unprotected stair can be dug or
+filled by others, and no break remedy could be proven for it (Codex r2 P1-1).
 
-**The certificate.**
-- An ordered list of a stair's stand cells, plus its top cell. Each stand cell carries its feet cell, head cell and
-  the cell above (all passable), and the solid, non-DANGER, non-falling floor under the feet.
-- `mine` appends a step only if the step is **reversible**: its floor is solid and non-falling, and walking up from it
-  is one step-up move with headroom.
-- A step that is not reversible (a void, a drop, a cave opening) ends the certificate. The next steps start a new one
-  with a new top.
-- A call that starts on the bottom stand cell of a valid certificate extends it. That is how a descent chains across
-  calls; one call caps at 90 steps.
+**The stair.**
+- **Two-lane**, so no mutex is needed: a down lane and an up lane, side by side, 3 high, cut together. This is the
+  shaft design's two-column traffic rule, applied to a stair.
+- **A spiral** inside a 10x10 footprint, turning every 8 steps, so it stays in loaded chunks near the town.
+- **Every step is F4-planned and reversible.**
+- **Siting decides the bearing, not F4.** The town stair is cut only where gate D0's region read found the whole spiral
+  envelope clean, and live reads before each level confirm it. A `turn` or `stop` during the cut ends the cut at the
+  last certified step. Until the stair is re-sited, it ends there.
+- **Built like the shaft** (ziggurat T8/T9). Before a level's cells open, its 1-cell shell is surveyed. Any falling
+  block, liquid or DANGER cell in the shell is replaced with cobble first. A step whose shell cannot be lined is a
+  `turn`.
+- **Reserved.** The envelope (both lanes, plus the shell) is written to world facts as a protected structure:
+  - every target and transit dig refuses it, as protectzone does for its zones;
+  - pathfinder breaks are priced at 1000.
 
-**Validity, checked before every step's first dig.**
-- Every recorded cell is re-read: loaded, unchanged class, no DANGER in any face.
-- A probe path from the post-step position to the top uses an explicit **zero-break, zero-place** profile: canDig
-  false, no towers, no scaffold, no parkour, maxDropDown 1. It is the profile ziggurat T6 specified.
-- Every probe node passes `corridorSafe` (the execution-time lava guard).
-- The search may be cached; the block reads are not.
+  The stair's own builder, and repair under the certificate, are the only exceptions.
 
-**Debt with a valid certificate.**
-- debt = `exitDebt(top)`, today's contract applied at the top cell. The stair below the top is a walk and costs 0.
-  This prices the unverified remainder above the top (Codex P1-6, Claude P1-4).
-  - A stair cut from the surface: `exitDebt(top)` ≈ 0.
-  - A stair started at y=30 underground: `exitDebt(30)`.
-- **Swing floor.** At least `exitDebt(top)` + 30 swings are always kept, plus 16 seal blocks. The 30 swings re-dig a
-  broken stair; the blocks serve F4's seals.
-- **If validation fails at step k after credit has been used:**
-  - the bot walks the valid part up to the break;
-  - it re-digs or seals the broken cells under F4's rules, within the 30-swing floor;
-  - then it continues up.
-  - If the break needs more than the floor, the bot is above the break with today's contract. The `surface` chain
-    (climbflood-guarded) applies from there, and the row says so.
+**The certificate: the route itself.** The ordered stand cells of each lane, bottom to top, plus the top cell. The top
+must be a surface cell (`exitDebt` = 0) or a verified shaft-01 landing.
 
-**Scope** (M8).
-- **Above y=0** the credit applies to every bot. This is iron depth, where the death rate is ~1-2 per 100 bot-h.
-- **Below y=0** it applies only while the bot holds a `deep_miner` lease (section 8).
-- Until the cooperation job exists, below-0 credit is off. The fleet's deep exposure does not grow.
+For each stand cell, the feet, head and above cells must be passable, and the floor solid, non-falling and not DANGER.
 
-**Loaded chunks.** A cell that is not loaded invalidates the certificate, so a long straight stair loses its credit.
-The deep miner's stair is a spiral (section 8), so it stays loaded.
+The return route is exactly that list of stand cells, walked with one `GoalBlock` per cell on the zero-break,
+zero-place profile. There is no alternative probe path.
+
+**Validation.** Before **every** dig, placement and move a leaseholder makes, every cell of the route is re-read: about
+117 steps × 2 lanes × 4 cells ≈ 940 reads, which is cheap. Every route node also passes `corridorSafe`.
+
+**Debt.** For a leaseholder on a valid certificate, debt is 0 for the stair, plus the remaining path from the bot to
+the stair's nearest stand cell. The branch is also a certified route of reversible steps (section 8). The debt for
+that path is priced by today's formula.
+
+**Floor (kept always).** 30 swings and **32 scaffold blocks** beyond the debt. The floor is priced in scaffold as well
+as swings, because today's contract needs both (exit-contract.mjs:157-173).
+
+**Exits.** Every exit of a leaseholder goes through `stairReturn`, a deterministic executor that walks the up lane:
+- the lease ending;
+- any refusal;
+- any `surface` or `home` decision.
+
+`surface` is never used while the certificate is valid.
+
+**A break** (validation fails at cell k):
+1. Walk up to the last valid cell below k.
+2. Repair the break under F4's planner, within the floor. A repair is a dig of a filled cell, or a placed floor.
+3. If the repair needs more than the floor, **switch lanes**. The other lane is a separate column of cells, so one
+   break rarely takes both. Continue up it.
+4. If both lanes are broken at the same height and beyond the floor: stop, with `_deepstair_break` naming both cells.
+   Then today's stranded ladder runs from there, with the floor's 30 swings and 32 blocks in hand.
+   - This is the one residual. It needs **two simultaneous breaks of a reserved, lined, non-falling envelope**, which
+     only a world edit produces. Its gate (G2 below) is a defect, so a single occurrence reverts.
 
 **Rows.**
-- `_stair_cert`, at each validation that changes state and once per 10 steps. Args: `id`, `top`, `steps`, `valid`,
-  `why`, `cells_read` (a compact list of cell classes), `probe_nodes`, `probe_path` (≤ 32 nodes, compact).
-- `_exit_credit`: `debt_old`, `debt_new`, `swings_need_old`, `swings_need_new`, `floor`, `lease`.
+- `_stair_cert`, at every validation: `op`, `cert` (id and generation), `cells_n`, `failed` (cell and class, if any),
+  `lane`.
+- `_stair_cert_full`, once per certificate generation and at every change: the full ordered route, compact.
+- `_exit_credit`, per credited action: `op`, `debt_old`, `debt_new`, `swings_left`, `blocks_left`, `floor`, `lease`.
+- `_deepstair_break`.
 - `_deepstair_mode`.
-- Rollback: `DEEPSTAIR=0`.
 
-**Tier 3.** It gates going deeper.
+**Tier 3.** It is built and canaried **with** `deepminer-01` (section 8), because it has no effect without a lease.
+Paper is the main evidence.
 
 **Read.**
 
-*Effect* (DiD), above y=0:
-- `exit_capability_reserve` refusals per mine call targeting y < 40;
-- iron per bot-h;
-- bot-time at y 0..40, which is exposure, not success.
+These gates come from the rows. Independently of the bot's own rows, Paper reads the world: an RCON read of every
+certificate cell after each scene, on the sandbox only.
 
-*Gates* (recomputed from `cells_read` and `probe_path`):
-
-| Gate | Condition |
+| Gate | Fails if |
 |---|---|
-| G1 | 0 credited steps whose recorded cells or probe path held a DANGER, unknown or non-passable body cell at that moment |
-| G2 | 0 credited bots below their certificate top for more than 30 min with every `surface` failing while the last `_stair_cert` was valid |
-| G3 | 0 credits below y=0 without a lease |
+| G1 | a credited action whose same-`op` `_stair_cert` row is missing, or names a failed cell |
+| G2 | any `_deepstair_break` with both lanes broken |
+| G3 | a credited action with `swings_left` or `blocks_left` below the floor |
+| G4 | a credit without a lease |
+| G5 (Paper only) | a world read of a certified route cell differs from the certificate's class |
 
-Mutants: credit with an invalid certificate; drop the floor; credit without a lease.
-
-*Death guard:* deaths per 100 bot-h at y 0..40, on the two-death floor.
-
-**Draw exposure.** Pools with ≥ 100 swing refusals a week at y ≥ 0.
+Mutants: credit an invalid certificate; drop the floor; credit without a lease; skip the per-action validation.
 
 **Composition.**
 
 | Component | Effect |
 |---|---|
-| keepout | A certificate cell inside a fire column is invalid; the bot falls back to today's debt. |
-| protectzone | The probe profile prices zones. |
-| minewell | `mine` never digs a well shell, so no certificate holds one. |
-| homefix | A relocation clears the certificate. |
-| runner reservation | None. |
-| shaft-01 (HELD) | A verified landing is a certificate top. |
-| F5b | Its exclusion never covers a certified cell. |
+| keepout | A fire column over the envelope invalidates it, so the siting avoids live fire sites |
+| protectzone | The envelope is a protected structure of its own kind |
+| minewell | Siting avoids well shells |
+| homefix | A relocation of a leaseholder is refused below the stair top, and `stairReturn` runs instead |
+| runner reservation | `stairReturn` is a skill with the `'stair'` claim |
+| shaft-01 | A landing can be the top |
+| F5b | Never excludes envelope cells |
 
-**Refusal chain.** An invalid certificate falls back to today's debt and today's refusal and remedy. A break after
-credit falls back to the walk-up, then the floor re-dig, then today's `surface`. Every step of that is executable,
-because the floor reserves the swings.
+**Refusal chain.** Validation failure → walk up to the break → repair within the floor → switch lanes → the stranded
+ladder with the floor in hand. Each step can be executed from where the previous one leaves the bot.
 
 ### F5b `lavasight-01`: per-world lava memory in routing, with egress rules
 
@@ -1036,7 +1149,8 @@ because the floor reserves the swings.
 **Egress.**
 - No exclusion applies to the first 6 nodes of a path, for a bot whose feet are inside an excluded area. It can always
   leave.
-- No exclusion covers a certified stair cell (F6), a `keepout_exit` route, or a path whose goal is home.
+- No exclusion covers a certified stair cell (F6) or a `keepout_exit` route. r2's home-goal exemption is dropped: the 45-block
+  hot spot lies on a home route.
 - If the walk profile finds no path only because of exclusions, it re-plans once with exclusions downgraded to cost.
   The row says so.
 
@@ -1054,8 +1168,8 @@ because the floor reserves the swings.
 |---|---|
 | Effect (DiD) | danger episodes per bot-h; `_lava_corridor` per explore-hour |
 | No-harm | goto/explore success; path timeouts; iron per bot-h |
-| G1 | 0 executed path nodes inside an exclusion that applied |
-| G2 | 0 bots inside an exclusion area with no path for > 60 s and no downgrade attempted |
+| G1 | 0 **planned** nodes inside an exclusion that applied: the `path_update` hook checks each planned path and logs any node it finds inside one, with `_lavasight_route` args `nodes_in_excl` |
+| G2 | 0 noPath results caused by exclusions without a downgrade re-plan in the same `op`, from `_lavasight_route` args `excl_blocked` and `downgraded` |
 
 **Draw exposure.** Worlds with ≥ 50 sighted cells in the 24 h before the draw.
 
@@ -1097,15 +1211,14 @@ Codex r1 P2-15 and Claude agree it stays investigation-only until then.
 
 ### Order and why
 
-**The order: F1 → F2 → F5a → F4 → F6 → F5b. F3 runs on a sandbox in parallel; it takes no canary slot.**
+**The canary order: F1 → F2 → F5a → F4 → F5b. Then the diamond tier: F6 and `deepminer-01` together.**
+- F3 runs on a sandbox in parallel and uses no canary slot.
+- F1, F2 and F5a are small, and they cut the noise every later read sits in.
+- F4 is the descent's base: a mine that cannot open into lava, takes only reversible steps, and returns.
+- F5b is the broadest change.
+- F6 has no effect without a lease, so it ships with the deep miner.
 
-- **F1, F2 and F5a** are small and cut the noise every later read sits in. F2 has huge exposure; F1 and F5a are aimed
-  at the lava population directly.
-- **F4 and F6** are the descent's prerequisites.
-- **F5b** is the broadest change, with the least certain gain per canary hour. Deep miners stay on certified stairs
-  and branches, so they depend on it least.
-
-**One canary at a time.** Each closes KEEP, REVERT or INCONCLUSIVE before the next starts (CLAUDE.md).
+**One canary at a time.**
 
 ---
 
@@ -1123,92 +1236,110 @@ Codex r1 P2-15 and Claude agree it stays investigation-only until then.
 
 ### M8, accepted: one or two deep miners per town, by the job assigner
 
-The evidence argues for the cap. This is the interface needed from cooperation-1023.
+The evidence argues for the cap. The interface needed from cooperation-1023 follows.
 
-**The job `deep_miner` and its lease.**
-- The lease lives in world facts, under the keepout pid lock.
-- At most **2 per town**, acquired atomically. An acquire that would make 3 is refused, so the cap is enforced, not a
-  soft preference.
-- Fields: `{bot, phase: descending|branch|ascending, expires, renewals}`. The phase is updated at each transition.
-- 60 min, renewable once. A disconnected or dead holder's lease expires on its own.
-- The assigner prefers bots by soft preference; admission is hard.
+**The job `deep_miner`.** The record lives in world facts, under the keepout pid lock. It has a fencing generation
+(`gen`) that increments on every acquire.
 
-**The stair mutex.** It is separate from the lease. One bot on the 1-wide stair at a time, in either direction.
-- It is acquired at the top or bottom and released at the other end.
-- A waiter times out after 5 min and declines the job. It never cuts a second stair.
-- A holder that dies or disconnects frees the mutex on expiry: 10 min, renewed every step.
+```
+{ bot, gen, phase: descending | branch | ascending | out, work_expires, renewals }
+```
 
-**Preconditions** (assigner, re-checked at the skill's start; a failure is a decline, not a counted failure):
-- health 20;
-- F1, F4 and F6 KEPT on the fleet, read from the build's licence rows;
-- **pickaxe uses:**
-  - a certified town stair exists: branch 200 + reserve (`exitDebt(top)` + 30) + 20 for ore;
-  - else: 351 + 200 + reserve + 20, which is 3 iron pickaxes;
-- a dedicated **iron-or-better pickaxe with ≥ 20 uses**, reserved for diamond ore (diamond needs iron);
-- ≥ 64 seal blocks;
-- ≥ 6 free slots;
-- peaceful worlds, so no food requirement;
-- torches: optional, and used only as markers.
+**The cap.** At most **2 records per town with phase ≠ `out`**.
+- An acquire that would make a third is refused. The cap is enforced, not a preference.
+- An acquire that meets a busy lock (`WF_LOCK_BUSY`, worldfacts.mjs:184) is also refused, and retried at the next
+  decision.
+- World facts are kept per pool (`_pool-<pool>/world-facts-<pool>.json`), and a pool is one world, so the cap is per
+  world.
+- A record leaves the cap only when its bot is seen at or above the stair top (phase `out`), or dead.
+- **Work expiry** (60 min, renewable once) changes only `descending` or `branch` to `ascending`. The bot stays in the
+  cap until it is out.
+- **Disconnect.** The record stays; nothing expires it. On reconnect, a bot whose record is not `out` resumes as
+  `ascending` and runs `stairReturn` first. A bot whose record `gen` is stale (reassigned while it was away; possible
+  only if it died) acquires nothing and ascends.
+- A record that has not been seen for 24 h is marked `out` by the assigner, and the row says so.
 
-**Per-action budgets, checked continuously.** Descending a certified stair costs 0. Cutting costs 3 per step. A
-branch costs 2 per block. The reserve is never spent except on the return.
+**Traffic.** The two-lane stair (F6) has no mutex. The down lane only goes down and the up lane only goes up. Two
+miners ending their branches at the same moment both take the up lane in sequence. A bot blocked by another for more
+than 20 s re-plans along the same lane.
 
-**Ends on:**
+**Preconditions.** The assigner checks them, and the skill re-checks them at its start. A failure is a decline, not a
+counted failure.
+- Health 20.
+- F1 and F4 KEPT, read from the build's licence rows.
+- Pickaxe uses:
+  - with a certified town stair: branch 200 + floor 30 + 20 for ore;
+  - for the first cut: 2 × 351 for the two-lane stair + 200 + 50.
+- A dedicated iron-or-better pickaxe with ≥ 20 uses, for ore.
+- ≥ 64 seal blocks, beyond the 32-block floor. If the bag is short, the skill withdraws them from town stock before
+  admission. Today town deposit keeps only 8 of the cheapest scaffold block (bankable.mjs:183).
+- ≥ 6 free slots.
+- Peaceful, so food is not a precondition.
+- Torches are optional.
+
+**Budgets, checked continuously.**
+- A certified stair costs 0 to walk.
+- Cutting costs 6 per step (two lanes, 3 cells each).
+- A branch costs 2 per block.
+- The floor is never spent except by `stairReturn` repairs.
+
+**The lease ends** on any of:
 - a full bag;
-- uses fall to the reserve;
-- any F4 `stop`;
-- any F1 firing;
+- uses down to the floor;
+- an F4 `stop`;
+- an F1 firing;
 - health ≤ 14;
-- the lease expires.
+- work expiry.
 
-**The end is deterministic.**
-1. Walk the branch certificate back to the stair: branches are certificate extensions, with horizontal stand cells.
-2. Climb the stair certificate.
-3. Bank at the town.
-4. Release the lease.
+**Ending it.**
+1. Phase `ascending`.
+2. Walk the branch route back to the stair.
+3. `stairReturn` up the up lane.
+4. Bank.
+5. Phase `out`.
 
-If an F1 move took the bot off the certificate, it first walks to the nearest certificate cell reachable by the
-zero-break profile. If there is none, today's `surface` chain applies.
+If an F1 move took the bot off a certified route, it first walks to the nearest route cell that the zero-break profile
+reaches. With none, the stranded ladder runs, with the floor in hand.
 
-**Rows.** `_deepmine` per lease, for the assigner's preference: start, phase changes, steps, branch blocks, ores seen
-and mined by kind, seals, end reason, diamonds banked.
+**Rows.** `_deepmine`, per phase change: gen, steps, branch blocks, ores seen and mined by kind, seals, end reason,
+diamonds banked.
 
 ### M9, accepted: a safe staircase down, then branch tunnels at diamond depth, with no water buckets
 
-**The stair.**
-- **One town stair**, sited by gate D0 and certified by F6.
-- **A spiral within a 9x9 footprint**, turning every 8 steps, so it stays loaded and near town. That is
-  117 steps ≈ 14.6 turns of 8.
-- **Every step is F4-planned and F6-reversible.**
-- A torch on the inner wall every 8 steps, as a visible marker that no decision reads.
-- When shaft-01 exists, the stair starts at its bottom landing (y≈17).
+**The stair** is F6's two-lane spiral.
+- It is sited by gate D0, lined, reserved, and certified.
+- When shaft-01 exists, the stair starts at the shaft's bottom landing (y≈17).
+- A torch on the inner wall every 8 steps is the visible marker. No decision reads it.
 
-**Depth: feet y = −53.**
-- The Aquifer page gives the lava surface as −54, while Tutorial:Mining says air at −55..−63 becomes lava. The two
-  disagree by one block, so −53 is the first level clear of both.
-- Diamond peaks at −58/−59, so the depth costs some ore.
+**The depth is feet at y = −53.**
+- The Aquifer wiki page gives the lava surface at −54. Tutorial:Mining says air at −55..−63 becomes lava.
+- The two disagree by one block, so −53 is the first level clear of both.
+- Diamond peaks at −58/−59, so this gives up some ore.
 
-**The branches.**
-- 1 wide, 2 high, every 4 blocks (3 solid between), up to 32 long.
-- Planned by F4's planner in horizontal form: six faces, plus beyond.
-- **A branch never opens into air or a cave.** A face that is air with a void beyond it means `turn`. This is the
-  reversible-step rule that keeps deep miners off cave floors, the falls population.
+**Branches.**
+- 1 wide and 2 high, every 4 blocks, up to 32 blocks long.
+- Every action goes through F4's planner in its horizontal form: six faces plus the cells beyond, and unknown counts
+  as unsafe.
+- Every branch step is **reversible**: a solid, non-falling floor, and a level walk back. It extends the certificate
+  as the branch route.
+- **A branch never opens into air or a cave.** A face that is air with a void beyond it means `turn`. This keeps deep
+  miners off cave floors, the falls population.
 
-**Ore** (`findBlocks` within 16).
-- An ore is mined only from a branch cell, never by digging down onto it, and only if its six faces and the cells
-  beyond them are DANGER-free (Baritone `plausibleToBreak`).
-- Ore below the floor (−54 and lower) is skipped unless it borders the branch floor from a side, with a solid,
-  DANGER-free cell under it.
-- The same rule takes lapis, redstone, iron and gold.
+**Ore.**
+- Found with `findBlocks` within 16.
+- An ore is mined only from a branch cell, never by digging down onto it.
+- Its six faces and the cells beyond them must be free of DANGER (Baritone's `plausibleToBreak`).
+- Ore at or below the −54 band is skipped unless it borders the branch from a side and the cell under it is solid and
+  not DANGER.
+- Lapis, redstone, iron and gold are mined by the same rule.
 
-**Gate D0, offline, before any build.**
-- Read the region files read-only, as M0 did for the shaft.
-- Under each town, in a 64-block box at −60..−50, count diamond ore, lava, water and air cells.
-- Record Paper's anti-xray setting. The comment at oretunnel.mjs:3-4 says it is off, but it is not verified, and fake
-  ore would mislead `findBlocks`.
+**Gate D0 (offline, before any build).** Read the region files read-only, as M0 did.
+- Under each town, count diamond ore, lava, water and air in a 64-block box at y −60..−50.
+- Record Paper's anti-xray setting. oretunnel.mjs:3-4 says it is off, but that is unverified, and fake ore would
+  mislead `findBlocks`.
 - Report the expected diamonds per branch-hour.
-- Worlds that share a seed share the answer. The placebo-a deep deaths say the box must be read before a stair is
-  sited there.
+- Worlds that share a seed share the answer.
+- The deep deaths in placebo-a say the box must be read before a stair is sited there.
 
 ### M10, accepted: diamonds go to pickaxes first, then an enchanting table, and no diamond armour
 
@@ -1338,8 +1469,9 @@ edge the aimed sprint is never worse than today's.
 **O2: F2's endpoint and bound.** Endpoint: a free cell from the last 120 s, at least 3 blocks away, walkable in ≤ 64
 nodes. Bound: two declines per cell per 10 min. **Recommend yes.** These are constants, and Paper tunes them.
 
-**O3: the order** F1 → F2 → F5a → F4 → F6 → F5b, with F3 on a sandbox in parallel. **Recommend yes.** If diamonds
-should come sooner, F5b can follow the diamond tier.
+**O3: the order** F1 → F2 → F5a → F4 → F5b, then F6 with `deepminer-01`, with F3 on a sandbox in parallel.
+**Recommend yes.** If diamonds should come sooner, F5b can follow the diamond tier, because deep miners stay on
+certified routes.
 
 **O4: falls into caves.** 83 deaths a week (30%), mostly gather and goto paths whose floor gave way. **Recommend a
 separate scoped item after this one**, starting from `_fall_path`. The diamond tier does not depend on it, because of
@@ -1353,8 +1485,23 @@ the reversible-step rule.
 
 **O6: depth.** Feet at y=−53 rather than −58/−59. **Recommend −53.** D0 quantifies the ore given up.
 
-**O7: below-0 credit before the job exists.** **Recommend off.** F6's below-0 credit is lease-only, so until
-cooperation-1023 ships the `deep_miner` job, no bot gets deep credit. This respects M8.
+**O7: credit scope.**
+- Exit-contract credit applies only to deep-miner leaseholders on the certified town stair. Ordinary bots keep
+  today's contract everywhere. r2's credit for ordinary bots above y=0 is withdrawn: an unprotected stair has no
+  provable break remedy.
+- **Recommend accepting this.** Iron mining is unchanged. Credit for ordinary bots can come back later, as its own
+  design, with protected stairs.
+
+**O9: the two-lane town stair.**
+- It doubles the first cut, to about 700 digs over two or three leases, and needs no traffic mutex.
+- **Recommend yes.** A 1-wide shared stair needs a mutex with expiry and reconnect rules, and both reviewers found
+  dead ends in that.
+
+**O10: what M7's "seal" will mostly look like.**
+- Lava that touches an open cell has usually flowed into it already. Lava behind stone is never opened into.
+- So in `mine` a lava meeting will mostly end in `turn` or `stop`. Seals happen where lava has entered the stair's own
+  cells, and on F1's lava edges.
+- **For the owner's information. No decision is needed.**
 
 **O8: stock numbers.** "4 diamonds / 1,429 lapis" was not re-measured; the bags hold 0 and 6. **Recommend one
 read-only chest census** before `enchant-01` is sized.
@@ -1390,7 +1537,7 @@ read-only chest census** before `enchant-01` is sized.
 | `es7.py` | escape cost, bags |
 | `es9.py` | milestones, explore-toward |
 | `d1.py`-`d6.py` | r1 death analyses |
-| `d7.py` | r2: cell-matched warnings, interval overlap, censored episodes, pre-death depth |
+| `d7.py` | r2/r3: cell-matched warnings, interval overlap, censored episodes split at deaths, event-row pre-death depth and first damage |
 | `e1.py` | episodes |
 | `e2.py` | r2: split at deaths, per-bot base rates, the suffocation association |
 | `m1.py` | mine depth, exit refusals |
