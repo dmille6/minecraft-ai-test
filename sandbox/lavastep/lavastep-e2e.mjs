@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// lavastep-01 PAPER DRIVER, r9 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
+// lavastep-01 PAPER DRIVER, r10 (2026-10-23). SANDBOX ONLY (10.0.0.30, sandbox..sandbox8 except sandbox4; sandbox/sandboxes.json).
 // Design: docs/reports/mineshaft-safety-2026-10-23.md F1 "Paper (the main evidence)".
 //
 // THE WHOLE BOT, UNMODIFIED: `node src/index.mjs` from <botRoot>, with a SCRIPTED brain served IN THIS PROCESS (Ollama's
@@ -40,9 +40,17 @@
 //     so a command whose sender died may still execute later). Each fenced mode command writes
 //     ~/mcai-sandbox-mode/<server>/.inflight-<run> BEFORE it sends, and removes it only AFTER the reply confirming the
 //     change. A command that was not confirmed (a timeout, a kill, a bad reply) leaves that file, and while ANY in-flight
-//     file exists every fenced section refuses: no registration, no adventure send, no restore, no marker deletion. The
-//     run stops FATAL and names the file. RESOLVING IT IS BY HAND: confirm no lavastep driver is running, set the default
-//     you want with RCON, then delete the file;
+//     file exists the mode sections refuse (registration, the adventure send, the restore and with it every authoritative
+//     marker deletion; the arena claim/release bookkeeping is not gated -- it changes no mode). The run stops FATAL and
+//     names the file. RESOLVING IT IS BY HAND, and only like this (r9 Codex P1, Claude P3-1/P3-4):
+//       1. stop every lavastep driver and every `lsrun=` bot process;
+//       2. RESTART that Paper server and check its old JVM has exited (a reply on a new RCON connection does not prove the
+//          old command cannot still run); its latest.log shows whether the in-flight command (quoted in the file) ran;
+//       3. set the default game mode by RCON and read it back: survival unless a live lavastep run is meant to continue;
+//       4. only then delete ~/mcai-sandbox-mode/<server>/.inflight-* on the worlds host, and the matching markers and
+//          lock-host warning copies of runs that are gone (or leave them: the next run sweeps drained ones).
+//     The trade, disclosed (Claude r9 P3-5): a command that provably never left the worlds host (the helper could not
+//     connect) also leaves the file and also needs this hand step;
 //   - A DEAD DRIVER IS NOT ENOUGH TO CALL ITS MARKER STALE (r7 Codex P1-1: its bot process can outlive it, still trying
 //     to join): every bot process carries its run in its command line (`lsrun=<run id>`), and a marker counts as stale
 //     only when its driver is gone (pid dead or reused), NO process on this host carries its run tag, and NO player of its
@@ -286,7 +294,7 @@ const MACHINE = (() => {
   try { const t = fs.readFileSync('/etc/machine-id', 'utf8').trim(); if (/^[0-9a-f]{32}$/.test(t)) return t } catch {}
   return 'unknown'
 })()
-// from `ps -o lstart` (the clock staleOwner compares against; Claude r6 P3-3), uptime arithmetic only as a fallback
+// from `ps -o lstart` (the clock staleOwner compares against; Claude r6 P3-3); 0 if ps cannot say
 const PSTART = (() => { try { const t = Date.parse(execFileSync('ps', ['-o', 'lstart=', '-p', String(process.pid)], { encoding: 'utf8', timeout: 5000 }).trim()); if (Number.isFinite(t)) return Math.round(t / 1000) } catch {} return 0 })()   // 0 = unknown: liveness alone decides (Claude r8 P3-1: the uptime fallback could differ by > 3 s)
 const OWNER = `host=${HOSTNAME} mid=${MACHINE} pid=${process.pid} pstart=${PSTART} run=${NONCE}`
 /** The start time (epoch s) of a live pid on this host, or null. */
@@ -363,7 +371,11 @@ printf '%s\\n' '${text}' > ${MDIR}/${NONCE}; grep -q 'run=${NONCE}' ${MDIR}/${NO
 const UNRESOLVED_CHECK = `for f in ${MDIR}/.inflight-*; do if [ -e "$f" ]; then echo "UNRESOLVED $(basename "$f") $(cat "$f" 2>/dev/null | head -c 200)"; exit 0; fi; done`
 function unresolved (out) {
   const m = /(^|\n)UNRESOLVED ([^\n]*)/.exec(out)
-  if (m) throw new Fatal(`an earlier mode command on ${SERVER} was never confirmed (${m[2]}); every lavastep driver refuses until it is resolved BY HAND: confirm no lavastep driver is running, set the default game mode you want by RCON, then delete ~/mcai-sandbox-mode/${SERVER}/.inflight-* on the worlds host`)
+  // the remedy FIRST (Claude r9 P3-2: the file's text came first and the cleanup log cut the remedy off); "this run's"
+  // when the file is ours
+  if (!m) return
+  const mine = m[2].startsWith(`.inflight-${NONCE} `)
+  throw new Fatal(`UNRESOLVED MODE COMMAND on ${SERVER} (${mine ? "this run's own" : 'an earlier run'}): every lavastep driver refuses until it is resolved BY HAND -- stop every lavastep driver and every 'lsrun=' bot process; RESTART that Paper server and check its old JVM exited (its latest.log shows whether the command ran); set the default game mode by RCON and read it back; then delete ~/mcai-sandbox-mode/${SERVER}/.inflight-* on the worlds host (and the gone runs' markers and lock-host warning copies, or let the next run sweep them). The file: ${m[2]}`)
 }
 const inflightOpen = what => `printf '%s\\n' '${what} by ${OWNER} at '"$(date -u +%FT%TZ)" > ${MDIR}/.inflight-${NONCE}`
 /** The LAST-OUT restore, fenced: survival only when no marker but ours and the known-stale ones stands; the reply is
@@ -726,16 +738,16 @@ async function main () {
   for (let k = 0; k < 30 && online().some(n => n.startsWith(prefix)); k++) await sleep(2000)
   if (online().some(n => n.startsWith(prefix))) throw new Error('a bot of this run is still online: ' + online().join(','))
   P_(`root=${BOT_ROOT} sha=${sha} lavastep_build=${lavastepBuild} server=${SERVER} slot=${SLOT} scene=${SCENE} bag=${BAG} yaw=${YAW} trials=${TRIALS} secs=${SECS} arena=${A.x},${A.y},${A.z} nonce=${NONCE} objective=${OBJ}`)
-  // STARTUP: the arena CLAIM (fenced; before any world change), then this run's markers (fenced; before any adventure
-  // default), the stale ones going in the same section (this run's marker now stands for the adventure state)
-  claimArena()
-  if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
   // Claude r8 P3-3: a worlds-host marker without `mid=` was written by a pre-r8 driver, whose sweep rules are weaker:
   // refuse to share the server with it
   const preR8 = wMarkers().filter(m => !/\bmid=/.test(m.text))
   if (preR8.length) throw new Error(`an older (pre-r8) lavastep driver's marker is on ${SERVER}; retire that checkout and resolve by hand: ${preR8.map(m => m.text).join(' | ')}`)
-  // Claude r8 P3-2: SIGKILL any orphaned bot of a run whose driver is gone (same machine), before judging staleness
-  for (const m of wMarkers()) {
+  // Claude r8 P3-2 / Codex r9 P2: SIGKILL any orphaned bot of a run whose driver is gone (same machine) BEFORE the arena
+  // claim and before judging staleness -- including the run that owns this arena's claim (so restarting the killed
+  // driver's own scene and slot can drain it)
+  let arenaOwner = ''
+  try { arenaOwner = execFileSync('ssh', [...SSH, `cat ${ARENA}/owner 2>/dev/null || true`], { encoding: 'utf8', timeout: 30000 }).trim() } catch {}
+  for (const m of [...wMarkers(), ...(arenaOwner ? [{ name: 'arena', text: arenaOwner }] : [])]) {
     const h = /host=(\S+)/.exec(m.text)?.[1], mid = /mid=([0-9a-f-]+)/.exec(m.text)?.[1], p = Number(/pid=(\d+)/.exec(m.text)?.[1])
     const ps = Number(/pstart=(\d+)/.exec(m.text)?.[1]), run = /run=([a-z0-9]{8})\b/.exec(m.text)?.[1]
     if (!run || run === NONCE || h !== HOSTNAME || mid !== MACHINE || MACHINE === 'unknown' || !(p > 0) || !driverGone(p, ps)) continue
@@ -747,6 +759,10 @@ async function main () {
     }
   }
   await sleep(1500)
+  // STARTUP: the arena CLAIM (fenced; before any world change), then this run's markers (fenced; before any adventure
+  // default), the stale ones going in the same section (this run's marker now stands for the adventure state)
+  claimArena()
+  if (forced().some(Boolean)) throw new Error(`the arena's chunks are already force-loaded (another run on ${SERVER} slot ${SLOT}?)`)
   // Claude r7 P3-4: a warning copy on the lock host with no authoritative twin on the worlds host means an OLDER driver
   // (r5/r6 kept its state on the lock host) or a half-written marker: refuse rather than guess
   let orphanCopies = []
@@ -803,7 +819,7 @@ async function main () {
 let cleaned = null
 function cleanup () { return (cleaned ??= cleanupOnce()) }
 async function step (what, fn, tries = 3) {
-  for (let t = 1; t <= tries; t++) { try { await fn(); return true } catch (e) { P_(`cleanup ${what} attempt ${t} FAILED`, e.message.slice(0, 200)); await sleep(1000) } }
+  for (let t = 1; t <= tries; t++) { try { await fn(); return true } catch (e) { P_(`cleanup ${what} attempt ${t} FAILED`, e instanceof Fatal ? e.message : e.message.slice(0, 200)); if (e instanceof Fatal) return false; await sleep(1000) } }
   return false
 }
 async function cleanupOnce () {
