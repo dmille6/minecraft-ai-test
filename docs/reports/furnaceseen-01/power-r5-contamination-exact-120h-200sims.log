@@ -1,0 +1,9 @@
+history 120 h to 10-23 21:39Z | pools 16 | repeats 2582, removable (the earlier empty logged before the pick) 2582 = 1.000 | effect used 1.000 | sims 200
+  POWER removal 1.00  +180/+360: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  POWER removal 1.00  +180/+720: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  POWER removal 1.00  +180/+1440: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  POWER removal 1.00  +180/+2880: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  NULL  removal 0.00  +180/+360: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  NULL  removal 0.00  +180/+720: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  NULL  removal 0.00  +180/+1440: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000
+  NULL  removal 0.00  +180/+2880: cuts 200, UNDEFINED (fewer than 4 clean canary + 4 clean control pools) 200 (1.00); KEEP over ALL cuts 0/200 = 0.000

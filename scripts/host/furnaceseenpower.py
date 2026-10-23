@@ -30,7 +30,7 @@ random.seed(20261023)
 def load(pool, since, until):
     from lib.telemetry import Events
     drains, loads, per_bot = [], [], defaultdict(list)
-    vers = defaultdict(Counter)      # bucket -> {version: rows} (the read's contamination input)
+    vers = defaultdict(Counter)      # MINUTE -> {version: rows}: re-bucketed exactly at each minute-aligned cut (Codex r4 P2)
     files = glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl*')
     for fpath in files:
         for r in Events.load(paths=fpath, since=since, until=until).rows:
@@ -41,7 +41,7 @@ def load(pool, since, until):
             per_bot[b].append(ms)
             v = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
             if v:
-                vers[ms // CONTAM_BUCKET_MS][v] += 1
+                vers[ms // 60000][v] += 1
             k = (((r.get('raw') or {}).get('skill') or {}).get('name')) or ''
             if k == '_furnace_drain':
                 f = fields(r.get('detail'))
@@ -81,6 +81,18 @@ def repeats_with_flags(drains, loads):
     return out
 
 
+def prebuckets(data, pools, lo, hi):
+    """The read's contamination input over EXACTLY [lo, hi) (minute-aligned): each minute's version counts summed into the
+    read's own CONTAM_BUCKET_MS buckets (minute m lies in bucket m*60000 // CONTAM_BUCKET_MS, as a row at that minute would)."""
+    out = defaultdict(Counter)
+    for p in pools:
+        vm = data[p][3]
+        for m in range(lo // 60000, hi // 60000):
+            if m in vm:
+                out[(m * 60000 // CONTAM_BUCKET_MS, p)].update(vm[m])
+    return out
+
+
 def treat(rows, loads, removal, rnd=random.random):
     """The treated trajectory of ONE pool's drains (sorted rows (t, bot, furnace, stop, t0)): walking the drains in order, a drain
     is SKIPPED (removed) when the newest RETAINED empty finding on its furnace is ANOTHER bot's, < REPEAT_MS old, logged before
@@ -106,6 +118,9 @@ _rows = [(0, 'A', 'F', 'empty', 0), (600_000, 'B', 'F', 'empty', 590_000), (1_20
 assert [r[0] for r in treat(_rows, [], 1.0)] == [0]
 assert repeat_empties([r[:4] for r in treat(_rows, [], 1.0)], []) == 0 and repeat_empties([r[:4] for r in _rows], []) == 1
 assert [r[0] for r in treat(_rows, [], 0.0)] == [0, 600_000, 1_200_000]
+# Codex r4 P2's boundary: only rows inside [lo, hi) enter the buckets (a minute before lo, or at hi, never does)
+_d = {'P': (None, None, None, {9: Counter({'x': 5}), 10: Counter({'a': 7}), 19: Counter({'a': 1}), 20: Counter({'x': 9})})}
+assert prebuckets(_d, ['P'], 600_000, 1_200_000) == {(1, 'P'): Counter({'a': 8})}, prebuckets(_d, ['P'], 600_000, 1_200_000)
 
 
 def main():
@@ -134,14 +149,13 @@ def main():
                 print(f'  +{fin}: no history'); continue
             hits = runs = cuts = unreadable = 0
             for _ in range(SIMS):
-                t = random.randint(s_ms + P, u_ms - W)
+                t = random.randint((s_ms + P) // 60000 + 1, (u_ms - W) // 60000) * 60000     # minute-aligned: exact windows
                 pre_n = {p: len(sl(ftimes[p], ftimes[p], t - P, t)) for p in pools}
                 # THE READ'S CONTAMINATION RULE at this cut (Codex r3 P2): the pre-period's version counts per bucket and pool
-                b0, b1 = (t - P) // CONTAM_BUCKET_MS, t // CONTAM_BUCKET_MS
-                contam = contamination({(bk, p): data[p][3][bk] for p in pools for bk in range(b0, b1) if bk in data[p][3]})
+                contam = contamination(prebuckets(data, pools, t - P, t))
                 el, _ = eligible_controls(pre_n, contam, set())
                 cuts += 1
-                if len(el) < 6:
+                if len(el) < 8:          # the read needs 4 canary pools AND >= 4 controls (Codex r4 P3)
                     unreadable += 1      # fewer than 4 clean canary pools + 2 clean controls: the run would read UNDEFINED
                     continue
                 can = random.sample(el, 4)
@@ -159,13 +173,14 @@ def main():
                     if m is not None and m >= 0:
                         ok = True
                 runs += 1; hits += ok
+            # ALWAYS reported, even when no cut could be drawn (Codex r4 P3): an all-UNDEFINED schedule is the result
+            print(f'  {"POWER" if e else "NULL "} removal {e:.2f}  +180/+{fin}: cuts {cuts}, UNDEFINED (fewer than 4 clean canary + 4 clean '
+                  f'control pools) {unreadable} ({unreadable / max(1, cuts):.2f}); KEEP over ALL cuts {hits}/{cuts} = {hits / max(1, cuts):.3f}')
             if runs:
-                ph = hits / runs; ci = 1.96 * math.sqrt(ph * (1 - ph) / runs)
+                ph = hits / runs
                 indep = max(1, int((u_ms - s_ms - P - W) // W) + 1)
-                print(f'    cuts {cuts}: {unreadable} ({unreadable / max(1, cuts):.2f}) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; '
-                      f'KEEP over ALL cuts {hits}/{cuts} = {hits / max(1, cuts):.3f}')
-                print(f'  {"POWER" if e else "NULL "} removal {e:.2f}  +180/+{fin}: {hits}/{runs} = {ph:.3f} (binomial 95% {max(0, ph - ci):.3f}-{min(1, ph + ci):.3f}; '
-                      f'NOT binomial in truth: the cuts share history -- about {indep} non-overlapping post-window(s) in the range)')
+                print(f'      among the {runs} DEFINED cuts: KEEP {hits}/{runs} = {ph:.3f} (not binomial: the cuts share history -- about {indep} '
+                      f'non-overlapping post-window(s) in the range)')
 
 
 if __name__ == '__main__':
