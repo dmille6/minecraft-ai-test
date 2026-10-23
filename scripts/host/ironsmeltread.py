@@ -168,6 +168,8 @@ def stock_change(records, a_ms, b_ms, names=('raw_iron', 'iron_ingot'), first_ms
         return None, 0
     ka, kb = known_at(records, a_ms), known_at(records, b_ms)
     both = set(ka) & set(kb)
+    if not both:
+        return None, 0          # no container known at both ends: no evidence, never a zero change (Codex r4 P2)
     cnt = lambda m, n: int((m.get(n) or [0])[0] or 0)
     return {n: sum(cnt(kb[k], n) - cnt(ka[k], n) for k in both) for n in names}, len(both)
 
@@ -190,6 +192,7 @@ assert set(known_at(_R, 35)) == {('W', 'a'), ('W', 'b')} and set(known_at(_R, 45
 assert known_at(_R, 25 + STALE_MS) == {}, 'stale'
 assert stock_change(_R, 15, 25, first_ms=10) == ({'raw_iron': -3, 'iron_ingot': 0}, 1)
 assert stock_change(_R, 5, 25, first_ms=10) == (None, 0), 'before the index began: unavailable'
+assert stock_change(_R, 15, 45 + STALE_MS, first_ms=10) == (None, 0), 'nothing known at both ends: unavailable'
 assert pickups_incomplete('raw_iron 3 a b | 9 items in 2 pickups in 60s; +3 groups (12 items) not shown') and pickups_incomplete('x 1 a b | 1 items; err=2')
 assert not pickups_incomplete('raw_iron 3 a b | 3 items in 1 pickups in 60s')
 assert judge_gain(2, 1000, 5000, [(50_000, 2)], [], 10**9) == 'ok_pickup'
@@ -252,8 +255,18 @@ if __name__ == '__main__':
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
         if t is None or not b:
             continue
-        if t > END and raw_name(r) != '_pickups':
-            continue                # past END only the pickup summaries are read (they explain gains inside the window)
+        if t > END:
+            # past END only the pickup summaries are read, and ONLY to explain gains inside the window: no population, no
+            # bot-hours, no counts (Codex r4 P2)
+            if raw_name(r) == '_pickups' and pool_of(b) in JOBPOOLS:
+                d_ = r.get('detail') or ''; tms_ = int(t.timestamp() * 1000)
+                if pickups_incomplete(d_):
+                    partial[b].append(tms_)
+                for fam in ('fe', 'cu'):
+                    c_ = family_picked(d_, FAMILY[fam])
+                    if c_:
+                        pick[fam][b].append((tms_, c_))
+            continue
         if pool_of(b) not in JOBPOOLS:
             continue            # the job is off there (owner D2): not the population
         arm = 'canary' if pool_of(b) in CANS else 'control'
@@ -286,8 +299,7 @@ if __name__ == '__main__':
                 n[(period, arm, 'jobs_noeffect')] += 1
                 body[(period, arm)] += dur_of(r)
         elif k == '_pickups':
-            if t <= END:
-                n[(period, arm, 'pickups')] += 1
+            n[(period, arm, 'pickups')] += 1
             if pickups_incomplete(d):
                 partial[b].append(tms)
             for fam in ('fe', 'cu'):
@@ -379,8 +391,11 @@ if __name__ == '__main__':
         first = min(r['at'] for r in recs if isinstance(r.get('at'), (int, float)))
         census[p] = {'pre': stock_change(recs, ms(PRE), ms(CUT), first_ms=first), 'post': stock_change(recs, ms(CUT), ms(END), first_ms=first),
                      'known': {lbl: len(known_at(recs, ms(x))) for lbl, x in (('pre', PRE), ('cut', CUT), ('end', END))}}
+    # PAIRED POOLS ONLY (Codex r4 P2): a pool enters an arm's means only when BOTH periods have evidence; the others are named
+    paired = {p for p, c in census.items() if c['pre'][0] is not None and c['post'][0] is not None}
+    excluded = sorted(set(census) - paired)
     def arm_mean(arm, period, name):
-        vals = [c[period][0][name] for p, c in census.items() if ((p in CANS) == (arm == 'canary')) and c[period][0] is not None]
+        vals = [census[p][period][0][name] for p in paired if (p in CANS) == (arm == 'canary')]
         return (sum(vals) / len(vals) if vals else None), len(vals)
     world = {arm: {name: {per: arm_mean(arm, per, name) for per in ('pre', 'post')} for name in ('raw_iron', 'iron_ingot')} for arm in ('canary', 'control')}
     def world_did(name):
@@ -401,7 +416,8 @@ if __name__ == '__main__':
           % (fmt(world['canary']['raw_iron']['pre'][0]), fmt(world['canary']['raw_iron']['post'][0]), fmt(world['canary']['iron_ingot']['pre'][0]), fmt(world['canary']['iron_ingot']['post'][0]), world['canary']['raw_iron']['post'][1],
              fmt(world['control']['raw_iron']['pre'][0]), fmt(world['control']['raw_iron']['post'][0]), fmt(world['control']['iron_ingot']['pre'][0]), fmt(world['control']['iron_ingot']['post'][0]), world['control']['raw_iron']['post'][1],
              fmt(world_did('raw_iron')), fmt(world_did('iron_ingot')), comparable['canary'], comparable['control']))
-    print('             KNOWN containers at PRE / CUT / END: canary %(pre)d / %(cut)d / %(end)d' % known_n['canary'] + ' | control %(pre)d / %(cut)d / %(end)d' % known_n['control'])
+    print('             KNOWN containers at PRE / CUT / END: canary %(pre)d / %(cut)d / %(end)d' % known_n['canary'] + ' | control %(pre)d / %(cut)d / %(end)d' % known_n['control']
+          + ' | pools paired (evidence in both periods) %d, excluded %s' % (len(paired), excluded or '-'))
     print('CHURN        smelt_town no_effect share canary %.3f -> %.3f control %.3f -> %.3f DiD %+.3f | no_effect body-s per bot-h canary %.1f -> %.1f control %.1f -> %.1f'
           % (share('pre', 'canary', 'jobs_noeffect', 'jobs_runner'), share('post', 'canary', 'jobs_noeffect', 'jobs_runner'),
              share('pre', 'control', 'jobs_noeffect', 'jobs_runner'), share('post', 'control', 'jobs_noeffect', 'jobs_runner'), did_share('jobs_noeffect', 'jobs_runner'),
