@@ -132,6 +132,18 @@ test('CHAIN: an OPEN carry note at town -> mats_return comes first, and no new o
   } finally { fs.rmSync(noteFile(), { force: true }) }
 })
 
+test('CHAIN: mats_return goes FIRST even against the town deposit -- a near-full bag at town gets the deposit WITHOUT a note (positive control), the recovery WITH one', async () => {
+  seedIndex({ cobblestone: [400, 7], oak_log: [600, 10] })
+  const full = [['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ...Array.from({ length: 31 }, () => ['oak_log', 64])]
+  const ctl = await decisions(chainBot({ bag: full }), 1, skill => skipTown(skill))
+  assert.equal(ctl.ran[0]?.skill, 'town_deposit', `the competitor is real: ${JSON.stringify(ctl.ran.map(r => r.skill))}`)
+  fs.writeFileSync(noteFile(), JSON.stringify({ v: 1, bot: 'MatsChainBot', kind: 'bricks', took: { oak_log: 2 }, fromBag: {}, bag0: { stone: 0 }, at: Date.now(), phase: 'open', tries: 0 }))
+  try {
+    const { ran } = await decisions(chainBot({ bag: full }), 1, skill => (skill === 'mats_return' ? { status: 'no_effect', detail: 'probe' } : skipTown(skill)))
+    assert.equal(ran[0]?.skill, 'mats_return', JSON.stringify(ran.map(r => r.skill)))
+  } finally { fs.rmSync(noteFile(), { force: true }) }
+})
+
 test('CHAIN: a skip does not loop -- make_material finding nothing (no_effect) -> one order per cooldown, the streak counted', async () => {
   seedIndex({ cobblestone: [400, 7], oak_log: [600, 10] })
   const { ran, loop } = await decisions(chainBot(), 6, skill => (skill === 'make_material' ? { status: 'no_effect', detail: 'x', stop: 'inputs' } : skipTown(skill)))

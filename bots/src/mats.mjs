@@ -209,7 +209,7 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
                                  bagSpare = {}, town = null, furnace = () => true, table = () => true, lease = () => true, unknown = () => 0,
                                  bodyMs = 0, reserve = BUILD_RESERVE, buffers = MATS_BUFFERS_DEFAULT, state = {} } = {}) {
   const s = { ...state }
-  const no = skip => ({ order: null, kind: null, state: s, skip })
+  const no = (skip, more = {}) => ({ order: null, kind: null, state: s, skip, ...more })
   if (!on) return no('off')
   if (!shared) return no('isolated')
   if (holds) return no('milestone')
@@ -223,26 +223,27 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
   s.lastIssuedAt = now
   const t = lazy(town)
   if (!t || !t.stock) return no('index_unreadable')
-  if (!(t.coverage >= MATS_MIN_COVERAGE)) {
-    // THE REMEDY IS PERFORMED, NOT PRINTED (CLAUDE.md): with town containers the index does not KNOW in reach (never opened,
-    // stale or dirty: Codex r1 P2-9), the order recounts them (count_town's own reconciliation, at most three a visit);
-    // only with none left is it a skip
-    const u = Number(lazy(unknown)) || 0
-    if (u > 0) return { order: { skill: 'make_material', args: { item: 'count' }, why: `the town index knows ${Math.round(t.coverage * 100)}% of the town's containers (it needs ${Math.round(MATS_MIN_COVERAGE * 100)}%): recount the ${u} it does not know first (town materials job)` }, kind: 'count', state: s, skip: null }
-    return no('index_coverage')
-  }
+  // THE REMEDY IS PERFORMED, NOT PRINTED (CLAUDE.md): a town container the index does not KNOW (never opened, stale or dirty:
+  // Codex r1 P2-9) that a recount can reach is recounted FIRST, AT ANY COVERAGE (Codex r2 P2-5: at 80% the unknown fifth may
+  // hold the buffer's parts) -- count_town's own reconciliation, at most three a visit. With none left in reach (each one
+  // that could not be opened sits out its 10 min backoff), the order needs the coverage floor; the parts in a container no
+  // recount can open are the buffer's one residual (named in the registration).
+  const u = Number(lazy(unknown)) || 0
+  if (u > 0) return { order: { skill: 'make_material', args: { item: 'count' }, why: `the town index does not know ${u} of the town's containers in reach (it knows ${Math.round(t.coverage * 100)}%): recount them first (town materials job)` }, kind: 'count', state: s, skip: null }
+  if (!(t.coverage >= MATS_MIN_COVERAGE)) return no('index_coverage', { coverage: t.coverage })
   const reasons = []
   for (const kind of KIND_ORDER) {
     const k = KINDS[kind]
+    const why = r => reasons.push(`${kind}:${r}`)
     // HEADROOM (Codex r1 P2-10): an order runs only when its WHOLE batch fits under the buffer -- the buffer is a hard cap
     const short = (Number(buffers?.[k.part]) || 0) - partCount(k.part, t.stock)
-    if (short < k.makes) { reasons.push('stocked'); continue }
-    if (freeSlots < k.slots) { reasons.push('room'); continue }
+    if (short < k.makes) { why('stocked'); continue }
+    if (freeSlots < k.slots) { why('room'); continue }
     const inp = orderInputs(kind, { bagSpare, stock: t.stock, reserve })
-    if (!inp) { reasons.push('inputs'); continue }
-    if (k.smelt && !lazy(furnace)) { reasons.push('no_furnace'); continue }
-    if (k.table && !lazy(table)) { reasons.push('no_table'); continue }
-    if (!lazy(lease)) return no('lease_busy')
+    if (!inp) { why('inputs'); continue }
+    if (k.smelt && !lazy(furnace)) { why('no_furnace'); continue }
+    if (k.table && !lazy(table)) { why('no_table'); continue }
+    if (!lazy(lease)) return no('lease_busy', { coverage: t.coverage, kinds: reasons.join(',') })
     return {
       // the kind travels as `item` (an arg the skill grammar already has: args-sayable.test)
       order: { skill: 'make_material', args: { item: kind },
@@ -250,9 +251,12 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
       kind, state: s, skip: null, inputs: inp,
     }
   }
-  // the most informative reason a part was not made (the read's denominator): inputs > no_furnace > no_table > room > stocked
-  for (const r of ['inputs', 'no_furnace', 'no_table', 'room']) if (reasons.includes(r)) return no(r)
-  return no('stocked')
+  // the most informative reason a part was not made (the read's denominator): inputs > no_furnace > no_table > room > stocked;
+  // every kind's own reason travels too (`kinds`: Claude r2 P2-A -- a town with no sand says `inputs` while bricks lacked a
+  // furnace), with the coverage the reading had
+  const more = { coverage: t.coverage, kinds: reasons.join(',') }
+  for (const r of ['inputs', 'no_furnace', 'no_table', 'room']) if (reasons.some(x => x.endsWith(`:${r}`))) return no(r, more)
+  return no('stocked', more)
 }
 
 /** THE RECOVERY ORDER (mats_return, design 3.2): an open carry note at town runs FIRST, before any other town order. */
@@ -314,7 +318,8 @@ export const planksToLoad = n => Math.ceil(n / SMELTS_PER_PLANK)
  *  name the order touches, `furnace` and `loaded` what the session put in (written BEFORE the furnace is loaded, so a kill
  *  mid-session leaves a record mats_return can drain against), `tries` the recovery attempts so far. */
 export function newNote ({ bot = null, kind, took = {}, fromBag = {}, bag0 = {}, at = 0, order = null } = {}) {
-  return { v: MATS_V, bot, kind, took: { ...took }, fromBag: { ...fromBag }, bag0: { ...bag0 }, at, order, phase: 'open', furnace: null, loaded: null, tries: 0 }
+  return { v: MATS_V, bot, kind, took: { ...took }, fromBag: { ...fromBag }, bag0: { ...bag0 }, at, order, phase: 'open', furnace: null, loaded: null, tries: 0,
+    sticks: 0, deposited: {} }
 }
 /** The names an order of `kind` touches (the note's bag0, the balance's families). */
 export function touchedNames (kind, log = null) {
@@ -341,42 +346,77 @@ export function obligations (kind) {
 }
 
 /**
- * THE RECOVERY PLAN -> { craftStone, torches, bank: {name: n}, stoneLeft, inputsLeft: {name: n} }. Pure over the note and the
- * bag NOW (counts above the note's bag0 are the order's):
- *   craftStone  stone in fours into bricks (a 1-3 remainder is ORDINARY stone afterwards, reported: stoneLeft)
- *   torches     charcoal x (sticks above bag0) -> torches (the torch kind's lifecycle completes in recovery: Codex r1 P2-13)
- *   bank        the part (and glass, a part itself) above bag0, after the crafts
- *   inputsLeft  unspent inputs above bag0 (booked, never an obligation)
+ * THE RECOVERY PLAN -> { craftStone, torches, panes, bank: {name: n}, stoneLeft, charcoalLeft, inputsLeft: {name: n} }. Pure over
+ * the note and the bag NOW. A count above the note's bag0 is the order's ONLY UP TO WHAT THE NOTE RECORDS (Claude r2 P2-D: bag0
+ * goes stale -- charcoal or sticks the bot gets later for its own ladder are never the order's):
+ *   the intermediate (stone, glass, charcoal)  at most the batch the furnace was loaded with (note.loaded.input.n; none loaded: 0)
+ *   sticks                                     at most the sticks the order crafted (note.sticks)
+ *   the part                                   at most the kind's batch (KINDS.makes), with what this plan crafts
+ *   craftStone   stone in fours into bricks (a 1-3 remainder is ORDINARY stone afterwards, reported: stoneLeft)
+ *   torches      the order's charcoal x the order's sticks; charcoal with no stick to make it a torch is charcoalLeft -- an
+ *                OBLIGATION (Codex r2 P2-8: the owner's "charcoal for torches only"): it holds the note open, never banked
+ *   panes        the order's glass in sixes
+ *   bank         the part (and glass) above bag0, capped, after the crafts
+ *   inputsLeft   unspent inputs above bag0 (booked, never an obligation)
  */
 export function returnPlan (note, bag = {}) {
-  const empty = { craftStone: 0, torches: 0, bank: {}, stoneLeft: 0, inputsLeft: {} }
+  const empty = { craftStone: 0, torches: 0, panes: 0, bank: {}, stoneLeft: 0, charcoalLeft: 0, inputsLeft: {} }
   if (!note?.kind || !KINDS[note.kind]) return empty
   const k = KINDS[note.kind]
   const above = n => Math.max(0, (Number(bag?.[n]) || 0) - (Number(note.bag0?.[n]) || 0))
+  const batch = k.smelt ? Math.max(0, Number(note.loaded?.input?.n) || 0) : 0
   const out = { ...empty, bank: {}, inputsLeft: {} }
-  if (note.kind === 'bricks') { const st = above('stone'); out.craftStone = st - (st % 4); out.stoneLeft = st % 4 }
-  if (note.kind === 'torch') out.torches = Math.min(above('charcoal'), above('stick'))
-  const madeBricks = out.craftStone, madeTorches = out.torches * 4
-  for (const n of obligations(note.kind)) {
-    if (n === 'stone' || n === 'charcoal') continue
-    const extra = above(n) + (n === 'stone_bricks' ? madeBricks : 0) + (n === 'torch' ? madeTorches : 0)
-    if (extra > 0) out.bank[n] = extra
+  const mid = k.smelt ? Math.min(above(k.smelt.out), batch) : 0
+  if (note.kind === 'bricks') { out.craftStone = mid - (mid % 4); out.stoneLeft = mid % 4 }
+  if (note.kind === 'torch') {
+    out.torches = Math.min(mid, above('stick'), Math.max(0, Number(note.sticks) || 0))
+    out.charcoalLeft = mid - out.torches
   }
+  if (note.kind === 'panes') out.panes = Math.floor(mid / 6)
+  const made = { stone_bricks: out.craftStone, torch: out.torches * 4, glass_pane: out.panes * 16 }
+  const partCap = k.makes
+  const p = Math.min(partCap, above(k.part) + (made[k.part] ?? 0))
+  if (p > 0) out.bank[k.part] = p
+  if (note.kind === 'panes') { const g = mid - out.panes * 6; if (g > 0) out.bank.glass = g }
   for (const n of Object.keys(note.bag0 ?? {})) {
     if (obligations(note.kind).includes(n)) continue
     const extra = above(n) - (n === 'stick' ? out.torches : 0)
     if (extra > 0) out.inputsLeft[n] = extra
   }
-  void k
   return out
 }
-/** May the note close? -> true when nothing the order owes is left: no part or intermediate above bag0 in the bag (beyond a
- *  stone remainder < 4 and charcoal with no stick to make it a torch, both reported) and no recorded furnace still to drain. */
+/** May the note close? -> true when nothing the order owes is left: no part or intermediate of the order's in the bag (beyond a
+ *  stone remainder < 4, reported), no charcoal of the order's still to become torches, and no recorded furnace to drain. */
 export function noteSettled (note, bag = {}, { furnaceDone = true } = {}) {
   if (!note) return true
   if (note.furnace && !furnaceDone) return false
   const p = returnPlan(note, bag)
-  return p.craftStone === 0 && p.torches === 0 && !Object.keys(p.bank).length
+  return p.craftStone === 0 && p.torches === 0 && p.panes === 0 && p.charcoalLeft === 0 && !Object.keys(p.bank).length
+}
+/**
+ * THE RECOVERY'S BALANCE (Codex r2 P1-4: a closing recovery must prove reconciliation, not absence) -> { verdict, batch, out,
+ * back, short }. Pure. For a smelt kind whose furnace was loaded: the batch's n input became output units -- the intermediate
+ * in the bag (capped by the batch), the part in the bag, banked by this recovery or deposited by the order before it stopped
+ * (in output units: a brick = 1 stone, 16 panes = 6 glass, 4 torches = 1 charcoal) -- or came back as input (the bag's input
+ * over its count right after the load, note.loaded.inputAfter). short = batch - out - back > 0 is a LOSS (noted stone spent
+ * on the way back, a stack dropped). A kind with no furnace, or a note never loaded, has nothing in flight: ok. RESIDUAL
+ * (named): input the bot gains on the way (cobble mined) can hide a shortfall up to that gain -- `back` is reported.
+ */
+export function recoveryBalance (note, { bag = {}, banked = {} } = {}) {
+  const k = KINDS[note?.kind]
+  const n = Math.max(0, Number(note?.loaded?.input?.n) || 0)
+  if (!k?.smelt || !n) return { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 }
+  const above = x => Math.max(0, (Number(bag?.[x]) || 0) - (Number(note.bag0?.[x]) || 0))
+  const per = { stone_bricks: 1, glass_pane: 6 / 16, torch: 1 / 4 }[k.part] ?? 1
+  const dep = Number(note.deposited?.[k.part]) || 0, depMid = Number(note.deposited?.[k.smelt.out]) || 0
+  const partUnits = (Math.min(k.makes, above(k.part)) + (Number(banked?.[k.part]) || 0) + dep) * per
+  const midUnits = Math.min(n, above(k.smelt.out)) + (Number(banked?.[k.smelt.out]) || 0) + depMid
+  const out = Math.min(n, midUnits + partUnits)
+  const inName = note.loaded.input.name
+  const after = Number(note.loaded.inputAfter)
+  const back = Number.isFinite(after) ? Math.min(n - out, Math.max(0, (Number(bag?.[inName]) || 0) - after)) : 0
+  const short = Math.max(0, Math.round((n - out - back) * 100) / 100)
+  return { verdict: short > 1e-9 ? 'loss' : 'ok', batch: n, out: Math.round(out * 100) / 100, back, short }
 }
 /** Recovery attempts before a note is given up as ABANDONED (reported, never silently: the read counts them). */
 export const MATS_RETURN_MAX = 6
@@ -402,12 +442,16 @@ export function recoveryContentsOk (loaded, { input = null, fuel = null, output 
  * `here` = what the server shows in the visited container now. The reserve is judged on others + here, so a withdrawal by
  * another bot since the order's reading is seen, never spent through.
  */
-export function takeAllowed (name, want, { others = {}, here = {}, reserve = BUILD_RESERVE } = {}) {
+export function takeAllowed (name, want, { others = {}, here = {}, reserve = BUILD_RESERVE, taking = {} } = {}) {
   const rk = reserveKeyOf(name)
   if (!rk) return 0
   const sum = {}
   for (const m of [others, here]) for (const [n, c] of Object.entries(m ?? {})) sum[n] = (sum[n] ?? 0) + (Number(c) || 0)
-  return Math.max(0, Math.min(Number(want) || 0, Number(here?.[name]) || 0, spendable(rk, sum, reserve)))
+  // THE OUTSTANDING DRAWS (Codex r2 P1-3; design 3.3 "claims subtracted"): every other bot's withdraw records a confirmed DRAW
+  // claim in the town's stock journal before its clicks; until its post-transfer count releases it, that stock is already on
+  // its way out of the containers this reading counts
+  const out = Math.max(0, Number(taking?.[rk]) || 0)
+  return Math.max(0, Math.min(Number(want) || 0, Number(here?.[name]) || 0, spendable(rk, sum, reserve) - out))
 }
 
 /**
@@ -451,7 +495,7 @@ export function familyUnits (kind, counts = {}) {
   return {}
 }
 export function matsBalance ({ kind, bag0 = {}, bag1 = {}, withdrawn = {}, deposited = {}, prior = {}, furnaceLeft = {}, burnedPlanks = 0,
-                               smelted = 0, forbidden0 = {}, forbidden1 = {}, uncertain = false } = {}) {
+                               smelted = 0, forbidden0 = {}, forbidden1 = {}, uncertain = false, cut = false, placed = {} } = {}) {
   const sum = (...ms) => { const o = {}; for (const m of ms) for (const [k, v] of Object.entries(m ?? {})) o[k] = (o[k] ?? 0) + (Number(v) || 0); return o }
   const IN = familyUnits(kind, sum(bag0, withdrawn, prior)), OUT = familyUnits(kind, sum(bag1, deposited, furnaceLeft))
   const families = {}
@@ -462,11 +506,18 @@ export function matsBalance ({ kind, bag0 = {}, bag1 = {}, withdrawn = {}, depos
   if (kind === 'torch') { families.wood += smelted * 4; families.light -= smelted }
   const forbidden = {}
   for (const [n, v] of Object.entries(forbidden0 ?? {})) { const d = (Number(v) || 0) - (Number(forbidden1?.[n]) || 0); if (d > 0) forbidden[n] = d }
-  const expected = KINDS[kind]?.smelt ? planksToLoad(smelted) : 0
-  // forbidden first (never excused), then a LOSS (a family short: items left the boundary unaccounted), then fuel over the
-  // batch's planks; a GAIN (more than went in: an auto-pickup of a touched name on a walk) is reported, never a defect
-  const lost = Object.values(families).some(d => d < -1e-9), gained = Object.values(families).some(d => d > 1e-9)
-  const verdict = Object.keys(forbidden).length ? 'forbidden' : uncertain ? 'unreconciled' : lost ? 'loss' : burnedPlanks > expected ? 'overburn' : gained ? 'gain' : 'ok'
+  // A SESSION CUT BY THE CLOCK holds one freshly lit plank whatever it smelted (Claude r2 P2-B): one plank over is the clock's
+  const expected = KINDS[kind]?.smelt ? planksToLoad(smelted) + (cut ? 1 : 0) : 0
+  // THE ORDER'S OWN PLACEMENTS (Claude r2 P2-C, design 3.2): cobble, logs and planks are pathfinder scaffold on the order's
+  // walks; what the bag counted placed (skills.mjs countPlacements) explains a shortfall -- SCAFFOLD, a reported loss, never
+  // the defect gate. A shortfall beyond them is a LOSS.
+  const pu = familyUnits(kind, placed)
+  const lostRaw = Object.values(families).some(d => d < -1e-9)
+  const lost = Object.entries(families).some(([f, d]) => d + (pu[f] ?? 0) < -1e-9), gained = Object.values(families).some(d => d > 1e-9)
+  // forbidden first (never excused), then a LOSS (a family short beyond the placements: items left the boundary unaccounted),
+  // then scaffold, then fuel over the batch's planks; a GAIN (an auto-pickup of a touched name on a walk) is reported
+  const verdict = Object.keys(forbidden).length ? 'forbidden' : uncertain ? 'unreconciled' : lost ? 'loss' : lostRaw ? 'scaffold'
+    : burnedPlanks > expected ? 'overburn' : gained ? 'gain' : 'ok'
   return { verdict, families, forbidden, fuel: { burned: burnedPlanks, expected } }
 }
 
@@ -493,10 +544,12 @@ export function matsDetail (f = {}) {
   // job's own reading of the town stock (zeros kept: the read's reserve gate needs them), then the accounting
   const kv0 = m => Object.entries(m ?? {}).map(([k, n]) => `${k}:${Math.round(n * 100) / 100}`).join(',') || '-'
   // stock= BEFORE took= and stop= (Claude r1 P1-3: a long stop pushed stock= past the 300-char cut, mid-number)
-  return [`kind=${v(f.kind)}`, `verdict=${v(f.verdict)}`, `made=${v(f.made)}`, `forbidden=${kvs(f.forbidden)}`,
+  // smelted= right after made= (Codex r2 P2-7: at the tail a long stock= pushed it to the 300-char cut, and the read's instrument
+  // treated a cut smelted= as zero)
+  return [`kind=${v(f.kind)}`, `verdict=${v(f.verdict)}`, `made=${v(f.made)}`, `smelted=${v(f.smelted)}`, `forbidden=${kvs(f.forbidden)}`,
     `stone=${v(f.stone)}`, `note=${v(f.note)}`, `ml=${v(f.ml)}`, `stock=${kv0(f.stock)}`, `took=${kvs(f.took)}`, `reserve=${v(f.reserveSrc)}`,
     `stop=${v(String(f.stop ?? '-').slice(0, 60))}`, `inputs_left=${kvs(f.inputsLeft)}`, `tools_lost=${kvs(f.toolsLost)}`,
-    `part=${v(f.part)}`, `log=${v(f.log)}`, `bag=${kvs(f.fromBag)}`, `smelted=${v(f.smelted)}`, `planks=${v(f.burned)}/${v(f.expected)}`,
+    `part=${v(f.part)}`, `log=${v(f.log)}`, `bag=${kvs(f.fromBag)}`, `planks=${v(f.burned)}/${v(f.expected)}${f.cut ? '+cut' : ''}`, `placed=${kvs(f.placed)}`,
     `dep=${kvs(f.deposited)}`, `prior=${kvs(f.prior)}`, `left=${kvs(f.furnaceLeft)}`, `fam=${kvs(f.families)}`,
     `stone_left=${v(f.stoneLeft)}`, `furnace=${v(f.furnace)}`, `lease=${v(f.lease)}`, `t0=${v(f.t0)}`].join(' ')
 }

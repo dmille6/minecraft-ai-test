@@ -135,11 +135,14 @@ test('THE PLANK BOUNDARY (Codex r1 P1-4): a session cut short reads the planks i
   const r = await run(w, { n: 1 }, new AbortController().signal, Date.now() + 23_000)
   assert.equal(r.burned, 0, 'nothing burned (the stale-bag read made this 1)'); assert.equal(r.made, 0)
   assert.equal(bagCount(w, 'oak_planks'), 1); assert.equal(bagCount(w, 'cobblestone'), 1)
-  // and a partial burn: 12 cobble on 8 planks, 6 cooked on 4 planks before the clock -> burned 4, made 6
+  assert.equal(r.cut, true, 'the wait ended on the clock: the batch is cut (Claude r2 P2-B)')
+  // and a partial burn: 3 cobble on 2 planks, 1 cooked on 1 plank before the clock -> burned 1, made 1 (n=3 keeps the wait ~31 s:
+  // the suite runner kills a file at 120 s)
   fresh()
-  const p = town({ bag: [stack('cobblestone', 12), stack('oak_planks', 8)], cook: { items: 6, planks: 4 } })
-  const q = await run(p, {}, new AbortController().signal, Date.now() + 133_000)
-  assert.equal(q.burned, 4); assert.equal(q.made, 6); assert.equal(bagCount(p, 'oak_planks'), 4); assert.equal(bagCount(p, 'cobblestone'), 6)
+  const p = town({ bag: [stack('cobblestone', 3), stack('oak_planks', 2)], cook: { items: 1, planks: 1 } })
+  const q = await run(p, { n: 3 }, new AbortController().signal, Date.now() + 43_000)
+  assert.equal(q.burned, 1); assert.equal(q.made, 1); assert.equal(bagCount(p, 'oak_planks'), 1); assert.equal(bagCount(p, 'cobblestone'), 2)
+  assert.equal(q.cut, true)
 })
 
 test('THE LOAD RECORD is written BEFORE anything goes in (a kill after it leaves a drainable note)', async () => {
@@ -147,9 +150,11 @@ test('THE LOAD RECORD is written BEFORE anything goes in (a kill after it leaves
   const w = town({ bag: [stack('cobblestone', 12), stack('oak_planks', 8)] })
   let recorded = null, inputAtRecord = null
   w.onInput = () => { inputAtRecord = recorded }
-  await run(w, { onLoad: ld => { recorded = ld } })
+  const r = await run(w, { onLoad: ld => { recorded = ld } })
   assert.deepEqual(recorded?.input, { name: 'cobblestone', n: 12 }); assert.deepEqual(recorded?.fuel, { name: 'oak_planks', n: 8 })
   assert.ok(inputAtRecord, 'the record existed when the input went in')
+  // the second record carries the bag's input AFTER the load, from the window's bag (the recovery balance's baseline)
+  assert.equal(recorded.inputAfter, 0); assert.equal(r.cut, undefined, 'a batch that finished is not cut')
 })
 
 test('MAT-HOT: a furnace whose block reads lit=true (an empty fuel slot, coal still burning) is never opened', async () => {

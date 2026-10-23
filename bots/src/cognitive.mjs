@@ -979,13 +979,20 @@ export class CognitiveLoop {
     // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
     // THE RAISED JUNK WELL GOES BEFORE THE DEPOSIT (plinth.mjs plinthOrder; design 3.4): at town, a funded bot's surplus
     // stone builds the town's well before any of it is banked; one builder per town (the lease), on its own cooldown.
-    order = this.#matsReturnOrder() ?? this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
+    // THE MATERIALS RECOVERY GOES FIRST (mats-01, design 3.2): an open carry note at town is reconciled before the plinth, the
+    // deposit and the recount -- and when it is issued, none of those is evaluated (their issue-time cooldowns are not spent
+    // on an order that will not run). The plinth > deposit > recount chain below is unchanged (lidclear.test, plinth-skill.test).
+    const matsReturnOrder = this.#matsReturnOrder()
+    if (matsReturnOrder) order = matsReturnOrder
+    else order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
     // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
     // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
     // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
     // rung re-issues every decision and would starve it. The town deposit and the plinth build keep their turn (both are
     // bounded and on their own cooldowns; the recount comes on the next decision).
-    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order
+    if (!matsReturnOrder) {
+      if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order
+    }
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1216,7 +1223,9 @@ export class CognitiveLoop {
           this.matsSkipAt ??= {}
           if (why && now - (this.matsSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
             this.matsSkipAt[why] = now
-            logEvent({ kind: 'mats_skip', status: 'no_effect', detail: `why=${why} free=${36 - items.length}`, snapshot: snap })
+            // every kind's own reason and the coverage the reading had (Claude r2 P2-A): `why` is the most informative across kinds
+            const cov = Number.isFinite(r.coverage) ? ` cov=${Math.round(r.coverage * 100) / 100}` : ''
+            logEvent({ kind: 'mats_skip', status: 'no_effect', detail: `why=${why} free=${36 - items.length}${cov} kinds=${r.kinds || '-'}`, snapshot: snap })
           }
         }
       } catch { /* a world read must never break the decision loop */ }

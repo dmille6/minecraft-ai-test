@@ -7,7 +7,8 @@
 #   _make_material   one per order: kind= verdict= made= forbidden= stone=b0>b1 note= ml=t0-t1 stock= took= reserve= stop= ...
 #                    (the gate fields FIRST: the logger cuts details at 300 chars; stop= is capped at 60 chars)
 #   _mats_mode       once per spawn (the licence): phase=mode v= on= kinds= reserve=k:n,... reserve_src= buffers= ...
-#   _mats_return     the recovery: kind= stop=closed|open|abandoned|error tries= furnace= drained= made= banked= ...
+#   _mats_return     the recovery: kind= verdict=ok|loss|forbidden|unreconciled forbidden= stop=closed|open|abandoned|error tries=
+#                    batch= out= back= short= made= banked= drained= ... (r3: its own balance -- Codex r2 P1-4)
 #   _mats_skip       why=<reason> (at most one per bot per reason per 30 min)
 #   _furnace_session furnace= lease= t0= t1= by=smelt|drain|make_material|mats_return (every furnace lease's interval)
 #   NAMES ARE EXACT: lib.telemetry folds `_x` into `x`, so every count keys on raw skill.name.
@@ -22,10 +23,13 @@
 #   THE DENOMINATOR (r2, Codex r1 P1-6, Claude r1 P1-3): a MOVED row is a non-count order that took, used from the bag or made
 #              something. G2 and the unreconciled share are over MOVED rows only (a count or a no-op skip always reads ok).
 #   GATES (REVERT, defect -- design 6.1)
-#     G1 forbidden: a canary _make_material row with verdict=forbidden (the bag held fewer of an iron-ladder name or a fuel --
-#        coal, charcoal, iron -- after the order). ANY. A tool worn out on the order's walk is tools_lost, reported, not G1.
-#     G2 loss: MOVED rows verdict=loss or overburn (a family short, or more planks burned than the smelt needed) -- at least 2
-#        AND > 5% of the reconciled MOVED rows.
+#     G1 forbidden: a canary _make_material OR _mats_return row with verdict=forbidden (the bag held fewer of an iron-ladder name
+#        or a fuel -- coal, charcoal, iron -- after it, beyond a recovery's own charcoal made into torches). ANY. A tool worn out on
+#        the order's walk is tools_lost, reported, not G1.
+#     G2 loss: MOVED rows verdict=loss or overburn (a family short beyond the order's own counted placements, or more planks
+#        burned than the smelt needed, one more allowed on a clock cut) -- a recovery of a loaded batch is a MOVED row too, its
+#        balance its own -- at least 2 AND > 5% of the reconciled MOVED rows. verdict=scaffold (a shortfall the order's own
+#        placements explain: design 3.2) is reconciled and REPORTED, never G2.
 #     G3 reserve_crossed: a row whose own reading of the town (stock=, index-known) less what it took of an input is below that
 #        input's reserve (the licence row's reserve=) -- ANY. A row that took a reserved input with no stock= key for it (cut,
 #        absent) or with no licence reserve is UNJUDGED and blocks KEEP (never a pass by default).
@@ -311,6 +315,11 @@ assert known_at(_O + [{'t': 'dirty', 'w': 'W', 'k': 'c', 'at': 18, 'op': 'x', 'p
 assert known_at([_O[0], dict(_O[1], at=10 - OP_TTL_MS - 5), _O[2]], 25) == {('W', 'c'): {'stone_bricks': [12, 1]}}, 'an open mark past its TTL: known'
 assert known_at([dict(_O[1], t='mark'), _O[2]], 25) == {}, 'a checkpoint\'s open mark protects too'
 assert known_at([_O[0]], 10 + STALE_MS) == {} and known_at([_O[0]], 11) == {('W', 'c'): {'stone_bricks': [0, 0]}}, 'stale vs fresh'
+# THE SAME-MS TIE (Codex r2 P2-9): the larger id wins, whichever record comes first -- a checkpoint's observation keeps its id
+_z = {'t': 'obs', 'w': 'W', 'k': 'c', 'at': 30, 'id': 'z', 'names': {'stone_bricks': [12, 1]}}
+_a = {'t': 'obs', 'w': 'W', 'k': 'c', 'at': 30, 'id': 'a', 'names': {'stone_bricks': [0, 0]}}
+assert known_at([_z, _a], 31) == known_at([_a, _z], 31) == {('W', 'c'): {'stone_bricks': [12, 1]}}, 'the larger id wins either way'
+assert known_at([dict(_z, id=None), _a], 31) == {('W', 'c'): {'stone_bricks': [0, 0]}}, 'positive control: an id dropped loses the tie'
 
 if __name__ == '__main__':
     from lib.telemetry import Events
@@ -355,7 +364,7 @@ if __name__ == '__main__':
     bots = defaultdict(set); nrows = Counter(); offbuild = 0; noversion = 0
     n = Counter(); jobs = []; job_ts = defaultdict(list); leak = 0; reserve = {}
     runs = defaultdict(list); fsess = defaultdict(list); slots = defaultdict(list)
-    note_ev = []; returns = Counter(); fsess_seen = Counter()
+    note_ev = []; returns = Counter(); fsess_seen = Counter(); ret_rows = []
     span = defaultdict(lambda: [None, None])
     for r in rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -400,6 +409,7 @@ if __name__ == '__main__':
             if period == 'post' and arm == 'canary':
                 f = fields(d)
                 returns[f.get('stop') or '-'] += 1
+                ret_rows.append((tms, b, st, f))
                 if f.get('stop') in ('closed', 'abandoned'):
                     note_ev.append((tms, b, 'closed'))
                 elif f.get('stop') == 'open':
@@ -444,12 +454,16 @@ if __name__ == '__main__':
     fill_did = (mean(slots[('post', 'canary')]) - mean(slots[('pre', 'canary')])) - (mean(slots[('post', 'control')]) - mean(slots[('pre', 'control')]))
 
     mv = [(t_, b, st, f) for t_, b, st, f in jobs if moved(f)]        # THE DENOMINATOR: orders that moved something
-    verdicts = Counter(f.get('verdict') for _, _, _, f in mv)
-    reconciled = sum(c for v, c in verdicts.items() if v in ('ok', 'loss', 'gain', 'overburn'))
-    g1_rows = [(b, f.get('kind'), f.get('forbidden')) for _, b, _, f in jobs if f.get('verdict') == 'forbidden']
-    loss_rows = [(b, f.get('kind'), f.get('verdict'), f.get('stop')) for _, b, st, f in mv if f.get('verdict') in ('loss', 'overburn') and st != 'aborted']
+    # a recovery of a LOADED batch carries its own balance (r3): it is a moved row for G2, and every recovery is judged for G1
+    mv_ret = [(t_, b, st, f) for t_, b, st, f in ret_rows if (num(f.get('batch')) or 0) > 0 and f.get('verdict') in ('ok', 'loss')]
+    mv_all = mv + mv_ret
+    verdicts = Counter(f.get('verdict') for _, _, _, f in mv_all)
+    reconciled = sum(c for v, c in verdicts.items() if v in ('ok', 'loss', 'gain', 'overburn', 'scaffold'))
+    g1_rows = [(b, f.get('kind'), f.get('forbidden')) for _, b, _, f in jobs + ret_rows if f.get('verdict') == 'forbidden']
+    loss_rows = [(b, f.get('kind'), f.get('verdict'), f.get('stop')) for _, b, st, f in mv_all if f.get('verdict') in ('loss', 'overburn') and st != 'aborted']
+    scaffold_rows = verdicts.get('scaffold', 0)
     g2 = int(len(loss_rows) >= 2 and reconciled > 0 and len(loss_rows) / reconciled > 0.05)
-    unrec = verdicts.get('unreconciled', 0)
+    unrec = Counter(f.get('verdict') for _, _, _, f in mv).get('unreconciled', 0)
     judged = [(b, f.get('kind')) + judge_reserve(f, reserve) for _, b, _, f in jobs]
     g3_rows = [(b, k_, c_) for b, k_, c_, _ in judged if c_]
     g3_unjudged = [(b, k_, u_) for b, k_, _, u_ in judged if u_]
@@ -464,7 +478,8 @@ if __name__ == '__main__':
     open_end = notes_open_at_end(note_ev)
     loop_bots = sorted(b for b, ts in job_ts.items() if window_rate(sorted(ts)) > 7)
     made_ok = sum(num(f.get('made')) or 0 for _, _, st, f in mv if f.get('verdict') == 'ok')
-    smelt_made = sum(num(f.get('smelted')) or 0 for _, _, _, f in mv)
+    # the smelt instrument by KIND (Codex r2 P2-7: a cut smelted= read as 0 waived it): moved rows of a smelt kind
+    smelt_made = sum(1 for _, _, _, f in mv if f.get('kind') in ('bricks', 'panes', 'torch'))
     made_by_kind = Counter()
     for _, _, _, f in mv:
         if f.get('verdict') == 'ok':
@@ -496,10 +511,11 @@ if __name__ == '__main__':
                     for w_, ents in (rr.get('worlds') or {}).items():
                         for k_, e_ in (ents or {}).items():
                             o_ = (e_ or {}).get('obs'); l_ = (e_ or {}).get('last') or {}
+                            # the IDS travel with them (Codex r2 P2-9): supersedes breaks a same-ms tie by id, as the bot's fold does
                             if o_ and isinstance(o_.get('at'), (int, float)):
-                                recs.append({'t': 'obs', 'k': k_, 'w': json.loads(w_) if w_ not in ('null', '') else None, 'at': o_['at'], 'names': o_.get('names') or {}})
+                                recs.append({'t': 'obs', 'k': k_, 'w': json.loads(w_) if w_ not in ('null', '') else None, 'at': o_['at'], 'names': o_.get('names') or {}, 'id': o_.get('id')})
                             if l_.get('t') == 'dirty' and isinstance(l_.get('at'), (int, float)):
-                                recs.append({'t': 'dirty', 'k': k_, 'w': json.loads(w_) if w_ not in ('null', '') else None, 'at': l_['at']})
+                                recs.append({'t': 'dirty', 'k': k_, 'w': json.loads(w_) if w_ not in ('null', '') else None, 'at': l_['at'], 'id': l_.get('id')})
                             for op_, o_m in ((e_ or {}).get('ops') or {}).items():
                                 for ph_ in ('pre', 'held', 'post'):
                                     if isinstance((o_m or {}).get(ph_), (int, float)):
@@ -538,7 +554,8 @@ if __name__ == '__main__':
           % (fmt(world['canary']['pre'][0]), fmt(world['canary']['post'][0]), world['canary']['post'][1],
              fmt(world['control']['pre'][0]), fmt(world['control']['post'][0]), world['control']['post'][1], fmt(world_did), excluded or '-'))
     print('G1 (gate)    forbidden: %d %s' % (len(g1_rows), g1_rows[:4]))
-    print('G2 (gate)    loss/overburn rows %d of %d reconciled MOVED rows (of %d rows) %s | verdicts (moved) %s' % (len(loss_rows), reconciled, len(jobs), loss_rows[:4], dict(verdicts)))
+    print('G2 (gate)    loss/overburn rows %d of %d reconciled MOVED rows (of %d order rows + %d loaded recoveries) %s | verdicts (moved) %s | scaffold (reported) %d'
+          % (len(loss_rows), reconciled, len(jobs), len(mv_ret), loss_rows[:4], dict(verdicts), scaffold_rows))
     print('G3 (gate)    reserve crossed by the job\'s own reading: %d %s | UNJUDGED (blocks KEEP) %d %s | reserve %s' % (len(g3_rows), g3_rows[:4], len(g3_unjudged), g3_unjudged[:4], reserve or '(no licence row)'))
     print('G4 (gate)    stone rose by >= 4 with the note closed: %d %s' % (len(g4_rows), g4_rows[:4]))
     print('G5 (gate)    overlapping materials leases in a pool %d %s (of %d leases) | UNJUDGED moved rows with no ml= (blocks KEEP) %d | overlapping leased furnace sessions with a mats session %d %s (mats sessions %d) | with an unleased session (WATCH) %d %s'
@@ -563,7 +580,8 @@ if __name__ == '__main__':
             'liveness': int(n[('canary', 'licence')] >= 1 and len(jobs) >= 1),
             'parts_made_ok': made_ok, 'world_parts_canary': canary_post, 'world_parts_did': None if world_did is None else round(world_did, 2),
             'exposure_ready': int(made_ok >= 20 and (canary_post or 0) >= 12 and instrument == 1),
-            'g1_forbidden': len(g1_rows), 'g2_loss': g2, 'loss_rows': len(loss_rows), 'reconciled_rows': reconciled, 'moved_rows': len(mv),
+            'g1_forbidden': len(g1_rows), 'g2_loss': g2, 'loss_rows': len(loss_rows), 'reconciled_rows': reconciled, 'moved_rows': len(mv_all),
+            'scaffold_rows': scaffold_rows, 'return_rows': len(ret_rows),
             'g3_reserve_crossed': len(g3_rows), 'g3_unjudged': len(g3_unjudged), 'g4_stone_leak': len(g4_rows),
             'g5_overlap': len(g5_runs) + len(g5_furn), 'g5_unjudged': len(g5_unjudged), 'g5_unleased_watch': len(g5_furn_unleased), 'g6_loop': len(loop_bots),
             'notes_abandoned': returns.get('abandoned', 0), 'notes_open_end': len(open_end),
