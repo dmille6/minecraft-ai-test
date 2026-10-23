@@ -615,20 +615,35 @@ await t('D22 the +1.5 s observation is taken at +1.5 s from the FIRING even when
   assert.ok(r.after && r.end, 'both recorded'); assert.ok(r.after.ms >= 280 && r.after.ms < 600, `after at ${r.after.ms} ms`)
   assert.ok(r.end.ms > r.after.ms, `the move ran on: end at ${r.end.ms} ms`)
 })
-await t('D23 a deadline that coincides with the air rescue\'s seize is the rescue\'s: ended `air`, and the move clears nothing (Codex code r2 P1)', async () => {
-  const h = harness('poolEdge', { timing: { move: 200, aim: 2000 } })
-  const p = h.fire()
-  await sleep(260)                               // past the deadline, and no re-assertion tick has ended it yet? (either way)
-  h.setAir(true)
-  h.bot.setControlState('forward', true); h.bot.setControlState('jump', true)   // the rescue's stroke
-  const mark = h.bot.writes.length
-  assert.equal(h.mover.moving(), false)
-  await p; await sleep(80); h.bot.done()
-  const r = firing(h.rows)[0].args
-  assert.ok(['air', 'deadline'].includes(r.ended), r.ended)
-  assert.equal(h.bot.writes.slice(mark).filter(([c, v]) => !v).length, 0, 'no control cleared after the rescue took the body')
-  assert.equal(h.bot.controls.forward, true)
+// one synchronous step: the injected clock crosses the deadline AND the air rescue seizes, before any check can run
+async function deadlineMeetsAir (mod) {
+  let off = 0, air = false
+  const scene = SCENES.poolEdge(); const bot = fakeBot(scene); const rows = []
+  const mv = mod.makeDangerMover(bot, fakeRunner(), { airHolds: () => air, emit: r => rows.push(r), now: () => Date.now() + off, timing: { after: 0, aim: 3000 } })
+  const p = mv.maybeFire(feetBelow(bot))
+  await sleep(150)
+  assert.equal(mv.moving(), true, 'the move is live, sprinting')
+  off = 7000; air = true
+  bot.setControlState('forward', true); bot.setControlState('jump', true)   // the rescue's stroke
+  const mark = bot.writes.length
+  const live = mv.moving()
+  await p; await sleep(80); bot.done()
+  return { live, ended: firing(rows)[0].args.ended, cleared: bot.writes.slice(mark).filter(([, v]) => !v).map(([c]) => c), forward: bot.controls.forward }
+}
+await t('D23 a deadline that coincides with the air rescue\'s seize is the rescue\'s: ended `air`, and the move clears nothing (Codex code r2 P1, r3 P2)', async () => {
+  const r = await deadlineMeetsAir({ makeDangerMover })
+  assert.equal(r.live, false); assert.equal(r.ended, 'air')
+  assert.deepEqual(r.cleared, [], 'no control cleared after the rescue took the body'); assert.equal(r.forward, true)
 })
+await t('D23b MUTANT KILLED: the r2 order (deadline first, cleanup keyed on the recorded reason) clears the rescue\'s stroke (D23 catches it)', () =>
+  withMutantsAll(MOVE_PATH, [
+    ["    me.check = () => airHolds() ? 'air' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : now() >= me.deadline ? 'deadline' : null\n",
+     "    me.check = () => now() >= me.deadline ? 'deadline' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : airHolds() ? 'air' : null\n"],
+    ["      if (why !== 'air' && !airHolds()) { for (const c of me.set)", "      if (why !== 'air') { for (const c of me.set)"],
+  ], async m => {
+    const r = await deadlineMeetsAir(m)
+    assert.equal(r.ended, 'deadline'); assert.ok(r.cleared.length > 0, 'the old logic clears the rescue\'s controls')
+  }))
 await t('D24 a witnessed seal re-classified as `in` whose plan step misses goes straight to the aimed escape (Codex code r2 P2)', async () => {
   const h = harness('poolEdge', { items: ['cobblestone'], physics: false })
   // a 1-deep lava cell elsewhere, with shore around it; the place call carries the bot into it (as a slip would)
@@ -822,6 +837,70 @@ await t('G4 the watchdog declines on a refused reserve: its rescue run is made w
   const WD = strip(fs.readFileSync(new URL('../src/watchdog.mjs', import.meta.url), 'utf8'))
   once(WD, "if (typeof this.runner.reserve === 'function') pd.gen = this.runner.reserve(RESCUE_OWNER, this.reserveMs, reason).gen", 'watchdog reserve')
   assert.ok(/const r = await this\.runner\.run\(skill, args, \{\s*trigger, owner: RESCUE_OWNER,/.test(WD), 'its run carries the owner, so a lavastep reservation declines it (E1)')
+})
+
+// ------------------------------------------------------------------------------------------------ P. cross-language parity
+// The read (scripts/host/lavastepread.py) recomputes every gate with a PYTHON mirror of the decision. Its own self-test
+// builds rows with that mirror, so it can never see where the mirror differs from the JS (Claude code r3 P1: the yaw of
+// due south is -pi in JS and +pi in Python). Here the REAL executor writes the rows and the REAL read judges them.
+const READ_PY = new URL('../../scripts/host/lavastepread.py', import.meta.url).pathname
+const { spawnSync } = await import('node:child_process')
+async function parityRows () {
+  const worlds = []
+  for (const k of Object.keys(SCENES).filter(n => !n.startsWith('__'))) worlds.push({ scene: SCENES[k](), items: ['cobblestone'] }, { scene: SCENES[k](), items: [] })
+  // one corridor per bearing: lava everywhere but a stone floor along that bearing, so every aim bearing is exercised
+  BEARINGS.forEach(([bx, bz]) => {
+    const c = {}; fill(c, -8, 8, 63, 63, -8, 8, 'lava')
+    for (let k = 1; k <= 7; k++) c[`${bx * k},63,${bz * k}`] = 'stone'
+    worlds.push({ scene: { cells: c, pos: [0.5, 64, 0.5], yaw: 0 }, items: [] })
+  })
+  let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+  for (let i = 0; i < 60; i++) {
+    const c = {}
+    for (let x = -5; x <= 5; x++) for (let z = -5; z <= 5; z++) {
+      const r = rnd(); c[`${x},63,${z}`] = r < 0.3 ? 'lava' : r < 0.35 ? 'magma_block' : r < 0.37 ? null : 'stone'
+      const h = rnd(); c[`${x},64,${z}`] = h < 0.1 ? 'stone' : h < 0.14 ? 'lava' : 'air'
+    }
+    c['0,63,0'] = rnd() < 0.5 ? 'lava' : 'magma_block'; c['0,64,0'] = rnd() < 0.5 ? 'air' : 'lava'
+    worlds.push({ scene: { cells: c, pos: [0.5, 64, 0.5], yaw: rnd() * 6.28 - 3.14 }, items: rnd() < 0.5 ? ['cobblestone'] : [] })
+  }
+  const lines = []
+  for (const { scene, items } of worlds) {
+    const bot = fakeBot(scene, { items, physics: false }); const rows = []
+    const mv = makeDangerMover(bot, fakeRunner(), { emit: r => rows.push(r), timing: { after: 0, aim: 20, stepIn: 60, stepEdge: 60, seal: 120 } })
+    const fb = feetBelow(bot)
+    const out = mv.maybeFire(fb)
+    if (out && typeof out.then === 'function') await out
+    await sleep(5); bot.done()
+    for (const r of rows) lines.push(JSON.stringify({ '@timestamp': new Date().toISOString(), bot: { name: 'parity-a-A' }, skill: { name: '_lava_retreat', args: r.args, detail: r.detail } }))
+  }
+  return lines
+}
+function readRows (lines, py = READ_PY) {
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lsparity-')), 'rows.jsonl')
+  fs.writeFileSync(f, lines.join('\n') + '\n')
+  const r = spawnSync('python3', [py, '--rows', f], { encoding: 'utf8' })
+  assert.equal(r.status, 0, `python3 ${py} --rows failed (python3 is required): ${r.stderr || r.error}`)
+  return JSON.parse(r.stdout)
+}
+const PARITY = await parityRows()
+await t('P1 PARITY: the real executor\'s rows (every scene x bag, 8 single-bearing corridors, 60 seeded random worlds), judged by the real read: zero G1-G5, every ground decision replays', () => {
+  const res = readRows(PARITY)
+  assert.ok(res.firings_canary >= 80, `${res.firings_canary} firings`)
+  for (const g of ['g1_step_unsafe', 'g2_aim_over_plan', 'g3_edge_sprint', 'g4_seal_bad', 'g5_aim_not_best']) assert.equal(res[g], 0, `${g}: ${JSON.stringify(res._examples)}`)
+  assert.equal(res.replay_agree, 1, `replay ${res.replay_agree}, unverifiable ${res.replay_unverifiable}`)
+  assert.equal(res.missing_reads, 0)
+  const bearings = new Set(PARITY.map(l => JSON.parse(l).skill.args.aim?.chosen).filter(x => x != null))
+  assert.equal(bearings.size, 8, `every aim bearing exercised: ${[...bearings]}`)
+})
+await t('P2 MUTANT KILLED: the read without the angular wrap grades every due-south aim a G5 defect (P1 catches it)', () => {
+  const src = fs.readFileSync(READ_PY, 'utf8')
+  const old = "            elif ang_diff(float(aim.get('yaw', 99)), yaw_of(BEARINGS[ch])) > YAW_TOL:"
+  assert.equal(src.split(old).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const mut = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lsparity-mut-')), 'lavastepread.py')
+  fs.writeFileSync(mut, src.replace(old, "            elif abs(float(aim.get('yaw', 99)) - yaw_of(BEARINGS[ch])) > YAW_TOL:"))
+  const res = readRows(PARITY, mut)
+  assert.ok(res.g5_aim_not_best > 0, 'the mutant read passes south aims, so P1 would prove nothing')
 })
 
 // ------------------------------------------------------------------------------------------------ H. anchored mutants
