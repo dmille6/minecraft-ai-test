@@ -47,15 +47,20 @@ def entry_blockers(e):
     return out
 
 
-def draw_blocked_since(state_rows, run, now):
+def draw_blocked_since(state_rows, run, now, reg=None):
     """PURE. The start of the head's CURRENT continuous draw-blocked episode, from the scheduler's own sched-state rows
-    ({'state': 'drawwait', 'run', 'at'} written on every tick the head is draw-blocked; any other decision for the head
-    writes {'state': 'drawclear', ...}). None when the head is not draw-blocked now."""
+    ({'state': 'drawwait', 'run', 'at', 'reg'} written when the head becomes draw-blocked; any other decision for the
+    head writes {'state': 'drawclear', ...}). None when the head is not draw-blocked now. With `reg` (the head's
+    registration sha256), an episode recorded for ANOTHER registration does not count (Codex r3 P2: a replaced variant
+    starts its own 30 min)."""
     since = None
     for r in state_rows or []:
         if r.get('run') != run:
             continue
         if r.get('state') == 'drawwait':
+            if reg is not None and r.get('reg') != reg:
+                since = None
+                continue
             since = since or r.get('at')
         elif r.get('state') in ('drawclear', 'launching'):
             since = None

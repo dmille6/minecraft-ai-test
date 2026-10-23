@@ -22,10 +22,11 @@
              return None, '%s: builds %s in the last %d min, not only %s (restart lag)' % (b, sorted(s['versions']), STEADY_MIN, fv)
          if s['h1'] is None or s['h2'] is None:
              return None, '%s: no bag reading in one half of the hour' % b
-@@ -368,8 +369,117 @@
+@@ -367,6 +368,115 @@
+                 out.append(json.loads(l))
              except ValueError:
                  continue        # a lost journal row can only lose a `promoted` row: that HOLDS (fail safe)
-     return out
++    return out
 +
 +
 +def _incoming_reg(run, regdir=None):
@@ -63,8 +64,8 @@
 +                if isinstance(y, (int, float)):
 +                    n += 1; deep += y < settlerule.DEPTH_Y
 +    return n, deep
- 
- 
++
++
 +def settle_release(scand, rel, by_pool, touched, fv, now, man, settlerule, tierrule):
 +    """DESIGN 1 (proposed) measuring half: S1-S4 for every settle candidate today's rule did not release.
 +    -> the pools released. Its controls: untouched pools passing S1 + S2 over the hour's 240-min window."""
@@ -134,12 +135,9 @@
 +                                                                    c[3].strftime('%m-%dT%H:%MZ'), c[5], why))
 +        if ok:
 +            out.append(p)
-+    return out
-+
-+
- def main():
-     now = dt.datetime.now(dt.timezone.utc)
-     if os.environ.get('STEADY_NOW'):         # REPLAY ONLY (scripts/host/drawsteady_replay.sh); printed, never silent
+     return out
+ 
+ 
 @@ -400,7 +510,25 @@
          cand, held = candidates(ledger, journal, now)
      for p, why in sorted(held.items()):
@@ -176,7 +174,7 @@
              if p in touched or p == 'placebo-c' or p.startswith('isolated'):
                  continue
              s, why = summary_of(p)
-@@ -446,7 +574,30 @@
+@@ -446,7 +574,37 @@
              print('STEADY %s %s: %s' % (('early' if T2 else '6h') if ok else '12h', p, why if s else why + ': ' + qwhy))
              if ok:
                  rel.append(p)
@@ -186,13 +184,20 @@
 +            # push drawsteady past drawrec's 600-s timeout and lose today's release with it
 +            import signal
 +
++            class SettleDeadline(BaseException):
++                """NOT an Exception (Claude r3 P2): the log scanners catch Exception (load_buckets) and OSError
++                (bagread.bot_rows, and TimeoutError is an OSError), so an Exception raised mid-scan would be swallowed
++                as one bad line and the scan would run on."""
++
 +            def _late(_s, _f):
-+                raise TimeoutError('settle measurement over %d s' % settlerule.SETTLE_BUDGET_S)
++                raise SettleDeadline('settle measurement over %d s' % settlerule.SETTLE_BUDGET_S)
 +            old = signal.signal(signal.SIGALRM, _late)
 +            signal.alarm(int(settlerule.SETTLE_BUDGET_S))
 +            try:
 +                rel += settle_release(scand, rel, by_pool, touched | set(scand) | set(sheld), fv, now, man, settlerule,
 +                                      tierrule)
++            except SettleDeadline as e:
++                print('STEADY settle measurement failed (SettleDeadline: %s): today\'s release only' % e)
 +            except Exception as e:
 +                print('STEADY settle measurement failed (%s: %s): today\'s release only' % (type(e).__name__, str(e)[:160]))
 +            finally:

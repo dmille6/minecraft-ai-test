@@ -61,6 +61,9 @@ def tests(L):
     t('a drawclear restarts the episode', L.draw_blocked_since(rows2, 'head', NOW) == ago(10))
     rows3 = rows + [{'state': 'launching', 'run': 'head', 't0': 'x'}]
     t('a launch of the head ends the episode', L.draw_blocked_since(rows3, 'head', NOW) is None)
+    rr = [{'state': 'drawwait', 'run': 'head', 'at': ago(50), 'reg': 'old'}]
+    t('an episode recorded for another registration does not count (a replaced variant starts its own 30 min)',
+      L.draw_blocked_since(rr, 'head', NOW, reg='new') is None and L.draw_blocked_since(rr, 'head', NOW, reg='old') == ago(50))
     t('another run\'s rows are ignored', L.draw_blocked_since([{'state': 'drawwait', 'run': 'other', 'at': ago(90)}], 'head', NOW) is None)
     st = [{'state': 'launching', 'run': 'a'}, {'state': 'launching', 'run': 'next', 'lookahead_past': 'head'}]
     t('skipped_last: the last launch skipped this head', L.skipped_last(st, 'head'))
@@ -84,6 +87,7 @@ MUTANTS = [
     ("        if hb:\n            return ('no',", "        if False:\n            return ('no',"),
     ("        elif r.get('state') in ('drawclear', 'launching'):", "        elif r.get('state') in ('launching',):"),
     ("            since = since or r.get('at')", "            since = r.get('at')"),
+    ("            if reg is not None and r.get('reg') != reg:", "            if False:"),
     ("    return bool(last and last.get('lookahead_past') == head_run)", "    return bool(last and last.get('lookahead_past'))"),
     ("        if e.state in ('done', 'cancelled'):\n            continue", "        if e.state in ('done', 'cancelled'):\n            return ('no', 'x')"),
     ("this anchor is not in lookahead.py", None),

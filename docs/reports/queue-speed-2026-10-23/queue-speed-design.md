@@ -12,8 +12,8 @@ run through `ssh ... python3 -B -` (stdin; nothing written there).
 | | design 1: settle-based release | design 2: head-blocked lookahead |
 |---|---|---|
 | rule | an extra way OUT of the post-canary exclusion (never a way in): a symmetric-build test instead of "one build in the last hour", bags and depth inside the controls' band, never sooner than a floor table | when the head's only obstacle is the draw for 30 min, the entry immediately behind it may launch if it passes every check the head would, with the head's pools reserved; a new R12 draw probe makes the draw wait visible to the scheduler |
-| replay 10-12..10-23 | 34 draws (positive control 27/34). 9 iterations, each carried forward through the later draws (the cascade). **Zero flips is not demonstrable for any iteration that changes a draw.** Seven of them (I3, I4, I6-I9) flip protectzone-01's recorded +180 KEEP (a cascaded predecessor takes board-b, it draws 3 pools, and a tier-2 +180 KEEP needs exactly 4); I2 and I5 find no flip, but keepout-01 is left with 1 pool and would have waited, which the replay cannot follow, and 6 changed verdicts stay reasoned only. I1 changes nothing | 6 draw-blocked episodes, checked every 10 min: **0 launches** — every entry behind a blocked head had `after: [head]`. Sensitivity (`after` read as order): 2 launches (plinth-02, chatgate-01), both of runs that never ran, so no duration or verdict exists |
-| hours saved | not demonstrable; the one reasoned gain (ironpick-01 +180 KEEP on 4 pools, ~3 h, I2/I3) comes with keepout-01 losing both pools | 0 under the rule; unknown in the sensitivity run |
+| replay 10-12..10-23 | 34 draws (positive control 27/34). 9 iterations, each carried forward through the later draws (the cascade). **Zero flips is not demonstrable for any iteration that changes a draw.** Six of them (I3, I4, I6, I7, I8, I9) flip protectzone-01's recorded +180 KEEP (a cascaded predecessor takes board-b, it draws 3 pools, and a tier-2 +180 KEEP needs exactly 4); I2 and I5 find no flip, but keepout-01 is left with 1 pool and would have waited, which the replay cannot follow, and 6 changed verdicts stay reasoned only. I1 changes nothing | 6 draw-blocked episodes, checked every 10 min: **0 launches** — every entry behind a blocked head had `after: [head]`. Sensitivity (`after` read as order): 2 launches (plinth-02, chatgate-01), both of runs that never ran, so no duration or verdict exists |
+| hours saved | not demonstrable; the one reasoned gain (ironpick-01 +180 KEEP on 4 pools, ~3 h, I2/I5) leaves keepout-01 with one pool, i.e. waiting | 0 under the rule; unknown in the sensitivity run |
 | recommendation | **do not install** | **do not install the lookahead**; R12 alone is the part worth having, once reviewed (Q-2) |
 | reviews | r1 both REQUEST CHANGES; r2 both REQUEST CHANGES (the conclusion held; the flips were mis-attributed); r3: section 5 | r1 both REQUEST CHANGES; r2 Claude APPROVE, Codex REQUEST CHANGES (head not revalidated); r3: section 5 |
 
@@ -107,15 +107,16 @@ waits 5.2 h, other installs/deploys 2.2 h, H2 1.4 h, R10 1.2 h, H1 0.8 h. Neithe
 | I3 | I2 + INCONCLUSIVE / non-death REVERT at 240 (t2) / 360 (t3) | 15 | **1** protectzone-01 | 14 | |
 | I4 | I3 + tier-2 after a tier-3 KEEP at 240 | 16 | **1** protectzone-01 | 15 | townindex-01's round-2 flip is now CASCADE-BLIND (reasoned) |
 | I5 | I2 + a siblings-out bag reference | 6 | 0 | 6 | as I2 |
-| I6 / I7 | I3 / I4 + siblings-out | 10 / 15 | **1** / **1** protectzone-01 | 14 / 14 | |
+| I6 / I7 | I3 / I4 + siblings-out | 15 / 15 | **1** / **1** protectzone-01 | 14 / 14 | |
 | I8 | I2 for tier-3 incoming only | 6 | **1** protectzone-01 | 5 | keepout-01 draws board-b, hive-b, placebo-a; protectzone-01 then draws 3 pools and its recorded +180 KEEP cannot happen (exactly 4 needed) |
-| I9 | I3 for tier-3 incoming only | 15 | **1** protectzone-01 | 9 | |
+| I9 | I3 for tier-3 incoming only | 10 | **1** protectzone-01 | 9 | |
 
-The protectzone-01 flip is mechanical (the tier-2 pool-count rule), and it holds in the model where keepout-01 drew the
-pools it actually drew plus the released board-b (Claude r2: in the other consistent model protectzone-01 draws 4 and
-its change is composition only, reasoned).
+The protectzone-01 flip is decided by the tier-2 pool-count rule. In I8 and I9 it rests on an unambiguous upstream
+draw (keepout-01 drew the pools it actually drew plus the released board-b; Claude r2: in the other consistent model
+protectzone-01 draws 4 and its change is composition only). In I3, I4, I6 and I7 it also depends on ironpick-01's
+counterfactual set, which is one of several valid draws (Claude r3 P3).
 
-**Does a version meet the bar? No version that changes a draw can be shown to.** Seven flip a recorded KEEP. I2 and I5
+**Does a version meet the bar? No version that changes a draw can be shown to.** Six flip a recorded KEEP. I2 and I5
 find no flip, but each strands keepout-01 below two pools — a wait the replay cannot follow — and leaves 6 changed
 verdicts reasoned only (stocktarget-02, wellsite-02, ironpick-01, keepout-01, poolescape-01, indexsearch-01). That is
 "not knowable from this history", not "zero flips". I1 meets the bar trivially and changes nothing. The wider tables
@@ -221,10 +222,10 @@ contamination aged out of its +360 lookback (F3) — and after a re-variant if c
 | suite | result |
 |---|---|
 | `patches/test_settlerule.py --mutants` | 35/35; 10/10 anchored unique mutants killed; the anchor assertion seen to FIRE on an absent anchor |
-| `patches/test_lookahead.py --mutants` | 27/27; 16/16; same positive control |
-| `patches/test_drawsteady_settle.py <patched drawsteady> settlerule tierrule bagread --mutants` | 10/10 end to end on fixture files (no settle block = today's answer; release across a fleet promotion; S2/S3/S4 holds; isolation; the union keeps today's release when the settle path fails or HANGS past its deadline; a 1440 lookback gives no candidate); 6/6 mutants |
+| `patches/test_lookahead.py --mutants` | 28/28; 17/17; same positive control |
+| `patches/test_drawsteady_settle.py <patched drawsteady> settlerule tierrule bagread --mutants` | 10/10 end to end on fixture files (no settle block = today's answer; release across a fleet promotion; S2/S3/S4 holds; isolation; the union keeps today's release when the settle path fails or HANGS inside a scanner past its deadline; a 1440 lookback gives no candidate); 7/7 mutants |
 | `patches/test_drawrec_queuespeed.py <patched drawrec.sh> drawrequire.py --mutants` | 8/8 on the REAL drawrec Python block (as test_drawrequire does): reserve excluded, malformed reserve refuses, DRAW_REGDIR read and passed on, DRAW_PROBE does not page (and an ordinary draw does: positive control), instruments line before DRAW; 6/6 mutants |
-| scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 124/124 (93 existing + 31 new); 86 anchored mutants (62 existing + 24 new): the full run killed 84 and found 2 that a second line of defence (`revalidate()`) covered; both tests were tightened to see the FIRST line (no probe of a refused candidate) and both are now killed (`out/sched-mutants.out`) |
+| scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 126/126 (93 existing + 33 new); 89 anchored mutants (62 existing + 27 new): the full run on this code was in progress at commit time; its result is in the next commit (`out/sched-mutants.out`, the full run on the final code). Round 3's run found 2 survivors that the second line (`revalidate()`) covered; both tests were tightened to see the FIRST line (no probe of a refused candidate) |
 | scripts/test_threepool.py patched (one mutant re-anchored on qualify's `one_build`) | 163/163, as at v36 |
 | scripts/test_tiers.py on the patched drawsteady | 127/127 (7 host-only mutants skipped, as before) |
 | host positive control (patched drawsteady, read-only, 10-22 07:00Z) | today's lines unchanged; settle RELEASE = the replay's; 36 s |
@@ -287,11 +288,22 @@ agreed the recommendations stand. Findings and answers (round 3):
   changed set grew). Claude P3 chatgate-01 counted twice -> 2 launches. Claude P3 manual exclusions read as scarcity ->
   documented in 2.1.
 
-**Round 3:** see the final report (verdicts appended to this section when received).
+**Round 3** (commit ea721e9a): Codex **APPROVE** / REQUEST CHANGES; Claude **APPROVE** / **APPROVE**. Answers (round 4):
+- Codex P2 a valid REPLACEMENT head variant during the probe passed revalidation on stale draw evidence -> revalidate
+  defers when the head's registration sha256 differs from the one probed; drawwait rows carry the head's registration
+  and a replaced one starts its own 30 min (`lookahead.draw_blocked_since(..., reg=)`); 2 scheduler tests + 3 mutants,
+  1 pure test + 1 mutant.
+- Claude P2 the SIGALRM deadline raised an Exception the scanners swallow (load_buckets catches Exception, bot_rows
+  OSError) -> it raises `SettleDeadline(BaseException)`, caught by name in the settle wrapper; the test now hangs INSIDE
+  a scanner that swallows Exception per line; a mutant makes it an Exception and is killed.
+- Codex P3 / Claude P3 counts (six, not seven; I6 15 / I9 10), the "losing both pools" cell, "mechanical" qualified,
+  and the mutant evidence -> fixed; `out/sched-mutants.out` is the full run on the final code.
+
+**Round 4:** both engines were asked to confirm; their verdicts are in the final report.
 
 ## 6. Questions for the owner
 
-1. **Design 1: install?** *Recommendation: no.* Zero flips cannot be shown for any version that changes a draw: seven
+1. **Design 1: install?** *Recommendation: no.* Zero flips cannot be shown for any version that changes a draw: six
    flip protectzone-01's recorded +180 KEEP (a predecessor takes one of its four pools), and the two that find no flip
    (I2, I5) strand keepout-01 in a wait the replay cannot follow and leave six verdicts reasoned only. The lever it was
    meant to pull — more 4-pool tier-2 draws — is held mainly by the timers themselves (F2), by genuinely dirty PRE
