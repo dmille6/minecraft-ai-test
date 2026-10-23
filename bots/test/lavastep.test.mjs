@@ -656,6 +656,30 @@ await t('D24 a witnessed seal re-classified as `in` whose plan step misses goes 
   assert.deepEqual(r.path, ['seal', 'replan', 'aim'], r.path.join('>')); assert.equal(r.outcome, 'sealed_plan_missed_aim')
   assert.equal(r.aim.reason, 'in_step_missed'); assert.ok(r.steps.length && r.steps[0].plan === 'replan')
 })
+await t('D25 a missed `in` step that has already carried the bot onto safe ground does not sprint off it (Claude code r4 P2-1)', async () => {
+  const h = harness('oneDeep', { physics: false })
+  // the step "overshoots": the body lands one cell past its target, on stone, so the post-check misses
+  const orig = h.bot.look
+  let n = 0
+  h.bot.look = (yaw, pitch) => { if (++n === 3) { h.bot.entity.position.x = -1.5 } return orig(yaw, pitch) }
+  await h.fire(); await sleep(30); h.bot.done()
+  const r = firing(h.rows)[0].args
+  assert.equal(r.steps[0].post, false, 'the step missed its target')
+  assert.equal(r.outcome, 'plan_missed_safe'); assert.ok(!r.aim, 'no aimed sprint from a safe cell')
+})
+await t('D26 a move ended INSIDE runner.reserve() (the air rescue took the body during the abort unwind): no dig stop, no path halt, no timer, no control write, the reservation released', async () => {
+  const scene = SCENES.poolEdge(); const bot = fakeBot(scene, { physics: false }); const rows = []
+  let air = false, mv = null
+  const calls = []
+  const runner = { reserve (o) { calls.push('reserve'); air = true; mv.moving(); return { gen: 7 } }, releaseReservation (g) { calls.push('release:' + g) }, interrupt () {} }
+  mv = makeDangerMover(bot, runner, { airHolds: () => air, emit: r => rows.push(r), timing: { after: 0 } })
+  bot.targetDigBlock = { name: 'stone' }; bot.pathfinder.goal = { x: 1 }
+  const mark = bot.writes.length
+  await mv.maybeFire(feetBelow(bot)); await sleep(80); bot.done()
+  assert.deepEqual(calls, ['reserve', 'release:7']); assert.equal(bot.stopped, 0, 'the rescue\'s dig is not stopped')
+  assert.deepEqual(bot.pathfinder.goal, { x: 1 }, 'no path halt'); assert.equal(bot.writes.length, mark, 'no control write')
+  assert.equal(firing(rows)[0].args.ended, 'air'); assert.equal(mv.moving(), false)
+})
 // ------------------------------------------------------------------------------------------------ E. the runner's one change
 await t('E1 a live lavastep reservation is never replaced: the watchdog\'s reserve() is refused and its run declines runner_reserved; a model skill declines too', async () => {
   const ran = []
@@ -895,10 +919,10 @@ await t('P1 PARITY: the real executor\'s rows (every scene x bag, 8 single-beari
 })
 await t('P2 MUTANT KILLED: the read without the angular wrap grades every due-south aim a G5 defect (P1 catches it)', () => {
   const src = fs.readFileSync(READ_PY, 'utf8')
-  const old = "            elif ang_diff(float(aim.get('yaw', 99)), yaw_of(BEARINGS[ch])) > YAW_TOL:"
+  const old = "            if ch is not None and ang_diff(float(aim.get('yaw', 99)), yaw_of(BEARINGS[ch])) > YAW_TOL:"
   assert.equal(src.split(old).length - 1, 1, 'ANCHOR MISSING or not unique')
   const mut = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'lsparity-mut-')), 'lavastepread.py')
-  fs.writeFileSync(mut, src.replace(old, "            elif abs(float(aim.get('yaw', 99)) - yaw_of(BEARINGS[ch])) > YAW_TOL:"))
+  fs.writeFileSync(mut, src.replace(old, "            if ch is not None and abs(float(aim.get('yaw', 99)) - yaw_of(BEARINGS[ch])) > YAW_TOL:"))
   const res = readRows(PARITY, mut)
   assert.ok(res.g5_aim_not_best > 0, 'the mutant read passes south aims, so P1 would prove nothing')
 })
