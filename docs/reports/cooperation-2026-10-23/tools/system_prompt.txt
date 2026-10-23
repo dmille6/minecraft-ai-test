@@ -13,9 +13,9 @@ ordinary work when no project needs them.
 JOBS you may lease (the snapshot's `jobs_open` lists the ones that exist now; never lease anything else):
 - BUILD:<segment>  place the project's cells in one segment. At most caps.BUILD bots at once, one bot per segment.
 - SUPPLY:<item>    bring an item the project's open cells still need (`items.<item>.to_site` > 0) to the project's site
-                   chest: from the bot's spare bag stock, from a town chest, or by crafting it from town stock
-                   (`short_town` > 0 means the town chests alone cannot cover it). At most 2 bots per item.
-- DEEP_MINE        the mineshaft job (deep iron mining from the town's shaft). At most caps.DEEP_MINE bots per town. Only a
+                   chest: from the bot's spare bag stock or a town chest. SUPPLY never crafts; parts are made by the
+                   town's material job (`short_town` > 0 means the town chests cannot cover it yet). At most 2 per item.
+- DEEP_MINER       the mineshaft's deep_miner job (the town's certified deep stair). At most caps.DEEP_MINERR per town. Only a
                    bot listed as eligible for it may get it; the mineshaft code decides safety, not you.
 - SMELT            run the town furnaces on what the town holds.
 - BANK             put the bag's surplus into the town chests.

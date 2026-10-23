@@ -1,0 +1,105 @@
+# cooperation design 2026-10-23, r5 re-measurement after review round 4 (Codex r4 P2-4). Read-only. Index journals only.
+# The observation-chain provenance of r3 [P3], with the SHIPPED index's operation lifecycle (townindex.mjs): an op is open
+# from its `pre` mark until its `post` mark; an op with no `post` is open until OP_TTL_MS (10 min) past its latest `pre` or
+# `held` mark (protectedUntil). A chain pair is attributed to a bot only when every op overlapping it belongs to that one
+# bot AND none of them is unfinished; otherwise it is UNKNOWN. Counters for unfinished and held ops are printed, and the
+# verified-transfer control is re-run through this predicate.
+import json, glob, collections, datetime as dt
+
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+OP_TTL = 10 * 60 * 1000
+
+PB = collections.Counter(); V = collections.Counter()
+for pool in POOLS:
+    recs = []
+    for f in glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl'):
+        for l in open(f, errors='replace'):
+            try:
+                r = json.loads(l)
+            except Exception:
+                continue
+            if r.get('t') in ('obs', 'dirty', 'xfer') and r.get('at') and r['at'] < T1 * 1000:
+                recs.append(r)
+    recs.sort(key=lambda r: (r['at'], r['id']))
+    obs = collections.defaultdict(list); ops = collections.defaultdict(dict)
+    for r in recs:
+        if r['t'] == 'obs':
+            obs[r['k']].append(r)
+        elif r['t'] == 'dirty':
+            o = ops[r['k']].setdefault(r.get('op') or r['id'], {'bot': r['bot'], 'pre': None, 'post': None, 'held': None})
+            ph = r.get('phase') or 'pre'
+            if ph == 'held':
+                o['held'] = max(o['held'] or 0, r['at'])
+            else:
+                o[ph] = r['at']
+    for k, d in ops.items():
+        for o in d.values():
+            PB['ops'] += 1
+            if o['held']:
+                PB['ops_with_held'] += 1
+            if o['post'] is None:
+                PB['ops_unfinished'] += 1
+    def span(o):
+        start = o['pre'] if o['pre'] is not None else (o['held'] or o['post'])
+        if o['post'] is not None:
+            return start, o['post'], True
+        return start, max(o['pre'] or 0, o['held'] or 0) + OP_TTL, False
+    chain_who = {}
+    for k, lst in obs.items():
+        spans = [(*span(o), o['bot']) for o in ops[k].values()]
+        stock0 = {n: c for n, (c, s) in (lst[0].get('names') or {}).items()}
+        ev = []
+        for o1, o2 in zip(lst, lst[1:]):
+            between = [x for x in spans if x[1] >= o1['at'] and x[0] <= o2['at']]
+            who = between[0][3] if between and len({x[3] for x in between}) == 1 and all(x[2] for x in between) else None
+            chain_who[(o1['id'], o2['id'])] = who
+            n1 = {n: c for n, (c, s) in (o1.get('names') or {}).items()}
+            n2 = {n: c for n, (c, s) in (o2.get('names') or {}).items()}
+            if n1 == n2:
+                continue
+            PB['pairs_changed'] += 1
+            if who:
+                PB['pairs_attributed'] += 1
+            elif not between:
+                PB['pairs_no_op'] += 1
+            elif not all(x[2] for x in between):
+                PB['pairs_with_unfinished_op'] += 1
+            else:
+                PB['pairs_multi_bot'] += 1
+            for n in set(n1) | set(n2):
+                dlt = n2.get(n, 0) - n1.get(n, 0)
+                if dlt:
+                    ev.append((o2['at'], who, n, dlt))
+        for n in {e[2] for e in ev}:
+            seq = sorted(e for e in ev if e[2] == n)
+            s0 = stock0.get(n, 0)
+            for t, who, _, dlt in seq:
+                if who is None:
+                    PB['unknown_added' if dlt > 0 else 'unknown_removed'] += abs(dlt)
+            for B in {w for _, w, _, dlt in seq if w and dlt < 0}:
+                W = own = oth = unk = 0; lb = 0; cap = 0
+                for t, who, _, dlt in seq:
+                    if dlt > 0:
+                        if who == B:
+                            own += dlt
+                        elif who is None:
+                            unk += dlt
+                        else:
+                            oth += dlt
+                    elif who == B:
+                        W += -dlt
+                        lb = max(lb, W - s0 - unk - own)
+                        cap = oth + unk
+                PB['withdrawn'] += W; PB['lb'] += lb; PB['ub'] += min(W, cap)
+    for x in recs:
+        if x['t'] == 'xfer' and x.get('ok'):
+            V['verified'] += 1
+            w = chain_who.get((x['pre'], x['ver']), 'not_a_chain_pair')
+            V['attributed_to_xfer_bot' if w == x['bot'] else ('not_a_chain_pair' if w == 'not_a_chain_pair' else 'unknown')] += 1
+print('== [P5] observation-chain provenance with the shipped op lifecycle (unfinished ops open to OP_TTL past pre/held)')
+print('  ops:', {k: PB[k] for k in ('ops', 'ops_unfinished', 'ops_with_held')})
+print('  changed pairs:', {k: PB[k] for k in ('pairs_changed', 'pairs_attributed', 'pairs_no_op', 'pairs_with_unfinished_op', 'pairs_multi_bot')})
+print(f"  unknown additions {PB['unknown_added']}, unknown removals {PB['unknown_removed']}")
+print(f"  attributed withdrawals {PB['withdrawn']} units; from another bot's deposit: lower bound {PB['lb']}, upper bound {PB['ub']}")
+print('  verified-transfer control through this predicate:', dict(V))
