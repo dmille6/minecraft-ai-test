@@ -22,11 +22,10 @@
              return None, '%s: builds %s in the last %d min, not only %s (restart lag)' % (b, sorted(s['versions']), STEADY_MIN, fv)
          if s['h1'] is None or s['h2'] is None:
              return None, '%s: no bag reading in one half of the hour' % b
-@@ -367,6 +368,115 @@
-                 out.append(json.loads(l))
+@@ -368,8 +369,117 @@
              except ValueError:
                  continue        # a lost journal row can only lose a `promoted` row: that HOLDS (fail safe)
-+    return out
+     return out
 +
 +
 +def _incoming_reg(run, regdir=None):
@@ -65,7 +64,7 @@
 +                    n += 1; deep += y < settlerule.DEPTH_Y
 +    return n, deep
 +
-+
+ 
 +def settle_release(scand, rel, by_pool, touched, fv, now, man, settlerule, tierrule):
 +    """DESIGN 1 (proposed) measuring half: S1-S4 for every settle candidate today's rule did not release.
 +    -> the pools released. Its controls: untouched pools passing S1 + S2 over the hour's 240-min window."""
@@ -74,7 +73,7 @@
 +    fleet_bots = [b for b in roster if not b.startswith('isolated')]
 +    cache = {}
 +    t_start = time.time()
-+
+ 
 +    def budget():
 +        # drawrec gives drawsteady 600 s in all; the settle path stops at SETTLE_BUDGET_S and releases nothing early,
 +        # so it can never make drawrec time out and lose today's release with it (Claude r1 P2)
@@ -135,9 +134,12 @@
 +                                                                    c[3].strftime('%m-%dT%H:%MZ'), c[5], why))
 +        if ok:
 +            out.append(p)
-     return out
- 
- 
++    return out
++
++
+ def main():
+     now = dt.datetime.now(dt.timezone.utc)
+     if os.environ.get('STEADY_NOW'):         # REPLAY ONLY (scripts/host/drawsteady_replay.sh); printed, never silent
 @@ -400,7 +510,25 @@
          cand, held = candidates(ledger, journal, now)
      for p, why in sorted(held.items()):
@@ -174,7 +176,7 @@
              if p in touched or p == 'placebo-c' or p.startswith('isolated'):
                  continue
              s, why = summary_of(p)
-@@ -446,7 +574,37 @@
+@@ -446,7 +574,46 @@
              print('STEADY %s %s: %s' % (('early' if T2 else '6h') if ok else '12h', p, why if s else why + ': ' + qwhy))
              if ok:
                  rel.append(p)
@@ -192,17 +194,26 @@
 +            def _late(_s, _f):
 +                raise SettleDeadline('settle measurement over %d s' % settlerule.SETTLE_BUDGET_S)
 +            old = signal.signal(signal.SIGALRM, _late)
-+            signal.alarm(int(settlerule.SETTLE_BUDGET_S))
-+            try:
-+                rel += settle_release(scand, rel, by_pool, touched | set(scand) | set(sheld), fv, now, man, settlerule,
-+                                      tierrule)
++            got = []
++            try:          # the outer catch also covers an alarm that lands inside the inner finally (Claude r4 P3)
++                signal.alarm(int(settlerule.SETTLE_BUDGET_S))
++                try:
++                    got = settle_release(scand, rel, by_pool, touched | set(scand) | set(sheld), fv, now, man,
++                                         settlerule, tierrule)
++                except SettleDeadline as e:
++                    got = []
++                    print('STEADY settle measurement failed (SettleDeadline: %s): today\'s release only' % e)
++                except Exception as e:
++                    got = []
++                    print('STEADY settle measurement failed (%s: %s): today\'s release only' % (type(e).__name__, str(e)[:160]))
++                finally:
++                    signal.alarm(0)
 +            except SettleDeadline as e:
++                got = []
 +                print('STEADY settle measurement failed (SettleDeadline: %s): today\'s release only' % e)
-+            except Exception as e:
-+                print('STEADY settle measurement failed (%s: %s): today\'s release only' % (type(e).__name__, str(e)[:160]))
 +            finally:
-+                signal.alarm(0)
 +                signal.signal(signal.SIGALRM, old)
++            rel += got
      except Exception as e:
 +        if not cand:
 +            # today's rule had nothing to measure (it would have printed "no KEEP+promoted" and released nothing): a

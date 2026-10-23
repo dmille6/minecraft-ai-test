@@ -1,0 +1,45 @@
+exec
+/bin/zsh -lc "python3 -B -c 'import runpy, types, sys
+from pathlib import Path
+p=Path(\"docs/reports/queue-speed-2026-10-23/patches\")
+t=runpy.run_path(str(p/\"test_lookahead.py\"), run_name=\"review\")
+src=(p/\"lookahead.py\").read_text()
+def check(s):
+ m=types.ModuleType(\"review_lookahead\"); sys.modules[m.__name__]=m
+ exec(compile(s,\"<in-memory lookahead>\",\"exec\"),m.__dict__)
+ return t[\"run_suite\"](m)
+bad,n=check(src)
+assert not bad,bad
+killed=0
+for a,b in t[\"MUTANTS\"]:
+ if b is None:
+  assert src.count(a)"'!=1
+  continue
+ assert src.count(a)==1
+ failures,_=check(src.replace(a,b,1))
+ assert failures,a
+ killed+=1
+print(f"lookahead: {n}/{n} pass; {killed}/{killed} mutants killed in memory; no files written")
+'"'" in /Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-ad31fb72daa88ce49
+ succeeded in 0ms:
+lookahead: 28/28 pass; 17/17 mutants killed in memory; no files written
+
+codex
+DESIGN 1: APPROVE
+DESIGN 2: APPROVE
+
+Round-3 findings are resolved: replacement-head registration changes now defer launch and reset the wait episode; the deadline escapes scanner exception handlers; counts and qualifications are corrected.
+
+No new P1/P2/P3 findings. Lookahead verification: 28/28 tests passed, 17/17 mutants killed in memory. Integration suites were not rerun.
+
+Approval supports the stated **do-not-install** recommendations.
+tokens used
+47,632
+DESIGN 1: APPROVE
+DESIGN 2: APPROVE
+
+Round-3 findings are resolved: replacement-head registration changes now defer launch and reset the wait episode; the deadline escapes scanner exception handlers; counts and qualifications are corrected.
+
+No new P1/P2/P3 findings. Lookahead verification: 28/28 tests passed, 17/17 mutants killed in memory. Integration suites were not rerun.
+
+Approval supports the stated **do-not-install** recommendations.

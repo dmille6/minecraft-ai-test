@@ -225,7 +225,7 @@ contamination aged out of its +360 lookback (F3) — and after a re-variant if c
 | `patches/test_lookahead.py --mutants` | 28/28; 17/17; same positive control |
 | `patches/test_drawsteady_settle.py <patched drawsteady> settlerule tierrule bagread --mutants` | 10/10 end to end on fixture files (no settle block = today's answer; release across a fleet promotion; S2/S3/S4 holds; isolation; the union keeps today's release when the settle path fails or HANGS inside a scanner past its deadline; a 1440 lookback gives no candidate); 7/7 mutants |
 | `patches/test_drawrec_queuespeed.py <patched drawrec.sh> drawrequire.py --mutants` | 8/8 on the REAL drawrec Python block (as test_drawrequire does): reserve excluded, malformed reserve refuses, DRAW_REGDIR read and passed on, DRAW_PROBE does not page (and an ordinary draw does: positive control), instruments line before DRAW; 6/6 mutants |
-| scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 126/126 (93 existing + 33 new); 89 anchored mutants (62 existing + 27 new): the full run on this code was in progress at commit time; its result is in the next commit (`out/sched-mutants.out`, the full run on the final code). Round 3's run found 2 survivors that the second line (`revalidate()`) covered; both tests were tightened to see the FIRST line (no probe of a refused candidate) |
+| scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 126/126 (93 existing + 33 new); 89 anchored mutants were run on the final code: 88 killed, 1 survivor (revalidate's head-registration check) shown EQUIVALENT -- a replaced registration also restarts the draw-wait episode, so L2 refuses first -- and retired with that note, the check kept as a second line; 88/88 (`out/sched-mutants.out`, the full run on the final code). Round 3's run found 2 survivors that the second line (`revalidate()`) covered; both tests were tightened to see the FIRST line (no probe of a refused candidate) |
 | scripts/test_threepool.py patched (one mutant re-anchored on qualify's `one_build`) | 163/163, as at v36 |
 | scripts/test_tiers.py on the patched drawsteady | 127/127 (7 host-only mutants skipped, as before) |
 | host positive control (patched drawsteady, read-only, 10-22 07:00Z) | today's lines unchanged; settle RELEASE = the replay's; 36 s |
@@ -299,7 +299,12 @@ agreed the recommendations stand. Findings and answers (round 3):
 - Codex P3 / Claude P3 counts (six, not seven; I6 15 / I9 10), the "losing both pools" cell, "mechanical" qualified,
   and the mutant evidence -> fixed; `out/sched-mutants.out` is the full run on the final code.
 
-**Round 4:** both engines were asked to confirm; their verdicts are in the final report.
+**Round 4** (commit aa71e681): **Codex APPROVE / APPROVE** ("no new P1/P2/P3 findings"); **Claude APPROVE / APPROVE**,
+with two P3 notes, both closed after the verdicts: (1) an alarm landing inside the wrapper's `finally` could escape —
+an outer `except SettleDeadline` now covers the whole block (settle CLI suite re-run 10/10, 7/7 mutants; threepool
+163/163; tiers 127/127); (2) the full scheduler mutant run — completed on the final code: 88 killed, 1 equivalent
+retired (section 3). Both engines' approvals mean: the designs and replays are correct and honest **as a
+recommendation not to install** design 1 or the lookahead.
 
 ## 6. Questions for the owner
 

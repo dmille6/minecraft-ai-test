@@ -432,7 +432,7 @@
  TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
  
  
-@@ -1116,6 +1501,45 @@
+@@ -1116,6 +1501,47 @@
      ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
       "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
      ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
@@ -443,7 +443,9 @@
 +    ("            if w and (st['now'] - w).total_seconds() < PROBE_EVERY_MIN * 60:\n                return r.get('why') or ''",
 +     "            if w:\n                return r.get('why') or ''"),
 +    # (round-1 mutant on `env['DRAW_REGDIR'] = d` retired: the line became env.update(...), mutated below -- Codex r2)
-+    ("    if hv.get('registration_sha256') != head_reg_sha:", "    if False:"),
++    # (the mutant on revalidate's `hv.get('registration_sha256') != head_reg_sha` is EQUIVALENT and retired: every
++    # replacement changes the head's registration sha256, which also restarts its draw-wait episode, so the fresh
++    # lookahead.decide refuses on L2 first -- the full run showed it surviving; the check stays as a second line)
 +    ("        if draw_wait and (last != 'drawwait' or hr[-1].get('reg') != hreg):",
 +     "        if draw_wait and last != 'drawwait':"),
 +    ("    since = lib.draw_blocked_since(rows, head.get('run'), st['now'], reg=hreg)",
