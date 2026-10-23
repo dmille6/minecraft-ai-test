@@ -1,0 +1,10 @@
+one lit house                      got (1, 0) want (1, 0) ok
+two houses joined by cobble        got (2, 0) want (2, 0) ok
+house joined to a buried stair     got (1, 0) want (1, 0) ok
+unlit lamp only                    got (0, 1) want (0, 1) ok
+lit lamp                           got (1, 0) want (1, 0) ok
+light below the floor only         got (0, 1) want (0, 1) ok
+no doorway                         got (0, 0) want (0, 0) ok
+no roof                            got (0, 0) want (0, 0) ok
+no walls (open pavilion)           got (0, 0) want (0, 0) ok
+{"cases": 9, "failed": 0}

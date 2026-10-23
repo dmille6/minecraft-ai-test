@@ -1,29 +1,69 @@
 #!/usr/bin/env python3
 """funding.py <census-materials.txt> -- which towns can fund the shared building and five houses from SURPLUS ABOVE THE
-RESERVE (OWNER B3), from the 10-23 00:15Z town-chest census. Bags are not counted (a bag is not the town's)."""
-import sys
+RESERVE (OWNER B3), from the 10-23 00:15Z town-chest census. Chests only (a bag is not the town's).
+
+r2 (Codex r1 P1/P2): the bill of materials is built from the blueprints' CELLS by EXECUTABLE batches, not amortised:
+  * stone: smelted from COBBLESTONE only (cobbled deepslate smelts to deepslate, not stone); cobble in batches of 12, each
+    batch one furnace session fuelled by exactly 8 planks (8 x 1.5 = 12 smelts) = 2 logs; bricks crafted 4 at a time;
+  * glass: 6 sand per 16 panes, one session of 6 smelts fuelled by 4 planks (1 log);
+  * planks 4 per log; copper: 9 ingots per copper block, 4 blocks -> 4 cut copper; 6 ingots -> 3 copper doors;
+  * stations (a table: 4 planks; a furnace: 8 cobblestone) and the fill allowance (40 cobble per pad) are in the bill;
+  * ADMISSION is TP 3.2's: the WHOLE bill must allocate within 80% of spendable (stock - reserve).
+Isolated worlds a, c, d are OUT (town plan O8 / TP D2: per-bot town state); isolated-b has been a shared town since 10-21.
+Copper is an UPGRADE: a town that cannot fund it builds the fallback (stone-brick slabs for trim, an open doorway)."""
+import sys, math
 lines = open(sys.argv[1]).read().splitlines()
 hdr = lines[1].split()[2:]
 rows = [l.split() for l in lines[2:] if l and not l.startswith('TOTAL')]
+OUT = {'isolated-a', 'isolated-c', 'isolated-d'}
 RESERVE = {'cobble': 256, 'logs': 512, 'copper_ingot': 256}
 
-def bom(stone_bricks, planks, panes, cut_copper, doors):
-    smelts = stone_bricks + (6 if panes else 0)              # glass: 6 sand -> 6 glass -> 16 panes
-    fuel_logs = -(-smelts // 6)                              # 1 log -> 4 planks -> 4 x 1.5 = 6 smelts
-    logs = -(-planks // 4) + fuel_logs
-    cu = cut_copper * 9 + (6 * -(-doors // 3) if doors else 0)   # 9 ingots per cut copper; 6 ingots -> 3 copper doors
-    return {'cobble': stone_bricks, 'logs': logs, 'copper_ingot': cu, 'sand': 6 * -(-panes // 16) if panes else 0}
+def bom(bricks, slabs_trim, planks, panes, cut_copper, doors, tables=0, furnaces=0, fill=40, copper=True):
+    b = bricks + (0 if copper else math.ceil(slabs_trim / 2))      # 2 slabs per brick (3 bricks -> 6 slabs)
+    b4 = 4 * math.ceil(b / 4)                                        # bricks crafted 4 at a time
+    batches = math.ceil(b4 / 12)                                     # 12 cobble per furnace session
+    cobble = 12 * batches + 8 * furnaces + fill
+    fuel_logs = 2 * batches + (1 if panes else 0)
+    planks_total = planks + 4 * tables
+    logs = math.ceil(planks_total / 4) + fuel_logs
+    cu = (9 * 4 * math.ceil(cut_copper / 4) + 6 * math.ceil(doors / 3)) if copper else 0
+    sand = 6 * math.ceil(panes / 16) if panes else 0
+    return {'cobble': cobble, 'logs': logs, 'copper_ingot': cu, 'sand': sand}
 
-W = bom(89, 49, 4, 20, 0)
-H5 = bom(5 * 72, 5 * 47, 5 * 3, 5 * 4, 5)
-print('BOM workshop@1', W, '| BOM five house@1', H5)
-okw = okh = 0
+W = dict(bricks=89, slabs_trim=20, planks=49, panes=4, cut_copper=20, doors=0, tables=1, furnaces=2)
+H1 = dict(bricks=72, slabs_trim=4, planks=47, panes=3, cut_copper=4, doors=1, fill=40)
+H5 = dict(bricks=5 * 72, slabs_trim=5 * 4, planks=5 * 47, panes=5 * 3, cut_copper=5 * 4, doors=5, fill=5 * 40)
+for name, spec in (('workshop@1', W), ('house@1', H1), ('five house@1', H5)):
+    print('BOM %s copper %s | fallback %s' % (name, bom(**spec), bom(**spec, copper=False)))
+
+def admits(sp, need):                                  # TP 3.2: the whole bill within 80% of spendable
+    return all(need[k] <= 0.8 * sp[k] for k in ('cobble', 'logs', 'copper_ingot') if need[k] > 0)
+
+res = {'w_cu': 0, 'w_fb': 0, 'wh_cu': 0, 'wh_fb': 0}; n = 0
 for r in rows:
+    if r[0] in OUT: print('%-11s OUT (isolated, per-bot town state: D2)' % r[0]); continue
+    n += 1
     v = dict(zip(hdr, map(int, r[2:])))
     sp = {k: v[k] - RESERVE[k] for k in RESERVE}
-    a = all(sp[k] >= W[k] for k in sp)
-    b = all(sp[k] >= W[k] + H5[k] for k in sp)
-    okw += a; okh += b
-    short = [k for k in sp if sp[k] < W[k] + H5[k]]
-    print('%-11s spendable %s  workshop %s  +5 houses %s %s' % (r[0], sp, 'yes' if a else 'NO', 'yes' if b else 'NO', ('short: ' + ','.join(short)) if short else ''))
-print('funded today: workshop %d of %d towns; workshop + five houses %d of %d (sand is 0 in every town: glass waits on the sand target)' % (okw, len(rows), okh, len(rows)))
+    wc, wf = admits(sp, bom(**W)), admits(sp, bom(**W, copper=False))
+    both = lambda cu: {k: bom(**W, copper=cu)[k] + bom(**H5, copper=cu)[k] for k in ('cobble', 'logs', 'copper_ingot', 'sand')}
+    hc, hf = admits(sp, both(True)), admits(sp, both(False))
+    res['w_cu'] += wc; res['w_fb'] += wc or wf; res['wh_cu'] += hc; res['wh_fb'] += hc or hf
+    # ONE PROJECT AT A TIME (each blueprint instance is admitted on its own): after the workshop's bill is spent, how many
+    # houses are admissible in sequence from today's stock, with no refill (a lower bound: cobble refills at the cap daily)
+    left = dict(sp); wb = bom(**W, copper=wc)
+    if wc or wf:
+        for k in ('cobble', 'logs', 'copper_ingot'): left[k] -= wb[k]
+    nh = 0
+    while (wc or wf) and nh < 5:
+        hb = bom(**H1, copper=admits(left, bom(**H1)))
+        if not admits(left, hb): break
+        for k in ('cobble', 'logs', 'copper_ingot'): left[k] -= hb[k]
+        nh += 1
+    res.setdefault('houses', []).append(nh)
+    print('%-11s spendable %s  workshop %s  all five houses at once %s  houses one at a time after it: %d' % (
+        r[0], sp, 'copper' if wc else ('fallback' if wf else 'NO'), 'copper' if hc else ('fallback' if hf else 'NO'), nh))
+print('houses admissible one at a time after the workshop, from today\'s stock (no refill): %s' % res['houses'])
+print('of %d eligible towns: workshop funded %d (with copper trim %d); workshop + five houses at once %d (with copper %d). '
+      'Sand is 0 in every town: windows wait on the sand target (then a 24 h fallback to wall cells).' %
+      (n, res['w_fb'], res['w_cu'], res['wh_fb'], res['wh_cu']))

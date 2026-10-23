@@ -10,7 +10,9 @@ Rules per pad cell (x, z), pad level s = the most common ground level of the pad
   * no plinth well cell or cap within 2; not in a protected zone; no liquid at s..s+3; not the stamp platform (Chebyshev <= 6);
   * fill = sum(s - g) over cells below s, each <= 3 deep;  cut = sum(g - s) over cells above s, each <= 3 high (B4 "small hills");
   * a pad passes with fill <= 40 and cut <= 30.
-Bands by the pad's Chebyshev distance to home (every cell): inner 7..16 (inside the town-storage circle), near 17..30, outer 22..44.
+Bands by the pad's Chebyshev distance to home (every cell): inner 7..16, near 17..30, outer 22..44; every cell also within
+straight-line 43 (44 for its stand ring). NOT composed with plan reservations (sectors, paths, farm/shaft/monument): those
+exist only once townplan-01 writes plans, so this is a GEOMETRIC candidate count, and the composed P0 gate is separate.
 """
 import importlib.util, json, os, re, sys, collections
 here = os.path.dirname(os.path.abspath(__file__))
@@ -54,6 +56,8 @@ def main():
                 cells = [(x, z) for x in range(x0, x0 + W) for z in range(z0, z0 + D)]
                 ch = [max(abs(x - hx), abs(z - hz)) for x, z in cells]
                 lo, hi = min(ch), max(ch)
+                # the town plan's outer domain is STRAIGHT-LINE <= 44 (Codex r1 P2), for every pad cell and its 1-cell stand ring
+                if any(((x - hx) ** 2 + (z - hz) ** 2) ** 0.5 > 43 for x, z in cells): continue
                 if lo <= 6: continue
                 bands = []
                 if lo >= 7 and hi <= 16: bands.append('inner_7_16')

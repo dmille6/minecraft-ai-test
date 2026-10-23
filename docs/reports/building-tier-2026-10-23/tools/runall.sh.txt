@@ -10,12 +10,7 @@ date -u > run.started
 while read W H; do
   HX=${H%%,*}; REST=${H#*,}; HZ=${REST#*,}
   bash copyw.sh "$W" "/srv/block2/$W/world" "$HX" "$HZ" >/dev/null
-  PL=""
-  case $W in
-    isolated-a|isolated-c|isolated-d) f=$(ls bt-plinths/_pool-self-$W-Alpha--junkwell-plinth-*.json 2>/dev/null | grep -v caprefused | head -1);;
-    *) f=$(ls bt-plinths/_pool-$W--junkwell-plinth-*.json 2>/dev/null | grep -v caprefused | head -1);;
-  esac
-  [ -n "$f" ] && PL="--plinth $f"
+  PL=$(python3 pickplinth.py "$W")
   Z=bt-plinths/_pool-$W--zones.json
   nice -n 19 python3 structcount.py scan "$W" "$W/region" "$H" --r 96 --stamp --zones "$Z" $PL --json "$W.scan.json" > "$W.scan.out" 2>&1
   nice -n 19 python3 structcount.py negctl "$W" "$W/region" "$H" --r 96 --n 120 --json "$W.neg.json" > "$W.neg.out" 2>&1
@@ -27,4 +22,3 @@ while read W H; do
   fi
 done < worlds.tsv
 date -u > run.finished
-EOF_MARK=1

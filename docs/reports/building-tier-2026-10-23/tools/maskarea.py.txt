@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""maskarea.py <world> <region-copy> <hx,hy,hz>: how much of the town (Chebyshev <= 44 of home) the worldgen masks cover
+(Claude r1 P2: a mask that is too wide would also make the negative control pass). Columns covered by any padded piece BB,
+split by whether the covering piece reaches within 8 of the surface (a mask that can hide surface building) or lies wholly
+below it (mineshafts, trial chambers: underground only)."""
+import importlib.util, json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location('sc', os.path.join(here, 'structcount.py')); sc = importlib.util.module_from_spec(spec); spec.loader.exec_module(sc)
+world, rdir, home = sys.argv[1], sys.argv[2], tuple(int(v) for v in sys.argv[3].split(','))
+hx, hy, hz = home; R = 44
+w = sc.World(rdir)
+chunks = [(cx, cz) for cx in range((hx - R) >> 4, ((hx + R) >> 4) + 1) for cz in range((hz - R) >> 4, ((hz + R) >> 4) + 1)]
+for c in chunks: w.chunk(*c)
+pieces = [(sid, sc.padded(bb)) for sid, _, bb in sc.structure_pieces(w, chunks) if bb]
+cols = surf = 0
+kinds = {}
+for x in range(hx - R, hx + R + 1):
+    for z in range(hz - R, hz + R + 1):
+        cov = [(sid, bb) for sid, bb in pieces if bb[0] <= x <= bb[3] and bb[2] <= z <= bb[5]]
+        if not cov: continue
+        cols += 1
+        top = w.natural_top(x, z)
+        if any(bb[4] >= top - 8 for _, bb in cov):
+            surf += 1
+            for sid, bb in cov:
+                if bb[4] >= top - 8: kinds[sid] = kinds.get(sid, 0) + 1
+n = (2 * R + 1) ** 2
+print(json.dumps({'world': world, 'columns': n, 'masked_columns': cols, 'masked_share': round(cols / n, 3),
+                  'masked_reaching_surface': surf, 'surface_share': round(surf / n, 3), 'surface_by_piece': kinds}))

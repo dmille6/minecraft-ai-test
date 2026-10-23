@@ -1,18 +1,21 @@
-BOM workshop@1 {'cobble': 89, 'logs': 29, 'copper_ingot': 180, 'sand': 6} | BOM five house@1 {'cobble': 360, 'logs': 120, 'copper_ingot': 192, 'sand': 6}
-board-a     spendable {'cobble': 1017, 'logs': 2260, 'copper_ingot': 1041}  workshop yes  +5 houses yes 
-board-b     spendable {'cobble': 744, 'logs': 1087, 'copper_ingot': 157}  workshop NO  +5 houses NO short: copper_ingot
-board-c     spendable {'cobble': 744, 'logs': 552, 'copper_ingot': 1109}  workshop yes  +5 houses yes 
-board-d     spendable {'cobble': 744, 'logs': 156, 'copper_ingot': 592}  workshop yes  +5 houses yes 
-hive-a      spendable {'cobble': 744, 'logs': 260, 'copper_ingot': 1525}  workshop yes  +5 houses yes 
-hive-b      spendable {'cobble': 744, 'logs': -260, 'copper_ingot': 627}  workshop NO  +5 houses NO short: logs
-hive-c      spendable {'cobble': 743, 'logs': 104, 'copper_ingot': 456}  workshop yes  +5 houses NO short: logs
-hive-d      spendable {'cobble': 744, 'logs': -445, 'copper_ingot': 508}  workshop NO  +5 houses NO short: logs
-isolated-a  spendable {'cobble': 804, 'logs': 558, 'copper_ingot': -192}  workshop NO  +5 houses NO short: copper_ingot
-isolated-b  spendable {'cobble': 771, 'logs': 471, 'copper_ingot': 1058}  workshop yes  +5 houses yes 
-isolated-c  spendable {'cobble': 1000, 'logs': 990, 'copper_ingot': -233}  workshop NO  +5 houses NO short: copper_ingot
-isolated-d  spendable {'cobble': 744, 'logs': 314, 'copper_ingot': -218}  workshop NO  +5 houses NO short: copper_ingot
-placebo-a   spendable {'cobble': 743, 'logs': 139, 'copper_ingot': 148}  workshop NO  +5 houses NO short: logs,copper_ingot
-placebo-b   spendable {'cobble': 743, 'logs': 814, 'copper_ingot': 388}  workshop yes  +5 houses yes 
-placebo-c   spendable {'cobble': 936, 'logs': 1333, 'copper_ingot': 585}  workshop yes  +5 houses yes 
-placebo-d   spendable {'cobble': 1000, 'logs': 154, 'copper_ingot': 372}  workshop yes  +5 houses yes 
-funded today: workshop 9 of 16 towns; workshop + five houses 8 of 16 (sand is 0 in every town: glass waits on the sand target)
+BOM workshop@1 copper {'cobble': 152, 'logs': 31, 'copper_ingot': 180, 'sand': 6} | fallback {'cobble': 164, 'logs': 33, 'copper_ingot': 0, 'sand': 6}
+BOM house@1 copper {'cobble': 112, 'logs': 25, 'copper_ingot': 42, 'sand': 6} | fallback {'cobble': 124, 'logs': 27, 'copper_ingot': 0, 'sand': 6}
+BOM five house@1 copper {'cobble': 560, 'logs': 120, 'copper_ingot': 192, 'sand': 6} | fallback {'cobble': 572, 'logs': 122, 'copper_ingot': 0, 'sand': 6}
+board-a     spendable {'cobble': 1017, 'logs': 2260, 'copper_ingot': 1041}  workshop copper  all five houses at once copper  houses one at a time after it: 5
+board-b     spendable {'cobble': 744, 'logs': 1087, 'copper_ingot': 157}  workshop fallback  all five houses at once NO  houses one at a time after it: 4
+board-c     spendable {'cobble': 744, 'logs': 552, 'copper_ingot': 1109}  workshop copper  all five houses at once NO  houses one at a time after it: 5
+board-d     spendable {'cobble': 744, 'logs': 156, 'copper_ingot': 592}  workshop copper  all five houses at once NO  houses one at a time after it: 4
+hive-a      spendable {'cobble': 744, 'logs': 260, 'copper_ingot': 1525}  workshop copper  all five houses at once NO  houses one at a time after it: 5
+hive-b      spendable {'cobble': 744, 'logs': -260, 'copper_ingot': 627}  workshop NO  all five houses at once NO  houses one at a time after it: 0
+hive-c      spendable {'cobble': 743, 'logs': 104, 'copper_ingot': 456}  workshop copper  all five houses at once NO  houses one at a time after it: 2
+hive-d      spendable {'cobble': 744, 'logs': -445, 'copper_ingot': 508}  workshop NO  all five houses at once NO  houses one at a time after it: 0
+isolated-a  OUT (isolated, per-bot town state: D2)
+isolated-b  spendable {'cobble': 771, 'logs': 471, 'copper_ingot': 1058}  workshop copper  all five houses at once NO  houses one at a time after it: 5
+isolated-c  OUT (isolated, per-bot town state: D2)
+isolated-d  OUT (isolated, per-bot town state: D2)
+placebo-a   spendable {'cobble': 743, 'logs': 139, 'copper_ingot': 148}  workshop fallback  all five houses at once NO  houses one at a time after it: 3
+placebo-b   spendable {'cobble': 743, 'logs': 814, 'copper_ingot': 388}  workshop copper  all five houses at once NO  houses one at a time after it: 4
+placebo-c   spendable {'cobble': 936, 'logs': 1333, 'copper_ingot': 585}  workshop copper  all five houses at once copper  houses one at a time after it: 5
+placebo-d   spendable {'cobble': 1000, 'logs': 154, 'copper_ingot': 372}  workshop copper  all five houses at once NO  houses one at a time after it: 4
+houses admissible one at a time after the workshop, from today's stock (no refill): [5, 4, 5, 4, 5, 0, 2, 0, 5, 3, 4, 5, 4]
+of 13 eligible towns: workshop funded 11 (with copper trim 9); workshop + five houses at once 2 (with copper 2). Sand is 0 in every town: windows wait on the sand target (then a 24 h fallback to wall cells).

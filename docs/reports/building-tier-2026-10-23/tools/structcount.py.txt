@@ -112,9 +112,16 @@ BUILT = re.compile(r'^minecraft:('
 PATH = re.compile(r'^minecraft:dirt_path$')
 SPAWNER = re.compile(r'^minecraft:spawner$')     # a dungeon (a FEATURE: no structure BB) -- its cobble and chests are masked
 DUNGEON_R = 5
-LIGHT = re.compile(r'^minecraft:(torch|wall_torch|soul_torch|soul_wall_torch|lantern|soul_lantern|glowstone|sea_lantern|'
-                   r'campfire|soul_campfire|shroomlight|jack_o_lantern|redstone_lamp|(waxed_)?(exposed_|weathered_|oxidized_)?copper_bulb|'
-                   r'ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod|[a-z_]*candle|redstone_torch|redstone_wall_torch)$')
+# A light is LIT (Codex r1 P1): always-on emitters by name; lamps, bulbs, campfires and candles only with lit=true.
+LIGHT_ALWAYS = re.compile(r'^minecraft:(torch|wall_torch|soul_torch|soul_wall_torch|lantern|soul_lantern|glowstone|sea_lantern|'
+                          r'shroomlight|jack_o_lantern|ochre_froglight|verdant_froglight|pearlescent_froglight|end_rod|'
+                          r'redstone_torch|redstone_wall_torch)$')
+LIGHT_IF_LIT = re.compile(r'^minecraft:(campfire|soul_campfire|redstone_lamp|(waxed_)?(exposed_|weathered_|oxidized_)?copper_bulb|[a-z_]*candle)$')
+LIGHT = re.compile(LIGHT_ALWAYS.pattern[:-1] + '|' + LIGHT_IF_LIT.pattern[len('^minecraft:'):])
+def lit_at(w, x, y, z):
+    n = w.block(x, y, z) or ''
+    if LIGHT_ALWAYS.match(n): return True
+    return bool(LIGHT_IF_LIT.match(n)) and str(w.props(x, y, z).get('lit', 'false')) == 'true'
 AIR = {'minecraft:air', 'minecraft:cave_air', 'minecraft:void_air', 'minecraft:light', 'minecraft:structure_void'}
 # passable for a body: what a room's standing cells and a doorway may hold
 PASSABLE = re.compile(r'^minecraft:(air|cave_air|void_air|light|short_grass|tall_grass|grass|fern|large_fern|dead_bush|vine|glow_lichen|'
@@ -158,9 +165,10 @@ class World:
         for s in ch.get('sections', []):
             bs = s.get('block_states') or {}
             pal = [p.get('Name', '?') for p in (bs.get('palette') or [])]
-            if pal: d[s['Y']] = [pal, bs, None]
+            if pal: d[s['Y']] = [pal, bs, None, [p.get('Properties') or {} for p in (bs.get('palette') or [])]]
         self.secs[key] = d
         self.inhabited[key] = ch.get('InhabitedTime', 0)
+        self.status = getattr(self, 'status', {}); self.status[key] = ch.get('Status', '?')
         hm = (ch.get('Heightmaps') or {}).get('MOTION_BLOCKING_NO_LEAVES')
         if hm:
             vals = []
@@ -177,18 +185,30 @@ class World:
         if d is None: return None
         s = d.get(y >> 4)
         if s is None: return 'minecraft:air'
-        pal, bs, vals = s
+        pal, bs, vals = s[:3]
         if len(pal) == 1: return pal[0]
         if vals is None: vals = s[2] = section_values(bs)
         if vals is None: return pal[0]
         v = vals[(y & 15) * 256 + (z & 15) * 16 + (x & 15)]
         return pal[v] if v < len(pal) else None
+    def props(self, x, y, z):
+        """The block STATE's properties (lit, facing, half ...), {} when it has none."""
+        d = self.chunk(x >> 4, z >> 4)
+        if not d: return {}
+        s = d.get(y >> 4)
+        if s is None: return {}
+        pal, bs, vals, props = s
+        if len(pal) == 1: return props[0]
+        if vals is None: vals = s[2] = section_values(bs)
+        if vals is None: return props[0]
+        v = vals[(y & 15) * 256 + (z & 15) * 16 + (x & 15)]
+        return props[v] if v < len(props) else {}
     def cells_matching(self, cx, cz, rx, ylo=-64, yhi=320):
         """(x, y, z, name) for every cell in chunk (cx,cz) whose name matches rx (palette-skipped sections are free)."""
         d = self.chunk(cx, cz)
         if d is None: return
         for Y, s in d.items():
-            pal, bs, vals = s
+            pal, bs, vals = s[:3]
             hit = {i for i, n in enumerate(pal) if rx.match(n)}
             if not hit or Y * 16 + 15 < ylo or Y * 16 > yhi: continue
             if len(pal) == 1:
@@ -326,10 +346,11 @@ def rooms_of(w, comp, built):
                         gap += 1
                         if dy == 0 and passable(n) and passable(w.block(q[0], q[1] + 1, q[2])) and wallish(w.block(q[0], q[1] - 1, q[2])):
                             doors.add(q)
-            for dy in (-1, 0, 1, 2):
-                for dx in (-1, 0, 1):
-                    for dz in (-1, 0, 1):
-                        if LIGHT.match(w.block(x + dx, y + dy, z + dz) or ''): lit = True
+        # LIT INSIDE (Codex r1 P1): a lit light in a room cell, in a ring cell at the room's own levels, or in the cell
+        # directly above a room cell (a ceiling lamp) -- never below the floor, never outside the ring
+        for (x, y, z) in room:
+            if lit_at(w, x, y, z) or lit_at(w, x, y + 1, z): lit = True; break
+            if any((x + dx, y, z + dz) not in rs and lit_at(w, x + dx, y, z + dz) for dx, dz in H4): lit = True; break
         encl = wall / max(1, wall + gap)
         matf = mat / max(1, wall)
         roofs = {roofed[q] for q in room}
@@ -337,7 +358,7 @@ def rooms_of(w, comp, built):
         if encl >= 0.70 and doors and matf >= 0.60 and touches:
             fx = sum(q[0] for q in floor) / len(floor); fz = sum(q[2] for q in floor) / len(floor)
             rooms.append({'floor': len(floor), 'enclosure': round(encl, 2), 'wall_material': round(matf, 2), 'roof_built': round(roof_built, 2), 'doors': len(doors), 'lit': lit,
-                          'centre': [round(fx, 1), floor[0][1], round(fz, 1)]})
+                          'centre': [round(fx, 1), floor[0][1], round(fz, 1)], 'key': list(min(room)) + [len(room)]})
     return rooms
 
 def describe(w, comps, built, home, names):
@@ -348,7 +369,9 @@ def describe(w, comps, built, home, names):
         xs = [p[0] for p in comp]; zs = [p[2] for p in comp]; ys = [p[1] for p in comp]
         d = max(abs((min(xs) + max(xs)) / 2 - home[0]), abs((min(zs) + max(zs)) / 2 - home[2]))
         bur = sum(1 for p in comp if w.natural_top(p[0], p[2]) > p[1]) / len(comp)
-        rooms = rooms_of(w, comp, built) if bur <= 0.25 else []
+        # every component is searched (Codex r1 P1): a house joined to a buried mine stair is still a house; each ROOM
+        # carries its own buried test, and buildings are counted per distinct room, never per component
+        rooms = rooms_of(w, comp, built)
         out.append({'n': len(comp), 'buried': round(bur, 2), 'surface': bur <= 0.25, 'bbox': [min(xs), min(ys), min(zs), max(xs), max(ys), max(zs)], 'cheb': round(d),
                     'kinds': dict(kinds.most_common(6)), 'room': bool(rooms), 'building': any(r['lit'] for r in rooms),
                     'rooms': rooms})
@@ -377,14 +400,26 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
     st = stamp_cells(home) if stamp else {}
     zl = []
     if zones and os.path.exists(zones):
+        # bench `fixture` strips are DATA only (scripts/host/protectzone-fixture.py writes a zone file and places nothing), so
+        # the blocks inside them are bots' and stay counted; scenery zones (the showcase's villages) are masked
         zl = [z['box'] for z in json.load(open(zones)).get('zones', []) if z.get('kind') != 'fixture']
     masked = collections.Counter(); built = {}
+    rawbbs = [bb for _, _, bb in pieces if bb]
+    padonly = collections.Counter()
+    vil = [bb for sid, _, bb in pieces if bb and 'village' in (sid or '')]
     for p, n in raw.items():
         if p in st: masked['stamp'] += 1; continue
-        if any(in_box(p, bb) for bb in bbs): masked['worldgen_piece'] += 1; continue
+        if any(in_box(p, bb) for bb in bbs):
+            masked['worldgen_piece'] += 1
+            if not any(in_box(p, bb) for bb in rawbbs) and not any(in_box(p, b) for b in bbs[len([1 for _, _, bb in pieces if bb]):]):
+                padonly[n[10:]] += 1       # masked ONLY by the padding (Claude r1 P2: the padding could hide bot cells)
+            continue
         if any(in_box(p, b) for b in zl): masked['protected_zone'] += 1; continue
         built[p] = n
     stamp_present = sum(1 for p, k in st.items() if (raw.get(p) or '').endswith(k))
+    FLUID = ('minecraft:water', 'minecraft:lava', 'minecraft:obsidian')
+    fluid_adj = sum(1 for (x, y, z), n in built.items() if n == 'minecraft:cobblestone' and w.natural_top(x, z) <= y and
+                    any((w.block(x + a, y + b, z + c) or '') in FLUID for a, b, c in ((1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1))))
     comps = components(built)
     structs = describe(w, comps, built, home, built)
     litter = sum(len(c) for c in comps if len(c) < MIN_STRUCT)
@@ -393,7 +428,8 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
     for pf in plinths or []:
         rec = json.load(open(pf)); plan = rec.get('plan') or {}
         cells = [tuple(s['c']) for s in plan.get('steps', []) if s.get('op') == 'place']
-        found = [c for c in cells if c in built]
+        # MATERIAL FAMILY (Codex r1 P2): a planned cell counts only when the world holds a plinth block the palette can see
+        found = [c for c in cells if built.get(c) in ('minecraft:cobblestone', 'minecraft:cobbled_deepslate')]
         comp_of = {}
         for i, comp in enumerate(comps):
             for p in comp: comp_of[p] = i
@@ -403,7 +439,9 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
         isb = next((s['building'] for s in structs if main[0] is not None and s['n'] == sz and tuple(comps[main[0]][0]) and
                     in_box(comps[main[0]][0], s['bbox'])), None)
         kinds = collections.Counter((w.block(*c) or '?')[10:] for c in cells)
+        unseen = sum(1 for c in cells if (w.block(*c) or '') in ('minecraft:andesite', 'minecraft:diorite', 'minecraft:granite'))
         pctl.append({'record': os.path.basename(pf), 'state': rec.get('state'), 'planned_place_cells': len(cells),
+                     'natural_stone_unobservable': unseen, 'other_at_cells': len(cells) - len(found) - unseen,
                      'found_built': len(found), 'world_kinds_at_cells': dict(kinds.most_common(4)),
                      'in_one_component': main[1], 'component_size': sz, 'component_is_building': isb})
     band = collections.Counter()
@@ -413,6 +451,10 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
     res = {'world': world, 'home': list(home), 'r': r, 'chunks': dict(w.stats), 'raw_palette_cells': len(raw),
            'masked': dict(masked), 'stamp_cells': len(st), 'stamp_present': stamp_present, 'worldgen_pieces': len(pieces),
            'worldgen_starts_unreadable': sum(1 for p in pieces if p[0] == '?unreadable'), 'dungeons_masked': len(spawners),
+           'masked_by_padding_only': dict(padonly.most_common(8)), 'surface_cobble_touching_fluid': fluid_adj,
+           'chunk_status': dict(collections.Counter(w.status.values())) if hasattr(w, 'status') else {},
+           'piece_kinds': dict(collections.Counter((sid or '?').replace('minecraft:', '') for sid, _, bb in pieces if bb).most_common(8)),
+           'village_box': ([min(b[0] for b in vil), min(b[2] for b in vil), max(b[3] for b in vil), max(b[5] for b in vil)] if vil else None),
            'built_cells': len(built), 'built_kinds': dict(collections.Counter(built.values()).most_common(15)),
            'built_by_band': dict(collections.Counter(('core' if max(abs(p[0]-hx), abs(p[2]-hz)) <= 16 else
                                                      'town' if max(abs(p[0]-hx), abs(p[2]-hz)) <= 44 else 'out')
@@ -421,8 +463,9 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
            'surface_structures': sum(1 for s in structs if s['surface']),
            'surface_structure_cells': sum(s['n'] for s in structs if s['surface']),
            'buried_structure_cells': sum(s['n'] for s in structs if not s['surface']),
-           'buildings': sum(1 for s in structs if s['building']),
-           'unlit_rooms': sum(1 for s in structs if s['room'] and not s['building']),
+           'buildings': len({tuple(rm['key']) for s in structs for rm in s['rooms'] if rm['lit']}),
+           'unlit_rooms': len({tuple(rm['key']) for s in structs for rm in s['rooms'] if not rm['lit']}),
+           'building_rooms': sorted({json.dumps(rm) for s in structs for rm in s['rooms']}),
            'by_band': {'%s/%s' % k: v for k, v in sorted(band.items())}, 'dirt_path_cells_near_home_y': paths,
            'plinth_control': pctl,
            'top_structures': sorted(structs, key=lambda s: -s['n'])[:6],
@@ -493,7 +536,8 @@ def negctl(world, rdir, home, r, n):
         d = w.chunk(*c)
         if d is None: continue
         used += 1
-        if w.inhabited.get(c, 1) == 0: zero.append(c)
+        # FULLY GENERATED only (Claude r1 P2): an edge chunk whose features have not generated yet proves nothing
+        if w.inhabited.get(c, 1) == 0 and str(w.status.get(c, '')).endswith('full'): zero.append(c)
     pieces = structure_pieces(w, zero)
     bbs = [padded(bb) for _, _, bb in pieces if bb]
     for c in zero:
@@ -506,7 +550,8 @@ def negctl(world, rdir, home, r, n):
             fps[nm[10:]] += 1
             if w.natural_top(x, z) > y: buried_fp += 1
             else: surface_fp[nm[10:]] += 1
-    return {'world': world, 'chunks_read': used, 'uninhabited_chunks': len(zero), 'palette_cells_in_pieces': inpiece,
+    return {'world': world, 'chunks_read': used, 'chunk_status_read': dict(collections.Counter(w.status.values())),
+            'uninhabited_full_chunks': len(zero), 'uninhabited_chunks': len(zero), 'palette_cells_in_pieces': inpiece,
             'false_positive_cells': sum(fps.values()), 'fp_kinds': dict(fps.most_common(10)),
             'fp_cells_buried': buried_fp, 'fp_cells_surface': sum(surface_fp.values()), 'fp_kinds_surface': dict(surface_fp.most_common(10)),
             'worldgen_pieces': len(pieces), 'worldgen_starts_unreadable': sum(1 for p in pieces if p[0] == '?unreadable')}
@@ -524,6 +569,66 @@ def delta(a, b):
             'added_kinds': dict(collections.Counter(added.values()).most_common(10)),
             'removed_kinds': dict(collections.Counter(gone.values()).most_common(10))}
 
+
+# ------------------------------------------------------------------ selftest: synthetic fixtures with a known answer (Codex r1)
+class FakeWorld:
+    """Ground: stone below y 64, grass_block at 64. block()/props()/natural_top() as World's."""
+    def __init__(self):
+        self.b = {}; self.p = {}
+    def set(self, x, y, z, n, props=None):
+        self.b[(x, y, z)] = 'minecraft:' + n
+        if props: self.p[(x, y, z)] = props
+    def block(self, x, y, z):
+        if (x, y, z) in self.b: return self.b[(x, y, z)]
+        return 'minecraft:stone' if y < 64 else ('minecraft:grass_block' if y == 64 else 'minecraft:air')
+    def props(self, x, y, z): return self.p.get((x, y, z), {})
+    def natural_top(self, x, z):
+        y = 120
+        while y > -64 and not natural_solid(self.block(x, y, z)): y -= 1
+        return y
+
+def house(w, x0, z0, light='torch', door=True, roof=True, walls=True):
+    for x in range(x0, x0 + 5):
+        for z in range(z0, z0 + 5):
+            w.set(x, 64, z, 'stone_bricks')
+            if roof: w.set(x, 67, z, 'oak_planks')
+            edge = x in (x0, x0 + 4) or z in (z0, z0 + 4)
+            if edge and walls:
+                for y in (65, 66):
+                    if door and (x, z) == (x0 + 2, z0): continue
+                    w.set(x, y, z, 'oak_planks')
+    if light == 'torch': w.set(x0 + 2, 65, z0 + 2, 'torch')
+    elif light == 'lamp_off': w.set(x0 + 2, 65, z0 + 2, 'redstone_lamp', {'lit': 'false'})
+    elif light == 'lamp_on': w.set(x0 + 2, 65, z0 + 2, 'redstone_lamp', {'lit': 'true'})
+    elif light == 'below': w.set(x0 + 2, 63, z0 + 2, 'glowstone')
+
+def count(w):
+    built = {k: v for k, v in w.b.items() if BUILT.match(v)}
+    comps = components(built)
+    structs = describe(w, comps, built, (0, 64, 0), built)
+    rooms = {tuple(rm['key']): rm for s in structs for rm in s['rooms']}
+    return sum(1 for r in rooms.values() if r['lit']), sum(1 for r in rooms.values() if not r['lit']), len([s for s in structs])
+
+def selftest():
+    cases = []
+    w = FakeWorld(); house(w, 0, 0); cases.append(('one lit house', count(w)[:2], (1, 0)))
+    w = FakeWorld(); house(w, 0, 0); house(w, 8, 0)
+    for x in range(5, 8): w.set(x, 65, 2, 'cobblestone')          # the two houses joined by a cobble line: ONE component
+    cases.append(('two houses joined by cobble', count(w)[:2], (2, 0)))
+    w = FakeWorld(); house(w, 0, 0)
+    for k in range(0, 40): w.set(5 + (k % 3), 63 - k, 2 + (k // 3) % 2, 'cobblestone')   # a buried mine stair touching it
+    for k in range(0, 40): w.set(5 + (k % 3), 64 - k, 3, 'cobblestone')
+    cases.append(('house joined to a buried stair', count(w)[:2], (1, 0)))
+    w = FakeWorld(); house(w, 0, 0, light='lamp_off'); cases.append(('unlit lamp only', count(w)[:2], (0, 1)))
+    w = FakeWorld(); house(w, 0, 0, light='lamp_on'); cases.append(('lit lamp', count(w)[:2], (1, 0)))
+    w = FakeWorld(); house(w, 0, 0, light='below'); cases.append(('light below the floor only', count(w)[:2], (0, 1)))
+    w = FakeWorld(); house(w, 0, 0, door=False); cases.append(('no doorway', count(w)[:2], (0, 0)))
+    w = FakeWorld(); house(w, 0, 0, roof=False); cases.append(('no roof', count(w)[:2], (0, 0)))
+    w = FakeWorld(); house(w, 0, 0, walls=False); cases.append(('no walls (open pavilion)', count(w)[:2], (0, 0)))
+    bad = [c for c in cases if tuple(c[1]) != c[2]]
+    for c in cases: print('%-34s got %s want %s %s' % (c[0], c[1], c[2], 'ok' if tuple(c[1]) == c[2] else 'FAIL'))
+    return {'cases': len(cases), 'failed': len(bad)}
+
 def main():
     a = sys.argv[1:]
     opt = lambda k, d=None: a[a.index(k) + 1] if k in a else d
@@ -537,6 +642,8 @@ def main():
         res = negctl(a[1], a[2], parse_home(a[3]), int(opt('--r', 96)), int(opt('--n', 120)))
     elif cmd == 'delta':
         res = delta(a[1], a[2])
+    elif cmd == 'selftest':
+        res = selftest()
     else:
         sys.exit(__doc__)
     out = opt('--json')
