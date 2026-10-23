@@ -2580,10 +2580,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // name (magma or campfires only; lava and fire never) -- so the arm and recoveryArmsMayRun see the same thing.
       const eff = lavastepMover ? lavastepMover.effective(feet, below) : { feet: feet?.name ?? null, below: below?.name ?? null }
       const dangerHere = !recoveryArmsMayRun({ feetName: eff.feet, belowName: eff.below })
-      if (dangerHere && throttled('danger', 2500)) {
+      // THE EPISODE INSTRUMENT READS THE RAW NAMES on both arms (Claude code r3 P3-5): a relaxed cell quiets the arm and the
+      // movement arms' stand-down, never the row the read counts episodes from
+      const rawDanger = !recoveryArmsMayRun({ feetName: feet?.name, belowName: below?.name })
+      if (rawDanger && throttled('danger', 2500)) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
         // the episode instrument, unchanged on both arms: one row per 2.5 s while the danger persists
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
+        // LAVASTEP=0: today's arm exactly (no relaxation exists, so rawDanger == dangerHere)
         if (!lavastepMover) {
           runner.interrupt('danger_block')
           await escape(bot)
