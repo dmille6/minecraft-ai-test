@@ -101,6 +101,12 @@ test('ONE APPEND per observation, carrying its evidence AND its outcome (design 
     assert.ok(['entry', 'coalesced', 'drop'].includes(line.outcome))
   }
   assert.equal(got[0].outcome, 'entry'); assert.equal(got[1].outcome, 'coalesced'); assert.equal(got[1].into, 'A-1')
+  assert.ok(!('foldMs' in got[0]) && !('appendMs' in got[0]), 'the L3 timings are never written to the file')
+  assert.ok(Number.isFinite(r1.foldMs) && Number.isFinite(r1.appendMs), 'but the returned record carries them (the row\'s L3 fields)')
+  assert.match(L.ledgerStationDetail(r1), new RegExp(` at=${T0} fold_ms=\\d+\\.\\d\\d app_ms=\\d+\\.\\d\\d$`))
+  const long = L.ledgerStationDetail({ ...r1, id: 'isolated-d-Lighthouse-L-1792756800000-abcdef', f: '-12345,-64,-12345', by: 'smelt_town', into: 'isolated-d-Lighthouse-L-1792756800000-zyxwvu', outcome: 'coalesced',
+    slots: { in: ['raw_copper', 64], fuel: ['charcoal', 64], out: ['copper_ingot', 64], lit: true }, foldMs: 12345.678, appendMs: 1234.5 })
+  assert.ok(long.length < 300, `the row's detail fits the 300-char cap (${long.length})`)
 })
 
 test('COALESCE INTO THE NEWEST, from any bot (design 6.4, Claude r9 #1): A post-load, B finds it empty, A loads identically within 10 min -> A APPENDS an entry', () => {
@@ -372,4 +378,11 @@ test('STRUCTURAL MUTANTS: removing either site\'s record, or moving the drain\'s
   const extra = mutant(src, `export function ledgerFurnace (`, `async function thirdOpener (bot, b) { const w = await bot.openFurnace(b); await w.takeOutput() }\nexport function ledgerFurnace (`)
   assert.ok(openerSites(extra).some(x => !x.ok), 'a NEW opener without a record (as mats-01\'s make_material would be): caught')
   assert.ok(openerSites(src).every(x => x.ok), 'and the real source passes')
+})
+
+test('THE READ: scripts/host/ledgerread.py\'s L1 / L2 / exposure fixtures pass (the defect lines this canary is gated on)', () => {
+  const py = spawnSync('python3', ['-B', new URL('../../scripts/host/ledgerread.py', import.meta.url).pathname, '--selftest'], { encoding: 'utf8' })
+  if (py.error?.code === 'ENOENT') return            // no python3 here: the host runs the same fixtures on every read
+  assert.equal(py.status, 0, py.stderr || py.stdout)
+  assert.match(py.stdout, /SELFTEST OK/)
 })
