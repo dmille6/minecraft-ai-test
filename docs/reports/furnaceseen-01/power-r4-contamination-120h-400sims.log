@@ -1,0 +1,17 @@
+history 120 h to 10-23 20:36Z | pools 16 | repeats 2525, removable (the earlier empty logged before the pick) 2525 = 1.000 | effect used 1.000 | sims 400
+    cuts 400: 380 (0.95) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  POWER removal 1.00  +180/+360: 0/20 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 16 non-overlapping post-window(s) in the range)
+    cuts 400: 370 (0.93) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  POWER removal 1.00  +180/+720: 0/30 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 8 non-overlapping post-window(s) in the range)
+    cuts 400: 380 (0.95) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  POWER removal 1.00  +180/+1440: 0/20 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 4 non-overlapping post-window(s) in the range)
+    cuts 400: 372 (0.93) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  POWER removal 1.00  +180/+2880: 0/28 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 2 non-overlapping post-window(s) in the range)
+    cuts 400: 382 (0.95) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  NULL  removal 0.00  +180/+360: 0/18 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 16 non-overlapping post-window(s) in the range)
+    cuts 400: 382 (0.95) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  NULL  removal 0.00  +180/+720: 0/18 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 8 non-overlapping post-window(s) in the range)
+    cuts 400: 377 (0.94) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  NULL  removal 0.00  +180/+1440: 0/23 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 4 non-overlapping post-window(s) in the range)
+    cuts 400: 369 (0.92) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; KEEP over ALL cuts 0/400 = 0.000
+  NULL  removal 0.00  +180/+2880: 0/31 = 0.000 (binomial 95% 0.000-0.000; NOT binomial in truth: the cuts share history -- about 2 non-overlapping post-window(s) in the range)
