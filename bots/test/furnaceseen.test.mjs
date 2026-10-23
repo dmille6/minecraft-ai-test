@@ -197,3 +197,11 @@ test('STRUCTURAL: the drain ORDER picks through the same drainPickNow as the ski
   const body = skillSrc.slice(skillSrc.indexOf('async function furnaceDrain'), skillSrc.indexOf('async function furnaceDrain') + 1200)
   assert.match(body, /drainPickNow\(bot, t0\)/, 'the skill re-picks through it too')
 })
+
+test('THE READ REPLAYS THE SAME FUNCTION: furnaceseenread.py\'s port reproduces the golden table (and its own D1 / effect fixtures pass)', () => {
+  const py = spawnSync('python3', ['-B', new URL('../../scripts/host/furnaceseenread.py', import.meta.url).pathname, '--selftest', '--golden',
+    new URL('./fixtures/seenskip-golden.json', import.meta.url).pathname], { encoding: 'utf8' })
+  if (py.error?.code === 'ENOENT') return            // no python3 on this machine: the host runs the same selftest
+  assert.equal(py.status, 0, py.stderr || py.stdout)
+  assert.match(py.stdout, /SELFTEST OK \(golden 14 rows\)/)
+})
