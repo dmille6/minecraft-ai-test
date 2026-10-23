@@ -163,7 +163,9 @@ def persisted_check(stations, files_by_pool):
         rec = fp['records'].get(f.get('id'))
         if rec is None:
             b_ = fp.get('boundary')
-            if b_ is not None and t < b_ - 5000:
+            # conservative across the boundary: a row up to RACE_MS AFTER it may still be the older generation's (clock skew,
+            # the row stamped after the append; Codex r3 P2)
+            if b_ is not None and t < b_ + RACE_MS:
                 unresolved += 1
             else:
                 checked += 1; defects.append(('not_persisted', f.get('id')))
@@ -287,7 +289,9 @@ _rec = {'a': {'id': 'a', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out
 assert persisted_check(_st, {'P': {'records': _rec, 'files': 1}})['defects'] == [] and persisted_check(_st, {'P': {'records': _rec, 'files': 1}})['confirmed_by_pool'] == {'P': 2}
 assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'files': 1}})['defects'] == [('not_persisted', 'b')]
 assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 10_000, 'files': 2}})['unresolved'] == 1, 'a row before the oldest retained generation'
-assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 1500, 'files': 2}})['defects'] == [('not_persisted', 'b')], 'a row AFTER it must be in the file'
+assert persisted_check([(99_000, 'P', 'B', _S('b', 'coalesced', 'a'))], {'P': {'records': {}, 'boundary': 100_000, 'files': 2}})['unresolved'] == 1, 'just before the boundary'
+assert persisted_check([(104_000, 'P', 'B', _S('b', 'coalesced', 'a'))], {'P': {'records': {}, 'boundary': 100_000, 'files': 2}})['unresolved'] == 1, 'within RACE_MS after it'
+assert persisted_check([(106_000, 'P', 'B', _S('b', 'coalesced', 'a'))], {'P': {'records': {}, 'boundary': 100_000, 'files': 2}})['defects'] == [('not_persisted', 'b')], 'a row clearly AFTER it must be in the file'
 assert window_complete(None, 100) and window_complete(50, 100) and not window_complete(150, 100)
 assert persisted_check(_st, {'P': {'records': dict(_rec, a=dict(_rec['a'], slots={'in': ['raw_iron', 1], 'fuel': None, 'out': None, 'lit': False})), 'files': 1}})['defects'] == [('persisted_differs', 'a')]
 assert bytes_written([(5, 100), (15, 200), (25, 50)], 10, 25) == 200
