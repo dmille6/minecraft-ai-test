@@ -91,7 +91,8 @@ function lockVerdict (locks, tag) {
 
 /** Throws unless the locks covering `name` allow `tag` to run there. `exec` is injectable for tests. */
 function requireSandboxLock (name, tag, { exec, root } = {}) {
-  const run = exec || (cmd => execFileSync('ssh', ['-o', 'BatchMode=yes', REGISTRY.lockHost, cmd], { encoding: 'utf8' }))
+  // bounded (lavastep-01 driver review r5, Codex P2): a stalled connection must fail the check, not hang the driver
+  const run = exec || (cmd => execFileSync('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', REGISTRY.lockHost, cmd], { encoding: 'utf8', timeout: 30000 }))
   const v = lockVerdict(parseProbe(run(probeCmd(name, root)), name), tag)
   if (!v.ok) throw new Error(`sandbox lock check for ${name}: ${v.reason}`)
   return v.reason

@@ -5,8 +5,10 @@
 # the other; the caller counterbalances slots across servers), then the next job.
 # r5 (driver review r4, Codex P2s): this script no longer touches the server. The join safeguard (adventure default,
 # confirmed before each launch, restored by the last driver out) is the DRIVER's, under its per-server mutex, so a
-# standalone driver is as safe as a paired one. This script only pairs, waits for EACH driver by pid, and stops the queue
-# on the first driver that exits non-zero (a failed cleanup is exit 3); its own exit status is the first failure's.
+# standalone driver is as safe as a paired one. This script only pairs and waits for EACH driver by pid. When a driver
+# exits non-zero (a failed cleanup is exit 3), the CURRENT pair is allowed to finish (its sibling is not killed: it is
+# mid-trial and cleans up itself), and then the queue stops; the exit status is the base driver's if it failed, else the
+# candidate's. The lock is re-checked (a bounded SSH probe) before every job.
 set -u
 server=$1; out=$2; bslot=$3; broot=$4; croot=$5; shift 5
 case "$server" in sandbox|sandbox2|sandbox3|sandbox5|sandbox6|sandbox7|sandbox8) ;; *) echo "sandbox servers only (not sandbox4)"; exit 2 ;; esac
@@ -21,6 +23,7 @@ trap 'kill -TERM ${pids[@]+"${pids[@]}"} 2>/dev/null; for p in ${pids[@]+"${pids
 cd "$here" || exit 2
 for job in "$@"; do
   IFS=: read -r scene bag yawm trials <<< "$job"
+  node -e "require('$here/sandbox/lib/sbxlock.cjs').requireSandboxLock('$server','lavastep')" || exit 2
   sfx=""; [ "$bag" = none ] && sfx="n"; [ "$yawm" = cycle ] && sfx="${sfx}c"
   echo "=== $(date -u +%FT%TZ) $server $scene $bag $yawm $trials (base slot $bslot)"
   LS_OUT="$out" LS_BAG="$bag" LS_YAW="$yawm" LS_SLOT="$bslot" node sandbox/lavastep/lavastep-e2e.mjs "$broot" "base$sfx" "$scene" "$server" "$trials" 20 > "$out/q-$server-base$sfx-$scene.log" 2>&1 &
