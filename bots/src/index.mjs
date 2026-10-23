@@ -52,6 +52,8 @@ import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
+import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
+import { readMatsNote, matsKeepHold } from './skills.mjs'   // mats-01: the kept stone's hold is re-set at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -319,6 +321,10 @@ function connect() {
     try { logEvent({ kind: 'keepout_mode', status: 'success', snapshot: snapshot(bot), detail: keepoutModeDetail(process.env) }) } catch {}
     // townindex-01: the licence row, once per spawn -- `_townindex_mode`, a kind the base cannot write (townindex.mjs)
     try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
+    // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs) -- and a reconciled note's
+    // kept stone held again (holds live in memory: a restart would otherwise let a deposit bank the job's remainder)
+    try { const sw = matsEnabled(process.env, config.memory.scope); logEvent({ kind: 'mats_mode', status: 'success', snapshot: snapshot(bot), detail: matsModeDetail({ on: sw.on, why: sw.why, reserve: matsReserve(), buffers: matsBuffers() }) }) } catch {}
+    try { const nt = readMatsNote(bot); if (nt?.phase === 'keep') matsKeepHold(nt) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
