@@ -262,7 +262,8 @@ def gates(a):
         return 'agree' if mine == rel else 'disagree'
     # THE REPLAY'S FAITHFULNESS: every ground firing must carry its decision observation, and it must reproduce the plan
     if dec is None:
-        v['replay'] = 'unverifiable'
+        # preempted during its own setup (air, death, no entity) decided nothing: not a comparison (Claude code r4 P3-4)
+        v['replay'] = None if a.get('ended') in ('air', 'dead', 'no entity') else 'unverifiable'
     else:
         v['replay'] = replay(dec, kase, a.get('plan'))
     rpl = a.get('replan')
@@ -286,7 +287,13 @@ def gates(a):
         if abs(to[0] - frm[0]) + abs(to[2] - frm[2]) != 1:
             v['g1'].append('step %d %s: not one cardinal step from %s to %s' % (i, st.get('plan'), frm, to))
         else:
+            m0 = len(ob.missing)
             ok, eto, edy, egoal = eval_step(ob.at, frm, dx, dz, first, pkase, porg)
+            if len(ob.missing) > m0:
+                # the replay needed a cell the bot never recorded: the read cannot judge this step (Claude code r4 P3-2)
+                if v['replay'] in ('agree', None):
+                    v['replay'] = 'unverifiable'
+                continue
             if not ok or tuple(eto) != to or edy != st.get('dy'):
                 v['g1'].append('step %d %s: the step contract refuses %s -> %s (replay ok=%s to=%s dy=%s)' % (i, st.get('plan'), frm, to, ok, eto, edy))
             plan_len = len(a.get('plan') or []) if st.get('plan') == 'decision' else len((a.get('replan') or {}).get('plan') or [])
@@ -298,7 +305,12 @@ def gates(a):
                 cells.append((frm[0] + lx, frm[1], frm[2] + lz))
             cells.append((to[0] + lx, to[1], to[2] + lz))
         for c in cells:
+            m1 = len(ob.missing)
             b = ob.at(*c)
+            if len(ob.missing) > m1:
+                if v['replay'] in ('agree', None):
+                    v['replay'] = 'unverifiable'
+                continue
             if b is None or is_danger(b):
                 v['g1'].append('step %d %s: %s at %s' % (i, st.get('plan'), 'unknown' if b is None else b[0], c))
     # G2: an aim while a plan existed
@@ -344,8 +356,12 @@ def gates(a):
         if s.get('item') not in (a.get('items') or []):
             v['g4'].append('seal item %s not among the items the decision saw %s' % (s.get('item'), a.get('items')))
         if dec is not None:
+            m2 = len(dec.missing)
             tgt = dec.at(*s['cell'])
-            if tgt is None or tgt[0] not in REPLACEABLE:
+            if len(dec.missing) > m2:
+                if v['replay'] in ('agree', None):
+                    v['replay'] = 'unverifiable'
+            elif tgt is None or tgt[0] not in REPLACEABLE:
                 v['g4'].append('seal aimed at %s' % (None if tgt is None else tgt[0]))
         if s.get('witnessed') and (s.get('update') or {}).get('name') != s.get('item'):
             v['g4'].append('claimed witnessed without an update of %s' % s.get('item'))
@@ -359,12 +375,18 @@ def gates(a):
         if ob is None:
             v['g5'].append('aim with no observation')
         else:
+            before = len(ob.missing)
             sc = aim_scores(ob.at, ob.o)
-            best = min(aim_key(x) for x in sc)
+            complete = len(ob.missing) == before
             ch = aim.get('chosen')
-            if ch is None or aim_key(sc[ch]) != best:
-                v['g5'].append('chosen %s key %s, best %s' % (ch, None if ch is None else aim_key(sc[ch]), best))
-            elif ang_diff(float(aim.get('yaw', 99)), yaw_of(BEARINGS[ch])) > YAW_TOL:
+            # OPTIMALITY IS GRADED ONLY ON A COMPLETE OBSERVATION (Codex code r4 P2): a never-read aim cell makes the replay
+            # unverifiable (below), never a G5 defect -- missing telemetry must not REVERT a canary
+            if ch is None:
+                v['g5'].append('aim with no chosen bearing')
+            elif complete and aim_key(sc[ch]) != min(aim_key(x) for x in sc):
+                v['g5'].append('chosen %s key %s, best %s' % (ch, aim_key(sc[ch]), min(aim_key(x) for x in sc)))
+            # the executed heading versus the chosen bearing is the executor's steering, independent of the observation
+            if ch is not None and ang_diff(float(aim.get('yaw', 99)), yaw_of(BEARINGS[ch])) > YAW_TOL:
                 v['g5'].append('executed yaw %s is not bearing %d (%.2f)' % (aim.get('yaw'), ch, yaw_of(BEARINGS[ch])))
             # A MIRROR DISAGREEMENT IS THE READ'S, NOT THE BOT'S (Claude code r3 P2-2): recomputed scores that differ from the
             # recorded ones, or an aim observation with a never-read cell, mark the firing's replay -- never a G5 defect
@@ -541,8 +563,8 @@ def selftest():
     # G1: a recorded lava cell beside an executed step's destination (the sweep would have refused it)
     g1 = copy.deepcopy(m); g1['cells']['1,0,1'] = 'lava'
     assert gates(g1)['g1'], 'G1'
-    g1u = copy.deepcopy(m); del g1u['cells']['1,0,-1']
-    assert gates(g1u)['g1'], 'G1 unknown/missing'
+    g1u = copy.deepcopy(m); g1u['cells']['1,0,-1'] = None     # a RECORDED unknown beside an executed step: a defect
+    assert gates(g1u)['g1'], 'G1 recorded unknown'
     # G2: an aim while the decision observation replays to a plan (the "skip the plan" mutant)
     g2 = copy.deepcopy(m); g2['steps'] = []; g2['controls'] = []; g2['plan'] = None
     sc = aim_scores(Obs(g2['origin'], g2['cells'], g2['boxes']).at, tuple(g2['origin']))
@@ -584,6 +606,20 @@ def selftest():
     south['aim']['yaw'] = -3.14                       # what JavaScript's atan2(-0, -1) records
     assert not gates(south)['g5'], ('G5 wrap', gates(south)['g5'])
     assert ang_diff(-3.14, math.pi) < YAW_TOL and ang_diff(-3.14, 0) > 3
+    # an aim observation missing ONE cell: unverifiable, never a G5 defect (Codex code r4 P2)
+    hole = copy.deepcopy(south); del hole['cells']['0,1,6']
+    vh = gates(hole)
+    assert vh['replay'] == 'unverifiable' and not vh['g5'], ('missing aim cell', vh['replay'], vh['g5'])
+    # ...while the executed heading is still checked on an incomplete observation
+    hole2 = copy.deepcopy(hole); hole2['aim']['yaw'] = 0.0
+    assert gates(hole2)['g5'], 'the steering check stands without a complete observation'
+    # G1 / G4 on a never-read cell: unverifiable, not a defect; a recorded UNKNOWN is still a G1 defect (Claude code r4 P3-2)
+    g1m = copy.deepcopy(m); del g1m['cells']['1,0,1']
+    vm = gates(g1m); assert vm['replay'] == 'unverifiable' and not vm['g1'], ('G1 missing', vm['replay'], vm['g1'])
+    g4m = copy.deepcopy(s); del g4m['cells']['0,-1,0']
+    v4 = gates(g4m); assert not v4['g4'] and v4['replay'] == 'unverifiable', ('G4 missing', v4['g4'], v4['replay'])
+    pre = {'phase': 'firing', 'case': 'edge', 'ended': 'air', 'origin': [0, 64, 0], 'steps': [], 'controls': []}
+    assert gates(pre)['replay'] is None, 'a firing preempted during setup is not a replay comparison'
     # G5: the facing bearing (east, into the pool) executed
     g5 = copy.deepcopy(p); g5['aim']['yaw'] = round(yaw_of(BEARINGS[2]), 2)
     assert gates(g5)['g5'], 'G5 yaw'
