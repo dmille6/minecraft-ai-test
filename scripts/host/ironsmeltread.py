@@ -15,15 +15,20 @@
 #   NAMES ARE EXACT: lib.telemetry folds `_x` into `x`, so every count keys on raw skill.name (smeltjobread's rule).
 #
 # THE WORLD (not the bot's claims): the town index (townindex-01, /var/lib/mcai/_pool-<pool>/town-index-*.jsonl) records what the
-# SERVER sent at every open of a town container, by any bot. Per pool, the raw_iron and iron_ingot the index's latest
-# observation of each container shows, at the window's start and at its end ("index census"); its change is the world's
-# answer to "did raw iron leave the chests and ingots arrive", read canary vs control (difference-in-differences against the
-# same-length PRE). Coverage changes (a container first seen mid-window) are reported, not hidden.
+# SERVER sent at every open of a town container, by any bot. At each boundary (PRE, CUT, END) the index is folded per pool,
+# per world and per container (obs + dirty marks, rotation checkpoints included) and a container counts only when it is KNOWN
+# there (its latest record an observation, < 6 h old). The stock change is taken over the containers KNOWN at BOTH ends of a
+# period (comparable containers), per pool; the arms are compared by their per-pool MEANS (canary mean of post-minus-pre vs
+# control mean), with the pool counts printed. A boundary before the index's first record in a pool is UNAVAILABLE (None),
+# never a zero (Codex r3 P2 x2).
 #
 #   LICENCE    kind `_ironsmelt_mode` (the base cannot write it).
 #   GATES (REVERT, defect)
 #     G1 balance_broken: canary _smelt_town rows whose family balance is broken -- verdict=loss, or verdict=gain NOT explained
 #        by the same bot's `_pickups` of that FAMILY inside [t0-60 s, t+60 s] -- at least 2 AND > 5% of the reconciled rows.
+#        The pickup summaries are loaded to END + 2 min (a summary is written up to 60 s after its pickups); a job ending in the
+#        window's last 60 s is IMMATURE (not judged); a gain whose window holds a pickup summary that hides groups (`+N groups
+#        not shown`) or reports errors is INCONCLUSIVE, never a defect (Codex r3 P2).
 #     G2 own_iron_lost: canary IRON jobs (in=fe) that ended normally (stop not interrupted/error/withdraw_unsettled) with a
 #        closing raw_iron OR iron_ingot below its opening count (fe=r0/i0>r1/i1, per name) -- at least 2 rows (one is reported:
 #        a single client-view miscount is not a verdict, smeltjobread's floor).
@@ -45,7 +50,8 @@ sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
 FAMILY = {'fe': ('raw_iron', 'iron_ingot'), 'cu': ('raw_copper', 'copper_ingot'), '-': ('raw_copper', 'copper_ingot')}
-NORMAL_END_EXCLUDED = ('interrupted', 'error', 'withdraw_unsettled')
+# an `error` exit of an iron job banks too (r2), so G2 judges it; an interrupted/unsettled one may not have (Claude r3 P3-2)
+NORMAL_END_EXCLUDED = ('interrupted', 'withdraw_unsettled')
 
 
 def pool_of(bot):
@@ -70,7 +76,7 @@ def num(v):
 
 
 def family_picked(detail, names):
-    """PURE. A `_pickups` summary 'name n source mode; ... | ...' -> items of `names` in it."""
+    """PURE. A `_pickups` summary 'name n source mode; ... | tail' -> items of `names` in it."""
     n = 0
     for part in (detail or '').split(' | ')[0].split('; '):
         m = re.match(r'^(\S+) (\d+) ', part.strip())
@@ -79,15 +85,23 @@ def family_picked(detail, names):
     return n
 
 
+def pickups_incomplete(detail):
+    """PURE. Does a `_pickups` summary hide groups (pickuplog.mjs formatPickups: '+N groups (M items) not shown') or report
+    errors ('err=')? Then it cannot prove an absence of a family's pickups."""
+    tail = (detail or '').split(' | ', 1)[1] if ' | ' in (detail or '') else ''
+    return 'not shown' in tail or 'err=' in tail
+
+
 def own_iron(fe):
     """PURE. 'r0/i0>r1/i1' -> (r0, i0, r1, i1) or None."""
     m = re.match(r'^(\d+)/(\d+)>(\d+)/(\d+)$', fe or '')
     return tuple(int(x) for x in m.groups()) if m else None
 
 
-def own_lost(f):
-    """PURE. An iron job that ended normally holding less of its own raw iron OR its own ingots than it opened with."""
-    if f.get('in') != 'fe' or f.get('stop') in NORMAL_END_EXCLUDED:
+def own_lost(f, status=None):
+    """PURE. An iron job that ended normally holding less of its own raw iron OR its own ingots than it opened with. A row whose
+    STATUS is aborted is an interruption whatever its stop says (an abort inside an exit's bank keeps that exit's stop)."""
+    if f.get('in') != 'fe' or f.get('stop') in NORMAL_END_EXCLUDED or status == 'aborted':
         return False
     o = own_iron(f.get('fe'))
     return bool(o) and (o[2] < o[0] or o[3] < o[1])
@@ -106,6 +120,19 @@ def explained(gain, t0, t1, picks, slack=60_000):
     return sum(c for (pt, c) in picks if t0 - slack <= pt <= t1 + slack) >= gain
 
 
+def judge_gain(gain, t0, t1, picks, partial, end_ms, slack=60_000):
+    """PURE. A balance GAIN -> 'ok_pickup' (explained by same-family pickups), 'immature' (the job ended within `slack` of the
+    window's end: its pickup summary may not be written yet), 'inconclusive' (a summary in the job's window hid groups or
+    errored), or 'gain' (unexplained: the defect)."""
+    if explained(gain, t0, t1, picks, slack):
+        return 'ok_pickup'
+    if t1 > end_ms - slack:
+        return 'immature'
+    if any(t0 - slack <= pt <= t1 + slack for pt in partial):
+        return 'inconclusive'
+    return 'gain'
+
+
 def window_rate(ts, per_ms=3600_000):
     """PURE. Sorted ms timestamps -> the most rows in any per_ms window."""
     best = 0; j = 0
@@ -116,23 +143,33 @@ def window_rate(ts, per_ms=3600_000):
     return best
 
 
-def index_census(records, at_ms, names=('raw_iron', 'iron_ingot')):
-    """PURE. Index records (obs/dirty) -> {name: total} over each container's latest OBSERVATION captured at or before at_ms,
-    plus the number of containers counted. A container never observed by then is not counted (coverage is reported)."""
+STALE_MS = 6 * 3600 * 1000
+
+
+def known_at(records, at_ms, stale_ms=STALE_MS):
+    """PURE. Index records (obs, dirty) -> {(world, container): names} for the containers KNOWN at at_ms: the latest record at
+    or before at_ms is an observation (a dirty mark after it -> not known), younger than stale_ms. Ties: dirty wins (townindex)."""
     last = {}
     for r in records:
-        if r.get('t') != 'obs' or not isinstance(r.get('at'), (int, float)) or r['at'] > at_ms:
+        at = r.get('at')
+        if r.get('t') not in ('obs', 'dirty') or not isinstance(at, (int, float)) or at > at_ms or r.get('k') is None:
             continue
-        k = r.get('k')
-        if k is not None and (k not in last or r['at'] >= last[k]['at']):
-            last[k] = r
-    tot = {n: 0 for n in names}
-    for r in last.values():
-        for n in names:
-            v = (r.get('names') or {}).get(n)
-            if isinstance(v, list) and v:
-                tot[n] += int(v[0] or 0)
-    return tot, len(last)
+        key = (str(r.get('w')), r['k'])
+        cur = last.get(key)
+        if cur is None or at > cur['at'] or (at == cur['at'] and r.get('t') == 'dirty'):
+            last[key] = r
+    return {key: (r.get('names') or {}) for key, r in last.items() if r.get('t') == 'obs' and at_ms - r['at'] < stale_ms}
+
+
+def stock_change(records, a_ms, b_ms, names=('raw_iron', 'iron_ingot'), first_ms=None):
+    """PURE. The stock change between a and b over the containers KNOWN at BOTH -> ({name: delta}, n_comparable), or
+    (None, 0) when `a` is before the pool's first index record (no evidence: unavailable, never zero)."""
+    if first_ms is None or a_ms < first_ms:
+        return None, 0
+    ka, kb = known_at(records, a_ms), known_at(records, b_ms)
+    both = set(ka) & set(kb)
+    cnt = lambda m, n: int((m.get(n) or [0])[0] or 0)
+    return {n: sum(cnt(kb[k], n) - cnt(ka[k], n) for k in both) for n in names}, len(both)
 
 
 # ---- positive controls on the shapes (smeltjob.mjs smeltTownDetail) --------------------------------------------------------
@@ -140,14 +177,25 @@ _r = fields('stop=done in=fe fe=3/2>3/2 fed=8 ru=4 n=8 bag0=5 withdrawn=8 coal=1
 assert _r['in'] == 'fe' and own_iron(_r['fe']) == (3, 2, 3, 2) and not own_lost(_r) and not fed_over(_r)
 assert own_lost(dict(_r, fe='3/2>0/2')) and own_lost(dict(_r, fe='3/2>3/1')) and not own_lost(dict(_r, fe='3/2>0/2', stop='interrupted'))
 assert not own_lost(dict(_r, **{'in': 'cu', 'fe': '3/2>0/0'}))
+assert own_lost(dict(_r, fe='3/2>0/2', stop='error')) and not own_lost(dict(_r, fe='3/2>0/2', stop='no_fuel'), 'aborted')
 assert fed_over(dict(_r, fed='9')) and not fed_over(dict(_r, fed='-')) and not fed_over(dict(_r, **{'in': 'cu', 'fed': '9'}))
 assert family_picked('raw_iron 3 gather:x passive; cobblestone 6 mine:y66 passive | 9 items', FAMILY['fe']) == 3
 assert family_picked('raw_copper 3 a b; iron_ingot 1 c d', FAMILY['fe']) == 1
 assert explained(2, 1000, 5000, [(50_000, 2)]) and not explained(2, 1000, 5000, [(200_000, 2)])
 assert window_rate([0, 10, 20]) == 3 and window_rate([]) == 0
-_c, _n = index_census([{'t': 'obs', 'k': 'a', 'at': 10, 'names': {'raw_iron': [5, 1]}}, {'t': 'obs', 'k': 'a', 'at': 20, 'names': {'raw_iron': [2, 1]}},
-                       {'t': 'obs', 'k': 'b', 'at': 30, 'names': {'iron_ingot': [8, 1]}}], 25)
-assert _c == {'raw_iron': 2, 'iron_ingot': 0} and _n == 1, (_c, _n)
+_R = [{'t': 'obs', 'k': 'a', 'at': 10, 'names': {'raw_iron': [5, 1]}, 'w': 'W'}, {'t': 'obs', 'k': 'a', 'at': 20, 'names': {'raw_iron': [2, 1]}, 'w': 'W'},
+      {'t': 'obs', 'k': 'b', 'at': 30, 'names': {'iron_ingot': [8, 1]}, 'w': 'W'}, {'t': 'dirty', 'k': 'b', 'at': 40, 'w': 'W'}]
+assert known_at(_R, 25) == {('W', 'a'): {'raw_iron': [2, 1]}}, known_at(_R, 25)
+assert set(known_at(_R, 35)) == {('W', 'a'), ('W', 'b')} and set(known_at(_R, 45)) == {('W', 'a')}, 'a dirty mark ends "known"'
+assert known_at(_R, 25 + STALE_MS) == {}, 'stale'
+assert stock_change(_R, 15, 25, first_ms=10) == ({'raw_iron': -3, 'iron_ingot': 0}, 1)
+assert stock_change(_R, 5, 25, first_ms=10) == (None, 0), 'before the index began: unavailable'
+assert pickups_incomplete('raw_iron 3 a b | 9 items in 2 pickups in 60s; +3 groups (12 items) not shown') and pickups_incomplete('x 1 a b | 1 items; err=2')
+assert not pickups_incomplete('raw_iron 3 a b | 3 items in 1 pickups in 60s')
+assert judge_gain(2, 1000, 5000, [(50_000, 2)], [], 10**9) == 'ok_pickup'
+assert judge_gain(2, 1000, 5000, [], [], 10**9) == 'gain'
+assert judge_gain(2, 1000, 5000, [], [], 5000 + 30_000) == 'immature'
+assert judge_gain(2, 1000, 5000, [], [30_000], 10**9) == 'inconclusive'
 
 if __name__ == '__main__':
     from lib.telemetry import Events
@@ -186,18 +234,28 @@ if __name__ == '__main__':
     raw_name = lambda r: (((r.get('raw') or {}).get('skill') or {}).get('name')) or ''
     status_of = lambda r: (((r.get('raw') or {}).get('skill') or {}).get('status'))
     dur_of = lambda r: ((((r.get('raw') or {}).get('skill') or {}).get('duration_ms')) or 0)
-    rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
+    # the pickup summaries run to END + 2 min (a summary is written up to 60 s after its pickups); every other row stops at END
+    TAIL = END + dt.timedelta(minutes=2)
+    END_MS = int(END.timestamp() * 1000)
+    rows = sorted(load_window(PRE, TAIL), key=lambda r: r['t'])
+    # THE POPULATION: pools whose bots run the smelt job (any job or tally row in the read's span) -- the job is off in
+    # isolated pools (owner D2), but a pool named isolated-* that runs shared towns (the isolated-b pilot) is in; a canary pool
+    # is always in. Data-driven, so a reshaped fleet needs no edit here.
+    JOBPOOLS = {pool_of((r.get('bot') or {}).get('name')) for r in rows if raw_name(r) in ('_smelt_town', 'smelt_town', '_smelt_job_tally')} | set(CANS)
     bots = defaultdict(set); nrows = Counter(); offbuild = 0; noversion = 0
     n = Counter(); jobs = defaultdict(list); job_ts = defaultdict(list); leak = 0
     pick = {'fe': defaultdict(list), 'cu': defaultdict(list)}
+    partial = defaultdict(list)    # bot -> [t_ms] of pickup summaries that hide groups or report errors
     body = Counter()           # (period, arm) -> no_effect body ms
     span = defaultdict(lambda: [None, None])
     for r in rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
         if t is None or not b:
             continue
-        if b.startswith('isolated') or b.startswith('self-'):
-            continue            # the job is off in isolated pools (owner D2): the population is the shared towns
+        if t > END and raw_name(r) != '_pickups':
+            continue                # past END only the pickup summaries are read (they explain gains inside the window)
+        if pool_of(b) not in JOBPOOLS:
+            continue            # the job is off there (owner D2): not the population
         arm = 'canary' if pool_of(b) in CANS else 'control'
         period = 'post' if t >= CUT else 'pre'
         ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
@@ -228,7 +286,10 @@ if __name__ == '__main__':
                 n[(period, arm, 'jobs_noeffect')] += 1
                 body[(period, arm)] += dur_of(r)
         elif k == '_pickups':
-            n[(period, arm, 'pickups')] += 1
+            if t <= END:
+                n[(period, arm, 'pickups')] += 1
+            if pickups_incomplete(d):
+                partial[b].append(tms)
             for fam in ('fe', 'cu'):
                 c = family_picked(d, FAMILY[fam])
                 if c:
@@ -259,14 +320,16 @@ if __name__ == '__main__':
     verdicts = Counter(); bad = []
     for tms, b, st, f in cj:
         v = f.get('verdict'); fam = f.get('in') if f.get('in') in ('fe', 'cu') else 'cu'
-        if v == 'gain' and explained(num(f.get('diff')) or 0, num(f.get('t0')) or tms, tms, pick[fam][b]):
-            v = 'ok_pickup'
+        if st == 'aborted' and v in ('loss', 'gain'):
+            v = 'interrupted'       # an abort inside an exit's bank: the deposit that moved items and threw is uncounted (Claude r3 P3-1)
+        if v == 'gain':
+            v = judge_gain(num(f.get('diff')) or 0, num(f.get('t0')) or tms, tms, pick[fam][b], partial[b], END_MS)
         verdicts[v] += 1
         if v in ('loss', 'gain'):
             bad.append((b, f.get('in'), f.get('verdict'), f.get('diff'), f.get('stop')))
     reconciled = sum(c for v, c in verdicts.items() if v in ('ok', 'ok_pickup', 'loss', 'gain'))
     g1 = int(len(bad) >= 2 and reconciled and len(bad) / reconciled > 0.05)
-    g2_rows = [(b, f.get('fe'), f.get('stop')) for _, b, _, f in iron if own_lost(f)]
+    g2_rows = [(b, f.get('fe'), f.get('stop')) for _, b, st, f in iron if own_lost(f, st)]
     g2 = int(len(g2_rows) >= 2)
     g3_rows = [(b, f.get('fed'), f.get('withdrawn')) for _, b, _, f in iron if fed_over(f)]
     g3 = int(len(g3_rows) >= 1)
@@ -286,11 +349,12 @@ if __name__ == '__main__':
     can_bh = bot_hours('post', 'canary')
     ctl_jobs = len(jobs[('post', 'control')]); ctl_pick = n[('post', 'control', 'pickups')]
 
-    # THE WORLD: the index census per pool at PRE, CUT and END (server-sent contents at each container's latest open)
+    # THE WORLD: per pool, the stock change over containers KNOWN at both ends of each period; arms compared by per-pool MEANS
+    ms = lambda x: int(x.timestamp() * 1000)
     census = {}
     for d_ in sorted(glob.glob('/var/lib/mcai/_pool-*')):
         p = d_.split('/_pool-')[1]
-        if '.pre-' in p or p.startswith('isolated') or p.startswith('self-'):
+        if '.pre-' in p or p not in JOBPOOLS:
             continue
         recs = []
         for f_ in sorted(glob.glob(d_ + '/town-index-*.g*.jsonl')):
@@ -299,36 +363,45 @@ if __name__ == '__main__':
                     rr = json.loads(line)
                 except Exception:
                     continue
-                if rr.get('t') == 'obs':
+                if rr.get('t') in ('obs', 'dirty'):
                     recs.append(rr)
                 elif rr.get('t') == 'ckpt':
-                    for w_ in (rr.get('worlds') or {}).values():
-                        for k_, e_ in (w_ or {}).items():
-                            o_ = (e_ or {}).get('obs')
+                    # a rotation's checkpoint: the fold of the generations it replaced (townindex.mjs rotateIndex)
+                    for w_, ents in (rr.get('worlds') or {}).items():
+                        for k_, e_ in (ents or {}).items():
+                            o_ = (e_ or {}).get('obs'); l_ = (e_ or {}).get('last') or {}
                             if o_ and isinstance(o_.get('at'), (int, float)):
-                                recs.append({'t': 'obs', 'k': k_, 'at': o_['at'], 'names': o_.get('names') or {}})
+                                recs.append({'t': 'obs', 'k': k_, 'w': json.loads(w_) if w_ not in ('null', '') else None, 'at': o_['at'], 'names': o_.get('names') or {}})
+                            if l_.get('t') == 'dirty' and isinstance(l_.get('at'), (int, float)):
+                                recs.append({'t': 'dirty', 'k': k_, 'w': json.loads(w_) if w_ not in ('null', '') else None, 'at': l_['at']})
         if not recs:
             continue
-        ms = lambda x: int(x.timestamp() * 1000)
-        census[p] = {lbl: index_census(recs, ms(x)) for lbl, x in (('pre', PRE), ('cut', CUT), ('end', END))}
-    def cdelta(arm, name, a, b):
-        tot = 0
-        for p, c in census.items():
-            if (p in CANS) == (arm == 'canary'):
-                tot += c[b][0][name] - c[a][0][name]
-        return tot
-    world = {arm: {name: (cdelta(arm, name, 'pre', 'cut'), cdelta(arm, name, 'cut', 'end')) for name in ('raw_iron', 'iron_ingot')} for arm in ('canary', 'control')}
-    world_did = {name: (world['canary'][name][1] - world['canary'][name][0]) - (world['control'][name][1] - world['control'][name][0]) for name in ('raw_iron', 'iron_ingot')}
+        first = min(r['at'] for r in recs if isinstance(r.get('at'), (int, float)))
+        census[p] = {'pre': stock_change(recs, ms(PRE), ms(CUT), first_ms=first), 'post': stock_change(recs, ms(CUT), ms(END), first_ms=first),
+                     'known': {lbl: len(known_at(recs, ms(x))) for lbl, x in (('pre', PRE), ('cut', CUT), ('end', END))}}
+    def arm_mean(arm, period, name):
+        vals = [c[period][0][name] for p, c in census.items() if ((p in CANS) == (arm == 'canary')) and c[period][0] is not None]
+        return (sum(vals) / len(vals) if vals else None), len(vals)
+    world = {arm: {name: {per: arm_mean(arm, per, name) for per in ('pre', 'post')} for name in ('raw_iron', 'iron_ingot')} for arm in ('canary', 'control')}
+    def world_did(name):
+        a = [world[arm][name][per][0] for arm in ('canary', 'control') for per in ('pre', 'post')]
+        return None if any(x is None for x in a) else (a[1] - a[0]) - (a[3] - a[2])
+    comparable = {arm: sum(c['post'][1] for p, c in census.items() if (p in CANS) == (arm == 'canary')) for arm in ('canary', 'control')}
+    known_n = {arm: {lbl: sum(c['known'][lbl] for p, c in census.items() if (p in CANS) == (arm == 'canary')) for lbl in ('pre', 'cut', 'end')} for arm in ('canary', 'control')}
+    fmt = lambda v: '-' if v is None else '%+.1f' % v
 
+    print('population pools (run the job) %d: %s' % (len(JOBPOOLS), ','.join(sorted(JOBPOOLS))))
     print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots pre/post canary %d/%d control %d/%d  |  canary bot-h %.1f  |  offbuild canary rows %d, no-version %d'
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
              len(bots[('pre', 'control')]), len(bots[('post', 'control')]), can_bh, offbuild, noversion))
     print('LIVENESS     canary licence rows %d | canary _smelt_town rows %d (iron %d) | stops %s' % (n[('canary', 'licence')], len(cj), len(iron), dict(stops.most_common(10))))
     print('EXPOSURE     delivered iron jobs (success, ok, in=fe, withdrawn/smelted/dep_i >= 1): %d (KEEP needs >= 10)' % len(delivered))
     print('PRIMARY      iron ingots made %d (%.3f per canary bot-h), banked %d, raw iron taken from town %d | copper ingots %d' % (ingots_iron, per_bh(ingots_iron, 'post', 'canary'), banked_iron, raw_taken, copper_ingots))
-    print('WORLD        index census delta (pre-window, window): canary raw_iron %s iron_ingot %s | control raw_iron %s iron_ingot %s | DiD raw_iron %+d iron_ingot %+d | containers seen at end canary %d control %d'
-          % (world['canary']['raw_iron'], world['canary']['iron_ingot'], world['control']['raw_iron'], world['control']['iron_ingot'], world_did['raw_iron'], world_did['iron_ingot'],
-             sum(c['end'][1] for p, c in census.items() if p in CANS), sum(c['end'][1] for p, c in census.items() if p not in CANS)))
+    print('WORLD        per-pool mean stock change over containers KNOWN at both ends (pre -> post window): canary raw_iron %s -> %s iron_ingot %s -> %s (pools %d) | control raw_iron %s -> %s iron_ingot %s -> %s (pools %d) | DiD raw_iron %s iron_ingot %s | comparable containers in the window canary %d control %d'
+          % (fmt(world['canary']['raw_iron']['pre'][0]), fmt(world['canary']['raw_iron']['post'][0]), fmt(world['canary']['iron_ingot']['pre'][0]), fmt(world['canary']['iron_ingot']['post'][0]), world['canary']['raw_iron']['post'][1],
+             fmt(world['control']['raw_iron']['pre'][0]), fmt(world['control']['raw_iron']['post'][0]), fmt(world['control']['iron_ingot']['pre'][0]), fmt(world['control']['iron_ingot']['post'][0]), world['control']['raw_iron']['post'][1],
+             fmt(world_did('raw_iron')), fmt(world_did('iron_ingot')), comparable['canary'], comparable['control']))
+    print('             KNOWN containers at PRE / CUT / END: canary %(pre)d / %(cut)d / %(end)d' % known_n['canary'] + ' | control %(pre)d / %(cut)d / %(end)d' % known_n['control'])
     print('CHURN        smelt_town no_effect share canary %.3f -> %.3f control %.3f -> %.3f DiD %+.3f | no_effect body-s per bot-h canary %.1f -> %.1f control %.1f -> %.1f'
           % (share('pre', 'canary', 'jobs_noeffect', 'jobs_runner'), share('post', 'canary', 'jobs_noeffect', 'jobs_runner'),
              share('pre', 'control', 'jobs_noeffect', 'jobs_runner'), share('post', 'control', 'jobs_noeffect', 'jobs_runner'), did_share('jobs_noeffect', 'jobs_runner'),
@@ -357,7 +430,10 @@ if __name__ == '__main__':
             'liveness': int(n[('canary', 'licence')] >= 1 and len(cj) >= 1),
             'delivered_iron_jobs': len(delivered), 'exposure_ready': int(len(delivered) >= 10 and ctl_jobs >= 1 and ctl_pick >= 1),
             'iron_ingots_made': ingots_iron, 'iron_ingots_per_bh': nanless(per_bh(ingots_iron, 'post', 'canary')), 'iron_banked': banked_iron, 'raw_iron_taken': raw_taken,
-            'world_raw_iron_did': world_did['raw_iron'], 'world_iron_ingot_did': world_did['iron_ingot'],
+            'world_raw_iron_did': None if world_did('raw_iron') is None else round(world_did('raw_iron'), 2),
+            'world_iron_ingot_did': None if world_did('iron_ingot') is None else round(world_did('iron_ingot'), 2),
+            'world_comparable_canary': comparable['canary'], 'world_comparable_control': comparable['control'],
+            'immature_jobs': verdicts.get('immature', 0), 'inconclusive_gains': verdicts.get('inconclusive', 0),
             'noeffect_share_did': nanless(did_share('jobs_noeffect', 'jobs_runner')),
             'g1_balance_broken': g1, 'balance_broken_rows': len(bad), 'reconciled_rows': reconciled,
             'g2_own_iron_lost': g2, 'own_iron_lost_rows': len(g2_rows), 'g3_fed_over_take': g3, 'g4_loop': len(loop_bots),
