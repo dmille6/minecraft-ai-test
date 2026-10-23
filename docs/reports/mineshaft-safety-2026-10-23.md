@@ -1,4 +1,4 @@
-# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r7)
+# Mineshaft safety: lava and entombment underground, then diamonds and enchanting (2026-10-23, measurement + design, r8)
 
 OWNER 2026-10-23 ~12:40Z: "mineshaft safety (lava + entombment underground) -> diamonds -> enchanting". Earlier
 owner decision (10-19): "diamond after mineshaft safety". The owner answered M7-M10 at ~13:30Z (section 8).
@@ -14,7 +14,16 @@ placebo-a at 12:17Z, during this measurement. Its read belongs to the operator l
 canary. The 7-day window does include those two pools, and their last 2 h of rows ran the canary build. indexsearch
 changes a town-index search and touches no movement or mining path. That is a judgement, not a measured exclusion.
 
-**r7** takes in the r6 reviews. Codex returned no P1 (two P2, one P3); Claude returned one P1.
+**r8** takes in the r7 reviews. Codex APPROVE (two P2); Claude CHANGE (one P1: two `uncertified` miners could block
+each other).
+- Coordination now protects only a **certified** peer's footprint, using a fresh, timestamped position file.
+- An `uncertified` peer is protected in its body cells only.
+- No-plan waits are bounded by the peer's own clock.
+- Traffic between the two miners no longer triggers a handover.
+- The handover walk is bounded.
+- The reload diff covers the whole protected footprint at block-name detail.
+
+**r7** took in the r6 reviews. Codex returned no P1 (two P2, one P3); Claude returned one P1.
 - `stairReturn` that makes no progress hands over, even without a break.
 - An `uncertified` bot keeps the evacuation profile and walks any valid route first.
 - Its kit is stated against today's contract.
@@ -1159,7 +1168,8 @@ rung, survival included. The exceptions, each one logged as an authorized `_enve
 - `stairReturn` repairs, by a leaseholder;
 - the **active branch's leaseholder**, for its own F4-planned branch extension. Cutting cell n+1 digs cell n's end
   shell. Ore digs from a branch cell into that branch's shell count too. The branch's floor cells and the shell cells
-  beside any stair lane stay protected;
+  beside any stair lane stay protected. After each extension or ore dig the shell is recomputed: the new hole's
+  neighbours become shell, and an ore hole that opens onto nothing walkable is sealed with cobble;
 - an `uncertified` bot's own exit, under the coordination rule in the handover.
 
 "Anyone else" means any bot other than the one these exceptions name for that cell. The second leaseholder is
@@ -1262,21 +1272,41 @@ breaks, and off-route after F1 (section 8).
   rung for it, whenever a verified connection exists.
 - **Its first step is to walk.** It walks the longest still-valid part of the route upward on the evacuation profile
   (or `use_stair`), toward the top. If it reaches the top, it is out.
+  - The walk has the same bound as `stairReturn`: 3 attempts, or 5 minutes, without reaching a new cell. Then it
+    stops where it is.
 - **Otherwise, from where the walk ends, it runs today's exit chain deterministically:** `surface`, then the stranded
   ladder.
-- **Its kit** is whatever it holds: the floor plus any unspent branch reserve and budget, about 30-94 swings at
-  handover, and its seal blocks. Today's contract would ask about 147 swings at y=−53. **So today's chain may well give
+- **Its kit** is whatever it holds: the floor plus any unspent branch reserve and budget, and its seal blocks. That is
+  about 30-94 swings when the handover comes late in a lease, and up to about 250 early in one. Today's contract would ask about 147 swings at y=−53. **So today's chain may well give
   up from deep below the stair's top.** That is the residual (O11). It is a bot-reachable residual, and the design does
   not claim otherwise.
 - **The guard is lifted for this bot's own exit, coordinated with the other miner.**
   - Its exit digs and placements on envelope or branch cells are allowed, and each is logged as an authorized
     `_envelope_mutation`. Without that, the guard would strand it.
-  - It **may not** mutate a cell that lies within 2 cells of the other live record's position, or within the other
-    record's next 8 route cells. The other record publishes its position and phase in world facts, once a second.
-  - If its only exit needs such a cell, it waits up to 60 s for the other miner to pass, re-checking. After that it
-    takes the next exit plan that avoids the cell.
-  - The other miner re-validates before each action, as always.
-  - Paper scene: two miners on one stair, one handing over mid-climb.
+  - **What it must not touch depends on the peer's state:**
+    - **A certified peer.** Its protected footprint is its body cells plus the full body and support footprint (stand
+      cell, floor, head, above) of its next 8 route cells **toward the top**. At a branch face, that means the cells
+      back toward the junction.
+    - **An `uncertified` peer** is protected in its body cells only: feet, head and floor. Two `uncertified` miners
+      therefore never block each other's exits beyond the cells they stand in.
+  - **Freshness.**
+    - Each record publishes `{pos, gen, phase, t}` about once a second, by atomic write to its own small file
+      (`_pool-<pool>/deepmine-pos-<bot>.json`). It does not go through the pool world-facts file, which caches for
+      20 s and drops routine writes on a busy lock (worldfacts.mjs:165, 184-185).
+    - The reader reads it uncached. If the file is older than 3 s, or missing, the peer is treated as certified, and
+      its whole return route within 16 blocks counts as protected.
+  - **No exit plan avoids the protected footprint:**
+    - the bot keeps waiting and re-checking for as long as the peer is certified;
+    - the wait is bounded by the **peer's own no-progress clock**. The peer either passes or hands over itself, within
+      5 min, and then it is protected in its body cells only;
+    - so the wait ends, and no tie-break is needed.
+  - **Rows.** Each such mutation row carries the peer inputs (`peer_pos`, `peer_gen`, `peer_phase`, `peer_t`,
+    `footprint`), so G6 can recompute that the exception held.
+  - **Paper scenes:**
+    - two miners on one stair, one handing over mid-climb;
+    - a delayed peer publication while a support dig is planned under the peer's next stand cell. The stale file
+      makes the cell protected, so the dig must be refused;
+    - two `uncertified` miners side by side in a branch.
 - **It leaves the cap** when it is on the surface anywhere (`exitDebt` = 0), or dead.
 - **This is the same chain any bot at depth has today.**
 
@@ -1285,7 +1315,9 @@ handover, even when every route cell still conforms. The trigger is 3 attempts o
 It covers:
 - a pathfinder stall;
 - an empty-path resolve (`path_interrupted`);
-- both lanes occupied past the 20 s step-aside.
+- both lanes occupied past the 20 s step-aside **by something other than the other leaseholder**. With at most 2
+  miners and 2 open lanes, one lane is always free of the other miner. A miner blocked by its peer waits for the
+  peer's clock, rather than handing over.
 
 Chain test: a bot whose path to the next route cell always resolves empty.
 
@@ -1303,7 +1335,8 @@ other miner then meets a break, and its own handover applies. O11 says so.
   - `obs`: one class character per route cell, in route order. The gate replays the cell rules on this; it does not
     trust a verdict;
   - `lane`.
-- `_stair_cert_full`, once per generation and on any change: the full ordered route, with each cell's rule.
+- `_stair_cert_full`, once per generation and on any change: the full ordered route with each cell's rule, plus
+  `obs_full`, the block names of the whole protected footprint.
 - `_exit_credit`, per credited action: `op`, `debt_old`, `debt_new`, `on_route`, `swings_left`, `blocks_left`,
   `floor`, `reserve`, `stale_n`, `lease`.
 - `_corridor_recompute`: `op`, `segments`, `trigger`, `result`.
@@ -1322,8 +1355,11 @@ other miner then meets a break, and its own handover applies. O11 says so.
 | G4 | a credit without a lease, or with `on_route` false |
 | G5 (Paper) | at sampled credited actions, the sandbox driver pauses the bot and RCON-reads every route cell; the world must match that action's `obs` |
 | G6 | an envelope or branch dig or place that matches none of the guard's exceptions: the builder, a leaseholder's repair, the active branch's own F4-planned extension and ore digs, an `uncertified` bot's coordinated own exit. Positive controls that must **pass** G6: a branch extension, and a side-ore dig from the branch. The evidence comes from two places. A **mutation observer** at `bot.dig` and `_genericPlace` logs each successful mutation as `_envelope_mutation` (actor, skill or rung, purpose, cell, before/after, lease gen, authorized). A **`blockUpdate` watcher** on every envelope and branch cell logs any change no bot made: flow, a fall, an external edit.
-A change is matched to a mutation row by cell and a ±2 s window, across all bots' rows. Changes made while a chunk was
-unloaded are found by diffing the route `obs` on reload. Mutants that must trip G6: a bypassed `placeBlock`, a direct `_placeBlockWithOptions` placement, and a bypassed recovery dig. |
+A change is matched to a mutation row by cell and a ±2 s window, across all bots' rows.
+
+Changes made while a chunk was unloaded are found by diffing `obs_full` on reload. `obs_full` holds the block names of
+the whole protected footprint (lanes, branches and both shells), once per certificate generation. Positive control: a
+shell-only mutation made while the chunk is unloaded must be seen. Mutants that must trip G6: a bypassed `placeBlock`, a direct `_placeBlockWithOptions` placement, and a bypassed recovery dig. |
 | G7 (Paper) | the cache. Change a cell in a segment's footprint that is not a route cell (lava beside the route). The next credited action must wait while `_corridor_recompute` (op, segments, trigger cell, result) runs, and the recompute must find the segment unsafe and go to a break. Mutant: disable invalidation; G7 must fail. |
 
 **What G1 does and does not cover.** On the fleet, G1 checks that each credited action had a full, conforming
@@ -1544,6 +1580,9 @@ counted failure.
   2. If that fails, dig back to the nearest route cell under F4's planner, within the shared repair allowance.
   3. If that fails too: **the universal handover** (F6). Phase `uncertified`, today's exit chain with the whole kit,
      the guard lifted for its own exit, and the alarm only if today's chain gives up (O11).
+
+**Work no-progress.** In `descending` or `branch`, 3 `deep_miner` attempts, or 10 minutes, without a new step, a new
+branch block or an ore moves the record to `ascending`. The bot does not spin until work expiry.
 
 **Rows.** `_deepmine`, per phase change: gen, steps, branch blocks, ores seen and mined by kind, seals, end reason,
 diamonds banked.

@@ -860,3 +860,89 @@ Claude P2-4 (walk-back owner): after F1 the lease has ended, the order chain run
 Claude P3: G7 named as the cache gate; the gate paragraph rewritten; blockUpdate matching by cell and a +-2 s window
   across all bots' rows, unloaded-chunk changes found by diffing obs on reload; the danger_stuck sneak is kept until
   the bot leaves the cell.
+
+====================================================================================================
+ROUND 7 (doc r7 @ 74341530): Codex APPROVE (0 P1, 2 P2); Claude CHANGE (1 P1, 3 P2)
+====================================================================================================
+--- Codex r7 (verbatim) ---
+Reviewed `74341530` read-only. I interpret “resolved in r2” as “resolved in r7.” References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+Round 6 disposition:
+
+| My r6 finding | Status in r7 |
+|---|---|
+| P2: branch protection refuses normal mining | **Resolved at design level.** Explicit authorization covers the active branch owner’s F4-planned extension and side-ore extraction, preserves floors, and adds G6 positive controls (`design:1155–1166,1324`). |
+| P2: escape mutations endanger the second miner | **Partially resolved.** Coordination and the cascading-route-break residual are now explicit, but the coordination rule still leaves the race described below. |
+
+I had no r6 P1. The r6 P3 refusal-chain summary is resolved (`1346–1350`). Claude’s certified-return no-progress finding now has an explicit bounded handover (`1283–1290`).
+
+1. **P2 — Coordination still permits removing support during another miner’s movement (§7 F6, universal handover).**
+
+   The new rule protects cells within two cells of a once-per-second published position, plus the next eight **route cells** (`design:1274–1278`). The certificate defines those route cells as **stand cells** (`1200–1202`), so their supporting floors are not covered by the latter protection.
+
+   A miner can advance beyond its published position while an escape dig removes the floor of an upcoming stand cell. Validation before movement does not prevent a dig completing during that movement. The existing block-update rule invalidates credit before the **next** action (`1212–1213`).
+
+   Protect the movement’s full support/body footprint through completion, with a freshness or acknowledgment rule between miners. Extend the two-miner Paper scene to delay publication and complete a support dig during traversal. Record the peer position, generation and protected footprint so G6 can independently check this exception; its current mutation fields omit those inputs (`1324`).
+
+2. **P2 — Reload differencing cannot observe all the changes it now claims to detect (§7 F6, G6).**
+
+   The new text says changes while unloaded are found by diffing route `obs` on reload (`design:1325–1326`). However, `obs` contains only per-route-cell classes (`1300–1306`), while protection covers the envelope and branch shells (`1155–1157,1222–1224`).
+
+   Removing a shell-only block can leave every route observation unchanged. Replacing one solid block with another also leaves its `S` classification unchanged. Neither change is recoverable from this diff.
+
+   Either retain observations for the complete protected footprint at sufficient block-state detail, or narrow the claim to detecting route-conformance changes. Add an unloaded-shell mutation as a positive control.
+
+The six entombment probe results reproduced. Synthetic execution of `d8.py` correctly separated deaths across lives and dropped a right-censored episode. The principal code claims check out. Production measurement totals remain unverified because their JSON inputs are absent; the document appropriately qualifies the depth proxy, associations and canary power.
+
+No P1 remains. M7–M10, sequential canaries, tier conditions and investigation-only F3 remain respected.
+
+VERDICT: APPROVE
+
+--- Claude r7 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r7 on 74341530. Condensed:
+
+R6 disposition: Codex P2-1 resolved; P2-2 partly (the rule can deadlock); P3-3 resolved; Claude P1 resolved for
+stairReturn (the new walk is unbounded); P2-1 resolved (kit checked: 116 + 2 + 29 = 147); P2-2, P2-3, P2-4 resolved;
+P3s resolved except the reload diff misses shell cells.
+
+P1 §7 F6 handover, coordination rule: two uncertified miners can block each other with no defined next step. "The
+  other live record" includes uncertified; nothing says what happens when no exit plan avoids those cells after the
+  60 s wait; r7's own no-progress trigger ("both lanes occupied past the 20 s step-aside") can put both side by side,
+  both uncertified, each unable to dig or place within 2 of the other; in a 1-wide branch or a shell corner today's
+  chain declines every rung and gives up -- a guard-caused stranding O11 does not state. Fix: protect only a
+  certified record's cells; define the no-plan outcome (wait while the other is live, deterministic tie-break);
+  when the blocker is the other record, wait on its no-progress clock instead of handing both over; a side-by-side
+  scene.
+P2-1 the handover walk has no bound (same 3 attempts / 5 min).
+P2-2 coordination input: WorldFacts.read() caches 20 s (worldfacts.mjs:165); routine writes dropped after 200 ms on a
+  busy lock (184-185); the publish rewrites the pool file under the pool lock and competes with death writes -- use a
+  timestamped position checked for age, stale/missing = "here, wait", maybe a separate small file.
+P2-3 a short traffic jam in both lanes ends the certificate and lifts the guard next to the other miner.
+P3: no no-progress trigger in descending/branch (spins until work expiry); after an extension or ore dig the guarded
+  shell has a hole (move the guard or seal); "next 8 route cells" undefined at a branch face; the reload diff uses
+  route obs only; the kit "30-94" is end-of-lease (up to ~250 early).
+
+M7-M10 respected.
+
+VERDICT: CHANGE
+
+--- r7 -> r8 response (doc r8) ---
+Claude P1 (two uncertified miners block each other): coordination protects only a CERTIFIED peer's footprint (body
+  cells + full body/support footprint of its next 8 route cells toward the top; at a branch face, back toward the
+  junction); an uncertified peer is protected in its body cells only, so two uncertified miners never block each
+  other beyond the cells they stand in; a no-plan wait continues only while the peer is certified and is bounded by
+  the peer's own no-progress clock (it passes or hands over within 5 min) -- no tie-break needed; side-by-side scene.
+Claude P2-3 / P1 trigger (traffic): no-progress from lanes blocked by the other leaseholder does not hand over; with
+  at most 2 miners and 2 open lanes one lane is always free of the peer; a miner blocked by its peer waits on the
+  peer's clock.
+Codex P2-1 / Claude P2-2 (coordination freshness, support footprint, evidence): per-record position file
+  (_pool-<pool>/deepmine-pos-<bot>.json, atomic, ~1 Hz, read uncached, NOT the pool world-facts file); older than 3 s
+  or missing = peer certified with its whole return route within 16 protected; the protected footprint includes
+  floors and head/above of the next 8 stand cells; mutation rows carry peer_pos, peer_gen, peer_phase, peer_t,
+  footprint for G6; Paper scene with delayed publication and a planned support dig that must be refused.
+Claude P2-1 (unbounded handover walk): same 3 attempts / 5 min bound, then it stops where it is and today's chain runs.
+Codex P2-2 / Claude P3 (reload diff): obs_full (block names of the whole protected footprint: lanes, branches, both
+  shells) per generation, diffed on chunk reload; an unloaded shell-only mutation is a positive control.
+Claude P3: work no-progress (3 attempts or 10 min without a step, branch block or ore -> ascending); the shell is
+  recomputed after each extension or ore dig (new hole's neighbours become shell; an ore hole that opens onto
+  nothing walkable is sealed); the kit range is stated as 30-94 late in a lease, up to ~250 early.
