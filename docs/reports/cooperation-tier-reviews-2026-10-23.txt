@@ -990,3 +990,56 @@ Rounds 1-5 show no regressions. The cost arithmetic re-checks: $0.017 and $0.046
 
 No files were modified. On 10.0.0.31 I ran only `nice -n 19` reads of `~/coop-1023/out2`. The sibling designs were read with `git show` and `git diff`. One scratch file, `/tmp/x`, came from a `git show` I ran by mistake; it is outside the repository and I deleted it.
 r8 CHANGES: every B0-B3 finding fixed (B2/B3 mechanics as acceptance criteria per the operator's convergence steer); later-stage P3s recorded as open items; listed in section 8 of the design (round 7).
+
+=====================================================================================================================
+ROUND 8 -- on r8 (ad1aa9ef). Prompt (both engines):
+
+You are an independent reviewer of a DESIGN DOCUMENT in this repository (read-only review; do not modify any file).
+
+Document: docs/reports/cooperation-tier-2026-10-23.md
+Its measurement scripts and outputs: docs/reports/cooperation-2026-10-23/tools/*.py.txt and docs/reports/cooperation-2026-10-23/data/*
+Read CLAUDE.md first (the repo's working rules: positive controls, denominators, difference-in-differences, no dead ends for refusals, done means read on the fleet, KEEP must not mean "nothing objected").
+
+It must BUILD ON (not redo) these approved designs, which you should read where relevant:
+- docs/reports/overseer-assigner-design-2026-10-19.md (r3: S0 census first, role leases that only reorder, validator, ITT primary, Paper oracle)
+- docs/reports/comms-design-2026-10-21.md (typed town ledger, stage 2 chat, Contract Net later)
+- docs/reports/shadow-mayor-plan-2026-10-03.md and docs/reports/jobs-mayor-spec-2026-09-29.md (the deterministic mayor tied random on all duties)
+- docs/reports/town-plan-2026-10-20.md (townindex, ring@1 workshop plot)
+- docs/reports/ziggurat-mineshaft-2026-10-15.md section 3.3 (monument-01 slot/segment leases)
+- scripts/host/staffcensus.py (S0) and scripts/host/RULE.md (verdict rules, v25)
+- bots/src/townindex.mjs (the index record formats)
+
+The owner's task: design the cooperation tier (the overseer as job assigner; the comms ledger stage 1 on townindex records; a first multi-bot build project; measurement and canary plan; prior art). Owner answers designed to: C11 a frontier model (Claude or GPT) is the overseer, shadow first then live in a few towns; C12 $150/month cap with a hard spend guard that stops the overseer, not the bots; C13 flexible jobs with a soft preference, not fixed roles; C14 2-3 bots build their town's workshop together (the parallel building-tier design owns the blueprint and the structure count); deep miners (1-2 per town) from a parallel mineshaft design are assigned by this job assigner. Constraint: a bot must never wait on an assignment it cannot perform from where it is.
+
+This is ROUND 8. The document is now r8 (the newest commit on this branch). Rounds 1-7 (both engines) and the change lists are in docs/reports/cooperation-tier-reviews-2026-10-23.txt and section 8 of the document. New: tools/furnace_opens.py.txt and data/furnace_opens.txt (furnace OPENS per town, with coalescing). Siblings' newest heads on origin: building-tier r4 (0514d3b1), mineshaft-safety r10 (b1afc0a8). r6 is reconciled with the sibling designs' NEWEST versions on origin: docs/reports/building-tier-2026-10-23.md on origin/building-tier-1023 (r3, 7689a028: its build visit now withdraws its own bill, and make_material deposits claimed parts into the site chest) and docs/reports/mineshaft-safety-2026-10-23.md on origin/mineshaft-safety-1023 (r5, 248be79e); read them with read-only git commands and check sections 3.3 and 5.1-5.4.
+
+CONVERGENCE RULE FOR THIS ROUND (from the operator): stages B0-B3 (S0 capability fix, coopread, ledger-01, furnaceseen-01) and the measurements in section 1 are what gets built first and must be fully specified; a P1/P2 there must be fixed. For stages B4-B9 (shop-01 is the building tier's canary; the live overseer, the multi-builder effect read, deep miners, SUPPLY), a missing detail that the document already records as an open item for that stage, decided before that stage is built with an owner gate, is NOT a blocking finding; report a NEW later-stage gap as a P3 'open item for Bn' unless it is a safety defect or makes the design as a whole unsound. APPROVE when no blocking P1/P2 remains. Additionally (operator's final steer): for B2/B3, mechanics the document now states as ACCEPTANCE CRITERIA for the code review and Paper (exact field names, mapping mechanics) are acceptable in that form; flag them only if a criterion is wrong, untestable, or would make a correct canary revert. First check that every finding of rounds 1-7 is resolved (say which are not), then review the whole r2 document again for anything new.
+
+Review for:
+1. Correctness of the measurements: do the scripts compute what the document says? Denominators, positive controls, timing rules (skill rows stamped at START with END snapshots; event rows at emission), attribution logic in indexflow (obs/dirty/xfer), overlap sweeps, the explore-duplicate outcome comparison, and any overclaim. Check numbers in the doc against data/*.out.
+2. The job assigner: is it genuinely different from the shadow mayor in ways that matter? Dead ends (refusal chains, starvation, a lease to an infeasible job, overseer outage, budget exhaustion). Lease/claim/fence semantics vs r3 and monument-01. Is the soft preference safe?
+3. The spend guard and cost estimate: arithmetic, token estimates, whether the guard truly enforces the cap (pre-call worst case, post-call ledger, failure modes), and whether stopping the overseer leaves bots safe.
+4. The ledger: consistent with the comms design and with townindex as shipped? Does each type have a consumer and a decision it changes?
+5. The workshop interface with the building tier and the deep-miner interface with the mineshaft design: are they sufficient, minimal, and free of shared mutable state? Is "2 builders first" justified?
+6. Measurement/canary plan: tiers, ITT, the effect line under verdict.py v25 semantics (check RULE.md and scripts/host for how own_lines with on_fail REVERT and no evidence behave), exposure, power, the horizon problem, Paper arms. Does it avoid "KEEP means nothing objected"?
+7. Prior art: accurate and honestly labelled?
+
+Output: a verdict line "VERDICT: APPROVE" or "VERDICT: CHANGE", then numbered findings each tagged P1 (must fix: wrong, unsafe, or a dead end), P2 (should fix), or P3 (minor), each with the file/section and a concrete fix. Be specific and terse. Do not rewrite the document.
+
+
+--- CODEX r8 (final answer) ---
+VERDICT: CHANGE
+
+Rounds 1–7 are addressed or explicitly owner-gated except the furnace-exposure finding (Codex r7 #4 / Claude r7 #2, inherited from r6). Claude r7 #7’s independent-observation check also remains incomplete. Other headline numbers match the saved outputs; raw fleet inputs were not replayed.
+
+1. **P2 — §6.3/B2; `tools/furnace_opens.py.txt:23–40`: the new count still does not establish furnace opens or exact coalescing.** All 678 non-drain `_furnace_session` rows count as opens, although `skills.mjs:11559` emits them for leases acquired before travel/opening, including failed attempts and replaced furnaces. Drain outcome-text filtering can miss opens interrupted after reading slots. Coalescing uses `empty/burning/drained`, rather than identical slots, uses skill-start timestamps, and ignores intervening smelt observations. Thus “2,115 opens,” “coalescing removes only 18,” and the +180 exposure estimate remain unsupported. **Fix:** count confirmed window reads, report uncertain sessions separately, and replay coalescing only where exact states and observation times exist. Otherwise label exposure projections unverified and remove the claim that early KEEP is usually available.
+
+2. **P2 — §4.3, Paper acceptance criterion: sequential window/RCON equality can reject correct observations.** “Before the bot’s first click” prevents bot mutations but does not prevent furnace cooking. Input, fuel or output can legitimately change between the opening window and `data get block`; “one mismatch fails” then rejects correct ledger code. **Fix:** compare observations captured at the same server state, or explicitly use quiescent fixtures for exact parity and a separately synchronized active-furnace test. Include a fixture where cooking completes between the two reads.
+
+No files were modified.
+codex exit 0
+
+--- CLAUDE r8 (independent subagent; final message) ---
+NO VERDICT: the Claude r8 reviewer was cut off by an API rate limit before it returned (operator relay). It is re-run on r9.
+
+r9 CHANGES: both Codex r8 P2s fixed; listed in section 8 of the design (round 8).
