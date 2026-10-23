@@ -14,7 +14,7 @@
 # The sha must descend from BASE. If the fleet is not on BASE (ledger-01 not yet promoted, or promoted on its other variant, or the
 # fleet moved on), this refuses: re-stack furnaceseen-01 on the new build first (the 69b3f6fe variant is its own branch).
 set -u
-BASE=26e76fa04371f28af951100b143fef9bd80625dc      # ledger-01's PRIMARY canary sha (ledger-on-6e1afb5)
+BASE=69b3f6fe03307089c5f046220f03b9e85095c065      # ledger-01's chatgate VARIANT canary sha (ledger-on-3cc5f14)
 MODE=${1:-}; SHA=${2:-}
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
