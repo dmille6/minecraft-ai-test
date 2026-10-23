@@ -33,6 +33,8 @@ PARTS = frozenset(['stone_bricks', 'stone_brick_slab', 'stone_brick_stairs', 'st
                   + [f'{w}{o}_copper' for w in ('', 'waxed_') for o in ('exposed', 'weathered', 'oxidized')])
 assert len(PARTS) == 46
 SAND = ('sand', 'red_sand')
+# skills.mjs pruneTown's no-take rows (6e1afb52): nothing left a chest
+PRUNE_NO_TAKE = ('no usable junk well in town', 'no town container holds a full stack', 'the container at ', 'took nothing at ')
 KEEP = (b'"_well_dispose"', b'"_stock_prune', b'"town_deposit"', b'"deposit"', b'"gather"', b'"_milestone_complete"', b'"_death"')
 
 
@@ -85,7 +87,7 @@ def judge(rows, since, version, now, hours_before=None):
         d = r.get('detail') or ''
         if r['name'] == '_well_dispose':
             f = kv(d)
-            thrown = int(f['n']) if f.get('n', '').isdigit() else 0
+            thrown = int(f['n']) if f.get('n', '').isdigit() else None    # None: the row's own count is missing (cut) -> unreadable
             off = int(f['offlist']) if f.get('offlist', '').isdigit() else None
             named = pairs(f.get('offlist_items'))
             # READABLE (Codex light r1 P2): the row's own accounting names its off-list throws -- offlist and unnamed parse,
@@ -93,9 +95,11 @@ def judge(rows, since, version, now, hours_before=None):
             # counts thrown ENTITIES, offlist_items their item counts; measured 10-23: offlist=1 offlist_items=cobblestone:62).
             readable = (off is not None and f.get('unnamed') == '0' and
                         ((off == 0 and f.get('offlist_items') == '-') or (off > 0 and 0 < len(named) <= off)))
-            if thrown > 0 and readable:
+            if thrown is None:
+                seen['well_unreadable'] += 1                    # Codex light r2 P2: unknown throw accounting is unreadable
+            elif thrown > 0 and readable:
                 seen['well_threw'] += 1
-            if thrown > 0 and not readable:
+            elif thrown > 0:
                 seen['well_unreadable'] += 1
             hit = sorted(n for n in named if n in PARTS)
             if hit:
@@ -103,9 +107,12 @@ def judge(rows, since, version, now, hours_before=None):
         elif r['name'] == '_stock_prune_visit':
             seen['prune_visits'] += 1
             m = re.match(r'^pruned (\S+) from ', d)
-            if m and pairs(m.group(1)):
-                seen['prune_took'] += 1                         # a prune that TOOK something, its names parsed
-            elif r['status'] == 'success':
+            # Codex light r2 P2: the WHOLE list must parse, whatever the status (a failed throw can follow a real take); a row
+            # that is neither a parsed take nor one of pruneTown's no-take sentences is unreadable
+            whole = bool(m) and all(re.match(r'^[a-z0-9_]+:\d+$', x) for x in m.group(1).split(','))
+            if whole:
+                seen['prune_took'] += 1                         # a prune that TOOK something, every name parsed
+            elif not d.startswith(PRUNE_NO_TAKE):
                 seen['prune_unreadable'] += 1
             hit = sorted(n for n in pairs(m.group(1) if m else '') if n in PARTS)
             if hit:
@@ -211,6 +218,10 @@ def selftest():
     case('T1 more kinds than entities -> WATCH', base + [row('2026-10-24T07:00:00Z', '_well_dispose', detail='offlist=1 offlist_items=egg:1,flint:1 unnamed=0 n=2')], 'WATCH')
     case('BLIND: the only well throws are unreadable', [r for r in base if r['name'] != '_well_dispose'] + [row('2026-10-24T07:00:00Z', '_well_dispose', detail='n=9 items=x:9')], 'BLIND')
     case('T2 a prune row that does not parse -> BLIND', base + [row('2026-10-24T08:00:00Z', '_stock_prune_visit', detail='pruned ??? from 1,2,3')], 'BLIND')
+    case('T2 a partly parseable prune list -> BLIND', base + [row('2026-10-24T08:00:00Z', '_stock_prune_visit', detail='pruned oak_log:64,glass:??? from 1,2,3 well_keeps=0')], 'BLIND')
+    case('T2 a FAILED unparseable prune -> BLIND', base + [row('2026-10-24T08:00:00Z', '_stock_prune_visit', status='failed', detail='pruned ??? from 1,2,3')], 'BLIND')
+    case('T2 a failed take of a part still breaches', base + [row('2026-10-24T08:00:00Z', '_stock_prune_visit', status='failed', detail='pruned glass:64 from 1,2,3 well_keeps=0; thrown 0')], 'BREACH')
+    case('T1 a well row cut before n= -> WATCH (unreadable)', base + [row('2026-10-24T07:00:00Z', '_well_dispose', detail='slots=36->30 offlist=0 offlist_items=- unnamed=0 freed=6 tossed=6')], 'WATCH')
     case('T2 only "took nothing" visits -> OK-PARTIAL (not exposed), never OK', [r for r in base if r['name'] != '_stock_prune_visit'] + [row('2026-10-24T08:00:00Z', '_stock_prune_visit', status='no_effect', detail='took nothing at 1,2,3 well_keeps=0: no full stack')], 'OK-PARTIAL')
     case('CONTEXT no baseline rows -> OK-PARTIAL, never OK', [r for r in base if r['t'] >= since], 'OK-PARTIAL')
     case('T2 a part pruned', base + [row('2026-10-24T08:00:00Z', '_stock_prune_visit', detail='pruned stone_bricks:64 from 1,2,3 well_keeps=0')], 'BREACH')
