@@ -74,8 +74,8 @@ test('fold: newest `at` wins per furnace, ties by id; coalesced and drop records
     { garbage: 1 },
   ]
   const perms = a => a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map(p => [x, ...p]))
-  const want = JSON.stringify(L.foldLedger(recs).furnaces)
-  for (const p of perms(recs)) assert.equal(JSON.stringify(L.foldLedger(p).furnaces), want)
+  const want = L.foldLedger(recs).furnaces
+  for (const p of perms(recs)) assert.deepEqual(L.foldLedger(p).furnaces, want)
   const v = L.foldLedger(recs)
   assert.equal(v.furnaces[F].id, 'c'); assert.equal(v.furnaces['9,64,9'].id, 'g')
   assert.deepEqual([v.entries, v.coalesced, v.dropped, v.bad], [4, 1, 1, 1])
@@ -117,49 +117,25 @@ test('COALESCE INTO THE NEWEST, from any bot (design 6.4, Claude r9 #1): A post-
 })
 
 test('the observation CAP: refreshes past COALESCE_MS are dropped over OBS_CAP_PER_H an hour (the drop is still one record); a changed state is never dropped', () => {
-  const dir = tmp(); L.resetLedgerCap()
-  let at = T0
-  const outs = []
-  for (let i = 0; i < L.OBS_CAP_PER_H + 3; i++) {
-    at += L.COALESCE_MS            // each identical repeat is old enough to be a refresh
-    outs.push(L.recordStation(dir, HK, null, { id: `r${i}`, f: `${i % 50},64,0`, bot: 'A', by: 'drain', slots: EMPTY, at: T0 + i }).outcome)
-  }
-  // first observation of each of 50 furnaces is a plain entry (not a refresh), so build refreshes on ONE furnace:
-  L.resetLedgerCap()
-  const d2 = tmp()
-  L.recordStation(d2, HK, null, { id: 'first', f: F, bot: 'A', by: 'drain', slots: EMPTY, at: T0 })
-  const got = []
-  for (let i = 1; i <= L.OBS_CAP_PER_H + 2; i++) got.push(L.recordStation(d2, HK, null, { id: `x${i}`, f: F, bot: 'A', by: 'drain', slots: EMPTY, at: T0 + i * L.COALESCE_MS / 100 * 0 + i * 30_000 + L.COALESCE_MS * Math.ceil(i / 1e9) }))
-  // the timeline above: x1 lands 10.5 min after `first` (a refresh); every later one lands 30 s after the previous entry
-  // and so COALESCES into it -- the cap only ever counts refresh ENTRIES. Drive refreshes directly instead:
-  L.resetLedgerCap()
-  const d3 = tmp()
-  let t = T0
-  const res = []
-  for (let i = 0; i <= L.OBS_CAP_PER_H + 1; i++) {
-    res.push(L.recordStation(d3, HK, null, { id: `y${i}`, f: F, bot: 'A', by: 'drain', slots: EMPTY, at: t }))
-    t += L.COALESCE_MS * 0 + 1   // within the hour
-    // make every next observation a REFRESH of the newest: rewrite the newest's age by appending far apart in `at`
-  }
-  assert.ok(outs.length && got.length && res.length)   // (the timelines above are exercised for no-throw; the cap is below)
-  // THE CAP, PROVEN: a refresh is an identical state >= COALESCE_MS after the newest entry. Within one hour, entries
-  // must be >= 10 min apart to be refreshes, so a single furnace yields at most 6 an hour; the cap is per BOT across
-  // furnaces. Use 130 furnaces, each with an old entry from another bot, then refresh each once inside the hour.
+  // a refresh is an identical state >= COALESCE_MS after the furnace's newest entry, so one furnace yields at most 6 an
+  // hour; the cap is per WRITER across furnaces: 125 furnaces, each with an old entry from B, each refreshed once by A
   L.resetLedgerCap()
   const d4 = tmp()
   const n = L.OBS_CAP_PER_H + 5
-  for (let i = 0; i < n; i++) L.recordStation(d4, HK, null, { id: `old${i}`, f: `${i},64,1`, bot: 'B', by: 'drain', slots: EMPTY, at: T0 })
+  const NOROT = { rotateBytes: 1e12 }    // one generation: every record stays countable
+  for (let i = 0; i < n; i++) L.recordStation(d4, HK, null, { id: `old${i}`, f: `${i},64,1`, bot: 'B', by: 'drain', slots: EMPTY, at: T0 }, NOROT)
   L.resetLedgerCap()          // B's process is not A's: the cap is per writer
   const outcomes = []
-  for (let i = 0; i < n; i++) outcomes.push(L.recordStation(d4, HK, null, { id: `ref${i}`, f: `${i},64,1`, bot: 'A', by: 'drain', slots: EMPTY, at: T0 + L.COALESCE_MS + i }).outcome)
+  for (let i = 0; i < n; i++) outcomes.push(L.recordStation(d4, HK, null, { id: `ref${i}`, f: `${i},64,1`, bot: 'A', by: 'drain', slots: EMPTY, at: T0 + L.COALESCE_MS + i }, NOROT).outcome)
   assert.equal(outcomes.filter(o => o === 'entry').length, L.OBS_CAP_PER_H, 'exactly the cap of refreshes an hour')
   assert.equal(outcomes.filter(o => o === 'drop').length, 5)
-  const ch = L.recordStation(d4, HK, null, { id: 'chg', f: '0,64,1', bot: 'A', by: 'smelt', slots: HOLDS, at: T0 + L.COALESCE_MS + n })
+  const ch = L.recordStation(d4, HK, null, { id: 'chg', f: '0,64,1', bot: 'A', by: 'smelt', slots: HOLDS, at: T0 + L.COALESCE_MS + n }, NOROT)
   assert.equal(ch.outcome, 'entry', 'a changed state over the cap is still an entry')
   // an hour later the window has emptied: refreshes are written again
-  const later = L.recordStation(d4, HK, null, { id: 'late', f: `${n - 1},64,1`, bot: 'A', by: 'drain', slots: EMPTY, at: T0 + L.COALESCE_MS + 3600_000 + 2 * L.COALESCE_MS })
+  const later = L.recordStation(d4, HK, null, { id: 'late', f: `${n - 1},64,1`, bot: 'A', by: 'drain', slots: EMPTY, at: T0 + L.COALESCE_MS + 3600_000 + 2 * L.COALESCE_MS }, NOROT)
   assert.equal(later.outcome, 'entry')
-  const all = lines(d4).concat(fs.existsSync(L.ledgerFile(d4, HK, 2)) ? lines(d4, 2) : [])
+  assert.deepEqual(L.ledgerGens(d4, HK), [1])
+  const all = lines(d4)
   assert.equal(all.filter(r => r.t === 'station' && r.outcome === 'drop').length, 5, 'every drop is its own record: every observation maps to one outcome')
 })
 
@@ -204,7 +180,8 @@ test('worlds: a record (and a checkpoint) of another world is never read -- befo
 
 test('an unreadable ledger reads ok:false (never "empty"), and a write there fails closed to null', () => {
   const file = path.join(tmp(), 'not-a-dir'); fs.writeFileSync(file, 'x')
-  assert.equal(L.readLedgerRecords(file, HK).ok, true, 'no generation in a non-directory: none')
+  assert.equal(L.readLedgerRecords(file, HK).ok, false, 'a state dir that is not a directory: unreadable, never empty')
+  assert.equal(L.readLedgerRecords(path.join(tmp(), 'absent'), HK).ok, true, 'a town with no ledger yet: empty and readable')
   const dir = tmp()
   fs.mkdirSync(L.ledgerFile(dir, HK, 1))         // generation 1 is a DIRECTORY: it cannot be read
   assert.equal(L.readLedger(dir, HK).ok, false)
@@ -384,7 +361,7 @@ function mutant (src, old, neu) {
   assert.equal(src.split(old).length - 1, 1, `ANCHOR NOT UNIQUE: ${old.slice(0, 80)}`)
   return src.replace(old, neu)
 }
-test('STRUCTURAL MUTANTS: removing either site\'s record, or moving the drain\'s after a click, fails the check (and the drain mutant also fails BEHAVIOUR: no record)', () => {
+test('STRUCTURAL MUTANTS: removing either site\'s record, or moving the drain\'s after a click, fails the check; so does a NEW opener with no record', () => {
   const src = fs.readFileSync(new URL('skills.mjs', SRC_DIR), 'utf8')
   const dropDrain = mutant(src, `    f.ledger = ledgerFurnace(bot, pos, furnace, 'drain', 'open', seen)?.id ?? '-'\n`, '')
   assert.ok(openerSites(dropDrain).some(x => !x.ok), 'the drain\'s record removed: caught')
