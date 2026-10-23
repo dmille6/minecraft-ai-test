@@ -120,3 +120,12 @@ for rev in sorted(recs, key=lambda r: (r != 'unstamped', r)):
     for duty, n in need[rev].most_common():
         top = ', '.join(f'{b} {v / hrs:.0f}' for (d, b), v in why[rev].most_common() if d == duty)
         print(f'  {duty:13} {n / hrs:7.0f}/h   {top}')
+
+# VALUE-WEIGHTED INTAKE (OWNER 10-23, docs/reports/valuescore-2026-10-23.md): items taken from the world weighted by what
+# they are worth (dirt, junk and staircase steps weigh 0), with the old counts beside it until valuescore.OLD_COUNTS_UNTIL.
+# It raises ValueBlind -- never prints a quiet 0 -- if an intake kind or its inventory_delta field disappears.
+import os as _os
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import valuescore
+print()
+valuescore.report(START.strftime('%Y-%m-%dT%H:%M:%SZ'), END.strftime('%Y-%m-%dT%H:%M:%SZ'))

@@ -1,0 +1,62 @@
+window 2026-10-08 .. 2026-10-11 (3 days); docs with inventory_delta by kind: 112,568
+  gather             rows   54,599  items gained/day     54086  top: dirt 21436, cobblestone 14509, oak_log 11869, oak_sapling 1640, stick 982, sand 799, birch_log 386, andesite 352
+  mine               rows   23,987  items gained/day     37804  top: cobblestone 23517, dirt 7382, andesite 1314, diorite 1262, granite 1058, raw_copper 445, leaf_litter 379, gravel 344
+  goto               rows   11,163  items gained/day      7876  top: cobblestone 5465, dirt 747, andesite 431, granite 324, diorite 294, cobbled_deepslate 164, bamboo 82, oak_sapling 79
+  craft              rows    4,348  items gained/day      2057  top: stone_pickaxe 479, oak_planks 367, stick 342, oak_log 200, crafting_table 124, furnace 107, wooden_pickaxe 105, bamboo 68
+  surface            rows    1,135  items gained/day      1199  top: cobblestone 708, dirt 96, cobbled_deepslate 92, andesite 89, granite 78, diorite 72, tuff 16, dripstone_block 14
+  explore            rows   11,792  items gained/day       381  top: cobblestone 69, oak_log 66, dirt 49, oak_sapling 38, stick 38, bamboo 31, granite 19, egg 10
+  smelt              rows      984  items gained/day       325  top: iron_ingot 248, cobblestone 30, pointed_dripstone 7, raw_copper 5, granite 5, stone 5, diorite 5, gravel 3
+  home               rows      400  items gained/day       225  top: cobblestone 146, dirt 27, cobbled_deepslate 17, andesite 11, diorite 5, bamboo 5, granite 4, gravel 2
+  withdraw_pick      rows      407  items gained/day       188  top: stone_pickaxe 67, wooden_pickaxe 40, stick 28, cobblestone 23, oak_log 21, iron_pickaxe 3, dirt 2, andesite 1
+  compost            rows      579  items gained/day       116  top: bone_meal 92, oak_log 21, egg 1, dirt 1, andesite 1, stick 1
+  deposit            rows    1,767  items gained/day        94  top: cobblestone 47, dirt 12, andesite 8, granite 7, tuff 5, cobbled_deepslate 3, diorite 3, oak_sapling 2
+  wear_out           rows      113  items gained/day        48  top: cobblestone 30, dirt 11, andesite 2, diorite 2, leaf_litter 2, birch_log 0, oak_planks 0, gravel 0
+  town_deposit       rows    1,072  items gained/day         8  top: cobblestone 4, stick 2, dirt 1, coal 1, oak_sapling 1, iron_ingot 0, birch_sapling 0
+  place              rows      208  items gained/day         1  top: dirt 1, apple 0, oak_log 0
+
+bot-minutes per unit (gather + mine rows that gained it; upper bound when a row gains several items):
+  cobblestone              units/day     38026  bot-min/unit   0.074
+  dirt                     units/day     28818  bot-min/unit   0.191
+  oak_log                  units/day     12146  bot-min/unit   0.296
+  oak_sapling              units/day      1703  bot-min/unit   0.782
+  andesite                 units/day      1666  bot-min/unit   0.114
+  diorite                  units/day      1603  bot-min/unit   0.111
+  granite                  units/day      1395  bot-min/unit   0.114
+  stick                    units/day      1172  bot-min/unit   0.636
+  sand                     units/day      1097  bot-min/unit   0.108
+  leaf_litter              units/day       621  bot-min/unit   0.201
+  bamboo                   units/day       523  bot-min/unit   0.095
+  raw_copper               units/day       455  bot-min/unit   0.063
+  birch_log                units/day       391  bot-min/unit   0.272
+  gravel                   units/day       372  bot-min/unit   0.144
+  raw_iron                 units/day       304  bot-min/unit   0.336
+  spruce_log               units/day       272  bot-min/unit   0.311
+  cobbled_deepslate        units/day       244  bot-min/unit   0.069
+  coal                     units/day       189  bot-min/unit   0.179
+  oak_planks               units/day       137  bot-min/unit   0.161
+  apple                    units/day       105  bot-min/unit   1.588
+  flint                    units/day        87  bot-min/unit   0.296
+  sandstone                units/day        84  bot-min/unit   0.259
+  crafting_table           units/day        63  bot-min/unit   0.325
+  birch_sapling            units/day        49  bot-min/unit   1.059
+  wildflowers              units/day        49  bot-min/unit   0.227
+  dripstone_block          units/day        43  bot-min/unit   0.172
+  lapis_lazuli             units/day        39  bot-min/unit   0.044
+  wheat_seeds              units/day        34  bot-min/unit   0.453
+  pointed_dripstone        units/day        30  bot-min/unit   0.233
+  spruce_sapling           units/day        24  bot-min/unit   0.947
+  tuff                     units/day        21  bot-min/unit   0.259
+  clay_ball                units/day        20  bot-min/unit   0.075
+  furnace                  units/day        16  bot-min/unit   0.257
+  egg                      units/day        10  bot-min/unit   1.142
+  kelp                     units/day        10  bot-min/unit   0.253
+  iron_ingot               units/day         7  bot-min/unit   0.093
+  chest                    units/day         7  bot-min/unit   0.180
+  ink_sac                  units/day         5  bot-min/unit   0.948
+  brown_egg                units/day         5  bot-min/unit   0.567
+  jungle_log               units/day         4  bot-min/unit   0.500
+  cocoa_beans              units/day         4  bot-min/unit   0.082
+  stone_pickaxe            units/day         3  bot-min/unit   0.570
+  melon_slice              units/day         3  bot-min/unit   0.039
+  glow_ink_sac             units/day         2  bot-min/unit   0.880
+  brown_mushroom           units/day         2  bot-min/unit   0.471
