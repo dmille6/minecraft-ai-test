@@ -101,6 +101,23 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-23 02:05Z — FLEET c0fec812 (townindex-01 KEPT +360, promoted 01:17Z); poolescape-01 LIVE 01:48:44Z (3 pools); protectzone + townindex merged
+
+- **keepout-01** KEPT +360 10-22 13:13Z, promoted 13:22Z (merged 45497e34). **protectzone-01** `1f5b4b4e` KEPT +180 16:44Z (tier 2,
+  4 pools), promoted 16:54Z; merged to main now, its Paper driver moved onto the shared sandbox lock at merge (wired drivers 17 -> 18).
+- **townindex-01** `c0fec812` (on 1f5b4b4e): +180 NOT_YET (exposure 40/50; WATCH refusals_up = cobble-cap admission, 72 -> 202 over
+  8 bots), +360 **KEEP** 01:07Z (defects 0, 249 obs, refusals settled 300 -> 365 v control 1099 -> 992). Death gate held: 2 v 3, both
+  hive-c drownings while idle after gather/craft/goto, no index row near -- not linked. Promoted 01:17Z. 3 pools, so no +180 KEEP.
+- **poolescape-01** (OWNER 10-22 priority, queued NEXT 21:26Z): variant `6e1afb52` on c0fec812, tier 2, draw_require board-d. Drawn
+  board-d, placebo-a, hive-b (3 pools -> reads on to +360 ~07:48Z). **All three marooned board-d bots out within 2.5 min of deploy**:
+  Alpha (555,61,116) out 01:51:01 by hand (dug 1, placed 3); Bravo (329,61,213) out 01:50:59 (stone pickaxe, dug 1, placed 1); Comet
+  refused (Bravo's cut had opened the route) and walked out; all health 20, lava_refused 0, no zone/fire marks. Read: poolescaperead
+  G1 (trapped bot-h halve, DiD < 0, pre-trapped bots still observed); G2-G4 revert lines.
+- **Next in the lane:** indexsearch-01 -> chatgate-01 -> bamboo-03 (JIT) -> junkout-01 (JIT) -> foldwatch-01 (JIT) -> treefarm-03 (JIT);
+  townplan-01/found-01 JIT re-variants after chatgate. **Gap work:** ~/drop16.sh (remove .16 fallback), isolated phase 2.
+- `mcbot@board-a-Charlie` is a failed, disabled leftover unit since 10-19 (no env file; not one of the 80) -- the scheduler's
+  "enabled but inactive" note is it; a human `systemctl reset-failed` clears the note.
+
 ## 10-22 03:30Z — ironpick-01 LIVE (3 pools); keepout-01 + chatgate-01 QUEUED; chain re-varianted (16 variants)
 
 - **ironpick-01 `2719ee0e` LIVE 00:36:03Z on hive-d, placebo-b, hive-c** (3 pools: no tier-2 +180 KEEP). homefix-02 merged to
