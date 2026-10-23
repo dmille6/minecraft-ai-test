@@ -1,0 +1,364 @@
+// SANDBOX-ONLY end-to-end proof of mats-01 (the building tier's materials job: docs/reports/building-tier-2026-10-23.md
+// section 3; branch mats-on-7b9db3a). ironsmelt-e2e.cjs's harness: ONE FRESH BOT PER SCENE from <botRoot> (unmodified;
+// trace.cjs only observes packets), the scene set by RCON once the bot is there, and the SERVER's truth before and after: every
+// bag slot, both town chests, three furnaces' slots and lit states, the item entities on the ground. The bot's own claim is
+// recorded, never trusted. Nothing is queued to the model (every model decision is `status` or a short walk): the job must be
+// the bot's OWN order.
+//
+//   node mats-e2e.cjs <botRoot> <scene,...> [server]      (CRAFT_REPO=<a main checkout with sandbox/run-bot.sh>)
+//
+// THE BUILD decides the expectation: a <botRoot> whose bots/src/mats.mjs exists is the CANDIDATE (CANDIDATE_PASS / FAIL); any
+// other is the BASE, run as the POSITIVE CONTROL of the instrument (BASE_SHAPE when the town is left exactly as it was).
+//
+// scenes (BAG: the bot's own iron tools, 3 coal, 2 iron_ingot, bread, wool -- the coal and iron the job must never touch):
+//   bricks   MAT-1: chest A 320 cobblestone + 576 oak_log + 4 coal + 10 iron_ingot; one clean furnace -> the job first COUNTS
+//            the never-opened chests (kind=count), then makes 12 stone_bricks: town cobble -12, oak_log -2, stone_bricks +12;
+//            every coal and iron unchanged (bag and town); the furnace empty and cold; nothing on the ground; row verdict=ok.
+//   copper   chest A 576 copper_ingot + 128 stone_bricks (bricks at their buffer), a crafting table -> cut_copper +4,
+//            copper_ingot -36 (4 copper blocks on the table, cut 4:4).
+//   furn     MAT-FURN: as bricks, three furnaces: F1 coal in its fuel slot, F2 4 iron_ingot in its output, F3 clean (the
+//            farthest) -> the bricks are made in F3; F1's coal and F2's iron untouched.
+//   hot      MAT-HOT: as bricks, ONE furnace, lit with an EMPTY fuel slot (still burning) -> nothing made, nothing loaded.
+//   res_at   MAT-RES: chest A exactly 256 cobblestone + 512 oak_log (the reserve) -> no bricks order; the town unchanged.
+//   res_one  MAT-RES: 268 cobblestone + 514 oak_log (one batch above) -> exactly one batch: cobble 256, logs 512 after.
+//   kill     MAT-KILL: as bricks; the bot is SIGKILLed while the furnace burns its batch, then restarted on the same state:
+//            mats_return drains the note's furnace, crafts the stone and banks it -> stone_bricks +12 in town, nothing lost.
+//
+// RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. sandbox5..8 only, sandbox-* names only.
+// Refuses to run unless a sandbox lock covering SERVER has `mats` as its owner's first word (sandbox/lib/sbxlock.cjs).
+'use strict'
+const { execFileSync, spawn } = require('child_process')
+const http = require('http')
+const sbx = require('../lib/sbxlock.cjs')
+const fs = require('fs'); const path = require('path')
+const [BOT_ROOT, SCENES_S, SERVER = 'sandbox5'] = process.argv.slice(2)
+if (!BOT_ROOT || !SCENES_S) throw new Error('usage: node mats-e2e.cjs <botRoot> <scenes> [server]')
+const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => /^sandbox[5-8]$/.test(n)))
+if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).join(', ')})`)
+const R = process.env.CRAFT_REPO || path.resolve(__dirname, '../..')
+const TRACE = path.join(R, 'sandbox/craft/trace.cjs')
+const NAME = process.env.MT_BOT_NAME || 'sandbox-Mats'
+if (!NAME.startsWith('sandbox-')) throw new Error('sandbox bot names only')
+const OUTDIR = `${R}/sandbox/log/mats-e2e`
+const RES = `${OUTDIR}/results.jsonl`
+const BRAIN_PORT = Number(process.env.MT_BRAIN_PORT || (11590 + Number(String(SERVER).replace('sandbox', ''))))
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+const ENV_REL = `sandbox/.env.mtab-${SERVER}-${process.pid}`
+const CANDIDATE = fs.existsSync(path.join(BOT_ROOT, 'bots/src/mats.mjs'))
+
+const SSH = ['-o', 'ControlMaster=auto', '-o', `ControlPath=${process.env.HOME}/.ssh/cm-mtab-%C`, '-o', 'ControlPersist=600', 'mike@10.0.0.30']
+function rcon (...cmds) {
+  const out = execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 60000 })
+  const res = []; let cur = null
+  for (const line of out.split('\n')) { if (line.startsWith('> ')) { cur = { cmd: line.slice(2), reply: '' }; res.push(cur) } else if (cur) cur.reply += (cur.reply ? '\n' : '') + line }
+  return res
+}
+
+// ---------------------------------------------------------------- arena and scenes
+const HOME = { x: 760, y: 120, z: 760 }
+const CHEST_A = { x: 763, y: 120, z: 757 }
+const CHEST_B = { x: 762, y: 120, z: 760 }
+const F1 = { x: 760, y: 120, z: 763 }
+const F2 = { x: 757, y: 120, z: 763 }
+const F3 = { x: 754, y: 120, z: 766 }        // the farthest from the stand
+const TABLE = { x: 765, y: 120, z: 763 }
+const STAND = { x: 760.5, y: 120, z: 760.5 }
+const FURNACES = { F1, F2, F3 }
+const at = c => `${c.x} ${c.y} ${c.z}`
+const wool = n => Array.from({ length: n }, (_, i) => ['white_wool', 1 + (i % 3)])
+const BAG = [['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ['torch', 8], ['bread', 5], ['coal', 3], ['iron_ingot', 2], ...wool(6)]
+const stacks = (id, n) => { const o = []; while (n > 0) { o.push([id, Math.min(64, n)]); n -= 64 } return o }
+const BRICKS_A = [...stacks('cobblestone', 320), ...stacks('oak_log', 576), ['coal', 4], ['iron_ingot', 10]]
+const SPEC = {
+  bricks: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
+  copper: { chestA: [...stacks('copper_ingot', 576), ...stacks('stone_bricks', 128)], chestB: [], furnaces: { F1: 'clean' }, table: true },
+  furn: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'coal', F2: 'iron', F3: 'clean' } },
+  hot: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'hot' } },
+  res_at: { chestA: [...stacks('cobblestone', 256), ...stacks('oak_log', 512)], chestB: [], furnaces: { F1: 'clean' } },
+  res_one: { chestA: [...stacks('cobblestone', 268), ...stacks('oak_log', 514)], chestB: [], furnaces: { F1: 'clean' } },
+  kill: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
+}
+const furnaceCmds = (c, kind) => {
+  if (kind === 'clean') return [`setblock ${at(c)} minecraft:furnace[facing=north]`]
+  if (kind === 'coal') return [`setblock ${at(c)} minecraft:furnace[facing=north]`, `item replace block ${at(c)} container.1 with minecraft:coal 3`]
+  if (kind === 'iron') return [`setblock ${at(c)} minecraft:furnace[facing=north]`, `item replace block ${at(c)} container.2 with minecraft:iron_ingot 4`]
+  if (kind === 'hot') return [`setblock ${at(c)} minecraft:furnace[facing=north,lit=true]{lit_time_remaining:6000s,lit_total_time:6000s}`]
+  throw new Error(`furnace kind ${kind}`)
+}
+// the scene is done at its first job row that is the scene's own (a make_material that MADE something, or a recovery) -- on
+// the base, the window simply elapses
+const DONE = (scene, rows) => {
+  if (!CANDIDATE) return false
+  if (scene === 'kill') return rows.some(r => r.name === '_mats_return' && /drained:/.test(r.detail))
+  if (scene === 'hot' || scene === 'res_at') return rows.some(r => r.name === '_mats_skip' && /why=(no_furnace|inputs)/.test(r.detail))
+  return rows.some(r => r.name === '_make_material' && !/kind=count/.test(r.detail))
+}
+const WINDOW_MS = Number(process.env.MT_WINDOW_MS || 360000)
+const BASE_WINDOW_MS = Number(process.env.MT_BASE_WINDOW_MS || 150000)
+const arenaCmds = () => ['forceload add 744 744 776 776', `kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`,
+  'fill 746 120 746 774 126 774 minecraft:air', 'fill 746 119 746 774 119 774 minecraft:stone']
+function bagCmds () {
+  const c = [`clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`]
+  BAG.forEach(([id, n], s) => c.push(`item replace entity ${NAME} container.${s} with minecraft:${id} ${n}`))
+  return c
+}
+const sceneCmds = spec => [
+  `setblock ${at(CHEST_A)} minecraft:chest[facing=west]`,
+  `setblock ${at(CHEST_B)} minecraft:chest[facing=west]`,
+  ...spec.chestA.map(([id, n], s) => `item replace block ${at(CHEST_A)} container.${s} with minecraft:${id} ${n}`),
+  ...spec.chestB.map(([id, n], s) => `item replace block ${at(CHEST_B)} container.${s} with minecraft:${id} ${n}`),
+  ...Object.entries(spec.furnaces).flatMap(([k, kind]) => furnaceCmds(FURNACES[k], kind)),
+  ...(spec.table ? [`setblock ${at(TABLE)} minecraft:crafting_table`] : []),
+]
+
+// ---------------------------------------------------------------- oracle (the server's slots, never the bot's claim)
+const parseItem = seg => {
+  const id = (seg.match(/id: "minecraft:([a-z0-9_]+)"/) || [])[1]
+  if (!id) return null
+  return { id, count: +((seg.match(/count: (\d+)/) || [])[1] || 1) }
+}
+function snapshot (spec) {
+  const fk = Object.keys(spec.furnaces)
+  const cmds = []
+  for (let s = 0; s < 36; s++) cmds.push(`data get entity ${NAME} Inventory[{Slot:${s}b}]`)
+  for (let s = 0; s < 27; s++) cmds.push(`data get block ${at(CHEST_A)} Items[{Slot:${s}b}]`)
+  for (let s = 0; s < 27; s++) cmds.push(`data get block ${at(CHEST_B)} Items[{Slot:${s}b}]`)
+  for (const k of fk) for (let s = 0; s < 3; s++) cmds.push(`data get block ${at(FURNACES[k])} Items[{Slot:${s}b}]`)
+  const iGround = cmds.length
+  cmds.push(`execute as @e[type=item,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20] run data get entity @s Item`)
+  for (const k of fk) cmds.push(`execute if block ${at(FURNACES[k])} minecraft:furnace[lit=true]`)
+  const r = []
+  for (let i = 0; i < cmds.length; i += 30) r.push(...rcon(...cmds.slice(i, i + 30)))
+  const SLOT_OK = /has the following (entity|block) data|Found no elements matching/
+  for (let i = 0; i < iGround; i++) if (!SLOT_OK.test(r[i]?.reply || '')) throw new Error(`oracle read failed: ${r[i]?.cmd} => ${JSON.stringify(r[i]?.reply ?? null)}`)
+  for (let i = 0; i < iGround; i++) {
+    if (/has the following (entity|block) data/.test(r[i].reply) && !(parseItem(r[i].reply)?.count > 0)) throw new Error(`oracle read failed (unparseable item): ${r[i].cmd} => ${r[i].reply.slice(0, 200)}`)
+  }
+  if (/Cannot|Unknown|Incorrect|No entity/i.test(r[iGround]?.reply || '')) throw new Error(`oracle read failed: the ground => ${r[iGround].reply}`)
+  for (const seg of (r[iGround]?.reply || '').split(/has the following entity data:/).slice(1)) if (!(parseItem(seg)?.count > 0)) throw new Error(`oracle read failed (unparseable ground item): ${seg.slice(0, 200)}`)
+  for (let j = 0; j < fk.length; j++) if (!/Test (passed|failed)/.test(r[iGround + 1 + j]?.reply || '')) throw new Error(`oracle read failed: ${fk[j]} lit => ${JSON.stringify(r[iGround + 1 + j]?.reply ?? null)}`)
+  const pick = (q, re) => (re.test(q?.reply || '') ? parseItem(q.reply) : null)
+  const bag = {}; const a = {}; const b = {}; const furnace = {}; const lit = {}
+  for (let s = 0; s < 36; s++) { const it = pick(r[s], /has the following entity data/); if (it) bag[s] = it }
+  for (let s = 0; s < 27; s++) { const it = pick(r[36 + s], /has the following block data/); if (it) a[s] = it }
+  for (let s = 0; s < 27; s++) { const it = pick(r[63 + s], /has the following block data/); if (it) b[s] = it }
+  fk.forEach((k, j) => { furnace[k] = {}; for (let s = 0; s < 3; s++) { const it = pick(r[90 + j * 3 + s], /has the following block data/); if (it) furnace[k][s] = it }; lit[k] = /Test passed/.test(r[iGround + 1 + j].reply) })
+  const ground = (r[iGround]?.reply || '').split(/has the following entity data:/).slice(1).map(parseItem).filter(Boolean)
+  return { bag, a, b, furnace, ground, lit }
+}
+const tot = list => { const t = {}; for (const it of list) t[it.id] = (t[it.id] || 0) + it.count; return t }
+const totals = snap => ({ bag: tot(Object.values(snap.bag)), a: tot(Object.values(snap.a)), b: tot(Object.values(snap.b)),
+  furnace: Object.fromEntries(Object.entries(snap.furnace).map(([k, v]) => [k, tot(Object.values(v))])), ground: tot(snap.ground) })
+const diff = (a, b) => Object.keys({ ...a, ...b }).map(n => [n, (b[n] || 0) - (a[n] || 0)]).filter(([, d]) => d).map(([n, d]) => `${n}${d > 0 ? '+' : ''}${d}`).join(' ')
+const town = (t, n) => (t.a[n] || 0) + (t.b[n] || 0)
+const dTown = (tb, ta, n) => town(ta, n) - town(tb, n)
+
+const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
+const jl = f => lines(f).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+const WANT = /^(craft|smelt|deposit|withdraw|town_deposit|smelt_town|furnace_drain|toolkit|count_town|make_material|mats_return|_make_material|_mats_return|_mats_skip|_mats_mode|_furnace_session|_furnace_drain|_smelt_town|_townindex_count|_death)$/
+const skillRows = f => jl(f).filter(r => r.skill && WANT.test(r.skill.name))
+  .map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || '').slice(0, 600) }))
+const decisions = f => jl(f).map(r => ({ ts: Date.parse(r['@timestamp']), order: (r.llm?.latency_ms ?? 0) === 0 && !(r.response?.text), skill: r.tool_calls?.[0]?.skill,
+  admitted: r.llm?.admission != null, err: r.llm?.error ?? null, status: r.outcome?.status, detail: String(r.outcome?.detail || '').slice(0, 160) }))
+async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
+
+let brainLog = null
+let brainN = 0
+const WANDER = [{ x: 756, y: 120, z: 756 }, { x: 766, y: 120, z: 756 }]
+const brain = http.createServer((req, res) => {
+  let body = ''; req.on('data', c => { body += c })
+  req.on('end', () => {
+    if (req.url.startsWith('/api/version')) { res.end(JSON.stringify({ version: '0.0.0-sandbox' })); return }
+    if (!req.url.startsWith('/api/chat')) { res.statusCode = 404; res.end('q brain'); return }
+    let msgs = []; try { msgs = JSON.parse(body).messages || [] } catch {}
+    const all = msgs.map(m => String(m.content || '')).join('\n')
+    const sentinel = (all.match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
+    let decision = { skill: 'status', args: {} }
+    if (brainN++ % 2) { const c = WANDER[(brainN >> 1) % 2]; decision = { skill: 'goto', args: { x: c.x, y: c.y, z: c.z } } }
+    if (brainLog) fs.appendFileSync(brainLog, `${new Date().toISOString()} decision: ${decision.skill}\n`)
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox: idle', saw_end: sentinel }) },
+      done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
+  })
+})
+
+let bot = null
+async function stopBot (signal = 'SIGTERM') {
+  try { bot && bot.kill(signal) } catch {}
+  bot = null
+  await waitFor(() => /There are 0 of/.test(rcon('list')[0].reply), 30000, 1000)
+}
+function startBot (envRel, botOut, trace) {
+  const bo = fs.openSync(botOut, 'a')
+  const seen = lines(botOut).filter(l => /spawned pos=/.test(l)).length
+  bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT, NODE_OPTIONS: `--require ${TRACE}`, CRAFT_TRACE: trace }, stdio: ['ignore', bo, bo] })
+  let spawnErr = null
+  bot.on('error', e => { spawnErr = e })
+  return waitFor(() => spawnErr || lines(botOut).filter(l => /spawned pos=/.test(l)).length > seen, 90000, 300).then(v => { if (!v || spawnErr) throw new Error(`no spawn${spawnErr ? `: ${spawnErr.message}` : ''}`) })
+}
+
+function verdict (scene, tb, ta, rows, a, done) {
+  const out = { pass: false, why: [], expect: CANDIDATE ? 'candidate' : 'base' }
+  const need = (ok, why) => { if (!ok) out.why.push(why) }
+  const jobs = rows.filter(r => r.name === '_make_material')
+  const made = jobs.filter(r => /verdict=ok/.test(r.detail) && /made=([1-9]\d*)/.test(r.detail))
+  const untouched = () => {
+    need((ta.bag.coal || 0) === 3, `the bag keeps its OWN 3 coal (${ta.bag.coal || 0})`)
+    need((ta.bag.iron_ingot || 0) === 2, `the bag keeps its OWN 2 iron_ingot (${ta.bag.iron_ingot || 0})`)
+    need(dTown(tb, ta, 'coal') === 0, `the town's coal untouched (${dTown(tb, ta, 'coal')})`)
+    need(dTown(tb, ta, 'iron_ingot') === 0, `the town's iron untouched (${dTown(tb, ta, 'iron_ingot')})`)
+    need(!Object.keys(ta.ground).length, `nothing on the ground (${diff({}, ta.ground)})`)
+    need(!rows.some(r => /verdict=(loss|forbidden|overburn)/.test(r.detail)), 'no row with a loss, forbidden or overburn verdict')
+  }
+  const furnaceEmpty = k => !Object.keys(ta.furnace[k] || {}).length && !a.lit[k]
+  if (!CANDIDATE) {
+    for (const n of ['cobblestone', 'oak_log', 'stone_bricks', 'copper_ingot', 'cut_copper', 'coal', 'iron_ingot']) need(dTown(tb, ta, n) === 0, `the base leaves the town's ${n} as it was (${dTown(tb, ta, n)})`)
+    need(!jobs.length, 'the base writes no _make_material row')
+    out.pass = !out.why.length
+    out.verdict = out.pass ? 'BASE_SHAPE' : 'BASE_UNEXPECTED'
+    return out
+  }
+  need(rows.some(r => r.name === '_mats_mode'), 'the licence row _mats_mode was written (the build is live)')
+  const bricksMade = (cob, logs) => {
+    need(dTown(tb, ta, 'stone_bricks') === 12, `the town's stone_bricks +12 (${dTown(tb, ta, 'stone_bricks')})`)
+    need(dTown(tb, ta, 'cobblestone') === -cob, `the town's cobblestone -${cob} (${dTown(tb, ta, 'cobblestone')})`)
+    need(dTown(tb, ta, 'oak_log') === -logs, `the town's oak_log -${logs} (${dTown(tb, ta, 'oak_log')})`)
+    need(!(ta.bag.stone > 0) && !(ta.bag.stone_bricks > 0) && !(ta.bag.oak_planks > 0) && !(ta.bag.cobblestone > 0) && !(ta.bag.oak_log > 0), `the bag ends as it began (${diff(tb.bag, ta.bag)})`)
+  }
+  if (scene === 'bricks' || scene === 'res_one') {
+    need(jobs.some(r => /kind=count/.test(r.detail)), 'the job first counted the never-opened chests (kind=count)')
+    need(made.length === 1 && /kind=bricks/.test(made[0].detail), `exactly one bricks order made parts (${made.length})`)
+    bricksMade(12, 2)
+    need(furnaceEmpty('F1'), 'the furnace is left empty and cold')
+    if (scene === 'res_one') need(town(ta, 'cobblestone') === 256 && town(ta, 'oak_log') === 512, `the town ends at the reserve (${town(ta, 'cobblestone')} cobble, ${town(ta, 'oak_log')} logs)`)
+  }
+  if (scene === 'copper') {
+    need(dTown(tb, ta, 'cut_copper') === 4, `cut_copper +4 (${dTown(tb, ta, 'cut_copper')})`)
+    need(dTown(tb, ta, 'copper_ingot') === -36, `copper_ingot -36 (${dTown(tb, ta, 'copper_ingot')})`)
+    need(!(ta.bag.copper_ingot > 0) && !(ta.bag.copper_block > 0) && !(ta.bag.cut_copper > 0), `the bag holds no copper after (${diff(tb.bag, ta.bag)})`)
+  }
+  if (scene === 'furn') {
+    bricksMade(12, 2)
+    need((ta.furnace.F1.coal || 0) === 3 && Object.keys(ta.furnace.F1).length === 1, `F1's 3 coal untouched (${JSON.stringify(ta.furnace.F1)})`)
+    need((ta.furnace.F2.iron_ingot || 0) === 4 && Object.keys(ta.furnace.F2).length === 1, `F2's 4 iron untouched (${JSON.stringify(ta.furnace.F2)})`)
+    need(furnaceEmpty('F3'), 'F3 (the clean one) used and left empty and cold')
+  }
+  if (scene === 'hot' || scene === 'res_at') {
+    need(!made.length, 'no part made')
+    for (const n of ['cobblestone', 'oak_log', 'stone_bricks']) need(dTown(tb, ta, n) === 0, `the town's ${n} unchanged (${dTown(tb, ta, n)})`)
+    if (scene === 'hot') need(!Object.keys(ta.furnace.F1).length, `nothing loaded into the hot furnace (${JSON.stringify(ta.furnace.F1)})`)
+    need(rows.some(r => r.name === '_mats_skip' && new RegExp(`why=${scene === 'hot' ? 'no_furnace' : 'inputs'}`).test(r.detail)), `the skip row names why (${scene === 'hot' ? 'no_furnace' : 'inputs'})`)
+  }
+  if (scene === 'kill') {
+    need(rows.some(r => r.name === '_mats_return' && /drained:[1-9]/.test(r.detail)), 'mats_return drained the note\'s furnace')
+    need(dTown(tb, ta, 'stone_bricks') + (ta.bag.stone || 0) === 12, `the 12 are in town as bricks, or kept as stone (bricks ${dTown(tb, ta, 'stone_bricks')}, kept ${ta.bag.stone || 0})`)
+    need((ta.bag.stone || 0) <= 3, `at most a 1-3 stone remainder kept (${ta.bag.stone || 0})`)
+    need(dTown(tb, ta, 'cobblestone') === -12, `the town's cobblestone -12 (${dTown(tb, ta, 'cobblestone')})`)
+    need(furnaceEmpty('F1'), 'the furnace is left empty and cold')
+  }
+  untouched()
+  out.pass = !out.why.length && done
+  if (!done) out.why.push('the scene did not reach its completion condition inside the window')
+  out.verdict = out.pass ? 'CANDIDATE_PASS' : 'FAIL'
+  return out
+}
+
+async function runScene (scene) {
+  const spec = SPEC[scene]
+  if (!spec) throw new Error(`unknown scene ${scene}`)
+  const tag = `${scene}-${CANDIDATE ? 'cand' : 'base'}-${SERVER}-${new Date().toISOString().replace(/[-:]/g, '').slice(9, 15)}`
+  const logRel = `./sandbox/log/mats-e2e/${tag}`
+  const skillLog = `${R}/sandbox/log/mats-e2e/${tag}/skill-${NAME}.jsonl`
+  const llmLog = `${R}/sandbox/log/mats-e2e/${tag}/llm-${NAME}.jsonl`
+  const botOut = `${OUTDIR}/bot-${tag}.out`; const trace = `${OUTDIR}/trace-${tag}.jsonl`
+  const envRel = ENV_REL
+  let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
+  const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
+  set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/mats-${tag}`); set('MEMORY_POOL', `sbxmt-${tag}`)
+  set('MEMORY_SCOPE', 'shared'); set('MINECRAFT_PORT', PORTS[SERVER]); set('STUCK_SECONDS', 20); set('PLANT_ENABLED', 0); set('PLINTH_FIRST', 0)
+  set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`); set('MAX_CONSECUTIVE_FAILURES', 50)
+  set('MATS_COOLDOWN_MS', 60000)              // sandbox pacing: one order a minute (the fleet runs 10 min)
+  for (const ax of ['X', 'Y', 'Z']) { set(`HOME_${ax}`, HOME[ax.toLowerCase()]); set(`BOARD_${ax}`, HOME[ax.toLowerCase()]) }
+  fs.writeFileSync(`${R}/${envRel}`, env + '\n')
+  brainLog = `${OUTDIR}/brain-${tag}.log`
+  await startBot(envRel, botOut, trace)
+  rcon(`gamemode survival ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, `effect clear ${NAME}`, 'difficulty peaceful')
+  await sleep(1500)
+  const built = [...rcon(...arenaCmds()), ...rcon(...bagCmds()), ...rcon(...sceneCmds(spec))]
+  const bad = built.filter(x => /not loaded|Cannot place|Unknown|Incorrect|Expected/i.test(x.reply) && !/^(kill|forceload) /.test(x.cmd))
+  if (bad.length) { await stopBot(); throw new Error('arena not built: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; ')) }
+  await sleep(1500)
+  const before = snapshot(spec)
+  {
+    const tb0 = totals(before)
+    const want = list => list.reduce((m, [id, n]) => ({ ...m, [id]: (m[id] || 0) + n }), {})
+    const same = (x, y) => JSON.stringify(Object.entries(x).sort()) === JSON.stringify(Object.entries(y).sort())
+    const bad0 = [!same(tb0.a, want(spec.chestA)) && `chest A ${JSON.stringify(tb0.a)}`, !same(tb0.b, want(spec.chestB)) && `chest B ${JSON.stringify(tb0.b)}`,
+      !same(tb0.bag, want(BAG)) && `bag ${JSON.stringify(tb0.bag)}`].filter(Boolean)
+    if (scene === 'hot' && !before.lit.F1) bad0.push('the hot furnace does not read lit=true')
+    if (bad0.length) { await stopBot(); throw new Error('the scene is not as specified before the measurement: ' + bad0.join('; ')) }
+  }
+  const t0 = Date.now()
+  let killedAt = null
+  if (scene === 'kill' && CANDIDATE) {
+    // MAT-KILL: SIGKILL the bot while its batch burns (the furnace lit), then start it again on the same state and logs
+    const lit = await waitFor(() => { try { return /Test passed/.test(rcon(`execute if block ${at(F1)} minecraft:furnace[lit=true]`)[0].reply) } catch { return false } }, WINDOW_MS, 2000)
+    if (!lit) { await stopBot(); throw new Error('the kill scene never saw its furnace lit') }
+    await sleep(4000)
+    killedAt = Date.now()
+    await stopBot('SIGKILL')
+    await sleep(15000)
+    await startBot(envRel, botOut, trace)
+    rcon(`tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`)
+  }
+  const done = await waitFor(() => DONE(scene, skillRows(skillLog).filter(r => r.ts >= t0 - 5000)), CANDIDATE ? WINDOW_MS : BASE_WINDOW_MS, 1000)
+  if (done) await sleep(8000)
+  const after = snapshot(spec)
+  const rows = skillRows(skillLog)
+  const sceneRows = rows.filter(r => r.ts >= t0 - 5000 || r.name === '_mats_mode')
+  const dec = decisions(llmLog).filter(r => r.ts >= t0 - 5000)
+  await stopBot()
+  await sleep(1000)
+  try { fs.unlinkSync(`${R}/${envRel}`) } catch {}
+  const tb = totals(before), ta = totals(after)
+  const v = verdict(scene, tb, ta, sceneRows, after, !!done)
+  const r = { scene, tag, candidate: CANDIDATE, server: SERVER, killedAt,
+    sha: (() => { try { return execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch { return '?' } })(),
+    windowMs: Date.now() - t0, done: !!done, verdict: v, before: { ...before, totals: tb }, after: { ...after, totals: ta },
+    d: { bag: diff(tb.bag, ta.bag), chestA: diff(tb.a, ta.a), chestB: diff(tb.b, ta.b), ground: diff(tb.ground, ta.ground),
+      furnace: Object.fromEntries(Object.keys(spec.furnaces).map(k => [k, diff(tb.furnace[k], ta.furnace[k])])) },
+    decisions: dec.map(d => `${d.order ? 'ORDER' : 'model'} ${d.skill} ${d.admitted ? d.status : 'REFUSED ' + d.err}`), rows: sceneRows }
+  fs.appendFileSync(RES, JSON.stringify(r) + '\n')
+  console.log(`${scene.padEnd(8)} ${v.verdict} done=${r.done} d(bag){${r.d.bag}} d(A){${r.d.chestA}} d(B){${r.d.chestB}} d(furnaces)${JSON.stringify(r.d.furnace)} ground{${r.d.ground}} lit=${JSON.stringify(after.lit)}` +
+    (v.why.length ? `\n   why: ${v.why.join('; ')}` : ''))
+  console.log('   decisions: ' + r.decisions.filter(d => /ORDER/.test(d)).slice(0, 14).join(' | '))
+  console.log('   rows: ' + sceneRows.filter(x => x.name !== '_mats_mode').map(x => `${x.name}:${x.status}:${x.detail.slice(0, 260)}`).join(' || '))
+  return v.pass
+}
+
+let arenaOwned = false
+async function main () {
+  sbx.requireSandboxLock(SERVER, 'mats')
+  const pl = rcon('list')[0].reply; if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
+  fs.mkdirSync(OUTDIR, { recursive: true })
+  arenaOwned = true
+  await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(BRAIN_PORT, '127.0.0.1', resolve) })
+  console.log(`root=${BOT_ROOT} build=${CANDIDATE ? 'CANDIDATE' : 'BASE'} server=${SERVER} scenes=${SCENES_S}`)
+  let ok = true
+  for (const s of SCENES_S.split(',')) {
+    try { ok = (await runScene(s)) && ok } catch (e) { ok = false; console.log(`${s} SCENE FAILED: ${e.message}`); await stopBot().catch(() => {}) }
+  }
+  return ok
+}
+async function cleanup () {
+  if (arenaOwned) await stopBot().catch(() => {})
+  try { brain.close() } catch {}
+  try { fs.unlinkSync(`${R}/${ENV_REL}`) } catch {}
+  if (arenaOwned) { try { rcon(`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`, 'fill 746 120 746 774 126 774 minecraft:air', 'forceload remove 744 744 776 776') } catch {} }
+}
+let cleaning = false
+const finish = code => { if (cleaning) return; cleaning = true; cleanup().then(() => process.exit(code)) }
+main().then(ok => finish(ok ? 0 : 2), e => { console.error('FATAL', e.message); finish(1) })
+process.on('SIGINT', () => finish(1))
+process.on('SIGTERM', () => finish(1))
+process.on('SIGHUP', () => finish(1))
