@@ -1,0 +1,36 @@
+== [O] town jobs, complete interval sweep (start inside a townmate's run of the same job; the drain per furnace)
+  smelt_town     runs  1646  starts inside another's run  107 (6.5%)  body   7.31 bot-h, overlapped  0.25 bot-h (3.4%)  no_effect+failed: overlapping 93% solo 87%
+  furnace_drain  runs  2237  starts inside another's run    5 (0.2%)  body   7.17 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 100% solo 95%
+  toolkit        runs   514  starts inside another's run    2 (0.4%)  body   1.33 bot-h, overlapped  0.00 bot-h (0.2%)  no_effect+failed: overlapping 50% solo 34%
+  withdraw_pick  runs    78  starts inside another's run    0 (0.0%)  body   0.48 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 0% solo 49%
+  withdraw       runs    13  starts inside another's run    0 (0.0%)  body   0.01 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 0% solo 77%
+  deposit        runs   400  starts inside another's run    1 (0.2%)  body   1.31 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 100% solo 48%
+  town_deposit   runs   153  starts inside another's run    1 (0.7%)  body   0.08 bot-h, overlapped  0.00 bot-h (0.1%)  no_effect+failed: overlapping 100% solo 26%
+  compost        runs    76  starts inside another's run    0 (0.0%)  body   0.13 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 0% solo 7%
+  dispose_well   runs   159  starts inside another's run    0 (0.0%)  body   0.56 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 0% solo 14%
+  craft          runs   636  starts inside another's run    1 (0.2%)  body   1.13 bot-h, overlapped  0.00 bot-h (0.0%)  no_effect+failed: overlapping 100% solo 35%
+  gather: runs 23566, starts inside a townmate's same-block gather within 16/dy8 293 (1.2%); overlapped 1.7 of 171.0 bot-h
+  mine: runs 6494, starts inside a townmate's mine within 16 1
+== [X] explore -> same-block gather COMPLETED within 10 min of the explore's end; one gather credits one explore; censored at T1-600
+  fresh runs  7748 (52.6 bot-h; censored 52): at the sighting (<=24, dy16) 10 (0.13%), same type elsewhere 52 (0.67%), none 7686
+  peer  runs  9210 (68.8 bot-h; censored 60): at the sighting (<=24, dy16) 3 (0.03%), same type elsewhere 36 (0.39%), none 9171
+  explore runs with no heading row: 0
+== [C] co-presence: town-minutes with >=2 / >=3 bots at town (per town-day), longest stretch (min)
+  board-a    >=2  262  >=3   32  longest >=2   9 >=3   4
+  board-b    >=2  686  >=3  249  longest >=2  17 >=3   6
+  board-c    >=2  431  >=3  108  longest >=2  14 >=3   5
+  board-d    >=2  189  >=3   24  longest >=2  11 >=3   3
+  hive-a     >=2  193  >=3   29  longest >=2   8 >=3   3
+  hive-b     >=2  312  >=3   66  longest >=2  25 >=3   5
+  hive-c     >=2  308  >=3   57  longest >=2  10 >=3   5
+  hive-d     >=2  550  >=3  163  longest >=2  20 >=3   8
+  placebo-a  >=2  455  >=3  146  longest >=2  19 >=3   9
+  placebo-b  >=2  757  >=3  252  longest >=2  18 >=3   5
+  placebo-c  >=2  221  >=3   33  longest >=2  12 >=3   8
+  placebo-d  >=2  390  >=3   78  longest >=2  29 >=3   8
+  isolated-b >=2  367  >=3   86  longest >=2  11 >=3   4
+  all: >=2 5121, >=3 1323 town-minutes of 18720
+== [P] withdrawn-unit provenance PER CONTAINER (no pooling across chests)
+  withdrawn units 629; from another bot's deposit: VALID lower bound 79, VALID upper bound 150
+  scenario own_first: stock 473, same 77, other 78, unexplained 1
+  scenario others_first: stock 405, same 88, other 135, unexplained 1

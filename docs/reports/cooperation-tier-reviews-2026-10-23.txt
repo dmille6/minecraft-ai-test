@@ -1,0 +1,173 @@
+COOPERATION TIER DESIGN -- REVIEW RECORD (2026-10-23)
+Document: docs/reports/cooperation-tier-2026-10-23.md
+Engines: Codex (`codex exec --sandbox read-only - < prompt`, kill watchdog) and an independent Claude subagent, both
+read-only, the same prompt per round. Prompts are reproduced below each round header.
+
+=====================================================================================================================
+ROUND 0 -- PRIOR-ART SEARCH (10-23 ~14:30Z, an independent Claude research subagent, web search + fetch of papers,
+repositories and issue trackers). Its findings are summarised in section 2 of the design. Items it could not verify
+are marked there (HAS, S-Agents, TERMES build-order detail, LbMAS-style blackboard gains). It read papers through a
+fetch-and-summarise tool, so some figures are second-hand; figures read off plots are marked "approx.".
+Sources named: arXiv 2411.00114 (Project Sid; github.com/altera-al/project-sid: PDF + video, no code), 2305.16291
+(Voyager; issues #164 #169 #182 #183 #185 #186 #194; github.com/JVP15/Voyager-LLM-Trials), 2504.17950 (MineCollab;
+github.com/mindcraft-bots/mindcraft issues #30 #187 #739 #780 #786 #790, fork claims #808 #810), 2403.19267 (MineLand),
+2412.05255 (TeamCraft), 2406.05720 (VillagerAgent; issues #2 #10, PR #11), 2309.09971 (MindAgent), 2402.04578
+(S-Agents), 2403.08282 (HAS), 2309.15943 (Chen et al.), 2510.23824 (LLM v heuristic assignment), 2512.02810,
+2504.02051, 2304.03442 (Generative Agents), 2510.01285 (blackboard), Gerkey & Mataric 2004 (IJRR 23(9)), Werfel et
+al. 2014 (TERMES, Science).
+
+=====================================================================================================================
+ROUND 1 -- on r1 (1a4c7139). Prompt (both engines):
+
+You are an independent reviewer of a DESIGN DOCUMENT in this repository (read-only review; do not modify any file).
+
+Document: docs/reports/cooperation-tier-2026-10-23.md
+Its measurement scripts and outputs: docs/reports/cooperation-2026-10-23/tools/*.py.txt and docs/reports/cooperation-2026-10-23/data/*
+Read CLAUDE.md first (the repo's working rules: positive controls, denominators, difference-in-differences, no dead ends for refusals, done means read on the fleet, KEEP must not mean "nothing objected").
+
+It must BUILD ON (not redo) these approved designs, which you should read where relevant:
+- docs/reports/overseer-assigner-design-2026-10-19.md (r3: S0 census first, role leases that only reorder, validator, ITT primary, Paper oracle)
+- docs/reports/comms-design-2026-10-21.md (typed town ledger, stage 2 chat, Contract Net later)
+- docs/reports/shadow-mayor-plan-2026-10-03.md and docs/reports/jobs-mayor-spec-2026-09-29.md (the deterministic mayor tied random on all duties)
+- docs/reports/town-plan-2026-10-20.md (townindex, ring@1 workshop plot)
+- docs/reports/ziggurat-mineshaft-2026-10-15.md section 3.3 (monument-01 slot/segment leases)
+- scripts/host/staffcensus.py (S0) and scripts/host/RULE.md (verdict rules, v25)
+- bots/src/townindex.mjs (the index record formats)
+
+The owner's task: design the cooperation tier (the overseer as job assigner; the comms ledger stage 1 on townindex records; a first multi-bot build project; measurement and canary plan; prior art). Owner answers designed to: C11 a frontier model (Claude or GPT) is the overseer, shadow first then live in a few towns; C12 $150/month cap with a hard spend guard that stops the overseer, not the bots; C13 flexible jobs with a soft preference, not fixed roles; C14 2-3 bots build their town's workshop together (the parallel building-tier design owns the blueprint and the structure count); deep miners (1-2 per town) from a parallel mineshaft design are assigned by this job assigner. Constraint: a bot must never wait on an assignment it cannot perform from where it is.
+
+Review for:
+1. Correctness of the measurements: do the scripts compute what the document says? Denominators, positive controls, timing rules (skill rows stamped at START with END snapshots; event rows at emission), attribution logic in indexflow (obs/dirty/xfer), overlap sweeps, the explore-duplicate outcome comparison, and any overclaim. Check numbers in the doc against data/*.out.
+2. The job assigner: is it genuinely different from the shadow mayor in ways that matter? Dead ends (refusal chains, starvation, a lease to an infeasible job, overseer outage, budget exhaustion). Lease/claim/fence semantics vs r3 and monument-01. Is the soft preference safe?
+3. The spend guard and cost estimate: arithmetic, token estimates, whether the guard truly enforces the cap (pre-call worst case, post-call ledger, failure modes), and whether stopping the overseer leaves bots safe.
+4. The ledger: consistent with the comms design and with townindex as shipped? Does each type have a consumer and a decision it changes?
+5. The workshop interface with the building tier and the deep-miner interface with the mineshaft design: are they sufficient, minimal, and free of shared mutable state? Is "2 builders first" justified?
+6. Measurement/canary plan: tiers, ITT, the effect line under verdict.py v25 semantics (check RULE.md and scripts/host for how own_lines with on_fail REVERT and no evidence behave), exposure, power, the horizon problem, Paper arms. Does it avoid "KEEP means nothing objected"?
+7. Prior art: accurate and honestly labelled?
+
+Output: a verdict line "VERDICT: APPROVE" or "VERDICT: CHANGE", then numbered findings each tagged P1 (must fix: wrong, unsafe, or a dead end), P2 (should fix), or P3 (minor), each with the file/section and a concrete fix. Be specific and terse. Do not rewrite the document.
+
+
+--- CODEX r1 (final answer) ---
+VERDICT: CHANGE
+
+1. **P1 — §3.8, spend guard:** Checking billed spend before sending does not reserve money for pending Batch requests, concurrent calls, or requests billed despite a timeout/crash. The $150 cap is therefore unenforced. Persist an atomic worst-case reservation before dispatch; include outstanding reservations in both limits; retain uncertain charges until reconciled; test concurrent submissions, restart, timeout, and month rollover.
+
+2. **P1 — §§3.3, 4.2, 5.2, SUPPLY:** `need = BOM − site chest − town stock` suppresses hauling precisely when town stock can satisfy the project. With 64 planks needed, 64 in town, and an empty site chest, SUPPLY is ineligible. Separate **site delivery deficit** from **town acquisition deficit**, use the remaining BOM, exclude the site chest from other-town stock, and preserve material reserves.
+
+3. **P1 — §§3.6, 5.6, unreachable-cell remedy:** An unreachable segment fails eligibility, yet its remedy requires three builder visits. The design supplies no executable path that generates those visits. It also overstates monument-01: §3.3 requires cover obligations and explicitly permits a safety stall. Define a reachable inspection/recovery path and let the building tier own safe waiver and completion predicates; remove “never a stuck segment.”
+
+4. **P1 — §1.1; `tools/indexflow.py.txt`:** FIFO/LIFO are allocation scenarios, not bounds on other-bot provenance. Pooling all containers also permits attribution to deposits in a different chest without a transfer. Compute feasible provenance per container with explicit transfers and conservative unknowns, or relabel 51–62% as illustrative scenarios and withdraw the bounded-provenance claim.
+
+5. **P1 — §§5.3, 5.5, cross-funded cells:** A withdrawal by B does not establish that B placed that material: its bag may already contain identical blocks, and subsequent crafting, deposits, losses, and other placements intervene. Add conservative bag-level accounting through placement, including transformations and unknown provenance, or measure cross-bot withdrawals separately from witnessed cells.
+
+6. **P2 — §1.2; `tools/visits.py.txt`:** The explore outcome tests a substring in successful gather arguments, not harvesting the headed-for location. It timestamps success at gather **start**, permits one gather to credit several explores, and gives end-of-window explores incomplete follow-up. Use exact parsed item matching, completion-time outcomes, explicit attribution and censoring; label the result “same-type gather” unless location is verified.
+
+7. **P2 — §1.2; `tools/coop.py.txt`:** The overlap calculations use fixed neighboring-row limits (200/300/400), not complete interval sweeps. Long-running actions can be missed. The headline also calls a fraction of **run starts** a fraction of **time**, and low overlap alone does not establish that leases caused it. Use an active-interval sweep, distinguish run incidence from overlap duration, and retain descriptive wording.
+
+8. **P2 — §§3.4, 4.2; `tools/snapshot.py.txt`:** The snapshot is not a faithful townindex input: it ignores dirty operations/checkpoints/world identity, includes stale stock in totals, invents eligibility for every positioned bot, and reads skill END inventories using START timestamps. Empty inventories are also discarded by extraction. Label these fields synthetic for sizing, then require the shipped index fold and completion-aware snapshots before eligibility or shadow validation.
+
+9. **P2 — §1.6/B0, S0 adapter:** Absence of a project action row for 24 hours does not prove absence of project code. A deployed but starved project would disappear from the census, concealing the condition S0 must measure. Establish capability from deployed build/feature configuration or an unconditional capability heartbeat; retain inactive open projects as stalled, with zero production.
+
+10. **P2 — §§0, 3.1, shadow-mayor diagnosis:** “Any eligible bot does them equally well” and “the duties had no selection content” contradict approved r3 §1.1. GET_WOOD had selection content; the particular rule tied random. Restore that distinction. Likewise, reduced coal/iron refusals do not establish that **all** self-maintenance headroom is gone.
+
+11. **P2 — §§3.4–3.6, 5.4, lease interfaces:** Specify binding to world, project identity/version, segment and source snapshot, plus rejection of delayed responses after revocation or project advancement. Define how the host obtains fresh local eligibility facts—especially walk probes—and how unknown facts fail eligibility. Retain monument-01’s renewal **before each step**, fence check before mutation, and TTL-plus-slack reclaim explicitly.
+
+12. **P2 — §6/B7, inherited gates:** Carry forward r3’s concrete requirements: ≥60 assignable canary town-hours, power for the lower bound clearing +15% at a true +30% effect, census-outage deadline extension, and **rung** completion displacement protection. Craft completions are not a substitute for rung completions. The proposed v25 effect-line behavior is correct, but provide a fixture-tested registration, including the strict threshold encoding supported by `verdict.py`.
+
+13. **P2 — §§2, 5.1, prior-art conclusions:** “Every action-measured Minecraft result gets worse past 2 agents” is false: VillagerAgent Table 6’s Task64 improves from two to four agents. Two builders is a reasonable initial setting, not an established optimum. The assignment paper also studies decentralized rankings with deterministic conflict resolution, not this central overseer. Narrow both claims to their tested settings. [VillagerAgent Table 6](https://arxiv.org/html/2406.05720v1), [assignment study](https://arxiv.org/html/2510.23824v1).
+
+14. **P2 — §3.8, operating estimate:** The $98/month arithmetic describes 30 days at baseline cadence. The permitted event-call rate doubles it to about $196 before additional re-asks; the guard would interrupt the advertised service. Budget baseline, event calls, re-asks and Paper calls together, and state expected treatment downtime under the daily allowance.
+
+15. **P3 — §§0, 1.4, 7, co-presence:** Three bots are together in 1,323 town-minutes across 13 towns—about 102 minutes per town-day. The 3–9 minutes is the **longest continuous stretch**, not total daily presence. Correct every shortened claim using it to justify two builders.
+codex exit 0
+
+--- CLAUDE r1 (independent subagent; final message) ---
+VERDICT: CHANGE
+
+**P1 (must fix)**
+
+1. **§3.4 validator, §3.6, system_prompt.txt: as written, leases almost never reach a bot that can act on them.** The validator refuses BUILD and SUPPLY to an away bot. The design's own data says a bot is at town 20.3% of the time with a median 2-minute stay (visits.out). The overseer is called every 30 minutes. Each 5-minute tick drops any leased bot that has since left. So a lease goes to a bot that is gone within about 2 minutes. The hive-a sample snapshot shows the problem: all 5 bots have `at_town:false`, Bravo is flagged entombed, yet every bot lists `BUILD:seg2` as eligible. **Fix:**
+   - Make BUILD and SUPPLY "next-visit" leases. Issuing one needs only the safety, material and slot checks, not presence at town.
+   - The lease acts only inside the bot's town-job chain when it next arrives. It never causes travel, so it is not RECALL.
+   - Arrivals are frequent (median 105 a day per bot), so a 30-minute TTL usually meets one. Measure that rate first: the 105 includes passing the 48-block edge.
+   - Add a shadow gate: the share of leased bots that arrive within TTL.
+   - Make the snapshot's `eligible` list the validator's filtered output, so the model never sees an ineligible choice.
+
+2. **§4.2 `need` and §3.3 / §5.2 SUPPLY: SUPPLY from a town chest can never become eligible.** `need` is defined as BOM − site chest − known town stock. Any item held in another town chest therefore lowers `need`, and SUPPLY needs `need > 0`. In the fixture, cobblestone is 96 needed, 32 at site and 831 in town, so need is 0. The BOM is also not net of cells already placed (61 of 135 are done). **Fix:** use two quantities.
+   - `to_site(item)` = material for the open cells − site chest. This drives SUPPLY from a bag or a chest.
+   - `short_town(item)` = `to_site` − fresh town stock elsewhere. This drives craft or gather, and `unstaffed: no_source`.
+
+3. **§0.1, §0.C14, §5.1, §7 C14: "three together 3-9 min a day" misreads the data.** 3-9 minutes is the *longest unbroken stretch* (visits.out). In total, three or more bots are at town together for 1,323 town-minutes, about 102 minutes per town per day; two or more for about 394. This figure is used to push back on an owner answer. **Fix:** report both numbers. The case for asynchronous building still holds, but on the 2-minute stays.
+
+4. **§5.2 / §5.3: the site chest is shared mutable state.** The claim of "no shared mutable state" holds only for the project record. The site chest is an ordinary town container (16 h / 12 v of home), so other jobs can still use it:
+   - town_deposit can fill it;
+   - withdraw checks every town chest (owner 10-16);
+   - toolkit searches every chest;
+   - `allocateHomes` classes every container as home, overflow or drain, so the sort can empty it.
+
+   Any of these can drain or fill it and stall SUPPLY. They also make cross-funded cells unattributable. **Fix:** the siting file declares the site chest as a reserved container. townindex consumers, `allocateHomes` and every deposit, withdraw and dispose target-picker exclude it, except SUPPLY and the builder. Add a composed test: a baseline town_deposit and toolkit run beside a site chest leave it untouched.
+
+**P2 (should fix)**
+
+5. **§1.1, indexflow: FIFO and LIFO are not bounds.** They are two orderings, and their denominators differ (149 vs 279 window-deposited units). Pooling at town-by-item level also lets a withdrawal from chest K be credited to a deposit into chest J. **Fix:** do provenance per container. Compute the true minimum and maximum other-bot share by greedy assignment within each container. Report the denominator with each share.
+
+6. **§0.1, §1.2: the explore "duplicate" is co-targeting, not duplicated effort.** Every heading is `iron_ore` (checked on hive-a), and explore re-aims every leg, so the unit is a leg. 69.4 bot-h is not time a claim would save; the bot would explore elsewhere. I re-ran the outcome as a bag delta (raw_iron rises within 10 minutes of the explore run's end) as the missing positive control. It agrees: 95 of 7,800 fresh (1.22%) against 50 of 9,270 peer (0.54%). **Fix:**
+   - Add that control.
+   - State the effect as harvests (about 54 a day at most), not bot-h.
+   - Drop "large".
+
+7. **§0.1, §1.3: "There is no idle labour pool" overclaims.** S0 counts 612 of 977 at-town bot-h as free (63%). The gap classes are upper bounds, not uses of the time. **Fix:** say the census cannot locate idle labour, and quote the S0 free share.
+
+8. **§0.2, §3.1: "every snapshot is scored against greedy and random" overclaims.** Live, only the frontier's leases are delivered, so the greedy and random choices have no outcome. **Fix:** say "compared for divergence". Scoring happens only in the Paper arms (6 pairs).
+
+9. **§3.8 cost and guard.**
+   - The tables assume 1 call per town per 30 minutes, but up to 2 are allowed. At 2, live in 4 towns costs $6.53/day ($196/month), over the $5/day allowance. The allowance would then cut the overseer off late in each UTC day: treatment downtime that tracks time of day.
+   - **Fix (budget):** cost the worst allowed cadence plus the 10% re-asks. At B7 launch, reserve the whole horizon's worst case, and refuse to launch if it does not fit.
+   - **Fix (guard):**
+     - Write a reservation of the worst case before each send and keep it until the billed usage arrives. This covers Batch jobs in flight and timeouts with no usage returned.
+     - Set the SDK's `max_retries=0`, or reserve each retry.
+     - Automate reconciliation through the vendor's usage/cost API, or stop the service when no reconciliation is recorded in 36 h. As written it depends on a human doing a daily job.
+     - Spell out that "stops the service" still writes empty generations.
+
+10. **§3.9 shadow through Batch: the shadow sees different inputs than live would.** Replies arrive late, so `last_gen`, event-triggered calls and the 30-minute no-re-lease cannot be reproduced. **Fix:** run the shadow in real time in 3 towns. That is 144 calls/day at $0.017, the same $2.45/day.
+
+11. **§3.3 / §3.4: the validator cannot run "the same eligibility the bot runs".** `buildEligible` includes a walk-probe reachability check the host cannot compute (r3 says so). The functions are JavaScript; the validator is Python. **Fix:** the validator calls the exported JS functions through node on the host-computable inputs only, reachability stays bot-side, and a parity test covers the two.
+
+12. **§3.3 SUPPLY and BANK are new code with no build step and no refusal-chain test.** SUPPLY is withdraw → deposit or craft → deposit; BANK changes to sort BOM items into the site chest. A failure loop exists: withdraw, find the site chest full, BANK puts the items back, SUPPLY runs again. The 30-minute rule only covers leases. **Fix:** add a build row naming the owner. Check room again right before the deposit. Add a composed chain test of that loop.
+
+13. **§6.2 Paper arms: the scene must reproduce how bots come and go.** It needs the fleet's 20% at-town share and its arrival rate. Otherwise the oracle shows headroom in a world where everyone is present.
+
+14. **§6.3 B7 registration.**
+    - Name the exposure field (leases honoured within TTL that end in a witnessed placement or a verified site deposit) and the licence class (`kind`: the `_role_*` rows).
+    - The +15% is a ratio and the line is not nullable. A town with zero pre-period cells makes it UNREADABLE at every read (v24). Require drawexposure's non-degenerate pre-period, or register an absolute bar.
+    - State that B7 holds the one slot for up to 7 days, so the queued next structures must already be promoted before it launches.
+    - The v25 claim itself checks out: verdict.py appends a failing evidence-less REVERT line to `blocked` → INCONCLUSIVE, even under a `rate` licence.
+
+15. **§1.6 B0: "a row of its own kind in 24 h" conflates code that was not run with code that is absent.** **Fix:** decide by build-sha ancestry against the project's merge commit.
+
+16. **§5.3 / §5.5: cross-funded cells are undefined while builders carry 100+ cobble of their own.** **Fix:** define an interval from the builder's bag stock and its site-chest draws, or measure units non-builders delivered to the site chest that builders then consumed.
+
+**P3 (minor)**
+
+17. **§Sources "Builds in the window":** the list misses f39471bb (keepout-01, promoted 13:22Z 10-22) and 2719ee0e (ironpick-01). extract.json shows 5 builds.
+18. **ES cross-check:** "every count identical", but `_explore_toward_known` is 17,112 v 17,113, and gather was not compared.
+19. **§1.2 "the leases work":** there is no chance null. Under independence the expected overlap is about 0.4% for deposit (measured 0.25%) and about 2.3% for smelt_town (measured 6.5%). Low overlap here is rarity, not lease evidence.
+20. **indexflow zeros:** "0 ambiguous" and no-change ops come from Counter keys that are simply absent. Print explicit zeros. Make the xfer control test the attribution path: chosen (b0, a0) equals (pre, ver), and the attributed bot equals `xfer.bot`.
+21. **§1.5:** the "what took it" column is a before/after, so label it descriptive. indexsearch-01 could not have acted inside the window.
+22. **§4.3:** the derived `need` is not an addition; comms 4.2 already derives it.
+23. **B2 (ledger-01) scope.**
+    - It ships `progress` and `lease` writers before anything on the fleet produces those entries: no builder until B4, no lease reader until B5. Scope B2 to `station` plus the `claim` mirror.
+    - `lease` has two writer classes and duplicates `_role_released`. Pick one source.
+    - `death`, `fire_site` and `hazard` change no decision, so defer them.
+24. **§2 cross-cutting #1:** "gets worse past 2" overstates the evidence. VillagerAgent was flat at 4 agents (100% completion, 17.41 v 17.75 %/min). Justify starting at 2 builders by local co-presence and lower lease risk, not prior art.
+25. **§6.2:** "frontier only if not below greedy" needs a pre-registered rule.
+26. **§3.6:** after 2 stalls the validator stops re-issuing a job; define what resets that.
+27. **§5.1:** the town plan measured 5x3 / 5x2 / 4x2 strips, while the fixture is sized like a 7x5 enclosed building. Ask the building tier to check that footprint fits.
+28. **§3.8 prices and backstop:** the price table was cached 09-25, so re-verify Claude prices too. Make a dedicated workspace or key with its own vendor limit at the cap a requirement, not an option.
+29. **B7 defect gate:** define "lease to a flagged bot" at issue time.
+30. **Header:** this analysis started while indexsearch-01 was deployed and unread. Record the `check-open-loop.py` status.
+
+**Checked and correct:** every other figure I checked against data/*.out matches, including all the cost arithmetic and the 158 town-hours. The timing rules (skill rows read start + duration, positions only from event rows, gather/mine on end positions) are applied correctly in coop.py, visits.py and gaps.py. The indexflow attribution logic is sound apart from findings 5 and 20. Nothing was modified. The only host access was two `nice -n 19` read-only Python runs over `~/coop-1023/out`.
+
+r2 CHANGES: every finding taken; listed in section 8 of the design.

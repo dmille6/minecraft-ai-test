@@ -1,0 +1,111 @@
+# cooperation design 2026-10-23, r2 additions after review round 1 (Claude P1-1, P3-19, P3-20). Read-only.
+#  [A] next-visit leases: from uniform minutes when a bot is AWAY from town and unflagged, how often is it inside the
+#      town-job radius (16 horizontal / 12 vertical of home: chestfull inTown) for >= 2 consecutive minutes within the next
+#      15 / 30 min? (A pass across the 48-block edge is not an arrival.)
+#  [N] chance null for concurrent town jobs: under independence, the expected share of a run's start falling inside a
+#      townmate's run of the same job = (townmates' total body time in that job) / window, averaged over runs.
+#  [V] the verified-transfer control through the ATTRIBUTION path: for each verified xfer (ok=1), the op the flow
+#      script attributes must bracket exactly the xfer's own pre and ver observations, and its bot must be the xfer's bot.
+import gzip, json, glob, os, re, math, bisect, random, collections, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+TRAP = re.compile(r'entomb|strand|maroon|trapped|wedged|reflex_stuck|flooded_pocket|drown|lava_adjacent|_death$')
+JOBS = ('smelt_town', 'furnace_drain', 'toolkit', 'deposit', 'town_deposit', 'withdraw_pick', 'dispose_well', 'compost')
+random.seed(1023)
+
+def end(r):
+    return r['t'] + ((r.get('dur') or 0) / 1000.0 if not r['k'].startswith('_') else 0.0)
+
+def homeof(pool):
+    f = glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')[0]
+    return tuple(int(v) for v in re.search(r'town-index-(-?\d+)_(-?\d+)_(-?\d+)\.g', f).groups())
+
+A = collections.Counter(); N = collections.Counter()
+for pool in POOLS:
+    home = homeof(pool)
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    rows.sort(key=lambda r: r['t'])
+    per = collections.defaultdict(list); flag = collections.defaultdict(list)
+    for r in rows:
+        if r.get('bot') and r['k'].startswith('_'):
+            if r.get('p'):
+                per[r['bot']].append((r['t'], r['p']))
+            if TRAP.search(r['k']):
+                flag[r['bot']].append(r['t'])
+    M0, M1 = int(T0 // 60) + 1, int(T1 // 60) + 1
+    for b, lst in per.items():
+        ts = [x[0] for x in lst]; ft = flag[b]
+        inner = []
+        for m in range(M0, M1):
+            j = bisect.bisect_right(ts, m * 60) - 1
+            p = lst[j][1] if j >= 0 and m * 60 - ts[j] <= 600 else None
+            inner.append(None if p is None else (math.hypot(p[0] - home[0], p[2] - home[2]) <= 16 and abs(p[1] - home[1]) <= 12))
+        for i in range(len(inner)):
+            if inner[i] is not False or i + 30 >= len(inner):
+                continue
+            t = (M0 + i) * 60
+            k = bisect.bisect_right(ft, t) - 1
+            if k >= 0 and t - ft[k] <= 300:
+                A['away_flagged'] += 1; continue
+            A['away_unflagged'] += 1
+            for W in (15, 30):
+                win = inner[i + 1:i + 1 + W]
+                if any(win[x] and win[x + 1] for x in range(len(win) - 1)):
+                    A[f'arrive_{W}'] += 1
+    # chance null
+    for k in JOBS:
+        runs = [r for r in rows if r['k'] == k and r.get('dur') is not None and r.get('bot')]
+        busy = collections.Counter()
+        for r in runs:
+            busy[r['bot']] += (r.get('dur') or 0) / 1000.0
+        tot = sum(busy.values())
+        for r in runs:
+            N[(k, 'runs')] += 1
+            N[(k, 'expected')] += min(1.0, (tot - busy[r['bot']]) / (T1 - T0))
+    del rows
+
+V = collections.Counter()
+for pool in POOLS:
+    recs = []
+    for f in glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl'):
+        for l in open(f, errors='replace'):
+            try:
+                r = json.loads(l)
+            except Exception:
+                continue
+            if r.get('t') in ('obs', 'dirty', 'xfer') and r.get('at') and r['at'] < T1 * 1000:
+                recs.append(r)
+    recs.sort(key=lambda r: (r['at'], r['id']))
+    obs = collections.defaultdict(list); ops = collections.defaultdict(dict)
+    for r in recs:
+        if r['t'] == 'obs':
+            obs[r['k']].append(r)
+        elif r['t'] == 'dirty':
+            o = ops[r['k']].setdefault(r.get('op') or r['id'], {'bot': r['bot'], 'pre': None, 'post': None})
+            o[r.get('phase') or 'pre'] = r['at']
+    for x in recs:
+        if x['t'] != 'xfer' or not x.get('ok'):
+            continue
+        V['verified'] += 1
+        o = ops[x['k']].get(x['op'])
+        if not o:
+            V['no_op_marks'] += 1; continue
+        lst = obs[x['k']]
+        pa, po = o['pre'] or o['post'], o['post'] or o['pre']
+        b0 = [q for q in lst if q['at'] <= pa][-1:]
+        a0 = [q for q in lst if q['at'] >= po][:1]
+        ok = bool(b0 and a0 and b0[0]['id'] == x['pre'] and a0[0]['id'] == x['ver'] and o['bot'] == x['bot'])
+        V['bracket_equals_pre_ver_and_bot' if ok else 'bracket_differs'] += 1
+
+print('== [A] next-visit leases: an away, unflagged bot-minute -> inside 16 h / 12 v of home for >= 2 consecutive minutes')
+print(f"  away bot-minutes {A['away_unflagged'] + A['away_flagged']}: flagged {A['away_flagged']}, unflagged {A['away_unflagged']}")
+for W in (15, 30):
+    print(f"  arrives within {W} min: {A[f'arrive_{W}']} of {A['away_unflagged']} ({100*A[f'arrive_{W}']/A['away_unflagged']:.1f}%)")
+print('== [N] chance null for "a run starts inside a townmate\'s run of the same job" (independence; the drain not keyed by furnace)')
+for k in JOBS:
+    n = N[(k, 'runs')]
+    print(f"  {k:14s} runs {n:5d}  expected under independence {100*N[(k, 'expected')]/max(n,1):.2f}%")
+print('== [V] verified transfers through the attribution path:', dict(V))
