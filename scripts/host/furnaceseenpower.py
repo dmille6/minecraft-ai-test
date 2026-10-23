@@ -12,11 +12,12 @@
 # NOT MODELLED, and stated with the result: verdict.py's tier-2 clean-baseline rule (the 4 pools on the controls' build for
 # max(240, M) min before the cut), which a +2880 tier-2 KEEP also needs.
 import sys, os, glob, random, bisect, math
+from collections import Counter
 import datetime as dt
 from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
-from furnaceseenread import fields, repeat_empties, effect_line, eligible_controls, PRE_MIN, MIN_POOL_BH, REPEAT_MS   # noqa: E402
+from furnaceseenread import fields, repeat_empties, effect_line, eligible_controls, contamination, PRE_MIN, MIN_POOL_BH, REPEAT_MS, CONTAM_BUCKET_MS   # noqa: E402
 
 SELFTEST = sys.argv[1:2] == ['--selftest']
 HOURS = float(sys.argv[1]) if len(sys.argv) > 1 and not SELFTEST else 120
@@ -29,6 +30,7 @@ random.seed(20261023)
 def load(pool, since, until):
     from lib.telemetry import Events
     drains, loads, per_bot = [], [], defaultdict(list)
+    vers = defaultdict(Counter)      # bucket -> {version: rows} (the read's contamination input)
     files = glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl*')
     for fpath in files:
         for r in Events.load(paths=fpath, since=since, until=until).rows:
@@ -37,6 +39,9 @@ def load(pool, since, until):
                 continue
             ms = int(t.timestamp() * 1000)
             per_bot[b].append(ms)
+            v = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+            if v:
+                vers[ms // CONTAM_BUCKET_MS][v] += 1
             k = (((r.get('raw') or {}).get('skill') or {}).get('name')) or ''
             if k == '_furnace_drain':
                 f = fields(r.get('detail'))
@@ -54,7 +59,7 @@ def load(pool, since, until):
             if j > i:
                 h += (ts[j] - ts[i]) / 3600_000
         return h
-    return sorted(drains), sorted(loads), span_bh
+    return sorted(drains), sorted(loads), span_bh, vers
 
 
 def repeats_with_flags(drains, loads):
@@ -127,12 +132,17 @@ def main():
             W = fin * 60000; P = PRE_MIN * 60000
             if u_ms - s_ms < P + W:
                 print(f'  +{fin}: no history'); continue
-            hits = runs = 0
+            hits = runs = cuts = unreadable = 0
             for _ in range(SIMS):
                 t = random.randint(s_ms + P, u_ms - W)
                 pre_n = {p: len(sl(ftimes[p], ftimes[p], t - P, t)) for p in pools}
-                el, _ = eligible_controls(pre_n, {}, set())
+                # THE READ'S CONTAMINATION RULE at this cut (Codex r3 P2): the pre-period's version counts per bucket and pool
+                b0, b1 = (t - P) // CONTAM_BUCKET_MS, t // CONTAM_BUCKET_MS
+                contam = contamination({(bk, p): data[p][3][bk] for p in pools for bk in range(b0, b1) if bk in data[p][3]})
+                el, _ = eligible_controls(pre_n, contam, set())
+                cuts += 1
                 if len(el) < 6:
+                    unreadable += 1      # fewer than 4 clean canary pools + 2 clean controls: the run would read UNDEFINED
                     continue
                 can = random.sample(el, 4)
                 ctl = [p for p in el if p not in can]
@@ -152,6 +162,8 @@ def main():
             if runs:
                 ph = hits / runs; ci = 1.96 * math.sqrt(ph * (1 - ph) / runs)
                 indep = max(1, int((u_ms - s_ms - P - W) // W) + 1)
+                print(f'    cuts {cuts}: {unreadable} ({unreadable / max(1, cuts):.2f}) had too few CLEAN pools (contamination) to draw -- such a run reads UNDEFINED; '
+                      f'KEEP over ALL cuts {hits}/{cuts} = {hits / max(1, cuts):.3f}')
                 print(f'  {"POWER" if e else "NULL "} removal {e:.2f}  +180/+{fin}: {hits}/{runs} = {ph:.3f} (binomial 95% {max(0, ph - ci):.3f}-{min(1, ph + ci):.3f}; '
                       f'NOT binomial in truth: the cuts share history -- about {indep} non-overlapping post-window(s) in the range)')
 

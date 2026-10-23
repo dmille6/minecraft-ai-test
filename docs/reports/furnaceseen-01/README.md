@@ -35,7 +35,26 @@ The furnace drain skips the walk to a furnace a TOWNMATE found empty less than 6
 
 ## Power (pre-launch simulation, `scripts/host/furnaceseenpower.py`; logs here)
 
-### r3: the result that stands (`power-r3-120h-400sims.log`)
+### r4: the result that stands -- the read's contamination rule applied (`power-r4-contamination-120h-400sims.log`)
+- **The method.** At each simulated cut, the simulation now applies the read's own contamination rule to the 24 h
+  pre-period (Codex r3 P2): more than 5% of a pool's rows off the fleet majority of their 10-min bucket.
+- **The result.** In 92-95% of cuts over the last 120 h, fewer than 4 clean canary pools plus 2 clean controls exist.
+  Such a run reads UNDEFINED. **Over all cuts, KEEP is 0/400 for every schedule, even at full removal.** The null is
+  also 0/400.
+- **So in today's lane (one canary after another, tier-2 pools reused after 240 min), furnaceseen-01 as designed cannot
+  be read at all.**
+- **The cause** is the 24 h frozen pre-period plus the contamination rule. Both are needed so that a predecessor
+  canary's build cannot fake an effect (Claude r2 P2-2).
+- **Recorded in advance:** registered as designed, furnaceseen-01 closes UNREADABLE / INCONCLUSIVE. It should not be
+  queued as is.
+- **Options for the owner.** Each changes the design, so each would need its own review:
+  - a 24 h draw cool-off for this run, or a launch preflight that the drawn pools are clean (Claude r3 P3-2);
+  - a shorter frozen pre-period (it is 24 h), which is noisier;
+  - a proportional statistic, a lower bar, or more pools (tier 3);
+  - tier 1, a correctness change with the D1 defect line as its tripwire. The change is small and observe-and-skip
+    only, and B2's ledger already measures the opportunity (`repeat_empty_other_bot`).
+
+### r3 (superseded: contamination not modelled) (`power-r3-120h-400sims.log`)
 r3 fixes three things in the r2 simulation:
 - **The treated trajectory is sequential.** Removing B@10 makes B@20 compare to A@0, which is retained, so B@20 is
   skipped too (Codex r2 P2-1). There is a fixture for this.

@@ -220,18 +220,18 @@ def eligible_controls(pre_drains, contaminated, cans, min_pre_drains=MIN_PRE_DRA
     return elig, dropped
 
 
-def contamination(rows_by_hour, share=CONTAM_SHARE):
-    """PURE. {(bucket, pool): {version: rows}} over the pre-period -> {pool: why} for the pools whose rows were OFF THE FLEET'S
-    MAJORITY BUILD of that hour in more than `share` of their pre-period rows (another canary's build; a fleet-wide promotion
+def contamination(rows_by_bucket, share=CONTAM_SHARE):
+    """PURE. {(bucket, pool): {version: rows}} over the pre-period (CONTAM_BUCKET_MS buckets) -> {pool: why} for the pools whose
+    rows were OFF THE FLEET'S MAJORITY BUILD of their bucket in more than `share` of their pre-period rows (another canary's build; a fleet-wide promotion
     moves the majority with it, so it contaminates nothing)."""
     maj = {}
     by_h = defaultdict(Counter)
-    for (h, p), vs in rows_by_hour.items():
+    for (h, p), vs in rows_by_bucket.items():
         by_h[h].update(vs)
     for h, c in by_h.items():
         maj[h] = c.most_common(1)[0][0] if c else None
     off, tot = Counter(), Counter()
-    for (h, p), vs in rows_by_hour.items():
+    for (h, p), vs in rows_by_bucket.items():
         for v, k in vs.items():
             tot[p] += k
             if v != maj.get(h):
@@ -252,8 +252,8 @@ def effect_line(rates, cans, controls):
     if gone:              # SYMMETRIC with the canary: a frozen control without evidence is never silently dropped (Codex r2 P2-2)
         return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'control pool(s) without both rates: %s' % ','.join(sorted(gone))}
     ctl = list(controls)
-    if len(ctl) < 2:
-        return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'fewer than 2 control pools'}
+    if len(ctl) < 4:      # with 2-3 controls the smallest one-sided p is 1/C(n,4) > alpha: the bound could never pass (Claude r3 P3-3)
+        return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'too few controls for alpha (%d < 4)' % len(ctl)}
     ch = lambda p: rates[('post', p)] - rates[('pre', p)]
     R, lb = lower_bound([ch(p) for p in sorted(cans)], [ch(p) for p in ctl])
     bar = BAR_SHARE * sum(rates[('pre', p)] for p in cans) / len(cans)
