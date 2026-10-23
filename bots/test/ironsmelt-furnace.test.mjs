@@ -125,7 +125,7 @@ const abortMidWithdraw = async S => {
 await t('ABORT MID-WITHDRAW (Codex code r1 P1): a verified take of 5 raw iron, then the next walk aborted -> the row is the iron job\'s (in=fe withdrawn=5 stop=interrupted)', async () => {
   await abortMidWithdraw(S0)
 })
-await t('AN ERROR AFTER THE TAKE (Claude design r1 P2-5): the iron job\'s error exit still banks the town\'s iron; the bag keeps its own; stop=error', async () => {
+const errorAfterTake = async S0 => {
   const w = town({ bag: [stack('cobblestone', 3), stack('raw_iron', 3), stack('iron_ingot', 2)], stock: { [kOf(FAR)]: [stack('raw_iron', 8), stack('coal', 4)] } })
   const fb = w.bot.findBlock
   w.bot.findBlock = o => { if (count(w.bag, 'raw_iron') > 3) throw new Error('a world read failed'); return fb.call(w.bot, o) }
@@ -135,6 +135,9 @@ await t('AN ERROR AFTER THE TAKE (Claude design r1 P2-5): the iron job\'s error 
   assert.equal(townTotal(w, 'raw_iron'), 8, `the town's 8 raw iron are back in town: ${row}`)
   assert.equal(count(w.bag, 'raw_iron'), 3); assert.equal(count(w.bag, 'iron_ingot'), 2)
   assert.equal(field(row, 'in'), 'fe', row)
+}
+await t('AN ERROR AFTER THE TAKE (Claude design r1 P2-5): the iron job\'s error exit still banks the town\'s iron; the bag keeps its own; stop=error', async () => {
+  await errorAfterTake(S0)
 })
 
 // ---- mutants -----------------------------------------------------------------------------------------------------------
@@ -143,6 +146,8 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
   kills.noAdopt = await withMutant(SKILLS_PATH, 'signal, w) } finally { adopt() }', 'signal, w); adopt() } finally { }', S => killedBy(() => abortMidWithdraw(S)))
   kills.fedUncapped = await withMutant(SKILLS_PATH, 'f.n = IN === SMELT_IRON_INPUT ? ironSmeltCount({ withdrawn: f.withdrawn, raw0, rawNow: have }) : Math.min(SMELT_JOB_BATCH, have)',
     'f.n = IN === SMELT_IRON_INPUT ? Math.min(SMELT_JOB_BATCH, have) : Math.min(SMELT_JOB_BATCH, have)', S => killedBy(() => ironShort(S)))
+  kills.noErrorBank = await withMutant(SKILLS_PATH, "      try { await bankCopper() } catch (e2) { if (e2?.aborted || signal?.aborted) { f.stop = 'interrupted'; throw e2 } /* else: the read counts town iron left in bags */ }\n",
+    '', S => killedBy(() => errorAfterTake(S)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
