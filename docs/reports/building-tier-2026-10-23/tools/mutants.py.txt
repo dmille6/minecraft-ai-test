@@ -4,7 +4,8 @@ unique before applying (CLAUDE.md: a mutant that silently fails to apply reads a
 mutant survives, its case line is missing from the output, the mutated selftest crashed, or the UNMUTATED selftest fails.
 Run from the tools directory."""
 import subprocess, sys, tempfile, os
-src = open('structcount.py.txt').read()
+INSTR = sys.argv[1] if len(sys.argv) > 1 else 'structcount.py.txt'     # the wrapper passes the SAME instrument it runs (Claude r4 P3)
+src = open(INSTR).read()
 muts = [
     ('house joined to a buried stair', "        rooms = rooms_of(w, comp, built)\n", "        rooms = rooms_of(w, comp, built) if bur <= 0.25 else []\n"),
     ('unlit lamp only', "    return bool(LIGHT_IF_LIT.match(n)) and str(w.props(x, y, z).get('lit', 'false')) == 'true'", "    return bool(LIGHT_IF_LIT.match(n))"),
@@ -19,7 +20,7 @@ muts = [
     ('plinth: disconnected cells', "found and n1 == len(found) and not room) else 'FAIL'", "found and not room) else 'FAIL'"),
     ('plinth: wrong block', "    found = [c for c in cells if built.get(c) in PLINTH_SEEN]", "    found = [c for c in cells if c in built]"),
 ]
-base = subprocess.run([sys.executable, 'structcount.py.txt', 'selftest'], capture_output=True, text=True)
+base = subprocess.run([sys.executable, INSTR, 'selftest'], capture_output=True, text=True)
 bad = 0
 if base.returncode != 0:
     print('UNMUTATED SELFTEST FAILS'); print(base.stdout[-2000:]); sys.exit(2)

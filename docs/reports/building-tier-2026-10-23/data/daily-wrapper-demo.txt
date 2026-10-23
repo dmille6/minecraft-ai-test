@@ -1,3 +1,15 @@
-daily.sh demonstration, 10.0.0.30 ~/structcount-1023, 2026-10-23 16:03Z
-run 1 (instrument as shipped): selftest + mutants pass, board-a scanned -> published demo-out/structcount-2026-10-23.json, status OK, exit 0
-run 2 (STRUCTCOUNT=broken.py: lit_at made state-blind by sed, 1 anchor replaced): "selftest FAILED: nothing published", exit 3; the published file is run 1's (5,433 bytes, unchanged); status.json -> UNKNOWN "selftest failed"
+daily.sh (r5) demonstrations, 10.0.0.30 ~/structcount-1023, 2026-10-23 16:46-16:47Z. The published file's checksum is printed
+after every run (`sum`): it must not change on any refusal.
+
+1 the instrument as shipped, board-a's region copy
+    published demo-out/structcount-2026-10-23.json (+ cells-2026-10-23.json.gz, structcount-last.json); status OK; exit 0
+    checksum 52652 6
+2 STRUCTCOUNT=broken.py (lit_at made state-blind by one sed replacement)
+    "selftest FAILED: nothing published"; exit 3; status UNKNOWN "selftest failed"; checksum 52652 6 (unchanged)
+3 a region directory that does not exist
+    "scan FAILED for board-a: nothing published"; exit 4; status UNKNOWN "scan failed: board-a"; checksum unchanged
+4 an output directory the wrapper cannot write (chmod 555)
+    "cannot create a temp dir in ro-out: nothing published"; exit 6; the files already there untouched
+5 a region directory that exists but lacks the home region file (the scan EXITS 0 and its JSON reads chunk_missing_region 169)
+    "INVALID board-a coverage {'chunk_missing_region': 169}; stamp control 0 < 90% of 186"; "INVALID scan for board-a:
+    nothing published"; exit 4; status UNKNOWN "invalid scan: board-a"; checksum 52652 6 (unchanged)

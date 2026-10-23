@@ -14,4 +14,4 @@ placebo-a   storage 16 containers | workshop YES trim=planks  windows=planks    
 placebo-b   storage 20 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
 placebo-c   storage 26 containers | workshop YES trim=copper  windows=planks     short=- | houses after it, one at a time: 3
 placebo-d   storage 13 containers | workshop NO  trim=copper  windows=planks     short=['fuel_planks'] | houses after it, one at a time: 0
-of 13 eligible towns: workshop admitted in 10 (8 with copper trim); houses admissible in sequence from today's town storage, no refill: 26 of 65 (per town [3, 2, 3, 3, 2, 0, 2, 0, 3, 2, 3, 3, 0]). Sand is 0 everywhere, so every window is the plank fallback until matset-01.
+PROVISIONAL (census proxy; the draw uses the index): of 13 eligible towns the workshop allocates in 10 (8 with copper trim); houses in sequence from today's town storage, no refill: 26 of 65 (per town [3, 2, 3, 3, 2, 0, 2, 0, 3, 2, 3, 3, 0]). Sand is 0 everywhere.

@@ -296,3 +296,62 @@ DISPOSITIONS r3 -> r4:
 - Claude P3s: probe with an empty hotbar slot (setQuickBarSlot, never unequip) or the pickaxe; never axe/shovel/hoe; never an
   interactable neighbour. Cold furnaces counted (tools/coldfurnace.py.txt): 34 of 35 town furnaces qualify today.
 """
+
+ROUND 4 (r4 doc, commit 0514d3b1)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round 3 status: **#1 remains unfixed; #2–#5 are partially fixed; #6 has a broader screen, with the full proof still build-gated; #7 is fixed at design level.** Verification: 17/17 structure-count fixtures pass, all eight in-memory mutants are killed, and funding output reproduces.
+
+1. **P1 — Design §2.5 / CUTOFF: the copy is not “the world as of C.”** A break after C that gets saved before T appears in the copy, contradicting the claim that changes after C are excluded. Conversely, one recently saved chunk does not establish save coverage for every relevant chunk in its region. Autosave settings specify intervals in **ticks**, not guaranteed wall-clock completion. [Paper configuration](https://docs.papermc.io/paper/reference/world-configuration/#chunks)  
+   **Fix:** report the snapshot’s observation interval and establish coverage per relevant chunk; mark uncertain records UNKNOWN. Exact cutoff reconstruction requires mutation history. Test both saved and unsaved post-cutoff damage, plus delayed saves.
+
+2. **P2 — §3.3; `tools/funding.py.txt::take/plan`: allocation still admits non-executable bills.** With **523 oak logs and 172 oak planks**, otherwise ample inputs, the workshop passes. After reserves and the 80% caps, only **8 whole logs + 86 planks = 118 planks** are drawable; the bill needs 121. Fractional log crafting supplies the difference. Banked stone, glass and copper blocks are also ignored; fallback branches consume unused banked panes/cut copper, and `planks_spare` is never reused.  
+   **Fix:** use integral withdrawals and crafts, allocate intermediates, preserve species-specific leftovers, and roll back unsuccessful role allocations completely. Add these fixtures and regenerate funding.
+
+3. **P2 — §3.3/§6.2; `census_species.py.txt`: the offline proxy still qualifies the draw.** The storage boundary is corrected, and the script honestly says it lacks freshness and claims and “qualifies nothing by itself.” §6.2 nevertheless uses that script on the newest census to declare towns funded.  
+   **Fix:** require draw-time allocation from fresh, known index entries minus outstanding claims. Keep census funding and the five-town intersection explicitly provisional. Also correct “five eligible towns cannot support a four-pool draw,” or name the additional restriction.
+
+4. **P1 — §4.1: the mutex fixes check/send exclusion, but settlement still permits the delayed-packet race.** An intent may still be settled by a “fresh read.” After the five-second mutex release, the sender can read the unchanged cell and record settlement while its original click remains delayed; the closer then proceeds before that click arrives.  
+   **Fix:** distinguish observing a cell from acknowledging completion of the pending command. Require causally ordered acknowledgement or confirmed connection retirement before clearing an unresolved intent. SHOP-BARRIER must explicitly exercise **delayed click → fresh read → closer**.
+
+5. **P2 — §2.6; `tools/daily.sh.txt`: publication is only partially fail-closed.** A scan against a nonexistent region directory returns valid JSON containing zero buildings and missing-chunk counters; the wrapper accepts it and publishes OK. It checks neither coverage nor the promised daily negative control/stamp change. Aggregation and rename failures are also unchecked.  
+   **Fix:** validate coverage and controls before publication, check aggregation/publication exit codes, and demonstrate missing-region and aggregation failures preserving the previous result while reporting UNKNOWN.
+
+6. **P3 — §4.3/§10 Q10; `tools/fitc.py.txt`: label the results as screening candidates.** The full planner proof is appropriately build-gated. This screen does not establish whole-tree reach, return routes, or jointly reserved replant locations; its greedy packing failure also does not prove five houses cannot fit within 40.  
+   **Fix:** remove “qualified” and impossibility claims until the frozen-plan proof runs; retain radius 60 as a proposal supported by candidate layouts.
+
+7. **P3 — §3.2/§7 MAT-TRAVEL: the acceptance criterion contradicts the revised carry policy.** Base materials may now be spent as scaffold and booked as losses, but MAT-TRAVEL still requires zero noted items placed.  
+   **Fix:** require zero protected-intermediate scaffold consumption and exact accounting for permitted base-material consumption.
+
+CLAUDE r4 (same reviewer agent, resumed; ran funding --selftest 5/5): VERDICT: APPROVE (0 P1, 0 P2). Verified: its r3 P2
+(only `stone` leaves the scaffold list; MINE-NOTE); r3 P3s (intent -> flock -> check -> send, `cancelled`, release only on
+settlement or playerLeft + 1 s; probe with an empty hotbar slot or the pickaxe; one clock and the cutoff; 34 of 35 cold
+furnaces); funding output reconciles (10/13, 26/65); daily.sh fails closed; buildEligible from the index; fitc 8/13 sited,
+5/13 funded and sited.
+P3s: §4.1 Node has no native flock: take it LOCK_NB (a free skip when busy), never a blocking or spawned flock around an
+  await (memory "canary-sched takes its own lock"); the SIGSTOP scene should show the other builder skipping. daily.sh:
+  mutants.py opens structcount.py.txt by a fixed name while the wrapper runs structcount.py (pass the path); the aggregate
+  drops the cell list the next delta needs (write it in the same atomic step). Q10: houses at 22-60 are beyond TOWN_RADIUS 48:
+  say a house build visit starts at town and its walk is not re-gated by 48, and whether every stand still walks back at 60.
+
+DISPOSITIONS r4 -> r5:
+- Codex 1 (P1 cutoff): no single cutoff; per-record observation intervals from the chunks' own save times; a record scored
+  only when every chunk was saved after its newest _build row (else UNKNOWN: not yet saved); exposure counts persistence
+  across two reads at least one autosave apart; CUTOFF scenes for saved and unsaved damage and a delayed save.
+- Codex 2 (P2 funding): funding r5: integral crafts with per-species spare planks, intermediates before raw, full rollback of
+  a failed role, leftovers reused; 10 fixtures including the 523-log/172-plank case (refused). Unchanged result: 10/13, 26/65.
+- Codex 3 (P2 proxy): census funding and the screen labelled PROVISIONAL; the draw qualifies a pool from the bots' own index by
+  the exported spendableFor (cooperation A9) plus the frozen-plan proof; the 4-pool sentence restated (3 towns today).
+- Codex 4 (P1 delayed click): settlement only by the server's acknowledge_block_change for the click's own sequence number
+  (one shared counter with digs); a fresh read settles nothing; release only by acknowledgement or connection retirement;
+  scene: delayed click -> fresh read -> closer waits.
+- Codex 5 (P2 wrapper): daily.sh r5 validates coverage, controls and the stamp, checks aggregation and publication, writes the
+  cell list atomically; five demonstrations, the previous file byte-identical on every refusal.
+- Codex 6 (P3): screen results relabelled candidates; greedy failures not called impossible; the screen re-run with a two-way
+  walk (5 of 13 candidates, 3 funded and screened).
+- Codex 7 (P3): MAT-TRAVEL requires 0 stone placed and exact accounting of permitted base-material spend.
+- Claude P3s: LOCK_NB through a native binding, free skip, SIGSTOP scene shows skipping; mutants.py takes the instrument path;
+  the cell list published with the day's file; house visits start at town, not re-gated by 48, two-way walk in the screen.
+- Coordinator 10-23: reconciled with mineshaft-safety r10 (8bffc295: deep-stair envelope as a reservation, exit_house as a
+  pre-escape rung under F2, seal blocks in the claim set, lane order Q11) and cooperation r8 (ad1aa9ef: A1-A4, A6, A7, A9
+  adopted; its shop-01 open items answered).

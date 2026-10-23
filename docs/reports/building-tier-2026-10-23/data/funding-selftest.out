@@ -1,5 +1,10 @@
-oak walls never from birch planks                  got False want False ok
-a rich town                                        got True want True ok
-banked panes with no sand -> glass windows         got glass_pane want glass_pane ok
-banked cut copper with no ingots -> copper trim    got copper want copper ok
-cobblestone over 80% of spendable -> refused       got False want False ok
+oak walls never from birch planks                        got False want False ok
+Codex r4: 523 oak logs + 172 oak planks (118 drawable)   got False want False ok
+a rich town                                              got True want True ok
+banked panes, no sand -> glass windows                   got glass_pane want glass_pane ok
+banked glass, no sand -> glass windows                   got glass_pane want glass_pane ok
+banked cut copper, no ingots -> copper trim              got copper want copper ok
+banked copper blocks, no ingots -> copper trim           got copper want copper ok
+banked stone counts toward bricks                        got True want True ok
+cobblestone over 80% of spendable -> refused             got False want False ok
+failed copper role leaves banked cut copper              got 8 want 8 ok

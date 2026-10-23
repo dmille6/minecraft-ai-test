@@ -1,34 +1,60 @@
 #!/bin/bash
 # daily.sh <out-dir> <world> <region-dir> <hx,hy,hz> [<world> <region-dir> <home> ...]
-# The publication wrapper (Codex r3 P2): the controls run FIRST and the result is published ATOMICALLY, or not at all.
-#   1. structcount.py selftest and mutants.py must both exit 0 -- else status UNKNOWN, nothing replaced, exit 3;
-#   2. each world is scanned into a private temp dir; a scan that fails (nonzero, or no JSON) makes the day UNKNOWN, exit 4;
-#   3. only then is the day's file renamed into place (rename(2) is atomic on one filesystem) and status OK written.
-# STRUCTCOUNT may point at another copy of the instrument (the failure demonstration passes a broken one).
+# The publication wrapper (Codex r3/r4 P2): controls first, coverage checked, published ATOMICALLY, or not at all.
+#   1. structcount selftest and mutants.py (both given THE SAME instrument path) must exit 0     -> else UNKNOWN, exit 3
+#   2. each world: the scan must exit 0 and its JSON must show FULL COVERAGE (every chunk of the box read `ok`, no missing
+#      region, no unresolved structure start), the stamp control within 10% of yesterday's, and the uninhabited-chunk
+#      negative control (negctl) 0 surface false positives                                         -> else UNKNOWN, exit 4
+#   3. the day's aggregate JSON and its gzip cell list (tomorrow's delta needs it) are built in a private temp dir; the
+#      aggregation must exit 0                                                                         -> else UNKNOWN, exit 5
+#   4. both are renamed into place (rename(2), atomic on one filesystem); a failed rename keeps the old result -> exit 6
+# STRUCTCOUNT may point at another copy of the instrument (the failure demonstrations pass a broken one).
 set -u
 OUT=$1; shift
-SC=${STRUCTCOUNT:-structcount.py}
+SC=${STRUCTCOUNT:-structcount.py.txt}
 DAY=$(date -u +%F)
-mkdir -p "$OUT"
-TMP=$(mktemp -d "$OUT/.tmp.XXXXXX")
+mkdir -p "$OUT" || exit 6
+TMP=$(mktemp -d "$OUT/.tmp.XXXXXX") || { echo "cannot create a temp dir in $OUT: nothing published"; exit 6; }
 trap 'rm -rf "$TMP"' EXIT
-status() { printf '{"day":"%s","status":"%s","why":"%s","at":"%s"}\n' "$DAY" "$1" "$2" "$(date -u +%FT%TZ)" > "$TMP/status.json"; mv -f "$TMP/status.json" "$OUT/status.json"; }
+status() {
+  printf '{"day":"%s","status":"%s","why":"%s","at":"%s"}\n' "$DAY" "$1" "$2" "$(date -u +%FT%TZ)" > "$TMP/status.json" &&
+  mv -f "$TMP/status.json" "$OUT/status.json" || echo "WARNING: status could not be written to $OUT"
+}
 if ! python3 "$SC" selftest > "$TMP/selftest.out" 2>&1; then status UNKNOWN "selftest failed"; echo "selftest FAILED: nothing published"; exit 3; fi
-if [ -z "${STRUCTCOUNT:-}" ] && ! python3 mutants.py > "$TMP/mutants.out" 2>&1; then status UNKNOWN "a mutant survived"; echo "mutants FAILED: nothing published"; exit 3; fi
+if ! python3 mutants.py "$SC" > "$TMP/mutants.out" 2>&1; then status UNKNOWN "a mutant survived"; echo "mutants FAILED: nothing published"; exit 3; fi
 while [ $# -ge 3 ]; do
   W=$1; R=$2; H=$3; shift 3
-  if ! python3 "$SC" scan "$W" "$R" "$H" --r 96 --stamp --json "$TMP/$W.json" > "$TMP/$W.out" 2>&1 || [ ! -s "$TMP/$W.json" ]; then
+  if ! python3 "$SC" scan "$W" "$R" "$H" --r 96 --stamp --json "$TMP/$W.scan.json" > "$TMP/$W.out" 2>&1 ||
+     ! python3 "$SC" negctl "$W" "$R" "$H" --r 96 --n 120 --json "$TMP/$W.neg.json" > "$TMP/$W.negout" 2>&1; then
     status UNKNOWN "scan failed: $W"; echo "scan FAILED for $W: nothing published"; exit 4
   fi
-done
-python3 - "$TMP" > "$TMP/structcount-$DAY.json" <<'EOF'
-import glob, json, os, sys
-d = {}
-for f in sorted(glob.glob(os.path.join(sys.argv[1], '*.json'))):
-    if os.path.basename(f).startswith(('structcount-', 'status')): continue
-    r = json.load(open(f)); r.pop('cells', None); d[r['world']] = r
-print(json.dumps(d))
+  if ! python3 - "$TMP/$W.scan.json" "$TMP/$W.neg.json" "$OUT/structcount-last.json" "$W" <<'EOF'
+import json, os, sys
+s = json.load(open(sys.argv[1])); n = json.load(open(sys.argv[2])); w = sys.argv[4]
+bad = []
+ch = s.get('chunks', {})
+if not ch or set(ch) != {'chunk_ok'}: bad.append('coverage %s' % ch)
+if s.get('worldgen_starts_unreadable'): bad.append('unresolved starts %s' % s['worldgen_starts_unreadable'])
+if n.get('fp_cells_surface', 1) != 0 or not n.get('uninhabited_chunks'): bad.append('negative control %s/%s' % (n.get('fp_cells_surface'), n.get('uninhabited_chunks')))
+if os.path.exists(sys.argv[3]):
+    last = (json.load(open(sys.argv[3])).get(w) or {}).get('stamp_present')
+    if last and s.get('stamp_present', 0) < 0.9 * last: bad.append('stamp control %s < 90%% of %s' % (s.get('stamp_present'), last))
+if bad: print('INVALID', w, '; '.join(bad)); sys.exit(1)
 EOF
-mv -f "$TMP/structcount-$DAY.json" "$OUT/structcount-$DAY.json"
+  then status UNKNOWN "invalid scan: $W"; echo "INVALID scan for $W: nothing published"; exit 4; fi
+done
+if ! python3 - "$TMP" "$DAY" <<'EOF'
+import glob, gzip, json, os, sys
+tmp, day = sys.argv[1], sys.argv[2]
+d, cells = {}, {}
+for f in sorted(glob.glob(os.path.join(tmp, '*.scan.json'))):
+    r = json.load(open(f)); cells[r['world']] = r.pop('cells'); d[r['world']] = r
+json.dump(d, open(os.path.join(tmp, 'structcount-%s.json' % day), 'w'))
+with gzip.open(os.path.join(tmp, 'cells-%s.json.gz' % day), 'wt') as g: json.dump(cells, g)
+EOF
+then status UNKNOWN "aggregation failed"; echo "aggregation FAILED: nothing published"; exit 5; fi
+mv -f "$TMP/cells-$DAY.json.gz" "$OUT/cells-$DAY.json.gz" && mv -f "$TMP/structcount-$DAY.json" "$OUT/structcount-$DAY.json" &&
+  cp -f "$OUT/structcount-$DAY.json" "$OUT/.last.tmp" && mv -f "$OUT/.last.tmp" "$OUT/structcount-last.json" ||
+  { status UNKNOWN "publication failed"; echo "publication FAILED"; exit 6; }
 status OK "controls passed"
 echo "published $OUT/structcount-$DAY.json"

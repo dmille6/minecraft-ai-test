@@ -10,8 +10,8 @@ straight-line <= 44 for every pad and stand-ring cell) it adds:
     the volume) at most ground+7 (dig reach 5.0 from a ground stand: eye ground+2.62);
   * replant: at least one soil column per trunk felled (grass/dirt with 7 cells of air above: oak's clearance plus one), 8-24
     from the pad, outside every reservation and plot;
-  * a walk route: a breadth-first walk over ground columns from home (steps up <= 1, down <= 3, no liquid, inside +-48) that
-    reaches the stand ring;
+  * a walk route both ways: a breadth-first walk over walking-surface columns from home (steps of at most 1 up or down, so
+    the same route walks back; no liquid; inside +-48, or +-64 for the 60-band houses) that reaches the stand ring;
   * houses: after the best workshop, five 7x7 pads (Chebyshev >= 22, straight-line <= 40 with their ring) packed greedily with
     2 cells between plots, under the same rules.
 NOT included, because they exist only once townplan-01 writes plans: the ring@1 sector assignment, path segments and the
@@ -90,7 +90,7 @@ def main():
             n = (x + a, z + b)
             if n in seen or abs(n[0] - hx) > R or abs(n[1] - hz) > R: continue
             c1 = column(*n); g1, liq1 = c1[6], c1[1]
-            if liq1 or g1 - g0 > 1 or g0 - g1 > 3: continue
+            if liq1 or abs(g1 - g0) > 1: continue          # SYMMETRIC (Claude r4 P3): every stand must also walk BACK to town
             seen.add(n); q.append(n)
     reach = seen
     def judge(x0, z0, W, D, maxr, taken):
@@ -143,7 +143,7 @@ def main():
     geo = sum(v for k, v in why.items() if k not in ('inside_22', 'beyond_44', 'town_furniture', 'zone', 'liquid', 'earthwork'))
     out = {'world': world, 'reserved_cells': dict(reason_cells), 'walkable_columns': len(reach),
            'geometric_candidates': geo,
-           'workshop_candidates_qualified': len(ok), 'sectors': dict(collections.Counter(r['sector'] for r in ok)),
+           'workshop_screen_candidates': len(ok), 'sectors': dict(collections.Counter(r['sector'] for r in ok)),
            'rejects': dict(why.most_common(12))}
     if ok:
         best = min(ok, key=lambda r: (r['earthwork'], r['trunks']))
