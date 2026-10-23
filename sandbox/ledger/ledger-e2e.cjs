@@ -62,7 +62,8 @@ function parity (r, s, { allowTiming = false } = {}) {
   if (f * per + (r.lit ? Math.max(per, 8) : 0) < k) return { verdict: 'fail', why: `${k} steps cooked on ${f} fuel item(s)${r.lit ? ' and one residual burn' : ' from an unlit furnace'}` }
   // ONLY THE LIT FLAG differs: timing when the record holds input AND fuel (the furnace lights on the next tick, and the
   // window's lit property can arrive after the slot update -- Claude r1 P3-4); otherwise a parity failure
-  if (k === 0 && f === 0) return r.in && r.fuel && !r.lit && s.lit ? { verdict: 'timing', k: 0, f: 0 } : { verdict: 'fail', why: 'only the lit flag differs' }
+  // (the fuel slots already match here: a one-coal load whose ignition emptied the slot before the lit property came, Claude r2 P3-4)
+  if (k === 0 && f === 0) return r.in && RECIPE[nm(r.in)] && !r.lit && s.lit ? { verdict: 'timing', k: 0, f: 0 } : { verdict: 'fail', why: 'only the lit flag differs' }
   return { verdict: 'timing', k, f }
 }
 /** RCON `data get block <f> Items` reply -> { in, fuel, out } in the record's [name, count] form. Pure. */
@@ -162,7 +163,8 @@ function selftest () {
   ok('parity: an UNLIT furnace with no fuel cooking 8 items -> fail (Codex r1 P2-7)', parity({ in: ['raw_copper', 8], fuel: null, out: null, lit: false }, { in: null, fuel: null, out: ['copper_ingot', 8], lit: false }, { allowTiming: true }).verdict, 'fail')
   ok('parity: a LIT furnace (residual burn) finishing 2 items with no fuel -> timing', parity({ in: ['raw_copper', 2], fuel: null, out: null, lit: true }, { in: null, fuel: null, out: ['copper_ingot', 2], lit: false }, { allowTiming: true }).verdict, 'timing')
   ok('parity: only lit differs, the record holds input and fuel -> timing (about to light)', parity(L, { ...L, lit: true }, { allowTiming: true }).verdict, 'timing')
-  ok('parity: only lit differs, the record holds no fuel -> fail', parity({ ...L, fuel: null }, { ...L, fuel: null, lit: true }, { allowTiming: true }).verdict, 'fail')
+  ok('parity: only lit differs, a one-coal load already ignited (fuel null both) -> timing', parity({ ...L, fuel: null }, { ...L, fuel: null, lit: true }, { allowTiming: true }).verdict, 'timing')
+  ok('parity: only lit differs with NOTHING smeltable in the record -> fail', parity({ ...L, in: null, fuel: null }, { ...L, in: null, fuel: null, lit: true }, { allowTiming: true }).verdict, 'fail')
   ok('parity: an empty record vs a holding server, live -> fail (no cooking explains it)', parity(E, L, { allowTiming: true }).verdict, 'fail')
   ok('RCON parse', parseFurnaceItems('900 120 905 has the following block data: [{count: 8, Slot: 0b, id: "minecraft:raw_copper"}, {count: 2, Slot: 2b, id: "minecraft:copper_ingot"}]'),
     { in: ['raw_copper', 8], fuel: null, out: ['copper_ingot', 2] })
