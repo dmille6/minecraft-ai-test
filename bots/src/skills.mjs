@@ -107,7 +107,7 @@ import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mj
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
 import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS } from './townindex.mjs'   // townindex-01
-import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
+import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
@@ -125,6 +125,7 @@ import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from '.
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
+         FURNACE_SEEN, SEEN_EMPTY_MS, seenSkip, seenFields, noteFurnacesLitAt,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
          COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
@@ -3670,6 +3671,41 @@ export function ledgerObserve (bot, pos, furnace, by = '-', phase = 'open', seen
     return { rec, miss: null }
   } catch { return { rec: null, miss: 'fail' } }
 }
+/**
+ * THE DRAIN'S PICK, WITH THE TOWN LEDGER (furnaceseen-01) -> { pick, inputs, skipped }. The order path (cognitive.mjs) and the
+ * skill's re-pick both call this, so a furnace the skip rule passes over is never ordered and then refused (design 6.3 B3).
+ * `inputs` are what the pick relied on for the furnace it chose (the drain logs them: se= sl= so= off=); every furnace the
+ * rule skipped is logged ONCE per (furnace, entry) as `_furnace_seen_skip` with its own inputs and `now`.
+ */
+export function drainPickNow (bot, now = Date.now()) {
+  const fs0 = townFurnaces(bot)
+  bot.furnaceSeen = noteFurnacesLit(bot.furnaceSeen ?? {}, fs0)
+  bot.furnaceLitAt = noteFurnacesLitAt(bot.furnaceLitAt ?? {}, fs0, now)
+  let view = null, off = null
+  if (FURNACE_SEEN.on && LEDGER.on) {
+    try { const r = readLedger(townDir(), ledgerHomeKey(homeVec()), bot.worldId ?? null); if (r.ok) { view = r.view; off = r.off } } catch { view = null }
+  }
+  const inputsOf = k => ({ entry: view?.furnaces?.[k] ?? null, litAt: bot.furnaceLitAt?.[k] ?? null, own: bot.furnaceSeen?.[k] ?? null, off })
+  const skipped = []
+  const skip = view ? f => {
+    const inp = inputsOf(f.k)
+    const d = seenSkip({ ...inp, me: bot.username ?? null, now })
+    if (d.skip) skipped.push({ k: f.k, inputs: inp, why: d.why })
+    return d.skip
+  } : null
+  const pick = drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now, skip })
+  bot.furnaceSkipLogged ??= {}
+  for (const s of skipped) {
+    const once = `${s.k}|${s.inputs.entry?.id}`
+    if (bot.furnaceSkipLogged[once]) continue
+    bot.furnaceSkipLogged[once] = now
+    try { logEvent({ kind: 'furnace_seen_skip', status: 'success', snapshot: snapshot(bot), detail: `f=${s.k} why=${s.why} now=${now} ${seenFields(s.inputs)}` }) } catch { /* telemetry */ }
+  }
+  // the once-per-entry memory is bounded: entries older than the rule's own TTL can never skip again
+  for (const [k, t] of Object.entries(bot.furnaceSkipLogged)) if (now - t > 2 * SEEN_EMPTY_MS) delete bot.furnaceSkipLogged[k]
+  return { pick, inputs: pick ? inputsOf(pick.k) : null, skipped }
+}
+
 /** The window fields a `_furnace_session` row carries for L1 (`in`/`fuel`/`out` at the open). Pure. */
 const ledgerRowFields = h => {
   if (!h?.ledgerOpen || h.ledgerOpen.miss === 'off') return ''      // LEDGER=off: the base row, byte for byte
@@ -12399,13 +12435,15 @@ async function furnaceDrain (ctx, _args, signal) {
   const { bot } = ctx
   // THE TARGET IS RE-PICKED HERE (as prune_town re-picks its container): the order's pick is not carried in the args --
   // housekeeping declares none -- and the world may have changed since the decision (smeltjob.mjs drainPick, the same rule).
-  let at = null
+  let at = null, seenIn = null
+  const t0 = Date.now()
   try {
-    const fs0 = townFurnaces(bot)
-    bot.furnaceSeen = noteFurnacesLit(bot.furnaceSeen ?? {}, fs0)
-    at = drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now: Date.now() })?.k ?? null
+    const p = drainPickNow(bot, t0)
+    at = p.pick?.k ?? null
+    seenIn = p.inputs
   } catch { at = null }
-  const f = { stop: null, furnace: at ?? '-', lease: '-', out: '-', inp: '-', fuel: '-', taken: 0, left: '-', t0: Date.now() }
+  const f = { stop: null, furnace: at ?? '-', lease: '-', out: '-', inp: '-', fuel: '-', taken: 0, left: '-', t0,
+              seen: at && FURNACE_SEEN.on ? seenFields(seenIn ?? {}) : null }
   let lease = null, furnace = null, result = null, opened = false, leaseAt = null, leaseEnd = null
   const bagBefore = heldMap(bot)
   const remember = empty => { try { bot.furnaceSeen = { ...(bot.furnaceSeen ?? {}), [f.furnace]: { empty, at: Date.now(), litSince: false } } } catch { /* memory is advisory */ } }
