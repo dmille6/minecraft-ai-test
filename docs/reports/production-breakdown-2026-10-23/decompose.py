@@ -90,17 +90,22 @@ for K in ('gather', 'mine', 'craft'):
     print(f'  {"SUM":52s} {"":>20s} {tot:+8.0f}   (check vs delta {te - tb:+.0f}: {tot - (te - tb):+.2f})')
 
 
-# ---------------------------------------------------------------- the ATTRIBUTION rule of the report (section 0.3)
-# (c) = T. (b) = the depletion scenarios computed by rung_state.py (gather: scenario A, inside the wood rows; mine:
-# 0, with scenario B as its ceiling because the whole iron-sight drop is near the surface; craft: 0).
-# unexplained = the symmetric YIELD part of the rows that GAINED decisions (dirt, sand, lap, deposit_surplus, smelt):
-# their extra decisions follow from the ladder, but why each of those decisions yields more is not shown.
-# (a) = everything else: the production rows (their decisions fell by fulfilment) and the DEMAND part of the gaining
-# rows. R is reported as its own row.
-SCEN_B_GATHER = -427      # rung_state.py, SCENARIO A, printed above in measure.txt
-GAINING = ('dirt rung (gather_dirt_16)', 'sand rung (gather_sand_8)', 'lap rungs (patrol, return, idle)',
-           'deposit_surplus', 'smelt rungs (smelt_*)')
-print('\nATTRIBUTION (events/day): (a) / (b) / (c) / unexplained / R')
+# ---------------------------------------------------------------- the ALLOCATION of the report (section 0.3), r3
+# An ILLUSTRATIVE allocation under a stated convention, not a causal identification (Codex r2 P1-1).
+# Per row r (15 worlds, x16/15):  demand_r = (D_end - D_base) * y_base     yield_r = D_end * (y_end - y_base)
+# (demand priced at BASE yield, yield at END decisions; the two sum exactly to the row's change; the opposite
+# convention is printed for sensitivity). Classes:
+#   (c)  T, board-d's excess
+#   (b)  the two depletion SCENARIOS from rung_state.py (out/scenarios.json): gather = the log-sight scenario priced at
+#        END wood-rung volume (it lives inside the wood rows' yield); mine = the iron-sight scenario (inside the iron
+#        row's demand). Both conditional on their assumptions.
+#   (a)  ladder demand = sum of demand_r, less the mine scenario: decisions that moved between rungs, at BASE yields
+#   Yw   yield change on the wood rows beyond (b): selection (chronic bots), depletion of reachable trees, or other
+#   Yo   yield change on every other row: unexplained
+#   R    successes not reached by an LLM decision
+SC = json.load(open(os.path.join(HERE, 'out', 'scenarios.json')))
+WOOD = 'wood rungs (stockpile_wood, gather_oak_log_12)'
+print('\nALLOCATION (events/day; convention: demand at BASE yield, yield at END decisions)')
 for K in ('gather', 'mine', 'craft'):
     tb, te = skill_total(BASE, WORLDS, K), skill_total(END, WORLDS, K)
     bd = skill_total(END, ['board-d'], K) - skill_total(BASE, ['board-d'], K)
@@ -109,14 +114,22 @@ for K in ('gather', 'mine', 'craft'):
     B, E = by_group(BASE, OTHER, K), by_group(END, OTHER, K)
     lb, le = sum(v[1] for v in B.values()), sum(v[1] for v in E.values())
     R = ((oe - ob) - (le - lb)) * s
-    unexpl = 0.0
-    for name in GAINING:
+    dem, yld, dem_alt = {}, {}, 0.0
+    for name, _ in GROUPS:
         (Db, sb), (De, se) = B.get(name, [0, 0]), E.get(name, [0, 0])
-        if Db and De:
-            unexpl += (Db + De) / 2 * (se / De - sb / Db) * s
-    b = SCEN_B_GATHER if K == 'gather' else 0.0
-    a = (te - tb) - T - b - unexpl - R
-    print(f'  {K:6s} change {te - tb:+7.0f} = (a) {a:+7.0f}  (b) {b:+6.0f}  (c) {T:+6.0f}  unexplained {unexpl:+6.0f}  R {R:+4.0f}')
+        yb = sb / Db if Db else 0.0
+        ye = se / De if De else yb
+        dem[name] = (De - Db) * yb * s
+        yld[name] = De * (ye - yb) * s
+        dem_alt += (De - Db) * ye * s
+    bg = SC['A_gather_end_volume'] if K == 'gather' else 0.0
+    bm = SC['B_mine'] if K == 'mine' else 0.0
+    a = sum(dem.values()) - bm
+    yw = yld[WOOD] - bg
+    yo = sum(v for k, v in yld.items() if k != WOOD)
+    chk = a + bg + bm + T + yw + yo + R - (te - tb)
+    print(f'  {K:6s} change {te - tb:+7.0f} = (a) {a:+7.0f}  (b) {bg + bm:+6.0f}  (c) {T:+6.0f}  Yw {yw:+6.0f}  '
+          f'Yo {yo:+6.0f}  R {R:+4.0f}   [check {chk:+.2f}; (a) under the opposite convention {dem_alt - bm:+7.0f}]')
 
 print('\nFLEET (16 worlds) LLM decisions per day by rung group, BASE -> END (+prereq and lap numbers folded)')
 B, E = by_group(BASE, WORLDS, 'gather'), by_group(END, WORLDS, 'gather')

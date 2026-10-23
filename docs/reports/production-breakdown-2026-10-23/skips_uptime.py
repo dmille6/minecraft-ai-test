@@ -37,3 +37,17 @@ for lab, days in (('BASE', BASE), ('END', END)):
           ', '.join(f'{k} {v / 3:.0f}' for k, v in c.most_common(14)))
     print(f'   bot x 10-min bins with >= 1 decision: ' + ', '.join(f'{b:,.0f}' for b in bins) +
           f' of 11,520 a day ({100 * sum(bins) / (3 * 11520):.2f}%)')
+
+# POSITIVE CONTROL for the bin count (Claude r2 P3): the same aggregation over a window that includes hours with no
+# data yet (today, to midnight) must report FEWER than 11,520 occupied bins, i.e. the instrument can see an empty bin.
+today = dt.datetime.now(dt.timezone.utc).date()
+s, u = f'{today}T00:00:00Z', f'{today + dt.timedelta(days=1)}T00:00:00Z'
+el = EsEvents.load('llm', since=s, until=u)
+body = {'size': 0, 'query': el._query(), 'aggs': {'h': {
+    'date_histogram': {'field': '@timestamp', 'fixed_interval': '10m', 'min_doc_count': 0,
+                       'extended_bounds': {'min': s, 'max': u}},
+    'aggs': {'b': {'cardinality': {'field': 'bot.name', 'precision_threshold': 1000}}}}}}
+r = el._search(body)['aggregations']['h']['buckets']
+live = sum(b['b']['value'] for b in r if b['key_as_string'] < u)
+print(f'CONTROL {today} (window runs to midnight, partly in the future): {live:,.0f} of 11,520 bins occupied '
+      f'-- the count does fall when bins are empty')

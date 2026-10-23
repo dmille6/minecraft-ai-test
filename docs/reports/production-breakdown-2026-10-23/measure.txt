@@ -139,10 +139,10 @@ placebo-d    0.41  0.41  0.33  0.39  0.38  0.36  0.38  0.41  0.36  0.43  0.28  0
   R  successes not reached by an LLM decision                                     -0
   SUM                                                                           -296   (check vs delta -296: -0.00)
 
-ATTRIBUTION (events/day): (a) / (b) / (c) / unexplained / R
-  gather change   -1821 = (a)   -3399  (b)   -427  (c)   -564  unexplained  +2570  R   -1
-  mine   change   -2282 = (a)   -2707  (b)     +0  (c)   -129  unexplained   +553  R   +1
-  craft  change    -296 = (a)    -220  (b)     +0  (c)    -22  unexplained    -53  R   -0
+ALLOCATION (events/day; convention: demand at BASE yield, yield at END decisions)
+  gather change   -1821 = (a)   -3756  (b)   -145  (c)   -564  Yw   -411  Yo  +3057  R   -1   [check +0.00; (a) under the opposite convention   -1428]
+  mine   change   -2282 = (a)   -2624  (b)   -124  (c)   -129  Yw     +1  Yo   +594  R   +1   [check +0.00; (a) under the opposite convention   -2474]
+  craft  change    -296 = (a)    -532  (b)     +0  (c)    -22  Yw     -2  Yo   +260  R   -0   [check +0.00; (a) under the opposite convention   -1646]
 
 FLEET (16 worlds) LLM decisions per day by rung group, BASE -> END (+prereq and lap numbers folded)
   wood rungs (stockpile_wood, gather_oak_log_12)          20162 ->     4591   -15571
@@ -363,13 +363,17 @@ gather successes per decision on gather_dirt_16 (+prereq folded), fleet, daily
 == SCENARIO A (wood): wood-rung decisions only (stockpile_wood + gather_oak_log_12), 15 worlds, sample
    BASE: n 8823; a log (oak/birch/spruce: the only species perception scans) within 16 m in 82.4%; gather success per decision visible 19.9% (n 7270), not visible 4.8% (n 1553)
    END: n 2401; a log (oak/birch/spruce: the only species perception scans) within 16 m in 59.8%; gather success per decision visible 5.6% (n 1436), not visible 1.2% (n 965)
-   per-decision gather success 17.3% -> 3.9%; visibility part -3.4 pp (BASE gap 15.2 pp); priced at mean wood-rung decisions 11,681/day x 16/15: -427 gather successes/day
+   per-decision gather success 17.3% -> 3.9%; visibility part -3.43 pp at the BASE gap (15.2 pp), -0.99 pp at the END gap (4.4 pp)
+   priced at END volume (3,967 wood-rung decisions/day, 15 worlds) x 16/15: -145 gather/day (END gap: -42)
+   priced at mean volume (11,681 wood-rung decisions/day, 15 worlds) x 16/15: -427 gather/day (END gap: -124)
+   priced at BASE volume (19,394 wood-rung decisions/day, 15 worlds) x 16/15: -709 gather/day (END gap: -205)
 
 == SCENARIO B (iron): decisions that need iron (< 3 carried) AND hold a trip pickaxe, 15 worlds, sample
    iron ore within 32 m: BASE 98.1% (n 27112) -> END 95.1% (n 17024)
      feet > 8 below home         :  99.9% (n 15137) ->  99.7% (n 12377)
      within 8 of home y or above :  95.8% (n 11975) ->  83.0% (n 4647)
    END iron-rung decisions 15,267/day (mine yield 0.257); displaced non-production decisions yield 0.013 mine/decision; extra iron-rung decisions had the sightline held at BASE 476/day; net -124 mine successes/day (x 16/15)
+   scenarios written to out/scenarios.json: {'A_gather_end_volume': -145, 'A_gather_mean_volume': -427, 'A_gather_base_volume': -709, 'A_gather_end_volume_end_gap': -42, 'B_mine': -124}
 ################ python3 wood_selection.py
 world                 n   success/decision    log within 16 m
 board-a       725/  358     20.6->  0.8%     89.0-> 89.4%
@@ -392,11 +396,15 @@ placebo-d     351/  224     20.2->  4.0%     62.1-> 13.8%
 (>= 50 END decisions, board-d out, weighted by END decisions)
 worlds where log sight HELD (>= -2 pp; ['board-a', 'isolated-c', 'isolated-d']): success per decision -23.9 pp, sight +1.8 pp
 worlds where log sight FELL > 15 pp (['hive-a', 'hive-c', 'hive-d', 'placebo-a', 'placebo-c', 'placebo-d']): success per decision -8.2 pp, sight -33.6 pp
-depletion predicts the larger success fall where sight fell; selection predicts no such ordering
+DESCRIPTIVE ONLY (Codex/Claude r2): the groups differ in baseline success and in chronic bots, so this ordering does not separate selection from depletion; see the non-chronic rows below
 
-chronic bots: sampled wood-rung decisions from bots with >= 50 of them and ZERO gather successes
-   BASE: 1207 of 9187 decisions (13.1%) from 5 bots ['board-a-Comet', 'isolated-c-Alpha', 'placebo-c-Alpha', 'placebo-c-Bravo', 'placebo-c-Echo']; success per decision without them 0.207 (n 7980)
-   END: 1656 of 2765 decisions (59.9%) from 10 bots ['board-a-Comet', 'board-d-Alpha', 'board-d-Comet', 'hive-d-Comet', 'hive-d-Echo', 'isolated-c-Alpha', 'isolated-d-Bravo', 'placebo-c-Bravo', 'placebo-c-Echo', 'placebo-d-Delta']; success per decision without them 0.087 (n 1109)
+chronic bots (15 worlds, board-d out): sampled wood-rung decisions from bots with >= 50 of them and ZERO gather successes
+   BASE: 1207 of 8823 decisions (13.7%) from 5 bots ['board-a-Comet', 'isolated-c-Alpha', 'placebo-c-Alpha', 'placebo-c-Bravo', 'placebo-c-Echo']; success per decision without them 0.200 (n 7616)
+   END: 1322 of 2401 decisions (55.1%) from 8 bots ['board-a-Comet', 'hive-d-Comet', 'hive-d-Echo', 'isolated-c-Alpha', 'isolated-d-Bravo', 'placebo-c-Bravo', 'placebo-c-Echo', 'placebo-d-Delta']; success per decision without them 0.086 (n 1079)
+
+NON-CHRONIC wood-rung decisions (15 worlds; chronic = >= 50 decisions and 0 successes IN THAT PERIOD):
+   BASE: n 7616, success per decision 0.200, a log within 16 m on 86.6%
+   END: n 1079, success per decision 0.086, a log within 16 m on 63.6%
 ################ python3 board_d_window.py
 (1) gather ok per bot-h, board-d vs mean of the other 15 worlds (120 bot-h per world-day)
    2026-10-08  board-d  8.26  others  7.13  diff +1.13   board-d float   1.7 h
@@ -415,15 +423,35 @@ chronic bots: sampled wood-rung decisions from bots with >= 50 of them and ZERO 
    2026-10-21  board-d  2.23  others  6.53  diff -4.30   board-d float  66.5 h
    2026-10-22  board-d  2.38  others  6.63  diff -4.26   board-d float  66.6 h
 
-(2) 02:00-17:00Z, per bot-h (bots seen: 10-22 {'others': 75, 'board-d': 5}, 10-23 {'others': 75, 'board-d': 5}; 15 h each)
-   gather_ok board-d   2.60 ->   5.03   others   6.58 ->   6.62   DiD +2.39
-   mine_ok   board-d   1.04 ->   6.20   others   2.74 ->   2.94   DiD +4.95
-   float_h   board-d   0.56 ->   0.02   others   0.01 ->   0.01   DiD -0.53
+(2) 02:00-08:00Z, per bot-h, untreated controls only (bots seen: 10-22 {'others': 65, 'board-d': 5}, 10-23 {'others': 65, 'board-d': 5}; 6 h each)
+   gather_ok board-d   2.33 ->   3.97   others   5.45 ->   5.85   DiD +1.24
+   mine_ok   board-d   0.30 ->   7.97   others   2.86 ->   3.30   DiD +7.22
+   float_h   board-d   0.55 ->   0.03   others   0.01 ->   0.01   DiD -0.52
+################ python3 trigger_eval.py
+week 2026-10-16 .. 2026-10-22; median wood yield (eligible worlds, n=4) 0.15584415584415584; median iron yield (n=16) 0.20508166969147004; median exclusive reflex h/day 4.3, water exposure 2.7
+world                wood: share n sight yield  elig/sight/out |          iron: share n sight yield  elig/sight/out | reflex/exposure h  verdict
+board-a       8.7%   381 0.730 0.184     Y/N/N       |  18.7%  2218 0.988 0.222     Y/N/N       |   6.0/ 24.3 TRAPPED  no   chronic=['board-a-Comet']
+board-b       3.6%   405 0.901 0.215     N/N/N       |  11.5%  1280 1.000 0.237     Y/N/N       |   3.6/  1.7  no   chronic=[]
+board-c       3.1%   345 0.928 0.197     N/N/N       |  17.5%  1955 0.999 0.260     Y/N/N       |   4.5/  1.4  no   chronic=[]
+board-d       7.3%   954 0.949 0.084     Y/N/N       |  50.2%  6553 0.991 0.036     Y/N/Y       |   2.1/ 58.1 TRAPPED  no   chronic=[]
+hive-a        4.2%   483 0.528 0.052     N/N/N       |  14.2%  1653 0.999 0.205     Y/N/N       |   4.4/  1.6  no   chronic=[]
+hive-b        0.8%    91 0.835 0.088     N/N/N       |   8.9%  1069 1.000 0.251     Y/N/N       |   3.9/  1.5  no   chronic=[]
+hive-c        2.5%   290 0.541 0.117     N/N/N       |  16.9%  1962 0.998 0.167     Y/N/N       |   4.6/  4.1  no   chronic=[]
+hive-d        4.8%   481 0.360 0.023     N/N/N       |  10.7%  1239 0.996 0.186     Y/N/N       |   3.4/  4.3  no   chronic=['hive-d-Echo']
+isolated-a    3.4%   382 0.953 0.243     N/N/N       |  18.3%  2057 0.999 0.215     Y/N/N       |   5.2/  2.4  no   chronic=[]
+isolated-b    3.0%   355 0.727 0.254     N/N/N       |  19.4%  2287 0.995 0.168     Y/N/N       |   4.8/  1.8  no   chronic=[]
+isolated-c    3.2%   118 0.915 0.280     N/N/N       |  40.6%  4997 1.000 0.071     Y/N/Y       |   4.3/  1.6  no   chronic=['isolated-c-Alpha']
+isolated-d    5.3%   616 0.971 0.156     Y/N/N       |  33.2%  3851 0.995 0.107     Y/N/N       |   4.0/  2.7  no   chronic=[]
+placebo-a     1.5%   162 0.500 0.148     N/N/N       |  12.2%  1367 1.000 0.208     Y/N/N       |   4.0/  4.7  no   chronic=[]
+placebo-b     0.8%    85 0.565 0.153     N/N/N       |   9.1%   995 1.000 0.303     Y/N/N       |   3.0/  7.6 TRAPPED  no   chronic=[]
+placebo-c    10.6%   584 0.926 0.132     Y/N/N       |  14.5%  1727 0.998 0.174     Y/N/N       |   5.9/  2.1  no   chronic=['placebo-c-Bravo']
+placebo-d     3.0%    52 0.654 0.231     N/N/N       |  37.4%  4387 0.996 0.070     Y/N/Y       |   3.2/  3.8  no   chronic=['placebo-d-Delta']
 ################ python3 skips_uptime.py
 == BASE: _milestone_skipped 1019/day; by rung (per day): gather_sand_8 277, return 133, patrol 123, gather_dirt_16 117, stockpile_wood 63, craft_stone_pickaxe_1 58, deposit_surplus 51, stockpile_stone 45, gather_iron_ore_3 42, craft_crafting_table_1 39, craft_furnace_1 26, gather_oak_log_12 21, gather_cobblestone_8 19, craft_wooden_pickaxe_1 2
    bot x 10-min bins with >= 1 decision: 11,520, 11,520, 11,520 of 11,520 a day (100.00%)
 == END: _milestone_skipped 926/day; by rung (per day): gather_sand_8 279, patrol 233, return 209, gather_dirt_16 52, stockpile_wood 37, gather_iron_ore_3 31, deposit_surplus 27, stockpile_stone 15, gather_cobblestone_8 14, craft_crafting_table_1 13, gather_oak_log_12 7, craft_furnace_1 5, craft_stone_pickaxe_1 2, craft_wooden_pickaxe_1 0
    bot x 10-min bins with >= 1 decision: 11,520, 11,520, 11,520 of 11,520 a day (100.00%)
+CONTROL 2026-10-23 (window runs to midnight, partly in the future): 9,280 of 11,520 bins occupied -- the count does fall when bins are empty
 ################ python3 journal_events.py
 BASE: 9 events, of which promoted 3, deployed 5, torn-down 1, owner-direct 0
     2026-10-08T00:17 towndeposit-02 deployed
@@ -876,6 +904,9 @@ day          raw_iron       coal raw_copper lapis_lazu    diamond   redstone   r
 (5) LOG gathers ending no_safe_target: absolute per day, and the share from the top 5 bots (Claude r1 P2-3)
   BASE: 602/day from 69 bots; top 5 = 49%: board-a-Comet 199/day, board-b-Bravo 27/day, placebo-a-Bravo 26/day, placebo-a-Echo 23/day, isolated-c-Alpha 19/day
   END: 667/day from 52 bots; top 5 = 81%: board-a-Comet 203/day, placebo-d-Delta 138/day, isolated-c-Alpha 131/day, placebo-c-Bravo 52/day, hive-a-Echo 16/day
+
+(6) log-gather attempts by species, BASE mean per day (perception sees oak/birch/spruce only)
+  7626/day; oak+birch+spruce 7626 (100.0%); oak_log 7178, birch_log 253, spruce_log 195
 ################ canary_did.py (did.log)
 toolhygiene-01  4p post   6.3h  gather_ok=+1.17(z+0.9)  mine_ok=+3.59(z+2.1)  craft_ok=+0.01(z+0.1)  td_n=-0.05(z-0.4)  explore_h=-0.01(z-1.2)
 peacefulkit-02  2p post   6.3h  gather_ok=+0.12(z+0.0)  mine_ok=-0.23(z-0.2)  craft_ok=+0.05(z+0.4)  td_n=+0.09(z+0.3)  explore_h=+0.00(z+0.1)

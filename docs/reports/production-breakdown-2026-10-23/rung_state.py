@@ -166,9 +166,17 @@ ye = (E['vis'][1] + E['not'][1]) / (E['vis'][0] + E['not'][0])
 db, _ = decisions(BASE, lambda m: m in ('stockpile_wood', 'gather_oak_log_12'))
 de, _ = decisions(END, lambda m: m in ('stockpile_wood', 'gather_oak_log_12'))
 vis_part = (pe - pb) * gap
-print(f'   per-decision gather success {100 * yb:.1f}% -> {100 * ye:.1f}%; visibility part {100 * vis_part:+.1f} pp '
-      f'(BASE gap {100 * gap:.1f} pp); priced at mean wood-rung decisions {(db + de) / 2:,.0f}/day x 16/15: '
-      f'{vis_part * (db + de) / 2 * 16 / 15:+.0f} gather successes/day')
+gap_e = E['vis'][1] / max(1, E['vis'][0]) - E['not'][1] / max(1, E['not'][0])
+vis_part_e = (pe - pb) * gap_e
+print(f'   per-decision gather success {100 * yb:.1f}% -> {100 * ye:.1f}%; visibility part {100 * vis_part:+.2f} pp at the '
+      f'BASE gap ({100 * gap:.1f} pp), {100 * vis_part_e:+.2f} pp at the END gap ({100 * gap_e:.1f} pp)')
+SC = {}
+for lab, vol in (('END volume', de), ('mean volume', (db + de) / 2), ('BASE volume', db)):
+    v = vis_part * vol * 16 / 15
+    print(f'   priced at {lab} ({vol:,.0f} wood-rung decisions/day, 15 worlds) x 16/15: {v:+.0f} gather/day '
+          f'(END gap: {vis_part_e * vol * 16 / 15:+.0f})')
+    SC['A_gather_' + lab.replace(' ', '_').lower()] = v
+SC['A_gather_end_volume_end_gap'] = vis_part_e * de * 16 / 15
 
 print('\n== SCENARIO B (iron): decisions that need iron (< 3 carried) AND hold a trip pickaxe, 15 worlds, sample')
 ib = wb['iron'][1] / wb['iron'][0]
@@ -184,3 +192,6 @@ net = si / di - sd / dd
 print(f'   END iron-rung decisions {di:,.0f}/day (mine yield {si / di:.3f}); displaced non-production decisions yield '
       f'{sd / dd:.3f} mine/decision; extra iron-rung decisions had the sightline held at BASE {extra:,.0f}/day; '
       f'net {-extra * net * 16 / 15:+.0f} mine successes/day (x 16/15)')
+SC['B_mine'] = -extra * net * 16 / 15
+json.dump(SC, open(os.path.join(HERE, 'out', 'scenarios.json'), 'w'), indent=1)
+print('   scenarios written to out/scenarios.json:', {k: round(v) for k, v in SC.items()})

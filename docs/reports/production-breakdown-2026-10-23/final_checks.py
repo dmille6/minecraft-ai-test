@@ -118,3 +118,15 @@ for lab, days in (('BASE', BASE), ('END', END)):
     top = sorted(per.items(), key=lambda x: -x[1])[:5]
     print(f'  {lab}: {tot / 3:.0f}/day from {len(per)} bots; top 5 = {100 * sum(v for _, v in top) / tot:.0f}%: '
           + ', '.join(f'{b} {v / 3:.0f}/day' for b, v in top))
+
+print('\n(6) log-gather attempts by species, BASE mean per day (perception sees oak/birch/spruce only)')
+sp = defaultdict(float)
+for d in BASE:
+    with gzip.open(os.path.join(HERE, 'out', 'rows', f'{d}.jsonl.gz'), 'rt') as f:
+        for l in f:
+            r = json.loads(l)
+            if r['k'] == 'gather' and (r['a'].get('block') or '').endswith('_log'):
+                sp[r['a']['block']] += 1 / 3
+tot = sum(sp.values())
+seen = sum(v for k, v in sp.items() if k in ('oak_log', 'birch_log', 'spruce_log'))
+print(f'  {tot:.0f}/day; oak+birch+spruce {seen:.0f} ({100 * seen / tot:.1f}%); ' + ', '.join(f'{k} {v:.0f}' for k, v in sorted(sp.items(), key=lambda x: -x[1])))

@@ -20,7 +20,7 @@ PERBOT = {}
 
 def tally(days):
     T = defaultdict(lambda: [0, 0, 0])      # n, success, visible
-    PB = defaultdict(lambda: [0, 0])        # bot -> n, success
+    PB = defaultdict(lambda: [0, 0, 0])     # bot -> n, success, visible (15 worlds)
     PERBOT[days[0]] = PB
     for d in days:
         with gzip.open(os.path.join(HERE, 'out', 'llm_sample', f'{d}.jsonl.gz'), 'rt') as f:
@@ -34,8 +34,11 @@ def tally(days):
                 t[0] += 1
                 t[1] += r['sk'] == 'gather' and r['st'] == 'success'
                 t[2] += any(isinstance(per.get(x), (int, float)) and per[x] <= 16 for x in LOGS)
-                PB[r['b']][0] += 1
-                PB[r['b']][1] += r['sk'] == 'gather' and r['st'] == 'success'
+                if w != 'board-d':       # chronic counts on the same 15 worlds as the identity's wood row
+                    pb = PB[r['b']]
+                    pb[0] += 1
+                    pb[1] += r['sk'] == 'gather' and r['st'] == 'success'
+                    pb[2] += any(isinstance(per.get(x), (int, float)) and per[x] <= 16 for x in LOGS)
     return T
 
 
@@ -61,10 +64,11 @@ print(f'worlds where log sight HELD (>= -2 pp; {[r[0] for r in held]}): success 
       f'{100 * wavg(held, 2):+.1f} pp, sight {100 * wavg(held, 1):+.1f} pp')
 print(f'worlds where log sight FELL > 15 pp ({[r[0] for r in fell]}): success per decision '
       f'{100 * wavg(fell, 2):+.1f} pp, sight {100 * wavg(fell, 1):+.1f} pp')
-print('depletion predicts the larger success fall where sight fell; selection predicts no such ordering')
+print('DESCRIPTIVE ONLY (Codex/Claude r2): the groups differ in baseline success and in chronic bots, so this ordering does'
+      ' not separate selection from depletion; see the non-chronic rows below')
 
 
-print('\nchronic bots: sampled wood-rung decisions from bots with >= 50 of them and ZERO gather successes')
+print('\nchronic bots (15 worlds, board-d out): sampled wood-rung decisions from bots with >= 50 of them and ZERO gather successes')
 for lab, days in (('BASE', BASE), ('END', END)):
     PB = PERBOT[days[0]]
     tot = sum(v[0] for v in PB.values())
@@ -73,3 +77,13 @@ for lab, days in (('BASE', BASE), ('END', END)):
     rest_s = sum(v[1] for b, v in PB.items() if b not in z)
     print(f'   {lab}: {sum(v[0] for v in z.values())} of {tot} decisions ({100 * sum(v[0] for v in z.values()) / tot:.1f}%) '
           f'from {len(z)} bots {sorted(z)}; success per decision without them {rest_s / max(1, rest_n):.3f} (n {rest_n})')
+
+
+print('\nNON-CHRONIC wood-rung decisions (15 worlds; chronic = >= 50 decisions and 0 successes IN THAT PERIOD):')
+res = {}
+for lab, days in (('BASE', BASE), ('END', END)):
+    PB = PERBOT[days[0]]
+    keep = {b: v for b, v in PB.items() if not (v[0] >= 50 and v[1] == 0)}
+    n = sum(v[0] for v in keep.values()); ok = sum(v[1] for v in keep.values()); vis = sum(v[2] for v in keep.values())
+    res[lab] = (n, ok, vis)
+    print(f'   {lab}: n {n}, success per decision {ok / n:.3f}, a log within 16 m on {100 * vis / n:.1f}%')
