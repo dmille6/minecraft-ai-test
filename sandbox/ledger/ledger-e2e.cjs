@@ -249,8 +249,12 @@ const PRESETS = [[], [[2, 'copper_ingot', 5]], [[0, 'raw_iron', 3]], [[1, 'coal'
   [[1, 'charcoal', 1], [2, 'iron_ingot', 2]], [], [[2, 'iron_ingot', 7]], [[0, 'cobblestone', 6]], [], [[1, 'coal', 5], [2, 'copper_ingot', 3]], [[0, 'raw_iron', 1]]]
 const wool = n => Array.from({ length: n }, (_, i) => ['white_wool', 1 + (i % 3)])
 const BAG = [['stone_pickaxe', 1], ['torch', 8], ['bread', 5], ...wool(4)]
+// THE ARENA IS WALLED (Paper 10-23 22:07Z: the livelock breaker relocated the bot 43 blocks and it fell off the platform, ending
+// the round after 4 drains): glass walls 4 high round the stone floor, so every walk stays in town
 const arenaCmds = () => ['forceload add 880 880 920 920', 'kill @e[type=!player,x=900,y=120,z=900,distance=..24]',
-  'fill 884 120 884 916 126 916 minecraft:air', 'fill 884 119 884 916 119 916 minecraft:stone']
+  'fill 884 120 884 916 126 916 minecraft:air', 'fill 884 119 884 916 119 916 minecraft:stone',
+  'fill 884 120 884 916 123 884 minecraft:glass', 'fill 884 120 916 916 123 916 minecraft:glass',
+  'fill 884 120 884 884 123 916 minecraft:glass', 'fill 916 120 884 916 123 916 minecraft:glass']
 const furnaceCmds = (f, preset) => [`setblock ${at(f)} minecraft:air`, `setblock ${at(f)} minecraft:furnace[facing=north]`,
   ...preset.map(([s, id, n]) => `item replace block ${at(f)} container.${s} with minecraft:${id} ${n}`)]
 // ONE QUERY PER SLOT (Paper 10-23 smoke): Paper TRUNCATES a long `data get ... Items` reply ({Slot: 2b, id: "...), which
