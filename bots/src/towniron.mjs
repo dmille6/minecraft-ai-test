@@ -145,7 +145,9 @@ export function deliverOrder ({ now = 0, on = TOWNIRON.on, atTown = false, count
   if (!s.round) return { order: null, state: s, skip: 'no_round' }
   if (!atTown) return { order: null, state: s, skip: 'away' }
   const p = deliverPlan(counts)
-  if (!(p.surplus > 0)) { delete s.round; return { order: null, state: s, skip: 'none' } }
+  // nothing above the keep: no order -- and the round STAYS (Codex r3 P1: at town before the mining, a cleared round left the
+  // cargo mined next unrecorded); only a delivery that leaves none ends it (deliverOutcome)
+  if (!(p.surplus > 0)) return { order: null, state: s, skip: 'none' }
   if (now - (s.lastIssuedAt ?? -Infinity) < DELIVER_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return { order: null, state: s, skip: 'cooldown' }
   s.lastIssuedAt = now
   return { order: { skill: 'deliver_iron', args: {}, why: `carrying ${p.surplus} iron above its own ${p.iron_ingot.own + p.raw_iron.own} for the town: bank it (town iron task)` }, state: s, skip: null }
