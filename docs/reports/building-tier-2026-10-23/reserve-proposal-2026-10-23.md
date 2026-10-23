@@ -1,5 +1,9 @@
 # BUILD_RESERVE: the proposed table and what it funds (owner Q6 follow-up, 2026-10-23)
 
+**OWNER ANSWER (10-23, relayed by the operator): table D -- logs 512, copper ingots 512, cobblestone 256, torches 32,
+sand 16, planks 71, sticks 40, all settings (10 of 13 workshops, 25 houses fundable today). It supersedes Q6's "512 for
+each". Declared in matset-01 r4 (7b9db3a2, both engines APPROVE); read first by mats-01.**
+
 PROPOSAL FOR THE OWNER, NOT A DECISION. The owner answered Q6 "lets do 512 for each". Run through the design's own funding
 estimate, that funds nothing. The operator's recommendation is below, with the result per town. mats-01 is not built until
 the owner answers. matset-01 declares `BUILD_RESERVE` but nothing reads it, so the numbers can change at no cost.
