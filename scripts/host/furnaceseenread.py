@@ -8,8 +8,8 @@
 # `--golden <path>` also checks the port against bots/test/fixtures/seenskip-golden.json (the JS function's own table).
 #
 # ROWS:
-#   _furnace_seen_skip  f= why= now= se=<entry id> sl=<lit-seen ms|-> so=<e|h>:<ms>|- off=<gen>:<bytes>   (one per furnace and
-#                       entry skipped: the LICENCE, a kind the base cannot write)
+#   _furnace_seen_skip  f= why= now= changed=0|1 se=<entry id> sl=<lit-seen ms|-> so=<e|h>:<ms>|- off=<gen>:<bytes>   (one per
+#                       furnace and entry skipped: the LICENCE; changed=1 when the base pick would have walked to it)
 #   _furnace_seen_mode  once per spawn: phase=mode on=on|off ...
 #   _furnace_drain      stop= furnace= ... t0= ledger= se= sl= so= off=   (the inputs the pick relied on for the furnace it walked to)
 #   _ledger_station     id= f= phase= by= state= outcome= ... at=          (ledger-01: the entries the inputs name)
@@ -18,20 +18,26 @@
 #   D1 (defect) `d1_defects`: THE SAME FUNCTION REPLAYED on the logged inputs (seen_skip is a port of smeltjob.mjs seenSkip,
 #       bound to the JS function by the golden table): a canary drain that WALKED to a furnace whose logged inputs say skip, or
 #       a skip row whose logged inputs say walk. An input naming an entry the read cannot find is UNRESOLVED (reported, not
-#       counted). Reported, not counted: walks where a valid townmate empty existed that the fold had not read when it picked
-#       (an append racing the pick: `raced_walks`), and walks the lit-seen evidence released (`lit_released`).
+#       counted). Reported, not counted: walks where a valid townmate empty existed that the pick could not see -- `races`:
+#       `raced` (the entry lies past the logged fold offset, or was appended between the pick and the open) and
+#       `ledger_unread` (the pick read no ledger, off='-') -- and walks the lit-seen evidence released (`lit_released`).
+#   D1 POSITIVE CONTROL (blocks KEEP) `d1_instrument`: the replay resolved >= 1 walk or skip, unresolved <= 5% of the tries.
 #   EFFECT (REVERT, no evidence class: blocks KEEP) `r_lb_minus_bar` >= 0: R = (control's change in repeat empty drains per
-#       bot-h) - (canary's change), positive = fewer repeats on the canary; its lower bound by RANDOMIZATION over towns (every
-#       relabelling of the pools; the shift-inverted one-sided bound at alpha 0.025 = Bonferroni over the k = 2 reads that can
-#       KEEP, +180 and the final) minus the bar 0.25 x the canary pools' pre-period repeat rate. Undefined (a pool with no
-#       bot-hours, no control pool) is None: UNREADABLE, never a pass.
+#       bot-h) - (canary's change), positive = fewer repeats on the canary, over a FROZEN pre-period [cut - 24 h, cut) the same
+#       at every read (Codex r1 P2-1); its lower bound by RANDOMIZATION over towns (every relabelling of the 4 canary pools
+#       among the canary + the FROZEN ELIGIBLE controls -- >= 40 drains in the pre-period, the draw's own rule, and >= 2 post
+#       bot-h; a pool converted mid-pre is out, every dropped pool named: Claude r1 P2-1); the shift-inverted one-sided bound at
+#       alpha 0.025 = Bonferroni over the k = 2 reads that can KEEP (+180 and the final; no extension reads) minus the bar
+#       0.25 x the canary pools' pre-period rate. UNDEFINED -> None (UNREADABLE, never a pass): a drawn canary town without
+#       both rates (Codex r1 P2-2), fewer than 2 controls.
 #       A REPEAT EMPTY DRAIN: a drain with stop=empty on furnace F by bot b when another bot's drain found F empty < 60 min
 #       before with no load on F between (a smelt / smelt_town furnace session on F, or a ledger load record).
 #   ARMS      control `_furnace_seen_skip` / `_furnace_seen_mode` rows after the deploy (BLOCKS KEEP).
 #   LIVENESS  canary `_furnace_seen_mode on=on` >= 1 and canary `_furnace_drain` >= 1.
 #   POSITIVE CONTROL  control repeat empty drains in the window >= 1 (the instrument that sees the thing the change removes)
 #             and control `_ledger_station` rows >= 1 (ledger-01 is on the fleet).
-#   EXPOSURE  `skipped_walks` = canary skip rows (distinct furnace x entry) -- registered min 20.
+#   EXPOSURE  `skipped_walks` = canary skip rows with changed=1 (the walk the rule SAVED; distinct furnace x entry x bot) --
+#             registered min 20 (Claude r1 P2-3).
 #   REPORT    drain bot-time per bot-h, DiD, by stop class (empty / drained / unreachable / lit / busy / other), so the saving is
 #             measured, not inferred from R; the unreachable loop is its own class (design 6.4, Claude r9 #6).
 import sys, os, re, json, glob, itertools
@@ -46,6 +52,9 @@ ALPHA = 0.025                 # one-sided, Bonferroni over the k = 2 reads that 
 BAR_SHARE = 0.25
 REPEAT_MS = 60 * 60 * 1000
 STOP_CLASSES = ('empty', 'drained', 'unreachable', 'lit', 'busy')
+PRE_MIN = 1440                # THE FROZEN PRE-PERIOD: [cut - 24 h, cut), the same at every read (registered)
+MIN_PRE_DRAINS = 40           # a control pool must have drained this much in the pre-period (the draw's own exposure rule)
+MIN_POOL_BH = 2.0             # a pool-period with fewer bot-hours has no rate (symmetric, named)
 
 
 def pool_of(bot):
@@ -190,6 +199,66 @@ def stop_class(stop):
     return 'drained' if s.startswith('drain_') else 'other'
 
 
+def eligible_controls(pre_drains, post_bh, cans, min_pre_drains=MIN_PRE_DRAINS, min_bh=MIN_POOL_BH):
+    """PURE. The CONTROL set, frozen by the pre-period (Claude r1 P2-1, Codex r1 P2-2): non-canary pools with >= min_pre_drains
+    drains in the frozen pre-window (the draw's own exposure requirement: a pool that could have been drawn) and >= min_bh
+    bot-hours in the post window (a pool that stopped is dropped symmetrically, and named). A pool converted mid-pre (an
+    isolated pool that gained a smelt job) fails the pre requirement. -> (eligible, dropped {pool: why})."""
+    elig, dropped = [], {}
+    for p in sorted(set(pre_drains) | set(post_bh)):
+        if p in cans:
+            continue
+        if pre_drains.get(p, 0) < min_pre_drains:
+            dropped[p] = 'pre drains %d < %d' % (pre_drains.get(p, 0), min_pre_drains)
+        elif post_bh.get(p, 0) < min_bh:
+            dropped[p] = 'post bot-h %.1f < %g' % (post_bh.get(p, 0), min_bh)
+        else:
+            elig.append(p)
+    return elig, dropped
+
+
+def effect_line(rates, cans, controls):
+    """PURE. rates {(period, pool): repeats per bot-h or None} -> {R, lb, bar, margin, why}. EVERY drawn canary pool must have
+    both rates (a canary town with no evidence makes the line UNDEFINED, never a pass on the others: Codex r1 P2-2); controls
+    are the frozen eligible set. bar = BAR_SHARE x the canary pools' frozen pre-period mean rate."""
+    if not cans:
+        return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'no canary pool'}
+    missing = [p for p in cans if rates.get(('pre', p)) is None or rates.get(('post', p)) is None]
+    if missing:
+        return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'canary pool(s) without both rates: %s' % ','.join(sorted(missing))}
+    ctl = [p for p in controls if rates.get(('pre', p)) is not None and rates.get(('post', p)) is not None]
+    if len(ctl) < 2:
+        return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'fewer than 2 control pools'}
+    ch = lambda p: rates[('post', p)] - rates[('pre', p)]
+    R, lb = lower_bound([ch(p) for p in sorted(cans)], [ch(p) for p in ctl])
+    bar = BAR_SHARE * sum(rates[('pre', p)] for p in cans) / len(cans)
+    return {'R': R, 'lb': lb, 'bar': bar, 'margin': None if lb is None else lb - bar, 'why': None}
+
+
+def race_class(newest, open_at, logged_off, entry_pos):
+    """PURE. Was a skip-worthy townmate entry on the walked furnace invisible to the pick? -> 'raced' (written after the pick's
+    fold offset, or -- position unknown -- after the pick), 'ledger_unread' (the pick read no ledger: off='-'), or None.
+    newest: the skip-worthy entry (at <= the drain's OPEN, so an append between pick and open counts) or None;
+    entry_pos: (gen, end byte) of that entry in the ledger file, or None (rotated away / unknown)."""
+    if not newest:
+        return None
+    if logged_off in (None, '-'):
+        return 'ledger_unread'
+    try:
+        g, b = (int(x) for x in str(logged_off).split(':', 1))
+    except ValueError:
+        return 'ledger_unread'
+    if entry_pos is not None:
+        return 'raced' if entry_pos > (g, b) else None
+    return 'raced'
+
+
+def d1_instrument(d1):
+    """PURE. The D1 positive control: the replay resolved something, and unresolved <= 5% of what it tried."""
+    tried = d1['walks_replayed'] + d1['skips_replayed'] + d1['unresolved']
+    return int(d1['walks_replayed'] + d1['skips_replayed'] >= 1 and d1['unresolved'] <= 0.05 * tried)
+
+
 # ---- fixtures ----------------------------------------------------------------------------------------------------------------
 NOW = 1792843200000
 E = lambda **o: dict({'id': 'mate-1', 'at': NOW - 600_000, 'bot': 'Mate', 'state': 'empty'}, **o)
@@ -203,9 +272,12 @@ assert d1_check([(NOW, 'Me', _walk())], [], _ent)['defects'][0][0] == 'walked_a_
 assert d1_check([(NOW, 'Me', _walk(sl=NOW - 300_000))], [], _ent)['defects'] == []
 assert d1_check([(NOW, 'Me', _walk(se='zz'))], [], _ent)['unresolved'] == 1
 assert d1_check([(NOW, 'Me', _walk(se='-'))], [], _ent)['defects'] == []
-_skip = lambda **o: fields(' '.join(f'{k}={v}' for k, v in dict({'f': '1,64,1', 'why': 'townmate_empty', 'now': NOW, 'se': 'mate-1', 'sl': '-', 'so': '-', 'off': '1:99'}, **o).items()))
+_skip = lambda **o: fields(' '.join(f'{k}={v}' for k, v in dict({'f': '1,64,1', 'why': 'townmate_empty', 'now': NOW, 'se': 'mate-1', 'sl': '-', 'so': '-', 'off': '1:99', 'changed': 1}, **o).items()))
 assert d1_check([], [(NOW, 'Me', _skip())], _ent)['defects'] == []
 assert d1_check([], [(NOW, 'Mate', _skip())], _ent)['defects'][0][0] == 'skipped_a_walk', 'its own entry: never a skip'
+assert d1_instrument({'walks_replayed': 10, 'skips_replayed': 0, 'unresolved': 0}) == 1
+assert d1_instrument({'walks_replayed': 0, 'skips_replayed': 0, 'unresolved': 0}) == 0, 'nothing replayed: the instrument saw nothing'
+assert d1_instrument({'walks_replayed': 10, 'skips_replayed': 0, 'unresolved': 3}) == 0, 'too much unresolved'
 # repeats: B after A within 60 min, no load between -> 1; a load between -> 0; the same bot -> 0; older than 60 min -> 0
 _dr = [(0, 'A', 'F', 'empty'), (60_000, 'B', 'F', 'empty')]
 assert repeat_empties(_dr, []) == 1 and repeat_empties(_dr, [(30_000, 'F')]) == 0
@@ -213,13 +285,35 @@ assert repeat_empties([(0, 'A', 'F', 'empty'), (60_000, 'A', 'F', 'empty')], [])
 assert repeat_empties([(0, 'A', 'F', 'empty'), (REPEAT_MS, 'B', 'F', 'empty')], []) == 0
 # THE EFFECT LINE, the four fixtures: improvement, no change, worsening, undefined
 _ctl = [0.10, -0.05, 0.02, 0.0, 0.08, -0.03, 0.04, 0.01, -0.02, 0.05, 0.0, 0.03]
-R1, lb1 = lower_bound([-1.2, -1.0, -1.4, -1.1], _ctl)          # improvement: the canary's repeats fell by ~1.2/bot-h
+R1, lb1 = lower_bound([-1.2, -1.0, -1.4, -1.1], _ctl)
 assert R1 > 1.0 and lb1 > 0.25, (R1, lb1)
-R2, lb2 = lower_bound([0.02, -0.01, 0.04, 0.0], _ctl)         # no change
+R2, lb2 = lower_bound([0.02, -0.01, 0.04, 0.0], _ctl)
 assert abs(R2) < 0.05 and lb2 < 0
-R3, lb3 = lower_bound([0.9, 1.1, 0.8, 1.0], _ctl)             # worsening
+R3, lb3 = lower_bound([0.9, 1.1, 0.8, 1.0], _ctl)
 assert R3 < -0.5 and lb3 < R3
 assert lower_bound([], _ctl) == (None, None) and lower_bound([0.1, None, 0, 0], _ctl) == (None, None)
+# effect_line over pools: improvement passes the bar; no change does not; a canary pool without evidence is UNDEFINED (never a
+# pass on the other three); ONE CONTROL POOL JUMPING with the canary unchanged must not pass (Claude r1 P2-1's fixture)
+_rates = lambda can_post, ctl_post, ctl_pre=0.5, can_pre=0.5: dict(
+    [(('pre', 'c%d' % i), can_pre) for i in range(4)] + [(('post', 'c%d' % i), v) for i, v in enumerate(can_post)] +
+    [(('pre', 'k%d' % i), ctl_pre) for i in range(len(ctl_post))] + [(('post', 'k%d' % i), v) for i, v in enumerate(ctl_post)])
+_C = ['c0', 'c1', 'c2', 'c3']; _K = ['k%d' % i for i in range(11)]
+_base_ctl = [0.5, 0.52, 0.48, 0.5, 0.51, 0.49, 0.5, 0.53, 0.47, 0.5, 0.5]
+assert effect_line(_rates([0.05, 0.04, 0.06, 0.05], _base_ctl), _C, _K)['margin'] > 0, 'improvement'
+assert effect_line(_rates([0.5, 0.52, 0.49, 0.5], _base_ctl), _C, _K)['margin'] < 0, 'no change'
+assert effect_line(_rates([0.9, 0.95, 0.85, 1.0], _base_ctl), _C, _K)['margin'] < 0, 'worsening'
+_r = _rates([0.05, 0.04, 0.06, 0.05], _base_ctl); del _r[('post', 'c3')]
+assert effect_line(_r, _C, _K)['margin'] is None, 'a canary town with no post evidence: undefined'
+_jump = _rates([0.5, 0.5, 0.5, 0.5], _base_ctl[:-1] + [3.0])
+assert effect_line(_jump, _C, _K)['margin'] < 0, 'one control pool jumps, the canary unchanged: no pass'
+# the frozen control set: a pool with no drains in the pre-window (converted mid-pre) is dropped and named
+_el, _dp = eligible_controls({'a': 60, 'b': 3, 'c': 80, 'x': 99}, {'a': 20.0, 'b': 20.0, 'c': 0.5, 'x': 20.0}, {'x'})
+assert _el == ['a'] and set(_dp) == {'b', 'c'}
+# the race classifier: off unread; an entry past the logged offset; one inside it; position unknown
+assert race_class(None, 1, '1:10', None) is None
+assert race_class({'id': 'e'}, 1, '-', None) == 'ledger_unread'
+assert race_class({'id': 'e'}, 1, '1:100', (1, 150)) == 'raced' and race_class({'id': 'e'}, 1, '1:100', (1, 90)) is None
+assert race_class({'id': 'e'}, 1, '1:100', (2, 10)) == 'raced' and race_class({'id': 'e'}, 1, '1:100', None) == 'raced'
 assert stop_class('drain_left') == 'drained' and stop_class('no_target') == 'other'
 
 
@@ -247,119 +341,136 @@ if __name__ == '__main__':
     else:
         CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
         CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
-    CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+    CANS = sorted({x.strip() for x in str(CAN).split(',') if x.strip()})
     now = dt.datetime.now(dt.timezone.utc)
     elapsed = (now - CUT).total_seconds() / 60
     assert elapsed > 0 and CAN, 'no canary declared'
     W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
     END = CUT + dt.timedelta(minutes=W)
-    PRE = CUT - dt.timedelta(minutes=W)
-    LOOK = PRE - dt.timedelta(minutes=60)        # the entries a pre-window drain or an early skip may name
-
-    def load_window(since, until):
-        ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=since, until=until)
-        key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
-        out, seen = [], set()
-        for r in ev.rows:
-            if key(r) not in seen:
-                out.append(r); seen.add(key(r))
-        for k in range(0, (until.date() - since.date()).days + 1):
-            tag = (since.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
-            for g in glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % tag):
-                for r in Events.load(paths=g, since=since, until=until).rows:
-                    if key(r) not in seen:
-                        out.append(r); seen.add(key(r))
-        return out
-
+    PRE = CUT - dt.timedelta(minutes=PRE_MIN)     # THE FROZEN PRE-PERIOD: the same for every read (Codex r1 P2-1)
+    LOOK = PRE - dt.timedelta(minutes=60)          # the entries a pre-window drain or an early skip may name
+    CUT_MS = int(CUT.timestamp() * 1000)
     raw_name = lambda r: (((r.get('raw') or {}).get('skill') or {}).get('name')) or ''
     dur_of = lambda r: ((((r.get('raw') or {}).get('skill') or {}).get('duration_ms')) or 0)
-    rows = sorted(load_window(LOOK, END), key=lambda r: r['t'])
+    WANT = {'_ledger_station', '_furnace_seen_skip', '_furnace_seen_mode', '_furnace_drain', 'furnace_drain', '_furnace_session'}
+
+    def pool_rows(pool):
+        """ONE pool's needed rows over [LOOK, END], rotation-aware, compacted (a 24 h + window walk of the whole fleet at
+        once would not fit): (t, bot, kind, detail, version, duration)."""
+        out, seen = [], set()
+        def take(ev):
+            for r in ev.rows:
+                k = raw_name(r)
+                key = (str(r.get('t')), ((r.get('bot') or {}).get('name')), k, r.get('detail'))
+                if key in seen:
+                    continue
+                seen.add(key)
+                b = (r.get('bot') or {}).get('name')
+                if r.get('t') is None or not b:
+                    continue
+                out.append((r['t'], b, k if k in WANT else None, r.get('detail') or '' if k in WANT else '',
+                            (((r.get('raw') or {}).get('code') or {}).get('version') or ''), dur_of(r)))
+        take(Events.load(paths='/var/log/mcai/%s-*/skill-*.jsonl' % pool, since=LOOK, until=END))
+        for k in range(0, (END.date() - LOOK.date()).days + 1):
+            tag = (LOOK.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
+            for g in glob.glob('/var/log/mcai/%s-*/skill-*.jsonl-%s.gz' % (pool, tag)):
+                take(Events.load(paths=g, since=LOOK, until=END))
+        return sorted(out, key=lambda x: x[0])
+
+    POOLS = sorted({'-'.join(os.path.basename(d).split('-')[:2]) for d in glob.glob('/var/log/mcai/*-*-*') if os.path.isdir(d)})
     entries = {}
     span = defaultdict(lambda: [None, None]); nrows = Counter(); n = Counter(); leak = 0; offbuild = 0; noversion = 0
     drains_by = defaultdict(list); loads_by = defaultdict(list)
     can_drains, can_skips = [], []
-    runs = defaultdict(list)           # bot -> [(start ms, duration ms, period, pool)] (runner rows: stamped at START)
-    for r in rows:
-        t = r.get('t'); b = (r.get('bot') or {}).get('name')
-        if t is None or not b:
-            continue
-        k = raw_name(r); d = r.get('detail') or ''; tms = int(t.timestamp() * 1000); p = pool_of(b)
-        if k == '_ledger_station':
-            f = fields(d)
-            if f.get('outcome') == 'entry':
-                entries[f.get('id')] = {'id': f.get('id'), 'at': num(f.get('at')) or tms, 'bot': b, 'state': f.get('state'), 'f': f.get('f'), 'pool': p}
-            if f.get('phase') == 'load':
-                loads_by[p].append((tms, f.get('f')))
-            if t >= CUT and p not in CANS:
-                n['ctl_station'] += 1
-        if t < PRE:
-            continue                           # before the window only the entries and loads are read
-        arm = 'canary' if p in CANS else 'control'
-        period = 'post' if t >= CUT else 'pre'
-        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
-        if arm == 'canary' and period == 'post' and CV:
-            if not ver:
-                noversion += 1; continue
-            if not ver.startswith(CV):
-                offbuild += 1; continue
-        nrows[(period, arm)] += 1
-        sp = span[(period, p, b)]; sp[0] = t if sp[0] is None else sp[0]; sp[1] = t
-        if k in ('_furnace_seen_skip', '_furnace_seen_mode') and period == 'post' and arm == 'control':
-            leak += 1
-        if k == '_furnace_seen_mode' and period == 'post' and arm == 'canary' and ' on=on ' in f' {d} ':
-            n['mode'] += 1
-        elif k == '_furnace_seen_skip' and period == 'post' and arm == 'canary':
-            can_skips.append((tms, b, fields(d)))
-        elif k == '_furnace_drain':
-            f = fields(d)
-            drains_by[(period, p)].append((tms, b, f.get('furnace'), f.get('stop')))
-            if period == 'post' and arm == 'canary':
-                can_drains.append((tms, b, f))
-        elif k == 'furnace_drain':
-            runs[b].append((tms, dur_of(r), period, p))
-        elif k == '_furnace_session':
-            f = fields(d)
-            if f.get('by') in ('smelt', 'smelt_town'):
-                loads_by[p].append((tms, f.get('furnace')))
-    # the drain body-time by stop class: the runner row carries the duration, the _furnace_drain row the stop; joined per
-    # bot by time (the event row is written in the skill's finally, inside the runner row's span)
-    pools = sorted({p for (_, p, _) in span})
+    runs = defaultdict(list)
+    for p in POOLS:
+        for t, b, k, d, ver, dur in pool_rows(p):
+            tms = int(t.timestamp() * 1000)
+            if k == '_ledger_station':
+                f = fields(d)
+                if f.get('outcome') == 'entry':
+                    entries[f.get('id')] = {'id': f.get('id'), 'at': num(f.get('at')) or tms, 'bot': b, 'state': f.get('state'), 'f': f.get('f'), 'pool': p}
+                if f.get('phase') == 'load':
+                    loads_by[p].append((tms, f.get('f')))
+                if t >= CUT and p not in CANS:
+                    n['ctl_station'] += 1
+            if t < PRE:
+                continue
+            arm = 'canary' if p in CANS else 'control'
+            period = 'post' if t >= CUT else 'pre'
+            if arm == 'canary' and period == 'post' and CV:
+                if not ver:
+                    noversion += 1; continue
+                if not ver.startswith(CV):
+                    offbuild += 1; continue
+            nrows[(period, arm)] += 1
+            sp = span[(period, p, b)]; sp[0] = t if sp[0] is None else sp[0]; sp[1] = t
+            if k in ('_furnace_seen_skip', '_furnace_seen_mode') and period == 'post' and arm == 'control':
+                leak += 1
+            if k == '_furnace_seen_mode' and period == 'post' and arm == 'canary' and ' on=on ' in f' {d} ':
+                n['mode'] += 1
+            elif k == '_furnace_seen_skip' and period == 'post' and arm == 'canary':
+                can_skips.append((tms, b, fields(d)))
+            elif k == '_furnace_drain':
+                f = fields(d)
+                drains_by[(period, p)].append((tms, b, f.get('furnace'), f.get('stop')))
+                if period == 'post' and arm == 'canary':
+                    can_drains.append((tms, b, f))
+            elif k == 'furnace_drain':
+                runs[b].append((tms, dur, period, p))
+            elif k == '_furnace_session':
+                f = fields(d)
+                if f.get('by') in ('smelt', 'smelt_town'):
+                    loads_by[p].append((tms, f.get('furnace')))
     bh = lambda period, p: sum(((sp[1] - sp[0]).total_seconds() / 3600.0) for (pe, pp, _), sp in span.items() if pe == period and pp == p and sp[0] is not None)
-    rate = {}
-    for p in pools:
+    rates = {}
+    for p in POOLS:
         for period in ('pre', 'post'):
             h = bh(period, p)
-            rate[(period, p)] = repeat_empties(drains_by[(period, p)], loads_by[p]) / h if h > 0 else None
-    change = lambda p: None if rate[('pre', p)] is None or rate[('post', p)] is None else rate[('post', p)] - rate[('pre', p)]
-    can_ch = [change(p) for p in pools if p in CANS]
-    ctl_ch = [change(p) for p in pools if p not in CANS]
-    R, lb = lower_bound(can_ch, ctl_ch)
-    pre_can = [rate[('pre', p)] for p in pools if p in CANS]
-    bar = BAR_SHARE * (sum(pre_can) / len(pre_can)) if pre_can and all(x is not None for x in pre_can) else None
-    margin = None if lb is None or bar is None else lb - bar
+            rates[(period, p)] = repeat_empties(drains_by[(period, p)], loads_by[p]) / h if h >= MIN_POOL_BH else None
+    controls, dropped = eligible_controls({p: len(drains_by[('pre', p)]) for p in POOLS}, {p: bh('post', p) for p in POOLS}, set(CANS))
+    eff = effect_line(rates, CANS, controls)
     d1 = d1_check(can_drains, can_skips, entries)
-    skipped = len({(f.get('f'), f.get('se'), b) for _, b, f in can_skips})
-    # reported: a valid townmate empty existed for the walked furnace that the pick's fold had not read (an append racing it)
-    raced = lit_released = 0
+    # EXPOSURE: skips that CHANGED the pick (Claude r1 P2-3) -- the furnace the base pick would have walked to
+    skipped = len({(f.get('f'), f.get('se'), b) for _, b, f in can_skips if f.get('changed') == '1'})
+    # the ledger files' record positions, for the race classification
+    pos = {}
+    for p in CANS:
+        for f_ in sorted(glob.glob('/var/lib/mcai/_pool-%s/ledger-*.g*.jsonl' % p)):
+            m_ = re.search(r'\.g(\d+)\.jsonl$', f_)
+            if not m_:
+                continue
+            g_, off_ = int(m_.group(1)), 0
+            try:
+                for ln in open(f_, 'rb'):
+                    off_ += len(ln)
+                    try:
+                        rr = json.loads(ln)
+                    except Exception:
+                        continue
+                    if rr.get('t') == 'station' and rr.get('id'):
+                        pos.setdefault(rr['id'], (g_, off_))
+            except OSError:
+                pass
     ent_by_f = defaultdict(list)
     for e in entries.values():
         ent_by_f[(e['pool'], e['f'])].append(e)
+    races = Counter(); lit_released = 0
     for t, b, f in can_drains:
         if 'se' not in f:
             continue
         t0 = num(f.get('t0')) or t
-        cands = [e for e in ent_by_f[(pool_of(b), f.get('furnace'))] if e['at'] <= t0]
+        open_at = (entries.get(f.get('ledger')) or {}).get('at') or t0      # an append between the pick and the OPEN counts
+        cands = [e for e in ent_by_f[(pool_of(b), f.get('furnace'))] if e['at'] <= open_at]
         newest = max(cands, key=lambda e: (e['at'], e['id'])) if cands else None
         inp, ok = logged_inputs(f, entries)
         if newest and ok and newest['id'] != f.get('se') and seen_skip(entry=newest, litAt=inp['litAt'], own=inp['own'], me=b, now=t0)['skip']:
-            raced += 1
-        if f.get('sl', '-') not in ('-', None) and f.get('se') not in ('-', None):
-            inp, ok = logged_inputs(f, entries)
-            if ok and seen_skip(**inp, me=b, now=num(f.get('t0')) or t)['why'] == 'lit_since':
-                lit_released += 1
-    ctl_repeats = sum(repeat_empties(drains_by[('post', p)], loads_by[p]) for p in pools if p not in CANS)
-    # DRAIN BODY-TIME by stop class (design 6.4, Claude r9 #6): each runner row joined to the same bot's _furnace_drain row
-    # written inside its span (the skill's finally), per arm and period, per bot-h; DiD per class
+            c_ = race_class(newest, open_at, f.get('off'), pos.get(newest['id']))
+            if c_:
+                races[c_] += 1
+        if ok and f.get('sl', '-') not in ('-', None) and seen_skip(**inp, me=b, now=t0)['why'] == 'lit_since':
+            lit_released += 1
+    ctl_repeats = sum(repeat_empties(drains_by[('post', p)], loads_by[p]) for p in controls)
     stop_at = defaultdict(list)
     for (period, p), xs in drains_by.items():
         for tms, b, _, st in xs:
@@ -367,9 +478,11 @@ if __name__ == '__main__':
     secs = Counter()
     for b, rs in runs.items():
         for st0, dur, period, p in rs:
+            if p not in CANS and p not in controls:
+                continue
             m = [s_ for tt, s_ in stop_at[b] if st0 <= tt <= st0 + dur + 2000]
             secs[('canary' if p in CANS else 'control', period, stop_class(m[0] if m else None))] += dur / 1000.0
-    arm_bh = lambda arm, period: sum(bh(period, p) for p in pools if (p in CANS) == (arm == 'canary'))
+    arm_bh = lambda arm, period: sum(bh(period, p) for p in (CANS if arm == 'canary' else controls))
     def body_did(cls):
         v = {}
         for arm in ('canary', 'control'):
@@ -380,17 +493,19 @@ if __name__ == '__main__':
             return None
         return round((v[('canary', 'post')] - v[('canary', 'pre')]) - (v[('control', 'post')] - v[('control', 'pre')]), 2)
     body_dids = {c: body_did(c) for c in STOP_CLASSES + ('other',)}
-    stops = Counter((('canary' if p in CANS else 'control'), period, stop_class(s)) for (period, p), xs in drains_by.items() for _, _, _, s in xs)
-    print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  offbuild canary rows %d, no-version %d' % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, offbuild, noversion))
+    stops = Counter((('canary' if p in CANS else 'control'), period, stop_class(s)) for (period, p), xs in drains_by.items() if p in CANS or p in controls for _, _, _, s in xs)
+    rnd = lambda x: None if x is None else round(x, 4)
+    print('rows walked (compacted) %d  |  canary %s  sha %s  cutoff %s  window +%d min, FROZEN pre-period %d min  |  offbuild canary rows %d, no-version %d'
+          % (sum(nrows.values()), ','.join(CANS), CV, CUT.strftime('%H:%MZ'), W, PRE_MIN, offbuild, noversion))
+    print('POOLS        controls (frozen: >= %d pre drains, >= %g post bot-h) %d: %s | dropped %s' % (MIN_PRE_DRAINS, MIN_POOL_BH, len(controls), ','.join(controls), dropped or '-'))
     print('LIVENESS     canary _furnace_seen_mode on=on %d | canary drains %d' % (n['mode'], len(can_drains)))
-    print('EXPOSURE     skipped walks (distinct furnace x entry x bot) %d (registered min 20)' % skipped)
-    print('D1 (defect)  %d defects | walks replayed %d, skips replayed %d, unresolved %d | lit-released walks %d | %s'
-          % (len(d1['defects']), d1['walks_replayed'], d1['skips_replayed'], d1['unresolved'], lit_released, d1['defects'][:4]))
-    print('EFFECT       repeat empty drains per bot-h: canary pre %s | R = %s, lower bound (alpha %.3f, randomization) %s, bar %s -> margin %s'
-          % ([None if x is None else round(x, 3) for x in pre_can], None if R is None else round(R, 4), ALPHA, None if lb is None else round(lb, 4),
-             None if bar is None else round(bar, 4), None if margin is None else round(margin, 4)))
+    print('EXPOSURE     skipped walks that CHANGED the pick (distinct furnace x entry x bot) %d of %d skip rows (registered min 20)' % (skipped, len(can_skips)))
+    print('D1 (defect)  %d defects | walks replayed %d, skips replayed %d, unresolved %d -> instrument %d | lit-released walks %d | %s'
+          % (len(d1['defects']), d1['walks_replayed'], d1['skips_replayed'], d1['unresolved'], d1_instrument(d1), lit_released, d1['defects'][:4]))
+    print('EFFECT       repeat empty drains per bot-h: canary pre %s post %s | R = %s, lower bound (alpha %.3f, randomization) %s, bar %s -> margin %s %s'
+          % ([rnd(rates.get(('pre', p))) for p in CANS], [rnd(rates.get(('post', p))) for p in CANS], rnd(eff['R']), ALPHA, rnd(eff['lb']), rnd(eff['bar']), rnd(eff['margin']), eff['why'] or ''))
     print('REPORT       drains by stop class %s' % dict(sorted(stops.items())))
-    print('             drain body-s per bot-h DiD by stop class %s (the saving, measured) | raced walks (an append after the pick read the fold; reported) %d' % (body_dids, raced))
+    print('             drain body-s per bot-h DiD by stop class %s (the saving, measured) | races (reported) %s' % (body_dids, dict(races) or '-'))
     print('ARMS         control skip / mode rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   control repeat empty drains post %d | control _ledger_station post %d' % (ctl_repeats, n['ctl_station']))
     try:
@@ -401,10 +516,12 @@ if __name__ == '__main__':
         emit('furnaceseenread', W, {
             'rows_canary': nrows[('post', 'canary')], 'rows_control': nrows[('post', 'control')], 'offbuild_canary': offbuild, 'noversion_canary': noversion,
             'liveness': int(n['mode'] >= 1 and len(can_drains) >= 1), 'skipped_walks': skipped, 'licence_rows': len(can_skips),
-            'd1_defects': len(d1['defects']), 'd1_unresolved': d1['unresolved'], 'walks_replayed': d1['walks_replayed'], 'lit_released': lit_released,
-            'r': R, 'r_lb': lb, 'bar': bar, 'r_lb_minus_bar': margin,
+            'd1_defects': len(d1['defects']), 'd1_unresolved': d1['unresolved'], 'walks_replayed': d1['walks_replayed'],
+            'skips_replayed': d1['skips_replayed'], 'd1_instrument': d1_instrument(d1), 'lit_released': lit_released,
+            'r': eff['R'], 'r_lb': eff['lb'], 'bar': eff['bar'], 'r_lb_minus_bar': eff['margin'], 'effect_undefined_why': eff['why'],
+            'controls': controls, 'controls_dropped': dropped, 'pre_min': PRE_MIN,
             'rows_control_post': leak, 'instrument_control': int(ctl_repeats >= 1 and n['ctl_station'] >= 1),
-            'stops': {'%s.%s.%s' % k: v for k, v in stops.items()}, 'body_s_per_bh_did': body_dids, 'raced_walks': raced,
+            'stops': {'%s.%s.%s' % k: v for k, v in stops.items()}, 'body_s_per_bh_did': body_dids, 'races': dict(races),
         })
     except Exception as e:
         print('emit failed:', e)
