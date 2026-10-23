@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""readmanifest.py <out-dir> <expected-day>: the READER's rule (goalboard): OK only when manifest.json names today's day,
+status OK, a generation directory that exists, and every listed file's sha256 matches. Anything else prints UNKNOWN."""
+import hashlib, json, os, sys
+out, day = sys.argv[1], sys.argv[2]
+try:
+    m = json.load(open(os.path.join(out, 'manifest.json')))
+except Exception as e:
+    print('UNKNOWN no readable manifest'); sys.exit(1)
+if m.get('day') != day: print('UNKNOWN stale manifest (day %s)' % m.get('day')); sys.exit(1)
+if m.get('status') != 'OK': print('UNKNOWN', m.get('why')); sys.exit(1)
+g = os.path.join(out, m['generation'])
+for f, h in m['files'].items():
+    p = os.path.join(g, f)
+    if not os.path.exists(p) or hashlib.sha256(open(p, 'rb').read()).hexdigest() != h:
+        print('UNKNOWN hash mismatch', f); sys.exit(1)
+print('OK', m['generation'], len(m['files']), 'files')

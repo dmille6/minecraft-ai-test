@@ -1,15 +1,18 @@
-daily.sh (r5) demonstrations, 10.0.0.30 ~/structcount-1023, 2026-10-23 16:46-16:47Z. The published file's checksum is printed
-after every run (`sum`): it must not change on any refusal.
+daily.sh r6 (manifest publication) demonstrations, 10.0.0.30 ~/structcount-1023, 2026-10-23 16:57-16:58Z.
+After every run the READER (readmanifest.py: today's day, status OK, the generation present, every sha256 matching) is asked.
 
-1 the instrument as shipped, board-a's region copy
-    published demo-out/structcount-2026-10-23.json (+ cells-2026-10-23.json.gz, structcount-last.json); status OK; exit 0
-    checksum 52652 6
-2 STRUCTCOUNT=broken.py (lit_at made state-blind by one sed replacement)
-    "selftest FAILED: nothing published"; exit 3; status UNKNOWN "selftest failed"; checksum 52652 6 (unchanged)
-3 a region directory that does not exist
-    "scan FAILED for board-a: nothing published"; exit 4; status UNKNOWN "scan failed: board-a"; checksum unchanged
-4 an output directory the wrapper cannot write (chmod 555)
-    "cannot create a temp dir in ro-out: nothing published"; exit 6; the files already there untouched
-5 a region directory that exists but lacks the home region file (the scan EXITS 0 and its JSON reads chunk_missing_region 169)
-    "INVALID board-a coverage {'chunk_missing_region': 169}; stamp control 0 < 90% of 186"; "INVALID scan for board-a:
-    nothing published"; exit 4; status UNKNOWN "invalid scan: board-a"; checksum 52652 6 (unchanged)
+run                                   wrapper says                                                   exit  reader says
+1 the instrument as shipped           published m-out/gen-20261023T165720Z via manifest.json          0     OK gen-20261023T165720Z 4 files
+2 FAIL_AT=selftest                    selftest failed: nothing published                              3     UNKNOWN selftest failed
+3 FAIL_AT=scan                        scan failed: board-a: nothing published                         4     UNKNOWN scan failed: board-a
+4 FAIL_AT=aggregate                   aggregation failed: nothing published                           5     UNKNOWN aggregation failed
+5 FAIL_AT=gen_rename                  generation rename failed: nothing published                     6     UNKNOWN generation rename failed
+6 FAIL_AT=manifest (the final rename) manifest write failed: readers keep the previous manifest       6     the previous manifest, unchanged (here
+                                                                                                             run 5's UNKNOWN); its generation dir
+                                                                                                             gen-20261023T165752Z stays unnamed
+7 STRUCTCOUNT=broken.py               selftest failed: nothing published                              3     UNKNOWN selftest failed
+8 a reader expecting another day      -                                                               -     UNKNOWN stale manifest (day 2026-10-23)
+9 an unwritable output dir (555)      manifest not writable ...; cannot create a work dir             6     UNKNOWN no readable manifest
+Run 1's generation directory is never modified by later runs (generations are immutable; only manifest.json is replaced).
+Earlier r5 demonstrations (missing region file read as chunk_missing_region -> INVALID) apply unchanged: the coverage check
+is the same code.

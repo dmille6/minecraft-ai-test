@@ -1,60 +1,72 @@
 #!/bin/bash
 # daily.sh <out-dir> <world> <region-dir> <hx,hy,hz> [<world> <region-dir> <home> ...]
-# The publication wrapper (Codex r3/r4 P2): controls first, coverage checked, published ATOMICALLY, or not at all.
-#   1. structcount selftest and mutants.py (both given THE SAME instrument path) must exit 0     -> else UNKNOWN, exit 3
-#   2. each world: the scan must exit 0 and its JSON must show FULL COVERAGE (every chunk of the box read `ok`, no missing
-#      region, no unresolved structure start), the stamp control within 10% of yesterday's, and the uninhabited-chunk
-#      negative control (negctl) 0 surface false positives                                         -> else UNKNOWN, exit 4
-#   3. the day's aggregate JSON and its gzip cell list (tomorrow's delta needs it) are built in a private temp dir; the
-#      aggregation must exit 0                                                                         -> else UNKNOWN, exit 5
-#   4. both are renamed into place (rename(2), atomic on one filesystem); a failed rename keeps the old result -> exit 6
-# STRUCTCOUNT may point at another copy of the instrument (the failure demonstrations pass a broken one).
+# The publication wrapper, r6 (Codex r5 P2): ONE atomic step publishes, and readers trust nothing else.
+#   * Every run writes an IMMUTABLE generation directory gen-<UTC stamp>/ (the day's JSON, its gzip cell list, the controls'
+#     outputs), then publishes by renaming ONE file, manifest.json, which names the generation, the day, the status and the
+#     sha256 of every file. rename(2) of one file is atomic: a reader sees the old manifest or the new one, never a mix.
+#   * A failed run publishes a manifest with status UNKNOWN and NO data files (the previous generation stays on disk, unnamed).
+#   * If even that manifest cannot be written (an unwritable directory), the manifest left in place is an older day's; READERS
+#     treat any manifest whose `day` is not the expected day, or whose hashes do not match, as UNKNOWN (goalboard's rule).
+#   * Checks before OK: selftest and mutants on the same instrument path; per world a scan and negctl with FULL coverage (every
+#     chunk ok, no unresolved start), the stamp within 10% of the last OK generation, 0 surface false positives.
+#   * FAIL_AT=<step> injects a failure (the demonstrations): selftest | scan | aggregate | gen_rename | manifest.
 set -u
 OUT=$1; shift
 SC=${STRUCTCOUNT:-structcount.py.txt}
-DAY=$(date -u +%F)
-mkdir -p "$OUT" || exit 6
-TMP=$(mktemp -d "$OUT/.tmp.XXXXXX") || { echo "cannot create a temp dir in $OUT: nothing published"; exit 6; }
-trap 'rm -rf "$TMP"' EXIT
-status() {
-  printf '{"day":"%s","status":"%s","why":"%s","at":"%s"}\n' "$DAY" "$1" "$2" "$(date -u +%FT%TZ)" > "$TMP/status.json" &&
-  mv -f "$TMP/status.json" "$OUT/status.json" || echo "WARNING: status could not be written to $OUT"
+DAY=$(date -u +%F); STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+GEN="gen-$STAMP"
+fail_at() { [ "${FAIL_AT:-}" = "$1" ]; }
+manifest() {   # manifest <status> <why> [gen]  -- write to a temp name, then ONE rename
+  python3 - "$OUT" "$DAY" "$1" "$2" "${3:-}" <<'EOF' || return 1
+import hashlib, json, os, sys
+out, day, status, why, gen = sys.argv[1:6]
+files = {}
+if gen:
+    for f in sorted(os.listdir(os.path.join(out, gen))):
+        files[f] = hashlib.sha256(open(os.path.join(out, gen, f), 'rb').read()).hexdigest()
+m = {'day': day, 'status': status, 'why': why, 'generation': gen or None, 'files': files}
+tmp = os.path.join(out, '.manifest.tmp')
+with open(tmp, 'w') as f: json.dump(m, f); f.flush(); os.fsync(f.fileno())
+os.replace(tmp, os.path.join(out, 'manifest.json'))
+EOF
 }
-if ! python3 "$SC" selftest > "$TMP/selftest.out" 2>&1; then status UNKNOWN "selftest failed"; echo "selftest FAILED: nothing published"; exit 3; fi
-if ! python3 mutants.py "$SC" > "$TMP/mutants.out" 2>&1; then status UNKNOWN "a mutant survived"; echo "mutants FAILED: nothing published"; exit 3; fi
+unknown() { if fail_at manifest || ! manifest UNKNOWN "$1"; then echo "manifest not writable: readers see an older day = UNKNOWN"; fi; echo "$1: nothing published"; exit "$2"; }
+mkdir -p "$OUT" 2>/dev/null
+WORK=$(mktemp -d "$OUT/.work.XXXXXX" 2>/dev/null) || unknown "cannot create a work dir" 6
+trap 'rm -rf "$WORK"' EXIT
+{ ! fail_at selftest && python3 "$SC" selftest > "$WORK/selftest.out" 2>&1; } || unknown "selftest failed" 3
+python3 mutants.py "$SC" > "$WORK/mutants.out" 2>&1 || unknown "a mutant survived" 3
+LAST=""
+[ -f "$OUT/manifest.json" ] && LAST=$(python3 -c "import json,sys;m=json.load(open(sys.argv[1]));print(m['generation'] if m.get('status')=='OK' and m.get('generation') else '')" "$OUT/manifest.json")
 while [ $# -ge 3 ]; do
   W=$1; R=$2; H=$3; shift 3
-  if ! python3 "$SC" scan "$W" "$R" "$H" --r 96 --stamp --json "$TMP/$W.scan.json" > "$TMP/$W.out" 2>&1 ||
-     ! python3 "$SC" negctl "$W" "$R" "$H" --r 96 --n 120 --json "$TMP/$W.neg.json" > "$TMP/$W.negout" 2>&1; then
-    status UNKNOWN "scan failed: $W"; echo "scan FAILED for $W: nothing published"; exit 4
-  fi
-  if ! python3 - "$TMP/$W.scan.json" "$TMP/$W.neg.json" "$OUT/structcount-last.json" "$W" <<'EOF'
+  { ! fail_at scan && python3 "$SC" scan "$W" "$R" "$H" --r 96 --stamp --json "$WORK/$W.scan.json" > "$WORK/$W.out" 2>&1 &&
+    python3 "$SC" negctl "$W" "$R" "$H" --r 96 --n 120 --json "$WORK/$W.neg.json" > "$WORK/$W.negout" 2>&1; } || unknown "scan failed: $W" 4
+  python3 - "$WORK/$W.scan.json" "$WORK/$W.neg.json" "${LAST:+$OUT/$LAST/structcount-day.json}" "$W" <<'EOF' || unknown "invalid scan: $W" 4
 import json, os, sys
-s = json.load(open(sys.argv[1])); n = json.load(open(sys.argv[2])); w = sys.argv[4]
-bad = []
+s = json.load(open(sys.argv[1])); n = json.load(open(sys.argv[2])); w = sys.argv[4]; bad = []
 ch = s.get('chunks', {})
 if not ch or set(ch) != {'chunk_ok'}: bad.append('coverage %s' % ch)
 if s.get('worldgen_starts_unreadable'): bad.append('unresolved starts %s' % s['worldgen_starts_unreadable'])
-if n.get('fp_cells_surface', 1) != 0 or not n.get('uninhabited_chunks'): bad.append('negative control %s/%s' % (n.get('fp_cells_surface'), n.get('uninhabited_chunks')))
-if os.path.exists(sys.argv[3]):
+if n.get('fp_cells_surface', 1) != 0 or not n.get('uninhabited_chunks'): bad.append('negative control')
+if sys.argv[3] and os.path.exists(sys.argv[3]):
     last = (json.load(open(sys.argv[3])).get(w) or {}).get('stamp_present')
     if last and s.get('stamp_present', 0) < 0.9 * last: bad.append('stamp control %s < 90%% of %s' % (s.get('stamp_present'), last))
 if bad: print('INVALID', w, '; '.join(bad)); sys.exit(1)
 EOF
-  then status UNKNOWN "invalid scan: $W"; echo "INVALID scan for $W: nothing published"; exit 4; fi
 done
-if ! python3 - "$TMP" "$DAY" <<'EOF'
-import glob, gzip, json, os, sys
-tmp, day = sys.argv[1], sys.argv[2]
+mkdir "$WORK/$GEN" || unknown "aggregation failed" 5
+{ ! fail_at aggregate && python3 - "$WORK" "$WORK/$GEN" <<'EOF'
+import glob, gzip, json, os, shutil, sys
+work, gen = sys.argv[1], sys.argv[2]
 d, cells = {}, {}
-for f in sorted(glob.glob(os.path.join(tmp, '*.scan.json'))):
+for f in sorted(glob.glob(os.path.join(work, '*.scan.json'))):
     r = json.load(open(f)); cells[r['world']] = r.pop('cells'); d[r['world']] = r
-json.dump(d, open(os.path.join(tmp, 'structcount-%s.json' % day), 'w'))
-with gzip.open(os.path.join(tmp, 'cells-%s.json.gz' % day), 'wt') as g: json.dump(cells, g)
+json.dump(d, open(os.path.join(gen, 'structcount-day.json'), 'w'))
+with gzip.open(os.path.join(gen, 'cells.json.gz'), 'wt') as g: json.dump(cells, g)
+for f in ('selftest.out', 'mutants.out'): shutil.copy(os.path.join(work, f), gen)
 EOF
-then status UNKNOWN "aggregation failed"; echo "aggregation FAILED: nothing published"; exit 5; fi
-mv -f "$TMP/cells-$DAY.json.gz" "$OUT/cells-$DAY.json.gz" && mv -f "$TMP/structcount-$DAY.json" "$OUT/structcount-$DAY.json" &&
-  cp -f "$OUT/structcount-$DAY.json" "$OUT/.last.tmp" && mv -f "$OUT/.last.tmp" "$OUT/structcount-last.json" ||
-  { status UNKNOWN "publication failed"; echo "publication FAILED"; exit 6; }
-status OK "controls passed"
-echo "published $OUT/structcount-$DAY.json"
+} || unknown "aggregation failed" 5
+{ ! fail_at gen_rename && mv "$WORK/$GEN" "$OUT/$GEN"; } || unknown "generation rename failed" 6
+{ ! fail_at manifest && manifest OK "controls passed" "$GEN"; } || { echo "manifest write failed: readers keep the previous manifest; nothing published"; exit 6; }
+echo "published $OUT/$GEN via manifest.json"

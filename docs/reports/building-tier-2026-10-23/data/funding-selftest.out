@@ -3,6 +3,8 @@ Codex r4: 523 oak logs + 172 oak planks (118 drawable)   got False want False ok
 a rich town                                              got True want True ok
 banked panes, no sand -> glass windows                   got glass_pane want glass_pane ok
 banked glass, no sand -> glass windows                   got glass_pane want glass_pane ok
+Codex r5: 2 banked glass + 23 drawable sand -> a full 6-sand session, the glass untouched (1 drawable) got 1 want 1 ok
+2 banked glass + 5 drawable sand -> plank windows        got planks want planks ok
 banked cut copper, no ingots -> copper trim              got copper want copper ok
 banked copper blocks, no ingots -> copper trim           got copper want copper ok
 banked stone counts toward bricks                        got True want True ok

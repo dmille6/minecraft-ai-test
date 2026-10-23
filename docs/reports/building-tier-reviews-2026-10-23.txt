@@ -355,3 +355,49 @@ DISPOSITIONS r4 -> r5:
 - Coordinator 10-23: reconciled with mineshaft-safety r10 (8bffc295: deep-stair envelope as a reservation, exit_house as a
   pre-escape rung under F2, seal blocks in the claim set, lane order Q11) and cooperation r8 (ad1aa9ef: A1-A4, A6, A7, A9
   adopted; its shop-01 open items answered).
+
+ROUND 5 (r5 doc, commit 9012b452)
+---------------------------------
+CODEX (codex exec --sandbox read-only): VERDICT: CHANGE
+Round-4 status: **#1 and #5 remain partially fixed; #2’s reported allocation bugs are fixed, with a new batch mismatch below; #3, #4 and #6 are fixed at design level; #7’s acceptance criterion is fixed, but stale text remains.** Verified: 17/17 structure fixtures, eight in-memory mutants killed, 10/10 funding fixtures, and reproduced funding totals.
+
+1. **P1 — Design §2.5/§6.2: persistence still lacks a reliable qualification rule.** A completed chunk saved before another chunk’s final placement fails the record-wide `_build` timestamp requirement indefinitely if it stays unchanged. Requiring advancing save timestamps for two reads likewise depends on further dirtying. Conversely, damage after the second save but before its copy remains invisible, contradicting “damaged in between fails the second read.”  
+   **Fix:** compare each chunk against its own mutation watermark; distinguish saved-state observations from verified persistence. Qualify persistence through repeated fresh record surveys or explicit mutation/save coverage. Add an unchanged, unloaded building spanning two chunks as a positive control, alongside unsaved damage.
+
+2. **P2 — §2.6; `tools/daily.sh.txt`: publication is still not atomic or reliably UNKNOWN on failure.** The cell list, daily JSON and last-result file are replaced separately. Failure after the first rename leaves a mixed publication; failure copying `.last.tmp` occurs after the daily result was replaced. Failure creating the temporary directory exits before updating status, potentially leaving an earlier `OK`. The unwritable-directory demonstration does not establish the claimed UNKNOWN result.  
+   **Fix:** publish immutable generation files through one atomic manifest replacement, including their hashes and status; require readers to validate freshness. Inject failures between publication steps and during status writing, checking both retained data and reader-visible UNKNOWN.
+
+3. **P2 — §5a F2 reconciliation / §4.4: sealed-house recovery relies on a false trigger assumption.** Mineshaft F2 adds a condition to the entombment arm; it does not make every closed room entombed. `bots/src/reflex.mjs::isEntombed` still requires three adjacent walls and elevated surrounding terrain. A bot in the house’s central interior fails that predicate. Merely placing `exit_house` before escape rungs does not guarantee it runs.  
+   **Fix:** trigger `exit_house` directly from recorded-interior occupancy, independently of escape detection. Extend HOUSE-SEAL to start centrally inside a closed house with `isEntombed=false` and verify automatic departure.
+
+4. **P2 — §3.1–3.3; `tools/funding.py.txt::panes`: mixed glass stock admits a batch the job does not implement.** With two banked glass and 23 sand, the allocator permits one glass plus five sand after caps and selects pane windows. The specified job withdraws **six sand** per session, exceeding that allocation; smelting five on four planks also contradicts the exact-burn claim.  
+   **Fix:** either allocate full six-sand sessions and retain surplus glass, or explicitly support partial sessions with corresponding fuel/remainder accounting. Add this mixed-intermediate fixture to funding and MAT-1.
+
+5. **P3 — §3.2 recovery tests and §7 CUTOFF: obsolete requirements remain.** §3.2 still says “no noted item spent as scaffold,” despite corrected MAT-TRAVEL allowing accounted base-material consumption. CUTOFF still says “complete as of its cutoff,” despite r5 abandoning a single cutoff.  
+   **Fix:** update these two specifications to the revised carry policy and observation semantics.
+
+CLAUDE r5 (same reviewer agent, resumed; ran funding --selftest 10/10): VERDICT: CHANGE (0 P1, 1 P2, P3s). Verified: daily.sh
+r5's five refusals (checksum unchanged), its r4 P3s, acknowledgement-by-sequence settlement, cooperation A1-A9 against its
+§5.2, Q11 keeping mineshaft's own order.
+P2: §2.5's record-wide rule (every chunk saved after the record's newest _build row): quiet chunks are not re-saved, so a
+  multi-chunk record whose first-finished chunk is quiet stays UNKNOWN forever; workshop@1's 11x9 footprint fits in one chunk
+  in about 19% of positions. Fix: per-chunk watermark (r3's rule) plus r5's persistence; a CUTOFF case across two chunks.
+P3s: M-b is cooperation's open item for mineshaft, which itself says the deep miner withdraws from town stock; mark it an ask of
+  deepminer-01. The F6 "a deep-stair site never meets a recorded plot" is also an ask. F2 narrows entombment; a bot in the
+  middle of a house is not isEntombed, so exit_house needs its own trigger (as r2-r4 had). Two clocks (.31 rows vs .30 saves):
+  a margin. A7: tell cooperation's B0b the row is `_build_mode`.
+
+DISPOSITIONS r5 -> r6 (both engines):
+- Claude P2 / Codex 1 (P1): per-chunk watermarks (the newest _build row in THAT chunk, + 5 s cross-host margin); a record is
+  scored when every chunk is current; persistence is verified by a live `survey` order (_build_survey) at least 1 h after the
+  first scored observation, not by a second copy; exposure counts PERSISTENT buildings; scenes CUTOFF-SPLIT, -QUIET, -DAMAGE,
+  -SLOW.
+- Codex 2 (P2 wrapper): daily.sh r6 publishes immutable generation directories through ONE manifest rename with sha256s and
+  status; failed runs publish an UNKNOWN manifest; the reader (readmanifest.py) accepts only today's OK manifest with matching
+  hashes. Nine demonstrations with failures injected at every step (data/daily-wrapper-demo.txt).
+- Codex 3 (P2) / Claude P3 (F2): exit_house has its own reflex-tick trigger (feet in a recorded sealed interior), independent
+  of every escape detector; §5a's F2 row corrected; HOUSE-SEAL starts a bot in the middle with isEntombed false.
+- Codex 4 (P2 glass batches): funding r6 uses banked glass only in whole 6-glass crafts and sand only in full 6-sand sessions;
+  two fixtures (12 of 12 pass). Unchanged result: 10/13, 26/65.
+- Codex 5 (P3 stale text): §3.2's recovery test and the CUTOFF scene rewritten.
+- Claude P3s: M-b and the deep-stair siting marked as asks of mineshaft; the 5 s clock margin; `_build_mode` named for B0b.

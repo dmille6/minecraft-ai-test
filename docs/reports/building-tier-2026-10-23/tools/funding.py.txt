@@ -77,11 +77,13 @@ def panes(P, n):
     n -= P.upto('left', 'glass_pane', n); n -= P.upto('parts', 'glass_pane', n)
     if not n: return 0
     crafts = math.ceil(n / 16)
-    glass = min(P.parts.get('glass', 0), 6 * crafts); P.parts['glass'] = P.parts.get('glass', 0) - glass
-    need_sand = 6 * crafts - glass
-    if need_sand and not P.draw('raw', 'sand', need_sand): return None
+    # WHOLE batches only (Codex r5 P2): banked glass covers whole crafts of 6; every other craft is one full 6-sand session
+    # on exactly 4 planks. Banked glass short of a full craft is not mixed with sand; it stays banked.
+    from_glass = min(crafts, P.parts.get('glass', 0) // 6); P.parts['glass'] = P.parts.get('glass', 0) - 6 * from_glass
+    sand_sessions = crafts - from_glass
+    if sand_sessions and not P.draw('raw', 'sand', 6 * sand_sessions): return None
     P.left['glass_pane'] = P.left.get('glass_pane', 0) + 16 * crafts - n
-    return 1 if need_sand else 0                               # one glass session if any sand is smelted
+    return sand_sessions                                       # glass sessions to fuel (4 planks each)
 
 def cutcopper(P, n):
     n -= P.upto('left', 'cut_copper', n); n -= P.upto('parts', 'cut_copper', n)
@@ -139,6 +141,8 @@ def selftest():
         ('a rich town', go()[0], True),
         ('banked panes, no sand -> glass windows', go(parts={'glass_pane': 40})[2]['windows'], 'glass_pane'),
         ('banked glass, no sand -> glass windows', go(parts={'glass': 10})[2]['windows'], 'glass_pane'),
+        ('Codex r5: 2 banked glass + 23 drawable sand -> a full 6-sand session, the glass untouched (1 drawable)', go(sand=16 + 29, parts={'glass': 2})[3].parts.get('glass'), 1),
+        ('2 banked glass + 5 drawable sand -> plank windows', go(sand=16 + 7, parts={'glass': 2})[2]['windows'], 'planks'),
         ('banked cut copper, no ingots -> copper trim', go(copper_ingot=0, parts={'cut_copper': 40})[2]['trim'], 'copper'),
         ('banked copper blocks, no ingots -> copper trim', go(copper_ingot=0, parts={'copper_block': 40})[2]['trim'], 'copper'),
         ('banked stone counts toward bricks', go(cobblestone=256 + 100, stone=200)[0], True),
