@@ -53,6 +53,17 @@ async function withMutant (p, old, neu, fn) {
   writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+async function withMutants (p, pairs, fn) {
+  let src = readFileSync(p, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
+    assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
 const killedBy = async fn => { try { await fn(); return false } catch (e) { if (e instanceof assert.AssertionError) return true; throw e } }
 
 const NOW = 1_800_000_000_000
@@ -100,16 +111,30 @@ await t('ironOwnKeep restates the town deposit\'s ironUnitsNeeded (3 per iron cr
   assert.deepEqual(TIM.deliverPlan({ ...own, iron_ingot: 2, raw_iron: 17 }), { iron_ingot: { deposit: 0, own: 2 }, raw_iron: { deposit: 16, own: 1 }, surplus: 16 })
   assert.deepEqual(TIM.deliverPlan({ raw_iron: 19 }), { iron_ingot: { deposit: 0, own: 0 }, raw_iron: { deposit: 13, own: 6 }, surplus: 13 }, 'no bucket, no pickaxe: 6 kept')
 })
-await t('deliverOrder: at town with a round (16) above the own keep -> deliver_iron; less, away, off or on cooldown -> no order; a failure backs off', () => {
-  const own = { bucket: 1, iron_pickaxe: 1 }
-  const o = TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 19 } })
+const own = { bucket: 1, iron_pickaxe: 1 }
+await t('deliverOrder: only a RECORDED round is town cargo; at town any surplus above the own keep -> deliver_iron; no round, away, off, cooldown -> none; a failure backs off', () => {
+  const R = { round: true }
+  assert.equal(TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 19 } }).skip, 'no_round', 'the bag\'s own surplus, never mined for the town: not delivered')
+  const o = TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 19 }, state: R })
   assert.equal(o.order?.skill, 'deliver_iron'); assert.equal(o.state.lastIssuedAt, 1e12)
-  assert.equal(TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 18 } }).skip, 'none')
-  assert.equal(TIM.deliverOrder({ now: 1e12, atTown: false, counts: { ...own, raw_iron: 19 } }).skip, 'away')
-  assert.equal(TIM.deliverOrder({ now: 1e12, on: false, atTown: true, counts: { ...own, raw_iron: 19 } }).skip, 'off')
+  assert.equal(TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 4 }, state: R }).order?.skill, 'deliver_iron', 'a remainder of 1 is retried (Codex r2 P1)')
+  const none = TIM.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 3 }, state: R })
+  assert.equal(none.skip, 'none'); assert.equal(none.state.round, undefined, 'nothing above the keep: the round is over')
+  assert.equal(TIM.deliverOrder({ now: 1e12, atTown: false, counts: { ...own, raw_iron: 19 }, state: R }).skip, 'away')
+  assert.equal(TIM.deliverOrder({ now: 1e12, on: false, atTown: true, counts: { ...own, raw_iron: 19 }, state: R }).skip, 'off')
   assert.equal(TIM.deliverOrder({ now: 1e12 + 1000, atTown: true, counts: { ...own, raw_iron: 19 }, state: o.state }).skip, 'cooldown')
-  const b = TIM.deliverOutcome('failed', 1e12, {}); assert.equal(b.backoffUntil, 1e12 + TIM.DELIVER_BACKOFF_MS)
-  assert.equal(TIM.deliverOrder({ now: 1e12 + TIM.DELIVER_COOLDOWN_MS + 1, atTown: true, counts: { ...own, raw_iron: 19 }, state: b }).skip, 'cooldown')
+  const b = TIM.deliverOutcome('failed', 1e12, R); assert.equal(b.backoffUntil, 1e12 + TIM.DELIVER_BACKOFF_MS); assert.equal(b.round, true)
+  assert.equal(TIM.deliverOutcome('success', 1e12, R, { surplusLeft: 0 }).round, undefined, 'all banked: the round ends')
+  assert.equal(TIM.deliverOutcome('success', 1e12, R, { surplusLeft: 15 }).round, true, 'a partial delivery keeps it')
+  assert.deepEqual(TIM.noteTownRound({}, 'gather_iron_ore_town#4'), { round: true }); assert.deepEqual(TIM.noteTownRound({}, 'gather_iron_ore_town+prereq'), { round: true })
+  assert.deepEqual(TIM.noteTownRound({}, 'gather_iron_ore_3'), {})
+})
+await t('the round ends where the delivery has a round to bank (Codex r2 P2): townTaskCarried = 16 above the OWN keep, whatever the keep', () => {
+  const items = c => Object.entries(c).map(([name, count]) => ({ name, count }))
+  assert.equal(TIM.townTaskCarried(items({ ...own, raw_iron: 19 })), true)
+  assert.equal(TIM.townTaskCarried(items({ ...own, raw_iron: 18 })), false)
+  assert.equal(TIM.townTaskCarried(items({ raw_iron: 19 })), false, 'no bucket, no pickaxe: 6 own, 13 above: not yet')
+  assert.equal(TIM.townTaskCarried(items({ raw_iron: 22 })), true)
 })
 
 // ---- consumer 2: the shovel tier (pure) ------------------------------------------------------------------------------------
@@ -127,8 +152,8 @@ await t('kitNeeds: town SHORT -> no iron shovel; a stone_shovel for a bag with n
   assert.deepEqual(K.kitNeeds([stack('cobblestone', 3)], { lowIron: false }), ['iron_pickaxe', 'iron_axe', 'iron_shovel'])
 })
 await t('kitDraw: a stone shovel draws 0 ingots and its 2 sticks; with the pickaxe the ingots are the pickaxe\'s alone', () => {
-  assert.deepEqual(K.kitDraw([PICK(), AXE(), stack('cobblestone', 3), stack('stick', 4)], { lowIron: true }), { needs: ['stone_shovel'], ingots: 0, sticks: 0, lowIron: true })
-  assert.deepEqual(K.kitDraw([PICK(), AXE(), stack('cobblestone', 3)], { lowIron: true }), { needs: ['stone_shovel'], ingots: 0, sticks: 4, lowIron: true })
+  assert.deepEqual(K.kitDraw([PICK(), AXE(), stack('cobblestone', 3), stack('stick', 4)], { lowIron: true }), { needs: ['stone_shovel'], ingots: 0, sticks: 0 })
+  assert.deepEqual(K.kitDraw([PICK(), AXE(), stack('cobblestone', 3)], { lowIron: true }), { needs: ['stone_shovel'], ingots: 0, sticks: 4 })
   assert.equal(K.kitDraw([stack('cobblestone', 3), stack('stick', 9)], { lowIron: true }).ingots, 6)
   assert.equal(K.kitDraw([stack('cobblestone', 3), stack('stick', 9)], { lowIron: false }).ingots, 7, 'CONTROL: the base kit is 3 + 3 + 1')
 })
@@ -225,26 +250,26 @@ await t('THE RUNG: after the bot\'s own iron rungs; town SHORT + ore + trip pick
   assert.equal(r.wants, 'iron_ore')
   readerSays({ units: 20 })
   assert.equal(r.done(ladderBot({ inv: DONE_BAG })), false, 'open: the town is short')
-  assert.equal(r.done(ladderBot({ inv: { ...DONE_BAG, raw_iron: 15 } })), false, '18 carried: not yet')
-  assert.equal(r.done(ladderBot({ inv: { ...DONE_BAG, raw_iron: 16 } })), true, '19 carried: the round is done')
+  assert.equal(r.done(ladderBot({ inv: { ...DONE_BAG, raw_iron: 15 } })), false, '15 above the own 3: not yet')
+  assert.equal(r.done(ladderBot({ inv: { ...DONE_BAG, raw_iron: 16 } })), true, '16 above: the round is done')
   assert.equal(r.fulfilled(ladderBot({ inv: { ...DONE_BAG, raw_iron: 16 } })), true, 'a genuine completion')
   assert.equal(r.done(ladderBot({ inv: DONE_BAG, oreInReach: false })), true, 'no ore in reach: no means')
   assert.equal(r.done(ladderBot({ inv: { ...DONE_BAG, iron_pickaxe: 0, stone_pickaxe: 0 } })), true, 'no trip pickaxe: no means')
   assert.equal(r.fulfilled(ladderBot({ inv: DONE_BAG, oreInReach: false })), false, 'a bypass is not a completion')
   readerSays({ units: 64 }); assert.equal(r.done(ladderBot({ inv: DONE_BAG })), true, 'at the reserve: no means')
   readerSays(null); assert.equal(r.done(ladderBot({ inv: DONE_BAG })), true, 'unknown: no means (the base)')
-  assert.match((readerSays({ units: 20 }), r.progress(ladderBot({ inv: DONE_BAG }))), /3\/19 iron carried; the town holds 20 of 64/)
+  assert.match((readerSays({ units: 20 }), r.progress(ladderBot({ inv: DONE_BAG }))), /^0\/16 iron above your own carried \(3 in all\); the town holds 20 of 64/)
   TIM.setTownIronReader(null)
 })
 
 // ---- THE REFUSAL CHAINS: the real MilestoneController ----------------------------------------------------------------------
 let CLOCK = NOW
 const realNow = Date.now
-const controller = bot => {
+const controller = (bot, M = MS) => {
   const progress = { attempts: {}, skipped: [], skippedAt: {}, skipCount: {}, cycle: 0, completions: {}, progressAt: {} }
   const lessons = { getProgress: () => progress, setProgress: (a, s, sa, sc, cy, co, pa) => Object.assign(progress, { attempts: a, skipped: s, skippedAt: sa, skipCount: sc, progressAt: pa }), save () {} }
-  const c = new MS.MilestoneController(bot, 'gatherer', lessons)
-  c.chain = [...MS.SUSTAINING]; c.index = 0
+  const c = new M.MilestoneController(bot, 'gatherer', lessons)
+  c.chain = [...M.SUSTAINING]; c.index = 0
   return c
 }
 const chainScene = M => {
@@ -253,16 +278,16 @@ const chainScene = M => {
     // 1. a short town, ore in reach: the bot past its own iron rungs lands on the town rung
     readerSays({ units: 20 }, TIM)
     const b = ladderBot({ inv: DONE_BAG })
-    const c = controller(b); c.refresh()
+    const c = controller(b, M); c.refresh()
     assert.equal(c.current()?.id, 'gather_iron_ore_town', `the town task is current: ${c.current()?.id}`)
     // 2. NEVER AHEAD OF THE BOT'S OWN IRON: the same short town, a bag with no bucket -> the bucket rung first
-    const nb = controller(ladderBot({ inv: { ...DONE_BAG, bucket: 0 } })); nb.refresh()
+    const nb = controller(ladderBot({ inv: { ...DONE_BAG, bucket: 0 } }), M); nb.refresh()
     assert.equal(nb.current()?.id, 'craft_bucket_1', `own iron first: ${nb.current()?.id}`)
     // 3. RELEASE BY NO MEANS: the ore goes out of reach -> the ladder moves past it (never stuck on it)
-    const far = controller(ladderBot({ inv: DONE_BAG, oreInReach: false })); far.refresh()
+    const far = controller(ladderBot({ inv: DONE_BAG, oreInReach: false }), M); far.refresh()
     assert.notEqual(far.current()?.id, 'gather_iron_ore_town')
     // 4. RELEASE BY THE NO-PROGRESS SKIP: the ore is in sight but every serving gather fails -> skipped at NO_PROGRESS_MS
-    const stuck = controller(ladderBot({ inv: DONE_BAG })); stuck.refresh()
+    const stuck = controller(ladderBot({ inv: DONE_BAG }), M); stuck.refresh()
     assert.equal(stuck.current()?.id, 'gather_iron_ore_town')
     stuck.noteAttempt({ failed: true, executed: true, serving: true })
     CLOCK += M.NO_PROGRESS_MS
@@ -270,32 +295,83 @@ const chainScene = M => {
     assert.equal(stuck.lastSkip.id, 'gather_iron_ore_town'); assert.equal(stuck.lastSkip.reason, 'no_progress')
     stuck.refresh(); assert.notEqual(stuck.current()?.id, 'gather_iron_ore_town', 'and the ladder moves on')
     // 5. THE CAP: a round carried -> done; the town recovers -> the rung is gone
-    const full = controller(ladderBot({ inv: { ...DONE_BAG, raw_iron: 16 } })); full.refresh()
+    const full = controller(ladderBot({ inv: { ...DONE_BAG, raw_iron: 16 } }), M); full.refresh()
     assert.notEqual(full.current()?.id, 'gather_iron_ore_town')
     readerSays({ units: 90 }, TIM)
-    const ok = controller(ladderBot({ inv: DONE_BAG })); ok.refresh()
+    const ok = controller(ladderBot({ inv: DONE_BAG }), M); ok.refresh()
     assert.notEqual(ok.current()?.id, 'gather_iron_ore_town', 'the town at its reserve: no town task')
   } finally { Date.now = realNow; TIM.setTownIronReader(null) }
 }
 await t('THE REFUSAL CHAIN (real MilestoneController): short town -> the town task; never ahead of the bot\'s own bucket; released by no means and by the no-progress skip; the carry cap and a recovered town end it', () => {
   chainScene(MS)
 })
-const deliverScene = async S => {
-  // a round carried home in ONE stack of 19 raw iron (the town deposit would keep it whole), at town, the bag otherwise light
+const deliverWorld = (bag) => {
   freshPool(); clearWithdrawHolds()
-  const w = withServer(fakeWorld({ bag: slotted([PICK(), tool('bucket', 0), stack('raw_iron', 19), stack('cobblestone', 4)]) }))
+  const w = withServer(fakeWorld({ bag: slotted(bag) }))
   for (const c of CHESTS) { w.set(...c, 'chest'); w.stock(...c, [stack('dirt', 5)]) }
-  const n0 = RECS.length
-  const r = await S.SKILLS.deliver_iron.run({ bot: w.bot }, {}, new AbortController().signal)
-  const row = RECS.slice(n0).filter(x => x?.skill?.name === '_deliver_iron').at(-1)?.skill?.detail ?? ''
-  const inTown = CHESTS.reduce((n, c) => n + w.containers.get(c.join(',')).slots.filter(Boolean).reduce((m, it) => m + (it.name === 'raw_iron' ? it.count : 0), 0), 0)
-  assert.equal(r.status, 'success', `${r.status} ${r.detail} | ${row}`)
-  assert.equal(inTown, 16, `16 raw iron in the town chests: ${row}`)
-  assert.equal(w.bag.filter(Boolean).reduce((n, it) => n + (it.name === 'raw_iron' ? it.count : 0), 0), 3, 'the bag keeps its own 3')
-  assert.match(row, /^stop=done bag=0\/19>0\/3 dep=0\/16 keep=0\/3$/, row)
+  return w
 }
-await t('THE DELIVERY CHAIN (real deliver_iron over the fake world): one stack of 19 raw iron at town -> 16 banked into the town chests, the bag keeps its own 3', async () => {
+const inTownOf = (w, name) => CHESTS.reduce((n, c) => n + w.containers.get(c.join(',')).slots.filter(Boolean).reduce((m, it) => m + (it.name === name ? it.count : 0), 0), 0)
+const deliverScene = async S => {
+  // THE CONTINUOUS CHAIN (Codex r2 P2): the real controller makes the town task current -> the round is recorded -> the bag
+  // fills (19 raw iron, one stack) -> the controller leaves the rung -> the bot is home -> the delivery order -> the real
+  // deliver_iron banks 16 -> the outcome ends the round
+  Date.now = () => CLOCK
+  try {
+    readerSays({ units: 20 }, TIM)
+    const inv = { ...DONE_BAG }
+    const lb = ladderBot({ items: null, inv })
+    const c = controller(lb); c.refresh()
+    assert.equal(c.current()?.id, 'gather_iron_ore_town')
+    let st = TIM.noteTownRound({}, c.current()?.id)
+    assert.equal(st.round, true, 'the round is recorded while the task is active')
+    inv.iron_ingot = 0; inv.raw_iron = 19                                // mined, and the ingots went into its bucket/pickaxe long ago
+    c.refresh(); assert.notEqual(c.current()?.id, 'gather_iron_ore_town', 'the round carried: the ladder moves on (to the lap home)')
+    st = TIM.noteTownRound(st, c.current()?.id)
+    const w = deliverWorld([PICK(), tool('bucket', 0), stack('raw_iron', 19), stack('cobblestone', 4)])
+    const counts = {}; for (const it of w.bag.filter(Boolean)) counts[it.name] = (counts[it.name] ?? 0) + it.count
+    const o = TIM.deliverOrder({ now: CLOCK, atTown: true, counts, state: st })
+    assert.equal(o.order?.skill, 'deliver_iron', JSON.stringify(o))
+    const n0 = RECS.length
+    const r = await S.SKILLS.deliver_iron.run({ bot: w.bot }, {}, new AbortController().signal)
+    const row = RECS.slice(n0).filter(x => x?.skill?.name === '_deliver_iron').at(-1)?.skill?.detail ?? ''
+    assert.equal(r.status, 'success', `${r.status} ${r.detail} | ${row}`)
+    assert.equal(inTownOf(w, 'raw_iron'), 16, `16 raw iron in the town chests: ${row}`)
+    assert.equal(w.bag.filter(Boolean).reduce((n, it) => n + (it.name === 'raw_iron' ? it.count : 0), 0), 3, 'the bag keeps its own 3')
+    assert.match(row, /^stop=done bag=0\/19>0\/3 dep=0\/16 keep=0\/3$/, row)
+    assert.equal(r.surplusLeft, 0)
+    assert.equal(TIM.deliverOutcome(r.status, CLOCK, o.state, { surplusLeft: r.surplusLeft }).round, undefined, 'all banked: the round ends')
+  } finally { Date.now = realNow; TIM.setTownIronReader(null) }
+}
+await t('THE CONTINUOUS DELIVERY CHAIN: the real controller\'s town task -> the round recorded -> 19 raw iron in one stack -> the ladder moves on -> at town the real deliver_iron banks 16, keeps the own 3 -> the round ends', async () => {
   await deliverScene(S0)
+})
+const interruptedDelivery = async S => {
+  // INTERRUPTED BETWEEN THE TWO DEPOSITS (Codex r2 P1): 4 ingots + 15 raw, the raw deposit aborted after the ingot one -> the
+  // round stays, and the next order retries the remainder (any positive surplus), which then banks it
+  const w = deliverWorld([PICK(), tool('bucket', 0), stack('iron_ingot', 4), stack('raw_iron', 15), stack('cobblestone', 4)])
+  // the second deposit (the raw iron's) cannot open a chest: the chests went out of reach after the ingots landed
+  const open0 = w.bot.openContainer.bind(w.bot)
+  let opens = 0
+  w.bot.openContainer = async (...a) => { if (++opens > 1) throw new Error('the chest did not open'); return open0(...a) }
+  let threw = null, r1 = null
+  try { r1 = await S.SKILLS.deliver_iron.run({ bot: w.bot }, {}, new AbortController().signal) } catch (e) { threw = e }
+  w.bot.openContainer = open0
+  assert.ok(r1?.surplusLeft > 0, `the first delivery left a remainder: ${JSON.stringify(r1)} ${threw}`)
+  const counts = {}; for (const it of w.bag.filter(Boolean)) counts[it.name] = (counts[it.name] ?? 0) + it.count
+  const left = TIM.deliverPlan(counts).surplus
+  assert.ok(left > 0, `a remainder is left: ${left} (threw ${!!threw})`)
+  const st = TIM.deliverOutcome(r1.status, 1e12, { round: true }, { surplusLeft: r1.surplusLeft })
+  assert.equal(st.round, true, 'a partial delivery keeps the round')
+  const o = TIM.deliverOrder({ now: 1e12 + TIM.DELIVER_COOLDOWN_MS + 1, atTown: true, counts, state: st })
+  assert.equal(o.order?.skill, 'deliver_iron', 'the remainder is retried')
+  const r2 = await S.SKILLS.deliver_iron.run({ bot: w.bot }, {}, new AbortController().signal)
+  assert.equal(r2.status, 'success', r2.detail)
+  assert.equal(inTownOf(w, 'iron_ingot') + inTownOf(w, 'raw_iron'), 16, 'in the end all 16 above the own 3 are in town')
+  assert.equal(r2.surplusLeft, 0)
+}
+await t('A FAILED SECOND DEPOSIT (the raw iron\'s): the round survives, the remainder is retried and banked (Codex r2 P1)', async () => {
+  await interruptedDelivery(S0)
 })
 await t('THE DEPOSIT\'S OWN RULE IS NOT THE DELIVERY (the CONTROL, real townDepositPlan): the same bag keeps the whole raw stack -- why deliver_iron exists', () => {
   const items = [{ ...PICK(), slot: 9 }, { name: 'bucket', count: 1, slot: 10 }, { name: 'raw_iron', count: 19, slot: 11 }]
@@ -327,7 +403,7 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
   kills.rungIgnoresTown = await withMutant(SRC('milestones.mjs'), '  }, b => townIronLow(townIronNow()) === true && ironInReach(b)', '  }, b => ironInReach(b)', M => killedBy(() => {
     readerSays({ units: 90 }); try { assert.equal(M.SUSTAINING.find(m => m.id === 'gather_iron_ore_town').done(ladderBot({ inv: DONE_BAG })), true) } finally { TIM.setTownIronReader(null) }
   }))
-  kills.noCarryCap = await withMutant(SRC('towniron.mjs'), 'export const townTaskCarried = (items = []) => bagIron(items) >= TOWN_IRON_SELF + TOWN_IRON_CARRY', 'export const townTaskCarried = (items = []) => false', M => killedBy(() => {
+  kills.noCarryCap = await withMutant(SRC('towniron.mjs'), '  return deliverPlan(counts).surplus >= TOWN_IRON_CARRY\n}', '  return false\n}', M => killedBy(() => {
     assert.equal(M.townTaskCarried([{ name: 'raw_iron', count: 19 }]), true)
   }))
   kills.noMinContainers = await withMutant(SRC('towniron.mjs'), '  if (containers < min) return null\n', '', M => killedBy(() => {
@@ -345,8 +421,13 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
       const e = { a: obs('a', { raw_iron: [7, 1] }), b: obs('b', { dirt: [1, 1] }), c: obs('c', { dirt: [1, 1] }), d: { ...obs('d', { iron_ingot: [50, 1] }), last: { t: 'dirty', at: NOW - 10 } } }
       assert.equal(M.townIronStock(e, NOW).units, 7)
     }))
-  kills.townRungFirst = await withMutant(SRC('milestones.mjs'), "  rungOf({\n    wants: 'iron_ore',\n    id: 'gather_iron_ore_town',", "  rungOf({\n    wants: 'iron_ore',\n    id: 'gather_iron_ore_town_x',", M => killedBy(() => {
-    assert.ok(M.SUSTAINING.some(m => m.id === 'gather_iron_ore_town'))
+  // THE ORDER (Codex r2 P2): the town rung moved AHEAD of the bot's own crafts -> the chain scene's "own bucket first" fails
+  kills.townRungFirst = await withMutants(SRC('milestones.mjs'), [['  TOWN_IRON_RUNG,\n]', ']'], ['const TECH_LADDER = [\n', 'const TECH_LADDER = [\n  TOWN_IRON_RUNG,\n']], M => killedBy(() => chainScene(M)))
+  kills.noRoundGate = await withMutant(SRC('towniron.mjs'), "  if (!s.round) return { order: null, state: s, skip: 'no_round' }\n", '', M => killedBy(() => {
+    assert.equal(M.deliverOrder({ now: 1e12, atTown: true, counts: { ...own, raw_iron: 19 } }).skip, 'no_round')
+  }))
+  kills.retryOnlyRound = await withMutant(SRC('towniron.mjs'), '  if (surplusLeft === 0) delete s.round', '  delete s.round', M => killedBy(() => {
+    assert.equal(M.deliverOutcome('aborted', 1e12, { round: true }, { surplusLeft: null }).round, true)
   }))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)

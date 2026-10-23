@@ -31,7 +31,7 @@ import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
-import { deliverOrder, deliverOutcome } from './towniron.mjs'   // towniron-01
+import { deliverOrder, deliverOutcome, noteTownRound } from './towniron.mjs'   // towniron-01
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -903,6 +903,8 @@ export class CognitiveLoop {
     }
 
     const milestone = this.#activeTask()
+    // TOWNIRON-01: a town round is recorded while the town iron task is the active task (its iron is then town cargo)
+    this.deliverState = noteTownRound(this.deliverState ?? {}, milestone?.id)
     const sentinel = makeSentinel()
     // NO CRAFT ORDER WITHOUT ROOM (orderroom-01; workorder.mjs readyFor, skills.mjs craftRoomCheck): computed BEFORE the
     // prompt, so the prompt stops advertising a craft the bag cannot hold and names the remedy instead.
@@ -1303,7 +1305,7 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
       if (!declined && admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
       // THE TOOLKIT: a failure backs off, a decline is refunded (what a run drew and did not use is on the bot: bot.kitCredit)
-      if (!declined && admitted.skill === 'deliver_iron') this.deliverState = deliverOutcome(r.status, Date.now(), this.deliverState ?? {})
+      if (!declined && admitted.skill === 'deliver_iron') this.deliverState = deliverOutcome(r.status, Date.now(), this.deliverState ?? {}, { surplusLeft: r.surplusLeft ?? null })
       if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)

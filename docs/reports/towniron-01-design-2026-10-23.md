@@ -108,3 +108,22 @@ Codex r1 **CHANGE** (1 P1, 5 P2). Changes:
   reports per town reading so it can be tuned. Draw exposure decides the tier (section 5).
 - **P2, the read's gates** use the issuing order's `low` (the toolkit runner row's args), the delivery rows and exposure
   (section 3, the read).
+
+## 5. Review round 2 (Codex) and what changed (r3)
+
+Codex r2 **CHANGE** (1 P1, 3 P2). Changes:
+- **P1, a partial delivery stranded the remainder.** A town ROUND is now recorded (`noteTownRound`, cognitive.mjs: while the town
+  task is the active task); the delivery order fires at town for a recorded round with ANY iron above the own keep, and the
+  round ends only when a delivery leaves none (`deliverOutcome` with the run's `surplusLeft`). Tested: the raw iron's deposit
+  failing after the ingots' -> the round survives -> the remainder is retried and banked.
+- **P2, the rung and the delivery disagreed.** The rung is done at TOWN_IRON_CARRY above the OWN keep (`ironOwnKeep`, the same
+  calculation the delivery uses), not at a fixed 19.
+- **P2, unrelated surplus delivered.** Only a recorded round is town cargo: a bag's own surplus on a town it never mined for is
+  never delivered (deliverOrder skip `no_round`). The round is in-memory: a restart drops it, and the iron then stays the bot's
+  (the base).
+- **P2, the chain untested.** A continuous test: the real controller makes the town task current, the round is recorded, the
+  bag fills (19 raw iron in one stack), the controller moves on, the bot is home, the delivery order fires, the real
+  deliver_iron banks 16 and keeps 3, the round ends. The ordering mutant now really moves the rung ahead of the bot's own
+  crafts (TOWN_IRON_RUNG is one constant at the end of TECH_LADDER; the mutant puts it first) and the chain fails for it.
+- The read: scripts/host/townironread.py (gates G1 tier broken, G2 stone over a usable shovel, G3 own iron delivered, G4
+  delivery loop, ARMS, LIVENESS, INSTRUMENT, EXPOSURE; primary iron delivered + the index-known town iron DiD).
