@@ -1,0 +1,125 @@
+COOPERATION HOST TOOLS (B0a, B1, X1) -- review record, branch coophost-1023
+
+== round 1 (3ee47e3b) Codex: CHANGE
+VERDICT: CHANGE
+
+1. **P1 — `scripts/host/staffcensus.py:771`**: Capability is evaluated once at slot end across the entire pool, then applied to all five minutes. A restart retroactively changes earlier minutes; a capable bot far away or flagged can keep the project open. Evaluate capability per minute using that minute’s version and unflagged bots inside 16/12; preserve VOID minutes.
+
+2. **P2 — `scripts/host/staffcensus.py:1132`**: Merging with `newest_per_kind()` discards the persisted predecessor before evaluating historical minutes. Reproduced: an old capable state followed by a fresh off restart changes a pre-restart lookup from capable to VOID. Keep persisted predecessors plus fresh history during census evaluation; compact only when saving.
+
+3. **P2 — `scripts/host/staffcensus.py:449`**: The capability control derives eligibility from the reader it checks and excludes bots missing spawn rows. An entirely empty reader returns `eligible=0, alarm=False`; missing bots can leave a misleading 100%. Preserve independently established build eligibility, count missing evidence as a control shortfall, and alarm when the control cannot be evaluated.
+
+4. **P2 — `scripts/host/staffcensus.py:1128`**: `min(s0, since - PROJECT_LOOKBACK_MS)` bypasses the advertised seed bounds; the fresh query is likewise unbounded by them. Long windows can exceed seven days or touch 10-07. Enforce the bounds on actual mode queries and mark unsupported historical capability VOID.
+
+5. **P1 — `scripts/host/coopread.py:414`**: Daily provenance receives only the window end, so every retained journal observation contributes to the reported “24h” withdrawals and bounds. Pass the window start, retain preceding observations/ops as baseline context, and count only in-window changes and transfers. Add a fixture containing prior-day activity.
+
+6. **P2 — `scripts/host/coopread.py:449`**: Unreadable provenance becomes numerical zeros through fleet aggregation, while zero verified transfers passes its control. Reproduced: `chests other-bot 0-0 of 0 ... controls OK; void 1`. Render unavailable metrics as VOID, distinguish unexercised controls from passing controls, and return nonzero for an unreadable census.
+
+7. **P2 — `scripts/host/coopread.py:298`**: `bot_min` counts every scheduled minute, including missing positions. One snapshot produces 1,440 “covered” bot-minutes and passes `positions_seen`; unknown follow-up also becomes a failed arrival. Count observed and unknown minutes separately, censor incomplete arrival windows, and base controls on actual coverage.
+
+Tests: coopread and sightread passed. Staffcensus passed assertions through the capability controls, then the read-only sandbox blocked its temporary-file fixture. No files modified.
+
+
+== round 1 (3ee47e3b) Claude: CHANGE
+VERDICT: CHANGE
+
+The overall approach holds up, but there are five P1s. Together they let a blind or short reader produce a confident zero, which is the failure CLAUDE.md warns about. All three self-tests pass, and the host copies in ~/coop-1023/b0a and ~/coop-1023/b1 have the same md5 as the branch. In ES, every mode row in the last 24 h (5,207 rows) carries `code.version`; none is missing it. The new `record_without_code` line reads treefarm correctly in board-a and hive-c. Old fixtures without `modes` still pass, and the hand-worked capable fixture is unchanged (7.2 town-h/day).
+
+1. **P1, staffcensus.py:93 and :163-183 (`seed_since`): the seed bound counts single-pool restarts as fleet-wide.** `RESTART_PHASES` includes `owner-direct` and `apply-done`. In the journal those rows are per-pool (for example `"pool":"isolated-d"` at 15:29Z). So today's "newest fleet-wide restart" is the isolated-d apply.
+   - On the host, seeding from that bound (14:29Z) leaves **49 of 80 bots VOID**.
+   - It is hidden today only because the walk uses whichever start is earlier, the bound or `since - 24h`, and bots restart about 7 times a day (552 spawns per kind in 24 h).
+   - The state is seeded once and never repaired, so a short seed, or one walk that returns zero rows during an ES gap, keeps those bots VOID until they restart.
+   - Fix: make the bound per bot. Walk back (at most 7 d, never before 10-08) until every bot in the track has a spawn row of its current version. Never save a seed with zero rows or with present bots still missing. Re-seed any bot that stays VOID for more than N ticks. At minimum, accept only `promoted` rows that have no `pool` field and say "fleet-wide".
+
+2. **P1, staffcensus.py:146-160 (`capability_control`): the positive control cannot fail on the failures it exists to catch.** A bot is only eligible if its version has emitted `_townindex_mode` and it has a spawn row in view.
+   - In the 49-VOID case above it reads **30 of 30, share 1.0, no alarm**.
+   - If the mode rows come back empty, eligible is 0, share is None and the alarm is False.
+   - Fix: make every bot in the track with a known version eligible, and count VOID as not capable. Apply the 10-minute grace from the version change seen in the track. Alarm when eligible is 0 while bots are present.
+   - Add mutant fixtures for empty modes and for a seed that is too short.
+
+3. **P1, staffcensus.py:759-770 with `summarize` :905-925: a VOID capability is counted as a zero.** A slot whose capability is VOID skips the project but leaves the row valid. `valid_h` and the 24-h blocks then count it as 0 assignable. Inside a minute, VOID bots are dropped from `free` as if they were incapable. This contradicts the 6.4 acceptance item. Measured on the fixture:
+   - every bot VOID: 7.2 → **0.0** town-h/day, with `valid_share` still 1.0;
+   - only fx-A VOID: 7.2 → **4.0**, with the lost minutes labelled `no_material` and `all_flagged_or_building`.
+
+   Fix: give a minute with no capable free bot but a VOID bot at town a `capability_void` reason and take it out of the denominator. Count a VOID slot as a per-project void slot, remove it from `valid_h`, `valid_slots` and `valid_share`, and add a fixture that asserts this.
+
+4. **P1, coopread.py:118-121 and :406: the [P] chest provenance has no window start and no coverage figure.** `provenance(idx, t1)` reads every journal record before t1. The index journal rotates by size (`rotate_mb=4`) and old generations are deleted.
+   - The live journals now start at 10-22 19:00Z (3 towns) or 10-23 01:09-01:36Z (the rest).
+   - So the "24h" run to 12:14Z actually covered about 11-17 h. That is also why it matches the design's figures, which were 158 town-h, not 24 h each.
+   - The 02:20Z cron could cover about 1 h after a rotation, or more than 24 h.
+   - Fix: filter to [t0, t1), keeping the last observation before t0 as the starting stock. Print the town-hours covered for each town and in total, and mark a town's [P] as partial or VOID below about 20 h.
+
+5. **P1, coopread.py:440-451: three of the four controls pass when the reader is blind.**
+   - `xfer_through_chain` passes when the verified count is 0.
+   - `overlap_sweep_sees` passes when smelt_town has fewer than 200 runs.
+   - `furnace_sessions_parsed` passes when there are no empty drains.
+   - So a renamed journal record type, a changed "is empty" text, or a renamed skill prints "0-0 of 0 withdrawn … re-found empty 0 … controls OK" and exits 0.
+   - Fix: require presence whenever the population exists. Verified transfers must be above 0 whenever successful `town_deposit` rows exist (153-214 a day). Empty drains must be above 0 whenever `furnace_drain` rows exist (2,237 a day). Smelt_town runs must be above 0. Add a blind-input mutant for each control.
+
+6. **P2, B1 is missing its fleetstatus line.** Design 6.3 lists "A fleetstatus line" for B1, and 6.5 closes the step on "the fleetstatus line seen". fleetstatus.py is unchanged and the installer only echoes the command. Fix: wire `coopread.py --line` into fleetstatus, showing STALE and control-FAILED.
+
+7. **P2, sightread.py and the commit message: one claim uses the wrong denominator, and the read leaves out a test that changes the reading.**
+   - "74% of sightings lie > 5 blocks below the bot" counts runs (21,215, including 8 with unknown height), not sightings. Repeated runs at the same sighting dominate (9,901 runs are co-targeted). Fix: report distinct sightings per town with their height distribution, or say "74% of runs".
+   - "Explore almost never reaches them" does hold, but depth is not why. I re-ran the read on the host on 4 pools with the vertical limit removed: horizontal-only reach is **66 of 5,718 (1.2%)**. The bots rarely get even horizontally close, which depth cannot explain.
+   - Fix: print horizontal reach as its own column so readers do not credit depth.
+
+8. **P3, sightread.py:106 and the fixtures.**
+   - `known_now` matches any coal, copper or iron resource within 24 blocks, not the heading's own kind. Fix: match by kind.
+   - There is no fixture where two runs by the same bot precede one rise (only the later run should get it), and none for the 600 s censoring at the window end.
+   - The design figure in the docstring (16,958 runs) and the live one (21,215, now including the isolated pools) have different denominators. Say so.
+
+9. **P3, check-staffcensus.py:98.** The checker takes `capability_control` from the newest heartbeat of any mode or age that has one, so an error tick falls back to an older OK. Fix: read it only from the newest measuring tick, and alarm if that tick lacks it.
+
+10. **P3, staffcensus.py: smaller B0a points.**
+    - `bot_capability` with `mode_kind=None` silently reads not capable for every bot. That fails safe, but the self-test should assert that every project has a `mode_kind`.
+    - The flag-off case depends on the module emitting an `off` row on every spawn. That is the A7 contract, and it needs a structural test in each module when it is built.
+    - The seed's `min(s0, since - 24h)` can exceed the 7-day bound on long `--report` windows.
+
+11. **P3, coopread.py: three smaller points.**
+    - `built_together` counts only `_build` rows with status `success` toward `rows`, so status-less event rows would read "idle". Fix: count every `_build` row for idleness and filter on success separately.
+    - The "≥2 together min/town-day" figure divides by every town, including towns whose home is unknown and have no presence data.
+    - `craft` is in `JOBS` but is not a town job.
+
+12. **P3, install-coophost.sh.** It is safe as a whole: it only copies host scripts, keeps a `.bak-<stamp>` of each replaced file, adds cron only with `--cron`, and runs the live check into a scratch dir. Host TZ is UTC, so the 02:20 cron line really is 02:20Z.
+    - Line 54: with `set -e` inherited, a missing crontab aborts the subshell, and it still prints "cron added" without adding anything.
+    - Line 45: `|| true` hides a failing live window; print the output tail on failure.
+    - There is no guard that the source tree is not `/opt/minecraft-ai`.
+    - Note for the operator: installing replaces the live S0 `staffcensus.py`, so the next */5 tick does the seed walk and is exposed to finding 1.
+
+Read-only host checks are in `/tmp/rev-hostr1` on 10.0.0.31 (span.py, modes.py, void.py, hreach.py). The local VOID fixture probe is `/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/voidzero.py`. No repository file was changed.
+
+== round 2 (fc1dc5d2) Codex: CHANGE
+VERDICT: CHANGE
+
+1. **P2 — `scripts/host/staffcensus.py:795`:** Town capability includes every bot in the pool, ignoring distance and flags. Reproduced: nearby bots all VOID plus an incapable bot 400 blocks away yields 12 `record_without_code` slots, not VOID. Evaluate town capability over unflagged bots inside 16/12; add this mixed-location fixture.
+
+2. **P2 — `scripts/host/coopread.py:496,715`:** Unreadable provenance still permits exit 0 when another town’s index is readable. Reproduced: “1 of 2 towns with a readable index” passes every control and the success predicate. Require readable provenance for every measured town and return nonzero for missing journals; test a mixed readable/unreadable fleet.
+
+3. **P2 — `scripts/host/fleetstatus.py:143`:** The new header discards provenance coverage/PARTIAL and renders absent provenance as `0-0 of 0`. The live rerun has 13 PARTIAL towns, invisible here. Preserve coverage and PARTIAL labels, render missing provenance as VOID, and flag unreadable towns.
+
+Validation: staffcensus and sightread selftests passed. Coopread’s calculation fixtures passed; its temporary-directory fixture was blocked by the read-only sandbox.
+
+
+== round 2 (fc1dc5d2..8d504f85) Claude: APPROVE
+VERDICT: APPROVE
+
+(covers 3ee47e3b..8d504f85; all three self-tests pass, staffcensus's temp-file fixture not blocked)
+
+Every Claude r1 item is fixed: P1-1 per-bot seed walk (1/3/7 days, floor 10-08, empty walk never saved, hourly re-walk); P1-2 every present bot eligible, VOID counts not capable, empty/short/none-eligible mutants alarm; P1-3 cap_void_min and capability_void leave valid_h, valid_share and the 24-h blocks (all-VOID fixture reads 0 valid hours); P1-4 provenance windowed [t0,t1) with cover_h and PARTIAL under 20 h; P1-5 every control requires presence with a blind-input mutant each (provenance_read needs every town, r3); P2-6 coop_line with STALE/FAILED/VOID/PARTIAL/UNREADABLE (installed-copy patch checked on 10.0.0.31 in /tmp/rev-hostr2: anchors unique, compiles, second run a no-op, prints "114-258 of 1189 withdrawn over 227 town-h in 16 towns (13 PARTIAL)"); P2-7 horizontal-reach column and distinct sightings (2,282, median 3 runs); P3s all fixed (kind-matched known_now, 15,937 still known live, not a silent zero).
+Live 3-h S0: 79 of 79 eligible bots capable; treefarm record_without_code in board-a and hive-c. Failed explore rows carry bot.pos (243/243 sampled), so their 0 horizontal reach is measured, not blind.
+
+1. P3 staffcensus.py ~869-872: capability_void fires whenever a free VOID bot is at town, even when the outcome is known zero (no_material, own cooldown, rotation latency); dropping those inflates the assignable rate (B7's >= 30 town-h/day). Fix: recompute the reason with free + void_free as capable; capability_void only if that is 'assignable'. Fixture: a VOID bot without material leaves no_material.
+2. P3 patch-fleetstatus-coop.py write(): compile the patched text before os.replace; on failure exit 1, nothing written.
+3. P3 install-coophost.sh:45: the patcher runs after S0/B1 are copied, so a refused anchor leaves a partial install. Fix: dry-run the patcher before the first put.
+4. P3 check-staffcensus.py ~102: "only 0 of 0 ... share None" when no bot is eligible; give it its own text.
+
+
+== round 3 (db00caf2) Codex: APPROVE
+VERDICT: APPROVE
+
+1. **P3 — scripts/host/fleetstatus.py:154:** A stale report with healthy controls and readable provenance incorrectly says `provenance VOID STALE`. Add `provenance VOID` only when `unread` is nonempty or `prov_towns` is zero.
+
+All three prior P2s are fixed. `staffcensus` and `sightread` self-tests passed. `coopread` passed its in-memory checks; the read-only sandbox blocked temporary-file fixtures.
+
+
+Both engines APPROVE. Every P3 applied (db00caf2; Codex r3 P3 in the final commit).

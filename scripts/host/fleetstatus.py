@@ -151,7 +151,8 @@ def coop_line(now, out_dir=None):
                 f're-found empty {F.get("furnace_peer", 0)}; multi-builder project-days '
                 f'{F.get("built_multi_builder_project_days", 0) if F.get("built_rows") else "idle"}; void {len(res.get("void") or {})}')
         if bad or age > COOP_STALE or not C or unread or not F.get('prov_towns'):
-            why = (f'controls FAILED {bad}' if bad else 'no controls' if not C else 'provenance VOID') + \
+            why = (f'controls FAILED {bad}' if bad else 'no controls' if not C else
+                   'provenance VOID' if (unread or not F.get('prov_towns')) else '') + \
                   (f' STALE {age.total_seconds() / 3600:.0f} h' if age > COOP_STALE else '')
             return f'!! cooperation census (B1): {why.strip()} -- {what}; read {d}'
         return f'cooperation census (B1): {age.total_seconds() / 3600:.0f} h old, {what}'

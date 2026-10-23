@@ -692,6 +692,8 @@ def selftest(verbose=True):
                       (fsm.coop_line(now, d).startswith('!!'), 'UNREADABLE t2' in fsm.coop_line(now, d)), (True, True))
                 json.dump(good, open(os.path.join(d, 'daily', 'a4.json'), 'w'))
                 check('fleetstatus: a 2-day-old file is STALE', 'STALE' in fsm.coop_line(now + dt.timedelta(days=2), d), True)
+                check('fleetstatus: a stale healthy file does not claim provenance VOID (Codex r3 P3)',
+                      'provenance VOID' in fsm.coop_line(now + dt.timedelta(days=2), d), False)
                 json.dump(dict(good, controls={'a': {'ok': False}}), open(os.path.join(d, 'daily', 'b.json'), 'w'))
                 check('fleetstatus: a failed control is an alarm line', fsm.coop_line(now, d).startswith('!! cooperation census (B1): controls FAILED'), True)
     if fails:
