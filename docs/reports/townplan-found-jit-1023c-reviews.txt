@@ -1,0 +1,76 @@
+TOWNPLAN-01 + FOUND-01 RE-STACKED ONTO THE 10-23 FLEET (JIT 10-23c) -- the review record
+OWNER 2026-10-23 ~12:40Z: "yes its time" -- the town plan pieces move up the canary queue to follow chatgate-01.
+
+WHY A RE-STACK. townplan-01 was built and reviewed on d0a27a5e (indexsearch-01 r4.1 on townindex-01 on homefix-02 d014ec2c);
+found-01 stacks on it. Since d014ec2c the fleet gained ironpick-01, keepout-01, protectzone-01, townindex-01's JIT line (c0fec812)
+and poolescape-01; the fleet is 6e1afb52. indexsearch-01 d4a0f424 is live; chatgate-01 is next (3cc5f14d on 6e1afb52, 9d1f6d02 on
+d4a0f424). So four bases:
+  (a) 6e1afb52  neither indexsearch-01 nor chatgate-01 kept   townplan-on-6e1afb5   found-on-<townplan a 7>
+  (b) 3cc5f14d  only chatgate-01 kept                           townplan-on-3cc5f14   found-on-<townplan b 7>
+  (c) 9d1f6d02  both kept (chatgate on d4a0f424)                townplan-on-9d1f6d0   found-on-<townplan c 7>
+  (d) d4a0f424  only indexsearch-01 kept                        townplan-on-d4a0f42   found-on-<townplan d 7>
+
+THE REBASE
+- townplan: the 15 commits d0a27a5e..37d5aff6 cherry-picked onto (a) and (c). Two commits conflicted:
+  aa24b10c (the planner): cognitive.mjs toolkit import (ironpick-01's kitRoomTakes/withdrawDefersToKit kept + found's imports);
+  index.mjs imports and licence rows (on (a) the indexsearch row townplan's base carried is DROPPED -- (a) has no indexsearch.mjs;
+  on (c) it is base context); protectzone-01's zone reader block kept before the planner tick, both after installCraftSync;
+  skills.mjs placeSites (protectzone's zoneRefused/blocked kept and townplan's planCls on the same candidate lines; zoneSkip and
+  planSkip both returned). 37d5aff6 (r7): index.mjs break exclusion -- protectzone made the array two entries
+  (.concat(zonePrice)); the plan furniture rides in the first entry with the junk well, the zone concat follows.
+  The sorted +/- lines of the re-stacked range equal 37d5aff6's (8,003) on (a) and (c); range-diff shows context only.
+- found: the 10 commits 37d5aff6..00b2fb07 (origin/found2-on-37d5aff) onto each townplan tip; one conflict, cognitive.mjs
+  outcome handling (keepout-01's keepout_exit block, then found's found_body line). Sorted +/- lines equal 00b2fb07's (1,060).
+- (b) and (d) are CLEAN cherry-picks of the (a) and (c) ranges (no conflict); the sorted +/- lines of all four townplan
+  variants are identical, and likewise for found.
+
+THE COMPOSITION CHANGES (production code above the re-stack; both engines APPROVE)
+townplan-01 x protectzone-01:
+  r1   readyCell judges the cell ABOVE too (protectzone's _genericPlace guard judges the floor reference, the destination and
+       the cell above; a cell under a zone's bottom face was READY and found's click would be refused every visit).
+       townPlanZones: a partly malformed edit after a good read = the last good list PLUS the edit's valid zones.
+  r2   (Codex r1 P2) that union is RETAINED as the last good list (good -> partial -> unreadable kept it).
+  r2.1 (Claude r1 P3s; a finding of the new real-reader fuzz) parseZones names every zone the guard drops (no string id,
+       non-integer box, y span > 448, bad floor_y, past the 64th) and the read is PARTIAL (`guard_drops`): the zone avoided,
+       the last good list kept. Counter-example: an edit whose only zone had no id -- the guard kept its old list, the planner
+       replaced its own. '' world id honours the file as the guard does.
+  r2.2 (Codex + Claude r2 P2) a file holding JSON null is broken, not absent (only ENOENT clears).
+  r2.3 (Claude r2) townplanread.py zones_of: a broken file is no zone, never a crash (AttributeError on null/list).
+       NEW READ md5 7f71ac7e5383534036487f75dc8823b0 (was 2d2cfdac); no gate, field or threshold changed.
+found-01 x keepout-01:
+  r1   found_store / found_work join keepout's TOWN_JOB_SKILLS (owner C12: the exit stands down for town jobs in a column that
+       covers the town; the found slot is one of cognitive's deterministic town orders and was missing).
+  r2   (Codex r1 P2 = Claude r1 P3-4) a found order the keep-out exit REPLACES is refunded (refundDeclined): its visit and
+       cooldown were charged at issue for a run that never happened.
+TESTS: bots/test/townplan-compose.test.mjs (20: the planner's zones a superset of the guard's -- a 400-file pure fuzz, a
+150-pair real-reader fuzz with good-then-edit sequences incl. torn and null files, the showcase infra file; every READY cell
+passes the guard's three cells (grid property + the showcase plan); the guard's findBlocks filter keeps a zone's chest out of
+the planner's context; the shared break array; poolescape never CLICKS plan furniture; anchored mutants on every production
+line); bots/test/found-compose.test.mjs (9: the C12 decision, the chain through the real CognitiveLoop + control, the
+override refund chain, a runner_reserved decline refunded (poolescape-01's reservation) + control, the showcase zones gap
+pinned; anchored mutants).
+
+REVIEWS (independent Claude agent + `codex exec --sandbox read-only`; the briefs name every conflict and composition)
+  round 1 (re-stack + r1)       Codex CHANGE (2 P2: union not retained; the overridden found order's visit) + 2 P3
+                                Claude APPROVE (5 P3: '' world id; fuzz models the old behaviour; header claim; the same visit
+                                charge; REQUIRED_KEPT stale)
+  round 2 (r2, r2.1, found r2)  Codex CHANGE (P2: JSON null)          Claude CHANGE (the same P2; the read's zones_of crash)
+  round 3 (r2.2, r2.3)          Codex APPROVE                          Claude APPROVE (P3: an unclosed write in the selftest)
+FOLLOW-UPS BOTH ENGINES AGREED (not built here)
+  Q1 poolescape's dig list can CUT a station or chest at its head/clearance cell (canClear only refuses obsidian-class; INTERACTIVE
+     filters click faces only) -- base behaviour for any town block; for found-01 it would trip foundread G1 found_lost. Accepted
+     for this canary (poolescape fired 3 times in its whole 6 h canary). Fix later as its own small change: Claude recommends
+     poolescape's `mark` hook rank furniture as 'town' (an ordering, never a refusal) and foundread G1 NAME a same-bot survival dig
+     (poolescape, keepout tunnelOut) -- never exempt it (Codex: keep G1 intact).
+  Q2 the planner does not avoid keep-out fire columns; a found chest/furnace in a column makes it cover the town (C12 yield); the
+     dig guard still holds. Fine for now; later a skip in found's ready re-check if wanted (coversTown ignores tables).
+  Q3 the showcase trial chambers (owner #18 PROTECTED) are in found-01's test fixture and town-site.json's avoid box but NOT in
+     protectzone-01's deployable infra/showcase/protected-zones.showcase.json; protectzone.test's DATA rule (every zone a whole
+     column) needs a reviewed exemption for an underground kind. An INSTALL ITEM BEFORE THE SHOWCASE STARTS; pinned by a
+     found-compose test (it fails when the zone is added, as it should).
+  P3 notes: the two zone readers run on independent clocks (an edit between samples can leave the planner one tick behind);
+     a permanently partial file keeps a fresh process `unknown` (no root: unexposed, visible as `zones=unknown:guard_drops`).
+
+PAPER: re-run on the (c) shas, sandbox7 + sandbox8 under per-server locks; the driver moved onto the shared lock library on
+branch townplan-sandbox-on-2baad53 (main's lineage; the registry's WIRED count 19 -> 20). The results are recorded there
+(docs/reports/townplan-found-paper-jit-1023c.txt) and in the registrations.
