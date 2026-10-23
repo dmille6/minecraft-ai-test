@@ -135,8 +135,13 @@ def main():
     summary = {}
     for var in sorted({r['variant'] for r in recs}):
         print('\n== %s' % var)
-        flips, reasoned = [], []
+        flips, reasoned, conditional = [], [], []
+        changed_windows = []          # (run, live from, live to) of every run this iteration changed so far
         for r in [x for x in recs if x['variant'] == var and x.get('changed')]:
+            lv = [(d0, c0) for d0, c0, _p, rn in sim.live if rn == r['run']]
+            if lv:
+                s0 = T(r['variant_first']) if r.get('earlier') and r.get('variant_first') else lv[0][0]
+                changed_windows.append((r['run'], min(s0, lv[0][0]), lv[0][1]))
             run = r['run']; reg = sim.reg(run) or {}
             tier = sim.TR.tier_of(reg)
             D, (v, M), dec = recorded(sim, run)
@@ -161,13 +166,21 @@ def main():
                 print('     >>> FLIP (rule): recorded KEEP at +180 needs exactly 4 pools; the counterfactual has %d -> it '
                       'reads on to +360 (its verdict there is REASONED)' % len(cf))
                 flipped = True
-            # R1
+            # R1 -- it reads the REAL logs, so it describes the cascaded world only where no run the cascade changed
+            # (or left unmodelled) was live inside the lookback (Claude r2 P1/P2): otherwise it is REASONED
             reads_to = [M] + ([180] if tier == 2 and len(cf) == 4 and M != 180 else [])
             for m in reads_to:
-                ok, why, src = r1(cf, Dc, max(240, m))
+                L = max(240, m)
+                w0, w1 = Dc - dt.timedelta(minutes=L), Dc
+                blind = [c for c, s0, s1 in changed_windows if c != run and s0 < w1 and (s1 is None or s1 > w0)]
+                ok, why, src = r1(cf, Dc, L)
                 tag = '' if tier == 2 else ' (tier 3: no gate checks it; a dirty PRE here is a REASONED risk)'
-                print('     R1 baseline at +%d (lookback %d) [%s]: %s %s%s' % (m, max(240, m), src,
-                                                                         'CLEAN' if ok else 'NOT CLEAN', why[:110], tag))
+                print('     R1 baseline at +%d (lookback %d) [%s]: %s %s%s%s' % (m, L, src,
+                      'CLEAN' if ok else 'NOT CLEAN', why[:110], tag,
+                      ' -- CASCADE-BLIND: %s changed inside this lookback, so the real logs are not this world\'s; '
+                      'REASONED' % blind if blind else ''))
+                if blind:
+                    continue
                 if tier == 2 and m == M and v == 'KEEP' and not ok:
                     print('     >>> FLIP: the recorded KEEP at +%d cannot be printed on this baseline -> read on / '
                           'INCONCLUSIVE at the final read' % M)
@@ -200,15 +213,18 @@ def main():
                     if k and v != 'KEEP':
                         print('     >>> FLIP (reasoned): a +180 KEEP where the run was recorded %s' % v)
                         flipped = True
-            if flipped:
+            if flipped and r.get('conditional_on'):
+                print('     ... CONDITIONAL flip: it assumes %s (unmodelled) ran as recorded' % r['conditional_on'])
+                conditional.append(run)
+            elif flipped:
                 flips.append(run)
             else:
                 reasoned.append(run)
                 print('     no re-runnable flip; the verdict on the pools that never ran this canary is REASONED')
-        summary[var] = (flips, reasoned)
+        summary[var] = (flips, reasoned, conditional)
     print('\n== SUMMARY (per iteration: flips found by a re-runnable check | changed verdicts that are reasoned only)')
-    for var, (f, rz) in summary.items():
-        print('  %-70s flips %d %s | reasoned %d %s' % (var[:70], len(f), f, len(rz), rz))
+    for var, (f, rz, cd) in summary.items():
+        print('  %-62s flips %d %s | conditional flips %d %s | reasoned %d %s' % (var[:62], len(f), f, len(cd), cd, len(rz), rz))
     if a.emit_queries:
         json.dump(queries, open(a.emit_queries, 'w'), indent=0)
         print('wrote %d R1 queries to %s' % (len(queries), a.emit_queries))

@@ -126,12 +126,18 @@ def main():
     # free (the episode is defined by it), no R11 / NEXT-SLOT occurred in these windows (sched.log), and the episodes
     # are independent (no lookahead launched in any of them under the rule, so no skipped history to carry).
     import collections
+    gone = {1: {}, 0: {}}     # depth -> {head: launch}: once a lookahead launched past a head, its later episodes are not
+    #                           this world's (the slot was busy) -- Claude r2 P3: never counted again
     for ep in eps:
         print('\n%s: %s %s -> %s (%.1f h)' % (ep['head'], ep['kind'], ISO(ep['from']), ISO(ep['to']),
                                              (ep['to'] - ep['from']).total_seconds() / 3600))
         head = lookahead.Head(run=ep['head'], hard_blockers=[], draw_blocked_since=ep['from'], skipped_last=False)
         for depth in (1, 0):
             tag = 'depth 1' if depth == 1 else 'first ready'
+            if ep['head'] in gone[depth]:
+                print('   %-11s -> not this world: %s already launched past %s at %s (the slot was busy; unmodelled)'
+                      % (tag, gone[depth][ep['head']][1], ep['head'], ISO(gone[depth][ep['head']][0])))
+                continue
             why_no = collections.Counter()
             launched = None
             t = ep['from'] + dt.timedelta(minutes=30)
@@ -168,6 +174,7 @@ def main():
                 print('   %-11s -> no launch in %d checks: %s' % (tag, steps, '; '.join('%s x%d' % kv for kv in why_no.most_common(3))))
                 continue
             t, cand, pools, reserve, src = launched
+            gone[depth][ep['head']] = (t, cand)
             dur, verdict = duration(sim, cand)
             if dur is None:
                 print('   %-11s -> LAUNCH %s at %s on %s (reserve %s) [queue %s] -- it has never run, so its duration and '

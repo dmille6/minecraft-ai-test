@@ -43,46 +43,57 @@ CONTROL: 27 of 34 draws reproduced
 == I2 today's timers + symmetric build test
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I2:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I2:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
-  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I2:  4 pools hive-b,hive-c,hive-d,placebo-a (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I2:  0 pools  -- CASCADE: lost ['hive-b', 'placebo-a'] to an earlier counterfactual run | released {}
-      ... and with 0 pool(s) it would have WAITED (< 2): its later draw is not modelled
+  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I2:  4 pools hive-b,hive-c,hive-d,placebo-b (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I2:  1 pools placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+      ... and with 1 pool(s) it would have WAITED (< 2): its later draw is not modelled
   CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I2: EARLIER at 10-23T01:20Z,  2 pools board-d,hive-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+      ... CONDITIONAL: after keepout-01 became unmodelled, this draw assumes it ran as recorded
   CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I2: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {'hive-c': 'townindex-01 promoted 10-23T01:17 floor 240'}
+      ... CONDITIONAL: after keepout-01 became unmodelled, this draw assumes it ran as recorded
   6 of 34 draws changed
 
 == I3 I2 + INCONCLUSIVE / non-death REVERT at 240 (t2) / 360 (t3)
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I3:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I3:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
   CHANGED townsearch-01    actual 10-17T04:57Z 2 pools board-c,placebo-d | I3: EARLIER at 10-17T00:25Z,  2 pools hive-d,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
-  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I3:  3 pools board-a,board-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
-  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I3: EARLIER at 10-20T11:30Z,  2 pools board-c,board-d | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I3:  4 pools board-a,board-b,hive-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
+  CHANGED smeltjob-01      actual 10-17T13:40Z 4 pools board-d,hive-a,hive-b,placebo-a | I3:  4 pools board-c,board-d,hive-a,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+  CHANGED wellcare-01      actual 10-18T06:34Z 4 pools board-b,board-c,hive-c,hive-d | I3:  4 pools board-b,hive-b,hive-c,hive-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
+  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I3:  3 pools board-c,board-d,hive-a | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
   CHANGED homefix-01       actual 10-20T19:21Z 4 pools board-c,hive-d,placebo-b,placebo-d | I3:  3 pools hive-d,placebo-b,placebo-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
-  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I3:  4 pools hive-b,hive-c,hive-d,placebo-a (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I3:  0 pools  -- CASCADE: lost ['hive-b', 'placebo-a'] to an earlier counterfactual run | released {}
-      ... and with 0 pool(s) it would have WAITED (< 2): its later draw is not modelled
-  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I3: EARLIER at 10-23T01:20Z,  2 pools board-d,hive-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
-  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I3: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {'hive-c': 'townindex-01 promoted 10-23T01:17 floor 240'}
-  10 of 34 draws changed
+  CHANGED toolkit-03       actual 10-21T01:11Z 3 pools board-a,hive-b,placebo-a | I3:  4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED homefix-02       actual 10-21T18:05Z 4 pools board-b,board-c,hive-a,placebo-d | I3:  3 pools board-b,board-c,placebo-d -- CASCADE: lost ['hive-a'] to an earlier counterfactual run | released {}
+  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I3:  4 pools hive-b,hive-c,hive-d,placebo-b (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I3:  2 pools board-b,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED protectzone-01   actual 10-22T13:36Z 4 pools board-a,board-b,board-c,hive-a | I3:  3 pools board-a,board-c,hive-a -- CASCADE: lost ['board-b'] to an earlier counterfactual run | released {}
+  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I3: EARLIER at 10-23T01:20Z,  3 pools board-b,board-d,hive-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I3: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {}
+  15 of 34 draws changed
 
 == I4 I3 + tier-2 incoming after a tier-3 KEEP at 240
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I4:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I4:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
   CHANGED townsearch-01    actual 10-17T04:57Z 2 pools board-c,placebo-d | I4: EARLIER at 10-17T00:25Z,  2 pools hive-d,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
-  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I4:  3 pools board-a,board-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
-  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I4: EARLIER at 10-20T11:30Z,  2 pools board-c,board-d | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I4:  4 pools board-a,board-b,hive-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
+  CHANGED smeltjob-01      actual 10-17T13:40Z 4 pools board-d,hive-a,hive-b,placebo-a | I4:  4 pools board-c,board-d,hive-a,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+  CHANGED wellcare-01      actual 10-18T06:34Z 4 pools board-b,board-c,hive-c,hive-d | I4:  4 pools board-b,hive-b,hive-c,hive-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
+  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I4:  3 pools board-c,board-d,hive-a | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
   CHANGED homefix-01       actual 10-20T19:21Z 4 pools board-c,hive-d,placebo-b,placebo-d | I4:  3 pools hive-d,placebo-b,placebo-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
-  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I4:  4 pools hive-b,hive-c,hive-d,placebo-a (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I4:  0 pools  -- CASCADE: lost ['hive-b', 'placebo-a'] to an earlier counterfactual run | released {}
-      ... and with 0 pool(s) it would have WAITED (< 2): its later draw is not modelled
-  CHANGED townindex-01     actual 10-22T18:56Z 3 pools hive-c,hive-d,placebo-d | I4:  4 pools hive-c,hive-d,placebo-a,placebo-d | released {'hive-b': 'keepout-01 promoted 10-22T13:22 floor 240', 'placebo-a': 'keepout-01 promoted 10-22T13:22 floor 240'}
-  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I4:  2 pools board-d,hive-b -- CASCADE: lost ['placebo-a'] to an earlier counterfactual run | released {}
-  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I4: EARLIER at 10-23T12:05Z,  2 pools board-a,placebo-a | released {}
-  11 of 34 draws changed
+  CHANGED toolkit-03       actual 10-21T01:11Z 3 pools board-a,hive-b,placebo-a | I4:  4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED homefix-02       actual 10-21T18:05Z 4 pools board-b,board-c,hive-a,placebo-d | I4:  3 pools board-b,board-c,placebo-d -- CASCADE: lost ['hive-a'] to an earlier counterfactual run | released {}
+  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I4:  4 pools hive-b,hive-c,hive-d,placebo-b (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I4:  2 pools board-b,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED protectzone-01   actual 10-22T13:36Z 4 pools board-a,board-b,board-c,hive-a | I4:  3 pools board-a,board-c,hive-a -- CASCADE: lost ['board-b'] to an earlier counterfactual run | released {}
+  CHANGED townindex-01     actual 10-22T18:56Z 3 pools hive-c,hive-d,placebo-d | I4:  4 pools hive-c,hive-d,placebo-a,placebo-d | released {'placebo-a': 'keepout-01 promoted 10-22T13:22 floor 240'}
+  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I4: EARLIER at 10-23T01:20Z,  3 pools board-b,board-d,hive-a -- CASCADE: lost ['placebo-a'] to an earlier counterfactual run | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I4:  1 pools board-a -- CASCADE: lost ['placebo-a'] to an earlier counterfactual run | released {}
+      ... and with 1 pool(s) it would have WAITED (< 2): its later draw is not modelled
+  16 of 34 draws changed
 
 == I8 I2 for tier-3 incoming only
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I8:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I8:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I8: EARLIER at 10-22T07:00Z,  2 pools board-b,placebo-a | released {'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I8:  3 pools board-b,hive-b,placebo-a | released {'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
   CHANGED protectzone-01   actual 10-22T13:36Z 4 pools board-a,board-b,board-c,hive-a | I8:  3 pools board-a,board-c,hive-a -- CASCADE: lost ['board-b'] to an earlier counterfactual run | released {}
   CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I8: EARLIER at 10-23T01:20Z,  2 pools board-b,board-d | released {}
   CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I8: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {}
@@ -92,48 +103,59 @@ CONTROL: 27 of 34 draws reproduced
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I9:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I9:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
   CHANGED townsearch-01    actual 10-17T04:57Z 2 pools board-c,placebo-d | I9: EARLIER at 10-17T00:25Z,  2 pools hive-d,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
-  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I9:  3 pools board-a,board-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I9: EARLIER at 10-22T07:00Z,  2 pools board-b,placebo-a | released {'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I9:  4 pools board-a,board-b,hive-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
+  CHANGED smeltjob-01      actual 10-17T13:40Z 4 pools board-d,hive-a,hive-b,placebo-a | I9:  4 pools board-c,board-d,hive-a,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+  CHANGED wellcare-01      actual 10-18T06:34Z 4 pools board-b,board-c,hive-c,hive-d | I9:  4 pools board-b,hive-b,hive-c,hive-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I9:  3 pools board-b,hive-b,placebo-a | released {'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360', 'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360'}
   CHANGED protectzone-01   actual 10-22T13:36Z 4 pools board-a,board-b,board-c,hive-a | I9:  3 pools board-a,board-c,hive-a -- CASCADE: lost ['board-b'] to an earlier counterfactual run | released {}
   CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I9: EARLIER at 10-23T01:20Z,  2 pools board-b,board-d | released {}
   CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I9: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {}
-  8 of 34 draws changed
+  10 of 34 draws changed
 
 == I5 I2 + siblings-out bag reference
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I5:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I5:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
-  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I5:  4 pools hive-b,hive-c,hive-d,placebo-a (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I5:  0 pools  -- CASCADE: lost ['hive-b', 'placebo-a'] to an earlier counterfactual run | released {}
-      ... and with 0 pool(s) it would have WAITED (< 2): its later draw is not modelled
+  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I5:  4 pools hive-b,hive-c,hive-d,placebo-b (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I5:  1 pools placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+      ... and with 1 pool(s) it would have WAITED (< 2): its later draw is not modelled
   CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I5: EARLIER at 10-23T01:20Z,  2 pools board-d,hive-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+      ... CONDITIONAL: after keepout-01 became unmodelled, this draw assumes it ran as recorded
   CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I5: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {'hive-c': 'townindex-01 promoted 10-23T01:17 floor 240'}
+      ... CONDITIONAL: after keepout-01 became unmodelled, this draw assumes it ran as recorded
   6 of 34 draws changed
 
 == I6 I3 + siblings-out bag reference
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I6:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I6:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
   CHANGED townsearch-01    actual 10-17T04:57Z 2 pools board-c,placebo-d | I6: EARLIER at 10-17T00:25Z,  2 pools hive-d,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
-  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I6:  3 pools board-a,board-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
-  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I6: EARLIER at 10-20T11:30Z,  2 pools board-c,board-d | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I6:  4 pools board-a,board-b,hive-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
+  CHANGED smeltjob-01      actual 10-17T13:40Z 4 pools board-d,hive-a,hive-b,placebo-a | I6:  4 pools board-c,board-d,hive-a,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+  CHANGED wellcare-01      actual 10-18T06:34Z 4 pools board-b,board-c,hive-c,hive-d | I6:  4 pools board-b,hive-b,hive-c,hive-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
+  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I6:  3 pools board-c,board-d,hive-a | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
   CHANGED homefix-01       actual 10-20T19:21Z 4 pools board-c,hive-d,placebo-b,placebo-d | I6:  3 pools hive-d,placebo-b,placebo-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
-  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I6:  4 pools hive-b,hive-c,hive-d,placebo-a (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I6:  0 pools  -- CASCADE: lost ['hive-b', 'placebo-a'] to an earlier counterfactual run | released {}
-      ... and with 0 pool(s) it would have WAITED (< 2): its later draw is not modelled
-  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I6: EARLIER at 10-23T01:20Z,  2 pools board-d,hive-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
-  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I6: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {'hive-c': 'townindex-01 promoted 10-23T01:17 floor 240'}
-  10 of 34 draws changed
+  CHANGED toolkit-03       actual 10-21T01:11Z 3 pools board-a,hive-b,placebo-a | I6:  4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED homefix-02       actual 10-21T18:05Z 4 pools board-b,board-c,hive-a,placebo-d | I6:  3 pools board-b,board-c,placebo-d -- CASCADE: lost ['hive-a'] to an earlier counterfactual run | released {}
+  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I6:  4 pools hive-b,hive-c,hive-d,placebo-b (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I6:  2 pools board-b,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED protectzone-01   actual 10-22T13:36Z 4 pools board-a,board-b,board-c,hive-a | I6:  3 pools board-a,board-c,hive-a -- CASCADE: lost ['board-b'] to an earlier counterfactual run | released {}
+  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I6: EARLIER at 10-23T01:20Z,  3 pools board-b,board-d,hive-a | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I6: EARLIER at 10-23T11:20Z,  2 pools board-a,placebo-a | released {}
+  15 of 34 draws changed
 
 == I7 I4 + siblings-out bag reference
   CHANGED stocktarget-02   actual 10-14T11:30Z 2 pools board-c,hive-b | I7:  3 pools board-a,board-c,hive-b | released {'board-a': 'orderroom-01 promoted 10-14T02:19 floor 360', 'board-d': 'orderroom-01 promoted 10-14T02:19 floor 360'}
   CHANGED wellsite-02      actual 10-14T17:49Z 4 pools board-a,board-b,board-d,placebo-b | I7:  3 pools board-b,board-d,placebo-b -- CASCADE: lost ['board-a'] to an earlier counterfactual run | released {}
   CHANGED townsearch-01    actual 10-17T04:57Z 2 pools board-c,placebo-d | I7: EARLIER at 10-17T00:25Z,  2 pools hive-d,placebo-d | released {'hive-d': 'plinth-01 torn-down 10-16T16:52 floor 360'}
-  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I7:  3 pools board-a,board-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
-  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I7: EARLIER at 10-20T11:30Z,  2 pools board-c,board-d | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
+  CHANGED kitshrink-01     actual 10-17T12:10Z 4 pools board-a,board-b,hive-c,hive-d | I7:  4 pools board-a,board-b,hive-b,hive-c -- CASCADE: lost ['hive-d'] to an earlier counterfactual run | released {}
+  CHANGED smeltjob-01      actual 10-17T13:40Z 4 pools board-d,hive-a,hive-b,placebo-a | I7:  4 pools board-c,board-d,hive-a,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {}
+  CHANGED wellcare-01      actual 10-18T06:34Z 4 pools board-b,board-c,hive-c,hive-d | I7:  4 pools board-b,hive-b,hive-c,hive-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
+  CHANGED bagbudget-01     actual 10-20T11:35Z 2 pools board-d,hive-a | I7:  3 pools board-c,board-d,hive-a | released {'board-c': 'brain-01 torn-down 10-20T04:55 floor 240', 'hive-d': 'brain-01 torn-down 10-20T04:55 floor 240'}
   CHANGED homefix-01       actual 10-20T19:21Z 4 pools board-c,hive-d,placebo-b,placebo-d | I7:  3 pools hive-d,placebo-b,placebo-d -- CASCADE: lost ['board-c'] to an earlier counterfactual run | released {}
-  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I7:  4 pools hive-b,hive-c,hive-d,placebo-a (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
-  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I7:  0 pools  -- CASCADE: lost ['hive-b', 'placebo-a'] to an earlier counterfactual run | released {}
-      ... and with 0 pool(s) it would have WAITED (< 2): its later draw is not modelled
-  CHANGED townindex-01     actual 10-22T18:56Z 3 pools hive-c,hive-d,placebo-d | I7: EARLIER at 10-22T18:25Z,  2 pools placebo-a,placebo-d | released {'placebo-a': 'keepout-01 promoted 10-22T13:22 floor 240', 'hive-b': 'keepout-01 promoted 10-22T13:22 floor 240'}
-  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I7: EARLIER at 10-23T01:20Z,  3 pools board-d,hive-c,hive-d -- CASCADE: lost ['placebo-a'] to an earlier counterfactual run | released {}
-  CHANGED indexsearch-01   actual 10-23T12:14Z 2 pools board-a,placebo-a | I7: EARLIER at 10-23T12:05Z,  2 pools board-a,placebo-a | released {'hive-d': 'poolescape-01 promoted 10-23T08:05 floor 240'}
-  11 of 34 draws changed
+  CHANGED toolkit-03       actual 10-21T01:11Z 3 pools board-a,hive-b,placebo-a | I7:  4 pools board-a,hive-a,hive-b,placebo-a | released {'hive-a': 'bagbudget-01 torn-down 10-20T17:57 floor 240'}
+  CHANGED homefix-02       actual 10-21T18:05Z 4 pools board-b,board-c,hive-a,placebo-d | I7:  3 pools board-b,board-c,placebo-d -- CASCADE: lost ['hive-a'] to an earlier counterfactual run | released {}
+  CHANGED ironpick-01      actual 10-22T00:36Z 3 pools hive-c,hive-d,placebo-b | I7:  4 pools hive-b,hive-c,hive-d,placebo-b (a random draw of several) | released {'placebo-a': 'toolkit-03 promoted 10-21T13:37 floor 240', 'hive-b': 'toolkit-03 promoted 10-21T13:37 floor 240'}
+  CHANGED keepout-01       actual 10-22T07:05Z 2 pools hive-b,placebo-a | I7:  2 pools board-b,placebo-a -- CASCADE: lost ['hive-b'] to an earlier counterfactual run | released {'placebo-d': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-c': 'homefix-02 promoted 10-22T00:28 floor 360', 'board-b': 'homefix-02 promoted 10-22T00:28 floor 360'}
+  CHANGED protectzone-01   actual 10-22T13:36Z 4 pools board-a,board-b,board-c,hive-a | I7:  3 pools board-a,board-c,hive-a -- CASCADE: lost ['board-b'] to an earlier counterfactual run | released {}
+  CHANGED townindex-01     actual 10-22T18:56Z 3 pools hive-c,hive-d,placebo-d | I7: EARLIER at 10-22T18:05Z,  2 pools placebo-a,placebo-d | released {'placebo-a': 'keepout-01 promoted 10-22T13:22 floor 240'}
+  CHANGED poolescape-01    actual 10-23T01:48Z 3 pools board-d,hive-b,placebo-a | I7: EARLIER at 10-23T01:20Z,  4 pools board-b,board-d,hive-a,hive-c (a random draw of several) -- CASCADE: lost ['placebo-a'] to an earlier counterfactual run | released {'hive-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-a': 'protectzone-01 promoted 10-22T16:54 floor 240', 'board-c': 'protectzone-01 promoted 10-22T16:54 floor 240'}
+  15 of 34 draws changed

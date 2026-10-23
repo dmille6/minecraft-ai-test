@@ -136,12 +136,15 @@ def main():
         # THE CASCADE (Claude r1 P1): a counterfactual draw is carried forward -- its run decides on its counterfactual
         # pools, which then sit in the 12-h exclusion (and the live set) for every later draw of this iteration
         sim.override = {}
+        unmodelled_from = None          # Codex r2 P2: after a run that would have WAITED, every later draw is conditional
         for x in D:
             kt, mk = sim.k_target(x['run'])
             f0, e0, _r0, _i0 = base[x['run']]
             f1, e1, rel, info = walk(sim, x, rule)
             n0, n1 = min(kt, len(e0)), min(kt, len(e1))
-            earlier = f1 is not None and (f0 is None or f1[0] < f0[0])
+            # "earlier" only against a reconstruction that DID draw: where today's rule re-drawn draws nothing (a
+            # positive-control miss), the actual draw stands in for it (Claude r2 P2)
+            earlier = f1 is not None and f0 is not None and f1[0] < f0[0]
             rels = dict(f1[2]) if (earlier and f1) else {}
             rels.update(rel)
             # the counterfactual set (section 1.3): an EARLIER draw takes the pools eligible at its first attempt;
@@ -156,19 +159,28 @@ def main():
                 ambiguous = len(elig) > kt
             else:
                 keep = [p for p in x['pools'] if p not in excl_now]
-                add = [p for p in sorted(rels) if p in e1 and p not in keep]
-                cf = sorted((add + keep)[:kt]) if len(add + keep) > kt else sorted(add + keep)
+                # every pool this world makes drawable and the actual draw did not have: released by the settle path,
+                # or freed by the cascade (Claude r2 P2) -- released first, then freed, capped at the target
+                # ("made drawable" = eligible here but NOT in today's rule re-drawn at the same instant, so the
+                # reconstruction's own band noise never counts as a change)
+                add = [p for p in sorted(rels) if p in e1 and p not in keep and p not in e0] + \
+                      [p for p in sorted(e1) if p not in keep and p not in rels and p not in e0]
+                cf = sorted((keep + add)[:max(kt, len(keep))]) if len(add + keep) > kt else sorted(add + keep)
                 ambiguous = len(add + keep) > kt
             changed = earlier or set(cf) != set(x['pools'])
             short = len(cf) < mk
             if changed and not short:
                 sim.override[x['run']] = set(cf)
+            conditional = unmodelled_from is not None
+            if changed and short and unmodelled_from is None:
+                unmodelled_from = x['run']
             rec = {'variant': name, 'run': x['run'], 'start': x['start'].isoformat(), 'drawn': x['drawn'].isoformat(),
                    'pools': x['pools'], 'today_first': f0[0].isoformat() if f0 else None,
                    'variant_first': f1[0].isoformat() if f1 else None, 'today_n': n0, 'variant_n': n1,
                    'today_eligible': e0, 'variant_eligible': e1, 'earlier': earlier, 'more': len(cf) > len(x['pools']),
                    'variant_first_eligible': f1[1] if f1 else None, 'cf': cf, 'changed': changed, 'short': short,
                    'ambiguous': ambiguous, 'cascade_lost': sorted(set(x['pools']) & excl_now),
+                   'conditional_on': unmodelled_from if conditional else None,
                    'released': {p: [c[0], c[4], c[3].isoformat(), c[5]] for p, c in rels.items()},
                    'settle_notes': [n for n in info['notes'] if n.startswith('settle')]}
             out.append(rec)
@@ -182,6 +194,8 @@ def main():
                     {p: '%s %s %s floor %d' % (v[0], v[1], v[2][5:16], v[3]) for p, v in rec['released'].items()}))
                 if short:
                     print('      ... and with %d pool(s) it would have WAITED (< %d): its later draw is not modelled' % (len(cf), mk))
+                if conditional:
+                    print('      ... CONDITIONAL: after %s became unmodelled, this draw assumes it ran as recorded' % unmodelled_from)
             elif rels:
                 print('  (released, no change) %-16s %s' % (x['run'], sorted(rels)))
         print('  %d of %d draws changed' % (nch, len(D)))

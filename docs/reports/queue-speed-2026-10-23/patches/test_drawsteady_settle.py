@@ -89,6 +89,15 @@ def run(d, w, fault=False):
                STEADY_MANIFEST=os.path.join(w, 'man'), STEADY_LOGROOT=os.path.join(w, 'logs'),
                STEADY_UNITS_FILE=os.path.join(w, 'units'), STEADY_ROSTER_DIR=os.path.join(w, 'wants'),
                STEADY_REGDIR=os.path.join(w, 'regs'), DRAW_RUN='inc-01')
+    if fault == 'slow':
+        # the settle measurement HANGS (a slow log scan): the hard deadline must cut it (Codex r2 P2)
+        prog = ('import sys, time; sys.path.insert(0, %r); import settlerule\n'
+                'settlerule.SETTLE_BUDGET_S = 2\n'
+                'def slow(*a, **k):\n    time.sleep(60)\n'
+                'settlerule.symmetric_build = slow\nimport drawsteady; sys.exit(drawsteady.main())\n' % d)
+        r = subprocess.run([sys.executable, '-c', prog], capture_output=True, text=True, env=env, timeout=50)
+        rel = [l for l in r.stdout.splitlines() if l.startswith('STEADY RELEASE ')]
+        return (rel[-1][len('STEADY RELEASE '):] if rel else 'NO_LINE'), r.stdout + r.stderr[-400:]
     if fault:
         # the settle measurement raises (monkeypatched in a wrapper; production has no fault switch)
         prog = ('import sys; sys.path.insert(0, %r); import settlerule\n'
@@ -125,6 +134,12 @@ def cases(ds_src):
         t('UNION positive control: with no second promotion TODAY\'S rule releases pool-a (6 h)', g == "['pool-a']" and '6h pool-a' in o, o)
         g, o = run(d, world(d, noflip=True), fault=True)
         t('UNION: a failing settle measurement never costs today\'s release', g == "['pool-a']" and 'settle measurement failed' in o, o)
+        try:
+            g, o = run(d, world(d, noflip=True), fault='slow')
+        except subprocess.TimeoutExpired as e:
+            g, o = 'TIMEOUT', str(e)
+        t('DEADLINE: a hanging settle measurement is cut at its budget and today\'s release still prints',
+          g == "['pool-a']" and 'TimeoutError' in o, o)
         g, o = run(d, world(d, lookback=1440))
         t('a 1440-min declared lookback -> no settle candidate (past 12 h)', g == '[]' and 'settle REL' not in o, o)
     finally:
@@ -138,6 +153,7 @@ MUTANTS = [
     ("            except Exception as e:\n                print('STEADY settle measurement failed (%s: %s): today\\'s release only'",
      "            except ZeroDivisionError as e:\n                print('STEADY settle measurement failed (%s: %s): today\\'s release only'"),
     ("        s, why = qualify(st, by_pool.get(pool, {}), fv, one_build=False)", "        s, why = qualify(st, by_pool.get(pool, {}), fv)"),
+    ("            signal.alarm(int(settlerule.SETTLE_BUDGET_S))", "            signal.alarm(0)"),
 ]
 
 

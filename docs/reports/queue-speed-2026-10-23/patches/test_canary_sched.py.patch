@@ -58,7 +58,7 @@
      open(os.path.join(F.home, 'mcai-analysis', 'drawrec.sh'), 'w').write('TARGET_K = 2\n')
      expect(CS, F, 'block', 'H6')
  
-@@ -1017,8 +1037,324 @@
+@@ -1017,8 +1037,344 @@
          CS.gather = real
      time.sleep(0.3)
      assert len(calls) == 2 and open(F.journal).read() == '', (calls, open(F.journal).read())
@@ -212,6 +212,21 @@
 +    assert not _hooked_tick(CS, F, hook), 'launched a candidate whose registration changed during the probes'
 +
 +
++def t_la_revalidates_a_held_head(CS, F):
++    """The HEAD is held while the candidate's probe runs: the fresh re-check must refuse (Codex r2 P1)."""
++    hook = ('python3 -c "import json,sys; p=sys.argv[1]; q=json.load(open(p)); q[\'entries\'][0][\'hold\']=\'owner: hold\'; '
++            'json.dump(q, open(p, \'w\'))" %s' % F.queue)
++    assert not _hooked_tick(CS, F, hook), 'launched past a head that was HELD during the probes'
++    assert json.load(open(F.queue))['entries'][0]['hold'] == 'owner: hold', 'hook did not run (positive control)'
++
++
++def t_la_revalidates_the_head_variant(CS, F):
++    """The head's variant is removed during the probe (a missing variant is never looked past)."""
++    hook = ('python3 -c "import json,sys; p=sys.argv[1]; q=json.load(open(p)); q[\'entries\'][0][\'variants\']={}; '
++            'json.dump(q, open(p, \'w\'))" %s' % F.queue)
++    assert not _hooked_tick(CS, F, hook), 'launched past a head whose variant vanished during the probes'
++
++
 +def t_la_hooked_positive_control(CS, F):
 +    """The hook machinery itself does not stop a launch: a harmless hook still launches bar-01."""
 +    la = _hooked_tick(CS, F, 'true')
@@ -288,10 +303,13 @@
 +    F.state({'state': 'drawwait', 'run': 'foo-01', 'at': Z(NOW - dt.timedelta(minutes=300))})
 +    F.state({'state': 'launching', 'run': 'zzz-01', 't0': Z(NOW - dt.timedelta(minutes=200)), 'lookahead_past': 'foo-01',
 +             'at': Z(NOW - dt.timedelta(minutes=200))})
-+    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++    log = os.path.join(F.d, 'draw.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_DRAW_LOG=log)):
 +        assert CS.tick(CS.paths()) == 0
 +    la = [r for r in sched_rows(F) if r.get('state') == 'launching' and r.get('run') == 'bar-01']
 +    assert not la, 'skipped the same head twice in a row'
++    # refused at the FIRST decision, before any candidate probe (the re-check is a second line, not the only one)
++    assert 'bar-01' not in open(log).read(), 'the candidate was probed although L3 forbids the skip'
 +
 +
 +def t_la_not_past_an_unmet_after(CS, F):
@@ -358,9 +376,11 @@
 +    F.state({'state': 'drawwait', 'run': 'foo-01', 'at': Z(NOW - dt.timedelta(minutes=40))})
 +    reg2 = e2['variants'][F.base]['registration']
 +    r = json.load(open(reg2)); r['notes'] = 'edited after queueing'; json.dump(r, open(reg2, 'w'))
-+    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok')):
++    log = os.path.join(F.d, 'draw.log')
++    with Env(F.env(FIX_DRAW_NONE='foo-01', FIX_LOOP='ok', FIX_DRAW_LOG=log)):
 +        assert CS.tick(CS.paths()) == 0
 +    assert not [r for r in sched_rows(F) if r.get('state') == 'launching'], 'launched a candidate failing H3'
++    assert 'bar-01' not in open(log).read(), 'a candidate failing H3 was probed (minutes of the tick lock for nothing)'
 +
 +
 +def t_la_episode_ends_on_a_non_draw_reason(CS, F):
@@ -383,7 +403,7 @@
  TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
  
  
-@@ -1116,6 +1452,38 @@
+@@ -1116,6 +1472,40 @@
      ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
       "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
      ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
@@ -393,7 +413,9 @@
 +    ("        return 3\n    dk = (reg or {}).get('draw_k')", "        return 2\n    dk = (reg or {}).get('draw_k')"),
 +    ("            if w and (st['now'] - w).total_seconds() < PROBE_EVERY_MIN * 60:\n                return r.get('why') or ''",
 +     "            if w:\n                return r.get('why') or ''"),
-+    ("        env['DRAW_REGDIR'] = d", "        pass"),
++    # (round-1 mutant on `env['DRAW_REGDIR'] = d` retired: the line became env.update(...), mutated below -- Codex r2)
++    ("    hhb = head_blockers(h, st)\n    if hhb or entry_state(h, st) != 'ready':",
++     "    hhb = head_blockers(h, st)\n    if False:"),
 +    ("        row['lookahead_past'] = lookahead_past", "        pass"),
 +    ("    draw_wait = d[0] == 'wait' and head is not None and all(c in ('R10', 'R12') for c, _ in d[1])",
 +     "    draw_wait = d[0] == 'wait' and head is not None and all(c in ('R10', 'R12', 'H1') for c, _ in d[1])"),

@@ -34,7 +34,7 @@
      }
  
  
-@@ -434,9 +447,214 @@
+@@ -434,9 +447,223 @@
          return ('wait' if all(w for _, _, w in hb) else 'block', [(c, '%s: %s' % (e.get('run'), r)) for c, r, _ in hb])
      if st.get('r10'):
          return ('wait' if st['r10'].startswith('WAIT') else 'block', [('R10', '%s: %s' % (e.get('run'), st['r10']))])
@@ -116,8 +116,8 @@
 +        return 'probe failed: %s' % x, [], []
 +    finally:
 +        shutil.rmtree(d, ignore_errors=True)
-+
-+
+ 
+ 
 +def lookahead_inputs(st, head, lib):
 +    """PURE given st. -> (Head, [Entry behind the head]) for lookahead.decide. A behind-entry's own blockers are the
 +    scheduler's: entry_state, its hold, every `after` not closed, a variant keyed by the full base; H3-H6 are added by
@@ -170,6 +170,15 @@
 +    h = head_entry(st)
 +    if (h or {}).get('run') != head_run or st.get('base_full') != base:
 +        return False, 'the head or the fleet base changed', st, None, None
++    # the HEAD again, in full (Codex r2 P1): a hold, not_before, `after`, its variant, H3-H6 and its state -- anything
++    # but the draw now stopping the head means it may not be looked past
++    hv = (h.get('variants') or {}).get(base)
++    if not hv:
++        return False, 'the head has no variant for the base any more', st, None, None
++    st['variant_checks'], _stage = variant_checks(P, h, hv, base, st)
++    hhb = head_blockers(h, st)
++    if hhb or entry_state(h, st) != 'ready':
++        return False, 'the head gained a non-draw blocker: %s' % '; '.join(r for _c, r, _w in hhb), st, None, None
 +    hd, behind = lookahead_inputs(st, h, L)
 +    dec = L.decide(hd, behind, st['now'], slot_free=True, death_hold=bool(st.get('death_hold')),
 +                   next_slot=bool(st.get('next_slot')))
@@ -184,8 +193,8 @@
 +    if hb or entry_state(e, st) != 'ready':
 +        return False, 'the candidate is no longer launchable: %s' % '; '.join(r for _c, r, _w in hb), st, None, None
 +    return True, '', st, e, v
- 
- 
++
++
 +def try_lookahead(P, st, head, stamp, no_act):
 +    """Design 2. True when a lookahead launch was made (or, --no-act, would be). Every failure is printed and returns
 +    False: the head keeps waiting exactly as today."""
@@ -249,7 +258,7 @@
  # ------------------------------------------------------------------------------------------------------ gather --
  def read_jsonl(p):
      rows = []
-@@ -681,6 +899,8 @@
+@@ -681,6 +908,8 @@
          r = subprocess.run(['python3', P['drawexposure'], e['run'], '--registrations', d], capture_output=True, text=True,
                             timeout=900)
          txt = r.stdout + r.stderr
@@ -258,15 +267,15 @@
          with open(v['registration']) as f:
              declared = bool(json.load(f).get('draw_exposure'))
          # V3: declaration, exit status and output TOGETHER
-@@ -898,9 +1118,27 @@
+@@ -898,7 +1127,25 @@
              else:
                  st['r10'] = r10[1]
              st['r10_key'] = key
 +            if not st['r10']:
 +                st['r12'], st['r12_elig'] = r12_answer(P, st, e, v, key, full)
      return st
- 
- 
++
++
 +def r12_answer(P, st, e, v, key, full=True):
 +    """R12 for an otherwise-launchable entry: the newest `drawprobe` row for this identity if younger than
 +    PROBE_EVERY_MIN, else a fresh probe (st['r12_ran'] tells _tick to record it). -> (answer, eligible pools)."""
@@ -281,12 +290,10 @@
 +    why, drawn, elig = draw_probe(P, e['run'], v['registration'])
 +    st['r12_ran'] = {'state': 'drawprobe', 'run': e['run'], 'key': list(key), 'why': why, 'drawn': drawn, 'elig': elig}
 +    return why, elig
-+
-+
+ 
+ 
  # ------------------------------------------------------------------------------------------------------ act --
- def append_state(P, row):
-     os.makedirs(os.path.dirname(P['state']), exist_ok=True)
-@@ -934,13 +1172,18 @@
+@@ -934,13 +1181,18 @@
      os.replace(tmp, dst)
  
  
@@ -308,7 +315,7 @@
      for src, dst in st.get('stage') or []:
          if not os.path.exists(dst):                     # never overwrite (R9), even if one appeared since gather
              atomic_copy(src, dst)
-@@ -963,9 +1206,13 @@
+@@ -963,9 +1215,13 @@
          page(P, st, 'error', '%s|preverify|%s' % (run, t0), '%s NOT launched: %s -- fix, then `rearm %s <why>`'
               % (run, '; '.join(bad), run))
          return None
@@ -323,7 +330,7 @@
      append_state(P, {'state': 'launched-pid', 'run': run, 'pid': p.pid, 'start': starttime(P, p.pid)})
      page(P, st, 'info', '%s|launch|%s' % (run, t0), 'launched %s (canary %s on base %s, pid %d)'
           % (run, str(v.get('canary_sha'))[:7], st['base_full'][:7], p.pid))
-@@ -1064,6 +1311,8 @@
+@@ -1064,6 +1320,8 @@
              page(P, st, 'error', 'queue|unreadable', 'the queue file does not parse: %s' % st['queue']['error'])
          return 2
      d = decide(st)
@@ -332,7 +339,7 @@
      if d[0] == 'launch' and st.get('r10_ran') and not no_act:
          # R10 ran drawexposure (up to 15 min): re-gather everything cheap and decide again with its answer carried over
          r10 = (st['r10_key'], st['r10'])        # bound to (run, base, registration sha256): another variant re-checks
-@@ -1076,6 +1325,8 @@
+@@ -1076,6 +1334,8 @@
              # fleet since that second check: never launch on it -- the next tick starts over (Codex IMPL-3)
              print('%s RE-CHECK: the head/base changed during the exposure check; deferring to the next tick' % stamp)
              return 0
@@ -341,7 +348,7 @@
      if d[0] == 'launch':
          e, v = d[1], d[2]
          print('%s LAUNCH %s (variant on %s, canary %s)%s' % (stamp, e['run'], st['base_full'][:7],
-@@ -1083,6 +1334,20 @@
+@@ -1083,6 +1343,20 @@
          if not no_act:
              launch(P, st, e, v)
          return 0
@@ -362,7 +369,7 @@
      print('%s %s: %s' % (stamp, d[0].upper(), ' | '.join('%s %s' % (c, r) for c, r in d[1])))
      if st.get('inactive_units'):
          print('%s note: enabled but inactive units (no drop-in, so they start on baseline): %s'
-@@ -1107,6 +1372,17 @@
+@@ -1107,6 +1381,17 @@
                  page(P, st, 'flag', '%s|r10wait' % run, '%s has waited %.1f h because fewer than two pools can expose it '
                       '(%s). The scheduler never skips the head: `queue hold`/reorder, or edit its draw_exposure'
                       % (run, h, d[1][0][1][:200]))

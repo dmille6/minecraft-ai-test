@@ -21,7 +21,7 @@ indexsearch-01: scheduler WAIT R10 10-23T08:50Z -> 10-23T09:45Z (0.9 h)
    first ready -> LAUNCH chatgate-01 at 10-23T09:20Z on board-b,board-c,hive-a (reserve ['placebo-a']) [queue canary-queue.json.bak-jit1023b-20261023T101051Z] -- it has never run, so its duration and verdict are unknown: any lane-time figure is HYPOTHETICAL
 
 indexsearch-01: loop in draw 10-23T09:53Z -> 10-23T12:14Z (2.4 h)
-   depth 1     -> LAUNCH chatgate-01 at 10-23T10:23Z on board-b,board-c,hive-a,hive-d (reserve ['board-a', 'placebo-a']) [queue canary-queue.json] -- it has never run, so its duration and verdict are unknown: any lane-time figure is HYPOTHETICAL
-   first ready -> LAUNCH chatgate-01 at 10-23T10:23Z on board-b,board-c,hive-a,hive-d (reserve ['board-a', 'placebo-a']) [queue canary-queue.json] -- it has never run, so its duration and verdict are unknown: any lane-time figure is HYPOTHETICAL
+   depth 1     -> not this world: chatgate-01 already launched past indexsearch-01 at 10-23T09:20Z (the slot was busy; unmodelled)
+   first ready -> not this world: chatgate-01 already launched past indexsearch-01 at 10-23T09:20Z (the slot was busy; unmodelled)
 
 idle lane hours filled (only for candidates that ran later, so a duration exists): depth 1 0.0 h, first-ready 0.0 h
