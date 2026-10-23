@@ -222,7 +222,11 @@ class World:
                         for lx in range(16): yield cx * 16 + lx, Y * 16 + ly, cz * 16 + lz, pal[0]
                 continue
             if vals is None: vals = s[2] = section_values(bs)
-            if vals is None: continue
+            if vals is None or len(vals) < 4096:
+                # A section whose palette HOLDS a match but whose cells cannot be decoded is a blind spot, never a skip
+                # (Codex r2 P2): counted here, and validate() refuses any world where it happened.
+                self.stats['undecoded_hit_sections'] += 1
+                continue
             for k, v in enumerate(vals):
                 if v in hit:
                     yield cx * 16 + (k & 15), Y * 16 + (k >> 8), cz * 16 + ((k >> 4) & 15), pal[v]
@@ -492,6 +496,7 @@ def scan(world, rdir, home, r, stamp, zones, plinths):
            'top_structures': sorted(structs, key=lambda s: -s['n'])[:6],
            'top_surface': sorted([s for s in structs if s['surface']], key=lambda s: -s['n'])[:10],
            'cells': sorted([list(p) + [n[10:]] for p, n in built.items()])}
+    res['undecoded_hit_sections'] = w.stats['undecoded_hit_sections']
     return res
 
 def village(world, rdir, box):
@@ -585,7 +590,7 @@ def negctl(world, rdir, home, r, n):
             else: surface_fp[nm[10:]] += 1
     return {'world': world, 'chunks_read': used, 'chunk_status_read': dict(collections.Counter(w.status.values())),
             'uninhabited_full_chunks': len(zero), 'uninhabited_chunks': len(zero), 'observed_chunks': observed,
-            'palette_cells_in_pieces': inpiece,
+            'palette_cells_in_pieces': inpiece, 'undecoded_hit_sections': w.stats['undecoded_hit_sections'],
             'false_positive_cells': sum(fps.values()), 'fp_kinds': dict(fps.most_common(10)),
             'fp_cells_buried': buried_fp, 'fp_cells_surface': sum(surface_fp.values()), 'fp_kinds_surface': dict(surface_fp.most_common(10)),
             'worldgen_pieces': len(pieces), 'worldgen_starts_unreadable': sum(1 for p in pieces if p[0] == '?unreadable')}
@@ -715,6 +720,9 @@ def validate(scan_res, neg_res, last=None):
         bad.append('palette cells %s < floor %s' % (scan_res.get('raw_palette_cells'), PALETTE_FLOOR))
     if neg_res.get('uninhabited_full_chunks', 0) < NEG_MIN_CHUNKS:
         bad.append('negative control saw %s never-ticked full chunks < %s' % (neg_res.get('uninhabited_full_chunks'), NEG_MIN_CHUNKS))
+    for what, r in (('scan', scan_res), ('negative control', neg_res)):
+        if r.get('undecoded_hit_sections', 1) != 0:
+            bad.append('%s undecoded: %s matching sections could not be decoded' % (what, r.get('undecoded_hit_sections')))
     if neg_res.get('observed_chunks', 0) < max(NEG_MIN_CHUNKS, neg_res.get('uninhabited_full_chunks', 0)):
         bad.append('negative control blind: observed %s of %s never-ticked chunks' % (neg_res.get('observed_chunks'), neg_res.get('uninhabited_full_chunks')))
     if neg_res.get('fp_cells_surface', 1) != 0:
@@ -749,19 +757,23 @@ def load_json(path):
 
 
 RESIDUAL_MAX = 20          # design 2.5: a world whose two-pass copy left more than 20 files changing is UNKNOWN for the day
-OK_LINE = re.compile(r' ok ([A-Za-z0-9_.-]+): .*\bresidual=(\d+)\b')
+OK_LINE = re.compile(r' ok ([A-Za-z0-9_.-]+): (?:.* )?residual=(\d+)(?=\s|$)')
 
 
-def backup_record(log_path, day):
+def backup_record(log_path, day, expect=None):
     """world-backup.sh's record of <day>'s run -> (good, {world: residual}). `good` is the run's `good <day>:` line; the
     residuals are the per-world `ok <world>: ... residual=N` lines between that run's `start <day>:` and its `good`. A later
-    run of the same day replaces an earlier one. (False, {}) when the day has no good line yet."""
+    run of the same day replaces an earlier one; a run whose `start` line names a world count other than `expect` (another
+    host's copy of the script logging here) is ignored (Claude r2 P3-2). (False, {}) when the day has no good line yet."""
     good, cur, done = False, None, {}
     try:
         for line in open(log_path, errors='replace'):
             if (' start %s:' % day) in line:
-                cur = {}
-            elif (' good %s:' % day) in line:
+                n = re.search(r' start %s: (\d+) ' % re.escape(day), line)
+                if expect is not None and (not n or int(n.group(1)) != expect):
+                    cur = None; continue                     # not the fleet's run
+                cur, good, done = {}, False, {}            # a run in progress: its staging is not the earlier run's
+            elif (' good %s:' % day) in line and cur is not None:   # only the good of a run we followed
                 good, done = True, dict(cur or {})
                 cur = None
             elif cur is not None:
@@ -863,7 +875,7 @@ def daily(a, fail_at=None):
         print('already published for %s (%s)' % (day, m.get('generation'))); return EXIT['already']
     residual = None                                                  # None: --skip-backup-check (trials and tests only)
     if not a.get('skip_backup_check'):
-        good, residual = backup_record(a['backup_log'], day)
+        good, residual = backup_record(a['backup_log'], day, a.get('expect'))
         if not good:
             print('not yet: the backup has not logged good %s' % day); return EXIT['not_yet']
     attempt = now.strftime('%Y%m%dT%H%M%S') + '.%03dZ-%d' % (now.microsecond // 1000, os.getpid())
@@ -978,7 +990,10 @@ def _daily_body(a, fail_at, out, att_dir, work, day, residual, attempt, ended, u
     except OSError as e:
         print('publication failed (%s): the reader sees an attempt with no manifest = UNKNOWN' % e); return ended(EXIT['publish'])
     print('published %s (%d worlds; buildings %d)' % (gen, len(days), totals['buildings']))
-    prune(out, keep_days=a.get('keep_days', 60))
+    try:                                                              # Claude r2 P3-3: housekeeping never un-publishes an OK
+        prune(out, keep_days=a.get('keep_days', 60))
+    except Exception as e:                                            # noqa: BLE001
+        print('prune failed (the OK publication stands): %s' % e)
     return ended(EXIT['ok'])
 
 

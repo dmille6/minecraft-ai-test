@@ -245,6 +245,7 @@ def gate_cases(sc, rdir):
     out.append(('fixture: negative control saw 120', neg['uninhabited_full_chunks'], 120))
     out.append(('fixture: negative control 0 surface FP', neg['fp_cells_surface'], 0))
     out.append(('fixture: negative control observed all 120', neg['observed_chunks'], 120))
+    out.append(('fixture: every matching section decoded', (res['undecoded_hit_sections'], neg['undecoded_hit_sections']), (0, 0)))
     out.append(('fixture: validate passes', bad, []))
     return out
 
@@ -258,6 +259,11 @@ BLIND = [   # (name, anchor, replacement, how it must be stopped: 'validate:<pro
      "        if w.inhabited.get(c, 1) == -1 and str(w.status.get(c, '')).endswith('full'): zero.append(c)", 'validate:negative control saw'),
     ('blind: negctl chunks read empty', "    observed = 0\n", "    for c in zero: w.secs[c] = {}\n    observed = 0\n", 'validate:negative control blind'),
     ('blind: no structure masks', "    return out\n\nPIECE_PAD_H", "    return []\n\nPIECE_PAD_H", 'validate:surface false positives'),
+    ('blind: negctl BUILT sections undecodable', "    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0\n",
+     "    for c in zero:\n        for s in (w.chunk(*c) or {}).values():\n            if any(BUILT.match(n) for n in s[0]): s[1] = {'palette': s[1].get('palette')}; s[2] = None\n"
+     "    fps = collections.Counter(); inpiece = 0; surface_fp = collections.Counter(); buried_fp = 0\n", 'validate:negative control undecoded'),
+    ('blind: scan BUILT sections undecodable', "            if vals is None: vals = s[2] = section_values(bs)\n            if vals is None or len(vals) < 4096:",
+     "            vals = None\n            if vals is None or len(vals) < 4096:", 'validate:scan undecoded'),
     ('blind: block states ignored', "[p.get('Properties') or {} for p in (bs.get('palette') or [])]", "[{} for p in (bs.get('palette') or [])]",
      'gate:fixture: two buildings (torch, lamp lit=true)'),
 ]
@@ -270,6 +276,8 @@ BEHAVIOUR = [   # (case it must fail, anchor, replacement)
     ('validate: negative chunks', "    if neg_res.get('uninhabited_full_chunks', 0) < NEG_MIN_CHUNKS:", "    if False:"),
     ('validate: negative FP', "    if neg_res.get('fp_cells_surface', 1) != 0:", "    if False:"),
     ('validate: negative observed', "    if neg_res.get('observed_chunks', 0) < max(NEG_MIN_CHUNKS, neg_res.get('uninhabited_full_chunks', 0)):", "    if False:"),
+    ('validate: undecoded sections (scan)', "        if r.get('undecoded_hit_sections', 1) != 0:", "        if what != 'scan' and r.get('undecoded_hit_sections', 1) != 0:"),
+    ('validate: undecoded sections (negative control)', "        if r.get('undecoded_hit_sections', 1) != 0:", "        if what == 'scan' and r.get('undecoded_hit_sections', 1) != 0:"),
     ('validate: stamp model', "    if scan_res.get('stamp_cells') != STAMP_CELLS:", "    if False:"),
     ('validate: unresolved starts', "    if scan_res.get('worldgen_starts_unreadable'):", "    if False:"),
 ]
@@ -289,12 +297,18 @@ READER = [   # (case, anchor, replacement) on scread.py
 
 def validate_cases(sc):
     good = {'box_chunks': 169, 'box_chunks_ok': 169, 'worldgen_starts_unreadable': 0, 'stamp_cells': 207, 'stamp_present': 190,
-            'raw_palette_cells': 5000}
-    gneg = {'uninhabited_full_chunks': 120, 'observed_chunks': 120, 'fp_cells_surface': 0}
+            'raw_palette_cells': 5000, 'undecoded_hit_sections': 0}
+    gneg = {'uninhabited_full_chunks': 120, 'observed_chunks': 120, 'fp_cells_surface': 0, 'neg_undecoded': 0}
     def v(**kw):
         s = dict(good); n = dict(gneg); last = kw.pop('last', None)
+        if 'neg_undecoded' in kw:
+            kw['undecoded_hit_sections_neg'] = kw.pop('neg_undecoded')
         for k, x in kw.items():
-            (n if k in gneg else s)[k] = x
+            if k == 'undecoded_hit_sections_neg':
+                n['undecoded_hit_sections'] = x
+            else:
+                (n if k in gneg else s)[k] = x
+        n.setdefault('undecoded_hit_sections', 0); n.pop('neg_undecoded', None)
         return bool(sc.validate(s, n, last))
     return [('validate: good passes', v(), False),
             ('validate: coverage', v(box_chunks_ok=168), True),
@@ -304,6 +318,8 @@ def validate_cases(sc):
             ('validate: negative chunks', v(uninhabited_full_chunks=0), True),
             ('validate: negative FP', v(fp_cells_surface=3), True),
             ('validate: negative observed', v(observed_chunks=119), True),
+            ('validate: undecoded sections (scan)', v(undecoded_hit_sections=1), True),
+            ('validate: undecoded sections (negative control)', v(neg_undecoded=1), True),
             ('validate: stamp model', v(stamp_cells=0), True),
             ('validate: unresolved starts', v(worldgen_starts_unreadable=2), True)]
 
@@ -381,7 +397,7 @@ def daily_cases(sc, rd, rdir, tmp):
     log = os.path.join(tmp, 'backup.log')
     def logrun(lines, **kw):
         open(log, 'w').write(''.join('2026-01-01T03:15:00Z %s\n' % l for l in lines))
-        return run(skip_backup_check=False, backup_log=log, **kw)
+        return run(skip_backup_check=False, backup_log=log, day=today, **kw)
     START, GOOD = 'start %s: 1 fleet worlds -> nas' % today, 'good %s: 1/1 worlds, raw 1MB -> zst 1MB, 5s' % today
     cases.append(('daily: backup residual 0 publishes', logrun([START, 'ok fx: raw 9MB zst 7MB files=9 mca=3 residual=0 5s', GOOD]), (0, 'OK')))
     cases.append(('daily: backup residual 999 is UNKNOWN', logrun([START, 'ok fx: raw 9MB zst 7MB files=9 mca=3 residual=999 5s', GOOD]), (4, 'UNKNOWN')))
@@ -390,8 +406,18 @@ def daily_cases(sc, rd, rdir, tmp):
     cases.append(('daily: no completion line for the world is UNKNOWN', logrun([START, 'ok other: files=9 mca=3 residual=0 5s', GOOD]), (4, 'UNKNOWN')))
     cases.append(('daily: a later run of the day replaces the earlier', logrun([START, 'ok fx: residual=999 5s', GOOD, START, 'ok fx: residual=0 5s', GOOD]), (0, 'OK')))
     cases.append(('daily: no good line yet: not yet, nothing touched', logrun([START, 'ok fx: residual=0 5s']), (0, 'OK')))
-    good, res = sc.backup_record(log, today)
-    cases.append(('backup_record: positive control (a started, unfinished run records nothing)', (good, res), (False, {})))
+    open(log, 'w').write(''.join('2026-01-01T03:15:00Z %s\n' % l for l in [START, 'ok fx: residual=0 5s', GOOD, START, 'ok fx: residual=999 5s']))
+    cases.append(('backup_record: an unfinished LATER run voids the earlier good', sc.backup_record(log, today), (False, {})))
+    cases.append(('daily: an unfinished later backup run: not yet', logrun([START, 'ok fx: residual=0 5s', GOOD, START]), (0, 'OK')))
+    other = 'start %s: 3 fleet worlds -> nas' % today
+    cases.append(('daily: another script\'s run (3 worlds, not 1) in the log is ignored', logrun([START, 'ok fx: residual=0 5s', GOOD, other, 'ok sc: residual=0 5s', 'good %s: 3/3' % today]), (0, 'OK')))
+    cases.append(('backup_record: positive control, expect=None reads that other run', sc.backup_record(log, today)[1], {'sc': 0}))
+    for tok in ('0.999', '0x10', '7abc', '-1', ''):
+        cases.append(('daily: malformed residual=%s is UNKNOWN (no completion line)' % tok,
+                      logrun([START, 'ok fx: files=9 residual=%s 5s' % tok, GOOD]), (4, 'UNKNOWN')))
+    cases.append(('daily: positive control, residual=0 at the end of the line publishes', logrun([START, 'ok fx: files=9 residual=0', GOOD]), (0, 'OK')))
+    open(log, 'w').write(''.join('2026-01-01T03:15:00Z %s\n' % l for l in [START, 'ok fx: residual=0 5s']))
+    cases.append(('backup_record: a started, unfinished run records nothing', sc.backup_record(log, today), (False, {})))
     return cases
 
 
