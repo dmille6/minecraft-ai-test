@@ -34,7 +34,7 @@ export const COALESCE_MS = 10 * 60 * 1000
 export const OBS_CAP_PER_H = 120
 /** A station fact is live for this long (comms 4.2: 60 min, refreshed by each open). */
 export const STATION_TTL_MS = 60 * 60 * 1000
-export const LEDGER_ROTATE_BYTES = Number(process.env.LEDGER_ROTATE_BYTES) > 0 ? Number(process.env.LEDGER_ROTATE_BYTES) : 4 * 1024 * 1024
+export const LEDGER_ROTATE_BYTES = Number(process.env.LEDGER_ROTATE_BYTES) > 0 ? Number(process.env.LEDGER_ROTATE_BYTES) : 512 * 1024
 export const LEDGER_MAX_READ_BYTES = 64 * 1024 * 1024
 
 // ---- pure ------------------------------------------------------------------------------------------------------------
@@ -165,7 +165,8 @@ export function rotateLedger (dir, hk, gen) {
     for (const g of [gen - 1, gen]) {
       if (g < 1) continue
       const r = readWhole(ledgerFile(dir, hk, g))
-      if (r && !r.missing) recs.push(...r.records)
+      if (!r) return false                  // unreadable: no checkpoint built from part of the history, nothing deleted
+      if (!r.missing) recs.push(...r.records)
     }
     const byWorld = {}
     for (const x of recs) (byWorld[JSON.stringify(x?.w ?? null)] ??= []).push(x)
@@ -208,18 +209,19 @@ export function recordStation (dir, hk, world, { id, f, bot, by, phase = 'open',
   if (!LEDGER.on || !f || !slots) return null
   try {
     const t0 = performance.now()
-    const { view } = readLedger(dir, hk, world)
+    const { view, ok } = readLedger(dir, hk, world)
+    if (!ok) { recordStation.lastMiss = 'unreadable_ledger'; return null }   // never "no newest entry" on a blind read
     const newest = view.furnaces[f] ?? null
     while (REFRESHES.length && at - REFRESHES[0] > 3600_000) REFRESHES.shift()
     const o = stationOutcome(newest, { at, slots }, REFRESHES.length)
     const rec = { t: 'station', id, f, at, bot, by, phase, slots, state: stationState(slots), outcome: o.outcome }
     if (o.into) rec.into = o.into
     const t1 = performance.now()
-    if (!appendLedger(dir, hk, world, rec, opts)) return null
+    if (!appendLedger(dir, hk, world, rec, opts)) { recordStation.lastMiss = 'append_failed'; return null }
     if (o.refresh) REFRESHES.push(at)
     // the L3 cost (design 4.3: append p95 < 5 ms, fold p95 < 50 ms), on the returned object only (never written to the file)
     return { ...rec, foldMs: t1 - t0, appendMs: performance.now() - t1 }
-  } catch { return null }
+  } catch { recordStation.lastMiss = 'error'; return null }
 }
 
 /** The `_ledger_mode` licence row (once per spawn): `on=on|off` (the cooperation design's A7 contract), a kind the base cannot write. */
