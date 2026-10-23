@@ -3699,10 +3699,10 @@ export function drainPickNow (bot, now = Date.now()) {
   const basePick = skipped.length ? drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now }) : null
   bot.furnaceSkipLogged ??= {}
   for (const s of skipped) {
-    const once = `${s.k}|${s.inputs.entry?.id}`
+    const changed = basePick?.k === s.k ? 1 : 0
+    const once = `${s.k}|${s.inputs.entry?.id}|${changed}`     // a changed=0 sighting does not hide a later changed=1
     if (bot.furnaceSkipLogged[once]) continue
     bot.furnaceSkipLogged[once] = now
-    const changed = basePick?.k === s.k ? 1 : 0
     try { logEvent({ kind: 'furnace_seen_skip', status: 'success', snapshot: snapshot(bot), detail: `f=${s.k} why=${s.why} now=${now} changed=${changed} ${seenFields(s.inputs)}` }) } catch { /* telemetry */ }
   }
   // the once-per-entry memory is bounded: entries older than the rule's own TTL can never skip again

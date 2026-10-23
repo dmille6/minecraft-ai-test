@@ -54,7 +54,9 @@ REPEAT_MS = 60 * 60 * 1000
 STOP_CLASSES = ('empty', 'drained', 'unreachable', 'lit', 'busy')
 PRE_MIN = 1440                # THE FROZEN PRE-PERIOD: [cut - 24 h, cut), the same at every read (registered)
 MIN_PRE_DRAINS = 40           # a control pool must have drained this much in the pre-period (the draw's own exposure rule)
-MIN_POOL_BH = 2.0             # a pool-period with fewer bot-hours has no rate (symmetric, named)
+MIN_POOL_BH = 2.0             # a pool-period with fewer bot-hours has no rate (and the line is undefined)
+CONTAM_SHARE = 0.05           # > 5% of a pool's pre-period rows off the bucket's fleet-majority build = another canary ran there
+CONTAM_BUCKET_MS = 10 * 60_000   # 10-min buckets: a fleet-wide promotion's staggered restart flips the majority inside ONE bucket
 
 
 def pool_of(bot):
@@ -199,22 +201,42 @@ def stop_class(stop):
     return 'drained' if s.startswith('drain_') else 'other'
 
 
-def eligible_controls(pre_drains, post_bh, cans, min_pre_drains=MIN_PRE_DRAINS, min_bh=MIN_POOL_BH):
-    """PURE. The CONTROL set, frozen by the pre-period (Claude r1 P2-1, Codex r1 P2-2): non-canary pools with >= min_pre_drains
-    drains in the frozen pre-window (the draw's own exposure requirement: a pool that could have been drawn) and >= min_bh
-    bot-hours in the post window (a pool that stopped is dropped symmetrically, and named). A pool converted mid-pre (an
-    isolated pool that gained a smelt job) fails the pre requirement. -> (eligible, dropped {pool: why})."""
+def eligible_controls(pre_drains, contaminated, cans, min_pre_drains=MIN_PRE_DRAINS):
+    """PURE. The CONTROL set, FROZEN from pre-period information only (so it is the same at every read: Codex r2 P2-2):
+    non-canary pools with >= min_pre_drains drains in the frozen pre-window (the draw's own exposure requirement; a pool
+    converted mid-pre fails it) and NOT contaminated (rows off the fleet's build in the pre-window: another canary ran there;
+    Claude r2 P2-2). -> (eligible, dropped {pool: why}). A pool that later lacks a rate does NOT leave the set: the line is
+    then undefined (effect_line)."""
     elig, dropped = [], {}
-    for p in sorted(set(pre_drains) | set(post_bh)):
+    for p in sorted(set(pre_drains) | set(contaminated)):
         if p in cans:
             continue
         if pre_drains.get(p, 0) < min_pre_drains:
             dropped[p] = 'pre drains %d < %d' % (pre_drains.get(p, 0), min_pre_drains)
-        elif post_bh.get(p, 0) < min_bh:
-            dropped[p] = 'post bot-h %.1f < %g' % (post_bh.get(p, 0), min_bh)
+        elif contaminated.get(p):
+            dropped[p] = 'pre-period ran another build (%s)' % contaminated[p]
         else:
             elig.append(p)
     return elig, dropped
+
+
+def contamination(rows_by_hour, share=CONTAM_SHARE):
+    """PURE. {(bucket, pool): {version: rows}} over the pre-period -> {pool: why} for the pools whose rows were OFF THE FLEET'S
+    MAJORITY BUILD of that hour in more than `share` of their pre-period rows (another canary's build; a fleet-wide promotion
+    moves the majority with it, so it contaminates nothing)."""
+    maj = {}
+    by_h = defaultdict(Counter)
+    for (h, p), vs in rows_by_hour.items():
+        by_h[h].update(vs)
+    for h, c in by_h.items():
+        maj[h] = c.most_common(1)[0][0] if c else None
+    off, tot = Counter(), Counter()
+    for (h, p), vs in rows_by_hour.items():
+        for v, k in vs.items():
+            tot[p] += k
+            if v != maj.get(h):
+                off[p] += k
+    return {p: '%d of %d rows' % (off[p], tot[p]) for p in tot if tot[p] and off[p] / tot[p] > share}
 
 
 def effect_line(rates, cans, controls):
@@ -226,7 +248,10 @@ def effect_line(rates, cans, controls):
     missing = [p for p in cans if rates.get(('pre', p)) is None or rates.get(('post', p)) is None]
     if missing:
         return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'canary pool(s) without both rates: %s' % ','.join(sorted(missing))}
-    ctl = [p for p in controls if rates.get(('pre', p)) is not None and rates.get(('post', p)) is not None]
+    gone = [p for p in controls if rates.get(('pre', p)) is None or rates.get(('post', p)) is None]
+    if gone:              # SYMMETRIC with the canary: a frozen control without evidence is never silently dropped (Codex r2 P2-2)
+        return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'control pool(s) without both rates: %s' % ','.join(sorted(gone))}
+    ctl = list(controls)
     if len(ctl) < 2:
         return {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'fewer than 2 control pools'}
     ch = lambda p: rates[('post', p)] - rates[('pre', p)]
@@ -306,9 +331,23 @@ _r = _rates([0.05, 0.04, 0.06, 0.05], _base_ctl); del _r[('post', 'c3')]
 assert effect_line(_r, _C, _K)['margin'] is None, 'a canary town with no post evidence: undefined'
 _jump = _rates([0.5, 0.5, 0.5, 0.5], _base_ctl[:-1] + [3.0])
 assert effect_line(_jump, _C, _K)['margin'] < 0, 'one control pool jumps, the canary unchanged: no pass'
-# the frozen control set: a pool with no drains in the pre-window (converted mid-pre) is dropped and named
-_el, _dp = eligible_controls({'a': 60, 'b': 3, 'c': 80, 'x': 99}, {'a': 20.0, 'b': 20.0, 'c': 0.5, 'x': 20.0}, {'x'})
+# the frozen control set: a pool with no drains in the pre-window (converted mid-pre), or contaminated, is dropped and named
+_el, _dp = eligible_controls({'a': 60, 'b': 3, 'c': 80, 'x': 99}, {'c': '900 of 1000 rows'}, {'x'})
 assert _el == ['a'] and set(_dp) == {'b', 'c'}
+# a frozen control without a post rate: UNDEFINED, never silently dropped (Codex r2 P2-2)
+_g = _rates([0.05, 0.04, 0.06, 0.05], _base_ctl); del _g[('post', 'k4')]
+assert effect_line(_g, _C, _K)['margin'] is None and 'control' in effect_line(_g, _C, _K)['why']
+# contamination: a pool on another build for 10 of 24 pre-period hours is contaminated; a fleet-wide promotion (every pool moves
+# together) contaminates nobody
+_rh = {}
+for h in range(24):
+    for p in ('a', 'b', 'c', 'd'):
+        _rh[(h, p)] = {('new' if h >= 12 else 'old'): 100}
+for h in range(10):
+    _rh[(h, 'd')] = {'canary-x': 100}
+assert contamination(_rh) == {'d': '1000 of 2400 rows'}, contamination(_rh)
+# A CONTAMINATED CANARY (a predecessor raised its pre-period repeats) cannot pass: the read makes the line undefined for it
+assert eligible_controls({'c0': 99}, {'c0': 'x'}, {'c0'}) == ([], {})
 # the race classifier: off unread; an entry past the logged offset; one inside it; position unknown
 assert race_class(None, 1, '1:10', None) is None
 assert race_class({'id': 'e'}, 1, '-', None) == 'ledger_unread'
@@ -378,7 +417,8 @@ if __name__ == '__main__':
         return sorted(out, key=lambda x: x[0])
 
     POOLS = sorted({'-'.join(os.path.basename(d).split('-')[:2]) for d in glob.glob('/var/log/mcai/*-*-*') if os.path.isdir(d)})
-    entries = {}
+    entries, rec_at = {}, {}
+    vers = defaultdict(Counter)        # (hour, pool) -> {version: rows} over the frozen pre-period (contamination)
     span = defaultdict(lambda: [None, None]); nrows = Counter(); n = Counter(); leak = 0; offbuild = 0; noversion = 0
     drains_by = defaultdict(list); loads_by = defaultdict(list)
     can_drains, can_skips = [], []
@@ -388,6 +428,7 @@ if __name__ == '__main__':
             tms = int(t.timestamp() * 1000)
             if k == '_ledger_station':
                 f = fields(d)
+                rec_at[f.get('id')] = num(f.get('at')) or tms
                 if f.get('outcome') == 'entry':
                     entries[f.get('id')] = {'id': f.get('id'), 'at': num(f.get('at')) or tms, 'bot': b, 'state': f.get('state'), 'f': f.get('f'), 'pool': p}
                 if f.get('phase') == 'load':
@@ -398,6 +439,8 @@ if __name__ == '__main__':
                 continue
             arm = 'canary' if p in CANS else 'control'
             period = 'post' if t >= CUT else 'pre'
+            if period == 'pre' and ver:
+                vers[(tms // CONTAM_BUCKET_MS, p)][ver] += 1
             if arm == 'canary' and period == 'post' and CV:
                 if not ver:
                     noversion += 1; continue
@@ -428,8 +471,12 @@ if __name__ == '__main__':
         for period in ('pre', 'post'):
             h = bh(period, p)
             rates[(period, p)] = repeat_empties(drains_by[(period, p)], loads_by[p]) / h if h >= MIN_POOL_BH else None
-    controls, dropped = eligible_controls({p: len(drains_by[('pre', p)]) for p in POOLS}, {p: bh('post', p) for p in POOLS}, set(CANS))
+    contam = contamination(vers)
+    controls, dropped = eligible_controls({p: len(drains_by[('pre', p)]) for p in POOLS}, contam, set(CANS))
     eff = effect_line(rates, CANS, controls)
+    can_contam = sorted(p for p in CANS if p in contam)
+    if can_contam:        # a canary whose pre-period ran another build: its change is not this canary's (Claude r2 P2-2)
+        eff = {'R': None, 'lb': None, 'bar': None, 'margin': None, 'why': 'canary pre-period ran another build: %s' % {p: contam[p] for p in can_contam}}
     d1 = d1_check(can_drains, can_skips, entries)
     # EXPOSURE: skips that CHANGED the pick (Claude r1 P2-3) -- the furnace the base pick would have walked to
     skipped = len({(f.get('f'), f.get('se'), b) for _, b, f in can_skips if f.get('changed') == '1'})
@@ -460,8 +507,8 @@ if __name__ == '__main__':
         if 'se' not in f:
             continue
         t0 = num(f.get('t0')) or t
-        open_at = (entries.get(f.get('ledger')) or {}).get('at') or t0      # an append between the pick and the OPEN counts
-        cands = [e for e in ent_by_f[(pool_of(b), f.get('furnace'))] if e['at'] <= open_at]
+        open_at = rec_at.get(f.get('ledger')) or t0      # the OPEN's own record (entry, coalesced or drop): appends before it count
+        cands = [e for e in ent_by_f[(pool_of(b), f.get('furnace'))] if e['at'] < open_at and e['id'] != f.get('ledger')]
         newest = max(cands, key=lambda e: (e['at'], e['id'])) if cands else None
         inp, ok = logged_inputs(f, entries)
         if newest and ok and newest['id'] != f.get('se') and seen_skip(entry=newest, litAt=inp['litAt'], own=inp['own'], me=b, now=t0)['skip']:

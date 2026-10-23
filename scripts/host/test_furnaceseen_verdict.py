@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as tmp:
     v, h = run(tmp); t('margin above the bar at +180, every tier-2 prerequisite met -> KEEP (tier 2 permits it)', (v, h), v == 'KEEP')
     v, h = run(tmp, fields={'r_lb_minus_bar': 0.0}); t('margin EQUAL to the bar at +180 -> KEEP', (v, h), v == 'KEEP')
     v, h = run(tmp, fields={'r_lb_minus_bar': -0.02}); t('margin below the bar at +180 -> NOT_YET (blocked; never KEEP, never REVERT)', (v, h), v == 'NOT_YET')
-    v, h = run(tmp, M=FINAL_MIN, fields={'r_lb_minus_bar': -0.02}); t('margin below the bar at the FINAL -> INCONCLUSIVE', (v, h), v == 'INCONCLUSIVE')
+    v, h = run(tmp, M=FINAL_MIN, fields={'r_lb_minus_bar': -0.02}); t('margin below the bar at the REGISTERED FINAL (+1440) -> INCONCLUSIVE', (v, h), v == 'INCONCLUSIVE')
     v, h = run(tmp, fields={'r_lb_minus_bar': None}); t('the effect line UNDEFINED -> UNREADABLE', (v, h), v == 'UNREADABLE')
     v, h = run(tmp, fields={'d1_defects': 1}); t('a D1 defect -> REVERT', (v, h), v == 'REVERT')
     v, h = run(tmp, fields={'d1_instrument': 0}); t('the D1 positive control failing -> never KEEP', (v, h), v in ('NOT_YET', 'INCONCLUSIVE'))
