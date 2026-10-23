@@ -255,7 +255,7 @@ await t('C7 LAVASTEP=0 is the rollback; the licence row names it', () => {
 // (half-width 0.3) rests on any solid floor under a corner; with none it falls; a solid feet cell blocks (a jump over a
 // 1-high block steps up). Health: lava 8/s, fire/campfire 2/s, magma underfoot 2/s unless sneaking.
 const EventEmitter = (await import('node:events')).EventEmitter
-function fakeBot (scene, { items = [], health = 20, physics = true, placeWorks = true } = {}) {
+function fakeBot (scene, { items = [], health = 20, physics = true, placeWorks = true, arc = false } = {}) {
   const w = World(scene.cells)
   const bot = new EventEmitter()
   const V = (x, y, z) => ({ x, y, z, offset (a, b, c) { return V(this.x + a, this.y + b, this.z + c) }, clone () { return V(this.x, this.y, this.z) },
@@ -294,10 +294,31 @@ function fakeBot (scene, { items = [], health = 20, physics = true, placeWorks =
     for (const [ox, oz] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]]) if (solidAt(Math.floor(p.x + ox), y - 1, Math.floor(p.z + oz))) return true
     return false
   }
-  let tickN = 0
+  let tickN = 0, vy = 0, cool = 0
+  const standY = (x, z, y) => { for (let yy = Math.floor(y + 1e-6); yy >= Math.floor(y) - 3; yy--) if (supported({ x, y: yy, z })) return yy; return -Infinity }
   bot._timer = setInterval(() => {
     if (!physics || bot.health <= 0) return
     tickN++
+    if (arc) {
+      const p = bot.entity.position
+      if (bot.controls.forward) {
+        const sp = (bot.controls.sprint ? 0.28 : 0.2) * (bot.controls.sneak ? 0.3 : 1)
+        const nx = p.x - Math.sin(bot.entity.yaw) * sp, nz = p.z - Math.cos(bot.entity.yaw) * sp
+        const free = [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].every(([ox, oz]) => !solidAt(Math.floor(nx + ox), Math.floor(p.y), Math.floor(nz + oz)) && !solidAt(Math.floor(nx + ox), Math.floor(p.y) + 1, Math.floor(nz + oz)))
+        if (free) { p.x = nx; p.z = nz }
+      }
+      cool--
+      if (bot.entity.onGround && bot.controls.jump && cool <= 0) { vy = 0.42; bot.entity.onGround = false; cool = 10; bot.jumps = (bot.jumps ?? 0) + 1 }
+      if (!bot.entity.onGround) {
+        let ny = p.y + vy; vy = (vy - 0.08) * 0.98
+        if (vy > 0 && solidAt(Math.floor(p.x), Math.floor(ny + 1.8), Math.floor(p.z))) { vy = 0; ny = p.y }
+        const g = standY(p.x, p.z, p.y)
+        if (vy <= 0 && ny <= g) { p.y = g; bot.entity.onGround = true; vy = 0 } else p.y = ny
+      } else if (!supported(p)) { bot.entity.onGround = false; vy = 0 }
+      const b2 = w.name(Math.floor(p.x), Math.floor(p.y + 1e-6) - 1, Math.floor(p.z))
+      if (b2 === 'magma_block' && bot.entity.onGround && !bot.controls.sneak && tickN % 10 === 0) bot.health -= 1
+      return
+    }
     const p = bot.entity.position
     const feetN = w.name(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
     const inLava = feetN === 'lava'
@@ -323,6 +344,8 @@ function fakeBot (scene, { items = [], health = 20, physics = true, placeWorks =
   bot.done = () => clearInterval(bot._timer)
   return bot
 }
+// an OPEN-TOPPED pit: magma floor, walls two high on all four sides, nothing overhead (a 1x1 shaft dug down onto magma)
+SCENES.openPit = () => { const c = { '0,63,0': 'magma_block' }; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { c[`${dx},64,${dz}`] = 'stone'; c[`${dx},65,${dz}`] = 'stone'; c[`${dx},66,${dz}`] = 'stone' } return { cells: c, pos: [0.5, 64, 0.5], yaw: 0, onGround: true } }
 const fakeRunner = () => {
   const calls = []
   return { calls, res: null, gen: 0,
@@ -592,6 +615,32 @@ await t('D22 the +1.5 s observation is taken at +1.5 s from the FIRING even when
   assert.ok(r.after && r.end, 'both recorded'); assert.ok(r.after.ms >= 280 && r.after.ms < 600, `after at ${r.after.ms} ms`)
   assert.ok(r.end.ms > r.after.ms, `the move ran on: end at ${r.end.ms} ms`)
 })
+await t('D23 a deadline that coincides with the air rescue\'s seize is the rescue\'s: ended `air`, and the move clears nothing (Codex code r2 P1)', async () => {
+  const h = harness('poolEdge', { timing: { move: 200, aim: 2000 } })
+  const p = h.fire()
+  await sleep(260)                               // past the deadline, and no re-assertion tick has ended it yet? (either way)
+  h.setAir(true)
+  h.bot.setControlState('forward', true); h.bot.setControlState('jump', true)   // the rescue's stroke
+  const mark = h.bot.writes.length
+  assert.equal(h.mover.moving(), false)
+  await p; await sleep(80); h.bot.done()
+  const r = firing(h.rows)[0].args
+  assert.ok(['air', 'deadline'].includes(r.ended), r.ended)
+  assert.equal(h.bot.writes.slice(mark).filter(([c, v]) => !v).length, 0, 'no control cleared after the rescue took the body')
+  assert.equal(h.bot.controls.forward, true)
+})
+await t('D24 a witnessed seal re-classified as `in` whose plan step misses goes straight to the aimed escape (Codex code r2 P2)', async () => {
+  const h = harness('poolEdge', { items: ['cobblestone'], physics: false })
+  // a 1-deep lava cell elsewhere, with shore around it; the place call carries the bot into it (as a slip would)
+  h.bot.world.set(-3, 64, 0, 'lava')
+  const place = h.bot._genericPlace
+  h.bot._genericPlace = async (ref, face) => { const r = await place(ref, face); h.bot.entity.position.x = -2.5; h.bot.entity.position.y = 64; return r }
+  await h.fire(); await sleep(30); h.bot.done()
+  const r = firing(h.rows)[0].args
+  assert.equal(r.seal.witnessed, true); assert.equal(r.reclass, 'in')
+  assert.deepEqual(r.path, ['seal', 'replan', 'aim'], r.path.join('>')); assert.equal(r.outcome, 'sealed_plan_missed_aim')
+  assert.equal(r.aim.reason, 'in_step_missed'); assert.ok(r.steps.length && r.steps[0].plan === 'replan')
+})
 // ------------------------------------------------------------------------------------------------ E. the runner's one change
 await t('E1 a live lavastep reservation is never replaced: the watchdog\'s reserve() is refused and its run declines runner_reserved; a model skill declines too', async () => {
   const ran = []
@@ -696,6 +745,45 @@ await t('F9 CHAIN the relaxed magma floor hands over to a REAL ordinary escape (
   assert.equal(h.bot.controls.sneak, true, 'the sneak is re-asserted after the pillar\'s seize cleared it')
   assert.ok(h.bot.health >= hp0 - 1, `at most one magma tick lost while the seize had cleared the sneak: ${hp0} -> ${h.bot.health}`)
 })
+await t('F10 CHAIN (real jump arcs, open-topped magma pit): the aim settles before the move ends, the relaxation starts within 4 firings, and the handed-over pillar runs with the ARM ticking -- its own jump never ends the relaxation (Claude code r2 P1, P2-2)', async () => {
+  const h = harness('openPit', { arc: true, timing: { ground: 0 } })
+  let k = 0
+  for (; k < 6 && !h.mover.state().relax; k++) { await h.fire(); h.mover.tick() }
+  assert.ok(h.mover.state().relax, `relaxed within ${k} firings: ` + firing(h.rows).map(r => `${r.args.outcome}/end ${JSON.stringify(r.args.end?.pos)} ground=${r.args.end ? 'y' : '?'}`).join(' | '))
+  assert.ok(k <= 4, `${k} firings`)
+  assert.ok((h.bot.jumps ?? 0) > 0, 'the fake did jump (a real arc)')
+  const ends = []
+  const realEnd = h.rows.length
+  const hp0 = h.bot.health
+  h.bot.inv = [{ name: 'cobblestone', count: 64, type: 2 }]
+  let placed = 0; h.bot.placeBlock = async () => { placed++ }
+  // THE REFLEX TICK, as it runs: the mover's tick first, then the arm on the effective names
+  const ticker = setInterval(() => { h.mover.tick(); const fb = feetBelow(h.bot); h.mover.maybeFire(fb) }, 100)
+  const r = await pillarOut(h.bot, 2, { alive: () => !h.mover.moving() }).catch(e => 'threw:' + e.message)
+  await sleep(400)
+  clearInterval(ticker); h.bot.done()
+  for (const row of h.rows.slice(realEnd)) ends.push(row.args?.phase === 'relax_end' ? `relax_end:${row.args.why}` : `firing:${row.args?.case}`)
+  assert.notEqual(r, 'preempted', `the pillar ran: ${r} (${ends.join(', ')})`)
+  assert.ok(placed >= 1, 'it reached a placement')
+  assert.ok(!ends.includes('relax_end:moved off'), `the pillar's own jump did not end the relaxation: ${ends.join(', ')}`)
+  assert.ok(!ends.some(e => e.startsWith('firing:')), `the arm did not fire on the relaxed floor: ${ends.join(', ')}`)
+  assert.ok(h.bot.health >= hp0 - 1, `no magma damage while relaxed: ${hp0} -> ${h.bot.health}`)
+})
+await t('F11 a bot that alternates between two cells of one episode counts as stationary from its second firing (Claude code r2 P2-3)', async () => {
+  const c = { '0,63,0': 'magma_block', '1,63,0': 'magma_block' }
+  for (const [x, z] of [[-1, 0], [2, 0], [0, 1], [0, -1], [1, 1], [1, -1]]) { c[`${x},64,${z}`] = 'stone'; c[`${x},65,${z}`] = 'stone' }
+  SCENES.__two = () => ({ cells: c, pos: [0.5, 64, 0.5], yaw: 0, onGround: true })
+  const h = harness('__two', { physics: false, timing: { ground: 0, aim: 60 } })
+  const cells = [[0.5, 0.5], [1.5, 0.5]]
+  let k = 0
+  for (; k < 7 && !h.mover.state().relax; k++) {
+    const p = h.fire()
+    const [x, z] = cells[(k + 1) % 2]; h.bot.entity.position.x = x; h.bot.entity.position.z = z   // the move carries it to the other cell
+    await p; h.mover.tick()
+  }
+  h.bot.done(); delete SCENES.__two
+  assert.ok(h.mover.state().relax, `alternating never relaxed (${k} firings)`); assert.ok(k <= 5, `${k}`)
+})
 // ------------------------------------------------------------------------------------------------ G. wiring (structural)
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
 const RFX = strip(fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
@@ -718,7 +806,10 @@ const WIRES = [
 ]
 await t('G1 WIRED (reflex.mjs, comments stripped): the arm, the rollback, the stand-downs, ownership and air preemption -- each once', () => {
   for (const [what, needle] of WIRES) once(RFX, needle, what)
-  assert.ok(RFX.indexOf('lavastepMover?.tick()') < RFX.indexOf('const dangerHere = !recoveryArmsMayRun({ feetName: eff.feet, belowName: eff.below })'), 'the relaxation is ticked before the predicate')
+  const iTimer = RFX.indexOf("const timer = setInterval(digScoped({ purpose: 'survival', by: 'reflex' }, async () => {")
+  const iTick = RFX.indexOf('lavastepMover?.tick()', iTimer), iEntity = RFX.indexOf('if (!bot.entity) return', iTimer)
+  assert.ok(iTimer > 0 && iTick > iTimer && iTick < iEntity, `the relaxation's end conditions run first in the tick, before every early return (timer@${iTimer} tick@${iTick} entity-return@${iEntity})`)
+  assert.equal(RFX.split('lavastepMover?.tick()').length - 1, 1, 'one call site')
 })
 await t('G3 WIRED (index.mjs): the licence row once per spawn, and the in-flight guard attached OUTERMOST (after protectzone)', () => {
   once(IDX, "logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() })", 'licence')
@@ -746,14 +837,23 @@ await t('H1 MUTANT KILLED (G1): allowing DANGER in the sweep plans past a fire c
     const bad = m.stepPlan(w.at, [0, 64, 0], 'edge')
     assert.ok(bad.plan && g1Violations(w.at, [0, 64, 0], bad.plan, 'edge').length > 0, `the mutant plans past the fire: ${JSON.stringify(bad.plan)}`)
   }))
-await t('H2 MUTANT KILLED (G2): skipping the plan aims instead (D5 catches it)', () =>
-  withMutant(MOVE_PATH, '      const plan = dec.plan\n', '      const plan = null\n', async m => {
-    const scene = SCENES.oneDeep(); const bot = fakeBot(scene); const rows = []
-    const mv = m.makeDangerMover(bot, fakeRunner(), { emit: r => rows.push(r), timing: { after: 0 } })
-    await mv.maybeFire(feetBelow(bot)); await sleep(30); bot.done()
-    const r = firing(rows)[0].args
-    assert.notEqual(r.outcome, 'plan'); assert.ok(r.plan, 'the decision still found the plan the executor skipped')
-  }))
+await t('H2 MUTANT KILLED (G2): a decision that skips its plan aims instead -- and the recorded cells still replay to the plan it skipped', () =>
+  withMutant(LS_PATH, '  if (sp.plan) return { kase, plan: sp.plan, candidates: sp.candidates, seal: null, aim: null }\n',
+    '  if (false) return { kase, plan: sp.plan, candidates: sp.candidates, seal: null, aim: null }\n', async m => {
+      // the mutant decision, executed by the real executor (lavastepmove.mjs imports the real lavastep.mjs, so the
+      // mutant is driven through dangerMove directly and its output handed to a recording replay)
+      const scene = SCENES.oneDeep(); const w = World(scene.cells)
+      const rec = recordingAt(w.at, [1, 64, 0])
+      const d = m.dangerMove({ at: rec, origin: [1, 64, 0], feet: 'lava', below: 'stone', onGround: true, yaw0: scene.yaw })
+      assert.equal(d.plan, null, 'the mutant skipped the plan'); assert.ok(d.aim && d.aim.choice, 'and chose an aim')
+      // G2's input: the recorded cells alone, replayed by the REAL search, find the plan the mutant skipped
+      const cells = rec.cells
+      const replayAt = (x, y, z) => { const k = `${x - 1},${y - 64},${z}`; return k in cells ? (cells[k] == null ? null : { name: cells[k], boundingBox: rec.boxes[cells[k]] }) : null }
+      const rp = stepPlan(replayAt, [1, 64, 0], 'in')
+      assert.ok(rp.plan && rp.plan.length === 2, 'the replay finds the skipped plan')
+      // control: the real decision returns that plan
+      assert.deepEqual(dangerMove({ at: w.at, origin: [1, 64, 0], feet: 'lava', below: 'stone', onGround: true }).plan.map(p => p.to), rp.plan.map(p => p.to))
+    }))
 await t('H3 MUTANT KILLED (G3): sprinting on an edge plan step (D1 catches it)', () =>
   withMutant(MOVE_PATH, '      const sprint = inStep && i === 0\n', '      const sprint = true\n', async m => {
     const scene = SCENES.magma(); const bot = fakeBot(scene); const rows = []
@@ -790,8 +890,8 @@ await t('H7 MUTANT KILLED: a guard that ignores the move lets a dig through mid-
     assert.equal(await h.bot.dig({}), 'dug'); await p; h.bot.done()
   }))
 await t('H8 MUTANT KILLED: without the air check in ownership the move keeps steering over the rescue (D11 catches it)', () =>
-  withMutant(MOVE_PATH, "    me.check = () => now() >= me.deadline ? 'deadline' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : airHolds() ? 'air' : null\n",
-    "    me.check = () => now() >= me.deadline ? 'deadline' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : null\n", async m => {
+  withMutant(MOVE_PATH, "    me.check = () => airHolds() ? 'air' : !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : now() >= me.deadline ? 'deadline' : null\n",
+    "    me.check = () => !bot.entity ? 'no entity' : (bot.health ?? 20) <= 0 ? 'dead' : now() >= me.deadline ? 'deadline' : null\n", async m => {
       const scene = SCENES.poolEdge(); const bot = fakeBot(scene); const rows = []; let air = false
       const mv = m.makeDangerMover(bot, fakeRunner(), { airHolds: () => air, emit: r => rows.push(r), timing: { after: 0 } })
       const p = mv.maybeFire(feetBelow(bot)); await sleep(250); air = true; const mark = bot.writes.length
