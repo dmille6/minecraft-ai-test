@@ -38,7 +38,7 @@ if [ "$MODE" = --check ]; then
   exit 0
 fi
 trap 'python3 "$HERE/holdtoken.py" release "$TOKEN"' EXIT
-NOTES="matset-01 OWNER-DIRECT (tier 1, building tier 3.4): sand target 64; glass/glass_pane off the junk list; 46 building parts PROTECTED, untargeted, always banked; stone_bricks/smooth_stone off PATHFINDER_SCAFFOLD; BUILD_RESERVE declared 512 each (unread). Rollback = redeploy $BASE"
+NOTES="matset-01 OWNER-DIRECT (tier 1, building tier 3.4): sand target 64; glass/glass_pane off the junk list; sand and 46 building parts always banked (DEPOSIT_ALWAYS; sand beyond the design text); parts PROTECTED, untargeted; stone_bricks/smooth_stone off PATHFINDER_SCAFFOLD; BUILD_RESERVE declared 512 each (unread). Rollback = redeploy $BASE"
 T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh || fail "copy the deploy script"
 sudo /root/d.sh "$SHA" matset-01-direct "$NOTES"; RC=$?
