@@ -15,85 +15,9 @@ import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-
-process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-ironsmelt-logs-'))
-process.env.BOT_NAME = 'IronSmeltBot'
-process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
-process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
-process.env.MEMORY_SCOPE = 'shared'; process.env.MEMORY_POOL = 'hive-test'
-process.env.SKILL_TIMEOUT_MS = '180000'   // withdraw's clock is the skill timeout; the suite's 300 ms leaves no walk
-process.env.LLM_DECISION_COOLDOWN_MS = '50'
-process.env.LOG_LEVEL = 'error'
-process.env.BOT_ROLE = 'gatherer'
-process.env.PLINTH_FIRST = '0'            // as toolkit/kitsearch: this fake town has no junk well by construction
-delete process.env.IRONSMELT; delete process.env.SMELT_RULEOUT; delete process.env.SMELT_JOB
-const freshPool = () => { process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-ironsmelt-pool-')) }
-freshPool()
-
-const SJ = await import('../src/smeltjob.mjs')
-const S0 = await import('../src/skills.mjs')
-const CF = await import('../src/chestfull.mjs')
-const TI = await import('../src/townindex.mjs')
-const { clearWithdrawHolds } = await import('../src/bankable.mjs')
-const { tapRecords } = await import('../src/logger.mjs')
-const { fakeWorld, stack } = await import('./fakeworld.mjs')
-
-let pass = 0, fail = 0
-const t = async (name, fn) => {
-  try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 4).join('\n        ')}`) }
-}
-const RECS = []
-tapRecords(r => RECS.push(r))
-const sig = () => new AbortController().signal
-const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
-const SJ_PATH = new URL('../src/smeltjob.mjs', import.meta.url)
-// climb-escape.test.mjs's withMutant: the anchor must be present AND unique, or the "kill" is no kill
-async function withMutant (p, old, neu, fn) {
-  const src = readFileSync(p, 'utf8')
-  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))} is not in ${p.pathname}. A mutant that was never written reads as killed.`)
-  assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
-  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
-  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
-}
-const killedBy = async fn => { try { await fn(); return false } catch (e) { if (e instanceof assert.AssertionError) return true; throw e } }
-
-const realNow = Date.now
-let offset = 0
-Date.now = () => realNow() + offset
-const later = ms => { offset += ms }
-
-const HOME = { x: 0, y: 64, z: 0 }
-const memDir = () => process.env.POOL_STATE_DIR
-const HK = TI.indexHomeKey(HOME)
-const count = (slots, name) => slots.filter(Boolean).reduce((n, it) => n + (it.name === name ? it.count : 0), 0)
-const kOf = ([x, y, z]) => `${x},${y},${z}`
-const withServer = w => {
-  w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: w.bot.inventory.items() }), inflight: () => 0,
-    confirmCursor: async win => ({ answered: true, cursorEmpty: !win.selectedItem, carried: win.selectedItem ? { itemCount: win.selectedItem.count } : null }) }
-  return w
-}
-/** smeltsearch.test.mjs's town: 9 single chests (the bot at 6.5,64,0.5), each holding dirt unless set; COPPER the nearest. */
-const CHESTS = [[5, 64, 3], [8, 64, -3], [2, 64, -5], [10, 64, 4], [0, 64, 6], [12, 64, -2], [-2, 64, 2], [4, 64, 9], [-5, 64, -4]]
-const NEAR = CHESTS[0], FAR = CHESTS[7]
-function town ({ bag = [stack('cobblestone', 3)], stock = {} } = {}) {
-  freshPool(); clearWithdrawHolds(); TI.resetIndexCache(); offset += 3 * 60 * 60_000      // a fresh town; every earlier miss stale
-  const w = withServer(fakeWorld({ bag: bag.map((s, i) => ({ ...s, slot: 9 + i })) }))
-  for (const c of CHESTS) { w.set(...c, 'chest'); w.stock(...c, [stack('dirt', 5)]) }
-  for (const [k, items] of Object.entries(stock)) w.stock(...k.split(',').map(Number), items)
-  return w
-}
-const chest = (w, c) => w.containers.get(kOf(c)).slots
-const townTotal = (w, name) => CHESTS.reduce((n, c) => n + count(chest(w, c), name), 0)
-const job = (S, w, ctx = {}) => S.SKILLS.smelt_town.run({ bot: w.bot, ...ctx }, {}, sig())
-const lastRow = () => RECS.filter(x => x?.skill?.name === '_smelt_town').at(-1)?.skill?.detail ?? ''
-const field = (row, k) => (row.match(new RegExp(`(?:^| )${k}=(\\S+)`)) || [])[1]
-/** An index observation of container `c` (what an open by any skill writes: townindex.mjs), with `names` the server's contents. */
-const seenByIndex = (c, names = { dirt: [5, 1] }, at = Date.now()) =>
-  TI.appendIndex(memDir(), HK, null, { t: 'obs', id: `o-${at}-${kOf(c)}-${Math.random().toString(36).slice(2, 6)}`, k: kOf(c), h: [kOf(c)], at, bot: 'Other', by: 'count_town', names, used: 1, size: 27 })
-const dirtyByIndex = (c, at = Date.now()) =>
-  TI.appendIndex(memDir(), HK, null, { t: 'dirty', id: `d-${at}-${kOf(c)}`, k: kOf(c), h: [kOf(c)], at, bot: 'Other', by: 'deposit', phase: 'post', op: `op-${at}` })
+delete process.env.IRONSMELT; delete process.env.SMELT_RULEOUT
+const FX = await import('./ironsmelt-fixture.mjs')
+const { CF, CHESTS, FAR, FW, HK, HOME, NEAR, RECS, S0, SJ, SJ_PATH, SKILLS_PATH, TI, chest, clearWithdrawHolds, count, dirtyByIndex, fakeWorld, field, freshPool, job, kOf, killedBy, lastRow, later, memDir, offset, realNow, seenByIndex, sig, stack, t, tapRecords, town, townTotal, withMutant, withServer } = FX
 
 // ---- the pure decisions ----------------------------------------------------------------------------------------------
 await t('THE SWITCHES: IRONSMELT on by default (off|0|false|no -> off; unreadable -> on, said); SMELT_RULEOUT rides on it; the mode row names both', () => {
@@ -101,9 +25,11 @@ await t('THE SWITCHES: IRONSMELT on by default (off|0|false|no -> off; unreadabl
   for (const v of ['off', 'OFF', '0', 'false', 'no']) assert.equal(SJ.ironsmeltMode({ IRONSMELT: v }).on, false, v)
   assert.equal(SJ.ironsmeltMode({ IRONSMELT: 'maybe' }).on, true)
   assert.match(SJ.ironsmeltMode({ IRONSMELT: 'maybe' }).note, /unreadable/)
-  assert.equal(SJ.ruleoutMode({}, { on: true }).on, true)
-  assert.equal(SJ.ruleoutMode({ SMELT_RULEOUT: 'off' }, { on: true }).on, false)
-  assert.equal(SJ.ruleoutMode({}, { on: false }).on, false, 'IRONSMELT=off is the base exactly: no rule-out either')
+  assert.equal(SJ.ruleoutMode({}, { on: true }, { on: true }).on, true)
+  assert.equal(SJ.ruleoutMode({ SMELT_RULEOUT: 'off' }, { on: true }, { on: true }).on, false)
+  assert.equal(SJ.ruleoutMode({}, { on: false }, { on: true }).on, false, 'IRONSMELT=off is the base exactly: no rule-out either')
+  assert.deepEqual(SJ.ruleoutMode({}, { on: true }, { on: false }), { on: false, why: 'off_noindex' }, 'TOWNINDEX=off: nothing to rule out with, and the mode row says so')
+  assert.match(SJ.ironsmeltModeDetail({ on: true, mode: 'on' }, { on: false, why: 'off_noindex' }), /rule_out=off_noindex/)
   assert.deepEqual([...SJ.jobInputs(true)], ['raw_iron', 'raw_copper'], 'iron FIRST')
   assert.deepEqual([...SJ.jobInputs(false)], ['raw_copper'])
   assert.equal(SJ.IRONSMELT.on, true); assert.equal(SJ.SMELT_RULEOUT.on, true)
@@ -151,7 +77,7 @@ await t('ironBankPlan: per name, exactly above the opening count; own held back;
 })
 const orderOf = (o = {}) => SJ.smeltTownOrder({ now: 1e12, atTown: true, freeSlots: 5, held: {}, townMiss: true, ironMiss: true, state: {}, ...o })
 await t('THE GATE (smeltTownOrder): iron in town -> an order (iron first, even with copper carried); neither input anywhere and no copper -> town_has_none; IRONSMELT off -> the base', () => {
-  assert.match(orderOf({ ironMiss: false }).order?.why ?? '', /raw iron .* iron ingots/)
+  assert.match(orderOf({ ironMiss: false }).order?.why ?? '', /raw iron left to look for.* iron ingots/)
   assert.match(orderOf({ ironMiss: false, held: { raw_copper: 4 } }).order?.why ?? '', /raw iron/, 'iron first, even with copper carried')
   assert.equal(orderOf().skip, 'town_has_none')
   assert.equal(orderOf().state.lastIssuedAt, 1e12, 'the look is charged the cooldown (base)')
@@ -166,6 +92,16 @@ await t('THE GATE (smeltTownOrder): iron in town -> an order (iron first, even w
   assert.equal(orderOf({ freeSlots: 1, ironMiss: () => { throw new Error('read before room') } }).skip, 'room')
 })
 
+await t('THE ROW (Codex code r1 P3): the iron fields sit right after stop=, so the logger\'s 300-char cap can only cut the search tallies at the end -- every balance and ownership field survives at the widest values', () => {
+  const wide = SJ.smeltTownDetail({ stop: 'smelt:transfer_unsettled', in: 'fe', fe: '999/999>999/999', fed: 64, ru: 99, n: 8, bag0: 1998, withdrawn: 8, coal: 1, smelted: 8, prior: 64,
+    deposited: 136, depI: 128, depR: 8, bag1: 1998, furnaceLeft: '?', furnace: '-12345,-64,-12345', lease: 'unleased', verdict: 'unreconciled', diff: -128,
+    chest: '-12345,-64,-12345', t0: 1760500000000, fuelBack: 64, looked: 28, more: 'coal' })
+  const cut = wide.slice(0, 300)
+  for (const k of ['stop', 'in', 'fe', 'fed', 'ru', 'n', 'bag0', 'withdrawn', 'coal', 'smelted', 'prior', 'deposited', 'dep_i', 'dep_r', 'bag1', 'left', 'verdict', 'diff', 't0']) {
+    assert.ok(new RegExp(`(^| )${k}=\\S+ `).test(cut), `${k} survives the cap: ${cut}`)
+  }
+  assert.equal(field(cut, 'fe'), '999/999>999/999')
+})
 // ---- the real skill over the fake world ----------------------------------------------------------------------------
 const ironFirst = async S => {
   // the NEAR chest holds raw copper; the FAR chest raw iron and coal: the job takes the IRON
@@ -286,104 +222,19 @@ await t('THE IRON MISS IS READ (Claude design r1 P3-1): every container a live i
   assert.equal(S0.townIronMiss(w.bot), true)
 })
 
-// ---- THE REFUSAL CHAIN, through the REAL decision loop ----------------------------------------------------------------
-const { Lessons } = await import('../src/lessons.mjs')
-const { CognitiveLoop } = await import('../src/cognitive.mjs')
-const ldir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-is-'))
-let lseq = 0
-const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}; return L }
-const T = (name, used) => ({ ...stack(name, 1), maxDurability: { stone_pickaxe: 131, iron_pickaxe: 250 }[name], durabilityUsed: used })
-function chainWorld (opts = {}) {
-  // kitsearch's chain bag (no ready rung), with an iron pickaxe so the toolkit has nothing to make
-  const w = town({ bag: [stack('dirt', 16), stack('oak_log', 64), stack('oak_log', 64), stack('sand', 8), stack('cobblestone', 64), stack('cobblestone', 20),
-    stack('crafting_table', 1), T('iron_pickaxe', 10), stack('iron_axe', 1), stack('iron_shovel', 1), stack('stick', 8)], ...opts })
-  Object.assign(w.bot, {
-    oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, username: 'IronSmeltBot', players: {}, experience: { level: 0 },
-    recipesFor: () => [], recipesAll: () => [], clearControlStates: () => {},
-  })
-  const fb = w.bot.findBlock.bind(w.bot), fbs = w.bot.findBlocks.bind(w.bot)
-  w.bot.findBlock = o => (typeof o?.matching === 'function' ? fb(o) : null)
-  w.bot.findBlocks = o => (typeof o?.matching === 'function' ? fbs(o) : [])
-  return w
-}
-/** The REAL loop over the chain world; `phases` [{ until(ran) -> bool, then?() }]: each waited for in turn, `then` run at once
- *  after it (the world changed mid-run, as a deposit would change it), one loop throughout. */
-async function runLoop (w, phases) {
-  const ran = []
-  const runner = { isBusy: () => false, run: async (skill, args) => {
-    if (skill === 'smelt_town') {
-      const r = await S0.SKILLS.smelt_town.run({ bot: w.bot }, args ?? {}, null)
-      ran.push({ skill, status: r.status, stop: r.stop })
-      return { ...r, delta: { smelted: r.smelted ?? 0 }, contractEvidence: r.status === 'success' ? ['smelt_effect: probe'] : [] }
-    }
-    ran.push({ skill, status: 'no_effect' })
-    return { status: 'no_effect', detail: 'probe', delta: {}, contractEvidence: [] }
-  } }
-  const L = new CognitiveLoop(w.bot, runner, freshLessons(), null)
-  L.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
-  L.milestones.cycle = 540
-  L.start()
-  const marks = []
-  try {
-    for (const ph of phases) {
-      let ok = false
-      for (let i = 0; i < 1500 && !(ok = ph.until(ran)); i++) await new Promise(r => setTimeout(r, 30))
-      assert.ok(ok, `the loop never reached its phase (a stalled loop would pass every negative): ${JSON.stringify(ran)}`)
-      marks.push(ran.length)
-      if (ph.then) ph.then(L, ran)
-    }
-  } finally { L.stop() }
-  return { ran, loop: L, marks }
-}
-const chainScene = async S => {
-  // a town the index knows holds no raw iron and no raw copper, whose FAR chest later takes a deposit of raw iron
-  const w = chainWorld()
-  for (const c of CHESTS) seenByIndex(c)
-  let before = null
-  const { ran, marks } = await runLoop(w, [
-    { until: r => r.length >= 6, then: (L, r) => {
-      before = { ran: r.slice(), streak: L.smeltJobState?.streak ?? null }
-      // the town changes: raw iron and coal deposited into the FAR chest (its mutation mark), and the cooldown passes
-      w.stock(...FAR, [stack('raw_iron', 8), stack('coal', 4)])
-      dirtyByIndex(FAR)
-      later(SJ.SMELT_JOB_COOLDOWN_MS + 1000)
-    } },
-    { until: r => r.some(x => x.skill === 'smelt_town') },
-  ])
-  assert.ok(!before.ran.some(x => x.skill === 'smelt_town'), `no smelt_town into a town the index knows is empty: ${JSON.stringify(before.ran)}`)
-  assert.ok(before.ran.some(x => x.skill === 'status'), 'the bot keeps its other moves (the model\'s turns)')
-  assert.equal(before.streak, null, 'a skip is no strike (no outcome was recorded)')
-  assert.ok(ran.slice(marks[0]).some(x => x.skill === 'smelt_town'), 'the job runs once the town shows a change')
-  assert.match(lastRow(), / withdrawn=8 .* in=fe /, lastRow())
-  assert.equal(w.spy.opened.filter(k => k !== kOf(FAR)).length, 0, `it opened only the changed container: ${w.spy.opened}`)
-}
-await t('THE REFUSAL CHAIN (real loop): a town the index knows empty -> no smelt_town, the bot keeps its other moves, no strike; a deposit of raw iron (a dirty mark) + the cooldown -> the job runs, opens only that container, takes the iron', async () => {
-  await chainScene(S0)
-})
-const chainControl = async () => {
-  // CONTROL (the base churn): the same town with no index -> smelt_town IS dispatched, and finds nothing
-  const w = chainWorld()
-  const a = await runLoop(w, [{ until: r => r.length >= 6 }])
-  const j = a.ran.find(x => x.skill === 'smelt_town')
-  assert.ok(j, `CONTROL: with no index the job is dispatched: ${JSON.stringify(a.ran)}`)
-  assert.equal(j.stop, 'town_has_none')
-}
-await t('CHAIN CONTROL: no index -> the job is dispatched into the same town and ends town_has_none (the churn the rule-out removes)', async () => {
-  await chainControl()
-})
-
 // ---- mutants -----------------------------------------------------------------------------------------------------------
 await t('MUTANTS: each removes one part of the change and a behaviour test above fails for it', async () => {
   const kills = {}
-  kills.noIronPass = await withMutant(SKILLS_PATH, 'const w = await jobWithdraw(ctx, { iron: IRONSMELT.on ? SMELT_JOB_BATCH : 0,', 'const w = await jobWithdraw(ctx, { iron: 0,', S => killedBy(() => ironFirst(S)))
+  kills.noIronPass = await withMutant(SKILLS_PATH, 'try { await jobWithdraw(ctx, { iron: IRONSMELT.on ? SMELT_JOB_BATCH : 0,', 'try { await jobWithdraw(ctx, { iron: 0,', S => killedBy(() => ironFirst(S)))
   kills.noOwnHold = await withMutant(SKILLS_PATH, "const restore = swapWithdrawHold(name, plan[name].own, Date.now() + 10 * 60_000)\n        try { await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt }) } finally { restore() }",
     "const restore = () => {}\n        try { await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt }) } finally { restore() }", S => killedBy(() => ownIron(S)))
   kills.bagCount = await withMutant(SKILLS_PATH, 'f.n = IN === SMELT_IRON_INPUT ? ironSmeltCount({ withdrawn: f.withdrawn, raw0, rawNow: have }) : Math.min(SMELT_JOB_BATCH, have)',
     'f.n = Math.min(SMELT_JOB_BATCH, have)', S => killedBy(() => smeltCountScene(S)))
   kills.noRoomKeep = await withMutant(SKILLS_PATH, 'const keep = IRONSMELT.on ? [...roomKeep(bot.currentWants ?? []), SMELT_IRON_INPUT, SMELT_IRON_OUTPUT] : roomKeep(bot.currentWants ?? [])',
     'const keep = roomKeep(bot.currentWants ?? [])', S => killedBy(() => roomKeepScene(S)))
-  kills.idleCopper = await withMutant(SKILLS_PATH, 'if (cut && !(carried > 0)) { out.ironMore = true; return out }', 'if (cut) { out.ironMore = true; return out }', S => killedBy(() => cutWithCopper(S)))
+  kills.idleCopper = await withMutant(SKILLS_PATH, 'if (cut && !(carried > 0) && !(ingots > 0)) { out.ironMore = true; return out }', 'if (cut) { out.ironMore = true; return out }', S => killedBy(() => cutWithCopper(S)))
   kills.noRuleOutGate = await withMutant(SKILLS_PATH, 'tried: jobRuledOut(bot, SMELT_IRON_INPUT).keys }) } catch { return false }', '}) } catch { return false }', S => killedBy(() => ruledOutGate(S)))
+  kills.noRuleOutCopperGate = await withMutant(SKILLS_PATH, 'tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }', '}) } catch { return false }', S => killedBy(() => ruledOutGate(S)))
   kills.noRuleOutSearch = await withMutant(SKILLS_PATH, "const ro = nd === SMELT_JOB_FUEL ? null : jobRuledOut(bot, nd)", 'const ro = null', S => killedBy(() => ruledHolder(S)))
   kills.ruleOutNoTtl = await withMutant(SJ_PATH, ' || now - at >= ttl) continue', ') continue', async SJm => killedBy(() => {
     assert.equal(SJm.indexRuledOut(entry({ at: NOW - SJ.IRON_MISS_TTL_MS - 1 }), 'raw_iron', NOW, { ttl: SJ.IRON_MISS_TTL_MS }).n, 0)
@@ -399,6 +250,5 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
 })
 
-Date.now = realNow
-console.log(`\n${pass} passed, ${fail} failed`)
-process.exit(fail ? 1 : 0)
+
+FX.done()

@@ -28,7 +28,7 @@
 // wait and measure. Isolated pools are out of v1 (owner D2: their town state is per bot, so five bots would each run
 // their own job against one physical town).
 
-import { indexStateOf } from './townindex.mjs'   // ironsmelt-01: the index rule-out (townindex.mjs imports nothing of ours)
+import { indexStateOf, TOWNINDEX } from './townindex.mjs'   // ironsmelt-01: the index rule-out (townindex.mjs imports nothing of ours)
 
 /** What the job smelts in stage 1, and what that makes (smelting.mjs SMELTS raw_copper -> copper_ingot). */
 export const SMELT_JOB_INPUT = 'raw_copper'
@@ -131,8 +131,14 @@ export function ironsmeltMode (env = {}) {
 }
 export const IRONSMELT = Object.freeze(ironsmeltMode(typeof process !== 'undefined' ? process.env : {}))
 /** SMELT_RULEOUT=off: the index rule-out alone off (Claude design r1 P2-3: two mechanisms, two switches, so a read can split
- *  them). The rule-out runs only with IRONSMELT on: off restores the base exactly. Pure. */
-export const ruleoutMode = (env = {}, iron = IRONSMELT) => ({ on: !!iron?.on && !['off', '0', 'false', 'no'].includes(String(env?.SMELT_RULEOUT ?? '').trim().toLowerCase()) })
+ *  them). The rule-out runs only with IRONSMELT on (off restores the base exactly) and with the town index on (TOWNINDEX=off
+ *  reads nothing, so the mode row must not claim a rule-out: Claude code r1 P3-4). -> { on, why }. Pure. */
+export const ruleoutMode = (env = {}, iron = IRONSMELT, index = TOWNINDEX) => {
+  if (!iron?.on) return { on: false, why: 'off' }
+  if (['off', '0', 'false', 'no'].includes(String(env?.SMELT_RULEOUT ?? '').trim().toLowerCase())) return { on: false, why: 'off' }
+  if (!index?.on) return { on: false, why: 'off_noindex' }
+  return { on: true, why: null }
+}
 export const SMELT_RULEOUT = Object.freeze(ruleoutMode(typeof process !== 'undefined' ? process.env : {}))
 export const SMELT_IRON_INPUT = 'raw_iron'
 export const SMELT_IRON_OUTPUT = 'iron_ingot'
@@ -196,7 +202,7 @@ export function ironBankPlan ({ raw0 = 0, ingot0 = 0, rawNow = 0, ingotNow = 0, 
 
 /** The `_ironsmelt_mode` licence row (once per spawn): a kind the base cannot write. */
 export const ironsmeltModeDetail = (m = IRONSMELT, ro = SMELT_RULEOUT) =>
-  `phase=mode on=${m.on ? 1 : 0} mode=${m.mode} inputs=${jobInputs(m.on).join(',')} miss_h=${IRON_MISS_TTL_MS / 3600000} rule_out=${ro.on ? 'index_known_none' : 'off'}${m.note ? ` note=${m.note.replace(/\s+/g, '_')}` : ''}`
+  `phase=mode on=${m.on ? 1 : 0} mode=${m.mode} inputs=${jobInputs(m.on).join(',')} miss_h=${IRON_MISS_TTL_MS / 3600000} rule_out=${ro.on ? 'index_known_none' : (ro.why ?? 'off')}${m.note ? ` note=${m.note.replace(/\s+/g, '_')}` : ''}`
 
 export const DRAIN_COOLDOWN_MS = envMs('DRAIN_COOLDOWN_MS', 10 * 60 * 1000)
 export const DRAIN_BACKOFF_MS = 20 * 60 * 1000
@@ -250,7 +256,7 @@ export function smeltTownOrder ({ now = 0, on = true, atTown = false, holds = fa
   const n = Math.min(SMELT_JOB_BATCH, carried || SMELT_JOB_BATCH)
   return {
     order: { skill: 'smelt_town', args: {},
-             why: townIron ? `the town holds raw iron and nothing turns it into anything: smelt up to ${SMELT_JOB_BATCH} into iron ingots for the toolkit and bank them (town smelt job)`
+             why: townIron ? `the town has raw iron left to look for, and nothing turns it into anything: smelt up to ${SMELT_JOB_BATCH} into iron ingots for the toolkit and bank them (town smelt job)`
                : carried ? `the bag holds ${carried} raw_copper and nothing turns it into anything: smelt ${n} into copper ingots and bank them (town smelt job)`
                : ingots && lazy(townMiss) ? `the bag holds ${ingots} copper ingots from an earlier job: bank them (town smelt job)`
                : `the town holds raw copper and nothing turns it into anything: smelt ${n} into copper ingots and bank them (town smelt job)` },
@@ -386,15 +392,15 @@ export function copperBalance ({ bag0 = 0, withdrawn = 0, prior = 0, deposited =
 export function smeltTownDetail (f = {}) {
   const v = x => (x == null ? '-' : String(x))
   return [
-    `stop=${v(f.stop)}`, `n=${v(f.n)}`, `bag0=${v(f.bag0)}`, `withdrawn=${v(f.withdrawn)}`, `coal=${v(f.coal)}`,
+    // ironsmelt-01: the job's input (fe | cu | -; the balance fields below are in ITS family), the bag's own iron per name,
+    // opening>closing, raw iron the bag fed the furnace (a bag delta), and the index rule-outs the job started with -- FIRST
+    // after the stop, so the logger's 300-char cap (logger.mjs) can only ever cut the search tallies at the end (Codex code r1 P3)
+    `stop=${v(f.stop)}`, `in=${v(f.in)}`, `fe=${v(f.fe)}`, `fed=${v(f.fed)}`, `ru=${v(f.ru)}`, `n=${v(f.n)}`, `bag0=${v(f.bag0)}`, `withdrawn=${v(f.withdrawn)}`, `coal=${v(f.coal)}`,
     `smelted=${v(f.smelted)}`, `prior=${v(f.prior)}`, `deposited=${v(f.deposited)}`, `dep_i=${v(f.depI)}`, `dep_r=${v(f.depR)}`, `bag1=${v(f.bag1)}`,
     `left=${v(f.furnaceLeft)}`, `furnace=${v(f.furnace)}`, `lease=${v(f.lease)}`, `verdict=${v(f.verdict)}`,
     `diff=${v(f.diff)}`, `chest=${v(f.chest)}`, `t0=${v(f.t0)}`, `fb=${v(f.fuelBack)}`,
     // toolkit-03: the job's town search -- containers looked in, and which pass was cut with candidates left (cu | coal | -)
     `looked=${v(f.looked)}`, `more=${v(f.more)}`,
-    // ironsmelt-01: the job's input (fe | cu | -; the balance fields above are in ITS family), raw iron fed to the furnace from
-    // the bag (a bag delta), the index rule-outs the input passes applied, and the bag's own iron per name, opening>closing
-    `in=${v(f.in)}`, `fed=${v(f.fed)}`, `ru=${v(f.ru)}`, `fe=${v(f.fe)}`,
   ].join(' ')
 }
 export function drainDetail (f = {}) {
