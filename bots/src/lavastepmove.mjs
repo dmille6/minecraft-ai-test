@@ -314,11 +314,15 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
       return { ...e, kase: dangerCase({ ...e, onGround: bot.entity.onGround !== false }) }
     }
     /** A FULL observation from where the bot is now: the case, the search and the aim on ONE recorder (G2 replays it). */
+    // the case is classified from the feet and below cells read THROUGH the observation's own recorder, so the row carries
+    // the very cells the verdict came from (Codex code r6 P1: a `plan_missed_safe` audit had neither)
     const observeHere = () => {
-      const o = nowCell(), rec = recordingAt(at, o), dh = dangerHere()
-      const sp = dh.kase && dh.kase !== 'airborne' ? stepPlan(rec, o, dh.kase) : { plan: null, candidates: [] }
+      const o = nowCell(), rec = recordingAt(at, o)
+      const e = effective(rec(o[0], o[1], o[2]), rec(o[0], o[1] - 1, o[2]))
+      const kase = dangerCase({ ...e, onGround: bot.entity.onGround !== false })
+      const sp = kase && kase !== 'airborne' ? stepPlan(rec, o, kase) : { plan: null, candidates: [] }
       const scores = aimScores(rec, o)
-      return { origin: o, rec, kase: dh.kase, plan: sp.plan, candidates: sp.candidates, scores, choice: chooseBearing(scores, bot.entity.yaw ?? 0) }
+      return { origin: o, rec, kase, plan: sp.plan, candidates: sp.candidates, scores, choice: chooseBearing(scores, bot.entity.yaw ?? 0) }
     }
     const obsRow = (ob) => ({ origin: ob.origin, case: ob.kase, cells: ob.rec.cells, boxes: ob.rec.boxes,
       plan: ob.plan ? ob.plan.map(s2 => [...rel(s2.to, ob.origin), s2.dy]) : null, candidates: ob.candidates.map(c => [rel(c.to, ob.origin), c.d, c.why]) })
@@ -448,7 +452,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         // a missed `in` step goes straight to the aimed escape, as in the decision's own plan (Codex code r2 P2) -- unless
         // the step has already carried the bot out of danger (an overshoot onto stone: Claude code r4 P2-1)
         const ob2 = observeHere()
-        if (!ob2.kase) { row.missObs = { origin: ob2.origin, case: ob2.kase, cells: ob2.rec.cells, boxes: ob2.rec.boxes }; return `${reason}_plan_missed_safe` }
+        if (!ob2.kase) { row.missObs = { origin: ob2.origin, case: ob2.kase, cells: ob2.rec.cells, boxes: ob2.rec.boxes, relax: relax ? { cell: relax.cell, name: relax.name } : null }; return `${reason}_plan_missed_safe` }
         const a = await runAim(ob2, 'in_step_missed')
         return a === 'lost' ? 'lost' : `${reason}_plan_missed_aim`
       }
@@ -476,7 +480,7 @@ export function makeDangerMover (bot, runner, { airHolds = () => false, emit = (
         else if (kase === 'in') {        // a missed `in` step goes straight to the aimed escape (no waiting for the next firing)
           const ob2 = observeHere()
           if (!ob2.kase) {   // ...unless it already carried the bot out of danger (Claude code r4 P2-1); recorded for the read (r5 P3-1)
-            row.missObs = { origin: ob2.origin, case: ob2.kase, cells: ob2.rec.cells, boxes: ob2.rec.boxes }
+            row.missObs = { origin: ob2.origin, case: ob2.kase, cells: ob2.rec.cells, boxes: ob2.rec.boxes, relax: relax ? { cell: relax.cell, name: relax.name } : null }
             outcome = 'plan_missed_safe'
           }
           else {
