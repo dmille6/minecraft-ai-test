@@ -67,6 +67,8 @@ import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
+import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
+import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -316,6 +318,8 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // poolescape-01: the licence row, once per spawn -- `_poolescape_mode`, a kind the base cannot write (poolescape.mjs)
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
+    // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
+    try { logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
     // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
@@ -1239,6 +1243,22 @@ function connect() {
       pzTimer.unref?.()
       bot.once('end', () => clearInterval(pzTimer))
     } catch (e) { log('warn', 'protected zone guard not attached', { err: e?.message }) }
+    // lavastep-01: THE IN-FLIGHT GUARD (lavastepmove.mjs), OUTERMOST: while a danger move holds the body, bot.dig and
+    // bot._genericPlace refuse everything but the move's own seal (a one-shot token). A refused call is never sent, so the
+    // `_dig_town` instrument, keep-out and protectzone below it never see it. LAVASTEP=0: no mover, nothing attached.
+    try {
+      const mover = stopReflexes?.dangerMover?.() ?? null
+      if (mover) {
+        let refusedThisMin = 0
+        attachLavastepGuard(bot, mover, { onRefuse: op => {
+          if (refusedThisMin++ >= 10) return
+          try { logEvent({ kind: 'lavastep_refused', status: 'refused', snapshot: snapshot(bot), detail: `op=${op} -- a danger move holds the body`, args: { op } }) } catch { /* telemetry */ }
+        } })
+        const lsTimer = setInterval(() => { refusedThisMin = 0 }, 60_000)
+        lsTimer.unref?.()
+        bot.once('end', () => clearInterval(lsTimer))
+      }
+    } catch (e) { log('warn', 'lavastep guard not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
