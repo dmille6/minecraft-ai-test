@@ -191,6 +191,11 @@ const ruledOutGate = async S => {
   // the job itself agrees with the gate: it opens NOTHING
   const r = await job(S, w)
   assert.equal(r.stop, 'town_has_none', `${r.status} ${r.stop} ${r.detail}`); assert.equal(w.spy.opened.length, 0, `${w.spy.opened}`)
+  // A DEPOSIT RECORDED ONLY IN TOWN MEMORY (o=took, written by the depositor apart from the index -- its index marks failed)
+  // re-opens that container too (Claude code r2 P3-4)
+  CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => { e[kOf(CHESTS[2])] = { o: 'took', at: Date.now() + 10_000, strikes: [] } })
+  assert.equal(S.townIronMiss(w.bot), false, 'a town-memory deposit mark after the observation makes it a candidate again')
+  assert.equal(S.jobRuledOut(w.bot, 'raw_iron').n, CHESTS.length - 1)
   // ONE MUTATION MARK re-opens that container at once (a deposit: the index's dirty mark)
   dirtyByIndex(CHESTS[4])
   assert.equal(S.townIronMiss(w.bot), false, 'a deposit into one container makes it a candidate again')
@@ -235,6 +240,7 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
   kills.idleCopper = await withMutant(SKILLS_PATH, 'if (cut && !(carried > 0) && !(ingots > 0)) { out.ironMore = true; return out }', 'if (cut) { out.ironMore = true; return out }', S => killedBy(() => cutWithCopper(S)))
   kills.noRuleOutGate = await withMutant(SKILLS_PATH, 'tried: jobRuledOut(bot, SMELT_IRON_INPUT).keys }) } catch { return false }', '}) } catch { return false }', S => killedBy(() => ruledOutGate(S)))
   kills.noRuleOutCopperGate = await withMutant(SKILLS_PATH, 'tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }', '}) } catch { return false }', S => killedBy(() => ruledOutGate(S)))
+  kills.noTookWiring = await withMutant(SKILLS_PATH, "for (const [h, e] of Object.entries(mem ?? {})) if (e?.o === 'took' && Number.isFinite(e.at)) tookAt[h] = e.at", '', S => killedBy(() => ruledOutGate(S)))
   kills.noRuleOutSearch = await withMutant(SKILLS_PATH, "const ro = nd === SMELT_JOB_FUEL ? null : jobRuledOut(bot, nd)", 'const ro = null', S => killedBy(() => ruledHolder(S)))
   kills.ruleOutNoTtl = await withMutant(SJ_PATH, ' || now - at >= ttl) continue', ') continue', async SJm => killedBy(() => {
     assert.equal(SJm.indexRuledOut(entry({ at: NOW - SJ.IRON_MISS_TTL_MS - 1 }), 'raw_iron', NOW, { ttl: SJ.IRON_MISS_TTL_MS }).n, 0)
