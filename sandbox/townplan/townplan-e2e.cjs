@@ -178,6 +178,9 @@ const brain = http.createServer((req, res) => {
   })
 })
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
+// ONE BRAIN PORT PER RUN (JIT 10-23c: four sandboxes at once from one host; run each from its own WELL_REPO checkout too, the env
+// files and state dirs live there): BRAIN_PORT (default 11499), handed to every bot it starts
+const BRAIN_PORT = Number(process.env.BRAIN_PORT || 11499)
 const procs = {}
 async function stopBots (names = Object.keys(procs), sig = 'SIGTERM') {
   for (const n of names) { const p = procs[n]; if (!p) continue; try { p.kill(sig) } catch {} delete procs[n] }
@@ -192,6 +195,7 @@ async function startBot (scene, slotsSpec, { pool, name = NAMES[0], home = HOME,
   let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', name); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/townplan-e2e-${tag}`); set('MEMORY_POOL', pool)
+  set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20); set('WORLD_BORDER_RADIUS', 4000)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, home[a.toLowerCase()]); set(`BOARD_${a}`, home[a.toLowerCase()]) }
   for (const [k, v] of Object.entries(extra)) set(k, v)
@@ -1010,7 +1014,7 @@ scenes.foundplinth = async () => {
 async function main () {
   // the lock was checked at load by sbx.requireSandboxLock (global or per-server; the owner's first word); the server must be empty
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
-  await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })
+  await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(BRAIN_PORT, '127.0.0.1', resolve) })
   P(`root=${BOT_ROOT} sha=${SHA} server=${SERVER} scenes=${SCENES_S}`)
   rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`)
   for (const s of SCENES_S.split(',')) {
