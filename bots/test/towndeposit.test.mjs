@@ -1526,7 +1526,7 @@ test('junkout-01 MUTANT (cognitive): the declined tail\'s restore removed -> the
 // is out (still in the town zone) -> the tail visit issues on the next decision and banks the rows. Controls: a YIELDED (C12)
 // column lets the tail run inside, no exit; the mutant (no exit check) spends the visit behind the exit.
 const KO_SITE = { kind: 'death:fire', x: 3, y: 66, z: 0, count: 4, deaths: 1, last: Date.now(), by: ['x'] }
-async function koTailChain (Loop, { yielded = false } = {}) {
+async function koTailChain (Loop, { yielded = false, pre = null } = {}) {
   const chest = chestAt(2)
   const bot = tailBot({ chest })
   bot.fireSitesNow = () => [KO_SITE]
@@ -1542,6 +1542,7 @@ async function koTailChain (Loop, { yielded = false } = {}) {
   const loop = new Loop(bot, runner, freshLessons(), null)
   loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
   loop.milestones.cycle = 540
+  pre?.(loop)
   loop.start()
   for (let i = 0; i < 200 && ran.length < 4; i++) await new Promise(r => setTimeout(r, 30))
   loop.stop()
@@ -1564,9 +1565,24 @@ test('junkout-01 x KEEPOUT CONTROL (real loop): a YIELDED column (C12 town job) 
   // the yield is COUNTED once when it starts (the exit order's own counter; the visit's probe never counts one)
   assert.equal(bot.keepoutStats?.yield_town_job, 1, JSON.stringify(bot.keepoutStats ?? null))
 })
-test('junkout-01 x KEEPOUT MUTANT (cognitive): the visit block without the exit check -> the tail is issued behind the exit and the stay is spent: no tail after the exit (killed)', async () => {
-  await withCogMutant(' || exitFirst()\n', '\n', async M => {
-    const { ran, loop, chest } = await koTailChain(M)
+// THE BOUNDARY (Codex fix review P2): the probe and the exit's own call can disagree (the exit's back-off runs out between
+// them). Simulated by disabling the probe: the visit is issued, the exit displaces it, and the displaced visit is REFUNDED.
+const { withMutantsAll } = await import('./helpers/mutant.mjs')
+const COG_TD = new URL('../src/cognitive.mjs', import.meta.url)
+const PROBE = [' || exitFirst()\n', '\n']
+const REFUND = ['if (ko) { Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }', 'if (ko) order = ko }']
+test('junkout-01 x KEEPOUT BOUNDARY (real loop): a visit issued and then DISPLACED by the exit is refunded -- the tail still runs once the bot is out', async () => {
+  await withMutantsAll(COG_TD, [PROBE], async mod => {
+    const { ran, loop, chest } = await koTailChain(mod.CognitiveLoop)
+    assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
+    assert.equal(ran.filter(s => s === 'town_deposit').length, 1, `the displaced tail came back once: ${JSON.stringify(ran)}`)
+    assert.equal(sumOf(chest.items, 'torch'), 11)
+    assert.equal(loop.tailState.latched, true)
+  })
+})
+test('junkout-01 x KEEPOUT MUTANT (cognitive): neither the probe nor the refund -> the tail is spent behind the exit: no tail after it (killed)', async () => {
+  await withMutantsAll(COG_TD, [PROBE, REFUND], async mod => {
+    const { ran, loop, chest } = await koTailChain(mod.CognitiveLoop)
     assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
     assert.ok(!ran.includes('town_deposit'), `mutant: the visit was spent behind the exit: ${JSON.stringify(ran)}`)
     assert.equal(sumOf(chest.items, 'torch'), 0)
@@ -1579,4 +1595,27 @@ test('junkout-01 x KEEPOUT MUTANT (cognitive): the exit order without its own `b
     assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
     assert.equal(bot.keepoutStats?.yield_town_job ?? 0, 0, 'mutant inert')
   })
+})
+test('visitDisplacedRefund (pure): each visit order un-latches with its armed reason and gets back what its issue charged; nothing else is touched', async () => {
+  const { visitDisplacedRefund } = await import('../src/cognitive.mjs')
+  const { TOWN_JOB_SKILLS } = await import('../src/keepout.mjs')
+  const latched = { latched: true, issuedAt: 5, armedUsed: 'out:a-b', armed: null, lastScanAt: 5 }
+  const w = visitDisplacedRefund({ skill: 'dispose_well', args: { visit: true } }, { wellVisitState: latched, wellState: { lastDisposeAt: 5, disposeBackoffUntil: 9 } })
+  assert.deepEqual(w, { wellVisitState: { ...latched, latched: false, armed: 'out:a-b', lastScanAt: -Infinity }, wellState: { lastDisposeAt: -Infinity, disposeBackoffUntil: 9 } })
+  const c = visitDisplacedRefund({ skill: 'compost', args: { visit: true } }, { compostVisitState: latched, townState: { lastCompostAt: 5, compostBackoffUntil: 9 } })
+  assert.deepEqual(c, { compostVisitState: { ...latched, latched: false, armed: 'out:a-b', lastScanAt: -Infinity }, townState: { lastCompostAt: -Infinity, compostBackoffUntil: 9 } })
+  const t = visitDisplacedRefund({ skill: 'town_deposit', args: { tail: true } }, { tailState: { ...latched, lastIssuedAt: 5, backoffUntil: 9 } })
+  assert.deepEqual(t, { tailState: { ...latched, latched: false, armed: 'out:a-b', lastScanAt: -Infinity, lastIssuedAt: -Infinity, backoffUntil: 9 } })
+  // not a visit: the full-bag deposit, the full-bag well order, the town compost order, any other skill -> nothing
+  for (const o of [{ skill: 'town_deposit', args: {} }, { skill: 'dispose_well', args: {} }, { skill: 'compost', args: {} }, { skill: 'gather', args: { visit: true } }, null]) {
+    assert.deepEqual(visitDisplacedRefund(o, { tailState: latched, wellVisitState: latched, compostVisitState: latched }), {}, JSON.stringify(o))
+  }
+  // the probe asks ONE visit skill for all three: they must all be town jobs (exitDecision's only use of the skill)
+  for (const s of ['dispose_well', 'compost', 'town_deposit']) assert.ok(TOWN_JOB_SKILLS.has(s), s)
+})
+test('junkout-01 x KEEPOUT CONTROL (real loop): the exit BACKING OFF (a failed exit) -> the probe does not block; the tail runs inside the column', async () => {
+  const { ran, chest } = await koTailChain(CognitiveLoop, { pre: loop => { loop.keepoutExitBackoffUntil = Date.now() + 60_000 } })
+  assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
+  assert.ok(!ran.includes('keepout_exit'), JSON.stringify(ran))
+  assert.equal(sumOf(chest.items, 'torch'), 11)
 })

@@ -226,6 +226,25 @@ export function refundDeclined (skill, st = {}) {
 }
 
 /**
+ * JUNKOUT-01 x KEEPOUT-01 (jit-1023) -> the state fields to assign (pure). A junkout visit order the keep-out exit
+ * DISPLACED never ran: the visit is not spent (the latch re-arms with the reason that armed it, as a decline does:
+ * visitLatchDeclined) and everything its issue charged is given back -- the visit's scan cadence, the tail's own cooldown,
+ * the well's / composter's cooldown (the order could only issue with each of them clear) -- so the visit can issue on the
+ * first decision out of the column. Any other order: {}.
+ */
+export function visitDisplacedRefund (order, st = {}) {
+  const unspend = v => ({ ...visitLatchDeclined(v ?? {}), lastScanAt: -Infinity })
+  if (order?.skill === 'dispose_well' && order.args?.visit === true) {
+    return { wellVisitState: unspend(st.wellVisitState), wellState: { ...(st.wellState ?? {}), lastDisposeAt: -Infinity } }
+  }
+  if (order?.skill === 'compost' && order.args?.visit === true) {
+    return { compostVisitState: unspend(st.compostVisitState), townState: { ...(st.townState ?? {}), lastCompostAt: -Infinity } }
+  }
+  if (order?.skill === 'town_deposit' && order.args?.tail === true) return { tailState: { ...unspend(st.tailState), lastIssuedAt: -Infinity } }
+  return {}
+}
+
+/**
  * THE BREAKER'S NEXT MOVE, as a pure decision. The relocation ran on the
  * travel profile (no digging, no bridging) and cleared the repeat window
  * whether or not the bot moved -- 2,296 firings, 0% measured success, and a
@@ -916,7 +935,6 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
-  /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
   /** KEEPOUT-01: exitDecision's answer for `order` -- the readings only, no counters (jit-1023: the visit orders ask it too). */
   #keepoutExitDecision(order) {
     const bot = this.bot
@@ -926,6 +944,7 @@ export class CognitiveLoop {
       yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
   }
 
+  /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
   #keepoutExitOrder(order) {
     try {
       const bot = this.bot
@@ -1041,9 +1060,10 @@ export class CognitiveLoop {
       // the well's / composter's cooldown) -- the latches are only ticked
       // JUNKOUT-01 x KEEPOUT-01 (jit-1023, Codex rebase review P2): nor while the keep-out exit would replace it -- the exit is
       // LAST in the chain and overrides any order, so a visit issued now would spend its latch and the well's / composter's
-      // cooldown on a run that never happens. Asked for the visit skills themselves (all three are town jobs: a yielded C12
-      // column lets them run). Ticked only: the latch stays armed, and the visit issues on the first decision outside.
-      const exitFirst = () => { try { return VISIT_SKILLS.some(skill => this.#keepoutExitDecision({ skill })?.start === true) } catch { return false } }
+      // cooldown on a run that never happens. Asked for ONE visit skill: all three are TOWN_JOB_SKILLS, so exitDecision answers
+      // the same for each (a yielded C12 column lets them run). Ticked only: the latch stays armed, and the visit issues on the
+      // first decision outside. The exit's own call below refunds a visit it displaces anyway (visitDisplacedRefund).
+      const exitFirst = () => { try { return this.#keepoutExitDecision({ skill: VISIT_SKILLS[0] })?.start === true } catch { return false } }
       const blocked = (!!order && ['town_deposit', 'build_plinth', 'count_town'].includes(order.skill)) || exitFirst()
       const visit = this.#visitOrder(milestone, { tickOnly: blocked })
       if (visit) order = visit
@@ -1297,7 +1317,9 @@ export class CognitiveLoop {
     // in the chain on purpose, so it overrides every order above -- except a town job inside a column that covers the town
     // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
     // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
-    { const ko = this.#keepoutExitOrder(order); if (ko) order = ko }
+    // jit-1023 (junkout-01 x keepout-01, Codex fix review P2): a junkout visit the exit DISPLACES here never ran -- refunded as
+    // a decline is (the probe above keeps this rare: it differs from this call only if the exit's backoff ran out in between)
+    { const ko = this.#keepoutExitOrder(order); if (ko) { Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
