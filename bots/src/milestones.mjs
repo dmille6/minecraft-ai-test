@@ -23,7 +23,7 @@ import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
-import { townIronNow, townIronLow, townTaskCarried, bagIron, TOWN_IRON_RESERVE, TOWN_IRON_SELF, TOWN_IRON_CARRY } from './towniron.mjs'   // towniron-01
+import { townIronNow, townIronLow, townTaskCarried, bagIron, deliverPlan, TOWN_IRON_RESERVE, TOWN_IRON_CARRY } from './towniron.mjs'   // towniron-01
 
 /**
  * THE IDLE GAP (tech-tree review 2026-09-28, item 4; both engines measured it on 162k decisions, 24 h to 09-29 05:35Z).
@@ -513,6 +513,38 @@ function ironInReach (b) {
   return false
 }
 
+  // TOWNIRON-01: THE IRON TASK STAYS OPEN FOR THE TOWN (docs/reports/towniron-01-design-2026-10-23.md; OWNER 10-23 B).
+  //
+  // gather_iron_ore_3 is done at 3 carried -- the bot's own iron. Its town is the toolkit's only iron (the pickaxes, axes and
+  // shovels every bot draws), and a town below TOWN_IRON_RESERVE (towniron.mjs, index-known iron_ingot + raw_iron) is where
+  // 184 of 667 kit runs ended no_iron in 24 h to 10-23. So this rung -- AFTER the bot's own iron rungs (the ore, the smelt,
+  // the bucket, the pickaxe), so it never holds a bot back from them -- asks it to mine more while its town is short, until it
+  // carries TOWN_IRON_CARRY above its OWN keep (3 per iron craft not made yet: towniron.mjs ironOwnKeep). The round is then
+  // recorded (cognitive.mjs noteTownRound) and the lap brings the bot home (stockpile_stone, patrol, deposit_surplus,
+  // return), where the deliver_iron town order banks everything above the own keep (the town deposit keeps whole stacks and
+  // could not), retrying any remainder; the town smelt job makes ingots of it, and the rung re-opens only while the town is
+  // still short.
+  //
+  // A RUNG THAT CANNOT BE MET IS NOT A DEADLOCK, the rule this ladder is built on. Its MEANS are the base iron rung's (ore in
+  // reach within 32 blocks, a pickaxe that can pay the trip) AND a town KNOWN to be short: the town at or above the reserve,
+  // its iron unknown (index unread, too few containers seen, TOWNIRON=off), no ore in reach or no trip pickaxe -> no means,
+  // `rungOf` steps over it (never a fulfilment). An unreachable ore the bot can see is released by the ladder's own
+  // no-progress skip (NO_PROGRESS_MS) and the 25-attempt give-up, like every gather rung; and the carry cap ends each round.
+const TOWN_IRON_RUNG = rungOf({
+    wants: 'iron_ore',
+    id: 'gather_iron_ore_town',
+    describe: `Mine iron ore for your town: its chests are short of iron (the toolkit's pickaxes and shovels come from them). ` +
+              `Bring ${TOWN_IRON_CARRY} raw iron home; it is banked at town.`,
+    done: b => townTaskCarried(b?.inventory?.items?.() ?? []),
+    progress: b => {
+      const s = townIronNow(), items = b?.inventory?.items?.() ?? []
+      const counts = {}
+      for (const it of items) if (it?.name) counts[it.name] = (counts[it.name] ?? 0) + (Number(it.count) || 0)
+      return `${deliverPlan(counts).surplus}/${TOWN_IRON_CARRY} iron above your own carried (${bagIron(items)} in all); the town holds ${s?.units ?? '?'} of ${TOWN_IRON_RESERVE}`
+    },
+    hint: 'gather with block=iron_ore.',
+  }, b => townIronLow(townIronNow()) === true && ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? []))
+
 const TECH_LADDER = [
   ladder('crafting_table', 1, 'Tools need one nearby.',
          'craft item=crafting_table, then place item=crafting_table.',
@@ -622,33 +654,7 @@ const TECH_LADDER = [
          'Needs a crafting_table nearby: 3 iron_ingot + 2 stick.',
          b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3 &&
               (countItem(b, 'stick') >= 2 || countAny(b, PLANKS) >= 2)),
-  // TOWNIRON-01: THE IRON TASK STAYS OPEN FOR THE TOWN (docs/reports/towniron-01-design-2026-10-23.md; OWNER 10-23 B).
-  //
-  // gather_iron_ore_3 is done at 3 carried -- the bot's own iron. Its town is the toolkit's only iron (the pickaxes, axes and
-  // shovels every bot draws), and a town below TOWN_IRON_RESERVE (towniron.mjs, index-known iron_ingot + raw_iron) is where
-  // 184 of 667 kit runs ended no_iron in 24 h to 10-23. So this rung -- AFTER the bot's own iron rungs (the ore, the smelt,
-  // the bucket, the pickaxe), so it never holds a bot back from them -- asks it to mine more while its town is short, until it
-  // carries TOWN_IRON_CARRY above its own TOWN_IRON_SELF. The town deposit then banks the raw iron above the bag's own keep
-  // (towndeposit.mjs ironKeeps: 3 per iron craft not made yet), the town smelt job makes ingots of it, and the rung re-opens
-  // only while the town is still short.
-  //
-  // A RUNG THAT CANNOT BE MET IS NOT A DEADLOCK, the rule this ladder is built on. Its MEANS are the base iron rung's (ore in
-  // reach within 32 blocks, a pickaxe that can pay the trip) AND a town KNOWN to be short: the town at or above the reserve,
-  // its iron unknown (index unread, too few containers seen, TOWNIRON=off), no ore in reach or no trip pickaxe -> no means,
-  // `rungOf` steps over it (never a fulfilment). An unreachable ore the bot can see is released by the ladder's own
-  // no-progress skip (NO_PROGRESS_MS) and the 25-attempt give-up, like every gather rung; and the carry cap ends each round.
-  rungOf({
-    wants: 'iron_ore',
-    id: 'gather_iron_ore_town',
-    describe: `Mine iron ore for your town: its chests are short of iron (the toolkit's pickaxes and shovels come from them). ` +
-              `Bring ${TOWN_IRON_CARRY} raw iron home; it is banked at town.`,
-    done: b => townTaskCarried(b?.inventory?.items?.() ?? []),
-    progress: b => {
-      const s = townIronNow()
-      return `${bagIron(b?.inventory?.items?.() ?? [])}/${TOWN_IRON_SELF + TOWN_IRON_CARRY} iron carried; the town holds ${s?.units ?? '?'} of ${TOWN_IRON_RESERVE}`
-    },
-    hint: 'gather with block=iron_ore.',
-  }, b => townIronLow(townIronNow()) === true && ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? [])),
+  TOWN_IRON_RUNG,
 ]
 
 // IRON IS NOW ON THIS LADDER, AND THE NOTE THAT KEPT IT OFF STILL STANDS.
