@@ -73,20 +73,25 @@ for metric in ('gather_ok', 'mine_ok'):
               f'(n {len(o)}); difference {obs:+.1f} pp, two-sided permutation p = {cnt / 20000:.3f}')
     print('    per world: ' + ', '.join(f'{w} {pct[w]:+.0f}%' for w in sorted(pct, key=pct.get)))
 
-print('\n(3) reflex/safety bot-time, h/day, all worlds vs excluding board-d')
+print('\n(3) safety/reflex hours per day, all worlds vs excluding board-d, in two kinds:')
+print('    EXCLUSIVE = skill time (skills never overlap each other) of goto/home/surface/explore launched by a reflex or')
+print('                watchdog trigger, or chosen right after a reflex interrupt (trigger interrupt:*)')
+print('    EXPOSURE  = water-hold seconds (the float/surface/no-air reflexes run WHILE a skill runs: not exclusive)')
 for excl in ([], ['board-d']):
     def tot(days):
-        t = 0.0
+        ex = wat = 0.0
         for d in days:
             for w, x in A[d].items():
                 if w in excl:
                     continue
-                t += x['float_s'] / 3600 + x['surface_float_s'] / 3600 + x['noair_s'] / 3600
+                wat += x['float_s'] / 3600 + x['surface_float_s'] / 3600 + x['noair_s'] / 3600
                 for dct in (x['goto_h_trig'], x['home_h_trig'], x['surface_h_trig'], x['explore_h_trig']):
-                    t += sum(h for k, h in dct.items() if k != 'llm' and k != '?')
-        return t / len(days)
+                    ex += sum(h for k, h in dct.items() if k != 'llm' and k != '?')
+        return ex / len(days), wat / len(days)
     nb = 1920 - 120 * len(excl)
-    print(f'  excl {excl or "-"}: {tot(BASE):.1f} -> {tot(END):.1f} h/day of {nb} bot-h ({100 * tot(BASE) / nb:.1f}% -> {100 * tot(END) / nb:.1f}%)')
+    (eb, wb), (ee, we) = tot(BASE), tot(END)
+    print(f'  excl {excl or "-"} ({nb} bot-h/day): EXCLUSIVE {eb:.1f} -> {ee:.1f} h/day ({100 * eb / nb:.1f}% -> '
+          f'{100 * ee / nb:.1f}%);  EXPOSURE {wb:.1f} -> {we:.1f} h/day')
 
 print('\n(4) town_deposit outcome classes per day (BASE mean -> END mean)')
 cls = defaultdict(lambda: [0.0, 0.0])
@@ -97,3 +102,19 @@ for i, days in enumerate((BASE, END)):
                 cls[k][i] += n / 3
 for k, (bb, ee) in sorted(cls.items(), key=lambda kv: -kv[1][0]):
     print(f'  {k:18s} {bb:6.0f} -> {ee:6.0f}')
+
+print('\n(5) LOG gathers ending no_safe_target: absolute per day, and the share from the top 5 bots (Claude r1 P2-3)')
+LOGB = ('oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log')
+for lab, days in (('BASE', BASE), ('END', END)):
+    per = defaultdict(int)
+    tot = 0
+    for d in days:
+        with gzip.open(os.path.join(HERE, 'out', 'rows', f'{d}.jsonl.gz'), 'rt') as f:
+            for l in f:
+                r = json.loads(l)
+                if r['k'] == 'gather' and r['fc'] == 'no_safe_target' and r['a'].get('block') in LOGB:
+                    per[r['b']] += 1
+                    tot += 1
+    top = sorted(per.items(), key=lambda x: -x[1])[:5]
+    print(f'  {lab}: {tot / 3:.0f}/day from {len(per)} bots; top 5 = {100 * sum(v for _, v in top) / tot:.0f}%: '
+          + ', '.join(f'{b} {v / 3:.0f}/day' for b, v in top))

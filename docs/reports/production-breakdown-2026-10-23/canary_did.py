@@ -94,8 +94,11 @@ def rate(B, bots, pools, lo, hi):
     """events per bot-hour over [lo, hi) for the pools; bot-hours = sum over 10-min bins of distinct bots / 6."""
     tot = defaultdict(float)
     bh = 0.0
+    # only the 10-minute bins lying WHOLLY inside [lo, hi) (Codex r1: a floored start let post-deploy rows into pre)
     t = lo.replace(minute=(lo.minute // 10) * 10, second=0, microsecond=0)
-    while t < hi:
+    if t < lo:
+        t += dt.timedelta(minutes=10)
+    while t + dt.timedelta(minutes=10) <= hi:
         k = t.strftime('%Y-%m-%dT%H:%M')[:15]
         for w in pools:
             n = len(bots.get((w, k), ()))
@@ -144,10 +147,14 @@ def main():
             flush=True)
     json.dump(res, open(os.path.join(HERE, 'out', 'canary_did.json'), 'w'), indent=1)
     # summed effect
-    print('\nSUM over promoted canaries (fleet events/day if additive and persistent; +-1.96 x sqrt(sum sd^2) x 1920):')
+    # ILLUSTRATIVE ONLY (Codex r1): it assumes independent windows, which overlap in worlds; canaries promoted
+    # after END (10-22) are left out of the sum.
+    inwin = [r for r, c in zip(res, CANARIES) if c[2] < '2026-10-23']
+    print(f'\nSUM over the {len(inwin)} canaries promoted by 10-22 (fleet events/day IF additive and persistent; '
+          f'+-1.96 x sqrt(sum sd^2) x 1920, an illustration assuming independence, not a confidence interval):')
     for m in METRICS:
-        s = sum(r['fleet_day'][m] for r in res)
-        se = (sum(r['null_sd'][m] ** 2 for r in res)) ** 0.5 * 1920
+        s = sum(r['fleet_day'][m] for r in inwin)
+        se = (sum(r['null_sd'][m] ** 2 for r in inwin)) ** 0.5 * 1920
         print(f'  {m:12s} {s:+9.0f}  +-{1.96 * se:7.0f}')
 
 

@@ -6,7 +6,7 @@ Control: on a decision whose milestone IS stockpile_wood, the bag cannot already
 the bot must hold a trip pickaxe, and must hold < 3 iron. If those shares are not ~0/~100%,
 the features are wrong (or the rung label lags the bag by one decision).
 """
-import os, sys, gzip, json, glob
+import os, sys, gzip, json, re, glob
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +25,7 @@ for path in sorted(glob.glob(os.path.join(HERE, 'out', 'llm_sample', '*.jsonl.gz
             if world(r['p']) not in HOMES:
                 continue
             F, _ = feats(r)
-            m = (r['m'] or '').replace('+prereq', '')
+            m = re.sub(r'#\d+', '', r['m'] or '').replace('+prereq', '')
             if m == 'stockpile_wood':
                 ctl['wood'][0] += 1
                 ctl['wood'][1] += F['wood64']

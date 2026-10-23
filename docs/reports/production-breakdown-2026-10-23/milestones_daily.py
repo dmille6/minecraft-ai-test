@@ -25,7 +25,7 @@ while d <= dt.date(2026, 10, 23):
     tot = ev.total()
     mc = Counter()
     for k, v in ms.items():
-        mc[re.sub(r'#\d+$', '', k)] += v
+        mc[re.sub(r'#\d+', '', k)] += v
     res[str(d)] = {'decisions': tot, 'milestones': dict(mc), 'skills': dict(sk),
                    'milestone_bucket_sum': sum(ms.values())}
     print(d, tot, 'milestone-sum', sum(ms.values()), 'top', mc.most_common(8), flush=True)

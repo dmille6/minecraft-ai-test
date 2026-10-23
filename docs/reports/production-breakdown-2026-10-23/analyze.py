@@ -54,7 +54,9 @@ def gfail(r):
     d = r['d'] or ''
     if fc == 'nothing_found' or re.match(r'no [a-z_]+ within', d):
         return 'nothing_found'
-    if fc in ('no_safe_target', 'canopy_refused', 'canopy_failed'):
+    if fc in ('canopy_refused', 'canopy_failed'):
+        return 'canopy'            # could not get down out of foliage first (skills.mjs ~1928): not a target verdict
+    if fc == 'no_safe_target':
         return 'no_safe_target'
     if fc in ('no_path',):
         return 'no_path'

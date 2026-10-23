@@ -1,23 +1,21 @@
-"""THE DECOMPOSITION TABLES of the report: each metric's BASE -> END change split into rows that
-add up exactly. No ES access; reads out/analyze.json (skill stream) and out/milestone_yield.json
-(LLM decisions by rung x skill x outcome).
+"""THE ACCOUNTING IDENTITY of the report (r2): each metric's BASE -> END change split into rows that add up
+exactly, with no demand/yield split (Claude r1 P1-1: that split is order-dependent when decisions and yields fall
+together, and its offsetting terms make 'net shares' meaningless). No ES access; reads out/analyze.json (skill
+stream) and out/milestone_yield.json (LLM decisions by rung x skill x outcome; lap numbers '#N' are stripped
+ANYWHERE in the string, so 'stockpile_wood#2356+prereq' folds into stockpile_wood).
 
 BASE = 10-08..10-10, END = 10-20..10-22 (3 whole days each; 80 bots; 1,920 bot-h/day).
 
-Rows, in order (each is events/day):
-  T  board-d trap excess  = board-d's change minus the mean change of the other 15 worlds.
-     (3 of its 5 bots were held in a walled water pit 10-16 .. 10-23; float holds 66.6 of its 120 bot-h/day.)
-  C  the common change    = 16 x the mean change of the other 15 worlds, split on THOSE 15 worlds' LLM
-                            decisions (mix_shift's symmetric demand / yield split), scaled by 16/15:
-     D1 demand, production rungs (stockpile_wood, stockpile_stone, gather_iron_ore_3, craft_*, smelt_*,
-        gather_oak_log_12, gather_cobblestone_8, each with +prereq)       -> (a) deliberate (ladder satisfied)
-     D2 demand, all other rungs (dirt, sand, patrol, return, idle, deposit_surplus, ...)
-                                                                           -> (a) consequence: a shorter lap
-     Y1 yield on the wood rungs (stockpile_wood, gather_oak_log_12)        -> (b) depletion, UPPER bound
-     Y2 yield on all other rungs                                           -> unexplained / other
-     R  successes not reached by an LLM decision (skill-stream total minus the LLM outcome total)
+Rows (events/day):
+  T     board-d excess = board-d's change minus the mean change of the other 15 worlds (a conditional DiD:
+        it assumes board-d would otherwise have moved like their mean; pre-trend in board_d_window.py)
+  rung  for the other 15 worlds, the change in successes of the skill made under each rung GROUP (gross, by the
+        rung the decision served), scaled by 16/15 so the rows plus T sum to the fleet change
+  R     successes not reached by an LLM decision (skill-stream change minus LLM-outcome change, 15 worlds, x 16/15)
+It identifies WHERE (under which rung) successes were lost or gained, not WHY. The report argues the why.
+Also printed per group: decisions/day and successes per decision, BASE -> END, for context.
 """
-import os, json
+import os, re, json
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,12 +25,27 @@ BASE = ['2026-10-08', '2026-10-09', '2026-10-10']
 END = ['2026-10-20', '2026-10-21', '2026-10-22']
 WORLDS = sorted(A[BASE[0]])
 OTHER = [w for w in WORLDS if w != 'board-d']
-PROD = ('stockpile_wood', 'stockpile_stone', 'gather_iron_ore_3', 'gather_oak_log_12', 'gather_cobblestone_8')
-WOOD = ('stockpile_wood', 'gather_oak_log_12')
+GROUPS = [('wood rungs (stockpile_wood, gather_oak_log_12)', lambda r: r in ('stockpile_wood', 'gather_oak_log_12')),
+          ('stone rungs (stockpile_stone, gather_cobblestone_8)', lambda r: r in ('stockpile_stone', 'gather_cobblestone_8')),
+          ('iron rung (gather_iron_ore_3)', lambda r: r == 'gather_iron_ore_3'),
+          ('tool/station rungs (craft_*)', lambda r: r.startswith('craft_')),
+          ('smelt rungs (smelt_*)', lambda r: r.startswith('smelt_')),
+          ('dirt rung (gather_dirt_16)', lambda r: r == 'gather_dirt_16'),
+          ('sand rung (gather_sand_8)', lambda r: r == 'gather_sand_8'),
+          ('lap rungs (patrol, return, idle)', lambda r: r in ('patrol', 'return', 'idle')),
+          ('deposit_surplus', lambda r: r == 'deposit_surplus'),
+          ('anything else', lambda r: True)]
 
 
 def rung(m):
-    return (m or '').replace('+prereq', '')
+    return re.sub(r'#\d+', '', m or '').replace('+prereq', '')
+
+
+def group(m):
+    r = rung(m)
+    for name, f in GROUPS:
+        if f(r):
+            return name
 
 
 def skill_total(days, ws, metric):
@@ -41,78 +54,73 @@ def skill_total(days, ws, metric):
     return sum(f(A[d][w]) for d in days for w in ws) / len(days)
 
 
-def period(days, ws, K):
-    out = defaultdict(lambda: [0.0, 0.0])          # rung -> [decisions, K-successes] per day
+def by_group(days, ws, K):
+    out = defaultdict(lambda: [0.0, 0.0])          # group -> [decisions, K-successes] per day
     for d in days:
         for w in ws:
             for m, ks in Y[d].get(w, {}).items():
+                g = group(m)
                 for k, st in ks.items():
-                    out[m][0] += sum(st.values()) / len(days)
+                    out[g][0] += sum(st.values()) / len(days)
                     if k == K:
-                        out[m][1] += st.get('success', 0) / len(days)
+                        out[g][1] += st.get('success', 0) / len(days)
     return out
 
 
-def split(ws, K):
-    B, E = period(BASE, ws, K), period(END, ws, K)
-    rows = defaultdict(float)
-    for m in set(B) | set(E):
-        Db, sb = B.get(m, [0, 0])
-        De, se = E.get(m, [0, 0])
-        yb = sb / Db if Db else None
-        ye = se / De if De else None
-        yb = ye if yb is None else yb
-        ye = yb if ye is None else ye
-        dem = (De - Db) * (yb + ye) / 2
-        yld = (Db + De) / 2 * (ye - yb)
-        r = rung(m)
-        prod = r in PROD or r.startswith('craft_') or r.startswith('smelt_')
-        rows['D1' if prod else 'D2'] += dem
-        rows['Y1' if r in WOOD else 'Y2'] += yld
-    llm_b = sum(v[1] for v in B.values())
-    llm_e = sum(v[1] for v in E.values())
-    return rows, llm_b, llm_e
-
-
+s = 16 / 15
 for K in ('gather', 'mine', 'craft'):
     tb, te = skill_total(BASE, WORLDS, K), skill_total(END, WORLDS, K)
     bd = skill_total(END, ['board-d'], K) - skill_total(BASE, ['board-d'], K)
     ob, oe = skill_total(BASE, OTHER, K), skill_total(END, OTHER, K)
-    mean15 = (oe - ob) / 15
-    T = bd - mean15
-    rows, lb, le = split(OTHER, K)
-    s = 16 / 15
+    T = bd - (oe - ob) / 15
+    B, E = by_group(BASE, OTHER, K), by_group(END, OTHER, K)
+    lb, le = sum(v[1] for v in B.values()), sum(v[1] for v in E.values())
     R = ((oe - ob) - (le - lb)) * s
     print(f'\n=== {K} successes/day: {tb:,.0f} -> {te:,.0f} (delta {te - tb:+,.0f})')
-    lines = [('T  board-d water-pit trap (excess over the other 15 worlds)', T, '(c) safety trap'),
-             ('D1 demand: production rungs satisfied by the bag', rows['D1'] * s, '(a) deliberate'),
-             ('D2 demand: other rungs (dirt, sand, lap, idle ...)', rows['D2'] * s, '(a) consequence'),
-             ('Y1 yield on the wood rungs (depletion upper bound)', rows['Y1'] * s, '(b) depletion <='),
-             ('Y2 yield on all other rungs', rows['Y2'] * s, 'unexplained / other'),
-             ('R  successes outside LLM decisions', R, 'unexplained / other')]
-    for name, v, cls in lines:
-        print(f'  {name:58s} {v:+8.0f}   {cls}')
-    tot = sum(v for _, v, _ in lines)
-    print(f'  {"SUM":58s} {tot:+8.0f}   (check vs delta {te - tb:+.0f}: {tot - (te - tb):+.1f})')
+    print(f'  {"row":52s} {"succ/day (x16/15)":>20s} {"change":>8s}   decisions/day (15 worlds)   succ per decision')
+    tot = T + R
+    print(f'  {"T  board-d excess over the other 15 worlds":52s} {"":>20s} {T:+8.0f}')
+    for name, _ in GROUPS:
+        b, e = B.get(name, [0, 0]), E.get(name, [0, 0])
+        d = (e[1] - b[1]) * s
+        tot += d
+        print(f'  {name:52s} {b[1] * s:9.0f} -> {e[1] * s:7.0f} {d:+8.0f}   {b[0]:8.0f} -> {e[0]:8.0f}        '
+              f'{(b[1] / b[0] if b[0] else 0):.3f} -> {(e[1] / e[0] if e[0] else 0):.3f}')
+    print(f'  {"R  successes not reached by an LLM decision":52s} {"":>20s} {R:+8.0f}')
+    print(f'  {"SUM":52s} {"":>20s} {tot:+8.0f}   (check vs delta {te - tb:+.0f}: {tot - (te - tb):+.2f})')
 
 
-# ---- the depletion part INSIDE D1: the iron rung is stepped over when no iron ore is within 32 m
-# (ironInReach, milestones.mjs:505). Estimate: had iron-in-reach stayed at its BASE share, END iron-rung
-# decisions would scale by base_share / end_share; price the extra decisions at END yield per iron decision.
-S = json.load(open(os.path.join(HERE, 'out', 'sample_state.json')))
+# ---------------------------------------------------------------- the ATTRIBUTION rule of the report (section 0.3)
+# (c) = T. (b) = the depletion scenarios computed by rung_state.py (gather: scenario A, inside the wood rows; mine:
+# 0, with scenario B as its ceiling because the whole iron-sight drop is near the surface; craft: 0).
+# unexplained = the symmetric YIELD part of the rows that GAINED decisions (dirt, sand, lap, deposit_surplus, smelt):
+# their extra decisions follow from the ladder, but why each of those decisions yields more is not shown.
+# (a) = everything else: the production rows (their decisions fell by fulfilment) and the DEMAND part of the gaining
+# rows. R is reported as its own row.
+SCEN_B_GATHER = -427      # rung_state.py, SCENARIO A, printed above in measure.txt
+GAINING = ('dirt rung (gather_dirt_16)', 'sand rung (gather_sand_8)', 'lap rungs (patrol, return, idle)',
+           'deposit_surplus', 'smelt rungs (smelt_*)')
+print('\nATTRIBUTION (events/day): (a) / (b) / (c) / unexplained / R')
+for K in ('gather', 'mine', 'craft'):
+    tb, te = skill_total(BASE, WORLDS, K), skill_total(END, WORLDS, K)
+    bd = skill_total(END, ['board-d'], K) - skill_total(BASE, ['board-d'], K)
+    ob, oe = skill_total(BASE, OTHER, K), skill_total(END, OTHER, K)
+    T = bd - (oe - ob) / 15
+    B, E = by_group(BASE, OTHER, K), by_group(END, OTHER, K)
+    lb, le = sum(v[1] for v in B.values()), sum(v[1] for v in E.values())
+    R = ((oe - ob) - (le - lb)) * s
+    unexpl = 0.0
+    for name in GAINING:
+        (Db, sb), (De, se) = B.get(name, [0, 0]), E.get(name, [0, 0])
+        if Db and De:
+            unexpl += (Db + De) / 2 * (se / De - sb / Db) * s
+    b = SCEN_B_GATHER if K == 'gather' else 0.0
+    a = (te - tb) - T - b - unexpl - R
+    print(f'  {K:6s} change {te - tb:+7.0f} = (a) {a:+7.0f}  (b) {b:+6.0f}  (c) {T:+6.0f}  unexplained {unexpl:+6.0f}  R {R:+4.0f}')
 
-
-def share(days, key):
-    n = sum(S[d][w]['n'] for d in days for w in OTHER)
-    return sum(S[d][w][key] * S[d][w]['n'] for d in days for w in OTHER) / n
-
-
-ib, ie = share(BASE, 'iron32'), share(END, 'iron32')
-print(f'\niron ore within 32 m, 15 worlds (decision-weighted): {100 * ib:.1f}% -> {100 * ie:.1f}%')
-for K in ('mine', 'gather'):
-    E = period(END, OTHER, K)
-    De = sum(v[0] for m, v in E.items() if rung(m) == 'gather_iron_ore_3')
-    se = sum(v[1] for m, v in E.items() if rung(m) == 'gather_iron_ore_3')
-    extra = De * (ib / ie - 1)
-    print(f'  {K}: END iron-rung decisions {De:,.0f}/day, yield {se / De:.3f}; lost to iron-in-reach '
-          f'{extra:,.0f} decisions -> {-extra * se / De * 16 / 15:+.0f} {K} successes/day (part of D1, class (b))')
+print('\nFLEET (16 worlds) LLM decisions per day by rung group, BASE -> END (+prereq and lap numbers folded)')
+B, E = by_group(BASE, WORLDS, 'gather'), by_group(END, WORLDS, 'gather')
+for name, _ in GROUPS:
+    b, e = B.get(name, [0, 0])[0], E.get(name, [0, 0])[0]
+    print(f'  {name:52s} {b:8.0f} -> {e:8.0f} {e - b:+8.0f}')
+print(f'  {"TOTAL":52s} {sum(v[0] for v in B.values()):8.0f} -> {sum(v[0] for v in E.values()):8.0f}')

@@ -14,7 +14,8 @@ RUNGS = ['stockpile_wood', 'stockpile_stone', 'gather_iron_ore_3', 'craft_stone_
 
 
 def rung(m):
-    return (m or '').replace('+prereq', '')
+    import re
+    return re.sub(r'#\d+', '', m or '').replace('+prereq', '')
 
 
 days = sorted(Y)
@@ -60,3 +61,17 @@ for d in days:
                     lap += n
         vals.append(f'{100 * lap / tot:17.1f}%' if tot else '   -')
     print(f'{d:10s} ' + ' '.join(vals))
+
+
+print('\ngather successes per decision on gather_dirt_16 (+prereq folded), fleet, daily')
+import re as _re
+for d in days:
+    n = ok = 0
+    for w, ms in Y[d].items():
+        for m, ks in ms.items():
+            if _re.sub(r'#\d+', '', m).replace('+prereq', '') == 'gather_dirt_16':
+                for k, st in ks.items():
+                    n += sum(st.values())
+                    if k == 'gather':
+                        ok += st.get('success', 0)
+    print(f'   {d} {ok / n:.3f} (decisions {n:.0f})')

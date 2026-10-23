@@ -89,6 +89,73 @@ placebo-a    0.57  0.56  0.39  0.36  0.40  0.49  0.43  0.39  0.33  0.41  0.35  0
 placebo-b    0.55  0.41  0.60  0.61  0.27  0.47  0.42  0.35  0.33  0.35  0.29  0.14  0.48  0.18  0.13  0.11
 placebo-c    0.18  0.22  0.14  0.13  0.14  0.33  0.23  0.28  0.30  0.29  0.30  0.25  0.40  0.33  0.24  0.29
 placebo-d    0.41  0.41  0.33  0.39  0.38  0.36  0.38  0.41  0.36  0.43  0.28  0.14  0.32  0.32  0.27  0.09
+################ python3 decompose.py
+
+=== gather successes/day: 13,634 -> 11,813 (delta -1,821)
+  row                                                     succ/day (x16/15)   change   decisions/day (15 worlds)   succ per decision
+  T  board-d excess over the other 15 worlds                                    -564
+  wood rungs (stockpile_wood, gather_oak_log_12)            3669 ->     194    -3474      19394 ->     3967        0.177 -> 0.046
+  stone rungs (stockpile_stone, gather_cobblestone_8)       2418 ->     409    -2009      14355 ->     2229        0.158 -> 0.172
+  iron rung (gather_iron_ore_3)                              588 ->     565      -23      23612 ->    15267        0.023 -> 0.035
+  tool/station rungs (craft_*)                                15 ->      19       +5      11419 ->     2561        0.001 -> 0.007
+  smelt rungs (smelt_*)                                        0 ->       0       +0        337 ->      519        0.000 -> 0.000
+  dirt rung (gather_dirt_16)                                6576 ->   10686    +4110      27356 ->    33100        0.225 -> 0.303
+  sand rung (gather_sand_8)                                  243 ->     269      +26      15024 ->    14743        0.015 -> 0.017
+  lap rungs (patrol, return, idle)                            46 ->     158     +112      35314 ->    70706        0.001 -> 0.002
+  deposit_surplus                                              6 ->       4       -2       4678 ->     5375        0.001 -> 0.001
+  anything else                                                0 ->       0       +0          0 ->        0        0.000 -> 0.000
+  R  successes not reached by an LLM decision                                     -1
+  SUM                                                                          -1821   (check vs delta -1821: +0.00)
+
+=== mine successes/day: 8,114 -> 5,832 (delta -2,282)
+  row                                                     succ/day (x16/15)   change   decisions/day (15 worlds)   succ per decision
+  T  board-d excess over the other 15 worlds                                    -129
+  wood rungs (stockpile_wood, gather_oak_log_12)              18 ->       5      -14      19394 ->     3967        0.001 -> 0.001
+  stone rungs (stockpile_stone, gather_cobblestone_8)        709 ->      96     -613      14355 ->     2229        0.046 -> 0.040
+  iron rung (gather_iron_ore_3)                             6465 ->    4191    -2274      23612 ->    15267        0.257 -> 0.257
+  tool/station rungs (craft_*)                                 1 ->       1       +0      11419 ->     2561        0.000 -> 0.001
+  smelt rungs (smelt_*)                                        0 ->       0       +0        337 ->      519        0.000 -> 0.000
+  dirt rung (gather_dirt_16)                                 591 ->    1309     +718      27356 ->    33100        0.020 -> 0.037
+  sand rung (gather_sand_8)                                  383 ->     412      +29      15024 ->    14743        0.024 -> 0.026
+  lap rungs (patrol, return, idle)                            34 ->      35       +1      35314 ->    70706        0.001 -> 0.000
+  deposit_surplus                                              1 ->       0       -1       4678 ->     5375        0.000 -> 0.000
+  anything else                                                0 ->       0       +0          0 ->        0        0.000 -> 0.000
+  R  successes not reached by an LLM decision                                     +1
+  SUM                                                                          -2282   (check vs delta -2282: +0.00)
+
+=== craft successes/day: 880 -> 584 (delta -296)
+  row                                                     succ/day (x16/15)   change   decisions/day (15 worlds)   succ per decision
+  T  board-d excess over the other 15 worlds                                     -22
+  wood rungs (stockpile_wood, gather_oak_log_12)              14 ->       1      -13      19394 ->     3967        0.001 -> 0.000
+  stone rungs (stockpile_stone, gather_cobblestone_8)        243 ->      15     -228      14355 ->     2229        0.016 -> 0.006
+  iron rung (gather_iron_ore_3)                               48 ->      14      -34      23612 ->    15267        0.002 -> 0.001
+  tool/station rungs (craft_*)                               450 ->     460      +10      11419 ->     2561        0.037 -> 0.168
+  smelt rungs (smelt_*)                                        0 ->       0       +0        337 ->      519        0.000 -> 0.000
+  dirt rung (gather_dirt_16)                                  58 ->      42      -16      27356 ->    33100        0.002 -> 0.001
+  sand rung (gather_sand_8)                                   20 ->       8      -12      15024 ->    14743        0.001 -> 0.000
+  lap rungs (patrol, return, idle)                            37 ->      61      +23      35314 ->    70706        0.001 -> 0.001
+  deposit_surplus                                             11 ->       6       -5       4678 ->     5375        0.002 -> 0.001
+  anything else                                                0 ->       0       +0          0 ->        0        0.000 -> 0.000
+  R  successes not reached by an LLM decision                                     -0
+  SUM                                                                           -296   (check vs delta -296: -0.00)
+
+ATTRIBUTION (events/day): (a) / (b) / (c) / unexplained / R
+  gather change   -1821 = (a)   -3399  (b)   -427  (c)   -564  unexplained  +2570  R   -1
+  mine   change   -2282 = (a)   -2707  (b)     +0  (c)   -129  unexplained   +553  R   +1
+  craft  change    -296 = (a)    -220  (b)     +0  (c)    -22  unexplained    -53  R   -0
+
+FLEET (16 worlds) LLM decisions per day by rung group, BASE -> END (+prereq and lap numbers folded)
+  wood rungs (stockpile_wood, gather_oak_log_12)          20162 ->     4591   -15571
+  stone rungs (stockpile_stone, gather_cobblestone_8)     15306 ->     3140   -12166
+  iron rung (gather_iron_ore_3)                           24883 ->    16300    -8583
+  tool/station rungs (craft_*)                            11858 ->     2932    -8926
+  smelt rungs (smelt_*)                                     350 ->      545     +195
+  dirt rung (gather_dirt_16)                              29112 ->    34872    +5760
+  sand rung (gather_sand_8)                               15957 ->    15640     -317
+  lap rungs (patrol, return, idle)                        37911 ->    76504   +38593
+  deposit_surplus                                          4978 ->     5504     +525
+  anything else                                               0 ->        0       +0
+  TOTAL                                                  160517 ->   160028
 ################ python3 mix_shift.py
 BASE ['2026-10-08', '2026-10-09', '2026-10-10']  END ['2026-10-20', '2026-10-21', '2026-10-22']  worlds all
 
@@ -105,20 +172,20 @@ idle                             1719     9411    +7692
 deposit_surplus                  4958     5496     +537
 craft_stone_pickaxe_1            5196      813    -4383
 craft_crafting_table_1           3374     1045    -2329
+gather_iron_ore_3+prereq         2466     1129    -1337
 craft_furnace_1                  2668      749    -1919
 gather_dirt_16+prereq            2028      692    -1336
 idle+prereq                      1576      805     -771
 gather_oak_log_12                2168      192    -1976
 gather_cobblestone_8             1728      492    -1236
+stockpile_stone+prereq           1723      459    -1265
+return+prereq                    1457      634     -824
 gather_sand_8+prereq             1239      386     -853
+stockpile_wood+prereq            1048      385     -663
 gather_oak_log_12+prereq         1067      366     -701
-gather_cobblestone_8+prereq       860      421     -439
-smelt_iron_ingot_3                341      545     +205
-craft_wooden_pickaxe_1            360       58     -302
-craft_iron_pickaxe_1               76      143      +67
 TOTAL                          160517   160028     -489
 
-== gather successes/day: base 13633  end 11812  delta -1820  = demand -2104 + yield +283  (check -0.0)
+== gather successes/day: base 13633  end 11812  delta -1820  = demand -2108 + yield +287  (check +0.0)
    gather_dirt_16               succ    6506 ->   10250   demand   +1916  yield   +1828
    stockpile_wood               succ    3165 ->     175   demand   -1512  yield   -1479
    stockpile_stone              succ    2140 ->     374   demand   -1875  yield    +109
@@ -126,29 +193,29 @@ TOTAL                          160517   160028     -489
    gather_iron_ore_3            succ     518 ->     489   demand    -200  yield    +172
    gather_cobblestone_8         succ     268 ->      10   demand    -109  yield    -149
    idle                         succ      26 ->     138   demand    +115  yield      -3
-   gather_dirt_16+prereq        succ      70 ->      11   demand     -34  yield     -25
+   gather_iron_ore_3+prereq     succ      72 ->      54   demand     -51  yield     +34
 
-== mine successes/day: base 8114  end 5832  delta -2283  = demand -2434 + yield +151  (check -0.0)
+== mine successes/day: base 8114  end 5832  delta -2283  = demand -2380 + yield +98  (check +0.0)
    gather_iron_ore_3            succ    6144 ->    3962   demand   -1939  yield    -242
    gather_dirt_16               succ     595 ->    1260   demand    +209  yield    +456
    stockpile_stone              succ     629 ->      87   demand    -492  yield     -50
+   gather_iron_ore_3+prereq     succ     250 ->      86   demand    -119  yield     -45
    gather_cobblestone_8         succ      58 ->       2   demand     -24  yield     -32
    gather_sand_8                succ     370 ->     389   demand     +14  yield      +6
    idle                         succ       2 ->      19   demand     +12  yield      +5
    stockpile_wood               succ      16 ->       5   demand     -14  yield      +3
-   gather_dirt_16+prereq        succ       0 ->       4   demand      -4  yield      +7
 
-== craft successes/day: base 880  end 584  delta -296  = demand -1200 + yield +904  (check +0.0)
+== craft successes/day: base 880  end 584  delta -296  = demand -1147 + yield +851  (check +0.0)
    craft_stone_pickaxe_1        succ     219 ->     208   demand    -653  yield    +642
    craft_furnace_1              succ      88 ->     149   demand    -222  yield    +283
    craft_crafting_table_1       succ      87 ->      53   demand     -89  yield     +55
    stockpile_stone              succ     152 ->      10   demand     -91  yield     -51
+   stockpile_stone+prereq       succ      76 ->       1   demand     -30  yield     -45
    gather_dirt_16+prereq        succ      52 ->      28   demand     -44  yield     +21
    craft_iron_pickaxe_1         succ      33 ->      26   demand     +21  yield     -28
    idle                         succ       6 ->      43   demand     +30  yield      +7
-   gather_iron_ore_3            succ      34 ->      11   demand      -8  yield     -15
 
-== town_deposit successes/day: base 349  end 157  delta -193  = demand +49 + yield -242  (check +0.0)
+== town_deposit successes/day: base 349  end 157  delta -193  = demand +51 + yield -243  (check +0.0)
    patrol                       succ      87 ->      52   demand     +61  yield     -96
    gather_dirt_16               succ     151 ->      74   demand     +27  yield    -105
    gather_iron_ore_3            succ      37 ->       7   demand      -8  yield     -22
@@ -158,7 +225,7 @@ TOTAL                          160517   160028     -489
    craft_crafting_table_1       succ       5 ->       3   demand      -5  yield      +3
    idle                         succ       1 ->       2   demand      +4  yield      -3
 
-== deposit successes/day: base 460  end 171  delta -289  = demand -42 + yield -247  (check -0.0)
+== deposit successes/day: base 460  end 171  delta -289  = demand -39 + yield -250  (check +0.0)
    stockpile_stone              succ     140 ->       1   demand     -61  yield     -77
    deposit_surplus              succ     166 ->     104   demand     +14  yield     -76
    gather_dirt_16               succ      42 ->      11   demand      +7  yield     -38
@@ -168,7 +235,7 @@ TOTAL                          160517   160028     -489
    idle                         succ       3 ->       6   demand      +8  yield      -5
    craft_stone_pickaxe_1        succ       1 ->       2   demand      -5  yield      +6
 
-== explore successes/day: base 9022  end 11640  delta +2618  = demand +5065 + yield -2448  (check -0.0)
+== explore successes/day: base 9022  end 11640  delta +2618  = demand +5058 + yield -2440  (check -0.0)
    patrol                       succ    4547 ->    8979   demand   +4828  yield    -397
    gather_dirt_16               succ    2229 ->    1390   demand    +436  yield   -1275
    idle                         succ     122 ->     325   demand    +406  yield    -204
@@ -178,17 +245,17 @@ TOTAL                          160517   160028     -489
    gather_oak_log_12            succ     135 ->       3   demand     -75  yield     -57
    gather_iron_ore_3            succ     368 ->     240   demand    -117  yield     -11
 
-== goto successes/day: base 4537  end 6462  delta +1925  = demand +3019 + yield -1094  (check -0.0)
+== goto successes/day: base 4537  end 6462  delta +1925  = demand +3027 + yield -1102  (check -0.0)
    patrol                       succ    1861 ->    2872   demand   +1766  yield    -755
    return                       succ    1576 ->    2935   demand   +1421  yield     -62
    gather_dirt_16               succ     294 ->     195   demand     +59  yield    -158
    gather_iron_ore_3            succ     511 ->     321   demand    -159  yield     -31
    stockpile_stone              succ      52 ->       2   demand     -27  yield     -23
    gather_sand_8                succ     146 ->     107   demand      +5  yield     -44
+   gather_iron_ore_3+prereq     succ      27 ->       8   demand     -12  yield      -7
    gather_oak_log_12            succ      17 ->       1   demand     -13  yield      -3
-   gather_cobblestone_8         succ      13 ->       0   demand      -5  yield      -9
 
-== toolkit successes/day: base 0  end 282  delta +282  = demand +31 + yield +251  (check +0.0)
+== toolkit successes/day: base 0  end 282  delta +282  = demand +30 + yield +252  (check +0.0)
    gather_dirt_16               succ       0 ->     152   demand     +16  yield    +137
    patrol                       succ       0 ->      94   demand     +25  yield     +69
    gather_sand_8                succ       0 ->      14   demand      +0  yield     +13
@@ -200,116 +267,283 @@ TOTAL                          160517   160028     -489
 ################ python3 rung_series.py
 FLEET decisions per day by rung (+prereq folded in)
 day        stockpile_w stockpile_s gather_iron craft_stone gather_dirt gather_sand      patrol      return        idle deposit_sur      total
-2026-10-08       16192       11086       21279        5037       28084       16200       17468       16529        2399        4430     158591
-2026-10-09       15586       11604       22837        5307       28691       15453       16508       16387        2724        5174     160579
-2026-10-10       15859       10292       23133        5244       30561       16218       14843       16233        4763        5271     162381
-2026-10-11       16661        7618       21393        2082       31622       15808       19394       17888        4018        6805     160176
-2026-10-12        9920        5594       22365        2951       31482       16779       24611       18987        5194        7874     161674
-2026-10-13       11751        5562       23712        3392       33235       15979       21598       21494        4552        6431     162828
-2026-10-14        8301        2027       22571        1335       35529       16503       24613       23251        4872        5596     157928
-2026-10-15        8292        2026       22379        1739       35770       16515       23027       26443        5889        6024     161873
-2026-10-16        7896        2722       22267         994       35635       17485       23271       24007        4644        5687     157951
-2026-10-17        7804        2323       23129        1270       37375       16637       22881       26526        5702        4927     159324
-2026-10-18        2754        1085       19442        1158       36014       17225       32029       28748        8137        6011     161325
-2026-10-19        2866        1127       20055        1432       36809       16679       30973       30142       10434        3623     165003
-2026-10-20        3353        1173       17278        1230       35959       15073       32735       30144        9962        5312     160559
-2026-10-21        3969        2152       15336         640       34203       15120       35033       31464       10429        5562     160382
-2026-10-22        3622        1978       12898         570       34454       16728       34390       32464       10256        5613     159142
-2026-10-23        2831         984       10145         186       27923       12306       26250       23884        4569        3787     116986
+2026-10-08       17246       12647       23603        5066       28084       16200       17877       18072        2399        4447     158591
+2026-10-09       16748       13487       25301        5365       28691       15453       17131       17898        2724        5204     160579
+2026-10-10       16787       12018       25744        5252       30561       16218       15318       17551        4763        5284     162381
+2026-10-11       17654        9168       23408        2087       31622       15808       20099       19233        4018        6836     160176
+2026-10-12       10881        6798       24033        2959       31482       16779       25146       19981        5194        7931     161674
+2026-10-13       12461        6520       25496        3426       33235       15979       22218       22448        4552        6468     162828
+2026-10-14        9043        2957       24794        1335       35529       16503       25180       24109        4872        5661     157928
+2026-10-15        8989        2825       24570        1750       35770       16515       23583       27418        5889        6044     161873
+2026-10-16        8640        3460       24382         999       35635       17485       23673       24854        4644        5703     157951
+2026-10-17        8217        2925       24945        1275       37375       16637       23136       27267        5702        4948     159324
+2026-10-18        3222        1564       21245        1166       36014       17225       32452       29353        8137        6060     161325
+2026-10-19        3228        1531       21651        1481       36809       16679       31486       31050       10434        3629     165003
+2026-10-20        3745        1694       18485        1249       35959       15073       33030       30868        9962        5317     160559
+2026-10-21        4310        2547       16579         645       34203       15120       35221       31984       10429        5581     160382
+2026-10-22        4044        2438       13835         570       34454       16728       34642       33121       10256        5613     159142
+2026-10-23        3113        1307       11347         187       28985       12725       27333       25241        4869        3954     121407
 
 SHARE of decisions on the production rungs (stockpile_wood+stockpile_stone+gather_iron_ore_3+craft_*+gather_oak/cobble) by group
 day        orig(~47d on 10-09     isolated(orig)       reseed 09-19       reseed 09-27
-2026-10-08              44.0%              37.3%              37.0%              46.2%
-2026-10-09              40.6%              38.0%              45.8%              47.7%
-2026-10-10              42.6%              38.1%              37.0%              45.6%
-2026-10-11              38.2%              34.1%              31.1%              37.9%
-2026-10-12              32.2%              30.3%              24.7%              36.2%
-2026-10-13              34.9%              32.0%              24.0%              37.4%
-2026-10-14              28.1%              27.7%              23.2%              25.4%
-2026-10-15              28.7%              30.3%              21.0%              22.3%
-2026-10-16              29.7%              32.6%              18.6%              20.5%
-2026-10-17              28.8%              31.3%              15.7%              21.5%
-2026-10-18              21.6%              15.0%              16.3%              17.0%
-2026-10-19              22.5%              15.8%              19.0%              19.7%
-2026-10-20              18.7%              18.3%              16.9%              15.4%
-2026-10-21              19.2%              15.7%              11.5%              14.0%
-2026-10-22              15.5%              15.2%               9.3%              13.2%
-2026-10-23              15.9%              13.7%               8.4%              14.3%
+2026-10-08              49.0%              38.8%              39.7%              48.1%
+2026-10-09              46.1%              39.7%              48.6%              49.9%
+2026-10-10              47.6%              40.3%              39.3%              47.6%
+2026-10-11              42.7%              35.6%              33.4%              39.8%
+2026-10-12              36.2%              31.8%              25.9%              37.5%
+2026-10-13              38.3%              33.3%              25.0%              39.0%
+2026-10-14              32.2%              29.2%              25.1%              26.6%
+2026-10-15              32.3%              31.6%              22.4%              23.8%
+2026-10-16              33.3%              34.5%              19.7%              21.8%
+2026-10-17              31.6%              32.9%              17.1%              22.0%
+2026-10-18              24.7%              15.4%              17.2%              18.2%
+2026-10-19              24.7%              16.7%              19.9%              20.7%
+2026-10-20              20.8%              19.0%              18.2%              16.2%
+2026-10-21              21.1%              16.2%              12.4%              15.0%
+2026-10-22              17.6%              15.8%               9.9%              13.8%
+2026-10-23              17.8%              14.0%               9.1%              15.0%
 
 SHARE of decisions on patrol+return+idle by group
-2026-10-08              21.7%              23.6%              26.9%              22.2%
-2026-10-09              23.1%              20.8%              24.3%              21.0%
-2026-10-10              21.5%              20.4%              26.9%              22.2%
-2026-10-11              23.1%              26.2%              33.4%              25.7%
-2026-10-12              25.7%              31.5%              43.1%              29.4%
-2026-10-13              26.3%              30.3%              40.5%              27.1%
-2026-10-14              28.7%              32.0%              39.2%              39.1%
-2026-10-15              30.0%              30.1%              42.6%              40.6%
-2026-10-16              28.8%              25.1%              40.7%              43.1%
-2026-10-17              31.5%              26.6%              44.1%              42.8%
-2026-10-18              37.7%              43.4%              43.8%              49.3%
-2026-10-19              41.0%              43.6%              46.6%              45.2%
-2026-10-20              42.6%              44.6%              46.6%              49.8%
-2026-10-21              42.2%              45.6%              61.7%              52.7%
-2026-10-22              46.3%              44.5%              60.5%              50.2%
-2026-10-23              40.1%              49.4%              55.4%              50.0%
+2026-10-08              24.2%              24.2%              27.9%              22.4%
+2026-10-09              25.7%              21.4%              25.1%              21.4%
+2026-10-10              23.3%              21.2%              27.7%              22.7%
+2026-10-11              25.8%              26.6%              33.6%              26.2%
+2026-10-12              27.4%              32.1%              43.7%              29.6%
+2026-10-13              28.5%              30.6%              40.7%              27.3%
+2026-10-14              30.1%              32.7%              39.9%              39.6%
+2026-10-15              32.0%              30.3%              42.9%              41.2%
+2026-10-16              30.3%              25.5%              40.9%              43.5%
+2026-10-17              32.6%              27.1%              44.4%              42.9%
+2026-10-18              38.9%              43.6%              44.1%              49.6%
+2026-10-19              42.5%              44.2%              47.0%              45.5%
+2026-10-20              43.9%              44.8%              47.3%              49.9%
+2026-10-21              43.1%              45.8%              61.7%              52.9%
+2026-10-22              47.3%              44.8%              60.7%              50.4%
+2026-10-23              41.1%              49.5%              55.6%              50.5%
+
+gather successes per decision on gather_dirt_16 (+prereq folded), fleet, daily
+   2026-10-08 0.224 (decisions 28084)
+   2026-10-09 0.236 (decisions 28691)
+   2026-10-10 0.217 (decisions 30561)
+   2026-10-11 0.264 (decisions 31622)
+   2026-10-12 0.285 (decisions 31482)
+   2026-10-13 0.264 (decisions 33235)
+   2026-10-14 0.278 (decisions 35529)
+   2026-10-15 0.235 (decisions 35770)
+   2026-10-16 0.245 (decisions 35635)
+   2026-10-17 0.261 (decisions 37375)
+   2026-10-18 0.289 (decisions 36014)
+   2026-10-19 0.247 (decisions 36809)
+   2026-10-20 0.277 (decisions 35959)
+   2026-10-21 0.300 (decisions 34203)
+   2026-10-22 0.307 (decisions 34454)
+   2026-10-23 0.299 (decisions 28985)
+################ python3 rung_state.py
+== BASE 2026-10-08..2026-10-10: 74794 sampled decisions (15 worlds); with NO perception recorded: 0 (0.00%)
+   stockpile_wood     fulfilled  60.8%  bypassed   0.0%  outstanding  39.2%
+   crafting_table     fulfilled  84.6%  bypassed   2.3%  outstanding  13.1%
+   wooden_pickaxe     fulfilled  90.3%  bypassed   7.2%  outstanding   2.5%
+   stone_pickaxe      fulfilled  50.1%  bypassed  29.9%  outstanding  20.0%
+   furnace            fulfilled  84.6%  bypassed   3.3%  outstanding  12.1%
+   gather_iron_ore_3  fulfilled  18.1%  bypassed  46.3%  outstanding  35.6%
+   stockpile_stone    fulfilled  58.4%  bypassed   0.0%  outstanding  41.6%
+   every production rung closed: 14.3% of decisions; of those, closed with >= 1 bypass: 52.5%
+   decisions that NEED iron (< 3 carried): 61260 (81.9%); of them iron ore within 32 m 97.9%, trip pickaxe 44.3%
+== END 2026-10-20..2026-10-22: 73979 sampled decisions (15 worlds); with NO perception recorded: 0 (0.00%)
+   stockpile_wood     fulfilled  85.0%  bypassed   0.0%  outstanding  15.0%
+   crafting_table     fulfilled  94.1%  bypassed   1.5%  outstanding   4.4%
+   wooden_pickaxe     fulfilled  97.3%  bypassed   1.8%  outstanding   1.0%
+   stone_pickaxe      fulfilled  81.5%  bypassed   9.4%  outstanding   9.1%
+   furnace            fulfilled  88.7%  bypassed   1.6%  outstanding   9.8%
+   gather_iron_ore_3  fulfilled  64.7%  bypassed  13.5%  outstanding  21.9%
+   stockpile_stone    fulfilled  90.8%  bypassed   0.0%  outstanding   9.2%
+   every production rung closed: 50.3% of decisions; of those, closed with >= 1 bypass: 8.9%
+   decisions that NEED iron (< 3 carried): 26148 (35.3%); of them iron ore within 32 m 94.4%, trip pickaxe 65.1%
+
+== SCENARIO A (wood): wood-rung decisions only (stockpile_wood + gather_oak_log_12), 15 worlds, sample
+   BASE: n 8823; a log (oak/birch/spruce: the only species perception scans) within 16 m in 82.4%; gather success per decision visible 19.9% (n 7270), not visible 4.8% (n 1553)
+   END: n 2401; a log (oak/birch/spruce: the only species perception scans) within 16 m in 59.8%; gather success per decision visible 5.6% (n 1436), not visible 1.2% (n 965)
+   per-decision gather success 17.3% -> 3.9%; visibility part -3.4 pp (BASE gap 15.2 pp); priced at mean wood-rung decisions 11,681/day x 16/15: -427 gather successes/day
+
+== SCENARIO B (iron): decisions that need iron (< 3 carried) AND hold a trip pickaxe, 15 worlds, sample
+   iron ore within 32 m: BASE 98.1% (n 27112) -> END 95.1% (n 17024)
+     feet > 8 below home         :  99.9% (n 15137) ->  99.7% (n 12377)
+     within 8 of home y or above :  95.8% (n 11975) ->  83.0% (n 4647)
+   END iron-rung decisions 15,267/day (mine yield 0.257); displaced non-production decisions yield 0.013 mine/decision; extra iron-rung decisions had the sightline held at BASE 476/day; net -124 mine successes/day (x 16/15)
+################ python3 wood_selection.py
+world                 n   success/decision    log within 16 m
+board-a       725/  358     20.6->  0.8%     89.0-> 89.4%
+board-b       728/   10     19.4-> 60.0%     83.5-> 80.0%
+board-c       234/    3     43.6->100.0%     96.2-> 66.7%
+board-d       364/  364     35.7->  0.8%     95.3-> 97.0%
+hive-a       1582/  306     11.3->  6.2%     90.1-> 49.3%
+hive-b       1021/   67     16.1->  7.5%     90.3-> 88.1%
+hive-c        999/  129     17.6-> 10.9%     97.5-> 63.6%
+hive-d        328/  371     14.9->  2.2%     97.0-> 61.2%
+isolated-a    300/    7     23.3-> 28.6%     83.3->100.0%
+isolated-b    387/    3     30.7-> 66.7%     80.1-> 33.3%
+isolated-c    484/  154     17.4->  1.3%     93.2->100.0%
+isolated-d    207/  301     35.7->  3.0%     98.1-> 99.0%
+placebo-a     403/   93     16.1->  6.5%     47.1-> 18.3%
+placebo-b     234/   16     29.9-> 31.2%     95.3-> 62.5%
+placebo-c     840/  359      1.4->  0.0%     36.5-> 19.2%
+placebo-d     351/  224     20.2->  4.0%     62.1-> 13.8%
+
+(>= 50 END decisions, board-d out, weighted by END decisions)
+worlds where log sight HELD (>= -2 pp; ['board-a', 'isolated-c', 'isolated-d']): success per decision -23.9 pp, sight +1.8 pp
+worlds where log sight FELL > 15 pp (['hive-a', 'hive-c', 'hive-d', 'placebo-a', 'placebo-c', 'placebo-d']): success per decision -8.2 pp, sight -33.6 pp
+depletion predicts the larger success fall where sight fell; selection predicts no such ordering
+
+chronic bots: sampled wood-rung decisions from bots with >= 50 of them and ZERO gather successes
+   BASE: 1207 of 9187 decisions (13.1%) from 5 bots ['board-a-Comet', 'isolated-c-Alpha', 'placebo-c-Alpha', 'placebo-c-Bravo', 'placebo-c-Echo']; success per decision without them 0.207 (n 7980)
+   END: 1656 of 2765 decisions (59.9%) from 10 bots ['board-a-Comet', 'board-d-Alpha', 'board-d-Comet', 'hive-d-Comet', 'hive-d-Echo', 'isolated-c-Alpha', 'isolated-d-Bravo', 'placebo-c-Bravo', 'placebo-c-Echo', 'placebo-d-Delta']; success per decision without them 0.087 (n 1109)
+################ python3 board_d_window.py
+(1) gather ok per bot-h, board-d vs mean of the other 15 worlds (120 bot-h per world-day)
+   2026-10-08  board-d  8.26  others  7.13  diff +1.13   board-d float   1.7 h
+   2026-10-09  board-d  6.96  others  7.16  diff -0.21   board-d float   1.0 h
+   2026-10-10  board-d  7.78  others  6.90  diff +0.88   board-d float   2.2 h
+   2026-10-11  board-d  9.64  others  7.57  diff +2.07   board-d float   1.3 h
+   2026-10-12  board-d  6.46  others  7.11  diff -0.65   board-d float   0.8 h
+   2026-10-13  board-d  9.91  others  6.94  diff +2.97   board-d float   1.8 h
+   2026-10-14  board-d  8.29  others  7.12  diff +1.17   board-d float   1.3 h
+   2026-10-15  board-d  5.60  others  6.30  diff -0.70   board-d float   1.0 h
+   2026-10-16  board-d  6.08  others  6.53  diff -0.46   board-d float  22.2 h
+   2026-10-17  board-d  4.41  others  6.85  diff -2.45   board-d float  47.9 h
+   2026-10-18  board-d  2.38  others  6.30  diff -3.92   board-d float  66.6 h
+   2026-10-19  board-d  1.41  others  5.57  diff -4.17   board-d float  66.6 h
+   2026-10-20  board-d  2.32  others  6.07  diff -3.75   board-d float  66.3 h
+   2026-10-21  board-d  2.23  others  6.53  diff -4.30   board-d float  66.5 h
+   2026-10-22  board-d  2.38  others  6.63  diff -4.26   board-d float  66.6 h
+
+(2) 02:00-17:00Z, per bot-h (bots seen: 10-22 {'others': 75, 'board-d': 5}, 10-23 {'others': 75, 'board-d': 5}; 15 h each)
+   gather_ok board-d   2.60 ->   5.03   others   6.58 ->   6.62   DiD +2.39
+   mine_ok   board-d   1.04 ->   6.20   others   2.74 ->   2.94   DiD +4.95
+   float_h   board-d   0.56 ->   0.02   others   0.01 ->   0.01   DiD -0.53
+################ python3 skips_uptime.py
+== BASE: _milestone_skipped 1019/day; by rung (per day): gather_sand_8 277, return 133, patrol 123, gather_dirt_16 117, stockpile_wood 63, craft_stone_pickaxe_1 58, deposit_surplus 51, stockpile_stone 45, gather_iron_ore_3 42, craft_crafting_table_1 39, craft_furnace_1 26, gather_oak_log_12 21, gather_cobblestone_8 19, craft_wooden_pickaxe_1 2
+   bot x 10-min bins with >= 1 decision: 11,520, 11,520, 11,520 of 11,520 a day (100.00%)
+== END: _milestone_skipped 926/day; by rung (per day): gather_sand_8 279, patrol 233, return 209, gather_dirt_16 52, stockpile_wood 37, gather_iron_ore_3 31, deposit_surplus 27, stockpile_stone 15, gather_cobblestone_8 14, craft_crafting_table_1 13, gather_oak_log_12 7, craft_furnace_1 5, craft_stone_pickaxe_1 2, craft_wooden_pickaxe_1 0
+   bot x 10-min bins with >= 1 decision: 11,520, 11,520, 11,520 of 11,520 a day (100.00%)
+################ python3 journal_events.py
+BASE: 9 events, of which promoted 3, deployed 5, torn-down 1, owner-direct 0
+    2026-10-08T00:17 towndeposit-02 deployed
+    2026-10-08T06:31 towndeposit-02 promoted
+    2026-10-08T07:36 airpocket-01 deployed
+    2026-10-08T19:52 airpocket-01 promoted
+    2026-10-10T02:00 withdraw2-01 deployed
+    2026-10-10T05:06 withdraw2-01 torn-down
+    2026-10-10T05:18 toolhygiene-01 deployed
+    2026-10-10T11:31 toolhygiene-01 promoted
+    2026-10-10T19:17 peacefulkit-02 deployed
+END: 19 events, of which promoted 6, deployed 9, torn-down 3, owner-direct 1
+    2026-10-20T04:55 brain-01 torn-down
+    2026-10-20T05:10 cobblekeep-01 deployed
+    2026-10-20T11:23 cobblekeep-01 promoted
+    2026-10-20T11:37 bagbudget-01 deployed
+    2026-10-20T17:57 bagbudget-01 torn-down
+    2026-10-20T19:24 homefix-01 deployed
+    2026-10-21T01:03 homefix-01 torn-down
+    2026-10-21T01:14 toolkit-03 deployed
+    2026-10-21T13:37 toolkit-03 promoted
+    2026-10-21T13:53 isolated2shared-01 owner-direct
+    2026-10-21T18:09 homefix-02 deployed
+    2026-10-22T00:28 homefix-02 promoted
+    2026-10-22T00:38 ironpick-01 deployed
+    2026-10-22T06:56 ironpick-01 promoted
+    2026-10-22T07:07 keepout-01 deployed
+    2026-10-22T13:22 keepout-01 promoted
+    2026-10-22T13:39 protectzone-01 deployed
+    2026-10-22T16:54 protectzone-01 promoted
+    2026-10-22T18:59 townindex-01 deployed
+
+fleet-wide changes (promoted), 10-08 .. 10-23:
+    2026-10-08T06:31 towndeposit-02 promoted
+    2026-10-08T19:52 airpocket-01 promoted
+    2026-10-10T11:31 toolhygiene-01 promoted
+    2026-10-11T01:32 peacefulkit-02 promoted
+    2026-10-11T19:31 junkwell-02 promoted
+    2026-10-12T18:20 gridfix-01 promoted
+    2026-10-13T19:50 stocktarget-01 promoted
+    2026-10-14T02:19 orderroom-01 promoted
+    2026-10-14T11:10 digtown-01 promoted
+    2026-10-14T17:44 stocktarget-02 promoted
+    2026-10-15T19:33 wellsite-04 promoted
+    2026-10-16T05:02 townzone-01 promoted
+    2026-10-16T11:54 cobblecap-1000 promoted
+    2026-10-16T23:14 lidclear-01 promoted
+    2026-10-17T12:34 plinth-02 promoted
+    2026-10-17T19:53 smeltjob-01 promoted
+    2026-10-17T20:03 plinth-02.1 promoted
+    2026-10-17T22:46 logcap-01 promoted
+    2026-10-18T06:27 toolkit-02 promoted
+    2026-10-18T12:48 wellcare-01 promoted
+    2026-10-19T01:16 townsearch-02 promoted
+    2026-10-19T01:26 plinthfirst-01 promoted
+    2026-10-20T11:23 cobblekeep-01 promoted
+    2026-10-21T13:37 toolkit-03 promoted
+    2026-10-22T00:28 homefix-02 promoted
+    2026-10-22T06:56 ironpick-01 promoted
+    2026-10-22T13:22 keepout-01 promoted
+    2026-10-22T16:54 protectzone-01 promoted
+    2026-10-23T01:17 townindex-01 promoted
+    2026-10-23T08:05 poolescape-01 promoted
 ################ python3 rung_did.py
 CANARY DiD of rung shares (percentage points of all decisions; z vs 300 placebo draws)
 run                       wood         stone          iron         craft           lap          dirt
-toolhygiene-01     +7.4(z+1.3)   -6.6(z-0.8)  +11.0(z+1.6)   +0.3(z+0.1)   -8.2(z-1.5)   -2.8(z-0.8)
-peacefulkit-02     -6.0(z-0.5)   +1.7(z+0.3)   -5.2(z-1.1)   +2.8(z+0.8)   +3.6(z+0.3)   +2.3(z+0.5)
-junkwell-02        +1.2(z+0.2)   +1.7(z+0.4)   +6.4(z+1.3)   +1.7(z+0.6)   -5.4(z-1.2)   -0.7(z-0.2)
-gridfix-01         -0.5(z-0.1)   -0.9(z-0.2)   -4.3(z-0.9)   +3.3(z+2.2)   +2.5(z+0.6)   -0.2(z-0.0)
-stocktarget-01     -0.2(z-0.0)   +6.7(z+1.1)   -7.2(z-1.1)   +2.1(z+0.5)   +3.0(z+0.3)   +0.9(z+0.1)
-orderroom-01       +1.9(z+0.5)   -2.9(z-0.5)  +13.5(z+2.0)  -11.5(z-2.5)   -8.1(z-1.2)   +3.7(z+1.2)
-digtown-01         -0.6(z-0.1)   -5.6(z-2.9)   -5.9(z-0.5)   +4.5(z+1.5)   +5.3(z+0.7)   +3.1(z+0.6)
-stocktarget-02     +2.5(z+0.5)   -1.4(z-0.6)   -3.5(z-0.4)   +0.7(z+0.4)  +15.4(z+2.3)   -3.4(z-0.7)
-wellsite-04        +1.9(z+0.5)   +0.4(z+1.1)   -4.1(z-0.6)   +1.8(z+1.8)   +0.9(z+0.2)   +1.2(z+0.4)
-townzone-01        -3.7(z-2.2)   -0.9(z-0.7)   -1.0(z-0.2)   +3.6(z+1.4)   -8.3(z-1.3)   +2.1(z+0.5)
-cobblecap-1000     -2.0(z-0.7)   +1.8(z+1.4)   -6.4(z-0.7)   +1.4(z+0.6)   +2.7(z+0.3)   -3.4(z-0.5)
-lidclear-01        +2.4(z+0.7)   +0.3(z+0.1)   +8.6(z+2.0)   -1.9(z-3.0)   -0.0(z-0.0)   -7.9(z-1.1)
-smeltjob-01        +4.2(z+1.0)   -0.9(z-0.9)   -1.1(z-0.2)   -1.1(z-0.3)   +3.9(z+0.4)   +0.4(z+0.1)
-toolkit-02         -1.7(z-0.6)   +0.2(z+0.4)   -5.2(z-0.9)   +3.6(z+4.2)   -7.0(z-0.9)  +12.9(z+2.6)
-wellcare-01        +1.0(z+1.1)   -0.2(z-0.6)   -5.1(z-0.7)   +2.6(z+2.1)   -4.3(z-0.8)   -1.9(z-0.2)
-townsearch-02      -0.2(z-0.1)   +0.3(z+0.9)   +0.9(z+0.1)   +3.3(z+1.6)   +1.1(z+0.2)   -2.5(z-0.3)
-cobblekeep-01      +1.6(z+1.6)   +0.3(z+0.4)   -2.8(z-0.5)   -7.5(z-5.2)   -1.0(z-0.2)   +2.7(z+0.9)
-toolkit-03         +1.8(z+1.0)   +2.1(z+2.2)   +2.6(z+0.6)   -0.8(z-0.9)   -1.2(z-0.1)   -1.9(z-0.5)
-homefix-02         -1.3(z-0.7)   +0.5(z+0.2)   -4.4(z-0.6)   -1.2(z-4.9)  +16.1(z+3.7)   -2.9(z-1.0)
-ironpick-01        +3.1(z+3.2)   +2.1(z+1.2)   -0.2(z-0.0)   -0.0(z-0.0)   -8.0(z-2.2)   -1.8(z-0.5)
-keepout-01         +0.3(z+0.2)   +0.2(z+0.3)   -2.3(z-0.5)   -0.2(z-0.3)   +2.0(z+0.2)   -0.2(z-0.0)
-protectzone-01     -0.1(z-0.0)   -1.7(z-0.5)   +4.9(z+1.6)   -0.4(z-0.3)  -17.8(z-3.4)  +12.1(z+2.6)
-townindex-01       -3.6(z-6.6)   +2.7(z+1.6)   -0.7(z-0.1)   +0.3(z+0.4)   -2.9(z-0.4)   +0.3(z+0.1)
-poolescape-01      -2.7(z-1.6)   -1.6(z-2.1)   +2.1(z+0.5)   -0.2(z-0.1)   -5.2(z-0.7)   -2.5(z-0.5)
+toolhygiene-01     +5.8(z+1.1)   -8.8(z-1.0)  +10.2(z+1.8)   +2.3(z+0.4)   -5.2(z-0.7)   -2.0(z-0.7)
+peacefulkit-02     -7.1(z-0.5)   +3.3(z+0.4)   -4.2(z-0.8)   +4.2(z+1.2)   -1.6(z-0.1)   +2.2(z+0.4)
+junkwell-02        -4.0(z-0.8)   +1.9(z+0.4)  +10.4(z+1.7)   +1.6(z+0.5)   -4.7(z-0.9)   +2.1(z+0.4)
+gridfix-01         -0.8(z-0.1)   +0.1(z+0.0)   -3.5(z-0.7)   +3.0(z+1.7)   +0.3(z+0.1)   +0.4(z+0.1)
+stocktarget-01     +2.1(z+0.4)   +6.1(z+1.0)   -9.0(z-1.4)   +5.0(z+1.4)  +12.3(z+1.0)   +0.4(z+0.1)
+orderroom-01       +0.2(z+0.0)   -3.1(z-0.7)  +12.8(z+2.2)   -9.7(z-1.6)   -9.0(z-1.2)   +4.6(z+1.4)
+digtown-01         -0.6(z-0.1)   -5.2(z-2.8)   -5.7(z-0.5)   +5.1(z+2.4)   +2.4(z+0.3)   +5.0(z+1.1)
+stocktarget-02     +5.7(z+0.9)   -1.4(z-0.5)   +1.4(z+0.2)   +0.6(z+0.3)   +8.8(z+1.5)   -1.7(z-0.3)
+wellsite-04        +2.6(z+0.6)   -0.1(z-0.4)   -5.7(z-0.7)   +2.1(z+1.5)   +3.0(z+0.5)   +0.9(z+0.3)
+townzone-01        -2.9(z-1.0)   -0.8(z-0.6)   -2.0(z-0.3)   +2.3(z+0.8)   -7.7(z-1.1)   +2.1(z+0.5)
+cobblecap-1000     -1.1(z-0.3)   +0.8(z+0.7)   -6.6(z-0.7)   +1.7(z+0.7)   -2.5(z-0.2)   -3.1(z-0.5)
+lidclear-01        +3.0(z+0.7)   +0.2(z+0.1)   +9.2(z+1.7)   -1.8(z-1.6)   -3.2(z-0.4)   -6.1(z-0.8)
+smeltjob-01        +4.3(z+1.0)   -0.8(z-0.8)   +3.3(z+0.4)   -2.0(z-0.4)   +1.0(z+0.1)   +0.3(z+0.1)
+toolkit-02         -1.2(z-0.5)   +0.2(z+0.2)   -4.1(z-0.7)   +2.3(z+4.5)   -6.1(z-0.9)  +14.0(z+2.5)
+wellcare-01        +1.3(z+1.5)   -0.6(z-1.2)   -5.7(z-0.7)   +1.9(z+1.2)   -2.0(z-0.4)   -2.4(z-0.2)
+townsearch-02      +0.1(z+0.1)   +0.0(z+0.0)   +2.1(z+0.3)   +3.5(z+1.6)   +1.4(z+0.2)   -3.5(z-0.3)
+cobblekeep-01      +2.1(z+1.8)   +0.5(z+0.6)   -5.5(z-0.9)   -6.1(z-2.7)   +0.9(z+0.1)   +1.6(z+0.5)
+toolkit-03         +1.7(z+0.9)   +2.1(z+1.8)   +0.6(z+0.1)   -0.3(z-0.3)   -1.0(z-0.1)   -1.8(z-0.4)
+homefix-02         -2.0(z-0.8)   +0.5(z+0.1)   -3.8(z-0.5)   -0.8(z-2.4)  +12.1(z+2.3)   +0.3(z+0.1)
+ironpick-01        +3.3(z+2.9)   +2.5(z+1.4)   +0.0(z+0.0)   -0.2(z-0.4)   -9.7(z-2.4)   +0.7(z+0.2)
+keepout-01         +0.7(z+0.3)   +0.1(z+0.1)   -0.7(z-0.1)   -0.2(z-0.2)   -2.0(z-0.3)   +2.3(z+0.5)
+protectzone-01     -2.4(z-0.7)   -0.2(z-0.1)   +2.3(z+0.4)   +1.4(z+2.6)  -26.2(z-4.1)  +16.8(z+2.6)
+townindex-01       -2.4(z-5.4)   +2.7(z+1.4)   -0.9(z-0.2)   +0.2(z+0.3)   -2.3(z-0.2)   -0.8(z-0.2)
+poolescape-01      -2.7(z-1.3)   -2.2(z-2.7)   +4.0(z+0.9)   -0.3(z-0.1)   -6.1(z-0.7)   -4.3(z-0.9)
 
 FLEET step at each promotion (share 12 h after minus 12 h before; +1 h gap; timing evidence only)
 change                      wood   stone    iron   craft     lap    dirt
-toolhygiene-01              -0.7    -1.1    +1.2    -1.4    +2.3    -1.0
-peacefulkit-02              +1.9    -1.2    -1.5    -2.2    +2.2    +0.3
-junkwell-02                 -2.2    -1.6    +1.3    -0.1    +4.9    -2.3
-gridfix-01                  +2.0    -1.0    -0.9    -0.1    -0.1    -0.0
-stocktarget-01              -2.9    -2.1    +0.8    -3.4    +4.2    +3.9
-orderroom-01                +1.2    -2.1    -0.2    -3.6    +5.5    -2.4
-digtown-01                  +1.7    +0.8    -0.1    -0.4    -2.2    +0.5
-stocktarget-02              +0.0    +0.6    -1.2    +0.7    -0.9    +1.2
-wellsite-04                 -1.6    +1.1    +3.1    -0.8    -0.0    -1.1
-townzone-01                 +0.4    -0.8    -1.8    +0.2    +0.4    +1.2
-cobblecap-1000              +0.2    -0.4    +0.1    +0.8    -2.0    +0.5
-lidclear-01                 +1.5    +0.2    +3.6    +0.4    -2.2    -0.9
-plinth-02 (direct)          -4.0    -0.7    -6.9    -1.2    +9.1    +3.2
-smeltjob-01                 -2.9    -1.0    -4.0    -0.8    +4.1    +3.1
-plinth-02.1 (direct)        -2.6    -1.0    -3.4    -0.4    +4.5    +2.3
-logcap-01 (direct)          -2.1    -0.7    -1.1    -0.2    +4.8    -0.7
-toolkit-02                  -0.1    -0.2    +0.9    +1.1    +2.9    -3.4
-wellcare-01                 +0.6    +0.0    +0.7    +0.6    +2.7    -3.8
-townsearch-02               -0.3    -0.1    +1.1    +0.6    -0.4    +1.0
-plinthfirst-01 (direct)     -0.3    -0.1    +1.1    +0.6    -0.4    +1.0
-cobblekeep-01               +0.8    +0.4    +0.6    -1.9    -0.1    -0.7
-toolkit-03                  -0.1    +0.4    +1.0    +0.3    -2.3    +0.9
-homefix-02                  -0.5    -0.4    -2.2    -0.2    +3.9    -1.9
-ironpick-01                 -0.3    +0.1    -2.9    -0.5    +1.4    +1.5
-keepout-01                  -0.4    +0.4    +0.5    -0.1    -2.5    +2.0
-protectzone-01              -0.4    +0.1    +2.5    -0.2    -3.2    +1.4
-townindex-01                +0.3    -0.7    +0.8    -0.6    +1.3    -0.4
+toolhygiene-01              -1.5    -1.4    +1.2    -1.1    +2.0    -0.2
+peacefulkit-02              +1.7    -1.6    -1.8    -1.8    +1.6    +2.3
+junkwell-02                 -2.7    -1.7    +0.5    -0.5    +4.1    -0.5
+gridfix-01                  +2.0    -1.1    -1.2    -0.0    -0.2    -0.4
+stocktarget-01              -3.2    -1.9    +0.5    -3.8    +4.0    +5.0
+orderroom-01                +1.5    -2.0    -0.9    -3.8    +5.8    -1.9
+digtown-01                  +1.5    +1.1    -0.4    -0.2    -3.4    +1.8
+stocktarget-02              -0.7    +0.7    -0.6    +0.9    -1.3    +1.9
+wellsite-04                 -1.6    +1.3    +2.9    -0.8    -1.4    +0.4
+townzone-01                 +0.4    -1.0    -2.2    +0.4    +0.2    +1.7
+cobblecap-1000              -0.1    -0.4    -0.1    +0.8    -1.9    +0.8
+lidclear-01                 +1.7    +0.1    +3.9    +0.0    -2.8    -0.5
+plinth-02 (direct)          -4.5    -0.9    -7.5    -1.0    +9.6    +3.3
+smeltjob-01                 -3.0    -1.1    -4.4    -0.9    +4.4    +3.3
+plinth-02.1 (direct)        -2.7    -0.8    -2.8    -0.6    +4.0    +2.2
+logcap-01 (direct)          -2.0    -0.6    -0.7    -0.2    +4.3    -0.6
+toolkit-02                  -0.1    -0.2    +0.8    +1.2    +3.4    -2.9
+wellcare-01                 +0.9    +0.1    +0.6    +0.5    +2.7    -4.1
+townsearch-02               -0.1    -0.1    +0.9    +0.7    -1.8    +2.1
+plinthfirst-01 (direct)     -0.1    -0.1    +0.9    +0.7    -1.8    +2.1
+cobblekeep-01               +1.1    +0.4    +0.9    -2.0    -1.2    -0.1
+toolkit-03                  +0.0    +0.3    +0.9    +0.4    -3.1    +1.8
+homefix-02                  -0.4    -0.5    -3.0    -0.2    +4.8    -2.0
+ironpick-01                 -0.1    +0.4    -3.5    -0.6    +2.7    +1.0
+keepout-01                  -0.4    +0.5    +1.2    -0.1    -4.2    +2.8
+protectzone-01              -0.4    -0.0    +2.7    -0.1    -3.2    +1.7
+townindex-01                +0.6    -0.8    +1.0    -0.6    -0.6    +1.2
 ################ python3 sample_state.py
 day        group          n  wood64 stone64   iron3    trip   table furnace  iron32   log16   log32  sand32   dirt8  far100   deep8  dist_med
 2026-10-08 fleet      26302   59.3%   56.4%   16.2%   45.2%   85.0%   84.2%   97.8%   81.9%   97.1%   88.8%   93.3%   35.1%   50.1%      73
@@ -393,22 +627,22 @@ day        group          n  wood64 stone64   iron3    trip   table furnace  iro
 2026-10-23 g:rs0919    2412   93.3%   93.8%   87.7%   93.7%  100.0%   89.4%   93.0%   68.9%   89.4%   93.9%   89.2%   18.7%   56.0%      65
 2026-10-23 g:rs0927    4882   87.5%   94.9%   75.9%   96.1%   99.4%   95.6%   93.2%   58.3%   91.2%   88.6%   94.2%   22.3%   58.8%      51
 ################ python3 sample_checks.py
-2026-10-08 wood-rung n= 2290 wood64   0.0% | stone-rung n= 1683 stone64   0.0% | iron-rung n= 3069 iron3   0.0% iron32  98.0% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    0.6 cobblestone   76.7 oak_log   46.0 dirt    6.3 iron_pickaxe    0.3 stone_pickaxe    2.5
-2026-10-09 wood-rung n= 1972 wood64   0.0% | stone-rung n=  735 stone64   0.0% | iron-rung n= 3692 iron3   0.0% iron32  98.2% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    0.8 cobblestone   73.0 oak_log   48.0 dirt    7.6 iron_pickaxe    0.4 stone_pickaxe    2.3
-2026-10-10 wood-rung n= 2754 wood64   0.0% | stone-rung n= 1204 stone64   0.0% | iron-rung n= 3734 iron3   0.0% iron32  99.1% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    0.6 cobblestone   85.8 oak_log   47.8 dirt    7.8 iron_pickaxe    0.4 stone_pickaxe    2.2
-2026-10-11 wood-rung n= 2810 wood64   0.0% | stone-rung n= 1595 stone64   0.0% | iron-rung n= 3976 iron3   0.0% iron32  98.3% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.0 cobblestone  111.5 oak_log   50.4 dirt    6.7 iron_pickaxe    0.4 stone_pickaxe    1.9
-2026-10-12 wood-rung n= 1408 wood64   0.0% | stone-rung n=  870 stone64   0.0% | iron-rung n= 3843 iron3   0.0% iron32  97.7% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.1 cobblestone  156.6 oak_log   58.8 dirt    8.2 iron_pickaxe    0.6 stone_pickaxe    2.0
-2026-10-13 wood-rung n= 2410 wood64   0.0% | stone-rung n=  945 stone64   0.0% | iron-rung n= 3658 iron3   0.0% iron32  99.5% trip 100.0% || mean carried per decision: raw_iron    0.2 iron_ingot    1.1 cobblestone  192.7 oak_log   58.1 dirt    7.0 iron_pickaxe    0.7 stone_pickaxe    2.2
-2026-10-14 wood-rung n= 1433 wood64   0.0% | stone-rung n=  290 stone64   0.0% | iron-rung n= 3906 iron3   0.0% iron32  98.8% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.3 cobblestone  209.1 oak_log   52.4 dirt    7.2 iron_pickaxe    0.7 stone_pickaxe    2.1
-2026-10-15 wood-rung n= 1578 wood64   0.0% | stone-rung n=  459 stone64   0.0% | iron-rung n= 3325 iron3   0.0% iron32  99.3% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.4 cobblestone  209.8 oak_log   52.9 dirt    6.4 iron_pickaxe    0.7 stone_pickaxe    2.2
-2026-10-16 wood-rung n= 1562 wood64   0.0% | stone-rung n=  260 stone64   0.0% | iron-rung n= 3661 iron3   0.0% iron32  99.1% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.2 cobblestone  218.8 oak_log   50.3 dirt    6.1 iron_pickaxe    0.6 stone_pickaxe    2.2
-2026-10-17 wood-rung n= 1152 wood64   0.0% | stone-rung n=  324 stone64   0.0% | iron-rung n= 4435 iron3   0.0% iron32  99.5% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.3 cobblestone  247.1 oak_log   57.3 dirt    7.2 iron_pickaxe    0.7 stone_pickaxe    2.3
-2026-10-18 wood-rung n=  390 wood64   0.0% | stone-rung n=  118 stone64   0.0% | iron-rung n= 2741 iron3   0.0% iron32  98.7% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.7 cobblestone  335.2 oak_log   63.2 dirt    9.0 iron_pickaxe    0.8 stone_pickaxe    2.4
-2026-10-19 wood-rung n=  388 wood64   0.0% | stone-rung n=  338 stone64   0.0% | iron-rung n= 3042 iron3   0.0% iron32  99.6% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.6 cobblestone  389.8 oak_log   66.0 dirt    8.1 iron_pickaxe    0.8 stone_pickaxe    2.3
-2026-10-20 wood-rung n=  549 wood64   0.0% | stone-rung n=  127 stone64   0.0% | iron-rung n= 2863 iron3   0.0% iron32  99.2% trip 100.0% || mean carried per decision: raw_iron    0.5 iron_ingot    1.8 cobblestone  304.7 oak_log   67.6 dirt    8.0 iron_pickaxe    0.9 stone_pickaxe    2.2
-2026-10-21 wood-rung n=  835 wood64   0.0% | stone-rung n=  591 stone64   0.0% | iron-rung n= 2617 iron3   0.0% iron32  98.9% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    2.2 cobblestone  163.0 oak_log   58.5 dirt    8.8 iron_pickaxe    1.0 stone_pickaxe    2.1
-2026-10-22 wood-rung n=  856 wood64   0.0% | stone-rung n=  190 stone64   0.0% | iron-rung n= 1965 iron3   0.0% iron32  98.6% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    2.4 cobblestone  139.7 oak_log   59.0 dirt    9.5 iron_pickaxe    1.4 stone_pickaxe    1.6
-2026-10-23 wood-rung n=  312 wood64   0.0% | stone-rung n=  181 stone64   0.0% | iron-rung n= 1858 iron3   0.0% iron32  99.3% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    2.3 cobblestone  137.0 oak_log   59.1 dirt    9.5 iron_pickaxe    1.9 stone_pickaxe    1.1
+2026-10-08 wood-rung n= 2576 wood64   0.0% | stone-rung n= 2071 stone64   0.0% | iron-rung n= 3418 iron3   0.0% iron32  98.2% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    0.6 cobblestone   76.7 oak_log   46.0 dirt    6.3 iron_pickaxe    0.3 stone_pickaxe    2.5
+2026-10-09 wood-rung n= 2103 wood64   0.0% | stone-rung n=  775 stone64   0.0% | iron-rung n= 4129 iron3   0.0% iron32  98.2% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    0.8 cobblestone   73.0 oak_log   48.0 dirt    7.6 iron_pickaxe    0.4 stone_pickaxe    2.3
+2026-10-10 wood-rung n= 2812 wood64   0.0% | stone-rung n= 1627 stone64   0.0% | iron-rung n= 4047 iron3   0.0% iron32  98.9% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    0.6 cobblestone   85.8 oak_log   47.8 dirt    7.8 iron_pickaxe    0.4 stone_pickaxe    2.2
+2026-10-11 wood-rung n= 3041 wood64   0.0% | stone-rung n= 1733 stone64   0.0% | iron-rung n= 4385 iron3   0.0% iron32  98.4% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.0 cobblestone  111.5 oak_log   50.4 dirt    6.7 iron_pickaxe    0.4 stone_pickaxe    1.9
+2026-10-12 wood-rung n= 1408 wood64   0.0% | stone-rung n= 1206 stone64   0.0% | iron-rung n= 4212 iron3   0.0% iron32  97.9% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.1 cobblestone  156.6 oak_log   58.8 dirt    8.2 iron_pickaxe    0.6 stone_pickaxe    2.0
+2026-10-13 wood-rung n= 2656 wood64   0.0% | stone-rung n= 1025 stone64   0.0% | iron-rung n= 3895 iron3   0.0% iron32  99.5% trip 100.0% || mean carried per decision: raw_iron    0.2 iron_ingot    1.1 cobblestone  192.7 oak_log   58.1 dirt    7.0 iron_pickaxe    0.7 stone_pickaxe    2.2
+2026-10-14 wood-rung n= 1455 wood64   0.0% | stone-rung n=  330 stone64   0.0% | iron-rung n= 4409 iron3   0.0% iron32  99.0% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.3 cobblestone  209.1 oak_log   52.4 dirt    7.2 iron_pickaxe    0.7 stone_pickaxe    2.1
+2026-10-15 wood-rung n= 1854 wood64   0.0% | stone-rung n=  687 stone64   0.0% | iron-rung n= 3643 iron3   0.0% iron32  99.4% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.4 cobblestone  209.8 oak_log   52.9 dirt    6.4 iron_pickaxe    0.7 stone_pickaxe    2.2
+2026-10-16 wood-rung n= 1562 wood64   0.0% | stone-rung n=  274 stone64   0.0% | iron-rung n= 3908 iron3   0.0% iron32  99.2% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.2 cobblestone  218.8 oak_log   50.3 dirt    6.1 iron_pickaxe    0.6 stone_pickaxe    2.2
+2026-10-17 wood-rung n= 1326 wood64   0.0% | stone-rung n=  457 stone64   0.0% | iron-rung n= 4677 iron3   0.0% iron32  99.5% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.3 cobblestone  247.1 oak_log   57.3 dirt    7.2 iron_pickaxe    0.7 stone_pickaxe    2.3
+2026-10-18 wood-rung n=  396 wood64   0.0% | stone-rung n=  118 stone64   0.0% | iron-rung n= 2940 iron3   0.0% iron32  98.8% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    1.7 cobblestone  335.2 oak_log   63.2 dirt    9.0 iron_pickaxe    0.8 stone_pickaxe    2.4
+2026-10-19 wood-rung n=  524 wood64   0.0% | stone-rung n=  488 stone64   0.0% | iron-rung n= 3272 iron3   0.0% iron32  99.6% trip 100.0% || mean carried per decision: raw_iron    0.4 iron_ingot    1.6 cobblestone  389.8 oak_log   66.0 dirt    8.1 iron_pickaxe    0.8 stone_pickaxe    2.3
+2026-10-20 wood-rung n=  564 wood64   0.0% | stone-rung n=  132 stone64   0.0% | iron-rung n= 3093 iron3   0.0% iron32  99.2% trip 100.0% || mean carried per decision: raw_iron    0.5 iron_ingot    1.8 cobblestone  304.7 oak_log   67.6 dirt    8.0 iron_pickaxe    0.9 stone_pickaxe    2.2
+2026-10-21 wood-rung n=  875 wood64   0.0% | stone-rung n=  760 stone64   0.0% | iron-rung n= 2858 iron3   0.0% iron32  98.9% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    2.2 cobblestone  163.0 oak_log   58.5 dirt    8.8 iron_pickaxe    1.0 stone_pickaxe    2.1
+2026-10-22 wood-rung n=  945 wood64   0.0% | stone-rung n=  190 stone64   0.0% | iron-rung n= 2100 iron3   0.0% iron32  98.7% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    2.4 cobblestone  139.7 oak_log   59.0 dirt    9.5 iron_pickaxe    1.4 stone_pickaxe    1.6
+2026-10-23 wood-rung n=  312 wood64   0.0% | stone-rung n=  182 stone64   0.0% | iron-rung n= 1949 iron3   0.0% iron32  99.3% trip 100.0% || mean carried per decision: raw_iron    0.3 iron_ingot    2.3 cobblestone  137.0 oak_log   59.1 dirt    9.5 iron_pickaxe    1.9 stone_pickaxe    1.1
 ################ python3 report_tables.py
 
 ====================================================================================================
@@ -490,11 +724,11 @@ rs0927    n=4  gather ok  7.29-> 5.86 ( -20%) | mine ok  4.13-> 2.78 ( -33%) | c
   placebo-d   [86, 89, 72] (n [221, 103, 145]) -> [55, 58, 55] (n [19, 31, 15])
 
 3c. Gather outcome shares by item class (all attempts of that class, BASE -> END)
-  log    attempts/day   7626 ->   1879  ok 52.8->20.6  nothing_found  5.2-> 1.7  no_safe_target  8.6->35.6  no_path 15.6->27.6  unreachable  8.0-> 9.1  interrupted  9.2-> 5.1
-  stone  attempts/day   4746 ->    960  ok 52.2->44.9  nothing_found  0.1-> 0.0  no_safe_target  2.5->22.5  no_path 30.3->13.0  unreachable  4.6-> 8.0  interrupted  9.3-> 7.2
-  dirt   attempts/day  12616 ->  17676  ok 52.2->58.6  nothing_found  0.1-> 0.0  no_safe_target  1.1-> 0.7  no_path 30.7->24.7  unreachable  2.3-> 3.3  interrupted 12.9->12.2
-  sand   attempts/day   4129 ->   3998  ok  5.9-> 5.6  nothing_found  9.5-> 6.0  no_safe_target 52.8->61.4  no_path  3.6-> 2.6  unreachable 24.4->22.2  interrupted  3.1-> 2.0
-  ore    attempts/day   3122 ->   2320  ok  9.7->18.1  nothing_found  0.0-> 0.1  no_safe_target 14.0->14.0  no_path 12.5->15.3  unreachable 49.4->36.9  interrupted 12.8->14.0
+  log    attempts/day   7626 ->   1879  ok 52.8->20.6  nothing_found  5.2-> 1.7  no_safe_target  7.9->35.5  canopy  0.7-> 0.1  no_path 15.6->27.6  unreachable  8.0-> 9.1  interrupted  9.2-> 5.1
+  stone  attempts/day   4746 ->    960  ok 52.2->44.9  nothing_found  0.1-> 0.0  no_safe_target  2.4->22.5  canopy  0.1-> 0.0  no_path 30.3->13.0  unreachable  4.6-> 8.0  interrupted  9.3-> 7.2
+  dirt   attempts/day  12616 ->  17676  ok 52.2->58.6  nothing_found  0.1-> 0.0  no_safe_target  0.9-> 0.6  canopy  0.2-> 0.1  no_path 30.7->24.7  unreachable  2.3-> 3.3  interrupted 12.9->12.2
+  sand   attempts/day   4129 ->   3998  ok  5.9-> 5.6  nothing_found  9.5-> 6.0  no_safe_target 52.6->61.3  canopy  0.2-> 0.1  no_path  3.6-> 2.6  unreachable 24.4->22.2  interrupted  3.1-> 2.0
+  ore    attempts/day   3122 ->   2320  ok  9.7->18.1  nothing_found  0.0-> 0.1  no_safe_target 14.0->13.9  canopy  0.0-> 0.1  no_path 12.5->15.3  unreachable 49.4->36.9  interrupted 12.8->14.0
 
 3d. Travel per success: (explore h + LLM goto h) per 100 production successes (gather+mine), and per hour of gather
   fleet     travel h/day  133.3 ->  190.5;  per 100 successes  0.61 ->  1.08 h
@@ -576,40 +810,40 @@ rs0927    n=4  gather ok  7.29-> 5.86 ( -20%) | mine ok  4.13-> 2.78 ( -33%) | c
   2026-10-22 decisions/bot-h  82.9  latency p50  1920 ms p90  3062  llm share of bot-time  4.4%  startup triggers 516  liveness_restart 1779
 ################ python3 side_checks.py
 day         toolkit ok  tools+ (from toolkit inventory_delta)           | redundant-craft refusals | float h: top worlds
-2026-10-08       0   {}                                                      |      0 | total  37.6: placebo-a 9.2, placebo-d 5.3, isolated-c 3.1, hive-d 3.0
-2026-10-09       0   {}                                                      |      0 | total  36.4: placebo-a 4.5, hive-d 4.4, placebo-d 4.1, placebo-b 3.5
-2026-10-10       0   {}                                                      |    294 | total  31.8: placebo-d 4.1, placebo-b 3.7, hive-c 3.5, placebo-a 3.2
-2026-10-11       0   {}                                                      |    284 | total  31.2: placebo-d 5.2, board-b 3.6, hive-c 3.6, placebo-a 3.3
-2026-10-12       0   {}                                                      |    260 | total  29.7: hive-c 5.1, placebo-a 3.7, hive-d 3.6, placebo-b 2.4
-2026-10-13       0   {}                                                      |    213 | total  26.8: placebo-d 3.8, hive-c 3.5, placebo-b 3.3, placebo-a 3.2
-2026-10-14       0   {}                                                      |    191 | total  32.0: hive-c 4.4, placebo-b 4.3, hive-d 3.2, board-b 2.9
-2026-10-15       0   {}                                                      |    235 | total  34.3: hive-d 5.9, placebo-b 5.1, isolated-b 4.1, placebo-d 2.8
-2026-10-16       0   {}                                                      |    355 | total  48.8: board-d 22.2, placebo-b 5.0, hive-c 2.5, placebo-a 2.3
-2026-10-17       0   {}                                                      |    374 | total  75.4: board-d 47.9, placebo-b 3.8, hive-c 3.7, hive-d 3.1
-2026-10-18     135   {'iron_shovel': 133, 'iron_axe': 42}                    |    260 | total  88.4: board-d 66.6, placebo-b 5.3, hive-d 3.2, hive-c 2.2
-2026-10-19     160   {'iron_shovel': 160, 'iron_axe': 9}                     |    353 | total  88.2: board-d 66.6, placebo-b 7.0, hive-c 2.2, placebo-a 1.6
-2026-10-20     195   {'iron_shovel': 194, 'iron_axe': 10}                    |    332 | total  88.1: board-d 66.3, placebo-b 4.4, isolated-d 2.6, hive-c 2.5
-2026-10-21     257   {'iron_shovel': 257, 'stone_pickaxe': 1, 'iron_axe': 12 |    225 | total  87.3: board-d 66.5, placebo-b 3.9, placebo-d 3.6, hive-c 2.0
-2026-10-22     393   {'iron_shovel': 286, 'iron_pickaxe': 144, 'iron_axe': 3 |    274 | total  87.4: board-d 66.6, placebo-a 5.9, placebo-b 2.6, hive-d 2.5
-2026-10-23     279   {'iron_shovel': 208, 'iron_pickaxe': 106, 'iron_axe': 5 |     97 | total  17.4: board-d 6.5, placebo-b 1.6, hive-d 1.4, hive-c 1.3
+2026-10-08       0   {} |      0 | total  37.6: placebo-a 9.2, placebo-d 5.3, isolated-c 3.1, hive-d 3.0
+2026-10-09       0   {} |      0 | total  36.4: placebo-a 4.5, hive-d 4.4, placebo-d 4.1, placebo-b 3.5
+2026-10-10       0   {} |    294 | total  31.8: placebo-d 4.1, placebo-b 3.7, hive-c 3.5, placebo-a 3.2
+2026-10-11       0   {} |    284 | total  31.2: placebo-d 5.2, board-b 3.6, hive-c 3.6, placebo-a 3.3
+2026-10-12       0   {} |    260 | total  29.7: hive-c 5.1, placebo-a 3.7, hive-d 3.6, placebo-b 2.4
+2026-10-13       0   {} |    213 | total  26.8: placebo-d 3.8, hive-c 3.5, placebo-b 3.3, placebo-a 3.2
+2026-10-14       0   {} |    191 | total  32.0: hive-c 4.4, placebo-b 4.3, hive-d 3.2, board-b 2.9
+2026-10-15       0   {} |    235 | total  34.3: hive-d 5.9, placebo-b 5.1, isolated-b 4.1, placebo-d 2.8
+2026-10-16       0   {} |    355 | total  48.8: board-d 22.2, placebo-b 5.0, hive-c 2.5, placebo-a 2.3
+2026-10-17       0   {} |    374 | total  75.4: board-d 47.9, placebo-b 3.8, hive-c 3.7, hive-d 3.1
+2026-10-18     135   {'iron_shovel': 133, 'iron_axe': 42} |    260 | total  88.4: board-d 66.6, placebo-b 5.3, hive-d 3.2, hive-c 2.2
+2026-10-19     160   {'iron_shovel': 160, 'iron_axe': 9} |    353 | total  88.2: board-d 66.6, placebo-b 7.0, hive-c 2.2, placebo-a 1.6
+2026-10-20     195   {'iron_shovel': 194, 'iron_axe': 10} |    332 | total  88.1: board-d 66.3, placebo-b 4.4, isolated-d 2.6, hive-c 2.5
+2026-10-21     257   {'iron_shovel': 257, 'stone_pickaxe': 1, 'iron_axe': 12} |    225 | total  87.3: board-d 66.5, placebo-b 3.9, placebo-d 3.6, hive-c 2.0
+2026-10-22     393   {'iron_shovel': 286, 'iron_pickaxe': 144, 'iron_axe': 3} |    274 | total  87.4: board-d 66.6, placebo-a 5.9, placebo-b 2.6, hive-d 2.5
+2026-10-23     279   {'iron_shovel': 208, 'iron_pickaxe': 106, 'iron_axe': 5} |     97 | total  17.4: board-d 6.5, placebo-b 1.6, hive-d 1.4, hive-c 1.3
 ################ python3 items_daily.py
-day          raw_iron       coal raw_copper lapis_lazu    diamond   redstone   raw_gold cobbleston cobbled_de    oak_log  birch_log spruce_log       dirt       sand
-2026-10-08        333        217        506         69          0          0          0      38310        104      13151        702        365      28794       1632
-2026-10-09        323        188        440         23          0          0          0      38700        191      12034        215        322      29653        695
-2026-10-10        258        163        423         24          0          0          0      37276        439      11451        262        133      28154        968
-2026-10-11        458        251        866         31          0          9          0      35059        277      11298        216        217      33094       1023
-2026-10-12        463        285        649         62          0          0          0      34104        537       8967        227        143      33560        949
-2026-10-13        406        221        757         48          0          0          0      33892        727       9475         28        156      30792        763
-2026-10-14        354        222        502         53          0          0          1      30354        854      10493        129         45      35314        790
-2026-10-15        287        236        478         12          1          5          6      29562       1382       9521         68         15      30682        674
-2026-10-16        380        197        398         62          0          0          1      30970        782       9428        107         18      32782        843
-2026-10-17        483        289        600         72          1         10          2      31966        674       6244        118         16      35691        782
-2026-10-18        425        192        560         38          1         13          3      25679        874       1449         11         31      38722        764
-2026-10-19        319        183        603         37          0          4          4      25423        989       1239          6         13      33280        535
-2026-10-20        472        171        617         83          0         12          3      24957       1028       1808         62         28      36932        483
-2026-10-21        455        184        779         60          0          0          4      24780       1300       1974         24         17      39327        635
-2026-10-22        502        264        540        110          0          4          2      24658       2588       1483         15         31      39320        800
-2026-10-23        367        149        515         13          0         12          3      19223       1395       1147          2         22      31581        569
+day          raw_iron       coal raw_copper lapis_lazu    diamond   redstone   raw_gold cobbleston cobbled_de    oak_log  birch_log spruce_log       dirt       sand   raw_iron by skill (gather/mine/explore)
+2026-10-08        333        217        506         69          0          0          0      38310        104      13151        702        365      28794       1632   290/43/0
+2026-10-09        323        188        440         23          0          0          0      38700        191      12034        215        322      29653        695   267/54/2
+2026-10-10        258        163        423         24          0          0          0      37276        439      11451        262        133      28154        968   229/29/0
+2026-10-11        458        251        866         31          0          9          0      35059        277      11298        216        217      33094       1023   408/47/3
+2026-10-12        463        285        649         62          0          0          0      34104        537       8967        227        143      33560        949   398/64/1
+2026-10-13        406        221        757         48          0          0          0      33892        727       9475         28        156      30792        763   347/59/0
+2026-10-14        354        222        502         53          0          0          1      30354        854      10493        129         45      35314        790   308/44/2
+2026-10-15        287        236        478         12          1          5          6      29562       1382       9521         68         15      30682        674   251/32/4
+2026-10-16        380        197        398         62          0          0          1      30970        782       9428        107         18      32782        843   339/40/1
+2026-10-17        483        289        600         72          1         10          2      31966        674       6244        118         16      35691        782   428/53/2
+2026-10-18        425        192        560         38          1         13          3      25679        874       1449         11         31      38722        764   386/35/4
+2026-10-19        319        183        603         37          0          4          4      25423        989       1239          6         13      33280        535   274/45/0
+2026-10-20        472        171        617         83          0         12          3      24957       1028       1808         62         28      36932        483   413/51/8
+2026-10-21        455        184        779         60          0          0          4      24780       1300       1974         24         17      39327        635   390/63/2
+2026-10-22        502        264        540        110          0          4          2      24658       2588       1483         15         31      39320        800   427/74/1
+2026-10-23        367        149        515         13          0         12          3      19223       1395       1147          2         22      31581        569   319/47/1
 ################ python3 final_checks.py
 (1) LLM "gather <log>" decisions in the sample: success by log-within-16 m
   BASE: n 9130; log visible <=16 m in 81.6%; success visible 23.2% (n 7452), not visible 6.0% (n 1678)
@@ -624,9 +858,12 @@ day          raw_iron       coal raw_copper lapis_lazu    diamond   redstone   r
   mine_ok   excl ['board-d']: young mean -35.4% (n 6), original -8.2% (n 9); difference -27.2 pp, two-sided permutation p = 0.200
     per world: board-d -62%, placebo-b -53%, board-b -44%, isolated-a -40%, board-c -39%, hive-c -38%, hive-d -37%, placebo-a -36%, isolated-d -30%, isolated-b -24%, hive-a -23%, hive-b -20%, board-a -15%, placebo-d -4%, isolated-c -1%, placebo-c +119%
 
-(3) reflex/safety bot-time, h/day, all worlds vs excluding board-d
-  excl -: 153.6 -> 200.7 h/day of 1920 bot-h (8.0% -> 10.5%)
-  excl ['board-d']: 147.0 -> 132.0 h/day of 1800 bot-h (8.2% -> 7.3%)
+(3) safety/reflex hours per day, all worlds vs excluding board-d, in two kinds:
+    EXCLUSIVE = skill time (skills never overlap each other) of goto/home/surface/explore launched by a reflex or
+                watchdog trigger, or chosen right after a reflex interrupt (trigger interrupt:*)
+    EXPOSURE  = water-hold seconds (the float/surface/no-air reflexes run WHILE a skill runs: not exclusive)
+  excl - (1920 bot-h/day): EXCLUSIVE 60.6 -> 73.1 h/day (3.2% -> 3.8%);  EXPOSURE 93.0 -> 127.6 h/day
+  excl ['board-d'] (1800 bot-h/day): EXCLUSIVE 56.7 -> 71.1 h/day (3.1% -> 3.9%);  EXPOSURE 90.4 -> 60.9 h/day
 
 (4) town_deposit outcome classes per day (BASE mean -> END mean)
   chests_full           411 ->      5
@@ -635,74 +872,286 @@ day          raw_iron       coal raw_copper lapis_lazu    diamond   redstone   r
   failed:other            1 ->      0
   aborted:other           1 ->      0
   nothing_to_bank         0 ->    120
-################ python3 decompose.py
 
-=== gather successes/day: 13,634 -> 11,813 (delta -1,821)
-  T  board-d water-pit trap (excess over the other 15 worlds)     -564   (c) safety trap
-  D1 demand: production rungs satisfied by the bag              -4718   (a) deliberate
-  D2 demand: other rungs (dirt, sand, lap, idle ...)            +2039   (a) consequence
-  Y1 yield on the wood rungs (depletion upper bound)            -1545   (b) depletion <=
-  Y2 yield on all other rungs                                   +2968   unexplained / other
-  R  successes outside LLM decisions                               -1   unexplained / other
-  SUM                                                           -1821   (check vs delta -1821: -0.0)
-
-=== mine successes/day: 8,114 -> 5,832 (delta -2,282)
-  T  board-d water-pit trap (excess over the other 15 worlds)     -129   (c) safety trap
-  D1 demand: production rungs satisfied by the bag              -2742   (a) deliberate
-  D2 demand: other rungs (dirt, sand, lap, idle ...)              +38   (a) consequence
-  Y1 yield on the wood rungs (depletion upper bound)               +4   (b) depletion <=
-  Y2 yield on all other rungs                                    +547   unexplained / other
-  R  successes outside LLM decisions                               +1   unexplained / other
-  SUM                                                           -2282   (check vs delta -2282: -0.0)
-
-=== craft successes/day: 880 -> 584 (delta -296)
-  T  board-d water-pit trap (excess over the other 15 worlds)      -22   (c) safety trap
-  D1 demand: production rungs satisfied by the bag              -1154   (a) deliberate
-  D2 demand: other rungs (dirt, sand, lap, idle ...)             -134   (a) consequence
-  Y1 yield on the wood rungs (depletion upper bound)               -4   (b) depletion <=
-  Y2 yield on all other rungs                                   +1018   unexplained / other
-  R  successes outside LLM decisions                               -0   unexplained / other
-  SUM                                                            -296   (check vs delta -296: -0.0)
-
-iron ore within 32 m, 15 worlds (decision-weighted): 97.6% -> 93.3%
-  mine: END iron-rung decisions 14,143/day, yield 0.272; lost to iron-in-reach 651 decisions -> -189 mine successes/day (part of D1, class (b))
-  gather: END iron-rung decisions 14,143/day, yield 0.034; lost to iron-in-reach 651 decisions -> -23 gather successes/day (part of D1, class (b))
+(5) LOG gathers ending no_safe_target: absolute per day, and the share from the top 5 bots (Claude r1 P2-3)
+  BASE: 602/day from 69 bots; top 5 = 49%: board-a-Comet 199/day, board-b-Bravo 27/day, placebo-a-Bravo 26/day, placebo-a-Echo 23/day, isolated-c-Alpha 19/day
+  END: 667/day from 52 bots; top 5 = 81%: board-a-Comet 203/day, placebo-d-Delta 138/day, isolated-c-Alpha 131/day, placebo-c-Bravo 52/day, hive-a-Echo 16/day
 ################ canary_did.py (did.log)
-toolhygiene-01  4p post   6.3h  gather_ok=+1.08(z+0.9)  mine_ok=+3.43(z+2.0)  craft_ok=+0.01(z+0.0)  td_n=-0.04(z-0.4)  explore_h=-0.01(z-1.3)
-peacefulkit-02  2p post   6.3h  gather_ok=+0.36(z+0.1)  mine_ok=-0.08(z-0.1)  craft_ok=+0.05(z+0.4)  td_n=+0.05(z+0.2)  explore_h=-0.00(z-0.1)
-junkwell-02     4p post   6.2h  gather_ok=+2.03(z+1.7)  mine_ok=+1.24(z+1.1)  craft_ok=-0.09(z-1.1)  td_n=-0.09(z-0.8)  explore_h=-0.01(z-0.8)
-gridfix-01      4p post   9.3h  gather_ok=-0.39(z-0.3)  mine_ok=-1.23(z-1.1)  craft_ok=-0.10(z-0.9)  td_n=-0.08(z-0.9)  explore_h=+0.02(z+1.9)
-stocktarget-01  4p post   3.2h  gather_ok=+0.19(z+0.1)  mine_ok=-1.10(z-0.8)  craft_ok=+0.04(z+0.2)  td_n=+0.21(z+0.6)  explore_h=+0.02(z+1.0)
-orderroom-01    4p post   6.3h  gather_ok=-0.54(z-0.6)  mine_ok=+1.43(z+0.9)  craft_ok=-0.03(z-0.3)  td_n=-0.02(z-0.2)  explore_h=-0.01(z-1.7)
-digtown-01      2p post   6.2h  gather_ok=-1.58(z-1.1)  mine_ok=-0.65(z-0.3)  craft_ok=-0.09(z-0.7)  td_n=-0.04(z-0.3)  explore_h=+0.01(z+1.0)
-stocktarget-02  2p post   6.2h  gather_ok=-0.34(z-0.2)  mine_ok=-1.33(z-0.9)  craft_ok=+0.02(z+0.1)  td_n=+0.12(z+1.4)  explore_h=+0.02(z+1.1)
-wellsite-04     4p post   6.3h  gather_ok=+1.14(z+1.2)  mine_ok=-1.94(z-1.3)  craft_ok=-0.11(z-1.0)  td_n=+0.29(z+3.1)  explore_h=+0.02(z+2.4)
-townzone-01     3p post   6.3h  gather_ok=-0.29(z-0.4)  mine_ok=-0.03(z-0.0)  craft_ok=+0.26(z+2.2)  td_n=+0.07(z+0.7)  explore_h=+0.00(z+0.1)
-cobblecap-1000  2p post   6.4h  gather_ok=+0.40(z+0.4)  mine_ok=-0.23(z-0.1)  craft_ok=+0.21(z+2.0)  td_n=-0.11(z-1.0)  explore_h=-0.02(z-1.2)
-lidclear-01     4p post   6.2h  gather_ok=+0.02(z+0.0)  mine_ok=+1.92(z+2.2)  craft_ok=+0.18(z+1.8)  td_n=+0.39(z+3.8)  explore_h=-0.01(z-0.8)
-smeltjob-01     4p post   6.2h  gather_ok=-0.71(z-1.4)  mine_ok=-0.86(z-0.6)  craft_ok=-0.20(z-1.7)  td_n=+0.02(z+0.4)  explore_h=+0.01(z+0.9)
-toolkit-02      2p post   6.3h  gather_ok=+3.69(z+2.6)  mine_ok=-1.14(z-0.7)  craft_ok=-0.10(z-1.1)  td_n=-0.05(z-0.4)  explore_h=-0.02(z-2.1)
-wellcare-01     4p post   6.2h  gather_ok=-1.31(z-0.3)  mine_ok=+0.05(z+0.0)  craft_ok=+0.08(z+0.5)  td_n=-0.09(z-0.6)  explore_h=-0.01(z-0.5)
-townsearch-02   2p post  12.3h  gather_ok=+0.48(z+0.2)  mine_ok=-0.05(z-0.0)  craft_ok=-0.10(z-0.6)  td_n=+0.12(z+0.8)  explore_h=+0.01(z+1.0)
-cobblekeep-01   4p post   6.3h  gather_ok=+0.99(z+1.0)  mine_ok=-0.08(z-0.0)  craft_ok=+0.05(z+0.3)  td_n=-0.39(z-1.8)  explore_h=+0.00(z+0.2)
-toolkit-03      3p post  12.4h  gather_ok=-0.40(z-0.5)  mine_ok=-0.42(z-0.3)  craft_ok=-0.00(z-0.0)  td_n=+0.03(z+1.1)  explore_h=-0.00(z-0.3)
-homefix-02      4p post   6.4h  gather_ok=-0.12(z-0.1)  mine_ok=-1.54(z-1.2)  craft_ok=+0.07(z+0.6)  td_n=+0.02(z+0.3)  explore_h=+0.02(z+1.4)
-ironpick-01     3p post   6.3h  gather_ok=+0.81(z+0.9)  mine_ok=-1.47(z-1.0)  craft_ok=-0.00(z-0.0)  td_n=+0.09(z+2.1)  explore_h=-0.02(z-3.0)
-keepout-01      2p post   6.3h  gather_ok=+1.14(z+0.8)  mine_ok=-0.65(z-0.5)  craft_ok=-0.20(z-1.4)  td_n=+0.03(z+0.3)  explore_h=+0.02(z+0.9)
-protectzone-01  4p post   3.3h  gather_ok=+0.69(z+0.4)  mine_ok=+2.06(z+2.1)  craft_ok=-0.07(z-0.4)  td_n=+0.01(z+0.2)  explore_h=-0.02(z-0.9)
-townindex-01    3p post   6.3h  gather_ok=+1.15(z+0.7)  mine_ok=-0.05(z-0.0)  craft_ok=-0.03(z-0.3)  td_n=-0.03(z-0.6)  explore_h=+0.00(z+0.3)
-poolescape-01   3p post   6.3h  gather_ok=+1.27(z+1.4)  mine_ok=+0.40(z+0.5)  craft_ok=+0.26(z+1.8)  td_n=+0.08(z+1.2)  explore_h=+0.02(z+1.2)
+toolhygiene-01  4p post   6.3h  gather_ok=+1.17(z+0.9)  mine_ok=+3.59(z+2.1)  craft_ok=+0.01(z+0.1)  td_n=-0.05(z-0.4)  explore_h=-0.01(z-1.2)
+peacefulkit-02  2p post   6.3h  gather_ok=+0.12(z+0.0)  mine_ok=-0.23(z-0.2)  craft_ok=+0.05(z+0.4)  td_n=+0.09(z+0.3)  explore_h=+0.00(z+0.1)
+junkwell-02     4p post   6.2h  gather_ok=+2.05(z+1.7)  mine_ok=+1.23(z+1.1)  craft_ok=-0.06(z-0.9)  td_n=-0.11(z-0.8)  explore_h=-0.01(z-0.7)
+gridfix-01      4p post   9.3h  gather_ok=-0.40(z-0.2)  mine_ok=-1.10(z-0.9)  craft_ok=-0.11(z-1.0)  td_n=-0.04(z-0.6)  explore_h=+0.02(z+1.9)
+stocktarget-01  4p post   3.2h  gather_ok=-0.30(z-0.1)  mine_ok=-0.93(z-0.7)  craft_ok=+0.06(z+0.3)  td_n=+0.17(z+0.5)  explore_h=+0.02(z+1.0)
+orderroom-01    4p post   6.3h  gather_ok=-0.68(z-0.9)  mine_ok=+1.35(z+0.9)  craft_ok=-0.05(z-0.4)  td_n=-0.03(z-0.3)  explore_h=-0.01(z-1.8)
+digtown-01      2p post   6.2h  gather_ok=-1.38(z-1.1)  mine_ok=-0.73(z-0.3)  craft_ok=-0.07(z-0.5)  td_n=-0.06(z-0.4)  explore_h=+0.02(z+1.1)
+stocktarget-02  2p post   6.2h  gather_ok=-0.55(z-0.3)  mine_ok=-1.10(z-0.8)  craft_ok=+0.05(z+0.2)  td_n=+0.12(z+1.2)  explore_h=+0.02(z+1.1)
+wellsite-04     4p post   6.3h  gather_ok=+1.16(z+1.1)  mine_ok=-2.08(z-1.5)  craft_ok=-0.07(z-0.6)  td_n=+0.30(z+3.4)  explore_h=+0.02(z+2.6)
+townzone-01     3p post   6.3h  gather_ok=+0.05(z+0.1)  mine_ok=-0.18(z-0.1)  craft_ok=+0.28(z+2.3)  td_n=+0.07(z+0.6)  explore_h=+0.00(z+0.3)
+cobblecap-1000  2p post   6.4h  gather_ok=+0.73(z+0.6)  mine_ok=-0.43(z-0.2)  craft_ok=+0.26(z+2.2)  td_n=-0.08(z-0.9)  explore_h=-0.02(z-1.1)
+lidclear-01     4p post   6.2h  gather_ok=+0.31(z+0.2)  mine_ok=+1.99(z+2.4)  craft_ok=+0.23(z+2.3)  td_n=+0.45(z+4.0)  explore_h=-0.01(z-0.8)
+smeltjob-01     4p post   6.2h  gather_ok=-0.69(z-1.4)  mine_ok=-0.63(z-0.4)  craft_ok=-0.25(z-1.7)  td_n=+0.01(z+0.1)  explore_h=+0.01(z+0.8)
+toolkit-02      2p post   6.3h  gather_ok=+3.93(z+2.5)  mine_ok=-1.39(z-0.9)  craft_ok=-0.08(z-1.0)  td_n=-0.09(z-0.8)  explore_h=-0.02(z-2.2)
+wellcare-01     4p post   6.2h  gather_ok=-1.39(z-0.4)  mine_ok=-0.08(z-0.1)  craft_ok=+0.08(z+0.5)  td_n=-0.11(z-0.8)  explore_h=-0.01(z-0.4)
+townsearch-02   2p post  12.3h  gather_ok=+0.68(z+0.2)  mine_ok=+0.10(z+0.1)  craft_ok=-0.11(z-0.6)  td_n=+0.14(z+1.0)  explore_h=+0.01(z+1.1)
+cobblekeep-01   4p post   6.3h  gather_ok=+1.17(z+1.2)  mine_ok=-0.30(z-0.2)  craft_ok=+0.10(z+0.8)  td_n=-0.33(z-1.4)  explore_h=+0.00(z+0.2)
+toolkit-03      3p post  12.4h  gather_ok=-0.28(z-0.4)  mine_ok=-0.45(z-0.3)  craft_ok=+0.02(z+0.1)  td_n=+0.03(z+0.8)  explore_h=-0.01(z-0.4)
+homefix-02      4p post   6.4h  gather_ok=-0.05(z-0.1)  mine_ok=-1.59(z-1.2)  craft_ok=+0.07(z+0.6)  td_n=+0.02(z+0.3)  explore_h=+0.02(z+1.3)
+ironpick-01     3p post   6.3h  gather_ok=+0.93(z+1.0)  mine_ok=-1.50(z-1.0)  craft_ok=-0.01(z-0.1)  td_n=+0.07(z+1.7)  explore_h=-0.02(z-2.9)
+keepout-01      2p post   6.3h  gather_ok=+0.97(z+0.7)  mine_ok=-0.71(z-0.5)  craft_ok=-0.21(z-1.4)  td_n=+0.02(z+0.3)  explore_h=+0.02(z+0.8)
+protectzone-01  4p post   3.3h  gather_ok=+0.57(z+0.4)  mine_ok=+2.14(z+2.2)  craft_ok=-0.14(z-0.6)  td_n=-0.02(z-0.2)  explore_h=-0.02(z-0.9)
+townindex-01    3p post   6.3h  gather_ok=+1.30(z+0.8)  mine_ok=-0.01(z-0.0)  craft_ok=-0.03(z-0.3)  td_n=-0.03(z-0.5)  explore_h=+0.00(z+0.2)
+poolescape-01   3p post   6.3h  gather_ok=+1.10(z+1.1)  mine_ok=+0.38(z+0.4)  craft_ok=+0.26(z+1.7)  td_n=+0.07(z+1.0)  explore_h=+0.01(z+1.1)
 
-SUM over promoted canaries (fleet events/day if additive and persistent; +-1.96 x sqrt(sum sd^2) x 1920):
-  gather_ok       +18732  +-  29719
-  mine_ok          -4464  +-  26260
-  craft_ok          +188  +-   2656
-  td_n             +1140  +-   2535
-  td_ok            +1293  +-   1165
-  gather_h          +125  +-    419
-  explore_h          +86  +-    255
-  goto_h            +176  +-    167
-  gather_items    +94223  +-  90633
+SUM over the 22 canaries promoted by 10-22 (fleet events/day IF additive and persistent; +-1.96 x sqrt(sum sd^2) x 1920, an illustration assuming independence, not a confidence interval):
+  gather_ok       +15616  +-  29558
+  mine_ok          -5816  +-  26023
+  craft_ok           +65  +-   2692
+  td_n             +1122  +-   2586
+  td_ok            +1302  +-   1150
+  gather_h          +120  +-    415
+  explore_h          +40  +-    257
+  goto_h            +134  +-    164
+  gather_items    +82478  +-  90475
+################ explore_mix.py 2026-10-09 2026-10-22
+============================== 2026-10-09 158784
+-- gather by block (top 25): attempts, ok, items+
+   dirt                      12774   6800   23150  139.0h
+   oak_log                    6809   3660   14141   73.6h
+   sand                       3858    163     636    4.3h
+   iron_ore                   3191    317    3561   10.9h
+   stone                      2506   1069    5701   12.6h
+   cobblestone                2418   1497    6364   20.2h
+   spruce_log                  306    158     376    3.7h
+   birch_log                   212     48     255    1.1h
+   bamboo                      121      2      37    0.0h
+   coal_ore                     35      7      22    0.1h
+   deepslate_iron_ore            7      3      33    0.0h
+   kelp                          4      0       0    0.0h
+   cobbled_deepslate             4      3       4    0.0h
+   oak_sapling                   4      2       2    0.0h
+   grass_block                   3      2      37    0.1h
+   water                         2      0       0    0.0h
+   smooth_basalt                 1      0       0    0.0h
+-- gather fail_class / status
+   [(('success', None), 13731), (('failed', 'no_path'), 7003), (('failed', 'unreachable'), 3686), (('failed', 'no_safe_target'), 3280), (('aborted', 'interrupted'), 3248), (('failed', 'nothing_found'), 962), (('unknown', 'collect_budget'), 155), (('failed', 'abort_ignored'), 80), (('failed', 'canopy_refused'), 75), (('unknown', 'no_measurable_change'), 17), (('failed', 'canopy_failed'), 16), (('failed', 'skill_error'), 2)]
+-- gather failed detail (top 20)
+     3102 dirt found but unreachable after N attempts [probe: success, slate N, A* reached a candida
+     2008 sand found but all N candidates are beside water or under falling blocks — digging them wo
+     1447 entombed
+     1217 stagnation
+      951 stone found but unreachable after N attempts [probe: success, slate N, A* reached a candid
+      687 iron_ore found but every candidate is buried — use mine to dig down — you are at y=N, N bl
+      636 oak_log found but all N candidates are beside water or under falling blocks — digging them
+      587 iron_ore: all N candidate(s) in range refused — could not stand within reach of any of the
+      534 oak_log found but unreachable after N attempts [probe: success, slate N, A* reached a cand
+      462 dirt found but unreachable after N attempts [collect said: arrived_out_of_reach: [pathfind
+      409 cobblestone found but unreachable after N attempts [probe: success, slate N, A* reached a 
+      408 oak_log found but unreachable after N attempts [probe: noPath, slate N, A* reached none] [
+      405 stuck
+      393 no sand within N blocks
+      371 sand found but every candidate is buried — use mine to dig down
+      367 sand: all N candidate(s) in range refused — could not stand within reach of any of them
+      353 iron_ore found but all N candidates are beside water or under falling blocks — digging the
+      298 oak_log: all N candidate(s) in range refused — could not stand within reach of any of them
+      273 sand found but every candidate is buried — use mine to dig down — you are at y=N, N blocks
+      272 iron_ore found but every candidate is buried — use mine to dig down [mine said: no room fo
+-- gather triggers [('llm:idle', 21153), ('interrupt:entombed', 3814), ('interrupt:stagnation', 1818), ('llm:entombed', 1525), ('interrupt:timeout', 958), ('llm:liveness_restart', 926), ('llm:stagnation', 819), ('interrupt:stuck', 646), ('llm:timeout', 196), ('llm:startup', 182), ('llm:stuck', 178), ('interrupt:low_health', 11)]
+-- mine status [(('success', None), 8243), (('unknown', 'no_measurable_change'), 1404), (('unknown', 'unverified'), 892), (('failed', 'forbidden'), 633), (('failed', 'exit_capability_reserve'), 501), (('failed', 'hazard_interrupt'), 292), (('aborted', 'interrupted'), 44), (('failed', 'missing_tool'), 26), (('failed', 'void_below'), 13), (('failed', 'already_below'), 1)]
+-- mine detail (top 15)
+     6932 reached y=N
+     2116 stopped at y=N: cut a step but could not stand in it (moved N blocks, wrong cell). The sha
+     1404 reached y=N — but nothing changed that mine exists to change (expected inventory_gain|posi
+      633 will not dig down within N blocks of home — the base floor is not a resource; walk out at 
+      415 stopped at y=N to keep an exit: N pickaxe swings left against a N-block climb out (need N 
+      159 stopped at y=N: water in the tread ahead — and in every other direction from here, so mini
+       85 stopped at y=N to keep an exit: N scaffold blocks against a N-block climb out (need N with
+       79 stopped at y=N: water beside the ceiling cell ahead — opening it would let it in
+       44 stagnation
+       26 stopped at y=N: water in the tread ahead
+       21 stagnation — but inventory_gain: cobblestone +N and position: moved N blocks, which is wha
+       20 stagnation — but inventory_gain: cobblestone +N, which is what mine is for, so it worked
+       17 stopped at y=N: water in the headroom ahead — and in every other direction from here, so m
+       15 stagnation — but inventory_gain: dirt +N and position: moved N blocks, which is what mine 
+       10 need a better tool for stone at y=N
+-- mine items+ [('cobblestone', 23521), ('dirt', 7651), ('andesite', 1370), ('diorite', 1177), ('granite', 1095), ('oak_log', 469), ('raw_copper', 437), ('bamboo', 374), ('stick', 357), ('leaf_litter', 340), ('gravel', 318), ('sand', 205), ('coal', 166), ('cobbled_deepslate', 160), ('oak_planks', 142)]
+-- mine args y hist [(48, 6493), (32, 2857), (64, 1389), (16, 923), (0, 202), (80, 69), (-16, 64), (-32, 37), (-48, 11), (-64, 3), (96, 1)]
+-- craft by item (top 25)
+   stone_pickaxe            {'failed': 1916, 'success': 521, 'aborted': 200, 'unknown': 8}
+   furnace                  {'success': 99, 'failed': 712, 'aborted': 35, 'unknown': 7}
+   crafting_table           {'failed': 622, 'success': 93, 'aborted': 16}
+   wooden_pickaxe           {'success': 98, 'failed': 508, 'aborted': 29, 'unknown': 4}
+   iron_pickaxe             {'failed': 127, 'success': 34, 'aborted': 4}
+   stick                    {'success': 22, 'failed': 36, 'unknown': 9, 'aborted': 1}
+   oak_planks               {'success': 7, 'failed': 11}
+   stone_shovel             {'failed': 9, 'success': 7, 'aborted': 1}
+   cobblestone              {'failed': 7}
+   ladder                   {'success': 1, 'failed': 5}
+   stone_axe                {'failed': 2, 'aborted': 1, 'success': 2}
+   torch                    {'failed': 3}
+   stone                    {'failed': 3}
+   stone_sword              {'aborted': 1, 'success': 1}
+   coal                     {'failed': 1}
+   iron_ingot               {'failed': 1}
+-- craft fail detail (top 12)
+      849 home -- then deposit iron_ingot: banking is refused out here (no usable chest in reach) an
+      413 home -- then deposit oak_log: banking is refused out here (no usable chest in reach) and t
+      371 deposit iron_ingot -- it walks home to the town chest and frees slots; nothing else frees 
+      348 cannot craft wooden_pickaxe -- gather oak_log first, nothing crafts it (short Nx oak_log f
+      273 cannot craft stone_pickaxe -- gather cobblestone first, nothing crafts it (short Nx cobble
+      263 deposit oak_log -- it walks home to the town chest and frees slots; nothing else frees one
+      193 home -- then deposit coal: banking is refused out here (no usable chest in reach) and the 
+      137 home -- then deposit raw_iron: banking is refused out here (no usable chest in reach) and 
+      116 stagnation
+      112 cannot craft iron_pickaxe -- short Nx iron_ingot for the whole tree (you have Nx iron_ingo
+       95 entombed
+       74 aborted
+-- _redundant_craft 0
+-- town_deposit detail (top 12)
+      413 ('success', 'banked N item(s) in N whole stack(s) at the town chest, read back from')
+      406 ('failed', 'the town chests in reach are full; deposit (no item) tries other chest')
+        7 ('failed', 'banked nothing at the town chests (unreachable, full); deposit (no ite')
+        6 ('failed', 'banked nothing at the town chests (unopenable); deposit (no item) walk')
+        5 ('failed', 'banked nothing at the town chests (unreachable, unreachable); deposit ')
+        1 ('failed', 'banked nothing at the town chests (unreachable, unopenable); deposit (')
+        1 ('failed', 'The goal was changed before it could be completed!')
+        1 ('aborted', 'stagnation')
+        1 ('failed', 'banked nothing at the town chests (unreachable, none); deposit (no ite')
+-- town_deposit triggers [('llm:idle', 792), ('llm:liveness_restart', 19), ('llm:entombed', 11), ('llm:stuck', 6), ('llm:stagnation', 5), ('llm:timeout', 2), ('llm:death', 2), ('llm:startup', 1)]
+-- explore by trigger [('llm:*', 13629, 88.4), ('interrupt:entombed', 1000, 5.5), ('interrupt:stuck', 130, 2.1), ('interrupt:stagnation', 375, 2.0), ('interrupt:danger_block', 36, 0.1), ('interrupt:stranded', 2, 0.0), ('interrupt:death', 3, 0.0), ('interrupt:flooded_pocket', 1, 0.0), ('interrupt:low_health', 3, 0.0)]
+-- goto by trigger [('llm:*', 8568, 34.7), ('livelock_escape', 3330, 15.2), ('watchdog_relocate', 1366, 8.8), ('interrupt:entombed', 1388, 6.6), ('interrupt:stuck', 426, 5.2), ('interrupt:stagnation', 572, 2.3), ('livelock_escape_dig', 905, 2.0), ('interrupt:timeout', 12, 0.6), ('interrupt:death', 3, 0.0), ('interrupt:flooded_pocket', 1, 0.0)]
+-- home by trigger [('watchdog_home', 134, 1.0), ('interrupt:stagnation', 87, 0.7), ('interrupt:stuck', 13, 0.2), ('interrupt:entombed', 51, 0.2), ('llm:*', 34, 0.1), ('interrupt:timeout', 1, 0.1)]
+-- surface by trigger [('interrupt:stagnation', 134, 3.4), ('interrupt:entombed', 288, 2.5), ('llm:*', 273, 2.0), ('interrupt:stuck', 73, 0.8), ('watchdog_stranded_underground', 106, 0.4), ('watchdog_stranded', 3, 0.0), ('interrupt:death', 2, 0.0)]
+-- explore detail (top 10)
+     5038 ('success', 'explored N blocks to N,N in N legs')
+     3415 ('success', 'explored N blocks to N,N in N legs (some legs blocked: pathfinding exc')
+     2251 ('failed', 'could not explore: explored N blocks to N,N in N legs')
+     1580 ('failed', 'could not explore: explored N blocks to N,N in N legs (some legs block')
+      985 ('aborted', 'entombed')
+      449 ('success', 'explored N blocks to N,N in N legs (some legs blocked: Took to long to')
+      369 ('aborted', 'stagnation')
+      240 ('no_effect', 'explored N blocks to N,N in N legs (some legs blocked: pathfinding exc')
+      232 ('success', 'explored N blocks to N,N in N legs (some legs blocked: The goal was ch')
+      185 ('no_effect', 'explored N blocks to N,N in N legs (some legs blocked: No path to the ')
+-- explore args [('{"blocks": 60}', 9721), ('{"blocks": 80}', 4270), ('{"blocks": 100}', 712), ('{"blocks": 8000000000000000}', 108), ('{"blocks": 6000000000000000}', 97), ('{"blocks": 81}', 47)]
+============================== 2026-10-22 208447
+-- gather by block (top 25): attempts, ok, items+
+   dirt                      17943  10669   39163  167.4h
+   sand                       4453    271    1007    4.1h
+   iron_ore                   1950    405    4556    8.9h
+   oak_log                    1642    322    1659    5.4h
+   stone                       583    251     987    2.1h
+   cobblestone                 455    260    1395    3.6h
+   oak_sapling                 217      1       1    0.0h
+   spruce_log                  158     24      31    0.2h
+   coal_ore                     66      9      64    0.1h
+   birch_log                    64      6      11    0.0h
+   bamboo                       23      1      11    0.0h
+   gravel                       11      1       6    0.0h
+   copper_ore                    9      2      22    0.0h
+   water                         5      0       0    0.0h
+   grass_block                   4      0       6    0.0h
+   deepslate_iron_ore            3      0       0    0.0h
+   big_dripleaf                  1      0       0    0.0h
+-- gather fail_class / status
+   [(('success', None), 12222), (('failed', 'no_path'), 5599), (('failed', 'no_safe_target'), 4027), (('aborted', 'interrupted'), 2616), (('failed', 'unreachable'), 2546), (('failed', 'nothing_found'), 344), (('unknown', 'collect_budget'), 113), (('failed', 'abort_ignored'), 79), (('failed', 'canopy_refused'), 19), (('failed', 'canopy_failed'), 11), (('unknown', 'no_measurable_change'), 9), (('failed', 'pickaxe_short'), 1), (('failed', 'keepout'), 1)]
+-- gather failed detail (top 20)
+     3313 dirt found but unreachable after N attempts [probe: success, slate N, A* reached a candida
+     2650 sand found but all N candidates are beside water or under falling blocks — digging them wo
+     1481 entombed
+      703 stagnation
+      680 oak_log found but all N candidates are beside water or under falling blocks — digging them
+      507 dirt found but unreachable after N attempts [collect said: arrived_out_of_reach: [pathfind
+      470 iron_ore: all N candidate(s) in range refused — could not stand within reach of any of the
+      398 sand found but every candidate is buried — use mine to dig down — you are at y=N, N blocks
+      373 sand found but every candidate is buried — use mine to dig down
+      359 oak_log found but unreachable after N attempts [probe: noPath, slate N, A* reached none] [
+      351 stuck
+      328 dirt found but unreachable after N attempts [probe: noPath, slate N, A* reached none] [col
+      313 dirt found but every candidate is buried — use mine to dig down — you are at y=N, N blocks
+      268 iron_ore found but all N candidates are beside water or under falling blocks — digging the
+      266 dirt: all N candidate(s) in range refused — could not stand within reach of any of them
+      256 sand: all N candidate(s) in range refused — could not stand within reach of any of them
+      220 no sand within N blocks
+      212 oak_sapling found but unreachable after N attempts [probe: noPath, slate N, A* reached non
+      169 stone found but all N candidates are beside water or under falling blocks — digging them w
+      154 iron_ore found but unreachable after N attempts [probe: success, slate N, A* reached a can
+-- gather triggers [('llm:idle', 17273), ('interrupt:entombed', 4451), ('llm:entombed', 2069), ('interrupt:stagnation', 1190), ('interrupt:stuck', 589), ('llm:stagnation', 578), ('llm:liveness_restart', 540), ('interrupt:timeout', 417), ('llm:stuck', 212), ('llm:startup', 126), ('llm:timeout', 84), ('interrupt:low_health', 21)]
+-- mine status [(('success', None), 5508), (('failed', 'hazard_interrupt'), 586), (('unknown', 'unverified'), 493), (('unknown', 'no_measurable_change'), 451), (('failed', 'exit_capability_reserve'), 367), (('failed', 'forbidden'), 262), (('failed', 'void_below'), 18), (('aborted', 'interrupted'), 5), (('failed', 'already_below'), 5), (('failed', 'town_ground'), 4)]
+-- mine detail (top 15)
+     4416 reached y=N
+     1552 stopped at y=N: cut a step but could not stand in it (moved N blocks, wrong cell). The sha
+      482 stopped at y=N: water in the tread ahead — and in every other direction from here, so mini
+      451 reached y=N — but nothing changed that mine exists to change (expected inventory_gain|posi
+      337 stopped at y=N to keep an exit: N pickaxe swings left against a N-block climb out (need N 
+      262 will not dig down within N blocks of home — the base floor is not a resource; walk out at 
+       88 stopped at y=N: water beside the ceiling cell ahead — opening it would let it in
+       29 stopped at y=N to keep an exit: N scaffold blocks against a N-block climb out (need N with
+       13 stopped at y=N: open space deeper than N blocks under the next step — that is a fall, not 
+        8 stagnation — but inventory_gain: cobblestone +N, which is what mine is for, so it worked
+        7 stopped at y=N: water in the headroom ahead — and in every other direction from here, so m
+        7 stagnation — but inventory_gain: cobblestone +N and position: moved N blocks, which is wha
+        5 stagnation
+        5 already at y=N, at or below the requested y=N — mine only digs downward, so this cannot do
+        5 stopped at y=N: a N-block drop under the next step would cost about N health, leaving too 
+-- mine items+ [('cobblestone', 16936), ('dirt', 3644), ('cobbled_deepslate', 2457), ('granite', 1560), ('andesite', 1521), ('diorite', 1364), ('gravel', 549), ('raw_copper', 513), ('coal', 229), ('tuff', 225), ('bamboo', 201), ('dripstone_block', 148), ('leaf_litter', 123), ('sand', 103), ('lapis_lazuli', 103)]
+-- mine args y hist [(48, 2842), (32, 2123), (16, 1200), (64, 681), (0, 435), (-16, 175), (-32, 171), (-48, 46), (-64, 28), (80, 1)]
+-- craft by item (top 25)
+   stone_pickaxe            {'success': 178, 'aborted': 62, 'failed': 90}
+   furnace                  {'failed': 25, 'aborted': 60, 'success': 158, 'unknown': 7}
+   crafting_table           {'success': 43, 'failed': 55, 'aborted': 10}
+   wooden_pickaxe           {'aborted': 13, 'failed': 41, 'success': 12}
+   stick                    {'success': 34, 'aborted': 2, 'failed': 19, 'unknown': 3}
+   iron_pickaxe             {'success': 18, 'failed': 36, 'aborted': 4}
+   stone_axe                {'failed': 30, 'success': 5}
+   oak_planks               {'success': 12, 'failed': 4}
+   stone_shovel             {'success': 11, 'aborted': 1, 'failed': 1}
+   ladder                   {'failed': 8, 'success': 1}
+   oak_sapling              {'failed': 4}
+   torch                    {'failed': 1, 'success': 3}
+   wooden_axe               {'success': 2}
+   bucket                   {'failed': 1, 'success': 1}
+   stone                    {'failed': 2}
+   iron_ingot               {'failed': 2}
+   dirt                     {'failed': 2}
+   cobblestone              {'failed': 2}
+   sandstone                {'failed': 1}
+   apple                    {'failed': 1}
+   brick                    {'failed': 1}
+-- craft fail detail (top 12)
+       83 aborted
+       45 entombed
+       45 deposit iron_ingot -- it walks home to the town chest and frees slots; nothing else frees 
+       35 home -- then deposit iron_ingot: banking is refused out here (no usable chest in reach) an
+       32 cannot craft iron_pickaxe -- short Nx iron_ingot for the whole tree (you have Nx iron_ingo
+       32 cannot craft wooden_pickaxe -- needs Nx oak_planks (you have Nx oak_planks, Nx wooden_pick
+       25 home -- then deposit oak_log: banking is refused out here (no usable chest in reach) and t
+       17 stagnation
+       16 cannot craft stone_pickaxe -- gather cobblestone first, nothing crafts it (short Nx cobble
+       13 place granite -- placing your one granite frees its slot. No room for oak_planks: the bag 
+       12 home -- then deposit stone_shovel: banking is refused out here (no usable chest in reach) 
+       11 crafting_table is N blocks away and could not be reached — stone_axe needs one within N bl
+-- _redundant_craft 274
+-- town_deposit detail (top 12)
+      165 ('success', 'banked N item(s) in N whole stack(s) at the town chest, read back from')
+       35 ('no_effect', 'counted N town container(s); nothing to bank (the town holds its stock')
+       11 ('failed', 'the town chests in reach are full; deposit (no item) tries other chest')
+-- town_deposit triggers [('llm:idle', 182), ('llm:stagnation', 10), ('llm:liveness_restart', 6), ('llm:entombed', 5), ('llm:startup', 3), ('llm:stuck', 2), ('llm:death', 2), ('llm:timeout', 1)]
+-- explore by trigger [('llm:*', 18691, 129.6), ('interrupt:entombed', 1703, 11.3), ('interrupt:stuck', 130, 2.0), ('interrupt:stagnation', 403, 1.9), ('interrupt:danger_block', 56, 0.2), ('interrupt:low_health', 8, 0.1), ('interrupt:flooded_pocket', 1, 0.0), ('interrupt:death', 2, 0.0), ('interrupt:stranded', 1, 0.0), ('interrupt:air_pocket', 3, 0.0)]
+-- goto by trigger [('llm:*', 10554, 56.7), ('watchdog_relocate', 2817, 19.1), ('livelock_escape', 3593, 14.2), ('interrupt:stuck', 824, 10.6), ('interrupt:entombed', 1816, 10.3), ('livelock_escape_dig', 1486, 2.2), ('interrupt:stagnation', 272, 1.0), ('interrupt:timeout', 15, 0.8), ('interrupt:stranded', 17, 0.1), ('interrupt:drowning', 4, 0.0)]
+-- home by trigger [('watchdog_home', 263, 3.7), ('interrupt:stuck', 87, 1.1), ('interrupt:entombed', 121, 1.0), ('llm:*', 61, 0.5), ('interrupt:stagnation', 6, 0.1), ('interrupt:low_health', 1, 0.0)]
+-- surface by trigger [('interrupt:entombed', 414, 3.1), ('watchdog_stranded_underground', 160, 2.4), ('watchdog_stranded', 73, 2.3), ('llm:*', 246, 1.9), ('interrupt:stuck', 98, 1.2), ('interrupt:stagnation', 42, 0.8), ('interrupt:low_health', 1, 0.0)]
+-- explore detail (top 10)
+     7013 ('success', 'explored N blocks to N,N in N legs')
+     4587 ('success', 'explored N blocks to N,N in N legs (some legs blocked: pathfinding exc')
+     3271 ('failed', 'could not explore: explored N blocks to N,N in N legs')
+     1909 ('failed', 'could not explore: explored N blocks to N,N in N legs (some legs block')
+     1672 ('aborted', 'entombed')
+      476 ('success', 'explored N blocks to N,N in N legs (some legs blocked: Took to long to')
+      410 ('no_effect', 'explored N blocks to N,N in N legs (some legs blocked: pathfinding exc')
+      397 ('aborted', 'stagnation')
+      364 ('no_effect', 'explored N blocks to N,N in N legs (some legs blocked: No path to the ')
+      314 ('success', 'explored N blocks to N,N in N legs (some legs blocked: The goal was ch')
+-- explore args [('{"blocks": 60}', 10493), ('{"blocks": 80}', 8597), ('{"blocks": 100}', 1244), ('{"blocks": 6000000000000000}', 147), ('{"blocks": 8000000000000000}', 134), ('{"blocks": 120}', 69)]
 ################ llm_daily.py
 2026-10-08 158591 82.6 {'<missing>': 11801, '10.0.0.16:11434': 34124, '10.0.0.72:11434': 112666} 1672 3330 6913 82.5 startup 537 liveness_restart 2808
 2026-10-09 160579 83.6 {'<missing>': 12519, '10.0.0.16:11434': 36241, '10.0.0.72:11434': 111819} 1711 3665 7560 88.1 startup 556 liveness_restart 2634
@@ -720,23 +1169,24 @@ SUM over promoted canaries (fleet events/day if additive and persistent; +-1.96 
 2026-10-21 160382 83.5 {'<missing>': 8608, '10.0.0.16:11434': 22272, '10.0.0.72:11434': 129502} 1786 3302 6830 86.8 startup 379 liveness_restart 1972
 2026-10-22 159142 82.9 {'<missing>': 7739, '10.0.0.72:11434': 151403} 1920 3062 4190 85.0 startup 516 liveness_restart 1779
 2026-10-23 115225 80.7 {'<missing>': 6270, '10.0.0.72:11434': 108955} 1872 3021 4182 60.1 startup 512 liveness_restart 1585
-################ milestones_daily (top rungs)
-2026-10-08 158591 158591
-2026-10-09 160579 160579
-2026-10-10 162381 162381
-2026-10-11 160176 160176
-2026-10-12 161674 161674
-2026-10-13 162828 162828
-2026-10-14 157928 157928
-2026-10-15 161873 161873
-2026-10-16 157951 157951
-2026-10-17 159324 159324
-2026-10-18 161325 161325
-2026-10-19 165003 165003
-2026-10-20 160559 160559
-2026-10-21 160382 160382
-2026-10-22 159142 159142
-2026-10-23 116800 116800
+################ milestone_yield.py reconciliation (my.log)
+2026-10-08 decisions 158591 milestone buckets 158591 extra skill-bucket rows (multi-call decisions) 0
+2026-10-09 decisions 160579 milestone buckets 160579 extra skill-bucket rows (multi-call decisions) 0
+2026-10-10 decisions 162381 milestone buckets 162381 extra skill-bucket rows (multi-call decisions) 0
+2026-10-11 decisions 160176 milestone buckets 160176 extra skill-bucket rows (multi-call decisions) 0
+2026-10-12 decisions 161674 milestone buckets 161674 extra skill-bucket rows (multi-call decisions) 0
+2026-10-13 decisions 162828 milestone buckets 162828 extra skill-bucket rows (multi-call decisions) 0
+2026-10-14 decisions 157928 milestone buckets 157928 extra skill-bucket rows (multi-call decisions) 0
+2026-10-15 decisions 161873 milestone buckets 161873 extra skill-bucket rows (multi-call decisions) 0
+2026-10-16 decisions 157951 milestone buckets 157951 extra skill-bucket rows (multi-call decisions) 0
+2026-10-17 decisions 159324 milestone buckets 159324 extra skill-bucket rows (multi-call decisions) 0
+2026-10-18 decisions 161325 milestone buckets 161325 extra skill-bucket rows (multi-call decisions) 0
+2026-10-19 decisions 165003 milestone buckets 165003 extra skill-bucket rows (multi-call decisions) 0
+2026-10-20 decisions 160559 milestone buckets 160559 extra skill-bucket rows (multi-call decisions) 0
+2026-10-21 decisions 160382 milestone buckets 160382 extra skill-bucket rows (multi-call decisions) 0
+2026-10-22 decisions 159142 milestone buckets 159142 extra skill-bucket rows (multi-call decisions) 0
+2026-10-23 decisions 121407 milestone buckets 121407 extra skill-bucket rows (multi-call decisions) 0
+DONE
 ################ row pull counts
 2026-10-08 155231 {'gather': 32535, 'mine': 11757, 'craft': 4777, 'town_deposit': 569, 'deposit': 1649, 'explore': 15555, 'goto': 16759, 'home': 332, 'surface': 792, 'smelt': 564, 'smelt_town': 0, 'furnace_drain': 0, 'toolkit': 0, 'withdraw_pick': 176, 'withdraw': 9, 'dispose_well': 0, 'compost': 199, 'place': 1759, 'keepout_exit': 0, 'wear_out': 89, 'board': 6, '_water_float_ended': 21296, '_water_surface_ended': 14253, '_water_no_air_route_ended': 417, '_water_surface_out_ended': 339, '_redundant_craft': 0, '_death': 53, '_entombed': 11176, '_marooned': 5804, '_stagnation': 6353, '_livelock_escape': 4294, '_loop_restart': 2811, '_watchdog_rescue': 0, '_keepout': 0, '_protect_zone': 0, '_stranded_escape_try': 908}
 2026-10-09 158784 {'gather': 32255, 'mine': 12049, 'craft': 5164, 'town_deposit': 841, 'deposit': 1716, 'explore': 15179, 'goto': 16573, 'home': 320, 'surface': 879, 'smelt': 572, 'smelt_town': 0, 'furnace_drain': 0, 'toolkit': 0, 'withdraw_pick': 174, 'withdraw': 7, 'dispose_well': 0, 'compost': 218, 'place': 1854, 'keepout_exit': 0, 'wear_out': 66, 'board': 4, '_water_float_ended': 22962, '_water_surface_ended': 16155, '_water_no_air_route_ended': 336, '_water_surface_out_ended': 272, '_redundant_craft': 0, '_death': 50, '_entombed': 11236, '_marooned': 5817, '_stagnation': 6157, '_livelock_escape': 4369, '_loop_restart': 2640, '_watchdog_rescue': 0, '_keepout': 0, '_protect_zone': 0, '_stranded_escape_try': 919}

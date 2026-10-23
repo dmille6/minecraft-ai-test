@@ -31,7 +31,7 @@ def compact(r):
     m = next((x.get('milestone') for x in ms if isinstance(x, dict) and x.get('milestone')), None)
     p = b.get('pos') or {}
     return {'t': r.get('@timestamp'), 'b': b.get('name'), 'p': (r.get('exp') or {}).get('pool'),
-            'm': re.sub(r'#\d+$', '', m) if m else None, 'sk': tc.get('skill'),
+            'm': re.sub(r'#\d+', '', m) if m else None, 'sk': tc.get('skill'),
             'blk': (tc.get('args') or {}).get('block') if isinstance(tc.get('args'), dict) else None,
             'st': (r.get('outcome') or {}).get('status'), 'per': (r.get('perception') or {}).get('blocks') or {},
             'x': p.get('x'), 'y': p.get('y'), 'z': p.get('z'), 'inv': b.get('inventory') or {}, 'picks': tools,

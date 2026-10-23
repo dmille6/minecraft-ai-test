@@ -38,12 +38,12 @@ while d <= dt.date(2026, 10, 23):
     r = ev._search(body)['aggregations']['p']
     ev._complete(r, 'pool')
     D = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(int))))
-    tot = 0
+    tot = over = 0
     for pb in r['buckets']:
         w = world(pb['key'])
         ev._complete(pb['m'], 'milestone')
         for mb in pb['m']['buckets']:
-            m = re.sub(r'#\d+$', '', mb['key'])
+            m = re.sub(r'#\d+', '', mb['key'])
             ev._complete(mb['k'], 'skill')
             ks = 0
             for kb in mb['k']['buckets']:
@@ -52,7 +52,13 @@ while d <= dt.date(2026, 10, 23):
                     D[w][m][kb['key']][sb['key']] += sb['doc_count']
                     ks += sb['doc_count']
             tot += mb['doc_count']
+            # tool_calls is an array: a decision with several calls lands in several skill buckets, and one with
+            # none lands in '<none>', so the skill buckets must sum to AT LEAST the milestone's doc_count
+            if ks < mb['doc_count']:
+                raise SystemExit(f'{d} {pb["key"]} {mb["key"]}: skill buckets {ks} < decisions {mb["doc_count"]}')
+            over += ks - mb['doc_count']
     res[str(d)] = json.loads(json.dumps(D))
-    print(d, 'decisions', ev.total(), 'milestone buckets', tot, flush=True)
+    print(d, 'decisions', ev.total(), 'milestone buckets', tot, 'extra skill-bucket rows (multi-call decisions)', over,
+          flush=True)
     d += dt.timedelta(days=1)
 json.dump(res, open(os.path.join(OUT, 'milestone_yield.json'), 'w'), sort_keys=True)

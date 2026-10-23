@@ -34,5 +34,5 @@ for path in sorted(glob.glob(os.path.join(HERE, 'out', 'rows', '*.jsonl.gz'))):
                 if m:
                     fl[world(r['p'])] += float(m.group(1)) / 3600
     top = sorted(fl.items(), key=lambda x: -x[1])[:4]
-    print(f'{day}  {tk_ok:6d}   {dict(tools)!s:55.55s} | {red:6d} | total {sum(fl.values()):5.1f}: ' +
+    print(f'{day}  {tk_ok:6d}   {dict(tools)!s} | {red:6d} | total {sum(fl.values()):5.1f}: ' +
           ', '.join(f'{w} {h:.1f}' for w, h in top))

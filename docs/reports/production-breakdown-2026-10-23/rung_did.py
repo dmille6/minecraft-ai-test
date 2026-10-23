@@ -28,8 +28,11 @@ STEPS = [  # fleet-wide timestamps (journal 'promoted' rows, owner-direct includ
 def share(pools, lo, hi):
     tot = {g: 0 for g in G}
     n = 0
+    # only hours lying WHOLLY inside [lo, hi)
     t = lo.replace(minute=0, second=0, microsecond=0)
-    while t < hi:
+    if t < lo:
+        t += dt.timedelta(hours=1)
+    while t + dt.timedelta(hours=1) <= hi:
         k = t.strftime('%Y-%m-%dT%H')
         for w in pools:
             X = H.get(k, {}).get(w)
@@ -57,8 +60,8 @@ for run, t0, t1, pools in CANARIES:
     can = pools.split(',')
     ctl = [w for w in SHARED if w not in can]
     T0, T1 = ts(t0), ts(t1)
-    pre = (T0 - dt.timedelta(hours=6), T0.replace(minute=0, second=0))
-    post = (T0.replace(minute=0, second=0) + dt.timedelta(hours=1), T1.replace(minute=0, second=0))
+    pre = (T0 - dt.timedelta(hours=6), T0)                 # whole hours before the deploy
+    post = (T0 + dt.timedelta(hours=1), T1)                # whole hours from deploy + 1 h to the promotion
     d, nb = did(can, ctl, pre, post)
     null = {g: [] for g in G}
     for _ in range(300):

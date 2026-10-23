@@ -120,7 +120,7 @@ for c in ('log', 'stone', 'dirt', 'sand', 'ore'):
     e, te = sh(END)
     print(f'  {c:6s} attempts/day {tb / 3:6.0f} -> {te / 3:6.0f}  ' + '  '.join(
         f'{o} {100 * b[o] / tb:4.1f}->{100 * e[o] / te:4.1f}' for o in
-        ('ok', 'nothing_found', 'no_safe_target', 'no_path', 'unreachable', 'interrupted')))
+        ('ok', 'nothing_found', 'no_safe_target', 'canopy', 'no_path', 'unreachable', 'interrupted')))
 
 print('\n3d. Travel per success: (explore h + LLM goto h) per 100 production successes (gather+mine), and per hour of gather')
 for key, ws in [('fleet', WORLDS)] + list(GROUPS.items()):
