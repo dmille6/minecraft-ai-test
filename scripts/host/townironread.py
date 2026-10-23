@@ -87,8 +87,10 @@ def own_delivered(d):
 def shovel_left(before):
     """PURE. A kit row's before= 'tool@uses,...' -> the most uses left on any shovel (-1: none; None: before= unavailable).
     `@full` (unknown durability: toolfor counts it full) is usable (Codex r3 P2)."""
-    if before is None or before == '' or before == '-':
+    if before is None or before == '':
         return None
+    if before == '-':
+        return -1               # toolkit.mjs toolsTag: '-' is a bag with no tools at all (Codex r4 P3): judged, no shovel
     best = -1
     for t in str(before).split(','):
         if '_shovel@' in t:
@@ -122,7 +124,9 @@ def known_at(records, at_ms, stale_ms=STALE_MS):
             continue
         key = (str(r.get('w')), r['k'])
         cur = last.get(key)
-        if cur is None or at > cur['at'] or (at == cur['at'] and r.get('t') == 'dirty'):
+        # townindex.mjs supersedes: the later capture; a tie -> dirty over obs, then the larger id (Codex r4 P2)
+        rank = lambda x: (x['at'], 1 if x.get('t') == 'dirty' else 0, str(x.get('id') or ''))
+        if cur is None or rank(r) > rank(cur):
             last[key] = r
         if r.get('t') == 'dirty' and r.get('op') is not None and r.get('phase') in ('pre', 'post', 'held'):
             o = ops.setdefault(key, {}).setdefault(r['op'], {})
@@ -145,7 +149,9 @@ def known_at(records, at_ms, stale_ms=STALE_MS):
 
 def ckpt_records(rr):
     """PURE. A rotation checkpoint record (townindex.mjs rotateIndex: the fold of the generations it replaced) -> records:
-    each entry's observation and its last mark, so a fold across a rotation still sees the containers (Codex r3 P2)."""
+    each entry's observation and its last mark, ids kept (the tie-break). ONLY the OLDEST file's checkpoint is expanded, as the
+    BASE of the history; the history is complete from that checkpoint's `at` on, and an endpoint before it is UNAVAILABLE
+    (Codex r4 P2: a checkpoint keeps only the latest state, so an earlier endpoint cannot be rebuilt from it)."""
     out = []
     for w_, ents in (rr.get('worlds') or {}).items():
         try:
@@ -155,9 +161,9 @@ def ckpt_records(rr):
         for k_, e_ in (ents or {}).items():
             o_ = (e_ or {}).get('obs'); l_ = (e_ or {}).get('last') or {}
             if o_ and isinstance(o_.get('at'), (int, float)):
-                out.append({'t': 'obs', 'k': k_, 'w': w, 'at': o_['at'], 'names': o_.get('names') or {}})
+                out.append({'t': 'obs', 'k': k_, 'w': w, 'at': o_['at'], 'id': o_.get('id'), 'names': o_.get('names') or {}})
             if l_.get('t') == 'dirty' and isinstance(l_.get('at'), (int, float)):
-                out.append({'t': 'dirty', 'k': k_, 'w': w, 'at': l_['at']})
+                out.append({'t': 'dirty', 'k': k_, 'w': w, 'at': l_['at'], 'id': l_.get('id')})
             for op, o in ((e_ or {}).get('ops') or {}).items():
                 for ph in ('pre', 'post', 'held'):
                     if isinstance(o.get(ph), (int, float)):
@@ -166,7 +172,8 @@ def ckpt_records(rr):
 
 
 def stock_change(records, a_ms, b_ms, first_ms=None):
-    """PURE. The iron (ingots + raw) change over containers KNOWN at both ends -> (delta, n) or (None, 0) when unavailable."""
+    """PURE. The iron (ingots + raw) change over containers KNOWN at both ends -> (delta, n) or (None, 0) when unavailable.
+    `first_ms` is where the history is complete from: the first record of a generation-1 file, or the base checkpoint's `at`."""
     if first_ms is None or a_ms < first_ms:
         return None, 0
     ka, kb = known_at(records, a_ms), known_at(records, b_ms)
@@ -191,7 +198,9 @@ assert stock_change(_R, 5, 25, first_ms=10) == (None, 0)
 _O = [{'t': 'dirty', 'k': 'a', 'at': 9, 'w': 'W', 'op': 'x', 'phase': 'pre'}, {'t': 'obs', 'k': 'a', 'at': 10, 'w': 'W', 'names': {'iron_ingot': [5, 1]}}]
 assert known_at(_O, 20) == {}, 'an observation captured inside an open mutation is not known'
 assert known_at(_O + [{'t': 'dirty', 'k': 'a', 'at': 11, 'w': 'W', 'op': 'x', 'phase': 'post'}, {'t': 'obs', 'k': 'a', 'at': 12, 'w': 'W', 'names': {}}], 20) != {}
-assert shovel_left('-') is None and shovel_left('iron_shovel@full') == 10**6
+assert shovel_left('-') == -1 and shovel_left('') is None and shovel_left('iron_shovel@full') == 10**6
+_T = [{'t': 'obs', 'k': 'a', 'at': 10, 'w': 'W', 'id': 'b', 'names': {'iron_ingot': [5, 1]}}, {'t': 'obs', 'k': 'a', 'at': 10, 'w': 'W', 'id': 'a', 'names': {'iron_ingot': [9, 1]}}]
+assert known_at(_T, 20) == known_at(list(reversed(_T)), 20) == {('W', 'a'): {'iron_ingot': [5, 1]}}, 'a tie: the larger id, whatever the file order'
 
 if __name__ == '__main__':
     from lib.telemetry import Events
@@ -319,8 +328,10 @@ if __name__ == '__main__':
         p = d_.split('/_pool-')[1]
         if '.pre-' in p:
             continue
-        recs = []
-        for f_ in sorted(glob.glob(d_ + '/town-index-*.g*.jsonl')):
+        recs = []; base_at = None
+        gen_of = lambda f_: int(re.search(r'\.g(\d+)\.jsonl$', f_).group(1)) if re.search(r'\.g(\d+)\.jsonl$', f_) else 0
+        files = sorted(glob.glob(d_ + '/town-index-*.g*.jsonl'), key=gen_of)
+        for fi, f_ in enumerate(files):
             for line in open(f_, 'rb'):
                 try:
                     rr = json.loads(line)
@@ -328,11 +339,12 @@ if __name__ == '__main__':
                     continue
                 if rr.get('t') in ('obs', 'dirty'):
                     recs.append(rr)
-                elif rr.get('t') == 'ckpt':
-                    recs.extend(ckpt_records(rr))
+                elif rr.get('t') == 'ckpt' and fi == 0 and base_at is None:
+                    recs.extend(ckpt_records(rr)); base_at = rr.get('at')   # only the oldest file's checkpoint: the base
         if not recs:
             continue
-        first = min(r['at'] for r in recs if isinstance(r.get('at'), (int, float)))
+        raw_first = min(r['at'] for r in recs if isinstance(r.get('at'), (int, float)))
+        first = base_at if isinstance(base_at, (int, float)) else (raw_first if files and gen_of(files[0]) == 1 else None)
         census[p] = {'pre': stock_change(recs, ms(PRE), ms(CUT), first), 'post': stock_change(recs, ms(CUT), ms(END), first)}
     paired = {p for p, c in census.items() if c['pre'][0] is not None and c['post'][0] is not None}
     def arm_mean(arm, per):
