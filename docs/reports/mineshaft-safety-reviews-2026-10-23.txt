@@ -653,3 +653,116 @@ Claude P2 (floor accounting): one shared 20-swing/16-block allowance per lease a
 Claude P2 (restart after F1): the cognitive order chain runs stairReturn deterministically (like #keepoutExitOrder);
   confined declines never idle the bot.
 Claude P3: obs gains W (water); confinement scoped to the stair area; survival reflexes and F1 never confined.
+
+====================================================================================================
+ROUND 5 (doc r5 @ 248be79e): Codex CHANGE (1 P1, 3 P2); Claude CHANGE (1 P1, 6 P2) -- the same P1
+====================================================================================================
+--- Codex r5 (verbatim) ---
+Reviewed commit `248be79e` read-only. I interpret “resolved in r2” as “resolved in r5,” the requested revision. References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+Round 4 disposition:
+
+| R4 finding | Status in r5 |
+|---|---|
+| P1-1: `use_stair` inaccessible outside shell | **Resolved at design level:** verified connection, alternative escape plans and separate evacuation exclusions (`design:1132–1143`). |
+| P1-2: unprotected branch credit | **Not fully resolved:** the new re-cut reserve does not guarantee an executable repair; finding 1 below. |
+| P1-3: stale corridor cache | **Resolved at design level:** full dependency footprint and update/unload invalidation (`1161–1172`). Its new gate claim has a separate gap below. |
+| P2-4: mutation gate misses placements | **Partially resolved:** successful-mutation observations are specified, but the named placement boundary misses an existing producer; finding 3. |
+| P2-5: death attribution crosses lives | **Resolved:** `d8.py:47–49` bounds attribution at the first death. Running the actual script with synthetic inputs correctly classified the pre-drowning episode as non-lava-fatal and the subsequent episode as lava-fatal. |
+| P2-6: off-route recovery/gate/O11 mismatch | **Partially resolved:** bounded digging is admitted and O12 distinguishes the residual, but the new ordinary-exit fallback still violates the gate; finding 4. |
+
+The r4 P3 reservation-table contradiction is also resolved.
+
+The entombment probe reproduced every listed result, including positive and negative controls. The principal code claims check out: blind sprint-jump, feet **or below** danger trigger, head-level entombment walls, lava counted as hollow, ceiling-only neighbour checks, blind recovery push, exit-reserve arithmetic and pathfinder’s lava avoidance. The measurement inputs are absent, so production totals—including “0 episodes change”—remain unverified. The document appropriately qualifies the depth proxy, associations and limited canary power.
+
+1. **P1 — F6’s replacement branch reserve does not establish a recoverable return path (§7 F6, Credit; §8 M9).**
+
+   `design:1176–1178` says an unlined branch can **always** be re-cut under F4 with two swings and one block per cell. That only prices a simple obstruction. It does not establish that F4 permits the repair.
+
+   Protection remains limited to the stair lanes and shell (`1126–1130`); branch cells receive a movement exclusion (`1146–1147`). Another bot can work beside the branch and expose lava or remove support without walking through it. F4 correctly refuses an unsafe opening or a seal without a reachable placement face. More swings cannot make that repair executable, and a branch has no second lane.
+
+   The specified break chain still ends in lane switching (`1193–1199`), while the ordinary-exit fallback is described specifically for displacement after F1 (`1436–1447`). Neither explicitly handles a miner still on-route behind an unrepairable branch break.
+
+   **Required:** protect the complete branch return infrastructure, or explicitly route failed branch repairs through an executable fallback and describe its residual honestly. Also reconcile the new reserve with the floor-only work-stop condition and G3 (`1423`, `1230`): a 32-cell branch requires 64 reserved swings **above** the floor, not merely the floor.
+
+2. **P2 — F6’s new cache mutant cannot trip the specified G1 (§7 F6, Validation/Gates).**
+
+   `design:1171–1172` requires G1 to detect unchanged route cells with newly adjacent lava. But `_stair_cert.obs` contains only route-cell classes (`1210–1216`), and G1 checks only those classes (`1228`). The counterexample deliberately leaves them unchanged. G5 likewise reads only route cells (`1232`).
+
+   The cache-invalidation algorithm is now adequately specified; its claimed evidence is not. Emit dependency observations and invalidation/recomputation information linked to the credited action, or define a separate Paper gate that independently changes and reads the neighbouring cell. Demonstrate that disabling invalidation fails that gate.
+
+3. **P2 — The new placement observer is attached above an existing bypass (§7 F6 G6; §7 F1 wrappers).**
+
+   `design:1233` calls `bot.dig` / `placeBlock` the shared mutation boundary. However, the air-pocket rescue calls **`bot._placeBlockWithOptions` directly** (`bots/src/airpocket.mjs:437–439`). Mineflayer’s implementation does not route that call through `bot.placeBlock`.
+
+   The existing protection code already addresses this distinction by wrapping `_genericPlace` (`bots/src/protectzone.mjs:431–438`). A G6 observer attached only to `placeBlock` can therefore miss a successful recovery placement. F1’s new wrapper wording has the same coverage limitation (`design:827–828`), subject to its intentional air-preemption rules.
+
+   Specify coverage of all placement entry points at the common boundary, with successful world-change observation. Include a direct `_placeBlockWithOptions` placement in the bypass mutant.
+
+4. **P2 — The new `uncertified` exit fallback contradicts the off-route gate (§8 M8).**
+
+   `design:1442–1445` correctly ends credit and confinement and deterministically runs ordinary `surface`/stranded recovery. The record remains in the cap. However, the gate at `1397–1398` still prohibits **all leaseholder off-route actions** except F1 and bounded walk/dig-back operations.
+
+   Ordinary exit-chain digs and placements after phase `uncertified` satisfy neither exception. A correctly executed new fallback therefore fails the stated gate.
+
+   Scope the confinement gate to certified phases and instrument the transition and ordinary recovery separately. Carry that distinction through reconnect handling, which currently resumes every non-`out` record as `ascending` and selects `stairReturn` (`1374–1377`), including an uncertified bot whose route recovery already failed.
+
+M7–M10, the sequential canary order and investigation-only treatment of F3 remain respected. The diamond tier should wait for the branch-return contract above; the enchanting sketch introduces no additional approval-blocking finding.
+
+VERDICT: CHANGE
+
+--- Claude r5 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r5 on 248be79e. Condensed:
+
+R4 disposition: Codex P1-1 resolved; P1-2 partly ("always re-cut" overclaimed, no next rung); P1-3 resolved; P2-4
+partly (observer at the wrong boundary); P2-5 resolved (re-ran Codex's case on d8.py:46-49); P2-6, P3-7 resolved;
+Claude P1 resolved for the F1 off-route case only; Claude P2s mostly resolved.
+
+P1 §7 F6 Credit/A break, §8 M8: a branch break that cannot be re-cut has no next rung. F4 can turn/stop (lava in a
+  branch cell, a refilling gravel column); the break chain's steps (walk up, switch lanes, both-lanes) do not exist on
+  a branch; the `uncertified` handover is scoped only to "off the route after F1" in the doc although the r5 response
+  says "any route-recovery failure other than both lanes". A leaseholder in a blocked branch stays confined and loops
+  on stairReturn. Fix: state the handover for every recovery failure except O11's; chain-test a blocked branch with
+  lava behind the block.
+
+P2-a G6 / F1 in-flight refusal at the wrong boundary: airpocket.mjs:437-439 calls bot._placeBlockWithOptions directly;
+  protectzone.mjs:22 already chokepoints at _genericPlace; a wrapper also cannot see non-bot mutations (flow, falls) --
+  guard at _genericPlace and log blockUpdate on envelope/branch cells.
+P2-b danger_stuck needs exact keys: (cell, block name in {magma_block, campfire, soul_campfire}); lava/fire never
+  relaxed; any blockUpdate or new DANGER at feet/below ends it; who releases the sneak.
+P2-c `uncertified` still treated as a leaseholder by Exits, the homefix row and the forced stairReturn.
+P2-d an `uncertified` bot never leaves the cap if it surfaces elsewhere below the top's y; define `out` for it as on
+  the surface anywhere with exitDebt 0.
+P2-e an unsafe recompute of a stale segment has no defined outcome.
+P2-f O11 overstates the residual: past the 20-swing allowance the bot is stranded by the design's own guards; offer
+  `uncertified` with the shell guard lifted for this bot's own exit, logged as an authorized _envelope_mutation.
+P3: the envelope exclusion needs a fall-through for rungs that do not plan (pillarOut, the stranded ladder's dig-up);
+  a chain test for a pocket under the bottom landing where up is shell. O12 accurate; M7-M10 respected.
+
+VERDICT: CHANGE
+
+--- r5 -> r6 response (doc r6) ---
+Codex P1-1 / Claude P1 (branch break with no next rung; same finding): ONE universal handover now covers every
+  route-recovery failure -- both lanes broken, a branch F4 cannot re-cut, a repair over allowance, the other lane
+  unreachable, off-route after F1: credit and confinement end, phase `uncertified` (still in the cap), today's exit
+  chain runs deterministically with the whole kit, and the envelope/branch guard is lifted for that bot's own exit
+  (each such mutation logged as authorized). Branch cells and their 1-cell shell are guarded like the envelope; the
+  re-cut reserve is stated as a price, not a promise; work stops at floor + reserve and G3 checks floor + reserve;
+  blocked-branch-with-lava and pocket-under-landing chain tests added.
+Claude P2-f: adopted -- with the guard lifted for the bot's own exit, O11 and O12 merge into one residual: today's
+  chain giving up (alarm), never worse than any bot that falls into a deep cave today.
+Codex P2-2 / Claude P2-e (cache gate; unsafe recompute): _exit_credit carries stale_n (must be 0 for credit, in G1);
+  _corridor_recompute rows; Paper G7 changes a non-route footprint cell and requires wait + recompute + break, with a
+  disable-invalidation mutant; an unsafe recompute is a break at that segment (repair / switch / handover).
+Codex P2-3 / Claude P2-a (placement boundary): refusal and observation at bot.dig and _genericPlace (covers
+  placeBlock, _placeBlockWithOptions, placeEntity; protectzone's chokepoint); a blockUpdate watcher on envelope and
+  branch cells logs non-bot changes; mutants include a direct _placeBlockWithOptions placement.
+Codex P2-4 / Claude P2-c, P2-d (uncertified vs gates, rules, cap, reconnect): the off-route gate applies to certified
+  phases only; `uncertified` is not a leaseholder in Exits, the homefix row, the forced stairReturn, confinement or
+  reconnect (it resumes uncertified and runs today's chain); it leaves the cap on the surface anywhere (exitDebt 0) or
+  dead.
+Claude P2-b (danger_stuck): keyed by (cell, block name in magma_block/campfire/soul_campfire); lava and fire never
+  relaxed; any blockUpdate or new DANGER at feet/below, or a move off the cell, ends it; the sneak is released by the
+  arm that takes the body or at 60 s.
+Claude P3 (non-planning rungs): pillarOut and the stranded dig-up check each cell; an envelope cell makes the rung
+  decline to the next rung (except an uncertified bot's own exit).
