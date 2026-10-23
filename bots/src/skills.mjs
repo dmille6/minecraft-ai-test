@@ -12113,7 +12113,7 @@ const familyIn = (held, input) => (held[input] ?? 0) + (held[SMELT_OUTPUT_OF[inp
  * containers a view ruled out. The room-making deposits never bank the bag's own iron (the keep; Codex design r1 P2).
  */
 const jobWithdrawOut = () => ({ took: {}, input: null, chest: null, unsettled: false, looked: 0, misses: 0, more: false, ironMore: false, coalMore: false,
-  noCoal: false, tried: [], progressed: false, ironProgressed: false, ru: 0 })
+  noCoal: false, tried: [], progressed: false, ironProgressed: false, ironCut: false, ru: 0 })
 // `out` is the CALLER'S (Codex code r1 P1): a visit that throws or aborts after a verified take must not lose which input was
 // taken and how much -- smeltTown reads it on every exit, its catch and finally included
 async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, ingots = 0 }, signal, out = jobWithdrawOut()) {
@@ -12197,6 +12197,7 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, 
   if (iron > 0) {
     need[SMELT_IRON_INPUT] = iron; passInput = SMELT_IRON_INPUT
     const cut = !!(await pass(SMELT_IRON_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => need[SMELT_IRON_INPUT] > 0))
+    out.ironCut = cut && out.input !== SMELT_IRON_INPUT   // the row says so even when carried copper runs the job (Claude code r2 P3-2)
     if (out.unsettled) return out
     if (out.input !== SMELT_IRON_INPUT) {
       need[SMELT_IRON_INPUT] = 0; passInput = null
@@ -12321,7 +12322,9 @@ async function smeltTown (ctx, _args, signal) {
     fuelName = JOB_FUELS.find(n => (w.took[n] ?? 0) > 0) ?? null
     fuelBag0 = fuelName ? (held0[fuelName] ?? 0) : 0
     f.chest = w.chest ?? '-'
-    f.looked = w.looked; f.more = w.more ? 'cu' : w.ironMore ? 'fe' : w.coalMore ? 'coal' : '-'
+    // `more`: the pass cut with candidates left; `fe+<...>` when the iron pass was cut and the bag's copper ran the job instead
+    const more0 = w.more ? 'cu' : w.ironMore ? 'fe' : w.coalMore ? 'coal' : '-'
+    f.looked = w.looked; f.more = w.ironCut && !w.ironMore ? `fe+${more0}` : more0
   }
   try {
     const carried = held0[SMELT_JOB_INPUT] ?? 0
@@ -12441,7 +12444,10 @@ async function smeltTown (ctx, _args, signal) {
     uncertain = true
     // AN IRON JOB'S ERROR EXIT STILL BANKS (Claude design r1 P2-5): the order never fires on the bag's iron, so the town's would
     // otherwise stay in the bag -- best effort, inside its own guard (copper keeps the base: its carry return recovers it)
-    if (IN === SMELT_IRON_INPUT) { try { await bankCopper() } catch { /* the read counts town iron left in bags */ } }
+    // ...but an abort DURING that bank is still an interruption, never a failure (Claude code r2 P3-1)
+    if (IN === SMELT_IRON_INPUT) {
+      try { await bankCopper() } catch (e2) { if (e2?.aborted || signal?.aborted) { f.stop = 'interrupted'; throw e2 } /* else: the read counts town iron left in bags */ }
+    }
     return (result = { status: 'failed', failClass: 'other', detail: `the town smelt job stopped: ${String(e?.message ?? e).slice(0, 120)}` })
   } finally {
     const h1 = heldMap(bot)

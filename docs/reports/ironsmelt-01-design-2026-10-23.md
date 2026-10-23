@@ -201,3 +201,25 @@ Codex code r1 **CHANGE** (1 P1, 2 P2, 1 P3); Claude code r1 **APPROVE** (1 P2, 5
 - The iron pass keeps its own `progressed` (Claude P3-1); carried copper INGOTS also take the copper flow when the iron search is
   unfinished (P3-2); the order's reason says "raw iron left to look for" (P3-3); the mode row says `rule_out=off_noindex` with
   TOWNINDEX=off, and the rule-out is off then (P3-4); a mutant for the copper gate's rule-out (P3-5).
+
+## 6. Code review round 2 (r3) and the Paper record
+
+Codex code r2 **APPROVE** (no findings) and Claude code r2 **APPROVE** on e28958cb; Claude's four P3s are fixed in r3: an abort
+during the iron error-exit's bank is rethrown as an interruption; an iron pass cut while carried copper ran the job is recorded
+(`more=fe+<...>`); the error-exit bank has its own mutant; a town-memory deposit mark alone re-opens a ruled-out container
+(behaviour test + a mutant on jobRuledOut's tookAt wiring). npm test on e28958cb: 294/294 files passed.
+
+**Paper, 10-23 15:20-15:33Z, sandbox5 (base) and sandbox6 (candidate) under per-server locks `ironsmelt`** (driver
+`sandbox/craft/ironsmelt-e2e.cjs`: one fresh real bot per scene from the build, the model scripted to idle, the scene set by
+RCON, every verdict from the SERVER's slots before and after -- bag, both town chests, the furnace, the ground):
+
+| scene | candidate e28958cb | base 6e1afb52 (positive control) |
+|---|---|---|
+| iron: chest A 12 raw_iron + 4 coal; the bag's own 3 raw_iron + 2 iron_ingot | **CANDIDATE_PASS**: chest A raw_iron -8, iron_ingot +8, coal -1; bag unchanged (own 3 + 2); furnace empty, cold; nothing on the ground; row `in=fe fe=3/2>3/2 fed=8 withdrawn=8 smelted=8 dep_i=8 verdict=ok` | **BASE_SHAPE**: town_has_none; the 12 raw iron untouched |
+| scattered: chest A 5 raw_iron + coal, chest B 4 raw_iron | **CANDIDATE_PASS**: 4 + 4 taken from both chests, 8 ingots banked, own iron intact | **BASE_SHAPE**: untouched |
+| mixed: chest B (nearer) 8 raw_copper, chest A 8 raw_iron + coal | **CANDIDATE_PASS**: the first job smelts the IRON; the copper untouched | **BASE_SHAPE**: smelts the copper (-8 / +8), the iron untouched |
+
+Two earlier runs' first scenes are void: the two drivers shared one env file (`sandbox/.env.isab`) in one checkout, so each bot
+took the other's server and name and they logged each other out every 20 s; the driver now writes `.env.isab-<server>-<pid>`.
+Every scene above ran after the fix or with no other driver running. r3 changes no container, furnace or search path (an abort
+inside an exit, a row field, tests), so Paper was not re-run on it.
