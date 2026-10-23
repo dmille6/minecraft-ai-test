@@ -218,7 +218,7 @@ const OUTDIR = `${R}/sandbox/log/ledger-e2e`
 const RES = `${OUTDIR}/results.jsonl`
 const BRAIN_PORT = Number(process.env.LEDGER_BRAIN_PORT || 11493)
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)
-const POOL = `${R}/sandbox/state/ledger-${RUN}/pool`
+let POOL = `${R}/sandbox/state/ledger-${RUN}/pool`     // the drains rounds share it (repeats can coalesce); each smelt round gets its own
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 fs.mkdirSync(OUTDIR, { recursive: true }); fs.mkdirSync(POOL, { recursive: true })
 let sha = '?'
@@ -364,6 +364,9 @@ async function drains (round) {
 
 async function smelt (scene, round) {
   const tag = `${scene}-r${round}-${RUN.slice(9)}`
+  // A FRESH POOL per smelt round (Paper 10-23 23:29Z): the drains rounds' town memory remembers the town chest as holding no
+  // raw copper (a 2-h copper miss), so smelt_town said town_has_none and never loaded the furnace
+  POOL = `${R}/sandbox/state/ledger-${RUN}/pool-${tag}`; fs.mkdirSync(POOL, { recursive: true })
   const preset = [[], [[2, 'copper_ingot', 2]], [[1, 'coal', 1]]][round % 3]
   batch([...arenaCmds(), `setblock ${at(CHEST)} minecraft:chest[facing=west]`, `item replace block ${at(CHEST)} container.0 with minecraft:raw_copper 8`,
          `item replace block ${at(CHEST)} container.1 with minecraft:coal 4`, ...furnaceCmds(ONE, preset)])
