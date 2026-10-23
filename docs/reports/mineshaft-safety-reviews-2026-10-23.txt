@@ -946,3 +946,84 @@ Codex P2-2 / Claude P3 (reload diff): obs_full (block names of the whole protect
 Claude P3: work no-progress (3 attempts or 10 min without a step, branch block or ore -> ascending); the shell is
   recomputed after each extension or ore dig (new hole's neighbours become shell; an ore hole that opens onto
   nothing walkable is sealed); the kit range is stated as 30-94 late in a lease, up to ~250 early.
+
+====================================================================================================
+ROUND 8 (doc r8 @ 939278fa): Codex CHANGE (1 P1, 1 P2); Claude CHANGE (1 P1, 3 P2) -- the same P1
+====================================================================================================
+--- Codex r8 (verbatim) ---
+Reviewed `939278fa` read-only. I interpret “resolved in r2” as “resolved in r8.”
+
+| Round 7 finding | Status in r8 |
+|---|---|
+| My P1 findings | None existed. |
+| P2: coordination permits removing support during peer movement | **Partially resolved.** Support footprints and evidence fields are added, but movement is still not synchronized with mutation authorization; finding 2 below. |
+| P2: reload observations omit protected shell changes | **Resolved at design level.** `obs_full` covers both shells and branches with block names, and an unloaded shell-only mutation is a positive control (`design:1338–1339,1360–1362`). |
+| Other reviewer’s P1: two miners can block each other without a next step | **Partially resolved.** Uncertified-peer protection is narrowed, but the replacement waiting rule introduces another unbounded refusal chain; finding 1 below. |
+
+References below use **design** for `docs/reports/mineshaft-safety-2026-10-23.md`.
+
+1. **P1 — F6’s new peer-clock wait has no termination when the peer disconnects (§7 F6 handover; §8 M8).**
+
+   A missing or stale position file makes the peer *certified* and protects its nearby return route. When no exit avoids that footprint, the bot waits until the peer passes or hands over, supposedly within five minutes ([design:1296–1302](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1296)).
+
+   But disconnect explicitly preserves the record indefinitely; recovery resumes only on reconnect ([design:1511–1518](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1511)). A stopped peer cannot advance its no-progress clock or publish its handover. The waiting bot consequently cannot reach ordinary recovery or the `uncertified_stranded` outcome. This is a guard-created dead end, beyond O11’s stated residual of ordinary recovery giving up.
+
+   Even a connected peer still working has a **ten-minute** work no-progress threshold, not the promised five minutes (`design:1584–1585`).
+
+   **Required:** specify a bounded missing/disconnected-peer recovery protocol that does not depend on the peer’s execution, including safe reconnect fencing. Define the no-plan terminal outcome explicitly. Chain-test a peer disconnect immediately before the waiting bot’s required exit mutation.
+
+2. **P2 — The revised footprint still does not protect the peer’s actual movement through completion (§7 F6 coordination).**
+
+   Certified protection covers the next eight cells **toward the top**, while uncertified protection covers only the published body cells. Publication is approximately once per second, and samples remain acceptable for three seconds ([design:1286–1297](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a37c2ece94eb2e6ce/docs/reports/mineshaft-safety-2026-10-23.md:1286)).
+
+   A certified miner descending or extending a branch moves in the opposite direction from that protected return footprint. An uncertified miner can likewise leave its published body cells. An escape dig can therefore be authorized against a still-fresh sample and complete beneath the peer’s next position. The new stale-file Paper scene does not exercise this case (`design:1307–1308`).
+
+   **Should change:** protect the actual pending movement’s complete body/support footprint until completion, using an acknowledgment or equivalent coordination rule. Test a fresh publication followed by movement and a concurrent support dig; retain the movement generation and acknowledgment evidence for G6.
+
+The six entombment probe results reproduced. The principal code claims check out, including the danger trigger, blind sprint, head-level entombment walls, mining lava gaps, exit-reserve formula and pathfinder planning checks. Production measurement totals remain unverified because their JSON inputs are absent. The document appropriately qualifies depth exposure, associations and canary power. No additional approval-blocking issue emerged in F1–F5, sequencing, tiers or the enchanting sketch; M7–M10 remain respected.
+
+VERDICT: CHANGE
+
+--- Claude r8 ---
+Claude (independent general-purpose subagent, read-only, fresh context), r8 on 939278fa. Condensed:
+
+R7 disposition: Claude P1 partly (the peer clock is not always a bound); P2-1, P2-2 resolved; P2-3 partly ("2 open
+lanes" false once one lane is broken); P3s resolved except the ore-hole seal is not in G6's exceptions; Codex P2-1
+partly (lookahead not sized against staleness; wrong direction for a descending peer); Codex P2-2 resolved.
+
+P1 §F6 handover, "No exit plan avoids the protected footprint": the wait can be unbounded and the doc says it ends.
+  A disconnected peer keeps its record forever, its clock does not run, its stale file makes it certified with its
+  whole route within 16 protected -- the waiting uncertified miner waits until an operator retires the record (24 h
+  alarm); a stale uncertified peer is treated as certified, so the r7 deadlock returns via disconnect. A working peer
+  (descending/branch) resets its 10-min work clock with each step or ore, so the wait is bounded only by work expiry
+  (~2 h + return), not 5 min. O11 states neither. Suggested: stale > ~30 s or absent from the player list protects only
+  last body cells; a waiting uncertified bot ends the peer's work; a backstop timer with an alarm; a disconnect scene.
+
+P2-a one broken lane: a head-on meeting in the only open lane has no defined step-aside; resolves only through the
+  descender's work clock if it has no peer exemption; if both clocks are exempt each waits forever.
+P2-b the protected lookahead is not sized (1 s publish + 3 s freshness + dig time can exceed 8 cells); "toward the top"
+  is the wrong direction for a descending peer.
+P2-c reload-diff changes have no timestamp, so the +-2 s match fails and authorized branch work would read as
+  unauthorized -- match against all mutation rows across the unloaded interval.
+P3: the ore-hole seal should be in G6's exceptions and controls; obs_full volume (tens of KB per row); say the
+  traffic exemption covers only a certified blocker.
+
+M7-M10, one canary at a time, tiers respected.
+
+VERDICT: CHANGE
+
+--- r8 -> r9 response (doc r9) ---
+Codex P1-1 / Claude P1 (unbounded peer wait: disconnect, working peer; the same finding from both engines), and the
+  peer-coordination P2s (Codex P2-2 movement sync; Claude P2-a one broken lane, P2-b lookahead sizing): addressed by
+  removing the class rather than patching it again. ONE deep miner underground per town at a time: still at most 2
+  leases (M8), but a second leaseholder's descent is admitted only when the other record is out, dead or retired by
+  an operator; a disconnected record keeps the underground slot (absence is not exit) and the second miner works
+  above ground, where it cannot be stranded. With no peer underground there is no peer footprint, no peer wait, no
+  freshness rule and no miner-to-miner traffic; the guard lift for an uncertified exit needs no coordination; the two
+  lanes remain as break redundancy. Concurrent occupancy is owner question O13 (recommend single occupancy for the
+  first diamond canary; design concurrency separately if yield justifies it) -- four review rounds found a new dead
+  end in it each time.
+Claude P2-c (reload-diff matching): a change found on reload is matched against every mutation row for that cell over
+  the whole unloaded interval; obs_full is stored in the record's own file, rows carry its hash and changed cells.
+Claude P3: the ore-hole cobble seal is a guard exception and a G6 positive control. The G6 table cell (which had
+  broken the markdown table with embedded paragraphs) is now one line, with "G6 evidence" below the table.
