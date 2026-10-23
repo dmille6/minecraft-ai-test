@@ -3694,12 +3694,16 @@ export function drainPickNow (bot, now = Date.now()) {
     return d.skip
   } : null
   const pick = drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now, skip })
+  // THE WALK THE RULE SAVED: the furnace the base pick (no rule) would have walked to. A skipped furnace that a nearer one
+  // would have beaten anyway saved nothing (changed=0); the read's exposure counts changed=1 only (Claude r1 P2-3)
+  const basePick = skipped.length ? drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now }) : null
   bot.furnaceSkipLogged ??= {}
   for (const s of skipped) {
     const once = `${s.k}|${s.inputs.entry?.id}`
     if (bot.furnaceSkipLogged[once]) continue
     bot.furnaceSkipLogged[once] = now
-    try { logEvent({ kind: 'furnace_seen_skip', status: 'success', snapshot: snapshot(bot), detail: `f=${s.k} why=${s.why} now=${now} ${seenFields(s.inputs)}` }) } catch { /* telemetry */ }
+    const changed = basePick?.k === s.k ? 1 : 0
+    try { logEvent({ kind: 'furnace_seen_skip', status: 'success', snapshot: snapshot(bot), detail: `f=${s.k} why=${s.why} now=${now} changed=${changed} ${seenFields(s.inputs)}` }) } catch { /* telemetry */ }
   }
   // the once-per-entry memory is bounded: entries older than the rule's own TTL can never skip again
   for (const [k, t] of Object.entries(bot.furnaceSkipLogged)) if (now - t > 2 * SEEN_EMPTY_MS) delete bot.furnaceSkipLogged[k]

@@ -115,7 +115,7 @@ test('drainPickNow: a townmate\'s empty entry on the NEAR furnace sends the pick
   assert.equal(p1.pick.k, '9,64,0'); assert.equal(p2.pick.k, '9,64,0')
   const skips = rows.filter(r => r?.skill?.name === '_furnace_seen_skip')
   assert.equal(skips.length, 1, 'one row per (furnace, entry), not one per decision')
-  assert.match(skips[0].skill.detail, new RegExp(`^f=2,64,0 why=townmate_empty now=${now} se=Mate-${now - 5 * MIN} sl=- so=- off=1:\\d+$`))
+  assert.match(skips[0].skill.detail, new RegExp(`^f=2,64,0 why=townmate_empty now=${now} changed=1 se=Mate-${now - 5 * MIN} sl=- so=- off=1:\\d+$`))
   assert.equal(p1.inputs.entry, null, 'the far furnace has no entry: the pick relied on nothing')
   // a smelt LOADS the near furnace: the newest entry holds items -> walk again
   L.recordStation(POOL, HK, null, { id: 'Smelter-load', f: '2,64,0', bot: 'Smelter', by: 'smelt_town', phase: 'load', slots: L.furnaceSlots({ input: { name: 'raw_copper', count: 8 }, fuel: { name: 'coal', count: 1 } }), at: now + 2000 })
@@ -204,4 +204,18 @@ test('THE READ REPLAYS THE SAME FUNCTION: furnaceseenread.py\'s port reproduces 
   if (py.error?.code === 'ENOENT') return            // no python3 on this machine: the host runs the same selftest
   assert.equal(py.status, 0, py.stderr || py.stdout)
   assert.match(py.stdout, /SELFTEST OK \(golden 14 rows\)/)
+})
+
+test('EXPOSURE COUNTS ONLY A CHANGED PICK (Claude r1 P2-3): a skipped furnace a nearer clean one would have beaten anyway is changed=0', () => {
+  clearLedger(); L.resetLedgerCap()
+  const now = Date.now()
+  const NEAREST = new Vec3(1, 64, 1), MID = new Vec3(5, 64, 0)
+  mateEmpty('5,64,0', now - 5 * MIN)                // the MIDDLE furnace is a townmate's empty; the nearest is clean
+  const bot = world({ furnaces: [NEAREST, MID, FAR] })
+  const { rows, un } = tap()
+  let p
+  try { p = S.drainPickNow(bot, now) } finally { un() }
+  assert.equal(p.pick.k, '1,64,1', 'the nearest clean furnace, as without the rule')
+  const sk = rows.filter(r => r?.skill?.name === '_furnace_seen_skip')
+  assert.equal(sk.length, 1); assert.match(sk[0].skill.detail, / changed=0 /, 'the rule saved no walk here')
 })
