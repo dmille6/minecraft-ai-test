@@ -14608,6 +14608,9 @@ export function townPlanZones (bot, now = Date.now()) {
   if (zoneMem.view && zoneMem.world === world && now - zoneMem.at < PLAN_TICK_MS) return zoneMem.view
   let json, absent = false
   try { json = JSON.parse(fs.readFileSync(path.join(townDir(), 'protected-zones.json'), 'utf8')) } catch (e) { if (e?.code === 'ENOENT') absent = true; else json = undefined }
+  // a file holding JSON null is BROKEN, not absent (protectzone's zoneReader keeps its last good list for it; Codex JIT r2 P2):
+  // only a missing file clears the zones
+  if (json === null) json = undefined
   if (zoneMem.world !== world) zoneMem.good = null
   let view
   if (absent) { view = { known: true, zones: [], why: 'absent' }; zoneMem.good = view } else if (json === undefined) {
