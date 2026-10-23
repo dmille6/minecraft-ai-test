@@ -142,17 +142,23 @@ export function parseZones (json, world) {
   if (json == null) return { ok: true, zones: [], why: 'absent' }
   if (typeof json !== 'object' || Array.isArray(json)) return { ok: false, zones: [], why: 'not an object' }
   if (json.version !== 1) return { ok: false, zones: [], why: `version ${json.version}` }
-  if (world != null && json.hashed_seed != null && String(json.hashed_seed) !== String(world)) return { ok: true, zones: [], why: 'another world' }
+  // an UNKNOWN world id ('' -- mineflayer's worldIdFromLogin without a hashed seed) honours the file, as protectzone's guard does
+  if (world != null && world !== '' && json.hashed_seed != null && String(json.hashed_seed) !== String(world)) return { ok: true, zones: [], why: 'another world' }
   if (!Array.isArray(json.zones)) return { ok: false, zones: [], why: 'no zones list' }
-  const zones = [], dropped = []
-  for (const z of json.zones) {
+  const zones = [], dropped = [], guardBad = []
+  for (const [i, z] of json.zones.entries()) {
     const b = z?.box
     if (!Array.isArray(b) || b.length !== 6 || !b.every(Number.isFinite) || b[3] < b[0] || b[4] < b[1] || b[5] < b[2] ||
         b[3] - b[0] > 1024 || b[5] - b[2] > 1024) { dropped.push(String(z?.id ?? '?')); continue }
     zones.push({ id: String(z.id ?? `zone${zones.length}`), box: b.map(Math.floor) })
+    // A ZONE PROTECTZONE'S GUARD DROPS (protectzone.mjs parseZones: no string id, a non-integer box, a y span over 448, a bad
+    // floor_y, past the 64th) is still AVOIDED here, but the read is PARTIAL (JIT 10-23c, the real-reader fuzz): the guard keeps
+    // its last good list when every zone is one of these, so the planner must not replace its own last good list with them
+    if (!(typeof z?.id === 'string' && z.id) || !b.every(Number.isInteger) || b[4] - b[1] > 448 || i >= 64 ||
+        (z.floor_y != null && (!Number.isInteger(z.floor_y) || z.floor_y < b[1] || z.floor_y > b[4]))) guardBad.push(String(z?.id ?? `zone${zones.length - 1}`))
   }
   if (json.zones.length && !zones.length) return { ok: false, zones: [], why: `every zone malformed (${dropped.join(',')})` }
-  return { ok: true, zones, why: dropped.length ? `dropped ${dropped.join(',')}` : 'ok' }
+  return { ok: true, zones, why: dropped.length ? `dropped ${dropped.join(',')}` : guardBad.length ? `guard_drops ${guardBad.join(',')}` : 'ok' }
 }
 /** A seed's avoid boxes ([x0,y0,z0,x1,y1,z1] or { box }) -> zones. Pure; malformed entries dropped. */
 export function avoidZones (avoid = []) {
