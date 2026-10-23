@@ -19,6 +19,9 @@
 //   live     the same, unfrozen: the RCON read after the load is compared by the TIMING RULE (Claude r9 #4): a difference
 //            counts as timing only when k cooking steps explain it (input -k, output +k of the recipe's result, fuel use
 //            consistent with k, lit allowed); anything else is a parity failure.
+//   seen     furnaceseen-01 (B3) ONLY -- run it with a furnaceseen build as <botRoot>: two bots, one empty furnace; A drains it
+//            empty, B (started after) SKIPS it (a skip row naming A's entry, no open); raw copper in the chest -> smelt_town
+//            loads it (newer contrary evidence); B then walks to it. B's walks replay through the bot's OWN seenSkip.
 // Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `ledger` as its owner's first word.
 // World edits on its own arena only (900,120,900 +-16); cleanup clears it, unfreezes the tick and removes the forceload.
 'use strict'
@@ -120,6 +123,25 @@ function checkScene ({ records = [], drains = [], oracle = {}, expect = {} }) {
   return res
 }
 
+/**
+ * THE `seen` SCENE CHECK (furnaceseen-01, design 6.3 B3's Paper driver) -> { pass, why: [] }. Pure.
+ *   aEmpty   A's open record on F (state empty), bRows  B's rows [{ ts, name, detail }], loadAt  the first load record's time on F
+ *   replay   (detail of a B drain row) -> the skip decision on its logged inputs (the bot's own seenSkip)
+ */
+function checkSeen ({ aEmpty, bRows = [], loadAt = null, f, replay = () => ({ skip: false }) }) {
+  const why = []
+  const g = (d, k) => (new RegExp(`(?:^| )${k}=(\\S+)`).exec(d) ?? [])[1]
+  if (!aEmpty) why.push('A never recorded F empty')
+  const skips = bRows.filter(r => r.name === '_furnace_seen_skip' && g(r.detail, 'f') === f)
+  if (!skips.some(r => aEmpty && g(r.detail, 'se') === aEmpty.id)) why.push('no B skip row naming A\'s empty entry')
+  const walks = bRows.filter(r => r.name === '_furnace_drain' && g(r.detail, 'furnace') === f && g(r.detail, 'out') !== '-')
+  if (walks.some(r => loadAt == null || r.ts < loadAt)) why.push('B opened F before any load (the skip did not hold)')
+  if (loadAt == null) why.push('no load record on F')
+  else if (!walks.some(r => r.ts > loadAt)) why.push('B never walked to F after the load (the contrary evidence did not release it)')
+  for (const r of walks) if (replay(r.detail).skip) why.push(`a B walk whose logged inputs replay to SKIP: ${r.detail.slice(0, 120)}`)
+  return { pass: !why.length, why }
+}
+
 function selftest () {
   let bad = 0
   const ok = (name, got, want) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g !== w) { bad++; console.log(`  !! ${name}: got ${g} want ${w}`) } else console.log(`  ok ${name}`) }
@@ -153,6 +175,14 @@ function selftest () {
   ok('scene: empty -> loaded with its post-load record passes', checkScene({ records: sess, expect: { loads: ['S'] }, oracle: { byId: { l: { slots: { ...L } } } } }).fails, [])
   ok('scene: empty -> loaded with the post-load record MISSING fails', checkScene({ records: sess.slice(0, 1), expect: { loads: ['S'] } }).fails.length, 1)
   ok('scene: cooking between two unfrozen reads is TIMING, not a failure', (() => { const r = checkScene({ records: sess, oracle: { byId: { l: { slots: { in: ['raw_copper', 7], fuel: null, out: ['copper_ingot', 1], lit: true }, allowTiming: true } } } }); return [r.fails, r.timing] })(), [[], 1])
+  const A = { id: 'A-1' }
+  const sk = { ts: 10, name: '_furnace_seen_skip', detail: 'f=F why=townmate_empty now=10 se=A-1 sl=- so=- off=1:9' }
+  const walk = ts => ({ ts, name: '_furnace_drain', detail: `stop=empty furnace=F lease=1 out=0 in=0 fuel=0 taken=0 left=- t0=${ts} ledger=x se=L sl=- so=- off=1:9` })
+  ok('seen: skip, load, walk after -> pass', checkSeen({ aEmpty: A, bRows: [sk, walk(50)], loadAt: 30, f: 'F' }).pass, true)
+  ok('seen: B walked BEFORE the load -> fail', checkSeen({ aEmpty: A, bRows: [sk, walk(20), walk(50)], loadAt: 30, f: 'F' }).pass, false)
+  ok('seen: no walk after the load -> fail', checkSeen({ aEmpty: A, bRows: [sk], loadAt: 30, f: 'F' }).pass, false)
+  ok('seen: no skip row -> fail', checkSeen({ aEmpty: A, bRows: [walk(50)], loadAt: 30, f: 'F' }).pass, false)
+  ok('seen: a walk whose inputs replay to skip -> fail', checkSeen({ aEmpty: A, bRows: [sk, walk(50)], loadAt: 30, f: 'F', replay: () => ({ skip: true }) }).pass, false)
   console.log(bad ? `SELFTEST FAILED (${bad})` : 'SELFTEST OK')
   return !bad
 }
@@ -166,7 +196,8 @@ const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => n !==
 if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).join(', ')})`)
 const ROUNDS = Math.max(1, Number(ROUNDS_S) || 3)
 const R = process.env.LEDGER_REPO || path.resolve(__dirname, '../..')
-const NAME = 'sandbox-Ledger'
+const BOT_NAME = 'sandbox-Ledger'
+const BOT_B = 'sandbox-LedgerB'
 const OUTDIR = `${R}/sandbox/log/ledger-e2e`
 const RES = `${OUTDIR}/results.jsonl`
 const BRAIN_PORT = Number(process.env.LEDGER_BRAIN_PORT || 11493)
@@ -237,27 +268,27 @@ const brain = http.createServer((req, res) => {
   })
 })
 
-let bot = null
+let procs = []
 let frozen = false
 async function stopBot () {
-  try { bot && bot.kill('SIGTERM') } catch {}
-  bot = null
+  for (const b of procs) { try { b.kill('SIGTERM') } catch {} }
+  procs = []
   await waitFor(() => /There are 0 of/.test(rcon('list')[0].reply), 30000, 1000)
 }
-async function startBot (tag) {
+async function startBot (tag, NAME = BOT_NAME) {
   const logRel = `./sandbox/log/ledger-e2e/${tag}`
-  const envRel = 'sandbox/.env.ledger'
+  const envRel = `sandbox/.env.ledger-${NAME}`
   let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
   const set = (k, v) => { env = new RegExp(`^${k}=`, 'm').test(env) ? env.replace(new RegExp(`^${k}=.*$`, 'm'), `${k}=${v}`) : env + `\n${k}=${v}` }
-  set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/ledger-${RUN}/${tag}`); set('MEMORY_POOL', `sbxld-${RUN}`)
+  set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/ledger-${RUN}/${tag}-${NAME}`); set('MEMORY_POOL', `sbxld-${RUN}`)
   set('MEMORY_SCOPE', 'shared'); set('POOL_STATE_DIR', POOL); set('MINECRAFT_PORT', PORTS[SERVER]); set('STUCK_SECONDS', 20); set('PLANT_ENABLED', 0)
   set('SMELT_JOB_COOLDOWN_MS', 10000); set('DRAIN_COOLDOWN_MS', 10000)        // sandbox pacing only
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`); set('MAX_CONSECUTIVE_FAILURES', 50)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
-  const botOut = `${OUTDIR}/bot-${tag}.out`
+  const botOut = `${OUTDIR}/bot-${tag}-${NAME}.out`
   const bo = fs.openSync(botOut, 'a')
-  bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT }, stdio: ['ignore', bo, bo] })
+  procs.push(spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT }, stdio: ['ignore', bo, bo] }))
   const spawned = () => { try { return /spawned pos=/.test(fs.readFileSync(botOut, 'utf8')) } catch { return false } }
   if (!await waitFor(spawned, 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   rcon(`gamemode survival ${NAME}`, `effect clear ${NAME}`, 'difficulty peaceful', `clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`,
@@ -330,6 +361,47 @@ async function smelt (scene, round) {
   out.pass = !!open && !!load && !!post && !v.fails.length && (!open || (sess[0] ?? '').includes(` open=${open.id} `))
   return out
 }
+// THE `seen` SCENE (furnaceseen-01): two bots, one empty furnace. A drains it and finds it empty; B (started after) SKIPS it
+// (a `_furnace_seen_skip` row naming A's entry, no open); raw copper in the chest -> smelt_town LOADS it (a load record:
+// newer contrary evidence); B then walks to it on its next drain. B's walks are replayed through the BOT'S OWN seenSkip.
+async function seen (round) {
+  const tag = `seen-r${round}-${RUN.slice(9)}`
+  batch([...arenaCmds(), `setblock ${at(CHEST)} minecraft:chest[facing=west]`, `item replace block ${at(CHEST)} container.0 with minecraft:coal 4`,
+         `item replace block ${at(CHEST)} container.1 with minecraft:oak_sapling 3`, ...furnaceCmds(ONE, [])])
+  await sleep(1500)
+  const F = key(ONE)
+  const before = new Set(ledger().map(r => r.id))
+  let aEmpty = null, loadAt = null, bRows = []
+  try {
+    await startBot(tag, BOT_NAME)
+    aEmpty = await waitFor(() => ledger().find(r => !before.has(r.id) && r.f === F && r.phase === 'open' && r.state === 'empty' && r.bot === BOT_NAME), 300000, 1000)
+    if (!aEmpty) throw new Error('A never drained F')
+    const logB = await startBot(tag, BOT_B)
+    const skipped = await waitFor(() => rowsOf(logB).some(r => r.name === '_furnace_seen_skip'), 240000, 1000)
+    await sleep(30000)                         // B's drain cooldown passes at least twice with the skip in force
+    rcon(`item replace block ${at(CHEST)} container.2 with minecraft:raw_copper 2`)
+    const load = await waitFor(() => ledger().find(r => !before.has(r.id) && r.f === F && r.phase === 'load'), 300000, 1000)
+    loadAt = load?.at ?? null
+    if (skipped && load) await waitFor(() => rowsOf(logB).some(r => r.name === '_furnace_drain' && r.ts > load.at && r.detail.includes(`furnace=${F} `) && !/ out=- /.test(` ${r.detail} `)), 420000, 2000)
+    await sleep(3000)
+    bRows = rowsOf(logB)
+  } finally { await stopBot() }
+  process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
+  const SJ = await import(path.join(BOT_ROOT, 'bots/src/smeltjob.mjs'))
+  const recs = ledger()
+  const byId = Object.fromEntries(recs.map(r => [r.id, r]))
+  const g = (d, k) => (new RegExp(`(?:^| )${k}=(\\S+)`).exec(d) ?? [])[1]
+  const replay = d => {
+    const se = g(d, 'se'); const e = se && se !== '-' ? byId[se] : null
+    const so = g(d, 'so'); const own = so && so !== '-' ? { empty: so[0] === 'e', at: Number(so.split(':')[1]) } : null
+    const sl = g(d, 'sl')
+    return SJ.seenSkip({ entry: e ? { id: e.id, at: e.at, bot: e.bot, state: e.state } : null, litAt: sl && sl !== '-' ? Number(sl) : null, own, me: BOT_B, now: Number(g(d, 't0')) })
+  }
+  const v = checkSeen({ aEmpty, bRows, loadAt, f: F, replay })
+  return { scene: 'seen', round, tag, sha, server: SERVER, pass: v.pass, why: v.why, aEmpty: aEmpty?.id ?? null, loadAt,
+    bSkips: bRows.filter(r => r.name === '_furnace_seen_skip').map(r => r.detail), bDrains: bRows.filter(r => r.name === '_furnace_drain').map(r => `${r.ts} ${r.detail.slice(0, 200)}`),
+    check: { checked: 0, fails: v.why } }
+}
 const countBy = (xs, f) => xs.reduce((m, x) => { m[f(x)] = (m[f(x)] || 0) + 1; return m }, {})
 
 async function main () {
@@ -341,7 +413,7 @@ async function main () {
   for (const s of SCENES_S.split(',')) {
     for (let k = 0; k < ROUNDS; k++) {
       let r
-      try { r = s === 'drains' ? await drains(k) : await smelt(s, k) } catch (e) { r = { scene: s, round: k, pass: false, error: e.message }; await stopBot().catch(() => {}) }
+      try { r = s === 'drains' ? await drains(k) : s === 'seen' ? await seen(k) : await smelt(s, k) } catch (e) { r = { scene: s, round: k, pass: false, error: e.message }; await stopBot().catch(() => {}) }
       fs.appendFileSync(RES, JSON.stringify({ at: new Date().toISOString(), ...r }) + '\n')
       console.log(`${s} r${k} ${r.pass ? 'PASS' : 'FAIL'} ${r.error ?? ''} checked=${r.check?.checked} exact=${r.check?.exact} timing=${r.check?.timing} coalesced=${r.check?.coalesced} drops=${r.check?.drops}` +
         (r.check?.fails?.length ? `\n   fails: ${r.check.fails.join('; ')}` : '') + (r.outcomes ? ` outcomes=${JSON.stringify(r.outcomes)} reopened=${r.reopened}` : ''))
@@ -360,7 +432,7 @@ async function main () {
 async function cleanup () {
   await stopBot().catch(() => {})
   try { brain.close() } catch {}
-  try { fs.unlinkSync(`${R}/sandbox/.env.ledger`) } catch {}
+  for (const n of [BOT_NAME, BOT_B]) { try { fs.unlinkSync(`${R}/sandbox/.env.ledger-${n}`) } catch {} }
   try { rcon('tick unfreeze', 'kill @e[type=!player,x=900,y=120,z=900,distance=..24]', 'fill 884 120 884 916 126 916 minecraft:air', 'forceload remove 880 880 920 920') } catch {}
 }
 let cleaning = false
