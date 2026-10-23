@@ -148,6 +148,19 @@ function checkSeen ({ aEmpty, bRows = [], loadAt = null, f, replay = () => ({ sk
   return { pass: !why.length, why }
 }
 
+/**
+ * ONE SLOT'S RCON REPLY -> [name, count] | null. Pure, and STRICT (Codex driver r4 P2): only Paper's explicit "Found no elements"
+ * means empty; anything else must be ONE complete compound naming this slot, an item id and a count, or this THROWS -- a
+ * truncated or malformed reply can never read as an empty slot.
+ */
+function parseSlotReply (reply, slot) {
+  const t = String(reply ?? '').trim()
+  if (/^Found no elements matching Items\[\{Slot:\db\}\]$/.test(t)) return null
+  const m = /^-?\d+, -?\d+, -?\d+ has the following block data: \{Slot: (\d)b, id: "minecraft:([a-z0-9_]+)", count: (\d+)\}$/.exec(t)
+  if (!m || Number(m[1]) !== slot) throw new Error(`slot ${slot}: an incomplete or unexpected RCON reply: ${t.slice(0, 160)}`)
+  return [m[2], Number(m[3])]
+}
+
 function selftest () {
   let bad = 0
   const ok = (name, got, want) => { const g = JSON.stringify(got), w = JSON.stringify(want); if (g !== w) { bad++; console.log(`  !! ${name}: got ${g} want ${w}`) } else console.log(`  ok ${name}`) }
@@ -168,6 +181,14 @@ function selftest () {
   ok('parity: an empty record vs a holding server, live -> fail (no cooking explains it)', parity(E, L, { allowTiming: true }).verdict, 'fail')
   ok('RCON parse', parseFurnaceItems('900 120 905 has the following block data: [{count: 8, Slot: 0b, id: "minecraft:raw_copper"}, {count: 2, Slot: 2b, id: "minecraft:copper_ingot"}]'),
     { in: ['raw_copper', 8], fuel: null, out: ['copper_ingot', 2] })
+  ok('slot reply: a complete compound', parseSlotReply('902, 120, 906 has the following block data: {Slot: 2b, id: "minecraft:gold_ingot", count: 1}', 2), ['gold_ingot', 1])
+  ok('slot reply: the explicit empty', parseSlotReply('Found no elements matching Items[{Slot:1b}]', 1), null)
+  const throws = fn => { try { fn(); return false } catch { return true } }
+  ok('slot reply: TRUNCATED (no closing brace) THROWS, never empty', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 0b, id: "minecraft:raw_', 0)), true)
+  ok('slot reply: a "..." truncation THROWS', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 0b, id: "...', 0)), true)
+  ok('slot reply: the wrong slot THROWS', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 2b, id: "minecraft:gold_ingot", count: 1}', 0)), true)
+  ok('slot reply: an error text THROWS', throws(() => parseSlotReply('That position is not loaded', 0)), true)
+  ok('slot reply: no count THROWS (a count is never assumed)', throws(() => parseSlotReply('902, 120, 906 has the following block data: {Slot: 0b, id: "minecraft:raw_gold"}', 0)), true)
   ok('RCON parse: an empty furnace', parseFurnaceItems('900 120 905 has the following block data: []'), { in: null, fuel: null, out: null })
   // the scene checker's fixtures (design 4.3): a correct entry; a wrong slot; a missing entry; a coalesced repeat; a capped
   // drop; an empty -> loaded session with a correct and with a missing post-load record
@@ -263,16 +284,7 @@ const readFurnace = f => {
   const r = rcon(`data get block ${at(f)} Items[{Slot:0b}]`, `data get block ${at(f)} Items[{Slot:1b}]`, `data get block ${at(f)} Items[{Slot:2b}]`,
                  `execute if block ${at(f)} minecraft:furnace[lit=true]`, `execute if block ${at(f)} minecraft:furnace`)
   if (!/Test passed/.test(r[4]?.reply ?? '')) throw new Error(`no furnace at ${key(f)}: ${r[4]?.reply}`)
-  const one = (q, k) => {
-    const t = q?.reply ?? ''
-    if (/has the following block data/.test(t)) {
-      if (/\.\.\.\s*$/.test(t)) throw new Error(`a truncated slot read at ${key(f)}: ${t}`)
-      return parseFurnaceItems('[' + t.slice(t.indexOf('{')) + ']')[k]
-    }
-    if (/Found no elements matching|no element/i.test(t)) return null
-    throw new Error(`furnace ${key(f)} slot unreadable: ${t}`)
-  }
-  return { in: one(r[0], 'in'), fuel: one(r[1], 'fuel'), out: one(r[2], 'out'), lit: /Test passed/.test(r[3]?.reply ?? '') }
+  return { in: parseSlotReply(r[0]?.reply, 0), fuel: parseSlotReply(r[1]?.reply, 1), out: parseSlotReply(r[2]?.reply, 2), lit: /Test passed/.test(r[3]?.reply ?? '') }
 }
 
 // ---------------------------------------------------------------- logs and the ledger
