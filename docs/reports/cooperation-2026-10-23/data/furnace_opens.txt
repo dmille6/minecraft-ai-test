@@ -1,3 +1,4 @@
+# UNVERIFIED, SESSION-BASED ESTIMATE with APPROXIMATE coalescing (tools/furnace_opens.py.txt); not confirmed opens.
 board-a    opens/day  206  entries/day after coalescing  202  expected entries by +180  25.2
 board-b    opens/day  245  entries/day after coalescing  243  expected entries by +180  30.4
 board-c    opens/day  231  entries/day after coalescing  230  expected entries by +180  28.8

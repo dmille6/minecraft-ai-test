@@ -1043,3 +1043,88 @@ codex exit 0
 NO VERDICT: the Claude r8 reviewer was cut off by an API rate limit before it returned (operator relay). It is re-run on r9.
 
 r9 CHANGES: both Codex r8 P2s fixed; listed in section 8 of the design (round 8).
+
+=====================================================================================================================
+ROUND 9 -- on r9 (cea2f50a). Prompt (both engines):
+
+You are an independent reviewer of a DESIGN DOCUMENT in this repository (read-only review; do not modify any file).
+
+Document: docs/reports/cooperation-tier-2026-10-23.md
+Its measurement scripts and outputs: docs/reports/cooperation-2026-10-23/tools/*.py.txt and docs/reports/cooperation-2026-10-23/data/*
+Read CLAUDE.md first (the repo's working rules: positive controls, denominators, difference-in-differences, no dead ends for refusals, done means read on the fleet, KEEP must not mean "nothing objected").
+
+It must BUILD ON (not redo) these approved designs, which you should read where relevant:
+- docs/reports/overseer-assigner-design-2026-10-19.md (r3: S0 census first, role leases that only reorder, validator, ITT primary, Paper oracle)
+- docs/reports/comms-design-2026-10-21.md (typed town ledger, stage 2 chat, Contract Net later)
+- docs/reports/shadow-mayor-plan-2026-10-03.md and docs/reports/jobs-mayor-spec-2026-09-29.md (the deterministic mayor tied random on all duties)
+- docs/reports/town-plan-2026-10-20.md (townindex, ring@1 workshop plot)
+- docs/reports/ziggurat-mineshaft-2026-10-15.md section 3.3 (monument-01 slot/segment leases)
+- scripts/host/staffcensus.py (S0) and scripts/host/RULE.md (verdict rules, v25)
+- bots/src/townindex.mjs (the index record formats)
+
+The owner's task: design the cooperation tier (the overseer as job assigner; the comms ledger stage 1 on townindex records; a first multi-bot build project; measurement and canary plan; prior art). Owner answers designed to: C11 a frontier model (Claude or GPT) is the overseer, shadow first then live in a few towns; C12 $150/month cap with a hard spend guard that stops the overseer, not the bots; C13 flexible jobs with a soft preference, not fixed roles; C14 2-3 bots build their town's workshop together (the parallel building-tier design owns the blueprint and the structure count); deep miners (1-2 per town) from a parallel mineshaft design are assigned by this job assigner. Constraint: a bot must never wait on an assignment it cannot perform from where it is.
+
+This is ROUND 9. The document is now r9 (the newest commit on this branch). Rounds 1-8 (round 8: Codex only; the Claude r8 reviewer was cut off by an API rate limit) and the change lists are in docs/reports/cooperation-tier-reviews-2026-10-23.txt and section 8 of the document. New: tools/furnace_opens.py.txt and data/furnace_opens.txt (furnace OPENS per town, with coalescing). Siblings' newest heads on origin: building-tier r4 (0514d3b1), mineshaft-safety r10 (APPROVED, 8bffc295). r6 is reconciled with the sibling designs' NEWEST versions on origin: docs/reports/building-tier-2026-10-23.md on origin/building-tier-1023 (r3, 7689a028: its build visit now withdraws its own bill, and make_material deposits claimed parts into the site chest) and docs/reports/mineshaft-safety-2026-10-23.md on origin/mineshaft-safety-1023 (r5, 248be79e); read them with read-only git commands and check sections 3.3 and 5.1-5.4.
+
+CONVERGENCE RULE FOR THIS ROUND (from the operator): stages B0-B3 (S0 capability fix, coopread, ledger-01, furnaceseen-01) and the measurements in section 1 are what gets built first and must be fully specified; a P1/P2 there must be fixed. For stages B4-B9 (shop-01 is the building tier's canary; the live overseer, the multi-builder effect read, deep miners, SUPPLY), a missing detail that the document already records as an open item for that stage, decided before that stage is built with an owner gate, is NOT a blocking finding; report a NEW later-stage gap as a P3 'open item for Bn' unless it is a safety defect or makes the design as a whole unsound. APPROVE when no blocking P1/P2 remains. Additionally (operator's final steer): for B2/B3, mechanics the document now states as ACCEPTANCE CRITERIA for the code review and Paper (exact field names, mapping mechanics) are acceptable in that form; flag them only if a criterion is wrong, untestable, or would make a correct canary revert. First check that every finding of rounds 1-8 is resolved (say which are not), then review the whole r2 document again for anything new.
+
+Review for:
+1. Correctness of the measurements: do the scripts compute what the document says? Denominators, positive controls, timing rules (skill rows stamped at START with END snapshots; event rows at emission), attribution logic in indexflow (obs/dirty/xfer), overlap sweeps, the explore-duplicate outcome comparison, and any overclaim. Check numbers in the doc against data/*.out.
+2. The job assigner: is it genuinely different from the shadow mayor in ways that matter? Dead ends (refusal chains, starvation, a lease to an infeasible job, overseer outage, budget exhaustion). Lease/claim/fence semantics vs r3 and monument-01. Is the soft preference safe?
+3. The spend guard and cost estimate: arithmetic, token estimates, whether the guard truly enforces the cap (pre-call worst case, post-call ledger, failure modes), and whether stopping the overseer leaves bots safe.
+4. The ledger: consistent with the comms design and with townindex as shipped? Does each type have a consumer and a decision it changes?
+5. The workshop interface with the building tier and the deep-miner interface with the mineshaft design: are they sufficient, minimal, and free of shared mutable state? Is "2 builders first" justified?
+6. Measurement/canary plan: tiers, ITT, the effect line under verdict.py v25 semantics (check RULE.md and scripts/host for how own_lines with on_fail REVERT and no evidence behave), exposure, power, the horizon problem, Paper arms. Does it avoid "KEEP means nothing objected"?
+7. Prior art: accurate and honestly labelled?
+
+Output: a verdict line "VERDICT: APPROVE" or "VERDICT: CHANGE", then numbered findings each tagged P1 (must fix: wrong, unsafe, or a dead end), P2 (should fix), or P3 (minor), each with the file/section and a concrete fix. Be specific and terse. Do not rewrite the document.
+
+
+--- CODEX r9 (final answer) ---
+VERDICT: APPROVE
+
+Rounds 1–8 have no unresolved blocking findings under the convergence rule. Both Codex r8 P2s are addressed. Remaining workshop, prompt, wall-scene, deep-miner and SUPPLY details are explicitly owner-gated before their later stages.
+
+1. **P3 — §6.3/B2; `tools/furnace_opens.py.txt`; `data/furnace_opens.txt`: historical labels still overstate certainty.** R9 correctly withdraws the exposure projection, but the script and output still label estimates as “opens” and “entries after coalescing.” Also, omitted interrupted drain opens mean the combined estimate is not a proven upper bound. **Fix:** label these artifacts “unverified session-based estimate; approximate coalescing,” and remove “upper bound” from the combined projection. Runtime confirmed-window exposure remains valid.
+
+Headline measurements match the saved outputs; raw fleet inputs were not replayed. The effect-line behavior matches `scripts/verdict.py`. Cost arithmetic checks against the stated rates and [vendor pricing](https://claude.com/pricing).
+
+No files were modified.
+codex exit 0
+
+--- CLAUDE r9 (independent subagent; final message) ---
+VERDICT: APPROVE
+
+**Rounds 1-8: all resolved.** Nothing regressed between r8 and r9. The r8→r9 diff touches only the B2 exposure note, the Paper parity paragraph and section 8.
+- **Codex r8 #1 (B2 exposure projection): resolved.** The projection is now labelled unverified and is no longer used to claim an early KEEP. The gate counts confirmed window records at run time. The numbers match `data/furnace_opens.txt`: 2,115 opens, 111-245 per town-day, slowest 4-town draw 58.0 and slowest town 13.9 by +180. The "upper bound" label is close enough. I counted the extract on 10.0.0.31: drains that read a window are 1,435 "is empty" plus 2 "took". There are no "nothing could be taken" or "is burning" rows. The 105 aborted drains (entombed, stuck, stagnation) almost certainly stopped while walking.
+- **Codex r8 #2 (RCON parity while the furnace cooks): resolved.** Exact parity is now required only on quiescent furnaces, and active furnaces are tested with `/tick freeze`. The servers run 1.21.x, which has that command.
+- **Claude r7 #7 (an independent check of what the bot read): resolved.** The RCON read is taken before the first click, on at least 30 opens, and one mismatch fails. The field is `in=`, which matches `smeltjob.mjs` `drainDetail`.
+- **Earlier rounds:** I re-checked the B3 and B7 paths against the live verdict.py and tierrule.py. A failing deciding line without `evidence` is put in `blocked`. Before the last read the verdict is NOT_YET, at the last read it is INCONCLUSIVE, and an undefined non-nullable line is UNREADABLE. A tier-2 run can KEEP only at +180 or the last read, so k = 2 is right. The +180 KEEP needs exactly 4 pools, at least 48 bot-h, the exposure met, no WATCH, block or undefined line, a licence that is not `rate`, and a death rate no higher than control's. The cost arithmetic re-checks: $0.017 and $0.046 per call, $2.70 and $3.59 per day, earmarks of $68.3 and $21.9.
+- **Siblings:** building-tier r3→r4 changes nothing on this interface except answering A8. Mineshaft-safety r10 (8bffc295) is already recorded as an open item for B8.
+
+**No P1 or P2 findings.** Everything below is P3. None blocks: the first three are tightenings of B2/B3 acceptance criteria where the possible harm is small and bounded, and the rest are wording or later-stage items.
+
+1. **P3, §4.3 L1 (B2), feeding B3: a coalesced reference is not tied to the furnace's newest entry.** Comms 4.4 coalesces against "the writer's in-memory `last`", and L1 checks only that the referenced entry's slots match. Example: bot A writes a post-load entry, bot B then finds the furnace empty, and A loads it again identically within 10 minutes. A's second load is coalesced into its own old entry, so the newest entry in the town record still says "empty". B3 then skips a furnace that holds output for up to 60 minutes. The harm is bounded and of the same kind as today's 6-hour own memory, so this does not block. **Fix:** `coalesced_into` must name the newest `station` entry for that furnace, from any bot, at the window record's time. Add that sequence as a fixture: it must append, not coalesce.
+
+2. **P3, B3 gate: the skip decision should be a pure exported function of exactly the inputs it logs.** The logged inputs are the fold offset, the `station` entry it relied on, and the lit-seen time. If the implementation also consults the bot's own `bot.furnaceSeen` (comms 4.5 says the newest evidence wins), the host would score a correct walk as a defect, and a correct canary would revert. **Fix:** log the own-memory entry as well, and have the defect line replay the same exported pick function on the logged inputs (CLAUDE.md: "extract the decision").
+
+3. **P3, §4.3 L1 (B2): a crash between the window record and its outcome.** If the two are separate appends, a SIGKILL or OOM between them leaves a record with no outcome, and a `defect` line counts it. **Fix:** write the record and its outcome in one append. Or report, not count, a record without an outcome when the bot's process changed within a few seconds of it.
+
+4. **P3, §4.3 Paper:** "reported as a timing difference, not a parity failure" needs a rule a checker can apply. **Fix:** a mismatch counts as timing only if it is explained by k cooking steps between the two reads (input −k, output +k of the recipe's result, fuel use consistent with k). Anything else is a parity failure.
+
+5. **P3, §4.3 (independence of the drain check):** for drains, ledger-01's window record and the row's `out`/`in`/`fuel` both come from the same in-memory window read (`rd()` in `furnaceDrain`). L1's drain comparison therefore tests only serialization, and the RCON read is the independent evidence for drains too. **Fix:** say so, beside the matching sentence about smelt.
+
+6. **P3, B3 report line:** about 694 drains a day are `unreachable`. One furnace, 258,54,-407, has at least 115 failed "5-7 blocks away" drains a day, an existing loop that furnaceseen cannot touch. **Fix:** split the drain bot-time DiD by stop class, so that loop in one town cannot swamp the saving being measured.
+
+7. **P3, §1.6 B0a:**
+   - Name the spawn marker the seed walk looks for (there is no generic spawn row). `_townindex_mode` is one candidate.
+   - Name how "the last fleet-wide restart" is found, for example from the deploy journal.
+   - Say how a VOID bot counts in town capability per minute: void the minute, or ignore that bot.
+   - Give the alarm a number in place of "about 100%", for example at least 95% of eligible bots within 10 minutes of spawn.
+
+8. **P3, header (line 19):** it says "A1-A7", but the §5.2 table runs A1-A9. The "reconciled with building-tier r3 / mineshaft-safety r5" labels in §3.3, §5.1 and §5.4 are older than the header's r4/r10. Make them consistent.
+
+9. **P3, open item for B4/mats-01 (already recorded, one note):** B2's structural test, that every `openFurnace` call site writes a window record, already forces `make_material` to write one if mats-01 is rebased onto main after B2. Say that this is the mechanism, so the open item does not depend on someone remembering it.
+
+I wrote no files. On 10.0.0.31 I ran only `nice -n 19` read-only commands over `~/coop-1023/out2`, `~/verdict.py` and `~/mcai-analysis/tierrule.py`. I read the sibling designs with `git show` and `git diff`.
+CONVERGED: Codex APPROVE, Claude APPROVE. r9.1 records every P3 as a build-time acceptance item (design section 6.4) and fixes labels; no decision changed, so no round 10.

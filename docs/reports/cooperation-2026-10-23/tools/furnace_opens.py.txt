@@ -1,4 +1,5 @@
-# cooperation design 2026-10-23, r8 (Claude r7 P2-2, Codex r7 P3-4): FURNACE OPENS, not lease sessions, per town-day, and
+# r9.1 LABEL (Codex r9): an UNVERIFIED, SESSION-BASED ESTIMATE with APPROXIMATE coalescing; not a count of confirmed opens.
+# cooperation design 2026-10-23, r8 (Claude r7 P2-2, Codex r7 P3-4): FURNACE OPENS (estimated), per town-day, and
 # what B2's exposure would count after comms 4.4's coalescing. Read-only; extract2 (out2/), the fixed 24 h window.
 #  - a drain OPENED a furnace when its row read a window: detail "is empty", "is burning", or "took ..." (a lease that
 #    never reached the furnace -- unreachable, interrupted -- has no window read);
