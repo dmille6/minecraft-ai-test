@@ -153,6 +153,32 @@ await t('MUTANT KILLED: guard-dropped zones not a partial read (the planner repl
   const k = await withMutant(SKILLS_PATH, 'const partial = /^(dropped|guard_drops) /.test(r.why)', 'const partial = /^(dropped) /.test(r.why)', async M => killedBy(() => guardDropsEdit(M)))
   assert.ok(k, 'the mutant survived')
 })
+async function nullEdit (M) {
+  const dir = process.env.POOL_STATE_DIR, file = path.join(dir, 'protected-zones.json')
+  M.resetPlanZones()
+  const bot = { worldId: 'w' }
+  fs.writeFileSync(file, JSON.stringify({ version: 1, hashed_seed: 'w', zones: [{ id: 'old', box: [0, -64, 0, 5, 90, 5] }] }))
+  const guard = PZ.zoneReader({ file: () => file, worldId: () => 'w' }); guard.refresh()
+  M.townPlanZones(bot, 3e9)
+  let tick = 1
+  for (const body of ['null', '{"version": 1, "zones": [']) {
+    fs.writeFileSync(file, body)
+    guard.refresh()
+    assert.deepEqual(guard.zones().map(z => z.id), ['old'], `POSITIVE CONTROL: the guard keeps old through ${body.slice(0, 12)}`)
+    const v = M.townPlanZones(bot, 3e9 + 60_000 * tick++)
+    assert.ok(!v.known || v.zones.some(z => z.id === 'old'), `the planner (${v.why}) dropped old after ${body.slice(0, 12)}`)
+  }
+  // POSITIVE CONTROL for the other path: a MISSING file clears both
+  fs.unlinkSync(file); guard.refresh()
+  assert.deepEqual(guard.zones(), [])
+  assert.deepEqual(M.townPlanZones(bot, 3e9 + 60_000 * tick++).zones, [])
+  M.resetPlanZones()
+}
+await t('A FILE HOLDING JSON null (Codex JIT r2 P2): broken, not absent -- the guard keeps old, and so does the planner (through a later unreadable read too); a missing file clears both', () => nullEdit(S))
+await t('MUTANT KILLED: a JSON null read as no file (the planner clears its zones while the guard keeps them)', async () => {
+  const k = await withMutant(SKILLS_PATH, '  if (json === null) json = undefined\n', '', async M => killedBy(() => nullEdit(M)))
+  assert.ok(k, 'the mutant survived')
+})
 await t('THE UNKNOWN WORLD ID (\'\'): the guard honours the file, and so does the planner\'s parser (Claude JIT r1 P3)', () => {
   const json = { version: 1, hashed_seed: 'w', zones: [{ id: 'z', box: [0, -64, 0, 5, 90, 5] }] }
   assert.equal(PZ.parseZones(json, { worldId: '' }).zones.length, 1, 'POSITIVE CONTROL: the guard protects it')
