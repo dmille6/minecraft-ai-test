@@ -203,7 +203,7 @@ export const resetLedgerCap = () => { REFRESHES.length = 0 }
  * RECORD ONE FURNACE OBSERVATION -> the record (with its outcome), or null when nothing was written (the ledger off, or the
  * write failed). `phase` is 'open' (what the server showed at the open) or 'load' (the verifying view after a load).
  */
-export function recordStation (dir, hk, world, { id, f, bot, by, phase = 'open', slots, at = Date.now() } = {}) {
+export function recordStation (dir, hk, world, { id, f, bot, by, phase = 'open', slots, at = Date.now() } = {}, opts = {}) {
   if (!LEDGER.on || !f || !slots) return null
   try {
     const { view } = readLedger(dir, hk, world)
@@ -212,7 +212,7 @@ export function recordStation (dir, hk, world, { id, f, bot, by, phase = 'open',
     const o = stationOutcome(newest, { at, slots }, REFRESHES.length)
     const rec = { t: 'station', id, f, at, bot, by, phase, slots, state: stationState(slots), outcome: o.outcome }
     if (o.into) rec.into = o.into
-    if (!appendLedger(dir, hk, world, rec)) return null
+    if (!appendLedger(dir, hk, world, rec, opts)) return null
     if (o.refresh) REFRESHES.push(at)
     return rec
   } catch { return null }
