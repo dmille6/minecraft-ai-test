@@ -216,6 +216,10 @@ export const LIVELOCK_LATCH_MS = 600_000
  * orders that charge their cooldown at issue and have no decline-aware outcome handler of their own.
  */
 export function refundDeclined (skill, st = {}) {
+  // TREEFARM-03 x HOMEFIX-02 (jit-1023, Codex rebase review P2): farmOrder charges the tend cooldown (lastTendAt) AND the
+  // scan cadence (lastScanAt) at ISSUE; a tend the runner declined never ran -> both back, so the next decision may issue it
+  // (farmOrderOutcome already charges no backoff on a decline)
+  if (skill === 'tend_farm') return st.farmState ? { farmState: { ...st.farmState, lastTendAt: -Infinity, lastScanAt: -Infinity } } : {}
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
   if (!at || !st[at[0]]) return {}

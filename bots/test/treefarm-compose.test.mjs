@@ -657,6 +657,205 @@ await t('FLOOR, through townFarm (the skill\'s own search): a town dug into a pi
   assert.ok(raw && raw.cells.some(c => TF.inFloorBand(HOME, c)), 'without the guard the pit is used')
 })
 
+// ================================================================ jit-1023: treefarm-03 on 6e1afb52 ==========================
+// The fleet base 6e1afb52 carries homefix-02 (runner declines), keepout-01 (fire columns, C12 town yield) and protectzone-01
+// (protected zones). Codex's rebase review (three P2s), each as behaviour through the real skill / the real loop, with a
+// positive control and an anchored mutant (helpers/mutant.mjs: anchors present AND unique).
+const { withMutant } = await import('./helpers/mutant.mjs')
+const KO = await import('../src/keepout.mjs')
+const { refundDeclined } = await import('../src/cognitive.mjs')
+const COGP = new URL('../src/cognitive.mjs', import.meta.url)
+const SKPP = new URL('../src/skills.mjs', import.meta.url)
+const DECLINED = { status: 'failed', failClass: 'runner_reserved' }
+/** n decisions through the real loop (class `Loop`); tend_farm answers from `script` first, then RUNS for real. */
+async function scriptedTend (Loop, bot, n, script) {
+  const ran = [], left = [...script]
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    if (skill === 'tend_farm' && left.length) { const r = { detail: 'probe', delta: {}, ...left.shift() }; ran.push({ skill, status: r.status, failClass: r.failClass }); return r }
+    if (skill === 'tend_farm') {
+      const r = await SK.SKILLS.tend_farm.run({ bot }, args ?? {}, new AbortController().signal)
+      ran.push({ skill, status: r.status, detail: r.detail })
+      return { ...r, delta: {}, contractEvidence: r.status === 'success' ? ['world_change: farm'] : [] }
+    }
+    ran.push({ skill, status: 'success' })
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
+  const loop = new Loop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.start()
+  for (let i = 0; i < 200 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  assert.ok(ran.length >= n, `the ${n} decisions ran (else the poll expired): ${JSON.stringify(ran.map(r => r.skill))}`)
+  return { ran, loop }
+}
+
+// ---- (1) homefix-02: a tend the runner DECLINED gives back its issue-time cooldown and scan -----------------------------------
+await t('jit-1023 DECLINE CHAIN (real loop): a tend the runner declined is issued again on the next decision and founds the farm; no backoff', async () => {
+  const { bot } = fakeTown({ items: [S('birch_sapling', 6), S('oak_sapling', 4)], storeDir: pool('jit-decline') })
+  loopReady(bot)
+  const { ran, loop } = await scriptedTend(CognitiveLoop, bot, 3, [DECLINED])
+  assert.deepEqual(ran.slice(0, 2).map(r => r.skill), ['tend_farm', 'tend_farm'], JSON.stringify(ran))
+  assert.equal(ran[1].status, 'success', ran[1].detail)
+  assert.ok(SK.knownFarmRecord(bot), 'the second (real) visit founded the farm')
+  assert.ok(!((loop.farmState?.backoffUntil ?? 0) > Date.now()), 'no backoff for a run that never started')
+})
+await t('jit-1023 DECLINE CONTROL (real loop): a tend that RAN and faulted backs off -- one visit, then the model', async () => {
+  const { bot } = fakeTown({ items: [S('birch_sapling', 6), S('oak_sapling', 4)], storeDir: pool('jit-decline-ctl') })
+  loopReady(bot)
+  const { ran, loop } = await scriptedTend(CognitiveLoop, bot, 3, [{ status: 'failed', failClass: 'skill_error' }])
+  assert.equal(ran.filter(r => r.skill === 'tend_farm').length, 1, JSON.stringify(ran))
+  assert.ok(loop.farmState.backoffUntil > Date.now(), 'a real fault backs off')
+})
+await t('jit-1023 DECLINE MUTANT KILLED: without refundDeclined\'s tend_farm case the declined visit waits out its cooldown', async () => {
+  await withMutant(COGP, "  if (skill === 'tend_farm') return st.farmState ? { farmState: { ...st.farmState, lastTendAt: -Infinity, lastScanAt: -Infinity } } : {}\n", '', async mod => {
+    const { bot } = fakeTown({ items: [S('birch_sapling', 6), S('oak_sapling', 4)], storeDir: pool('jit-decline-mut') })
+    loopReady(bot)
+    const { ran } = await scriptedTend(mod.CognitiveLoop, bot, 3, [DECLINED])
+    assert.equal(ran.filter(r => r.skill === 'tend_farm').length, 1, `the mutant spends the cooldown on the decline: ${JSON.stringify(ran)}`)
+  })
+})
+await t('jit-1023 refundDeclined (pure): tend_farm gives back lastTendAt and lastScanAt only, and only when the order charged them', () => {
+  assert.deepEqual(refundDeclined('tend_farm', { farmState: { lastTendAt: 5, lastScanAt: 5, backoffUntil: 9 } }), { farmState: { lastTendAt: -Infinity, lastScanAt: -Infinity, backoffUntil: 9 } })
+  assert.deepEqual(refundDeclined('tend_farm', {}), {})
+})
+
+// ---- (2) keepout-01: tend_farm is a town job; its log digs never go into a fire column ---------------------------------------
+await t('jit-1023 KEEP-OUT: tend_farm is a TOWN JOB -- a yielded (C12) column lets the visit run; a non-yielded one starts the exit', () => {
+  assert.ok(KO.TOWN_JOB_SKILLS.has('tend_farm'))
+  const site = { kind: 'death:fire', x: 10, y: 60, z: 10, count: 4, deaths: 1, last: Date.now() }
+  const pos = { x: 10.5, y: 64, z: 10.5 }
+  assert.equal(KO.exitDecision({ sites: [site], pos, skill: 'tend_farm', yielded: () => true, yieldOn: true }).why, 'town_job')
+  assert.equal(KO.exitDecision({ sites: [site], pos, skill: 'tend_farm', yielded: () => false, yieldOn: true }).start, true, 'control: not yielded -> the exit')
+})
+/** A founded farm whose two far-apart plots p and q carry leftover logs; a live fire site over p (unless withSite is false). */
+async function loggedFarm (tag, { withSite = true, items = [S('oak_sapling', 2)] } = {}) {
+  const storeDir = pool(tag)
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: first.bot }, {}, new AbortController().signal)
+  const rec = SK.knownFarmRecord(first.bot)
+  assert.ok(rec, 'founded')
+  const plots = plotsOf(rec)
+  const p = plots[0], q = plots.reduce((a, b) => (flat(b, p) > flat(a, p) ? b : a))
+  assert.ok(flat(p, q) > KO.KEEPOUT_RADIUS + 1, 'q is outside p\'s column')
+  const over = {}
+  for (const c of plots) over[K(c.x, c.y, c.z)] = 'oak_sapling'
+  over[K(p.x, p.y, p.z)] = 'air'; over[K(p.x, p.y + 3, p.z)] = 'birch_log'; over[K(p.x, p.y + 4, p.z)] = 'birch_log'
+  over[K(q.x, q.y, q.z)] = 'air'; over[K(q.x, q.y + 2, q.z)] = 'birch_log'
+  const town = fakeTown({ items, over, storeDir })
+  const site = { kind: 'death:fire', x: p.x, y: p.y - 2, z: p.z, count: 4, deaths: 1, last: Date.now() }
+  town.bot.fireSitesNow = () => (withSite ? [site] : [])
+  town.bot.keepoutYields = () => false
+  return { ...town, p, q, rec, site }
+}
+const digsAt = (actions, c) => actions.filter(a => a.kind === 'dig' && a.cell.x === c.x && a.cell.z === c.z)
+await t('jit-1023 KEEP-OUT PLAN: logs in a fire column are not planned (counted logs_keepout); the other plot\'s logs are; control: no site -> both', async () => {
+  const a = await loggedFarm('jit-ko-plan')
+  const plan = SK.townFarmPlan(a.bot)
+  assert.equal(digsAt(plan.actions, a.p).length, 0, JSON.stringify(plan.actions))
+  assert.equal(digsAt(plan.actions, a.q).length, 1)
+  assert.equal(plan.counts.logs_keepout, 2)
+  const c = await loggedFarm('jit-ko-plan-ctl', { withSite: false })
+  assert.equal(digsAt(SK.townFarmPlan(c.bot).actions, c.p).length, 2, 'positive control: without the site p\'s logs are planned')
+})
+await t('jit-1023 KEEP-OUT VISIT: the real tend never digs a log in the fire column; it clears the other plot', async () => {
+  const a = await loggedFarm('jit-ko-visit')
+  const r = await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(a.state.digs.length >= 1, 'q was cleared')
+  for (const d of a.state.digs) { const [x, , z] = d.at.split(',').map(Number); assert.ok(!(x === a.p.x && z === a.p.z), `dug in the fire column: ${d.at}`) }
+})
+await t('jit-1023 KEEP-OUT MUTANT KILLED (order view): townFarmPlan without digBlocked plans the column\'s logs', async () => {
+  await withMutant(SKPP, '  return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env), digBlocked: farmDigBlocked(bot) })\n',
+    '  return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })\n', async mod => {
+      const a = await loggedFarm('jit-ko-mut1')
+      assert.equal(digsAt(mod.townFarmPlan(a.bot).actions, a.p).length, 2, 'the mutant plans the column')
+    })
+})
+await t('jit-1023 KEEP-OUT MUTANT KILLED (the visit): tend_farm without digBlocked digs into the column', async () => {
+  await withMutant(SKPP, 'held: before, bonemeal: bonemealEnabled(process.env), digBlocked: farmDigBlocked(bot) })',
+    'held: before, bonemeal: bonemealEnabled(process.env) })', async mod => {
+      const a = await loggedFarm('jit-ko-mut2')
+      await mod.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+      assert.ok(a.state.digs.some(d => { const [x, , z] = d.at.split(',').map(Number); return x === a.p.x && z === a.p.z }), 'the mutant digs in the column')
+    })
+})
+await t('jit-1023 KEEP-OUT REFUSAL CHAIN (real loop): the farm\'s only work is logs in a fire column -> no tend_farm order (never a refused-visit loop); control: no site -> the visit', async () => {
+  // only p has work (q is a sapling again) and the bag holds nothing to plant or light
+  const mk = async (tag, withSite) => {
+    const a = await loggedFarm(tag, { withSite, items: [] })
+    a.w.set(a.q.x, a.q.y + 2, a.q.z, 'air'); a.w.set(a.q.x, a.q.y, a.q.z, 'oak_sapling')
+    loopReady(a.bot)
+    a.bot.fireSitesNow = () => (withSite ? [a.site] : [])
+    // at town, outside the column (no exit in this chain)
+    a.bot.entity.position = new Vec3(a.p.x + 10.5, 64, a.p.z + 0.5)
+    return a
+  }
+  const a = await mk('jit-ko-chain', true)
+  const plan = SK.townFarmPlan(a.bot)
+  assert.equal(plan.actions.length, 0, JSON.stringify(plan.actions)); assert.equal(plan.counts.logs_keepout, 2)
+  const { ran } = await decisions(a.bot, 3)
+  assert.ok(!ran.some(r => r.skill === 'tend_farm'), JSON.stringify(ran)); assert.ok(ran.some(r => r.skill === 'status'), 'the model decides')
+  const c = await mk('jit-ko-chain-ctl', false)
+  const rc = await decisions(c.bot, 2)
+  assert.equal(rc.ran[0]?.skill, 'tend_farm', `positive control: ${JSON.stringify(rc.ran)}`)
+})
+
+// ---- (3) protectzone-01: the farm is never laid out, kept or worked in a protected zone ---------------------------------------
+await t('jit-1023 farmCellZoned (pure): a plot cell is zoned when its soil, its cell or its column to CLEAR_ABOVE is in a zone; no zones -> null', () => {
+  const z = { x0: 10, x1: 12, y0: 70, y1: 80, z0: 10, z1: 12, floorY: null }
+  assert.equal(TF.farmCellZoned([], { x: 11, y: 64, z: 11 }), null)
+  assert.equal(TF.farmCellZoned([z], { x: 11, y: 64, z: 11 }), z, 'the column reaches the zone (64 + CLEAR_ABOVE >= 70)')
+  assert.equal(TF.farmCellZoned([z], { x: 11, y: 62, z: 11 }), null, 'a column that ends below the zone')
+  assert.equal(TF.farmCellZoned([z], { x: 11, y: 81, z: 11 }), z, 'the soil (y - 1 = 80) is in the zone')
+  assert.equal(TF.farmCellZoned([z], { x: 13, y: 72, z: 11 }), null, 'beside it')
+})
+await t('jit-1023 ZONE FOUNDING: a zone over a canonical plot -> the founded farm keeps every cell out of it; control: no zone -> that plot is used', async () => {
+  const canon = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const p0 = plotsOf(canon)[0]
+  const zone = { x0: p0.x - 1, x1: p0.x + 1, y0: 0, y1: 255, z0: p0.z - 1, z1: p0.z + 1, floorY: null }
+  const a = fakeTown({ items: [S('oak_sapling', 9)], storeDir: pool('jit-zone-found') })
+  a.bot.protectZones = () => [zone]
+  const r = await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  const rec = SK.knownFarmRecord(a.bot)
+  for (const c of rec.cells) assert.equal(TF.farmCellZoned([zone], c), null, `a ${c.role} in the zone: ${JSON.stringify(c)}`)
+  for (const pl of a.state.places) { const [x, , z] = pl.at.split(',').map(Number); assert.ok(!(x >= zone.x0 && x <= zone.x1 && z >= zone.z0 && z <= zone.z1), `placed in the zone: ${pl.at}`) }
+  const c = fakeTown({ items: [S('oak_sapling', 9)], storeDir: pool('jit-zone-found-ctl') })
+  await SK.SKILLS.tend_farm.run({ bot: c.bot }, {}, new AbortController().signal)
+  assert.ok(plotsOf(SK.knownFarmRecord(c.bot)).some(q => q.x === p0.x && q.z === p0.z), 'positive control: without the zone the canonical plot is used')
+})
+await t('jit-1023 ZONE RECORD: a recorded farm a zone now covers is re-founded (refound); one zoned plot is never worked while the rest are', async () => {
+  const storeDir = pool('jit-zone-rec')
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: first.bot }, {}, new AbortController().signal)
+  const rec = SK.knownFarmRecord(first.bot)
+  const xs = rec.cells.map(c => c.x), zs = rec.cells.map(c => c.z)
+  const all = { x0: Math.min(...xs), x1: Math.max(...xs), y0: 0, y1: 255, z0: Math.min(...zs), z1: Math.max(...zs), floorY: null }
+  const over = {}
+  for (const c of plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'air'   // every plot ready again (as if harvested)
+  const b = fakeTown({ items: [S('oak_sapling', 9)], over, storeDir })
+  b.bot.protectZones = () => [all]
+  assert.deepEqual(SK.townFarmPlan(b.bot).actions.map(x => x.role), ['refound'], 'every plot is in the zone: the farm moves')
+  const p0 = plotsOf(rec)[0]
+  const one = { x0: p0.x, x1: p0.x, y0: 0, y1: 255, z0: p0.z, z1: p0.z, floorY: null }
+  b.bot.protectZones = () => [one]
+  const plan = SK.townFarmPlan(b.bot)
+  assert.ok(plan.actions.some(x => x.role === 'plant'), 'the rest are worked')
+  assert.ok(!plan.actions.some(x => x.cell.x === p0.x && x.cell.z === p0.z), `the zoned plot is planned: ${JSON.stringify(plan.actions)}`)
+})
+await t('jit-1023 ZONE MUTANT KILLED: farmOff without the zone test -> the founded farm puts a plot in the zone', async () => {
+  await withMutant(SKPP, '  return c => pastBorder(c) || (zones.length > 0 && !!farmCellZoned(zones, c))\n', '  return c => pastBorder(c)\n', async mod => {
+    const canon = TF.canonicalFarm({ home: HOME, read: world().read }).record
+    const p0 = plotsOf(canon)[0]
+    const zone = { x0: p0.x - 1, x1: p0.x + 1, y0: 0, y1: 255, z0: p0.z - 1, z1: p0.z + 1, floorY: null }
+    const a = fakeTown({ items: [S('oak_sapling', 9)], storeDir: pool('jit-zone-mut') })
+    a.bot.protectZones = () => [zone]
+    await mod.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+    assert.ok(mod.knownFarmRecord(a.bot).cells.some(c => TF.farmCellZoned([zone], c)), 'the mutant lays a plot in the zone')
+  })
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) { console.log('FAILED:\n  ' + failed.join('\n  ')); process.exit(1) }
 process.exit(0)

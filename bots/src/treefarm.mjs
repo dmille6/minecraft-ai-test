@@ -22,6 +22,7 @@
 
 import { placeAt, cellKey, keyOf, REPLACEABLE, solid, passable, isLiquid, materialPlan } from './blueprint.mjs'
 import { TOWN_GROUND_HALF, TOWN_GROUND_DEPTH } from './townground.mjs'
+import { blocked as zoneBlocked } from './protectzone.mjs'   // treefarm-03 x protectzone-01 (jit-1023)
 
 // ---- the blueprint --------------------------------------------------------------------------------------------------
 
@@ -88,6 +89,19 @@ function surfaceAt (read, x, z, y0, dy) {
  * no liquid within 1 at the cell or soil level, no
  * container/station/composter within FARM_CONTAINER_DISTANCE, and not reserved by another town structure.
  */
+/**
+ * TREEFARM-03 x PROTECTZONE-01 (jit-1023, Codex rebase review P2) -> the zone closing any cell of a farm cell's footprint,
+ * or null. Pure. A plot's footprint is its soil (y - 1) and its column to CLEAR_ABOVE; a torch's is its floor and its cell
+ * (inside the same span). protectzone's global wrappers already refuse every dig, place and use there, so a farm laid out
+ * across a zone could only generate refused visits; as a `reserved` predicate the site search keeps off it and a recorded
+ * farm whose usable plots fall below MIN_PLOTS is re-founded (the border's rule). No zones: null.
+ */
+export function farmCellZoned (zones, c) {
+  if (!zones || !zones.length || !c) return null
+  for (let y = c.y - 1; y <= c.y + CLEAR_ABOVE; y++) { const z = zoneBlocked(zones, c.x, y, c.z, null); if (z) return z }
+  return null
+}
+
 export function plotRefusal (read, plot, { reserved = null } = {}) {
   const cell = read(plot.x, plot.y, plot.z), soil = read(plot.x, plot.y - 1, plot.z)
   if (!cell || !soil) return 'unknown'
@@ -318,7 +332,13 @@ export const BONEMEAL_RESERVE = 8
  * each dig is reachable from the one below), then saplings, then torches (only those carried), then bone meal (arm on).
  * Each sapling is the most preferred species HELD (FARM_SPECIES order: birch while it lasts); nothing unheld is planted.
  */
-export function tendPlan ({ states = [], torches = [], held = {}, bonemeal = false, max = MAX_MUTATIONS_PER_VISIT } = {}) {
+/**
+ * TREEFARM-03 x KEEPOUT-01 (jit-1023, Codex rebase review P2) -> `digBlocked(cell)`: a log in the column above a live fire
+ * death site is never planned for a dig -- keep-out's dig guard (index.mjs keepoutDigGuard) refuses tend_farm's TARGET digs
+ * there anyway, so a planned one only fails and the visit comes back for it every cooldown. Counted as `logs_keepout`; the
+ * plot's other work (soil, planting, torches) is unchanged. The log waits for the site to lapse (keepout.mjs fireSites).
+ */
+export function tendPlan ({ states = [], torches = [], held = {}, bonemeal = false, max = MAX_MUTATIONS_PER_VISIT, digBlocked = null } = {}) {
   const left = { ...held }
   const actions = []
   const counts = {}
@@ -328,7 +348,10 @@ export function tendPlan ({ states = [], torches = [], held = {}, bonemeal = fal
     if (s.state !== 'logs_above' && !(s.state === 'sapling' && s.logs?.length)) continue
     const reachable = [...s.logs].sort((a, b) => a.y - b.y).filter(l => l.y - s.plot.y <= MAX_DIG_UP)
     if (reachable.length < s.logs.length) counts.logs_high = (counts.logs_high ?? 0) + 1
-    for (const l of reachable) actions.push({ kind: 'dig', cell: l, role: 'leftover_log', plot: s.plot })
+    for (const l of reachable) {
+      if (digBlocked && digBlocked(l)) { counts.logs_keepout = (counts.logs_keepout ?? 0) + 1; continue }
+      actions.push({ kind: 'dig', cell: l, role: 'leftover_log', plot: s.plot })
+    }
   }
   for (const s of states) {
     if (s.state !== 'ready') continue

@@ -79,7 +79,7 @@ import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsF
          decodeMultiRecord } from './blueprint.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
-         farmWellAvoid, inFloorBand, farmYields, farmKeepOut, farmPlannerKeepOut, farmCellTest, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
+         farmWellAvoid, inFloorBand, farmYields, farmKeepOut, farmPlannerKeepOut, farmCellTest, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE, farmCellZoned } from './treefarm.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
 import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold, wellBreakCost } from './well.mjs'
@@ -8107,20 +8107,37 @@ function readPlinthRecordForFarm (bot) {
 
 /** A cell past the world border the other skills keep to (gather, goto and place refuse beyond it). */
 const pastBorder = c => horizontalDistanceFromSpawn(c) > config.world.borderRadius
+/**
+ * TREEFARM-03 on 6e1afb52 (jit-1023, Codex rebase review P2): the farm cells this bot may not work -> predicate. Past the
+ * border (above), OR in a protected zone (protectzone-01: every dig, place and use there is refused by its wrappers --
+ * treefarm.mjs farmCellZoned checks the cell's whole footprint). The zones are read ONCE per call (bot.protectZones).
+ */
+function farmOff (bot) {
+  let zones = []
+  try { zones = bot?.protectZones?.() ?? [] } catch { zones = [] }
+  return c => pastBorder(c) || (zones.length > 0 && !!farmCellZoned(zones, c))
+}
+/** keepout-01: a farm log in the column above a live fire death site is not planned for a dig (treefarm.mjs tendPlan). */
+function farmDigBlocked (bot) {
+  let sites = []
+  try { sites = bot?.fireSitesNow?.() ?? [] } catch { sites = [] }
+  return sites.length ? c => !!columnAt(sites, c) : null
+}
 /** The town's farm: the shared record if this view accepts it, else a new generation from this bot's own search. */
 export function townFarm (bot) {
   const home = homeVec()
   const memo = new Map()
   const read = farmRead(bot, { memo })
   const avoid = farmAvoid(bot)
+  const off = farmOff(bot)   // past the border, or in a protected zone (jit-1023)
   return resolveRecord({
     dir: farmDir(), key: farmKey(), world: bot.worldId ?? null,
     // NEVER OUTSIDE THE WORLD BORDER the other skills keep to (gather and goto refuse past it: Paper sandbox run 1) -- for a
     // new farm AND for a recorded one (a border can shrink: Codex r4)
     // ...nor in the town floor's band (a dug-out pit inside the town square: the floor job's cells to fill), nor near a
-    // junk well or a raised well's plan (farmAvoid)
-    compute: () => canonicalFarm({ home, read, avoid, reserved: c => pastBorder(c) || inFloorBand(home, c) }),
-    refuse: rec => farmRecordRefusal(read, rec, { reserved: pastBorder }) ?? farmYields(rec, avoid),
+    // junk well or a raised well's plan (farmAvoid), nor in a protected zone (protectzone-01: farmCellZoned, jit-1023)
+    compute: () => canonicalFarm({ home, read, avoid, reserved: c => off(c) || inFloorBand(home, c) }),
+    refuse: rec => farmRecordRefusal(read, rec, { reserved: off }) ?? farmYields(rec, avoid),
   })
 }
 
@@ -8141,16 +8158,17 @@ export function townFarmPlan (bot) {
   // A RECORDED FARM THAT IS NO LONGER A FARM (Codex review) must still be able to schedule its own replacement: the site
   // search runs inside the skill, under the lease; here only the cheap verdict and the founding prerequisite.
   // ...and one that must YIELD to a well, a raised well's plan or a chest claim within its keep-out (Codex r1 P2)
-  const why = farmRecordRefusal(read, rec, { reserved: pastBorder }) ?? farmYields(rec, farmAvoid(bot))
+  const off = farmOff(bot)
+  const why = farmRecordRefusal(read, rec, { reserved: off }) ?? farmYields(rec, farmAvoid(bot))
   if (why && why !== 'unknown') {
     const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
     return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'refound' }], counts: {}, materials: null } : null
   }
   // AN ACCEPTED RECORD MAY STRADDLE A (SHRUNK) BORDER: its cells past it are never worked (Codex r5)
-  const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))
+  const states = plotsOf(rec).filter(p => !off(p)).map(p => ({ plot: p, ...plotState(read, p) }))
   if (states.some(s => s.state === 'unknown')) return null
-  const torches = torchesOf(rec).filter(c => !pastBorder(c)).map(c => ({ cell: c, state: torchState(read, c) }))
-  return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })
+  const torches = torchesOf(rec).filter(c => !off(c)).map(c => ({ cell: c, state: torchState(read, c) }))
+  return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env), digBlocked: farmDigBlocked(bot) })
 }
 
 /** The block items this bot's pathfinder may place as scaffold on a walk: its movements' scafoldingBlocks when it has
@@ -8395,16 +8413,19 @@ async function tendFarm (ctx, _args, signal) {
   }
   try {
     const read = readCell(bot)
-    const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))
+    const off = farmOff(bot)
+    const states = plotsOf(rec).filter(p => !off(p)).map(p => ({ plot: p, ...plotState(read, p) }))
     for (const s of states) census[s.state] = (census[s.state] ?? 0) + 1
     if (census.unknown) return skip(`${census.unknown} farm plot(s) are not loaded from here; the farm waits for a closer visit`)
-    const torches = torchesOf(rec).filter(c => !pastBorder(c)).map(c => ({ cell: c, state: torchState(read, c) }))
-    const plan = tendPlan({ states, torches, held: before, bonemeal: bonemealEnabled(process.env) })
+    const torches = torchesOf(rec).filter(c => !off(c)).map(c => ({ cell: c, state: torchState(read, c) }))
+    const plan = tendPlan({ states, torches, held: before, bonemeal: bonemealEnabled(process.env), digBlocked: farmDigBlocked(bot) })
     if (!plan.actions.length) {
       const short = Object.keys(plan.materials?.short ?? {})
       return skip(short.length
         ? `the town tree farm has ${census.ready ?? 0} plot(s) ready and this bot holds no ${short.join(' or ')}: chop any tree (gather birch_log or oak_log) -- its leaves drop saplings -- and the next town visit plants them`
-        : `the town tree farm needs nothing this bot can do now (${Object.entries(census).map(([k, v]) => `${k}:${v}`).join(' ')})`)
+        : plan.counts?.logs_keepout
+          ? `the town tree farm's only work is ${plan.counts.logs_keepout} log(s) in the column above a marked lava pool (keep-out): they wait until that fire site lapses -- nothing to do here now`
+          : `the town tree farm needs nothing this bot can do now (${Object.entries(census).map(([k, v]) => `${k}:${v}`).join(' ')})`)
     }
     const stationary = deadline + 5_000
     bot.stationaryUntil = stationary
@@ -8414,7 +8435,7 @@ async function tendFarm (ctx, _args, signal) {
         if (Date.now() > deadline) { stop = 'budget'; break }
         // STRUCTURAL: a mutation outside the record never happens (and the read gates on this count staying 0).
         if (!onFarmPlan(idx, a)) { f.offplan++; continue }
-        if (pastBorder(a.cell)) continue   // belt and braces: the plan was built from in-border cells only
+        if (off(a.cell)) continue   // belt and braces: the plan was built from in-border, out-of-zone cells only
         const r = a.kind === 'dig' ? await digOne(a) : a.kind === 'bonemeal' ? await boneOne(a) : await placeOne(a)
         if (r === null) break
         if (!r) continue
