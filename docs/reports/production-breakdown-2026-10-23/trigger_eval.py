@@ -12,13 +12,14 @@ IRON arm (bots that NEED iron: < 3 raw+ingots carried, a trip pickaxe, feet > 8 
           not on the rung, because the rung disappears when no iron is in sight: ironInReach, milestones.mjs:505)
   eligible      >= 5 % of the world's sampled decisions AND >= 100 of them
   sight         iron ore within 32 m on < 85 % of them
-  outcome       successful gather(iron_ore) or mine per such decision < 0.5 x the median of the eligible worlds
+  outcome       successful gather(iron_ore) per such decision < 0.5 x the median of the eligible worlds (a mine success
+                is a staircase step, so it is not counted)
 TRAP guard      the world's exclusive reflex hours/day AND its water-hold exposure hours/day (analyze.json) are each
                 < 2 x the fleet median, else 'trapped' (board-d's pit shows as exposure, not exclusive time)
 CENSUS          not evaluated here (frontier census output, publishing from 10-24 00:20Z)
 An arm FIRES (pending the census) when eligible, sight and outcome all hold and the world is not trapped.
 """
-import os, sys, gzip, json, re, glob, datetime as dt
+import os, sys, gzip, json, re, glob, statistics, datetime as dt
 from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +61,7 @@ for day in days:
             if need and trip and deep:
                 c = iron[w]
                 c[0] += 1
-                c[1] += ok and (r['sk'] == 'mine' or (r['sk'] == 'gather' and 'iron' in (r['blk'] or '')))
+                c[1] += ok and r['sk'] == 'gather' and 'iron' in (r['blk'] or '')   # iron obtained, not staircase steps (Claude r3)
                 c[2] += any(isinstance(per.get(x), (int, float)) and per[x] <= 32 for x in ('iron_ore', 'deepslate_iron_ore'))
 
 
@@ -74,10 +75,10 @@ def excl_reflex(w):
 
 
 ref = {w: excl_reflex(w) for w in HOMES}
-med_ref = sorted(ref.values())[len(ref) // 2]
+med_ref = statistics.median(ref.values())
 expo = {w: sum((A[day][w]['float_s'] + A[day][w]['surface_float_s'] + A[day][w]['noair_s']) / 3600 for day in days) / len(days)
         for w in HOMES}
-med_expo = sorted(expo.values())[len(expo) // 2]
+med_expo = statistics.median(expo.values())
 W = {}
 for w in sorted(HOMES):
     bots = wood[w]
@@ -94,7 +95,7 @@ for w in sorted(HOMES):
             'trapped': ref[w] >= 2 * med_ref or expo[w] >= 2 * med_expo}
 elig_w = [x for x in W.values() if x['wood_share'] >= 0.05 and x['wood_n'] >= 100]
 elig_i = [x for x in W.values() if x['iron_share'] >= 0.05 and x['iron_n'] >= 100]
-med = lambda xs: sorted(xs)[len(xs) // 2] if xs else None
+med = lambda xs: statistics.median(xs) if xs else None     # conventional median (Codex r3)
 mw = med([x['wood_yield'] for x in elig_w])
 mi = med([x['iron_yield'] for x in elig_i])
 print(f'week {days[0]} .. {days[-1]}; median wood yield (eligible worlds, n={len(elig_w)}) {mw}; median iron yield '

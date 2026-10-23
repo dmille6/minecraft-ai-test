@@ -96,7 +96,7 @@ for lab, days in (('BASE', BASE), ('END', END)):
         t = T[rg]
         print(f'   {rg:18s} fulfilled {100 * t["fulfilled"] / n:5.1f}%  bypassed {100 * t["bypassed"] / n:5.1f}%  '
               f'outstanding {100 * t["outstanding"] / n:5.1f}%')
-    print(f'   every production rung closed: {100 * ac / n:.1f}% of decisions; of those, closed with >= 1 bypass: '
+    print(f'   all seven checked predicates closed: {100 * ac / n:.1f}% of decisions; of those, closed with >= 1 bypass: '
           f'{100 * cb / max(1, ac):.1f}%')
     print(f'   decisions that NEED iron (< 3 carried): {need} ({100 * need / n:.1f}%); of them iron ore within 32 m '
           f'{100 * nn / max(1, need):.1f}%, trip pickaxe {100 * nt / max(1, need):.1f}%')

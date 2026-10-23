@@ -3,7 +3,7 @@
     production rungs emptied by being GIVEN UP rather than fulfilled, these would rise on those rungs.
 (2) an uptime proxy per bot: the number of (bot, 10-minute) bins holding >= 1 LLM decision, out of
     80 x 144 = 11,520 a day (coverage() credits a whole bot-hour for one document, so it cannot see a
-    restart; this can see any 10-minute silence).
+    restart; this one shows that every fixed 10-minute bin is occupied, so no bot went 20 minutes without a decision).
 """
 import sys, os, re, datetime as dt
 from collections import Counter

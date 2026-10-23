@@ -1,4 +1,4 @@
-# The two-week production decline, broken down; and when to start a fresh world (2026-10-23, r3)
+# The two-week production decline, broken down; and when to start a fresh world (2026-10-23, r4)
 
 _This is a read-only analysis, approved by the owner on 10-23 ("sure"). No fleet, queue, world, bot or RCON writes were made._
 
@@ -20,7 +20,8 @@ per world). Three-day means are used because single days swing by up to 10 %. Th
 **Round history** (§11):
 - r1 drew CHANGE from both reviewers; r2 rebuilt the identity and the scenarios.
 - r2 drew CHANGE from both, with Codex raising three P1s.
-- r3 does four things:
+- r3 drew Claude APPROVE and Codex CHANGE (two P2s); r4 fixes those, the medians and the wording.
+- r3 did four things:
   - it presents the attribution as an illustrative allocation under a stated convention, with its sensitivity;
   - it gives the depletion scenarios as conditional ranges;
   - it drops the selection "test" as causal evidence;
@@ -96,10 +97,10 @@ bypassed or given up.**
 |---|---:|---:|---:|---|
 | (a) ladder demand: decisions that moved off the production rungs and onto dirt and the lap, at BASE yields | −3,756 (opposite convention −1,428) | −2,624 (−2,474) | −532 (−1,646) | Mechanism: those rungs read as fulfilled (§0.1). Timing: steps on 10-11/12, 10-14, 10-17/18 and 10-20..22, in all four world-age groups, on rollout dates (§4). The deliberate changes and any organic accumulation cannot be separated (§10). |
 | (b) depletion, conditional scenarios | −145 (range −42 to −709) | −124 | 0 | Gather: the fall in log sight on wood-rung decisions (§5.3). Mine: the fall in iron sight among bots that need iron, all of it near the surface (§5.4). Each is "if sight were the only change". |
-| (c) safety: the board-d water pit | −564 (± ≈ 250) | −129 | −22 | A DiD with a pre-trend (§6.1). Separately, exclusive reflex time outside board-d rose by 14 h/day; its cost is not identified and sits in the yield rows (§6.2). |
+| (c) safety: the board-d water pit | −564 (± ≈ 255, a descriptive allowance) | −129 | −22 | A DiD with a pre-trend (§6.1). Separately, exclusive reflex time outside board-d rose by 14 h/day; its cost is not identified and sits in the yield rows (§6.2). |
 | (d) model, GPU, restarts, churn | no loss found | no loss found | no loss found | Decisions per bot-hour held at 83.6 → 83.3, and every bot × 10-minute bin holds a decision (§7). |
 | Yw: wood-rung yield beyond (b) | −411 | +1 | −2 | Unknown cause: chronic zero-success bots (55 % of END wood-rung decisions), depletion of reachable trees, or both (§5.3). |
-| Yo: yield change on every other row (unexplained) | +3,057 | +594 | +260 | Mostly a higher success per dirt decision (0.225 → 0.303). The steps around 10-11 and 10-18..21 fit the toolkit iron shovels, but this is not measured. |
+| Yo: yield change on every other row (unexplained) | +3,057 | +594 | +260 | Mostly a higher success per dirt decision (0.225 → 0.303). The later step (10-18..21) coincides with toolkit iron shovels (toolkit-02, 10-18); the 10-11 step predates them. Neither is measured. |
 | R | −1 | +1 | 0 | |
 
 - **Plain reading:**
@@ -150,9 +151,10 @@ bypassed or given up.**
 **Do not reseed the fleet now, and do not schedule a rotation. Expand instead:** expeditions to 1,200 blocks are approved and are
 designed after the 10-24 census.
 - **Keep one pre-registered single-world reseed** behind the resource-specific trigger in §9.4. It was evaluated for 10-16..10-22
-  (`trigger_eval.py`): **no world fires.**
+  (`trigger_eval.py`): **no world fires.** The near miss is hive-d: on the wood arm it meets the sight and outcome conditions, and
+  only the 5 %-share gate stops it (4.8 %).
 - **Why not now:**
-  - depletion is measurable but did not move production;
+  - the observed availability changes are modest, and the conditional depletion scenarios are small next to the demand change;
   - a reseed buys about a week of easy wood **[quoted]**, while wood demand fell to a quarter;
   - it destroys a town and the long-period build;
   - it costs the measurements while the fresh pool booms and declines.
@@ -307,7 +309,7 @@ change's share is measured.
 - **Deposits succeed instead of retrying:** chest-full failures 411 → 5.
 - **Bag hygiene:** the 64-stack floors are what fulfil the rungs.
 
-## 5. Depletion, measured directly
+## 5. Depletion: observed availability and conditional scenarios
 
 ### 5.1 What the bot can see at decision time
 
@@ -383,7 +385,8 @@ change's share is measured.
 
 ### 5.5 Verdict
 
-- **Depletion is measurable,** most clearly in logs near where bots stand in the 12-day worlds (−20 pp).
+- **Observed availability fell,** most clearly for logs near where bots stand in the 12-day worlds (−20 pp). It is measured at
+  locations that themselves changed, so it is not a pure depletion measure.
 - **On the scenarios it is tens to hundreds of gather a day** (−42 to −709; −145 at today's demand), and about −124 mine. That is
   small next to the ladder demand.
 - **Yields per decision on stone, iron and dirt did not fall,** and ore intake rose.
@@ -398,7 +401,8 @@ change's share is measured.
   - From 10-18 to 10-22 they were 66.3-66.6 h a day, out of its 120 bot-h.
 - **Pre-trend** (`board_d_window.py`).
   - Through 10-15, board-d ran 0.83 gather ok/bot-h above the other 15 (daily SD 1.3). Trapped, it ran 3.75-4.30 below.
-  - The SD gives about ±250 a day (2 SD) on T = −564.
+  - That daily SD implies about 1.07/bot-h for the difference of two independent 3-day means, so ±2 SD is about ±255 a day on
+    T = −564. It is a descriptive variability allowance, not a confidence interval.
   - The DiD absorbs the level difference. Its BASE gap (+0.60) sits slightly below the pre-trap mean (+0.83), which is worth about
     −28 a day.
 - **Escape** (02:00-08:00Z on 10-22 vs 10-23):
@@ -466,7 +470,9 @@ change's share is measured.
 - Four worlds rose on gather, all on dirt: placebo-c +48 %, hive-b +22 %, placebo-a +19 %, board-b +8 %.
 - Mine fell in 15 of 16; placebo-c rose +119 % from the lowest base.
 - placebo-b (gather −47 %, mine −53 %) is not explained here. Its water exposure was 7.6 h/day in 10-16..10-22, above twice the
-  fleet median of 2.7 (`trigger_eval.py`). So was board-a's, at 24.3 h/day. Both are worth a look.
+  fleet median of 2.5 (`trigger_eval.py`).
+- Board-a's exposure of 24.3 h/day is about 23 h/day of "no air route" holds, level on every day from 10-08 to 10-22. That looks
+  like one bot held almost continuously (Claude r3). It does not move the change, but given the survival goal it is worth a look.
 
 **World age** (on 10-09: original worlds about 45-47 days of server time, the 09-19 reseeds about 20 days, the 09-27 reseeds about
 11.5 days):
@@ -492,7 +498,7 @@ change's share is measured.
 
 ## 9. When should we start a fresh world?
 
-### 9.1 What depletion costs today
+### 9.1 Conditional depletion scenarios
 
 - Scenario values are −42 to −709 gather a day (−145 at today's demand) and −124 mine. They are conditional (§5).
 - The loss is concentrated in logs, which the ladder now asks for a quarter as often. Ore intake is up.
@@ -540,7 +546,8 @@ change's share is measured.
      - Bots with fewer than 3 iron, a trip pickaxe, and feet more than 8 blocks below home make up at least 5 % of the world's
        sampled decisions, with at least 100 decisions.
      - Iron ore is within 32 m on fewer than 85 % of them.
-     - Their successful gather(iron_ore) or mine per decision is under half the median.
+     - Their successful gather(iron_ore) per decision is under half the median. A mine success is a staircase step, so it is not
+       counted.
    - **and the world is not trapped:** its exclusive reflex hours AND its water exposure are each under twice the fleet median.
    - **and the frontier census shows no way out:** no candidate region in the town's `frontier-<home>` file, or every candidate
      marked `unreached` by expedition turn-backs. The census publishes from 10-24 00:20Z; this script does not compute it.
@@ -549,11 +556,12 @@ change's share is measured.
      - 14 days of observation, with the same-age worlds as controls.
      - The pool stays out of canary draws for those 14 days.
      - The town is rebuilt by the plan's code, never by world edits.
-   - **10-16..10-22 result: no world fires.**
+   - **10-16..10-22 result: no world fires.** The thresholds use conventional medians: wood 0.144, iron 0.011.
      - Only 4 worlds are eligible on the wood arm (board-a, board-d, isolated-d, placebo-c), and none has non-chronic log sight under
        50 % (lowest 0.73).
-     - On the iron arm, all 16 are eligible. board-d, isolated-c and placebo-d meet the outcome condition, but iron sight among their
-       deep, iron-needing bots is at least 99 %.
+     - **The near miss is hive-d.** It meets sight (0.36) and outcome (0.023), and fails only the 5 % share gate (4.8 %). Watch it.
+     - On the iron arm all 16 are eligible. board-d and isolated-c meet the outcome condition, but iron sight among their deep,
+       iron-needing bots is at least 99 %.
      - board-a, board-d and placebo-b are flagged trapped by water exposure.
 4. **Record world age as a stratum in the canary draw record.**
 
@@ -596,7 +604,25 @@ The r3 responses:
 - **Codex P2, sand in GAINING.** The rule is removed.
 - **Claude P3s.** Reflex cost placement stated; uptime positive control; the trigger's chronic exclusion in sight.
 
-### r3: pending
+### r3 (53ae74ae): Claude APPROVE (5 P3); Codex CHANGE (2 P2, several P3)
+
+The r4 responses:
+
+- **Codex P2, the trigger medians.** Now conventional `statistics.median`. Iron outcome changed to gather(iron_ore) successes only
+  (Claude P3). The week's outcome is unchanged: no world fires.
+- **Codex P2, board-d's uncertainty.** The ±255 derivation is shown and labelled descriptive.
+- **Codex P2 (wording).** "Did not move production", the §5 title and the §9.1 title are replaced by statements of observed
+  availability and conditional scenarios.
+- **Codex P3s.** Stale docstrings and printouts fixed (skips_uptime, rung_state, wood_selection).
+- **Codex r3 item 13** listed seven r2 items it could not see: #4, #5, #6, #9, #11, #13 and #18. Its own r2 review marked all seven
+  resolved; they are the age test, perception, the never-used wording, safety exposure, canary windows, canopy, and folding.
+- **Claude P3s.**
+  - hive-d is named as the near miss.
+  - The 10-11 dirt step predates the shovels.
+  - Board-a's exposure is explained.
+  - The uptime control is acknowledged as weak.
+
+### r4: pending
 
 ## Files
 

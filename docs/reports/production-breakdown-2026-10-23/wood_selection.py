@@ -1,7 +1,7 @@
 """Selection or depletion? On the wood rungs (stockpile_wood + gather_oak_log_12), per world: the per-decision gather
 success and the share of decisions with a log (oak/birch/spruce) within 16 m, BASE vs END (LLM sample).
-If the per-decision fall were depletion, it should be largest where sight of logs fell most; if it is the same in
-worlds where sight did NOT fall, it is selection (the bots still on the rung are the ones that could not finish it).
+DESCRIPTIVE ONLY: the world comparison below does not separate selection from depletion (the groups differ in
+baseline success and in chronic bots; Codex/Claude r2). The chronic-bot and non-chronic rows are the usable output.
 No ES access."""
 import os, sys, gzip, json, re
 from collections import defaultdict
