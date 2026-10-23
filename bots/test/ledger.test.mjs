@@ -271,7 +271,7 @@ test('the DRAIN on a furnace with output: the record is taken BEFORE any click (
   await S.SKILLS.furnace_drain.run({ bot }, {}, null).catch(() => null)
   const rec = ledgerNow().slice(before)[0]
   assert.ok(rec, 'a record'); assert.deepEqual(rec.slots.out, ['iron_ingot', 3], 'the window as opened, before the take')
-  assert.equal(rec.state, 'holds'); void clicked
+  assert.equal(rec.state, 'holds'); assert.equal(clicked, true, 'the drain clicked AFTER the record (the record shows the output it then took)')
 })
 
 test('scope: only the drain\'s furnaces (within DRAIN_RADIUS of home, at town level); an unreadable slot writes nothing', () => {
@@ -322,7 +322,7 @@ test('SMELT at a town furnace: an OPEN record before any click and a LOAD record
   assert.equal(load.outcome, 'entry', 'empty -> loaded is a change')
   assert.ok(load.at > open.at && load.id !== open.id, 'the load has its own id and time')
   const sess = rows.find(x => x?.skill?.name === '_furnace_session')
-  assert.ok(sess, 'the session row'); assert.match(sess.skill.detail, new RegExp(` open=${open.id} in=0 fuel=0 out=0$`))
+  assert.ok(sess, 'the session row'); assert.match(sess.skill.detail, new RegExp(` open=${open.id} in=0 fuel=0 out=0 loads=1/1$`))
 })
 
 test('drainDetail stays under the 300-char detail cap with the ledger id', () => {
@@ -339,11 +339,12 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/
  */
 export function openerSites (src) {
   const s = strip(src)
-  const opens = [...s.matchAll(/\bopenFurnace\(/g)].map(m => m.index).filter(i => !/function\s+$|\.\s*$/.test(s.slice(Math.max(0, i - 12), i)) || /bot\.\s*$/.test(s.slice(Math.max(0, i - 6), i)))
+  // EVERY call site, whatever the receiver (bot.openFurnace, b.openFurnace, ...); a function DEFINITION is not a call
+  const opens = [...s.matchAll(/\.\s*openFurnace\(/g)].map(m => m.index)
   return opens.map((at, k) => {
     const end = opens[k + 1] ?? s.length
     const seg = s.slice(at, end)
-    const rec = seg.search(/\bledgerFurnace\([^)]*'open'/)
+    const rec = seg.search(/\b(?:ledgerFurnace|ledgerObserve)\([^)]*'open'/)
     const click = seg.search(/\.(putInput|putFuel|takeOutput|takeInput|takeFuel|close)\(|\bdrainFurnace\(/)
     if (rec < 0) return { at, ok: false, why: 'no window record after this open' }
     if (click >= 0 && click < rec) return { at, ok: false, why: 'a click before the window record' }
@@ -352,7 +353,7 @@ export function openerSites (src) {
 }
 const SRC_DIR = new URL('../src/', import.meta.url)
 const srcFiles = fs.readdirSync(SRC_DIR).filter(f => f.endsWith('.mjs'))
-const openerFiles = srcFiles.filter(f => /\bbot\.openFurnace\(/.test(strip(fs.readFileSync(new URL(f, SRC_DIR), 'utf8'))))
+const openerFiles = srcFiles.filter(f => /\.\s*openFurnace\(/.test(strip(fs.readFileSync(new URL(f, SRC_DIR), 'utf8'))))
 
 test('STRUCTURAL: every `bot.openFurnace(` call site in src/ writes an open-phase window record before any click (design 4.3 "the opener set"; 6.4 Claude r9 #9)', () => {
   assert.deepEqual(openerFiles, ['skills.mjs'], 'the opener set lives in skills.mjs on this base (a new opener elsewhere must be covered too)')
@@ -369,14 +370,16 @@ function mutant (src, old, neu) {
 }
 test('STRUCTURAL MUTANTS: removing either site\'s record, or moving the drain\'s after a click, fails the check; so does a NEW opener with no record', () => {
   const src = fs.readFileSync(new URL('skills.mjs', SRC_DIR), 'utf8')
-  const dropDrain = mutant(src, `    f.ledger = ledgerFurnace(bot, pos, furnace, 'drain', 'open', seen)?.id ?? '-'\n`, '')
+  const dropDrain = mutant(src, `    if (LEDGER.on) { const lo = ledgerObserve(bot, pos, furnace, 'drain', 'open', seen); f.ledger = lo.rec?.id ?? lo.miss }\n`, '')
   assert.ok(openerSites(dropDrain).some(x => !x.ok), 'the drain\'s record removed: caught')
-  const dropSmelt = mutant(src, `{ const lr = ledgerFurnace(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'open');`, `{ const lr = null;`)
+  const dropSmelt = mutant(src, `{ const lo = ledgerObserve(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'open');`, `{ const lo = { rec: null, miss: 'fail' };`)
   assert.ok(openerSites(dropSmelt).some(x => !x.ok), 'smelt\'s record removed: caught')
   const late = mutant(dropDrain, `    await drainFurnace(win, SMELT_RECOVERY_MS, bot)\n`, `    await drainFurnace(win, SMELT_RECOVERY_MS, bot)\n    f.ledger = ledgerFurnace(bot, pos, win, 'drain', 'open', seen)?.id ?? '-'\n`)
   assert.ok(openerSites(late).some(x => x.why === 'a click before the window record'), 'a record after the click: caught')
   const extra = mutant(src, `export function ledgerFurnace (`, `async function thirdOpener (bot, b) { const w = await bot.openFurnace(b); await w.takeOutput() }\nexport function ledgerFurnace (`)
   assert.ok(openerSites(extra).some(x => !x.ok), 'a NEW opener without a record (as mats-01\'s make_material would be): caught')
+  const other = mutant(src, `export function ledgerFurnace (`, `async function fourth (me, b) { const w = await me.openFurnace(b); await w.takeOutput() }\nexport function ledgerFurnace (`)
+  assert.ok(openerSites(other).some(x => !x.ok), 'an opener through ANOTHER receiver (me.openFurnace): caught (Claude r1 P3-10)')
   assert.ok(openerSites(src).every(x => x.ok), 'and the real source passes')
 })
 
