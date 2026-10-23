@@ -149,9 +149,11 @@ def l1_check(stations, drains, sessions, race_ms=RACE_MS):
 
 
 def persisted_check(stations, files_by_pool):
-    """PURE. stations [(t, pool, bot, f)] + {pool: {'records': {id: rec}, 'rotated': bool}} -> {defects, confirmed_by_pool,
-    unresolved, checked}. Every station row must have its record in the pool's ledger file with the same slots, outcome and
-    into; a pool whose file rotated (oldest generation > 1) may have lost an old record: then a missing one is unresolved."""
+    """PURE. stations [(t, pool, bot, f)] + {pool: {'records': {id: rec}, 'boundary': ms|None}} -> {defects,
+    confirmed_by_pool, unresolved, checked}. Every station row must have its record in the pool's ledger file with the same
+    slots, outcome and into. `boundary` is the start of the OLDEST RETAINED generation (its rotation checkpoint's time; None
+    when generation 1 is still there): only a row older than it may have lost its record to a rotation (unresolved); a
+    missing record written after it is a defect (Codex r2 P2-2)."""
     defects, unresolved, checked = [], 0, 0
     confirmed = Counter()
     for t, p, b, f in stations:
@@ -160,7 +162,8 @@ def persisted_check(stations, files_by_pool):
             unresolved += 1; continue
         rec = fp['records'].get(f.get('id'))
         if rec is None:
-            if fp.get('rotated'):
+            b_ = fp.get('boundary')
+            if b_ is not None and t < b_ - 5000:
                 unresolved += 1
             else:
                 checked += 1; defects.append(('not_persisted', f.get('id')))
@@ -175,6 +178,12 @@ def persisted_check(stations, files_by_pool):
         else:
             confirmed[p] += 1
     return {'defects': defects, 'confirmed_by_pool': dict(confirmed), 'unresolved': unresolved, 'checked': checked}
+
+
+def window_complete(boundary, cut_ms):
+    """PURE. Do the retained generations hold every byte written since cut_ms? Yes when generation 1 is retained (boundary
+    None) or the oldest retained generation began at or before the cut."""
+    return boundary is None or boundary <= cut_ms
 
 
 def bytes_written(records_with_len, t0_ms, t1_ms):
@@ -277,7 +286,9 @@ _rec = {'a': {'id': 'a', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out
         'b': {'id': 'b', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out': None, 'lit': False}, 'outcome': 'coalesced', 'into': 'a'}}
 assert persisted_check(_st, {'P': {'records': _rec, 'rotated': False}})['defects'] == [] and persisted_check(_st, {'P': {'records': _rec, 'rotated': False}})['confirmed_by_pool'] == {'P': 2}
 assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'rotated': False}})['defects'] == [('not_persisted', 'b')]
-assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'rotated': True}})['unresolved'] == 1
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 10_000}})['unresolved'] == 1, 'a row before the oldest retained generation'
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 1500}})['defects'] == [('not_persisted', 'b')], 'a row AFTER it must be in the file'
+assert window_complete(None, 100) and window_complete(50, 100) and not window_complete(150, 100)
 assert persisted_check(_st, {'P': {'records': dict(_rec, a=dict(_rec['a'], slots={'in': ['raw_iron', 1], 'fuel': None, 'out': None, 'lit': False})), 'rotated': False}})['defects'] == [('persisted_differs', 'a')]
 assert bytes_written([(5, 100), (15, 200), (25, 50)], 10, 25) == 200
 # L2: a dropped TRANSITION is a defect; a dropped repeat is not; the 1% share
@@ -385,7 +396,7 @@ if __name__ == '__main__':
     files_by_pool, written = {}, {}
     CUT_MS, END_MS = int(CUT.timestamp() * 1000), int(END.timestamp() * 1000)
     for p in sorted(CANS):
-        recs, lens, gens = {}, [], []
+        recs, lens, gens, ckpt_at = {}, [], [], {}
         for f_ in sorted(glob.glob('/var/lib/mcai/_pool-%s/ledger-*.g*.jsonl' % p)):
             u = unparsed_lines(f_)
             if u is None:
@@ -401,15 +412,25 @@ if __name__ == '__main__':
                     continue
                 if rr.get('t') == 'station' and rr.get('id'):
                     recs[rr['id']] = rr; lens.append((rr.get('at'), len(ln) + 1))
-        files_by_pool[p] = {'records': recs, 'rotated': bool(gens) and min(gens) > 1, 'files': len(gens)}
-        written[p] = bytes_written(lens, CUT_MS, END_MS)
+                elif rr.get('t') == 'ckpt':
+                    lens.append((rr.get('at'), len(ln) + 1))          # a checkpoint is written bytes too (Codex r2 P2-1)
+                    if m_:
+                        g_ = int(m_.group(1))
+                        ckpt_at[g_] = min(ckpt_at.get(g_, rr.get('at') or 0), rr.get('at') or 0)
+        boundary = None if not gens or min(gens) == 1 else ckpt_at.get(min(gens))
+        if gens and min(gens) > 1 and boundary is None:
+            boundary = END_MS                         # an oldest generation with no checkpoint: nothing older is provable
+        files_by_pool[p] = {'records': recs, 'boundary': boundary, 'files': len(gens)}
+        # L3's bytes are only countable when the retained generations hold the whole window (rotation deletes): else undefined
+        written[p] = bytes_written(lens, CUT_MS, END_MS) if window_complete(boundary, CUT_MS) else None
     # A POOL WITH ROWS AND NO LEDGER FILE (Claude r1 P2-2): L2 and L3 cannot be read there -- undefined, never "0 unparsed"
     no_file = sorted(p for p in CANS if by_pool.get(p, 0) > 0 and not files_by_pool.get(p, {}).get('files'))
     pc = persisted_check(stations, files_by_pool)
     l1['defects'] += pc['defects']; l1['denominator'] += pc['checked']
     l2 = l2_check(stations, unparsed, window_records)
     days = max(W / 1440.0, 1e-9)
-    per_town_day = max([v / days for v in written.values()] or [0])          # the WORST town, not the mean
+    incomplete = sorted(p for p, v in written.items() if v is None)
+    per_town_day = max([v / days for v in written.values() if v is not None] or [0])          # the WORST town, not the mean
     a95, f95 = p95(app_ms), p95(fold_ms)
     l3_ok = int(a95 is not None and f95 is not None and a95 < APPEND_P95_MS and f95 < FOLD_P95_MS and per_town_day < BYTES_PER_TOWN_DAY and not unreadable_files)
     expo = exposure(pc['confirmed_by_pool'], sorted(CANS))
@@ -440,8 +461,9 @@ if __name__ == '__main__':
     print('             pools with rows but NO ledger file (L2/L3 undefined there): %s' % (no_file or '-'))
     print('L2 (defect)  unparsed lines %d in %d files | dropped transitions %d | drops %d (%.4f of records) -> %d'
           % (unparsed, files, l2['dropped_transitions'], l2['drops'], l2['drop_share'], l2['defects']))
-    print('L3 (block)   append p95 %s ms (< %g) | fold p95 %s ms (< %g) | worst town %.0f bytes written per day (< %d) %s | unreadable files %d -> %s'
-          % (a95, APPEND_P95_MS, f95, FOLD_P95_MS, per_town_day, BYTES_PER_TOWN_DAY, written, unreadable_files, 'ok' if l3_ok else 'NOT OK'))
+    print('L3 (block)   append p95 %s ms (< %g) | fold p95 %s ms (< %g) | worst town %.0f bytes written per day (< %d) %s | unreadable files %d | window rotated away (L3 undefined) %s -> %s'
+          % (a95, APPEND_P95_MS, f95, FOLD_P95_MS, per_town_day, BYTES_PER_TOWN_DAY, written, unreadable_files, incomplete or '-',
+             'UNDEFINED' if (no_file or incomplete) else 'ok' if l3_ok else 'NOT OK'))
     print('ARMS         control _ledger_mode / _ledger_station rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   control drains that read a window post %d (the positive control) | drains per bot-h DiD %+.3f (no change expected)' % (ctl_drain_open, drain_did))
     try:
@@ -455,10 +477,12 @@ if __name__ == '__main__':
             'licence_rows': window_records, 'mode_rows': n['licence_mode'],
             'liveness': int(n['licence_mode'] >= 1 and window_records >= 1),
             'station_exposure': expo, 'window_records': window_records,
-            'l1_defects': len(l1['defects']) if CV else None,          # no canary version: the off-build filter cannot run 'l1_denominator': l1['denominator'], 'l1_raced': l1['raced'], 'l1_unread': l1['unread'],
+            # no canary version: the off-build filter cannot run, so L1 is undefined
+            'l1_defects': len(l1['defects']) if CV else None,
+            'l1_denominator': l1['denominator'], 'l1_raced': l1['raced'], 'l1_unread': l1['unread'],
             'l1_unresolved': pc['unresolved'], 'confirmed_records': sum(pc['confirmed_by_pool'].values()), 'unreadable_files': unreadable_files,
             'l2_defects': None if no_file else l2['defects'], 'unparsed_lines': unparsed, 'dropped_transitions': l2['dropped_transitions'], 'drops': l2['drops'],
-            'l3_ok': None if no_file else l3_ok, 'pools_without_ledger_file': no_file, 'append_p95_ms': a95, 'fold_p95_ms': f95, 'bytes_per_town_day': round(per_town_day),
+            'l3_ok': None if (no_file or incomplete) else l3_ok, 'pools_window_rotated': incomplete, 'pools_without_ledger_file': no_file, 'append_p95_ms': a95, 'fold_p95_ms': f95, 'bytes_per_town_day': round(per_town_day),
             'rows_control_post': leak, 'instrument_control': int(ctl_drain_open >= 1),
             'coalesced': n[('outcome', 'coalesced')], 'repeat_empty_other_bot': repeat_empty,
             'drains_per_bh_did': nanless(drain_did), 'canary_bot_hours': round(can_bh, 2),
