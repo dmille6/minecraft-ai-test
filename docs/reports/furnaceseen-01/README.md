@@ -1,5 +1,23 @@
 # furnaceseen-01 (cooperation tier B3) — build record
 
+> **OWNER 2026-10-23 (answer C): furnaceseen-01 ships as an owner-direct TIER-1 rollout once ledger-01 is KEPT and promoted.
+> The read's replay check is the tripwire; it is not a canary.** That is why the canary analysis below (the effect line, power,
+> contamination) is kept only as the record of why a canary could not have read it.
+>
+> - **Rollout:** `scripts/host/furnaceseen-rollout.sh --check | --go <sha>`, run by the owner on 10.0.0.31 from a checkout of
+>   this branch. It refuses unless the fleet is declared on ledger-01's promoted sha (BASE in the script) and no canary is
+>   declared. It holds the scheduler (`holdtoken.py`), deploys from a copy of deploy-fleet.sh and journals `owner-direct`.
+> - **Tripwire:** `scripts/host/furnaceseentrip.py --since <ISO> --version <sha8>`.
+>   - T1 BREACH: a skip on a furnace without a valid logged empty, found by the replay through seen_skip, which the golden
+>     table binds to the JS function.
+>   - W1 WATCH: a walk the rule should have saved.
+>   - BLIND: no rows of the version, no mode row, no ledger at all, or replays unresolved above 5%.
+>   - Context: drain body-time per bot-h by stop class, and repeat empty drains per bot-h, before against after. This is a
+>     fleet before/after, so world drift is not separated.
+>   - On the live fleet today (base 6e1afb52, 3 h) it reads BLIND, correctly: there is no skip build and no ledger yet.
+> - **Branches:** BASE 26e76fa0 (ledger-01's primary) is `furnaceseen-on-26e76fa`; BASE 69b3f6fe (ledger-01's chatgate
+>   variant) is `furnaceseen-on-69b3f6f`.
+
 Design: `docs/reports/cooperation-tier-2026-10-23.md` (origin/main) §6.3 row B3, §6.4 rows B3. Builds on ledger-01 (B2):
 this branch carries B2's commits underneath, and B3 is registered only after B2 is KEPT and promoted.
 
