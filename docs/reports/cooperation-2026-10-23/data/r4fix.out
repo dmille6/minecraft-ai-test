@@ -1,0 +1,6 @@
+== [X4] explore -> raw_iron rise events (each rise assigned to at most one explore; empty bags kept)
+  rise events / units / assigned / empty-inventory rows: {'empty_inventory_rows': 0, 'rise_events': 336, 'raw_iron_units': 428, 'rises_assigned': 123}
+  fresh runs 7748 (censored 52): any assigned rise near the sighting 7 (0.09%), only elsewhere 50 (0.65%)
+  peer  runs 9210 (censored 60): any assigned rise near the sighting 3 (0.03%), only elsewhere 30 (0.33%)
+== [G4] gather: overlapped BOT-time (union per run) 3.44 of 171.0 bot-h
+== [V4] verified transfers through the r3 chain predicate: {'verified': 88, 'chain_attributed_to_xfer_bot': 88}

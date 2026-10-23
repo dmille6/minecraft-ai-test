@@ -1,0 +1,52 @@
+# cooperation design 2026-10-23, r4 addition after review round 3 (Claude r3 P2-1). Read-only. extract2 (out2/), same window.
+# The NEXT-VISIT assignable upper bound for S0's gates: town-minutes in which at least one (and at least two) UNFLAGGED
+# bots are inside the town-job radius (16 h / 12 v) -- the only place a BUILD or SUPPLY lease can take effect. An upper
+# bound: it assumes an open project with pending demand and material in every town, and ignores bots busy in other
+# town jobs. "Unflagged" = no trap, drowning or death row in the 5 min before (the validator's filter; health not used).
+import gzip, json, glob, os, re, math, bisect, collections, datetime as dt
+
+OUT = os.path.expanduser('~/coop-1023/out2')
+T0 = dt.datetime(2026, 10, 22, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+T1 = dt.datetime(2026, 10, 23, 12, 14, tzinfo=dt.timezone.utc).timestamp()
+POOLS = [f'{a}-{b}' for a in ('board', 'hive', 'placebo') for b in 'abcd'] + ['isolated-b']
+TRAP = re.compile(r'entomb|strand|maroon|trapped|wedged|reflex_stuck|flooded_pocket|drown|lava_adjacent|_death$')
+
+def homeof(pool):
+    f = glob.glob(f'/var/lib/mcai/_pool-{pool}/town-index-*.g*.jsonl')[0]
+    return tuple(int(v) for v in re.search(r'town-index-(-?\d+)_(-?\d+)_(-?\d+)\.g', f).groups())
+
+C = collections.Counter(); PER = {}
+for pool in POOLS:
+    home = homeof(pool)
+    rows = [json.loads(l) for l in gzip.open(f'{OUT}/{pool}.jsonl.gz', 'rt')]
+    per = collections.defaultdict(list); flag = collections.defaultdict(list)
+    for r in rows:
+        if r.get('bot') and r['k'].startswith('_'):
+            if r.get('p'):
+                per[r['bot']].append((r['t'], r['p']))
+            if TRAP.search(r['k']):
+                flag[r['bot']].append(r['t'])
+    for b in per:
+        per[b].sort(); flag[b].sort()
+    M0, M1 = int(T0 // 60) + 1, int(T1 // 60) + 1
+    n1 = n2 = 0
+    for m in range(M0, M1):
+        t = m * 60; k = 0
+        for b, lst in per.items():
+            j = bisect.bisect_right(lst, (t, [1e9, 1e9, 1e9])) - 1
+            if j < 0 or t - lst[j][0] > 600:
+                continue
+            p = lst[j][1]
+            if math.hypot(p[0] - home[0], p[2] - home[2]) > 16 or abs(p[1] - home[1]) > 12:
+                continue
+            f = flag[b]; i = bisect.bisect_right(f, t) - 1
+            if i >= 0 and t - f[i] <= 300:
+                continue
+            k += 1
+        n1 += k >= 1; n2 += k >= 2
+    PER[pool] = (round(n1 / 60, 1), round(n2 / 60, 1))
+    C['ge1'] += n1; C['ge2'] += n2
+    del rows
+print('== next-visit assignable UPPER BOUND (town-hours in 24 h): >= 1 / >= 2 unflagged bots inside 16 h / 12 v of home')
+print('  per town:', PER)
+print(f"  all 13 towns: >=1 {C['ge1']/60:.1f} town-h, >=2 {C['ge2']/60:.1f} town-h")

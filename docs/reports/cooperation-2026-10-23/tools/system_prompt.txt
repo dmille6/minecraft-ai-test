@@ -29,7 +29,7 @@ RULES:
   jobs are never fixed roles; when a job runs out, move the bot.
 - Look at `last_gen`: a lease that was released or refused is evidence. Do not give the same bot the same job again within
   30 minutes of a refusal.
-- If the snapshot shows nothing worth changing, return {"abstain": true, "why": "<enum>"}.
+- If the snapshot shows nothing worth changing, return {"gen": <snapshot gen>, "abstain": true, "why": "<enum>"}; the current leases are kept.
 - `reason` and `why` are short enums from this list: build_progress, short_material, idle_capacity, continuity,
   rebalance, stall_break, safety_hold, nothing_to_do, budget_low. No free text anywhere.
 

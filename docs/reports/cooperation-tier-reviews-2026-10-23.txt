@@ -338,3 +338,128 @@ Claude r1 #20 and #29 are only partly done (findings 14 and 13). Every other num
 
 Nothing was modified. Host access was one `nice -n 19` read-only Python run over `~/coop-1023/out`, heading kinds and gather blocks in three towns, and the temp script was removed.
 r3 CHANGES: every finding taken; listed in section 8 of the design (round 2).
+
+=====================================================================================================================
+ROUND 3 -- on r3 (b41fc2f1). Prompt (both engines):
+
+You are an independent reviewer of a DESIGN DOCUMENT in this repository (read-only review; do not modify any file).
+
+Document: docs/reports/cooperation-tier-2026-10-23.md
+Its measurement scripts and outputs: docs/reports/cooperation-2026-10-23/tools/*.py.txt and docs/reports/cooperation-2026-10-23/data/*
+Read CLAUDE.md first (the repo's working rules: positive controls, denominators, difference-in-differences, no dead ends for refusals, done means read on the fleet, KEEP must not mean "nothing objected").
+
+It must BUILD ON (not redo) these approved designs, which you should read where relevant:
+- docs/reports/overseer-assigner-design-2026-10-19.md (r3: S0 census first, role leases that only reorder, validator, ITT primary, Paper oracle)
+- docs/reports/comms-design-2026-10-21.md (typed town ledger, stage 2 chat, Contract Net later)
+- docs/reports/shadow-mayor-plan-2026-10-03.md and docs/reports/jobs-mayor-spec-2026-09-29.md (the deterministic mayor tied random on all duties)
+- docs/reports/town-plan-2026-10-20.md (townindex, ring@1 workshop plot)
+- docs/reports/ziggurat-mineshaft-2026-10-15.md section 3.3 (monument-01 slot/segment leases)
+- scripts/host/staffcensus.py (S0) and scripts/host/RULE.md (verdict rules, v25)
+- bots/src/townindex.mjs (the index record formats)
+
+The owner's task: design the cooperation tier (the overseer as job assigner; the comms ledger stage 1 on townindex records; a first multi-bot build project; measurement and canary plan; prior art). Owner answers designed to: C11 a frontier model (Claude or GPT) is the overseer, shadow first then live in a few towns; C12 $150/month cap with a hard spend guard that stops the overseer, not the bots; C13 flexible jobs with a soft preference, not fixed roles; C14 2-3 bots build their town's workshop together (the parallel building-tier design owns the blueprint and the structure count); deep miners (1-2 per town) from a parallel mineshaft design are assigned by this job assigner. Constraint: a bot must never wait on an assignment it cannot perform from where it is.
+
+This is ROUND 3. The document is now r3 (the newest commit on this branch). Rounds 1 and 2 (both engines) and the change lists are in docs/reports/cooperation-tier-reviews-2026-10-23.txt and section 8 of the document. New r3 scripts and outputs: tools/r3fix.py.txt, tools/r3b.py.txt, data/r3fix.out, data/r3b.out; tools/system_prompt.txt and tools/snapshot.py.txt were revised. First check that every round-1 and round-2 finding is resolved (say which are not), then review the whole r2 document again for anything new.
+
+Review for:
+1. Correctness of the measurements: do the scripts compute what the document says? Denominators, positive controls, timing rules (skill rows stamped at START with END snapshots; event rows at emission), attribution logic in indexflow (obs/dirty/xfer), overlap sweeps, the explore-duplicate outcome comparison, and any overclaim. Check numbers in the doc against data/*.out.
+2. The job assigner: is it genuinely different from the shadow mayor in ways that matter? Dead ends (refusal chains, starvation, a lease to an infeasible job, overseer outage, budget exhaustion). Lease/claim/fence semantics vs r3 and monument-01. Is the soft preference safe?
+3. The spend guard and cost estimate: arithmetic, token estimates, whether the guard truly enforces the cap (pre-call worst case, post-call ledger, failure modes), and whether stopping the overseer leaves bots safe.
+4. The ledger: consistent with the comms design and with townindex as shipped? Does each type have a consumer and a decision it changes?
+5. The workshop interface with the building tier and the deep-miner interface with the mineshaft design: are they sufficient, minimal, and free of shared mutable state? Is "2 builders first" justified?
+6. Measurement/canary plan: tiers, ITT, the effect line under verdict.py v25 semantics (check RULE.md and scripts/host for how own_lines with on_fail REVERT and no evidence behave), exposure, power, the horizon problem, Paper arms. Does it avoid "KEEP means nothing objected"?
+7. Prior art: accurate and honestly labelled?
+
+Output: a verdict line "VERDICT: APPROVE" or "VERDICT: CHANGE", then numbered findings each tagged P1 (must fix: wrong, unsafe, or a dead end), P2 (should fix), or P3 (minor), each with the file/section and a concrete fix. Be specific and terse. Do not rewrite the document.
+
+
+--- CODEX r3 (final answer) ---
+VERDICT: CHANGE
+
+Prior-round findings are **not all resolved**. Remaining issues concern provenance and its positive control, explore attribution, gather overlap time, capability detection, site-chest serialization, and B3’s effect gate. Other prior findings are addressed at design level, subject to the promised implementation fixtures.
+
+1. **P1 — Design §5.5: expiring the site-chest lease does not guarantee serialization.** A holder paused during a mutation can resume after 60 seconds while its successor is operating; an unconditional release can also remove the successor’s lease. Specify ownership-safe release, renewal, fencing and mutual exclusion across mutations and verification. Test a paused holder resuming after takeover. The round-2 serialization finding remains partially unresolved.
+
+2. **P1 — Design §1.6/B0: capability rows need binding to the current process.** After rollback to code that emits no project mode row, the newest historical row can still say `on`. This reproduces the stale-capability bug. Bind capability to the current bot boot/build identity; absence in that incarnation must not inherit the previous incarnation’s capability. Test `on → restart into reverted build`, rather than only a history containing no mode row.
+
+3. **P1 — Design §§4.2, 5.2: placement logs cannot be the sole authority for remaining work.** A crash after server placement but before logging leaves a physically completed cell permanently “open” in the derived state. Existing valid blocks and `done-degraded` cells likewise need not have placement rows. Retain monument-01’s world re-read for operational completion; use witnessed placement rows for production measurement. Define reconciliation and test the placement-before-log crash.
+
+4. **P2 — Design §1.1; `tools/r3fix.py.txt` [P3]: unknown withdrawals still violate scenario conservation.** The `who is None` branch records the removal and immediately continues without removing inventory from `bag`. Executing that block on “A deposits 10; unknown removes 10; B deposits 10; A withdraws 10” incorrectly reports 10 same-bot units under own-first. Consume unknown removals under explicitly stated allocation assumptions, or remove the scenarios and their “half or more” conclusion. This does not itself disprove the looser 78–161 bounds. Also update `[V]` to exercise the actual r3 attribution predicate and ambiguity rejection; its current bracket-only check remains unresolved.
+
+5. **P2 — Design §§1.2, 4.4; `tools/r3b.py.txt`: the any-route outcome reintroduces the rejected classifier.** It stops at the first inventory rise, so an earlier rise elsewhere hides a later rise near the sighting. Overlapping explore windows can also count the same rise repeatedly; “145 raw_iron rises” is therefore not a distinct-event count. Additionally, extraction still drops empty inventories. Preserve empty snapshots, identify positive inventory changes once, assign them to explores before classification, and classify all assigned changes. Recompute before concluding there is no cooperation lever.
+
+6. **P2 — Design §1.2; `tools/r2fix.py.txt` [O]: gather overlap remains pair-time.** The reported **1.7 of 171.0 gather bot-hours** still comes from `sum(ov.values()) / 2`; r3’s union fix only covers `JOBS`, which excludes gather. Apply the per-run union calculation to gathers too, or explicitly label 1.7 as pair-hours.
+
+7. **P2 — Design §6.3/B3: the added effect line is not yet a decision rule.** “Its lower bound” supplies neither a threshold nor the direction of improvement; ordinary repeats-rate DiD improves downward. Define a positive reduction estimand and minimum benefit, then register its lower bound against that bar without `evidence`. Fixture-test improvement, no change, worsening and undefined values. The v25 blocking mechanism itself is correct.
+
+8. **P2 — Design §3.8: the horizon earmark is an estimate, not the stated worst case.** The allowed maximum is **53**, not 52.8, calls per town-day: even at 2,500 input tokens, seven days in four towns require **$66.78**. Input length is estimated rather than bounded. Set an enforced input-token ceiling and compute earmarks from maximum calls and tokens; define funding for census-driven extensions. Per-call reservations protect the monthly cap, but currently cannot guarantee the advertised funded schedule. The quoted model prices match the [vendor pricing page](https://claude.com/pricing).
+
+9. **P3 — Design §§0, 4.2, 7–8: reconcile remaining contradictory summaries.** §0 defers `lease` mirrors to stage 2, but §4.2 ships them in B6 despite no decision consumer. C14 still uses the wider-radius 102-minute figure to justify two builders, contrary to the corrected asynchronous rationale. Defer the mirror consistently, update C14, and replace §8’s “all taken into r3” closure claim with the outstanding items above.
+codex exit 0
+
+--- CLAUDE r3 (independent subagent; final message) ---
+VERDICT: CHANGE
+
+No P1 remains. Six P2s do, and most are places where r3 fixed one part and left a neighbouring part inconsistent. Read-only review: nothing in the repo was modified. On the host I ran one `nice -n 19` count per pool over `~/coop-1023/out`.
+
+**Round-1 and round-2 status.** Every finding is taken in the text. Five are only partly resolved:
+- **Codex r2 #1:** the chain provenance is fixed, but the [V] positive control was not re-run on the new chain attribution (finding 9).
+- **Codex r2 #8:** the 16/12 radius is measured and used in Paper, but S0's assignable gate still runs at 48 blocks (finding 1).
+- **Claude r2 #11:** B3 now has an effect line, but its direction and bar are missing (finding 3).
+- **Claude r2 #17:** the arrival gate is now compared against random, but it is biased by chain length (finding 5).
+- **Claude r2 #22 and #4:** small leftovers (findings 8 and 10).
+
+**Numbers checked and correct:**
+- Against data/*.out: provenance 78-161 of 629 (12.4-25.6%) and the 399 / 398 / 1 / 0 pair counts.
+- [O3] overlapped bot-time; [F3] 870 of 1,435 and 2.51 bot-h; [R3] 9.3%, 110 and 16 minutes per town-day, and the 1-4 min longest stretches with three.
+- Explore: 9/86 and 3/47 any route, 8 v 3 gather only; snapshot 3,497-3,820 chars; prompt 3,408 chars.
+- All cost arithmetic: $0.017 / $0.045 per call; $2.70, $3.59, $11.7 and $5.8 per day; the $66.5 earmark; about $36 a month.
+- The scripts follow the timing rules: `end()` is start plus duration for skill rows, positions come only from `_` event rows, and bags come from end snapshots.
+- verdict.py v25: an own line with `on_fail: REVERT` and no `evidence` goes to `blocked`, which gives NOT_YET before the final read and INCONCLUSIVE at it, and also blocks a tier-2 early KEEP. An undefined value gives UNREADABLE at once. A `support` line reverts only when p is present and at or below its max.
+- The prompt now allows next-visit leases. The record now fences on `layer_gen`.
+
+**P2**
+
+1. **S0's "assignable" definition does not fit this design's model (§6.3 B7 dependencies, B0).** `staffcensus.py` counts a minute as assignable only when the project is open, at least 2 bots are within 48 blocks of home (`TOWN_RADIUS=48`), and a bot holds the material in its bag. This design's leases are next-visit, the work happens at the 16/12 town-job radius, and the material sits in the site chest.
+   - At 16/12, two or more bots are together 1,425 town-minutes a day: 23.75 town-h/day across all 13 towns, before any other filter. So "S0 ≥ 20 assignable town-h/day for 48 h" is effectively unreachable at that radius.
+   - At 48 blocks the gate passes, but it overstates usable time about 3.6x. B7's exposure line (≥ 60 assignable canary town-hours) inherits the same problem.
+   - **Fix:** in B0's workshop adapter, redefine assignable for next-visit leases: pending demand, at least 1 unflagged eligible bot, the 16/12 radius (or an arrival inside the TTL), and material in bag surplus or the site chest. Recompute the expected assignable town-h/day from this window and set both gates from that number. Add a close rule (INCONCLUSIVE: no assignable time) if the gate fails for N days.
+
+2. **The generation rules can throw away good replies and revoke leases without saying when (§3.2, §3.4 validator, §3.6).**
+   - "`gen` equals the newest snapshot generation" combined with a snapshot every 5-minute tick discards any reply that lands after the next tick. With the Mac caller pulling and pushing, that is not rare.
+   - "skipped" is undefined. If it covers ticks with no call, or an empty token bucket, every lease is revoked between calls, which contradicts "re-issues still-valid leases".
+   - Abstain semantics are undefined (keep or revoke?), and the prompt's abstain form `{"abstain": true, "why": ...}` has no `gen`, so the validator would drop it.
+   - Whether a deterministic re-issue extends `expires_at` is unstated.
+   - **Fix:** separate the snapshot generation from the lease generation. Accept a reply whose snapshot is at most 2 ticks old if no empty generation and no `layer_gen` change has happened since, and re-validate every lease on the newest facts. Define "skipped" (a due call that was not made) and say abstain keeps the re-validated leases. Put `gen` in the abstain shape. State that re-issue never extends `expires_at` past what the overseer granted.
+
+3. **B3's effect line has no direction or bar (§6.3 B3).** "Its lower bound, `on_fail: REVERT`" on a repeats-per-bot-h DiD rewards an increase in repeats, which is the wrong direction. There is also no `op` or `value`.
+   - **Fix:** register the line as the DiD's upper bound `<=` −bar, with the bar frozen from the pre-period, or define the field as a reduction with `>=` bar.
+   - Tier 2 needs "strong Paper evidence", and B3 names no Paper driver. Add one: two bots, one empty furnace, a skip, then a contrary load leads to a walk.
+
+4. **BUILD's host eligibility counts the whole bag (§3.3 BUILD row, §5.2).** "Material for the segment in bag or site chest" lets the validator lease BUILD to a bot whose only cobblestone or planks are its escape or scaffold reserve. That is the same unsafe class r3 fixed for SUPPLY.
+   - **Fix:** count only deliverable surplus (the same keep rules) in `buildEligible`'s host part. Require the building tier's builder to place only from the site chest or bag surplus. Add the same composed test: build on a bot holding exactly its protected minimum, then its escape chain runs unchanged.
+
+5. **The shadow arrival gate is biased by chain length (§3.9).** "Share of lease chains whose bot reaches the radius before the chain ends" favours an assigner that keeps re-choosing the same bot: the frontier is told to prefer continuity, while random re-draws every call. Longer chains get more time to arrive, so the frontier wins by construction.
+   - **Fix:** use the same window for both: the bot arrives (≥ 2 minutes inside 16/12, as in the arrival measure) within 30 minutes of a lease's first issue, per lease-issue, frontier v random on the same snapshots.
+
+6. **B7's REVERT line is checked at every read (§6.1.4, B7).** The upper-bound `>= 0` line with `support max 0.05` is evaluated at every registered read, and B7 holds the slot up to 7 days. Repeated 5% tests inflate the false-revert rate (v28's own "nine 5% tests is a 37% canary"). `read_minutes` is not specified.
+   - **Fix:** register B7's read schedule. In the same pre-launch simulation, compute the family-wise false-revert rate of the support line over that schedule. Either lower `max` to hold about 5% overall, or let that line decide only at the final read.
+
+**P3**
+
+7. **B4 depends on B2 for no decision (§6.3 B4, §4.2).** The only ledger thing B4 needs is the `progress` writer, and `progress` changes no decision: the placement row is the authority. **Fix:** drop B4's dependency on B2 and ship `progress` with stage 2, so ledger-01 does not gate the building tier's canary.
+
+8. **The `lease` mirror is described two ways.** §0.5 says it is deferred to stage 2; the §4.2 table says it ships in B6. **Fix:** pick one; deferral is consistent with "only what has a consumer".
+
+9. **The [V] positive control was not re-run on [P3]'s chain attribution (§1.1).** **Fix:** assert that each of the 88 `xfer ok=1` transfers falls in chain pairs attributed to `xfer.bot`, and print the result.
+
+10. **B2's exposure bar is tight for the slowest town.** I counted furnace rows per pool (drain, smelt_town and personal smelt): they run from 243 a day (board-d, about 10 an hour) to 453 a day. So the slowest town reaches about 30 opens by +180 at best, and drains that fail before the window opens write no `station` entry. **Fix:** pool the exposure across the drawn towns (≥ 120), or set ≥ 20 per town.
+
+11. **Explore figures are inconsistent across sections.** §4.4 says "11 of 16,958 … harvest", which is the gather-only proxy; §0.1 says 12 by any route. The bag-delta control is quoted as 1.22% where r3b gives 95/7,748 = 1.23%. **Fix:** align the labels and the figure.
+
+12. **The guard's worst case and stops are not fully in the plan (§3.8).**
+    - The reservation leaves out the prompt-cache write premium (1.25-2x on input) if caching is used, and it says "counted input tokens" without naming the counter. **Fix:** use the vendor's token counter or a conservative chars/2 bound.
+    - The 36 h no-reconciliation stop and Mac-caller outages count as ITT treatment downtime. **Fix:** include their expected rate in B7's power simulation.
+
+13. **Prior art:** I spot-checked arXiv 2510.23824. It is a decentralised grid-world goal-assignment paper, as labelled, and its abstract claims near-optimal makespans for LLM agents given quantitative information. The abstract does not show the specific makespan figures, so those remain second-hand, which the section's caveat already covers. No other change.
+r4 CHANGES: every finding taken; listed in section 8 of the design (round 3).
