@@ -88,7 +88,7 @@ brown_mushroom red_mushroom sugar_cane cactus snowball ice packed_ice salmon cod
 cooked_mutton cooked_beef cooked_porkchop cooked_chicken mutton beef porkchop chicken rabbit bread bone_meal
 armadillo_scute rail powered_rail detector_rail activator_rail lead glass glass_pane mossy_cobblestone azalea flowering_azalea
 firefly_bush bush cactus_flower amethyst_block magma_block netherrack name_tag big_dripleaf small_dripleaf
-tuff_bricks chiseled_tuff_bricks mossy_stone_bricks cracked_stone_bricks chiseled_stone_bricks bricks brick'''.split())   # well.mjs DECORATIONS
+mushroom_stem tuff_bricks chiseled_tuff_bricks mossy_stone_bricks cracked_stone_bricks chiseled_stone_bricks bricks brick'''.split())   # well.mjs DECORATIONS
 # waxed_* are copper DECOR blocks (trial chambers), not raw copper: seen 10-08..10-23 at 1-5 a day (Claude r3)
 _COLOURS = '(white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black)'
 _DECO_WOODS = '(oak|spruce|birch|jungle|acacia|cherry|dark_oak|pale_oak|mangrove|bamboo|crimson|warped)'
@@ -124,7 +124,8 @@ SENTINELS_PER_DAY = {'cobblestone': 2000, 'raw_iron': 50, '_log': 100}   # measu
 # A LOW-volume rename (diamond -> diamonds, 8 a day) passes both floors (Codex r2 P2-2): an unweighted name that LOOKS like a
 # weighted one raises at any count. "Looks like" = shares a valuable token, or is a close spelling of a weighted name.
 VALUABLE_TOKENS = {'iron', 'copper', 'gold', 'diamond', 'diamonds', 'emerald', 'lapis', 'redstone', 'coal', 'quartz',
-                   'amethyst', 'obsidian', 'log', 'logs', 'cobblestone', 'cobble', 'charcoal', 'raw', 'ore', 'sapling'}
+                   'amethyst', 'obsidian', 'log', 'logs', 'cobblestone', 'cobble', 'charcoal', 'raw', 'ore', 'sapling',
+                   'saplings', 'wood', 'woods', 'stem', 'stems', 'hyphae', 'propagule'}   # PATTERNS' words too (Codex r6 P3)
 MIN_SENTINEL_HOURS = 3                   # shorter windows skip the sentinel floors (too few units to judge)
 INGEST_LAG_S = 240                       # estelemetry's measured max ingest lag
 MAX_INGEST_GAP_MIN = 15                  # the newest document must be within this of the window end

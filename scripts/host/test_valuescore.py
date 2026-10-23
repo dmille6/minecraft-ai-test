@@ -116,6 +116,9 @@ def cases(v):
     for alias in ('diamond_bed', 'diamond_button', 'waxed_diamond'):
         rn = dict(gems); rn[alias] = rn.pop('diamond')
         c(f'blind: diamond renamed to {alias} raises', raises(lambda: v.check_output(mk(rn), 24), v.ValueBlind))
+    for alias in ('oak_woods', 'warped_stems'):
+        rn = dict(day); rn[alias] = 40
+        c(f'blind: a pattern-family look-alike ({alias}) raises', raises(lambda: v.check_output(mk(rn), 24), v.ValueBlind))
     for item in ('diamond_ingot', 'emerald_nugget', 'raw_iron_slab'):
         c(f'weight {item} = None (unknown stem)', v.weight(item) is None, v.weight(item))
     burst = dict(day); burst['geode_crystal_x'] = 26
