@@ -83,10 +83,24 @@ def cases(v):
     c('coverage: 2 empty 10-min bins pass', raises(lambda: v.check_coverage({'empty_hours': [], 'empty_10min': ['a', 'b']}), v.ValueBlind) is False)
     # outputs
     c('output: zero rows raises', raises(lambda: v.check_output(v.score({})), v.ValueBlind))
-    c('output: all-dirt day (value 0) raises', raises(lambda: v.check_output(v.score({'gather': [{'delta': {'dirt': 50}}]})), v.ValueBlind))
-    c('output: unweighted > 10 % raises',
-      raises(lambda: v.check_output(v.score({'gather': [{'delta': {'iron_raw': 50, 'oak_log': 10}}]})), v.ValueBlind))
-    c('output: a normal mix passes', raises(lambda: v.check_output(res), v.ValueBlind) is False)
+    c('output: all-dirt day (value 0) raises', raises(lambda: v.check_output(v.score({'gather': [{'delta': {'dirt': 50}}]}), 1), v.ValueBlind))
+    c('output: unweighted > 10 % raises (1 h window, below the per-item floor)',
+      raises(lambda: v.check_output(v.score({'gather': [{'delta': {'iron_raw': 5, 'oak_log': 10, 'gizmo': 4}}]}), 1), v.ValueBlind))
+    # a REALISTIC day (10-22-like units): passes; then rename raw_iron / oak_log inside it -> must raise (Claude r1 P2-1)
+    day = {'dirt': 39000, 'cobblestone': 24000, 'raw_iron': 500, 'oak_log': 1500, 'raw_copper': 550, 'coal': 260, 'andesite': 1500}
+    mk = lambda d: v.score({'gather': [{'delta': d, 'world': 'w'}]})
+    c('output: a realistic day passes', raises(lambda: v.check_output(mk(day), 24), v.ValueBlind) is False)
+    ren = dict(day); ren['iron_raw'] = ren.pop('raw_iron')
+    c('blind: raw_iron renamed inside a realistic day raises', raises(lambda: v.check_output(mk(ren), 24), v.ValueBlind))
+    ren2 = dict(day); ren2['log_oak'] = ren2.pop('oak_log')
+    c('blind: oak_log renamed inside a realistic day raises', raises(lambda: v.check_output(mk(ren2), 24), v.ValueBlind))
+    noiron = dict(day); noiron.pop('raw_iron')
+    c('sentinel: a day with no raw iron at all raises', raises(lambda: v.check_output(mk(noiron), 24), v.ValueBlind))
+    c('sentinel: skipped for a 1 h window', raises(lambda: v.check_output(mk({'cobblestone': 900, 'oak_log': 10}), 1), v.ValueBlind) is False)
+    newitem = dict(day); newitem['mystery_ore'] = 400        # a NEW (or renamed) item with every sentinel still present
+    c('blind: one unweighted item above 50/day raises', raises(lambda: v.check_output(mk(newitem), 24), v.ValueBlind))
+    few = dict(day); few['magma_block'] = 3
+    c('output: a few stray unweighted units pass', raises(lambda: v.check_output(mk(few), 24), v.ValueBlind) is False)
     c('world: self-isolated-c-Bravo -> isolated-c', v.world_of('self-isolated-c-Bravo') == 'isolated-c')
     return out
 
@@ -99,7 +113,8 @@ def strip_comments(src):
 def wiring(src):
     body = strip_comments(src).split('def measure(', 1)[1].split('\ndef ', 1)[0]
     return [('wired: measure calls check_inputs', 'check_inputs(names, delta_docs, hours)' in body),
-            ('wired: measure calls check_output', 'check_output(res)' in body),
+            ('wired: measure calls check_output', 'check_output(res, hours)' in body),
+            ('wired: measure checks the ingest gap', 'MAX_INGEST_GAP_MIN * 60' in body),
             ('wired: measure calls check_coverage', 'check_coverage(cov)' in body),
             ('wired: measure streams every INTAKE kind', 'for k in INTAKE_KINDS:' in body)]
 
@@ -113,6 +128,8 @@ MUTANTS = [
     ("    check_coverage(cov)", "    pass"),
     ("    if res['value'] <= 0:", "    if res['value'] < 0:"),
     ("    if uw > MAX_UNWEIGHTED_SHARE * res['units']:", "    if False:"),
+    ("    if big:\n", "    if False:\n"),
+    ("            if got < per_day * hours / 24:", "            if False:"),
     ("    'raw_iron': 8.0,", "    'raw_iron': 0.0,"),
     ("                if w is None:\n                    unweighted[item] += n\n                    continue",
      "                if w is None:\n                    w = 0.0"),

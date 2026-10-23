@@ -21,6 +21,7 @@ SCEN = {
     'v1 as shipped': {},
     'iron x0.5 (raw_iron 4)': {'raw_iron': 4.0, 'iron_ore': 4.0, 'deepslate_iron_ore': 4.0},
     'iron x2 (raw_iron 16)': {'raw_iron': 16.0, 'iron_ore': 16.0, 'deepslate_iron_ore': 16.0},
+    'iron at effort parity (1)': {'raw_iron': 1.0, 'iron_ore': 1.0, 'deepslate_iron_ore': 1.0},
     'cobble 0.1': {'cobblestone': 0.1, 'cobbled_deepslate': 0.1, 'stone': 0.1},
     'cobble 0.5': {'cobblestone': 0.5, 'cobbled_deepslate': 0.5, 'stone': 0.5},
     'copper 1 / 4': None,

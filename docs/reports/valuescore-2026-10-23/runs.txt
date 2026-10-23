@@ -23,9 +23,27 @@ scenario                      day A /bot-h  day B /bot-h   change
 v1 as shipped                        14.95          9.05   -39.5%
 iron x0.5 (raw_iron 4)               14.28          7.98   -44.1%
 iron x2 (raw_iron 16)                16.30         11.18   -31.4%
+iron at effort parity (1)            13.77          7.18   -47.9%
 cobble 0.1                           11.42          5.97   -47.7%
 cobble 0.5                           20.84         14.18   -32.0%
 copper 1                             14.72          8.76   -40.5%
 copper 4                             15.42          9.62   -37.6%
 saplings 0                           14.44          8.98   -37.8%
 (old count, gather ok/bot-h: 7.15 -> 6.37, -11.0%)
+
+15-day series (value per active bot-h)
+2026-10-08 value 30,752 = 16.02 per active bot-h (of 1,920.0 bot-h)  
+2026-10-09 value 28,706 = 14.95 per active bot-h (of 1,920.0 bot-h)  
+2026-10-10 value 27,049 = 14.09 per active bot-h (of 1,920.0 bot-h)  
+2026-10-11 value 29,413 = 15.32 per active bot-h (of 1,920.0 bot-h)  
+2026-10-12 value 26,101 = 13.59 per active bot-h (of 1,920.0 bot-h)  
+2026-10-13 value 26,530 = 13.82 per active bot-h (of 1,920.0 bot-h)  
+2026-10-14 value 26,037 = 13.56 per active bot-h (of 1,920.0 bot-h)  
+2026-10-15 value 24,272 = 12.64 per active bot-h (of 1,920.0 bot-h)  
+2026-10-16 value 24,738 = 12.88 per active bot-h (of 1,920.0 bot-h)  
+2026-10-17 value 22,802 = 11.88 per active bot-h (of 1,920.0 bot-h)  
+2026-10-18 value 15,533 = 8.09 per active bot-h (of 1,920.0 bot-h)  f
+2026-10-19 value 14,314 = 7.46 per active bot-h (of 1,920.0 bot-h)  f
+2026-10-20 value 16,514 = 8.60 per active bot-h (of 1,920.0 bot-h)  f
+2026-10-21 value 16,513 = 8.60 per active bot-h (of 1,920.0 bot-h)  f
+2026-10-22 value 17,371 = 9.05 per active bot-h (of 1,920.0 bot-h)  f

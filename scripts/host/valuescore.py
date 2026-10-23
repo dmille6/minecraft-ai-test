@@ -99,6 +99,12 @@ MIN_DOCS_PER_DAY = {'gather': 5000, 'mine': 1500, 'explore': 3000, 'goto': 3000,
 # surface 40 %, home 38 %; 10-22: 58, 74, 24, 21, 52, 50 %): a floor well under each, so a renamed field raises
 MIN_DELTA_SHARE = {'gather': 0.10, 'mine': 0.10, 'explore': 0.05, 'goto': 0.05, 'surface': 0.05, 'home': 0.05}
 MAX_UNWEIGHTED_SHARE = 0.10
+# A renamed WEIGHTED item (raw_iron -> iron_raw) is a small share of intake units (raw iron is 0.5 %), so the share test cannot
+# see it (Claude r1 P2-1). Two more guards, per 24 h and scaled by the window:
+MAX_ONE_UNWEIGHTED_PER_DAY = 50          # any single unweighted item above this raises (10-09/10-22 max: rail 5, amethyst_block 4)
+SENTINELS_PER_DAY = {'cobblestone': 2000, 'raw_iron': 50, '_log': 100}   # measured 10-08..10-22: >= 24,000 / 229 / 1,147 a day
+MIN_SENTINEL_HOURS = 3                   # shorter windows skip the sentinel floors (too few units to judge)
+MAX_INGEST_GAP_MIN = 15                  # the newest document must be within this of the window end
 CLASSES = (('wood', re.compile(r'(_log|_wood|_stem|_hyphae)$|^bamboo$')), ('stone', re.compile(r'^(cobblestone|cobbled_deepslate|stone|blackstone)$')),
            ('iron', re.compile(r'iron')), ('copper', re.compile(r'copper')), ('coal', re.compile(r'coal|charcoal')),
            ('gems', re.compile(r'gold|lapis|redstone|quartz|amethyst|emerald|diamond|obsidian')),
@@ -166,17 +172,29 @@ def score(rows_by_kind):
                     value[item] += n * w
                     by_class[klass(item)] += n * w
                     by_world[r.get('world') or '?'] += n * w
-    return {'rows': rows, 'units': sum(units.values()), 'value': sum(value.values()), 'by_class': dict(by_class),
+    return {'rows': rows, 'units': sum(units.values()), 'units_by_item': dict(units), 'value': sum(value.values()),
+            'by_class': dict(by_class),
             'by_world': dict(by_world), 'by_item': dict(value), 'unweighted': dict(unweighted),
             'zero_units': sum(n for i, n in units.items() if weight(i) == 0.0)}
 
 
-def check_output(res):
+def check_output(res, hours=None):
     if res['rows'] == 0 or res['units'] == 0:
         raise ValueBlind(f'no intake units at all ({res["rows"]} rows): the instrument saw nothing')
     if res['value'] <= 0:
         raise ValueBlind(f'{res["units"]} intake units but a weighted value of 0: every item weighs 0 or is unweighted '
                          f'(renamed item names? top unweighted: {Counter(res["unweighted"]).most_common(5)})')
+    hours = hours if hours is not None else res.get('hours', 24)
+    big = {i: n for i, n in res['unweighted'].items() if n > max(5, MAX_ONE_UNWEIGHTED_PER_DAY * hours / 24)}
+    if big:
+        raise ValueBlind(f'unweighted item(s) above {MAX_ONE_UNWEIGHTED_PER_DAY}/day: {big} -- a renamed item? add to WEIGHTS or ZERO')
+    if hours >= MIN_SENTINEL_HOURS:
+        units = res.get('units_by_item') or {}
+        for name, per_day in SENTINELS_PER_DAY.items():
+            got = sum(n for i, n in units.items() if (i.endswith(name) if name.startswith('_') else i == name))
+            if got < per_day * hours / 24:
+                raise ValueBlind(f'sentinel {name!r}: {got:g} units in {hours:g} h (floor {per_day * hours / 24:.0f}) -- '
+                                 f'a renamed item or a stalled fleet, not a score')
     uw = sum(res['unweighted'].values())
     if uw > MAX_UNWEIGHTED_SHARE * res['units']:
         raise ValueBlind(f'{uw} of {res["units"]} intake units are UNWEIGHTED (> {MAX_UNWEIGHTED_SHARE:.0%}): '
@@ -236,9 +254,15 @@ def measure(since, until, old=None):
                             'world': world_of((x.get('exp') or {}).get('pool'))}
                            for x in ev.rows(k, fields=['skill.inventory_delta', 'exp.pool'], max_rows=400_000)]
     res = score(rows_by_kind)
-    check_output(res)
+    if res['rows'] != sum(names.get(k, 0) for k in INTAKE_KINDS):        # the streamed rows ARE the kinds' documents
+        raise ValueBlind(f'streamed {res["rows"]} intake rows but the kinds hold {sum(names.get(k, 0) for k in INTAKE_KINDS)}')
+    check_output(res, hours)
     cov = ev.coverage()
     check_coverage(cov)
+    newest = cov.get('newest')
+    if newest is not None and (ev.until - newest).total_seconds() > MAX_INGEST_GAP_MIN * 60:
+        raise ValueBlind(f'newest document {newest} is more than {MAX_INGEST_GAP_MIN} min before the window end {ev.until}: '
+                         f'ingest stalled or the window runs into the future')
     # per-world ACTIVE bot-hours: (bot, hour) pairs with >= 1 document, by world (Codex r1 P2-4)
     r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'h': {
         'date_histogram': {'field': '@timestamp', 'fixed_interval': '1h', 'min_doc_count': 1},
