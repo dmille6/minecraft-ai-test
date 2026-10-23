@@ -793,7 +793,11 @@ def census(ds, projects=PROJECTS, emit_from=None):
                     cap_min = {}
                     for tm, here, flagged, cur in per_min:
                         bs = {b: bot_capability(cap_idx, x[5], b, P.mode_kind, tm) for b, x in cur.items() if x[1] == pool}
-                        cap_min[tm] = (town_capability(bs.values()), bs)
+                        # the TOWN's capability is judged over the unflagged bots INSIDE 16/12 (design 6.4: a town with
+                        # only VOID bots there voids the minute; Codex r2 P2-1: a far incapable bot must not turn it into
+                        # record_without_code); with nobody there, over the pool's bots (is the code running at all)
+                        near = [bs[b] for b in here if b not in flagged and b in bs]
+                        cap_min[tm] = (town_capability(near if near else bs.values()), bs)
                     sts = [cap_min[tm][0] for tm, *_ in per_min if tm >= op]
                     if sts and all(x == 'not_capable' for x in sts):
                         row.setdefault('capability', {})[P.name] = 'not_capable'
@@ -1682,6 +1686,21 @@ def selftest(verbose=True):
     Sv = summarize(census(dsv, projects=(TreeFarm(),)), projects=(TreeFarm(),))
     check('capability void: counted as void, not as record_without_code',
           (Sv['capability_void_slots'].get('fx', {}).get('treefarm'), Sv['record_without_code_slots'].get('fx')), (12, None))
+    # ... VOID bots at town and an INCAPABLE bot far away: the minutes are VOID, never record_without_code (Codex r2 P2-1)
+    dsm = with_modes(fixture())
+    dsm['modes'] = [(t, b, k, V2 if b in ('fx-A', 'fx-B') else v, (False if (b == 'fx-C' and k == '_treefarm_mode') else on))
+                    for t, b, k, v, on in dsm['modes']]
+    Sm = summarize(census(dsm, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    # 11 of 12: in the 50:00 slot C (incapable) is at town for two minutes, so that slot is mixed (neither all-VOID nor
+    # all-incapable), as it should be
+    check('VOID bots at town + an incapable bot 400 blocks away: VOID slots, no record_without_code',
+          (Sm['capability_void_slots'].get('fx', {}).get('treefarm'), Sm['record_without_code_slots'].get('fx')), (11, None))
+    dsm2 = with_modes(fixture())
+    dsm2['modes'] = [(t, b, k, v, (False if (b in ('fx-A', 'fx-B') and k == '_treefarm_mode') else on))
+                     for t, b, k, v, on in dsm2['modes']]
+    Sm2 = summarize(census(dsm2, projects=(TreeFarm(),)), projects=(TreeFarm(),))
+    check('control for the above: the same town with A and B INCAPABLE (not VOID) at town is record_without_code',
+          (Sm2['record_without_code_slots'].get('fx', {}).get('treefarm'), Sm2['capability_void_slots'].get('fx')), (11, None))
     # the POSITIVE CONTROL (an alarm, never a void): every present bot with a known version is eligible; VOID = not capable
     ci = idx_of((T0c, 'a', '_townindex_mode', V1, True), (T0c, 'a', '_cobblecap_mode', V1, True),
                 (T0c, 'b', '_townindex_mode', V1, False), (T0c, 'b', '_cobblecap_mode', V1, True),

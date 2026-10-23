@@ -493,19 +493,33 @@ def controls(res):
     obs, tot = F.get('together_observed_min', 0), F.get('together_bot_min', 0)
     out['positions_seen'] = {'ok': tot > 0 and obs / tot >= 0.5,
                              'detail': f'{obs} of {tot} bot-minutes observed'}
-    out['provenance_read'] = {'ok': F.get('prov_towns', 0) > 0 or not res['towns'],
-                              'detail': f'{F.get("prov_towns", 0)} of {len(res["towns"])} towns with a readable index'}
+    # EVERY measured town must have a readable index (Codex r2 P2-2: one readable town must not pass for a fleet)
+    unread = sorted(t for t, T in res['towns'].items() if T.get('provenance') is None)
+    out['provenance_read'] = {'ok': bool(res['towns']) and not unread,
+                              'detail': f'{len(res["towns"]) - len(unread)} of {len(res["towns"])} towns with a readable index'
+                                        + (f'; UNREADABLE {", ".join(unread)}' if unread else '')}
     return out
+
+
+def chests_text(res):
+    """The [P] phrase, with its coverage, PARTIAL and UNREADABLE towns (a short or blind index is never a quiet zero)."""
+    F = res.get('fleet') or {}
+    w = F.get('prov_withdrawn', 0)
+    unread = sorted(t for t, T in (res.get('towns') or {}).items() if T.get('provenance') is None)
+    if not F.get('prov_towns'):
+        return 'chests VOID (no readable index)'
+    return (f'chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of {w} withdrawn '
+            f'({100 * F.get("prov_other_lb", 0) / max(1, w):.0f}-{100 * F.get("prov_other_ub", 0) / max(1, w):.0f}%) over '
+            f'{F.get("prov_cover_h", 0):.0f} town-h of index in {F.get("prov_towns", 0)} towns'
+            + (f', {len(res.get("partial") or {})} PARTIAL (< {PROV_MIN_COVER_H} h)' if res.get('partial') else '')
+            + (f', UNREADABLE {len(unread)}: {",".join(unread)}' if unread else ''))
 
 
 def line(res):
     F = res['fleet']
     n = F.get('together_towns', 0) or 1
     w = F.get('prov_withdrawn', 0)
-    chests = (f'chests VOID (no readable index)' if not F.get('prov_towns') else
-              f'chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of {w} withdrawn '
-              f'({100 * F.get("prov_other_lb", 0) / max(1, w):.0f}-{100 * F.get("prov_other_ub", 0) / max(1, w):.0f}%) over '
-              f'{F.get("prov_cover_h", 0):.0f} town-h of index')
+    chests = chests_text(res)
     return (f'coop 24h to {res["window"][1]}: {chests}; '
             f'furnace re-found empty {F.get("furnace_peer", 0)} ({F.get("furnace_peer_s", 0) / 3600:.2f} bot-h); '
             f'>=2 together {F.get("together_ge2_min", 0) / n:.0f} min/town-day; multi-builder project-days '
@@ -587,7 +601,7 @@ def selftest(verbose=True):
     Pb = provenance(bad, 0, 10_000)
 
     def ctl(**F):
-        return controls({'fleet': F, 'towns': {'x': {}}})
+        return controls({'fleet': F, 'towns': {'x': {'provenance': {} if F.get('prov_towns') else None}}})
     check('[P] mutant: a transfer attributed to another bot fails the control',
           ctl(prov_xfer_verified=Pb['xfer_verified'], prov_xfer_through_chain=Pb['xfer_through_chain'],
               pop_town_deposit_success=5)['xfer_through_chain']['ok'], False)
@@ -600,6 +614,9 @@ def selftest(verbose=True):
           ctl(pop_furnace_drain_runs=2000)['furnace_rows_parsed']['ok'], False)
     check('control mutant: no observed position -> FAILED', ctl(together_bot_min=1440)['positions_seen']['ok'], False)
     check('control mutant: no readable index -> FAILED', ctl()['provenance_read']['ok'], False)
+    mixed = controls({'fleet': {'prov_towns': 1}, 'towns': {'ok': {'provenance': {'cover_h': 24}}, 'bad': {'provenance': None}}})
+    check('control mutant: one readable town and one UNREADABLE -> FAILED, and the unreadable one is named',
+          (mixed['provenance_read']['ok'], 'bad' in mixed['provenance_read']['detail']), (False, True))
     check('controls: a healthy day passes', all(c['ok'] for c in ctl(
         prov_xfer_verified=88, prov_xfer_through_chain=88, pop_town_deposit_success=150, ov_smelt_town_runs=1646,
         ov_smelt_town_start_inside=107, pop_smelt_town_events=1646, pop_furnace_drain_runs=2237, furnace_empty=1435,
@@ -659,9 +676,21 @@ def selftest(verbose=True):
             with tempfile.TemporaryDirectory() as d:
                 check('fleetstatus: no daily file is an alarm line', fsm.coop_line(now, d).startswith('!!'), True)
                 os.makedirs(os.path.join(d, 'daily'))
-                good = {'window': ['2026-10-23T02:00:00Z', '2026-10-24T02:00:00Z'], 'fleet': {}, 'controls': {'a': {'ok': True}}}
+                good = {'window': ['2026-10-23T02:00:00Z', '2026-10-24T02:00:00Z'], 'controls': {'a': {'ok': True}},
+                        'fleet': {'prov_towns': 2, 'prov_withdrawn': 100, 'prov_cover_h': 30},
+                        'towns': {'t1': {'provenance': {}}, 't2': {'provenance': {}}}, 'partial': {'t2': 'covers 6 h'}}
                 json.dump(good, open(os.path.join(d, 'daily', 'a.json'), 'w'))
                 check('fleetstatus: a healthy fresh day is a plain line', fsm.coop_line(now, d).startswith('!!'), False)
+                check('fleetstatus: PARTIAL towns stay visible', '1 PARTIAL' in fsm.coop_line(now, d), True)
+                json.dump(dict(good, fleet={}, towns={'t1': {'provenance': None}}), open(os.path.join(d, 'daily', 'a2.json'), 'w'))
+                check('fleetstatus: no readable index is an alarm line, VOID (never 0-0 of 0)',
+                      (fsm.coop_line(now, d).startswith('!!'), 'VOID' in fsm.coop_line(now, d), '0-0 of 0' in fsm.coop_line(now, d)),
+                      (True, True, False))
+                json.dump(dict(good, towns={'t1': {'provenance': {}}, 't2': {'provenance': None}}),
+                          open(os.path.join(d, 'daily', 'a3.json'), 'w'))
+                check('fleetstatus: one UNREADABLE town is an alarm line naming it',
+                      (fsm.coop_line(now, d).startswith('!!'), 'UNREADABLE t2' in fsm.coop_line(now, d)), (True, True))
+                json.dump(good, open(os.path.join(d, 'daily', 'a4.json'), 'w'))
                 check('fleetstatus: a 2-day-old file is STALE', 'STALE' in fsm.coop_line(now + dt.timedelta(days=2), d), True)
                 json.dump(dict(good, controls={'a': {'ok': False}}), open(os.path.join(d, 'daily', 'b.json'), 'w'))
                 check('fleetstatus: a failed control is an alarm line', fsm.coop_line(now, d).startswith('!! cooperation census (B1): controls FAILED'), True)

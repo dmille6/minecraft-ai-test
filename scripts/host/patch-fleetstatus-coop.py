@@ -17,9 +17,16 @@ def main(target):
     a, b = src.index('# >>> coop_line'), src.index('# <<< coop_line')
     func = src[a:src.index('\n', b) + 1]
     t = open(target).read()
+    if '# >>> coop_line' in t and '# <<< coop_line' in t:
+        ia, ib = t.index('# >>> coop_line'), t.index('# <<< coop_line')
+        cur = t[ia:t.index('\n', ib) + 1]
+        if cur == func:
+            print(f'{target}: already carries this coop_line; nothing to do')
+            return 0
+        return write(target, t[:ia] + func + t[ia + len(cur):], 'coop_line replaced')
     if 'def coop_line(' in t:
-        print(f'{target}: already carries coop_line; nothing to do')
-        return 0
+        print(f'{target}: carries a coop_line WITHOUT the markers; NOTHING WRITTEN')
+        return 1
     edits = [("def _frontier_line(now, p):", func + "\n\ndef _frontier_line(now, p):"),
              ("        print(rep['frontier'])\n", "        print(rep['frontier'])\n    if rep.get('coop'):\n        print(rep['coop'])\n"),
              ("'frontier': frontier_line(now), ", "'frontier': frontier_line(now), 'coop': coop_line(now), ")]
@@ -29,12 +36,16 @@ def main(target):
             return 1
     for old, new in edits:
         t = t.replace(old, new)
+    return write(target, t, 'coop_line added')
+
+
+def write(target, t, what):
     bak = f'{target}.bak-{time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())}'
     shutil.copy2(target, bak)
     with open(target + '.tmp', 'w') as f:
         f.write(t)
     os.replace(target + '.tmp', target)
-    print(f'{target}: coop_line added (backup {bak})')
+    print(f'{target}: {what} (backup {bak})')
     return 0
 
 

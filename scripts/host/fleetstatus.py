@@ -140,11 +140,18 @@ def coop_line(now, out_dir=None):
         bad = [k for k, c in C.items() if not c.get('ok')]
         age = now - end
         w = F.get('prov_withdrawn', 0)
-        what = (f'chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of {w} withdrawn; furnace '
+        unread = sorted(t for t, T in (res.get('towns') or {}).items() if T.get('provenance') is None)
+        # coverage, PARTIAL and UNREADABLE towns stay visible (Codex r2 P2-3): a short or blind index is never a quiet zero
+        chests = ('chests VOID (no readable index)' if not F.get('prov_towns') else
+                  f'chests other-bot {F.get("prov_other_lb", 0)}-{F.get("prov_other_ub", 0)} of {w} withdrawn over '
+                  f'{F.get("prov_cover_h", 0):.0f} town-h in {F.get("prov_towns", 0)} towns'
+                  + (f' ({len(res.get("partial") or {})} PARTIAL)' if res.get('partial') else '')
+                  + (f' UNREADABLE {",".join(unread)}' if unread else ''))
+        what = (f'{chests}; furnace '
                 f're-found empty {F.get("furnace_peer", 0)}; multi-builder project-days '
                 f'{F.get("built_multi_builder_project_days", 0) if F.get("built_rows") else "idle"}; void {len(res.get("void") or {})}')
-        if bad or age > COOP_STALE or not C:
-            why = (f'controls FAILED {bad}' if bad else 'no controls' if not C else '') + \
+        if bad or age > COOP_STALE or not C or unread or not F.get('prov_towns'):
+            why = (f'controls FAILED {bad}' if bad else 'no controls' if not C else 'provenance VOID') + \
                   (f' STALE {age.total_seconds() / 3600:.0f} h' if age > COOP_STALE else '')
             return f'!! cooperation census (B1): {why.strip()} -- {what}; read {d}'
         return f'cooperation census (B1): {age.total_seconds() / 3600:.0f} h old, {what}'
