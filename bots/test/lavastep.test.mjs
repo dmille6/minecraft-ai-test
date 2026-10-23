@@ -667,6 +667,18 @@ await t('D25 a missed `in` step that has already carried the bot onto safe groun
   assert.equal(r.steps[0].post, false, 'the step missed its target')
   assert.equal(r.outcome, 'plan_missed_safe'); assert.ok(!r.aim, 'no aimed sprint from a safe cell')
 })
+await t('D25b the same after a witnessed seal: a re-classification `in` step that overshoots onto stone ends sealed_plan_missed_safe, no aim (Claude code r5 P3-2)', async () => {
+  const h = harness('poolEdge', { items: ['cobblestone'], physics: false })
+  h.bot.world.set(-3, 64, 0, 'lava')
+  const place = h.bot._genericPlace
+  h.bot._genericPlace = async (ref, face) => { const r = await place(ref, face); h.bot.entity.position.x = -2.5; h.bot.entity.position.y = 64; return r }
+  const orig = h.bot.look; let armed = false
+  h.bot.look = (yaw, pitch) => { if (h.mover.state().moving && h.bot.entity.position.x < -2 && !armed) { armed = true; setTimeout(() => { h.bot.entity.position.x = -5.5 }, 10) } return orig(yaw, pitch) }
+  await h.fire(); await sleep(30); h.bot.done()
+  const r = firing(h.rows)[0].args
+  assert.equal(r.reclass, 'in'); assert.equal(r.outcome, 'sealed_plan_missed_safe', r.outcome); assert.ok(!r.aim, 'no aim from safe ground')
+  assert.ok(r.missObs && r.missObs.case === null && r.missObs.cells, 'the safe verdict is recorded with its observation')
+})
 await t('D26 a move ended INSIDE runner.reserve() (the air rescue took the body during the abort unwind): no dig stop, no path halt, no timer, no control write, the reservation released', async () => {
   const scene = SCENES.poolEdge(); const bot = fakeBot(scene, { physics: false }); const rows = []
   let air = false, mv = null

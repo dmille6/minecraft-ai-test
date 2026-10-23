@@ -267,7 +267,7 @@ def gates(a):
     # THE REPLAY'S FAITHFULNESS: every ground firing must carry its decision observation, and it must reproduce the plan
     if dec is None:
         # preempted during its own setup (air, death, no entity) decided nothing: not a comparison (Claude code r4 P3-4)
-        v['replay'] = None if a.get('ended') in ('air', 'dead', 'no entity') else 'unverifiable'
+        v['replay'] = None if (a.get('ended') in ('air', 'dead', 'no entity') and not a.get('error') and not a.get('steps')) else 'unverifiable'
     else:
         v['replay'] = replay(dec, kase, a.get('plan'))
     rpl = a.get('replan')
@@ -317,6 +317,21 @@ def gates(a):
             b = ob.at(*c)
             if b is None or is_danger(b):
                 v['g1'].append('step %d %s: %s at %s' % (i, st.get('plan'), 'unknown' if b is None else b[0], c))
+    # a missed step that claimed SAFE ground (no aim) must show it in its recorded observation (G2's family: the aim it skipped)
+    if str(a.get('outcome', '')).endswith('plan_missed_safe'):
+        mo = a.get('missObs')
+        if not mo or mo.get('cells') is None:
+            v['g2'].append('plan_missed_safe with no recorded observation')
+        else:
+            ob3 = Obs(mo['origin'], mo['cells'], mo.get('boxes'))
+            o3 = tuple(mo['origin'])
+            if not ob3.has(*o3) or not ob3.has(o3[0], o3[1] - 1, o3[2]):
+                if v['replay'] in ('agree', None):
+                    v['replay'] = 'unverifiable'
+            else:
+                f3, b3 = ob3.at(*o3), ob3.at(o3[0], o3[1] - 1, o3[2])
+                if (f3 is not None and f3[0] in DANGER) or (b3 is not None and b3[0] in DANGER):
+                    v['g2'].append('plan_missed_safe while its own observation shows DANGER at the feet or below (the skipped aim was owed)')
     # G2: an aim while a plan existed
     aim = a.get('aim')
     if aim:
@@ -633,6 +648,13 @@ def selftest():
     v4k = gates(g4k); assert not v4k['g4'] and v4k['replay'] == 'unverifiable', ('G4 key', v4k['g4'], v4k['replay'])
     pre = {'phase': 'firing', 'case': 'edge', 'ended': 'air', 'origin': [0, 64, 0], 'steps': [], 'controls': []}
     assert gates(pre)['replay'] is None, 'a firing preempted during setup is not a replay comparison'
+    assert gates(dict(pre, error='boom'))['replay'] == 'unverifiable', 'a decision that threw stays in the denominator'
+    # a `plan_missed_safe` claim is audited against its own observation
+    ms = copy.deepcopy(d); ms['outcome'] = 'plan_missed_safe'
+    ms['missObs'] = {'origin': [-1, 64, 0], 'case': None, 'cells': {'0,0,0': 'air', '0,-1,0': 'stone'}, 'boxes': {'air': 'empty', 'stone': 'block'}}
+    assert not gates(ms)['g2'], gates(ms)['g2']
+    ms2 = copy.deepcopy(ms); ms2['missObs']['cells']['0,-1,0'] = 'lava'
+    assert gates(ms2)['g2'], 'a false safe claim is caught'
     # G5: the facing bearing (east, into the pool) executed
     g5 = copy.deepcopy(p); g5['aim']['yaw'] = round(yaw_of(BEARINGS[2]), 2)
     assert gates(g5)['g5'], 'G5 yaw'
