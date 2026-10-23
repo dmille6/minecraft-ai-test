@@ -129,7 +129,8 @@ function readWhole (f) {
   let st
   try { st = fs.statSync(f) } catch (e) { return e?.code === 'ENOENT' ? { missing: true } : null }
   if (st.size > LEDGER_MAX_READ_BYTES) return null
-  try { return { records: parseBuf(fs.readFileSync(f)) } } catch { return null }
+  // a concurrent rotation may delete N-1 between the stat and the read: that is a missing file, not an unreadable one
+  try { return { records: parseBuf(fs.readFileSync(f)) } } catch (e) { return e?.code === 'ENOENT' ? { missing: true } : null }
 }
 
 /** Every record of generations N-1 and N -> { records, ok }. ok false: the ledger could not be read (never "empty"). */
