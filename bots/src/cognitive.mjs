@@ -12,7 +12,7 @@
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -1138,7 +1138,7 @@ export class CognitiveLoop {
           for (const it of items) held[it.name] = (held[it.name] ?? 0) + (it.count ?? 0)
           const free = 36 - items.length
           const r = smeltTownOrder({ now: Date.now(), on: sw.on, atTown, holds, held, freeSlots: free,
-            townMiss: () => townCopperMiss(bot), state: this.smeltJobState ?? {} })
+            townMiss: () => townCopperMiss(bot), ironMiss: () => townIronMiss(bot), state: this.smeltJobState ?? {} })   // ironsmelt-01: iron first
           this.smeltJobState = r.state
           tally(r.order ? 'issued' : r.skip)
           if (r.order) order = r.order
@@ -1158,7 +1158,7 @@ export class CognitiveLoop {
             this.smeltSkipAt ??= {}
             if (atTown && sw.on && why && Date.now() - (this.smeltSkipAt[why] ?? -Infinity) >= 10 * 60 * 1000) {
               this.smeltSkipAt[why] = Date.now()
-              logEvent({ kind: 'smelt_job_skip', status: 'no_effect', detail: `why=${why} free=${free} copper=${held.raw_copper ?? 0} fuel=${held.coal ?? 0}`, snapshot: snap })
+              logEvent({ kind: 'smelt_job_skip', status: 'no_effect', detail: `why=${why} free=${free} copper=${held.raw_copper ?? 0} fuel=${held.coal ?? 0} raw_iron=${held.raw_iron ?? 0}`, snapshot: snap })
             }
           }
         } catch { /* an inventory or world read must never break the decision loop */ }
