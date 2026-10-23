@@ -158,8 +158,8 @@ def persisted_check(stations, files_by_pool):
     confirmed = Counter()
     for t, p, b, f in stations:
         fp = files_by_pool.get(p)
-        if fp is None:
-            unresolved += 1; continue
+        if fp is None or not fp.get('files') or fp.get('unreadable'):
+            unresolved += 1; continue            # the instrument cannot read this pool's ledger: no verdict (Claude r2 P2-2)
         rec = fp['records'].get(f.get('id'))
         if rec is None:
             b_ = fp.get('boundary')
@@ -284,13 +284,15 @@ assert l1_check(_st, [], [(1000, 'P', 'A', fields('furnace=1,64,1 lease=4 t0=1 t
 # PERSISTED (Codex r1 P2-4): a row without its record in the file, or with different persisted fields, is a defect
 _rec = {'a': {'id': 'a', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out': None, 'lit': False}, 'outcome': 'entry'},
         'b': {'id': 'b', 'f': '1,64,1', 'slots': {'in': None, 'fuel': None, 'out': None, 'lit': False}, 'outcome': 'coalesced', 'into': 'a'}}
-assert persisted_check(_st, {'P': {'records': _rec, 'rotated': False}})['defects'] == [] and persisted_check(_st, {'P': {'records': _rec, 'rotated': False}})['confirmed_by_pool'] == {'P': 2}
-assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'rotated': False}})['defects'] == [('not_persisted', 'b')]
-assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 10_000}})['unresolved'] == 1, 'a row before the oldest retained generation'
-assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 1500}})['defects'] == [('not_persisted', 'b')], 'a row AFTER it must be in the file'
+assert persisted_check(_st, {'P': {'records': _rec, 'files': 1}})['defects'] == [] and persisted_check(_st, {'P': {'records': _rec, 'files': 1}})['confirmed_by_pool'] == {'P': 2}
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'files': 1}})['defects'] == [('not_persisted', 'b')]
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 10_000, 'files': 2}})['unresolved'] == 1, 'a row before the oldest retained generation'
+assert persisted_check(_st, {'P': {'records': {'a': _rec['a']}, 'boundary': 1500, 'files': 2}})['defects'] == [('not_persisted', 'b')], 'a row AFTER it must be in the file'
 assert window_complete(None, 100) and window_complete(50, 100) and not window_complete(150, 100)
-assert persisted_check(_st, {'P': {'records': dict(_rec, a=dict(_rec['a'], slots={'in': ['raw_iron', 1], 'fuel': None, 'out': None, 'lit': False})), 'rotated': False}})['defects'] == [('persisted_differs', 'a')]
+assert persisted_check(_st, {'P': {'records': dict(_rec, a=dict(_rec['a'], slots={'in': ['raw_iron', 1], 'fuel': None, 'out': None, 'lit': False})), 'files': 1}})['defects'] == [('persisted_differs', 'a')]
 assert bytes_written([(5, 100), (15, 200), (25, 50)], 10, 25) == 200
+assert persisted_check(_st, {'P': {'records': {}, 'files': 0}})['unresolved'] == 2, 'no ledger file: unresolved, never not_persisted'
+assert persisted_check(_st, {'P': {'records': {}, 'files': 1, 'unreadable': True}})['defects'] == [], 'an unreadable file: no verdict'
 # L2: a dropped TRANSITION is a defect; a dropped repeat is not; the 1% share
 _l2 = [(1000, 'P', 'A', _S('a')), (2000, 'P', 'A', _S('d', 'drop'))]
 assert l2_check(_l2, 0, 200)['dropped_transitions'] == 0 and l2_check(_l2, 0, 200)['defects'] == 0
@@ -396,11 +398,11 @@ if __name__ == '__main__':
     files_by_pool, written = {}, {}
     CUT_MS, END_MS = int(CUT.timestamp() * 1000), int(END.timestamp() * 1000)
     for p in sorted(CANS):
-        recs, lens, gens, ckpt_at = {}, [], [], {}
+        recs, lens, gens, ckpt_at, bad_files = {}, [], [], {}, 0
         for f_ in sorted(glob.glob('/var/lib/mcai/_pool-%s/ledger-*.g*.jsonl' % p)):
             u = unparsed_lines(f_)
             if u is None:
-                unreadable_files += 1; continue
+                unreadable_files += 1; bad_files += 1; continue
             unparsed += u[0]; files += 1
             m_ = re.search(r'\.g(\d+)\.jsonl$', f_)
             if m_:
@@ -420,11 +422,11 @@ if __name__ == '__main__':
         boundary = None if not gens or min(gens) == 1 else ckpt_at.get(min(gens))
         if gens and min(gens) > 1 and boundary is None:
             boundary = END_MS                         # an oldest generation with no checkpoint: nothing older is provable
-        files_by_pool[p] = {'records': recs, 'boundary': boundary, 'files': len(gens)}
+        files_by_pool[p] = {'records': recs, 'boundary': boundary, 'files': len(gens), 'unreadable': bad_files > 0}
         # L3's bytes are only countable when the retained generations hold the whole window (rotation deletes): else undefined
         written[p] = bytes_written(lens, CUT_MS, END_MS) if window_complete(boundary, CUT_MS) else None
     # A POOL WITH ROWS AND NO LEDGER FILE (Claude r1 P2-2): L2 and L3 cannot be read there -- undefined, never "0 unparsed"
-    no_file = sorted(p for p in CANS if by_pool.get(p, 0) > 0 and not files_by_pool.get(p, {}).get('files'))
+    no_file = sorted(p for p in CANS if by_pool.get(p, 0) > 0 and (not files_by_pool.get(p, {}).get('files') or files_by_pool[p].get('unreadable')))
     pc = persisted_check(stations, files_by_pool)
     l1['defects'] += pc['defects']; l1['denominator'] += pc['checked']
     l2 = l2_check(stations, unparsed, window_records)
@@ -478,7 +480,8 @@ if __name__ == '__main__':
             'liveness': int(n['licence_mode'] >= 1 and window_records >= 1),
             'station_exposure': expo, 'window_records': window_records,
             # no canary version: the off-build filter cannot run, so L1 is undefined
-            'l1_defects': len(l1['defects']) if CV else None,
+            # ... and a pool whose ledger the read cannot see leaves L1 undefined too (UNREADABLE, never a REVERT on blindness)
+            'l1_defects': len(l1['defects']) if CV and not no_file else None,
             'l1_denominator': l1['denominator'], 'l1_raced': l1['raced'], 'l1_unread': l1['unread'],
             'l1_unresolved': pc['unresolved'], 'confirmed_records': sum(pc['confirmed_by_pool'].values()), 'unreadable_files': unreadable_files,
             'l2_defects': None if no_file else l2['defects'], 'unparsed_lines': unparsed, 'dropped_transitions': l2['dropped_transitions'], 'drops': l2['drops'],
