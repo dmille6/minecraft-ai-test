@@ -70,7 +70,13 @@ def summarize(dirs):
                 why = 'map not bound (%s)' % mode
             elif r['label'] == 'cand' and active == 0:
                 why = 'no post-placement route or liveness row with an active cell'
+            if r['label'] not in ('base', 'cand'):
+                print('WARNING: result with an unknown label %r (%s) not counted' % (r['label'], r.get('run_dir')), file=sys.stderr)
+                continue
+            if r.get('pass') is None and not why:
+                why = 'incomplete (no oracle verdict)'
             table[(r['scene'], r.get('start_index', 0))][r['label']].append({
+                'matched': bool(r.get('matched_fleet')), 'dead': bool((r.get('observation') or {}).get('deathsLog') or (r.get('observation') or {}).get('deathsScore')),
                 'invalid': why, 'outcome': r.get('outcome'), 'pass': r.get('pass'), 'death': (r.get('deathClass') or {}).get('family'),
                 'episodes': len(ep), 'corridor': k.get('_lava_corridor', 0), 'blind': k.get('_explore_blind_step_refused', 0),
                 'danger': k.get('_reflex_danger_block', 0), 'mode': mode, 'active': active, 'priced': priced,
@@ -78,8 +84,46 @@ def summarize(dirs):
     return table, started
 
 
+MIN_RUNS = 3
+
+
+def library_verdict(table):
+    """THE LIBRARY NON-REGRESSION (not the fix gate: lavasight is not a stuck or a fall fix, so the candidate is not expected to
+    escape). Judged ONLY over valid runs (the same rules as the table: a log, and for the candidate a bound, indexed map) and
+    only where the comparison means something (Codex + Claude driver r3 P2):
+      INCONCLUSIVE  fewer than MIN_RUNS valid runs on either side, unequal valid counts, or the base did not reproduce the
+                    fleet's failure in >= 2 of every 3 valid runs (a scene the base no longer fails cannot show a regression)
+      REGRESSED     the candidate's death rate or pass rate is worse than the base's
+      ok            otherwise
+    -> {key: (verdict, why)}. Pure."""
+    out = {}
+    for key, sides in table.items():
+        b = [x for x in sides.get('base', []) if not x['invalid']]
+        c = [x for x in sides.get('cand', []) if not x['invalid']]
+        if len(b) < MIN_RUNS or len(c) < MIN_RUNS or len(b) != len(c):
+            out[key] = ('INCONCLUSIVE', 'valid runs base %d cand %d (need >= %d each, equal)' % (len(b), len(c), MIN_RUNS))
+            continue
+        m = sum(1 for x in b if x['matched'])
+        if m * 3 < len(b) * 2:
+            out[key] = ('INCONCLUSIVE', 'the base reproduced the fleet in %d of %d valid runs' % (m, len(b)))
+            continue
+        db, dc = sum(x['dead'] for x in b) / len(b), sum(x['dead'] for x in c) / len(c)
+        pb, pc = sum(1 for x in b if x['pass']) / len(b), sum(1 for x in c if x['pass']) / len(c)
+        why = 'death rate base %.2f cand %.2f; pass rate base %.2f cand %.2f; base matched %d/%d' % (db, dc, pb, pc, m, len(b))
+        out[key] = ('REGRESSED' if dc > db or pc < pb else 'ok', why)
+    return out
+
+
 def main(dirs):
+    library = '--library' in dirs
+    dirs = [d for d in dirs if d != '--library']
     table, started = summarize(dirs)
+    if library:
+        bad = 0
+        for key, (v, why) in sorted(library_verdict(table).items()):
+            print('LIBRARY %-12s %s start %s: %s' % (v, key[0], key[1], why))
+            bad += v == 'REGRESSED'
+        sys.exit(1 if bad else 0)
     # every (scene, start) STARTED or with a result: a scene whose runs all crashed still shows (Claude driver r2 P3-1)
     keys = set(table) | {(s, st) for (s, st, _) in started}
     for key in sorted(keys):
@@ -95,5 +139,21 @@ def main(dirs):
                 ('  | hook cells %s active %s priced %s' % ([x['hook_cells'] for x in xs], [x['active'] for x in xs], [x['priced'] for x in xs])) if b == 'cand' else ''))
 
 
+def selftest():
+    R = lambda matched=True, dead=False, ok=False, invalid=None: {'matched': matched, 'dead': dead, 'pass': ok, 'invalid': invalid}
+    T = lambda b, c: {('s', 0): {'base': b, 'cand': c}}
+    v = lambda b, c: library_verdict(T(b, c))[('s', 0)][0]
+    assert v([R()] * 3, [R()] * 3) == 'ok', 'same outcome: ok'
+    assert v([R()] * 3, [R(dead=True)] + [R()] * 2) == 'REGRESSED', 'a candidate death the base did not have'
+    assert v([R(ok=True)] * 3, [R(ok=False)] + [R(ok=True)] * 2) == 'REGRESSED', 'a pass lost'
+    assert v([R()] * 3, [R()] * 2) == 'INCONCLUSIVE', 'too few candidate runs'
+    assert v([R()] * 3, [R(invalid='map not bound (absent)')] * 3) == 'INCONCLUSIVE', 'unbound candidates are not runs'
+    assert v([R(matched=False)] * 3, [R()] * 3) == 'INCONCLUSIVE', 'a base that no longer reproduces cannot show a regression'
+    assert v([R(dead=True)] * 3, [R(dead=True)] * 3) == 'ok', 'the same deaths: not worse'
+    print('SELFTEST ok')
+
+
 if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        selftest(); sys.exit(0)
     main(sys.argv[1:])
