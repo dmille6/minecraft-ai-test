@@ -2773,6 +2773,7 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   const d0 = el0.transient ? { done: false, unknown: true, why: el0.why } : descentDone(at, s0)
   // 0. TRANSIENT: wait on it (an episode never ends on it; cognitive.mjs re-issues the order)
   if (el0.transient) {
+    bot.stationaryUntil = Math.max(bot.stationaryUntil ?? 0, Date.now() + 7_000)   // the 2-s wait is declared (Codex r8 P2-1)
     // A WAIT THAT LASTS IS FLAGGED (Claude r3 P1-2): still held, but after SKY_WAIT_FLAG_MS a human hears of it
     bot.skyWaitSince ??= Date.now()
     if (Date.now() - bot.skyWaitSince > SKY_WAIT_FLAG_MS) {
@@ -2791,8 +2792,11 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   }
   bot.skyWaitSince = null
   if (d0.done) { bot.skyHoldUntil = 0; row('no_effect', 'grounded'); return { status: 'no_effect', detail: `already down: ${d0.why}` } }
-  // THE WHOLE RUN HOLDS THE BODY against the escape lattice (reflex.mjs: skyEscapeBlocked)
+  // THE WHOLE RUN HOLDS THE BODY against the escape lattice (reflex.mjs: skyEscapeBlocked), and DECLARES ITSELF STATIONARY
+  // to the stuck reflex (stuckDecision's own mechanism), the stay included (it ends inside `until`): a held bot standing
+  // still is not stuck, and unstick's nudges and sprints from a deck edge are the fall (Codex r8 P2-1)
   bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, until + 60_000)
+  bot.stationaryUntil = Math.max(bot.stationaryUntil ?? 0, until + 5_000)
   const graceLeft = (bot.lastSpawnAt ?? 0) + SPAWN_GRACE_MS - Date.now()
   if (graceLeft > 0) await sleep(graceLeft, signal)
   const diggable = skyDiggable(bot)
@@ -2886,7 +2890,7 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   }
   const descended = (startY ?? 0) - (bot.entity?.position?.y ?? startY ?? 0)
   const tail = `placed ${placed}, rode ${rode}${walked ? `, walked to ${walked}` : ''}${crafted ? `, crafted planks from ${crafted} log(s)` : ''}`
-  if (descentDone(at, supportOf(bot.entity.position)).done) { bot.skyHoldUntil = 0; row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (${tail})` } }
+  if (descentDone(at, supportOf(bot.entity.position)).done) { bot.skyHoldUntil = 0; if (bot.stationaryUntil === until + 5_000) bot.stationaryUntil = 0; row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (${tail})` } }
   if (descended >= 0.5) { row('success', 'progress', { placed, rode, stopped }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks; still on the platform (${stopped ?? 'continuing'}; ${tail})` } }
   const why = `sky_descend: staying put -- the next step down could not be made (${stopped}); walking off is a fall. Held here for rescue (_needs_rescue raised); it retries every decision`
   row('failed', 'stopped', { placed, rode, stopped })
