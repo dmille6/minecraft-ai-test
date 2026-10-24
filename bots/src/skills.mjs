@@ -100,6 +100,7 @@ import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
+import { elevation, columnUnder, supportOf, blocksNeeded, describeDescent, stayRefusal, SAFE_DROP as SKY_SAFE_DROP, MARGIN as SKY_MARGIN } from './respawnfall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -2610,6 +2611,82 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 }
 
 // ---------------------------------------------------------------- come -----
+// ----------------------------------------------------------- sky_descend -----
+/** RESPAWNFALL-01: the last `_needs_rescue` time per cell (one row per cell per 30 min). */
+const skyRescueRows = new Map()
+export const SKY_STAY_MS = 30_000
+export const SKY_RUN_MS = 150_000
+/**
+ * `sky_descend` (respawnfall-01, respawnfall.mjs): A BOT THAT (RE)SPAWNED ON A HIGH PLATFORM CLIMBS DOWN. Issued only by
+ * cognitive.mjs's deterministic order (never the model's choice). Centres on its support cell, then repeats rideFloorDown --
+ * place a block under its own floor, break the floor, drop one block -- until no more than SAFE_DROP is open under it.
+ * Carrying too few blocks (or a descent that cannot make a first step) it STAYS: one `_needs_rescue` row per cell per 30 min
+ * and a SKY_STAY_MS hold of the body, and the order comes back on the next decision. Never walks off an edge.
+ */
+export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, runMs = SKY_RUN_MS } = {}) {
+  const bot = ctx.bot
+  const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+  const el0 = elevation({ pos: bot.entity?.position, at, onGround: bot.entity?.onGround !== false })
+  const startY = bot.entity?.position?.y
+  const have = rescueBlocks(bot).reduce((n, it) => n + (it.count ?? 0), 0)
+  const need = blocksNeeded(el0)
+  const row = (status, outcome, extra = {}) => {
+    try { logEvent({ kind: 'sky_descend', status, snapshot: snapshot(bot), detail: describeDescent({ outcome, el: el0, have, need, startY, endY: bot.entity?.position?.y, ...extra }) }) } catch { /* telemetry never costs the body */ }
+  }
+  const stay = async (why) => {
+    try {
+      const p = bot.entity.position
+      const cell = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
+      const k = `${cell.x},${cell.y},${cell.z}`
+      if (Date.now() - (skyRescueRows.get(k) ?? -Infinity) >= 30 * 60 * 1000) {
+        skyRescueRows.set(k, Date.now())
+        if (skyRescueRows.size > 8) skyRescueRows.delete(skyRescueRows.keys().next().value)
+        logEvent({ kind: 'needs_rescue', status: 'failed', snapshot: snapshot(bot),
+                   detail: `arm=sky_descend at=${k} open=${el0.open} landing=${el0.landing} have=${have} need=${need + SKY_MARGIN} -- ${why}` })
+      }
+    } catch { /* telemetry never costs the body */ }
+    // HOLD THE BODY IN PLACE: the order comes back on the next decision, so the model never gets to walk it off the edge; the
+    // stagnation watchdog stands aside through the hold and the gap to the next order (watchdog.mjs, bot.skyHoldUntil)
+    const end = Date.now() + stayMs
+    bot.skyHoldUntil = end + 60_000
+    while (Date.now() < end) { check(signal); await sleep(Math.min(1000, Math.max(0, end - Date.now())), signal) }
+  }
+  if (!el0.elevated) { row('no_effect', 'grounded'); return { status: 'no_effect', detail: `not elevated: ${el0.why}` } }
+  if (have < need + SKY_MARGIN) {
+    const why = stayRefusal({ el: el0, have, need })
+    row('failed', 'stay')
+    await stay(why)
+    return { status: 'failed', failClass: 'needs_rescue', detail: why }
+  }
+  // CENTRE ON THE SUPPORT CELL: a body straddling two blocks does not drop when one floor is broken (rideFloorDown would
+  // stop 'the bot did not descend'); one cell, the travel profile, a short clock
+  const s0 = supportOf(bot.entity.position)
+  const off = Math.max(Math.abs(bot.entity.position.x - (s0.x + 0.5)), Math.abs(bot.entity.position.z - (s0.z + 0.5)))
+  if (off > 0.2) {
+    try { await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(s0.x, s0.y + 1, s0.z)), 4000, bot, { what: 'sky_descend centre', needsDrop: false }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  const until = Date.now() + runMs
+  let placed = 0, rode = 0, stopped = null
+  for (;;) {
+    check(signal)
+    const c = columnUnder(at, supportOf(bot.entity.position))
+    if (c.open <= SKY_SAFE_DROP || c.landing === 'water') break
+    if (Date.now() >= until) { stopped = 'this run\'s clock is spent (the order continues on the next decision)'; break }
+    const r = await rideFloorDown(bot, { maxSteps: 8, signal, until })
+    placed += r.placed ?? 0; rode += r.rode ?? 0
+    if (r.stopped && r.stopped !== 'the caller\'s budget is spent' && r.stopped !== 'the caller\'s budget cannot cover a placement' && r.stopped !== 'the caller\'s budget cannot cover the floor dig') { stopped = r.stopped; break }
+    if ((r.descended ?? 0) < 0.5) { stopped = r.stopped ?? 'no descent'; break }
+  }
+  const descended = (startY ?? 0) - (bot.entity?.position?.y ?? startY ?? 0)
+  const c1 = columnUnder(at, supportOf(bot.entity.position))
+  if (c1.open <= SKY_SAFE_DROP || c1.landing === 'water') { row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (placed ${placed}, rode ${rode})` } }
+  if (descended >= 0.5) { row('success', 'progress', { placed, rode, stopped }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks; ${c1.open} still open below (${stopped ?? 'continuing'})` } }
+  const why = `sky_descend: staying put -- the first step down failed (${stopped}); walking off is a fall`
+  row('failed', 'stopped', { placed, rode, stopped })
+  await stay(why)
+  return { status: 'failed', failClass: 'needs_rescue', detail: why }
+}
+
 // ---------------------------------------------------------- keepout_exit -----
 /**
  * `_keepout_exit` (keepout-01, design 4.6 row 4): A BODY INSIDE A FIRE COLUMN LEAVES IT before anything else. Started
@@ -15648,6 +15725,7 @@ export const SKILL_CONTRACTS = {
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
   // KEEPOUT-01: the body leaves the column -- its evidence is the move
   keepout_exit: { expects: ['position'], maxMs: 120_000 },
+  sky_descend: { expects: ['position'], maxMs: 170_000 },   // respawnfall-01: SKY_RUN_MS + the centring walk and a stay
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
@@ -16786,6 +16864,7 @@ export const SKILLS = {
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
   // a failed exit never becomes an avoid rule (lessons.mjs), so the next time the body is inside, it is tried again
   keepout_exit: { run: keepoutExit, usage: 'keepout_exit', args: [], chatOnly: true, rescue: true },
+  sky_descend: { run: skyDescend, usage: 'sky_descend', args: [], chatOnly: true, rescue: true },   // respawnfall-01
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
