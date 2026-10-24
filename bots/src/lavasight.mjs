@@ -261,6 +261,8 @@ export function moveSurcharge (idx, node, m, env = {}) {
   m._lsC = { x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z) }   // before any postProcessPath can move the object
   m._lsPar = node                                                            // for a settle the index was too empty to charge
   m._lsRaw = !!(node._lsRaw || (m.toBreak && m.toBreak.length) || (m.toPlace && m.toPlace.length))
+  // pin the search's start even while the index is empty: a later settle reaches back to it (Claude r7 P3-1, Codex r7 P3)
+  if (node._lsGen !== true && !node._lsSt && env.start) node._lsSt = env.start
   if (!idx || idx.size === 0) return 0
   const hits = (a, b) => segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z)
   // the parent's executed form as THIS child fixes it: a climbable parent is centred only when the child is lower
