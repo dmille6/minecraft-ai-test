@@ -25,7 +25,9 @@ process.env.OLLAMA_MODEL ??= 'test'
 process.env.LOG_DIR ??= mkdtempSync(join(tmpdir(), 'cavefall-test-'))
 const CF = await import('../src/cavefall.mjs')
 const SK = await import('../src/skills.mjs')
-const { cellKind, fallDamage, standable, dropIfRemoved, floorOverDrop, underFeet, floorRefusal, allFloorsMessage, skipDetail, describeFloor, cavefallOn, cavefallModeDetail, SAFE_DROP, SCAN, NEEDS_SUPPORT } = CF
+const CF_URL = new URL('../src/cavefall.mjs', import.meta.url)
+const SK_URL = new URL('../src/skills.mjs', import.meta.url)
+const { cellKind, fallDamage, standable, dropIfRemoved, floorOverDrop, underFeet, floorRefusal, allFloorsMessage, skipDetail, frontSkipped, describeFloor, cavefallOn, cavefallModeDetail, SAFE_DROP, SCAN, NEEDS_SUPPORT } = CF
 
 let pass = 0, fail = 0
 const ta = async (name, fn) => {
@@ -236,7 +238,25 @@ await ta("THE ALLOWED ROW (Claude r2 P3-5): a standing floor dig with a 2-block 
 })
 await ta('skipDetail splits own-column and neighbour-column skips, with landing kinds', () => {
   const d = skipDetail({ name: 'dirt', considered: 9, verdicts: [{ col: [0, 0], landing: 'stalagmite' }, { col: [1, 0], landing: 'solid' }, { col: [0, 0], landing: 'stalagmite' }] })
-  assert.equal(d, 'dirt: 3 of 9 candidate(s) are floors over a harmful drop; skipped own=2 nbr=1 land=stalagmite:2,solid:1')
+  assert.equal(d, 'dirt: 3 of 9 candidate(s) are floors over a harmful drop; skipped own=2 nbr=1 land=stalagmite:2,solid:1 front=0')
+  assert.match(skipDetail({ name: 'dirt', considered: 1, verdicts: [{ col: [0, 0], landing: 'deep' }], front: true }), / front=1$/)
+})
+await ta('frontSkipped: the nearest skipped floor nearer the eye than the nearest kept candidate (the base would have dug it first)', () => {
+  const eye = { x: 3.5, y: 30, z: 6.5 }
+  assert.equal(frontSkipped(eye, [{ x: 3, y: 29, z: 6 }], [{ x: 9, y: 29, z: 6 }]), true)
+  assert.equal(frontSkipped(eye, [{ x: 9, y: 29, z: 6 }], [{ x: 3, y: 29, z: 6 }]), false)
+  assert.equal(frontSkipped(eye, [{ x: 3, y: 29, z: 6 }], []), true); assert.equal(frontSkipped(eye, [], [{ x: 3, y: 29, z: 6 }]), false)
+})
+await ta('THE FAST PATH changes no verdict: with and without it, the same skip on every cell of four worlds (shelf, cliff, cave floor, roof)', async () => {
+  const worlds = [shelf('drip'), shelf('ground'), shelf('water'), shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone', [key(3, 30, 6)]: 'white_carpet' })]
+  const cells = []
+  for (let x = -1; x <= 9; x++) for (const y of [7, 8, 20, 28, 29]) for (let z = 3; z <= 9; z += 3) cells.push({ x, y, z })
+  const fast = worlds.map(w => cells.map(c => floorOverDrop({ target: c, at: w.at }).skip))
+  await withMutant(CF_URL, "    if (fullCube(below)) return { skip: false, why: 'solid under it', drop: 1, landing: 'solid', damage: 0 }\n", '', async m => {
+    const slow = worlds.map(w => cells.map(c => m.floorOverDrop({ target: c, at: w.at }).skip))
+    assert.deepEqual(slow, fast)
+  })
+  assert.ok(fast.flat().some(Boolean) && fast.flat().some(v => !v), 'the cells include both verdicts')
 })
 /** collectManually end to end: did it dig, and did it walk first? */
 async function collect (mod, under, pos = CENTRE, { canDig = true } = {}) {
@@ -293,8 +313,6 @@ async function withMutant (url, old, neu, fn) {
   writeFileSync(out, body)
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
-const CF_URL = new URL('../src/cavefall.mjs', import.meta.url)
-const SK_URL = new URL('../src/skills.mjs', import.meta.url)
 
 await ta('MUTANT KILLED (wiring): without the dig-time call collectManually digs the shelf cell over the cave', async () => {
   // both calls removed: the pre-walk one and the dig-time one
@@ -338,7 +356,8 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
     const iCover = body.indexOf('positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)')
     const iCoverEnd = body.indexOf('coverRounds++'), iCount = body.indexOf('const caveSkipped = cave.skipped()')
     // both fallbacks pass their candidates through safeTarget, and the round is counted AFTER the foliage fallback
-    return iCave > 0 && iSkip > iCave && iFilter > iSkip && iSource > iFilter && iCover > iSource && iCount > iCoverEnd && iCoverEnd > iCover
+    const iEnum = body.indexOf('if (b.position && cave.skip(b.position)) return false'), iNotTown = body.indexOf('const notTown = id => b => {')
+    return iCave > 0 && iNotTown > iCave && iEnum > iNotTown && iEnum < iSkip && iSkip > iCave && iFilter > iSkip && iSource > iFilter && iCover > iSource && iCount > iCoverEnd && iCoverEnd > iCover
   }
   const src = readFileSync(SK_URL, 'utf8')
   assert.equal(wired(src), true)
@@ -347,6 +366,7 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
     ['const safeTarget = p => !caveSkip(p) && townTargetPermit(', 'const safeTarget = p => townTargetPermit('],
     ['const cand = found.filter(exposed).filter(safeTarget)', 'const cand = found.filter(exposed)'],
     ['positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)', 'positions.filter(q => foliageCovered(bot, q))'],
+    ['      if (b.position && cave.skip(b.position)) return false\n', ''],
   ]
   for (const [old, neu] of muts) {
     assert.ok(src.split(old).length === 2, `anchor present once: ${old.slice(0, 40)}`)
@@ -394,9 +414,16 @@ await ta('MUTANT KILLED: without the carpet rule the dirt under a carpet over th
 })
 await ta('MUTANT KILLED: dropping the standable test skips a cave-roof ore the bot stands under', async () => {
   const at = shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone' }).at
-  await withMutant(CF_URL, 'if (meets(b, y, c.fp, feet + 0.01, feet + BODY_H)) blocked = true', 'if (false) blocked = true', async m => {
-    assert.equal(m.floorOverDrop({ target: { x: 8, y: 20, z: 6 }, at }).skip, true)
+  const src0 = readFileSync(CF_URL, 'utf8')
+  const fastRoof = "    if (fullCube(over)) return { skip: false, why: 'nothing can stand on it' }\n"
+  assert.ok(src0.split(fastRoof).length === 2)
+  await withMutant(CF_URL, 'if (meets(b, y, c.fp, feet + 0.01, feet + BODY_H)) blocked = true', 'if (false) blocked = true', async m0 => {
+    assert.equal(m0.floorOverDrop({ target: { x: 8, y: 20, z: 6 }, at }).skip, false, 'the fast path alone still keeps it')
   })
+  const both = src0.replace(fastRoof, '').replace('if (meets(b, y, c.fp, feet + 0.01, feet + BODY_H)) blocked = true', 'if (false) blocked = true').replace(/from '\.\//g, "from '../src/")
+  const out = new URL(`./_mutant-${process.pid}-roof.mjs`, import.meta.url)
+  writeFileSync(out, both)
+  try { const m = await import(out.href); assert.equal(m.floorOverDrop({ target: { x: 8, y: 20, z: 6 }, at }).skip, true) } finally { try { unlinkSync(out) } catch {} }
 })
 
 await ta('MUTANT KILLED: a landing that ignores the footprint lands the body on an open trapdoor it would miss', async () => {
@@ -417,6 +444,35 @@ await ta('MUTANT KILLED: without the re-ask after the look, a floor dug out duri
   await withMutant(SK_URL, '    if (CAVEFALL_ON) cavefallDigCheck(bot, block)\n', '', async m => {
     assert.equal(await lookRemovesFloor(m), true)
   })
+})
+
+await ta('MUTANT KILLED: without the PRE-WALK call alone, a far floor over the cave is walked to first (then refused at the dig)', async () => {
+  await withMutant(SK_URL, '  cavefallDigCheck(bot, block, { quiet: true })\n', '', async m => {
+    const r = await collect(m, 'drip', { x: 0.5, y: 30, z: 6.5 }, { canDig: false })
+    assert.equal(r.walks, 1, 'the mutant spends a stance walk'); assert.equal(r.dug, false, 'the dig-time re-ask still refuses')
+  })
+})
+await ta('CAVEFALL=0 keeps the base dig sequence exactly: no forced look, dig(block, undefined) (Claude r3 P3-4)', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const { pathToFileURL } = await import('node:url')
+  const script = join(mkdtempSync(join(tmpdir(), 'cavefall-off-')), 'off.mjs')
+  writeFileSync(script, `
+    const { Vec3 } = await import(${JSON.stringify(import.meta.resolve('vec3'))})
+    const SK = await import(${JSON.stringify(SK_URL.href)})
+    const { mkWorld } = await import(${JSON.stringify(new URL('./helpers/reachlab.mjs', import.meta.url).href)})
+    const w = mkWorld((x, y, z) => (y <= 29 && x >= 0 && x <= 6 && z >= 0 && z <= 9) ? 'stone' : 'air')
+    const looks = [], digs = []
+    const bot = { entity: { position: new Vec3(3.5, 30, 6.5) }, blockAt: v => w.getBlock(v), canDigBlock: () => true,
+      pathfinder: { goto: async () => {}, setGoal () {}, stop () {} }, inventory: { items: () => [] }, heldItem: null, equip: async () => {}, entities: {},
+      lookAt: async (p, force) => { looks.push(force) }, dig: async (b, f) => { digs.push(f === undefined ? 'undefined' : f) } }
+    try { await SK.collectManually(bot, w.getBlock(new Vec3(3, 29, 6)), new AbortController().signal) } catch {}
+    console.log(JSON.stringify({ looks, digs }))
+  `)
+  const run = env => JSON.parse(execFileSync(process.execPath, [script], { env: { ...process.env, ...env }, cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8' }).trim().split('\n').pop())
+  const off = run({ CAVEFALL: '0' }), on = run({ CAVEFALL: '1' })
+  assert.deepEqual(off, { looks: [], digs: ['undefined'] }, 'the base: the library looks inside dig')
+  assert.deepEqual(on, { looks: [true], digs: ['ignore'] }, 'on: an instant look, the re-ask, then dig with ignore')
+  void pathToFileURL
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
