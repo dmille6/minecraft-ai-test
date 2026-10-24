@@ -666,6 +666,16 @@ await ta('MUTANT KILLED: an enclosed stance off the ground ends a descent in a t
   })
 })
 
+await ta('r9 (Claude r7 P2-1): a solid mass hanging over a sky-open void with a LAVA floor is not ground', async () => {
+  const w = skyWorld({ under: LAVA })
+  for (let x = 353; x <= 357; x++) for (let z = 148; z <= 152; z++) for (let y = 155; y <= 179; y++) w.m.set(key(x, y, z), COBBLE)
+  for (let x = 330; x <= 380; x++) for (let z = 125; z <= 175; z++) w.m.set(key(x, 72, z), LAVA)
+  assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
+  await withMutant(RF_URL, "    if (r.landing === 'water') return true\n    if (r.open >= ELEVATED_MIN) {", "    if (r.landing === 'water' || r.landing === 'lava') return true\n    if (r.open >= ELEVATED_MIN) {", async m => {
+    assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
+  })
+})
+
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
 await ta('WIRING: the order runs ahead of every order but keep-out; admission; the lattice and the watchdog ask the gate; spawn is stamped', async () => {
   const strip = u => readFileSync(new URL(u, import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
