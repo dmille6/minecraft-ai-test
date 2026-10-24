@@ -538,7 +538,16 @@ class EsSource:
 
 
 # ------------------------------------------------------------------ mine: ES -> ranked clusters + picks
-def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0):
+def in_world(c, w):
+    """The same death cluster, cut from another world of its seed: the newest member there is the representative."""
+    mem = [m for m in c['members'] if world_of(m['bot']) == w]
+    rep = _densest(mem, lambda m: m['pos'], DEATH_LINK_H, DEATH_LINK_Y)
+    d = dict(c, rep_world=w, rep={k: rep[k] for k in ('bot', 't', 'pos', 'cause', 'fell', 'detail')})
+    d['id'] = cluster_id(d)
+    return d
+
+
+def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0, extra_worlds=0):
     ctl = src.controls()
     if not ctl['docs']:
         raise ZeroLooksWrong('the window holds no documents at all')
@@ -564,7 +573,13 @@ def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0):
                             'still_spell_bot_h': round(sum(s['bot_h'] for s in spells), 1),
                             'bots_with_a_spell': len({s['bot'] for s in spells})},
            'deaths_by_family': dict(fam.most_common()), 'death_clusters': dcl, 'stuck_clusters': scl, 'picks': []}
-    picks = [c for c in dcl if c['deaths'] >= min_deaths][:top_deaths]
+    picks = []
+    for c in [c for c in dcl if c['deaths'] >= min_deaths][:top_deaths]:
+        picks.append(c)
+        # a death is a rare draw: the same place in up to `extra_worlds` more worlds of the seed (>= 3 deaths there each)
+        # gives the base proof more starts on the same geometry
+        by_w = collections.Counter(world_of(m['bot']) for m in c['members'])
+        picks += [in_world(c, w) for w, n in by_w.most_common() if w != c['rep_world'] and n >= 3][:extra_worlds]
     # a stuck scene is cut only for a spell still running at the window's end: the region copy is of that night, and an
     # ended spell's world already holds the escape (the cut would not be the trap)
     picks += [c for c in scl if c['bot_h'] >= min_bot_h and c['rep']['ongoing']][:top_stuck]
@@ -1125,7 +1140,7 @@ def cmd_mine(a):
     meta = meta.get('worlds', meta)
     until = a.until or dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
     since = (dt.datetime.fromisoformat(until.replace('Z', '+00:00')) - dt.timedelta(days=a.days)).strftime('%Y-%m-%dT%H:%M:%SZ')
-    res = mine(EsSource(since, until), meta, a.top_deaths, a.top_stuck)
+    res = mine(EsSource(since, until), meta, a.top_deaths, a.top_stuck, extra_worlds=a.extra_worlds)
     os.makedirs(a.out, exist_ok=True)
     json.dump(res, open(os.path.join(a.out, 'clusters.json'), 'w'), indent=1, default=list)
     open(os.path.join(a.out, 'table.txt'), 'w').write(render(res) + '\n')
@@ -1308,6 +1323,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd', required=True)
     m = sub.add_parser('mine'); m.add_argument('--seeds', required=True); m.add_argument('--until'); m.add_argument('--days', type=int, default=7)
     m.add_argument('--out', default='.'); m.add_argument('--top-deaths', type=int, default=3); m.add_argument('--top-stuck', type=int, default=2)
+    m.add_argument('--extra-worlds', type=int, default=0, help='also cut each top death cluster from N more worlds of its seed')
     c = sub.add_parser('cut'); c.add_argument('clusters'); c.add_argument('regions'); c.add_argument('--out', default='scenes')
     c.add_argument('--only'); c.add_argument('--library'); c.add_argument('--backup-day')
     f = sub.add_parser('fetch'); f.add_argument('clusters'); f.add_argument('regions'); f.add_argument('--only')
