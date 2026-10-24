@@ -25,6 +25,13 @@ export const MARGIN = 2                // blocks kept in hand beyond the count n
 // spawns beside a ravine is not on a platform and must not dig itself a shaft beside it.
 export const EDGE_SIDES = 3
 
+/**
+ * Is the bot held on its platform by sky_descend's stay (skills.mjs sets bot.skyHoldUntil)? While it is, the escape
+ * lattice's `step_off` -- walk off the edge on purpose, its unconditional bottom rung -- is refused (reflex.mjs, both
+ * sites): the owner's rule for a bot with no safe way down is to stay put and be rescued, not to take the fall. Pure.
+ */
+export const skyHoldActive = (bot, now = Date.now()) => (bot?.skyHoldUntil ?? 0) > now
+
 /** RESPAWNFALL=0 turns the order off (the one-setting rollback); anything else, or unset, leaves it on. */
 export const respawnfallOn = (env = typeof process !== 'undefined' ? process.env : {}) => String(env?.RESPAWNFALL ?? '1') !== '0'
 
