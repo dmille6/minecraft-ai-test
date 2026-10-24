@@ -25,7 +25,8 @@
 #   ARMS              REVERT: a control `_cavefall_*` row after the deploy.
 #   H1 refusals_up    HOLD (and INCONCLUSIVE, blocking KEEP, while any arm x period has < H1_MIN_RUNS = 100 gather runs): the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
 #                     change (pre vs post): the rule refusing too much is the harm this change can actually cause.
-#   LIVENESS          every canary bot seen after the deploy carries the licence on=1, its latest (BLOCKS KEEP).
+#   LIVENESS          every canary-pool bot seen in the window (pre OR post, any build) carries the licence on=1 as its latest
+#                     row (BLOCKS KEEP): a pool bot silent through the whole post window blocks KEEP too, deliberately.
 #   EXPOSURE          >= 5 canary `_cavefall_skip front=1` + `_cavefall_floor refused` rows, from >= 2 distinct bots.
 # PRIMARY (REPORTED; KEEP does not need it): gather fall episodes (fell >= 12, deduplicated per bot within 10 s, inside a
 #   gather run's interval, feet not water) per gather bot-hour, canary vs control, pre vs post: the DiD.
@@ -119,8 +120,8 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None, roster=None):
             lic[r['bot']].append(kv(r['detail']).get('on') == '1')
     res['licence_on'] = sum(1 for v in lic.values() if v and v[-1])
     # EVERY canary bot seen after the deploy must carry the licence, on (Codex r2 P2-7)
-    # the roster is every canary bot seen after the deploy ON ANY BUILD (Codex r3 P2-3: the loader drops off-build rows before
-    # judge sees them, so a bot still on the base would vanish from a roster built from `can`)
+    # the roster is every canary-pool bot seen in the window, pre or post, ON ANY BUILD (Codex r3 P2-3, Claude r4 P3-7: the
+    # loader drops off-build rows before judge sees them, so a bot still on the base would vanish from a roster built from `can`)
     roster = sorted(set(roster) if roster is not None else {r['bot'] for r in can})
     res['licence_missing'] = [b for b in roster if not (lic.get(b) and lic[b][-1])]
     res['licence_all'] = 1 if roster and not res['licence_missing'] else 0
