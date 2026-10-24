@@ -166,24 +166,29 @@ test('THE SWEEP PAST THE BOT\'S REACH (Codex r3 P1-2): the two chests in reach a
   assert.equal(S.readMatsNote(w.bot), null)
 })
 
-test('PLACEMENTS ARE COUNTED BY THE SLOT UPDATE THAT LANDS AFTER THE BLOCK (Claude r3 P2-4): a lagging decrement is the placement; a stray one is not', async () => {
+test('PLACEMENTS: an exact -1 on the HELD slot, landing after the block (Claude r3 P2-4, Codex r5 P2-5, Claude r5 P3-1)', async () => {
   const inv = new EventEmitter()
-  const bag = [{ name: 'cobblestone', count: 10, slot: 36 }]
-  inv.items = () => bag.filter(Boolean)
-  const bot = { heldItem: { name: 'cobblestone' }, inventory: inv, placeBlock: async () => {} }
+  inv.items = () => []
+  const bot = { heldItem: { name: 'cobblestone', slot: 36 }, inventory: inv, placeBlock: async () => {} }
   const pl = S.countPlacements(bot)
   await bot.placeBlock({}, {})
   assert.deepEqual(pl.placed, {}, 'nothing yet: the server has not sent the slot')
   await new Promise(r => setTimeout(r, 60))
-  bag[0].count = 9; inv.emit('updateSlot', 36, { name: 'cobblestone', count: 10 }, { name: 'cobblestone', count: 9 })
-  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'the late slot update is the placement')
-  bag[0].count = 8; inv.emit('updateSlot', 36, { name: 'cobblestone', count: 9 }, { name: 'cobblestone', count: 8 })
-  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'a decrement with no placement call is not one')
-  // A STACK MOVED BETWEEN SLOTS after a failed placement is no placement (Codex r4 P2-5): the bag's total never fell
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 10 }, { name: 'cobblestone', count: 9 })
+  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'the late -1 on the held slot is the placement')
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 9 }, { name: 'cobblestone', count: 8 })
+  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'a -1 with no placement call is not one')
+  // a failed placement, then the stack MOVED in two clicks, source first (the cursor holds it between): never a -1
   await bot.placeBlock({}, {})
-  bag[0] = null; bag[1] = { name: 'cobblestone', count: 8, slot: 37 }
-  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 8 }, null); inv.emit('updateSlot', 37, null, { name: 'cobblestone', count: 8 })
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 8 }, null)
+  inv.emit('updateSlot', 40, null, { name: 'cobblestone', count: 8 })
   assert.deepEqual(pl.placed, { cobblestone: 1 }, 'the move credited nothing')
+  // a -1 on ANOTHER slot (a craft taking one) after a placement call is not the placement
+  await bot.placeBlock({}, {})
+  inv.emit('updateSlot', 12, { name: 'cobblestone', count: 5 }, { name: 'cobblestone', count: 4 })
+  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'another slot\'s -1 is no placement')
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 1 }, null)
+  assert.deepEqual(pl.placed, { cobblestone: 2 }, 'the last item of the held stack placed (1 -> empty) is a placement')
   pl.restore()
   assert.equal(inv.listenerCount('updateSlot'), 0, 'restored: no listener left')
 })
@@ -201,5 +206,19 @@ test('AN ABORT MID-SWEEP KEEPS WHAT LANDED (Codex r4 P2-2): 4 into the first che
   await S.SKILLS.mats_return.run({ bot: w.bot }, {}, ac.signal).catch(() => {})
   assert.ok(walks >= 1, 'the walk to the second chest was the one aborted')
   assert.deepEqual(S.readMatsNote(w.bot)?.deposited, { stone_bricks: 4 })
+  fs.rmSync(NOTE_FILE(), { force: true })
+})
+
+test('A VANISHED INDEX ENTRY IS NEVER A DEPOSIT ELSEWHERE (Codex r5 P2-3): the only container is outside town; the index names a gone one -> nothing banked', async () => {
+  const w = fakeWorld({ bag: [stack('stone_bricks', 8), stack('wooden_pickaxe', 1)], at: [6.5, 64, 0.5] })
+  w.bot.username = 'MatsReturnBot'
+  w.set(20, 64, 0, 'chest')                                             // 20 from home: outside the town's 16
+  const HK = TI.indexHomeKey({ x: 0, y: 64, z: 0 })
+  TI.appendIndex(process.env.POOL_STATE_DIR, HK, null, { t: 'obs', id: `o-gone-${Date.now()}`, k: '-14,64,2', h: ['-14,64,2'], at: Date.now(), bot: 'Other', by: 'count_town', names: {}, used: 0, size: 27 })
+  TI.resetIndexCache()
+  S.writeMatsNote(w.bot, note())
+  await run(w)
+  assert.equal(inChestAt(w, '20,64,0', 'stone_bricks'), 0, 'nothing went to the out-of-town chest')
+  assert.equal(count(w, 'stone_bricks'), 8); assert.equal(S.readMatsNote(w.bot)?.phase, 'open')
   fs.rmSync(NOTE_FILE(), { force: true })
 })

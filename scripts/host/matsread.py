@@ -465,9 +465,12 @@ if __name__ == '__main__':
     g1_rows = [(b, f.get('kind'), f.get('forbidden')) for _, b, _, f in jobs + ret_rows if f.get('verdict') == 'forbidden']
     loss_rows = [(b, f.get('kind'), f.get('verdict'), f.get('stop')) for _, b, st, f in mv_all if f.get('verdict') in ('loss', 'overburn') and st != 'aborted']
     scaffold_rows = verdicts.get('scaffold', 0)
-    taken_rows = sum(1 for _, _, _, f in ret_rows if f.get('verdict') == 'taken')   # another bot's drain took the batch: reported
+    taken_rows = sum(1 for _, _, _, f in ret_rows if f.get('verdict') == 'unreconciled' and f.get('drained') == 'empty')   # batch nowhere, furnace empty
     g2 = int(len(loss_rows) >= 2 and reconciled > 0 and len(loss_rows) / reconciled > 0.05)
-    unrec = Counter(f.get('verdict') for _, _, _, f in mv).get('unreconciled', 0)
+    # the unreconciled share counts order rows AND the recoveries that ended unreconciled (r6: the batch nowhere after an empty
+    # furnace -- another bot's drain, or a loss; Codex r5 P2-2)
+    ret_end = [(t_, b, st, f) for t_, b, st, f in ret_rows if f.get('stop') in ('closed', 'abandoned') and (num(f.get('batch')) or 0) > 0]
+    unrec = Counter(f.get('verdict') for _, _, _, f in mv + ret_end).get('unreconciled', 0)
     judged = [(b, f.get('kind')) + judge_reserve(f, reserve) for _, b, _, f in jobs]
     g3_rows = [(b, k_, c_) for b, k_, c_, _ in judged if c_]
     g3_unjudged = [(b, k_, u_) for b, k_, _, u_ in judged if u_]
@@ -590,7 +593,7 @@ if __name__ == '__main__':
             'g3_reserve_crossed': len(g3_rows), 'g3_unjudged': len(g3_unjudged), 'g4_stone_leak': len(g4_rows),
             'g5_overlap': len(g5_runs) + len(g5_furn), 'g5_unjudged': len(g5_unjudged), 'g5_unleased_watch': len(g5_furn_unleased), 'g6_loop': len(loop_bots),
             'notes_abandoned': returns.get('abandoned', 0), 'notes_open_end': len(open_end),
-            'unreconciled_high': int(len(mv) > 0 and unrec / len(mv) > 0.05), 'tools_lost': int(sum(tools_lost.values())),
+            'unreconciled_high': int(len(mv) + len(ret_end) > 0 and unrec / (len(mv) + len(ret_end)) > 0.05), 'tools_lost': int(sum(tools_lost.values())),
             'rows_control_post': leak, 'instrument_control': instrument,
             'rungs_per_bh_did': nanless(did_rate('rungs')), 'gather_per_bh_did': nanless(did_rate('gather')),
             'furnace_busy_share_did': nanless(did_share('furnace_busy', 'smelt')), 'bag_fill_did': nanless(fill_did),

@@ -387,8 +387,10 @@ export function returnPlan (note, bag = {}) {
       const crafts = Math.ceil(out.sticksShort / 4)
       const pls = ACCT_PLANKS.filter(n => above(n) >= 2).sort((a, b) => above(b) - above(a))
       const full = pls.find(n => above(n) >= 2 * crafts), lg = LOG_NAMES.find(n => above(n) >= 1)
-      out.stickWood = full ? { planks: full, crafts } : lg ? { log: lg, planks: PLANKS_OF[lg], crafts: Math.min(crafts, 2) }
-        : pls.length ? { planks: pls[0], crafts: Math.floor(above(pls[0]) / 2) } : null
+      const partial = pls.length ? { planks: pls[0], crafts: Math.min(crafts, Math.floor(above(pls[0]) / 2)) } : null
+      const logW = lg ? { log: lg, planks: PLANKS_OF[lg], crafts: Math.min(crafts, 2) } : null
+      // whichever funds MORE of the crafts (Claude r5 P3-6); a tie keeps the planks (no log spent)
+      out.stickWood = full ? { planks: full, crafts } : (partial && (!logW || partial.crafts >= logW.crafts)) ? partial : logW
     }
   }
   if (note.kind === 'cut_copper') { const bl = Math.min(above('copper_block'), 4); out.cutCopper = bl >= 4 ? 4 : 0; if (bl - out.cutCopper > 0) out.bank.copper_block = bl - out.cutCopper }
@@ -443,8 +445,11 @@ export function recoveryBalance (note, { bag = {}, banked = {}, placed = {} } = 
   const short = Math.max(0, Math.round((n - out - back) * 100) / 100)
   return { verdict: short > 1e-9 ? 'loss' : 'ok', batch: n, out: Math.round(out * 100) / 100, back, short }
 }
-/** How long a recovery that WAITED yields before it looks again (Codex r4 P1): longer than a batch's burn (12 x 10 s). */
+/** How long a recovery that WAITED yields before it looks again (Codex r4 P1), BY WHY: a furnace still burning or leased by a
+ *  dead process needs only the burn and the lease TTL to run out (90 s, Paper r5 kill: a flat 3 min outlasted the scene); a bag
+ *  without room or an unloaded chunk needs the town deposit or a trip, so it yields longer (3 min). */
 export const MATS_RETURN_WAIT_MS = 3 * 60 * 1000
+export const matsReturnWaitMs = drained => (/^(lit|busy|unreadable_or_lit)$/.test(String(drained)) ? 90_000 : MATS_RETURN_WAIT_MS)
 /** Recovery attempts before a note is given up as ABANDONED (reported, never silently: the read counts them). */
 export const MATS_RETURN_MAX = 6
 export const MATS_RETURN_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -464,11 +469,12 @@ export function recoveryContentsOk (loaded, { input = null, fuel = null, output 
 }
 
 /** THE RECOVERY'S VERDICT -> the balance's, except a loss of the WHOLE batch with nothing of it anywhere after the furnace was
- *  found EMPTY (Claude r4 P3-2 A): another bot's furnace_drain took the burnt batch into town while this one waited -- TAKEN,
- *  reported, never the defect gate. Part of the batch found is still judged. Pure. */
+ *  found EMPTY: another bot's furnace_drain may have taken the burnt batch into town while this one waited (Claude r4 P3-2 A) --
+ *  or it was lost (Codex r5 P2-2). An empty furnace proves neither, so it is UNRECONCILED: visible, counted toward the read's
+ *  unreconciled share (blocks KEEP above 5%), never the G2 REVERT. Part of the batch found is still judged. Pure. */
 export function recoveryVerdict (bal, drained) {
   if (!bal) return null
-  if (bal.verdict === 'loss' && drained === 'empty' && bal.out === 0 && bal.back === 0) return 'taken'
+  if (bal.verdict === 'loss' && drained === 'empty' && bal.out === 0 && bal.back === 0) return 'unreconciled'
   return bal.verdict
 }
 /**
@@ -484,11 +490,13 @@ export function copperBalance (note, { bag = {}, banked = {} } = {}) {
   const got = x => above(x) + (Number(banked?.[x]) || 0) + (Number(note.deposited?.[x]) || 0)
   const parts = note.kind === 'cut_copper' ? 9 * (Math.min(4, got('copper_block')) + Math.min(4, got('cut_copper'))) : 2 * Math.min(3, got('copper_door'))
   const out = Math.min(n, parts)
-  // NO PART MADE = NEVER CRAFTED (Claude r4 P3-2 D): the ingots are inputs wherever they went (a town deposit between attempts
-  // banks them); a craft step is all-or-nothing (4 blocks, 4 cut, 3 doors), so a part made means every ingot was spent
-  if (out === 0) return { verdict: 'ok', batch: n, out: 0, back: Math.min(n, above('copper_ingot')), short: 0 }
-  const short = Math.max(0, n - out)
-  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back: 0, short }
+  // NEVER CRAFTED, BY THE NOTE'S OWN WRITE-AHEAD (Codex r5 P2-1): note.crafting is written before the first copper craft, so a note
+  // without it holds only inputs -- the ingots are inputs wherever they went (a deposit between attempts). Once crafting began,
+  // the retained ingots are back and the rest must be parts: a craft is interruptible, so one block of four is 9 + 27 back.
+  if (!note.crafting) return { verdict: 'ok', batch: n, out, back: Math.min(n - out, above('copper_ingot')), short: 0 }
+  const back = Math.min(n - out, above('copper_ingot'))
+  const short = Math.max(0, n - out - back)
+  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
 }
 
 /** THE RECOUNT'S OWN BACKOFF (Claude r3 P2-3): a container that could not be counted sits out its backoff -- the order's trigger
