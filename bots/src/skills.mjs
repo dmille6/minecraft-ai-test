@@ -2263,10 +2263,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     //
     // Still a fallback: it runs only when the exact block yielded no reachable
     // candidate, so it can only turn a failure into an attempt.
-    // (positions.length > 0: an emptied round's first fallback above already searched every source and found nothing --
-    // Claude r6 P3-2)
-    if (reachable.length === 0 && !viaSource && positions.length > 0) {
-      for (const alt of sourcesOf(bot.registry, blockName)) {
+    if (reachable.length === 0 && !viaSource) {
+      // (an emptied round -- positions.length 0 -- skips the sources: the first fallback above already searched every one
+      // and found nothing; Claude r6 P3-2)
+      for (const alt of positions.length ? sourcesOf(bot.registry, blockName) : []) {
         if (alt === blockName) continue
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
