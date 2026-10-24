@@ -166,7 +166,7 @@ let lastInvalid = false
 // DRY ONLY WHEN BOTH CELLS ARE CONFIRMED NOT WATER: a failed observation is never "dry" (fail closed)
 // A FLUID-BEARING CELL, tri-state (Codex driver r6 P2): water, a bubble column, lava, or one of the waterloggable blocks the
 // arenas hold (glow_lichen and ladder: the fixtures' only [wl]/ladder states, asserted at load) when waterlogged.
-const FLUIDS = ['water', 'bubble_column', 'lava', 'glow_lichen[waterlogged=true]', 'ladder[waterlogged=true]']
+const FLUIDS = ['water', 'bubble_column', 'lava', 'kelp', 'kelp_plant', 'seagrass', 'tall_seagrass', 'glow_lichen[waterlogged=true]', 'ladder[waterlogged=true]']   // kelp/seagrass are always water (Claude driver r9 P3)
 const wetIs = (x, y, z) => { const v = FLUIDS.map(f => blockIs(x, y, z, f)); return v.includes(true) ? true : v.includes(null) ? null : false }
 // DRY ONLY WHEN BOTH CELLS ARE CONFIRMED NOT FLUID: a failed observation is never "dry" (fail closed)
 const dryAt = q => !!q && [0, 1].every(dy => wetIs(Math.floor(q.x), Math.floor(q.y) + dy, Math.floor(q.z)) === false)
