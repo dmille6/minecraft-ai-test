@@ -64,7 +64,7 @@ async function withPlannerMutant (old, neu, fn) {
   try { return await fn(await import(sk.href)) } finally { for (const u of [mw, sk]) { try { unlinkSync(u) } catch {} } }
 }
 const ENUM = ["      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
-const SAFE = ["    const safeTarget = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&\n", "    const safeTarget = p => true &&\n"]
+const SAFE = ["    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&\n", "    const baseSafe = p => true &&\n"]   // CAVEFALL-01: safeTarget = !caveSkip && baseSafe
 const SWING = ["  if (!townOk.ok) {\n    noteTownGround(bot, 'gather_refused')", "  if (false) {\n    noteTownGround(bot, 'gather_refused')"]
 
 // ---- pure ----------------------------------------------------------------------------------------------------------
@@ -163,11 +163,14 @@ test('TRANSIT UNTOUCHED (real mineflayer-pathfinder 2.4.5 Movements): a forward 
 function gatherWorld ({ dirt }) {
   const D = mcData.blocksByName.dirt, AIRT = mcData.blocksByName.air
   const set = new Set(dirt.map(([x, y, z]) => `${x},${y},${z}`))
+  // CAVEFALL-01: the dirt lies on rock -- a dirt cell floating over 32+ blocks of air is, correctly, a floor over a drop
+  const rock = new Set(dirt.map(([x, y, z]) => `${x},${y - 1},${z}`))
   const digs = []
   const blk = (x, y, z) => {
     const isDirt = set.has(`${x},${y},${z}`)
-    const t = isDirt ? D : AIRT
-    return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: isDirt ? 'block' : 'empty', diggable: isDirt,
+    const isRock = !isDirt && rock.has(`${x},${y},${z}`)
+    const t = isDirt ? D : isRock ? mcData.blocksByName.stone : AIRT
+    return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: (isDirt || isRock) ? 'block' : 'empty', diggable: isDirt,
              canHarvest: () => true, digTime: () => 50, material: 'mineable/shovel', hardness: isDirt ? 0.5 : 0 }
   }
   const bot = {
