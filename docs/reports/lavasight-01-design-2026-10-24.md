@@ -215,8 +215,8 @@ a positive control (core is neither empty nor everything), and two mutants (no o
   k partial results is executed about k blocks off, by the base pathfinder itself (a test shows it with no wrapper: a resumed
   ladder climb executes at different node positions than a single-slice one). No price can follow a position that depends
   on how many times the library re-processed a node. lavasight charges the once-processed form; on such nodes its charge can
-  differ from the guard's verdict in either direction, and only on paths that climb near remembered lava after a partial
-  result. The guard is unchanged and still has the last word.
+  differ from the guard's verdict in either direction, and only on paths that climb, or cross an unsupported node, near
+  remembered lava after a partial result (Codex r7 P3). The guard is unchanged and still has the last word.
 - `priced_moves` counts moves that carried a charge, a settle included (Claude r5 P3-3): an exposure count, not a count of
   refused segments.
 - Not modelled: pathFromPlayer can drop the first node(s) of a re-plan, so the guard's first segment can span more than one
@@ -355,6 +355,10 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   within the base's cap is always found.
 
 ## 10. Review record
+
+**Code r6 / design r7** (`adedd19c`): **Codex APPROVE, Claude APPROVE.** Their P3s, applied after the approvals: the search
+start pinned before the empty-index return, with a test (both); the residual wording includes unsupported nodes (Codex). The
+primary threshold (-0.5 vs -1.0) is left to the owner (Claude).
 
 **Code r5 / design r6** (`bea0b21e`): Codex CHANGE (1 P2, 1 P3). What r7 changed: deterministic slicing in the resumed test
 (no wall clock), exact charges wherever processing is idempotent, and the climbable re-processing named as the base
