@@ -1,0 +1,221 @@
+hazard map 2026-10-24T04:43:27Z  (window 2026-08-22T00:00:00Z .. 2026-10-24T04:28:05Z; validated from 2026-10-08T00:00:00Z; 2026-10-07 refused)
+controls: 17 validated days; rows {'death': 630, 'corridor': 31370, 'blind_lava': 47357, 'danger': 2166, 'adjacent': 1459, 'standoff': 300, 'marooned': 109430, 'no_air': 4957, 'entombed': 196796, 'gave_up': 19036, 'site': 630}; unparsed {'death': 0, 'corridor': 0, 'blind_lava': 0, 'danger': 0, 'adjacent': 0, 'standoff': 0, 'marooned': 0, 'no_air': 0, 'entombed': 0, 'gave_up': 0, 'site': 0}
+
+SEED 1239381899  worlds now: board-a, board-c, board-d, hive-a, hive-b, isolated-a, isolated-b, isolated-c, isolated-d, placebo-c  (past: board-b until 2026-09-27, hive-c until 2026-09-27, hive-d until 2026-09-27, placebo-a until 2026-09-18, placebo-b until 2026-09-19, placebo-d until 2026-09-27)
+  hazards: {'lava': 253, 'drowning': 1095, 'cave_fall': 386, 'dripstone': 82, 'entombment': 767, 'water_ceiling_trap': 10, 'water_pit': 43}
+  lava               396,69,109       deaths 188 (validated  46, 7d 18; 16 worlds)  spells   0.0 bot-h  sightings 16630 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               335,38,210       deaths 290 (validated  43, 7d 18; 16 worlds)  spells   0.0 bot-h  sightings 2591 ep  high    exists=present in board-a,board-c,board-d,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               334,39,154       deaths  13 (validated  12, 7d  9; 4 worlds)  spells   0.0 bot-h  sightings  742 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               325,58,217       deaths  34 (validated  10, 7d  4; 10 worlds)  spells   0.0 bot-h  sightings 1074 ep  high    exists=present in board-a,board-d,hive-a,isolated-a,isolated-b,isolated-c,isolated-d
+  lava               327,-35,124      deaths   4 (validated   4, 7d  3; 3 worlds)  spells   0.0 bot-h  sightings   52 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               521,63,239       deaths   9 (validated   3, 7d  0; 6 worlds)  spells   0.0 bot-h  sightings  806 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               300,70,295       deaths  29 (validated   1, 7d  1; 14 worlds)  spells   0.0 bot-h  sightings  467 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               562,52,403       deaths  16 (validated   1, 7d  0; 10 worlds)  spells   0.0 bot-h  sightings   81 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           356,60,178       deaths 132 (validated  40, 7d 14; 16 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           324,60,218       deaths  88 (validated  19, 7d  9; 14 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           344,60,197       deaths 108 (validated  17, 7d  2; 16 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           384,52,185       deaths  20 (validated   9, 7d  2; 5 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           362,58,175       deaths  22 (validated   4, 7d  2; 10 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           512,61,205       deaths  44 (validated   3, 7d  0; 15 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           334,60,205       deaths  17 (validated   3, 7d  2; 10 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  drowning           263,58,228       deaths   4 (validated   3, 7d  0; 2 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  water_pit          329,61,213       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 273.9 bot-h  sightings    0 ep  medium  exists=absent
+  water_pit          555,61,116       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 167.8 bot-h  sightings    0 ep  medium  exists=absent
+  water_pit          1813,61,539      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   8.1 bot-h  sightings    0 ep  medium  exists=absent
+  water_pit          349,61,194       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   5.8 bot-h  sightings    0 ep  medium  exists=present in board-c
+  water_ceiling_trap 359,40,187       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 555.2 bot-h  sightings    0 ep  high    exists=present in board-a
+  water_ceiling_trap 607,43,104       deaths   0 (validated   0, 7d  0; 0 worlds)  spells  85.2 bot-h  sightings    0 ep  medium  exists=absent
+  water_ceiling_trap 419,60,83        deaths   0 (validated   0, 7d  0; 0 worlds)  spells  77.2 bot-h  sightings    0 ep  high    exists=present in board-c,hive-a,isolated-b,isolated-c,isolated-d,placebo-c
+  water_ceiling_trap 363,57,174       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   2.4 bot-h  sightings    0 ep  medium  exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          473,-21,333      deaths  39 (validated  11, 7d  4; 13 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          442,6,388        deaths  31 (validated   6, 7d  2; 11 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          371,-9,154       deaths   5 (validated   5, 7d  4; 4 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          376,4,148        deaths   5 (validated   5, 7d  4; 4 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          409,1,174        deaths   4 (validated   4, 7d  4; 3 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          545,-43,170      deaths   6 (validated   3, 7d  1; 4 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          378,-1,153       deaths   3 (validated   3, 7d  2; 2 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  cave_fall          390,7,160        deaths   3 (validated   3, 7d  2; 3 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          373,-5,151       deaths   6 (validated   6, 7d  4; 5 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          431,-4,177       deaths   6 (validated   6, 7d  5; 3 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          386,10,158       deaths   5 (validated   5, 7d  4; 4 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          379,7,149        deaths   3 (validated   3, 7d  3; 2 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          472,12,128       deaths   5 (validated   2, 7d  0; 3 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          322,4,188        deaths   2 (validated   2, 7d  2; 2 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          404,-2,171       deaths   2 (validated   2, 7d  2; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  dripstone          514,4,207        deaths   5 (validated   1, 7d  1; 5 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  entombment         365,39,191       deaths   4 (validated   3, 7d  1; 3 worlds)  spells 408.9 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         559,37,219       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 486.3 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         342,43,205       deaths   1 (validated   0, 7d  0; 1 worlds)  spells 477.5 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         370,40,190       deaths   1 (validated   1, 7d  0; 1 worlds)  spells 269.0 bot-h  sightings    0 ep  high    exists=not_applicable
+
+SEED 2021899648305791853  worlds now: placebo-d  (past: -)
+  hazards: {'lava': 39, 'drowning': 28, 'cave_fall': 2, 'entombment': 114}
+  lava               209,32,110       deaths   5 (validated   4, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  300 ep  high    exists=present in placebo-d
+  lava               225,55,-2        deaths   5 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings  127 ep  high    exists=present in placebo-d
+  lava               135,68,131       deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings  845 ep  medium  exists=present in placebo-d
+  lava               148,64,188       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   81 ep  medium  exists=present in placebo-d
+  lava               209,24,141       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    6 ep  medium  exists=present in placebo-d
+  lava               406,63,341       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    3 ep  medium  exists=present in placebo-d
+  lava               451,-32,111      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    3 ep  medium  exists=present in placebo-d
+  lava               402,63,338       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    1 ep  low     exists=present in placebo-d
+  drowning           150,59,2         deaths   4 (validated   3, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in placebo-d
+  drowning           191,48,159       deaths   3 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in placebo-d
+  drowning           199,41,187       deaths   2 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-d
+  drowning           71,59,79         deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-d
+  drowning           105,61,59        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
+  drowning           115,58,131       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
+  drowning           126,60,17        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
+  drowning           141,57,53        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
+  cave_fall          321,-8,121       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
+  cave_fall          405,75,273       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
+  entombment         198,34,187       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 206.7 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         167,49,72        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         232,33,95        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         210,30,114       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   1.5 bot-h  sightings    0 ep  low     exists=not_applicable
+
+SEED 4394143238757369828  worlds now: hive-c  (past: -)
+  hazards: {'drowning': 32, 'lava': 34, 'entombment': 149, 'cave_fall': 4}
+  lava               -147,65,-55      deaths   3 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  368 ep  high    exists=present in hive-c
+  lava               -103,26,-56      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   42 ep  medium  exists=present in hive-c
+  lava               -122,56,-133     deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  116 ep  medium  exists=present in hive-c
+  lava               -28,-1,-148      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings   55 ep  medium  exists=present in hive-c
+  lava               -270,-29,38      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    1 ep  low     exists=present in hive-c
+  lava               -108,45,-82      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    8 ep  medium  exists=present in hive-c
+  lava               -109,19,91       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    3 ep  low     exists=present in hive-c
+  lava               -118,26,-177     deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    3 ep  low     exists=present in hive-c
+  drowning           -59,57,-73       deaths   4 (validated   4, 7d  4; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in hive-c
+  drowning           -67,60,-48       deaths   2 (validated   2, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-c
+  drowning           -65,61,-58       deaths  10 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in hive-c
+  drowning           -144,58,-127     deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-c
+  drowning           -53,52,-100      deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-c
+  drowning           -29,20,-192      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  drowning           -64,60,-53       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  drowning           -65,30,-154      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  cave_fall          -192,-26,62      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  cave_fall          -199,-28,67      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  cave_fall          -212,-45,72      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  cave_fall          -234,-31,48      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in hive-c
+  entombment         -69,50,-75       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   1.5 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         -30,-3,-121      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         -46,68,-143      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         -93,50,-99       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+
+SEED 4534598234323719516  worlds now: hive-d  (past: -)
+  hazards: {'lava': 15, 'drowning': 91, 'entombment': 103}
+  lava               45,61,40         deaths   6 (validated   6, 7d  2; 1 worlds)  spells   0.0 bot-h  sightings  896 ep  high    exists=present in hive-d
+  lava               165,13,53        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   11 ep  medium  exists=present in hive-d
+  lava               167,64,-152      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    1 ep  low     exists=present in hive-d
+  lava               -40,49,125       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings  143 ep  low     exists=present in hive-d
+  lava               -46,48,119       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    6 ep  low     exists=present in hive-d
+  lava               -47,25,110       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    5 ep  medium  exists=present in hive-d
+  lava               104,51,123       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    3 ep  low     exists=present in hive-d
+  lava               124,40,52        deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    2 ep  low     exists=present in hive-d
+  drowning           99,48,109        deaths   3 (validated   3, 7d  2; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in hive-d
+  drowning           102,61,131       deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-d
+  drowning           112,60,150       deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-d
+  drowning           125,61,122       deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-d
+  drowning           151,61,153       deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-d
+  drowning           73,61,232        deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in hive-d
+  drowning           -13,61,69        deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=absent
+  drowning           -15,61,54        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=absent
+  entombment         79,55,73         deaths   3 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         66,49,67         deaths   3 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         111,56,52        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         35,45,78         deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+
+SEED 6443945553241215903  worlds now: board-b  (past: -)
+  hazards: {'lava': 38, 'cave_fall': 13, 'drowning': 13, 'entombment': 105}
+  lava               -163,-33,124     deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   31 ep  medium  exists=present in board-b
+  lava               -256,38,94       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    2 ep  medium  exists=present in board-b
+  lava               -34,-56,410      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    3 ep  medium  exists=present in board-b
+  lava               -79,-49,192      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    1 ep  low     exists=present in board-b
+  lava               -161,-9,184      deaths   2 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings   35 ep  medium  exists=present in board-b
+  lava               -323,65,44       deaths   2 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings   63 ep  medium  exists=present in board-b
+  lava               -156,26,181      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings   86 ep  medium  exists=present in board-b
+  lava               -198,29,250      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings   20 ep  medium  exists=present in board-b
+  drowning           -162,18,105      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -162,53,100      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -169,17,104      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -327,54,176      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -123,36,246      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -134,52,125      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -161,21,303      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  drowning           -181,47,90       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  cave_fall          -129,-29,254     deaths   2 (validated   2, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in board-b
+  cave_fall          -134,14,172      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  cave_fall          -138,12,182      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  cave_fall          -208,-8,254      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  cave_fall          -71,29,198       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  cave_fall          -82,26,196       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  cave_fall          -87,27,205       deaths   2 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in board-b
+  cave_fall          -148,21,204      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in board-b
+  entombment         -214,46,117      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         -240,58,361      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         -56,50,316       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   4.3 bot-h  sightings    0 ep  medium  exists=not_applicable
+  entombment         -128,47,264      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   3.6 bot-h  sightings    0 ep  medium  exists=not_applicable
+
+SEED 7843072457371465157  worlds now: placebo-b  (past: -)
+  hazards: {'drowning': 22, 'lava': 44, 'cave_fall': 5, 'entombment': 74, 'water_pit': 2}
+  lava               331,-15,-421     deaths   2 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    8 ep  medium  exists=present in placebo-b
+  lava               393,-39,-324     deaths   2 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    8 ep  medium  exists=present in placebo-b
+  lava               189,1,-432       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    6 ep  medium  exists=present in placebo-b
+  lava               199,55,-507      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    1 ep  low     exists=present in placebo-b
+  lava               476,-10,-193     deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    3 ep  medium  exists=present in placebo-b
+  lava               130,-27,-422     deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    6 ep  medium  exists=present in placebo-b
+  lava               153,24,-391      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    3 ep  low     exists=present in placebo-b
+  lava               170,56,-452      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.0 bot-h  sightings    4 ep  low     exists=present in placebo-b
+  drowning           302,59,-396      deaths   6 (validated   5, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in placebo-b
+  drowning           414,60,-264      deaths   2 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-b
+  drowning           283,59,-369      deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-b
+  drowning           351,60,-432      deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-b
+  drowning           355,60,-428      deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-b
+  drowning           281,60,-425      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  drowning           293,59,-410      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  drowning           328,60,-403      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  water_pit          369,13,91        deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.7 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  water_pit          402,48,-428      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   0.5 bot-h  sightings    0 ep  low     exists=absent
+  cave_fall          178,-4,-474      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  cave_fall          333,-16,-412     deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  cave_fall          161,37,-183      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  cave_fall          332,64,-311      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=absent
+  cave_fall          560,-26,75       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-b
+  entombment         319,52,-327      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         158,44,-489      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   5.0 bot-h  sightings    0 ep  medium  exists=not_applicable
+  entombment         286,45,-387      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   4.8 bot-h  sightings    0 ep  medium  exists=not_applicable
+  entombment         362,53,-472      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   2.0 bot-h  sightings    0 ep  low     exists=not_applicable
+
+SEED 8948499624371160708  worlds now: placebo-a  (past: -)
+  hazards: {'lava': 95, 'cave_fall': 11, 'drowning': 23, 'entombment': 125, 'water_pit': 1}
+  lava               157,-55,-161     deaths   2 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    2 ep  medium  exists=present in placebo-a
+  lava               266,-52,-63      deaths   2 (validated   2, 7d  2; 1 worlds)  spells   0.0 bot-h  sightings    5 ep  medium  exists=present in placebo-a
+  lava               344,-56,-142     deaths   2 (validated   2, 7d  2; 1 worlds)  spells   0.0 bot-h  sightings    4 ep  medium  exists=present in placebo-a
+  lava               268,0,-177       deaths   5 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  180 ep  high    exists=present in placebo-a
+  lava               168,-31,-63      deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    6 ep  medium  exists=present in placebo-a
+  lava               304,-31,-54      deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings   14 ep  medium  exists=present in placebo-a
+  lava               272,6,-208       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  134 ep  medium  exists=present in placebo-a
+  lava               291,-44,-193     deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    6 ep  medium  exists=present in placebo-a
+  drowning           251,49,-243      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           258,15,-31       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           273,15,-50       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           300,61,-97       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           303,60,-214      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           312,60,-124      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           323,61,-35       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  drowning           364,58,-136      deaths   2 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-a
+  water_pit          257,69,-111      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   1.0 bot-h  sightings    0 ep  low     exists=absent
+  cave_fall          275,-1,-207      deaths   2 (validated   2, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-a
+  cave_fall          178,-51,-164     deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-a
+  cave_fall          449,10,-264      deaths   2 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in placebo-a
+  cave_fall          173,-54,-153     deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  cave_fall          182,-51,-158     deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  cave_fall          395,-54,-220     deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  cave_fall          419,-49,-220     deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  cave_fall          279,-1,-209      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-a
+  entombment         251,33,-115      deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         333,31,-71       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
+  entombment         330,13,-306      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   4.3 bot-h  sightings    0 ep  medium  exists=not_applicable
+  entombment         443,51,-71       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   4.1 bot-h  sightings    0 ep  medium  exists=not_applicable
+
+VALUE (2026-10-17T04:43:27Z .. 2026-10-24T04:43:27Z): of 279 deaths, 195 on a seed shared by >= 2 worlds; 122 were within 3 xz / 4 y of a same-kind death >= 24 h EARLIER in ANOTHER world (42 of them with no such earlier death in their own world). Chance null (priors shifted ~48 blocks): mean 6.2, max 19.
+  by kind matched: {'lava': 46, 'cave_fall': 25, 'dripstone': 16, 'drowning': 34, 'suffocation': 1} ; deaths by kind: {'drowning': 84, 'cave_fall': 55, 'lava': 79, 'suffocation': 21, 'dripstone': 40}
+  variants: {"any_kind": {"deaths": 279, "known_from_another_world": 131, "known_from_own_world": 124, "known_only_from_another_world": 44, "resolved": 279}, "link_6_6": {"deaths": 279, "known_from_another_world": 145, "known_from_own_world": 133, "known_only_from_another_world": 50, "resolved": 279}, "no_lag": {"deaths": 279, "known_from_another_world": 124, "known_from_own_world": 120, "known_only_from_another_world": 41, "resolved": 279}, "priors_validated_only": {"deaths": 279, "known_from_another_world": 102, "known_from_own_world": 97, "known_only_from_another_world": 37, "resolved": 279}}

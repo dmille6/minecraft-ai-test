@@ -1,0 +1,329 @@
+{
+ "backup_day": "2026-10-24",
+ "backup_line": "2026-10-24T03:16:17Z good 2026-10-24: 16/16 worlds, raw 2.7GB -> zst 2.1GB, 76s",
+ "made_at": "2026-10-24T04:26:27Z",
+ "null_control": {
+  "cave_fall": {
+   "n": 400,
+   "same_probes": {
+    "absent": 18,
+    "not_generated": 1,
+    "present": 381
+   },
+   "shifted": {
+    "absent": 259,
+    "not_generated": 1,
+    "present": 140
+   }
+  },
+  "dripstone": {
+   "n": 400,
+   "same_probes": {
+    "absent": 16,
+    "present": 384
+   },
+   "shifted": {
+    "absent": 301,
+    "present": 99
+   }
+  },
+  "drowning": {
+   "n": 400,
+   "same_probes": {
+    "absent": 5,
+    "not_generated": 2,
+    "present": 393
+   },
+   "shifted": {
+    "absent": 214,
+    "not_generated": 1,
+    "present": 185
+   }
+  },
+  "lava": {
+   "n": 400,
+   "same_probes": {
+    "absent": 19,
+    "present": 381
+   },
+   "shifted": {
+    "absent": 397,
+    "present": 3
+   }
+  },
+  "water_ceiling_trap": {
+   "n": 100,
+   "same_probes": {
+    "absent": 41,
+    "present": 59
+   },
+   "shifted": {
+    "absent": 82,
+    "present": 18
+   }
+  },
+  "water_pit": {
+   "n": 400,
+   "same_probes": {
+    "absent": 380,
+    "not_generated": 1,
+    "present": 19
+   },
+   "shifted": {
+    "absent": 398,
+    "not_generated": 1,
+    "present": 1
+   }
+  }
+ },
+ "probe_states": {
+  "absent": 1313,
+  "not_generated": 28,
+  "present": 26576
+ },
+ "probes": 27917,
+ "request_made_at": "2026-10-24T04:21:33Z",
+ "schema": "mcai.hazardmap.verify",
+ "schema_version": 1,
+ "terrain_control": {
+  "across_seeds": {
+   "board-a~board-b": 0.4902,
+   "board-a~hive-c": 0.3664,
+   "board-a~hive-d": 0.6448,
+   "board-a~placebo-a": 0.4452,
+   "board-a~placebo-b": 0.7243,
+   "board-a~placebo-d": 0.5571,
+   "board-b~hive-c": 0.6006,
+   "board-b~hive-d": 0.5548,
+   "board-b~placebo-a": 0.5582,
+   "board-b~placebo-b": 0.6067,
+   "board-b~placebo-d": 0.6678,
+   "hive-c~hive-d": 0.4264,
+   "hive-c~placebo-a": 0.7177,
+   "hive-c~placebo-b": 0.4925,
+   "hive-c~placebo-d": 0.6547,
+   "hive-d~placebo-a": 0.4798,
+   "hive-d~placebo-b": 0.6251,
+   "hive-d~placebo-d": 0.5386,
+   "placebo-a~placebo-b": 0.4533,
+   "placebo-a~placebo-d": 0.5606,
+   "placebo-b~placebo-d": 0.5698
+  },
+  "cells": 867,
+  "within_seed": {
+   "1239381899": {
+    "min_agreement": 1.0,
+    "pairs": {
+     "board-c": 1.0,
+     "board-d": 1.0,
+     "hive-a": 1.0,
+     "hive-b": 1.0,
+     "isolated-a": 1.0,
+     "isolated-b": 1.0,
+     "isolated-c": 1.0,
+     "isolated-d": 1.0,
+     "placebo-c": 1.0
+    },
+    "reference": "board-a"
+   }
+  }
+ },
+ "worlds": {
+  "board-a": {
+   "created": "2026-08-22T14:16:49Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "board-b": {
+   "created": "2026-09-27T13:19:34Z",
+   "home": [
+    -249,
+    65,
+    144
+   ],
+   "previous": [
+    {
+     "created": "2026-08-22T14:16:59Z",
+     "retired": "2026-09-27T13:09:43Z",
+     "seed": "1239381899"
+    }
+   ],
+   "seed": "6443945553241215903"
+  },
+  "board-c": {
+   "created": "2026-08-25T01:52:14Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "board-d": {
+   "created": "2026-08-25T01:52:32Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "hive-a": {
+   "created": "2026-08-22T14:31:27Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "hive-b": {
+   "created": "2026-08-22T14:16:38Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "hive-c": {
+   "created": "2026-09-27T12:35:42Z",
+   "home": [
+    -68,
+    68,
+    -68
+   ],
+   "previous": [
+    {
+     "created": "2026-08-25T01:51:35Z",
+     "retired": "2026-09-27T12:35:23Z",
+     "seed": "1239381899"
+    }
+   ],
+   "seed": "4394143238757369828"
+  },
+  "hive-d": {
+   "created": "2026-09-27T13:36:37Z",
+   "home": [
+    68,
+    65,
+    68
+   ],
+   "previous": [
+    {
+     "created": "2026-08-25T01:51:53Z",
+     "retired": "2026-09-27T13:23:46Z",
+     "seed": "1239381899"
+    }
+   ],
+   "seed": "4534598234323719516"
+  },
+  "isolated-a": {
+   "created": "2026-08-22T14:17:08Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "isolated-b": {
+   "created": "2026-08-22T14:17:18Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "isolated-c": {
+   "created": "2026-08-25T01:52:53Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "isolated-d": {
+   "created": "2026-08-25T01:53:13Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "placebo-a": {
+   "created": "2026-09-18T23:54:27Z",
+   "home": [
+    249,
+    75,
+    -144
+   ],
+   "previous": [
+    {
+     "created": "2026-08-22T14:17:28Z",
+     "retired": "2026-09-18T23:52:09Z",
+     "seed": "1239381899"
+    }
+   ],
+   "seed": "8948499624371160708"
+  },
+  "placebo-b": {
+   "created": "2026-09-19T11:18:00Z",
+   "home": [
+    282,
+    65,
+    -388
+   ],
+   "previous": [
+    {
+     "created": "2026-08-22T14:17:38Z",
+     "retired": "2026-09-19T11:10:53Z",
+     "seed": "1239381899"
+    }
+   ],
+   "seed": "7843072457371465157"
+  },
+  "placebo-c": {
+   "created": "2026-08-25T01:53:34Z",
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "previous": [],
+   "seed": "1239381899"
+  },
+  "placebo-d": {
+   "created": "2026-09-27T14:02:33Z",
+   "home": [
+    177,
+    75,
+    73
+   ],
+   "previous": [
+    {
+     "created": "2026-08-25T01:53:53Z",
+     "retired": "2026-09-27T13:39:16Z",
+     "seed": "1239381899"
+    }
+   ],
+   "seed": "2021899648305791853"
+  }
+ }
+}

@@ -1,0 +1,1452 @@
+{
+ "chance_null": {
+  "matched": [
+   6,
+   2,
+   3,
+   8,
+   0,
+   9,
+   19,
+   3
+  ],
+  "max": 19,
+  "mean": 6.25,
+  "offsets": [
+   [
+    48,
+    0
+   ],
+   [
+    -48,
+    0
+   ],
+   [
+    0,
+    48
+   ],
+   [
+    0,
+    -48
+   ],
+   [
+    34,
+    34
+   ],
+   [
+    -34,
+    34
+   ],
+   [
+    34,
+    -34
+   ],
+   [
+    -34,
+    -34
+   ]
+  ]
+ },
+ "deaths_by_kind": {
+  "cave_fall": 55,
+  "dripstone": 40,
+  "drowning": 84,
+  "lava": 79,
+  "suffocation": 21
+ },
+ "headline": {
+  "deaths": 279,
+  "known_from_another_world": 122,
+  "known_from_own_world": 117,
+  "known_only_from_another_world": 42,
+  "resolved": 279
+ },
+ "headline_by_kind": {
+  "cave_fall": 25,
+  "dripstone": 16,
+  "drowning": 34,
+  "lava": 46,
+  "suffocation": 1
+ },
+ "lag": "a prior counts only if >= 24 h older (a daily map)",
+ "link": "within 3 blocks horizontally and 4 vertically",
+ "matched": [
+  {
+   "bot": "placebo-c-Alpha",
+   "category": "lava after a fall",
+   "cell": [
+    336,
+    38,
+    209
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T05:19:01Z"
+  },
+  {
+   "bot": "isolated-b-Bravo",
+   "category": "lava",
+   "cell": [
+    392,
+    70,
+    106
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T06:46:49Z"
+  },
+  {
+   "bot": "hive-b-Bravo",
+   "category": "fall",
+   "cell": [
+    545,
+    -43,
+    170
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-17T09:43:46Z"
+  },
+  {
+   "bot": "isolated-b-Delta",
+   "category": "stalagmite",
+   "cell": [
+    514,
+    4,
+    207
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-17T09:48:25Z"
+  },
+  {
+   "bot": "placebo-c-Delta",
+   "category": "fall",
+   "cell": [
+    442,
+    4,
+    387
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-17T12:36:38Z"
+  },
+  {
+   "bot": "isolated-b-Comet",
+   "category": "lava",
+   "cell": [
+    391,
+    70,
+    103
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T17:07:56Z"
+  },
+  {
+   "bot": "board-a-Alpha",
+   "category": "lava after a fall",
+   "cell": [
+    334,
+    35,
+    204
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T19:21:51Z"
+  },
+  {
+   "bot": "isolated-a-Comet",
+   "category": "lava",
+   "cell": [
+    594,
+    -3,
+    256
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T20:06:00Z"
+  },
+  {
+   "bot": "board-d-Echo",
+   "category": "magma",
+   "cell": [
+    325,
+    58,
+    217
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T20:22:04Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "drowned",
+   "cell": [
+    359,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-17T20:30:47Z"
+  },
+  {
+   "bot": "board-a-Delta",
+   "category": "lava after a fall",
+   "cell": [
+    300,
+    70,
+    295
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T20:51:02Z"
+  },
+  {
+   "bot": "isolated-d-Bravo",
+   "category": "lava",
+   "cell": [
+    393,
+    70,
+    104
+   ],
+   "kind": "lava",
+   "t": "2026-10-17T20:59:11Z"
+  },
+  {
+   "bot": "hive-a-Delta",
+   "category": "stalagmite",
+   "cell": [
+    236,
+    6,
+    123
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-17T21:27:33Z"
+  },
+  {
+   "bot": "isolated-a-Delta",
+   "category": "drowned",
+   "cell": [
+    386,
+    57,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-17T22:04:11Z"
+  },
+  {
+   "bot": "isolated-d-Delta",
+   "category": "drowned",
+   "cell": [
+    359,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-17T22:49:19Z"
+  },
+  {
+   "bot": "isolated-d-Bravo",
+   "category": "lava after a fall",
+   "cell": [
+    334,
+    41,
+    209
+   ],
+   "kind": "lava",
+   "t": "2026-10-18T01:30:39Z"
+  },
+  {
+   "bot": "isolated-a-Echo",
+   "category": "lava",
+   "cell": [
+    383,
+    70,
+    102
+   ],
+   "kind": "lava",
+   "t": "2026-10-18T04:57:26Z"
+  },
+  {
+   "bot": "isolated-c-Echo",
+   "category": "stalagmite",
+   "cell": [
+    430,
+    -3,
+    177
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-18T05:18:17Z"
+  },
+  {
+   "bot": "board-d-Echo",
+   "category": "lava",
+   "cell": [
+    335,
+    35,
+    203
+   ],
+   "kind": "lava",
+   "t": "2026-10-18T07:04:39Z"
+  },
+  {
+   "bot": "isolated-a-Bravo",
+   "category": "lava",
+   "cell": [
+    392,
+    70,
+    105
+   ],
+   "kind": "lava",
+   "t": "2026-10-18T07:37:06Z"
+  },
+  {
+   "bot": "placebo-c-Alpha",
+   "category": "lava",
+   "cell": [
+    392,
+    71,
+    107
+   ],
+   "kind": "lava",
+   "t": "2026-10-18T08:09:23Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    336,
+    57,
+    200
+   ],
+   "kind": "drowning",
+   "t": "2026-10-18T10:44:21Z"
+  },
+  {
+   "bot": "isolated-d-Comet",
+   "category": "drowned",
+   "cell": [
+    358,
+    60,
+    176
+   ],
+   "kind": "drowning",
+   "t": "2026-10-18T17:04:25Z"
+  },
+  {
+   "bot": "isolated-d-Bravo",
+   "category": "drowned",
+   "cell": [
+    356,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-18T17:14:20Z"
+  },
+  {
+   "bot": "hive-a-Delta",
+   "category": "drowned",
+   "cell": [
+    362,
+    58,
+    175
+   ],
+   "kind": "drowning",
+   "t": "2026-10-19T00:14:43Z"
+  },
+  {
+   "bot": "isolated-c-Comet",
+   "category": "stalagmite",
+   "cell": [
+    428,
+    -3,
+    176
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-19T00:58:02Z"
+  },
+  {
+   "bot": "placebo-c-Delta",
+   "category": "lava",
+   "cell": [
+    334,
+    38,
+    210
+   ],
+   "kind": "lava",
+   "t": "2026-10-19T05:22:30Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    359,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-19T07:15:11Z"
+  },
+  {
+   "bot": "hive-a-Delta",
+   "category": "fall",
+   "cell": [
+    376,
+    7,
+    146
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-19T09:40:58Z"
+  },
+  {
+   "bot": "isolated-d-Delta",
+   "category": "drowned",
+   "cell": [
+    334,
+    60,
+    207
+   ],
+   "kind": "drowning",
+   "t": "2026-10-19T15:45:15Z"
+  },
+  {
+   "bot": "isolated-c-Bravo",
+   "category": "fall",
+   "cell": [
+    597,
+    -4,
+    276
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-19T16:34:19Z"
+  },
+  {
+   "bot": "hive-b-Bravo",
+   "category": "fall",
+   "cell": [
+    221,
+    2,
+    87
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-19T17:12:40Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "stalagmite",
+   "cell": [
+    368,
+    -5,
+    149
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-19T17:19:22Z"
+  },
+  {
+   "bot": "board-c-Bravo",
+   "category": "fall",
+   "cell": [
+    389,
+    6,
+    160
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-19T18:56:43Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "lava",
+   "cell": [
+    392,
+    70,
+    104
+   ],
+   "kind": "lava",
+   "t": "2026-10-19T19:15:11Z"
+  },
+  {
+   "bot": "placebo-c-Alpha",
+   "category": "lava",
+   "cell": [
+    387,
+    70,
+    103
+   ],
+   "kind": "lava",
+   "t": "2026-10-19T21:27:01Z"
+  },
+  {
+   "bot": "board-a-Alpha",
+   "category": "lava after a fall",
+   "cell": [
+    334,
+    35,
+    204
+   ],
+   "kind": "lava",
+   "t": "2026-10-19T22:10:42Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-19T22:36:05Z"
+  },
+  {
+   "bot": "board-d-Echo",
+   "category": "lava after a fall",
+   "cell": [
+    334,
+    35,
+    203
+   ],
+   "kind": "lava",
+   "t": "2026-10-19T23:52:26Z"
+  },
+  {
+   "bot": "isolated-d-Delta",
+   "category": "drowned",
+   "cell": [
+    356,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T02:09:43Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "drowned",
+   "cell": [
+    359,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T02:11:28Z"
+  },
+  {
+   "bot": "isolated-d-Delta",
+   "category": "lava",
+   "cell": [
+    393,
+    70,
+    104
+   ],
+   "kind": "lava",
+   "t": "2026-10-20T03:40:21Z"
+  },
+  {
+   "bot": "isolated-a-Comet",
+   "category": "lava after a fall",
+   "cell": [
+    333,
+    35,
+    205
+   ],
+   "kind": "lava",
+   "t": "2026-10-20T04:44:23Z"
+  },
+  {
+   "bot": "board-d-Delta",
+   "category": "lava",
+   "cell": [
+    389,
+    70,
+    103
+   ],
+   "kind": "lava",
+   "t": "2026-10-20T07:11:16Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T07:22:31Z"
+  },
+  {
+   "bot": "board-d-Delta",
+   "category": "drowned",
+   "cell": [
+    353,
+    60,
+    193
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T07:50:01Z"
+  },
+  {
+   "bot": "isolated-a-Delta",
+   "category": "fall",
+   "cell": [
+    442,
+    6,
+    388
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-20T08:38:03Z"
+  },
+  {
+   "bot": "hive-b-Echo",
+   "category": "drowned",
+   "cell": [
+    334,
+    60,
+    205
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T08:51:51Z"
+  },
+  {
+   "bot": "isolated-a-Delta",
+   "category": "fall",
+   "cell": [
+    501,
+    -21,
+    339
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-20T12:29:39Z"
+  },
+  {
+   "bot": "isolated-d-Comet",
+   "category": "drowned",
+   "cell": [
+    359,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T14:37:51Z"
+  },
+  {
+   "bot": "hive-a-Comet",
+   "category": "fall",
+   "cell": [
+    406,
+    -2,
+    173
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-20T17:18:11Z"
+  },
+  {
+   "bot": "board-c-Delta",
+   "category": "fall",
+   "cell": [
+    379,
+    -1,
+    154
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-20T17:39:37Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "lava",
+   "cell": [
+    334,
+    41,
+    209
+   ],
+   "kind": "lava",
+   "t": "2026-10-20T18:02:51Z"
+  },
+  {
+   "bot": "board-a-Echo",
+   "category": "fall",
+   "cell": [
+    525,
+    47,
+    385
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-20T18:43:44Z"
+  },
+  {
+   "bot": "isolated-c-Delta",
+   "category": "drowned",
+   "cell": [
+    355,
+    60,
+    189
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T20:25:37Z"
+  },
+  {
+   "bot": "placebo-c-Echo",
+   "category": "drowned",
+   "cell": [
+    354,
+    60,
+    187
+   ],
+   "kind": "drowning",
+   "t": "2026-10-20T21:00:44Z"
+  },
+  {
+   "bot": "isolated-a-Echo",
+   "category": "lava",
+   "cell": [
+    334,
+    35,
+    207
+   ],
+   "kind": "lava",
+   "t": "2026-10-20T23:43:06Z"
+  },
+  {
+   "bot": "isolated-c-Echo",
+   "category": "drowned",
+   "cell": [
+    667,
+    5,
+    224
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T00:09:18Z"
+  },
+  {
+   "bot": "hive-b-Alpha",
+   "category": "stalagmite",
+   "cell": [
+    388,
+    11,
+    157
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-21T00:48:41Z"
+  },
+  {
+   "bot": "hive-b-Comet",
+   "category": "drowned",
+   "cell": [
+    332,
+    60,
+    214
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T01:42:36Z"
+  },
+  {
+   "bot": "board-d-Delta",
+   "category": "drowned",
+   "cell": [
+    384,
+    52,
+    185
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T02:56:13Z"
+  },
+  {
+   "bot": "hive-b-Alpha",
+   "category": "fall",
+   "cell": [
+    380,
+    7,
+    150
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-21T03:47:34Z"
+  },
+  {
+   "bot": "isolated-d-Delta",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T05:38:40Z"
+  },
+  {
+   "bot": "board-a-Alpha",
+   "category": "stalagmite",
+   "cell": [
+    322,
+    4,
+    188
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-21T06:57:09Z"
+  },
+  {
+   "bot": "board-c-Delta",
+   "category": "stalagmite",
+   "cell": [
+    386,
+    12,
+    154
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-21T08:28:52Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "magma",
+   "cell": [
+    325,
+    58,
+    217
+   ],
+   "kind": "lava",
+   "t": "2026-10-21T08:30:22Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    356,
+    60,
+    178
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T09:17:09Z"
+  },
+  {
+   "bot": "hive-a-Echo",
+   "category": "fall",
+   "cell": [
+    409,
+    1,
+    174
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-21T12:26:11Z"
+  },
+  {
+   "bot": "board-c-Bravo",
+   "category": "fall",
+   "cell": [
+    384,
+    6,
+    156
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-21T12:52:35Z"
+  },
+  {
+   "bot": "hive-a-Comet",
+   "category": "lava",
+   "cell": [
+    386,
+    70,
+    100
+   ],
+   "kind": "lava",
+   "t": "2026-10-21T15:22:00Z"
+  },
+  {
+   "bot": "hive-a-Bravo",
+   "category": "drowned",
+   "cell": [
+    344,
+    60,
+    197
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T15:26:03Z"
+  },
+  {
+   "bot": "board-c-Delta",
+   "category": "stalagmite",
+   "cell": [
+    386,
+    10,
+    158
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-21T16:21:32Z"
+  },
+  {
+   "bot": "isolated-d-Comet",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T17:38:34Z"
+  },
+  {
+   "bot": "isolated-d-Comet",
+   "category": "drowned",
+   "cell": [
+    512,
+    61,
+    145
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T18:50:50Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T21:43:32Z"
+  },
+  {
+   "bot": "hive-a-Bravo",
+   "category": "magma",
+   "cell": [
+    325,
+    58,
+    217
+   ],
+   "kind": "lava",
+   "t": "2026-10-21T22:15:56Z"
+  },
+  {
+   "bot": "isolated-d-Delta",
+   "category": "drowned",
+   "cell": [
+    356,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T22:41:36Z"
+  },
+  {
+   "bot": "isolated-b-Bravo",
+   "category": "lava after a fall",
+   "cell": [
+    335,
+    35,
+    205
+   ],
+   "kind": "lava",
+   "t": "2026-10-21T23:14:00Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "drowned",
+   "cell": [
+    359,
+    59,
+    180
+   ],
+   "kind": "drowning",
+   "t": "2026-10-21T23:22:36Z"
+  },
+  {
+   "bot": "isolated-d-Echo",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-22T00:30:21Z"
+  },
+  {
+   "bot": "hive-a-Bravo",
+   "category": "drowned",
+   "cell": [
+    362,
+    58,
+    175
+   ],
+   "kind": "drowning",
+   "t": "2026-10-22T00:45:49Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-22T01:42:50Z"
+  },
+  {
+   "bot": "placebo-c-Alpha",
+   "category": "lava after a fall",
+   "cell": [
+    337,
+    38,
+    208
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T02:24:50Z"
+  },
+  {
+   "bot": "placebo-c-Delta",
+   "category": "fall",
+   "cell": [
+    473,
+    -22,
+    334
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-22T04:58:33Z"
+  },
+  {
+   "bot": "hive-b-Bravo",
+   "category": "fall",
+   "cell": [
+    372,
+    -8,
+    154
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-22T06:59:11Z"
+  },
+  {
+   "bot": "isolated-c-Comet",
+   "category": "stalagmite",
+   "cell": [
+    428,
+    -4,
+    177
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-22T07:14:54Z"
+  },
+  {
+   "bot": "isolated-c-Comet",
+   "category": "stalagmite",
+   "cell": [
+    430,
+    -3,
+    177
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-22T07:19:44Z"
+  },
+  {
+   "bot": "isolated-c-Comet",
+   "category": "lava",
+   "cell": [
+    391,
+    70,
+    104
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T09:49:47Z"
+  },
+  {
+   "bot": "hive-b-Alpha",
+   "category": "fall",
+   "cell": [
+    390,
+    7,
+    160
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-22T10:58:58Z"
+  },
+  {
+   "bot": "isolated-c-Bravo",
+   "category": "fall",
+   "cell": [
+    464,
+    -21,
+    336
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-22T12:14:50Z"
+  },
+  {
+   "bot": "board-a-Bravo",
+   "category": "lava after a fall",
+   "cell": [
+    334,
+    35,
+    204
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T12:20:04Z"
+  },
+  {
+   "bot": "board-d-Delta",
+   "category": "magma",
+   "cell": [
+    325,
+    58,
+    217
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T13:44:28Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "drowned",
+   "cell": [
+    324,
+    60,
+    218
+   ],
+   "kind": "drowning",
+   "t": "2026-10-22T13:50:22Z"
+  },
+  {
+   "bot": "isolated-d-Alpha",
+   "category": "lava",
+   "cell": [
+    392,
+    70,
+    103
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T13:51:53Z"
+  },
+  {
+   "bot": "isolated-d-Comet",
+   "category": "drowned",
+   "cell": [
+    356,
+    60,
+    178
+   ],
+   "kind": "drowning",
+   "t": "2026-10-22T16:20:50Z"
+  },
+  {
+   "bot": "hive-b-Alpha",
+   "category": "stalagmite",
+   "cell": [
+    373,
+    -6,
+    153
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-22T16:37:37Z"
+  },
+  {
+   "bot": "hive-b-Comet",
+   "category": "lava",
+   "cell": [
+    391,
+    70,
+    103
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T18:35:08Z"
+  },
+  {
+   "bot": "board-a-Alpha",
+   "category": "fall",
+   "cell": [
+    371,
+    -9,
+    154
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-22T18:35:17Z"
+  },
+  {
+   "bot": "isolated-a-Bravo",
+   "category": "lava",
+   "cell": [
+    392,
+    70,
+    105
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T20:56:59Z"
+  },
+  {
+   "bot": "isolated-a-Alpha",
+   "category": "lava",
+   "cell": [
+    326,
+    -35,
+    125
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T21:30:16Z"
+  },
+  {
+   "bot": "isolated-a-Delta",
+   "category": "lava",
+   "cell": [
+    392,
+    70,
+    104
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T22:23:44Z"
+  },
+  {
+   "bot": "isolated-b-Echo",
+   "category": "lava",
+   "cell": [
+    334,
+    35,
+    207
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T22:36:01Z"
+  },
+  {
+   "bot": "board-d-Delta",
+   "category": "lava",
+   "cell": [
+    465,
+    8,
+    202
+   ],
+   "kind": "lava",
+   "t": "2026-10-22T23:30:43Z"
+  },
+  {
+   "bot": "isolated-a-Echo",
+   "category": "lava",
+   "cell": [
+    335,
+    37,
+    208
+   ],
+   "kind": "lava",
+   "t": "2026-10-23T00:27:33Z"
+  },
+  {
+   "bot": "board-d-Echo",
+   "category": "lava",
+   "cell": [
+    387,
+    70,
+    101
+   ],
+   "kind": "lava",
+   "t": "2026-10-23T01:08:52Z"
+  },
+  {
+   "bot": "placebo-c-Echo",
+   "category": "fall",
+   "cell": [
+    472,
+    -19,
+    333
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-23T06:05:32Z"
+  },
+  {
+   "bot": "isolated-c-Delta",
+   "category": "lava",
+   "cell": [
+    327,
+    -35,
+    124
+   ],
+   "kind": "lava",
+   "t": "2026-10-23T06:50:46Z"
+  },
+  {
+   "bot": "isolated-b-Comet",
+   "category": "stalagmite",
+   "cell": [
+    373,
+    -6,
+    153
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-23T08:48:30Z"
+  },
+  {
+   "bot": "isolated-a-Alpha",
+   "category": "lava after a fall",
+   "cell": [
+    332,
+    35,
+    205
+   ],
+   "kind": "lava",
+   "t": "2026-10-23T11:20:41Z"
+  },
+  {
+   "bot": "placebo-c-Delta",
+   "category": "fall",
+   "cell": [
+    473,
+    -21,
+    333
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-23T11:22:31Z"
+  },
+  {
+   "bot": "board-d-Bravo",
+   "category": "fall",
+   "cell": [
+    371,
+    -9,
+    154
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-23T12:03:03Z"
+  },
+  {
+   "bot": "isolated-b-Delta",
+   "category": "stalagmite",
+   "cell": [
+    431,
+    -4,
+    177
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-23T12:17:32Z"
+  },
+  {
+   "bot": "board-d-Echo",
+   "category": "lava after a fall",
+   "cell": [
+    390,
+    18,
+    106
+   ],
+   "kind": "lava",
+   "t": "2026-10-23T13:39:10Z"
+  },
+  {
+   "bot": "isolated-a-Echo",
+   "category": "fall",
+   "cell": [
+    378,
+    -1,
+    153
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-23T16:15:51Z"
+  },
+  {
+   "bot": "isolated-b-Alpha",
+   "category": "lava",
+   "cell": [
+    335,
+    38,
+    210
+   ],
+   "kind": "lava",
+   "t": "2026-10-23T16:29:47Z"
+  },
+  {
+   "bot": "board-d-Alpha",
+   "category": "fall",
+   "cell": [
+    532,
+    -40,
+    161
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-23T18:32:32Z"
+  },
+  {
+   "bot": "board-c-Echo",
+   "category": "stalagmite",
+   "cell": [
+    373,
+    -5,
+    151
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-23T23:55:44Z"
+  },
+  {
+   "bot": "placebo-c-Alpha",
+   "category": "lava",
+   "cell": [
+    396,
+    69,
+    109
+   ],
+   "kind": "lava",
+   "t": "2026-10-24T00:40:43Z"
+  },
+  {
+   "bot": "isolated-a-Comet",
+   "category": "stalagmite",
+   "cell": [
+    379,
+    7,
+    149
+   ],
+   "kind": "dripstone",
+   "t": "2026-10-24T01:59:38Z"
+  },
+  {
+   "bot": "isolated-c-Delta",
+   "category": "suffocated",
+   "cell": [
+    365,
+    39,
+    191
+   ],
+   "kind": "suffocation",
+   "t": "2026-10-24T02:20:33Z"
+  },
+  {
+   "bot": "placebo-c-Alpha",
+   "category": "lava",
+   "cell": [
+    335,
+    38,
+    210
+   ],
+   "kind": "lava",
+   "t": "2026-10-24T02:40:19Z"
+  },
+  {
+   "bot": "isolated-a-Alpha",
+   "category": "fall",
+   "cell": [
+    376,
+    4,
+    148
+   ],
+   "kind": "cave_fall",
+   "t": "2026-10-24T04:11:46Z"
+  }
+ ],
+ "shared_seed_deaths": 195,
+ "variants": {
+  "any_kind": {
+   "deaths": 279,
+   "known_from_another_world": 131,
+   "known_from_own_world": 124,
+   "known_only_from_another_world": 44,
+   "resolved": 279
+  },
+  "link_6_6": {
+   "deaths": 279,
+   "known_from_another_world": 145,
+   "known_from_own_world": 133,
+   "known_only_from_another_world": 50,
+   "resolved": 279
+  },
+  "no_lag": {
+   "deaths": 279,
+   "known_from_another_world": 124,
+   "known_from_own_world": 120,
+   "known_only_from_another_world": 41,
+   "resolved": 279
+  },
+  "priors_validated_only": {
+   "deaths": 279,
+   "known_from_another_world": 102,
+   "known_from_own_world": 97,
+   "known_only_from_another_world": 37,
+   "resolved": 279
+  }
+ },
+ "window": [
+  "2026-10-17T04:43:27Z",
+  "2026-10-24T04:43:27Z"
+ ]
+}
