@@ -308,11 +308,13 @@ async function withMutant (url, old, neu, fn) {
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 await ta('MUTANT KILLED: "done" at the trigger threshold leaves the bot 8 above the ground beside its pillar', async () => {
-  // a placed block in a 1x1 shaft through rock, a 5-high hollow under it: walled all round, so only the own test can see it
-  const shaft = (x, y, z) => (x === 300 && z === 300 ? (y === 90 ? COBBLE : y >= 85 && y < 90 ? AIR : y > 90 ? AIR : STONE) : (y <= 95 ? STONE : AIR))
-  assert.equal(doneAt(columnReader(shaft), 300, 90, 300).done, false, 'breaking it is a fall of 6')
+  // a floating block 4 over the ground (breaking it is a fall of 5), walled at feet and head height on all four sides, so
+  // only the own test can see it (the void under it is open to the sky two cells out)
+  const walls = new Set(['301,77,300', '299,77,300', '300,77,301', '300,77,299', '301,78,300', '299,78,300', '300,78,301', '300,78,299'])
+  const shaft = (x, y, z) => (x === 300 && y === 76 && z === 300 ? COBBLE : walls.has(`${x},${y},${z}`) ? STONE : y <= 71 ? STONE : AIR)
+  assert.equal(doneAt(columnReader(shaft), 300, 76, 300).done, false, 'breaking it is a fall of 5')
   await withMutant(RF_URL, '  if (!(own.landing === \'water\' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP))', '  if (!(own.landing === \'water\' || own.open <= ELEVATED_MIN))', async m => {
-    assert.equal(m.doneAt(m.columnReader(shaft), 300, 90, 300).done, true)
+    assert.equal(m.doneAt(m.columnReader(shaft), 300, 76, 300).done, true)
   })
 })
 await ta('MUTANT KILLED: an episode that ends on a transient reading hands a mid-descent bot back to the model', async () => {
@@ -332,7 +334,7 @@ await ta('MUTANT KILLED: without the SAVE_MIN bar a bot walks across the deck to
   // a deck cell two over with a 2-block stub under it: it saves 2 blocks, less than SAVE_MIN
   const stub = skyWorld(); stub.m.set(key(357, 179, 150), COBBLE); stub.m.set(key(357, 178, 150), COBBLE)
   assert.equal(cheapestStart({ at: stub.at, support: { x: 355, y: 180, z: 150 } }).own, true)
-  await withMutant(RF_URL, '      if (own.ok && own.cost - p.cost < SAVE_MIN + walk) continue\n', '', async m => {
+  await withMutant(RF_URL, '      if (own.ok && own.cost - p.cost < SAVE_MIN + walk && !(p.cost === 0 && own.cost > 0)) continue\n', '', async m => {
     assert.equal(m.cheapestStart({ at: stub.at, support: { x: 355, y: 180, z: 150 } }).own, false)
   })
   assert.equal(SAVE_MIN, 4)
@@ -464,7 +466,7 @@ await ta('MUTANT KILLED: lava read as a landing makes a stance over a lava lake 
   })
 })
 await ta('MUTANT KILLED: an episode that ignores water keeps a swimming bot owned for ever', async () => {
-  await withMutant(RF_URL, "    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water' } }\n", '', async m => {
+  await withMutant(RF_URL, "    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water', fresh: true } }\n", '', async m => {
     assert.equal(m.descendOrder({ el: { elevated: false, water: true, why: 'in water' }, state: { active: true } }).state.active, true)
   })
 })
@@ -509,7 +511,7 @@ await ta('MUTANT KILLED: a float test without the sky check turns every thin cav
   })
 })
 await ta('MUTANT KILLED: ground that ignores a deadly run under a short solid stretch counts a hanging column as ground', async () => {
-  await withMutant(RF_URL, '    if (r.open >= ELEVATED_MIN) return false                    // a deadly gap: the stretch above it hangs\n', '', async m => {
+  await withMutant(RF_URL, '      if (sky !== false) return false\n', '', async m => {
     const w = thickPatch(); for (let y = 170; y <= 178; y++) w.m.set(key(355, y, 150), COBBLE)   // hangs under the patch centre
     assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
     assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
@@ -535,6 +537,77 @@ await ta('r6 (Codex r4): a LONG hanging column is not ground; a single-layer can
   const sat = (x, y, z) => st.get(key(x, y, z)) ?? (y <= 71 ? STONE : AIR)
   const b = rankStarts({ at: sat, support: { x: 300, y: 90, z: 300 }, radius: 24 })[0]
   assert.ok(b.cost <= 1 && !b.own, `the stair is taken, not the 16-block column (${JSON.stringify(b)})`)
+})
+
+await ta('r7 (Codex r5): a 70-block hanging column is not ground; a one-layer roof over an enclosed cave is terrain; a bare bot takes the stair', async () => {
+  const hang = new Map()
+  const at = (x, y, z) => hang.get(key(x, y, z)) ?? ((y === 180 || y === 179) && Math.abs(x - 355) <= 20 && Math.abs(z - 150) <= 20 ? COBBLE : y <= 71 ? STONE : AIR)
+  for (let y = 109; y <= 178; y++) hang.set(key(355, y, 150), COBBLE)
+  assert.equal(elevation({ pos: ON_DECK, at }).elevated, true)
+  assert.equal(descentDone(at, { x: 355, y: 180, z: 150 }).done, false)
+  const roof1 = (x, y, z) => (Math.abs(x - 300) <= 10 && Math.abs(z - 300) <= 10 && y >= 60 && y <= 70 ? AIR : y <= 71 ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at: roof1 }).elevated, false)
+  assert.equal(descentDone(roof1, { x: 300, y: 71, z: 300 }).done, true)
+  // THE WHOLE SKILL, no blocks, default radius: a floating block at 90 with a stair down to the ground
+  const st = new Map(); st.set(key(300, 90, 300), COBBLE)
+  for (let i = 1; i <= 18; i++) st.set(key(300 + i, 90 - i, 300), COBBLE)
+  const w = { m: st, at: (x, y, z) => st.get(key(x, y, z)) ?? (y <= 71 ? STONE : AIR) }
+  const { bot } = fakeBot(w, { x: 300.5, y: 91, z: 300.5 }, { blocks: 0 })
+  let r = null
+  for (let k = 0; k < 6 && !(r && r.status === 'success' && descentDone(w.at, supportOf(bot.entity.position)).done); k++) r = await SK.skyDescend({ bot }, {}, ac(), FAST)
+  assert.ok(descentDone(w.at, supportOf(bot.entity.position)).done, `walked the stair down (${JSON.stringify(r)} at ${bot.entity.position})`)
+})
+
+// ---------------------------------------------------------------- r7 (Claude r5): the r6 fixes, each with a mutant that fails
+/** Natural ground (top 72) over a cave 21 x 21 (y 60..69) under a 2-thick roof, with a 3x3 mouth 12 cells east. */
+const caveMouth = (x, y, z) => {
+  const inCave = Math.abs(x - 300) <= 10 && Math.abs(z - 300) <= 10 && y >= 60 && y <= 69
+  const mouth = Math.abs(x - 312) <= 1 && Math.abs(z - 300) <= 1 && y >= 60 && y <= 71
+  return inCave || mouth || (x >= 310 && x <= 313 && Math.abs(z - 300) <= 1 && y >= 60 && y <= 69) ? AIR : y <= 71 ? STONE : AIR
+}
+/** A closed cave whose ceiling rises 10 under a hill (no opening). */
+const dome = (x, y, z) => (Math.abs(x - 300) <= 10 && Math.abs(z - 300) <= 10 && y >= 60 && y <= (Math.abs(x - 306) <= 2 ? 80 : 69) ? AIR : y <= (Math.abs(x - 306) <= 3 ? 90 : 71) ? STONE : AIR)
+const patchBy = col => { const w = thickPatch(); col(w); return w }
+await ta('r7: a cave mouth 12 away and a dome are terrain; a thick patch beside a full pillar or a gappy hanging column is a platform', () => {
+  assert.equal(elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at: caveMouth }).elevated, false, 'cave mouth')
+  assert.equal(elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at: dome }).elevated, false, 'dome')
+  const pillar = patchBy(w => { for (let y = 72; y <= 179; y++) w.m.set(key(358, y, 152), COBBLE) })
+  assert.equal(elevation({ pos: { x: 355.5, y: 181, z: 150.5 }, at: pillar.at }).elevated, true, 'patch beside a full pillar')
+  const gappy = patchBy(w => { for (const y of [...Array(11).keys()].map(i => 170 + i).concat([...Array(10).keys()].map(i => 157 + i))) w.m.set(key(358, y, 152), COBBLE) })
+  assert.equal(descentDone(gappy.at, { x: 355, y: 180, z: 150 }).done, false, 'patch beside a gappy hanging column')
+})
+await ta('r7: a fence top is its own support; descendOrder says when the wait clock restarts', () => {
+  const FENCE = { name: 'oak_fence', boundingBox: 'block', shapes: [[0.375, 0, 0.375, 0.625, 1.5, 0.625]] }
+  const at = (x, y, z) => (x === 300 && y === 75 && z === 300 ? FENCE : y <= 71 ? STONE : AIR)
+  assert.deepEqual(RF.bodySupport({ x: 300.5, y: 76.5, z: 300.5 }, at), { x: 300, y: 75, z: 300 })
+  const el = elevation({ pos: ON_DECK, at: skyWorld().at })
+  assert.equal(descendOrder({ now: 1e7, lastSpawnAt: 1e7 - 1000, el }).fresh, true, 'an episode starts fresh')
+  assert.equal(descendOrder({ now: 1e7, el, state: { active: true } }).fresh, undefined, 'a running one does not')
+  assert.equal(descendOrder({ now: 1e7, el: { elevated: false, why: 'x' }, done: { done: true }, state: { active: true } }).fresh, true, 'an ending one does')
+})
+await ta('MUTANT KILLED: a pillar counted as the region\'s ground makes a thick patch beside it look like the ground', async () => {
+  await withMutant(RF_URL, ' && (exposedAt(R, c.x, c.y, c.z)?.sides ?? 0) <= 1) { grounded = true; break }', ') { grounded = true; break }', async m => {
+    const pillar = patchBy(w => { for (let y = 72; y <= 179; y++) w.m.set(key(358, y, 152), COBBLE) })
+    assert.equal(m.elevation({ pos: { x: 355.5, y: 181, z: 150.5 }, at: pillar.at }).elevated, false)
+  })
+})
+await ta('MUTANT KILLED: one sky-open direction turns a cave mouth 12 away into a platform', async () => {
+  await withMutant(RF_URL, 'export const SKY_SIDES = 3 ', 'export const SKY_SIDES = 1 ', async m => {
+    assert.equal(m.elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at: caveMouth }).elevated, true)
+  })
+})
+await ta('MUTANT KILLED: without the fence-top branch a bot on a fence reads as having no support', async () => {
+  await withMutant(RF_URL, '  if (low.y !== s.y && kind(rd(low.x, low.y, low.z)) === \'solid\' && topOf(rd(low.x, low.y, low.z)) > 1) return low\n', '', async m => {
+    const FENCE = { name: 'oak_fence', boundingBox: 'block', shapes: [[0.375, 0, 0.375, 0.625, 1.5, 0.625]] }
+    const at = (x, y, z) => (x === 300 && y === 75 && z === 300 ? FENCE : y <= 71 ? STONE : AIR)
+    assert.notDeepEqual(m.bodySupport({ x: 300.5, y: 76.5, z: 300.5 }, at), { x: 300, y: 75, z: 300 })
+  })
+})
+await ta('MUTANT KILLED: an episode that never says fresh keeps the last episode\'s wait clock', async () => {
+  await withMutant(RF_URL, '  return { issue: true, why: el.why, state: s, fresh: true }', '  return { issue: true, why: el.why, state: s }', async m => {
+    const el = elevation({ pos: ON_DECK, at: skyWorld().at })
+    assert.equal(m.descendOrder({ now: 1e7, lastSpawnAt: 1e7 - 1000, el }).fresh, undefined)
+  })
 })
 
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
