@@ -232,6 +232,17 @@ export function refundDeclined (skill, st = {}) {
 }
 
 /**
+ * JUNKOUT-01'S TOWN-VISIT ORDERS YIELD TO THESE (pure): the order in hand keeps the decision and the visit is ticked only
+ * (never issued: issuing latches the visit and charges the well's / composter's / tail's cooldown). The full-bag town
+ * deposit, the plinth build and the recount (junkout-01's own list), and -- JUNKOUT-01 x FOUND-01 (JIT 10-24) -- the found
+ * slot: found_store / found_work charge their visit and 10-min cooldown when they ISSUE, so a visit that replaced one spent
+ * the found slot on an order that never ran (the recount already yields to it for the same reason). The visit comes on a
+ * later decision of the same stay.
+ */
+export const VISIT_YIELDS_TO = new Set(['town_deposit', 'build_plinth', 'count_town', 'found_store', 'found_work'])
+export function visitYieldsTo (order) { return !!order && VISIT_YIELDS_TO.has(order.skill) }
+
+/**
  * JUNKOUT-01 x KEEPOUT-01 (jit-1023) -> the state fields to assign (pure). A junkout visit order the keep-out exit
  * DISPLACED never ran: the visit is not spent (the latch re-arms with the reason that armed it, as a decline does:
  * visitLatchDeclined) and everything its issue charged is given back -- the visit's scan cadence, the tail's own cooldown,
@@ -1114,7 +1125,8 @@ export class CognitiveLoop {
       // the same for each (a yielded C12 column lets them run). Ticked only: the latch stays armed, and the visit issues on the
       // first decision outside. The exit's own call below refunds a visit it displaces anyway (visitDisplacedRefund).
       const exitFirst = () => { try { return this.#keepoutExitDecision({ skill: VISIT_SKILLS[0] })?.start === true } catch { return false } }
-      const blocked = (!!order && ['town_deposit', 'build_plinth', 'count_town'].includes(order.skill)) || exitFirst()
+      // JUNKOUT-01 x FOUND-01 (JIT 10-24): the found slot is one of the orders the visit yields to (visitYieldsTo)
+      const blocked = visitYieldsTo(order) || exitFirst()
       const visit = this.#visitOrder(milestone, { tickOnly: blocked })
       if (visit) order = visit
     }
