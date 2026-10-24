@@ -398,6 +398,8 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
 
 **Read** `scripts/host/ceilescaperead.py`.
 - **The instrument is `bot.pos`** (all rows), not the rung's rows.
+- **Primary, deterministic (Claude r1 P2-10: n = 1). A death is not an escape** (Claude code r2 P1): only positions before
+  the bot's first post-deploy `_death` count, and a bot that dies first reads `died`.
 - **Primary, deterministic (Claude r1 P2-10: n = 1).** Did board-a-Comet leave? It counts as left when its x/z leaves
   359.0-360.0 / 186.0-188.0 or its y leaves 38.5-41.0, and it stays out 30 min. Each other canary bot that logs
   `_ceilescape action=lateral` is reported the same way.
@@ -407,9 +409,9 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
   - **G2 the unchanged promise** (a correctness REVERT). A `_ceilescape` row on a bot whose newest `_ceilescape_mode` licence is
     `on=1`, with `env_ms <= left_ms` and an action other than `ceiling`. The rollback's `action=off` rows are exempt (Codex r2
     P2-7).
-  - **G3 a declined swing that was swung anyway** (a correctness REVERT). This is judged per FIRING, not by time proximity
-    (Codex r2 P2-7): a firing is the bot's `_ceilescape` rows since its previous `_entombed_ramp_cut` / `_marooned_ramp_cut`
-    row, up to and including the next one. The gate trips when the firing's last `_ceilescape` row says `wait` or `escalate`
+  - **G3 a declined swing that was swung anyway** (a correctness REVERT). This is judged per FIRING, by its ID (Codex code
+    r2 P2): every `_ceilescape` row carries `fire=<id>` from its escapeStairUp call, and the arms' ramp_cut rows carry the same
+    `fire=`, so a stranded lattice's stair_up (rows, no ramp_cut) never joins another firing. The gate trips when the firing's last `_ceilescape` row says `wait` or `escalate`
     and its ramp_cut row reads `dig exceeded`.
     - REPORTED, not gated (Claude r2 P2-3): firings whose last row says `ceiling` and which still end `dig exceeded`. There are
       two kinds:
@@ -428,6 +430,8 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
 - One exposed pool, not tier 2's four: **TIER 3**, with `draw_require_pools: ["board-a"]` and no kind-based
   `draw_exposure` requirement (poolescape-01's shape: a one-pool requirement makes drawexposure refuse, "two are needed").
   Exposure is the read's: at least 1 canary `_ceilescape` row with an action other than `ceiling`.
+- **The flag's first live run is after promotion** (Claude code r2 P3-2): the post-promotion `--fleet` tripwire must show,
+  within 3 h, placebo-c-Bravo writing `action=escalate` and the fleetstatus header printing `!! needs rescue ... placebo-c-Bravo`.
 - An entry fragment only: `docs/reports/ceilescape-01.queue-entry-fragment.json` and the registrations
   `docs/reports/ceilescape-01.<sha8>.json`.
 
@@ -450,3 +454,4 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
 | design r1 (03799f71) | CHANGES (6 P1, 3 P2) | CHANGES (4 P1, 6 P2, 4 P3) | r2:<br>- price the real hand (`bot.digTime`);<br>- per-swing in the step loop, with no substitution;<br>- the full-budget rule (`wait` vs `escalate`);<br>- wet feet at the plan, plus `cellFloods`;<br>- the frame passed and checked;<br>- the float hold stands aside while steering;<br>- forward re-asserted;<br>- swim-up before forward, no ledge impulse;<br>- no hold;<br>- the prerequisite unchanged;<br>- the flag consumes resolution;<br>- read gates on the death floor;<br>- the Paper arena includes the feed;<br>- the virtual-clock test world. |
 | design r2 + code (09e02b96) | CHANGES (3 P1, 3 P2); r1 P1s all RESOLVED; step 0 inside | APPROVE (4 P2, 7 P3); step 0 inside | r3:<br>- the block priced is the block swung at (replan on change);<br>- `cellFloods` conservative (only water-over-water with no source beside is exempt) and re-asked before the move;<br>- frame checks for every frame-carrying sidestep, after the hand change and immediately before the stroke;<br>- `wait` judged on a fresh firing (minus the settle);<br>- the chooser's bearing decides the step escalation, a free step is a move;<br>- the new ceiling priced at the arrival state, with its settles;<br>- the stranded lattice stands aside; steering a count;<br>- arrival waits for the landing;<br>- rescue rows per cell;<br>- G2 exempts `off`, G3 per firing with a near-miss report;<br>- tests: 60, incl. CEILESCAPE=0 vs the BASE module trace for trace on four scenes. |
 | code r1 (da0d07b0) | CHANGES (1 P1, 3 P2); r2 design P1s RESOLVED except the recheck | CHANGES (1 P1 test-only, 4 P2, 5 P3) | r4:<br>- the destination (tread, lava, head flooding) and the frame asked AFTER the swim-up, immediately before the stroke;<br>- the steering counter raised inside the try;<br>- the sink case on a slow swimmer, with a real no-swim-up kill and a lava-during-the-rise case (killed by the old order);<br>- Bravo's marooned step admission asserted unconditionally;<br>- the read: the column box of section 9, the licence at each decision's time, G3 bounded to a firing's own rows;<br>- the trace comparison loads the base scaffold.mjs too;<br>- rescue_line() selftested on a fake EsEvents. |
+| code r2 (79bbdc71) | CHANGES (2 P2, read only); r1 all RESOLVED | CHANGES (1 P1 read-only, 3 P3) | r5:<br>- a death is not an escape (the primary reads only pre-death positions: `died`);<br>- the liveness gate reads the latest licence;<br>- G3 pairs rows by a FIRING ID (`fire=` on every `_ceilescape` row and on both arms' ramp_cut rows);<br>- floodBranch passes the steering flag too;<br>- the post-promotion check for the flag named. |
