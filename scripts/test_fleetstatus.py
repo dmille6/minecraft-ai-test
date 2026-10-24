@@ -400,6 +400,78 @@ def t_frontier_line_is_in_the_header():
     assert 'frontier' in rep and any(x.startswith(('frontier census (E0)', '!! frontier census (E0)')) for x in head), head
 
 
+READER = os.path.join(HERE, 'host', 'structcount', 'scread.py')
+
+
+def _sc_mirror(day='2026-10-23', status='OK', attempt='A1', newer=None, started='2026-10-23T03:45:00+00:00', ended=None):
+    """A structcount mirror (the layout pull.py writes) in a temp dir; returns its path."""
+    import hashlib
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, 'gen-1')); os.makedirs(os.path.join(d, 'attempts'))
+    p = os.path.join(d, 'gen-1', 'structcount-day.json')
+    json.dump({'hive-a': {'buildings': 2}, 'board-a': {'buildings': 0}}, open(p, 'w'))
+    h = hashlib.sha256(open(p, 'rb').read()).hexdigest()
+    json.dump({'day': day, 'attempt': attempt, 'status': status, 'why': 'invalid: hive-a: stamp control 1 < floor 150',
+               'generation': 'gen-1', 'files': {'structcount-day.json': h, 'cells.json.gz': 'x'},
+               'last_good': {'generation': 'gen-1', 'sha': h},
+               'totals': {'buildings': 2, 'unlit_rooms': 1, 'surface_structures': 1533, 'worlds': 16}}, open(os.path.join(d, 'manifest.json'), 'w'))
+    att = {'attempt': newer or attempt, 'day': day, 'started': started}
+    if ended:
+        att['ended'] = ended
+    json.dump(att, open(os.path.join(d, 'attempts', 'attempt.json'), 'w'))
+    return d
+
+
+SCNOW = dt.datetime(2026, 10, 23, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def t_structcount_line_ok():
+    line = FS.structcount_line(SCNOW, sdir=_sc_mirror(), reader=READER)
+    assert line.startswith('structcount (B5 buildings, from the world): OK today: 2 buildings (hive-a 2)'), line
+
+
+def t_structcount_line_unknown_is_an_alarm():
+    line = FS.structcount_line(SCNOW, sdir=_sc_mirror(status='UNKNOWN'), reader=READER)
+    assert line.startswith('!! structcount') and 'stamp control' in line, line
+
+
+def t_structcount_line_failed_retry_after_ok_is_an_alarm():
+    line = FS.structcount_line(SCNOW, sdir=_sc_mirror(newer='A2', ended='2026-10-23T04:00:00+00:00'), reader=READER)
+    assert line.startswith('!! structcount') and 'A2 has no manifest' in line, line
+
+
+def t_structcount_line_running_is_not_an_alarm():
+    line = FS.structcount_line(SCNOW, sdir=_sc_mirror(newer='A2', started='2026-10-23T11:50:00+00:00'), reader=READER)
+    assert line.startswith('structcount (B5 buildings, from the world): RUNNING'), line
+
+
+def t_structcount_line_before_due_shows_yesterday():
+    early = dt.datetime(2026, 10, 24, 2, 0, tzinfo=dt.timezone.utc)
+    line = FS.structcount_line(early, sdir=_sc_mirror(), reader=READER)
+    assert 'OK yesterday' in line and not line.startswith('!!'), line
+    late = dt.datetime(2026, 10, 24, 7, 0, tzinfo=dt.timezone.utc)
+    line = FS.structcount_line(late, sdir=_sc_mirror(), reader=READER)
+    assert line.startswith('!! structcount') and 'stale manifest' in line, line
+
+
+def t_structcount_line_never_raises():
+    line = FS.structcount_line(SCNOW, sdir='/nonexistent', reader='/nonexistent/scread.py')
+    assert line.startswith('!! structcount: UNREADABLE'), line
+    line = FS.structcount_line(SCNOW, sdir='/nonexistent', reader=READER)
+    assert line.startswith('!! structcount') and 'no readable manifest' in line, line
+    bad = os.path.join(tempfile.mkdtemp(), 'scread.py')
+    open(bad, 'w').write('def status(:\n')                      # a broken reader (SyntaxError, not an OSError)
+    line = FS.structcount_line(SCNOW, sdir=_sc_mirror(), reader=bad)
+    assert line.startswith('!! structcount: UNREADABLE (SyntaxError'), line
+
+
+def t_structcount_line_is_in_the_header():
+    out = io.StringIO()
+    rep = run(fleet_docs(), stdout=out)
+    head = out.getvalue().splitlines()[:6]
+    assert 'structcount' in rep and any('structcount' in x for x in head), head
+
+
 def t_showcase_block_never_raises():
     """docs/reports/showcase-2026-10-20.md s.4: the SHOWCASE block reads only its own streams and NEVER takes the
     fleet report down: an ES that refuses everything yields one line per part, no exception."""

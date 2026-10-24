@@ -41,6 +41,7 @@ DENOMINATORS. bot-hours = ACTIVE bot-hours: (bot, hour) pairs with >= 1 document
 Deaths/bot-hour, successes/bot-hour divide by it. Per-world figures say "of N worlds"; success rates say "of N attempts".
 """
 import argparse
+import importlib.util
 import datetime as dt
 import glob
 import html
@@ -870,6 +871,7 @@ def census_index(d):
 
 # ------------------------------------------------------------------------------------------------ the day document
 HEADLINES = [   # (section, key, field, label, unit, better)  better: +1 up is good, -1 down is good, 0 neutral
+    ('build', 'buildings_b5', 'value', 'Buildings (B5, counted from the world)', 'buildings', 1),
     ('build', 'wells_in_use', 'value', 'Wells in use', 'wells', 1),
     ('build', 'raised_wells_in_use', 'value', 'Raised wells in use', 'wells', 1),
     ('build', 'plinth_blocks_placed', 'value', 'Plinth blocks placed', 'blocks', 1),
@@ -902,12 +904,35 @@ HEADLINES = [   # (section, key, field, label, unit, better)  better: +1 up is g
 ]
 
 
+def structcount_metric(day, sdir, reader):
+    """OWNER B5 buildings, counted FROM THE WORLD (the structure count, building tier step 0) for one UTC day: the count
+    published on 10.0.0.30 after that day's 03:15Z backup and mirrored here by pull.py. Read with the count's own reader;
+    anything but an OK publication FOR THAT DAY is a gap ('no_structcount'), never a zero."""
+    src = 'structcount (10.0.0.30 ~/structcount/out, mirrored to %s)' % sdir
+    window = 'the worlds as of the %s 03:15Z backup' % day.isoformat()
+    try:
+        spec = importlib.util.spec_from_file_location('scread', os.path.expanduser(reader))
+        rd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rd)
+        d = os.path.expanduser(sdir)
+        r = rd.status(d, os.path.join(d, 'attempts'), day.isoformat(), only=rd.MIRROR_FILES)
+    except Exception as e:                       # noqa: BLE001 -- an unreadable count is a gap with its reason
+        return metric(None, 'buildings', src, window, status='no_structcount', note='%s: %s' % (type(e).__name__, str(e)[:80]))
+    if r['status'] != 'OK':
+        return metric(None, 'buildings', src, window, status='no_structcount', note='%s: %s' % (r['status'], r['why']))
+    t = r['totals'] or {}
+    return metric(t.get('buildings'), 'buildings', src, window, denom=('worlds counted', t.get('worlds')), rate_ok=False,
+                  control='published only after the stamp, coverage and negative controls passed in every world',
+                  unlit_rooms=t.get('unlit_rooms'), surface_structures=t.get('surface_structures'),
+                  by_world={w: v.get('buildings') for w, v in sorted((r['doc'] or {}).items())})
+
+
 def headline(doc):
     row = {'day': doc['day'], 'partial': doc['partial']}
     for sec, key, field, *_ in HEADLINES:
         m = doc[sec].get(key) or {}
         # a day before the kind existed is a GAP in the trend, not a zero (it would drag the average down)
-        row[f'{sec}.{key}.{field}'] = None if m.get('status') in ('not_live_yet', 'no_census') else m.get(field)
+        row[f'{sec}.{key}.{field}'] = None if m.get('status') in ('not_live_yet', 'no_census', 'no_structcount') else m.get(field)
     return row
 
 
@@ -925,6 +950,8 @@ def day_doc(day, now, kinds, args, raised, deaths, census_files, known, homes):
                      'builds_live': {k[:8] + k[40:]: v for k, v in sorted(versions.items(), key=lambda x: -x[1])[:6]},
                      'caveats': D.ev.caveats},
            'build': D.build(raised), 'survive': D.survive(deaths), 'together': D.together(), 'health': D.health(census_files)}
+    doc['build']['buildings_b5'] = structcount_metric(day, getattr(args, 'structcount_dir', '~/structcount/in'),
+                                                      getattr(args, 'structcount_reader', '~/structcount/bin/scread.py'))
     return doc
 
 
@@ -994,7 +1021,7 @@ def render_html(docs):
                 trend = f'<span class="trend {cls}">{arrow} vs {fmt(avg)} avg</span>'
             den = m.get('denominator') or {}
             badge = ''
-            if m.get('status') in ('not_live_yet', 'no_census', 'census_partial', 'zero_kind_present', 'zero_kind_absent'):
+            if m.get('status') in ('not_live_yet', 'no_census', 'no_structcount', 'census_partial', 'zero_kind_present', 'zero_kind_absent'):
                 badge = f'<span class="badge">{e(m["status"].replace("_", " "))}</span>'
             tip = f'source: {m.get("source", "")}\nwindow: {m.get("window", "")}\ndenominator: {den.get("what", "-")} = {den.get("value", "-")}'
             tiles.append(f'''<div class="tile" title="{e(tip)}"><div class="lab">{e(label)} {badge}</div>
@@ -1066,6 +1093,8 @@ def main():
     ap.add_argument('--to', help='last UTC day; default: --from. Today gives a PARTIAL day')
     ap.add_argument('--out-dir', default='~/goalboard/out')
     ap.add_argument('--census-dir', default='~/goalboard/census')
+    ap.add_argument('--structcount-dir', default='~/structcount/in', help='the pull.py mirror of the structure count')
+    ap.add_argument('--structcount-reader', default='~/structcount/bin/scread.py')
     ap.add_argument('--wells-dir', default='/var/lib/mcai')
     ap.add_argument('--stack', default='~/stack.json')
     ap.add_argument('--html', help='write the self-contained page here (today vs the 7-day trend)')

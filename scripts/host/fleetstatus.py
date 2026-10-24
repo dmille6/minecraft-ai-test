@@ -107,6 +107,49 @@ def _ts(s):
     return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
 
 
+# STRUCTURE COUNT (building tier step 0, docs/reports/building-tier-2026-10-23.md section 2): structcount.py daily runs on
+# 10.0.0.30 after the 03:15Z world backup; pull.py mirrors its publication here hourly (owner Q8). The line reads the mirror
+# with the count's OWN reader (scread.py, installed beside pull.py), so this report and the count can never disagree about
+# what "published" means. Before 06:00Z, yesterday's OK publication is the normal state (today's waits for the backup).
+STRUCTCOUNT_IN = '~/structcount/in'
+STRUCTCOUNT_READER = '~/structcount/bin/scread.py'
+STRUCTCOUNT_DUE = dt.time(6, 0)
+
+
+def structcount_line(now, sdir=None, reader=None):
+    """One header line for the structure count. NEVER raises: no mirror, no reader, a failed or stale publication is an
+    alarm line ('!! '). RUNNING (today's attempt is in progress) is not an alarm."""
+    try:
+        import importlib.util
+        rp = os.path.expanduser(reader or STRUCTCOUNT_READER)
+        spec = importlib.util.spec_from_file_location('scread', rp)
+        rd = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rd)
+        d = os.path.expanduser(sdir or STRUCTCOUNT_IN)
+        att = os.path.join(d, 'attempts')
+        today = now.strftime('%Y-%m-%d')
+        r = rd.status(d, att, today, now, only=rd.MIRROR_FILES)
+        if r['status'] != 'OK' and now.time() < STRUCTCOUNT_DUE:
+            y = rd.status(d, att, (now - dt.timedelta(days=1)).strftime('%Y-%m-%d'), now, only=rd.MIRROR_FILES)
+            if y['status'] == 'OK':
+                r, when = y, 'yesterday (today due after the 03:15Z backup, by 06:00Z)'
+            else:
+                when = None
+        else:
+            when = 'today'
+        if r['status'] == 'RUNNING':
+            return f'structcount (B5 buildings, from the world): RUNNING -- {r["why"]}'
+        if r['status'] != 'OK':
+            return f'!! structcount (B5 buildings, from the world): {r["status"]} -- {r["why"]}; history {r.get("history") or "none"}'
+        doc = r['doc'] or {}
+        t = r['totals'] or {}
+        towns = ', '.join(f'{w} {v["buildings"]}' for w, v in sorted(doc.items()) if v.get('buildings')) or 'none'
+        return (f'structcount (B5 buildings, from the world): OK {when}: {t.get("buildings")} buildings ({towns}), '
+                f'{t.get("unlit_rooms")} unlit rooms, {t.get("surface_structures"):,} surface structures in {t.get("worlds")} worlds')
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! structcount: UNREADABLE ({type(e).__name__}: {str(e)[:80]}) -- mirror {sdir or STRUCTCOUNT_IN}, reader {reader or STRUCTCOUNT_READER}'
+
+
 def frontier_line(now, path=None):
     """One header line for the frontier census. NEVER raises (a malformed heartbeat is an alarm line too): missing,
     unreadable, stale, VOID, error, instrument, behind, a town left out or gone, unread hazards, and -- once warm --
@@ -492,6 +535,8 @@ def show(rep):
         print(rep['frontier'])
     if rep.get('coop'):
         print(rep['coop'])
+    if rep.get('structcount'):
+        print(rep['structcount'])
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -540,7 +585,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'coop': coop_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'coop': coop_line(now), 'structcount': structcount_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
