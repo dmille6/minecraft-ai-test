@@ -68,7 +68,9 @@ const topIn = (b, fp) => {
 const fullCube = b => cellKind(b) === 'solid' && shapesOf(b).some(s => s[0] <= 0 && s[2] <= 0 && s[3] >= 1 && s[5] >= 1 && s[1] <= 0 && s[4] >= 1)
 /** Does a shape of `b` (cell at height cy) overlap the footprint AND the vertical span (lo, hi)? */
 const meets = (b, cy, fp, lo, hi) => shapesOf(b).some(s => s[0] < fp.x[1] && s[3] > fp.x[0] && s[2] < fp.z[1] && s[5] > fp.z[0] && cy + s[1] < hi && cy + s[4] > lo)
-const KIND_RANK = { water: 0, solid: 1, stalagmite: 2, lava: 3, unknown: 4, deep: 5 }
+/** On an exact tie between two stops, a body resting on a solid top is held by it (Claude r4 P3-3: a fluid or unloaded cell
+ * whose top only reaches the same height does not out-rank the cube that catches the body); between solids, the tip is worse. */
+const KIND_RANK = { water: 0, lava: 1, unknown: 2, deep: 3, solid: 4, stalagmite: 5 }
 const HALF = 0.3, BODY_H = 1.8
 /** Body-centre positions (cell-local) tried over T: every placement whose 0.6-wide box overlaps T's column, edges included
  * (Codex r3 P1: a body at x 0.97 misses a fence post that every centred-or-half-straddle footprint met). */
