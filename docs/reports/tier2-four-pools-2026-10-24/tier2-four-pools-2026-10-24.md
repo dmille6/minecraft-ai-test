@@ -6,8 +6,8 @@ draw takes what is free. This is the smallest mechanical enforcement, its replay
 with auto-registering tier 3 at draw time. Branch `tier2-min4-1024` (on `queue-speed-1023`, whose replay tools it
 reuses). Host 10.0.0.31: files read, read-only programs over ssh stdin; nothing written there.
 
-**Round 3** (section 7): Claude APPROVED round 2 with P3s; Codex found one P2 (R10's exit-2 path). Both are fixed
-here. **Round 2**: both engines asked for changes in round 1. The headline replay number was wrong — a replay bug
+**BOTH ENGINES APPROVE round 3 (commit 7a8e7fe8)** — Codex and Claude, P3 nits only (section 7). Round 3 fixed
+Codex's round-2 P2 (R10's exit-2 path) and Claude's round-2 P3s. **Round 2**: both engines asked for changes in round 1. The headline replay number was wrong — a replay bug
 (poolescape-01) — and is corrected here; the loop gained a count interlock; the scheduler's tier-2 wait gained its
 12-h page; the wording no longer claims bounds the replay cannot support.
 
@@ -62,7 +62,7 @@ scheduler 1a333d49.
      structurally narrow head does not park a loop in `draw` holding the loop lock (which shuts installers out). This is
      NECESSARY, not sufficient: the band, ledger and steady release are the draw's, so a head that passes R10 can still
      wait in the loop, bounded there. A `tier` it cannot classify BLOCKS — a tier-3 head with an unreadable tierrule.py
-     included (newly blocked; fail closed).
+     included, on exit 0 and exit 2 alike (newly blocked where it used to pass or wait; fail closed).
    - W4 (`r10_wait_pages`, a pure function): every R10 wait pages a flag past 3 h naming its floor ("two", or "four" for
      tier 2 — the old text always said two); a tier-2 wait also pages an ERROR from 12 h naming the remedies
      (replace-variant to tier 3, or `queue hold` and reorder). It stays a wait, not a block: in a serial queue a block
@@ -154,7 +154,7 @@ Every number below is conditional on A1 and A2. They can move other pools' eligi
 | `patches/test_drawrec_tier2.py <patched drawrec> drawrequire tierrule --mutants` — the REAL drawrec Python block on fixtures | 19/19 (no tier / tier 3 unchanged; tier 2 with 2, 3, 4, 6 eligible; class / `True` tiers ignored; draw_k 2 and True refused, draw_k 4, 5, 0, False draw 4; tierrule missing with and without a tier key; draw_require + tier 2 with 3 and 2 others; tier-3 draw_require positive control); 5/5 mutants |
 | `patches/test_loop_tier2.py <patched loop> tierrule drawrequire --mutants` — the loop's OWN tier-2 code cut from the patched canary-loop.sh, fake clock | 22/22 (drawn at once; draw-short rows then drawn; refusal at the first empty draw at or past 12 h, page naming when each remedy applies; the bound is the configured value; untiered and 3-pool untiered positive controls; count interlock; draw_k 2/True refused, 0/False/4/5 not; 5 required refused, 1 not; a malformed required list refused for tier 2, untouched untiered; unclassifiable tier journalled and refused; no tier + no tierrule drawn); 11/11 mutants |
 | `test_replay_min4.py --mutants` — the replay's waiting-world eligibility on a stub | 9/9 (the round-1 method loses the 4th pool — positive control; the regression; ledger and other-run exclusions still apply; own telemetry out of the median; steady release decided in the waiting world, with its control); 3/3 mutants |
-| scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 105/105 (93 + 12: tier-2 R10 waits on 2 and 3 exposure pools, launches on 4; a required pool off the list counts, one on it does not, placebo-c never; one exposure pool (exit 2) + 3 required launches, + 2 waits, untiered unchanged; tier 3 unchanged; unclassifiable tier blocks; `r10_wait_pages` decision; tier-2 wait flagged at 3 h and errored at 12 h, still not launched; untiered wait never errored); 74/74 mutants killed |
+| scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 106/106 (93 + 13: tier-2 R10 waits on 2 and 3 exposure pools, launches on 4; a required pool off the list counts, one on it does not, placebo-c never; one exposure pool (exit 2) + 3 required launches, + 2 waits, untiered unchanged; tier 3 unchanged; unclassifiable tier blocks; `r10_wait_pages` decision; tier-2 wait flagged at 3 h and errored at 12 h, still not launched; untiered wait never errored; + 1 after round 3: an isolated-* required pool on its own); 75/75 mutants killed |
 | scripts/test_drawrequire.py on the patched drawrec | 35/35 |
 | scripts/test_threepool.py with the patched loop + drawrec | 163/163 (2 host-only skipped, as before) |
 
@@ -210,7 +210,15 @@ count interlock refuses a tier-2 draw from a drawrec without the rule, so a part
 | P3 only one drifted repo drawrec named | Claude | both named in section 6 |
 | P3 R10 counts a never-drawable required pool | Claude | placebo-c / isolated-* not counted (test + mutant); brain-subset left to the loop's bound (necessary, not sufficient) |
 
-**Round 3:** (pending)
+**Round 3 (commit 7a8e7fe8): Codex APPROVE, Claude APPROVE** (Claude re-ran the loop, drawrec and scheduler suites
+with mutants on copies rebuilt from the patches; Codex checked 360 in-memory R10 cases and patch-to-copy equivalence).
+P3s only, handled after approval WITHOUT touching production code (the patched scheduler, loop and drawrec are
+byte-identical to the approved round 3):
+
+| P3 | by | handling |
+|---|---|---|
+| `isolated-*` has no test of its own; the mutant removed both exclusions at once | Codex | test-only: an `isolated-a` case, and the one mutant split into two (one per predicate) |
+| the fail-closed block on an unclassifiable tier now also applies on drawexposure exit 2 | Claude | section 1.3 says so |
 
 ## 8. Questions for the owner
 

@@ -19,7 +19,7 @@
              'if m == "few": print("eligible on exposure: [\'board-a\']"); sys.exit(2)\n'
              'if m == "little": print("REFUSED: the exposure read found too little to prove anything"); sys.exit(2)\n'
              'raise SystemExit("Traceback: crash")\n')
-@@ -588,8 +593,125 @@
+@@ -588,8 +593,131 @@
  
  def t_r10_undeclared_must_say_so(CS, F):
      F.enqueue(CS); expect(CS, F, 'block', 'R10', FIX_DE='ok')
@@ -54,13 +54,13 @@
 +    required off the list = four -> launch; the same one pool + two required = three -> waits (tier 2's floor)."""
 +    _t2_reg(F, draw_require_pools=['board-b', 'hive-a', 'hive-b']); F.enqueue(CS)
 +    expect(CS, F, 'launch', FIX_DE='few')
- 
- 
++
++
 +def t_r10_tier2_one_exposure_two_required_waits(CS, F):
 +    _t2_reg(F, draw_require_pools=['board-b', 'hive-b']); F.enqueue(CS)
 +    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='few')
-+
-+
+ 
+ 
 +def t_r10_untiered_below_two_unchanged(CS, F):
 +    """Positive control: an untiered head with one exposure pool and three required pools waits as today ('two')."""
 +    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []},
@@ -72,6 +72,12 @@
 +def t_r10_tier2_never_drawable_required_does_not_count(CS, F):
 +    """Claude r2 P3: a required pool drawrec can never draw (placebo-c, isolated-*) does not make the fourth."""
 +    _t2_reg(F, draw_require_pools=['placebo-c']); F.enqueue(CS)
++    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='three')
++
++
++def t_r10_tier2_isolated_required_does_not_count(CS, F):
++    """Codex r3 P3: the isolated-* exclusion on its own (placebo-c is tested above)."""
++    _t2_reg(F, draw_require_pools=['isolated-a']); F.enqueue(CS)
 +    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='three')
 +
 +
@@ -145,7 +151,7 @@
  def _launch(CS, F, mode):
      with Env(F.env(FIX_LOOP=mode)):
          assert CS.tick(CS.paths()) == 0
-@@ -1115,7 +1237,24 @@
+@@ -1115,7 +1243,26 @@
       "                if not dropin(b) and ((last_rec and ent) or"),
      ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
       "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
@@ -161,7 +167,9 @@
 +    ("                    if len(can) < 4:", "                    if len(can) < 3:"),
 +    ("            if r.returncode in (0, 2):", "            if r.returncode == 0:"),
 +    ("                    req = {x for x in req if x != 'placebo-c' and not x.startswith('isolated')}",
-+     "                    req = set(req)"),
++     "                    req = {x for x in req if not x.startswith('isolated')}"),
++    ("                    req = {x for x in req if x != 'placebo-c' and not x.startswith('isolated')}",
++     "                    req = {x for x in req if x != 'placebo-c'}"),
 +    ("                    return ''              # four with the required pools", "                    pass  # four with the required pools"),
 +    ("                    can = set(re.findall(r\"'([a-z]+-[a-z])'\", elig)) | req",
 +     "                    can = set(re.findall(r\"'([a-z]+-[a-z])'\", elig))"),

@@ -10,7 +10,7 @@ PASS  t_h3_class_mismatch
 PASS  t_h3_registration_changed
 PASS  t_h3_run_deployed_before
 PASS  t_h3_staged_copy_differs
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1962c54, canary 686ec2d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1becd85, canary 5ca7adf)
 PASS  t_h4_absent_read_is_staged_at_launch
 PASS  t_h4_tmp_read_differs_never_overwritten
 PASS  t_h5_next_slot
@@ -42,22 +42,23 @@ PASS  t_impl_sha_from_launch_row_not_mutable_registration
 PASS  t_impl_sha_match_needs_real_prefix
 PASS  t_install_hold_exit_codes
 PASS  t_l_crash_before_popen_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on af3efe2, canary f848738)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 366b3a0, canary b5ae6af)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
 PASS  t_l_exit3_no_journal_blocks
 PASS  t_l_journalled_but_not_live_is_blocked
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f199840, canary ee217d8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 366b3a0, canary b5ae6af)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
 PASS  t_l_launch_then_refusal_blocks_and_pages
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8a1204f, canary f456ffc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c0adf2e, canary 1b5c83e)
 PASS  t_l_no_automatic_retry_then_rearm
 PASS  t_l_old_attempt_line_does_not_count
 PASS  t_l_reused_pid_is_not_alive
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f1c03b5, canary 6674c78)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 087b3de, canary faa924d)
 PASS  t_l_same_second_line_counts
 PASS  t_queue_add_refusals
 PASS  t_r10_crash_blocks
 PASS  t_r10_declared_needs_eligible_line
+PASS  t_r10_tier2_isolated_required_does_not_count
 PASS  t_r10_tier2_needs_four_exposure_pools
 PASS  t_r10_tier2_never_drawable_required_does_not_count
 PASS  t_r10_tier2_one_exposure_two_required_waits
@@ -123,17 +124,17 @@ PASS  t_w_drawstall_pages_from_first_draw
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 PASS  t_w_read_drift_pages
 
-105/105 tests pass
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7689920, canary 188f7ae)
+106/106 tests pass
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 970c884, canary 043d783)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on cf0beec, canary 80c3e78)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2cb871c, canary 11baadc)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8af6a12, canary c2b70ee)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a0b3288, canary 36068be)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8af6a12, canary c2b70ee)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8d327cd, canary 753d516)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 91d26b9, canary 1165f5e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c9e34bb, canary 21779a6)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -144,16 +145,16 @@ PASS  t_w_read_drift_pages
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  0 elif man.get('canary_pool') or man.get('canary_code_version'):         t_install_hold_exit_codes,t_s1_canary_declared
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 75a93f1, canary 353bcfa)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 565e29c, canary ccb3e0c)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f6f29f2, canary 0e13849)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b872726, canary 2962e61)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ff2616c, canary 133965a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f425b6c, canary 28c4eb6)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 88f6848, canary e167518)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e6d6659, canary 3e1b589)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f425b6c, canary 28c4eb6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a5c5bc0, canary b58922c)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -164,16 +165,16 @@ KILLED   mutant  0 elif man.get('canary_pool') or man.get('canary_code_version')
 2026-10-08T12:00:00Z BUSY: S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S7 foo-01 is live
 KILLED   mutant  1 if st.get('procs'):                                                    t_impl_install_hold_ignores_its_installer_parent,t_s2_chain_install_deploy,t_s2_loop_absolute
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b449005, canary 33c1763)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b0c602f, canary 02df406)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d39b409, canary c67f708)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e31dfa2, canary 4de512a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fea7882, canary 2785540)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0de9f72, canary 769f7d2)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0959585, canary fd1acf6)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 27c53f8, canary 29739fc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e0e2b13, canary 5b44a49)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ee8fce1, canary f28df7d)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -184,16 +185,16 @@ KILLED   mutant  1 if st.get('procs'):                                          
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  2 elif lk:                                                               t_s3_lock_held,t_s3_never_acquires
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a9a338a, canary fdbf5c9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 83ccff5, canary 5bb45c9)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7d3fe58, canary 06c9c1f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3fbdc14, canary 3050f29)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7d3fe58, canary 06c9c1f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a40332b, canary fe11d2d)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f0d175a, canary ce722c1)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on edf6379, canary c1ec384)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a40332b, canary fe11d2d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7eb9baf, canary fcc4a64)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -204,16 +205,16 @@ KILLED   mutant  2 elif lk:                                                     
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  3 elif st.get('dropins'):                                                t_s4_dropin,t_s5_stopped_with_dropin
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c673bba, canary 9375db0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2b494f1, canary 79e81a4)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 87df048, canary 7128281)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 891d033, canary 23f434c)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fccb549, canary 83abde7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a26cae4, canary 9a6a3e4)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fccb549, canary 83abde7)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on beeda42, canary 3d17bf2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a26cae4, canary 9a6a3e4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 775f7e3, canary a0b1df7)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -224,16 +225,16 @@ KILLED   mutant  3 elif st.get('dropins'):                                      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  4 if len(builds) != 1:                                                   t_human_closed_needs_ledger_row,t_s5_two_builds
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 02a1553, canary bbc9540)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1f503d5, canary aca2f45)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5fb10cf, canary a9a13ab)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d5f4d4f, canary 4e04ca3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 249f40e, canary 8435001)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5964553, canary 52aaad1)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ace44bd, canary 65006c0)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 31b3b64, canary 2c053ba)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5964553, canary 52aaad1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 63d1550, canary f77695a)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -244,16 +245,16 @@ KILLED   mutant  4 if len(builds) != 1:                                         
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  5 if st.get('stale_units'):                                              t_s5_settling_is_busy,t_s5_silent_bot_no_canary_anywhere_passes,t_s5_silent_started_before_recorded_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ea0d03c, canary 88d8edb)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a3b976f, canary f503cfb)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 78b70c1, canary a8d4941)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 24ff595, canary 5a762a0)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a9dc3e9, canary 4c74904)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 828c4e5, canary 06f3797)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9f1a6e4, canary ef3c811)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a93a452, canary c10e4df)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 356f581, canary fa20e03)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 73ae473, canary dd0f4ce)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -264,16 +265,16 @@ KILLED   mutant  5 if st.get('stale_units'):                                    
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  6 if st.get('transitional_units'):                                       t_s5_transitional
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 91c8f6e, canary f0b86cd)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c411bd4, canary 575ea37)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c42ab7b, canary 588d644)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e6ff455, canary f28cab7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5033841, canary e36ff79)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1126944, canary 9ac7dc1)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5033841, canary 7530ff2)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 07c1361, canary 1aa9207)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1126944, canary 9ac7dc1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bc72db0, canary 951da8b)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -284,16 +285,16 @@ KILLED   mutant  6 if st.get('transitional_units'):                             
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  7 if nb < max(1, na - 5):                                                t_s5_proc_unreadable
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8220968, canary 542a9e3)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 194e58a, canary 6ee7b92)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c91176a, canary effcd89)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6bcc01a, canary acd5a18)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ece613f, canary 2fc096a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8157bdd, canary 958fc67)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b15894a, canary 0c76aa4)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1d70a36, canary 60b2181)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 32f6d51, canary f52edba)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 47d6786, canary aae3990)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -304,16 +305,16 @@ KILLED   mutant  7 if nb < max(1, na - 5):                                      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  8 if st.get('canary_procs') and isinstance(man, dict) and not man.get('c t_s5_canary_process
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 120f1aa, canary 2cfaf7a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0eed47a, canary da028ac)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ee8a4a1, canary d108630)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 747241c, canary 74418e9)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ee8a4a1, canary d108630)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 66c09ea, canary fd1e3ef)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 268c05c, canary fcf93b9)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8688ab4, canary 7afc31f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 929c2c8, canary a0e93b4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 04b6fea, canary 62e2a74)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -324,16 +325,16 @@ KILLED   mutant  8 if st.get('canary_procs') and isinstance(man, dict) and not m
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant  9 elif js == 'open':                                                     t_impl_immutable_sources_conflict_needs_closed_sha,t_impl_ledger_row_before_deploy_does_not_close,t_s7_drawn_not_deployed_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c79a464, canary 88ee163)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 62e66d5, canary 43db4f6)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6b4437b, canary b9d375b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e0bb32a, canary 78e1916)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 42f1653, canary 11f9885)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a8d90f7, canary d2adf69)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b8bfad2, canary ac6e3c2)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 01ff2d3, canary 6b1eac8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a8d90f7, canary d2adf69)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3b75131, canary 2790df7)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -344,16 +345,16 @@ KILLED   mutant  9 elif js == 'open':                                           
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 10 if any(p in CLOSED_PHASES for p in phases) and 'recorded' in phases an t_s7_ledger_without_recorded_phase_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7148fef, canary 6a35391)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 46bb858, canary a209ac0)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0fdb61a, canary 47e0116)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a69e149, canary eee5558)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0fdb61a, canary 47e0116)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bad058d, canary 4380b33)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5342d8c, canary 9a6d637)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d9bbc4f, canary 142f0d1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6bc49d6, canary 767a9ab)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 871ba01, canary c4de55b)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -364,16 +365,16 @@ KILLED   mutant 10 if any(p in CLOSED_PHASES for p in phases) and 'recorded' in 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 11 if st.get('pause'):                                                    t_s8_pause
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bd2f61a, canary 8d2417e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 000ad53, canary 99e1440)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 94ab1fe, canary c370f96)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 97961d1, canary 36a934a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 13292b8, canary ab103d2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1778648, canary 169c954)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6402215, canary 7a08d36)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4b6db2b, canary 4a524f9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 53bc132, canary 9483ee7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0745acb, canary d62bfa0)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -384,16 +385,16 @@ KILLED   mutant 11 if st.get('pause'):                                          
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 12 stale = (ts(ih.get('until')) or st['now']) < st['now']                 t_s8_install_hold_and_stale
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6936c27, canary 1157e4e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 998d12a, canary bb40e70)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 274f0ee, canary 5b3310e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ff95d94, canary 858d0bd)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 82a7b76, canary 9532d54)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 482152f, canary 8c4e4ff)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ee518b5, canary c17a1ef)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7b7506a, canary 3bce6a7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 482152f, canary 8c4e4ff)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1e35b4d, canary 5a733d6)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -404,16 +405,16 @@ KILLED   mutant 12 stale = (ts(ih.get('until')) or st['now']) < st['now']       
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 13 if st.get('death_hold'):                                               t_impl_death_window_change_row_revert_holds,t_impl_historical_seed_is_not_a_closure_time,t_impl_human_closed_death_revert_still_holds
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 22afc77, canary 774c3f5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on adba4e4, canary 42e5549)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0a630d4, canary 531183f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c17bab0, canary 7422021)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c536d13, canary 1e6efe2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4150204, canary 12bc51a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f7dbdb4, canary 6310d86)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on dc973e8, canary c7e3cb5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 356a638, canary 5a5fb54)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 22b39a2, canary 131fd6d)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -424,16 +425,16 @@ KILLED   mutant 13 if st.get('death_hold'):                                     
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 14 if DEATH_REVERT.search(str(d.get('note') or '')):                      t_r11_death_revert_holds_until_continue
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on aa2af43, canary a8a807e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 91e68c1, canary 8cfc049)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ecb1d70, canary 1a7ce4b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f6d91ed, canary 3d4521a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ecb1d70, canary 1a7ce4b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 54cd8a8, canary b3e1b57)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 47732f6, canary 36cd012)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 46b08cd, canary e3ea9a6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0d229e5, canary 01234f0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 57af247, canary a6cce3f)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -444,16 +445,16 @@ KILLED   mutant 14 if DEATH_REVERT.search(str(d.get('note') or '')):            
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 15 DEATH_REVERT = re.compile(r'death gate:|death gate trip|rung-linked de t_r11_header_deaths_do_not_hold
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2bdceb5, canary c0b2181)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3b8d390, canary 52b6190)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on acb2060, canary a0a4ec9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6155c2b, canary b24896b)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9b48e1d, canary cc81e33)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a7fa213, canary ea8de61)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9b48e1d, canary cc81e33)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fb3c3a1, canary d5d313a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a7fa213, canary ea8de61)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 40225b8, canary 4f31288)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -464,16 +465,16 @@ KILLED   mutant 15 DEATH_REVERT = re.compile(r'death gate:|death gate trip|rung-
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 16 ev = [i for i, r in enumerate(rows) if str(r.get('phase', '')).startsw t_impl_drawn_fallback_binds_to_the_deciding_attempt,t_s7_deployed_line_missing_but_decided_closes
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eb25025, canary f065974)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 698d20b, canary 8357952)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d0f4eb6, canary d59732e)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 10a90fd, canary 869c7c0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6b2f1f9, canary 5c1da38)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0f6cea8, canary 9f354b3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 10a90fd, canary 869c7c0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7611c7e, canary ea597fb)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b051a46, canary 97361f2)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ea11835, canary b0c9389)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7611c7e, canary ea597fb)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 11d8f6e, canary f031d79)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -484,16 +485,16 @@ KILLED   mutant 16 ev = [i for i, r in enumerate(rows) if str(r.get('phase', '')
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 17 elif st.get('r10_ran'):                                                t_impl_second_r10_defers
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9b90dfd, canary 99e260c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e874cda, canary 3000800)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 627cbc3, canary d0c9ae3)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 274dc70, canary 0c97352)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on aeae2e0, canary 99c18e2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a3dd0d6, canary 45ea948)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 24e8220, canary 55d5ddc)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6018b7c, canary 2d5d0c9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 367e6c8, canary bb3d350)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 54a3515, canary dff86cb)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -504,15 +505,15 @@ KILLED   mutant 17 elif st.get('r10_ran'):                                      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 18 if not arts:                                                           t_r11_revert_without_artifact_holds
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9fafa8e, canary 0af4831)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a5d8fa9, canary 15a73d2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1cf7eca, canary 56d8748)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ba87ede, canary c2fd407)
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fd7e70c, canary 57aa294)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on faafa42, canary e34b4cb)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d53bf12, canary 7e76c0f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a8532a0, canary 1d8ba79)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 62e44de, canary 52688d7)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 598b08e, canary 3119a31)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9ed874d, canary 8de0378)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 15f60e4, canary 89cbf68)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -523,16 +524,16 @@ KILLED   mutant 18 if not arts:                                                 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 19 if e.get('hold'):                                                      t_h1_hold,t_impl_relaunch_check_after_r10
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f0a1bae, canary b382636)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e29b8c0, canary be021c9)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a0bd518, canary fa851d1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 38804a1, canary c9c136b)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a0bd518, canary fa851d1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 887d5e7, canary 893ba1e)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ba743c8, canary cc73ec9)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1853989, canary 6de5ca8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 887d5e7, canary 893ba1e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d47c7aa, canary 0d8c10a)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -543,16 +544,16 @@ KILLED   mutant 19 if e.get('hold'):                                            
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 20 elif nb > st['now']:                                                   t_h1_not_before_waits
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c659bab, canary b78638a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f0755f6, canary 78a595d)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4ab6a3d, canary 5f72e90)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 781a253, canary 56ed56b)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d7f142c, canary 79444ec)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4c0c1d4, canary 20f2fa6)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d7f142c, canary 79444ec)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 943fd6b, canary 5ac7d02)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0a74779, canary 75817cf)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a457572, canary 206e1ae)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -563,16 +564,16 @@ KILLED   mutant 20 elif nb > st['now']:                                         
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 21 if ds in ('cancelled', 'blocked', 'predeploy', 'abandoned'):           t_h1_after_abandoned_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bf3ebf5, canary 46a4754)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ce02a72, canary 480e398)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bda5623, canary 159ad18)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bda5623, canary 159ad18)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a7893fe, canary efe8bd1)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a7893fe, canary efe8bd1)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a7893fe, canary efe8bd1)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ea0a2c6, canary c3cb962)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5417cb3, canary defdb59)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5417cb3, canary defdb59)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5417cb3, canary defdb59)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5417cb3, canary defdb59)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 839b18f, canary 6812784)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 65f1422, canary a9d6b42)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -583,16 +584,16 @@ KILLED   mutant 21 if ds in ('cancelled', 'blocked', 'predeploy', 'abandoned'): 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 22 if es == 'blocked':                                                    t_impl_preverify_blocks_a_changed_read,t_l_crash_before_popen_blocks,t_l_exit3_no_journal_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 30a9476, canary f840a4c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ef19ada, canary a9b2c12)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1d7d351, canary 6c4cb59)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4c87f94, canary 4111df7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f9c8886, canary 6b94b91)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 050ea79, canary f9625f0)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f9c8886, canary 6b94b91)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f9e7e75, canary badc771)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 050ea79, canary f9625f0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6fd3982, canary 9367cab)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -603,16 +604,16 @@ KILLED   mutant 22 if es == 'blocked':                                          
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 23 elif base not in vs:                                                   t_h2_no_variant
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8f76c91, canary 596f4dd)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d010d20, canary 07b81c1)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1eed18b, canary 0126970)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b95ba8f, canary c11d254)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2ef50f3, canary c7abab9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fb96020, canary e18963d)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 620cfd4, canary 62be479)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9502aef, canary 687904b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1d07817, canary ebabf17)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3160244, canary e9a08ef)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -623,16 +624,16 @@ KILLED   mutant 23 elif base not in vs:                                         
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 24 if sha256(reg) != v.get('registration_sha256'):                        t_h3_registration_changed
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 118928c, canary 424f3c5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c8cca9a, canary 6ac9144)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d017744, canary 2b5c96e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b1b9f92, canary 263846e)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d017744, canary 2b5c96e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b1b9f92, canary 263846e)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fe0c1dc, canary a2fb8a3)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5e4cf7b, canary 48cfa20)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e03311b, canary d0aa8ba)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 99cfab6, canary 0b725ce)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -643,16 +644,16 @@ KILLED   mutant 24 if sha256(reg) != v.get('registration_sha256'):              
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 25 if (r.get('class') or '') != (e.get('class') or ''):                   t_h3_class_mismatch
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 762ccbb, canary 078c2b2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 416721e, canary 91533f9)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c44a5f9, canary 042a32d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a4c73dc, canary c36f22a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c465542, canary a44ca57)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0fcee24, canary 2411347)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c465542, canary a44ca57)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3163133, canary e9ab519)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d64ea1d, canary 2a45fff)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9d25a92, canary bf06862)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -663,16 +664,16 @@ KILLED   mutant 25 if (r.get('class') or '') != (e.get('class') or ''):         
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 26 if sha256(dst) != v.get('registration_sha256'):                        t_h3_staged_copy_differs
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2509b74, canary e99af34)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d53f0f3, canary cd1dcb1)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4ffd32f, canary 5adea10)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5f32da0, canary f35a7a2)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 524f731, canary a2adeff)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1abfdc5, canary 1e9b00b)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 524f731, canary a2adeff)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on dd871df, canary 3ecbe5f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1abfdc5, canary 1e9b00b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f3c15be, canary 34e10a0)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -683,16 +684,16 @@ KILLED   mutant 26 if sha256(dst) != v.get('registration_sha256'):              
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 27 if got != want:                                                        t_h4_tmp_read_differs_never_overwritten
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1b7a02d, canary c59beae)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ae06354, canary 78e279a)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e307105, canary fec4e18)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b4f35d2, canary 21af682)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e307105, canary fec4e18)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ab34ddb, canary 6277516)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 75c8ac6, canary b603712)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b89ae64, canary f6ebe37)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0569e7c, canary 68ef455)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d9b5f71, canary 3ad4792)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -703,16 +704,16 @@ KILLED   mutant 27 if got != want:                                              
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 28 if not os.path.exists(dst):                     # never overwrite      t_impl_preverify_blocks_a_changed_read
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3fa2b7d, canary 243c4f9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ace6e9d, canary b194d88)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9c5ae6d, canary fa0be0a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5b13917, canary 66cf384)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 66105a3, canary f37c3b0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 53b9d23, canary 0af0f40)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 692d40b, canary a5c5e89)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6544efd, canary 796f98d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 689cd80, canary 517e035)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eeb20b5, canary 71ece1e)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -723,16 +724,16 @@ KILLED   mutant 28 if not os.path.exists(dst):                     # never overw
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 29 if bad:                                                                t_impl_preverify_blocks_a_changed_read
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 011481b, canary e6ebf0f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 326e113, canary d508330)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 76a4a03, canary 20cb738)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 081fb91, canary 5231114)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5693638, canary bf0eb49)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9a64dbb, canary db04a09)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 88294bf, canary f28dfa7)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 498a4a5, canary 564ffe0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9a64dbb, canary db04a09)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b82d8e3, canary 0f320cb)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -743,16 +744,16 @@ KILLED   mutant 29 if bad:                                                      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 30 return len(a) >= 7 and len(b) >= 7 and (a.startswith(b) or b.startswit t_impl_sha_match_needs_real_prefix
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a0251ca, canary e10cdbf)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d8faf0e, canary 27492fd)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f1efb49, canary b768dd0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1879443, canary d7d4dc1)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 71363ba, canary 9baa052)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 67cc26f, canary fa298a7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 492b5fe, canary 18ad77c)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0f0829f, canary de384c6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d3ffea4, canary bd0b6ab)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 59f50bd, canary 324096c)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -763,16 +764,16 @@ KILLED   mutant 30 return len(a) >= 7 and len(b) >= 7 and (a.startswith(b) or b.
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 31 if r10 is None or r10[0] != key:                                       t_impl_r10_bound_to_its_variant
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2b6ab9e, canary 36f0bae)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bb48b6f, canary 3b0bdbe)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 64eb040, canary 76455c8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 704b8d4, canary 1fb3a99)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 71f12bf, canary 1c7ac8f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 704b8d4, canary 9b79cba)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 94ff173, canary ba0810d)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1299e4f, canary 1bb0d28)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2c14d67, canary 1c09463)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0cb19b0, canary f458890)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -783,16 +784,16 @@ KILLED   mutant 31 if r10 is None or r10[0] != key:                             
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 32 if not d:                                                              t_impl_r11_fails_closed_without_decision
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 76ce24d, canary 3ae91b2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0751395, canary f9a24ae)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7776e6e, canary aed65dc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a1198ef, canary 9f48f41)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7776e6e, canary 5ea7eff)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c00dd8d, canary ff421f3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7f3f023, canary bedbd04)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f91c9e9, canary ce27c37)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e35ecaf, canary d0d8594)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ba280a9, canary b751799)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -803,16 +804,16 @@ KILLED   mutant 32 if not d:                                                    
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 33 elif imm:                                                              t_impl_immutable_sources_conflict_needs_closed_sha,t_impl_sha_from_launch_row_not_mutable_registration
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e792449, canary 831c6e8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 52e599d, canary 1de5281)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2a1ff8e, canary 3638e06)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6f50383, canary 2720209)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2f25212, canary 3cc5abe)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 064eda0, canary 8b01b87)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2f25212, canary 3cc5abe)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5a10c71, canary 81c9a9e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9707128, canary 9472ab6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c57f9c3, canary b565f95)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -823,16 +824,16 @@ KILLED   mutant 33 elif imm:                                                    
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 34 if not any(sha_match(sha_arg, v) for v in srcs.values()):              t_impl_immutable_sources_conflict_needs_closed_sha
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 23a5233, canary f0f18b3)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f3a0da6, canary 553246d)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 71f05b1, canary 4db5278)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 22f8b8c, canary 0d87098)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 32a1a22, canary a375ed6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 46c7e9f, canary 456dbf6)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d9bc224, canary a5ff33b)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on da41fe3, canary bfd797d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2bca9e0, canary da8baf8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 90cfb71, canary 192b6fc)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -843,16 +844,16 @@ KILLED   mutant 34 if not any(sha_match(sha_arg, v) for v in srcs.values()):    
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 35 if w is None or w < since:                                             t_impl_ledger_row_before_deploy_does_not_close
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on afcec89, canary f469df3)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8b1b927, canary 7237ce9)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 80efca2, canary 13d6894)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2b6f477, canary 7b7a53d)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9958d3b, canary 1b29fe5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2ce9482, canary 2ff1b23)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 972f791, canary 7699a95)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2af6dc0, canary faa58e7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2ce9482, canary 2ff1b23)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 244807c, canary 944fb98)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -863,16 +864,16 @@ KILLED   mutant 35 if w is None or w < since:                                   
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 36 regsha[run] = imm[0] if all(sha_match(imm[0], x) for x in imm) else '' t_impl_immutable_sources_conflict_needs_closed_sha
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d8f85fa, canary 26583f4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on dc5077f, canary 116ea26)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 68b0688, canary b8d6926)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4c64f01, canary 7a07d33)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 85206c8, canary 8ce258e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3749a22, canary fecc11f)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 85206c8, canary 8ce258e)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e930f14, canary 3e6e09b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3749a22, canary d4892b5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on acb2e62, canary 381c529)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -883,16 +884,16 @@ KILLED   mutant 36 regsha[run] = imm[0] if all(sha_match(imm[0], x) for x in imm
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 37 dr = [r for r in rows[:ev[0]] if r.get('phase') == 'drawn']            t_impl_drawn_fallback_binds_to_the_deciding_attempt
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f11adaf, canary 078a90d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 392cbee, canary fda3ff6)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 551c620, canary 85af5ed)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e2e26cb, canary f38d7e7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e06d320, canary 9383dde)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ee534b2, canary a372ef1)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b5818bf, canary 0cd0785)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3e02e39, canary 33b986d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 380a232, canary 55c00ce)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2c5388e, canary a909b29)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -903,16 +904,16 @@ KILLED   mutant 37 dr = [r for r in rows[:ev[0]] if r.get('phase') == 'drawn']  
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 38 if hw == 'closed' and hat and (ct is None or hat > ct):                t_human_closed_needs_ledger_row,t_impl_human_closed_death_revert_still_holds
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d5cee55, canary 695f989)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 69310a3, canary 67d4f4c)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 88ff907, canary f77ca2e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1147315, canary 116669b)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on de77637, canary 75e393a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e4e6e5d, canary 5ab4886)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 90beb1c, canary 5a08aef)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f05fbe4, canary 73571e8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e4e6e5d, canary 5ab4886)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6df73f6, canary 151e8a3)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -923,16 +924,16 @@ KILLED   mutant 38 if hw == 'closed' and hat and (ct is None or hat > ct):      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 39 if any('deaths' in (a.get('extra') or {}) for a in arts):              t_impl_death_window_change_row_revert_holds
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5c5aba2, canary 56c2df2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2064088, canary 0208f6b)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4f4be6c, canary 9cee590)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 45eec50, canary dc48b2e)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on acd5319, canary 705d935)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2c37a17, canary 8e7a759)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f5c6885, canary 9a81ad6)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d45cafc, canary 6a8539b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on df4ecfe, canary dfa8f46)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 431e83f, canary b1e463c)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -943,15 +944,15 @@ KILLED   mutant 39 if any('deaths' in (a.get('extra') or {}) for a in arts):    
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 40 st['procs'] = [x for x in st['procs'] if x['pid'] not in anc]          t_impl_install_hold_ignores_its_installer_parent
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4f9bff4, canary 887aa1b)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 957105e, canary 66067a3)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8a65040, canary 57f6b17)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d2ef95b, canary 5121fec)
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ed7e474, canary a39ad71)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8403896, canary 63ce0aa)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c264080, canary b6449f1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 612a806, canary f3c1be7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9769bfe, canary 0282828)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 499ed56, canary 8f849c5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e90ddcc, canary db8659e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7e51f91, canary e8938a5)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -962,16 +963,16 @@ KILLED   mutant 40 st['procs'] = [x for x in st['procs'] if x['pid'] not in anc]
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 41 d = decide(st)                                                         t_impl_relaunch_check_after_r10
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b0be23f, canary f03b562)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8f66bc6, canary 7d5e656)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1d6fc78, canary 2d99611)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6d5048a, canary 3d49776)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1d6fc78, canary 2d99611)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 54331fc, canary 2fe8113)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 09528fe, canary 0541670)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 03135b6, canary 5e3d0a2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bbd6f33, canary 97b143c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 621b9dc, canary 1c87b1a)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -982,16 +983,16 @@ KILLED   mutant 41 d = decide(st)                                               
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 42 if st.get('next_slot') and e.get('class') != 'underground-safety':     t_h5_next_slot
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5322911, canary 19c9735)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 24d9bff, canary 8d20d76)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 192f91f, canary 47e4d0c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 26463b8, canary b95dcf3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 43d5b36, canary f1fddbb)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 26463b8, canary b95dcf3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1738503, canary 195cdfe)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3ee44b6, canary 14a5b76)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a053320, canary 3fdb024)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ff9e550, canary 941efb3)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1002,35 +1003,35 @@ KILLED   mutant 42 if st.get('next_slot') and e.get('class') != 'underground-saf
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 43 if e.get('class') == 'bag-fix' and not st.get('drawrec_k4'):           t_h6_bagfix_needs_k4
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f7337f0, canary d1b6a8f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on dc2def4, canary c128860)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on cae43c4, canary 38f558a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 51106a0, canary ec9be06)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b19a5ef, canary 3090209)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7ac7df2, canary 06c49e5)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 71c78c7, canary b7407d1)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on be20c20, canary 68acd75)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a5d5138, canary da8ab7a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 742a552, canary 0dcfb4c)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bb6fe97, canary 5dd499a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 659d6c7, canary 92b0a83)
 2026-10-08T15:06:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 44 if not declared and r.returncode == 0 and 'declares no draw_exposure'  t_r10_declared_needs_eligible_line,t_r10_tier2_needs_four_exposure_pools,t_r10_tier2_never_drawable_required_does_not_count
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d3264ed, canary 45f3524)
+KILLED   mutant 44 if not declared and r.returncode == 0 and 'declares no draw_exposure'  t_r10_declared_needs_eligible_line,t_r10_tier2_isolated_required_does_not_count,t_r10_tier2_needs_four_exposure_pools
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 77cbef0, canary 3ad0953)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 40c1251, canary e3cc928)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 48489b8, canary 47a7463)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 40c1251, canary e3cc928)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 46c9306, canary 491417c)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 10f601c, canary a216f59)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 88a538d, canary 7c18f73)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 46c9306, canary 491417c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e615673, canary e74f137)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1041,16 +1042,16 @@ KILLED   mutant 44 if not declared and r.returncode == 0 and 'declares no draw_e
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 45 if declared and 'eligible on exposure:' in txt and 'REFUSED: the expos t_r10_undeclared_must_say_so
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 76013fb, canary 705f875)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2d4fe74, canary 46b0303)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c1d61e0, canary 6e1c20f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 185202c, canary d6de290)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f1d758c, canary e34e778)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 185202c, canary d6de290)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6fc03a4, canary c32fe25)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1cabe2e, canary e72969a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1ab80bd, canary 566e7aa)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 12d1588, canary 8b078c9)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1061,16 +1062,16 @@ KILLED   mutant 45 if declared and 'eligible on exposure:' in txt and 'REFUSED: 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 46 if a['pid'] and str(a['pid']) in alive and a.get('start') is not None  t_l_reused_pid_is_not_alive
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bebc19d, canary 55b39b2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on cdbd47b, canary b2ac606)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 48c0878, canary 5cd3a80)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 184093d, canary a1b7333)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fe65626, canary 6db669a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d005c59, canary 03ed49c)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f31b045, canary e85ff11)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9e813ac, canary b05dd92)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a9ae9b4, canary 5e2b7c1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4a69010, canary 8a13625)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1081,16 +1082,16 @@ KILLED   mutant 46 if a['pid'] and str(a['pid']) in alive and a.get('start') is 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 47 t0 = iso(now())                 # whole seconds                        t_l_same_second_line_counts
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3af7b0e, canary 562572c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6b5af8c, canary 527b901)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ecb0495, canary e004cf4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 35ea20c, canary eeda90a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d46c56c, canary 71da1c7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ef9ecd9, canary 485e016)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d46c56c, canary 71da1c7)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 245322c, canary 131a232)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fdda92a, canary a0d68f8)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7dcd2ae, canary 16fb171)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1101,16 +1102,16 @@ KILLED   mutant 47 t0 = iso(now())                 # whole seconds              
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 48 if attempt_rows(st, run, a):                                           t_l_journalled_but_not_live_is_blocked
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d6bb1d0, canary cd37170)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 458d2ee, canary b8defe3)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1d512a0, canary 87d95b4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 58161d1, canary d04a2f9)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6dffd4c, canary 148c676)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d42b05b, canary 51d59e6)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5e4a76c, canary 44e9888)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6bf1f28, canary 339bc04)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e9222e8, canary 9cc30f1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 23315a7, canary 1dc6987)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1121,16 +1122,16 @@ KILLED   mutant 48 if attempt_rows(st, run, a):                                 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 49 if ledger_row(st.get('ledger'), (st.get('reg_sha') or {}).get(run), po t_human_closed_needs_ledger_row,t_impl_immutable_sources_conflict_needs_closed_sha
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 45bc075, canary 372739a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 87d0505, canary 1792d2a)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 218cad4, canary b86d59b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 388fb1b, canary 95bfe5f)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5241248, canary 49a9f94)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8def113, canary 4dc06fb)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5241248, canary 49a9f94)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on dc356c8, canary 851ce82)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b16d617, canary 9b25bee)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7d3eb2f, canary 1535945)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1141,16 +1142,16 @@ KILLED   mutant 49 if ledger_row(st.get('ledger'), (st.get('reg_sha') or {}).get
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 50 if dep:                                                                t_human_abandon_rules
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5ff45ec, canary e388b8a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 99bf7bd, canary 1ed3a98)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8e5c8a2, canary 144642f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1eb533d, canary 0b99179)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 34ba5ba, canary 9b52b4f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f6db45e, canary 34457a4)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e514f4b, canary 73f825e)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5ee22ad, canary 036362b)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f6db45e, canary 34457a4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6a6b73e, canary 5053ce2)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1161,16 +1162,16 @@ KILLED   mutant 50 if dep:                                                      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 51 if drawn and (st['now'] - max(drawn)).total_seconds() < ABANDON_AFTER_ t_human_abandon_rules
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 690982c, canary 38ae68a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b70125b, canary 4f2179a)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 26fcc17, canary 6d610d6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c5968ac, canary 90924f1)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8d11e1a, canary 90b19fd)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1a2047e, canary fc9b7c0)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8d11e1a, canary 90b19fd)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9ebf1c6, canary c70c764)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1a2047e, canary fc9b7c0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a7dd0ba, canary 5974945)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1181,16 +1182,16 @@ KILLED   mutant 51 if drawn and (st['now'] - max(drawn)).total_seconds() < ABAND
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 52 if how == 'rearm':                                                     t_human_rearm_refuses_deployed
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d379fb5, canary ebe76d6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 303a858, canary ec478fd)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5e86ac6, canary 568fde2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b1fb833, canary b3348e9)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5b1aaa3, canary 9ce0fd0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 16eb084, canary 9ecefd3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d2911dc, canary 07e094f)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ac450a9, canary ea8d4dc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a58b705, canary f8acd1f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ec0e295, canary e0053fa)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1201,16 +1202,16 @@ KILLED   mutant 52 if how == 'rearm':                                           
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 53 if how == 'abandon':                                                   t_human_abandon_refuses_deployed
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on efc7553, canary ef5733c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6d67617, canary c06fc6d)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f20a977, canary 22fa87e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d5a0bf4, canary 427c24f)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a2315b5, canary 58c4b4f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 54ec2f7, canary 104c335)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on aab262d, canary 0633164)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f0bdcef, canary 0e3b434)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 54ec2f7, canary 104c335)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3e89f4e, canary f6ae99a)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1221,16 +1222,16 @@ KILLED   mutant 53 if how == 'abandon':                                         
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 54 if live:                                                               t_impl_install_hold_ignores_its_installer_parent,t_install_hold_exit_codes
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f5432f2, canary 3f499fc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0a3dd81, canary bbbe641)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e423a6b, canary f6b1d98)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7118bba, canary 0b98939)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e423a6b, canary f6b1d98)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a3a14c5, canary ab54f49)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f36ca19, canary d3c3301)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on de04f9c, canary 129d641)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f111c49, canary 5f3b7d1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3c34fc0, canary ebe2829)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1241,16 +1242,16 @@ KILLED   mutant 54 if live:                                                     
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 55 if not HEX40.match(k):                                                 t_queue_add_refusals
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e694600, canary f1b50f6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e1dc2b5, canary c5977fc)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bf7daee, canary bcf146f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 064e595, canary f4ca9bc)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f68d0e2, canary 3631ad1)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 064e595, canary 1b853ed)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f68d0e2, canary 3631ad1)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8c1c8dc, canary 9b263c5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 14fb139, canary e83968a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on abbdcb1, canary 231abe1)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1261,16 +1262,16 @@ KILLED   mutant 55 if not HEX40.match(k):                                       
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 56 if not v.get('approved'):                                              t_queue_add_refusals
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 53bbf3c, canary 368cda6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5d79cb6, canary a80159c)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d069203, canary 7a949cc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 05c9dd4, canary bdc3aec)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e92cb41, canary 8d57924)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7fba9e4, canary d135003)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6af34c6, canary 7f86a35)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c421cd5, canary 0347ed2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3ba3526, canary 6e069ea)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f3ea0ed, canary 0f40df9)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1281,16 +1282,16 @@ KILLED   mutant 56 if not v.get('approved'):                                    
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 57 if int(parts[5].split(':')[-1]) == ino:                                t_s3_lock_held,t_s3_never_acquires
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c044ccb, canary e8a733c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5dfac02, canary c6fc094)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2df84ee, canary 684cdd2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ff648d6, canary 894a723)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 48f241f, canary a0803b0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 472a410, canary 5b8d7bf)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 48f241f, canary a0803b0)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a9ad321, canary 2f39a06)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 472a410, canary 5b8d7bf)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eb9619c, canary 08e10ae)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1301,16 +1302,16 @@ KILLED   mutant 57 if int(parts[5].split(':')[-1]) == ino:                      
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 58 if any(P['canary_tree'] in x for x in argv):                           t_s5_canary_process,t_s5_silent_bot_no_canary_anywhere_passes
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ba0cc46, canary 65ee17f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on dcb4136, canary 968969e)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 69430e8, canary a7f6720)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 86e148d, canary 3eb389e)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6b1b002, canary b75b059)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 12969b2, canary 273b054)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6b1b002, canary b75b059)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 232cf58, canary 5d85fe0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e191f2b, canary 3a5b5c7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 22706a5, canary d815ee5)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1321,16 +1322,16 @@ KILLED   mutant 58 if any(P['canary_tree'] in x for x in argv):                 
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 59 if not dropin(b) and ((last_rec and ent and ent > last_rec) or         t_s5_settling_is_busy,t_s5_silent_started_before_recorded_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d56f25a, canary 811a44d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9569ea1, canary abc6045)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1efa424, canary 266fe73)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6d38096, canary b5e01f1)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9072265, canary 4aec6df)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8b6d6d3, canary 87a782c)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 36bfeb4, canary 58bd67b)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 057b3f9, canary c4707c9)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 381c27c, canary dd69e9f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8b902d4, canary d89578a)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1341,16 +1342,16 @@ KILLED   mutant 59 if not dropin(b) and ((last_rec and ent and ent > last_rec) o
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 60 h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600            t_w_drawstall_pages_from_first_draw
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7dc1dd1, canary bd71c5c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 262208a, canary 13fa85a)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 63f88a1, canary 891721d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e882fea, canary 615bf2a)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 931fe4f, canary aa11329)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 249d371, canary 69a5a06)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 931fe4f, canary aa11329)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b9b8c87, canary 6a6545f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 249d371, canary 69a5a06)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5b32d7a, canary 5312c64)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1360,16 +1361,16 @@ KILLED   mutant 60 h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600  
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 61 if h > STALL_H:                                                        t_r10_wait_pages_decision,t_w4_r10_wait_pages_after_3h,t_w4_tier2_r10_wait_bounded_at_12h
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8908670, canary c322820)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6fe0029, canary a1edb43)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 674b727, canary 430d50e)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 550c2d9, canary 0b7b7bb)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a282e85, canary 798a9bf)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8983f11, canary bbd5c23)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bd7c36f, canary 2ad8f15)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 39d30a3, canary c26252d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0888727, canary 576302f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a17dd16, canary 8f6954f)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1380,16 +1381,16 @@ KILLED   mutant 61 if h > STALL_H:                                              
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 62 if tier2 and h >= T2_WAIT_MAX_H:                                       t_r10_wait_pages_decision,t_w4_tier2_r10_wait_bounded_at_12h
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 41586a9, canary f778ba3)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4f1a91d, canary a460be9)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 208a1fc, canary 86018d0)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9563635, canary b78faf5)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6db8ac7, canary bf9a367)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f3d042d, canary e567de4)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6db8ac7, canary bf9a367)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 20a0c42, canary 0b1fdd5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8b0f21c, canary 13d5189)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9a07041, canary 341679d)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1400,16 +1401,16 @@ KILLED   mutant 62 if tier2 and h >= T2_WAIT_MAX_H:                             
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 63 'four' if tier2 else 'two'                                             t_r10_wait_pages_decision
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 62c831a, canary e0834ee)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2e64721, canary 55ee308)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0329374, canary 8043bcc)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9065ae0, canary 9bad439)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 68a4be8, canary fb24da6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 76c1234, canary 2d8ec0f)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f7e186d, canary 5b1796a)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on f7569f3, canary d872752)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 55040c2, canary d97704c)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4b186d4, canary 2f91e0e)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1420,16 +1421,16 @@ KILLED   mutant 63 'four' if tier2 else 'two'                                   
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 64 for level, key, msg in r10_wait_pages(run, h, t2, d[1][0][1]):         t_w4_tier2_r10_wait_bounded_at_12h
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 21fb780, canary 1a41ca6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2451fa9, canary 2a3b038)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 46d4b60, canary 1fef7a2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on efc9cb9, canary 7733cae)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eec680a, canary 3f6b729)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on af9238d, canary a122ee7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eec680a, canary 3f6b729)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a5ea256, canary 24bf11d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on af9238d, canary a122ee7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2f1a1ae, canary fce0a42)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1440,16 +1441,16 @@ KILLED   mutant 64 for level, key, msg in r10_wait_pages(run, h, t2, d[1][0][1])
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 65 T2_WAIT_MAX_H = 12.0                                                   t_r10_wait_pages_decision,t_w4_tier2_r10_wait_bounded_at_12h
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b352741, canary f7c7134)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ed6122c, canary 7b8ee60)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bdf8ae7, canary 0f7fc47)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eb77796, canary 1d7b79c)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bdf8ae7, canary 0f7fc47)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c82ffb0, canary 96a26d7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 2be6272, canary 774e5ca)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0ead586, canary 092d034)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c82ffb0, canary 96a26d7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5fbd572, canary 547efb6)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1459,17 +1460,17 @@ KILLED   mutant 65 T2_WAIT_MAX_H = 12.0                                         
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 66 if len(can) < 4:                                                       t_r10_tier2_needs_four_exposure_pools,t_r10_tier2_never_drawable_required_does_not_count,t_r10_tier2_one_exposure_two_required_waits
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d58ac27, canary 5ca950d)
+KILLED   mutant 66 if len(can) < 4:                                                       t_r10_tier2_isolated_required_does_not_count,t_r10_tier2_needs_four_exposure_pools,t_r10_tier2_never_drawable_required_does_not_count
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6864555, canary a5286c1)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 20be3b9, canary 5dbfb80)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9551f73, canary 4665571)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b3101bf, canary 0319405)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 832ba55, canary 59bec59)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on eadba04, canary ce46e2f)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8bae069, canary fab2d69)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 77362cb, canary bad3e38)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9f4e6ed, canary 1a7ef07)
 2026-10-08T12:00:00Z BLOCK: R10 foo-01: drawexposure.py did not answer for a declared registration (exit 2): eligible on exposure: ['board-a']
 2026-10-08T15:05:00Z BLOCK: R10 foo-01: drawexposure.py did not answer for a declared registration (exit 2): eligible on exposure: ['board-a']
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1480,16 +1481,16 @@ KILLED   mutant 66 if len(can) < 4:                                             
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 67 if r.returncode in (0, 2):                                             t_r10_declared_needs_eligible_line,t_r10_tier2_one_exposure_two_required_waits,t_r10_tier2_required_counts_below_two_exposure
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d9c96a7, canary 86b93b5)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0602d53, canary f22e1d2)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4055402, canary 1289f11)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c359159, canary 08ad40b)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fca6744, canary 46033a7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0082f67, canary feee34c)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fca6744, canary 46033a7)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 791744f, canary c74cf82)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 7d042b8, canary b93b641)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 912a8bc, canary c3dcddb)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1500,16 +1501,16 @@ KILLED   mutant 67 if r.returncode in (0, 2):                                   
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 KILLED   mutant 68 req = {x for x in req if x != 'placebo-c' and not x.startswith('isolat t_r10_tier2_never_drawable_required_does_not_count
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 03cb5f9, canary a561c91)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5f2c09c, canary 0544382)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bfe7f5d, canary e8f3462)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0fb2d7e, canary 1199466)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c7a7b2a, canary 064d087)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 68c976b, canary 0fc2c27)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 50dfd37, canary 5fe2df4)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a963ce6, canary 94cafcf)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 9f4e697, canary 66f7720)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ef3abb3, canary 9c264d0)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1519,17 +1520,17 @@ KILLED   mutant 68 req = {x for x in req if x != 'placebo-c' and not x.startswit
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 69 return ''              # four with the required pools                  t_r10_tier2_required_counts_below_two_exposure
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5d07281, canary e576989)
+KILLED   mutant 69 req = {x for x in req if x != 'placebo-c' and not x.startswith('isolat t_r10_tier2_isolated_required_does_not_count
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6dd8753, canary 05e9ce9)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 00056ad, canary 8552225)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8d65597, canary 42f9489)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 07d2640, canary ac9e17a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3d85208, canary a37be12)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 07d2640, canary ac9e17a)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on e065f61, canary 9739cf7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 38ddd97, canary c5d8d81)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c5fe7ee, canary f14bed5)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1539,17 +1540,17 @@ KILLED   mutant 69 return ''              # four with the required pools        
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 70 can = set(re.findall(r"'([a-z]+-[a-z])'", elig)) | req                 t_r10_tier2_required_counts_below_two_exposure,t_r10_tier2_required_pool_counts
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 8118490, canary 87bfeb7)
+KILLED   mutant 70 return ''              # four with the required pools                  t_r10_tier2_required_counts_below_two_exposure
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 0fa2880, canary 2517334)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d33a826, canary 98662a6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 37f4519, canary da049a3)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on cf8a49b, canary a3c7ed2)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d71615e, canary d98c0c7)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on cf8a49b, canary a3c7ed2)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fefdea9, canary 0598ca6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on d71615e, canary d98c0c7)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fcfd4a5, canary 335e91e)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1559,17 +1560,17 @@ KILLED   mutant 70 can = set(re.findall(r"'([a-z]+-[a-z])'", elig)) | req       
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 71 if tier2 is None:                                                      t_r10_tier_unclassifiable_blocks
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5ab767b, canary 1f3bedd)
+KILLED   mutant 71 can = set(re.findall(r"'([a-z]+-[a-z])'", elig)) | req                 t_r10_tier2_required_counts_below_two_exposure,t_r10_tier2_required_pool_counts
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on bd887dc, canary 3b91b33)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on fdf3c41, canary e629041)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 17d8a01, canary d47b069)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ee13be5, canary ebb7297)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 81c7055, canary cc7e3bf)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 986ce2e, canary a5877d2)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 333da26, canary 93fe69f)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 5066bdb, canary db035f6)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on a84a103, canary 0bb0ad8)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1579,17 +1580,37 @@ KILLED   mutant 71 if tier2 is None:                                            
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 72 return m.tier_of(reg) == 2                                             t_r10_tier3_unchanged
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on b38ba60, canary f6f2eb8)
+KILLED   mutant 72 if tier2 is None:                                                      t_r10_tier_unclassifiable_blocks
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 1ba4397, canary 2070eba)
 2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
 2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
 2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 22e42d2, canary bcf6fc4)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 52174de, canary 39d5679)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6c0cd55, canary bb80935)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ad2f5bd, canary 71a2f20)
 2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6c0cd55, canary bb80935)
-2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 6d355a5, canary f20359a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 3013d00, canary c7cd63d)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on c704aba, canary 02435ba)
+2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
+2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
+2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
+2026-10-08T15:06:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
+2026-10-09T00:06:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
+2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
+2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than two pools can expose it now (eligible on exposure: ['board-a']); re-checked every tick
+2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
+2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
+KILLED   mutant 73 return m.tier_of(reg) == 2                                             t_r10_tier3_unchanged
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on cf83d13, canary f630da4)
+2026-10-08T12:00:00Z RE-CHECK after the exposure check changed the decision: block
+2026-10-08T12:00:00Z BLOCK: H1 foo-01: held: placed during R10
+2026-10-08T12:00:00Z RE-CHECK: the head/base changed during the exposure check; deferring to the next tick
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 4d27593, canary 586542b)
+2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (never): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 670be3f, canary 0fbe901)
+2026-10-08T12:00:00Z BLOCK: H3 foo-01: blocked since its last attempt (predeploy): fix it, then `rearm foo-01 <why>` or `cancel foo-01 <why>`
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on ef8cb67, canary 8d5a35a)
+2026-10-08T12:00:00Z LAUNCH foo-01 (variant on 511aea7, canary a318c7d)
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T15:05:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a', 'hive-a']); re-checked every tick
@@ -1599,6 +1620,6 @@ KILLED   mutant 72 return m.tier_of(reg) == 2                                   
 2026-10-09T01:00:00Z WAIT: R10 foo-01: WAIT fewer than four pools can expose this tier-2 change now (eligible on exposure: ['board-a']); re-checked every tick
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 81: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
 2026-10-08T12:00:00Z BUSY: S2 running: canary-loop.sh (pid 82: bash /home/mike/canary-loop.sh foo-01) | S7 foo-01 is live
-KILLED   mutant 73 if 'tier' not in reg:                                                  t_r10_declared_needs_eligible_line,t_r10_untiered_below_two_unchanged,t_w4_r10_wait_pages_after_3h
+KILLED   mutant 74 if 'tier' not in reg:                                                  t_r10_declared_needs_eligible_line,t_r10_untiered_below_two_unchanged,t_w4_r10_wait_pages_after_3h
 
-74/74 mutants killed
+75/75 mutants killed
