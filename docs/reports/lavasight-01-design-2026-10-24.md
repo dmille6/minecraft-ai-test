@@ -1,4 +1,4 @@
-# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r5, 2026-10-24)
+# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r6, 2026-10-24)
 
 Mineshaft safety fix **F5b** (`docs/reports/mineshaft-safety-2026-10-23.md` §7, approved r10; OWNER ANSWERS O3). **OWNER
 2026-10-24:** run it right after lavastep-01, and feed it **from the per-seed hazard map from day one**
@@ -8,7 +8,12 @@ Base: fleet `fb8de72f` (ironsmelt-01, promoted 10-24 ~08:28Z: rows carry `run_id
 fb8de72f`). Branch `lavasight-on-fb8de72`. No bot, host, queue, scheduler, manifest, env or world was changed. Host actions
 were read-only: the population query (§1) and a dry run of the read against live rows (§7).
 
-**r5** answers the r4 reviews (Codex CHANGE, 1 P1 + 1 P2; Claude APPROVE + 1 P2): the segment into a climbable is charged
+**r6** answers the r5 reviews (Codex CHANGE, 1 P2 + 1 P3; Claude APPROVE + 3 P3): the wrapper records each move's search
+cell when it generates it, because mineflayer-pathfinder post-processes every PARTIAL result in place and moves the very
+nodes A* keeps expanding; and a climbable generated while the index was still empty settles its incoming segment from its
+recorded parent.
+
+**r5** answered the r4 reviews (Codex CHANGE, 1 P1 + 1 P2; Claude APPROVE + 1 P2): the segment into a climbable is charged
 at the minimum over its two forms and SETTLED on the child that fixes the form, so an accepted route is never priced (the
 descent Codex reproduced now costs exactly the base and passes a cap of 1); coverage counts liveness only in observed slots;
 the primary line needs a fall beyond the null range.
@@ -187,7 +192,17 @@ a positive control (core is neither empty nor everything), and two mutants (no o
   the guard refuses it, except that a path ENDING on a climbable can under-charge its last segment -- never over-charge. r4
   charged a move into a climbable on either form, which priced an accepted descent and walled off a capped search (Codex's
   reproduction, now a test). Tested on the real plugin: a climb up past lava is charged exactly for its refused segments; the
-  accepted descent costs exactly the base and passes a cap of 1; mutants for "either form" and "never settle".
+  accepted descent costs exactly the base and passes a cap of 1; mutants for "either form" and "never settle". A climbable
+  generated while the index was still empty (no charge recorded) settles its whole incoming segment from its recorded parent
+  (Codex r5 P3; Claude r5 P3-2), tested.
+- **Resumed searches** (Codex r5 P2): getPathFromTo post-processes each PARTIAL result in place (index.js:95-99), so the Move
+  objects A* goes on expanding have been moved onto support tops (x + 0.5, a slab's y - 0.5, a ladder's top). The wrapper
+  records every move's integer search cell when it generates it (`_lsC`) and judges forms, climb directions and settles from
+  that, never from the object's mutable coordinates. Tested with a 0.2 ms tick (several partial slices) on the ladder and
+  pool worlds: the final path is charged exactly; a mutant reading the mutable coordinates mis-charges the resumed climb.
+  (Below ~0.05 ms per tick the base pathfinder itself never finishes: not a lavasight case.)
+- `priced_moves` counts moves that carried a charge, a settle included (Claude r5 P3-3): an exposure count, not a count of
+  refused segments.
 - Not modelled: pathFromPlayer can drop the first node(s) of a re-plan, so the guard's first segment can span more than one
   move (Claude r2 P3-1). It only shifts price; the guard is unchanged.
 
@@ -324,6 +339,12 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   within the base's cap is always found.
 
 ## 10. Review record
+
+**Code r4 / design r5** (`b4f1d6f5`): Codex CHANGE (1 P2, 1 P3); Claude APPROVE (3 P3). What r6 changed: the recorded search
+cell (`_lsC`) against in-place post-processing of partial results, with a resumed-search test and a mutant (Codex P2); the
+late-index settle from the recorded parent, tested (Codex P3, Claude P3-2); the `priced_moves` wording (Claude P3-3). Claude
+P3-1 (primary threshold -0.5 vs -1.0) is left to the owner: -0.5 is the least strict line beyond the observed null; -1.0
+would ask for roughly a halving of episodes at canary rates.
 
 **Code r3 / design r4** (`8e755c7e`): Codex CHANGE (1 P1, 1 P2); Claude APPROVE (1 P2, 4 P3). What r5 changed:
 - the climbable rule: minimum-form charge on the move into it, settled on the child (Codex P1, Claude P3-2/P3-3), with the
