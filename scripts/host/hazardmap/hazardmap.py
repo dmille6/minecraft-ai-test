@@ -1658,8 +1658,8 @@ def _es():
     return EsEvents
 
 
-def cmd_fetch(a):
-    st = refresh_cache(os.path.join(a.home, 'cache'), _es(), int(time.time() * 1000), since=a.since or HISTORY_SINCE)
+def cmd_fetch(a, now_ms=None):
+    st = refresh_cache(os.path.join(a.home, 'cache'), _es(), now_ms or int(time.time() * 1000), since=a.since or HISTORY_SINCE)
     print('cache: %s' % st)
 
 
@@ -1752,8 +1752,9 @@ def cmd_refresh(a):
                 print('verify pulled: backup %s, %d probes' % (v.get('backup_day'), v.get('probes', 0)))
         else:
             print('verify pull failed (exit %d): keeping the previous file' % r.returncode)
-        cmd_fetch(a)
-        cmd_build(a)
+        now_ms = int(time.time() * 1000)       # ONE clock for fetch and build: no race at the 01:00Z coverage edge
+        cmd_fetch(a, now_ms)
+        cmd_build(a, now_ms)
         reqp = os.path.join(a.home, 'out', 'request.json')
         with open(reqp, 'rb') as f:
             r = subprocess.run(ssh_cmd(a, 'request'), input=f.read(), capture_output=True, timeout=300)

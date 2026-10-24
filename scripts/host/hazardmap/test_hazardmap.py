@@ -459,6 +459,10 @@ def guard_cases(hm):
     with contextlib.redirect_stdout(io.StringIO()):
         rc = hm.record_push(hb, 255)
     c.append(('heartbeat: a failed request push -> push_failed', (rc, hm.load_json(hb)['status']), (1, 'push_failed')))
+    hm.atomic_json(hb, {'status': 'incomplete', 'error': 'rows past the horizon'})
+    with contextlib.redirect_stdout(io.StringIO()):
+        hm.record_push(hb, 255)
+    c.append(('heartbeat: a failed push on an alarm day is appended to its error', 'request push exit 255' in hm.load_json(hb)['error'], True))
     c.append(('heartbeat: rows after the seed horizon -> incomplete', hm.heartbeat_status(
         {'controls': {'excluded': {'death:after_seed_observation': 4}, 'verify_made_at': 'x'}})[0], 'incomplete'))
     return c
@@ -1083,6 +1087,8 @@ BEHAVIOUR = [
     ('compact: a campfire danger row is skipped, not lava', "        if det in DANGER_NOT_LAVA:\n            return ('skip', 'campfire')",
      "        if False:\n            return ('skip', 'campfire')"),
     ('heartbeat: a failed request push -> push_failed', "        if hbv.get('status') == 'ok':", "        if False:"),
+    ('heartbeat: a failed push on an alarm day is appended to its error', "            hbv['error'] = ('%s; %s' % (hbv.get('error') or '', msg)).lstrip('; ')",
+     "            pass"),
     ('rare source: no-air quiet on the newest two days still builds', "        need_each = src not in RARE_SOURCES", "        need_each = True"),
     ('lifetime: 60 rows in a reseed downtime gap (near its edges) still build',
      "            if t >= validated_ms and why == 'outside_world_lifetime' and not seeds.near_boundary(world, t):",

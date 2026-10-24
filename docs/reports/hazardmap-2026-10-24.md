@@ -61,7 +61,7 @@ answers the r1-r3 reviews (section 10). The numbers below are from the r3 build 
    - **By kind (matched / could match / all):** lava 47 / 59 / 80, drowning 34 / 40 / 82, cave fall 25 / 47 / 54,
      dripstone 16 / 40 / 40, suffocation 1 / 8 / 21.
 5. **Tool and refresh.** `hazardmap.py` (ES + files + backup verify), `serve.py` (a restricted read-only key's forced
-   command) and `test_hazardmap.py` (237 cases, including blind-input mutants and code mutants). The alarm surfaces in
+   command) and `test_hazardmap.py` (239 cases, including blind-input mutants and code mutants). The alarm surfaces in
    the fleetstatus header through `patch_fleetstatus.py`. Daily refresh: `install-hazardmap.sh` in three operator steps
    (section 8). Nothing is installed.
 6. **Reviews.** See section 10.
@@ -383,7 +383,7 @@ cross-world map adds over per-world memory. And keepout covers only fire, and on
   - it reads seeds and the probes requested the previous day from the staged copy;
   - it writes `~/hazardmap/out/verify.json`.
 - **10.0.0.31, cron 05:10Z.** `hazardmap.py refresh`:
-  1. **The gate:** the installed copy's own suite, 237 cases including the mutants. A failure publishes nothing and
+  1. **The gate:** the installed copy's own suite, 239 cases including the mutants. A failure publishes nothing and
      sets the heartbeat to `gate_failed`.
   2. Pull `verify.json` over the restricted key.
   3. Fetch new or changed ES days.
@@ -423,8 +423,15 @@ on 10.0.0.31:  bash scripts/host/hazardmap/install-hazardmap.sh --verify --insta
   Both hosts' cron runs in UTC (`date +%z` = +0000).
 - **Rehearsed:** steps 1 and 2 ran end to end in throwaway `HOME`s on both hosts (r1 code), with no cron. The forced
   command was exercised locally. Step 3 needs the real key, so it was not run.
-- **Cost:** a full ES backfill takes ~6 min. A daily refresh is about 5 s of recounts, 12 s of build (510 MB) and about
-  2 min of gate. Verify takes about 70 s at nice 19 and 544 MB.
+- **Cost:** a full ES backfill takes ~6 min. A daily refresh is about 5 s of recounts and 12 s of build (510 MB). The gate
+  takes about 2 min on the Mac and about 6 min at nice 19 on .31: an end-to-end `refresh` there took 6 min 23 s.
+  Verify takes about 70 s at nice 19 and 544 MB.
+- **Refresh rehearsed end to end on .31** in a dev home, with no key, so the pull and push failed by design:
+  - the gate passed;
+  - the pull failure kept the previous verify file;
+  - fetch and build ran;
+  - the push failure set the heartbeat to `push_failed`;
+  - `check` printed `HAZARDMAP ALARM: last refresh push_failed ...` and exited 1.
 
 ## 9. What this does not show
 
@@ -446,7 +453,7 @@ on 10.0.0.31:  bash scripts/host/hazardmap/install-hazardmap.sh --verify --insta
 
 On 10.0.0.31 (ES key) and 10.0.0.30 (staged backup), from a checkout of the branch:
 ```
-python3 -B scripts/host/hazardmap/test_hazardmap.py                    # 237 cases
+python3 -B scripts/host/hazardmap/test_hazardmap.py                    # 239 cases
 python3 -B scripts/host/hazardmap/hazardmap.py fetch --home H           # .31
 python3 -B scripts/host/hazardmap/hazardmap.py verify --out O [--request R]   # .30; copy O/verify.json to H/in/
 python3 -B scripts/host/hazardmap/hazardmap.py build --home H           # .31; H/out/{hazardmap.json, report-*.txt, request.json}

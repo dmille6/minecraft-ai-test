@@ -329,3 +329,45 @@ Claude r3 P3-2 the unknown-world message names WORLD_RE and what to change. P3-3
 Suite r4: 237 cases, 0 failed (18 blind inputs; 61 behaviour mutants and 9 blind-guard mutants, each attributed to its
 own case). Fleet build after r4 (10-24 06:32Z): numbers unchanged (123 of 277, 194 could match, 40 beyond per-world
 memory); heartbeat ok; recent death-position 133/133 paired, 128 agreeing.
+
+==================================================================== ROUND 4 (064003a4)
+
+---------------------------------------------------------------- Codex r4, verbatim
+Reviewed `064003a4` after reading `CLAUDE.md`. **No P1, P2, or P3 findings.**
+
+- **Stale partial-day coverage fixed.** The new case rejects stale coverage; disabling the comparison makes it pass. A closed record ending one second early also rejects. Actual fetched records passed with build delays of 0, 25, and 110 minutes; 111 minutes rejected. The two-hour allowance accommodates the ten-minute fetch lag and ordinary refresh timing.
+- **Claude’s three P2 guards now have killing cases.** Rare-source quiet days build; whole-window silence rejects. Recent death-position corruption rejects despite the 100 historical deaths, and builds with the recent floor disabled. The 60-row downtime-gap case builds and rejects without `near_boundary`.
+- **P3 fixes behave correctly.** `cmd_value` applies terrain splitting, failed pushes append to an existing alarm, and controls include the wet minimum. Separate in-memory checks killed removal mutants for all three. These checks are not committed suite cases. The unknown-world error also names the pattern and remedy.
+- **No new problem found in the r4 diff.**
+
+Validation: **112 in-memory cases passed**, three targeted behavior mutants were killed, and all nine blind-guard mutants were proven. The full suite failed before running because temporary-directory creation is prohibited. I therefore could not independently certify “237 cases, 0 failed,” run the filesystem-dependent groups, or complete the full mutation sweep.
+
+VERDICT: APPROVE
+
+---------------------------------------------------------------- Claude r4, verbatim
+Round 4 (064003a4) fixes all three P2s and all four P3s from my r3 review, plus Codex's r3 P2. The new `until` rule cannot stop the scheduled 05:10Z refresh. VERDICT: APPROVE.
+
+The suite reports 237 cases, 0 failed. I ran every mutant below again from my scratchpad; nothing in the worktree was edited.
+
+**My three surviving mutants are now killed, each by its own case:** rare-source window (`need_each = True`) -> killed by "rare source: no-air quiet on the newest two days still builds"; recent death-position floor set to 0.0 -> killed by "blind: death sites wrong on the newest day only" (its guard mutant builds a map, so the recent check alone is what stops it); `near_boundary` removed -> killed by "lifetime: 60 rows in a reseed downtime gap (near its edges) still build".
+
+**Codex r3 P2 (a stale partial day still built an OK map).** Turning off the new check (`if short:` -> `if False:`) is killed by "coverage: a partial day fetched long before the build raises".
+
+**The `until` rule against the daily schedule** (`hazardmap.py:602-612`): a closed day must reach its day's end, and `fetch_day` only marks a day closed when its `until` is the day's end, so this always holds; today's open day must reach within 2 h of the build, and the refresh fetches today up to now - 10 min then builds seconds later (passes by ~1 h 50 min); yesterday at 05:10Z is cached open from the previous run, `refresh_cache` keeps only closed days, so it is refetched closed and complete; a run between 00:00Z and 01:00Z does not yet require today; the first install's ~6-minute backfill fetches today last, well inside the slack; it raises only for a build run without a fresh fetch more than 2 h after one -- the intended stale-cache case, and the message names the fix.
+
+**Nothing new in the diff that worries me.** The unknown-world message names `WORLD_RE` and what to change; `cmd_value` applies `terrain_gate` as `build` does; `_water_float` is in `min_rows_per_closed_day` (16,736 on its quietest closed day). The report's value numbers are unchanged from r3 (123 of 277, 194 could match, 40).
+
+**P3 (nits)**
+1. Two r4 changes have no case that fails without them: removing the push-failure append in `record_push` (`hazardmap.py:1775-1776`) survives the suite; the new `terrain_gate` call in `cmd_value` (`:1798`) is a CLI-only path with no case either. Fix: add a heartbeat case with `status='incomplete'` and a failed push, asserting the push message lands in `error`.
+2. A 1-second race at the 01:00Z boundary: a fetch at 00:59:59 followed by a build at 01:00:01 trips the "cached open" check (`:599`), because the fetch and the build each use their own clock reading. The 05:10Z schedule never comes near it. Fix (optional): pass the fetch's `now_ms` into the build within `cmd_refresh`.
+
+VERDICT: APPROVE
+
+---------------------------------------------------------------- After both APPROVE (r4 -> final)
+Both engines APPROVE r4 (064003a4). Claude's two r4 P3 nits were applied afterwards, test/plumbing only:
+  P3-1 a case "a failed push on an alarm day is appended to its error" + its mutant (killed). The cmd_value terrain_gate
+       call stays CLI-only (no case; it is the same call build() makes, which is tested).
+  P3-2 cmd_refresh takes ONE clock reading and passes it to both fetch and build.
+Suite final: 239 cases, 0 failed. End-to-end `refresh` rehearsed on .31 in a dev home with no key (pull and push fail by
+design): the gate passed, the pull failure kept the previous verify, fetch and build ran, the push failure set the
+heartbeat to push_failed, and `check` printed HAZARDMAP ALARM and exited 1.
