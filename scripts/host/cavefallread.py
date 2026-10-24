@@ -13,12 +13,16 @@
 #   _cavefall_floor   "refused: <block> at x,y,z; drop D onto K (damage N)" at the dig; "allowed: ..." for a standing floor dig
 #                     with drop >= 2 or water
 # GATES
-#   G1 allowed_fell   REVERT: a canary fall episode (fell >= 6) whose onset is within 5 s after an `allowed` row of the same
-#                     bot, landing within 1.5 (x, z) of the row's target, falling more than the row's drop + 2.
-#   G2 refused_fell   REVERT: within 60 s after a `refused` row, the same bot's position inside the refused cell's column
-#                     (x, z within 0.5 of its centre) and >= 6 below its top: the refused floor went anyway.
+#   G1 allowed_fell   WATCH (blocks an automatic KEEP; a human reviews it -- Claude r2 P2-2: the base would have done the same
+#                     dig, so reverting cannot cure a miss): an `allowed` row whose bot is ON the floor, then a fall episode starting within 5 s that lands
+#                     within 1.5 (x, z) of the column >= 6 and more than the row's drop + 2 below the floor's top (measured from
+#                     the support height, not the decaying peak).
+#   G2 refused_fell   WATCH, as G1: after a `refused` row the same bot is seen standing ON the refused cell and then, within 60 s, in
+#                     its column (x, z within 0.5) >= 6 below its top: an observed transition through a floor the rule refused.
 #   ARMS              REVERT: a control `_cavefall_*` row after the deploy.
-#   LIVENESS          canary licence on=1 (the latest per bot) >= 1 (BLOCKS KEEP).
+#   H1 refusals_up    HOLD: the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
+#                     change (pre vs post): the rule refusing too much is the harm this change can actually cause.
+#   LIVENESS          every canary bot seen after the deploy carries the licence on=1, its latest (BLOCKS KEEP).
 #   EXPOSURE          >= 5 canary `_cavefall_skip` + `_cavefall_floor refused` rows.
 # PRIMARY (REPORTED; KEEP does not need it): gather fall episodes (fell >= 12, deduplicated per bot within 10 s, inside a
 #   gather run's interval, feet not water) per gather bot-hour, canary vs control, pre vs post: the DiD.
@@ -37,7 +41,7 @@ FELL = re.compile(r'fell (\d+)')
 ONSET = re.compile(r'descent (\d+)s ago')
 FEET = re.compile(r'feet (\S+) head')
 FALL_CAUSES = ('fell from a high place', 'hit the ground', 'doomed to fall', 'stalagmite', 'stalactite', 'fell off')
-KEEP = ('_cavefall_mode', '_cavefall_skip', '_cavefall_floor', '_fall_path', '_death', 'gather')
+KEEP = ('_cavefall_mode', '_cavefall_skip', '_cavefall_floor', '_fall_path', '_death', 'gather', 'explore', 'goto')
 
 
 def kv(d):
@@ -107,6 +111,10 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None):
         if r['name'] == '_cavefall_mode':
             lic[r['bot']].append(kv(r['detail']).get('on') == '1')
     res['licence_on'] = sum(1 for v in lic.values() if v and v[-1])
+    # EVERY canary bot seen after the deploy must carry the licence, on (Codex r2 P2-7)
+    roster = sorted({r['bot'] for r in can})
+    res['licence_missing'] = [b for b in roster if not (lic.get(b) and lic[b][-1])]
+    res['licence_all'] = 1 if roster and not res['licence_missing'] else 0
     floors = [(r, floor_row(r['detail'])) for r in can if r['name'] == '_cavefall_floor']
     floors = [(r, f) for r, f in floors if f]
     skips = [r for r in can if r['name'] == '_cavefall_skip']
@@ -120,32 +128,46 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None):
                      for b in sorted({r['bot'] for r in skips} | {r['bot'] for r, _ in floors})}
     eps = episodes(rows)
     ceps = [e for e in eps if e['t'] >= cut and arm(e['bot']) == 'canary']
-    # G1: an allowed floor dig followed by a fall bigger than predicted, at that column
+    pos_by = defaultdict(list)
+    for r in can:
+        if r.get('pos') is not None:
+            pos_by[r['bot']].append((r['t'], r['pos']))
+    on_top = lambda p, tx, ty, tz: abs(p[0] - (tx + 0.5)) <= 0.8 and abs(p[2] - (tz + 0.5)) <= 0.8 and ty + 0.9 <= p[1] <= ty + 1.6
+    # G1: an allowed floor dig, the bot ON that floor at the row, then a fall episode starting within ONSET_S that lands at the
+    # column more than the row's drop + EXTRA_DROP below the floor's top -- measured from the support height, not from the
+    # bot's decaying peak (Codex r2 P1-2)
     g1 = []
     for r, f in floors:
         if f['decision'] != 'allowed':
             continue
         tx, ty, tz = f['at']
+        if not (r.get('pos') and on_top(r['pos'], tx, ty, tz)):
+            continue
         for e in ceps:
-            if e['bot'] != r['bot'] or not (r['t'] <= e['onset'] <= r['t'] + ONSET_S) or e['fell'] < 6 or not e['pos']:
+            if e['bot'] != r['bot'] or not (r['t'] <= e['onset'] <= r['t'] + ONSET_S) or not e['pos']:
                 continue
-            if abs(e['pos'][0] - (tx + 0.5)) <= LAND_XZ and abs(e['pos'][2] - (tz + 0.5)) <= LAND_XZ and e['fell'] > (f['drop'] or 0) + EXTRA_DROP:
-                g1.append((r['bot'], round(r['t']), f['at'], e['fell']))
+            below = (ty + 1) - e['pos'][1]
+            if abs(e['pos'][0] - (tx + 0.5)) <= LAND_XZ and abs(e['pos'][2] - (tz + 0.5)) <= LAND_XZ and below >= 6 and below > (f['drop'] or 0) + EXTRA_DROP:
+                g1.append((r['bot'], round(r['t']), f['at'], round(below, 1)))
+                break
     res['allowed_fell'] = len(g1); res['_g1'] = g1
-    # G2: a refused floor the bot fell through anyway
+    # G2: a refused floor the bot was seen STANDING ON after the refusal and then deep below, in its column, within G2_S: an
+    # observed transition through the cell (Codex r2 P1-2: a bot already below, or walking underneath, is not one)
     g2 = []
-    pos_by = defaultdict(list)
-    for r in can:
-        if r.get('pos') is not None:
-            pos_by[r['bot']].append((r['t'], r['pos']))
     for r, f in floors:
         if f['decision'] != 'refused':
             continue
         tx, ty, tz = f['at']
-        for t, p in pos_by.get(r['bot'], ()):
-            if r['t'] < t <= r['t'] + G2_S and abs(p[0] - (tx + 0.5)) <= 0.5 and abs(p[2] - (tz + 0.5)) <= 0.5 and p[1] <= ty + 1 - G2_DEPTH:
-                g2.append((r['bot'], round(r['t']), f['at'], round(p[1], 1)))
-                break
+        seq = [(t, p) for t, p in pos_by.get(r['bot'], ()) if r['t'] - 1 <= t <= r['t'] + G2_S]
+        if r.get('pos'):
+            seq.append((r['t'], r['pos']))
+        seq.sort(key=lambda x: x[0])
+        top_t = next((t for t, p in seq if on_top(p, tx, ty, tz)), None)
+        if top_t is None:
+            continue
+        hit = next(((t, p) for t, p in seq if t > top_t and abs(p[0] - (tx + 0.5)) <= 0.5 and abs(p[2] - (tz + 0.5)) <= 0.5 and p[1] <= ty + 1 - G2_DEPTH), None)
+        if hit:
+            g2.append((r['bot'], round(r['t']), f['at'], round(hit[1][1], 1)))
     res['refused_fell'] = len(g2); res['_g2'] = g2
     res['rows_control'] = 0 if fleet else sum(1 for r in post if arm(r['bot']) == 'control' and r['name'].startswith('_cavefall'))
     # PRIMARY: gather fall episodes (fell >= 12, not into water) per gather bot-hour, by arm and period
@@ -166,6 +188,24 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None):
     res['primary'] = {f'{a}_{p}': {'episodes': cells[(a, p)][0], 'gather_bot_h': cells[(a, p)][1], 'per_h': None if r_[(a, p)] is None else round(r_[(a, p)], 4)}
                       for a in ('canary', 'control') for p in ('pre', 'post')}
     res['primary_did'] = None if None in r_.values() else round((r_[('canary', 'post')] - r_[('canary', 'pre')]) - (r_[('control', 'post')] - r_[('control', 'pre')]), 4)
+    # H1: the share of gather runs ending no_safe_target, by arm and period, and its DiD; explore/goto runs per bot reported
+    sh = {}
+    for a in ('canary', 'control'):
+        for per in ('pre', 'post'):
+            in_per = (lambda t: t >= cut) if per == 'post' else (lambda t: lo <= t < cut)
+            gr = [r for r in rows if r['name'] == 'gather' and arm(r['bot']) == a and in_per(r['t'])]
+            ns = sum(1 for r in gr if r.get('fc') == 'no_safe_target')
+            sh[(a, per)] = (ns, len(gr))
+    share = lambda c: (c[0] / c[1]) if c[1] else None
+    res['no_safe_target'] = {f'{a}_{p}': {'n': sh[(a, p)][0], 'runs': sh[(a, p)][1]} for a in ('canary', 'control') for p in ('pre', 'post')}
+    vals = [share(sh[k]) for k in (('canary', 'post'), ('canary', 'pre'), ('control', 'post'), ('control', 'pre'))]
+    res['refusal_did'] = None if None in vals else round((vals[0] - vals[1]) - (vals[2] - vals[3]), 4)
+    res['refusals_up'] = 1 if res['refusal_did'] is not None and res['refusal_did'] > 0.10 else 0
+    mv = {a: Counter() for a in ('canary', 'control')}
+    for r in post:
+        if r['name'] in ('explore', 'goto'):
+            mv[arm(r['bot'])][r['name']] += 1
+    res['moves_post'] = {a: dict(mv[a]) for a in mv}
     # deaths, fall family, by arm (post)
     deaths = defaultdict(Counter)
     for r in post:
@@ -190,26 +230,40 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None):
 
 def selftest():
     cut = 1_000_000.0 * 600
-    def row(bot, t, name='_affordance_scan', pos=(3.5, 30.0, 6.5), detail='', status='success', dur=None):
-        return {'t': t, 'bot': bot, 'name': name, 'detail': detail, 'pos': pos, 'status': status, 'dur': dur}
+    def row(bot, t, name='_affordance_scan', pos=(3.5, 30.0, 6.5), detail='', status='success', dur=None, fc=None):
+        return {'t': t, 'bot': bot, 'name': name, 'detail': detail, 'pos': pos, 'status': status, 'dur': dur, 'fc': fc}
     C, K = 'board-a-Comet', 'hive-a-Alpha'
     lic = row(C, cut + 5, '_cavefall_mode', detail='on=1 rule=floor_over_drop safe_drop=3')
     base = [lic] + [row(C, cut + 10 + i, '_cavefall_skip', detail='dirt: 3 of 9 exposed candidate(s) are floors over a harmful drop; skipped') for i in range(5)]
     ok = judge(base, cut=cut, cans={'board-a'})
     assert ok['licence_on'] == 1 and ok['exposure'] == 5 and ok['exposure_ready'] == 1 and ok['allowed_fell'] == 0 and ok['refused_fell'] == 0 and ok['rows_control'] == 0, ok
     # G1: an allowed 2-block floor dig, then a 21-block fall at that column 2 s later -> 1; a 3-block fall -> 0; another column -> 0
-    A = row(C, cut + 100, '_cavefall_floor', detail='allowed: dirt at 3,29,6; drop 2 onto solid (damage 0)')
+    A = row(C, cut + 100, '_cavefall_floor', pos=(3.5, 30.0, 6.5), detail='allowed: dirt at 3,29,6; drop 2 onto solid (damage 0)')
     fall = lambda t, fell, pos=(3.5, 8.7, 6.5): row(C, t, '_fall_path', pos=pos, detail=f'candidate damage: fell {fell}, hp -20; descent 1s ago: path none; ... running gather; ctl none; feet air head air')
     assert judge(base + [A, fall(cut + 103, 21)], cut=cut, cans={'board-a'})['allowed_fell'] == 1
-    assert judge(base + [A, fall(cut + 103, 4)], cut=cut, cans={'board-a'})['allowed_fell'] == 0
+    assert judge(base + [A, fall(cut + 103, 4, (3.5, 27.0, 6.5))], cut=cut, cans={'board-a'})['allowed_fell'] == 0
+    # STALE PEAK (Codex r2 P1-2): the tracker says fell 21, but the bot landed 3 below the floor -> not a defect
+    assert judge(base + [A, fall(cut + 103, 21, (3.5, 27.0, 6.5))], cut=cut, cans={'board-a'})['allowed_fell'] == 0
+    # the allowed row's bot was not on the floor (it dug it from beside) -> not judged
+    A2 = dict(A, pos=(5.5, 30.0, 6.5))
+    assert judge(base + [A2, fall(cut + 103, 21)], cut=cut, cans={'board-a'})['allowed_fell'] == 0
     assert judge(base + [A, fall(cut + 103, 21, (12.5, 8.7, 6.5))], cut=cut, cans={'board-a'})['allowed_fell'] == 0
     assert judge(base + [A, fall(cut + 140, 21)], cut=cut, cans={'board-a'})['allowed_fell'] == 0
     # G2: refused at 3,29,6, then positions in that column 21 below -> 1; on the shelf -> 0; beside the column -> 0
     R = row(C, cut + 200, '_cavefall_floor', detail='refused: dirt at 3,29,6; drop 21.3125 onto stalagmite (damage 41)')
     assert judge(base + [R, row(C, cut + 230, pos=(3.5, 8.7, 6.5))], cut=cut, cans={'board-a'})['refused_fell'] == 1
+    # STATIONARY BELOW (Codex r2): refused while already under the shelf, never on it -> not a defect
+    Rb = dict(R, pos=(3.5, 8.7, 6.5))
+    assert judge([lic, Rb, row(C, cut + 230, pos=(3.5, 8.7, 6.5))], cut=cut, cans={'board-a'})['refused_fell'] == 0
+    # SAFE ROUTE UNDERNEATH: on a cliff path elsewhere, then walking under the shelf -> not a defect
+    assert judge([lic, dict(R, pos=(0.5, 30.0, 6.5)), row(C, cut + 230, pos=(3.5, 8.7, 6.5))], cut=cut, cans={'board-a'})['refused_fell'] == 0
     assert judge(base + [R, row(C, cut + 230, pos=(3.5, 30.0, 6.5))], cut=cut, cans={'board-a'})['refused_fell'] == 0
     assert judge(base + [R, row(C, cut + 230, pos=(5.5, 8.7, 6.5))], cut=cut, cans={'board-a'})['refused_fell'] == 0
     assert judge(base + [R, row(C, cut + 300, pos=(3.5, 8.7, 6.5))], cut=cut, cans={'board-a'})['refused_fell'] == 0
+    # LICENCE ROSTER: a second canary bot with no licence -> licence_all 0, named
+    lr = judge(base + [row('board-a-Delta', cut + 30)], cut=cut, cans={'board-a'})
+    assert lr['licence_all'] == 0 and lr['licence_missing'] == ['board-a-Delta'], lr
+    assert judge(base, cut=cut, cans={'board-a'})['licence_all'] == 1
     assert judge(base + [R], cut=cut, cans={'board-a'})['refused'] == 1
     # ARMS: a control row after the deploy
     assert judge(base + [row(K, cut + 50, '_cavefall_mode', detail='on=1')], cut=cut, cans={'board-a'})['rows_control'] == 1
@@ -238,6 +292,18 @@ def selftest():
     d = judge(base + [row(C, cut + 10, '_death', detail='was impaled on a stalagmite after falling 21 blocks'),
                       row(K, cut + 20, '_death', detail='tried to swim in lava after falling 6 blocks')], cut=cut, cans={'board-a'})
     assert d['fall_deaths'] == {'canary': {'stalagmite': 1}, 'control': {}}, d['fall_deaths']
+    # H1: canary refusals 1/4 -> 3/4 while control stays 1/4 -> 1/4: DiD +0.5 -> HOLD; equal changes -> none
+    gr = lambda b, t, fc=None: row(b, t, 'gather', status='failed' if fc else 'success', dur=1000, fc=fc)
+    h = [lic] + [gr(C, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(C, cut + 100 + i, 'no_safe_target' if i < 3 else None) for i in range(4)] + \
+        [gr(K, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(K, cut + 100 + i, 'no_safe_target' if i == 0 else None) for i in range(4)]
+    hr = judge(h, cut=cut, cans={'board-a'}, pre_s=3600)
+    assert hr['refusal_did'] == 0.5 and hr['refusals_up'] == 1, (hr['refusal_did'], hr['no_safe_target'])
+    h2 = [lic] + [gr(C, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(C, cut + 100 + i, 'no_safe_target' if i < 2 else None) for i in range(4)] + \
+        [gr(K, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(K, cut + 100 + i, 'no_safe_target' if i < 2 else None) for i in range(4)]
+    assert judge(h2, cut=cut, cans={'board-a'}, pre_s=3600)['refusals_up'] == 0
+    # the bot's own row formats (bots/test/cavefall.test.mjs asserts describeFloor emits exactly these)
+    assert floor_row('allowed: dirt at 3,29,6; drop 2 onto solid (damage 0)') == {'decision': 'allowed', 'block': 'dirt', 'at': (3, 29, 6), 'drop': 2.0, 'landing': 'solid'}
+    assert floor_row('refused: dirt at 3,29,6; drop 21.31 onto stalagmite (damage 41)')['drop'] == 21.31
     assert floor_row('allowed: dirt at -3,29,6; drop 2 onto water (damage 0)')['at'] == (-3, 29, 6)
     assert floor_row('nonsense') is None
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
@@ -307,17 +373,21 @@ if __name__ == '__main__':
         if p is not None or name in KEEP:
             sk = ((r.get('raw') or {}).get('skill') or {})
             rows.append({'t': t.timestamp(), 'name': name, 'detail': (r.get('detail') or '') if name in KEEP else '', 'bot': b,
-                         'pos': p, 'status': sk.get('status'), 'dur': sk.get('duration_ms') if name == 'gather' else None})
+                         'pos': p, 'status': sk.get('status'), 'dur': sk.get('duration_ms') if name == 'gather' else None,
+                         'fc': sk.get('fail_class')})
     res = judge(rows, cut=CUT.timestamp(), cans=CANS, fleet=fleet, pre_s=W * 60)
     print('DENOMINATORS rows walked %d (canary rows on another build skipped %d; rows with bot.pos %d) | bots post canary %d control %d | window %d min%s'
           % (walked, offbuild, withpos, len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, ' | FLEET TRIPWIRE' if fleet else ''))
     print('CONTROLS     kinds walked %s' % json.dumps(dict(kinds)))
-    print('DEFECTS      G1 allowed floor dig then a bigger fall %d %s | G2 refused floor fallen through %d %s | ARMS control rows %d'
-          % (res['allowed_fell'], res['_g1'][:5] or '', res['refused_fell'], res['_g2'][:5] or '', res['rows_control']))
+    print('WATCH        G1 allowed floor dig then a bigger fall %d %s | G2 refused floor fallen through %d %s'
+          % (res['allowed_fell'], res['_g1'][:5] or '', res['refused_fell'], res['_g2'][:5] or ''))
+    print('DEFECTS      ARMS control rows %d | H1 no_safe_target share DiD %s -> %s %s'
+          % (res['rows_control'], res['refusal_did'], 'HOLD' if res['refusals_up'] else 'ok', json.dumps(res['no_safe_target'])))
+    print('REPORTED     explore/goto runs post %s' % json.dumps(res['moves_post']))
     print('PRIMARY      gather fall episodes (>= 12, not water) per gather bot-h %s | DiD %s' % (json.dumps(res['primary']), res['primary_did']))
     print('REPORTED     fall deaths %s | canary named %s | gather %s ratio %s' % (json.dumps(res['fall_deaths']), res['fall_deaths_canary_named'] or '-', json.dumps(res['gather']), res['gather_ok_ratio']))
     print('ROWS         skips %d refused %d allowed %d | by bot %s' % (res['skips'], res['refused'], res['allowed'], json.dumps(res['by_bot'])))
-    print('LIVENESS     licence on %d | EXPOSURE %d (need %d) -> %s' % (res['licence_on'], res['exposure'], EXPOSE_MIN, 'READY' if res['exposure_ready'] else 'NOT YET'))
+    print('LIVENESS     licence on %d, all canary bots %s%s | EXPOSURE %d (need %d) -> %s' % (res['licence_on'], 'yes' if res['licence_all'] else 'NO', (' missing ' + ','.join(res['licence_missing'])) if res['licence_missing'] else '', res['exposure'], EXPOSE_MIN, 'READY' if res['exposure_ready'] else 'NOT YET'))
     try:
         if ovr or fleet:
             raise RuntimeError('CANARY_DRYRUN or --fleet -- not emitting')
