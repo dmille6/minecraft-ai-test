@@ -48,14 +48,22 @@ export const swingFits = (priceMs, leftMs) => !known(priceMs) || priceMs <= left
  * THE FULL COST OF ONE SIDESTEP, or null when any part of it cannot be priced ("I cannot price it" is not "it is cheap").
  *   digMs     each cell the sidestep breaks, at the bot's CURRENT price (the held item and environment it digs them with)
  *   newCeilMs the new column's ceiling at the price it will be dug at after the step (0 when that cell is already open)
- * Plus, per dig, the look/hand overhead and the flow settle; one falling settle when anything is dug; and the move.
+ * Plus, per dig, the look/hand overhead and the flow settle; one falling settle when anything is dug; the move; and for a
+ * solid new ceiling its own overhead, flow settle and falling settle (Codex r2 P2-6).
  */
 export function sidestepCostMs ({ digMs = [], newCeilMs = 0 } = {}) {
   if (!Array.isArray(digMs) || !digMs.every(known) || !known(newCeilMs)) return null
   const digs = digMs.reduce((a, b) => a + b, 0)
   return digs + digMs.length * (CE_DIG_OVERHEAD_MS + CE_FLOW_SETTLE_MS) + (digMs.length ? CE_FALLING_SETTLE_MS : 0) +
-         CE_MOVE_MS + newCeilMs + (newCeilMs ? CE_DIG_OVERHEAD_MS : 0)
+         CE_MOVE_MS + (newCeilMs ? newCeilMs + CE_DIG_OVERHEAD_MS + CE_FLOW_SETTLE_MS + CE_FALLING_SETTLE_MS : 0)
 }
+
+/**
+ * WHAT A FRESH FIRING CAN SPEND on a swing it must first settle for (Codex r2 P2-5, Claude r2 P3-1): a swing that does not fit
+ * at its first price is re-priced only after the settle, so "would fit a full firing" means after that settle too. Comparing
+ * against the bare budget left a 1-5 s window in which every firing waited and none ever escalated.
+ */
+export const freshBudgetMs = fullMs => Math.max(0, fullMs - CE_SETTLE_MAX_MS)
 
 /**
  * THE CEILING DECISION.
@@ -67,9 +75,10 @@ export function sidestepCostMs ({ digMs = [], newCeilMs = 0 } = {}) {
  *   moved       a sidestep was already taken this firing (one per firing)
  * -> { action: 'ceiling' }                       today's code: the swing fits the time left, or its price is unknown
  *  | { action: 'lateral', bear, costMs, ranked } the cheapest sidestep that fits the time left (ties: dry first, then facing)
- *  | { action: 'wait', reason, ranked }          no swing now and NO flag: a fresh firing's full budget would fit the ceiling
- *                                                or a sidestep, or this firing already moved the bot (Claude r1 P1-3)
- *  | { action: 'escalate', reason, bestMs, best, ranked }  not even a full firing fits anything: a named stop and the flag
+ *  | { action: 'wait', reason, ranked }          no swing now and NO flag: a fresh firing (after its settle) would fit the
+ *                                                ceiling or a sidestep -- which this decision itself takes when it fits --
+ *                                                or this firing already moved the bot (Claude r1 P1-3)
+ *  | { action: 'escalate', reason, bestMs, best, ranked }  not even a fresh firing fits anything: a named stop and the flag
  */
 export function ceilingEscapeDecision ({ ceilingMs = null, leftMs = 0, fullMs = 60_000, candidates = [], refusals = [],
                                          block = 'the ceiling', moved = false } = {}) {
@@ -80,18 +89,19 @@ export function ceilingEscapeDecision ({ ceilingMs = null, leftMs = 0, fullMs = 
     .sort((a, b) => (a.costMs ?? Infinity) - (b.costMs ?? Infinity) || (a.wet ? 1 : 0) - (b.wet ? 1 : 0) || a.i - b.i)
   const best = ranked.find(c => c.costMs != null) ?? null
   const fitsIn = (c, ms) => c.costMs != null && c.costMs + CE_RESERVE_MS <= ms
+  const fresh = freshBudgetMs(fullMs)
   const head = `${block} ${s(ceilingMs)}s against ${s(leftMs)}s left`
   const bestText = best ? `best bearing ${dirName(best.bear)} ${s(best.costMs)}s` : 'no side column'
   const why = refusals.length ? ` (${refusals.map(r => `${dirName(r.bear)}: ${r.reason}`).join('; ')})` : ''
   if (moved) return { action: 'wait', reason: `${head} after this firing's sidestep; the next firing re-plans from here`, ranked }
   const pick = ranked.find(c => fitsIn(c, leftMs)) ?? null
   if (pick) return { action: 'lateral', bear: pick.bear, costMs: pick.costMs, ranked }
-  if (swingFits(ceilingMs, fullMs) || ranked.some(c => fitsIn(c, fullMs))) {
-    return { action: 'wait', reason: `${head}; ${bestText}; a full firing (${s(fullMs)}s) would fit${why}`, ranked }
+  if (swingFits(ceilingMs, fresh) || ranked.some(c => fitsIn(c, fresh))) {
+    return { action: 'wait', reason: `${head}; ${bestText}; a fresh firing (${s(fresh)}s after its settle) would fit${why}`, ranked }
   }
   return {
     action: 'escalate',
-    reason: `no affordable ramp exit: ${head}; ${bestText}, and nothing fits a full firing (${s(fullMs)}s)${why}`,
+    reason: `no affordable ramp exit: ${head}; ${bestText}, and nothing fits a fresh firing (${s(fresh)}s)${why}`,
     bestMs: best?.costMs ?? null,
     best: best?.bear ?? null,
     ranked,
@@ -102,20 +112,25 @@ export function ceilingEscapeDecision ({ ceilingMs = null, leftMs = 0, fullMs = 
  * THE FIRST SWING OF A FIRING THAT CANNOT FINISH, ON THE STEP LOOP (placebo-c-Bravo's marooned ramps time out on a STEP).
  * Only the swing is declined -- the step loop then stops exactly where today's would have timed out, and cells already
  * cleared stay cleared, so a step two affordable swings long still completes over two firings (Codex r1 P1-2). No other
- * bearing is substituted (both reviews: no measured beneficiary). This decides only whether that stop is ALSO an
- * escalation: when no bearing's first swing would fit even a full firing.
+ * bearing is substituted (both reviews: no measured beneficiary). This decides only whether the stop is ALSO an escalation.
+ *
+ * THE CHOOSER'S BEARING DECIDES (Codex r2 P2-5): the loop will pick the same bearing again from the same cell, so another
+ * bearing that could start is named in the reason, not counted as a way out. A bearing whose step needs NO swing is
+ * different (Claude r2 P2-2): that is a move the bot has, so a firing with one is never escalated.
  *   chosen  { bear, priceMs }      the swing the loop was about to start
- *   others  [{ bear, priceMs }]    the first swing of every other bearing stairUpStep allows
+ *   others  [{ bear, priceMs }]    the first swing of every other bearing stairUpStep allows (priceMs 0: no dig needed)
  * -> { escalate: boolean, reason }
  */
 export function firstSwingEscalation ({ chosen = null, others = [], leftMs = 0, fullMs = 60_000, block = 'the step' } = {}) {
-  const all = [chosen, ...others].filter(Boolean)
-  const fitsFull = all.filter(o => swingFits(o.priceMs, fullMs))
+  const fresh = freshBudgetMs(fullMs)
   const head = `${block} ${dirName(chosen?.bear)} ${s(chosen?.priceMs)}s against ${s(leftMs)}s left`
-  if (fitsFull.length) {
-    return { escalate: false, reason: `the next swing cannot finish: ${head}; a full firing (${s(fullMs)}s) would fit ${fitsFull.map(o => dirName(o.bear)).join(',')}` }
-  }
-  return { escalate: true, reason: `no affordable first swing: ${head}; no bearing's first swing fits a full firing (${s(fullMs)}s)` }
+  if (swingFits(chosen?.priceMs, fresh)) return { escalate: false, reason: `the next swing cannot finish: ${head}; a fresh firing (${s(fresh)}s) would fit it` }
+  const free = others.filter(o => o.priceMs === 0)
+  if (free.length) return { escalate: false, reason: `the next swing cannot finish: ${head}; ${free.map(o => dirName(o.bear)).join(',')} needs no swing` }
+  const could = others.filter(o => swingFits(o.priceMs, fresh))
+  return { escalate: true,
+           reason: `no affordable first swing: ${head}; the chooser's bearing fits no fresh firing (${s(fresh)}s)` +
+                   (could.length ? `; ${could.map(o => dirName(o.bear)).join(',')} could start but is not the chooser's` : '') }
 }
 
 /**
@@ -145,20 +160,22 @@ export function waterLevel (b) {
  *
  * The destination HEAD cell of a sidestep must stay breathable, and for a bot that starts SUBMERGED the shared flood check
  * exempts water (`overheadBreakRisk` with `submerged`), so nothing else asks this (Codex r1 P1-3: refuse unsafe head flooding
- * independently of the wet-feet rule). The rule is vanilla's FlowingFluid.spread, conservatively:
- *   - water (any form) directly ABOVE falls in;
- *   - a SOURCE beside it, or a waterlogged block (it holds a source), spreads in;
- *   - flowing or falling water beside it spreads sideways only when the cell under it cannot take its flow -- a solid block.
- *     Over water or over an open cell it flows DOWN instead (isWaterHole) and never sideways. Level 7 is the last level and
- *     spreads nowhere;
- *   - an unreadable level counts as a source; an unloaded cell is a refusal ("I cannot see" is not "it is dry").
- * Paper is the arbiter of the rule; this is the plan-time filter that keeps a bearing like Comet's west (head dirt beside
- * falling water resting on stone) from being chosen, dug, and refused at the recheck.
+ * independently of the wet-feet rule). CONSERVATIVE BY CONSTRUCTION (Codex r2 P1-3, Claude r2 P3-4): every water neighbour
+ * floods the cell EXCEPT the one case vanilla's FlowingFluid.spread provably keeps out --
+ *   a FLOWING or FALLING (non-source) water cell whose cell below is plain WATER (a water hole: it flows down, never
+ *   sideways) and which has NO source beside it (vanilla also spreads sideways after a downward flow when 3 sources
+ *   neighbour it; any source at all refuses here). Level 7 is vanilla's last level and spreads nowhere.
+ * Everything else refuses: water above; a source; a waterlogged block (it holds a source); flowing water over air, a
+ * waterlogged block, a plant, a slab or any other non-water cell; an unreadable level; an unloaded cell. Face occlusion is
+ * ignored, which can only refuse more. Paper is the arbiter; the sidestep re-asks this before it moves.
+ * Comet's east head cell passes on exactly that exemption (its own level-2 head water rests on falling water); its west
+ * head cell (falling water on stone beside it) refuses.
  */
 export function cellFloods (at) {
   const up = at(0, 1, 0)
   if (!up) return 'terrain not loaded above the head cell'
   if (isWater(up)) return `water above the head cell (${up.name})`
+  const plainWater = b => !!b && /^(water|flowing_water)$/.test(b.name ?? '') && b.isWaterlogged !== true
   for (const [x, z] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const n = at(x, 0, z)
     if (!n) return 'terrain not loaded beside the head cell'
@@ -168,16 +185,32 @@ export function cellFloods (at) {
     if (lv === 7) continue
     const under = at(x, -1, z)
     if (!under) return 'terrain not loaded beside the head cell'
-    if (solid(under) && !isWater(under)) return `water beside the head cell spreads in (level ${lv} over ${under.name})`
+    if (!plainWater(under)) return `water beside the head cell spreads in (level ${lv} over ${under.name})`
+    for (const [a, c] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (x + a === 0 && z + c === 0) continue                    // the cell itself
+      const m = at(x + a, 0, z + c)
+      if (!m) return 'terrain not loaded beside the head cell'
+      if (isWater(m) && (waterLevel(m) === 0 || waterLevel(m) === null)) return `water beside the head cell has a source beside it (${m.name})`
+    }
   }
   return null
 }
 
-/** Is a `_needs_rescue` row due? One per cell per CE_RESCUE_ROW_MS; a new cell is always due. Pure. */
-export function rescueRowDue (last, cell, now = Date.now()) {
-  if (!last || !cell) return true
-  if (last.cell?.x !== cell.x || last.cell?.y !== cell.y || last.cell?.z !== cell.z) return true
-  return now - last.at >= CE_RESCUE_ROW_MS
+/**
+ * Is a `_needs_rescue` row due? One per cell per CE_RESCUE_ROW_MS (Claude r2 P3-3: a bot that alternates between two cells,
+ * as placebo-c-Bravo does between its entombed and marooned heights, is limited per cell, not reset by every change).
+ * `seen` is a Map of cell key -> last row time, kept to the 8 most recent cells. Pure apart from updating `seen` when due.
+ */
+export function rescueRowDue (seen, cell, now = Date.now()) {
+  if (!cell) return false
+  const k = `${cell.x},${cell.y},${cell.z}`
+  const last = seen?.get?.(k)
+  if (last != null && now - last < CE_RESCUE_ROW_MS) return false
+  if (seen?.set) {
+    seen.delete(k); seen.set(k, now)
+    while (seen.size > 8) seen.delete(seen.keys().next().value)
+  }
+  return true
 }
 
 /** The `_ceilescape_mode` licence row, once per spawn (index.mjs): on=0 under CEILESCAPE=0, so the rollback is visible. Pure. */
