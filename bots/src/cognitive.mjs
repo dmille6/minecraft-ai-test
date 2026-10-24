@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
-import { elevation, descendOrder, respawnfallOn } from './respawnfall.mjs'   // respawnfall-01
+import { elevation, descendOrder, descentDone, supportOf, respawnfallOn } from './respawnfall.mjs'   // respawnfall-01
 import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
@@ -1009,9 +1009,13 @@ export class CognitiveLoop {
     try {
       const bot = this.bot
       if (!bot.entity?.position) return null
-      const el = elevation({ pos: bot.entity.position, at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)), onGround: bot.entity.onGround !== false })
-      const d = descendOrder({ now: Date.now(), lastSpawnAt: bot.lastSpawnAt ?? null, el, state: this.skyState ?? {}, on: respawnfallOn(process.env) })
+      const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+      const el = elevation({ pos: bot.entity.position, at, onGround: bot.entity.onGround !== false })
+      // an open episode ends only on a verified safe stance (descentDone), never on an unreadable or transient reading
+      const done = this.skyState?.active && !el.transient ? descentDone(at, supportOf(bot.entity.position)) : null
+      const d = descendOrder({ now: Date.now(), lastSpawnAt: bot.lastSpawnAt ?? null, el, done, state: this.skyState ?? {}, on: respawnfallOn(process.env) })
       this.skyState = d.state
+      bot.skyActive = d.state.active === true   // the escape lattice stands aside while the episode is open (respawnfall.mjs skyEscapeBlocked)
       if (!d.issue) return null
       return { skill: 'sky_descend', args: {}, why: `spawned on a high platform (${d.why}): climbing down first${order ? ` (instead of ${order.skill})` : ''}` }
     } catch { return null }
