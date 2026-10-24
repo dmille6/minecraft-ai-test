@@ -1,10 +1,9 @@
 // CAVEFALL-01: GATHER NEVER DIGS A FLOOR THAT HAS A HARMFUL DROP UNDER IT (docs/reports/cavefall-01-design-2026-10-24.md).
 // Pure: no bot. `at(x, y, z)` reads a block (a prismarine Block, or {name, boundingBox, shapes?, props?}; null = unloaded).
 //
-// THE SLICE IT FIXES, measured 7 d to 10-24 (96 fall-family deaths of 278; 67 of them in the shared-seed cave under the
-// town and inside the region copy read): above 13 of the 67 landings the 10-24 backup holds a ONE-BLOCK HOLE IN A FLOOR
-// (the column open, >= 3 of its 4 neighbours solid at that level) against 9 of 169 control floor cells 3 blocks away (19%
-// vs 5%). isolated-a-Comet's overnight stalagmite death is one: a hole at y=30 in a dirt shelf it had been gathering on.
+// WHAT IT FIXES: a deterministic way to die that the code allows (96 fall-family deaths of 278 in 7 d to 10-24; gather was
+// running in 44, in 10% of the bot-time). Its SHARE of them is not known: neither the world copies (a one-block floor hole
+// above 13 of 67 cave landings, against 18% of matched control cells) nor the reach probe discriminated it (design §0.3).
 // gather picks the nearest candidate, its reach goal accepts standing ON the block, `canDigBlock` reaches 4 down, and
 // nothing between the candidate filter and bot.dig asks what is under the target (isSafeToBreak asks only about liquids
 // beside it and falling blocks above). Prior art: Baritone never breaks the block it stands on without a walkable floor
@@ -54,21 +53,36 @@ export function cellKind (b) {
   return shapesOf(b).length ? 'solid' : 'open'
 }
 
-/** Highest top (in block units above the cell's y) of a cell's collision shapes, or null if it has none. */
-const topOf = b => { const s = shapesOf(b); return s.length ? Math.max(...s.map(x => x[4])) : null }
+/** The footprint (cell-local x and z ranges) a 0.6-wide body standing on T can occupy in a column. */
+const CENTRED = { x: [0.2, 0.8], z: [0.2, 0.8] }
+/** A body straddling from T toward the neighbour (dx, dz): its part over T's column, and its part over the neighbour's. */
+const straddle = (dx, dz) => ({
+  t: { x: dx > 0 ? [0.4, 1] : dx < 0 ? [0, 0.6] : CENTRED.x, z: dz > 0 ? [0.4, 1] : dz < 0 ? [0, 0.6] : CENTRED.z },
+  n: { x: dx > 0 ? [0, 0.3] : dx < 0 ? [0.7, 1] : CENTRED.x, z: dz > 0 ? [0, 0.3] : dz < 0 ? [0.7, 1] : CENTRED.z },
+})
+/** Highest top (block units above the cell's y) of the shapes that overlap the footprint, or null: a partial shape (an open
+ * trapdoor, a wall-mounted ladder) that the body misses is not a floor (Codex r2 P1). */
+const topIn = (b, fp) => {
+  let top = null
+  for (const s of shapesOf(b)) {
+    if (s[0] < fp.x[1] && s[3] > fp.x[0] && s[2] < fp.z[1] && s[5] > fp.z[0]) top = top == null ? s[4] : Math.max(top, s[4])
+  }
+  return top
+}
+const KIND_RANK = { water: 0, solid: 1, stalagmite: 2, lava: 3, unknown: 4, deep: 5 }
 
-/** The fall in ONE column from a body whose feet are at `feetY`, cells from `fromY` down. Pure. */
-function columnFall (at, x, z, feetY, fromY, scan) {
+/** The first thing a body falling in ONE column meets, from `fromY` down, within the footprint: {top, kind}. Pure. */
+function columnStop (at, x, z, fromY, fp, scan) {
   for (let y = fromY; y >= fromY - scan; y--) {
     let b
     try { b = at(x, y, z) } catch { b = null }
     const k = cellKind(b)
+    if (k === 'water' || k === 'lava' || k === 'unknown') return { top: y + 1, kind: k }
     if (k === 'open') continue
-    if (k === 'water' || k === 'lava' || k === 'unknown') return { drop: feetY - (y + 1), landing: k, landY: y }
-    const top = topOf(b) ?? 1
-    return { drop: Math.max(0, feetY - (y + top)), landing: k, landY: y }
+    const top = topIn(b, fp)
+    if (top != null) return { top: y + top, kind: k }
   }
-  return { drop: scan + 1, landing: 'deep', landY: null }
+  return { top: -Infinity, kind: 'deep' }
 }
 
 /** Fall damage (half-hearts) for a drop onto a landing kind. Infinity where the landing itself kills or is unknown. */
@@ -85,26 +99,33 @@ export function standable (at, t) {
   try { a = at(t.x, t.y + 1, t.z) } catch { a = null }
   if (a == null) return true                                 // unloaded above: assume a body could be there
   const k = cellKind(a)
-  return k === 'open' || NEEDS_SUPPORT.test(String(a.name ?? ''))
+  if (k === 'open' || NEEDS_SUPPORT.test(String(a.name ?? ''))) return true
+  // a partial shape the body does not meet (an open trapdoor, a ladder on the wall) leaves room to stand on T (Codex r2 P1)
+  return k === 'solid' && topIn(a, CENTRED) == null
 }
 
 /**
- * The fall a body standing on T would take if T were gone: the worst over T's column and every cardinal neighbour column
- * that is open at T's level. {drop, landing, damage, col}. Pure; never throws.
+ * The fall a body standing on T would take if T were gone. A falling body stops at the FIRST thing any part of it meets, so
+ * each placement of the body is one scenario: centred on T (T's column only), or straddling toward each cardinal neighbour
+ * that is open at T's level (T's column and that one; the higher stop wins). The WORST scenario is the verdict
+ * {drop, landing, damage, col}. A neighbour that is solid at T's level holds a straddling body up; an unloaded one is not
+ * known to be open, so T's own column decides. Pure; never throws.
  */
 export function dropIfRemoved (at, t, { scan = SCAN } = {}) {
   const feetY = t.y + 1
-  const cols = [[0, 0]]
+  const verdict = (stops, col) => {
+    const st = stops.reduce((a, b) => (b.top > a.top || (b.top === a.top && KIND_RANK[b.kind] > KIND_RANK[a.kind])) ? b : a)
+    const drop = st.kind === 'deep' ? scan + 1 : Math.max(0, feetY - st.top)
+    return { drop, landing: st.kind, damage: fallDamage(drop, st.kind), col }
+  }
+  let worst = verdict([columnStop(at, t.x, t.z, t.y - 1, CENTRED, scan)], [0, 0])
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     let b
     try { b = at(t.x + dx, t.y, t.z + dz) } catch { b = null }
-    if (cellKind(b) === 'open') cols.push([dx, dz])   // an unloaded neighbour is not known to be open: T's own column decides
-  }
-  let worst = null
-  for (const [dx, dz] of cols) {
-    const f = columnFall(at, t.x + dx, t.z + dz, feetY, t.y - (dx || dz ? 0 : 1), scan)
-    const d = { ...f, damage: fallDamage(f.drop, f.landing), col: [dx, dz] }
-    if (!worst || d.damage > worst.damage) worst = d
+    if (cellKind(b) !== 'open') continue
+    const fp = straddle(dx, dz)
+    const v = verdict([columnStop(at, t.x, t.z, t.y - 1, fp.t, scan), columnStop(at, t.x + dx, t.z + dz, t.y, fp.n, scan)], [dx, dz])
+    if (v.damage > worst.damage) worst = v
   }
   return worst
 }
@@ -143,15 +164,24 @@ const dmg = d => d === Infinity ? 'inf' : d
 /** One line for a `_cavefall_floor` row, evidence first. Pure. */
 export function describeFloor ({ decision, target, name, verdict }) {
   const v = verdict ?? {}
-  return `${decision}: ${name ?? '?'} at ${target.x},${target.y},${target.z}; drop ${v.drop ?? '?'} onto ${v.landing ?? '?'} ` +
+  return `${decision}: ${name ?? '?'} at ${target.x},${target.y},${target.z}; drop ${v.drop == null ? '?' : +(+v.drop).toFixed(2)} onto ${v.landing ?? '?'} ` +
     `(damage ${dmg(v.damage) ?? '?'}${v.col && (v.col[0] || v.col[1]) ? `, via the neighbour column ${v.col.join(',')}` : ''})`
 }
 
-/** The dig-time refusal: the remedy first, so gather's 120-character error note keeps it. Pure. */
+/** The dig-time refusal: the remedy first, so gather's 120-character error note keeps it; worded for any caller (gather,
+ * craft's table retake). Pure. */
 export function floorRefusal ({ name, target, verdict }) {
   const v = verdict ?? {}
-  return `floor_dig: gather ${name} elsewhere -- ${target.x},${target.y},${target.z} is a floor over a ` +
-    `${v.landing === 'deep' ? `${SCAN}+-block drop` : `${v.drop}-block drop onto ${v.landing}`}`
+  return `floor_dig: dig elsewhere -- ${name} at ${target.x},${target.y},${target.z} is a floor over a ` +
+    `${v.landing === 'deep' ? `${SCAN}+-block drop` : `${+(+v.drop).toFixed(2)}-block drop onto ${v.landing}`}`
+}
+
+/** The `_cavefall_skip` row: how many of the round's candidates were skipped, split by which column decided (T's own, or a
+ * neighbour a straddling body would meet first), with the landing kinds -- so the read can see over-refusal. Pure. */
+export function skipDetail ({ name, verdicts = [], considered = 0 }) {
+  const own = verdicts.filter(v => !v.col || (!v.col[0] && !v.col[1])).length
+  const kinds = Object.entries(verdicts.reduce((a, v) => { a[v.landing] = (a[v.landing] ?? 0) + 1; return a }, {})).map(([k, n]) => `${k}:${n}`).join(',')
+  return `${name}: ${verdicts.length} of ${considered} candidate(s) are floors over a harmful drop; skipped own=${own} nbr=${verdicts.length - own} land=${kinds || '-'}`
 }
 
 /** gather's message when every safe candidate in range is a floor over a drop. Remedy first. Pure. */
