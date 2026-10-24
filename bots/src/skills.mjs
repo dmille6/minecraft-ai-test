@@ -100,7 +100,7 @@ import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
-import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail } from './cavefall.mjs'
+import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail, frontSkipped } from './cavefall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -1230,7 +1230,7 @@ export function cavefallSkip (bot, p, { on = CAVEFALL_ON } = {}) {
  */
 export function caveFilter (bot, { on = CAVEFALL_ON } = {}) {
   const memo = new Map()
-  const verdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!memo.has(k)) memo.set(k, cavefallSkip(bot, p, { on })); return memo.get(k) }
+  const verdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!memo.has(k)) memo.set(k, { ...cavefallSkip(bot, p, { on }), at: { x: p.x, y: p.y, z: p.z } }); return memo.get(k) }
   const skipped = () => [...memo.values()].filter(v => v.skip)
   return { verdict, skip: p => verdict(p).skip, skipped, considered: () => memo.size, allSkipped: () => memo.size > 0 && skipped().length === memo.size }
 }
@@ -2044,12 +2044,16 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // TOWN GROUND IS FILTERED AT ENUMERATION (townground.mjs; Codex r1 P1): a matcher that also sees the cell, so the
     // 32 candidates are all eligible -- filtering after the search would let 32 town cells hide every one outside.
     // The palette pre-check calls the matcher with no position (a type test only); every real cell has one.
+    // CAVEFALL-01: the round's one verdict per cell (cavefall.mjs), asked AT ENUMERATION too, as town ground and keep-out are,
+    // so the 32 nearest candidates findBlocks returns are the nearest that are NOT floors over a drop (Claude r3 P2-1)
+    const cave = caveFilter(bot)
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
+      if (b.position && cave.skip(b.position)) return false
       return true
     }
     ko?.refresh?.()
@@ -2140,8 +2144,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     const ironStrict = IRON_KINDS.includes(blockName)
     // CAVEFALL-01: a floor over a harmful drop is never a target (cavefall.mjs); counted apart so the message names it
-    const cave = caveFilter(bot)   // one verdict per cell per round, across the exposed list AND both fallbacks
-    const caveSkip = cave.skip
+    const caveSkip = cave.skip     // the same round's verdicts: enumeration, the exposed list and both fallbacks
     const safeTarget = p => !caveSkip(p) && townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
@@ -2305,13 +2308,15 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // CAVEFALL-01: the round's skips, counted AFTER both fallbacks (Codex r2 P2-6), one row per round with a skip
     const caveSkipped = cave.skipped()
     if (caveSkipped.length) {
-      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.considered() }) }) } catch { /* a measurement may never cost the skill its turn */ }
+      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.considered(),
+        front: frontSkipped(bot.entity?.position, caveSkipped.map(v => v.at), reachable.length ? [reachable[0]] : positions) }) }) } catch { /* a measurement may never cost the skill its turn */ }
     }
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
       }
-      if (cave.allSkipped()) {
+      // every candidate in range was a floor over a drop: none survived enumeration, or every one asked was skipped
+      if (caveSkipped.length && (cave.allSkipped() || positions.length === 0)) {
         return { status: 'failed', failClass: 'no_safe_target',
                  detail: allFloorsMessage({ name: blockName, n: caveSkipped.length, verdicts: caveSkipped.slice(0, 8) }) }
       }
@@ -2368,7 +2373,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
                  detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
                          `under falling blocks — digging them would flood or bury this spot [${named}]` +
                          // CAVEFALL-01 (Claude r2 P3-7): in a mixed round, say how many of them were floors over a drop instead
-                         (caveSkipped.length ? ` (${caveSkipped.length} of them: floors over a drop into a cave)` : '') }
+                         (exposedOnes.filter(caveSkip).length ? ` (${exposedOnes.filter(caveSkip).length} of them: floors over a drop into a cave)` : '') }
       }
       // "USE MINE TO DIG DOWN" IS ADVICE, AND ADVICE PRINTED IS NOT ADVICE TAKEN.
       //
