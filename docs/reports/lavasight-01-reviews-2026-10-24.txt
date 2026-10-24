@@ -325,3 +325,64 @@ P3
 5. Install order. install-lavamap.sh:37 installs the cron line before the fleetstatus patch runs (:38). If the patch refuses
    on an anchor, the cron is live with no header line. Patch first, or roll the cron line back on failure. The rehearsal also
    never exercises sudo -n -u mcbot (it sets LM_SELF=1), so the first real publish during install is that path's first test.
+
+==================================================================================================================
+CODE r3 / DESIGN r4 (8e755c7e) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+- **P1 — Ladder pricing still rejects guard-safe capped routes.** `bots/src/lavasight.mjs:245–247` prices both destination forms. Read-only real-plugin reproduction: descend from `(0.5,65,0.5)` to `GoalBlock(0,63,0)`, lava at `(2,65,1)`. The guard accepts the entire route; base cost is **2**, candidate cost **52**. With `searchRadius=1`, base succeeds and candidate returns **noPath**. The ascent-only ladder test misses this reverse implication. Resolve successor-dependent pricing and add this descending/capped regression; design §3.4’s guarantee remains false.
+
+- **P2 — Liveness coverage counts slots outside its denominator.** `scripts/host/lavasightread.py:193–195` divides **all** liveness slots by common-row population slots, now excluding lavasight-only slots. Reproduction: two observed canary slots with no liveness, plus two liveness-only slots elsewhere, yields `coverage=1.0`, `instrument=1`. Intersect liveness `(bot, slot)` pairs with denominator pairs; add a fixture proving unrelated slots cannot satisfy coverage.
+
+Guard-wiring test and reader selftest passed. File-writing suites were not run; no files were modified.
+
+==================================================================================================================
+CODE r3 / DESIGN r4 (8e755c7e) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: APPROVE
+
+Reviewed 502103d1..8e755c7e. No P1. Codex's r3 P1 (ladders) and both of his P2s are fixed in the code, and so are my r3 P2
+and my P3s 2, 4 and 5. Passing at 8e755c7e: lavasight.test.mjs 29/29, lavamap-publish 3/3, lava-guards-wired 4/4. I did not
+run the full npm test runner.
+
+Verified
+- Ladders. processedForms (lavasight.mjs:207-214) matches postProcessPath (index.js:172-176): water is centred at its own y;
+  a ladder or vine is centred only when the next node is lower, otherwise it goes on top of its shape; the shape-top fallback
+  chain is the same. moveSurcharge (:242-246) picks the parent's form with m.y < node.y. That is postProcessPath's own test,
+  since path[i+1] is still raw when node i is processed. The move into a climbable is judged on both forms. That is a
+  superset: it can over-price, never under-price. Mutant check, in a probe copy under /private/tmp: I put back r3's
+  always-centred rule (forms: [centre]). The new LADDER test fails and the other 28 pass, so the test holds the fix.
+- Slab test. It now contains a segment the guard refuses, a raw-cell control the guard accepts, and an anchored mutant that
+  prices nothing.
+- Capped test. GoalBlock goals, cap >= 0 asserted, and a binding control (binding >= 10, i.e. half the cap fails the base).
+  That answers Codex's point that a negative cap means no cap.
+- addFootprint (lavasight.mjs:143-152) is in place and bounded, checks has before the size bound, and the rebuild shares it.
+  Mutating lsIdx in place mid-search only changes costs.
+- Read bot-time. It is now built only from rows both builds write, at both sites (lavasightread.py:103-104 and :354-355),
+  with a fixture showing liveness-only slots add no bot-time.
+- Registration convention. on_fail: REVERT with no evidence class means "blocks KEEP, INCONCLUSIVE", as in
+  homefix2reg.py:22-24. So the primary and no-harm lines block a KEEP; they do not revert.
+- WIRED asserts both lsGuardSeen call sites, with the refused one placed after setGoal(null).
+- Installer. The header patch now runs before the cron line, and a refused patch stops the install (install-lavamap.sh:36-37).
+
+P2
+1. The primary line cannot tell a working canary from no effect. The line is episode_did <= 0 (make_registration.py:60-63).
+   Under the design's own null (-0.48 .. +0.96) a no-effect canary passes about half the time. Tier 3 promotes fleet-wide
+   (:21), so a KEEP here is mostly "nothing objected". The null is also thinner than "four runs" suggests. The cuts at
+   -200/-260/-330/-400 min sit 60-70 min apart with 180-min windows on each side, so the windows overlap heavily: roughly two
+   independent samples. Fix: set the KEEP threshold at or below the null minimum (e.g. <= -0.5), or a relative fall.
+   Otherwise, say in the registration that a KEEP means "no harm, effect unproven", so nobody later reads it as proof that
+   the price works. Not P1: the line can fail, and the change cannot add a wall.
+
+P3
+1. No-harm tolerances are wide. nopath_did <= +50 on a base of ~60/bot-h (:66-67) admits roughly an 80% rise in noPath. A
+   per-bot or relative statistic would tighten it more than another null run would. Same note on the overlapping null
+   windows as P2-1.
+2. The descent half of the ladder rule is untested. The ladder test climbs only. A mutant that always takes forms[1] (:244)
+   would likely survive. Add a climb down past lava, where the centred form is the one refused.
+3. One deliberate exception to the capped property. A move into a climbable is priced if either form is refused, so a capped
+   search ending on or crossing a ladder near lava can be over-priced. This is narrow. It could be made exact by settling the
+   parent segment's charge when the successor is generated. The design should name it as the one exception to the 3.4
+   property.
+4. idx.full from an incremental note is not reported until the next 20 s rebuild (index.mjs:388, lsLast.full). Cosmetic.
