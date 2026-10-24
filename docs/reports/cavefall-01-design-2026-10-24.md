@@ -181,8 +181,13 @@ A ceiling block (an ore in a cave roof, rock above it) is never a floor, so the 
 (per gather round with a skip: `N of M ... skipped own=A nbr=B land=... front=0|1`); `_cavefall_floor` (`refused` at the dig, `allowed` for a
 standing floor dig with drop >= 2 or water). Rollback `CAVEFALL=0`: the mode row says `on=0` and nothing else changes.
 
-**Cost.** One verdict reads at most 9 columns x ~35 cells (cached within the verdict), then evaluates 121 placements in memory;
-verdicts are memoised per round; a round has at most 32 candidates plus the fallbacks. Small beside the reach probe's A*.
+**Cost (Codex r4 P3-4).** The enumeration-time verdict runs for every matching cell in range in the sections findBlocks visits,
+not for 32: on a dirt plain thousands per round. The fast path makes almost all of them cheap and exact: a full cube over T
+(buried cells) is 1 read; a full cube with full cubes under and beside it is 6. Only an exposed floor with an opening under or
+beside it pays the full verdict: at most 9 columns x ~35 cells read (cached within the verdict) and 121 placements in memory
+(Codex measured 1,024 full shelf verdicts in ~119 ms and 53,248 reads). Out-of-range cells are never judged (the matcher
+checks the search radius first, since mineflayer calls it before its own distance test). Whole-search latency on Paper is
+recorded in §7.1.
 
 ## 5. Not in this item (owner questions)
 
