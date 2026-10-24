@@ -72,6 +72,7 @@ import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavasightOn, lavaMapReader, lavaMapFileIn, lavasightModeArgs, lavasightModeDetail, SightRing, memoryCells, liveConfirm,
          buildPriceIndex, addFootprint, packKey, wrapNeighbors, priceLive, routeSummary,
          RELOAD_MS as LAVASIGHT_RELOAD_MS, LIVE_MS as LAVASIGHT_LIVE_MS } from './lavasight.mjs'   // lavasight-01
+import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -321,6 +322,8 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // poolescape-01: the licence row, once per spawn -- `_poolescape_mode`, a kind the base cannot write (poolescape.mjs)
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
+    // cavefall-01: the licence row, once per spawn -- `_cavefall_mode`, a kind the base cannot write (cavefall.mjs)
+    try { logEvent({ kind: 'cavefall_mode', status: 'success', snapshot: snapshot(bot), detail: cavefallModeDetail(process.env) }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
     // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
