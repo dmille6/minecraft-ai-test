@@ -404,7 +404,7 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
   assert.ok(src.split(cnt).length === 2, 'count anchor present once'); assert.ok(src.split(at).length === 2, 'reinsertion anchor present once (Claude r4 P2-2)')
   const i = src.indexOf(at), eol = src.indexOf('\n', i) + 1
   const early = src.replace(cnt, '').slice(0, eol) + cnt + src.replace(cnt, '').slice(eol)
-  assert.ok(early.indexOf(cnt) > 0 && early.indexOf(cnt) < early.indexOf('if (reachable.length === 0 && !viaSource)'), 'the mutant really moved the count before the fallbacks')
+  assert.ok(early.indexOf(cnt) > 0 && early.indexOf(cnt) < early.indexOf('if (reachable.length === 0 && !viaSource && positions.length > 0)'), 'the mutant really moved the count before the fallbacks')
   assert.equal(wired(early), false, 'counting before the fallbacks fails the assertion')
   // the emptied search refuses BEFORE gather's early "nothing found" return (Claude r4 P1 / Codex r4 P2-1)
   const body = src.slice(src.indexOf('async function gatherRun'))
@@ -566,6 +566,28 @@ await ta('GATHER (behaviour): a mixed round digs the nearest dirt that is NOT a 
   await runGather(bot)
   assert.ok(digs.length >= 1, 'it dug'); assert.deepEqual([digs[0].x, digs[0].y, digs[0].z], [9, 29, 6])
   assert.ok(!digs.some(p => p.x >= 2 && p.x <= 4 && p.y === 29), 'never the shelf')
+})
+
+await ta('GATHER (behaviour): a later round that enumeration empties (after a dig) still writes its skip row (Claude r5 P3-5)', async () => {
+  const { tapRecords } = await import('../src/logger.mjs')
+  const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_cavefall_skip') rows.push(r.skill.detail) })
+  try {
+    const { bot, digs } = gatherShelf({ shelfDirt: SHELF_CELLS, rockDirt: [[9, 29, 6]] })
+    const r = await SK.SKILLS.gather.run({ bot }, { block: 'dirt', count: 2 }, new AbortController().signal).catch(e => ({ status: 'threw', detail: e.message }))
+    assert.deepEqual(digs.map(p => [p.x, p.y, p.z]), [[9, 29, 6]], 'only the dirt on rock')
+    void r   // the fake bag never grows, so gather's own `collected` stays 0; the digs and rows are the evidence
+    assert.ok(rows.length >= 2, `a row in each round (${rows.length})`)
+  } finally { untap() }
+})
+await ta('GATHER (behaviour): skipped floors the BASE would refuse anyway (isSafeToBreak false) are not exposure: front=0 (Codex r5 P2-2)', async () => {
+  const { tapRecords } = await import('../src/logger.mjs')
+  const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_cavefall_skip') rows.push(r.skill.detail) })
+  try {
+    const { bot } = gatherShelf({ shelfDirt: SHELF_CELLS })
+    bot.pathfinder.movements = bot.collectBlock.movements = { safeToBreak: () => false }   // the base's own conjunction refuses every cell
+    await runGather(bot)
+    assert.ok(rows.length >= 1); assert.match(rows[0], / front=0$/)
+  } finally { untap() }
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
