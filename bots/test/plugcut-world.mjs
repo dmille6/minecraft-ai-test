@@ -106,6 +106,18 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, ri
   const ent = { position: new Vec3(0.5, feetY, 0.5), onGround: false, eyeHeight: 1.62, yaw: 0, velocity: new Vec3(0, 0, 0), effects: {} }
   Object.defineProperty(ent, 'yaw', { get: () => yaw, set: v => { yaw = v } })
   const cellAt = (x, y, z) => world.get(Math.floor(x), Math.floor(y), Math.floor(z))
+  /** plugcut-01 `ledge`: is the body's box (0.6 x 1.8 x 0.6, feet at y) free of solid blocks -- and of water, unless solidOnly? */
+  const boxFree = (cx, y, cz, { solidOnly = false } = {}) => {
+    for (let x = Math.floor(cx - 0.3); x <= Math.floor(cx + 0.3 - 1e-9); x++) {
+      for (let yy = Math.floor(y); yy <= Math.floor(y + 1.8 - 1e-9); yy++) {
+        for (let z = Math.floor(cz - 0.3); z <= Math.floor(cz + 0.3 - 1e-9); z++) {
+          const c = blockOf(world.get(x, yy, z), new Vec3(x, yy, z))
+          if (solidAt(c) || (!solidOnly && isWater(c))) return false
+        }
+      }
+    }
+    return true
+  }
   const blockAtXYZ = (x, y, z) => blockOf(cellAt(x, y, z), new Vec3(Math.floor(x), Math.floor(y), Math.floor(z)))
   const bot = {
     world, digs, controls, looks, ctl, pendingPrereq: undefined, heldItem: held,
@@ -185,10 +197,15 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, ri
       // way). Modelled as that rule and nothing more: in water, forward held, the cell ahead solid at the feet and free at
       // the feet + 0.6 for the whole body -> vy = 0.3; then vy decays 0.08 a tick (gravity) until it is spent.
       if (ledge && vy <= 0 && isWater(feet) && ctl.forward) {
+        // prismarine-physics (node_modules/prismarine-physics/index.js, the liquid branch of moveEntityWithHeading):
+        //   isCollidedHorizontally && doesNotCollide(world, pos.offset(vel.x, vel.y + 0.6 - pos.y + lastY, vel.z)) -> vel.y = 0.3
+        // where doesNotCollide is "the player box meets no block AND holds no water". The box here is the body's: 0.6 wide,
+        // 1.8 tall, moved by this tick's forward step (0.2 along the bearing); collided = the moved box at the current height
+        // meets a solid block.
         const b = yawBear(yaw)
-        const ax = p.x + b.x * 0.6, az = p.z + b.z * 0.6
-        if (solidAt(blockAtXYZ(ax, p.y + 0.01, az)) && !solidAt(blockAtXYZ(ax, p.y + 0.61, az)) && !solidAt(blockAtXYZ(ax, p.y + 0.6 + 1.79, az)) &&
-            !solidAt(blockAtXYZ(p.x, p.y + 0.6 + 1.79, p.z))) vy = 0.3
+        const dx = b.x * 0.2, dz = b.z * 0.2
+        const collided = !boxFree(p.x + dx, p.y, p.z + dz, { solidOnly: true })
+        if (collided && boxFree(p.x + dx, p.y + 0.6, p.z + dz)) vy = 0.3
       }
       // ...and the ordinary jump from the ground (vanilla 0.42), so a dry step can be taken at all (the copied world has none)
       if (ledge && vy <= 0 && !isWater(feet) && ent.onGround && ctl.jump) { vy = 0.42; ent.onGround = false }

@@ -136,15 +136,62 @@ await t('THE CEILING REFUSES what a block cannot make dry, and says which', () =
   assert.ok(side.ok && key(side.plugs[0].ref) === '0,2,0', JSON.stringify(side))
 })
 
-await t('THE STEP NEVER PLUGS OR CLICKS A CELL THE CLIMB USES: its only solid neighbour is the step cell -> no plan', () => {
+await t('THE STEP CELL MAY BE THE REFERENCE (Codex r1 P2): the wet face\'s only solid neighbour is the W step cell -> clicked, not refused', () => {
   const { cells } = afterCut(ISOC)
   // the W step's wet face (-1,1,1): take away every solid neighbour but the W step cell (-1,1,0) itself
   Object.assign(cells, { '0,1,1': 'air', '-2,1,1': 'air', '-1,1,2': 'air', '-1,2,1': 'air', '-1,0,1': 'water[0]' })
   const r = PC.stepPlugPlan({ at: atOf(cells), bear: W, blocks: 64 })
-  assert.strictEqual(r.ok, false, JSON.stringify(r.plugs))
-  assert.match(r.reason, /no face to click for the plug at -1,1,1/)
-  cells['-2,1,1'] = 'stone'
-  assert.ok(PC.stepPlugPlan({ at: atOf(cells), bear: W, blocks: 64 }).ok, 'POSITIVE CONTROL: one free solid neighbour plans')
+  assert.ok(r.ok, r.reason)
+  assert.deepStrictEqual(r.plugs.map(q => [q.cell, q.ref]), [[[-1, 1, 1], [-1, 1, 0]]])
+  // ...and a placement INTO a climb cell is still refused: water in the W step's own headroom (see the next tests)
+})
+
+await t('A THREE-CELL STEP (Codex r1 P2): one wet face beside each of the step\'s three cells -> three plugs, and the planner accepts', () => {
+  const cells = { '0,0,0': 'air', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'stone', '1,0,0': 'stone', '1,1,0': 'stone', '1,2,0': 'stone', '1,3,0': 'stone',
+                  '2,1,0': 'water[0]', '2,2,0': 'water[0]', '2,3,0': 'water[0]', '1,4,0': 'stone' }
+  const at = atOf(cells)
+  assert.ok(S.stairUpStep({ at, bear: E }).flood, 'POSITIVE CONTROL: the step is refused for water first')
+  const r = PC.stepPlugPlan({ at, bear: E, blocks: 64 })
+  assert.ok(r.ok, r.reason)
+  assert.deepStrictEqual(r.plugs.map(q => key(q.cell)).sort(), ['2,1,0', '2,2,0', '2,3,0'])
+  assert.deepStrictEqual(r.cells, [[1, 3, 0], [1, 2, 0], [1, 1, 0]])
+  for (const q of r.plugs) cells[key(q.cell)] = 'cobblestone'
+  assert.ok(S.stairUpStep({ at: atOf(cells), bear: E }).ok)
+})
+
+await t('THE LICENCE\'S OWN STREAK (Codex r1 P1): refusals at ONE place; another place, a lapse or progress starts again; a bob is the same place', () => {
+  const T = 1_000_000
+  let st = null
+  for (let k = 0; k < 3; k++) st = PC.plugStreak(st, { at: [10, 40, 10], now: T + k * 60_000, refused: true })
+  assert.strictEqual(PC.plugSoFar(st, [10, 40, 10], T + 200_000), 3)
+  assert.strictEqual(PC.plugDue(PC.plugSoFar(st, [10, 40, 10], T + 200_000), {}), true)
+  assert.strictEqual(PC.plugSoFar(st, [10, 42, 10], T + 200_000), 3, 'a bob of two blocks is the same place')
+  assert.strictEqual(PC.plugSoFar(st, [10, 43, 10], T + 200_000), 0, 'three blocks up is another place')
+  assert.strictEqual(PC.plugSoFar(st, [11, 40, 10], T + 200_000), 0, 'the next column is another place')
+  assert.strictEqual(PC.plugSoFar(st, [10, 40, 10], T + 120_000 + PC.PLUG_STREAK_GAP_MS + 1), 0, 'a lapsed streak')
+  assert.strictEqual(PC.plugStreak(st, { at: [10, 40, 10], now: T + 300_000, refused: false }).n, 0, 'progress resets')
+  const moved = PC.plugStreak(st, { at: [50, 40, 50], now: T + 300_000, refused: true })
+  assert.deepStrictEqual([moved.n, moved.at], [1, [50, 40, 50]], 'a refusal elsewhere starts a new streak')
+})
+
+await t('THE TEST WORLD\'S LEDGE IMPULSE IS VANILLA\'S: no impulse when the raised box holds water or meets a block (negative fixtures)', async () => {
+  // a body in water against a one-block ledge, forward held for 20 ticks, no jump: the impulse alone lifts it onto the ledge
+  const run = async cells => {
+    const bot = makeWorldBot(cells, { feetY: 0.4, ledge: true })
+    const clock = virtualClock().install()
+    bot.ended = false; bot.start()
+    try {
+      await clock.run(async () => { await bot.look(Math.PI / 2); bot.setControlState('forward', true); await new Promise(r => setTimeout(r, 1000)) })
+    } finally { bot.stop(); clock.uninstall() }
+    return bot.entity.position
+  }
+  const base = { '0,0,0': 'water[0]', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'air', '-1,0,0': 'stone', '-1,1,0': 'air', '-1,2,0': 'air', '-1,3,0': 'air', '0,-1,0': 'stone' }
+  const up = await run(base)
+  assert.ok(up.y >= 1 && up.x < 0, `POSITIVE CONTROL: the free ledge was not climbed: ${up}`)
+  const wet = await run({ ...base, '-1,1,0': 'water[0]' })
+  assert.ok(wet.y < 1, `an impulse with water in the raised box: ${wet}`)
+  const roof = await run({ ...base, '-1,2,0': 'stone' })
+  assert.ok(roof.y < 1, `an impulse with a block in the raised box: ${roof}`)
 })
 
 await t('THE STEP, isolated-c after the cut: every first step refused; ONE plug at the W step\'s wet face makes W a 4-step runway', () => {
@@ -259,17 +306,15 @@ await t('CANDIDATE on isolated-c: plugs the ceiling\'s face, cuts the ceiling, p
   assert.ok(Math.floor(bot.entity.position.x) <= -1, `the bot did not go W: ${cellOf(bot)}`)
   const placed = pcRows().filter(x => / result=placed /.test(x.detail))
   assert.deepStrictEqual(placed.map(x => / for=(\S+) /.exec(x.detail)[1]), ['ceiling', 'step:-1,0'])
-  for (const x of placed) { assert.ok(x.detail.length <= 300); assert.match(x.detail, / sub=0 /, "a placement row must say the head was in air") }
+  for (const x of placed) { assert.ok(x.detail.length <= 300); assert.match(x.detail, / sub0=0 sub=[01] /, 'a placement row must say the head was in air at the decision') }
 })
 
 await t('CANDIDATE on isolated-d: the ceiling\'s face, then the S step\'s three; the ceiling plug is the S headroom, cut only once dry', async () => {
   const DIRT = { name: 'dirt', count: 32, type: reg.itemsByName.dirt.id }
   const bot = botFor(ISOD, { items: [DIRT, COBBLE(64)] })
   let r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
-  // THE RE-DIG IS DEAR (dirt from water, airborne: 18.75 s): when one firing's 60 s run out mid-dig, the next firing resumes
-  // against a world that is already dry -- it places nothing more
-  const firstPlaces = bot.places.filter(p => p.ok).length
-  if (r.steps < 1) { r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }); assert.strictEqual(bot.places.filter(p => p.ok).length, firstPlaces, 'the 2nd firing plugged again') }
+  // ONE LICENSED FIRING (90 s) does it: the re-dig of the ceiling plug from water is dear (dirt, airborne: 18.75 s) but fits
+  assert.ok(r.steps >= 1, `the first licensed firing took no step: ${r.stopped}`)
   const ok = bot.places.filter(p => p.ok).map(p => p.cell)
   assert.strictEqual(ok[0], '0,2,1')
   assert.ok(ok.length >= 4 && ok.length <= PC.PLUG_ROUNDS * PC.PLUG_MAX, `${ok} -- ${r.stopped}`)
@@ -365,6 +410,60 @@ await t('A BOBBING START: a step taken from the top of the bob reads as taken wi
   assert.strictEqual(rl.steps, 1, rl.stopped)
 })
 
+await t('STEP TAKEN (pure): one up AND one along the bearing from the planned frame; a bob, a drift or a fall back is not', () => {
+  const p = { x: 0.5, y: 60.4, z: 0.5 }
+  assert.strictEqual(R.stepTaken({ x: 0.5, y: 61.0, z: 1.5 }, p, So), true)
+  assert.strictEqual(R.stepTaken({ x: 0.5, y: 61.9, z: 1.5 }, p, So), true, 'anywhere in the step cell')
+  assert.strictEqual(R.stepTaken({ x: 0.5, y: 61.2, z: 0.5 }, p, So), false, 'a bob up in its own column is not a step')
+  assert.strictEqual(R.stepTaken({ x: 1.5, y: 61.0, z: 1.5 }, p, So), false, 'a drift into the next column over')
+  assert.strictEqual(R.stepTaken({ x: 0.5, y: 60.9, z: 1.5 }, p, So), false, 'still at the frame\'s height')
+})
+
+await t('A PLUG THAT LETS WATER ROUND IT LATER (Claude r1 P2): the faces are asked again PLUG_SETTLE_MS on; a face that fills meanwhile is plugged before the cut', async () => {
+  // isolated-c: once the ceiling's N face is plugged, water reaches its W face a second later
+  let filled = false
+  const bot = botFor(ISOC, { onPlace: (k, w) => { if (k === '0,2,-1' && !filled) { filled = true; setTimeout(() => w.set(-1, 2, 0, 'water[1]'), 600) } } })
+  await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(filled, 'POSITIVE CONTROL: the late flow never happened')
+  const ok = bot.places.filter(p => p.ok).map(p => p.cell)
+  assert.deepStrictEqual(ok.slice(0, 2), ['0,2,-1', '-1,2,0'], `the late face was not plugged before the cut: ${ok}`)
+  const cut = bot.digs.find(d => d.cell === '0,2,0')
+  assert.ok(cut && cut.at >= bot.places.filter(p => p.ok)[1].at, 'the ceiling was cut before the late face was plugged')
+})
+
+await t('NEVER MORE THAN PLUG_MAX PLACEMENTS IN ONE RUNG (Claude r1 P2): a face that refills after every plug ends the rung, uncut', async () => {
+  // every plug washes out to water again, yet reads as a block for the read-back: the rung must stop at PLUG_MAX
+  let n = 0
+  const bot = botFor(ISOC, { onPlace: (k, w) => { n++; setTimeout(() => w.set(...k.split(',').map(Number), 'water[1]'), 400) } })
+  await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(n >= 1, 'POSITIVE CONTROL: nothing was placed')
+  assert.ok(pcRows().filter(x => / for=ceiling /.test(x.detail) && / result=placed /.test(x.detail)).length <= PC.PLUG_MAX, `${n} placements`)
+  assert.ok(!bot.digs.some(d => d.cell === '0,2,0'), 'cut while the face kept refilling')
+})
+
+await t('THE STEP RUNG WRITES ITS REFUSAL (Claude r1 P3): a licensed ramp whose steps cannot be plugged leaves one refused for=step row', async () => {
+  const { cells } = afterCut(ISOC)
+  cells['-1,1,1'] = 'lava'                                               // the W/S steps' wet face is now lava: never plugged
+  cells['1,2,-1'] = 'lava'                                               // ...and N's (beside the ceiling plug) too
+  const bot = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
+  await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  const r = pcRows().filter(x => / for=step /.test(x.detail) && / result=refused /.test(x.detail))
+  assert.strictEqual(r.length, 1, pcRows().map(x => x.detail).join(' | '))
+  assert.deepStrictEqual(bot.places, [])
+})
+
+await t('SPARE A UTILITY BLOCK (Claude r1 P3): a licensed ramp prefers a bearing whose first step digs no furnace or table; the base does not', async () => {
+  const { cells } = afterCut(ISOC)
+  cells['-1,1,1'] = 'cobblestone'                                         // dry the W step (as its plug would)
+  cells['-1,1,0'] = 'furnace'                                             // ...and make the W step cell a furnace
+  const lic = makeWorldBot({ ...cells }, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
+  await ramp(lic, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(!lic.digs.some(d => d.name === 'furnace'), `the licensed ramp dug the furnace: ${lic.digs.map(d => d.cell + ':' + d.name)}`)
+  const base = makeWorldBot({ ...cells }, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
+  await ramp(base, { budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(base.digs.some(d => d.name === 'furnace'), `POSITIVE CONTROL: the base did not choose the furnace step: ${base.digs.map(d => d.cell + ':' + d.name)}`)
+})
+
 // ================================================================================================================
 // C. THE CHAIN AND ITS COMPOSITION
 // ================================================================================================================
@@ -377,6 +476,23 @@ async function firing (bot, refusals, mod = R) {
   bot.ended = false                                       // the world's stop() is one-way; each firing gets its ticks back
   try { return await clock.run(() => mod.floodBranch(bot, { handler: 'entombed', refusals })) } finally { bot.stop(); clock.uninstall() }
 }
+
+await t('THE CHAIN ACROSS A RECOVERY (Codex r1 P1): three refusals in one pit, a recovery by another route, then a refusal in the next pit is NOT licensed', async () => {
+  const seen = []
+  const fake = async (_bot, o) => { seen.push(o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+  const bot = botFor(ISOC)
+  let refusals = 0
+  for (let k = 0; k < 3; k++) refusals = (await R.floodBranch(bot, { handler: 'entombed', refusals, ramp: fake })).refusals
+  bot.entity.position = new Vec3(40.5, 70.1, 40.5)                     // poolescape / a pillar took it out: the arm's counter is NOT reset
+  await R.floodBranch(bot, { handler: 'marooned', refusals, ramp: fake })
+  assert.deepStrictEqual(seen, [false, false, false, false], 'the first refusal in a new place was licensed')
+  // POSITIVE CONTROL: the same four firings in ONE place license the 4th
+  const seen2 = []
+  const fake2 = async (_bot, o) => { seen2.push(o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+  const b2 = botFor(ISOC)
+  for (let k = 0; k < 4; k++) await R.floodBranch(b2, { handler: 'entombed', refusals: k, ramp: fake2 })
+  assert.deepStrictEqual(seen2, [false, false, false, true])
+})
 
 await t('THE CHAIN on isolated-c: three refusals as today (nothing placed, a growing back-off), the 4th firing plugs, cuts and climbs', async () => {
   const bot = botFor(ISOC)
@@ -441,6 +557,8 @@ await t('LAVA BESIDE THE CEILING: never plugged, never cut (the rung adds no mov
   assert.match(r.stopped, /lava/)
 })
 
+// PURE, BY DESIGN (Claude r1 P3): the purpose is chosen here, not driven through attachProtectZone's runtime context; it pins
+// the two facts the plug relies on -- a reflex's place is `survival`, and a zone lets a survival place through.
 await t('PROTECTZONE COMPOSES: a plug is a survival placement under the entombed reflex, which a zone allows (and refuses for a skill)', () => {
   const { zones } = PZ.parseZones({ version: 1, zones: [{ id: 'z', kind: 'village', box: [-10, -10, -10, 10, 10, 10] }] })
   assert.strictEqual(zones.length, 1)
@@ -501,7 +619,7 @@ await t('MUTANT KILLED: no read-back of the placed cell -> a rejected placement 
 })
 
 await t('MUTANT KILLED: floodBranch licenses every firing -> the 1st firing places', async () => {
-  await withMutant(REFLEX_PATH, 'const due = plugDue(refusals)', 'const due = true', async m => {
+  await withMutant(REFLEX_PATH, 'const due = plugDue(plugSoFar(prevStreak, here, Date.now()))', 'const due = true', async m => {
       const bot = botFor(ISOC)
       await firing(bot, 0, m)
       assert.ok(bot.places.length > 0, 'the mutant did not change behaviour')
@@ -535,7 +653,7 @@ await t('MUTANT KILLED: the step plan trusts its plugs without re-asking stairUp
 })
 
 await t('MUTANT KILLED: no plug sparing -> the submerged bot digs the ceiling\'s plug out first (N, top down)', async () => {
-  await withMutant(REFLEX_PATH, '      if (!plug || !plugCells.length) return any()\n', '      return any()\n', async m => {
+  await withMutant(REFLEX_PATH, '      if (!plug) return any()\n', '      return any()\n', async m => {
     const bot = sinker()
     await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
     assert.ok(bot.digs.some(d => d.cell === '0,2,-1'), `the mutant did not change behaviour: ${bot.digs.map(d => d.cell)}`)
@@ -543,7 +661,7 @@ await t('MUTANT KILLED: no plug sparing -> the submerged bot digs the ceiling\'s
 })
 
 await t('MUTANT KILLED: the lip rule off -> the licensed ramp is handed back after one step', async () => {
-  await withMutant(REFLEX_PATH, 'if ((!plug || bot.entity.position.y - startY >= PLUG_CLEAR_UP) && await canStartAPath(bot)) {',
+  await withMutant(REFLEX_PATH, 'if ((!plug || Math.floor(bot.entity.position.y + 1e-6) - Math.floor(startY + 1e-6) >= PLUG_CLEAR_UP) && await canStartAPath(bot)) {',
     'if (await canStartAPath(bot)) {', async m => {
       const lic = makeWorldBot(preplugged(), { feetY: 0.1, items: [COBBLE(64)], ledge: true, canPath: true })
       const r = await ramp(lic, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
@@ -552,7 +670,7 @@ await t('MUTANT KILLED: the lip rule off -> the licensed ramp is handed back aft
 })
 
 await t('MUTANT KILLED: the floored step check off -> the licensed bobbing step is refused', async () => {
-  await withMutant(REFLEX_PATH, 'if (plug ? Math.floor(bot.entity.position.y + 1e-6) <= Math.floor(before.y + 1e-6) : bot.entity.position.y - before.y < 0.5) {',
+  await withMutant(REFLEX_PATH, 'if (plug ? !stepTaken(bot.entity.position, p, bearing) : bot.entity.position.y - before.y < 0.5) {',
     'if (bot.entity.position.y - before.y < 0.5) {', async m => {
       const lic = makeWorldBot(preplugged(), { feetY: 0.6, items: [COBBLE(64)], ledge: true })
       const r = await ramp(lic, { plug: true, maxSteps: 1 }, m)
@@ -564,19 +682,63 @@ await t('MUTANT KILLED: the licensed firing on the base budget -> floodBranch ha
   let seen = null
   const fake = async (_bot, o) => { seen = o; return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
   rows.length = 0
-  await R.floodBranch(botFor(ISOC), { handler: 'entombed', refusals: 3, ramp: fake })
+  const pinned = async (mod = R) => { const b = botFor(ISOC); for (let k = 0; k < 4; k++) await mod.floodBranch(b, { handler: 'entombed', refusals: k, ramp: fake }) }
+  await pinned()
   assert.deepStrictEqual([seen.plug, seen.budgetMs], [true, PC.PLUG_BUDGET_MS])
   await R.floodBranch(botFor(ISOC), { handler: 'entombed', refusals: 2, ramp: fake })
   assert.deepStrictEqual([seen.plug, seen.budgetMs], [false, undefined], 'an unlicensed firing keeps the ramp\'s own 60 s')
   await withMutant(REFLEX_PATH, 'due ? { yieldTo, plug: true, budgetMs: PLUG_BUDGET_MS }', 'due ? { yieldTo, plug: true }', async m => {
-    await m.floodBranch(botFor(ISOC), { handler: 'entombed', refusals: 3, ramp: fake })
-    assert.strictEqual(seen.budgetMs, undefined, 'the mutant did not change behaviour')
+    await pinned(m)
+    assert.deepStrictEqual([seen.plug, seen.budgetMs], [true, undefined], 'the mutant did not change behaviour')
   })
 })
 
 await t('MUTANT KILLED: the licence one refusal late (>) -> the 4th firing does not plug', async () => {
-  await withMutant(PC_PATH, 'Number(refusals) >= PLUG_AFTER_REFUSALS', 'Number(refusals) > PLUG_AFTER_REFUSALS', async m => {
+  await withMutant(PC_PATH, 'Number(soFar) >= PLUG_AFTER_REFUSALS', 'Number(soFar) > PLUG_AFTER_REFUSALS', async m => {
     assert.strictEqual(m.plugDue(3, {}), false, 'the mutant did not change behaviour')
+  })
+})
+
+await t('MUTANT KILLED: no settle before the cut -> the late flow is cut into', async () => {
+  await withMutant(REFLEX_PATH, 'const settledClear = async () => { if (!clear()) return false; await sleep(PLUG_SETTLE_MS); return clear() }',
+    'const settledClear = async () => clear()', async m => {
+      let filled = false
+      const bot = botFor(ISOC, { onPlace: (k, w) => { if (k === '0,2,-1' && !filled) { filled = true; setTimeout(() => w.set(-1, 2, 0, 'water[1]'), 600) } } })
+      await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
+      const ok = bot.places.filter(p => p.ok).map(p => p.cell)
+      assert.notDeepStrictEqual(ok.slice(0, 2), ['0,2,-1', '-1,2,0'], 'the mutant did not change behaviour')
+    })
+})
+
+await t('MUTANT KILLED: no PLUG_MAX cap -> a refilling face takes more than PLUG_MAX placements', async () => {
+  await withMutant(REFLEX_PATH, "    if (placed >= PLUG_MAX) { row(null, 'stopped', `${placed} plugs and the cut is still wet`); return out(false, `the ${what} stayed wet after ${placed} plugs`) }\n",
+    '', async m => {
+      const bot = botFor(ISOC, { onPlace: (k, w) => { setTimeout(() => w.set(...k.split(',').map(Number), 'water[1]'), 400) } })
+      await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
+      assert.ok(pcRows().filter(x => / for=ceiling /.test(x.detail) && / result=placed /.test(x.detail)).length > PC.PLUG_MAX, 'the mutant did not change behaviour')
+    })
+})
+
+await t('MUTANT KILLED: the licence on the arm\'s counter again -> the first refusal in a new pit is licensed', async () => {
+  await withMutant(REFLEX_PATH, 'const due = plugDue(plugSoFar(prevStreak, here, Date.now()))', 'const due = plugDue(refusals)', async m => {
+    const seen = []
+    const fake = async (_bot, o) => { seen.push(o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+    const bot = botFor(ISOC)
+    let refusals = 0
+    for (let k = 0; k < 3; k++) refusals = (await m.floodBranch(bot, { handler: 'entombed', refusals, ramp: fake })).refusals
+    bot.entity.position = new Vec3(40.5, 70.1, 40.5)
+    await m.floodBranch(bot, { handler: 'marooned', refusals, ramp: fake })
+    assert.strictEqual(seen[3], true, 'the mutant did not change behaviour')
+  })
+})
+
+await t('MUTANT KILLED: no utility-block sparing -> the licensed ramp digs the furnace', async () => {
+  await withMutant(REFLEX_PATH, "avoid: c => INTERACTIVE.test(at(...c)?.name ?? '') })", 'avoid: () => false })', async m => {
+    const { cells } = afterCut(ISOC)
+    cells['-1,1,1'] = 'cobblestone'; cells['-1,1,0'] = 'furnace'
+    const lic = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
+    await ramp(lic, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
+    assert.ok(lic.digs.some(d => d.name === 'furnace'), 'the mutant did not change behaviour')
   })
 })
 
