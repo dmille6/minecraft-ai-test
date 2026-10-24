@@ -161,6 +161,19 @@ export function chooseStepPlug ({ bearings = [], placed = [], ...opts } = {}) {
   return best ?? { ok: false, plugs: [], cells: [], reason: why[0] ?? 'no bearing', bear: null }
 }
 
+/**
+ * THE RAMP SPARES THIS FIRING'S PLUGS: of `bearings`, those whose first step (`firstDig(bear)` -> its dig cells) digs none of
+ * `placed` (offsets from the feet). Paper 10-24 (isolated-c-Alpha, b554b624): plugged, cut, then sank until submerged -- the
+ * flood check's own exemption -- and the step loop's longest runway ran N, through the ceiling's plug, which it dug out with
+ * water behind it (`_climb_flood_breach ... exempt=1`). The caller falls back to every bearing when the spared ones have no
+ * runway, so this only ever reorders a choice that exists. Pure.
+ */
+export function sparePlugs ({ bearings = [], placed = [], firstDig = () => [] } = {}) {
+  const mine = new Set(placed.map(key))
+  if (!mine.size) return bearings
+  return bearings.filter(b => !(firstDig(b) ?? []).some(c => mine.has(key(c))))
+}
+
 /** Is the plug rung due on this flood refusal? From the PLUG_AFTER_REFUSALS-th consecutive one (the arm's own counter). Pure. */
 export const plugDue = (refusals, env) => plugCutOn(env) && Number(refusals) >= PLUG_AFTER_REFUSALS
 
