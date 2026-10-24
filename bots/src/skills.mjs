@@ -2048,6 +2048,14 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // so the 32 nearest candidates findBlocks returns are the nearest that are NOT floors over a drop (Claude r3 P2-1)
     const cave = caveFilter(bot)
     const searchFrom = bot.entity?.position?.floored?.() ?? null   // findBlocks' own point (blocks.js: entity position, floored)
+    // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
+    // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
+    const ironStrict = IRON_KINDS.includes(blockName)
+    // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
+    // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
+    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
+      !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
+      (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
@@ -2095,7 +2103,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // the base would have dug it) and the all-floors message, here, before the early return
     if (positions.length === 0 && collected === 0 && cave.skipped().length) {
       const sk = cave.skipped()
-      const front = sk.some(v => { const q = new Vec3(v.at.x, v.at.y, v.at.z); return horizontalDistanceFromSpawn(q) <= config.world.borderRadius && isExposed(bot, q) && townTargetPermit(q, bot.blockAt(q)?.name, townHome()).ok })
+      const front = sk.some(v => { const q = new Vec3(v.at.x, v.at.y, v.at.z); return horizontalDistanceFromSpawn(q) <= config.world.borderRadius && isExposed(bot, q) && baseSafe(q) })
       try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: sk, considered: cave.considered(), front }) }) } catch { /* a measurement may never cost the skill its turn */ }
       return { status: 'failed', failClass: 'no_safe_target', detail: allFloorsMessage({ name: blockName, n: sk.length, verdicts: sk.slice(0, 8) }) }
     }
@@ -2154,12 +2162,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // That is the `model-cannot-see-it` failure, which cost four in one day.
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
-    const ironStrict = IRON_KINDS.includes(blockName)
     // CAVEFALL-01: a floor over a harmful drop is never a target (cavefall.mjs); counted apart so the message names it
     const caveSkip = cave.skip     // the same round's verdicts: enumeration, the exposed list and both fallbacks
-    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
-      !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
-      (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     // CAVEFALL-01: the base's conjunction, then the cave rule first (baseSafe alone is kept for the exposure measure below)
     const safeTarget = p => !caveSkip(p) && baseSafe(p)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
