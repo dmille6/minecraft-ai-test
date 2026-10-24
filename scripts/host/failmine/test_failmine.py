@@ -582,6 +582,16 @@ def t_labels(F):
     assert F.stuck_label(F.site_facts(open_c, (0, 0, 0))) == 'stuck:open'
 
 
+def t_fetch_refuses_mixed_generations(F):
+    res = {'picks': [{'id': 'x', 'world': 'board-a', 'box': {'lo': [0, 0, 0], 'hi': [1, 1, 1]}}]}
+    with tempfile.TemporaryDirectory() as d:
+        F.fetch(res, d, req=lambda r: b'\x00' * 9000, generation='2026-10-24T03:16:17Z')
+        raises(F.BlindInput, lambda: F.fetch(res, d, req=lambda r: b'\x00' * 9000, generation='2026-10-25T03:16:10Z'), 'another night')
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, 'board-a')); open(os.path.join(d, 'board-a', 'r.0.0.mca'), 'wb').write(b'\x00' * 9000)
+        raises(F.BlindInput, lambda: F.fetch(res, d, req=lambda r: b'\x00' * 9000, generation='2026-10-24T03:16:17Z'), 'no GENERATION')
+
+
 def t_regions_for_box(F):
     assert F.regions_for({'lo': [500, 0, -20], 'hi': [520, 10, 10]}) == [(0, -1), (0, 0), (1, -1), (1, 0)]
 
@@ -616,9 +626,9 @@ def t_serve_backup_state(S):
         assert S.backup_state(p) is None, 'a run in progress must not serve the previous night'
         open(p, 'a').write('2026-10-24T03:16:17Z good 2026-10-24: 16/16 worlds\n')
         assert S.backup_state(p) == ('2026-10-24', '2026-10-24T03:16:17Z')
-        # a `start` naming another world count is not the fleet's run (structcount.backup_record's rule): it changes nothing
+        # ANY later start voids it, whatever world count it names (Codex r2 P1: it may be rewriting the same staging)
         open(p, 'a').write('2026-10-24T09:00:00Z start 2026-10-24: 1 fleet worlds -> elsewhere\n')
-        assert S.backup_state(p) == ('2026-10-24', '2026-10-24T03:16:17Z')
+        assert S.backup_state(p) is None
 
 
 @sv
@@ -714,7 +724,7 @@ MUTANTS = [
     ('failmine.py', "        if dat is None and len(pal) > 1:", "        if False:", 't_region_missing_data_raises'),
     ('failmine.py', "and s['t1'] == last_seen[s['bot']] and", "and", 't_spells_ongoing_and_clipped'),
     ('fmserve.py', "        if st[1] != parts[4]:", "        if False:", 't_serve_region_bound_to_its_night'),
-    ('fmserve.py', "        if m and int(m.group(3)) == EXPECT_WORLDS:", "        if m:", 't_serve_backup_state'),
+    ('fmserve.py', "        if m:     # ANY start", "        if m and ' 16 ' in ln:     # ANY start", 't_serve_backup_state'),
     ('failmine.py', "    if expected is not None and len(rows) != expected:", "    if False:", 't_death_points_count_mismatch_raises'),
     ('failmine.py', "        if off == 0:\n", "        if False:\n", 't_region_absent_chunk_raises'),
     ('failmine.py', "            if not os.path.exists(p):\n                raise BlindInput(f'region copy missing", "            if False:\n                raise BlindInput(f'region copy missing", 't_region_missing_file_raises'),
@@ -723,6 +733,7 @@ MUTANTS = [
     ('failmine.py', "    if n < 2:", "    if False:", 't_spells_one_row_bucket_is_not_still'),
     ('failmine.py', "    if newest is not None and ms_of(src.until) - newest > INGEST_SLACK_MS:", "    if False:", 't_es_ingest_lag_raises'),
     ('failmine.py', "    if not inside(goal_of(pick.get('script'))):", "    if False:", 't_scene_goal_outside_cut'),
+    ('failmine.py', "    if have and have != generation:", "    if False:", 't_fetch_refuses_mixed_generations'),
     ('fmserve.py', "        if state_fn() != st:\n            return 4                      # a backup began", "        if False:\n            return 4                      # a backup began", 't_serve_region_bound_to_its_night'),
     ('failmine.py', "    return (x1 - x0) <= STILL_BOX and (y1 - y0) <= STILL_BOX and (z1 - z0) <= STILL_BOX", "    return (x1 - x0) <= STILL_BOX or (y1 - y0) <= STILL_BOX", 't_spells_basic'),
     ('failmine.py', "    if sum(unk.values()) > MAX_UNCLASSIFIED_DEATH_SHARE * len(pts):", "    if False:", 't_death_points_format_change_raises'),

@@ -1115,6 +1115,16 @@ def fetch(res, dest, only=None, req=remote, generation=None):
     """Region copies for the picks. `generation` = meta's backup_done: fmserve refuses a region of any other night."""
     if not generation:
         raise BlindInput('fetch needs the backup generation from meta (backup_done): an unbound read could mix two nights')
+    # ONE NIGHT PER DIRECTORY (Codex r2 P2): cached files are trusted only under a GENERATION file naming this night
+    gf = os.path.join(dest, 'GENERATION')
+    have = open(gf).read().strip() if os.path.exists(gf) else None
+    if have and have != generation:
+        raise BlindInput(f'{dest} holds regions of another night ({have}), not {generation}: use a fresh directory')
+    if not have:
+        if os.path.isdir(dest) and any(f.endswith('.mca') for _, _, fs in os.walk(dest) for f in fs):
+            raise BlindInput(f'{dest} holds region files and no GENERATION: cannot tell their night')
+        os.makedirs(dest, exist_ok=True)
+        open(gf, 'w').write(generation + '\n')
     got = []
     for p in res['picks']:
         if only and p['id'] not in only:
@@ -1136,11 +1146,12 @@ def fetch(res, dest, only=None, req=remote, generation=None):
 
 # ------------------------------------------------------------------ CLI
 def cmd_mine(a):
-    meta = json.load(open(a.seeds))
-    meta = meta.get('worlds', meta)
+    full = json.load(open(a.seeds))
+    meta = full.get('worlds', full)
     until = a.until or dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
     since = (dt.datetime.fromisoformat(until.replace('Z', '+00:00')) - dt.timedelta(days=a.days)).strftime('%Y-%m-%dT%H:%M:%SZ')
     res = mine(EsSource(since, until), meta, a.top_deaths, a.top_stuck, extra_worlds=a.extra_worlds)
+    res['backup'] = {k: full.get(k) for k in ('backup_day', 'backup_done')}     # the night the seeds/meta came from
     os.makedirs(a.out, exist_ok=True)
     json.dump(res, open(os.path.join(a.out, 'clusters.json'), 'w'), indent=1, default=list)
     open(os.path.join(a.out, 'table.txt'), 'w').write(render(res) + '\n')
@@ -1169,7 +1180,12 @@ def cmd_cut(a):
 def cmd_fetch(a):
     res = json.load(open(a.clusters))
     only = set(a.only.split(',')) if a.only else None
-    gen = json.loads(remote('meta'))['backup_done']
+    # the night the CLUSTERS were mined against (Claude r2 P3), and refuse if the staging has moved on since
+    gen = (res.get('backup') or {}).get('backup_done')
+    if not gen:
+        raise BlindInput(f'{a.clusters} names no backup night: mine with --seeds <fmserve meta output>')
+    if json.loads(remote('meta')).get('backup_done') != gen:
+        raise BlindInput(f'the staging is no longer the night {gen} these clusters were mined against: mine again')
     for f in fetch(res, a.regions, only, generation=gen):
         print('fetched', f)
 
@@ -1205,6 +1221,7 @@ def cmd_weekly(a):
         until = min(until, dt.datetime.fromisoformat(bd.replace('Z', '+00:00')).replace(second=0, microsecond=0))
     since = until - dt.timedelta(days=7)
     res = mine(EsSource(since.strftime('%Y-%m-%dT%H:%M:%SZ'), until.strftime('%Y-%m-%dT%H:%M:%SZ')), meta['worlds'], a.top_deaths, a.top_stuck)
+    res['backup'] = {k: meta.get(k) for k in ('backup_day', 'backup_done')}
     json.dump(res, open(os.path.join(out, 'clusters.json'), 'w'), indent=1, default=list)
     open(os.path.join(out, 'table.txt'), 'w').write(render(res) + '\n')
     regions = os.path.join(home, 'work', gen)

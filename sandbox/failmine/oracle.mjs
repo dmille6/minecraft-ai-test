@@ -44,3 +44,31 @@ export function decide (oracle, obs, expect = {}) {
   if (oracle.type === 'survive') return { outcome: 'survived', pass: true, matched_fleet: false }
   return noRun(`unknown oracle ${oracle.type}`)
 }
+
+// THE LIBRARY GATE'S VERDICT for one (scene, start): bs / cs = the base and candidate driver results of one session.
+// The base must reproduce the fleet's failure in >= 2 runs and >= 2 of every 3 completed ones, never passing; the
+// candidate must complete and pass EVERY run. Fewer than MIN_REPEATS runs of either build is never a verdict (Codex r2 P2).
+export const MIN_REPEATS = 3
+export function abVerdict (bs, cs) {
+  const bDone = bs.filter(b => b.matched_fleet === true || b.matched_fleet === false)
+  const bm = bDone.filter(b => b.matched_fleet === true).length
+  const reproduced = bs.length >= MIN_REPEATS && bm >= 2 && bm * 3 >= bDone.length * 2 && !bs.some(b => b.pass === true)
+  const cDone = cs.filter(c => c.pass === true || c.pass === false)
+  const verdict = !reproduced || cs.length < MIN_REPEATS || cDone.length < cs.length ? 'INVALID' : cs.every(c => c.pass === true) ? 'PASS' : 'FAIL'
+  return { verdict, reproduced, bm, bDone: bDone.length }
+}
+
+// THE FIDELITY PROBES: the scene's named checks and every `every`-th cell of the cut, each as its FULL block state
+// (Codex r2 P2 / Claude r2 P3: a name-only sample cannot see a water level, waterlogging or facing).
+export function fidelityProbes (S, BX, BZ, every = 37) {
+  const [OX, OY] = S.cells.origin, [SX, , SZ] = S.cells.size
+  const DX = BX - OX, DZ = BZ - S.cells.origin[2]
+  const flat = []
+  for (let k = 0; k < S.cells.rle.length; k += 2) for (let n = 0; n < S.cells.rle[k + 1]; n++) flat.push(S.cells.rle[k])
+  const probes = S.checks.map(k => ({ x: k.at[0] + DX, y: k.at[1], z: k.at[2] + DZ, is: k.is, check: true }))
+  for (let i = 0; i < flat.length; i += every) {
+    const x = i % SX, z = Math.floor(i / SX) % SZ, y = Math.floor(i / (SX * SZ))
+    probes.push({ x: BX + x, y: OY + y, z: BZ + z, is: S.cells.palette[flat[i]] })
+  }
+  return probes
+}

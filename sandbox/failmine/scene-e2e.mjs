@@ -26,7 +26,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { decide } from './oracle.mjs'
+import { decide, fidelityProbes } from './oracle.mjs'
 
 const [BOT_ROOT, LABEL, SCENE_FILE, SERVER = 'sandbox6', MIN_S, START_S = '0'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENE_FILE) throw new Error('usage: scene-e2e.mjs <botRoot> <label> <scene.json> [server] [minutes] [start#]')
@@ -142,14 +142,10 @@ function arenaCmds () {
 }
 // fidelity: the scene's named checks, then a deterministic sample of every 37th cell, by block name
 function fidelity () {
-  const probes = S.checks.map(k => ({ x: k.at[0] + DX, y: k.at[1], z: k.at[2] + DZ, is: k.is, check: true }))
-  for (let i = 0; i < FLAT.length; i += 37) {
-    const x = i % SX, z = Math.floor(i / SX) % SZ, y = Math.floor(i / (SX * SZ))
-    probes.push({ x: BX + x, y: OY + y, z: BZ + z, is: nameOf(names[FLAT[i]]) })
-  }
+  const probes = fidelityProbes(S, BX, BZ, 37)
   const r = rcon(...probes.map(p => `execute if block ${p.x} ${p.y} ${p.z} minecraft:${p.is}`))
   const bad = probes.filter((p, i) => !/Test passed/.test(r[i]?.reply ?? ''))
-  return { probes: probes.length, mismatched: bad.length, checksFailed: bad.filter(p => p.check).map(p => `${p.x - DX},${p.y},${p.z - DZ}:${p.is}`), share: +(1 - bad.length / probes.length).toFixed(4) }
+  return { probes: probes.length, mismatched: bad.length, checksFailed: bad.filter(p => p.check).map(p => `${p.x - DX},${p.y},${p.z - DZ}:${p.is}`), share: +(1 - bad.length / probes.length).toFixed(4), mode: 'full-state' }
 }
 
 // ---------------------------------------------------------------- the bot

@@ -21,7 +21,6 @@ STAGING = '/srv/world-backup/staging'
 LOG = '/var/log/mcai-monitor/world-backup.log'
 WORLD_RE = re.compile(r'^(board|hive|isolated|placebo)-[a-d]$')
 INT_RE = re.compile(r'^-?\d{1,3}$')          # region coordinates: |r| <= 999 (the border is 1950 blocks = r +-4)
-EXPECT_WORLDS = 16
 GEN_RE = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
 
 
@@ -40,8 +39,8 @@ def backup_state(log=LOG):
         return None
     start = None
     for i, ln in enumerate(lines):
-        m = re.match(r'^(\S+) start (\d{4}-\d{2}-\d{2}): (\d+) ', ln)
-        if m and int(m.group(3)) == EXPECT_WORLDS:     # as structcount.backup_record: another count is not the fleet's run
+        m = re.match(r'^(\S+) start (\d{4}-\d{2}-\d{2}):', ln)
+        if m:     # ANY start, whatever world count it names, may be rewriting the staging (Codex r2 P1): it voids the last good
             start = (i, m.group(2))
     if not start:
         return None

@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { abVerdict, MIN_REPEATS } from './oracle.mjs'
 
 const [BASE, CAND, FAMILY, SERVER = 'sandbox6', MIN] = process.argv.slice(2)
 if (!BASE || !CAND || !FAMILY) throw new Error('usage: library-ab.mjs <baseRoot> <candidateRoot> <family|all> [server] [minutes]')
@@ -25,7 +26,8 @@ const index = JSON.parse(fs.readFileSync(path.join(LIB, 'INDEX.json'), 'utf8'))
 const OUT = process.env.FM_OUT || fs.mkdtempSync(path.join(os.tmpdir(), 'failmine-ab-'))
 const scenes = index.scenes.filter(s => FAMILY === 'all' || s.family === FAMILY)
 if (!scenes.length) throw new Error(`no library scene of family ${FAMILY} (have: ${[...new Set(index.scenes.map(s => s.family))].join(', ')})`)
-const R = Math.max(1, Number(process.env.FM_REPEATS || 3))
+const R = Number(process.env.FM_REPEATS || MIN_REPEATS)
+if (!Number.isInteger(R) || R < MIN_REPEATS) throw new Error(`FM_REPEATS must be an integer >= ${MIN_REPEATS}: one draw is not a verdict (got ${process.env.FM_REPEATS})`)
 const run = (root, label, file, start) => {
   const r = spawnSync(process.execPath, [path.join(REPO, 'sandbox/failmine/scene-e2e.mjs'), root, label, path.join(LIB, file), SERVER, MIN || '', String(start)],
     { encoding: 'utf8', env: { ...process.env, FM_OUT: OUT }, timeout: 40 * 60_000 })
@@ -34,19 +36,16 @@ const run = (root, label, file, start) => {
 }
 const rows = []
 for (const s of scenes) {
-  for (const start of (s.reproducing_starts.length ? s.reproducing_starts : [0])) {
+  if (!s.reproducing_starts.length) { console.log(`SKIP     ${s.id}: no admitted start (its base never reproduced often enough)`); continue }
+  for (const start of s.reproducing_starts) {
     const bs = [], cs = []
     for (let i = 0; i < R; i++) { bs.push(run(BASE, 'base', s.file, start)); cs.push(run(CAND, 'cand', s.file, start)) }
-    const bDone = bs.filter(b => b.matched_fleet !== null && b.matched_fleet !== undefined)
-    const bm = bDone.filter(b => b.matched_fleet === true).length
-    const reproduced = bm >= Math.min(2, R) && bm * 3 >= bDone.length * 2 && !bs.some(b => b.pass === true)
-    const cDone = cs.filter(c => c.pass === true || c.pass === false)
-    const verdict = !reproduced || cDone.length < R ? 'INVALID' : cs.every(c => c.pass === true) ? 'PASS' : 'FAIL'
+    const { verdict, reproduced, bm, bDone } = abVerdict(bs, cs)
     rows.push({ scene: s.id, start, base: bs.map(b => b.outcome), cand: cs.map(c => c.outcome), verdict })
     console.log(`${verdict.padEnd(8)} ${s.id} start ${start}: base ${bs.map(b => b.outcome).join(', ')}${reproduced ? ` (${bm}/${bDone.length} as the fleet)` : ' (DID NOT REPRODUCE: retired)'}; candidate ${cs.map(c => c.outcome).join(', ')}`)
   }
 }
-const v = rows.some(r => r.verdict === 'FAIL') ? 'FAIL' : rows.every(r => r.verdict === 'PASS') ? 'PASS' : 'INVALID'
+const v = rows.some(r => r.verdict === 'FAIL') ? 'FAIL' : rows.length && rows.every(r => r.verdict === 'PASS') ? 'PASS' : 'INVALID'
 console.log(`\nLIBRARY ${FAMILY}: ${v} (${rows.filter(r => r.verdict === 'PASS').length} pass, ${rows.filter(r => r.verdict === 'FAIL').length} fail, ` +
   `${rows.filter(r => r.verdict === 'INVALID').length} invalid of ${rows.length}); results in ${OUT}/results.jsonl`)
 process.exit(v === 'PASS' ? 0 : v === 'FAIL' ? 1 : 2)

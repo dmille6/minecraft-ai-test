@@ -15,7 +15,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { decide, MAX_GAP_S } from '../../sandbox/failmine/oracle.mjs'
+import { decide, MAX_GAP_S, abVerdict, fidelityProbes } from '../../sandbox/failmine/oracle.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const FM = path.join(REPO, 'scripts/host/failmine/failmine.py')
@@ -63,6 +63,23 @@ t('verdict: a lava death matches the fleet only of the family AND near the fleet
   assert.equal(decide(SURV, { ...d, deathFamily: 'fall' }, { deathCell: [392, 70, 106] }).matched_fleet, false, 'another family')
   assert.equal(decide(ESC, d, { deathCell: [392, 70, 106] }).matched_fleet, false, 'a death never reproduces a stuck scene')
   assert.equal(decide(SURV, { ...alive }).pass, true)
+})
+
+t('library gate: one draw, a base that reproduces once, or a base that passes is never a PASS (Codex r2 P2)', () => {
+  const B = (m, p = false) => ({ matched_fleet: m, pass: p }), C = p => ({ pass: p })
+  assert.equal(abVerdict([B(true)], [C(true)]).verdict, 'INVALID', 'a single draw')
+  assert.equal(abVerdict([B(true), B(false), B(false)], [C(true), C(true), C(true)]).verdict, 'INVALID', 'base 1 of 3')
+  assert.equal(abVerdict([B(true), B(true), B(false, true)], [C(true), C(true), C(true)]).verdict, 'INVALID', 'a base pass')
+  assert.equal(abVerdict([B(true), B(true), B(false)], [C(true), C(true), C(true)]).verdict, 'PASS')
+  assert.equal(abVerdict([B(true), B(true), B(true)], [C(true), C(false), C(true)]).verdict, 'FAIL')
+  assert.equal(abVerdict([B(true), B(true), B(true)], [C(true), C(null), C(true)]).verdict, 'INVALID', 'a candidate no-run')
+})
+t('fidelity probes carry the FULL block state (a water level, a facing), for the named checks and the sample', () => {
+  const S = { cells: { origin: [0, 40, 0], size: [2, 1, 1], palette: ['water[level=2]', 'ladder[facing=south,waterlogged=false]'], rle: [0, 1, 1, 1] },
+    checks: [{ at: [1, 40, 0], is: 'ladder[facing=south,waterlogged=false]' }] }
+  const p = fidelityProbes(S, 100, 200, 1)
+  assert.deepEqual(p.map(q => [q.x, q.y, q.z, q.is]), [[101, 40, 200, 'ladder[facing=south,waterlogged=false]'], [100, 40, 200, 'water[level=2]'],
+    [101, 40, 200, 'ladder[facing=south,waterlogged=false]']])
 })
 
 const files = existsSync(LIB) ? readdirSync(LIB).filter(f => f.endsWith('.json') && f !== 'INDEX.json').sort() : []

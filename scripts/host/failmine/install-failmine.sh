@@ -91,9 +91,15 @@ case "$MODE" in
   if kill -0 "$FP" 2>/dev/null; then kill "$FP"; fail "remote port forwarding was ALLOWED: is 'restrict' on the line?"; fi
   grep -q 'remote port forwarding failed' "$D/verify.fwd" || fail "the forwarding probe exited for another reason: $(head -2 "$D/verify.fwd")"
   say "port forwarding refused by the server"
-  $S region board-a 0 0 > "$D/verify.mca" || fail "region board-a 0 0 was not served"
+  # region reads are bound to meta's night (backup_done): take it from the live answer, which also proves the log's
+  # timestamp format matches fmserve's GEN_RE (the tests can only assume it)
+  GEN=$($S meta | python3 -c 'import json,sys; print(json.load(sys.stdin)["backup_done"])') || fail "meta has no backup_done"
+  $S region board-a 0 0 "$GEN" > "$D/verify.mca" || fail "region board-a 0 0 $GEN was not served"
   SZ=$(wc -c < "$D/verify.mca"); [ "$SZ" -gt 1000000 ] || fail "region board-a 0 0 is only $SZ bytes"
-  rm -f "$D/verify.mca"; say "a region file arrived whole ($SZ bytes). Next: --dry-run"
+  rm -f "$D/verify.mca"; say "a region file of night $GEN arrived whole ($SZ bytes)"
+  $S region board-a 0 0 2000-01-01T00:00:00Z > "$D/verify.out" 2>/dev/null; RC=$?; OUTB=$(wc -c < "$D/verify.out")
+  [ "$RC" = 4 ] && [ "$OUTB" -eq 0 ] || fail "a region of another night was not refused (exit $RC, $OUTB bytes)"
+  say "a region of another night refused (exit 4, no bytes). Next: --dry-run"
   ;;
 --dry-run)
   [ "$(hostname)" = block2-bots ] || fail "run --dry-run on 10.0.0.31"
