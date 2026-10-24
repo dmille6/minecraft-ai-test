@@ -440,6 +440,16 @@ the scheduler is outside this item.
 - **Tier 3**, with the no-harm gates.
 - **No `draw_require_pools`**, because isolated-a would make the draw refuse forever.
 - Owner question Q1 for the isolated rollout.
+- **drawexposure, 10-24 22:05Z** (6 h, death ~ "fell from a high place" >= 1 as a proxy): hive-b and placebo-b are
+  eligible. Those are ordinary falls, not platform respawns, and two pools is under the 4-pool policy, so tier 2 is not
+  available either way.
+- **Registration and entry fragment** (drafts, staged; nothing queued, nothing installed):
+  - `~/mcai-analysis/respawnfall-01.e8dd7460.json` (sha256 be6e56d1...);
+  - `~/mcai-analysis/respawnfall-01.queue-entry.draft.json`, which carries the Q1 hold and no `approved`, so `queue add`
+    refuses it;
+  - the read is staged as `~/mcai-analysis/respawnfallread.py` (md5 4442adfb, selftest ok).
+- Canary sha `e8dd7460`; later commits on the branch are docs only. The Paper driver is `respawnfall-sandbox-1024` @
+  `45485994`.
 
 ### 8.4 The header
 
