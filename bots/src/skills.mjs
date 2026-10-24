@@ -100,7 +100,7 @@ import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
-import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage } from './cavefall.mjs'
+import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail } from './cavefall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -1223,6 +1223,18 @@ export function cavefallSkip (bot, p, { on = CAVEFALL_ON } = {}) {
   return floorOverDrop({ target: p, at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)) })
 }
 /**
+ * CAVEFALL-01, gather's candidate filter for one round: `skip(p)` is the rule on the live world, memoised per cell, so the
+ * exposed list, the source fallback and the foliage fallback share one verdict per cell; `skipped()` and `considered()`
+ * count every cell the round asked about; `allSkipped()` is true when at least one was asked and every one was a floor
+ * over a drop (gather's all-floors message). Exported for its behaviour tests.
+ */
+export function caveFilter (bot, { on = CAVEFALL_ON } = {}) {
+  const memo = new Map()
+  const verdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!memo.has(k)) memo.set(k, cavefallSkip(bot, p, { on })); return memo.get(k) }
+  const skipped = () => [...memo.values()].filter(v => v.skip)
+  return { verdict, skip: p => verdict(p).skip, skipped, considered: () => memo.size, allSkipped: () => memo.size > 0 && skipped().length === memo.size }
+}
+/**
  * CAVEFALL-01 AT THE DIG, re-asked against the world as it is now (the candidate filter judged it at scan time): a floor over
  * a harmful drop throws `no_safe_target` with the remedy first (gather excludes the candidate and moves on); a floor dig
  * the bot stands on that is allowed only because its fall is short or into water writes one `_cavefall_floor allowed` row
@@ -1471,9 +1483,6 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   //
   // Only for a block the ORDINARY rule refuses -- an unexempted block is
   // unaffected, so this cannot make the baseline stricter.
-  // CAVEFALL-01 (cavefall.mjs): A FLOOR OVER A HARMFUL DROP IS NEVER DUG -- re-asked here, after every await that could have
-  // changed the world, like the safety re-ask below. It throws before the dig; it never walks.
-  cavefallDigCheck(bot, block)
   // THE TOWN'S GROUND (townground.mjs): an independent conjunction, outside isSafeToBreak's fail-open path.
   const townOk = townTargetPermit(block.position, block.name, townHome())
   if (!townOk.ok) {
@@ -1500,11 +1509,15 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   // mineflayer's dig AWAITS a lookAt before it sends block_dig unless forceLook is 'ignore' (digging.js, 4.37.1), and
   // a block can change during that look. So with a hook: look first (instant), ask the hook, then dig with 'ignore'
   // -- no second look, and no await between the last check and the dig packet.
+  // CAVEFALL-01 (cavefall.mjs): A FLOOR OVER A HARMFUL DROP IS NEVER DUG, re-asked as the LAST word -- after the look, so no
+  // await sits between it and the dig packet (Codex r2 P2-3). With CAVEFALL on, every dig takes the hook path's shape (an
+  // instant look, then dig with 'ignore'); CAVEFALL=0 keeps the base's sequence exactly.
   let forceLook
-  if (beforeDig) {
+  if (beforeDig || CAVEFALL_ON) {
     try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
     check(signal)
-    beforeDig()
+    if (CAVEFALL_ON) cavefallDigCheck(bot, block)
+    beforeDig?.()
     forceLook = 'ignore'
   }
   await withTimeout(bot.dig(block, forceLook), 20_000, bot, {
@@ -2127,9 +2140,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     const ironStrict = IRON_KINDS.includes(blockName)
     // CAVEFALL-01: a floor over a harmful drop is never a target (cavefall.mjs); counted apart so the message names it
-    const caveMemo = new Map()   // one verdict per cell per round: the filter, the count and the message share it
-    const caveVerdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!caveMemo.has(k)) caveMemo.set(k, cavefallSkip(bot, p)); return caveMemo.get(k) }
-    const caveSkip = p => caveVerdict(p).skip
+    const cave = caveFilter(bot)   // one verdict per cell per round, across the exposed list AND both fallbacks
+    const caveSkip = cave.skip
     const safeTarget = p => !caveSkip(p) && townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
@@ -2162,10 +2174,6 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // wet" is a distinguishable answer rather than folding into "buried".
     const safeOnes = exposedOnes.filter(safeTarget)
     const rejectedUnsafe = exposedOnes.length - safeOnes.length
-    const caveOnes = exposedOnes.filter(caveSkip)
-    if (caveOnes.length) {
-      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: `${blockName}: ${caveOnes.length} of ${exposedOnes.length} exposed candidate(s) are floors over a harmful drop; skipped` }) } catch { /* a measurement may never cost the skill its turn */ }
-    }
     // THE CHANGE ROW, and a canary without one is unreadable.
     //
     // `shorelineExemptAt` is otherwise silent, so nothing in telemetry would say the
@@ -2294,13 +2302,18 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       }
     }
 
+    // CAVEFALL-01: the round's skips, counted AFTER both fallbacks (Codex r2 P2-6), one row per round with a skip
+    const caveSkipped = cave.skipped()
+    if (caveSkipped.length) {
+      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.considered() }) }) } catch { /* a measurement may never cost the skill its turn */ }
+    }
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
       }
-      if (caveOnes.length > 0 && caveOnes.length === exposedOnes.length) {
+      if (cave.allSkipped()) {
         return { status: 'failed', failClass: 'no_safe_target',
-                 detail: allFloorsMessage({ name: blockName, n: caveOnes.length, verdicts: caveOnes.slice(0, 8).map(caveVerdict) }) }
+                 detail: allFloorsMessage({ name: blockName, n: caveSkipped.length, verdicts: caveSkipped.slice(0, 8) }) }
       }
       if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {
         // SAY WHICH RULE REFUSED, not "one of these two".
@@ -2353,7 +2366,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         return { status: 'failed', failClass: 'no_safe_target',
                  vetoCause: why,
                  detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
-                         `under falling blocks — digging them would flood or bury this spot [${named}]` }
+                         `under falling blocks — digging them would flood or bury this spot [${named}]` +
+                         // CAVEFALL-01 (Claude r2 P3-7): in a mixed round, say how many of them were floors over a drop instead
+                         (caveSkipped.length ? ` (${caveSkipped.length} of them: floors over a drop into a cave)` : '') }
       }
       // "USE MINE TO DIG DOWN" IS ADVICE, AND ADVICE PRINTED IS NOT ADVICE TAKEN.
       //

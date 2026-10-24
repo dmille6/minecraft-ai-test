@@ -1,4 +1,4 @@
-# cavefall-01: gather never digs a floor that has a harmful drop under it (design r2, 2026-10-24)
+# cavefall-01: gather never digs a floor that has a harmful drop under it (design r3, 2026-10-24)
 
 OWNER 2026-10-24 ~12:30Z: "yes move up cave fall". This is mineshaft-safety O4 (`docs/reports/mineshaft-safety-2026-10-23.md`
 §11, approved "as a separate scoped item next"), queued behind lavasight-01. Base: fleet `fb8de72f` (ironsmelt-01, promoted
@@ -9,8 +9,10 @@ live files on 10.0.0.31 were read; the 10-24 staged backup was read on 10.0.0.30
 region copies to /tmp). Paper ran only on sandboxes under per-server locks (§7). The context reports named below are on
 `main` (`git show origin/main:docs/reports/<name>`); this branch is cut from the deployed sha.
 
-**r2** answers both r1 design reviews (§9): the r1 "step beside it, then dig" executor is gone. The rule is now a property of
-the TARGET, it never walks, and the evidence section says what is and is not established.
+**r2** answered both r1 design reviews (§9): the r1 "step beside it, then dig" executor is gone; the rule is a property of the
+TARGET and never walks. **r3** answers the r2 reviews: landing physics corrected (the first stop wins), partial shapes, the
+re-ask after the look, gates rebuilt, and **the world-signature evidence withdrawn** (matched controls showed no enrichment):
+the fix's share of the falls is unknown.
 
 ## 0. Answers first
 
@@ -26,15 +28,20 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
    **75 of the 91** deaths with a record that path had **no drop at all**; 13 had a planned drop of 2-5 (inside
    `maxDropDown` 6) and 3 a planned drop beyond it (water landings). The falls are 12-118 blocks. A safer drop limit would not
    touch the 75. (This rules the planner out as the cause; it does not by itself say what the cause was.)
-3. **Some of them dug their own floor: established for a minority, by a world signature.** Above 13 of the 67 cave-fall
-   landings inside the region read (shared seed, before the 10-24 backup), the backup holds a **one-block hole in a floor**:
-   the column open, and at least 3 of its 4 neighbours solid at that level. At control floor cells 3 blocks from each landing
-   the same signature appears at **9 of 169 (5%)**: 19% vs 5%, 3.8x. By skill at death: gather 8 of 35, idle 3 of 8, goto 2 of
-   10, explore 0 of 13. isolated-a-Comet's overnight stalagmite death is one of them: a hole at y = 30 in a dirt shelf, its
-   ledge rows at y 31. This is a **lower bound**: the shelves are dirt, and later gathering erodes a hole's walls into an open
-   column.
-4. **The other 54 of 67 have an open column above the landing**: a walk off an edge or into an open cave mouth, mechanism not
-   established here. What the logs do and do not say:
+3. **Did they dig their own floor? Not established by any discriminating evidence in the logs or the world.** The code path
+   exists (§2) and prior art names it (§3), but every discriminating test came back null:
+   - **World signature.** Above 13 of the 67 cave-fall landings inside the region read, the 10-24 backup holds a one-block
+     hole in a floor (the column open, at least 3 of 4 neighbours solid at that level). r2 compared that with control cells 3
+     blocks away (9 of 169, 5%) and called it a 3.8x enrichment; Claude r2 showed the control was biased (a landing column is
+     open up to the bot's height by construction, a control usually is not). **With matched controls -- cave-floor cells 2-8
+     blocks away whose open column reaches at least as high as the landing's -- the signature is 38 of 216 (18%) against 19%:
+     no enrichment.**
+   - **The reach probe's target** was the cell under the bot's last position in 4 of 35 gather deaths, against 38 of 275
+     (13.8%) earlier probes for the same bots: no enrichment.
+   isolated-a-Comet's overnight stalagmite death has the hole (y = 30 in a dirt shelf it was gathering on, ledge rows at y 31),
+   which is consistent with it and proves nothing alone. **So the share of cave falls this fix can prevent is unknown.** The
+   Paper scene (§7) tests whether the base bot does it at all; the canary tests whether it matters.
+4. **What the falls are is not established either.** What the logs do and do not say:
    - In 61 of 84 cave deaths the last position logged above the landing is within 1.5 blocks of it horizontally (not a
      discriminator: a walk off an edge lands close too).
    - A block on the active path changed (`_path_reset block_updated`) in the 6 s before the descent in 32 of 84 (38%), against
@@ -66,8 +73,9 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
    if it is on it, and drops the item into the cave if it is not, so neither the dig nor the walk to pick the item up can pay.
    It is a candidate filter plus a re-ask before the stance walk and at the dig. It never walks, deletes no pathfinder move,
    and touches no reflex. A short drop onto rock (the ordinary self-dig on a plain) and water are untouched. Rollback
-   `CAVEFALL=0`. **Expected size: the dug-floor slice (point 3: at least 13 of 67 cave falls, 19%), not the open-column
-   majority.**
+   `CAVEFALL=0`. **Expected size: unknown (point 3).** It removes a deterministic way to die that the code allows and Baritone
+   forbids; whether that way is a large part of the 47-84 cave falls a week is exactly what neither the logs nor the world
+   could say.
 8. **Not in this item, each with an owner question (§5):** the sky platform, the open-column falls, the hazard-map route
    price, a stalagmite-aware drop limit, and `mine`'s stair over a cave ceiling.
 
@@ -113,28 +121,37 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
 
 **Rule (`bots/src/cavefall.mjs`, pure; real block objects or literals).** A cell T is a **floor over a drop** when:
 1. T is solid (it has a collision shape; a stalagmite counts);
-2. something can stand on it: the cell above is open, or holds a block that needs T (carpet, snow layer, pressure plate,
-   rail, redstone, lily pad) -- a slab, a block or any other solid above is its own floor;
-3. the fall a body standing on T would take if T were gone does damage. The fall is read down **T's column and every
-   cardinal neighbour column that is open at T's level** (a body on T overlaps them) and the **worst** is taken. Each column:
-   open cells continue; the first water, lava or unloaded cell ends it; the first cell with a collision shape is the landing,
-   at its real top (a tip at 0.6875, a slab 0.5, a fence 1.5); nothing within 32 is `deep`. Damage: rock ceil(d - 3);
-   stalagmite tip (vertical_direction up, thickness tip) ceil(2(d - 1)); water 0; lava, unknown, deep: not survivable.
+2. something can stand on it: the cell above is open, holds a block that needs T (carpet, snow layer, pressure plate,
+   rail, redstone, lily pad), or holds a partial shape a centred body does not meet (an open trapdoor) -- a slab, a block or
+   any other solid above is its own floor;
+3. the fall a body standing on T would take if T were gone does damage. A falling body stops at the FIRST thing any part
+   of it meets (Claude r2 P1), so each placement of the body is a scenario: **centred on T** (T's column, footprint x/z
+   0.2-0.8), or **straddling** toward each cardinal neighbour that is open at T's level (T's column and that one; the higher
+   stop wins). The **worst scenario** is the verdict. In a column: open cells continue; water, lava or an unloaded cell is a
+   stop at its cell; a cell is a floor only where one of its collision shapes overlaps the body's footprint (an open trapdoor's
+   thin wall, a wall ladder, are missed: Codex r2 P1), at that shape's real top (a tip 0.6875, a slab 0.5, a fence 1.5);
+   nothing within 32 is `deep`. Damage: rock ceil(d - 3); stalagmite tip (vertical_direction up, thickness tip)
+   ceil(2(d - 1)); water 0; lava, unknown, deep: not survivable. So the lip of a cliff or a shaft (rock under T's own column)
+   is kept: the body meets T's floor first.
 
 A ceiling block (an ore in a cave roof, rock above it) is never a floor, so the bot under it may still dig it.
 
 **Where it acts (`skills.mjs`).**
 - **The candidate filter:** `safeTarget` (which already composes town ground, keep-out, `isSafeToBreak` and the iron
-  six-face check) starts with `!caveSkip(p)`, one verdict per cell per round (memo). The skipped count is a
-  `_cavefall_skip` row per round when non-zero.
-- **gather's message** when every exposed candidate is such a floor: "dirt found but all N candidate(s) are floors over a
+  six-face check) starts with `!caveSkip(p)` from `caveFilter(bot)`: one verdict per cell per round, shared by the exposed
+  list, the source fallback and the foliage fallback. After both fallbacks the round writes one `_cavefall_skip` row when it
+  skipped anything (`own=N nbr=M land=...`: which column decided, so over-refusal is visible).
+- **gather's message** when every candidate the round asked about (all lists) is such a floor: "dirt found but all N candidate(s) are floors over a
   drop into a cave (onto stalagmite) -- digging one drops you or the item; gather dirt elsewhere, or explore", failClass
-  `no_safe_target`, before the existing water/falling-block message (which would name the wrong rule).
+  `no_safe_target`, before the existing water/falling-block message, which in a mixed round now says how many of its
+  candidates were floors over a drop.
 - **`collectManually`**, the one dig site gather and craft's table retake share: `cavefallDigCheck` before the stance walk
-  (no walk is spent on a floor that will not be dug; craft has no candidate filter) and again just before `bot.dig`, after
-  every await that could change the world (the `isSafeToBreak` re-ask's own reason). It throws `no_safe_target` with the
-  remedy first: "floor_dig: gather dirt elsewhere -- 3,29,6 is a floor over a 21.3-block drop onto stalagmite" (gather keeps
-  120 characters of a collect error). At the dig, a floor dig the bot stands on that is allowed only because its fall is
+  (no walk is spent on a floor that will not be dug; craft has no candidate filter) and again as the **last word before the
+  dig packet**: with CAVEFALL on, every dig takes the shape craft's hook path already had -- an instant `lookAt`, the re-ask,
+  then `bot.dig(block, 'ignore')` -- so no await sits between the check and the dig (Codex r2 P2-3). CAVEFALL=0 keeps the
+  base's sequence (the library's own look inside `dig`). It throws `no_safe_target` with the remedy first: "floor_dig: dig
+  elsewhere -- dirt at 3,29,6 is a floor over a 21.31-block drop onto stalagmite" (gather keeps 120 characters of an error;
+  the wording fits craft's caller too). At the dig, a floor dig the bot stands on that is allowed only because its fall is
   short (drop >= 2) or into water writes one `_cavefall_floor allowed` row (the 1-block self-dig on a plain is not logged).
 
 **Remedy chain (CLAUDE.md).**
@@ -164,7 +181,7 @@ source fallback. Negligible beside the reach probe's A*.
    about a third of isolated-a respawns land on it); (b) a bot-side "descend from a height" skill (a staircase of placed
    blocks, ~110 cobblestone; new behaviour, its own canary); (c) the structure itself is a world question this item may not
    touch. **Recommend (a) now, (b) as a separate item if wanted.** Open: how the first column reached y = 180.
-2. **The open-column falls (54 of 67).** Mechanism not established. The failmine cave scenes replayed the fall rows' path
+2. **The rest of the cave falls.** Mechanism not established (§0.3-0.4). The failmine cave scenes replayed the fall rows' path
    goals 7 times and the base never fell, so a plain walk is not the reproduction. **Recommend a separate investigation item
    on Paper** (sprinting along 1-wide cave ledges, partial paths ending at an edge, the dig approach), before any fix.
 3. **The hazard-map route price.** lavasight-01 delivers cave_fall and dripstone hazards as warn-only centres (its design
@@ -176,7 +193,7 @@ source fallback. Negligible beside the reach probe's A*.
 
 ## 6. Tests (behaviour on exported pure functions; anchored mutants)
 
-`bots/test/cavefall.test.mjs`, 24 cases, on worlds of **real 1.21.8 registry blocks** (`test/helpers/reachlab.mjs`
+`bots/test/cavefall.test.mjs`, 34 cases, on worlds of **real 1.21.8 registry blocks** (`test/helpers/reachlab.mjs`
 `mkWorld`), shaped like the cluster: a 3x5 dirt shelf at y 29 off a stone cliff, over a cave floor at y 7 with stalagmite
 tips at y 8, or ground, water, lava, unloaded, or nothing.
 - cell kinds (only an up tip is a stalagmite; carpet, slab, fence solid; snow layer 1 and grass open; unloaded unknown); the
@@ -184,6 +201,10 @@ tips at y 8, or ground, water, lava, unloaded, or nothing.
   skipped; the 3/4 boundary onto rock and a tip under T; the worst-column rule (water under T, rock under the open neighbour);
   standable (carpet and rail above count, a slab does not); carpet on the shelf; a cave-roof ore is not a floor; non-solid
   targets; a throwing reader fails closed; the messages put the remedy first; the rollback.
+- r3 additions: the straddle scenarios (water deep under T and rock high beside it -> skipped; a cliff lip and a shaft rim
+  -> kept), open and closed trapdoors under and over T, `caveFilter`'s memo and counts across lists, the `allowed` row
+  written once in the read's own format (captured through the logger's record tap), `skipDetail`, and the floor removed
+  DURING the look (refused by the re-ask after it; dug by the mutant without it).
 - The executor on a fake bot: `cavefallDigCheck` refuses with the remedy and passes over ground and water; `on: false` is
   the base. **Wiring by behaviour:** `collectManually` end to end does not dig the shelf cell over the cave and does not walk
   for it; over ground it digs (the base self-dig).
@@ -213,18 +234,23 @@ shelf's centre with a stone pickaxe, an iron shovel, 16 cobblestone and 8 logs; 
 `scripts/host/cavefallread.py` (window from the manifest; denominators first; `--selftest` exercises every gate on a fixture
 and its control).
 - **Licence / arms (BLOCK KEEP):** every canary bot writes `_cavefall_mode on=1`; zero `_cavefall_*` rows on control.
-- **G1 (defect, REVERT):** a canary fall (`_fall_path`, fell >= 6, damage or death) whose descent began within 5 s after a
-  `_cavefall_floor allowed` row of the same bot, landing within 1.5 blocks (x, z) of the row's target, and falling more
-  than the row's drop + 2. The rule said the floor dig was harmless and the bot fell further than it predicted. Independent
-  of the prediction: the fall is the peak sampler's and the server's, not the rule's.
-- **G2 (defect, REVERT):** after a canary `_cavefall_floor refused` row, the same bot's position within 60 s is inside the
-  refused cell's column (x, z within 0.5 of its centre) and 6 or more below its top -- the refused floor went anyway and the
-  bot fell through it. Observed from `bot.pos`, not from the rule.
+- **G1 (WATCH, blocks an automatic KEEP; a human reviews):** an `allowed` row whose bot stands ON the floor, then a fall
+  episode starting within 5 s that lands within 1.5 (x, z) of the column at least 6 and more than the row's drop + 2 below
+  the floor's top, measured from the support height (not the tracker's decaying peak).
+- **G2 (WATCH, as G1):** after a `refused` row the same bot is seen standing ON the refused cell and then, within 60 s, in its
+  column at least 6 below its top: an observed transition through a floor the rule refused (something else removed it).
+- G1 and G2 are WATCH, not REVERT (Claude r2 P2-2): an `allowed` dig is the base's dig, and a refused cell removed by
+  something else is what the base would have dug itself, so reverting cannot cure either; they say the rule missed.
+- **H1 (HOLD):** the canary's share of gather runs ending `no_safe_target` rose by more than 0.10 over the control's change
+  (pre vs post). Refusing too much is the harm this change can actually cause. Explore and goto runs per arm are reported
+  (a bot pushed off gathering moves more).
 - **Exposure:** >= 5 canary `_cavefall_skip` rows or `refused` rows.
-- **Primary (DiD, canary vs control, pre vs post; reported, KEEP does not need it):** gather fall episodes per gather
+- **Primary (DiD, canary vs control, pre vs post; reported, KEEP does not need it, and it is not expected to move: Claude r2
+  P3-10):** gather fall episodes per gather
   bot-hour: `_fall_path` rows (damage or death) with fell >= 12, deduplicated per bot within 10 s, attributed to gather when
   a gather row's interval covers them, excluding those whose feet cell is water. 7-d base: 3,496 gather rows of fell >= 12
-  (non-deduplicated) in 1,400 gather bot-h.
+  (non-deduplicated) in 1,400 gather bot-h -- most of them the peak tracker summing a walk down plus a planned drop, not
+  one fall; a dry run on 10-24 read 4.6-10.5 episodes per gather bot-h by arm and period.
 - **No harm (HOLD):** gather success per gather run, canary / control >= 0.43 (immobiledid's line); dirt collected per
   bot-h reported.
 - **Reported:** fall-family deaths by cause, canary vs control, under the two-death floor (one is named, not a verdict);
@@ -237,10 +263,11 @@ and its control).
 | round | Codex | Claude subagent | what changed |
 |---|---|---|---|
 | design r1 | CHANGES (7 P1, 3 P2) | CHANGES (2 P1, 7 P2, 4 P3) | the step-beside executor removed (it lost the item and eroded the shelf, Claude P1-1; unbounded GoalBlock walk, Codex P1-4; abort, P1-5; airborne acceptance, P1-3); the rule moved to the target, with real collision tops, the worst open column (Claude P2-3), carpet/snow support (both), up-tip-only stalagmites (Codex P2-10); the evidence restated (Claude P1-2, Codex P2-9: path_reset needs an active path; the world-hole signature added; Paper pending); remedy-first messages (Codex P1-6); gates rebuilt (Codex P1-7, Claude P2-8); primary population (Claude P2-9) |
+| r2 (design + code) | CHANGES (2 P1, 6 P2) | CHANGES (1 P1, 2 P2, 7 P3) | landing physics: the first stop wins, scenarios (centred, straddle) and their worst (Claude P1); partial shapes by footprint, open trapdoors (Codex P1); the re-ask moved after the look (Codex P2-3); `caveFilter` counts after both fallbacks, behaviour-tested (Codex P2-6/8, Claude P3-4); G1/G2 -> WATCH, measured from the support height with an observed transition (Codex P1-2, Claude P2-2), H1 refusal HOLD added; licence roster (Codex P2-7, Claude P3-9); **the world signature withdrawn as evidence (Claude P2-3: matched controls 18% vs 19%)**, expected size now unknown (Codex P2-4); conservative exclusions documented and tested (cliff lip, shaft rim kept; Codex P2-5); skip row split own/nbr (Claude P3-6); mixed message (P3-7); neutral refusal wording (P3-8) |
 
-## 10. Questions for the reviewers (r2)
+## 10. Questions for the reviewers (r3)
 
-- **R1.** Is the target rule right: standable + worst-column fall damage >= 1? Is anything legitimate lost (a dirt lip at the
-  edge of a 4-block step, a log over a ravine)?
-- **R2.** Are G1 and G2 sound (can they false-trip, can they fire)?
-- **R3.** Is "the dug-floor slice, >= 19% of cave falls" an honest expected size for the canary, and is tier 3 right?
+- **R1.** The straddle scenarios and footprints: right, and is anything legitimate still lost?
+- **R2.** The forced look before every gather dig (CAVEFALL on): any behaviour risk beside craft's existing use of it?
+- **R3.** With no discriminating evidence for the mechanism, is a canary justified once Paper shows the base does it (tier 3,
+  effect INCONCLUSIVE expected), or should this wait for item §5.2?
