@@ -98,6 +98,24 @@ await ta('the refusal names what the bot can do from where it stands, and the ro
   assert.match(respawnfallModeDetail({}), /^on=1 /); assert.match(respawnfallModeDetail({ RESPAWNFALL: '0' }), /^on=0 /)
 })
 
+await ta('elevation: a natural cliff top (one deadly side) and a corner (two) are NOT a platform; a lone pillar (four) is', () => {
+  // ground at 71; a solid plateau x <= 355 up to y=90; the valley beyond it stays at 71
+  const w = (x, y, z) => (y <= 71 || (x <= 355 && y <= 90) ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 355.5, y: 91, z: 150.5 }, at: w }).elevated, false, 'cliff edge')
+  const corner = (x, y, z) => (y <= 71 || (x <= 355 && z <= 150 && y <= 90) ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 355.5, y: 91, z: 150.5 }, at: corner }).elevated, false, 'corner')
+  const spire = (x, y, z) => (y <= 71 || (x === 355 && z === 150 && y <= 90) ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 355.5, y: 91, z: 150.5 }, at: spire }).elevated, true, 'a lone pillar')
+  assert.equal(RF.EDGE_SIDES, 3)
+  assert.equal(descentCost(w, { x: 355, y: 90, z: 150 }).steps, 0, 'a cliff top costs nothing: it is already off the platform')
+})
+await ta('MUTANT KILLED: the side rule on ONE deadly side makes a bot that spawns beside a ravine dig itself a shaft', async () => {
+  await withMutant(RF_URL, '  if (edge && sides >= EDGE_SIDES) return', '  if (edge && sides >= 1) return', async m => {
+    const w = (x, y, z) => (y <= 71 || (x <= 355 && y <= 90) ? STONE : AIR)
+    assert.equal(m.elevation({ pos: { x: 355.5, y: 91, z: 150.5 }, at: w }).elevated, true)
+  })
+})
+
 // ---------------------------------------------------------------- the skill, on a fake bot with fall physics
 function fakeBot (world, pos, { blocks = 200, placeWorks = true } = {}) {
   const items = blocks ? [{ name: 'cobblestone', count: blocks, type: 1 }] : []
@@ -245,7 +263,7 @@ await ta('MUTANT KILLED: without the SAVE_MIN bar a bot walks across the deck to
   assert.equal(SAVE_MIN, 4)
 })
 await ta('MUTANT KILLED: a descent that ignores a deadly SIDE stops on the pillar mid-air with the void one step away', async () => {
-  await withMutant(RF_URL, '    if (r.open >= ELEVATED_MIN) return { exposed: true, own }\n', '', async m => {
+  await withMutant(RF_URL, '  if (sides >= EDGE_SIDES) return { exposed: true, own }\n', '', async m => {
     const p = m.descentCost(pillarWorld().at, { x: 354, y: 180, z: 148 })
     assert.ok(p.endY > 72 + ELEVATED_MIN, `the mutant stops at ${p.endY}`)
   })
