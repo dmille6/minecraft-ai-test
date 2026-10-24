@@ -364,14 +364,25 @@ was right that `startReflexes` cannot be driven to these branches.
   - forward not re-asserted, or `steering` unwired;
   - the arrival measured against the stale y;
   - the `wetStart` default flipped (must turn a climb-flood case red, or be shown not to; Claude r1 P3-13).
-- **The existing suites stay green unmodified.**
+- **The existing suites stay green**, unmodified except body-claim.test.mjs's two arm delimiters (now anchored on the outer
+  chain's flood arm; a meta-test shows the re-anchored window still fails with that arm deleted).
+- **What the test world cannot see (Claude code r1 P3-5)**, which is why the Paper scenes matter:
+  - forward is 0.2 a tick in water, generous next to real swimming; the 2 s windows absorb it;
+  - there is no lookAt latency, so no near-miss timeout ever appears;
+  - water flow is scripted per test, not simulated;
+  - a dry body drops to its floor in one tick and never ground-jumps, so the 600 ms landing wait is not exercised here.
+- **The sink case** uses a SLOW swimmer (`rise` 0.015/tick) that sinks a full cell on the LAST dig, so the frame's
+  sank-one branch and the swim-up wait really run (the stroke starts with the body still below its target floor); the
+  no-swim-up mutant then never enters (Claude code r1 P1: at 0.1/tick the stroke alone restored the height, and the old
+  mutant could not fail).
 
 Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on the changed files.
 
 ## 9. Paper, read, registration
 
 **Paper.**
-- **Setup.** Sandbox5-8 under the per-server lock, owner `ceilescape`. The driver is `sandbox/ceilescape/ceilescape-e2e.mjs`, on
+- **Setup.** Per-server locks, owner `ceilescape`. sandbox5-8 were all held by other agents on 10-24 (lavastep, failmine),
+  so the runs used sandbox, sandbox2 and sandbox3 (the same registry and lock check). The driver is `sandbox/ceilescape/ceilescape-e2e.mjs`, on
   the poolescape driver's pattern: the whole bot, model off, so the float hold, the drowning rescue and the arms are all live.
 - **The arena** is copied cell for cell with states from a FRESH read-only region copy (Claude r1 P2-9). It is 25 × 25 × 24
   around the column, so it includes the cascade's feed (sources about 10 up to the north-west); a drained arena is not Comet's.
@@ -410,11 +421,15 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
   - **LIVENESS / INSTRUMENT:** position coverage of at least 75 % for the named bots.
   - **EXPOSURE:** at least 1 `_ceilescape` row with an action other than `ceiling` in a canary pool.
 
-**Registration.**
-- The drawexposure requirement is `entombed_ramp_cut` + `marooned_ramp_cut` rows containing `dig exceeded`, at least 2 in 6 h.
-- Today that is board-a and placebo-c only: two pools, so tier 2's four are unavailable. **TIER 3**, with
-  `draw_require_pools: ["board-a", "placebo-c"]`: both exposed pools, where placebo-c exercises the escalation.
-- An entry fragment only.
+**Registration (measured 10-24 05:00Z).**
+- `drawexposure.py` (6 h; `entombed_ramp_cut` containing `dig exceeded`, at least 2 per pool) finds **board-a only**
+  (26 rows); every other drawable pool reads 0. placebo-c is NOT drawable at all: `drawrec.sh` never takes placebo-c or
+  isolated-* (drawrequire.py). So the escalation path cannot be exposed by the canary; Paper exercises it (`noexit`).
+- One exposed pool, not tier 2's four: **TIER 3**, with `draw_require_pools: ["board-a"]` and no kind-based
+  `draw_exposure` requirement (poolescape-01's shape: a one-pool requirement makes drawexposure refuse, "two are needed").
+  Exposure is the read's: at least 1 canary `_ceilescape` row with an action other than `ceiling`.
+- An entry fragment only: `docs/reports/ceilescape-01.queue-entry-fragment.json` and the registrations
+  `docs/reports/ceilescape-01.<sha8>.json`.
 
 ## 10. What it is NOT
 
@@ -434,3 +449,4 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
 |---|---|---|---|
 | design r1 (03799f71) | CHANGES (6 P1, 3 P2) | CHANGES (4 P1, 6 P2, 4 P3) | r2:<br>- price the real hand (`bot.digTime`);<br>- per-swing in the step loop, with no substitution;<br>- the full-budget rule (`wait` vs `escalate`);<br>- wet feet at the plan, plus `cellFloods`;<br>- the frame passed and checked;<br>- the float hold stands aside while steering;<br>- forward re-asserted;<br>- swim-up before forward, no ledge impulse;<br>- no hold;<br>- the prerequisite unchanged;<br>- the flag consumes resolution;<br>- read gates on the death floor;<br>- the Paper arena includes the feed;<br>- the virtual-clock test world. |
 | design r2 + code (09e02b96) | CHANGES (3 P1, 3 P2); r1 P1s all RESOLVED; step 0 inside | APPROVE (4 P2, 7 P3); step 0 inside | r3:<br>- the block priced is the block swung at (replan on change);<br>- `cellFloods` conservative (only water-over-water with no source beside is exempt) and re-asked before the move;<br>- frame checks for every frame-carrying sidestep, after the hand change and immediately before the stroke;<br>- `wait` judged on a fresh firing (minus the settle);<br>- the chooser's bearing decides the step escalation, a free step is a move;<br>- the new ceiling priced at the arrival state, with its settles;<br>- the stranded lattice stands aside; steering a count;<br>- arrival waits for the landing;<br>- rescue rows per cell;<br>- G2 exempts `off`, G3 per firing with a near-miss report;<br>- tests: 60, incl. CEILESCAPE=0 vs the BASE module trace for trace on four scenes. |
+| code r1 (da0d07b0) | CHANGES (1 P1, 3 P2); r2 design P1s RESOLVED except the recheck | CHANGES (1 P1 test-only, 4 P2, 5 P3) | r4:<br>- the destination (tread, lava, head flooding) and the frame asked AFTER the swim-up, immediately before the stroke;<br>- the steering counter raised inside the try;<br>- the sink case on a slow swimmer, with a real no-swim-up kill and a lava-during-the-rise case (killed by the old order);<br>- Bravo's marooned step admission asserted unconditionally;<br>- the read: the column box of section 9, the licence at each decision's time, G3 bounded to a firing's own rows;<br>- the trace comparison loads the base scaffold.mjs too;<br>- rescue_line() selftested on a fake EsEvents. |
