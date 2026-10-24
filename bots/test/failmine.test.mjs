@@ -171,6 +171,16 @@ t("the driver is wired to the shared sandbox lock under the tag 'failmine' (and 
   // MUTANT: the same source with the call commented out must fail the check (a comment that quotes it does not count)
   assert.doesNotMatch(strip(readFileSync(DRIVER, 'utf8').replace(anchor, `// ${anchor}`)), WIRED)
 })
+t('FM_TAG (lavasight-01): another owner\'s run goes through the SAME lock check under its own tag, and only a lock word is accepted', () => {
+  const code = strip(readFileSync(DRIVER, 'utf8'))
+  assert.match(code, /const TAG = process\.env\.FM_TAG \|\| 'failmine'/)
+  assert.match(code, /if \(!\/\^\[A-Za-z0-9\]\[A-Za-z0-9\._\]\*\(-\[A-Za-z0-9\._\]\+\)\*\$\/\.test\(TAG\)\) throw/)
+  assert.match(code, /: sbx\.requireSandboxLock\(SERVER, TAG\)/)
+  assert.match(code, /new RegExp\(`per-server: \$\{TAG\.replace/, 'and its OWN per-server lock, as for failmine')
+  const anchor = ': sbx.requireSandboxLock(SERVER, TAG)'
+  assert.equal(code.split(anchor).length - 1, 1, 'anchor missing or not unique')
+  assert.doesNotMatch(strip(readFileSync(DRIVER, 'utf8').replace(anchor, ': null')), /: sbx\.requireSandboxLock\(SERVER, TAG\)/)
+})
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

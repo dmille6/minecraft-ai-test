@@ -38,8 +38,13 @@ const sbx = require('../lib/sbxlock.cjs')
 const ALLOWED = ['sandbox5', 'sandbox6', 'sandbox7', 'sandbox8']
 const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => ALLOWED.includes(n)))
 if (!PORTS[SERVER]) throw new Error(`failmine runs on ${ALLOWED.join(', ')} only, not ${SERVER}`)
-const LOCK = sbx.requireSandboxLock(SERVER, 'failmine')
-if (!/per-server: failmine\b/.test(LOCK)) throw new Error(`take ${SERVER}'s own lock (sandbox/sbxlock.sh take ${SERVER} failmine): ${LOCK}`)
+// THE RUN'S OWNER (lavasight-01, 10-24): `failmine` by default; FM_TAG names another owner's per-server lock (a fix's own
+// Paper runs on the library, e.g. `lavasight`). It changes WHO may run, never how many: the lock verdict is unchanged
+// (every lock covering SERVER absent or owned by exactly this tag, at least one held, and it must be the per-server one).
+const TAG = process.env.FM_TAG || 'failmine'
+if (!/^[A-Za-z0-9][A-Za-z0-9._]*(-[A-Za-z0-9._]+)*$/.test(TAG)) throw new Error(`FM_TAG must be a lock tag word: ${JSON.stringify(TAG)}`)
+const LOCK = TAG === 'failmine' ? sbx.requireSandboxLock(SERVER, 'failmine') : sbx.requireSandboxLock(SERVER, TAG)
+if (!new RegExp(`per-server: ${TAG.replace(/[.]/g, '\\.')}(\\s|$)`).test(LOCK)) throw new Error(`take ${SERVER}'s own lock (sandbox/sbxlock.sh take ${SERVER} ${TAG}): ${LOCK}`)
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const FM = path.join(REPO, 'scripts/host/failmine/failmine.py')
 // THE LIBRARY CONTRACT IS PYTHON'S (one implementation): a scene that does not validate is never built
@@ -232,6 +237,14 @@ async function main () {
   if (fid.checksFailed.length || fid.share < 0.98) throw new Error('arena did not set: ' + JSON.stringify(fid))
   const line = scriptLine()
   if (line) launchBrain(line)
+  // AN OPTIONAL POOL FILE before the bot starts (lavasight-01: the per-world lava map it reads at spawn). FM_POOL_HOOK is a
+  // module exporting prepare({ poolDir, pool, DX, DZ, scene, start, rcon }); it writes only inside this run's pool dir.
+  if (process.env.FM_POOL_HOOK) {
+    const poolDir = path.join(RUN, bname, 'pool'); fs.mkdirSync(poolDir, { recursive: true })
+    const hook = await import(path.resolve(process.env.FM_POOL_HOOK))
+    const note = await hook.prepare({ poolDir, pool: `sbxfm-${LABEL}-${slot}`, DX, DZ, scene: S, start: ST, rcon: r1 })
+    P_('pool hook', note)
+  }
   const b = launchBot(!!line)
   let joined = false
   for (let k = 0; k < 60; k++) { await sleep(2000); if (r1('list').includes(b.name)) { joined = true; break } }
