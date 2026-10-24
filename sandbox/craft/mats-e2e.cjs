@@ -28,6 +28,8 @@
 //   res_one  MAT-RES: 268 cobblestone + 514 oak_log (one batch above) -> exactly one batch: cobble 256, logs 512 after.
 //   torch    Q3: chest A 576 oak_log only (no cobble, copper or sand: torch is the kind) -> 24 torches in town, oak_log -8 (6
 //            smelted to charcoal on 4 planks, 8 sticks from 4 planks), no charcoal left anywhere, the bag's own 3 coal kept.
+//   panes    chest A 64 sand + 576 oak_log and a table (no cobble or copper: panes is the kind) -> 16 glass_pane, sand -6, oak_log
+//            -1 (4 planks), no glass left anywhere.
 //   door     chest A 576 copper_ingot + 128 stone_bricks + 24 cut_copper (both at their buffers) and a table -> 3 copper_door,
 //            copper_ingot -6.
 //   kill_w   MAT-KILL after the WITHDRAW: SIGKILLed the moment the bag holds the 12 cobble, before any furnace load; restarted ->
@@ -96,6 +98,7 @@ const SPEC = {
   res_one: { chestA: [...stacks('cobblestone', 268), ...stacks('oak_log', 514)], chestB: [], furnaces: { F1: 'clean' } },
   kill: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
   torch: { chestA: stacks('oak_log', 576), chestB: [], furnaces: { F1: 'clean' } },
+  panes: { chestA: [...stacks('sand', 64), ...stacks('oak_log', 576)], chestB: [], furnaces: { F1: 'clean' }, table: true },
   door: { chestA: [...stacks('copper_ingot', 576), ...stacks('stone_bricks', 128), ...stacks('cut_copper', 24)], chestB: [], furnaces: { F1: 'clean' }, table: true },
   kill_w: { chestA: BRICKS_A, chestB: [], furnaces: { F1: 'clean' } },
 }
@@ -119,7 +122,8 @@ const DONE = (scene, rows) => {
   if (scene === 'kill_w') return rows.some(r => r.name === '_mats_return' && /stop=closed/.test(r.detail))
   if (scene === 'hot') return skipSays(rows, /kinds=\S*bricks:no_furnace/)
   if (scene === 'res_at') return skipSays(rows, /kinds=\S*bricks:inputs/)
-  return rows.some(r => r.name === '_make_material' && !/kind=count/.test(r.detail))
+  // a PRODUCTION scene is done at an order that MADE parts (Paper r3: an order that found no furnace is not the scene's end)
+  return rows.some(r => r.name === '_make_material' && !/kind=count/.test(r.detail) && /(?:^| )made=[1-9]/.test(r.detail))
 }
 const WINDOW_MS = Number(process.env.MT_WINDOW_MS || 360000)
 const BASE_WINDOW_MS = Number(process.env.MT_BASE_WINDOW_MS || 150000)
@@ -247,7 +251,7 @@ function verdict (scene, tb, ta, rows, a, done) {
   const furnaceEmpty = k => !Object.keys(ta.furnace[k] || {}).length && !a.lit[k]
   out.ambient = diff({}, Object.fromEntries(Object.entries(ta.ground).filter(([n]) => !JUDGED.has(n) && AMBIENT.test(n))))
   if (!CANDIDATE) {
-    for (const n of ['cobblestone', 'oak_log', 'stone_bricks', 'copper_ingot', 'cut_copper', 'copper_door', 'torch', 'charcoal', 'coal', 'iron_ingot']) need(dTown(tb, ta, n) === 0, `the base leaves the town's ${n} as it was (${dTown(tb, ta, n)})`)
+    for (const n of ['cobblestone', 'oak_log', 'stone_bricks', 'copper_ingot', 'cut_copper', 'copper_door', 'torch', 'charcoal', 'glass_pane', 'sand', 'coal', 'iron_ingot']) need(dTown(tb, ta, n) === 0, `the base leaves the town's ${n} as it was (${dTown(tb, ta, n)})`)
     need(!jobs.length, 'the base writes no _make_material row')
     out.pass = !out.why.length
     out.verdict = out.pass ? 'BASE_SHAPE' : 'BASE_UNEXPECTED'
@@ -278,7 +282,8 @@ function verdict (scene, tb, ta, rows, a, done) {
     need((ta.furnace.F4.stone || 0) === 3 && Object.keys(ta.furnace.F4).length === 1, `F4's 3 stone untouched -- another session's output (${JSON.stringify(ta.furnace.F4)})`)
     need(furnaceEmpty('F3'), 'F3 (the clean one) left empty and cold')
     need(rows.some(r => r.name === '_furnace_session' && /by=make_material/.test(r.detail) && r.detail.includes(`furnace=${F3.x},${F3.y},${F3.z}`)), 'the job\'s own session ran in F3 (its _furnace_session row names it)')
-    need(!rows.some(r => r.name === '_furnace_session' && /by=make_material/.test(r.detail) && !r.detail.includes(`furnace=${F3.x},${F3.y},${F3.z}`)), 'no job session in a foreign furnace')
+    // a session row on F1/F2/F4 is the job's QUALIFICATION PROBE (lease, open, refuse untouched: Codex r3 P2-7) -- correct; the
+    // foreign furnaces are judged by their CONTENTS above
   }
   if (scene === 'hot' || scene === 'res_at') {
     need(!made.length, 'no part made')
@@ -293,6 +298,12 @@ function verdict (scene, tb, ta, rows, a, done) {
     need(!(ta.bag.charcoal > 0) && !dTown(tb, ta, 'charcoal') && !Object.keys(ta.furnace.F1 || {}).length, `no charcoal left in the bag, the town or the furnace (bag ${ta.bag.charcoal || 0})`)
     need((ta.bag.torch || 0) === 8, `the bag's own 8 torches kept (${ta.bag.torch || 0})`)
     need((ta.bag.stick || 0) <= 2 && !(ta.bag.oak_planks > 0) && !(ta.bag.oak_log > 0), `at most the 2 spare sticks left (${diff(tb.bag, ta.bag)})`)
+  }
+  if (scene === 'panes') {
+    need(dTown(tb, ta, 'glass_pane') === 16, `glass_pane +16 (${dTown(tb, ta, 'glass_pane')})`)
+    need(dTown(tb, ta, 'sand') === -6, `sand -6 (${dTown(tb, ta, 'sand')})`)
+    need(dTown(tb, ta, 'oak_log') === -1, `oak_log -1 (${dTown(tb, ta, 'oak_log')})`)
+    need(!(ta.bag.glass > 0) && !dTown(tb, ta, 'glass') && !Object.keys(ta.furnace.F1 || {}).length, `no glass left in the bag, the town or the furnace (bag ${ta.bag.glass || 0})`)
   }
   if (scene === 'door') {
     need(dTown(tb, ta, 'copper_door') === 3, `copper_door +3 (${dTown(tb, ta, 'copper_door')})`)
