@@ -259,8 +259,8 @@ await t('THE LICENCE: due from the 3rd consecutive refusal counted (the 4th firi
   assert.deepStrictEqual([0, 1, 2, 3, 9].map(n => PC.plugDue(n, {})), [false, false, false, true, true])
   assert.strictEqual(PC.plugDue(5, { PLUGCUT: '0' }), false)
   assert.strictEqual(PC.plugDue(5, { PLUGCUT: '1' }), true)
-  assert.strictEqual(PC.plugCutModeDetail({}), 'on=1 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90')
-  assert.strictEqual(PC.plugCutModeDetail({ PLUGCUT: '0' }), 'on=0 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90')
+  assert.strictEqual(PC.plugCutModeDetail({}), 'on=1 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90 step_retries=2')
+  assert.strictEqual(PC.plugCutModeDetail({ PLUGCUT: '0' }), 'on=0 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90 step_retries=2')
 })
 
 // ================================================================================================================
@@ -465,6 +465,55 @@ await t('SPARE A UTILITY BLOCK (Claude r1 P3): a licensed ramp prefers a bearing
   assert.ok(base.digs.some(d => d.name === 'furnace'), `POSITIVE CONTROL: the base did not choose the furnace step: ${base.digs.map(d => d.cell + ':' + d.name)}`)
 })
 
+await t('A YIELD DURING THE SETTLE (both engines r2): the rung returns yielded, and the step loop digs nothing after it', async () => {
+  // the step rung on isolated-c after the cut: the drowning rescue takes the body during the settle that follows the plug
+  const { cells } = afterCut(ISOC)
+  let placedAt = null
+  const bot = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true, onPlace: () => { placedAt = Date.now() } })
+  const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS,
+    yieldTo: () => (placedAt != null && Date.now() >= placedAt + 300 + 600 ? 'drowning' : null) })
+  assert.ok(placedAt != null, 'POSITIVE CONTROL: no step plug was placed')
+  assert.strictEqual(r.yielded, 'drowning')
+  assert.deepStrictEqual(bot.digs, [], `dug after the owner changed: ${bot.digs.map(d => d.cell)}`)
+})
+
+await t('THE DEADLINE (Claude r2 P3-2, Codex r2 P2): a deadline that passes during the equip places nothing, and says so', async () => {
+  // the equip takes 2 s of a firing with 1.5 s left at the rung (virtual time moves only on timers, so the equip is the clock)
+  const b2 = botFor(ISOC)
+  const equip = b2.equip
+  b2.equip = async it => { await new Promise(r => setTimeout(r, 2000)); return equip(it) }
+  await ramp(b2, { plug: true, budgetMs: 1500 })
+  assert.deepStrictEqual(b2.places, [], 'placed after the deadline')
+  assert.ok(pcRows().some(x => / result=stopped /.test(x.detail) && /budget spent/.test(x.detail)), pcRows().map(x => x.detail).join(' | '))
+})
+
+/** preplugged, with the FIRST forward stroke swallowed (the jump from a bob that does not carry): a step cut and not taken. */
+const missFirst = () => {
+  const bot = makeWorldBot(preplugged(), { feetY: 0.1, items: [COBBLE(64)], ledge: true })
+  const set = bot.setControlState.bind(bot)
+  let missed = false
+  bot.setControlState = (n, on) => { if (n === 'forward' && on && !missed) { missed = true; return set('jump', true) } return set(n, on) }
+  return bot
+}
+await t('A STEP CUT BUT NOT TAKEN (Paper gate, isolated-d): the licensed ramp jumps again from its own column; the base stops', async () => {
+  const base = missFirst()
+  const rb = await ramp(base, { budgetMs: PC.PLUG_BUDGET_MS })
+  assert.match(rb.stopped, /could not stand in it/, `POSITIVE CONTROL: ${rb.stopped}`)
+  const lic = missFirst()
+  const rl = await ramp(lic, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(rl.steps >= 1, `the licensed ramp did not retry: ${rl.stopped}`)
+  const digsW = lic.digs.filter(d => d.cell === '-1,1,0').length
+  assert.strictEqual(digsW, 1, 'the step cell was cut again (a widened ledge)')
+})
+
+await t('MUTANT KILLED: no retry -> the licensed ramp stops at the missed jump', async () => {
+  await withMutant(REFLEX_PATH, '    while (!taken && plug && stepRetry < PLUG_STEP_RETRIES && inColumn()) {',
+    '    while (false) {', async m => {
+      const r = await ramp(missFirst(), { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
+      assert.match(r.stopped, /could not stand in it/, 'the mutant did not change behaviour')
+    })
+})
+
 // ================================================================================================================
 // C. THE CHAIN AND ITS COMPOSITION
 // ================================================================================================================
@@ -493,6 +542,45 @@ await t('THE CHAIN ACROSS A RECOVERY (Codex r1 P1): three refusals in one pit, a
   const b2 = botFor(ISOC)
   for (let k = 0; k < 4; k++) await R.floodBranch(b2, { handler: 'entombed', refusals: k, ramp: fake2 })
   assert.deepStrictEqual(seen2, [false, false, false, true])
+})
+
+await t('A RECOVERY BACK TO THE SAME PIT (Codex r2 P1): a body that LEFT the place forgets the streak; re-entry is a new one', async () => {
+  const seen = []
+  const fake = async (_bot, o) => { seen.push(!!o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+  const bot = botFor(ISOC)
+  const home = bot.entity.position
+  for (let k = 0; k < 3; k++) await R.floodBranch(bot, { handler: 'entombed', refusals: k, ramp: fake })
+  bot.entity.position = new Vec3(40.5, 70.1, 40.5)                     // out by another route...
+  R.plugStreakTouch(bot)                                               // ...seen by a reflex tick
+  bot.entity.position = home                                           // ...and back into the same pit
+  await R.floodBranch(bot, { handler: 'entombed', refusals: 3, ramp: fake })
+  assert.deepStrictEqual(seen, [false, false, false, false])
+  // POSITIVE CONTROL: a tick while it is still at the place (a bob within 2) keeps the streak
+  const s2 = []
+  const fake2 = async (_bot, o) => { s2.push(!!o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+  const b2 = botFor(ISOC)
+  for (let k = 0; k < 3; k++) { await R.floodBranch(b2, { handler: 'entombed', refusals: k, ramp: fake2 }); R.plugStreakTouch(b2) }
+  b2.entity.position = b2.entity.position.offset(0, 1.5, 0); R.plugStreakTouch(b2); b2.entity.position = b2.entity.position.offset(0, -1.5, 0)
+  await R.floodBranch(b2, { handler: 'entombed', refusals: 3, ramp: fake2 })
+  assert.deepStrictEqual(s2, [false, false, false, true])
+  // the entombed arm's own success clears it too
+  const b3 = botFor(ISOC)
+  for (let k = 0; k < 3; k++) await R.floodBranch(b3, { handler: 'entombed', refusals: k, ramp: fake2 })
+  R.plugStreakClear(b3)
+  s2.length = 0
+  await R.floodBranch(b3, { handler: 'entombed', refusals: 3, ramp: fake2 })
+  assert.deepStrictEqual(s2, [false])
+})
+
+await t('WIRED (structural): the reflex tick touches the streak, and the entombed success clears it (each seen to fail on a mutant)', () => {
+  const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => (/^\s*\/\//.test(l) ? '' : l.replace(/(^|\s)\/\/.*$/, '$1'))).join('\n')
+  const wired = src => { const c = strip(src); return /publishAir\(\)\n\s*\n*\s*plugStreakTouch\(bot\)/.test(c.replace(/\n\s*\n/g, '\n')) && /floodRefusals = 0; plugStreakClear\(bot\) \}/.test(c) }
+  const src = readFileSync(REFLEX_PATH, 'utf8')
+  assert.ok(wired(src))
+  const a = '      plugStreakTouch(bot)\n', b = 'floodRefusals = 0; plugStreakClear(bot) }'
+  assert.strictEqual(src.split(a).length, 2, 'ANCHOR a'); assert.strictEqual(src.split(b).length, 2, 'ANCHOR b')
+  assert.strictEqual(wired(src.replace(a, '')), false)
+  assert.strictEqual(wired(src.replace(b, 'floodRefusals = 0 }')), false)
 })
 
 await t('THE CHAIN on isolated-c: three refusals as today (nothing placed, a growing back-off), the 4th firing plugs, cuts and climbs', async () => {
@@ -671,8 +759,8 @@ await t('MUTANT KILLED: the lip rule off -> the licensed ramp is handed back aft
 })
 
 await t('MUTANT KILLED: the floored step check off -> the licensed bobbing step is refused', async () => {
-  await withMutant(REFLEX_PATH, 'if (plug ? !stepTaken(bot.entity.position, p, bearing) : bot.entity.position.y - before.y < 0.5) {',
-    'if (bot.entity.position.y - before.y < 0.5) {', async m => {
+  await withMutant(REFLEX_PATH, 'let taken = plug ? stepTaken(bot.entity.position, p, bearing) : bot.entity.position.y - before.y >= 0.5',
+    'let taken = bot.entity.position.y - before.y >= 0.5', async m => {
       const lic = makeWorldBot(preplugged(), { feetY: 0.6, items: [COBBLE(64)], ledge: true })
       const r = await ramp(lic, { plug: true, maxSteps: 1 }, m)
       assert.strictEqual(r.steps, 0, 'the mutant did not change behaviour')
@@ -701,13 +789,34 @@ await t('MUTANT KILLED: the licence one refusal late (>) -> the 4th firing does 
 })
 
 await t('MUTANT KILLED: no settle before the cut -> the late flow is cut into', async () => {
-  await withMutant(REFLEX_PATH, 'const settledClear = async () => { if (!clear()) return false; await sleep(PLUG_SETTLE_MS); return clear() }',
+  await withMutant(REFLEX_PATH, 'const settledClear = async () => { if (!clear() || deadline - Date.now() < PLUG_SETTLE_MS) return false; await sleep(PLUG_SETTLE_MS); return clear() }',
     'const settledClear = async () => clear()', async m => {
       let filled = false
       const bot = botFor(ISOC, { onPlace: (k, w) => { if (k === '0,2,-1' && !filled) { filled = true; setTimeout(() => w.set(-1, 2, 0, 'water[1]'), 600) } } })
       await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
       const ok = bot.places.filter(p => p.ok).map(p => p.cell)
       assert.notDeepStrictEqual(ok.slice(0, 2), ['0,2,-1', '-1,2,0'], 'the mutant did not change behaviour')
+    })
+})
+
+await t('MUTANT KILLED: no deadline check after the equip -> the late equip still places', async () => {
+  await withMutant(REFLEX_PATH, "    if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the equip'); return out(false, 'budget spent plugging') }   // Codex r2 P2\n", '', async m => {
+    const b2 = botFor(ISOC)
+    const equip = b2.equip
+    b2.equip = async it => { await new Promise(r => setTimeout(r, 2000)); return equip(it) }
+    await ramp(b2, { plug: true, budgetMs: 1500 }, m)
+    assert.ok(b2.places.length > 0, 'the mutant did not change behaviour')
+  })
+})
+
+await t('MUTANT KILLED: no owner check after the settle -> the step loop digs under the drowning rescue', async () => {
+  await withMutant(REFLEX_PATH, "if (placed > 0 && await settledClear()) return yieldTo() ? out(false, 'yielded') : out(true, `plugged ${placed} (${what})`)",
+    "if (placed > 0 && await settledClear()) return out(true, `plugged ${placed} (${what})`)", async m => {
+      const { cells } = afterCut(ISOC)
+      let placedAt = null
+      const bot = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true, onPlace: () => { placedAt = Date.now() } })
+      await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (placedAt != null && Date.now() >= placedAt + 300 + 600 ? 'drowning' : null) }, m)
+      assert.ok(bot.digs.length > 0 || bot.controls.some(c => c === 'forward:true'), 'the mutant did not change behaviour')
     })
 })
 
