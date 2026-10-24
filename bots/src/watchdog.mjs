@@ -467,6 +467,9 @@ export class StagnationWatchdog {
     // A FURNACE SESSION IS RUNNING NOW: never judged mid-session (Codex code r1 P1-2: the busy samples taken BEFORE the
     // declaration would otherwise cancel the smelt that followed them)
     if (furnaceWindow(this.bot)) return
+    // RESPAWNFALL-01: A BOT HOLDING STILL ON A HIGH PLATFORM ON PURPOSE (skills.mjs skyDescend's stay, bot.skyHoldUntil) is not
+    // stranded or stagnant: a relocation or a rescue walk from there is the fall the hold exists to prevent
+    if ((this.bot.skyHoldUntil ?? 0) > Date.now()) return
 
     // CHRONIC STRANDING, judged before stagnation and on its own clock.
     //

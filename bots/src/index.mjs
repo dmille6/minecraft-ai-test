@@ -75,6 +75,7 @@ import { lavasightOn, lavaMapReader, lavaMapFileIn, lavasightModeArgs, lavasight
 import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
 import { ceilEscapeModeDetail } from './ceilescape.mjs'   // ceilescape-01
 import { plugCutModeDetail } from './plugcut.mjs'   // plugcut-01
+import { respawnfallModeDetail } from './respawnfall.mjs'   // respawnfall-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -205,6 +206,8 @@ function connect() {
   // THE WORLD'S IDENTITY (the login packet's hashed seed): the town composter's shared site record carries it, so a
   // reseed that keeps pool and home starts a new record instead of building on the old world's cell (composter.mjs).
   bot._client.on('login', packet => { bot.worldId = worldIdFromLogin(packet) })
+  // RESPAWNFALL-01: every spawn -- the login and each respawn -- opens the window in which an elevated bot climbs down
+  bot.on('spawn', () => { bot.lastSpawnAt = Date.now() })
   // THE SERVER'S DIFFICULTY (foodskip.mjs): mineflayer's bot.game.difficulty is always undefined on 1.21.8, so read the packet.
   attachDifficulty(bot)
 
@@ -330,6 +333,8 @@ function connect() {
     try { logEvent({ kind: 'ceilescape_mode', status: 'success', snapshot: snapshot(bot), detail: ceilEscapeModeDetail() }) } catch {}
     // plugcut-01: the licence row, once per spawn -- `_plugcut_mode`, a kind the base cannot write (plugcut.mjs)
     try { logEvent({ kind: 'plugcut_mode', status: 'success', snapshot: snapshot(bot), detail: plugCutModeDetail() }) } catch {}
+    // respawnfall-01: the licence row, once per spawn -- `_respawnfall_mode`, a kind the base cannot write (respawnfall.mjs)
+    try { logEvent({ kind: 'respawnfall_mode', status: 'success', snapshot: snapshot(bot), detail: respawnfallModeDetail(process.env) }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
     // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
