@@ -2320,9 +2320,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 
     // CAVEFALL-01: the round's skips, counted AFTER both fallbacks (Codex r2 P2-6), one row per round with a skip
     const caveSkipped = caveInBorder()
-    // EXPOSURE (Codex r4 P2-3): would the BASE have taken a skipped floor first? A skipped cell counts only if it is in the
-    // border, exposed, passes the base's own conjunction and is approachable -- the base's ranking minus its A* reorder --
-    // and is nearer than the round's front kept candidate
+    // EXPOSURE (Codex r4 P2-3, r6): would the BASE have taken a skipped floor first? The skipped cells in the border that are
+    // exposed and pass the base's own conjunction are ranked with the kept candidates in the base's two tiers (approachable
+    // first, then the rest, by findBlocks' distance) -- the base's ranking minus its A* reorder (cavefall.mjs baseFront)
     const caveFront = () => baseFront({ pos: bot.entity?.position, approachable,
       skipped: caveSkipped.map(v => new Vec3(v.at.x, v.at.y, v.at.z)).filter(q => exposed(q) && baseSafe(q)),
       kept: reachable })
