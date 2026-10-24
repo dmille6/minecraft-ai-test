@@ -2746,7 +2746,7 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
     have = count()
   }
   if (have < reserve(need)) {
-    const why = stayRefusal({ el: el0, have, need })
+    const why = stayRefusal({ el: el0, have, need, crafted })
     row('failed', 'stay')
     await stay(why)
     return { status: 'failed', failClass: 'needs_rescue', detail: why }
