@@ -1,152 +1,166 @@
-// CAVEFALL-01: NEVER DIG THE BLOCK YOU STAND ON OVER A HARMFUL DROP (docs/reports/cavefall-01-design-2026-10-24.md).
-// Pure: no bot. `at(x, y, z)` reads a block ({name, boundingBox} or null for an unloaded cell); positions are numbers.
+// CAVEFALL-01: GATHER NEVER DIGS A FLOOR THAT HAS A HARMFUL DROP UNDER IT (docs/reports/cavefall-01-design-2026-10-24.md).
+// Pure: no bot. `at(x, y, z)` reads a block (a prismarine Block, or {name, boundingBox, shapes?, props?}; null = unloaded).
 //
-// THE MECHANISM, measured 7 d to 10-24 (96 fall/dripstone deaths of 278): 75 of 91 with a path record had a planned path
-// with NO drop, so the planner did not plan the fall; 61 of 84 landed within 1.5 blocks of the last position logged above
-// the landing (a vertical fall, not a walk off an edge); a block on the bot's own path changed in the 6 s before the
-// descent in 38% of them against 13% at other times for the same bots. gather picks the NEAREST candidate and its reach
-// goal accepts standing ON the block, so on a dirt shelf over a cave the first target is the shelf cell under the feet,
-// and nothing between the candidate filter and bot.dig asks what is beneath it (isSafeToBreak asks only about liquids and
-// falling blocks above). Prior art: Baritone never breaks the block it stands on unless the cell below is walkable
-// (MovementDownward; breakFromAbove off by default; issue #3995 is this exact death), mineflayer-pathfinder #354 asks for
-// the same guard and has none, Mindcraft's collectBlock has none.
+// THE SLICE IT FIXES, measured 7 d to 10-24 (96 fall-family deaths of 278; 67 of them in the shared-seed cave under the
+// town and inside the region copy read): above 13 of the 67 landings the 10-24 backup holds a ONE-BLOCK HOLE IN A FLOOR
+// (the column open, >= 3 of its 4 neighbours solid at that level) against 9 of 169 control floor cells 3 blocks away (19%
+// vs 5%). isolated-a-Comet's overnight stalagmite death is one: a hole at y=30 in a dirt shelf it had been gathering on.
+// gather picks the nearest candidate, its reach goal accepts standing ON the block, `canDigBlock` reaches 4 down, and
+// nothing between the candidate filter and bot.dig asks what is under the target (isSafeToBreak asks only about liquids
+// beside it and falling blocks above). Prior art: Baritone never breaks the block it stands on without a walkable floor
+// below it (MovementDownward; breakFromAbove off; its issue #3995 is this death); mineflayer-pathfinder #354 asks for the
+// same guard and has none; Mindcraft's collectBlock has none.
 //
-// THE RULE. A dig of T is a FLOOR DIG when T is a solid cell of the bot's support layer that its 0.6-wide box overlaps and
-// no OTHER solid support cell remains. A floor dig is allowed only when the fall it causes does no damage: a solid landing
-// within SAFE_DROP blocks (vanilla fall damage is distance - 3), or a water landing at any depth (swimming is travel).
-// A stalagmite landing doubles the damage (minecraft.wiki: floor(2 x distance - 1)); lava, an unloaded cell and no floor
-// within SCAN are refused. A refused floor dig is not a refused gather: the caller first steps to a stance BESIDE the
-// target (sideStances), from where the same dig is not a floor dig, and only when there is none does it skip the
-// candidate, naming the remedy.
+// THE RULE, a property of the TARGET, not of where the bot happens to stand: a cell T is a FLOOR OVER A DROP when something
+// can stand on it (the cell above is open, or holds a block that needs T to stay up: carpet, snow layer, rail...) and the
+// fall from T's top, if T were gone, does damage. The fall is read in T's column and in every cardinal neighbour column
+// that is open at T's level (a body standing on T overlaps them), and the WORST is taken. Damage: onto a solid floor
+// ceil(d - 3) (vanilla's safe fall distance is 3); onto a stalagmite tip ceil(2 x (d - 1)) (PointedDripstoneBlock.fallOn:
+// causeFallDamage(distance + 2, multiplier 2); minecraft.wiki gives floor(2d - 1), the same line within a point); into
+// water 0 (swimming is travel); lava, an unloaded cell, or no floor within SCAN: not survivable. Such a T is never a gather
+// target: digging it drops the bot if it stands there, and drops the ITEM into the cave if it does not, so neither the dig
+// nor the walk to pick the item up can pay. A short drop onto rock -- the ordinary self-dig on a plain -- is untouched.
 
-export const SAFE_DROP = 3      // vanilla: fall damage = distance - 3, so a drop of 3 onto a solid floor costs nothing
-export const SCAN = 32          // cells read below the target; no floor within them is `deep` and refused
-const HALF = 0.3                // the player's half-width
+export const SAFE_DROP = 3      // vanilla: fall damage = ceil(distance - 3) onto a solid floor
+export const SCAN = 32          // cells read below the target; no floor within them is `deep`
 const EPS = 1e-6
 
-/** CAVEFALL=0 turns the guard off (the one-setting rollback); anything else, or unset, leaves it on. */
+/** CAVEFALL=0 turns the rule off (the one-setting rollback); anything else, or unset, leaves it on. */
 export const cavefallOn = (env = typeof process !== 'undefined' ? process.env : {}) => String(env?.CAVEFALL ?? '1') !== '0'
 
-const LAVA = /^(lava|flowing_lava)$/
+const LAVA = /^(lava|flowing_lava|magma_block)$/
 const WATER = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
+/** Blocks that need the block under them and pop when it goes: standing on one is standing on the cell below. */
+export const NEEDS_SUPPORT = /(^|_)carpet$|^snow$|_pressure_plate$|^(rail|powered_rail|detector_rail|activator_rail|redstone_wire|repeater|comparator|lily_pad)$/
 
-/** What a cell is, for a body falling into it. 'unknown' for an unloaded cell (never assumed open). */
+const propsOf = b => {
+  try { if (typeof b?.getProperties === 'function') return b.getProperties() ?? {} } catch { /* fall through */ }
+  return b?.props ?? {}
+}
+const shapesOf = b => Array.isArray(b?.shapes) ? b.shapes : (b?.boundingBox === 'block' ? [[0, 0, 0, 1, 1, 1]] : [])
+
+/** What a cell is for a body falling onto it. Unloaded is 'unknown' (never open). A stalagmite is a TIP pointing UP. */
 export function cellKind (b) {
   if (b == null) return 'unknown'
   const n = String(b.name ?? '')
   if (LAVA.test(n)) return 'lava'
-  if (WATER.test(n) || b.waterlogged === true) return 'water'
-  if (n === 'pointed_dripstone') return 'stalagmite'
-  if (b.boundingBox === 'block') return 'solid'
-  return 'open'
+  if (WATER.test(n)) return 'water'
+  if (n === 'pointed_dripstone') {
+    const p = propsOf(b)
+    const up = p.vertical_direction == null || String(p.vertical_direction) === 'up'
+    const tip = p.thickness == null || String(p.thickness) === 'tip'
+    return up && tip ? 'stalagmite' : 'solid'
+  }
+  return shapesOf(b).length ? 'solid' : 'open'
 }
 
-/** The support layer's y under a body whose feet are at `y` (feet 31.0 stands on y=30; feet 31.5 on a slab at y=31). */
-export const supportY = y => Math.ceil(y - EPS) - 1
+/** Highest top (in block units above the cell's y) of a cell's collision shapes, or null if it has none. */
+const topOf = b => { const s = shapesOf(b); return s.length ? Math.max(...s.map(x => x[4])) : null }
 
-/** The support-layer cells the body's box overlaps: 1, 2 or 4 cells. */
-export function supportCells (pos) {
-  const sy = supportY(pos.y)
-  const xs = [...new Set([Math.floor(pos.x - HALF), Math.floor(pos.x + HALF - EPS)])]
-  const zs = [...new Set([Math.floor(pos.z - HALF), Math.floor(pos.z + HALF - EPS)])]
-  const out = []
-  for (const x of xs) for (const z of zs) out.push({ x, y: sy, z })
-  return out
-}
-
-/** The fall from T's top if T is removed: {drop, landing, landY}. drop = blocks fallen (feet T.y+1 -> landY+1). */
-export function dropBelow (at, t, { scan = SCAN } = {}) {
-  for (let y = t.y - 1; y >= t.y - scan; y--) {
+/** The fall in ONE column from a body whose feet are at `feetY`, cells from `fromY` down. Pure. */
+function columnFall (at, x, z, feetY, fromY, scan) {
+  for (let y = fromY; y >= fromY - scan; y--) {
     let b
-    try { b = at(t.x, y, t.z) } catch { b = null }
+    try { b = at(x, y, z) } catch { b = null }
     const k = cellKind(b)
     if (k === 'open') continue
-    if (k === 'water') return { drop: t.y - y, landing: 'water', landY: y }
-    return { drop: t.y - y, landing: k, landY: y }            // solid, stalagmite, lava, unknown
+    if (k === 'water' || k === 'lava' || k === 'unknown') return { drop: feetY - (y + 1), landing: k, landY: y }
+    const top = topOf(b) ?? 1
+    return { drop: Math.max(0, feetY - (y + top)), landing: k, landY: y }
   }
   return { drop: scan + 1, landing: 'deep', landY: null }
 }
 
-/** Fall damage (half-hearts) for a drop onto a landing kind. Infinity where the landing itself is the danger or unknown. */
+/** Fall damage (half-hearts) for a drop onto a landing kind. Infinity where the landing itself kills or is unknown. */
 export function fallDamage (drop, landing) {
   if (landing === 'water') return 0
-  if (landing === 'solid') return Math.max(0, drop - SAFE_DROP)
-  if (landing === 'stalagmite') return drop <= 0 ? 0 : Math.max(0, Math.floor(2 * drop - 1))
+  if (landing === 'solid') return Math.max(0, Math.ceil(drop - SAFE_DROP - EPS))
+  if (landing === 'stalagmite') return Math.max(0, Math.ceil(2 * (drop - 1) - EPS))
   return Infinity                                            // lava, unknown, deep
 }
 
-const same = (a, b) => a.x === b.x && a.y === b.y && a.z === b.z
-
-/**
- * The verdict on digging cell T for a body at `pos`. Never throws.
- *   {floor: false}                     not a floor dig (T is not under the box, or another solid support remains): dig
- *   {floor: true, allow: true, ...}    a floor dig whose fall does no damage (a short drop, or water): dig
- *   {floor: true, allow: false, ...}   a floor dig over a harmful fall: step beside it first (sideStances), else skip it
- */
-export function floorDigVerdict ({ pos, target, at }) {
-  try {
-    if (!pos || !target || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return { floor: false, why: 'no position' }
-    const t = { x: Math.floor(target.x), y: Math.floor(target.y), z: Math.floor(target.z) }
-    const cells = supportCells(pos)
-    if (!cells.some(c => same(c, t))) return { floor: false, why: 'not under the feet' }
-    const solid = c => { let b; try { b = at(c.x, c.y, c.z) } catch { b = null } const k = cellKind(b); return k === 'solid' || k === 'stalagmite' }
-    if (!solid(t)) return { floor: false, why: 'the target is not solid' }
-    const others = cells.filter(c => !same(c, t) && solid(c)).length
-    if (others > 0) return { floor: false, why: `${others} other support cell(s) remain`, others }
-    const d = dropBelow(at, t)
-    const damage = fallDamage(d.drop, d.landing)
-    return { floor: true, allow: damage < 1, drop: d.drop, landing: d.landing, landY: d.landY, damage }
-  } catch (e) { return { floor: false, why: `verdict failed: ${String(e?.message ?? e).slice(0, 60)}` } }
+/** Can something stand on T: the cell above is open, or holds a block that needs T. */
+export function standable (at, t) {
+  let a
+  try { a = at(t.x, t.y + 1, t.z) } catch { a = null }
+  if (a == null) return true                                 // unloaded above: assume a body could be there
+  const k = cellKind(a)
+  return k === 'open' || NEEDS_SUPPORT.test(String(a.name ?? ''))
 }
 
-const passable = b => { const k = cellKind(b); return k === 'open' }
-
 /**
- * Stances BESIDE the target from which digging it is not a floor dig: the 8 cells around the body's feet cell at feet
- * height, cardinals first, then diagonals; each has open feet and head, a solid floor that is not T, not a stalagmite and
- * not lava, and T's centre within `reach` of the stance's eye. Deterministic order.
+ * The fall a body standing on T would take if T were gone: the worst over T's column and every cardinal neighbour column
+ * that is open at T's level. {drop, landing, damage, col}. Pure; never throws.
  */
-export function sideStances ({ pos, target, at, reach = 4.5 }) {
-  const t = { x: Math.floor(target.x), y: Math.floor(target.y), z: Math.floor(target.z) }
-  const fy = supportY(pos.y) + 1
-  const fx = Math.floor(pos.x), fz = Math.floor(pos.z)
-  const rd = (x, y, z) => { try { return at(x, y, z) } catch { return null } }
-  const out = []
-  const order = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
-  for (const [dx, dz] of order) {
-    const s = { x: fx + dx, y: fy, z: fz + dz }
-    if (same({ x: s.x, y: s.y - 1, z: s.z }, t)) continue
-    if (!passable(rd(s.x, s.y, s.z)) || !passable(rd(s.x, s.y + 1, s.z))) continue
-    if (cellKind(rd(s.x, s.y - 1, s.z)) !== 'solid') continue
-    // a diagonal step must not cut a corner through a wall (both orthogonal neighbours at feet and head open)
-    if (dx && dz) {
-      const ok = [[dx, 0], [0, dz]].some(([ax, az]) => passable(rd(fx + ax, fy, fz + az)) && passable(rd(fx + ax, fy + 1, fz + az)))
-      if (!ok) continue
-    }
-    const ex = s.x + 0.5 - (t.x + 0.5), ey = s.y + 1.62 - (t.y + 0.5), ez = s.z + 0.5 - (t.z + 0.5)
-    if (Math.hypot(ex, ey, ez) > reach) continue
-    out.push(s)
+export function dropIfRemoved (at, t, { scan = SCAN } = {}) {
+  const feetY = t.y + 1
+  const cols = [[0, 0]]
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    let b
+    try { b = at(t.x + dx, t.y, t.z + dz) } catch { b = null }
+    if (cellKind(b) === 'open') cols.push([dx, dz])   // an unloaded neighbour is not known to be open: T's own column decides
   }
-  return out
+  let worst = null
+  for (const [dx, dz] of cols) {
+    const f = columnFall(at, t.x + dx, t.z + dz, feetY, t.y - (dx || dz ? 0 : 1), scan)
+    const d = { ...f, damage: fallDamage(f.drop, f.landing), col: [dx, dz] }
+    if (!worst || d.damage > worst.damage) worst = d
+  }
+  return worst
 }
 
-/** One line for the `_cavefall_floor` row, evidence first. Pure. */
-export function describeFloor ({ decision, target, name, verdict, stance = null, why = null }) {
+/**
+ * The verdict on a gather target T. Never throws.
+ *   {skip: false, why}                  not a floor, or the fall does no damage: an ordinary target
+ *   {skip: true, drop, landing, damage} a floor over a harmful drop: not a target
+ */
+export function floorOverDrop ({ target, at }) {
+  try {
+    if (!target || ![target.x, target.y, target.z].every(Number.isFinite)) return { skip: false, why: 'no target' }
+    const t = { x: Math.floor(target.x), y: Math.floor(target.y), z: Math.floor(target.z) }
+    let b
+    try { b = at(t.x, t.y, t.z) } catch { b = null }
+    const k = cellKind(b)
+    if (k !== 'solid' && k !== 'stalagmite') return { skip: false, why: 'not solid' }
+    if (!standable(at, t)) return { skip: false, why: 'nothing can stand on it' }
+    const f = dropIfRemoved(at, t)
+    return f.damage >= 1 ? { skip: true, drop: f.drop, landing: f.landing, damage: f.damage, col: f.col }
+      : { skip: false, why: 'the fall is harmless', drop: f.drop, landing: f.landing, damage: f.damage }
+  } catch (e) { return { skip: false, why: `verdict failed: ${String(e?.message ?? e).slice(0, 60)}` } }
+}
+
+/** Is T one of the support cells under a 0.6-wide body at `pos` (for the `_cavefall_floor allowed` row only). Pure. */
+export function underFeet (pos, t) {
+  if (!pos || !t) return false
+  const sy = Math.ceil(pos.y - EPS) - 1
+  const xs = new Set([Math.floor(pos.x - 0.3), Math.floor(pos.x + 0.3 - EPS)])
+  const zs = new Set([Math.floor(pos.z - 0.3), Math.floor(pos.z + 0.3 - EPS)])
+  return Math.floor(t.y) === sy && xs.has(Math.floor(t.x)) && zs.has(Math.floor(t.z))
+}
+
+const dmg = d => d === Infinity ? 'inf' : d
+
+/** One line for a `_cavefall_floor` row, evidence first. Pure. */
+export function describeFloor ({ decision, target, name, verdict }) {
   const v = verdict ?? {}
-  return `${decision}: ${name ?? '?'} at ${target.x},${target.y},${target.z} is the floor under the bot; ` +
-    `drop ${v.drop ?? '?'} onto ${v.landing ?? '?'} (damage ${v.damage === Infinity ? 'inf' : v.damage ?? '?'})` +
-    `${stance ? `; stance ${stance.x},${stance.y},${stance.z}` : ''}${why ? `; ${why}` : ''}`
+  return `${decision}: ${name ?? '?'} at ${target.x},${target.y},${target.z}; drop ${v.drop ?? '?'} onto ${v.landing ?? '?'} ` +
+    `(damage ${dmg(v.damage) ?? '?'}${v.col && (v.col[0] || v.col[1]) ? `, via the neighbour column ${v.col.join(',')}` : ''})`
+}
+
+/** The dig-time refusal: the remedy first, so gather's 120-character error note keeps it. Pure. */
+export function floorRefusal ({ name, target, verdict }) {
+  const v = verdict ?? {}
+  return `floor_dig: gather ${name} elsewhere -- ${target.x},${target.y},${target.z} is a floor over a ` +
+    `${v.landing === 'deep' ? `${SCAN}+-block drop` : `${v.drop}-block drop onto ${v.landing}`}`
+}
+
+/** gather's message when every safe candidate in range is a floor over a drop. Remedy first. Pure. */
+export function allFloorsMessage ({ name, n, verdicts = [] }) {
+  const lands = [...new Set(verdicts.map(v => v.landing).filter(Boolean))].slice(0, 3).join('/')
+  return `${name} found but all ${n} candidate(s) are floors over a drop into a cave${lands ? ` (onto ${lands})` : ''} -- ` +
+    `digging one drops you or the item; gather ${name} elsewhere, or explore`
 }
 
 /** The licence row's detail (`_cavefall_mode`, once per spawn). */
 export const cavefallModeDetail = (env = typeof process !== 'undefined' ? process.env : {}) =>
-  `on=${cavefallOn(env) ? 1 : 0} safe_drop=${SAFE_DROP} scan=${SCAN} stalagmite=2x water=allow lava=refuse unknown=refuse remedy=step_beside`
-
-/** The refusal's message, naming what the bot can do from where it stands. Pure. */
-export function floorRefusal ({ name, target, verdict, tried = 0 }) {
-  const v = verdict ?? {}
-  return `floor_dig: ${name} at ${target.x},${target.y},${target.z} is the only block under the bot and below it is a ` +
-    `${v.landing === 'deep' ? `drop of more than ${SCAN}` : `${v.drop}-block drop onto ${v.landing}`}; ` +
-    `${tried ? `no stance beside it could be reached (${tried} tried)` : 'there is no stance beside it to dig it from'} -- ` +
-    `walk off it onto solid ground first (goto a cell beside it), or gather ${name} somewhere else`
-}
+  `on=${cavefallOn(env) ? 1 : 0} rule=floor_over_drop safe_drop=${SAFE_DROP} scan=${SCAN} stalagmite=2(d-1) water=allow lava=skip unknown=skip`
