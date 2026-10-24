@@ -1,0 +1,34 @@
+{
+ "run": "ceilescape-01",
+ "after": [],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "ENTRY FRAGMENT (the building agent ran no queue command). OWNER 2026-10-23: build the board-a-Comet escape fix. TIER 3, draw_require_pools [\"board-a\"]. Install the drawn variant's registration as ~/mcai-analysis/registrations/ceilescape-01.json and ~/mcai-analysis/ceilescaperead.py (scripts/host/ceilescaperead.py on the branch; md5 below). Host-side flag: scripts/host/ceilescape/patch_fleetstatus.py <installed fleetstatus.py> scripts/host/ceilescape/rescue_line.py. The Paper driver is on branch ceilescape-sandbox-1024 (origin/main + the driver + the registry test's wired count 19 -> 20): merge it with the canary at merge time. Record: docs/reports/ceilescape-01-design-2026-10-24.md. The Paper driver branch ceilescape-sandbox-1024 is at its r10 tip; the clean Paper set ran on r9 (520cd12b).",
+ "variants": {
+  "3cc5f14da2c7a2acd37d05360d999b47c52a7e9b": {
+   "registration": "/home/mike/mcai-analysis/ceilescape-01.37ebba2b.json",
+   "approved": "ceilescape-01 agent 2026-10-24: ceilescape-on-3cc5f14d @ 37ebba2b on the fleet 3cc5f14d. Design: Codex r1 CHANGES, r2 CHANGES; Claude r1 CHANGES, r2 APPROVE; step 0 rides inside the canary (both engines r2). Code: Codex r1 CHANGES, r2 CHANGES, r3 APPROVE (8685e231); Claude r1 CHANGES, r2 CHANGES, r3 APPROVE (8685e231); 37ebba2b = their P3s (tests and the read's header only). npm test 291/291 on 37ebba2b; ceilescape.test.mjs 67 (anchored mutants incl. wiring); eslint no-undef only the pre-existing reflex.mjs withinBody. PAPER (driver ceilescape-sandbox-1024 r9, Codex r9 APPROVE, Claude APPROVE; per-server locks): candidate comet LEFT east (copper intact), copper2 LEFT east (decoy untouched), lava/wethead/noexit STAYED with escalations and no swing; base STAYED on all five with dig exceeded (control). Chain B (climb-flood: isolated-c-Alpha, placebo-d-Delta) is a different dead end (both engines): not covered, not regressed (failmine library gate, design doc section 9b: board-a PASS 3/3 escaped vs base 3/3 stayed; placebo-c stays with escalations; isolated-c and placebo-d unchanged). TIER 3, draw_require_pools [board-a]. PRIMARY.",
+   "canary_sha": "37ebba2b8e2c234b8a398ec6d673e4added0850a",
+   "branch": "ceilescape-on-3cc5f14d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "ceilescaperead": "5c58b84c402e741d46ab4b75b1560c9f",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "d5e234d5a368a148795446b10fdb5025b19c548ff112a3ec012a67d7989b80d2"
+  },
+  "fb8de72f7369257d26c31ec974ec4b029cd29f65": {
+   "registration": "/home/mike/mcai-analysis/ceilescape-01.c488c3e3.json",
+   "approved": "ceilescape-01 agent 2026-10-24: ceilescape-on-3cc5f14d @ 37ebba2b on the fleet 3cc5f14d. Design: Codex r1 CHANGES, r2 CHANGES; Claude r1 CHANGES, r2 APPROVE; step 0 rides inside the canary (both engines r2). Code: Codex r1 CHANGES, r2 CHANGES, r3 APPROVE (8685e231); Claude r1 CHANGES, r2 CHANGES, r3 APPROVE (8685e231); 37ebba2b = their P3s (tests and the read's header only). npm test 291/291 on 37ebba2b; ceilescape.test.mjs 67 (anchored mutants incl. wiring); eslint no-undef only the pre-existing reflex.mjs withinBody. PAPER (driver ceilescape-sandbox-1024 r9, Codex r9 APPROVE, Claude APPROVE; per-server locks): candidate comet LEFT east (copper intact), copper2 LEFT east (decoy untouched), lava/wethead/noexit STAYED with escalations and no swing; base STAYED on all five with dig exceeded (control). Chain B (climb-flood: isolated-c-Alpha, placebo-d-Delta) is a different dead end (both engines): not covered, not regressed (failmine library gate, design doc section 9b: board-a PASS 3/3 escaped vs base 3/3 stayed; placebo-c stays with escalations; isolated-c and placebo-d unchanged). TIER 3, draw_require_pools [board-a]. VARIANT: the same commits cherry-picked onto ironsmelt-01 fb8de72f with NO conflict; bots/ and scripts/ +/- lines identical to the primary; npm test 295/295 on c488c3e3 (the ceilescape tests compare against 3cc5f14d, whose reflex.mjs and scaffold.mjs are byte-identical to those of fb8de72f). USE ONLY if ironsmelt-01 is KEPT and promoted.",
+   "canary_sha": "c488c3e3180773c049ec0476b966382415e74b4f",
+   "branch": "ceilescape-on-fb8de72",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "ceilescaperead": "5c58b84c402e741d46ab4b75b1560c9f",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "df6d7ce4bffc8343a0a3ac5add640c52ec8c0a5e85edaf27d26ca2300ec8fe07"
+  }
+ }
+}
