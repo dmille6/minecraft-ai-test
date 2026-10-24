@@ -147,20 +147,31 @@ const sideRun = (R, x, y, z) => (R.kindAt(x, y, z) === 'open' ? R.run(x, y, z) :
 function exposedAt (R, x, y, z) {
   const own = R.run(x, y - 1, z)
   if (own.landing === 'unknown') return null
-  if (own.landing !== 'water' && own.open >= ELEVATED_MIN) return { exposed: true, own, sides: 0, blind: false }
-  let blind = false, sides = 0
+  // A DEADLY VOID IS ONE OPEN TO THE SKY (Codex r5 P2-3): an enclosed cave under a one-block natural roof is terrain
+  let blind = false
+  if (own.landing !== 'water' && own.open >= ELEVATED_MIN) {
+    const sky = skyOpenAt(R, x, y - 1, z)
+    if (sky === true) return { exposed: true, own, sides: 0, blind: false }
+    if (sky === null) blind = true
+  }
+  let sides = 0
   for (const [dx, dz] of SIDES) {
     if (R.kindAt(x + dx, y, z + dz) === 'unknown') { blind = true; continue }
     const r = sideRun(R, x + dx, y, z + dz)
     if (r.landing === 'unknown') { blind = true; continue }
-    if (r.landing !== 'water' && r.open >= ELEVATED_MIN) sides++
+    if (r.landing !== 'water' && r.open >= ELEVATED_MIN) {
+      const top = R.kindAt(x + dx, y, z + dz) === 'open' ? y : y - 1
+      const sky = skyOpenAt(R, x + dx, top, z + dz)
+      if (sky === true) sides++
+      else if (sky === null) blind = true
+    }
   }
   return { exposed: sides >= EDGE_SIDES, own, sides, blind }
 }
 
 export const GROUNDED_MIN = 8          // solid cells straight under a support on the ground ...
-export const GROUNDED_DEEP = 64        // ... followed down through gaps shorter than ELEVATED_MIN until this many solid cells
-                                       // (a hanging column is not ground at any length: Codex r3/r4, Claude r4; an aquifer is)
+export const WORLD_FLOOR = -64        // ... followed down to the world's floor through short gaps and enclosed caves; a
+                                       // sky-open deadly gap at any depth means it hangs (Codex r3-r5, Claude r4); water is ground
 export const DECK_MAX = 4              // a deck up to this thick (the support and 3 under it) over a deadly run still floats
 export const SKY_REACH = 64            // the void under a deck reaches open sky within this many cells straight out ...
 export const SKY_SIDES = 3             // ... in at least this many of the four directions (a cave mouth is one: Claude r4 P2-2)
@@ -236,22 +247,20 @@ const floatsAt = (R, x, y, z) => {
   return false
 }
 /**
- * Is support (x, y, z) on the GROUND: GROUNDED_MIN solid cells straight under it, and either GROUNDED_DEEP of them or no
- * deadly open run right under the solid stretch (water under it is an aquifer: ground)?
+ * Is support (x, y, z) on the GROUND (a column's own test; the region's ground also needs at most one deadly side)? A column whose first solid stretch is
+ * GROUNDED_MIN or more, followed down to the world's floor through short gaps and ENCLOSED caves. Water under it is ground
+ * (an aquifer); a deadly gap OPEN TO THE SKY at any depth means the stretch above it hangs; unreadable, or past the scan,
+ * is not ground.
  */
 const groundedAt = (R, x, y, z) => {
-  // A PILLAR IS NOT GROUND, however deep it goes (Claude r4 P2-1): a column with deadly drops on EDGE_SIDES sides
-  const e = exposedAt(R, x, y, z)
-  if (e && e.sides >= EDGE_SIDES) return false
-  // FOLLOW THE COLUMN DOWN (Claude r4 P1-1): solid stretches and short gaps, until GROUNDED_DEEP solid cells in all, a
-  // deadly gap (8+ onto anything but water: not ground -- a hanging column, at any length), water (an aquifer: ground),
-  // or SCAN cells. The first stretch must be GROUNDED_MIN; unreadable is not ground
-  let solid = 0, yy = y - 1, first = true
-  for (let guard = 0; guard < SCAN && yy > y - SCAN; guard++) {
+  // FOLLOW THE COLUMN DOWN (Claude r4 P1-1, Codex r5 P1-1): the first stretch must be GROUNDED_MIN
+  let yy = y - 1, first = true
+  for (let guard = 0; guard < SCAN; guard++) {
     let n = 0
-    while (R.kindAt(x, yy, z) === 'solid') { n++; solid++; yy--; if (solid >= GROUNDED_DEEP) return true }
+    while (yy >= WORLD_FLOOR && R.kindAt(x, yy, z) === 'solid') { n++; yy-- }
     if (first && n < GROUNDED_MIN) return false
     first = false
+    if (yy < WORLD_FLOOR) return true                           // solid (with enclosed gaps) to the world's floor
     const k = R.kindAt(x, yy, z)
     if (k === 'unknown') return false
     if (k === 'water') return true
@@ -259,10 +268,14 @@ const groundedAt = (R, x, y, z) => {
     const r = R.run(x, yy, z)
     if (r.landing === 'unknown') return false
     if (r.landing === 'water') return true
-    if (r.open >= ELEVATED_MIN) return false                    // a deadly gap: the stretch above it hangs
+    if (r.open >= ELEVATED_MIN) {
+      // a deadly gap open to the sky: the stretch above it HANGS; an enclosed one is a cave in the ground, followed on
+      const sky = skyOpenAt(R, x, yy, z)
+      if (sky !== false) return false
+    }
     yy -= r.open
   }
-  return true
+  return false                                                  // past the scan: unknown, not ground (Codex r5 P1-1)
 }
 /** A stance: a solid support with two open cells over it. */
 const stanceAt = (R, x, y, z) => R.kindAt(x, y, z) === 'solid' && R.kindAt(x, y + 1, z) === 'open' && R.kindAt(x, y + 2, z) === 'open'
@@ -283,7 +296,9 @@ export function regionAt (R, s, { radius = START_RADIUS, cap = 900 } = {}) {
   let grounded = false, floating = null, blind = false
   while (q.length && seen.size <= cap) {
     const c = q.shift()
-    if (!grounded && groundedAt(R, c.x, c.y, c.z)) { grounded = true; break }   // a platform cannot follow (Claude r3 P2-3)
+    // the region's ground: a grounded column with at most one deadly side (a 2-wide column under a deck patch is not ground:
+    // Claude r5 P3-5); a platform cannot follow it (Claude r3 P2-3)
+    if (!grounded && groundedAt(R, c.x, c.y, c.z) && (exposedAt(R, c.x, c.y, c.z)?.sides ?? 0) <= 1) { grounded = true; break }
     if (!floating) {
       const f = floatsAt(R, c.x, c.y, c.z)
       if (f == null) blind = true
@@ -324,7 +339,12 @@ export function doneAt (R, x, y, z) {
   if (own.landing === 'unknown') return { done: false, unknown: true, why: 'the column below is not loaded' }
   if (own.landing === 'lava') return { done: false, unknown: false, why: 'lava below' }     // never a landing (Codex r2 P1-1)
   // breaking the support is a fall of open + 1 onto the landing's real top (a bottom slab is half a block lower: Codex r2 P2-5)
-  if (!(own.landing === 'water' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP)) return { done: false, unknown: false, why: `${own.open} open below` }
+  // (an ENCLOSED cave under a natural roof is terrain, not a drop the descent must close: nothing breaks the support once
+  // it is done -- Codex r5 P2-3; a void open to the sky under the support is the platform's own)
+  if (!(own.landing === 'water' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP)) {
+    const sky = own.open > 0 ? skyOpenAt(R, x, y - 1, z) : true
+    if (sky !== false) return { done: false, unknown: sky === null, why: `${own.open} open below` }
+  }
   // ON THE GROUND, a deadly side is terrain (a natural pit beside the landing: Codex r2 P2-4), not a platform edge
   const ground = groundedAt(R, x, y, z)
   let exits = 0, walls = 0, deadly = 0, deadlyWhy = null
@@ -337,9 +357,14 @@ export function doneAt (R, x, y, z) {
     const r = sk === 'open' ? R.run(x + dx, y, z + dz) : R.run(x + dx, y - 1, z + dz)
     if (r.landing === 'unknown') return { done: false, unknown: true, why: 'a side is not loaded' }
     const fall = fallOf(R, x + dx, z + dz, r)
-    if (r.landing === 'lava' || (r.landing !== 'water' && r.open >= ELEVATED_MIN)) { deadly++; deadlyWhy ??= `a ${r.open}-block drop beside it${r.landing === 'lava' ? ' into lava' : ''}` }
+    // a deadly side: lava, or a drop of ELEVATED_MIN onto anything but water INTO A VOID OPEN TO THE SKY (an enclosed cave
+    // under a natural roof beside it is terrain: Codex r5 P2-3)
+    const sideSky = r.landing !== 'water' && (r.open >= ELEVATED_MIN || (sk !== 'open' && r.open > SAFE_DROP)) ? skyOpenAt(R, x + dx, sk === 'open' ? y : y - 1, z + dz) : false
+    if (sideSky === null) return { done: false, unknown: true, why: 'a side is not loaded' }
+    if (r.landing === 'lava' || (sideSky && r.open >= ELEVATED_MIN)) { deadly++; deadlyWhy ??= `a ${r.open}-block drop beside it${r.landing === 'lava' ? ' into lava' : ''}` }
     if (f !== 'open' || h !== 'open') { walls++; continue }          // a wall: no exit
-    if (r.landing !== 'lava' && (r.landing === 'water' || fall <= SAFE_DROP)) exits++
+    // an exit: a short drop or water -- or a flat step onto a block whose hollow under it is enclosed (natural ground)
+    if (r.landing !== 'lava' && (r.landing === 'water' || fall <= SAFE_DROP || (sk !== 'open' && sideSky === false))) exits++
   }
   // a deadly side ends nothing -- unless the stance is on the ground and fewer than EDGE_SIDES sides are deadly (a natural
   // pit or ravine beside the landing is terrain); a pillar with the void on EDGE_SIDES sides is never done, grounded or not
@@ -461,7 +486,8 @@ export function rankStarts ({ at, support, radius = START_RADIUS, diggable = nul
       const p = descentCost(at, n, { R, diggable })
       if (!p.ok) continue
       const walk = Math.floor((d + 1) / 4)
-      if (own.ok && own.cost - p.cost < SAVE_MIN + walk) continue
+      // a FREE way down is always offered against a paid own column (a stair for a bot with no blocks: Codex r5 P2-2)
+      if (own.ok && own.cost - p.cost < SAVE_MIN + walk && !(p.cost === 0 && own.cost > 0)) continue
       out.push({ cell: n, cost: p.cost, dist: d + 1, own: false, why: p.why })
     }
   }
@@ -485,14 +511,14 @@ export function descendOrder ({ now = Date.now(), lastSpawnAt = null, el = null,
   const s = { ...state }
   if (!on) { s.active = false; return { issue: false, why: 'off', state: s } }
   if (s.active) {
-    if (done?.done === true && !el?.transient) { s.active = false; s.transientSince = null; return { issue: false, why: 'down: a safe stance', state: s } }
+    if (done?.done === true && !el?.transient) { s.active = false; s.transientSince = null; return { issue: false, why: 'down: a safe stance', state: s, fresh: true } }
     // SWIMMING ends it (poolescape and the swim reflexes own a wet body); so does a body kept OFF THE GROUND for
     // TRANSIENT_MAX_MS (a ladder, vines, scaffolding): the bot is handed back, with the row. Unreadable geometry (an
     // unloaded column, no solid support) never releases it: the bot stays held until the world reads (Codex r3 P1-3)
-    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water' } }
+    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water', fresh: true } }
     if (el?.transient && el.why === 'not on the ground') {
       s.transientSince ??= now
-      if (now - s.transientSince > TRANSIENT_MAX_MS) { s.active = false; s.transientSince = null; return { issue: false, why: `transient for ${Math.round(TRANSIENT_MAX_MS / 1000)} s (${el.why})`, state: s, ended: 'transient' } }
+      if (now - s.transientSince > TRANSIENT_MAX_MS) { s.active = false; s.transientSince = null; return { issue: false, why: `transient for ${Math.round(TRANSIENT_MAX_MS / 1000)} s (${el.why})`, state: s, ended: 'transient', fresh: true } }
     } else s.transientSince = null
     return { issue: true, why: el?.elevated ? el.why : `episode open: ${el?.transient ? `waiting (${el.why})` : (done?.why ?? el?.why ?? 'not down yet')}`, state: s }
   }
@@ -500,7 +526,7 @@ export function descendOrder ({ now = Date.now(), lastSpawnAt = null, el = null,
   if (!el?.elevated) return { issue: false, why: el?.why ?? 'not elevated', state: s }
   if (!inWindow) return { issue: false, why: 'not since a spawn', state: s }
   s.active = true
-  return { issue: true, why: el.why, state: s }
+  return { issue: true, why: el.why, state: s, fresh: true }
 }
 
 /** One line for the `_sky_descend` row, evidence first. Pure. */
