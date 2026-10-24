@@ -248,7 +248,8 @@ shelf's centre with a stone pickaxe, an iron shovel, 16 cobblestone and 8 logs; 
 
 ### 7.1 Paper results (10-24 16:14-17:29Z; sandbox6 = base fb8de72f, sandbox7 = candidate 72e1054e, run in parallel pairs)
 
-The driver is `sandbox/cavefall/cavefall-e2e.mjs` (cavefall-sandbox-1024) plus three driver-only fixes made during the runs:
+The driver is `sandbox/cavefall/cavefall-e2e.mjs` (cavefall-sandbox-1024 @ 19d4aae2: the 46c7d29b driver plus three
+driver-only fixes made during the runs):
 
 - it records which shelf cell went, when, where the bot stood, and whether a block **capped** the cell;
 - the output path is absolute;
@@ -256,37 +257,81 @@ The driver is `sandbox/cavefall/cavefall-e2e.mjs` (cavefall-sandbox-1024) plus t
 
 Each run is 4 minutes. Results: `.cf/paper/results.jsonl` in the building worktree.
 
-Six runs were set aside because their rows were unreadable (rep 2/3: a relative `CF_OUT` sent the bot's LOG_DIR into its own
-tree). Only their `bot.out` is evidence: base cave 2 of 2 impaled, candidate cave 0 of 2 dead.
+**Denominators.**
 
-| scene | base (valid runs) | candidate (valid runs) |
-|---|---|---|
-| **cave** (positive control) | **4 of 4 died**: impaled on a stalagmite after falling 48-56 blocks, running `gather dirt`. Each dug the shelf centre it stood on (3603,29,3606), uncapped | **4 of 4 lived**: health 20, never below the shelf (min y 30). Each run wrote 3 `_cavefall_skip ... front=1` rows; gather ended failed with no dig of a floor anyone stood on. 3 of 4 runs lost one shelf cell, each **capped by a cobblestone the pathfinder had placed on it** (capped=true in reps 5 and 7; rep 1, before the capture, shows the same pillar-then-bridge rows). A capped cell is not a floor (the exact fast path), and it was dug from off the shelf: harmless |
-| **ground** (no-regression) | 3 of 3 collected 5 dirt, digging their shelf (1-block drops); gather 7.8-9.6 s | 3 of 3 collected 4 dirt (the count asked), digging their shelf; gather 3.2 s; no skip rows |
-| **water** (swimming is travel) | 3 of 3 lived after falling into the water (min y 8); one gather timed out at 180 s | 3 of 3 lived. Each wrote `_cavefall_floor allowed: dirt at 3683,29,3606; drop 20 onto water` and swam (min y 8). One run skipped 5 natural dirt cells over solid drops outside the arena (`land=solid:5`) |
+- **Valid runs (rows read): 4 cave, 3 ground, 3 water per arm.**
+  - The cave runs are reps 1, 5, 6 and 7. Rep 1 predates the `valid` field but its rows were read.
+  - The ground and water runs are reps 5-7.
+- **Set aside:**
+  - The **6 rep-2 records** in `results-invalid-relative-logdir.jsonl` (all three scenes, both arms). A relative output
+    path sent the bot's LOG_DIR into its own tree, so the read saw no rows.
+  - The **2 rep-3 cave attempts**, which were interrupted while the batch was stopped. They wrote no result record.
+- **Outside the denominators,** their `bot.out` alone shows: base2-cave and base3-cave impaled; cand2-cave and cand3-cave
+  not dead.
+
+Positions and health are RCON samples every 3 s: minimum y and minimum health are sampled observations.
+
+**Cave (the positive control).**
+
+- **Base: 4 of 4 died**, impaled on a stalagmite after falling 48-56 blocks, while running `gather dirt`. Each dug the
+  shelf centre it stood on (3603,29,3606).
+- **Candidate: 4 of 4 lived** (sampled health 20, never below the shelf: min y 30). Each run wrote 3 `_cavefall_skip ...
+  front=1` rows.
+  - The first round skipped **15 of 653 candidates** (in-border dirt in range, the arena's 15 shelf cells among natural
+    terrain).
+  - Gather ended failed ("unreachable after 3 attempts" or "every candidate is buried").
+  - 3 of the 4 runs lost one shelf cell:
+    - reps 5 and 7 recorded a **cobblestone cap** on that cell, placed by the bot's own pathfinder before the dig;
+    - rep 1 ran before the capture existed, and the cap there is **inferred** from the same pillar-then-bridge placement
+      rows;
+    - rep 6 lost none.
+
+  A capped cell is not a floor by §4's exact fast path, and it was dug from off the shelf.
+
+**Ground (no regression).**
+
+- Base 3 of 3 collected 5 dirt and dug their shelf (1-block drops); gather 7.8-9.6 s.
+- Candidate 3 of 3 collected 4 dirt (the count asked) and dug their shelf; gather 3.2 s; no skip rows.
+
+**Water (swimming is travel).**
+
+- Every valid water run, both arms, **collected zero dirt**.
+- Base:
+  - 3 of 3 lived after falling into the water (min y 8);
+  - one gather timed out at 180.2 s;
+  - two ended "every candidate is buried" after 2.8 and 5.5 s.
+- Candidate:
+  - 3 of 3 lived;
+  - each wrote `_cavefall_floor allowed: dirt at 3683,29,3606; drop 20 onto water`, dug, and swam (min y 8);
+  - all three gathers then failed "unreachable after 3 attempts" after 138.6-144.1 s;
+  - one run skipped 5 natural dirt cells over solid drops outside the arena (`land=solid:5`).
 
 **Read.**
 
-- The base digs its own floor and dies onto stalagmites every time: the mechanism is real, deterministic, and reachable from
+- The base digs its own floor and dies onto stalagmites every time. The mechanism is real, deterministic, and reachable from
   `gather dirt` on a cave shelf.
-- The candidate refuses those floors and lives every time. It still digs where the drop is 1 block, and over water.
-- No candidate run lost a cell a body could stand on.
-- **Paper: PASS on safety** (positive control 4 of 4, candidate 4 of 4, ground and water unchanged). Two of the six
-  criteria written before the runs are not met as written; both are explained below and need a reviewer's confirmation.
+- The candidate refuses those floors and lives every time.
+- It still digs where the drop is 1 block, and it is **permitted** to dig over water. The water scene shows survival and that
+  permission, **not** equal gathering performance: neither arm collected anything there.
+- In the **cave** runs, no candidate lost a cell a body could stand on. In ground and water it digs its shelf by design.
+- **Paper: PASS on safety** (positive control 4 of 4, candidate 4 of 4; ground and water survival unchanged). Two of the six
+  criteria written before the runs are not met as written; both are explained below.
 
 **Against the admission criteria written before the runs (r3-r7):**
 
 - Base digs its floor and falls in `cave` in >= 2 of 3: **met** (4 of 4).
 - Candidate never falls in `cave`: **met**.
-- Candidate digs no shelf cell: **not met as written** (3 of 4 runs lost one cell). Each lost cell had a block placed on it
-  by the bot's own pathfinder before it was dug, so no body could stand on it when it went. That is the criterion's purpose,
-  but the reviewers should confirm the reading.
-- Candidate ends `no_safe_target` with the all-floors message: **not met as written**. The arena sits in natural terrain
-  with 650+ other dirt candidates in range, so the round is mixed (15 skipped of 653), not all-floors. Gather ended
-  "unreachable after 3 attempts" or "every candidate is buried". The skip rows (`front=1`) are the record that the floors
-  were refused.
+- Candidate digs no shelf cell: **not met as written** (3 of 4 cave runs lost one capped cell; see above).
+- Candidate ends `no_safe_target` with the all-floors message: **not met as written**. The first round was mixed: 15
+  skipped floors of 653 candidates. A mixed round cannot exercise the all-floors message, so these runs do not validate it;
+  the behaviour tests do. The skip rows (`front=1`) record that the floors were refused.
 - `ground`: both dig the shelf and live: **met**.
 - `water`: both live: **met**.
+
+**Review.** Codex confirmation r1 of this record (10-24, CHANGES: 2 P2, 1 P3): the denominators are correct, and both "not met as written"
+readings are reasonable (a capped cell is excluded by §4's pre-existing rule; a mixed round cannot reach the all-floors
+message). Its three reporting corrections are applied above: the set-aside accounting, the water gather outcomes, and the
+precision of the claims. Confirmation r2 is pending.
 
 ## 8. Read and registration
 
