@@ -20,6 +20,18 @@ export HF_HOME=$T/hf
 DATA=${DATA:-$T/data}
 RUN=${RUN:-dry-01}
 CAND=${CAND:-cand-qwen3-8b-v0-dry}
+# M3 run (10-24): the base, the training file and the round's shape are parameters, so the bootstrap round and the
+# qwen2.5 control (design s.3.1/s.3.4) run through the same phases. Defaults = the approved dry round.
+BASE=${BASE:-unsloth/Qwen3-8B}
+TRAIN=${TRAIN:-$DATA/m3-train-2000.jsonl}
+STEPS=${STEPS:-200}
+GA=${GA:-10}
+FIT=${FIT:-fit-01}
+case "$BASE" in *Qwen2.5*) BASE_TAG=${BASE_TAG:-qwen2.5:7b-instruct};; *) BASE_TAG=${BASE_TAG:-qwen3:8b};; esac
+# TRITON NEEDS A C COMPILER for its launcher stubs and VM 200 has none (the 10-24 fit test died "Failed to find C
+# compiler"). bin/cc = zig cc from the venv's ziglang wheel + the Python 3.12 headers extracted (dpkg -x, not installed)
+# into $T/sysroot -- contained in $T, nothing system-wide. Checked: a Triton kernel builds with it and fails without.
+export CC=${CC:-$T/bin/cc}
 OVR=/etc/systemd/system/ollama.service.d/override.conf
 say() { echo "== $*"; }
 die() { echo "REFUSED: $*"; exit 2; }
@@ -55,13 +67,15 @@ case "${1:-}" in
     ;;
   fit)
     # the guard's findings (other GPU processes, ALLOW_OTHER_GPU) go into the SAME run log (Codex r5 P3)
-    gpu_guard 2>&1 | tee "$T/runs-fit-01.log"; [ "${PIPESTATUS[0]}" = 0 ] || exit 2
-    $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/fit-01" --fit-test-only --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-fit-01.log"
+    [ -x "$CC" ] || die "no C compiler at CC=$CC (Triton needs one; see the CC note above)"
+    gpu_guard 2>&1 | tee "$T/runs-$FIT.log"; [ "${PIPESTATUS[0]}" = 0 ] || exit 2
+    $PY "$T/train_sft.py" --base "$BASE" --data "$TRAIN" --out "$T/runs/$FIT" --fit-test-only --grad-accum "$GA" --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-$FIT.log"
     ;;
   train)
     gpu_guard 2>&1 | tee "$T/runs-$RUN.log"; [ "${PIPESTATUS[0]}" = 0 ] || exit 2
-    [ -f "$T/runs/fit-01/metrics.json" ] || die "run the fit test first"
-    nice -n 5 $PY "$T/train_sft.py" --data "$DATA/m3-train-2000.jsonl" --out "$T/runs/$RUN" --max-steps 200 --grad-accum 10 --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-$RUN.log"
+    [ -x "$CC" ] || die "no C compiler at CC=$CC (Triton needs one; see the CC note above)"
+    [ -f "$T/runs/$FIT/metrics.json" ] || die "run the fit test first ($T/runs/$FIT/metrics.json)"
+    nice -n 5 $PY "$T/train_sft.py" --base "$BASE" --data "$TRAIN" --out "$T/runs/$RUN" --max-steps "$STEPS" --grad-accum "$GA" ${SAVE:+--save-steps "$SAVE"} ${RESUME:+--resume} --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-$RUN.log"
     ;;
   export)
     M=$T/runs/$RUN/merged-16bit
@@ -84,29 +98,60 @@ case "${1:-}" in
 </think>
 
 TPL
+    # M3 (10-24): each arm is served with ITS BASE's TEMPLATE and sampling PARAMETERs, read byte-exact from the 3090's
+    # Ollama by `run.sh base-meta` (/api/show). Qwen3 keeps the no-think template above (the training render); the
+    # qwen2.5 control uses qwen2.5:7b-instruct's own template (its HF render equals it for system + user). Without the
+    # base's parameters the candidate would sample with Ollama's defaults (top_k 40, top_p 0.9) while the base it is
+    # compared against inherits its own -- a difference that is not the training.
+    [ -f "$T/base-meta/$BASE_TAG.json" ] || die "no $T/base-meta/$BASE_TAG.json -- run 'bash run.sh base-meta' with ollama up"
     # Written by python, byte for byte: $(cat ...) would strip the template's trailing "\n\n" after </think> (Codex r1 P2)
-    $PY - "$T/runs/$RUN" "$CAND" <<'PY' || die "Modelfile write failed"
-import os, sys
-d, cand = sys.argv[1:3]
-tpl = open(os.path.join(d, 'template.txt')).read()
-assert tpl.endswith('</think>\n\n'), 'template must end with the no-think tail: %r' % tpl[-24:]
+    $PY - "$T/runs/$RUN" "$CAND" "$T/base-meta/$BASE_TAG.json" "$BASE_TAG" <<'PY' || die "Modelfile write failed"
+import json, os, sys
+d, cand, meta_p, tag = sys.argv[1:5]
+meta = json.load(open(meta_p))
+if tag.startswith('qwen3'):
+    tpl = open(os.path.join(d, 'template.txt')).read()
+    assert tpl.endswith('</think>\n\n'), 'template must end with the no-think tail: %r' % tpl[-24:]
+else:
+    tpl = meta['template']
+    open(os.path.join(d, 'template.txt'), 'w').write(tpl)
+assert '"""' not in tpl, 'template holds a triple quote'
+params = []
+for line in (meta.get('parameters') or '').splitlines():
+    if line.strip():
+        k, v = line.split(None, 1)
+        params.append('PARAMETER %s %s' % (k, v.strip()))
+if not any(p.startswith('PARAMETER stop ') and '<|im_end|>' in p for p in params):
+    params.append('PARAMETER stop "<|im_end|>"')
 gguf = os.path.join(d, cand + '-bf16.gguf')
-for name, src in (('bf16', gguf), ('q4', gguf), ('base-nothink', 'qwen3:8b')):
-    open(os.path.join(d, 'Modelfile.' + name), 'w').write('FROM %s\nTEMPLATE """%s"""\nPARAMETER stop "<|im_end|>"\n' % (src, tpl))
-print('Modelfiles written; template tail %r' % tpl[-12:])
+files = [('bf16', gguf), ('q4', gguf)] + ([('base-nothink', tag)] if tag.startswith('qwen3') else [])
+for name, src in files:
+    open(os.path.join(d, 'Modelfile.' + name), 'w').write('FROM %s\nTEMPLATE """%s"""\n%s\n' % (src, tpl, '\n'.join(params)))
+print('Modelfiles written (%s); base %s; params %s; template tail %r' % (', '.join(n for n, _ in files), tag, params, tpl[-12:]))
 PY
     (cd "$T/llama.cpp" && git rev-parse HEAD) > "$T/runs/$RUN/llama.cpp.sha"
     echo "Modelfiles written. With ollama running (start-ollama):"
     echo "  ollama create $CAND-bf16 -f $T/runs/$RUN/Modelfile.bf16"
     echo "  ollama create $CAND -q q4_K_M -f $T/runs/$RUN/Modelfile.q4"
-    echo "  ollama pull qwen3:8b && ollama create qwen3-8b-nothink -f $T/runs/$RUN/Modelfile.base-nothink"
+    case "$BASE_TAG" in qwen3*) echo "  ollama create qwen3-8b-nothink -f $T/runs/$RUN/Modelfile.base-nothink";; esac
     sha256sum "$T/runs/$RUN/$CAND-bf16.gguf" | tee "$T/runs/$RUN/gguf.sha256"
+    ;;
+  base-meta)
+    # read-only: the base tags' TEMPLATE + PARAMETERS from this host's Ollama, byte-exact (/api/show); export uses them
+    mkdir -p "$T/base-meta"
+    for tag in qwen3:8b qwen2.5:7b-instruct; do
+      curl -sf -m 30 http://127.0.0.1:11434/api/show -d "{\"model\": \"$tag\"}" > "$T/base-meta/$tag.json" || die "api/show $tag failed (pull it first?)"
+      $PY -c "import json,sys; m=json.load(open(sys.argv[1])); print(sys.argv[2], 'template', len(m['template']), 'chars; parameters', m.get('parameters','').split()); print('  details', m.get('details'))" "$T/base-meta/$tag.json" "$tag"
+    done
     ;;
   template-check)
     # the served prompt must equal the trained one, token for token (template_check.py); needs ollama running and
     # the models created (see export's printed commands)
-    for m in "$CAND" "$CAND-bf16" qwen3-8b-nothink; do
-      $PY "$T/template_check.py" --items "$DATA/m3-eval.jsonl" --model "$m" --n 3 || die "template check FAILED for $m"
+    # per arm (M3 10-24): the HF tokenizer of the arm's base, and an Ollama control model served with a DIFFERENT
+    # template (Qwen3 arm: stock qwen3:8b; qwen2.5 arm: qwen3-8b-nothink, whose no-think tail adds tokens)
+    case "$BASE_TAG" in qwen3*) MS="$CAND $CAND-bf16 qwen3-8b-nothink"; CTL=qwen3:8b;; *) MS="$CAND $CAND-bf16 $BASE_TAG"; CTL=qwen3-8b-nothink;; esac
+    for m in $MS; do
+      $PY "$T/template_check.py" --items "$DATA/m3-eval.jsonl" --model "$m" --base "$BASE" --control-model "$CTL" --n 3 || die "template check FAILED for $m"
     done
     ;;
   start-ollama)

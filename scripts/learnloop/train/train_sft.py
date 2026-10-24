@@ -54,6 +54,8 @@ def main():
     ap.add_argument('--grad-accum', type=int, default=10)
     ap.add_argument('--lr', type=float, default=1e-4)
     ap.add_argument('--fit-test-only', action='store_true', help='50 optimizer steps, measure, save nothing but metrics')
+    ap.add_argument('--save-steps', type=int, default=0, help='checkpoint every N optimizer steps (0 = none); keeps 2')
+    ap.add_argument('--resume', action='store_true', help='resume from the newest checkpoint under <out>/trainer')
     ap.add_argument('--m2b-verified', default='', help='ISO time of the +24 h drop16.sh --verify OK')
     a = ap.parse_args()
     import re
@@ -88,14 +90,17 @@ def main():
     if not rows:
         raise SystemExit('no example fits in %d tokens' % a.max_seq)
     ds = Dataset.from_list(rows)
-    steps = 50 if a.fit_test_only else a.max_steps
+    # --max-steps 0 = exactly one epoch of the examples that fit (M3 bootstrap, 10-24)
+    steps = 50 if a.fit_test_only else (a.max_steps or math.ceil(len(rows) / a.grad_accum))
 
     class Clock(TrainerCallback):
         def __init__(self):
             self.t = {}
 
         def on_step_begin(self, args, state, control, **kw):
-            if state.global_step == 5 and 'start' not in self.t:        # skip warm-up / compile steps
+            # skip 5 warm-up / compile steps from wherever this process started (a resumed run starts mid-way)
+            self.t.setdefault('first', state.global_step)
+            if state.global_step == self.t['first'] + 5 and 'start' not in self.t:
                 torch.cuda.synchronize(); self.t['start'] = time.time(); self.t['start_step'] = state.global_step
 
         def on_train_end(self, args, state, control, **kw):
@@ -106,13 +111,16 @@ def main():
     cfg = SFTConfig(output_dir=os.path.join(a.out, 'trainer'), per_device_train_batch_size=1,
                     gradient_accumulation_steps=a.grad_accum, max_steps=steps, learning_rate=a.lr,
                     lr_scheduler_type='cosine', warmup_steps=0.03, optim='adamw_8bit', weight_decay=0.0,
-                    logging_steps=1, save_strategy='no', report_to='none', bf16=torch.cuda.is_bf16_supported(),
+                    logging_steps=1, save_strategy='steps' if a.save_steps else 'no', save_steps=a.save_steps or 500,
+                    save_total_limit=2, report_to='none', bf16=torch.cuda.is_bf16_supported(),
                     fp16=not torch.cuda.is_bf16_supported(), max_length=a.max_seq, packing=False,
                     completion_only_loss=True, seed=3407, dataloader_num_workers=0)
     tr = SFTTrainer(model=model, processing_class=tok, train_dataset=ds, args=cfg, callbacks=[clock])
     torch.cuda.reset_peak_memory_stats()
     t0 = time.time()
-    tr.train()
+    ck = os.path.join(a.out, 'trainer')
+    resume = a.resume and os.path.isdir(ck) and any(d.startswith('checkpoint-') for d in os.listdir(ck))
+    tr.train(resume_from_checkpoint=True if resume else None)
     wall = time.time() - t0
     hist = [h for h in tr.state.log_history if 'loss' in h]
     gn = [h.get('grad_norm') for h in hist if h.get('grad_norm') is not None]
@@ -132,7 +140,8 @@ def main():
                        'all_finite': all(math.isfinite(x) for x in gn), 'any_zero': any(x == 0 for x in gn)},
          'loss_first5': [round(h['loss'], 4) for h in hist[:5]], 'loss_last5': [round(h['loss'], 4) for h in hist[-5:]],
          'gpu': torch.cuda.get_device_name(0), 'versions': vers, 'python': platform.python_version(),
-         'fit_test_only': a.fit_test_only, 'm2b_verified': a.m2b_verified}
+         'fit_test_only': a.fit_test_only, 'm2b_verified': a.m2b_verified, 'resumed': bool(resume),
+         'epochs': round(steps * a.grad_accum / len(rows), 3)}
     ok = gn and m['grad_norm']['all_finite'] and not m['grad_norm']['any_zero'] and min(gn) > 0
     m['verdict'] = 'OK' if ok else 'BROKEN: grad-norm missing, zero or non-finite'
     json.dump(m, open(os.path.join(a.out, 'metrics.json'), 'w'), indent=1)

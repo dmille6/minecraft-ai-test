@@ -40,6 +40,10 @@ def main():
         msgs = [{'role': 'system', 'content': it['system']}, {'role': 'user', 'content': it['user']}]
         good = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False)
         wrong = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=True)
+        if wrong == good:
+            # M3 qwen2.5 control (10-24): a base whose template has no thinking switch renders both the same, so the
+            # HF-side control becomes the render WITHOUT the generation prompt (it must count differently, too)
+            wrong = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
         hf = len(tok(good, add_special_tokens=False)['input_ids']); hf_wrong = len(tok(wrong, add_special_tokens=False)['input_ids'])
         ol = ollama_count(a.url, a.model, it['system'], it['user'])
         oc = ollama_count(a.url, a.control_model, it['system'], it['user']) if a.control_model else None
