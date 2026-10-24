@@ -125,7 +125,7 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
-  recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS,
+  recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail } from './mats.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
@@ -13128,8 +13128,7 @@ async function matsReturn (ctx, _args, signal) {
     // kept with the note when it stays open -- ONLY when this attempt's drain TOUCHED the furnace, or there is none (Claude r7 P3-1,
     // Codex r8 P2): an untouched lit/busy/unloaded wait has the loaded input still inside, so anything "back" then is input
     // gathered meanwhile; a PARTIAL drain (input back, output stuck) did return input, and that is the batch's
-    const touched = !note.furnace || /^(drained:\d+|empty)$/.test(drained)
-    if (touched && balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back
+    if (backSeenTouched(note, drained) && balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back
     balNow.verdict = recoveryVerdict(balNow, drained, note.kind)                     // TAKEN: mats.mjs recoveryVerdict
     // B3 ON THE RECOVERY (Claude r2 P2-D): no iron-ladder or fuel name fewer after it than before, beyond the order's own
     // charcoal made into torches

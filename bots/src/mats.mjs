@@ -506,6 +506,16 @@ export function copperBalance (note, { bag = {}, banked = {} } = {}) {
   return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
 }
 
+/** MAY THIS ATTEMPT RECORD INPUT AS BACK (note.backSeen)? -> true when its drain TOUCHED the furnace or there is none. Pure
+ *  (Claude r9 P3-2: the decision extracted, not pinned by a source regex). An untouched wait (lit, busy, unloaded, bag_full,
+ *  unreadable_or_lit, window, unreachable) still has the loaded input inside, so anything "back" then is input gathered meanwhile
+ *  (Claude r7 P3-1); a PARTIAL drain (drained:N, output stuck) did return input (Codex r8 P2); an empty furnace or one that is GONE
+ *  holds nothing of the batch any more (Claude r9 P3-1: gone, as r8 had it). */
+export function backSeenTouched (note, drained) {
+  if (!note?.furnace) return true
+  return /^(drained:\d+|empty|gone)$/.test(String(drained ?? ''))
+}
+
 /** THE RECOUNT'S OWN BACKOFF (Claude r3 P2-3): a container that could not be counted sits out its backoff -- the order's trigger
  *  must not see it, or a town with one unreachable container is all `count` orders. Pure: keys, a Map k -> { until }, now. */
 export function matsRecountable (keys = [], failed = new Map(), now = Date.now(), keyOf = k => k) {
