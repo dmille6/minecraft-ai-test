@@ -172,7 +172,8 @@ function exposedAt (R, x, y, z) {
 export const GROUNDED_MIN = 8          // solid cells straight under a support on the ground ...
 export const WORLD_FLOOR = -64        // ... followed down to the world's floor through short gaps and enclosed caves; a
                                        // sky-open deadly gap at any depth means it hangs (Codex r3-r5, Claude r4); water is ground
-export const DECK_MAX = 4              // a deck up to this thick (the support and 3 under it) over a deadly run still floats
+export const DECK_MAX = 16             // a deck up to this thick over a sky-open deadly run floats (a 5-layer deck: Codex r6 P1-1);
+                                       // natural rock over a cave is kept out by the sky test, not by thickness
 export const SKY_REACH = 64            // the void under a deck reaches open sky within this many cells straight out ...
 export const SKY_SIDES = 3             // ... in at least this many of the four directions (a cave mouth is one: Claude r4 P2-2)
 export const REGION_DROP = 6           // the walk profile's maxDropDown (index.mjs): where the model's own walks can take the bot
@@ -264,10 +265,10 @@ const groundedAt = (R, x, y, z) => {
     const k = R.kindAt(x, yy, z)
     if (k === 'unknown') return false
     if (k === 'water') return true
-    if (k !== 'open') return false                              // lava under the stretch
+    if (k !== 'open') return true                               // lava deep under a grounded stretch: still ground (Claude r6 P2-2)
     const r = R.run(x, yy, z)
     if (r.landing === 'unknown') return false
-    if (r.landing === 'water') return true
+    if (r.landing === 'water' || r.landing === 'lava') return true
     if (r.open >= ELEVATED_MIN) {
       // a deadly gap open to the sky: the stretch above it HANGS; an enclosed one is a cave in the ground, followed on
       const sky = skyOpenAt(R, x, yy, z)
@@ -298,7 +299,9 @@ export function regionAt (R, s, { radius = START_RADIUS, cap = 900 } = {}) {
     const c = q.shift()
     // the region's ground: a grounded column with at most one deadly side (a 2-wide column under a deck patch is not ground:
     // Claude r5 P3-5); a platform cannot follow it (Claude r3 P2-3)
-    if (!grounded && groundedAt(R, c.x, c.y, c.z) && (exposedAt(R, c.x, c.y, c.z)?.sides ?? 0) <= 1) { grounded = true; break }
+    // the region's ground: a grounded column none of whose four neighbours floats -- not a pillar beside or under a deck
+    // patch, not a 2-wide column under one (Claude r5 P3-5, r6 P3-4); a platform cannot follow it (Claude r3 P2-3)
+    if (!grounded && groundedAt(R, c.x, c.y, c.z) && !SIDES.some(([dx, dz]) => floatsAt(R, c.x + dx, c.y, c.z + dz) === true)) { grounded = true; break }
     if (!floating) {
       const f = floatsAt(R, c.x, c.y, c.z)
       if (f == null) blind = true
@@ -342,7 +345,10 @@ export function doneAt (R, x, y, z) {
   // (an ENCLOSED cave under a natural roof is terrain, not a drop the descent must close: nothing breaks the support once
   // it is done -- Codex r5 P2-3; a void open to the sky under the support is the platform's own)
   if (!(own.landing === 'water' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP)) {
-    const sky = own.open > 0 ? skyOpenAt(R, x, y - 1, z) : true
+    // enclosed only if CLOSED AT EVERY 8th LAYER down to the landing: a deck's void can be cluttered at its top and open lower
+    // down (Claude r6 P1-1)
+    let sky = own.open > 0 ? false : true
+    for (let yy = y - 1; own.open > 0 && yy > (own.landY ?? y - 1 - own.open) && sky === false; yy -= ELEVATED_MIN) sky = skyOpenAt(R, x, yy, z)
     if (sky !== false) return { done: false, unknown: sky === null, why: `${own.open} open below` }
   }
   // ON THE GROUND, a deadly side is terrain (a natural pit beside the landing: Codex r2 P2-4), not a platform edge
@@ -375,6 +381,7 @@ export function doneAt (R, x, y, z) {
   const reg = regionAt(R, { x, y, z })
   if (reg.platform) return { done: false, unknown: false, why: `still on a platform (a floating cell at ${reg.floating.x},${reg.floating.y},${reg.floating.z})` }
   if (reg.blind && !reg.grounded) return { done: false, unknown: true, why: 'the region around it is not loaded' }
+  if (walls === 4 && !ground) return { done: false, unknown: false, why: 'walled in off the ground (a canopy, not the ground)' }   // Claude r6 P1-1
   return { done: true, unknown: false, why: walls === 4 ? 'enclosed' : 'a safe stance' }
 }
 
