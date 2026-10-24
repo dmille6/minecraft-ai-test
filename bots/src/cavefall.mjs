@@ -175,13 +175,18 @@ export function floorOverDrop ({ target, at }) {
     try { b = at(t.x, t.y, t.z) } catch { b = null }
     const k = cellKind(b)
     if (k !== 'solid' && k !== 'stalagmite') return { skip: false, why: 'not solid' }
-    // THE FAST PATH (gather asks this of every candidate cell in range at enumeration, most of them buried): a full cube
-    // directly under T catches every placement 1 down; a full cube directly over it leaves no room to stand
-    let below, over
-    try { below = at(t.x, t.y - 1, t.z) } catch { below = null }
-    if (fullCube(below)) return { skip: false, why: 'solid under it', drop: 1, landing: 'solid', damage: 0 }
-    try { over = at(t.x, t.y + 1, t.z) } catch { over = null }
-    if (fullCube(over)) return { skip: false, why: 'nothing can stand on it' }
+    // THE FAST PATH (gather asks this of every candidate cell in range at enumeration, most of them buried), each step exact
+    // for the full verdict (Codex r4 P2-2: a full cube under T alone is NOT enough -- a body straddling an open neighbour can
+    // meet lava there first):
+    //   - a full cube directly OVER T: every placement's box meets it inside the body's volume, so no body stands on T;
+    //   - T a full cube with a full cube UNDER it and full cubes on all four cardinal sides at T's level: a placement over T
+    //     alone stops on the cube under T (a 1-block drop), and every other placement also rests on a cardinal cube (a box
+    //     reaching a diagonal column reaches both cardinals beside it), so none falls further.
+    const rd = (x, y, z) => { try { return at(x, y, z) } catch { return null } }
+    if (fullCube(rd(t.x, t.y + 1, t.z))) return { skip: false, why: 'nothing can stand on it' }
+    if (fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z)) && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => fullCube(rd(t.x + dx, t.y, t.z + dz)))) {
+      return { skip: false, why: 'solid under and around it', drop: 1, landing: 'solid', damage: 0 }
+    }
     const f = dropIfRemoved(at, t)
     if (!f.standing) return { skip: false, why: 'nothing can stand on it' }
     return f.damage >= 1 ? { skip: true, drop: f.drop, landing: f.landing, damage: f.damage, col: f.col }
