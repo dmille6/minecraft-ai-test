@@ -54,7 +54,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
          POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
-import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, plugDue, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP, PLUG_BUDGET_MS } from './plugcut.mjs'
+import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP, PLUG_BUDGET_MS } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -4791,9 +4791,18 @@ export async function escapeStairUp (bot, {
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
     const submerged = submergedAt(bot)
 
-    let choice = chooseStairUpBearing({
-      at, bearings: escapeBearings(bot.entity.yaw), depth, canBreak, submerged,
-    })
+    // plugcut-01: a licensed ramp chooses among the bearings that spare this firing's plugs first (plugcut.mjs sparePlugs)
+    const chooseBearing = () => {
+      const all = escapeBearings(bot.entity.yaw)
+      const any = () => chooseStairUpBearing({ at, bearings: all, depth, canBreak, submerged })
+      if (!plug || !plugCells.length) return any()
+      const f = p.floored()
+      const spared = sparePlugs({ bearings: all, placed: plugCells.map(c => [c.x - f.x, c.y - f.y, c.z - f.z]),
+                                  firstDig: b => stairUpStep({ at, bear: b, canBreak, submerged }).dig })
+      const c = spared.length ? chooseStairUpBearing({ at, bearings: spared, depth, canBreak, submerged }) : null
+      return c && c.runway > 0 ? c : any()
+    }
+    let choice = chooseBearing()
     // PLUGCUT-01, THE STEP'S WET FACE (plugcut.mjs stepPlugPlan; Paper 2026-10-24, isolated-c-Alpha: plugged, cut, and then
     // every bearing's first step refused for one flowing-water cell beside the W and S steps). Same licence as the ceiling
     // rung (a pinned bot, head in air), the same round budget, and the same rule: the step planner itself must accept the
@@ -4818,7 +4827,12 @@ export async function escapeStairUp (bot, {
         plugged += r.placed
         plugNote = r.note
         plugCells.push(...r.cells)
-        if (r.placed > 0 && r.ok) choice = chooseStairUpBearing({ at, bearings: escapeBearings(bot.entity.yaw), depth, canBreak, submerged })
+        if (r.placed > 0 && r.ok) {
+          // THE BEARING THESE PLUGS WERE FOR, FIRST: its plan already ranked any re-dig of this firing's plugs (chooseStepPlug),
+          // so sparing must not send the bot another way (isolated-d: the S step's headroom IS the ceiling's plug)
+          const mine = chooseStairUpBearing({ at, bearings: [bear], depth, canBreak, submerged })
+          choice = mine && mine.runway > 0 ? mine : chooseBearing()
+        }
         else stepPlugWhy = r.note
       }
     }
