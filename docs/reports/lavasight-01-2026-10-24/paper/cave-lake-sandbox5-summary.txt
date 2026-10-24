@@ -1,0 +1,12 @@
+== lava-1899-isolated-a-332_35_205 start 0
+  base started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [1, 1] | corridor rows [1, 1] | blind [0, 0] | danger [0, 0]
+  cand started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [0, 0] | corridor rows [0, 0] | blind [0, 0] | danger [0, 0]  | hook cells [107, 107] active [42, 42] priced [4606, 4759]
+== lava-1899-isolated-a-332_35_205 start 1
+  base started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [4, 4] | corridor rows [8, 7] | blind [0, 0] | danger [0, 0]
+  cand started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [4, 3] | corridor rows [6, 5] | blind [0, 0] | danger [0, 0]  | hook cells [107, 107] active [42, 42] priced [1901, 1466]
+== lava-1899-isolated-a-332_35_205 start 2
+  base started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [1, 0] | corridor rows [1, 0] | blind [0, 0] | danger [0, 0]
+  cand started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [0, 0] | corridor rows [0, 0] | blind [0, 0] | danger [0, 0]  | hook cells [107, 107] active [42, 42] priced [14051, 14048]
+== lava-1899-isolated-a-332_35_205 start 3
+  base started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [1, 1] | corridor rows [1, 1] | blind [0, 0] | danger [0, 0]
+  cand started 2, results 2, valid 2 | lava deaths 0 | survived 2 | episodes [0, 0] | corridor rows [0, 0] | blind [0, 0] | danger [0, 0]  | hook cells [107, 107] active [42, 42] priced [12374, 12347]
