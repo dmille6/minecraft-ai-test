@@ -436,3 +436,58 @@ P3
    under-charges. Worth one line in 3.3.
 3. priced_moves counts settles. It increments on the child move that carries a settle, even when the child's own segment is
    clean. Fine for exposure, but the route-row and liveness wording says "moves surcharged", not "segments refused".
+
+==================================================================================================================
+CODE r5 / DESIGN r6 (bea0b21e) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+- **P2 — Resumed searches still misprice executed segments.** `bots/src/lavasight.mjs:230,256,262` prices forms derived from immutable cells, but the plugin repeatedly post-processes the same output nodes (`bots/node_modules/mineflayer-pathfinder/index.js:95–99,168–190`). Deterministic reproduction using `ladderWorld`: force the first yield after two expansions, then resume without slicing. Result: **success, surcharge 50, two refused segments requiring 100**. After three expansions: **success, surcharge 150, four refused segments requiring 200**. Preserve search nodes separately from processed output; recording `_lsC` alone does not resolve the previous finding. Add deterministic yield points: `bots/test/lavasight.test.mjs:408,416` uses wall-clock timing and only requires either world to resume.
+
+- **P3 — Design still contradicts the corrected implementation.** `docs/reports/lavasight-01-design-2026-10-24.md:170` says unknown cells count as open; they now stop scans. Line 177 says climbables use cell centres without the successor condition. Update these statements to match the implementation and later sections.
+
+Read selftest and corridor wiring test passed. Full lavasight/publisher suites were not run because they write temporary files. Reproductions ran entirely in memory; no files modified.
+
+==================================================================================================================
+CODE r5 / DESIGN r6 (bea0b21e) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+Reviewed bea0b21e. The source change is right and I would approve it on its own. One committed test is not deterministic and
+asserts something the base pathfinder makes false, and it is part of the one test command, so it is a P1 under the repo's
+rules. The worktree has uncommitted edits to bots/test/lavasight.test.mjs (a fake clock, an "UPSTREAM RESIDUAL" test) that
+look like the right fix. I reviewed the commit, not those edits.
+
+P1
+1. RESUMED SEARCHES fails or passes on timing (bots/test/lavasight.test.mjs@bea0b21e:398-417). It uses a real-clock
+   tickTimeout: 0.2. I ran the committed suite (extracted into /private/tmp, source unchanged) five times: it failed 4 times
+   with "status after 41789" and "43493 slices", i.e. the 10 s search timeout, and passed once. Three of the failures were
+   while my background probe was loading the CPU, one after I stopped it. npm test would go red at random, which is the
+   "wrong runner, wrong verdict" failure CLAUDE.md warns about. Its ladder case asserts exact charging after resumed slices.
+   That cannot hold in general, because postProcessPath is not idempotent on a climbable: each pass puts a ladder node not
+   followed by a lower one on top of its shape (y+1, z +0.2); the next partial re-processes the already-moved object and
+   lifts it again, and path[i+1].y < curPoint.y also reads moved values. Slabs, full blocks, carpets and water are
+   idempotent; I checked by reasoning through getPositionOnTopOf. So when it passes, it passes because of where the slices
+   happened to fall. The mutant test at :418-434 (wrong > 0 over 6 real-clock runs) has the same problem. Fix:
+   deterministic slices (a fake perf_hooks clock), exactness asserted only where processing is idempotent, and the ladder
+   residual named as upstream behaviour. The uncommitted test edits do this. Commit them and I expect to approve.
+
+Verified (source, lavasight.mjs:226-276)
+- cellOf reads _lsC, recorded at generation before any postProcessPath. Forms, climb direction and settles all go through
+  it, so the mutable x/y/z is never read. processedForms gets the integer cell.
+- The late-index settle (:268-270) uses _lsIn when the move into the climbable was charged, otherwise a full settle from
+  _lsPar with charged: 0. Each child edge carries it once, and a path takes one child, so there is no double charge.
+- My property probe with single-slice searches, regenerated on this commit: 605 paths, 599 using a ladder, none
+  over-charged. Every charge is exact except the 36 paths that end on a ladder. The capped property held in 104 of 104 cases.
+- _lsPar keeps a parent reference per Move. A* already holds those chains, and after the search only the path's own chain
+  survives, so the memory cost is negligible.
+
+P3
+1. The late settle can use a moved start. When a climbable's parent is the search start, fromOf(node._lsPar, ...) takes
+   env.start, which is the bot's floored position now (index.mjs ctx). On a resumed search the bot may have walked on since
+   the start was expanded. This can only under-charge, and it is rare: a late index fill, a start-adjacent ladder and a
+   resumed search all at once.
+2. The ladder residual needs a line in 3.3. Long ladder searches that span partial results (40 ms ticks on the fleet) are
+   executed by the base pathfinder at shifted node positions, and lavasight charges the once-processed form. The guard is
+   unchanged, so this affects price only.
+3. The -0.5 vs -1.0 primary threshold is noted as the owner's call. Fine.
