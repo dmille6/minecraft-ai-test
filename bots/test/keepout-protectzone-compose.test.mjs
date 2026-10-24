@@ -155,11 +155,14 @@ const mcData = require_('minecraft-data')('1.21.8')
 function gatherWorld ({ dirt, at = [400.5, 64, 200.5], sites = [], zones = [] }) {
   const D = mcData.blocksByName.dirt, AIRT = mcData.blocksByName.air
   const set = new Set(dirt.map(([x, y, z]) => `${x},${y},${z}`))
+  // CAVEFALL-01: the dirt lies on rock -- a dirt cell floating over 32+ blocks of air is, correctly, a floor over a drop
+  const rock = new Set(dirt.map(([x, y, z]) => `${x},${y - 1},${z}`))
   const digs = [], refused = []
   const blk = (x, y, z) => {
     const isDirt = set.has(`${x},${y},${z}`)
-    const t = isDirt ? D : AIRT
-    return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: isDirt ? 'block' : 'empty', diggable: isDirt,
+    const isRock = !isDirt && rock.has(`${x},${y},${z}`)
+    const t = isDirt ? D : isRock ? mcData.blocksByName.stone : AIRT
+    return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: (isDirt || isRock) ? 'block' : 'empty', diggable: isDirt,
              canHarvest: () => true, digTime: () => 50, material: 'mineable/shovel', hardness: isDirt ? 0.5 : 0 }
   }
   const bot = {

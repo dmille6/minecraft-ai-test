@@ -397,8 +397,8 @@ if __name__ == '__main__':
         arm = 'canary' if (fleet or pool_of(b) in CANS) else 'control'
         per = 'post' if t >= CUT else 'pre'
         ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
-        if arm == 'canary' and per == 'post':
-            roster.add(b)                    # every canary bot, whatever its build (the licence roster)
+        if arm == 'canary':
+            roster.add(b)                    # every canary-pool bot seen in the window, pre or post, whatever its build (Claude r4 P3-7)
         if not fleet and arm == 'canary' and per == 'post' and CV and ver and not ver.startswith(CV):
             offbuild += 1
             continue
