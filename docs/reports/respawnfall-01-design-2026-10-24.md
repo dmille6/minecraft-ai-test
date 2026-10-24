@@ -1,4 +1,4 @@
-# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r2, 2026-10-24)
+# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r3, 2026-10-24)
 
 OWNER 2026-10-24 (through the coordinator): no world edits, so the one-time cleanup of isolated-a's sky platform is
 **not pursued** (that plan was never written). Build the code fix instead. A bot that spawns or respawns on a high
@@ -77,6 +77,15 @@ r2 separates **when an episode starts** from **when it is over** (Codex r1 P1-2)
 
   Water under the bot's own column no longer exempts deadly sides (Codex r1 P1-7). Lava below is elevated.
 
+  **The region (r3; Claude r2 P1-1, Codex r2 P1-2).** `regionAt` floods the stances a body can walk to within 8: a jump of
+  1, or a drop of up to REGION_DROP = 6 (the walk profile's maxDropDown). The region is a **platform** when it holds a
+  floating stance (8 or more open cells under it onto anything but water) **and no grounded one** (GROUNDED_MIN = 8 solid
+  cells under it).
+  - A bot that is locally safe on a platform region is elevated: a thick patch of deck, or a tree standing on the deck
+    (37 of the 174 spawn-square columns are topped by trees).
+  - A bot on the ground beside a bridge over a ravine is not: its own stance is grounded.
+  - A cliff top is not: none of its stances float.
+
   **Transient** readings are flagged and are never a verdict:
   - no position;
   - in the air;
@@ -89,11 +98,22 @@ r2 separates **when an episode starts** from **when it is over** (Codex r1 P1-2)
   - **a safe exit**: a side a body can step into whose drop is <= 3, or water. A flat step onto a block counts that block's
     own column, because a step onto a deck cell is still on the platform. Fully walled in rock also counts.
 
+  r3 adds four more conditions:
+  - **Lava is never a landing**, under the support or beside it (Codex r2 P1-1).
+  - **Drops count the landing's real collision top**: a bottom slab lowers the landing by half a block (Codex r2 P2-5).
+  - **On the ground**, a deadly side on fewer than 3 sides is terrain, such as a natural pit or ravine beside the landing
+    (Codex r2 P2-4). A pillar with 3 or more deadly sides is never done, grounded or not.
+  - **The region is not a platform.**
+
   A side that drops 4 to 7 beside a safe exit is ordinary terrain. An unreadable cell is unknown, never done.
 - **The episode** (`descendOrder`):
   - It **starts** for an elevated bot within SPAWN_WINDOW_MS = 10 min of a `spawn` event (login or respawn).
   - It **runs until done**, window or not. An unknown or transient reading keeps it open and still issues the order, and
     the skill waits on it (Codex r1 P1-6, Claude r1 P2-2).
+  - **Two things end it without a safe stance**, each with a `_sky_descend_end` row (Codex r2 P1-3, Claude r2 P2-2):
+    - water: swimming is travel, and poolescape and the swim reflexes own a wet body;
+    - a transient reading that lasts TRANSIENT_MAX_MS = 60 s, for example a ladder, a snow layer, or a body the server
+      keeps in the air.
   - The model never gets a turn while an episode is open.
   - A cave shelf long after a spawn is cavefall-01's, not this rule.
 - **The price** (`descentCost`, `columnReader`) simulates `rideFloorDown` straight down:
@@ -106,6 +126,7 @@ r2 separates **when an episode starts** from **when it is over** (Codex r1 P1-2)
   - a liquid one or two below (`rideFloorDown` stops at a liquid two below);
   - an unloaded cell;
   - a support it cannot break;
+  - a partial block in the column (Claude r2 P3-7);
   - more than SCAN = 400 steps.
 
   The reader is memoised per cell, so pricing 288 cells costs about 40k reads (10 ms).
@@ -133,7 +154,7 @@ fits inside the runner's 180 s** (Claude r1 P3-7).
      09-29; Claude r1 P2-5).
 1. **The cheapest reachable column** comes from `rankStarts`. Another cell is walked to on the **deck profile**
    (`bot.withDeckMovements`, index.mjs):
-   - maxDropDown 3;
+   - maxDropDown 3, with `infiniteLiquidDropdownDistance` off, so no plunge into water is planned (Claude r2 P2-3);
    - canDig false, no 1x1 towers, no parkour, no sprint;
    - `scafoldingBlocks` empty;
    - 15 s.
@@ -205,7 +226,7 @@ fits inside the runner's 180 s** (Claude r1 P3-7).
   deck's trees (176 oak_log cells stand on it, and their drops land on the deck), deterministic and bounded. Today it does
   not, and it says so.
 
-## 6. Tests (bots/test/respawnfall.test.mjs: 33 behaviour tests in `npm test`, ~77 s)
+## 6. Tests (bots/test/respawnfall.test.mjs: 45 behaviour tests in `npm test`, 79 s in the runner)
 
 **The trigger:**
 
@@ -281,6 +302,19 @@ fits inside the runner's 180 s** (Claude r1 P3-7).
 - no centring check.
 
 r1's two vacuous tests are gone (Claude r1 P3-8).
+
+**r3 adds:**
+
+- the thick patch: not done, no free start, elevated;
+- the tree on the deck: elevated;
+- the ground beside a bridge over a ravine: not a platform, although the bridge is seen floating;
+- the lava lake;
+- the natural pit beside the landing;
+- slab landings;
+- a partial block in the column;
+- water ending an episode, and the 60-s transient clock with its reset;
+- four more anchored mutants: done without the region, the trigger without the region, lava read as a landing, and water
+  ignored.
 
 **Wiring** (comments stripped):
 
@@ -378,3 +412,4 @@ latest `_sky_descend` row is a stay and it has not moved 2 blocks since. This li
 | round | Codex | Claude subagent | what changed |
 |---|---|---|---|
 | design + code r1 (d6b69508) | CHANGES (9 P1, 1 P2) | CHANGES (1 P1, 4 P2, 7 P3) | r2 (16b2e923): done separated from the trigger (Codex P1-2, Claude P3-6); episodes end only on a verified stance (Codex P1-6, Claude P2-2); the lattice/last-resort/watchdog gate (Codex P1-3, Claude P2-4); a free column needs no blocks (P1-4); ranked reachable starts with failed walks excluded (P1-5, Claude P3-10); water under one column (P1-7); truthful stay text, no pickup claim, Q3 (Codex P1-8, Claude P1-1); full-cube supports only (P2-9); diggable supports priced (Claude P2-3); the centre verified (Codex P1-1; Claude showed fullStop snaps); the spawn grace (Claude P2-5); the run inside 140 s (P3-7); vacuous tests replaced (P3-8); G1 any death (P3-11); exposure worded to the measured population with evidence files (Codex P10, Claude P3-12). Claude P3-9 (extract the step_off decision): the gate is now one exported pure predicate, behaviour-tested, asked at two sites |
+| design + code r2 (16b2e923) | CHANGES (3 P1, 3 P2) | CHANGES (1 P1, 4 P2, 2 P3) | r3 (1012a88e): the region test in the trigger and done (Claude P1-1, Codex P1-2); lava never a landing (Codex P1-1); water ends an episode and a 60-s transient clock (Codex P1-3, Claude P2-2); the deck walk's liquid plunge off (Claude P2-3); thick decks via the region (Claude P2-4); a grounded landing beside a natural pit (Codex P2-4); slab landings (Codex P2-5); a partial block in the column (Claude P3-7); the stay reason on a partial support (Claude P3-6); Paper deck runs recorded (§7; Codex P2-6, Claude P2-5) |
