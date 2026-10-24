@@ -20,6 +20,7 @@ import { readFileSync, writeFileSync, unlinkSync, mkdtempSync, utimesSync } from
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
+import { EventEmitter } from 'node:events'
 import { Vec3 } from 'vec3'
 
 const require_ = createRequire(import.meta.url)
@@ -108,43 +109,63 @@ await t('the reader: absent -> ok -> stale WITHOUT a new file; a broken rewrite 
 })
 
 // ------------------------------------------------------------------ 3. the footprint is the guard's
-function makeWorld ({ floor = 60, lava = [], air = [], stone = [] } = {}) {
+const { Movements, pathfinder, goals } = require_('mineflayer-pathfinder')
+const registry = require_('prismarine-registry')('1.21.8')
+const Block = require_('prismarine-block')(registry)
+// ONE WORLD for the guard, the index and the pathfinder: prismarine blocks (name, boundingBox, shapes); `unknown` cells read null
+function makeWorld ({ floor = 60, lava = [], air = [], stone = [], slab = [], carpet = [], water = [], unknown = [] } = {}) {
   const key = (x, y, z) => `${x},${y},${z}`
-  const L = new Set(lava.map(c => key(...c))), A = new Set(air.map(c => key(...c))), S = new Set(stone.map(c => key(...c)))
-  const nameAt = (x, y, z) => { const k = key(x, y, z); if (L.has(k)) return 'lava'; if (S.has(k)) return 'stone'; if (A.has(k)) return 'air'; return y <= floor ? 'stone' : 'air' }
-  const at = (x, y, z) => { const n = nameAt(x, y, z); return { name: n, boundingBox: n === 'stone' ? 'block' : 'empty' } }
-  const solidAt = (x, y, z) => nameAt(x, y, z) === 'stone'
+  const sets = [['lava', lava], ['smooth_stone_slab', slab], ['white_carpet', carpet], ['water', water], ['stone', stone], ['air', air]]
+    .map(([n, l]) => [n, new Set(l.map(c => key(...c)))])
+  const U = new Set(unknown.map(c => key(...c)))
+  const nameAt = (x, y, z) => { const k = key(x, y, z); for (const [n, S] of sets) if (S.has(k)) return n; return y <= floor ? 'stone' : 'air' }
+  const cache = new Map()
+  const at = (x, y, z) => {
+    x = Math.floor(x); y = Math.floor(y); z = Math.floor(z)
+    const k = key(x, y, z)
+    if (U.has(k)) return null
+    let b = cache.get(k)
+    if (!b) { b = Block.fromStateId(registry.blocksByName[nameAt(x, y, z)].defaultState, 0); b.position = new Vec3(x, y, z); cache.set(k, b) }
+    return b
+  }
+  const solidAt = (x, y, z) => { const b = at(x, y, z); return b == null ? null : b.boundingBox === 'block' }
   return { at, solidAt, nameAt }
 }
 function rng (seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32 } }
-function guardRefusesAt (at, F) { return !corridorSafe(at, [F, F]).safe }
+// a refusal BECAUSE OF LAVA (an unknown cell is refused for being unknown: not this design's business)
+const lavaRefused = (at, nodes) => { const v = corridorSafe(at, nodes); return !v.safe && !/unknown/.test(v.why) }
+function guardRefusesAt (at, F) { return lavaRefused(at, [F, F]) }
 
-await t('CORE == the corridor guard\'s refusal, cell by cell, on 60 synthetic worlds (occlusion, buried lava, pits, drops)', () => {
+await t('CORE == the corridor guard\'s lava refusal, cell by cell, on 80 synthetic worlds (occlusion, buried lava, pits, drops, unknown cells)', () => {
   const r = rng(7)
   let cells = 0, core = 0
-  for (let w = 0; w < 60; w++) {
+  for (let w = 0; w < 80; w++) {
     const Lx = 0, Lz = 0, Ly = 50 + Math.floor(r() * 11)          // from 10 under the floor to the floor itself
-    const air = [], stone = []
-    // noise: carve pits and caves, drop slabs, around the lava cell
+    const air = [], stone = [], unknown = []
     for (let i = 0; i < 60; i++) {
       const c = [Math.floor(r() * 11) - 5, Ly - 2 + Math.floor(r() * 16), Math.floor(r() * 11) - 5]
       ;(r() < 0.6 ? air : stone).push(c)
     }
-    // a guaranteed open shaft over the lava in half the worlds (the drop case)
     if (w % 2) for (let y = Ly + 1; y <= 61; y++) air.push([Lx + (w % 4 === 1 ? 0 : 1), y, Lz])
-    const world = makeWorld({ floor: 60, lava: [[Lx, Ly, Lz]], air, stone })
+    if (w % 5 === 0) for (let i = 0; i < 12; i++) unknown.push([Math.floor(r() * 5) - 2, Ly + 1 + Math.floor(r() * 10), Math.floor(r() * 5) - 2])
+    const world = makeWorld({ floor: 60, lava: [[Lx, Ly, Lz]], air, stone, unknown })
     const idx = LS.buildPriceIndex([{ x: Lx, y: Ly, z: Lz }], world.solidAt)
     for (let x = -5; x <= 5; x++) for (let z = -5; z <= 5; z++) for (let y = Ly - 2; y <= Ly + 14; y++) {
       const g = guardRefusesAt(world.at, { x, y, z })
       const p = idx.has(LS.packKey(x, y, z))
       cells++; if (p) core++
-      assert.equal(p, g, `world ${w} lava ${Lx},${Ly},${Lz}: feet ${x},${y},${z} guard=${g} core=${p}`)
+      // with unknown cells about, the guard can refuse a cell for the unknown before it reaches the lava, so the oracle is
+      // two implications: every lava refusal is in the core, and every core cell is one the guard refuses (for any reason)
+      if (unknown.length) {
+        if (g) assert.ok(p, `world ${w}: feet ${x},${y},${z} refused for lava but not in the core`)
+        if (p) assert.ok(!corridorSafe(world.at, [{ x, y, z }, { x, y, z }]).safe, `world ${w}: feet ${x},${y},${z} in the core but the guard accepts it`)
+      } else assert.equal(p, g, `world ${w} lava ${Lx},${Ly},${Lz}: feet ${x},${y},${z} guard=${g} core=${p}`)
     }
   }
   assert.ok(core > 1000 && core < cells / 2, `positive control: core ${core} of ${cells}`)
 })
 await t('MUTANT KILLED: dropping the occlusion test (lava under a roof priced) breaks the equivalence', async () => {
-  await withMutant(LS_URL, '    if (!open(x, z, y + k - 1, y + 1)) break\n    for (let dx = -1;', '    for (let dx = -1;', async mod => {
+  await withMutant(LS_URL, '  const upL = openUp(x, z)\n', '  const upL = DROP_DY\n', async mod => {
     const world = makeWorld({ floor: 60, lava: [[0, 57, 0]] })
     const idx = mod.buildPriceIndex([{ x: 0, y: 57, z: 0 }], world.solidAt)
     assert.equal(guardRefusesAt(world.at, { x: 0, y: 59, z: 0 }), false, 'the guard accepts: a roof at 58 stops the scan')
@@ -152,7 +173,7 @@ await t('MUTANT KILLED: dropping the occlusion test (lava under a roof priced) b
   })
 })
 await t('MUTANT KILLED: dropping the 12-deep drop column misses a pit over lava', async () => {
-  await withMutant(LS_URL, '    for (let k = 1; k <= DROP_DY; k++) {', '    for (let k = 1; k <= 0; k++) {', async mod => {
+  await withMutant(LS_URL, '    for (let k = 1; k <= DROP_DY && k - 1 <= up; k++) emit(', '    for (let k = 1; k <= 0 && k - 1 <= up; k++) emit(', async mod => {
     const air = []; for (let y = 52; y <= 61; y++) air.push([1, y, 0])
     const world = makeWorld({ floor: 60, lava: [[0, 51, 0]], air })
     const idx = mod.buildPriceIndex([{ x: 0, y: 51, z: 0 }], world.solidAt)
@@ -160,41 +181,57 @@ await t('MUTANT KILLED: dropping the 12-deep drop column misses a pit over lava'
     assert.equal(idx.has(mod.packKey(1, 60, 0)), false, 'the mutant misses it')
   })
 })
+await t('MUTANT KILLED: treating an unknown cell as open prices a drop the guard stops safe at (Codex r2 P2)', async () => {
+  const air = []; for (let y = 1; y <= 12; y++) air.push([0, y, 0])
+  const world = makeWorld({ floor: 0, lava: [[0, 0, 0]], air, unknown: [[0, 6, 0]] })
+  assert.equal(guardRefusesAt(world.at, { x: 0, y: 10, z: 0 }), false, 'positive control: the guard stops at the unknown cell 4 down, safe')
+  assert.equal(LS.buildPriceIndex([{ x: 0, y: 0, z: 0 }], world.solidAt).has(LS.packKey(0, 10, 0)), false)
+  await withMutant(LS_URL, '  const openUp = (cx, cz) => { let n = 0; while (n < DROP_DY - 1 && solidAt(cx, y + 1 + n, cz) === false) n++; return n }',
+    '  const openUp = (cx, cz) => { let n = 0; while (n < DROP_DY - 1 && solidAt(cx, y + 1 + n, cz) !== true) n++; return n }', async mod => {
+      assert.equal(mod.buildPriceIndex([{ x: 0, y: 0, z: 0 }], world.solidAt).has(mod.packKey(0, 10, 0)), true, 'the mutant prices it')
+    })
+})
 
-// ------------------------------------------------------------------ 4. never a wall
-const { Movements } = require_('mineflayer-pathfinder')
-const registry = require_('prismarine-registry')('1.21.8')
-const Block = require_('prismarine-block')(registry)
-function pfBot (world, pos = new Vec3(0.5, 61, 0.5), extra = {}) {
-  const cache = new Map()
-  const blockAt = p => {
-    const k = `${p.x},${p.y},${p.z}`
-    let b = cache.get(k)
-    if (!b) { b = Block.fromStateId(registry.blocksByName[world.nameAt(p.x, p.y, p.z)].defaultState, 0); b.position = new Vec3(p.x, p.y, p.z); cache.set(k, b) }
-    return b
+// ------------------------------------------------------------------ 4. the REAL pathfinder: the plugin, postProcessPath included
+// A fake bot carrying the installed mineflayer-pathfinder plugin, so getPathFromTo returns exactly the nodes index.mjs's
+// corridor hook hands the guard: [floor(bot position), ...result.path] after postProcessPath.
+function harness (world, pos = new Vec3(0.5, 61, 0.5)) {
+  const bot = new EventEmitter()
+  Object.assign(bot, { registry, version: '1.21.8', entity: { position: pos, onGround: true, effects: {}, velocity: new Vec3(0, 0, 0), height: 1.8, width: 0.6 },
+    entities: {}, inventory: { items: () => [] }, game: { minY: -64, height: 384 }, world: {} })
+  bot.blockAt = p => world.at(p.x, p.y, p.z)
+  pathfinder(bot)
+  bot.pathfinder.bestHarvestTool = () => null
+  const profile = ({ canDig = false } = {}) => {
+    const m = new Movements(bot); m.canDig = canDig; m.allowParkour = false; m.allowSprinting = false; m.placeCost = 5
+    m.exclusionAreasStep = [b => (b?.liquid ? 1 : 0)]   // index.mjs's water entry price
+    return m
   }
-  return { registry, version: '1.21.8', blockAt, entity: { position: pos, effects: {}, onGround: true }, entities: {},
-           inventory: { items: () => [] }, pathfinder: { bestHarvestTool: () => null }, game: { minY: -64, height: 384 }, ...extra }
+  const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
+  const env = () => ({ start: { x: Math.floor(bot.entity.position.x), y: Math.floor(bot.entity.position.y), z: Math.floor(bot.entity.position.z) },
+                       blockAt: (x, y, z) => world.at(x, y, z), ids })
+  const wrap = (m, idx, counters = {}, ctx = {}) => { m.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null, env: env(), ...ctx }), counters); return m }
+  const plan = (m, goal, searchRadius = -1) => {
+    const g = bot.pathfinder.getPathFromTo(m, bot.entity.position, goal, { timeout: 10000, tickTimeout: 10000, searchRadius })
+    let v = g.next().value; while (v.result.status === 'partial') v = g.next().value
+    return v.result
+  }
+  const guardNodes = r => { const p = bot.entity.position; return [{ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, ...r.path.map(n => ({ x: n.x, y: n.y, z: n.z }))] }
+  return { bot, profile, wrap, plan, guardNodes }
 }
-function profile (bot, { canDig = false } = {}) {
-  const m = new Movements(bot); m.canDig = canDig; m.allowParkour = false; m.allowSprinting = false; m.placeCost = 5
-  m.exclusionAreasStep = [b => (b?.liquid ? 1 : 0)]   // index.mjs's water entry price, so liquids are charged as on the fleet
-  return m
-}
-const poolWorld = () => {
+const poolWorld = (o = {}) => {
   const lava = []; for (let x = 2; x <= 8; x++) lava.push([x, 60, 1])      // a lava strip in the floor, beside the straight line
-  return makeWorld({ floor: 60, lava })
+  return makeWorld({ floor: 60, lava, ...o })
 }
+const poolIdx = world => LS.buildPriceIndex([2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 })), world.solidAt)
+
 await t('NEVER A WALL: the wrapped profile yields the base\'s neighbour set exactly; costs only rise, by 0 or CORE_MOVE', () => {
-  const world = poolWorld(), bot = pfBot(world)
-  const idx = LS.buildPriceIndex([2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 })), world.solidAt)
+  const world = poolWorld(), H = harness(world), idx = poolIdx(world)
   for (const canDig of [false, true]) {
-    const base = profile(bot, { canDig }), cand = profile(bot, { canDig })
-    const counters = {}
-    cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null }), counters)
+    const base = H.profile({ canDig }), counters = {}, cand = H.wrap(H.profile({ canDig }), idx, counters)
     let priced = 0
     for (let x = -2; x <= 10; x++) for (let z = -3; z <= 4; z++) for (const y of [61, 62]) {
-      const node = { x, y, z, remainingBlocks: 4, hash: `${x},${y},${z}` }
+      const node = { x, y, z, remainingBlocks: 4, hash: `${x},${y},${z}`, toBreak: [], toPlace: [], _lsGen: true }
       const a = base.getNeighbors(node), b = cand.getNeighbors(node)
       assert.deepEqual(b.map(n => n.hash), a.map(n => n.hash), `node ${x},${y},${z}: the neighbour set moved`)
       for (let i = 0; i < a.length; i++) {
@@ -209,100 +246,138 @@ await t('NEVER A WALL: the wrapped profile yields the base\'s neighbour set exac
 })
 await t('MUTANT KILLED: a wrapper that drops priced moves (a wall) is caught by the set test and by set_changed (G3)', async () => {
   await withMutant(LS_URL, '      ns[i].cost += s\n', '      ns[i].cost += s; if (s === CORE_MOVE) { ns.splice(i, 1); i-- }\n', async mod => {
-    const world = poolWorld(), bot = pfBot(world)
+    const world = poolWorld(), H = harness(world)
     const idx = mod.buildPriceIndex([{ x: 4, y: 60, z: 1 }], world.solidAt)
     const counters = {}
-    const cand = profile(bot); cand.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null }), counters)
-    const base = profile(bot)
-    const node = { x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0' }
-    assert.notEqual(cand.getNeighbors(node).length, base.getNeighbors(node).length, 'the mutant deletes moves')
+    const cand = H.profile(); cand.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null }), counters)
+    const node = { x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0', toBreak: [], toPlace: [], _lsGen: true }
+    assert.notEqual(cand.getNeighbors(node).length, H.profile().getNeighbors(node).length, 'the mutant deletes moves')
     assert.ok(counters.set_changed > 0, 'and G3 sees it')
   })
 })
 
-await t('THE MOVE IS PRICED IFF THE GUARD WOULD REFUSE IT (either node form), over every neighbour on 20 noisy worlds', () => {
+// THE WORLDS for the executed-form tests: slabs and carpets (postProcessPath moves a node onto a partial top: Codex r2 P1),
+// water, pits, and lava at and under the floor
+function noisyWorld (r) {
+  const lava = [], air = [], stone = [], slab = [], carpet = [], water = []
+  for (let i = 0; i < 3; i++) lava.push([Math.floor(r() * 9) - 4, 59 + Math.floor(r() * 3), Math.floor(r() * 9) - 4])
+  for (let i = 0; i < 30; i++) {
+    const x = Math.floor(r() * 17) - 8, z = Math.floor(r() * 17) - 8, u = r()
+    if (u < 0.3) slab.push([x, 60, z])
+    else if (u < 0.45) carpet.push([x, 61, z])
+    else if (u < 0.55) water.push([x, 60, z])
+    else if (u < 0.75) air.push([x, 60, z])
+    else stone.push([x, 61, z])
+  }
+  return { world: makeWorld({ floor: 60, lava, air, stone, slab, carpet, water }), lava }
+}
+const spot = (world, r) => {
+  for (let i = 0; i < 20; i++) {
+    const x = Math.floor(r() * 13) - 6, z = Math.floor(r() * 13) - 6
+    if (world.nameAt(x, 61, z) === 'air' && world.nameAt(x, 62, z) === 'air' && world.solidAt(x, 60, z) && world.nameAt(x, 60, z) === 'stone') return new Vec3(x + 0.5, 61, z + 0.5)
+  }
+  return null
+}
+await t('THE MOVE IS PRICED IFF THE GUARD REFUSES IT AS EXECUTED: every segment of real planned paths (slabs, carpets, water, digs)', () => {
   const r = rng(11)
-  let moves = 0, priced = 0
-  for (let w = 0; w < 20; w++) {
-    const lava = [[Math.floor(r() * 5) - 2, 57 + Math.floor(r() * 4), Math.floor(r() * 5) - 2]]
-    const air = [], stone = []
-    for (let i = 0; i < 40; i++) (r() < 0.5 ? air : stone).push([Math.floor(r() * 13) - 6, 58 + Math.floor(r() * 5), Math.floor(r() * 13) - 6])
-    const world = makeWorld({ floor: 60, lava, air, stone })
+  let segs = 0, priced = 0, planned = 0
+  for (let w = 0; w < 40; w++) {
+    const { world, lava } = noisyWorld(r)
     const idx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), world.solidAt)
-    const m = profile(pfBot(world), { canDig: true })
-    for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) for (const y of [59, 60, 61, 62]) {
-      for (const n of m.getNeighbors({ x, y, z, remainingBlocks: 2, hash: `${x},${y},${z}` })) {
-        const g = !corridorSafe(world.at, [{ x, y, z }, { x: n.x, y: n.y, z: n.z }]).safe ||
-                  !corridorSafe(world.at, [{ x: x + 0.5, y, z: z + 0.5 }, { x: n.x + 0.5, y: n.y, z: n.z + 0.5 }]).safe
-        const p = LS.moveSurcharge(idx, { x, y, z }, n) > 0
-        moves++; if (p) priced++
-        assert.equal(p, g, `world ${w}: move ${x},${y},${z} -> ${n.hash} guard=${g} priced=${p}`)
+    for (let k = 0; k < 6; k++) {
+      const pos = spot(world, r); if (!pos) continue
+      const H = harness(world, pos)
+      const res = H.plan(H.wrap(H.profile({ canDig: k % 2 === 1 }), idx), new goals.GoalNear(Math.floor(r() * 17) - 8, 61, Math.floor(r() * 17) - 8, 1))
+      if (!res.path.length) continue
+      planned++
+      const nodes = H.guardNodes(res)
+      for (let i = 0; i < res.path.length; i++) {
+        const g = lavaRefused(world.at, [nodes[i], nodes[i + 1]])
+        const p = (res.path[i]._lsS ?? 0) > 0
+        segs++; if (p) priced++
+        assert.equal(p, g, `world ${w} path ${k}: segment ${JSON.stringify(nodes[i])} -> ${JSON.stringify(nodes[i + 1])} guard=${g} priced=${p}`)
       }
     }
   }
-  assert.ok(priced > 100 && priced < moves, `positive control: ${priced} of ${moves} moves priced`)
+  assert.ok(planned >= 100 && priced > 10 && priced < segs, `positive control: ${priced} of ${segs} executed segments priced, ${planned} paths`)
 })
-// ------------------------------------------------------------------ 5. routes on a real A*
-const AStar = require_('mineflayer-pathfinder/lib/astar.js')
-const Move = require_('mineflayer-pathfinder/lib/move.js')
-const { goals } = require_('mineflayer-pathfinder')
-function plan (m, from, goal) {
-  const a = new AStar(new Move(from.x, from.y, from.z, 0, 0), m, goal, 5000, 5000, -1)
-  let r = a.compute(); while (r.status === 'partial') r = a.compute()
-  return r
-}
-const nodesOf = (from, r) => [{ x: from.x, y: from.y, z: from.z }, ...r.path.map(n => ({ x: n.x, y: n.y, z: n.z }))]
+await t('A SLAB FLOOR: the guard floors a node on a bottom slab a cell lower, and the move is priced for it (Codex r2 P1)', () => {
+  const slab = []; for (let x = -1; x <= 6; x++) for (let z = -2; z <= 2; z++) slab.push([x, 60, z])
+  const world = makeWorld({ floor: 59, slab, lava: [[2, 60, 2]] })
+  const H = harness(world, new Vec3(0.5, 60.5, 0.5))
+  const idx = LS.buildPriceIndex([{ x: 2, y: 60, z: 2 }], world.solidAt)
+  const res = H.plan(H.wrap(H.profile(), idx), new goals.GoalBlock(4, 61, 0))
+  assert.ok(res.path.length, 'a path')
+  const nodes = H.guardNodes(res)
+  assert.ok(nodes.slice(1).some(n => n.y === 60.5), 'positive control: postProcessPath put the nodes on the slab tops')
+  let pricedSeen = 0
+  for (let i = 0; i < res.path.length; i++) {
+    const g = lavaRefused(world.at, [nodes[i], nodes[i + 1]])
+    if (g) pricedSeen++
+    assert.equal((res.path[i]._lsS ?? 0) > 0, g, `segment ${i}`)
+  }
+  void pricedSeen
+})
+await t('CAPPED SEARCHES: wherever the base reaches a goal within a cost cap by a route the guard accepts, the candidate does too (Codex r2 P1)', () => {
+  const r = rng(23)
+  let checked = 0
+  for (let w = 0; w < 40; w++) {
+    const { world, lava } = noisyWorld(r)
+    const idx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), world.solidAt)
+    for (let k = 0; k < 6; k++) {
+      const pos = spot(world, r); if (!pos) continue
+      const H = harness(world, pos)
+      const goal = new goals.GoalNear(Math.floor(r() * 17) - 8, 61, Math.floor(r() * 17) - 8, 1)
+      const rb = H.plan(H.profile(), goal)
+      if (rb.status !== 'success' || !rb.path.length || lavaRefused(world.at, H.guardNodes(rb))) continue
+      // the tightest cap the base still passes: astar's maxCost = h(start) + searchRadius = the base route's own cost
+      const start = { x: Math.floor(pos.x), y: 61, z: Math.floor(pos.z) }
+      const cap = rb.cost - goal.heuristic(start) + 1e-6
+      const rc = H.plan(H.wrap(H.profile(), idx), goal, cap)
+      checked++
+      assert.equal(rc.status, 'success', `world ${w}: capped at ${cap.toFixed(2)} the candidate failed where the base passed by a guard-accepted route`)
+      assert.ok(rc.cost <= rb.cost + 1e-6, `and no dearer (${rc.cost} vs ${rb.cost})`)
+    }
+  }
+  assert.ok(checked >= 40, `positive control: ${checked} capped cases`)
+})
+
+// ------------------------------------------------------------------ 5. routes on the real pathfinder
 await t('ROUTE: the base plans the pool edge the guard refuses; the candidate plans a detour the guard accepts', () => {
-  const world = poolWorld(), bot = pfBot(world)
-  const from = { x: 0, y: 61, z: 0 }, goal = new goals.GoalBlock(10, 61, 0)
-  const base = profile(bot)
-  const rb = plan(base, from, goal)
+  const world = poolWorld(), H = harness(world), goal = new goals.GoalBlock(10, 61, 0)
+  const rb = H.plan(H.profile(), goal)
   assert.equal(rb.status, 'success')
-  assert.equal(corridorSafe(world.at, nodesOf(from, rb)).safe, false, 'positive control: the base route is refused by the guard')
-  const idx = LS.buildPriceIndex([2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 })), world.solidAt)
-  const cand = profile(bot); cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null }), {})
-  const rc = plan(cand, from, goal)
+  assert.equal(lavaRefused(world.at, H.guardNodes(rb)), true, 'positive control: the base route is refused by the guard')
+  const rc = H.plan(H.wrap(H.profile(), poolIdx(world)), goal)
   assert.equal(rc.status, 'success')
-  assert.equal(corridorSafe(world.at, nodesOf(from, rc)).safe, true, 'the candidate route passes the guard')
+  assert.equal(lavaRefused(world.at, H.guardNodes(rc)), false, 'the candidate route passes the guard')
 })
 await t('ROUTE, NO DETOUR: a sealed 1-wide tunnel beside lava -- the candidate still plans the only way (no dead end)', () => {
-  // solid rock to y 62; the tunnel is (0..10, 61..62, 0); lava sits in the tunnel's side wall at (2..8, 61, 1)
   const lava = [], air = []
   for (let x = 0; x <= 10; x++) air.push([x, 61, 0], [x, 62, 0])
   for (let x = 2; x <= 8; x++) lava.push([x, 61, 1])
-  const world = makeWorld({ floor: 62, lava, air })
-  const bot = pfBot(world)
-  const from = { x: 0, y: 61, z: 0 }, goal = new goals.GoalBlock(10, 61, 0)
+  const world = makeWorld({ floor: 62, lava, air }), H = harness(world), goal = new goals.GoalBlock(10, 61, 0)
   const idx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), world.solidAt)
-  const rb = plan(profile(bot), from, goal)
-  const cand = profile(bot); cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null }), {})
-  const rc = plan(cand, from, goal)
+  const rb = H.plan(H.profile(), goal), rc = H.plan(H.wrap(H.profile(), idx), goal)
   assert.equal(rb.status, 'success'); assert.equal(rc.status, 'success', 'the candidate is never worse at reaching the goal')
   assert.deepEqual(rc.path.map(n => n.hash), rb.path.map(n => n.hash), 'the only way, the same way')
   assert.ok(rc.cost > rb.cost, 'positive control: the candidate did price it')
 })
 await t('NOPATH IS THE BASE\'S: an unreachable goal is noPath for both, a reachable one reached by both (same graph)', () => {
-  // a fenced plot (stone walls 3 high, no digging, no scaffold) makes the search finite
   const stone = []
   for (let x = -5; x <= 13; x++) for (const z of [-5, 6]) for (const y of [61, 62, 63]) stone.push([x, y, z])
   for (let z = -5; z <= 6; z++) for (const x of [-5, 13]) for (const y of [61, 62, 63]) stone.push([x, y, z])
-  const lava = []; for (let x = 2; x <= 8; x++) lava.push([x, 60, 1])
-  const fenced = makeWorld({ floor: 60, lava, stone })
-  const fb = pfBot(fenced)
-  const fidx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), fenced.solidAt)
-  const fw = profile(fb); fw.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx: fidx, live: true, reflex: null }), {})
+  const world = poolWorld({ stone }), H = harness(world)
   const outside = new goals.GoalBlock(20, 61, 0)
-  assert.equal(plan(profile(fb), { x: 0, y: 61, z: 0 }, outside).status, 'noPath', 'positive control: the base cannot leave the plot')
-  assert.equal(plan(fw, { x: 0, y: 61, z: 0 }, outside).status, 'noPath')
-  assert.equal(plan(fw, { x: 0, y: 61, z: 0 }, new goals.GoalBlock(10, 61, 0)).status, 'success')
+  assert.equal(H.plan(H.profile(), outside).status, 'noPath', 'positive control: the base cannot leave the plot')
+  assert.equal(H.plan(H.wrap(H.profile(), poolIdx(world)), outside).status, 'noPath')
+  assert.equal(H.plan(H.wrap(H.profile(), poolIdx(world)), new goals.GoalBlock(10, 61, 0)).status, 'success')
 })
-await t('ROUTE, EGRESS: a bot standing on the pool edge gets a path out, and the first step leaves the core', () => {
-  const world = poolWorld(), bot = pfBot(world, new Vec3(5.5, 61, 0.5))
-  const idx = LS.buildPriceIndex([2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 })), world.solidAt)
-  const cand = profile(bot); cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null }), {})
-  const r = plan(cand, { x: 5, y: 61, z: 0 }, new goals.GoalBlock(5, 61, -8))
+await t('ROUTE, EGRESS: a bot standing on the pool edge gets a path out, and the first step leaves the footprint', () => {
+  const world = poolWorld(), H = harness(world, new Vec3(5.5, 61, 0.5)), idx = poolIdx(world)
+  const r = H.plan(H.wrap(H.profile(), idx), new goals.GoalBlock(5, 61, -8))
   assert.equal(r.status, 'success')
-  assert.ok(r.path[0].z < 0, `the first step leaves the edge (to ${r.path[0].hash})`)
+  assert.ok(r.path[0].z < 0.5, `the first step leaves the edge (to ${r.path[0].x},${r.path[0].z})`)
 })
 
 // ------------------------------------------------------------------ 6. scope
@@ -314,24 +389,24 @@ await t('SCOPE: priceLive is off under every body-moving reflex, on while eating
   assert.equal(LS.lavasightOn({ LAVASIGHT: '0' }), false); assert.equal(LS.lavasightOn({}), true)
 })
 await t('SCOPE on the wrapper: a reflex-held search is not priced, and G2 counts what WOULD have been (held_seen), never held_priced', () => {
-  const world = poolWorld(), bot = pfBot(world)
+  const world = poolWorld(), H = harness(world)
   const idx = LS.buildPriceIndex([{ x: 4, y: 60, z: 1 }], world.solidAt)
   const counters = {}
   const reflex = 'drown_rescue'
-  const cand = profile(bot); cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: LS.priceLive({ on: true, reflex }), reflex }), counters)
-  const base = profile(bot)
-  const node = { x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0' }
+  const cand = H.profile(); cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: LS.priceLive({ on: true, reflex }), reflex }), counters)
+  const base = H.profile()
+  const node = { x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0', toBreak: [], toPlace: [], _lsGen: true }
   assert.deepEqual(cand.getNeighbors(node).map(n => n.cost), base.getNeighbors(node).map(n => n.cost), 'held: the base costs')
   assert.ok(counters.held_seen > 0, 'positive control: the moves were in the footprint')
   assert.equal(counters.held_priced ?? 0, 0)
 })
 await t('MUTANT KILLED: a wrapper that ignores live (prices under a reflex) trips G2 (held_priced > 0)', async () => {
   await withMutant(LS_URL, '      if (!c.live) continue\n', '', async mod => {
-    const world = poolWorld(), bot = pfBot(world)
+    const world = poolWorld(), H = harness(world)
     const idx = mod.buildPriceIndex([{ x: 4, y: 60, z: 1 }], world.solidAt)
     const counters = {}
-    const cand = profile(bot); cand.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: false, reflex: 'escape' }), counters)
-    cand.getNeighbors({ x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0' })
+    const cand = H.profile(); cand.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: false, reflex: 'escape' }), counters)
+    cand.getNeighbors({ x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0', toBreak: [], toPlace: [], _lsGen: true })
     assert.ok(counters.held_priced > 0)
   })
 })
@@ -399,14 +474,18 @@ const wiredOrder = src => {
   const w = s.indexOf('moves.getNeighbors = wrapNeighbors(Movements.prototype.getNeighbors, () => {')
   const clones = ['const gatherMoves = Object.create(', 'const ascendMoves = Object.create(', 'const descendMoves = Object.create(', 'const waterMoves = Object.create(']
     .map(c => s.indexOf(c))
-  return w > 0 && clones.every(c => c > w) && /return \{ idx: lsIdx, live: priceLive\(\{ on: LS_ON, reflex \}\), reflex \}/.test(s) &&
+  return w > 0 && clones.every(c => c > w) && /return \{ idx, live: priceLive\(\{ on: LS_ON, reflex \}\), reflex,/.test(s) && /const idx = lsOverworld\(\) \? lsIdx : null/.test(s) &&
          /const reflex = stopReflexes\?\.activeReflex\?\.\(\) \?\? null/.test(s)
 }
 await t('WIRED: the wrapper is installed on the walk profile BEFORE every clone, gated on the reflex; MUTANT KILLED when moved after', () => {
   assert.equal(wiredOrder(INDEX), true)
-  const anchor = '    if (LS_ON) {\n      moves.getNeighbors = wrapNeighbors('
-  assert.ok(INDEX.split(anchor).length === 2, 'ANCHOR MISSING or not unique')
-  const moved = INDEX.replace(anchor, '    if (LS_ON) {\n      const _x = wrapNeighbors(')
+  // THE MUTANT MOVES the whole installation block to after the last clone (Claude r2 P3-9: a deletion proves less)
+  const A = '    // LAVASIGHT-01: THE MOVE WRAPPER', Z = '}, lsCounters)\n    }\n', AFTER = '    const waterMoves = Object.create(Object.getPrototypeOf(moves))\n'
+  for (const k of [A, Z, AFTER]) assert.ok(INDEX.split(k).length === 2, `ANCHOR MISSING or not unique: ${k.slice(0, 40)}`)
+  const i = INDEX.indexOf(A), j = INDEX.indexOf(Z, i) + Z.length
+  const block = INDEX.slice(i, j), rest = INDEX.slice(0, i) + INDEX.slice(j)
+  const moved = rest.replace(AFTER, AFTER + block)
+  assert.ok(moved.includes(block) && moved.length === INDEX.length, 'the mutant moved, not deleted')
   assert.equal(wiredOrder(moved), false)
 })
 await t('WIRED: the corridor hook counts and rings; the blind step rings lava only; the rows exist', () => {

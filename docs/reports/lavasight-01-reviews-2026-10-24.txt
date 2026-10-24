@@ -135,3 +135,120 @@ R1-R6
   which fires on every partial. Ship them as separate telemetry.
 - R5: keep the publisher as a separate mcbot job, but trigger it from a successful refresh rather than a fixed 05:40 cron.
 - R6: see P2-3. Count episodes rather than rows, and pair them with danger-block episodes.
+
+==================================================================================================================
+DESIGN r2 + CODE r1 (72189ab4) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+- **P1 — The surcharge does not cover the executed node geometry.** `bots/src/lavasight.mjs:174` preserves integer Y and only shifts X/Z. Installed pathfinder `index.js:179` and `:304` also changes Y to the support’s shape height. On bottom slabs, `(0,61,0) → (0,61,1)` becomes a segment at Y=60.5. With lava at `(2,60,1)`, the surcharge is **0**, but the executed segment’s guard refuses “lava beside.” `bots/test/lavasight.test.mjs:110` generates only stone/air/lava; its “slabs” are full stone blocks. Test actual postprocessing, including fractional heights and mixed processed/unprocessed endpoints.
+
+- **P1 — The capped-search justification remains false.** `docs/reports/lavasight-01-design-2026-10-24.md:160` claims added cost only disqualifies routes the guard would refuse. A read-only probe found the centred move `(0.5,61,0.5) → (-0.5,61,1.5)` accepted with lava at `(-3,61,-1)`, yet `moveSurcharge` charges 50 because its integer alternative refuses. A* drops over-budget neighbours at `bots/node_modules/mineflayer-pathfinder/lib/astar.js:95`. Thus preserving generator neighbours does not preserve capped reachability, even for executable safe routes. Add capped-search regression tests and an exemption or bounded recovery mechanism.
+
+- **P1 — Off-build filtering biases the effect denominator.** `scripts/host/lavasightread.py:318` discards pre-restart canary rows, while `:165` assigns every retained bot the entire window’s hours. A bot running the candidate only during the final hour of a three-hour window contributes one hour of events divided by three hours. This can manufacture an improvement. Align observation windows or compute exposure time for the retained build, and test staggered deployment.
+
+- **P1 — The mapped gate can pass with most bots unaccounted for.** `scripts/host/lavasightread.py:184` divides by bots that emitted mode rows, not the canary population. One `ok` bot and four bots without mode rows produce `mapped_share=1`. Use all eligible canary bots as the denominator and treat missing state as unmapped; add that failing fixture.
+
+- **P2 — The footprint is not exactly the guard’s refusal set for unknown cells.** `bots/src/lavasight.mjs:114` treats unknown as open, whereas `bots/src/lavaguard.mjs:31` stops safely on unknown deeper than three blocks. Probe: feet `(0,10,0)`, lava `(0,0,0)`, unknown `(0,6,0)`, otherwise air: guard **safe**, index **priced**. The equivalence fixtures never return unknown. Either implement the guard’s stopping semantics or explicitly document and test conservative overpricing.
+
+- **P2 — Overworld scope is only enforced at refresh.** `bots/src/index.mjs:363` clears the index on the next 20-second refresh, but the wrapper at `:465`, relocation accessor at `:379`, and sighting recorder at `:378` do not check dimension. A dimension change can temporarily apply overworld prices and relocation exclusions elsewhere, and record foreign sightings. Gate those consumers immediately and scope/reset the ring by dimension.
+
+- **P2 — Publisher guarantees have bypasses and misleading checks.** `scripts/host/lavasight/lavamap_publish.py:181` skips refresh verification when the optional heartbeat argument is absent; the integration test exercises that bypass (`bots/test/lavamap-publish.test.mjs:41`). Require the heartbeat for publishing. Also, `lavamap_publish.py:226` double-counts stale files in its denominator, and `:227` reports OK for zero discovered pools. Add explicit positive-population and accurate-total checks.
+
+The read selftest passed. No files were modified; the file-writing test suite was not run.
+
+==================================================================================================================
+DESIGN r2 + CODE r1 (72189ab4) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: APPROVE
+
+No P1 found. Every r1 finding from both engines is answered in the code, not only in the text, and the tests pass:
+lavasight.test.mjs 25/25, publisher 8/8 with 11/11 mutants killed, read selftest ok, lavamap-publish 3/3, keepout-homefix
+green. The P2s below should be closed before the run is queued. None is a safety issue.
+
+Verified (r1 answers hold)
+- Wrapper. It adds cost after the base generator runs (lavasight.mjs:186-205), so none of the cost > 100 deletions in
+  movements.js can be reached from it. Entity costs, diagonal charges and dig costs (Codex P1-1/P1-2, my P2-1) are moot.
+- Footprint matches the guard (Q2, lavasight.mjs:112-131 vs lavaguard.mjs:10-62): beside: 5x5 minus the corners, at L.y;
+  over: L's column open strictly between, checked before the solid break, as cellLavaSafe:12 does; drop: F's own column
+  open from F.y-1 to L.y+1. The cardinals are checked at the landing depth before the solid return (:35 before :38), which
+  the code reproduces. The landing's cellLavaSafe is redundant with the scan one level above, so nothing is missing.
+  Unknown cells only ever add price. Index solidity (index.mjs:369, boundingBox === 'block') is the guard's solid.
+- Node forms (Q2). I enumerated all 82 move shapes, drops to -8 included. Both mixed forms (integer start to centred node,
+  which is the first segment, and centred to integer at the walk/dig boundary) sample a subset of the union of the integer
+  and centred forms. So "both forms" covers every segment that is one move.
+- Profiles (Q1). Every clone gets the wrapper: gather, the tunnel (via gatherMoves, and the skills.mjs:1746 fallback),
+  ascend, descend, water, town-deposit, composter (fixed), and collectblock (gets gatherMoves). The getMoveDown/
+  getMoveDiagonal overrides on the tunnel still apply, because the call uses a dynamic this. Shortcuts are off
+  (index.js:42), so no segment spans several moves.
+- Homefix forbid. composeRelocationForbid with fire only returns true; I probed it and the old 'keepout' reason is
+  unchanged. Lava alone gives 'lavasight'. With every target forbidden it reaches no_dry_target and then home. No new dead
+  end: lavasight refuses nothing.
+- Lifecycle (Q3). The setup is in once('spawn'), and the timers are unref'd and cleared on end. stopReflexes is a module
+  let, so there is no TDZ. Swapping lsIdx mid-search only mixes costs within that search, which is harmless. worldId is
+  part of the reader signature. LAVASIGHT=0: no wrapper, lavaActiveNow returns [], and homefix gets fire-only, exactly the
+  base rule. Any exception in ctx or the refresh fails open.
+
+P2
+1. G2 and G3 cannot trip on the fleet in this wiring. They only catch code regressions (Q6, Q8). G2: held_priced counts
+   c.live && reflex non-eat (lavasight.mjs:198-201), and c.live is priceLive on the same reflex with the same /^eat/ test
+   (index.mjs:464-466). So it is 0 by construction. It cannot see the real failure, which is activeReflex() missing an arm
+   that owns the body. G3: compares ns.length before and after on the same array (:192,203). Only an in-place splice moves
+   it. That is exactly the mutant at lavasight.test.mjs:211; a return ns.filter(...) regression is invisible to it. Fix:
+   relabel both as tripwires that are 0 by construction, not evidence. In the read, report G2 as NOT EXERCISED when
+   held_seen == 0 (a positive control, lavasightread.py:176,190). Or take ownership from an independent source, e.g.
+   runner.arb?.holder?.owner, as koHeld does at index.mjs:644. Not P1, because a price under a reflex is harmless on an
+   identical graph.
+2. No decision rule yet. The read prints "should FALL" (lavasightread.py:332), and no-harm is "judged by the registration's
+   own lines" (:26). No registration exists in the branch, and under the default gate the primary is advisory. Before
+   queueing, pre-declare the primary threshold, the noPath/timeout/move-success DiD limits, and the KEEP vs INCONCLUSIVE
+   rule.
+3. The publisher trigger is unverified against the real heartbeat. refresh_ok requires heartbeat at within 120 s of the
+   map's generated_at (lavamap_publish.py:66). The tests only use equal stamps (test_lavamap_publish.py:142). If hazardmap
+   stamps generated_at at the start of a refresh that runs for minutes, the publisher waits forever: mapped share is 0, and
+   the canary burns its slot as INCONCLUSIVE. Run plan and a read-only refresh_ok against the live
+   ~/hazardmap/out/heartbeat.json before installing.
+4. "Uncapped search reaches exactly the base's goals" is false in principle (Q1). A* dedupes on xyz (astar.js:62,70;
+   Move.hash is xyz only), but remainingBlocks is node state that gates towers and bridges (movements.js:316,322,373,537),
+   and towers are on (index.mjs:484). With a raised cost, a node can be reached through a predecessor that holds fewer
+   scaffold blocks, which changes its neighbour set downstream. The difference only appears where the base's best path to
+   that node crosses a priced move. The guard refuses that path anyway, except where the move is over-priced (P3-1). So it
+   is harmless in practice, but the 0.3/3.4 wording should say so. The fenced-plot test uses remainingBlocks 0 and cannot
+   see it.
+
+P3
+1. Over- and under-pricing against the form the guard actually sees. The guard gets one form per segment; the union
+   over-prices. Example: a centred +x move out of a footprint cell is accepted by the guard but priced through the integer
+   form. Walk nodes on partial-height floors are floored to y-1 by the guard (index.js:178-182 with getPositionOnTopOf).
+   That covers dirt_path, farmland, mud, soul sand and bottom slabs, all present in towns. The first segment after
+   pathFromPlayer can span more than one move (my probe found an extra sampled cell, 1,0,0). All of this only shifts
+   price. The guard is unchanged.
+2. A guard-named cell can be silently ignored. If a cell was once read non-lava (flowing lava recedes), lsRemoved filters it
+   out for the whole map generation (index.mjs:365,367), even after the bot's own guard names it again (:378).
+   lavasightNote should lsRemoved.delete(key).
+3. Ring-to-index lag. A ring cell is priced only at the next 20 s rebuild (index.mjs:374), so immediate retries hit the
+   same refusal. That is the very case behind the 77.3%. Add the one cell's footprint to lsIdx incrementally on note.
+4. Rebuild cost (Q4). open() rescans the column on every k (lavasight.mjs:114,121-130): 333 solidAt calls per open cell.
+   Measured with a real prismarine-world: 400 surface cells take ~36 ms and 1,600 take ~125 ms on the event loop every
+   20 s. The design's 18 ms figure used no solidAt. Scan each column once. The wrapper itself is fine: ~1.4 us per node
+   when nothing is priced.
+5. R7 (CORE_MOVE = 50). Keep it. A priced move is (modulo P3-1) a refused move, so the size only trades a detour actually
+   found against search effort. Report plan time and timeouts for searches with priced > 0 vs without. The route row's
+   priced is "since the last route row", not "this search" (comment at index.mjs:1065). Probes that call getPathFromTo add
+   to priced_moves but write no route rows.
+6. R8 (cost-capped searches). Accept and report. Gather and tunnel walks are guard-checked, so a capped failure replaces a
+   refused route. reachprobe "may select, may not refuse" (reachprobe.mjs), so a miss changes nothing. Exempting would cost
+   a per-profile wrapper for no safety gain.
+7. Primary metric is diluted. It counts _lava_corridor rows whose reason is unknown (lavasightread.py:102), which lavasight
+   cannot affect. Filter on 'unknown' not in d.
+8. Publisher operations. --hazard-heartbeat defaults to None, which silently skips the trigger (lavamap_publish.py:234).
+   Default it to the real path, or refuse when it is missing. check is not wired into fleetstatus in this branch: a
+   checker nobody calls. A pool directory whose world is in no map seed alarms as absent forever. world_view returns the
+   first seed that lists the world; after a reseed that can be the old seed, which leaves the whole pool in
+   world_mismatch. The rename is not followed by a directory fsync.
+9. Test strength. The WIRED "moved after" mutant deletes the anchor rather than moving it (lavasight.test.mjs:409), so the
+   order check is never shown to fail. Python mutants count any exception as killed (test_lavamap_publish.py:206); the
+   reason is never checked. The comment at index.mjs:377 says the ring takes "danger feet", but only the corridor and
+   blind-step guards feed it.
+10. Not built: my r1 P2-4 suggestion (a no-price counterfactual search on terminal routes). The noPath/timeout DiD is an
+    acceptable substitute. Note the choice in 10.
