@@ -101,7 +101,7 @@ import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail, baseFront } from './cavefall.mjs'
-import { elevation, supportOf, blocksNeeded, descentCost, descentDone, cheapestStart, describeDescent, stayRefusal, MARGIN as SKY_MARGIN } from './respawnfall.mjs'
+import { elevation, supportOf, blocksNeeded, descentCost, descentDone, rankStarts, fullCube, describeDescent, stayRefusal, MARGIN as SKY_MARGIN, SPAWN_GRACE_MS } from './respawnfall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -2704,34 +2704,47 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 /** RESPAWNFALL-01: the last `_needs_rescue` time per cell (one row per cell per 30 min). */
 const skyRescueRows = new Map()
 export const SKY_STAY_MS = 30_000
-export const SKY_RUN_MS = 150_000
+export const SKY_RUN_MS = 140_000       // the whole run, walk and crafts included, inside the runner's 180 s (Claude r1 P3-7)
 export const SKY_WALK_MS = 15_000
+export const SKY_WALK_TRIES = 3
 /** The planks a log makes ('oak_log' -> 'oak_planks', 'crimson_stem' -> 'crimson_planks'), or null. Pure. */
 export const planksOf = name => {
   const m = /^(?:stripped_)?([a-z_]+?)_(log|wood|stem|hyphae)$/.exec(String(name ?? ''))
   return m ? `${m[1]}_planks` : null
 }
-/** Carried logs that a 2x2 grid turns into planks (no table): the blocks the bot could have where it stands. */
+/** Carried logs that a 2x2 grid turns into planks (no table): the blocks the bot could have. */
 const skyLogs = bot => bot.inventory.items().filter(it => planksOf(it.name) && bot.registry?.itemsByName?.[planksOf(it.name)])
+/** The descent's price check on a support it will break: can the bot break it with what it carries? (Claude r1 P2-3) */
+const skyDiggable = bot => (x, y, z) => {
+  const b = bot.blockAt(new Vec3(x, y, z))
+  if (!b) return { ok: false, why: `an unloaded support at y=${y}` }
+  const plan = planDig(predictedDigMs(b, bestTool(bot, b)))
+  return plan.refuse ? { ok: false, why: `cannot break ${b.name} at y=${y} with what it carries` } : { ok: true }
+}
 /**
  * `sky_descend` (respawnfall-01, respawnfall.mjs): A BOT THAT (RE)SPAWNED ON A HIGH PLATFORM CLIMBS DOWN. Issued only by
- * cognitive.mjs's deterministic order (never the model's choice).
- *   1. THE CHEAPEST SAFE COLUMN within START_RADIUS on its own level (cheapestStart: rideFloorDown's cost simulated per
- *      cell -- a pillar under the deck is ridden for free). Another cell only when it saves SAVE_MIN blocks, walked to on
- *      the deck profile (no drop over SAFE_DROP, no digging, no towering, no parkour, no sprint, no bridging).
- *   2. Short of blocks: carried logs become planks in the 2x2 grid (a log is one block, its planks four).
- *   3. Centre on the support cell, then repeat rideFloorDown -- place a block under its own floor, break the floor, drop one
- *      block -- until descentDone (at most SAFE_DROP under it, no deadly side).
- * Still short, no priced column, or a first step that fails: it STAYS -- one `_needs_rescue` row per cell per 30 min and a
- * SKY_STAY_MS hold of the body -- and the order comes back on the next decision. It never walks off an edge.
+ * cognitive.mjs's deterministic order (never the model's choice), every decision until the episode is DONE.
+ *   0. Transient reading (in the air, no solid support, unloaded): wait 2 s, the order comes back. No floor dig in the
+ *      first SPAWN_GRACE_MS after a spawn (the server drops them).
+ *   1. THE CHEAPEST REACHABLE COLUMN (rankStarts: priced by descentCost, reachability by a flood over the deck, own cell
+ *      unless another saves SAVE_MIN + its walk). Another cell is walked to on the deck profile (no drop over SAFE_DROP,
+ *      no digging, towering, parkour, sprint or bridging); a walk that does not arrive excludes that cell and the next is
+ *      tried (SKY_WALK_TRIES).
+ *   2. Short of blocks: carried logs become planks in the 2x2 grid. A FREE column (cost 0) needs no blocks at all.
+ *   3. Centre (pathfinder's own stop snaps a body > 0.2 off the centre; verified), then rideFloorDown, each ride bounded
+ *      by the steps the price says are left, until descentDone.
+ * Still short, no column, or a step that cannot be made: it STAYS -- one `_needs_rescue` row per cell per 30 min, the body
+ * held (bot.skyHoldUntil) -- and the order comes back on the next decision. It never walks off an edge.
  */
 export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, runMs = SKY_RUN_MS, walkMs = SKY_WALK_MS } = {}) {
   const bot = ctx.bot
+  const t0 = Date.now(), until = t0 + runMs
   const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
   const el0 = elevation({ pos: bot.entity?.position, at, onGround: bot.entity?.onGround !== false })
   const startY = bot.entity?.position?.y
   const count = () => rescueBlocks(bot).reduce((n, it) => n + (it.count ?? 0), 0)
   let have = count(), need = blocksNeeded(el0), walked = null, crafted = 0
+  const reserve = n => n + (n > 0 ? SKY_MARGIN : 0)
   const row = (status, outcome, extra = {}) => {
     try { logEvent({ kind: 'sky_descend', status, snapshot: snapshot(bot), detail: describeDescent({ outcome, el: el0, have, need, startY, endY: bot.entity?.position?.y, walked, crafted, ...extra }) }) } catch { /* telemetry never costs the body */ }
   }
@@ -2744,75 +2757,102 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
         skyRescueRows.set(k, Date.now())
         if (skyRescueRows.size > 8) skyRescueRows.delete(skyRescueRows.keys().next().value)
         logEvent({ kind: 'needs_rescue', status: 'failed', snapshot: snapshot(bot),
-                   detail: `arm=sky_descend at=${k} open=${el0.open} landing=${el0.landing} have=${have} need=${need + SKY_MARGIN} -- ${why}` })
+                   detail: `arm=sky_descend at=${k} open=${el0.open} landing=${el0.landing} have=${have} need=${reserve(need)} -- ${why}` })
       }
     } catch { /* telemetry never costs the body */ }
-    // HOLD THE BODY IN PLACE: the order comes back on the next decision, so the model never gets to walk it off the edge
-    const end = Date.now() + stayMs
-    bot.skyHoldUntil = end + 60_000
+    // HOLD THE BODY IN PLACE, inside this run's clock: the order comes back on the next decision, so the model never gets
+    // a turn to walk it off the edge, and the escape lattice stands aside while the hold is up
+    const end = Math.min(Date.now() + stayMs, until)
+    bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, end + 60_000)
     while (Date.now() < end) { check(signal); await sleep(Math.min(1000, Math.max(0, end - Date.now())), signal) }
   }
-  if (!el0.elevated) { row('no_effect', 'grounded'); return { status: 'no_effect', detail: `not elevated: ${el0.why}` } }
-
-  // 1. THE CHEAPEST SAFE COLUMN (own cell first; another only when it saves SAVE_MIN blocks)
-  const s0 = supportOf(bot.entity.position)
-  const best = cheapestStart({ at, support: s0 })
-  if (!best) {
-    const own = descentCost(at, s0)
-    const why = stayRefusal({ el: el0, have, need, why: own.why })
-    row('failed', 'stay', { stopped: own.why })
-    await stay(why)
-    return { status: 'failed', failClass: 'needs_rescue', detail: why }
+  const s0 = supportOf(bot.entity?.position ?? { x: 0, y: 0, z: 0 })
+  const d0 = el0.transient ? { done: false, unknown: true, why: el0.why } : descentDone(at, s0)
+  // 0. TRANSIENT: wait on it (an episode never ends on it; cognitive.mjs re-issues the order)
+  if (el0.transient) {
+    await sleep(2000, signal)
+    row('no_effect', 'wait', { stopped: el0.why })
+    return { status: 'no_effect', detail: `waiting: ${el0.why}` }
   }
-  need = best.cost
-  if (!best.own) {
+  if (d0.done) { bot.skyHoldUntil = 0; row('no_effect', 'grounded'); return { status: 'no_effect', detail: `already down: ${d0.why}` } }
+  // THE WHOLE RUN HOLDS THE BODY against the escape lattice (reflex.mjs: skyEscapeBlocked)
+  bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, until + 60_000)
+  const graceLeft = (bot.lastSpawnAt ?? 0) + SPAWN_GRACE_MS - Date.now()
+  if (graceLeft > 0) await sleep(graceLeft, signal)
+  const diggable = skyDiggable(bot)
+
+  // 1. THE CHEAPEST REACHABLE COLUMN
+  const failed = new Set()
+  let chosen = null, lastWhy = null
+  for (let tries = 0; tries <= SKY_WALK_TRIES; tries++) {
+    check(signal)
+    const here = supportOf(bot.entity.position)
+    const ranked = rankStarts({ at, support: here, diggable, exclude: failed })
+    if (!ranked.length) { lastWhy = descentCost(at, here, { diggable }).why; break }
+    const best = ranked[0]
+    if (best.own) { chosen = best; break }
+    // out of walks or of clock: the own column if it is priced at all, else stay
+    if (tries === SKY_WALK_TRIES || until - Date.now() < walkMs + 10_000) {
+      chosen = ranked.find(r => r.own) ?? null
+      if (!chosen) lastWhy = tries === SKY_WALK_TRIES ? `${failed.size} walk(s) to a cheaper column did not arrive` : 'no time left in this run to walk'
+      break
+    }
     const goal = new goals.GoalBlock(best.cell.x, best.cell.y + 1, best.cell.z)
     const walk = () => withTimeout(bot.pathfinder.goto(goal), walkMs, bot, { what: 'sky_descend walk', needsDrop: false })
     try { await (bot.withDeckMovements ? bot.withDeckMovements(walk) : walk()) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     const s1 = supportOf(bot.entity.position)
-    walked = `${best.cell.x},${best.cell.y},${best.cell.z}:${s1.x === best.cell.x && s1.y === best.cell.y && s1.z === best.cell.z ? 'arrived' : 'short'}`
-    // WHEREVER THE WALK ENDED, PRICE THAT CELL (a short walk is not an arrival)
-    const here = descentCost(at, s1)
-    need = here.ok ? here.cost : Infinity
+    const arrived = s1.x === best.cell.x && s1.y === best.cell.y && s1.z === best.cell.z
+    walked = `${best.cell.x},${best.cell.y},${best.cell.z}:${arrived ? 'arrived' : 'short'}`
+    if (!arrived) { failed.add(`${best.cell.x},${best.cell.y},${best.cell.z}`); continue }
   }
+  if (!chosen) {
+    const why = stayRefusal({ el: el0, have, need, why: lastWhy ?? 'no reachable column it can price' })
+    row('failed', 'stay', { stopped: lastWhy })
+    await stay(why)
+    return { status: 'failed', failClass: 'needs_rescue', detail: why }
+  }
+  need = chosen.cost
   // 2. SHORT OF BLOCKS: LOGS BECOME PLANKS WHERE IT STANDS (+3 blocks per log; the 2x2 grid needs no table)
-  if (have < need + SKY_MARGIN && Number.isFinite(need)) {
+  if (have < reserve(need)) {
     for (const log of skyLogs(bot)) {
-      if (count() >= need + SKY_MARGIN) break
+      if (count() >= reserve(need) || Date.now() > until - 15_000) break
       try {
         const id = bot.registry.itemsByName[planksOf(log.name)].id
         const recipe = bot.recipesFor(id, null, 1, null)?.[0]
         if (!recipe) continue
-        const n = Math.min(log.count, Math.ceil((need + SKY_MARGIN - count()) / 3))
+        const n = Math.min(log.count, Math.ceil((reserve(need) - count()) / 3))
         await withTimeout(bot.craft(recipe, n, null), 10_000, bot, { what: 'sky_descend planks' })
         crafted += n
       } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     }
     have = count()
   }
-  if (have < need + SKY_MARGIN) {
-    const why = Number.isFinite(need) ? stayRefusal({ el: el0, have, need }) : stayRefusal({ el: el0, have, need: blocksNeeded(el0), why: 'the walk ended on a cell that cannot be priced' })
+  if (have < reserve(need)) {
+    const why = stayRefusal({ el: el0, have, need })
     row('failed', 'stay')
     await stay(why)
     return { status: 'failed', failClass: 'needs_rescue', detail: why }
   }
-  // 3. CENTRE ON THE SUPPORT CELL: a body straddling two blocks does not drop when one floor is broken (rideFloorDown would
-  // stop 'the bot did not descend'); one cell, the deck profile, a short clock
+  // 3. CENTRE ON THE SUPPORT CELL (a straddling body does not drop when one floor is broken): the pathfinder's fullStop
+  // snaps a body more than 0.2 off the centre once the goal is met; VERIFIED here, never assumed
   const sc = supportOf(bot.entity.position)
-  const off = Math.max(Math.abs(bot.entity.position.x - (sc.x + 0.5)), Math.abs(bot.entity.position.z - (sc.z + 0.5)))
-  if (off > 0.2) {
+  const offOf = () => Math.max(Math.abs(bot.entity.position.x - (sc.x + 0.5)), Math.abs(bot.entity.position.z - (sc.z + 0.5)))
+  if (offOf() > 0.2) {
     const centre = () => withTimeout(bot.pathfinder.goto(new goals.GoalBlock(sc.x, sc.y + 1, sc.z)), 4000, bot, { what: 'sky_descend centre', needsDrop: false })
     try { await (bot.withDeckMovements ? bot.withDeckMovements(centre) : centre()) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   }
-  const until = Date.now() + runMs
   let placed = 0, rode = 0, stopped = null
-  for (;;) {
+  if (offOf() > 0.2) stopped = 'could not centre on its support (a straddling body would not drop)'
+  while (!stopped) {
     check(signal)
-    if (descentDone(at, supportOf(bot.entity.position))) break
+    const sp = supportOf(bot.entity.position)
+    const dn = descentDone(at, sp)
+    if (dn.done) break
     if (Date.now() >= until) { stopped = 'this run\'s clock is spent (the order continues on the next decision)'; break }
-    // NEVER A STEP PAST THE PRICED END: rideFloorDown takes at most the steps the simulation says are left (it does not
-    // look at the descent's stopping test itself, and would ride a pillar on into the ground)
-    const plan = descentCost(at, supportOf(bot.entity.position))
+    // NEVER A STEP PAST THE PRICED END: rideFloorDown takes at most the steps the price says are left (it does not know the
+    // stopping test and would ride a pillar on into the ground); a support that is not a full cube is not ridden
+    if (!fullCube(bot.blockAt(new Vec3(sp.x, sp.y, sp.z))) || Math.abs(bot.entity.position.y - Math.round(bot.entity.position.y)) > 0.01) { stopped = 'not standing on a full block'; break }
+    const plan = descentCost(at, sp, { diggable })
     if (!plan.ok) { stopped = plan.why; break }
     const r = await rideFloorDown(bot, { maxSteps: Math.max(1, Math.min(8, plan.steps)), signal, until })
     placed += r.placed ?? 0; rode += r.rode ?? 0
@@ -2820,9 +2860,10 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
     if ((r.descended ?? 0) < 0.5) { stopped = r.stopped ?? 'no descent'; break }
   }
   const descended = (startY ?? 0) - (bot.entity?.position?.y ?? startY ?? 0)
-  if (descentDone(at, supportOf(bot.entity.position))) { row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (placed ${placed}, rode ${rode}${walked ? `, walked to ${walked}` : ''}${crafted ? `, crafted planks from ${crafted} log(s)` : ''})` } }
-  if (descended >= 0.5) { row('success', 'progress', { placed, rode, stopped }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks; still on the platform (${stopped ?? 'continuing'})` } }
-  const why = `sky_descend: staying put -- the first step down failed (${stopped}); walking off is a fall`
+  const tail = `placed ${placed}, rode ${rode}${walked ? `, walked to ${walked}` : ''}${crafted ? `, crafted planks from ${crafted} log(s)` : ''}`
+  if (descentDone(at, supportOf(bot.entity.position)).done) { bot.skyHoldUntil = 0; row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (${tail})` } }
+  if (descended >= 0.5) { row('success', 'progress', { placed, rode, stopped }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks; still on the platform (${stopped ?? 'continuing'}; ${tail})` } }
+  const why = `sky_descend: staying put -- the next step down could not be made (${stopped}); walking off is a fall. Held here for rescue (_needs_rescue raised); it retries every decision`
   row('failed', 'stopped', { placed, rode, stopped })
   await stay(why)
   return { status: 'failed', failClass: 'needs_rescue', detail: why }
@@ -15871,7 +15912,7 @@ export const SKILL_CONTRACTS = {
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
   // KEEPOUT-01: the body leaves the column -- its evidence is the move
   keepout_exit: { expects: ['position'], maxMs: 120_000 },
-  sky_descend: { expects: ['position'], maxMs: 170_000 },   // respawnfall-01: SKY_RUN_MS + the centring walk and a stay
+  sky_descend: { expects: ['position'], maxMs: 170_000 },   // respawnfall-01: SKY_RUN_MS (140 s: walks, crafts, rides and the stay inside it) + the spawn grace
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
