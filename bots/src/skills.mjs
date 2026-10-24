@@ -101,7 +101,7 @@ import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail, baseFront } from './cavefall.mjs'
-import { elevation, supportOf, blocksNeeded, descentCost, descentDone, rankStarts, fullCube, describeDescent, stayRefusal, MARGIN as SKY_MARGIN, SPAWN_GRACE_MS } from './respawnfall.mjs'
+import { elevation, supportOf, bodySupport, blocksNeeded, descentCost, descentDone, rankStarts, fullCube, describeDescent, stayRefusal, MARGIN as SKY_MARGIN, SPAWN_GRACE_MS } from './respawnfall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -2707,6 +2707,7 @@ export const SKY_STAY_MS = 30_000
 export const SKY_RUN_MS = 140_000       // the whole run, walk and crafts included, inside the runner's 180 s (Claude r1 P3-7)
 export const SKY_WALK_MS = 15_000
 export const SKY_WALK_TRIES = 3
+export const SKY_WAIT_FLAG_MS = 10 * 60 * 1000   // a transient wait this long raises _needs_rescue (still held)
 /** The planks a log makes ('oak_log' -> 'oak_planks', 'crimson_stem' -> 'crimson_planks'), or null. Pure. */
 export const planksOf = name => {
   const m = /^(?:stripped_)?([a-z_]+?)_(log|wood|stem|hyphae)$/.exec(String(name ?? ''))
@@ -2768,14 +2769,27 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   }
   // IN WATER: swimming is travel -- nothing to do here, and nothing held (cognitive.mjs ends the episode on it)
   if (el0.water) { bot.skyHoldUntil = 0; row('no_effect', 'grounded', { stopped: 'in water' }); return { status: 'no_effect', detail: 'in water: swimming is travel' } }
-  const s0 = supportOf(bot.entity?.position ?? { x: 0, y: 0, z: 0 })
+  const s0 = el0.support ?? supportOf(bot.entity?.position ?? { x: 0, y: 0, z: 0 })
   const d0 = el0.transient ? { done: false, unknown: true, why: el0.why } : descentDone(at, s0)
   // 0. TRANSIENT: wait on it (an episode never ends on it; cognitive.mjs re-issues the order)
   if (el0.transient) {
+    // A WAIT THAT LASTS IS FLAGGED (Claude r3 P1-2): still held, but after SKY_WAIT_FLAG_MS a human hears of it
+    bot.skyWaitSince ??= Date.now()
+    if (Date.now() - bot.skyWaitSince > SKY_WAIT_FLAG_MS) {
+      try {
+        const p = bot.entity?.position, k = p ? `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}` : 'unknown'
+        if (Date.now() - (skyRescueRows.get(k) ?? -Infinity) >= 30 * 60 * 1000) {
+          skyRescueRows.set(k, Date.now())
+          logEvent({ kind: 'needs_rescue', status: 'failed', snapshot: snapshot(bot),
+                     detail: `arm=sky_descend at=${k} open=? landing=? have=${have} need=? -- sky_descend: held ${Math.round((Date.now() - bot.skyWaitSince) / 60000)} min on an unreadable reading (${el0.why}); walking off is a fall. Held here for rescue` })
+        }
+      } catch { /* telemetry never costs the body */ }
+    }
     await sleep(2000, signal)
     row('no_effect', 'wait', { stopped: el0.why })
     return { status: 'no_effect', detail: `waiting: ${el0.why}` }
   }
+  bot.skyWaitSince = null
   if (d0.done) { bot.skyHoldUntil = 0; row('no_effect', 'grounded'); return { status: 'no_effect', detail: `already down: ${d0.why}` } }
   // THE WHOLE RUN HOLDS THE BODY against the escape lattice (reflex.mjs: skyEscapeBlocked)
   bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, until + 60_000)
@@ -2788,7 +2802,7 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   let chosen = null, lastWhy = null
   for (let tries = 0; tries <= SKY_WALK_TRIES; tries++) {
     check(signal)
-    const here = supportOf(bot.entity.position)
+    const here = bodySupport(bot.entity.position, at)
     const ranked = rankStarts({ at, support: here, diggable, exclude: failed })
     if (!ranked.length) {
       // the own support's price, or why it was not priced (Claude r2 P3-6: never a success message as a reason)
@@ -2842,7 +2856,7 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   }
   // 3. CENTRE ON THE SUPPORT CELL (a straddling body does not drop when one floor is broken): the pathfinder's fullStop
   // snaps a body more than 0.2 off the centre once the goal is met; VERIFIED here, never assumed
-  const sc = supportOf(bot.entity.position)
+  const sc = bodySupport(bot.entity.position, at)
   const offOf = () => Math.max(Math.abs(bot.entity.position.x - (sc.x + 0.5)), Math.abs(bot.entity.position.z - (sc.z + 0.5)))
   if (offOf() > 0.2) {
     const centre = () => withTimeout(bot.pathfinder.goto(new goals.GoalBlock(sc.x, sc.y + 1, sc.z)), 4000, bot, { what: 'sky_descend centre', needsDrop: false })
