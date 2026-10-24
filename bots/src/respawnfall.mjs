@@ -69,6 +69,24 @@ export const fullCube = b => {
 export const supportOf = pos => ({ x: Math.floor(pos.x), y: Math.floor(pos.y - 1e-3), z: Math.floor(pos.z) })
 
 /**
+ * The support of a BODY, not just of its centre: a body on a block edge has its centre over air, and its support is the
+ * solid cell under a corner of its hitbox (0.3 half width), the nearest first (Claude r3 P1-2). The centre cell when
+ * nothing is solid. Pure.
+ */
+export function bodySupport (pos, at, R = null) {
+  const s = supportOf(pos)
+  const rd = (x, y, z) => { if (R) return R.block(x, y, z); try { return at(x, y, z) } catch { return null } }
+  if (kind(rd(s.x, s.y, s.z)) === 'solid') return s
+  const cands = []
+  for (const ox of [-0.299, 0, 0.299]) for (const oz of [-0.299, 0, 0.299]) {
+    const c = { x: Math.floor(pos.x + ox), y: s.y, z: Math.floor(pos.z + oz) }
+    if (kind(rd(c.x, c.y, c.z)) === 'solid') cands.push({ c, d: Math.hypot(c.x + 0.5 - pos.x, c.z + 0.5 - pos.z) })
+  }
+  cands.sort((a, b) => a.d - b.d)
+  return cands.length ? cands[0].c : s
+}
+
+/**
  * The column under the support cell: {open, landing, landY}. `open` counts the open cells straight down before the first
  * non-open one; landing is what that cell is ('solid', 'water', 'lava', 'unknown'), or 'deep' if nothing within SCAN.
  * Pure; never throws (a throwing reader reads as unknown).
@@ -137,9 +155,12 @@ function exposedAt (R, x, y, z) {
   return { exposed: sides >= EDGE_SIDES, own, sides, blind }
 }
 
-export const GROUNDED_MIN = 16         // solid cells straight under a support that stands on the ground (a 9-block hanging
-                                       // column is not ground: Codex r3 P1-2)
-export const DECK_MAX = 4              // a deck up to this thick over a deadly open run still floats (Codex r3 P1-1)
+export const GROUNDED_MIN = 8          // solid cells straight under a support on the ground ...
+export const GROUNDED_DEEP = 16        // ... and, if that stretch is shorter than this, no deadly open run right under it (a
+                                       // 9-block hanging column is not ground: Codex r3 P1-2; an aquifer is: Claude r3 P1-1)
+export const DECK_MAX = 4              // a deck up to this thick (the support and 3 under it) over a deadly run still floats
+export const SKY_REACH = 32            // the void under a deck reaches open sky within this many cells sideways (a cave does not)
+export const SKY_OPEN = 8              // ... a column open this high above the void's top layer is open sky
 export const REGION_DROP = 6           // the walk profile's maxDropDown (index.mjs): where the model's own walks can take the bot
 
 /** The top of a block's collision box (1 for a cube, 0.5 for a bottom slab; a fake without shapes is a cube). Pure. */
@@ -150,8 +171,38 @@ const topOf = b => {
 }
 /** Feet-to-landing fall for a run {open, landY} at column (x, z): open cells plus the landing block's missing top. */
 const fallOf = (R, x, z, r) => r.open + (r.landY == null ? 0 : 1 - topOf(R.block(x, r.landY, z)))
-/** Is support (x, y, z) on the ground: GROUNDED_MIN solid cells straight under it? */
 const LEAVES = /_leaves$/
+/**
+ * Is the open cell (x, yy, z) -- the top of a void -- open to the SKY: a flood sideways at that level over open cells,
+ * within SKY_REACH, reaching a column open for SKY_OPEN cells above that level? The void under a deck is (one step past its
+ * edge); a cave under a thin natural roof is not (Claude r3 P1-1). -> true | false | null (unloaded). Memoised on R.
+ */
+const skyOpenAt = (R, x, yy, z) => {
+  R.sky ??= new Map()
+  const k0 = `${x},${yy},${z}`
+  if (R.sky.has(k0)) return R.sky.get(k0)
+  const seen = new Set([k0]), q = [[x, z]], members = [k0]
+  let out = false
+  while (q.length && seen.size <= 4500) {
+    const [cx, cz] = q.shift()
+    let open = true
+    for (let h = 1; h <= SKY_OPEN; h++) {
+      const k = R.kindAt(cx, yy + h, cz)
+      if (k === 'unknown') { out = null; break }
+      if (k !== 'open') { open = false; break }
+    }
+    if (out === null) break
+    if (open) { out = true; break }
+    for (const [dx, dz] of SIDES) {
+      const nx = cx + dx, nz = cz + dz, kk = `${nx},${yy},${nz}`
+      if (Math.abs(nx - x) > SKY_REACH || Math.abs(nz - z) > SKY_REACH || seen.has(kk)) continue
+      seen.add(kk)
+      if (R.kindAt(nx, yy, nz) === 'open') { q.push([nx, nz]); members.push(kk) }
+    }
+  }
+  for (const m of members) R.sky.set(m, out)
+  return out
+}
 /**
  * Does support (x, y, z) FLOAT: up to DECK_MAX solid cells under it (the deck's own thickness) and then ELEVATED_MIN or
  * more open cells onto anything but water? Natural foliage never floats (a jungle canopy is terrain: Codex r3 P2-4); a
@@ -160,18 +211,30 @@ const LEAVES = /_leaves$/
 const floatsAt = (R, x, y, z) => {
   if (LEAVES.test(String(R.block(x, y, z)?.name ?? ''))) return false
   let yy = y - 1
-  for (let t = 0; t <= DECK_MAX; t++, yy--) {
+  for (let t = 1; t < DECK_MAX + 1; t++, yy--) {       // cells y-1 .. y-DECK_MAX: the deck's thickness is the support + up to 3
     const k = R.kindAt(x, yy, z)
     if (k === 'unknown') return null
     if (k === 'solid') continue
     if (k !== 'open') return false
     const r = R.run(x, yy, z)
     if (r.landing === 'unknown') return null
-    return r.landing !== 'water' && r.open >= ELEVATED_MIN
+    if (!(r.landing !== 'water' && r.open >= ELEVATED_MIN)) return false
+    return skyOpenAt(R, x, yy, z)                        // a deck's void is open to the sky; a cave's is not
   }
   return false
 }
-const groundedAt = (R, x, y, z) => { for (let k = 1; k <= GROUNDED_MIN; k++) if (R.kindAt(x, y - k, z) !== 'solid') return false; return true }
+/**
+ * Is support (x, y, z) on the GROUND: GROUNDED_MIN solid cells straight under it, and either GROUNDED_DEEP of them or no
+ * deadly open run right under the solid stretch (water under it is an aquifer: ground)?
+ */
+const groundedAt = (R, x, y, z) => {
+  let n = 0
+  for (let k = 1; k <= GROUNDED_DEEP; k++) { if (R.kindAt(x, y - k, z) !== 'solid') break; n++ }
+  if (n >= GROUNDED_DEEP) return true
+  if (n < GROUNDED_MIN) return false
+  const r = R.run(x, y - n - 1, z)
+  return r.landing === 'water' || r.open < ELEVATED_MIN || r.landing === 'unknown'
+}
 /** A stance: a solid support with two open cells over it. */
 const stanceAt = (R, x, y, z) => R.kindAt(x, y, z) === 'solid' && R.kindAt(x, y + 1, z) === 'open' && R.kindAt(x, y + 2, z) === 'open'
 
@@ -191,7 +254,7 @@ export function regionAt (R, s, { radius = START_RADIUS, cap = 900 } = {}) {
   let grounded = false, floating = null, blind = false
   while (q.length && seen.size <= cap) {
     const c = q.shift()
-    if (!grounded && groundedAt(R, c.x, c.y, c.z)) grounded = true
+    if (!grounded && groundedAt(R, c.x, c.y, c.z)) { grounded = true; break }   // a platform cannot follow (Claude r3 P2-3)
     if (!floating) {
       const f = floatsAt(R, c.x, c.y, c.z)
       if (f == null) blind = true
@@ -271,8 +334,8 @@ export function elevation ({ pos, at, onGround = true, inWater = false }) {
   // IN WATER: swimming is travel, and never a reading to wait on (Codex r2 P1-3, Claude r2 P2-2)
   if (inWater) return { elevated: false, why: 'in water', water: true }
   if (!onGround) return { elevated: false, why: 'not on the ground', transient: true }
-  const s = supportOf(pos)
   const R = columnReader(at)
+  const s = bodySupport(pos, at, R)
   const sb = R.block(s.x, s.y, s.z)
   if (kind(sb) !== 'solid') return { elevated: false, why: 'no solid support', support: s, transient: true }
   const e = exposedAt(R, s.x, s.y, s.z)
