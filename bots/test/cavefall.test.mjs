@@ -248,14 +248,26 @@ await ta('frontSkipped: the nearest skipped floor nearer the eye than the neares
   assert.equal(frontSkipped(eye, [{ x: 3, y: 29, z: 6 }], []), true); assert.equal(frontSkipped(eye, [], [{ x: 3, y: 29, z: 6 }]), false)
 })
 await ta('THE FAST PATH changes no verdict: with and without it, the same skip on every cell of four worlds (shelf, cliff, cave floor, roof)', async () => {
-  const worlds = [shelf('drip'), shelf('ground'), shelf('water'), shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone', [key(3, 30, 6)]: 'white_carpet' })]
-  const cells = []
+  // Codex r4 P2-2's case: stone T on stone, LAVA beside the cell under T, open beside T -- and an unloaded neighbour
+  const lavaSide = mkWorld((x, y, z) => (x === 20 && z === 20 && (y === 10 || y === 9)) ? 'stone' : (x === 21 && z === 20 && y === 9) ? 'lava' : (x === 19 && z === 20 && y === 10) ? '__unknown__' : 'air')
+  const worlds = [shelf('drip'), shelf('ground'), shelf('water'), shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone', [key(3, 30, 6)]: 'white_carpet' }),
+    { at: (x, y, z) => lavaSide.getBlock(new Vec3(x, y, z)) }]
+  const cells = [{ x: 20, y: 10, z: 20 }, { x: 20, y: 9, z: 20 }]
   for (let x = -1; x <= 9; x++) for (const y of [7, 8, 20, 28, 29]) for (let z = 3; z <= 9; z += 3) cells.push({ x, y, z })
   const fast = worlds.map(w => cells.map(c => floorOverDrop({ target: c, at: w.at }).skip))
-  await withMutant(CF_URL, "    if (fullCube(below)) return { skip: false, why: 'solid under it', drop: 1, landing: 'solid', damage: 0 }\n", '', async m => {
+  assert.equal(fast[4][0], true, 'the lava-beside case is skipped (a straddling body meets the lava)')
+  const src = readFileSync(CF_URL, 'utf8')
+  const fast1 = "    if (fullCube(rd(t.x, t.y + 1, t.z))) return { skip: false, why: 'nothing can stand on it' }\n"
+  const i2 = src.indexOf('    if (fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z))'), j2 = src.indexOf('    }\n', i2) + 6
+  assert.ok(src.split(fast1).length === 2 && i2 > 0, 'both fast-path anchors present once')
+  const slowSrc = (src.slice(0, i2) + src.slice(j2)).replace(fast1, '').replace(/from '\.\//g, "from '../src/")
+  const out = new URL(`./_mutant-${process.pid}-slow.mjs`, import.meta.url)
+  writeFileSync(out, slowSrc)
+  try {
+    const m = await import(out.href)
     const slow = worlds.map(w => cells.map(c => m.floorOverDrop({ target: c, at: w.at }).skip))
     assert.deepEqual(slow, fast)
-  })
+  } finally { try { unlinkSync(out) } catch {} }
   assert.ok(fast.flat().some(Boolean) && fast.flat().some(v => !v), 'the cells include both verdicts')
 })
 /** collectManually end to end: did it dig, and did it walk first? */
@@ -350,23 +362,23 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
   const wired = src => {
     const c = src.replace(/\/\/.*$/gm, '')
     const body = c.slice(c.indexOf('async function gatherRun'), c.indexOf('async function keepoutExit'))
-    const iFilter = body.indexOf('const safeTarget = p => !caveSkip(p) && townTargetPermit(')
+    const iFilter = body.indexOf('const safeTarget = p => !caveSkip(p) && baseSafe(p)')
     const iCave = body.indexOf('const cave = caveFilter(bot)'), iSkip = body.indexOf('const caveSkip = cave.skip')
     const iSource = body.indexOf('const cand = found.filter(exposed).filter(safeTarget)')
     const iCover = body.indexOf('positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)')
     const iCoverEnd = body.indexOf('coverRounds++'), iCount = body.indexOf('const caveSkipped = cave.skipped()')
     // both fallbacks pass their candidates through safeTarget, and the round is counted AFTER the foliage fallback
-    const iEnum = body.indexOf('if (b.position && cave.skip(b.position)) return false'), iNotTown = body.indexOf('const notTown = id => b => {')
+    const iEnum = body.indexOf('if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false'), iNotTown = body.indexOf('const notTown = id => b => {')
     return iCave > 0 && iNotTown > iCave && iEnum > iNotTown && iEnum < iSkip && iSkip > iCave && iFilter > iSkip && iSource > iFilter && iCover > iSource && iCount > iCoverEnd && iCoverEnd > iCover
   }
   const src = readFileSync(SK_URL, 'utf8')
   assert.equal(wired(src), true)
   // each mutant makes the assertion fail (Codex r3 P2-5): filter removed; either fallback bypassing it; counting moved early
   const muts = [
-    ['const safeTarget = p => !caveSkip(p) && townTargetPermit(', 'const safeTarget = p => townTargetPermit('],
+    ['const safeTarget = p => !caveSkip(p) && baseSafe(p)', 'const safeTarget = p => baseSafe(p)'],
     ['const cand = found.filter(exposed).filter(safeTarget)', 'const cand = found.filter(exposed)'],
     ['positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)', 'positions.filter(q => foliageCovered(bot, q))'],
-    ['      if (b.position && cave.skip(b.position)) return false\n', ''],
+    ['      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false\n', ''],
   ]
   for (const [old, neu] of muts) {
     assert.ok(src.split(old).length === 2, `anchor present once: ${old.slice(0, 40)}`)
@@ -415,7 +427,7 @@ await ta('MUTANT KILLED: without the carpet rule the dirt under a carpet over th
 await ta('MUTANT KILLED: dropping the standable test skips a cave-roof ore the bot stands under', async () => {
   const at = shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone' }).at
   const src0 = readFileSync(CF_URL, 'utf8')
-  const fastRoof = "    if (fullCube(over)) return { skip: false, why: 'nothing can stand on it' }\n"
+  const fastRoof = "    if (fullCube(rd(t.x, t.y + 1, t.z))) return { skip: false, why: 'nothing can stand on it' }\n"
   assert.ok(src0.split(fastRoof).length === 2)
   await withMutant(CF_URL, 'if (meets(b, y, c.fp, feet + 0.01, feet + BODY_H)) blocked = true', 'if (false) blocked = true', async m0 => {
     assert.equal(m0.floorOverDrop({ target: { x: 8, y: 20, z: 6 }, at }).skip, false, 'the fast path alone still keeps it')

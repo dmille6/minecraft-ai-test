@@ -23,7 +23,7 @@
 #   G2 refused_fell   WATCH, as G1: after a `refused` row the same bot is seen standing ON the refused cell and then, within 60 s, in
 #                     its column (x, z within 0.5) >= 6 below its top: an observed transition through a floor the rule refused.
 #   ARMS              REVERT: a control `_cavefall_*` row after the deploy.
-#   H1 refusals_up    HOLD (and INCONCLUSIVE, blocking KEEP, while any arm x period has < 20 gather runs): the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
+#   H1 refusals_up    HOLD (and INCONCLUSIVE, blocking KEEP, while any arm x period has < H1_MIN_RUNS = 100 gather runs): the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
 #                     change (pre vs post): the rule refusing too much is the harm this change can actually cause.
 #   LIVENESS          every canary bot seen after the deploy carries the licence on=1, its latest (BLOCKS KEEP).
 #   EXPOSURE          >= 5 canary `_cavefall_skip front=1` + `_cavefall_floor refused` rows, from >= 2 distinct bots.
@@ -422,7 +422,7 @@ if __name__ == '__main__':
     print('WATCH        G1 allowed floor dig then a bigger fall %d %s | G2 refused floor fallen through %d %s'
           % (res['allowed_fell'], res['_g1'][:5] or '', res['refused_fell'], res['_g2'][:5] or ''))
     print('DEFECTS      ARMS control rows %d | H1 no_safe_target share DiD %s -> %s %s'
-          % (res['rows_control'], res['refusal_did'], 'HOLD' if res['refusals_up'] else ('ok' if res['h1_ready'] else 'INCONCLUSIVE (a cell has < 20 gather runs)'), json.dumps(res['no_safe_target'])))
+          % (res['rows_control'], res['refusal_did'], 'HOLD' if res['refusals_up'] else ('ok' if res['h1_ready'] else 'INCONCLUSIVE (a cell has < %d gather runs)' % H1_MIN_RUNS), json.dumps(res['no_safe_target'])))
     print('REPORTED     explore/goto runs post %s' % json.dumps(res['moves_post']))
     print('PRIMARY      gather fall episodes (>= 12, not water) per gather bot-h %s | DiD %s' % (json.dumps(res['primary']), res['primary_did']))
     print('REPORTED     fall deaths %s | canary named %s | gather %s ratio %s' % (json.dumps(res['fall_deaths']), res['fall_deaths_canary_named'] or '-', json.dumps(res['gather']), res['gather_ok_ratio']))
