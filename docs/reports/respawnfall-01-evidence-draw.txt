@@ -1,0 +1,17 @@
+    """PURE. required: parse()'s list; eligible: the ordinary eligible pools (band + exposure, exclusions applied);
+    excluded: the excluded set; band_pools: every pool with a band row; sample(list, k) -> k items.
+    -> (pools or None, why). None = no draw: the loop waits."""
+    if not required:
+        return None, 'no requirement'
+    if len(required) > target_k:
+        return None, 'requires %d pools, more than the %d-pool target' % (len(required), target_k)
+    for p in required:
+        if p == 'placebo-c' or p.startswith('isolated'):
+            return None, 'required pool %s is never drawable' % p
+        if p in excluded:
+            return None, 'required pool %s is excluded (its 12-h/6-h window, the live canary or a manual exclusion): waiting' % p
+        if p not in band_pools:
+            return None, 'required pool %s has no band row (no data): waiting' % p
+    rest = [p for p in eligible if p not in required]
+    k = min(target_k - len(required), len(rest))
+122:    cand = [p for p in cand if p != 'placebo-c' and not p.startswith('isolated')]

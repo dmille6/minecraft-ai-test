@@ -1,4 +1,4 @@
-# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r1, 2026-10-24)
+# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r2, 2026-10-24)
 
 OWNER 2026-10-24 (through the coordinator): no world edits, so the one-time cleanup of isolated-a's sky platform is
 **not pursued** (that plan was never written). Build the code fix instead. A bot that spawns or respawns on a high
@@ -65,217 +65,251 @@ Paper runs only on sandboxes under per-server locks (§7).
 
 ## 2. The rule (bots/src/respawnfall.mjs, pure)
 
-- **Elevated** (`elevation`): the bot is grounded on a solid support, and either
-  - its own column has >= ELEVATED_MIN = 8 open cells below before the first solid, or
-  - at least **EDGE_SIDES = 3 of the 4** cardinal sides drop >= 8.
+r2 separates **when an episode starts** from **when it is over** (Codex r1 P1-2).
+
+- **The trigger** (`elevation`): the bot is grounded on a solid support, and either
+  - its own column has >= ELEVATED_MIN = 8 open cells below it onto anything but water, or
+  - at least **EDGE_SIDES = 3 of the 4** cardinal sides drop >= 8 onto anything but water.
+
   A pillar alone, or inside a deck over the void, has 4 such sides. A natural cliff edge has 1 and a corner 2: a bot that
-  spawns beside a ravine is not on a platform and must not dig a shaft beside it.
+  spawns beside a ravine is not on a platform and must not dig a shaft beside it. Each side's drop is read from the
+  support's level down, from the side cell itself when it is open and from under it when it is a block.
 
-  Each side's drop is read from the support's level down: from the side cell itself when it is open, else from under it.
+  Water under the bot's own column no longer exempts deadly sides (Codex r1 P1-7). Lava below is elevated.
 
-  Not elevated:
-  - a water landing (swimming is travel);
-  - an unloaded column (asked again on the next decision, never guessed);
-  - a bot that is not on the ground.
+  **Transient** readings are flagged and are never a verdict:
+  - no position;
+  - in the air;
+  - no solid support (a rejected dig's ghost air, or the open side of an edge);
+  - an unloaded column or side.
+- **Done** (`doneAt`): a safe stance, which needs all three of:
+  - **at most SAFE_DROP - 1 = 2 open under the support**, or water, so that even breaking it is a fall of <= 3;
+  - **no side a deadly drop** (>= 8), walled sides included: riding down under a deck has the deck at the feet's level all
+    round and the void just below it, which is an overhang, not an enclosure;
+  - **a safe exit**: a side a body can step into whose drop is <= 3, or water. A flat step onto a block counts that block's
+    own column, because a step onto a deck cell is still on the platform. Fully walled in rock also counts.
 
-  Lava below is elevated.
-- **The order** (`descendOrder`): it is issued for an elevated bot within SPAWN_WINDOW_MS = 10 min of a `spawn` event
-  (login or respawn), or while an episode that started that way is still elevated. A cave shelf long after a spawn is not
-  this rule; that is cavefall-01's.
-- **The price** (`descentCost`, `columnReader`) simulates `rideFloorDown` straight down from a support cell:
-  - each step the support moves down one;
+  A side that drops 4 to 7 beside a safe exit is ordinary terrain. An unreadable cell is unknown, never done.
+- **The episode** (`descendOrder`):
+  - It **starts** for an elevated bot within SPAWN_WINDOW_MS = 10 min of a `spawn` event (login or respawn).
+  - It **runs until done**, window or not. An unknown or transient reading keeps it open and still issues the order, and
+    the skill waits on it (Codex r1 P1-6, Claude r1 P2-2).
+  - The model never gets a turn while an episode is open.
+  - A cave shelf long after a spawn is cavefall-01's, not this rule.
+- **The price** (`descentCost`, `columnReader`) simulates `rideFloorDown` straight down:
+  - each step breaks the support, which must be **breakable with what the bot carries** (`diggable`: `planDig` on
+    `bestTool`; Claude r1 P2-3), and drops one cell;
   - a solid cell under it is ridden for free, and an open one costs one carried block;
-  - only cells above the support ever change, so the runs below stay as read.
-
-  The descent is done at the first support with **at most SAFE_DROP = 3 open under it (or water) and fewer than
-  EDGE_SIDES deadly sides**.
+  - it is over at the first `doneAt` support.
 
   Not priced at all:
-  - lava or water in the column, or two below it (`rideFloorDown` stops at a liquid two below);
-  - an unloaded cell under it or beside it;
+  - a liquid one or two below (`rideFloorDown` stops at a liquid two below);
+  - an unloaded cell;
+  - a support it cannot break;
   - more than SCAN = 400 steps.
 
-  The reader is memoised per cell, so pricing 288 cells costs about 40k reads (10 ms in the test).
-- **The cheapest start** (`cheapestStart`): every stance within START_RADIUS = 8 on the support's level (solid support,
-  two open cells above) is priced. The own cell is the default. Another cell wins only if it saves **SAVE_MIN = 4** blocks,
-  because a walk across a deck has its own risk.
+  The reader is memoised per cell, so pricing 288 cells costs about 40k reads (10 ms).
+- **The starts** (`rankStarts`): the own support, when it is a **full cube**, and every stance **reachable** from it on its
+  own level. Reachability is a 4-connected flood over full-cube supports with two open cells above them, within
+  START_RADIUS = 8 (Codex r1 P1-5, Claude r1 P3-10).
+  - Another cell is offered only when it saves **SAVE_MIN = 4 blocks plus one per 4 cells walked**.
+  - They are sorted by cost, then by walk.
+  - A cell whose walk failed is excluded.
+  - Only full cubes are ridden, because `rideFloorDown` reads its floor at feet - 1, which on a bottom slab is the cell
+    under the slab (Codex r1 P2-9). A bot on a slab is walked to the nearest full cube first.
 
   On isolated-a, the pillar at (354,148) has 44 cells over y 96-183 and is 3 cells from spawn.
 
 ## 3. The skill (`sky_descend`, skills.mjs `skyDescend`)
 
-The skill is chatOnly and a rescue skill. It runs only from cognitive.mjs's deterministic order and is never the model's
-choice. Steps 1 to 3:
+The skill is chatOnly and a rescue skill. It is issued only by cognitive.mjs's deterministic order, every decision until the
+episode is done. It is never the model's choice. **The whole run (SKY_RUN_MS = 140 s: walks, crafts, rides and the stay)
+fits inside the runner's 180 s** (Claude r1 P3-7).
 
-1. **The cheapest column.** If it is another cell, the bot walks there on the **deck profile** (`bot.withDeckMovements`,
-   index.mjs):
+0. **Hold and wait.**
+   - A transient reading waits 2 s and returns `no_effect` (a `wait` row); the order comes back.
+   - Every run sets `bot.skyHoldUntil` for its whole length.
+   - **No floor dig within SPAWN_GRACE_MS = 3 s of a spawn**: the server drops those digs (ghost-blocks-are-rejected-digs,
+     09-29; Claude r1 P2-5).
+1. **The cheapest reachable column** comes from `rankStarts`. Another cell is walked to on the **deck profile**
+   (`bot.withDeckMovements`, index.mjs):
    - maxDropDown 3;
-   - canDig false, no 1x1 towers, no parkour, no sprint (a sprint overshoots a 1-wide bridge);
-   - `scafoldingBlocks` empty, so nothing in the walk steps past what is already there;
-   - a 15 s clock.
+   - canDig false, no 1x1 towers, no parkour, no sprint;
+   - `scafoldingBlocks` empty;
+   - 15 s.
 
-   Wherever the walk ends is priced again: a short walk is not an arrival.
-2. **Short of blocks:** carried logs become planks in the 2x2 grid, which needs no table. Each log gives 3 more blocks.
-3. **Centre and ride.** The bot centres on the support cell (a straddling body does not drop) and repeats
-   `rideFloorDown`. **Each ride takes at most the steps the price says are left**, because rideFloorDown does not know the
-   stopping test and would ride a pillar on into the ground (the first test caught that: 32 blocks instead of 28). Every
-   batch is re-priced, and a batch that is no longer priced stops.
+   A walk that does not arrive excludes that cell, and the next is ranked from wherever the bot stands, up to 3 walks.
+   After that, the own column is used if it is priced; otherwise the bot stays.
+2. **Blocks.** A **free column (cost 0) needs none** (Codex r1 P1-4). A paid one needs cost + MARGIN 2. Short, the bot first
+   turns its logs into planks in the 2x2 grid (+3 blocks a log, no table).
+3. **Centre, verified, then ride.**
+   - The pathfinder's own `fullStop` snaps a body more than 0.2 off the centre once the goal is met (mineflayer-pathfinder
+     index.js:330-345, confirmed by Claude r1).
+   - The skill **checks** the result: a body still off the centre is never dug under (Codex r1 P1-1).
+   - Each ride takes at most the steps the price says are left, and each batch is re-priced.
+   - A support that is not a full cube, or feet not on an integer, stops the ride.
 
-**Stay.** The bot stays when there is no priced column, it is still short after crafting, or the first step fails.
+**Stay.** The bot stays when there is no priced reachable column, it is still short after the logs, or a step cannot be made.
 
 - It writes one `_needs_rescue` row per cell per 30 min, in ceilescape-01's shape: `arm=sky_descend at=x,y,z ... --
   <reason>`.
-- It holds the body for SKY_STAY_MS = 30 s. `bot.skyHoldUntil` = that + 60 s.
-- The order comes back on the next decision, so the model never gets a turn to walk it off.
+- The body is held.
+- The order comes back on the next decision.
+- **The text says only what is true** (Claude r1 P1-1): what it needs, what it carries, "Held here for rescue
+  (`_needs_rescue` raised)". r1 printed "pick up blocks", which no held bot could act on; that is gone.
+- A deterministic way to get more material from the platform is owner question Q3. One example is mining a deck cell that
+  is not the bot's own support, but on a floating deck the item falls through the hole.
 
 **Outcomes:**
 
-- `grounded` (success)
-- `progress` (success: this run's 150 s clock is spent; the order continues while elevated)
+- `grounded`
+- `progress` (the run's clock is spent and the episode continues)
 - `stay` / `stopped` (failed, failClass needs_rescue)
-- `no_effect` (not elevated)
-
-Every run writes a `_sky_descend` row, evidence first: y before and after, the open run, blocks had and needed, placed,
-rode, walked, crafted, stopped.
-
-**Refusals and their remedies, from where the bot stands.**
-
-- Short of blocks: "Pick up blocks (cobblestone, dirt, logs) and it climbs down at once; otherwise it waits here for
-  rescue". This is executable if any reach: the pickup sweep runs, and the next decision re-prices. Logs are already
-  converted.
-- No priced column: names the reason (lava, unloaded, deeper than the scan) and says it waits for rescue.
-- In every case the deliberate alternative is refused (next section).
+- `wait` and the no-op `grounded` (no_effect)
 
 ## 4. Composition
 
-- **The escape lattice's bottom rung, `step_off`** (walk off the edge on purpose, escape.mjs), is refused at **both** of
-  its reflex sites while `skyHoldActive(bot)`:
-  - the stranded_high lattice;
-  - the y < 125 last-resort drop.
-
-  The owner's rule for a bot with no safe way down is "stay put", and step_off is precisely the walk-off.
-- **The stagnation watchdog** stands aside while held (`skyHoldUntil`): a bot holding still on purpose is not stuck, and
-  the relocation walk is the fall.
-- **stranded_high / marooned** run only when `!runner.isBusy()`, so they cannot interrupt a running descent. Between runs,
-  a bot mid-column with no path start may get the lattice's `ride_floor_down` or `dig_down`. Those go down too and are
-  priced against survivable health. step_off is refused while held.
-- **keep-out-01's exit** outranks the order: it is applied after it in cognitive.mjs, because a fire column is the nearer
-  danger.
-- **Admission** passes `sky_descend` like keepout_exit (no repeat window or learned rule) but waits on an unsettled
-  inventory click.
-- **cavefall-01** (not in this base): its rule filters gather's targets and checks collectManually's dig. `rideFloorDown`
-  calls `bot.dig` directly on its own floor after reading back a placed block under it, so the floor rule neither sees
-  nor needs to see it. When both ship, a gather on the deck refuses deck cells over the void, which is right. The descent
-  is never a gather.
-- **poolescape-01 / ceilescape-01:** water landings are not elevated, so no descent into water is attempted, and a wading
-  bot is not on a platform. ceilescape's `_needs_rescue` row shape is reused so its header line can carry this arm
-  (§8.4).
-- **entombed:** a bot riding a pillar under the deck has air on its sides, so it is not entombed. A bot that bridges down
-  inside a 1x1 hole it dug stands on its placed block with open air beside, the same.
-- **lavastep / lavasight:** a column with lava in it or two below is never priced, so no descent goes toward lava.
+- **The escape lattice stands aside** while sky_descend owns the episode: `skyEscapeBlocked(bot)` is true while held
+  (`skyHoldUntil`) or while the episode is open (`bot.skyActive`, published by cognitive.mjs) (Codex r1 P1-3, Claude r1
+  P2-4).
+  - It is asked at the **maroon check**. That covers every rung behind it: need_scaffold, need_pickaxe, stranded_high and
+    its `step_off` (the deliberate walk-off), and `climb` (pillaring back up its own column).
+  - It is asked at the **last-resort branch**, which has no runner-busy guard and whose `dig_down` is priced by health,
+    not by SAFE_DROP.
+  - The hazard reflexes (drowning, lava, fire, entombed) are separate branches and are unchanged.
+- **The stagnation watchdog** stands aside on the same gate: a relocation walk from a deck is the fall.
+- **keep-out-01's exit** outranks the order, because a fire column is the nearer danger.
+- **Admission** passes `sky_descend` like keepout_exit, but waits on an unsettled inventory click.
+- **cavefall-01** (not in this base): its rule filters gather's targets and collectManually's dig. `rideFloorDown` calls
+  `bot.dig` on its own floor after a placed block reads back under it, so the floor rule neither sees nor needs it. On the
+  deck, cavefall's gather refuses deck cells over the void, which is right. The descent is never a gather.
+- **poolescape-01 / ceilescape-01:** a water landing ends a descent, a wading bot is not on a platform, and ceilescape's
+  `_needs_rescue` shape is reused (§8.4).
+- **entombed:** a bot riding a pillar under a deck has air beside it at body height, so it is not entombed. A bot fully
+  walled in rock is `doneAt` (enclosed), so the descent never digs on inside rock.
+- **lavastep / lavasight:** a column with lava one or two below is never priced.
 
 ## 5. Owner questions
 
-- **Q1.** None of the exposed pools can be drawn, so the canary cannot measure this (§8). Options:
-  - (a) a canary on 4 drawable pools as a no-harm correctness gate only (false triggers, falls during a descent);
-  - (b) an owner-direct rollout to isolated-a and isolated-d only, read against their own past (12 deaths a week),
-    reported as before and after with world drift named;
+- **Q1. How to measure it.** The platform population was seen only in pools that are never drawn (§8). The options:
+  - (a) a canary on 4 drawable pools, as a no-harm correctness check: false triggers and deaths inside a descent;
+  - (b) an owner-direct rollout to isolated-a and isolated-d only, read against their own past (12 platform-fall deaths a
+    week), reported as before/after with world drift named;
   - (c) both.
-  The recommendation is (c). The drawable canary proves it does nothing where there is no platform; isolated-a then shows
-  the loop end.
-- **Q2.** "Stay put" holds a bot that has no blocks indefinitely: one `_needs_rescue` row per cell per 30 min. Is the
-  header line (§8.4) enough, or should the operator get a daily list? Measured, every platform bot this week carried enough
-  to climb down.
 
-## 6. Tests (bots/test/respawnfall.test.mjs, 29 behaviour tests, in `npm test`)
+  The recommendation is (c).
+- **Q2. A held bot.** "Stay put" holds a bot with too few blocks until rescued, writing one `_needs_rescue` row per cell per
+  30 min plus the header line (§8.4). Is that enough, or should there be a daily list? Measured, every platform bot this
+  week carried enough to climb down.
+- **Q3. Material from the platform.** Should a held bot get material from the platform itself? For example, harvesting the
+  deck's trees (176 oak_log cells stand on it, and their drops land on the deck), deterministic and bounded. Today it does
+  not, and it says so.
 
-**The pure rule on isolated-a's shape:**
+## 6. Tests (bots/test/respawnfall.test.mjs: 33 behaviour tests in `npm test`, ~77 s)
 
-- a deck at 180 over ground at 71;
-- the pillar with its gaps;
-- a water landing and lava;
-- unloaded below;
+**The trigger:**
+
+- the deck at 180;
+- a slab support;
+- ordinary ground;
 - a 7-open ledge;
-- a cliff edge, a corner and a lone pillar.
+- a deck over a pond, and lava below;
+- **water under one column with deadly sides**;
+- the transient readings (no position, airborne, no support, unloaded, a throwing reader);
+- a cliff, a corner and a lone pillar.
 
-**descentCost:**
+**Done:**
 
-- void = open less 3;
-- pillar = its gaps;
-- lava and unloaded are not priced.
+- a block at 74 is done, at 75 it is not;
+- the ground;
+- a pillar near the ground (6 is not done, 2 is);
+- an unloaded side.
 
-**cheapestStart:**
+**The price:**
 
-- the pillar wins from spawn;
-- the own cell is kept when nothing saves 4;
+- void = open less 2;
+- the pillar = its gaps, ending 2 above the ground;
+- lava, unloaded and an unbreakable support are not priced.
+
+**The starts:**
+
+- the reachable pillar wins;
+- a moated (unreachable) one does not;
+- an excluded walk;
+- no headroom;
+- a slab support is walked off;
 - out of radius;
-- unreachable;
-- no headroom.
+- a 2-block saving is not walked for.
 
-**descendOrder:**
+**The episode:**
 
-- the spawn window;
-- an active episode;
+- starts in the window;
+- runs past it while not done;
+- transient keeps it open;
+- done ends it;
+- done with a transient reading does not end it;
 - off.
 
-**The REAL skill on a fake bot with fall physics** (a broken floor drops the body to the next solid):
+**The gate** (`skyEscapeBlocked`): held, open, neither.
 
-- 200 blocks: it climbs down to descentDone;
-- it rides a column, placing only the gap less SAFE_DROP;
-- 10 blocks: it walks on the deck profile to the pillar and rides it;
-- a short walk is priced where it ended;
-- logs are crafted into planks (crafts = ceil(deficit/3)), then it climbs down;
-- too few blocks: it stays, with no dig and no walk, raises needs_rescue and sets the hold;
-- a placement that never takes: it never digs its floor;
-- not elevated: no_effect;
-- off-centre: it centres.
+**The REAL skill on a fake bot with fall physics:**
 
-**Anchored mutants** (present and unique), each killed:
+- climbs down, never more than 3 above the ground;
+- the lattice is held off for every dig;
+- the hold is released at the end;
+- rides a column, bridging only the gap;
+- a **free column with 0 blocks**;
+- walks (deck profile) to the reachable pillar;
+- a walk that never arrives tries each column once, then stays without digging;
+- logs to planks;
+- too few blocks: stays, held;
+- a placement that never takes: no dig;
+- not elevated, and **airborne: it waits**;
+- centred, and **one that cannot be centred is never dug under**;
+- **no dig inside the spawn grace**.
 
-- water read as deadly;
-- unknown read as open;
-- no spawn window;
-- the block count skipped;
-- no watchdog hold;
+**Anchored mutants, each asserting the behaviour it breaks:**
+
+- done at the trigger threshold;
+- an episode ended on a transient reading;
+- a reserve on a free column;
 - no SAVE_MIN;
-- the side rule dropped in the price;
 - lava priced;
-- one deadly side enough.
+- the side trigger on one side;
+- an unbounded ride;
+- a run without the hold;
+- no centring check.
+
+r1's two vacuous tests are gone (Claude r1 P3-8).
 
 **Wiring** (comments stripped):
 
-- order position before keep-out;
+- order position;
+- `bot.skyActive` published;
 - admission;
-- watchdog;
-- spawn stamp;
-- registry line;
-- both step_off sites ask the hold.
+- the watchdog, maroon check and last-resort branch ask `skyEscapeBlocked`;
+- the spawn stamp;
+- the registry line.
 
-## 7. Paper (sandbox, per-server locks tagged `respawnfall`)
+**Elsewhere:** `fallpath-wired.test.mjs` now counts 8 helpers that restore the walk profile (the deck profile is the
+eighth). The full `npm test` result is in §7.
+
+## 7. Paper (sandbox6/7, per-server locks tagged `respawnfall`)
 
 `sandbox/respawnfall/respawnfall-e2e.mjs`, on main's sandbox tree:
 
 - **The whole bot, unmodified.** The model is the sandbox brain answering `explore`.
-- **The platform is real:** isolated-a's 1,118 cells, cell for cell with their states, translated by (+4000, 0, +4000).
-- **The respawn is real:** a spawnpoint on the fleet's column, then one kill. Every later death respawns there again,
-  which is the loop.
-- **Synthetic, and said so in every result row:**
-  - flat stone ground with its top at y=70;
+- **The platform is real:** isolated-a's 1,118 cells, cell for cell with their states, translated by (+4000, 0, +4000)
+  (`isolated-a-platform.json`).
+- **The respawn is real:** a spawnpoint on the fleet's column, then one kill. Every later death respawns there again.
+- **Synthetic:**
+  - flat stone ground, top y=70 (feet 71);
   - the jungle not copied;
   - a fleet-typical bag (288 placeable blocks, 64 of them logs), or a pickaxe alone.
 
-Scenes: `deck` (respawn at 353,181,147), `bridge` (355,126,145) and `bare` (the deck with no blocks). Base `2d1aa8c1` and
-candidate are each run on their own server in parallel pairs.
+Scenes: `deck` (respawn at 353,181,147), `bridge` (355,126,145) and `bare` (the deck, no blocks).
 
-Read per run:
-
-- deaths and falls;
-- time to the ground alive;
-- maximum drift (bare: the candidate must stay on its cell);
-- `sky_descend` / `_sky_descend` / `_needs_rescue` rows;
-- how many of the 1,118 platform cells still stand.
-
-**Results: PENDING** (the sandboxes are held by cavefall-01's runs until those finish).
+**Results: in progress.**
 
 ## 8. Read, registration, tier
 
@@ -283,50 +317,64 @@ Read per run:
 
 **REVERT:**
 
-- `rows_control`: a control `_sky_descend` / `_respawnfall_mode` row after the deploy;
-- `licence_all`: every canary-pool bot seen carries `_respawnfall_mode on=1`.
+- `rows_control`: a control `_respawnfall_mode` / `_sky_descend` / `_needs_rescue arm=sky_descend` row after the deploy;
+- `licence_all`.
 
-**WATCH**, which blocks an automatic KEEP; a human reads it:
+**WATCH**, which blocks an automatic KEEP:
 
-- `descent_fell`: a canary fall episode (a fall-family death, or fell >= 6 with >= 4 hp lost) inside a `sky_descend` run's
-  interval (+5 s);
-- `acted`: any canary `_sky_descend` row other than `no_effect` (grounded, progress, stay or stopped). No drawable world
-  has a platform (§0.1), so every such row is either a real bot pillar or a false trigger, and a human reads its position
-  before KEEP.
+- `descent_fell`: **any** death, or a fall >= 6 with >= 4 hp lost, inside a `sky_descend` run;
+- `acted`: any `_sky_descend` row that did something (grounded, progress, stay or stopped). Each is named with its position
+  for a human to read.
 
 **HOLD:**
 
-- `runaway`: more than 30 `sky_descend` runs by one canary bot in the window.
+- `runaway`: more than 30 runs by one bot.
 
 **Reported:**
 
-- runs by outcome;
+- outcomes;
 - `_needs_rescue` by bot and cell;
 - blocks placed and ridden;
-- fall-family deaths by arm, under the two-death floor.
+- fall deaths by arm, under the two-death floor.
 
-### 8.2 Exposure
+### 8.2 Exposure (Codex r1 P10: worded to what was measured)
 
-On a drawable pool there is none by construction (§0.1). The gates above are correctness and no-harm only. KEEP means
-"did no harm where it should not fire": the licence is on, no acted row went unexplained, and there are no runaways.
+- **The platform population.** The 12 platform falls and the 4 high episodes that ended in death were all in
+  isolated-a/isolated-d. No other platform was seen in the 10 shared-seed worlds' spawn squares, apart from placebo-c's small
+  one (cavefall-01 §0.6). Those are three pools that are never drawn (§8.3).
+- **What a drawable canary can still meet.** The rule can still fire on drawable pools for:
+  - a bot that logs in on its own pillar;
+  - a natural spire;
+  - a stranded tower bot (board-c-Delta's kind) after a reconnect.
+
+  So a drawable canary is a **no-harm check of exactly those**: the `acted` rows. It is not a measure of the platform
+  effect, and its KEEP does not claim one.
+- Evidence files:
+  - `docs/reports/respawnfall-01-evidence-sky7d.txt`, the episode table, produced by
+    `scripts/host/respawnfall/sky7d_pull.py` + `sky7d_episodes.py`;
+  - `docs/reports/respawnfall-01-evidence-draw.txt`, the host's drawrequire/drawexposure lines.
 
 ### 8.3 Tier
 
-drawexposure.py excludes isolated-* and placebo-c from the candidates, and drawrequire.py refuses an isolated pool in
-`draw_require_pools` ("required pool %s is never drawable"). The coordinator's requirement that isolated-a be in the draw
-**cannot be met by the scheduler as installed**, and changing the scheduler is outside this item. Registered **tier 3**
-with the no-harm gates, plus owner question Q1. The registration is staged with no `draw_require_pools`, because
-isolated-a would make the draw refuse forever.
+`~/mcai-analysis/drawexposure.py:122` drops isolated-* and placebo-c from the candidates.
+`~/mcai-analysis/drawrequire.py` `pick()` returns "required pool %s is never drawable" for them. Both are quoted in the
+evidence file.
+
+The coordinator's requirement that isolated-a be in the draw **cannot be met by the scheduler as installed**, and changing
+the scheduler is outside this item.
+
+- **Tier 3**, with the no-harm gates.
+- **No `draw_require_pools`**, because isolated-a would make the draw refuse forever.
+- Owner question Q1 for the isolated rollout.
 
 ### 8.4 The header
 
-ceilescape-01's `rescue_line.py` lists `_ceilescape action=escalate` rows. ceilescape-01 is not on main. respawnfall's
-`_needs_rescue` rows carry `arm=sky_descend`, and `scripts/host/respawnfall/rescue_sky.py` gives the same kind of line for
-them: a bot is listed while its latest `_sky_descend` row is a stay and it has not moved 2 blocks since. It is to be merged
-into the one header line when ceilescape lands.
+`scripts/host/respawnfall/rescue_sky.py` (selftested) gives a `needs rescue (respawnfall-01)` line. It lists a bot while its
+latest `_sky_descend` row is a stay and it has not moved 2 blocks since. This line is to be merged with ceilescape-01's
+`rescue_line.py` when that lands; ceilescape-01 is not on main.
 
 ## 9. Review record
 
 | round | Codex | Claude subagent | what changed |
 |---|---|---|---|
-| design + code r1 | pending | pending | |
+| design + code r1 (d6b69508) | CHANGES (9 P1, 1 P2) | CHANGES (1 P1, 4 P2, 7 P3) | r2 (16b2e923): done separated from the trigger (Codex P1-2, Claude P3-6); episodes end only on a verified stance (Codex P1-6, Claude P2-2); the lattice/last-resort/watchdog gate (Codex P1-3, Claude P2-4); a free column needs no blocks (P1-4); ranked reachable starts with failed walks excluded (P1-5, Claude P3-10); water under one column (P1-7); truthful stay text, no pickup claim, Q3 (Codex P1-8, Claude P1-1); full-cube supports only (P2-9); diggable supports priced (Claude P2-3); the centre verified (Codex P1-1; Claude showed fullStop snaps); the spawn grace (Claude P2-5); the run inside 140 s (P3-7); vacuous tests replaced (P3-8); G1 any death (P3-11); exposure worded to the measured population with evidence files (Codex P10, Claude P3-12). Claude P3-9 (extract the step_off decision): the gate is now one exported pure predicate, behaviour-tested, asked at two sites |
