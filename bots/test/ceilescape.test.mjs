@@ -477,6 +477,11 @@ for (const [name, old, neu] of [
   ['the flag removed from the entombed arm', "                if (stair?.ceil?.action === 'escalate') noteRescue('entombed', stair)", ''],
   ['the hold not told', '        owned: rescuing || rampSteering,', '        owned: rescuing,'],
   ['the lateral progress arm removed', "              } else if (stair?.ceil?.moved) {", '              } else if (false) {'],
+  ['the marooned flood branch not told', "arbiterYield(() => maroonGrant), steering: steerRamp })\n            floodRefusals = fb.refusals", "arbiterYield(() => maroonGrant) })\n            floodRefusals = fb.refusals"],
+  ['the entombed flood branch not told', "arbiterYield(() => entombedGrant), steering: steerRamp })\n            floodRefusals = fb.refusals", "arbiterYield(() => entombedGrant) })\n            floodRefusals = fb.refusals"],
+  ['floodBranch drops the flag', '  const stair = await ramp(bot, { yieldTo, steering })', '  const stair = await ramp(bot, { yieldTo })'],
+  ['the entombed ramp_cut row without its firing', "`climbed=${stair.climbed.toFixed(1)} fire=${stair.fire ?? '-'} — stopped because", '`climbed=${stair.climbed.toFixed(1)} — stopped because'],
+  ['the marooned ramp_cut row without its firing', "`climbed=${ramp.climbed.toFixed(1)} fire=${ramp.fire ?? '-'} — stopped because", '`climbed=${ramp.climbed.toFixed(1)} — stopped because'],
 ]) {
   await t(`MUTANT KILLED (wiring): ${name}`, () => {
     const src = readFileSync(REFLEX_PATH, 'utf8')

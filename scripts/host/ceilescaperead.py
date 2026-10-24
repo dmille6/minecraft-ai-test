@@ -25,7 +25,9 @@
 #   G2 unchanged      REVERT: a `_ceilescape` row on a licence-on bot with env_ms <= left_ms and action != ceiling (the
 #                     "an affordable swing takes today's path" promise). `action=off` rows are exempt.
 #   G3 declined_swung REVERT: a FIRING (the bot's `_ceilescape` rows since its previous ramp_cut row, up to its next) whose
-#                     last row says wait|escalate and whose ramp_cut row reads "dig exceeded". REPORTED, not gated: firings
+#                     last row says wait|escalate and whose ramp_cut row reads "dig exceeded". BLIND SPOT (Claude code r3 P3-2): firings
+#                     reached through floodBranch and the stranded lattice write no ramp_cut row, so G3 never judges them (it
+#                     cannot false-trip on them either). REPORTED, not gated: firings
 #                     whose last row says ceiling and still end "dig exceeded" -- near (env_ms > left_ms - 1000: today's
 #                     behaviour, no reserve on purpose) vs far (the price model is wrong: >= 2 is a WATCH).
 #   ARMS              REVERT: a control `_ceilescape*` / `_needs_rescue` row after the deploy.
