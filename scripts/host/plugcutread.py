@@ -12,17 +12,21 @@
 # THE CHANGE (rows only this build writes):
 #   _plugcut_mode  once per spawn (the licence): on=0|1 after_refusals= max_plugs= rounds= clear_up= budget_s=
 #   _plugcut       one per placement attempt: at=<frame> for=ceiling|step:x,z cell=<offset> ref= block= result=placed|failed|
-#                  refused|stopped plugged= sub=0|1 -- why
+#                  refused|stopped plugged= sub0=0|1|- sub=0|1 -- why   (sub0 = the head at the decision; sub = now)
 #
 # THE INSTRUMENT IS POSITION (bot.pos on every row), not the rung's rows.
 # PRIMARY (deterministic, n = 1)
 #   LEFT  placebo-d-Delta's position leaves its pit (x 197..199, z 186..188, y <= 36.5) after the deploy and stays out for
-#         >= 30 min of its own positions; a death first is 'died', never 'left'. KEEP needs it. Every other canary bot with a
-#         `result=placed` row is reported the same way (its box: +-1 around the row's frame, y <= frame + 1.5).
+#         >= 30 min of its own positions; a death first is 'died', never 'left'. KEEP needs it. AND IT WAS IN THE PIT AT THE
+#         DEPLOY (Claude r1 P1): its newest position in the 30 min before the cut is inside the box, else
+#         'not_in_pit_at_deploy' (cannot KEEP). Every other canary bot with a `result=placed` row is reported the same way (its
+#         box: +-1 around the row's frame, y <= frame + 1.5).
 # GATES
 #   G1 linked_deaths  REVERT on >= 2: a canary `_death` within 120 s after a `_plugcut result=placed` row of the same bot (the
 #                     owner's two-death floor; one is reported by name). The fleet death gate runs as always.
-#   G2 placed_submerged REVERT: a `result=placed` row with sub=1 (the planner refuses a submerged bot by construction).
+#   G2 placed_submerged REVERT: a `result=placed` row with sub0=1 -- the head under at the DECISION (the planner refuses a
+#                     submerged bot by construction). `sub=` (after the settle) is reported only: a bot sinking after a
+#                     placement is not a defect (Codex r1 P2, Claude r1 P1).
 #   ARMS              REVERT: a control `_plugcut*` row after the deploy.
 #   LIVENESS          canary licence on=1 >= 1 (BLOCKS KEEP).
 #   INSTRUMENT        placebo-d-Delta's post positions in >= 75% of its 10-min buckets -- BLOCKS KEEP.
@@ -39,7 +43,7 @@ sys.path.insert(0, '/srv/mcb-analysis-lib')
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
-KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
+KV = re.compile(r'(?:^| )([a-z_][a-z_0-9]*)=(\S+)')
 BUCKET_S, COVERAGE, HOLD_OUT_S, LINK_S, BREACH_S = 600, 0.75, 1800, 120, 120
 DELTA = 'placebo-d-Delta'
 DELTA_BOX = ((197.0, 200.0), (186.0, 189.0), (-64.0, 36.5))     # the pit: one cell around (198,34,187), feet <= y 36
@@ -105,7 +109,8 @@ def judge(rows, *, cut, cans, fleet=False):
     res['refusals_top'] = Counter((r['detail'].split(' -- ', 1)[-1])[:80] for r in pc if kv(r['detail']).get('result') == 'refused').most_common(5)
     placed = [r for r in pc if kv(r['detail']).get('result') == 'placed']
     # G2: a placement with the head under
-    g2 = [(r['bot'], round(r['t'])) for r in placed if kv(r['detail']).get('sub') == '1']
+    g2 = [(r['bot'], round(r['t'])) for r in placed if kv(r['detail']).get('sub0') == '1']
+    res['placed_sank_after'] = sum(1 for r in placed if kv(r['detail']).get('sub0') == '0' and kv(r['detail']).get('sub') == '1')
     res['placed_submerged'] = len(g2); res['_g2'] = g2
     # G1: deaths linked to a placement
     pt = defaultdict(list)
@@ -140,7 +145,14 @@ def judge(rows, *, cut, cans, fleet=False):
     seen = {int(r['t'] // BUCKET_S) for r in post if r['bot'] == DELTA and r.get('pos') is not None}
     res['delta_coverage'] = round(len(seen & set(ks)) / len(ks), 2) if len(ks) else 0.0
     res['instrument'] = 1 if res['delta_coverage'] >= COVERAGE else 0
-    res['delta'] = left_box(post, DELTA, DELTA_BOX, cut) if any(r['bot'] == DELTA for r in post) else 'not in this read'
+    pre = sorted((r['t'], r['pos']) for r in rows if r['bot'] == DELTA and r.get('pos') is not None and cut - HOLD_OUT_S <= r['t'] < cut)
+    res['delta_in_pit_at_deploy'] = 1 if pre and in_box(pre[-1][1], DELTA_BOX) else 0
+    if not any(r['bot'] == DELTA for r in post):
+        res['delta'] = 'not in this read'
+    elif not res['delta_in_pit_at_deploy']:
+        res['delta'] = 'not_in_pit_at_deploy'
+    else:
+        res['delta'] = left_box(post, DELTA, DELTA_BOX, cut)
     others = {}
     for b in sorted(pt):
         if b == DELTA:
@@ -161,7 +173,7 @@ def selftest():
     def stay(bot, t0, t1, at=(198.3, 34.1, 187.7)):
         return [row(bot, t, pos=at) for t in range(int(t0), int(t1), 60)]
     lic = row(DELTA, cut + 5, '_plugcut_mode', detail='on=1 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90')
-    P = 'at=198,34,187 for=ceiling cell=0,2,-1 ref=0,1,-1 block=dirt result=placed plugged=1 sub=0 -- dirt'
+    P = 'at=198,34,187 for=ceiling cell=0,2,-1 ref=0,1,-1 block=dirt result=placed plugged=1 sub0=0 sub=0 -- dirt'
     out = stay(DELTA, cut - 3600, cut + 240) + [lic, row(DELTA, cut + 240, '_plugcut', detail=P)] + \
         [row(DELTA, t, pos=(198.5, 33.0, 190.5)) for t in range(int(cut + 300), int(cut + 7200), 60)] + stay('hive-a-Alpha', cut - 3600, cut + 7200, (0.0, 64.0, 0.0))
     ok = judge(out, cut=cut, cans={'placebo-d'})
@@ -189,10 +201,17 @@ def selftest():
     d2 = out + [row(DELTA, cut + 3000, '_plugcut', detail=P), row(DELTA, cut + 300, '_death', fc='drowning'), row(DELTA, cut + 3060, '_death', fc='fire')]
     assert judge(d2, cut=cut, cans={'placebo-d'})['linked_deaths'] == 2
     assert judge(out + [row(DELTA, cut + 900, '_death', fc='fire')], cut=cut, cans={'placebo-d'})['linked_deaths'] == 0
-    # G2: a submerged placement trips; a refused row with sub=1 does not
-    assert judge(out + [row(DELTA, cut + 260, '_plugcut', detail=P.replace('sub=0', 'sub=1'))], cut=cut, cans={'placebo-d'})['placed_submerged'] == 1
-    R_ = P.replace('result=placed', 'result=refused').replace('sub=0', 'sub=1')
+    # G2: a placement decided with the head under trips; one that sank AFTER (sub0=0 sub=1) is reported, not gated; a refused
+    # row with sub0=1 does not trip
+    assert judge(out + [row(DELTA, cut + 260, '_plugcut', detail=P.replace('sub0=0', 'sub0=1'))], cut=cut, cans={'placebo-d'})['placed_submerged'] == 1
+    sank = judge(out + [row(DELTA, cut + 260, '_plugcut', detail=P.replace(' sub=0', ' sub=1'))], cut=cut, cans={'placebo-d'})
+    assert sank['placed_submerged'] == 0 and sank['placed_sank_after'] == 1, sank
+    R_ = P.replace('result=placed', 'result=refused').replace('sub0=0', 'sub0=1')
     assert judge(out + [row(DELTA, cut + 260, '_plugcut', detail=R_)], cut=cut, cans={'placebo-d'})['placed_submerged'] == 0
+    # PRIMARY: a Delta already OUT at the deploy cannot KEEP (Claude r1 P1)
+    away = stay(DELTA, cut - 3600, cut, (300.5, 70.0, 300.5)) + [lic] + stay(DELTA, cut + 60, cut + 7200, (300.5, 70.0, 300.5))
+    ra = judge(away, cut=cut, cans={'placebo-d'})
+    assert ra['delta'] == 'not_in_pit_at_deploy' and ra['primary_left'] == 0, ra
     # REPORTED: a breach at the plugged cell (198,36,186) within 120 s; one elsewhere or later does not count
     B = lambda c: f'caller=ramp_step cell={c} before=dirt liquid=water submerged=1 exempt=1'
     rb = judge(out + [row(DELTA, cut + 300, '_climb_flood_breach', detail=B('198,36,186')), row(DELTA, cut + 300, '_climb_flood_breach', detail=B('198,37,186')),
@@ -276,10 +295,10 @@ if __name__ == '__main__':
     res = judge(rows, cut=CUT.timestamp(), cans=CANS, fleet=fleet)
     print('DENOMINATORS rows walked %d (canary rows on another build skipped %d; rows with bot.pos %d) | bots post canary %d control %d | window %d min%s'
           % (walked, offbuild, withpos, len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, ' | FLEET TRIPWIRE' if fleet else ''))
-    print('PRIMARY      placebo-d-Delta %s (coverage %.2f, need %.2f) -> %s | other placing bots %s'
-          % (res['delta'], res['delta_coverage'], COVERAGE, 'LEFT' if res['primary_left'] else 'NOT LEFT', json.dumps(res['others_left']) or '-'))
-    print('DEFECTS      G1 deaths linked to a placement %d %s | G2 placed with the head under %d %s | ARMS control rows %d'
-          % (res['linked_deaths'], res['_linked'] or '', res['placed_submerged'], res['_g2'][:5] or '', res['rows_control']))
+    print('PRIMARY      placebo-d-Delta %s (in the pit at the deploy %d; coverage %.2f, need %.2f) -> %s | other placing bots %s'
+          % (res['delta'], res['delta_in_pit_at_deploy'], res['delta_coverage'], COVERAGE, 'LEFT' if res['primary_left'] else 'NOT LEFT', json.dumps(res['others_left']) or '-'))
+    print('DEFECTS      G1 deaths linked to a placement %d %s | G2 placed with the head under (at the decision) %d %s (sank after: %d, reported) | ARMS control rows %d'
+          % (res['linked_deaths'], res['_linked'] or '', res['placed_submerged'], res['_g2'][:5] or '', res['placed_sank_after'], res['rows_control']))
     print('REPORTED     breaches at a plugged cell %d %s%s | licensed ramps that progressed %d | top refusals %s'
           % (res['plug_breaches'], res['_breaches'][:5] or '', ' (WATCH)' if res['breach_watch'] else '', res['ramps_progressed'], json.dumps(res['refusals_top'])))
     print('RESULTS      %s | by bot %s' % (json.dumps(res['results']), json.dumps(res['by_bot'])))

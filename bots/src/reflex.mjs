@@ -54,7 +54,9 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
          POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
-import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP, PLUG_BUDGET_MS } from './plugcut.mjs'
+import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
+         PLUG_BUDGET_MS, PLUG_SETTLE_MS } from './plugcut.mjs'
+import { INTERACTIVE } from './poolescape.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -4687,7 +4689,7 @@ export async function escapeStairUp (bot, {
         // flood check on the next pass of this loop -- nothing here relaxes it.
         if (plug && !submerged && plugRounds < PLUG_ROUNDS && key3(plan.cell ?? [0, 2, 0]) === '0,2,0') {
           plugRounds++
-          const r = await plugCeiling(bot, p, { yieldTo: () => (yielded = yieldTo()) })
+          const r = await plugCeiling(bot, p, { yieldTo: () => (yielded = yieldTo()), deadline })
           if (yielded) { stopped = `yielded the body to ${yielded}`; return finish() }
           plugged += r.placed
           plugNote = r.note
@@ -4791,14 +4793,16 @@ export async function escapeStairUp (bot, {
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
     const submerged = submergedAt(bot)
 
-    // plugcut-01: a licensed ramp chooses among the bearings that spare this firing's plugs first (plugcut.mjs sparePlugs)
+    // plugcut-01: a licensed ramp chooses among the bearings that spare this firing's plugs and utility blocks first
+    // (plugcut.mjs sparePlugs); the unlicensed ramp is today's chooser
     const chooseBearing = () => {
       const all = escapeBearings(bot.entity.yaw)
       const any = () => chooseStairUpBearing({ at, bearings: all, depth, canBreak, submerged })
-      if (!plug || !plugCells.length) return any()
+      if (!plug) return any()
       const f = p.floored()
       const spared = sparePlugs({ bearings: all, placed: plugCells.map(c => [c.x - f.x, c.y - f.y, c.z - f.z]),
-                                  firstDig: b => stairUpStep({ at, bear: b, canBreak, submerged }).dig })
+                                  firstDig: b => stairUpStep({ at, bear: b, canBreak, submerged }).dig,
+                                  avoid: c => INTERACTIVE.test(at(...c)?.name ?? '') })
       const c = spared.length ? chooseStairUpBearing({ at, bearings: spared, depth, canBreak, submerged }) : null
       return c && c.runway > 0 ? c : any()
     }
@@ -4813,7 +4817,11 @@ export async function escapeStairUp (bot, {
       const f = p.floored()
       const placed = plugCells.map(c => [c.x - f.x, c.y - f.y, c.z - f.z])
       const sp = chooseStepPlug({ at, bearings: escapeBearings(bot.entity.yaw), blocks: plugBlocks(bot), submerged, canBreak, placed })
-      if (!sp.ok) stepPlugWhy = sp.reason
+      if (!sp.ok) {
+        stepPlugWhy = sp.reason
+        // ONE ROW FOR A REFUSED STEP RUNG (Claude r1 P3): the read's refusal reasons must see the step's as well as the ceiling's
+        try { logEvent({ kind: 'plugcut', status: 'failed', detail: `at=${f.x},${f.y},${f.z} for=step cell=- ref=- block=- result=refused plugged=0 sub0=0 sub=0 -- ${sp.reason}`.slice(0, 300), snapshot: snapshot(bot) }) } catch { /* telemetry */ }
+      }
       else {
         plugRounds++
         const bear = sp.bear
@@ -4822,6 +4830,7 @@ export async function escapeStairUp (bot, {
           plan: () => stepPlugPlan({ at, bear, blocks: plugBlocks(bot), submerged: submergedAt(bot), canBreak }),
           clear: () => stairUpStep({ at, bear, canBreak, submerged: submergedAt(bot) }).ok,
           yieldTo: () => (yielded = yieldTo()),
+          deadline,
         })
         if (yielded) { stopped = `yielded the body to ${yielded}`; return finish() }
         plugged += r.placed
@@ -4946,10 +4955,11 @@ export async function escapeStairUp (bot, {
     // fix here.
     await sleep(250)
 
-    // PLUGCUT-01, A BOBBING START (licensed firings only): a bot jumping from water starts anywhere in its cell (Paper 10-24,
-    // isolated-d-Bravo: before.y 60.6 at the jump, on the step at 61.0 -- a taken step read as refused). With the licence the
-    // step is judged on the floored cell, the comparison `mine` already uses; without it, today's raw 0.5.
-    if (plug ? Math.floor(bot.entity.position.y + 1e-6) <= Math.floor(before.y + 1e-6) : bot.entity.position.y - before.y < 0.5) {
+    // PLUGCUT-01, A BOBBING START (licensed firings only): a bot in water bobs out of its cell between the plan and the jump
+    // (Paper 10-24, isolated-d-Bravo: before.y 60.6 at one jump, 61.2 after its plugs, on the step at 61.0 -- a taken step read
+    // as refused). With the licence the step is judged on the floored cell against the FRAME the step was planned in (`p`);
+    // without it, today's raw 0.5 against the jump's start.
+    if (plug ? !stepTaken(bot.entity.position, p, bearing) : bot.entity.position.y - before.y < 0.5) {
       // DUG A STEP AND DID NOT TAKE IT. Stop rather than cut another: the
       // failure to avoid is carving a widened ledge while every log line says
       // the climb is progressing, which `mine` did for twenty-three days.
@@ -4961,7 +4971,7 @@ export async function escapeStairUp (bot, {
     // spent the week in (Paper 10-24: isolated-c-Alpha and isolated-d-Bravo, one step up, "a route exists again", then idle at
     // 1.4 blocks with the model off). With the licence the ramp keeps climbing until it is PLUG_CLEAR_UP above where this
     // firing started; the step budget, the deadline and every refusal still bound it.
-    if ((!plug || bot.entity.position.y - startY >= PLUG_CLEAR_UP) && await canStartAPath(bot)) {
+    if ((!plug || Math.floor(bot.entity.position.y + 1e-6) - Math.floor(startY + 1e-6) >= PLUG_CLEAR_UP) && await canStartAPath(bot)) {
       steps++
       stopped = 'a route exists again'
       break
@@ -5531,15 +5541,23 @@ export function ceilingFloodRisk (bot, dy = 2) {
  *     back-off on the existing curve, and NO prerequisite -- neither blocks nor a pickaxe fixes wet rock.
  * Returns { progressed, preempted, refusals, backoffMs, prereq: null, stair, dry }; the handler applies it.
  */
+/** plugcut-01: each bot's licence streak (plugcut.mjs plugStreak), kept beside the bot rather than on it. */
+const plugStreaks = new WeakMap()
+
 export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp } = {}) {
   const y0 = Math.round(bot.entity?.position?.y ?? 0)
   // plugcut-01: from the 4th consecutive flood refusal the ramp may plug the wet faces and cut (plugcut.mjs), and gets
   // poolescape's 90 s firing instead of 60 s: the plugs, a ceiling cut from water and two bare-handed steps (Paper 10-24:
   // isolated-c-Alpha's plug, cut, plug and first step took 47 s; the second step's two diorite cells are 15 s grounded)
-  const due = plugDue(refusals)
+  // THE LICENCE COUNTS REFUSALS AT THIS PLACE (plugcut.mjs plugStreak; Codex r1 P1), not the arm's back-off counter
+  const p0 = bot.entity?.position
+  const here = p0 ? [Math.floor(p0.x), Math.floor(p0.y), Math.floor(p0.z)] : null
+  const prevStreak = plugStreaks.get(bot) ?? null
+  const due = plugDue(plugSoFar(prevStreak, here, Date.now()))
   const stair = await ramp(bot, due ? { yieldTo, plug: true, budgetMs: PLUG_BUDGET_MS } : { yieldTo, plug: false })
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const step = floodChainStep({ refusals: refusals + 1, stair })
+  if (!stair.yielded && here) plugStreaks.set(bot, plugStreak(prevStreak, { at: here, now: Date.now(), refused: !step.progressed }))
   const q = bot.entity.position
   const wet = isWaterCell(bot.blockAt(q)) || isWaterCell(bot.blockAt(q.offset(0, 1, 0)))
   logEvent({ kind: 'climb_flood_ramp', status: step.progressed ? 'success' : 'failed',
@@ -5912,18 +5930,23 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
 }
 
 const key3 = c => c.join(',')
+/** plugcut-01: a licensed ramp step was TAKEN -- the body stands in the cell one up and one along `bear` from the frame `p`
+ *  the step was planned in (floored; Claude r1 P3: the x,z as well as the y). Pure. */
+export const stepTaken = (q, p, bear) => Math.floor(q.y + 1e-6) === Math.floor(p.y + 1e-6) + 1 &&
+  Math.floor(q.x) === Math.floor(p.x) + bear.x && Math.floor(q.z) === Math.floor(p.z) + bear.z
 
 /** plugcut-01: placeable, non-falling scaffold blocks the bot holds -- what a plug may be made of. */
 const plugBlocks = bot => poolBlockCount((bot.inventory?.items?.() ?? []).filter(it => scaffoldRank(it.name) != null), PLACEABLE)
 
 /** PLUGCUT-01: the ceiling's wet faces (plugcut.mjs ceilingPlugPlan), then the cut is the breach loop's to decide. */
-function plugCeiling (bot, p, { yieldTo = () => null } = {}) {
+function plugCeiling (bot, p, { yieldTo = () => null, deadline = Infinity } = {}) {
   const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
   return plugFaces(bot, p, {
     what: 'ceiling',
     plan: () => ceilingPlugPlan({ at, blocks: plugBlocks(bot), submerged: submergedAt(bot) }),
     clear: () => !overheadBreakRisk({ at: (x, y, z) => at(x, 2 + y, z), submerged: submergedAt(bot) }),
     yieldTo,
+    deadline,
   })
 }
 
@@ -5933,8 +5956,8 @@ function plugCeiling (bot, p, { yieldTo = () => null } = {}) {
  * reading the cell back; the bot must still stand in its frame. Returns { ok, placed, note, cells }: ok = `clear()` now
  * holds (the caller's own planner decides the cut); cells = the world positions filled. One `_plugcut` row per attempt.
  */
-async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () => null } = {}) {
-  let placed = 0
+async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () => null, deadline = Infinity } = {}) {
+  let placed = 0, sub0 = null
   const cells = []
   const f = p.floored()
   const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
@@ -5943,15 +5966,25 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
     try {
       logEvent({ kind: 'plugcut', status: result === 'placed' ? 'success' : 'failed',
                  detail: `at=${f.x},${f.y},${f.z} for=${what} cell=${q ? key3(q.cell) : '-'} ref=${q ? key3(q.ref) : '-'} ` +
-                         `block=${bot.heldItem?.name ?? '-'} result=${result} plugged=${placed} sub=${submergedAt(bot) ? 1 : 0} -- ${why ?? ''}`,
+                         `block=${bot.heldItem?.name ?? '-'} result=${result} plugged=${placed} sub0=${sub0 ?? '-'} sub=${submergedAt(bot) ? 1 : 0} -- ${why ?? ''}`,
                  snapshot: snapshot(bot) })
     } catch { /* telemetry */ }
   }
   const out = (ok, note) => ({ ok, placed, note, cells })
-  for (let i = 0; i <= PLUG_MAX; i++) {
+  // CLEAR, AND STILL CLEAR A MOMENT LATER (Claude r1 P2): a plug can turn a source's flow, and water reaches a face of the cut
+  // a hop or two after the first settle. The faces are asked again PLUG_SETTLE_MS on, before the cut is handed back.
+  const settledClear = async () => { if (!clear()) return false; await sleep(PLUG_SETTLE_MS); return clear() }
+  for (let i = 0; i < 2 * PLUG_MAX; i++) {
+    sub0 = null
     if (yieldTo()) return out(false, 'yielded')
+    // DONE IS DONE BEFORE THE FRAME IS ASKED (Paper probe 3, isolated-d-Bravo: all three step plugs placed, then the bob took
+    // the body out of the frame and the finished rung reported "the body moved"). `clear()` reads the world, not the body.
+    if (placed > 0 && await settledClear()) return out(true, `plugged ${placed} (${what})`)
+    if (yieldTo()) return out(false, 'yielded')
+    // NEVER MORE THAN PLUG_MAX, NEVER PAST THE FIRING'S DEADLINE (Claude r1 P2)
+    if (placed >= PLUG_MAX) { row(null, 'stopped', `${placed} plugs and the cut is still wet`); return out(false, `the ${what} stayed wet after ${placed} plugs`) }
+    if (Date.now() > deadline) { row(null, 'stopped', 'budget spent'); return out(false, 'budget spent plugging') }
     if (!inFrame()) { row(null, 'stopped', 'the body moved'); return out(false, 'the body moved during the plugs') }
-    if (placed > 0 && clear()) return out(true, `plugged ${placed} (${what})`)
     const pl = plan()
     if (!pl.ok) { row(null, 'refused', pl.reason); return out(false, pl.reason) }
     const q = pl.plugs[0]
@@ -5962,16 +5995,21 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
     // AND AGAIN AFTER THE EQUIP: the same plug must still be the plan's next one, in the same frame
     const again = plan()
     if (!inFrame() || !again.ok || key3(again.plugs[0].cell) !== key3(q.cell) || key3(again.plugs[0].ref) !== key3(q.ref)) continue
+    // THE HEAD AT THE DECISION (Codex r1 P2, Claude r1 P1): sampled here, at the last re-plan before the placement; the row
+    // also prints the head after the settle (`sub=`), which a sinking bot can turn to 1 -- the read gates on sub0 only
+    sub0 = submergedAt(bot) ? 1 : 0
     try { await bot.placeBlock(at(...q.ref), new Vec3(...q.face)) } catch { /* verified below */ }
-    if (yieldTo()) return out(false, 'yielded')
+    // A PLACEMENT IS ALWAYS READ BACK AND WRITTEN, even when another owner took the body meanwhile (Codex r1 P2): a plug that
+    // took and was never counted would hide from the read's death linkage. The settle touches no control.
     await sleep(FLOW_SETTLE_MS)
     const got = at(...q.cell)
     if (!got || got.boundingBox !== 'block') { row(q, 'failed', `the plug did not take (${got?.name ?? 'unknown'})`); return out(false, `the plug did not take at ${key3(q.cell)}`) }
     placed++
     cells.push(f.offset(...q.cell))
     row(q, 'placed', got.name)
+    if (yieldTo()) return out(false, 'yielded')
   }
-  return clear() ? out(true, `plugged ${placed} (${what})`) : out(false, `the ${what} stayed wet after the plugs`)
+  return placed > 0 && await settledClear() ? out(true, `plugged ${placed} (${what})`) : out(false, `the ${what} stayed wet after the plugs`)
 }
 
 async function digBounded(bot, block, ms = 8000) {

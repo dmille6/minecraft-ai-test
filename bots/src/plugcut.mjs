@@ -26,17 +26,21 @@ export const PLUG_MAX = 3              // wet faces one cut may plug
 export const PLUG_ROUNDS = 3           // plug-and-replan rounds per firing
 export const PLUG_CLEAR_UP = 2         // a licensed ramp is not handed back to the planner below this many blocks of climb
 export const PLUG_BUDGET_MS = 90_000   // a licensed firing's budget: poolescape's POOL_BUDGET_MS (the unlicensed ramp keeps 60 s)
+export const PLUG_SETTLE_MS = 1200     // after the last plug, the faces are asked again this much later before the cut (Claude r1 P2)
 
 const solid = b => !!b && b.boundingBox === 'block'
 const plainWater = b => !!b && /^(water|flowing_water)$/.test(b.name ?? '') && b.isWaterlogged !== true
 const key = c => c.join(',')
 const OWN = [[0, 0, 0], [0, 1, 0]]                                   // the bot's own feet and head cells: never a plug, never a face
 
-/** The first solid, non-interactive neighbour of `c` (offsets from the feet) to click, below first; never a kept cell. */
-function faceFor (at, c, keep) {
+/**
+ * The first solid, non-interactive neighbour of `c` (offsets from the feet) to click, below first. A kept cell may be the
+ * reference (Codex r1 P2): the climb's cells are kept out of PLACEMENTS, and a solid one -- a step cell about to be cut -- is a
+ * reference like any other (the plug stays when it is dug). The bot's own cells are never solid, so they are never clicked.
+ */
+function faceFor (at, c) {
   for (const [fx, fy, fz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
     const r = [c[0] + fx, c[1] + fy, c[2] + fz]
-    if (keep.has(key(r))) continue
     const b = at(...r)
     if (solid(b) && !INTERACTIVE.test(b.name ?? '')) return { cell: c, ref: r, face: [-fx, -fy, -fz] }
   }
@@ -47,7 +51,7 @@ function faceFor (at, c, keep) {
  * THE PLUGS THAT DRY THE FACES OF ONE CELL ABOUT TO BE BROKEN -> { ok, plugs: [{cell, ref, face}], reason }. Pure.
  *   at(dx,dy,dz)  block relative to the bot's FEET (null = unloaded)
  *   cell          the cell the flood check refused to break
- *   keep          cells a plug must never fill or be clicked against (the bot's own cells, the path the climb will use)
+ *   keep          cells a plug must never fill (the bot's own cells, the path the climb will use)
  * Reads exactly the faces the shared flood check reads for an ordinary block (above + the four sides) and refuses every
  * face a block cannot make dry. Does NOT re-ask the flood check; its two callers below do, against the plugged world.
  */
@@ -69,7 +73,7 @@ function facePlugs (at, cell, keep) {
     if (n.isWaterlogged === true) return no(`a waterlogged block beside the cut cannot be plugged (${n.name})`)
     if (!plainWater(n)) return no(`a water plant or bubble column beside the cut cannot be plugged (${n.name})`)
     if (keep.has(key(c))) return no(`the wet face ${key(c)} is a cell the climb needs open`)
-    const f = faceFor(at, c, keep)
+    const f = faceFor(at, c)
     if (!f) return no(`no face to click for the plug at ${key(c)}`)
     plugs.push(f)
   }
@@ -126,10 +130,11 @@ export function stepPlugPlan ({ at = () => null, bear, blocks = 0, submerged = f
   if (!bear || (!bear.x && !bear.z)) return no('no bearing')
   const keep = new Set(stepKeep(bear).map(key))
   const plugs = [], cells = []
-  for (let round = 0; round < 3; round++) {
+  for (let round = 0; ; round++) {
     const world = withPlugs(at, plugs)
     const step = stairUpStep({ at: world, bear, canBreak, submerged })
     if (step.ok) return plugs.length ? { ok: true, plugs, cells, dig: step.dig, reason: null } : no('nothing to plug: the step is already allowed')
+    if (round === 3) return no('the step has more than three cells to dry')     // a step digs at most three cells
     if (!step.flood) return no(plugs.length ? `plugged, the step is still refused: ${step.reason}` : `not a wet refusal: ${step.reason}`)
     const fp = facePlugs(world, step.cell, keep)
     if (!fp.ok) return no(`${step.reason}; ${fp.reason}`)
@@ -138,7 +143,6 @@ export function stepPlugPlan ({ at = () => null, bear, blocks = 0, submerged = f
     if (plugs.length > PLUG_MAX) return no(`${plugs.length} wet faces, more than ${PLUG_MAX}`)
     if (blocks < plugs.length) return no(`needs ${plugs.length} block(s) to plug, holds ${blocks}`)
   }
-  return no('the step has more than three cells to dry')
 }
 
 /**
@@ -168,14 +172,34 @@ export function chooseStepPlug ({ bearings = [], placed = [], ...opts } = {}) {
  * water behind it (`_climb_flood_breach ... exempt=1`). The caller falls back to every bearing when the spared ones have no
  * runway, so this only ever reorders a choice that exists. Pure.
  */
-export function sparePlugs ({ bearings = [], placed = [], firstDig = () => [] } = {}) {
+export function sparePlugs ({ bearings = [], placed = [], firstDig = () => [], avoid = () => false } = {}) {
   const mine = new Set(placed.map(key))
-  if (!mine.size) return bearings
-  return bearings.filter(b => !(firstDig(b) ?? []).some(c => mine.has(key(c))))
+  // ...AND A UTILITY BLOCK (Claude r1 P3): placebo-d-Delta's W and S steps dig a furnace and a crafting table (bare-handed from
+  // water a furnace outlasted its 55 s, Paper probe 1). `avoid(cell)` says which; the same fallback applies.
+  return bearings.filter(b => !(firstDig(b) ?? []).some(c => mine.has(key(c)) || avoid(c)))
 }
 
-/** Is the plug rung due on this flood refusal? From the PLUG_AFTER_REFUSALS-th consecutive one (the arm's own counter). Pure. */
-export const plugDue = (refusals, env) => plugCutOn(env) && Number(refusals) >= PLUG_AFTER_REFUSALS
+/**
+ * THE LICENCE'S OWN STREAK (Codex r1 P1): consecutive flood refusals at ONE place. The arms' `floodRefusals` drives their
+ * back-off and survives a recovery by another route (a marooned pillar, poolescape), so three refusals in one pit could
+ * license the first refusal in the next. A place is the feet column (x, z) with y within PLUG_STREAK_DY (a bot bobbing in a
+ * deep pool moves its feet cell up and down -- Paper 10-24, isolated-d-Bravo 59..61), and a streak lapses after
+ * PLUG_STREAK_GAP_MS without a refusal (the back-off curve tops out at 10 min). Pure.
+ *   prev   { at: [x,y,z], n, t } | null      at  the floored feet now      now  ms
+ * plugSoFar -> the refusals already counted HERE (0 elsewhere or lapsed); plugStreak -> the record after this firing.
+ */
+export const PLUG_STREAK_DY = 2
+export const PLUG_STREAK_GAP_MS = 30 * 60_000
+export const plugSamePlace = (prev, at, now) => !!(prev && prev.at && at && prev.at[0] === at[0] && prev.at[2] === at[2] &&
+  Math.abs(prev.at[1] - at[1]) <= PLUG_STREAK_DY && now - prev.t <= PLUG_STREAK_GAP_MS)
+export const plugSoFar = (prev, at, now) => (plugSamePlace(prev, at, now) ? prev.n : 0)
+export function plugStreak (prev, { at, now, refused }) {
+  if (!refused) return { at, n: 0, t: now }
+  return { at: plugSamePlace(prev, at, now) ? prev.at : at, n: plugSoFar(prev, at, now) + 1, t: now }
+}
+
+/** Is the plug rung due on this flood refusal? When PLUG_AFTER_REFUSALS refusals were already counted HERE. Pure. */
+export const plugDue = (soFar, env) => plugCutOn(env) && Number(soFar) >= PLUG_AFTER_REFUSALS
 
 /** The `_plugcut_mode` licence row, once per spawn (index.mjs). Pure. */
 export function plugCutModeDetail (env = typeof process !== 'undefined' ? process.env : {}) {
