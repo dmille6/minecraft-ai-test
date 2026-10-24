@@ -230,6 +230,11 @@ tips at y 8, or ground, water, lava, unloaded, or nothing.
   The candidate filter's composition is a structural assertion on the executable line (comments stripped), because
   `gatherRun` does not run on a fake bot; Paper exercises it end to end.
 
+**The full runner: 295/295 files on 72e1054e** (the base has 295 too: cavefall.test.mjs is new and replaces nothing; five
+other suites' gather fixtures were corrected in r7). eslint no-undef: one hit, `reflex.mjs withinBody`, the same as the base.
+Two full runs were killed by an outside SIGTERM (exit 143) on the shared mini; the passing run used a byte-identical copy of
+`scripts/run-tests.mjs` under another file name.
+
 ## 7. Paper (sandbox, per-server locks)
 
 `sandbox/cavefall/cavefall-e2e.mjs` (a sandbox branch off main: the driver plus the registry's wired count), the WHOLE bot
