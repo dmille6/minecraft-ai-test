@@ -40,7 +40,9 @@ if (!NAME.startsWith('sandbox-')) throw new Error('sandbox bot names only')
 const OUTDIR = `${R}/sandbox/log/towniron-e2e`
 const RES = `${OUTDIR}/results.jsonl`
 const BRAIN_PORT = Number(process.env.TI_BRAIN_PORT || (11480 + Number(String(SERVER).replace('sandbox', ''))))
-const sleep = ms => new Promise(r => setTimeout(r, ms))
+let aborting = false                                  // set by a signal: every await below re-checks it, so no scene step runs after
+const live = () => { if (aborting) throw new Error('aborted by a signal') }
+const sleep = ms => new Promise(r => setTimeout(r, ms)).then(live)
 const ENV_REL = `sandbox/.env.tiab-${SERVER}-${process.pid}`
 const CANDIDATE = fs.existsSync(path.join(BOT_ROOT, 'bots/src/towniron.mjs'))
 
@@ -68,45 +70,56 @@ const SPEC = {
 const WINDOW_MS = Number(process.env.TI_WINDOW_MS || 240000)
 const arenaCmds = () => ['forceload add 804 804 836 836', `kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`,
   'fill 806 120 806 834 126 834 minecraft:air', 'fill 806 112 806 834 119 834 minecraft:stone']
-const bagCmds = list => [`clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, ...list.map(([id, n], s) => `item replace entity ${NAME} container.${s} with minecraft:${id} ${n}`)]
+// the arena's loose items first: the setup's mob kill drops loot after the death animation (r2 Paper: 3 porkchops on the ground)
+const bagCmds = list => [`kill @e[type=item,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`, `clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, ...list.map(([id, n], s) => `item replace entity ${NAME} container.${s} with minecraft:${id} ${n}`)]
 const chestCmds = () => [...CHESTS.map(c => `setblock ${at(c)} minecraft:chest[facing=west]`), ...CHESTS.map(c => `item replace block ${at(c)} container.0 with minecraft:dirt 5`),
   `setblock ${at(TABLE)} minecraft:crafting_table`]
 
 // ---------------------------------------------------------------- oracle (the server's slots, never the bot's claim)
+// FAIL CLOSED (Codex driver r1 P2): a slot reply is an item with an id AND a count, or the server's "Found no elements" -- anything
+// else refuses the read; replies must answer the commands sent, one for one. The ground is '' (no item entity) or exactly one
+// parseable item per "has the following entity data:" (Paper 1.21.8, probed 10-24 01:00Z).
 const parseItem = seg => {
   const id = (seg.match(/id: "minecraft:([a-z0-9_]+)"/) || [])[1]
-  if (!id) return null
-  return { id, count: +((seg.match(/count: (\d+)/) || [])[1] || 1) }
+  const count = Number((seg.match(/count: (\d+)/) || [])[1])
+  return id && Number.isInteger(count) && count > 0 ? { id, count } : null
 }
-function snapshot () {
-  const cmds = []
-  for (let s = 0; s < 36; s++) cmds.push(`data get entity ${NAME} Inventory[{Slot:${s}b}]`)
-  for (const c of CHESTS) for (let s = 0; s < 27; s++) cmds.push(`data get block ${at(c)} Items[{Slot:${s}b}]`)
-  cmds.push(`execute as @e[type=item,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20] run data get entity @s Item`)
+function rconAll (cmds) {
   const r = []
   for (let i = 0; i < cmds.length; i += 30) r.push(...rcon(...cmds.slice(i, i + 30)))
-  const N = 36 + 27 * CHESTS.length
-  const SLOT_OK = /has the following (entity|block) data|Found no elements matching/
-  for (let i = 0; i < N; i++) {
-    if (!SLOT_OK.test(r[i]?.reply || '')) throw new Error(`oracle read failed: ${r[i]?.cmd} => ${JSON.stringify(r[i]?.reply ?? null)}`)
-    if (/has the following (entity|block) data/.test(r[i].reply) && !(parseItem(r[i].reply)?.count > 0)) throw new Error(`oracle read failed (unparseable item): ${r[i].cmd}`)
-  }
-  const gr = r[N]?.reply ?? null
-  if (gr == null || /Cannot|Unknown|Incorrect/i.test(gr)) throw new Error(`oracle read failed: the ground => ${JSON.stringify(gr)}`)
-  const ground = gr.split(/has the following entity data:/).slice(1).map(seg => { const it = parseItem(seg); if (!(it?.count > 0)) throw new Error('unparseable ground item'); return it })
-  const bag = []; const chests = CHESTS.map(() => [])
-  for (let s = 0; s < 36; s++) { const it = /has the following entity data/.test(r[s].reply) ? parseItem(r[s].reply) : null; if (it) bag.push(it) }
-  CHESTS.forEach((_, ci) => { for (let s = 0; s < 27; s++) { const q = r[36 + ci * 27 + s]; const it = /has the following block data/.test(q.reply) ? parseItem(q.reply) : null; if (it) chests[ci].push(it) } })
-  return { bag, chests, ground }
+  if (r.length !== cmds.length || r.some((q, i) => q.cmd !== cmds[i])) throw new Error(`oracle read failed: ${r.length} replies to ${cmds.length} commands`)
+  return r
+}
+function readSlots (cmds, marker) {
+  return rconAll(cmds).map(q => {
+    if (/^Found no elements matching /.test(q.reply.trim())) return null
+    const it = q.reply.includes(`has the following ${marker} data:`) ? parseItem(q.reply) : null
+    if (!it) throw new Error(`oracle read failed: ${q.cmd} => ${JSON.stringify(q.reply.slice(0, 200))}`)
+    return it
+  })
+}
+const chestSlotCmds = c => Array.from({ length: 27 }, (_, sl) => `data get block ${at(c)} Items[{Slot:${sl}b}]`)
+function readGround () {
+  const [q] = rconAll([`execute as @e[type=item,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20] run data get entity @s Item`])
+  const gr = q.reply.trim()
+  if (!gr) return []
+  const segs = gr.split(/ has the following entity data: /).slice(1)
+  if (!segs.length) throw new Error(`oracle read failed: the ground => ${JSON.stringify(gr.slice(0, 200))}`)
+  return segs.map(seg => { const it = parseItem(seg); if (!it) throw new Error(`oracle read failed (unparseable ground item): ${seg.slice(0, 200)}`); return it })
+}
+function snapshot () {
+  const bag = readSlots(Array.from({ length: 36 }, (_, sl) => `data get entity ${NAME} Inventory[{Slot:${sl}b}]`), 'entity').filter(Boolean)
+  const chests = CHESTS.map(c => readSlots(chestSlotCmds(c), 'block').filter(Boolean))
+  return { bag, chests, ground: readGround() }
 }
 const tot = list => { const t = {}; for (const it of list) t[it.id] = (t[it.id] || 0) + it.count; return t }
-const totals = snap => ({ bag: tot(snap.bag), a: tot(snap.chests[0]), town: tot(snap.chests.flat()), ground: tot(snap.ground) })
+const totals = snap => ({ bag: tot(snap.bag), a: tot(snap.chests[0]), b: tot(snap.chests[1]), c: tot(snap.chests[2]), town: tot(snap.chests.flat()), ground: tot(snap.ground) })
 const diff = (a, b) => Object.keys({ ...a, ...b }).map(n => [n, (b[n] || 0) - (a[n] || 0)]).filter(([, d]) => d).map(([n, d]) => `${n}${d > 0 ? '+' : ''}${d}`).join(' ')
 
 const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
 const jl = f => lines(f).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
 const skillRows = f => jl(f).filter(r => r.skill).map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || '').slice(0, 300), args: r.skill.args }))
-async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
+async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { live(); const v = pred(); if (v) return v; await sleep(step) } return null }
 
 // THE INDEX SEED (indexsearch-01's stock-e2e pattern): what the server holds in each chest, as an observation the index keeps
 async function seedIndex (poolDir, world) {
@@ -115,9 +128,8 @@ async function seedIndex (poolDir, world) {
   fs.mkdirSync(poolDir, { recursive: true })
   for (const c of CHESTS) {
     const k = `${c.x},${c.y},${c.z}`
-    const cmds = []; for (let s = 0; s < 27; s++) cmds.push(`data get block ${at(c)} Items[{Slot:${s}b}]`)
-    const r = rcon(...cmds); const names = {}; let used = 0
-    for (let s = 0; s < 27; s++) { const it = /has the following block data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) { used++; const e = (names[it.id] ??= [0, 0]); e[0] += it.count; e[1]++ } }
+    const names = {}; let used = 0
+    for (const it of readSlots(chestSlotCmds(c), 'block')) if (it) { used++; const e = (names[it.id] ??= [0, 0]); e[0] += it.count; e[1]++ }
     TI.appendIndex(poolDir, hk, world, { t: 'obs', id: `scene-${k}-${Date.now()}`, k, h: [k], at: Date.now() - 1000, size: 27, used, names, bot: 'sandbox-scene', by: 'scene' })
   }
   return TI.indexRecords(poolDir, hk).length
@@ -144,24 +156,40 @@ const brain = http.createServer((req, res) => {
 })
 
 let bot = null
+const nap = ms => new Promise(r => setTimeout(r, ms))   // cleanup's own wait: never cancelled by the abort
+// THE BOT IS GONE, CONFIRMED (Codex driver r1 P2): the child's exit awaited (SIGTERM, then SIGKILL after 15 s), then the server's
+// own player list empty -- or this throws, and the run cannot exit 0
 async function stopBot () {
-  try { bot && bot.kill('SIGTERM') } catch {}
+  const child = bot
+  if (child && child.exitCode == null && child.signalCode == null) {
+    const exited = new Promise(r => child.once('exit', r))
+    try { child.kill('SIGTERM') } catch {}
+    if (await Promise.race([exited.then(() => true), nap(15000).then(() => false)]) !== true) {
+      try { child.kill('SIGKILL') } catch {}
+      if (await Promise.race([exited.then(() => true), nap(10000).then(() => false)]) !== true) throw new Error('the bot process did not exit')
+    }
+  }
   bot = null
-  await waitFor(() => /There are 0 of/.test(rcon('list')[0].reply), 30000, 1000)
+  for (const t0 = Date.now(); Date.now() - t0 < 30000; await nap(1000)) if (/There are 0 of/.test(rcon('list')[0].reply)) return
+  throw new Error('the sandbox still lists a player after the bot was stopped')
 }
 
-function verdict (scene, tb, ta, rows, done) {
+function verdict (scene, tb, ta, rows, done, t0) {
+  const run = rows.filter(r => r.ts >= t0 - 2000)   // the measured run's own rows (the licence and the reading come at spawn)
   const out = { pass: false, why: [] }
   const need = (ok, why) => { if (!ok) out.why.push(why) }
+  const dd = (where, id) => (ta[where][id] || 0) - (tb[where][id] || 0)
   if (CANDIDATE) {
     need(rows.some(r => r.name === '_towniron_mode'), 'the licence row _towniron_mode was written')
     need(rows.some(r => r.name === '_town_iron' && /^state=low /.test(r.detail)), 'the bot read its town LOW (_town_iron state=low)')
     if (scene === 'shovel') {
-      need((ta.bag.stone_shovel || 0) === 1, `a stone shovel made (${ta.bag.stone_shovel || 0})`)
-      need(!(ta.bag.iron_shovel > 0), 'no iron shovel')
-      need((ta.a.iron_ingot || 0) === 20, `chest A's 20 ingots untouched (${ta.a.iron_ingot || 0})`)
+      need(run.some(r => r.name === '_toolkit' && r.status === 'success' && /^phase=kit outcome=crafted /.test(r.detail) && / crafted=stone_shovel /.test(r.detail)), 'the run\'s _toolkit row: success, crafted=stone_shovel')
+      need(dd('bag', 'stone_shovel') === 1, `a stone shovel made (bag ${dd('bag', 'stone_shovel')})`)
+      need(dd('bag', 'iron_shovel') === 0, `no iron shovel (bag ${dd('bag', 'iron_shovel')})`)
+      need(dd('town', 'iron_ingot') === 0 && dd('bag', 'iron_ingot') === 0, `no ingot moved (town ${dd('town', 'iron_ingot')}, bag ${dd('bag', 'iron_ingot')})`)
     } else {
-      need(rows.some(r => r.name === '_deliver_iron' && r.status === 'success'), 'a _deliver_iron success row')
+      need(run.some(r => r.name === '_deliver_iron' && r.status === 'success' && /^stop=done bag=3\/19>3\/0 dep=0\/19 keep=3\/0/.test(r.detail)), 'a _deliver_iron success row: bag=3/19>3/0 dep=0/19 keep=3/0')
+      need(dd('bag', 'raw_iron') === -19 && dd('bag', 'iron_ingot') === 0, `the bag gave its 19 raw iron and none of its ingots (${dd('bag', 'raw_iron')}/${dd('bag', 'iron_ingot')})`)
       need((ta.town.raw_iron || 0) - (tb.town.raw_iron || 0) === 19, `the town's raw iron +19 (${(ta.town.raw_iron || 0) - (tb.town.raw_iron || 0)})`)
       need((ta.bag.iron_ingot || 0) === 3 && !(ta.bag.raw_iron > 0), `the bag keeps its own 3 ingots, no raw iron left (${ta.bag.iron_ingot || 0}/${ta.bag.raw_iron || 0})`)
     }
@@ -170,12 +198,14 @@ function verdict (scene, tb, ta, rows, done) {
     out.verdict = out.pass ? 'CANDIDATE_PASS' : 'FAIL'
   } else {
     if (scene === 'shovel') {
-      need((ta.bag.iron_shovel || 0) === 1, `the base makes an IRON shovel (${ta.bag.iron_shovel || 0})`)
-      need((ta.a.iron_ingot || 0) === 19, `from the town's iron (chest A ${ta.a.iron_ingot || 0})`)
+      need(run.some(r => r.name === '_toolkit' && r.status === 'success' && / crafted=iron_shovel /.test(r.detail)), 'the run\'s _toolkit row: success, crafted=iron_shovel')
+      need(dd('bag', 'iron_shovel') === 1 && dd('bag', 'stone_shovel') === 0, `the base makes an IRON shovel (bag iron ${dd('bag', 'iron_shovel')}, stone ${dd('bag', 'stone_shovel')})`)
+      need(dd('a', 'iron_ingot') === -1, `from the town's iron (chest A ${dd('a', 'iron_ingot')})`)
     } else {
-      need((ta.bag.raw_iron || 0) === 19, `the base keeps the 19 raw iron in the bag (${ta.bag.raw_iron || 0})`)
-      need(!((ta.town.raw_iron || 0) > (tb.town.raw_iron || 0)), 'and banks none')
+      need(dd('bag', 'raw_iron') === 0, `the base keeps the 19 raw iron in the bag (${dd('bag', 'raw_iron')})`)
+      need(dd('town', 'raw_iron') === 0, `and banks none (town ${dd('town', 'raw_iron')})`)
     }
+    need(!Object.keys(ta.ground).length, `nothing on the ground (${diff({}, ta.ground)})`)
     out.pass = !out.why.length && done
     out.verdict = out.pass ? 'BASE_SHAPE' : 'BASE_UNEXPECTED'
   }
@@ -223,6 +253,14 @@ async function runScene (scene) {
   await sleep(1500)
   const before = snapshot()
   const tb = totals(before)
+  // THE SCENE IS WHAT IT SAYS BEFORE ANYTHING IS MEASURED (Codex driver r1 P2; ironsmelt-e2e's check): the bag and all three
+  // chests exactly as specified (no shovel of any tier in the shovel scene's bag), the ground empty
+  const want = list => list.reduce((m, [id, n]) => ({ ...m, [id]: (m[id] || 0) + n }), {})
+  const same = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort())
+  const bad0 = [!same(tb.bag, want(spec.bag)) && `bag ${JSON.stringify(tb.bag)}`, !same(tb.a, want([['dirt', 5], ...spec.chestA])) && `chest A ${JSON.stringify(tb.a)}`,
+    !same(tb.b, { dirt: 5 }) && `chest B ${JSON.stringify(tb.b)}`, !same(tb.c, { dirt: 5 }) && `chest C ${JSON.stringify(tb.c)}`,
+    Object.keys(tb.ground).length && `ground ${JSON.stringify(tb.ground)}`].filter(Boolean)
+  if (bad0.length) { await stopBot(); throw new Error('the scene is not as specified before the measurement: ' + bad0.join('; ')) }
   const t0 = Date.now()
   let done = null
   if (scene === 'shovel') {
@@ -232,6 +270,8 @@ async function runScene (scene) {
     rcon(`give ${NAME} minecraft:${spec.give[0]} ${spec.give[1]}`)
     await sleep(1500)
     tb.bag = totals(snapshot()).bag
+    // THE CARGO ARRIVED, exactly: the spec bag plus the 19 raw iron (nothing else moved in the 60 s)
+    if (!same(tb.bag, want([...spec.bag, spec.give]))) { await stopBot(); throw new Error(`the cargo is not as specified: bag ${JSON.stringify(tb.bag)}`) }
     done = await waitFor(() => (CANDIDATE ? skillRows(skillLog).some(r => r.ts >= t0 && r.name === '_deliver_iron' && r.status !== 'no_effect') : false), CANDIDATE ? WINDOW_MS : 120000, 1000)
     if (!CANDIDATE) done = true                     // the base has no delivery: the window itself is the measurement
   }
@@ -242,7 +282,7 @@ async function runScene (scene) {
   await sleep(1000)
   try { fs.unlinkSync(`${R}/${ENV_REL}`) } catch {}
   const ta = totals(after)
-  const v = verdict(scene, tb, ta, rows, !!done)
+  const v = verdict(scene, tb, ta, rows, !!done, t0)
   const r = { scene, tag, candidate: CANDIDATE, server: SERVER, world, seeded,
     sha: (() => { try { return execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch { return '?' } })(),
     windowMs: Date.now() - t0, done: !!done, verdict: v, before: tb, after: ta,
@@ -264,19 +304,33 @@ async function main () {
   console.log(`root=${BOT_ROOT} build=${CANDIDATE ? 'CANDIDATE' : 'BASE'} server=${SERVER} scenes=${SCENES_S}`)
   let ok = true
   for (const s of SCENES_S.split(',')) {
-    try { ok = (await runScene(s)) && ok } catch (e) { ok = false; console.log(`${s} SCENE FAILED: ${e.message}`); await stopBot().catch(() => {}) }
+    if (aborting) break
+    try { ok = (await runScene(s)) && ok } catch (e) { ok = false; console.log(`${s} SCENE FAILED: ${e.message}`); if (!aborting) await stopBot() }
   }
   return ok
 }
+// CLEANUP IS CONFIRMED, NOT ATTEMPTED (Codex driver r1 P2): the bot stopped (stopBot throws otherwise), the arena's items
+// killed, the arena cleared and the forceload removed, each reply checked; any failure turns the exit code non-zero (3)
 async function cleanup () {
-  if (arenaOwned) await stopBot().catch(() => {})
+  const bad = []
+  if (arenaOwned) { try { await stopBot() } catch (e) { bad.push(e.message) } }
   try { brain.close() } catch {}
   try { fs.unlinkSync(`${R}/${ENV_REL}`) } catch {}
-  if (arenaOwned) { try { rcon(`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`, 'fill 806 112 806 834 126 834 minecraft:air', 'forceload remove 804 804 836 836') } catch {} }
+  if (arenaOwned) {
+    try {
+      const r = rcon(`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..20]`, 'fill 806 112 806 834 126 834 minecraft:air', 'forceload remove 804 804 836 836')
+      const ok = [/^(Killed |No entity was found)/, /^(Successfully filled |No blocks were filled)/, /^(Unmarked |No chunks were)/]
+      r.forEach((q, i) => { if (!ok[i].test(q.reply.trim())) bad.push(`${q.cmd} => ${q.reply.trim().slice(0, 120)}`) })
+      if (r.length !== 3) bad.push(`cleanup: ${r.length} replies to 3 commands`)
+    } catch (e) { bad.push(e.message) }
+  }
+  if (bad.length) console.error('CLEANUP NOT CONFIRMED: ' + bad.join('; '))
+  return !bad.length
 }
 let cleaning = false
-const finish = code => { if (cleaning) return; cleaning = true; cleanup().then(() => process.exit(code)) }
+const finish = code => { if (cleaning) return; cleaning = true; cleanup().then(ok => process.exit(ok ? code : 3), () => process.exit(3)) }
+const onSignal = () => { aborting = true; finish(1) }
 main().then(ok => finish(ok ? 0 : 2), e => { console.error('FATAL', e.message); finish(1) })
-process.on('SIGINT', () => finish(1))
-process.on('SIGTERM', () => finish(1))
-process.on('SIGHUP', () => finish(1))
+process.on('SIGINT', onSignal)
+process.on('SIGTERM', onSignal)
+process.on('SIGHUP', onSignal)
