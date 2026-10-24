@@ -105,6 +105,12 @@ t('gating: the board-a-Comet scene gates fixes; the cave-lava contact starts are
   assert.ok(lava.reproducing_starts.length >= 1 && lava.gating_starts.length === 0, JSON.stringify(lava))
   for (const s of index.scenes) for (const st of s.gating_starts) assert.ok(s.reproducing_starts.includes(st), `${s.id} gates on a start it never reproduced`)
 })
+t('INDEX.json is what failmine.py builds from the scene files now (no hand edit can drift from the proofs)', () => {
+  const r = spawnSync('python3', ['-B', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import failmine as F; print(json.dumps(F.build_index(sys.argv[2])))',
+    path.dirname(FM), LIB], { encoding: 'utf8' })
+  assert.equal(r.status, 0, (r.stderr || '').slice(-400))
+  assert.deepEqual(JSON.parse(r.stdout), index)
+})
 t('INDEX.json names exactly the scene files on disk, with their ids and cells hashes', () => {
   assert.deepEqual(index.scenes.map(s => s.file).sort(), files)
   for (const e of index.scenes) {

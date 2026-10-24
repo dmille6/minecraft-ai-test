@@ -366,6 +366,15 @@ def t_reproducing_starts_rule(F):
     raises(F.BlindInput, lambda: F.prove({'id': 'x', 'cells_sha256': 'y', 'proof': []}, [], ''), '7 hex')
 
 
+def t_gating_contact_needs_a_pass(F):
+    P = lambda st, m, ok=False, role='base': {'role': role, 'start_index': st, 'matched_fleet': m, 'pass': ok, 'fidelity': {'mode': 'full-state'}}
+    sc = {'bot': {'start_rule': 'newest positioned row of the spell'}, 'alternates': [{'start_rule': 'lava contact (lava at the feet)'}],
+          'proof': [P(0, True), P(0, True), P(0, True), P(1, True), P(1, True), P(1, True)]}
+    assert F.gating_starts(sc) == [0], 'a contact start does not gate before a build has survived it'
+    sc['proof'].append(P(1, False, ok=True, role='other'))
+    assert F.gating_starts(sc) == [0, 1], 'once some build passed it, it gates'
+
+
 def t_scene_goal_outside_cut(F):
     def go(d):
         pick = {'id': 'fall-1899-board-a-359_40_187', 'kind': 'death', 'family': 'fall', 'rank': 1, 'world': 'board-a', 'seed': 1239381899,
@@ -746,6 +755,7 @@ MUTANTS = [
     ('failmine.py', "        if m >= ADMIT_MIN_MATCHED and m / len(ps) >= ADMIT_MIN_RATE and not any(p.get('pass') for p in ps):", "        if m >= 1:", 't_reproducing_starts_rule'),
     ('failmine.py', "    if n < 2:", "    if False:", 't_spells_one_row_bucket_is_not_still'),
     ('failmine.py', " and c['family'] in families][:top_deaths]:", "][:top_deaths]:", 't_drowning_measured_not_cut_by_default'),
+    ('failmine.py', "    return [st for st in rep if not start_rule_of(sc, st).startswith('lava contact') or st in passed]", "    return rep", 't_gating_contact_needs_a_pass'),
     ('failmine.py', "    if newest is not None and ms_of(src.until) - newest > INGEST_SLACK_MS:", "    if False:", 't_es_ingest_lag_raises'),
     ('failmine.py', "    if not inside(goal_of(pick.get('script'))):", "    if False:", 't_scene_goal_outside_cut'),
     ('failmine.py', "    if have and have != generation:", "    if False:", 't_fetch_refuses_mixed_generations'),
