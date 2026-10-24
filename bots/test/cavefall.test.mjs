@@ -251,17 +251,22 @@ await ta('frontSkipped: the nearest skipped floor nearer the eye than the neares
 await ta('THE FAST PATH changes no verdict: with and without it, the same skip on every cell of four worlds (shelf, cliff, cave floor, roof)', async () => {
   // Codex r4 P2-2's case: stone T on stone, LAVA beside the cell under T, open beside T -- and an unloaded neighbour
   const lavaSide = mkWorld((x, y, z) => (x === 20 && z === 20 && (y === 10 || y === 9)) ? 'stone' : (x === 21 && z === 20 && y === 9) ? 'lava' : 'air')
+  // Codex r5 P2-1: stone T boxed in by stone (under and all four cardinals), a CARPET on it, lava diagonally above the side
+  const carpetBox = mkWorld((x, y, z) => (y === 0 && Math.abs(x - 30) + Math.abs(z - 30) <= 1) || (x === 30 && z === 30 && y === -1) ? 'stone'
+    : (x === 30 && z === 30 && y === 1) ? 'white_carpet' : (x === 31 && z === 31 && y === 1) ? 'lava' : 'air')
   const unkSide = mkWorld((x, y, z) => (x === 20 && z === 20 && (y === 10 || y === 9)) ? 'stone' : (x === 19 && z === 20 && y === 10) ? '__unknown__' : 'air')
   const worlds = [shelf('drip'), shelf('ground'), shelf('water'), shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone', [key(3, 30, 6)]: 'white_carpet' }),
-    { at: (x, y, z) => lavaSide.getBlock(new Vec3(x, y, z)) }, { at: (x, y, z) => unkSide.getBlock(new Vec3(x, y, z)) }]
-  const cells = [{ x: 20, y: 10, z: 20 }, { x: 20, y: 9, z: 20 }]
+    { at: (x, y, z) => lavaSide.getBlock(new Vec3(x, y, z)) }, { at: (x, y, z) => unkSide.getBlock(new Vec3(x, y, z)) },
+    { at: (x, y, z) => carpetBox.getBlock(new Vec3(x, y, z)) }]
+  const cells = [{ x: 20, y: 10, z: 20 }, { x: 20, y: 9, z: 20 }, { x: 30, y: 0, z: 30 }]
   for (let x = -1; x <= 9; x++) for (const y of [7, 8, 20, 28, 29]) for (let z = 3; z <= 9; z += 3) cells.push({ x, y, z })
   const fast = worlds.map(w => cells.map(c => floorOverDrop({ target: c, at: w.at }).skip))
   assert.equal(fast[4][0], false, 'the lava-beside case: the cube under T catches the body first (a tie goes to the solid)')
   assert.equal(fast[5][0], true, 'an UNLOADED cell beside T at the body\'s own level is never assumed safe')
+  assert.equal(fast[6][2], true, 'a carpet on a boxed-in T lifts the feet over the cardinals: the lava beside them is met (Codex r5)')
   const src = readFileSync(CF_URL, 'utf8')
   const fast1 = "    if (fullCube(rd(t.x, t.y + 1, t.z))) return { skip: false, why: 'nothing can stand on it' }\n"
-  const i2 = src.indexOf('    if (fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z))'), j2 = src.indexOf('    }\n', i2) + 6
+  const i2 = src.indexOf('    if (!carries && fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z))'), j2 = src.indexOf('    }\n', i2) + 6
   assert.ok(src.split(fast1).length === 2 && i2 > 0, 'both fast-path anchors present once')
   const slowSrc = (src.slice(0, i2) + src.slice(j2)).replace(fast1, '').replace(/from '\.\//g, "from '../src/")
   const out = new URL(`./_mutant-${process.pid}-slow.mjs`, import.meta.url)
@@ -545,6 +550,7 @@ await ta('GATHER (behaviour): every dirt in range a floor over the void -> no_sa
     assert.equal(digs.length, 0, `dug ${JSON.stringify(digs)}`)
     assert.equal(r.failClass, 'no_safe_target', JSON.stringify(r).slice(0, 200)); assert.match(r.detail, /are floors over a drop into a cave/)
     assert.ok(rows.length >= 1, 'a skip row'); assert.match(rows[0], /^dirt: 15 of \d+ candidate\(s\) are floors over a harmful drop; skipped own=15 /)
+    assert.match(rows[0], / front=1$/, 'with nothing kept, an exposed, permitted shelf cell is the base\'s front pick')
   } finally { untap() }
 })
 await ta('GATHER (behaviour): a mixed round digs the nearest dirt that is NOT a floor (on rock 6 blocks off), never a shelf cell', async () => {
