@@ -89,6 +89,39 @@ def selftest():
     # the episode start is the first escalation of the current unbroken run at that cell
     run = [('b', '2026-10-24T01:00:00Z', E), ('b', '2026-10-24T01:05:00Z', W), ('b', '2026-10-24T01:20:00Z', E), ('b', '2026-10-24T01:40:00Z', E)]
     assert rescue_flags(run, {})[0][2] == '2026-10-24T01:20:00Z'
+    # rescue_line() ITSELF against a fake EsEvents with the real call shapes (Claude code r1 P3-4): a field-name slip must
+    # not ship as a permanent UNREADABLE
+    global EsEvents
+
+    class FakeEv:
+        def __init__(self, rows, pos):
+            self._rows, self._pos = rows, pos
+        def names(self):
+            return {'_ceilescape': len(self._rows), '_needs_rescue': 1} if self._rows else {}
+        def rows(self, kind, fields=None, max_rows=None, allow_zero=False):
+            assert kind == '_ceilescape' and 'skill.detail' in fields and allow_zero
+            return iter({'bot': {'name': b}, '@timestamp': ts, 'skill': {'detail': d}} for b, ts, d in self._rows)
+        def latest(self, require=None, fields=None, allow_zero=False):
+            assert require == 'bot.pos.x' and allow_zero
+            return {b: {'bot': {'pos': {'x': p[0], 'y': p[1], 'z': p[2]}}} for b, p in self._pos.items()}
+
+    class FakeEs:
+        nxt = None
+        @classmethod
+        def load(cls, stream, since=None, until=None, gaps=None):
+            assert stream == 'skill' and gaps == 'clip' and since < until
+            return cls.nxt
+    EsEvents = FakeEs
+    now = dt.datetime(2026, 10, 24, 6, 0, tzinfo=dt.timezone.utc)
+    FakeEs.nxt = FakeEv([('placebo-c-Bravo', '2026-10-24T05:10:00Z', E)], {'placebo-c-Bravo': (559.5, 37.2, 219.5)})
+    line = rescue_line(now)
+    assert line.startswith('!! needs rescue (ceilescape-01): 1 bot(s): placebo-c-Bravo at 559,37,219 since 05:10Z') and 'read 1 _ceilescape' in line, line
+    FakeEs.nxt = FakeEv([('board-a-Comet', '2026-10-24T05:10:00Z', L)], {})
+    assert rescue_line(now).startswith('needs rescue (ceilescape-01): none (read 1 _ceilescape'), rescue_line(now)
+    FakeEs.nxt = FakeEv([], {})
+    assert 'no _ceilescape rows' in rescue_line(now)
+    FakeEs.nxt = None
+    assert rescue_line(now).startswith('!! needs rescue (ceilescape-01): UNREADABLE'), 'a broken read is loud'
     print('SELFTEST ok')
 
 
