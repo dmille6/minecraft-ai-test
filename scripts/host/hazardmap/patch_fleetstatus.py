@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""patch_fleetstatus.py <installed fleetstatus.py> -- add the hazard map's header line to the INSTALLED fleetstatus on
-10.0.0.31 (~/estel/scripts/host/fleetstatus.py). That copy carries changes that are not on main, so it is PATCHED, never
-replaced. This is the structcount patch's pattern. Three edits, each anchored on text that must occur exactly once:
+"""patch_fleetstatus.py <installed fleetstatus.py> [--revert] -- add the hazard map's header line to the INSTALLED fleetstatus
+on 10.0.0.31 (~/estel/scripts/host/fleetstatus.py), or with --revert take exactly that out again. That copy carries changes
+that are not on main, so it is PATCHED, never replaced. This is the structcount patch's pattern. Three edits, each anchored on text that must occur exactly once:
   * the hazardmap_line block, inserted after `def _ts(s)`;
   * `print(rep['hazardmap'])` after the frontier print;
   * `'hazardmap': hazardmap_line(now), ` after `'frontier': frontier_line(now), ` in the report dict.
@@ -51,12 +51,33 @@ def patch(text):
     return text, 'patched'
 
 
+INSERTS = ["\n\n" + BLOCK + "\n",
+           "    if rep.get('hazardmap'):\n        print(rep['hazardmap'])\n",
+           "'hazardmap': hazardmap_line(now), "]
+
+
+def revert(text):
+    """The exact inverse of patch(): each of its three INSERTIONS must occur once and is removed, wherever it now sits, so
+    anything else in the file is kept -- including a structcount patch applied later at the same anchors. Used by the
+    rollback instead of restoring the .bak copy (which would also undo later edits)."""
+    if 'def hazardmap_line' not in text:
+        return None, 'not patched'
+    for ins in INSERTS:
+        n = text.count(ins)
+        if n != 1:
+            return None, 'inserted text found %d times: %r' % (n, ins[:60])
+        text = text.replace(ins, '')
+    ast.parse(text)
+    return text, 'reverted'
+
+
 if __name__ == '__main__':
     inst = sys.argv[1]
-    new, why = patch(open(inst).read())
+    undo = '--revert' in sys.argv[2:]
+    new, why = (revert if undo else patch)(open(inst).read())
     if new is None:
         print(why)
-        sys.exit(0 if why == 'already patched' else 1)
+        sys.exit(0 if why in ('already patched', 'not patched') else 1)
     bak = '%s.bak-hazardmap-%s' % (inst, time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()))
     shutil.copy2(inst, bak)
     tmp = inst + '.tmp.%d' % os.getpid()

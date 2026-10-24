@@ -21,8 +21,9 @@
 #        fleetstatus (backed up) with the map's `check` line: OK, or HAZARDMAP ALARM naming why
 #
 # Rollback: remove the cron lines ending '# hazardmap' (and their comment line), the authorized_keys line on .30 (a .bak is
-# beside it), restore ~/estel/scripts/host/fleetstatus.py from its .bak-hazardmap-* copy, and remove ~/hazardmap on both
-# hosts. No bot reads the map yet (lavasight-01 is mineshaft F5b). Both hosts run cron in UTC (date +%z = +0000, 10-24).
+# beside it), take the header line out with
+#   python3 -B ~/hazardmap/app/scripts/host/hazardmap/patch_fleetstatus.py ~/estel/scripts/host/fleetstatus.py --revert
+# (the exact inverse of the three edits: a later structcount patch is kept), and remove ~/hazardmap on both hosts. No bot reads the map yet (lavasight-01 is mineshaft F5b). Both hosts run cron in UTC (date +%z = +0000, 10-24).
 set -u
 MODE=${1:-}
 SRC=$(cd "$(dirname "$0")" && pwd)

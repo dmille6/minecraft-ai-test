@@ -121,3 +121,123 @@ Claude P3-13 push failure -> heartbeat push_failed (and check alarms). P3-15 bot
 Suite r2: 194 cases, 0 failed (fixture fleet, written Anvil worlds, 16 blind inputs, 45 behaviour mutants and 7 blind-guard mutants, each attributed to
 its own case). Fleet r2 build 10-24 05:26Z: value 123 of 278 (194 could match), 40 beyond per-world memory, nulls 6.4 /
 1.7.
+
+==================================================================== ROUND 2 (f4fc8e58)
+
+---------------------------------------------------------------- Codex r2, verbatim
+Reviewed `f4fc8e583e863c1b486c1c70fb4fcd910c2e0a18`, after reading CLAUDE.md. Several r1 fixes are sound, but two safety gaps remain and the new value guard can reject legitimate history.
+
+1. **P1 — Recent parsing failures still hide behind historical data.** `scripts/host/hazardmap/hazardmap.py:569–587`. Unparsed shares remain pooled over the entire validated history; the recent check explicitly counts unparsed rows as “speaking.” I reproduced a successful build with every corridor row on the newest closed day unparsed, diluted by older valid corridor rows. This leaves Claude r1 #1 partially unresolved. Death-position agreement is likewise still pooled at `:873`. **Fix:** apply parsing and position controls over a recent bounded window, with appropriate sample floors; add recent-only corruption tests backed by substantial valid history.
+
+2. **P1 — An unread pit wall still produces `absent`.** `scripts/host/hazardmap/hazardmap.py:1253`, `:1305`. The completeness check covers radius `r`, but pit walls can lie at `r + 1`. Using real Anvil bytes in memory, a probe at `(14,61,8)`, radius 1, returned `present` with both chunks available. Removing the chunk containing wall `(16,62,8)` changed the answer to **`absent`**, not `unknown`. Thus Codex r1 P1-4 / Claude #14 remain partially unresolved. **Fix:** track every unsuccessful block read, including reads outside the initial footprint, and invalidate negative answers when any required read failed. Add this boundary case alongside the existing straddling-chunk test.
+
+3. **P2 — Late-ingested evidence can expand an “absent” hazard without invalidating its result.** `scripts/host/hazardmap/hazardmap.py:771–772`. The fingerprint contains only selected probe cells; `last_seen` measures event time, not when evidence entered the map. Adding a historical corridor sighting expanded the fixture’s lava bounding box from maximum x=338 to x=341. Its death probes stayed unchanged, and `apply_verify()` retained **`absent`**. This leaves Codex r1 P2-5 partially unresolved. **Fix:** fingerprint the hazard’s complete evidence footprint in the request/result, independently of the sampled probes. Test late ingestion outside those probes.
+
+4. **P2 — One missed verify permits a reduced map with an OK header.** `scripts/host/hazardmap/hazardmap.py:900`, `:1697`. The normal schedule fits: 04:30Z verification gives a 05:30Z seed horizon, covering the 05:10Z refresh. After one missed verify, however, the next refresh sees a verify only 24h40m old. It passes `check_fresh()`, excludes nearly a day of evidence as `after_seed_observation`, and can publish a fresh map whose header remains OK until age 30h. I reproduced both the exclusion and OK result. **Fix:** compare the fetched observation cutoff with the seed horizon before publication; refuse or explicitly mark incomplete coverage and alarm immediately. Test the missed-verify schedule end to end.
+
+5. **P2 — The subset guard rejects valid cross-world memory after reseeding.** `scripts/host/hazardmap/hazardmap.py:961–969`, `:1018`. A prior world need not *still* share the seed when the later death occurs. I reproduced a correctly resolved S1 death in hive-c before its reseed warning a later S1 death in board-a, with board-a the sole remaining S1 world. `value()` correctly matched it; `value_report()` raised `Blind`. **Fix:** define eligibility using another world’s sufficiently early history on that seed, rather than concurrent membership at the target death. Update the denominator wording and test a legitimate historical transfer—not only an incorrectly labelled seed.
+
+6. **P2 — Cache continuity does not detect a missing tail.** `scripts/host/hazardmap/hazardmap.py:560–562`. Coverage is checked through the newest cached day, rather than the expected observation date. Removing the fixture’s newest day still passed, merely moving the recent-health window backward. Claude r1 #4 is therefore only partially fixed. **Fix:** pass the expected cutoff into the coverage check and require the corresponding closed days; separately validate current-day coverage. Add missing-tail and stale-cache cases.
+
+7. **P2 — The own-world lag correction has no effective regression test.** `scripts/host/hazardmap/test_hazardmap.py:299–309`. The implementation correctly removes the own-world lag, but restoring the old 24-hour requirement still passed all **55 fold/value cases**. **Fix:** add a target death with an eligible other-world prior and an own-world prior only one hour earlier. Assert that it does not count as “beyond per-world memory,” and kill the restored-lag mutant.
+
+The remaining r1 dispositions are:
+
+| R1 findings | Code and regression assessment |
+|---|---|
+| Codex P1-1; Claude #1 | Recent rename checks and per-day reconciliation implemented; their mutants are effective. Parsing/position dilution remains above. |
+| Codex P1-2; Claude #4 wetness | Wetness is counted, recounted and recently guarded; guard mutant proven. |
+| Codex P1-3; Claude #2 | Live/staged seed comparison, creation-after-backup refusal and `made_at + 1h` horizon implemented. Horizon mutant proven; filesystem-based generation tests could not run here. |
+| Codex P1-4; Claude #14 | `reduce_states()` correctly preserves mixed uncertainty. Boundary completeness remains above. |
+| Codex P2-5 | Changed-probe and newer-event tests kill their mutants; late-ingestion expansion remains uncovered. |
+| Codex P2-6; Claude #10 | Fixed: unrelated group crashes no longer earn named-case mutant kills. |
+| Claude #3, #5 | Validated-loss threshold and terrain gate implemented. Terrain-agreement mutant proven; no dedicated killing tests found for the loss threshold or minimum-cell threshold. |
+| Claude #6, #8, #11 | Rotation null, death-cell ordering/count, and direct seed/kind matching tests implemented; relevant mutants proven. |
+| Claude #7, #19 | Own-world lag implemented but unprotected; per-kind denominators implemented, with the invalid subset assumption above. |
+| Claude #9 | Report now supplies the older-copy positive-control comparison. The committed evidence does not include the archived world needed to independently repeat it. |
+| Claude #12–13 | Header patch and failed-push heartbeat implemented. Both patch orders parse and retain both functions. |
+| Claude #15–18, #20–21 | Cron markers fixed; UTC remains a documented host assumption. `fullmatch`, campfire exclusion and wording corrected. Request bound remains explicitly accepted. Review record exists. |
+
+For reconciliation, removing one death while retaining its site row passed the two-row slack, so a single rotation-race loss does not automatically halt the build. The guard requires each mandatory source to speak **on each day**, not merely somewhere within three days. I could not independently replay real fleet days: the committed evidence supplies summaries, not the daily cache.
+
+Section 6 agrees with the committed value evidence: **123/278**, **194** concurrent-shared-seed deaths, **40** beyond own-world memory, shift mean **6.38**, rotation mean **1.67**, and all five per-kind rows. The headline matching and own-world lag definitions match the code. The “could match” interpretation needs the historical-seed correction above.
+
+The requested full suite stopped at `tempfile.mkdtemp()`: the sandbox cannot create temporary files. Separately, **91 in-memory cases passed**, **28 behavior mutants failed their named cases**, and **all seven blind-guard mutants were proven**. I could not run the suite’s filesystem-dependent **cache, verify, serve, check or patch groups**, or their associated mutants. Additional in-memory checks covered patch composition, state reduction, the missed-verify alarm, and the Anvil boundary reproduction.
+
+VERDICT: CHANGE
+
+---------------------------------------------------------------- Claude r2, verbatim
+The r2 commit (f4fc8e58) has no P1 left, but my verdict is still CHANGE. Three of the new guards fail on ordinary fleet events (I reproduced each), and seven of the claimed r1 fixes still have no test that fails without them.
+
+The suite gives 194 cases, 0 failed, in about 60 s. Every probe below ran from my scratchpad; nothing in the worktree was edited.
+
+**What is fixed with a killing test:** my r1 P1 and Codex P1-1 (renaming only the newest days now stops the build, and the guard mutant survives on its own); wet-kind guard; staged-vs-live seed mismatch and the seeds horizon; a probe straddling an ungenerated chunk reads unknown, and `reduce_states`; result fingerprint and newer-evidence voiding; mutant scoring (a crashed group is one failure, never a kill); terrain gate, rotation null, death-cell order, value seed key, `same_kind`, could-match subset, `check_line` verify age, request `fullmatch`. The two fleetstatus patches compose in both orders, and the hazardmap patch applies to the repo `fleetstatus.py` and parses.
+
+**P2 (should fix)**
+
+1. **Seven r1 fixes are in the code but no case fails without them.** Each of these mutants SURVIVED the full suite: own-world lag put back to 24 h (`hazardmap.py:967-970`; the fixture's own-world pair is 25 h apart, so lag 0 and lag 24 h agree); the contiguity / void-day guard (`:563-565`); the lost-validated-rows guard (`:665`); the campfire skip (`:212-213`); the live-world-created-after-backup refusal (`:1415`); the undecoded-cell branch of `probe()` (`:1253`); the `push_failed` heartbeat (`:1651-1653`). Fix: a case for each, plus a mutant on each anchor.
+2. **The lost-validated guard counts `quarantine`, so one ordinary reseed can stop every build for good** (`:613-614`, `:665`). Quarantine rows are dropped by design; they sit in the validated window, which never moves past 10-08, so once their running total passes 50 every build raises. Reproduced: board-a reseeded on 10-15 with 60 `_reflex_danger_block` rows inside the 10-minute quarantine -> "60 validated rows fall outside every world segment {'quarantine': 60}", every day after. Fix: count only `outside_world_lifetime`; do not count rows within a few minutes of a recorded retire or create boundary; add a reseed-in-window case that must build.
+3. **The could-match subset guard can trip on a legitimate match, and then no map is published for up to 7 days** (`:979-990`, `:1016`). `could_match` asks whether the seed held >= 2 worlds at the moment of death; a death in the last world left on a seed can still match a prior from a world that has since retired. Reproduced (hive-a matched a pre-reseed hive-c prior; `value_report` raised). Fix: could-match = another world, current or past, was on this seed at least `lag_ms` before the death. Keep the subset assertion.
+4. **`seed_homes` depends on world order and can silently drop the shared seed's home** (`:1000-1008`): a reseeded world's earlier segment calls `setdefault(shared_seed, None)`; if that world is iterated first, the real home is never stored and `rotate` sends every prior to x+10000, so the rotation null reads ~0 and flatters the headline. Reproduced with hive-c listed first. Fix: homes only from current worlds (two passes, never store None); a case with a reseeded world first.
+5. **The newest-3-closed-days check may halt the map on a quiet real day, and that rate was never measured** (`:575-587`). `no_air` looks dominated by board-a-Comet's single 389-hour trap; once the escape-ramp work frees Comet it may go quiet and the map would stop with a "renamed kind" message. Fix: publish `days_with_rows` and the minimum daily count per source; for any source not on 17/17, use a longer window or another positive control.
+6. **`terrain_gate` refuses the whole build, and it samples bedrock only around (355, 147) for every seed** (`:291-303`, `BEDROCK_CTRL`). A future seed with >= 2 worlds and a home elsewhere may have no generated chunks there, so `min_cells` is 0 and every seed's map is refused. Fix: sample around each seed's own home; on failure keep that seed's worlds unmerged rather than refusing everything.
+
+**P3 (nits)**
+
+7. A failed verify pull leaves the heartbeat `ok`; rows after the horizon go into `excluded` and the header shows OK until 30 h. Set a status when the pull fails or the pulled `made_at` is not newer.
+8. The horizon reaches 1 h past observation; a reseed between 04:30Z and 05:30Z can misfold up to ~30 min of rows until the next night. Accept, or set the horizon to `made_at`.
+9. The report's "Every world read was a copy" is no longer true: `measure_worlds` reads the live `level.dat` while the server runs; a read racing a rewrite would crash that night's verify. Reword, and retry once on a gzip error.
+10. The rollback "restore fleetstatus from its `.bak-hazardmap-*`" also throws away any later edit (a structcount patch applied after it). Reverse the three hazardmap edits instead.
+
+**Report section 6 against the code:** consistent (definitions, 123/278, 123/194, 40, nulls 6.4 / 1.7, variants 102 / 125 / 132 / 146; by-kind sums 123 / 194 / 278; the rotation null below the shift null holds up, so calling the shift null the conservative one is fair).
+
+VERDICT: CHANGE
+
+---------------------------------------------------------------- Response to round 2 (r3)
+Codex r2 P1-1 (recent parsing / position diluted by history): the unparsed share is ALSO judged over the newest 3 closed
+  days (>= 50 rows), and the death-position control ALSO over the newest 3 days (agreement floor 85% there: the fleet's
+  10-21..23 sample is 127/132 = 96.2%, and a real break reads ~0%). Blind input: corridor rows reformatted on the newest
+  day only behind 4,000 good rows of history -> stopped by the recent check alone (its guard mutant builds a map).
+Codex r2 P1-2 (an unread pit wall beyond the footprint read absent): World.block() counts EVERY failed read
+  (`blind_reads`, wherever the cell lies); probe() turns any negative with a failed read into `unknown`. Case: a pit cell
+  at the footprint's edge whose wall at r + 1 cannot be read -> unknown (present when readable, absent when opened);
+  mutant on the blind-read condition killed.
+Codex r2 P2-3 (late-ingested evidence keeps an old absence): each hazard carries `evidence_fp` (sha256 of its distinct
+  evidence cells and sources); the request carries the fingerprints, verify echoes them per hazard, apply_verify voids a
+  non-present answer whose fingerprint differs. Case + mutant. validate_request bounds the new field (16 hex per id).
+Codex r2 P2-4 / Claude r2 P3-7 (a missed verify publishes a reduced map with an OK header): heartbeat_status() reads
+  `incomplete` (an alarm in the header) whenever any row was left unfolded past the seeds' observation horizon, or a seed
+  was split by the terrain control. Case + mutant.
+Codex r2 P2-5 / Claude r2 P2-3 (subset guard rejects a legitimate post-reseed match): could_match() = another world,
+  current OR since reseeded, had a segment on the death's seed beginning >= 24 h before it. Case: a board-a death matched
+  by a hive-c prior from before hive-c's reseed, with board-a the only current world on the seed -> builds, 1 of 1.
+  Mutant (the old concurrent rule) killed. Fleet number unchanged: 194.
+Codex r2 P2-6 (missing tail undetected): coverage runs to the EXPECTED cutoff from now (today once it is 1 h old,
+  else yesterday); a day that ended > 1 h ago must be cached closed. Cases: a missing middle day, a missing tail, a day
+  cached open -> each raises; mutants killed.
+Codex r2 P2-7 / Claude r2 P2-1a (own-world lag untested): fixture adds a dripstone site where hive-a dies 25 h after
+  board-a and again 1 h after its own first death; case asserts known-only = 3 and own = 3; the restored-24 h mutant is
+  killed.
+Claude r2 P2-1 (seven fixes without killing cases): contiguity (above); lost-validated (case: board-a created after 60+
+  of its validated rows -> raises; mutant); campfire skip (case + mutant); live world created after the backup (verify
+  case + mutant on the refusal line); undecoded/unread cell (the FakeWorld edge-wall case); push_failed (record_push() factored out: case + mutant); own-world lag (above).
+Claude r2 P2-2 (quarantine counted): the lost-validated count takes only outside_world_lifetime rows farther than 30 min
+  from any segment edge. Case: a same-seed reseed inside the window with 60 quarantine rows still builds; mutant killed.
+Claude r2 P2-4 (seed_homes order): homes come from current worlds only, iterated in sorted order, never None. Case with
+  the reseeded world listed first.
+Claude r2 P2-5 (quiet real day): per-source minimum rows per closed validated day is published in controls
+  (min_rows_per_closed_day): death 28, site 28, corridor 1,510, blind_lava 1,894, danger 62, marooned 5,710, no_air 102,
+  entombed 11,176, gave_up 1,053 (17/17 days for each). `_water_no_air_route` (mostly board-a-Comet) is a RARE source:
+  it must speak at least once in the newest 7 closed days, not on each of the newest 3.
+Claude r2 P2-6 (terrain gate refuses everything; one bedrock place): within-seed bedrock is sampled around each seed's own
+  home; a failing seed is SPLIT ('<seed>@<world>' pseudo-seeds, controls.unmerged_seeds, heartbeat `incomplete`), never
+  a refused build. Cases for agreement 0.8 and for 100 compared cells; mutants killed.
+Claude r2 P3-8 accepted as is (the 1 h grace covers the 04:30Z -> 05:10Z schedule; a reseed in that half hour misfolds at
+  most ~30 min of rows until the next night, documented). P3-9 the report now says the live level.dat is read (to confirm
+  the staged seed), and the live read is retried once. P3-10 patch_fleetstatus.py --revert removes exactly its three
+  insertions wherever they sit: on the INSTALLED fleetstatus (already carrying structcount's patch), patch then revert is
+  byte-identical; a case composes a structcount-like patch applied after ours. The installer's rollback uses it.
+
+Suite r3: 228 cases, 0 failed (17 blind inputs; 58 behaviour mutants and 8 blind-guard mutants, each attributed to its
+own case; ~105 s). Fleet r3 build 10-24 06:07Z: 123 of 277 (194 could match), 40 beyond per-world memory, nulls 6.4 /
+1.7, recent death-position 132/132 paired, 127 agreeing.

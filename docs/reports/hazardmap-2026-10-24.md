@@ -5,12 +5,13 @@ through the mineshaft design's `lavasight-01` (F5b). This document covers the to
 staged daily refresh.
 
 **Nothing on the fleet was changed.** That covers bots, worlds, the queue, the scheduler, the manifest, env files and
-crontabs. RCON was not used. Every world read was a copy: the staged nightly backup, the dormant `world.pre-reseed-*`
-copies, and for one positive control the 10-22 NAS archive. ES was read with the read-only key. Heavy jobs ran at
+crontabs. RCON was not used. World reads were read-only, and all but one were of copies: the staged nightly backup, the
+dormant `world.pre-reseed-*` copies, and for one positive control the 10-22 NAS archive. The exception is the live
+`level.dat`, which is read only to confirm it names the same seed as the staged copy. ES was read with the read-only key. Heavy jobs ran at
 `nice -n 19` (and `ionice -c3` on .30).
 
-Branch `hazardmap-1024`. Tool: `scripts/host/hazardmap/`. Evidence: `docs/reports/hazardmap-2026-10-24/`. **r2**
-answers the r1 reviews (section 10). The numbers below are from the r2 build at 10-24 05:26Z.
+Branch `hazardmap-1024`. Tool: `scripts/host/hazardmap/`. Evidence: `docs/reports/hazardmap-2026-10-24/`. **r3**
+answers the r1 and r2 reviews (section 10). The numbers below are from the r3 build at 10-24 06:07Z.
 
 ## 0. Answers first
 
@@ -29,7 +30,8 @@ answers the r1 reviews (section 10). The numbers below are from the r2 build at 
    - Bedrock control: the bedrock floor is seeded noise, and no bot digs it. At 867 cells it agrees **1.000** between
      board-a and each of the other 9 shared-seed worlds.
    - Across different seeds it agrees 0.37-0.72, which is chance.
-   - The build now refuses to merge a seed whose agreement is below 0.99.
+   - A seed whose agreement around its own home falls below 0.99 is not merged: each of its worlds is kept apart, and the
+     header alarms.
 
    The six singleton worlds keep their own homes.
 3. **Top hazards on the shared seed.** These are the two hot spots the mineshaft report found, re-found from scratch:
@@ -40,15 +42,15 @@ answers the r1 reviews (section 10). The numbers below are from the r2 build at 
    | Cave lava lake, centre (335, 35, 205) | 291 | 44 | 18 | yes, in 9 of 10 |
    | Drowning, the lake at (356, 60, 178) | 132 | 40 | 14 | |
 
-   - **The board-a copper trap (359, 40, 187)** holds 556.0 trapped bot-h in 4 spells; the longest is 389.1 h. Its
+   - **The board-a copper trap (359, 40, 187)** holds 556.7 trapped bot-h in 4 spells; the longest is 389.9 h. Its
      shape (water under a solid ceiling) is still in board-a and **absent in the other 9 worlds**.
    - **The board-d pits (329, 61, 213) and (555, 61, 116)** hold 273.9 and 167.8 bot-h. The pit check reads them
      **present in the 10-22 backup and absent now in all 10 worlds**. In both, one head-level wall has been opened.
      That matches poolescape-01 digging the bots out on 10-23 (section 5).
 
    The 10 top hazards on the shared seed hold 89 of its 194 deaths last week.
-4. **The value number.** Last week had **278 deaths** (10-17 05:26Z to 10-24 05:26Z). 194 of them were on a seed that
-   two or more worlds shared at that moment, and only those could match.
+4. **The value number.** Last week had **277 deaths** (10-17 06:07Z to 10-24 06:07Z). 194 of them could match: another
+   world, current or since reseeded away, was on their seed at least 24 h before.
    - **123 died within 3 blocks horizontally and 4 vertically of a same-kind death, in ANOTHER world of their seed, at
      least 24 h earlier.** That is 44% of all deaths and 63% of the 194 that could match.
    - **40 of the 123 had no earlier same-kind death there in their own world, at any lag.** That is what the map adds
@@ -56,10 +58,10 @@ answers the r1 reviews (section 10). The numbers below are from the r2 build at 
    - **The chance nulls:**
      - with the earlier deaths moved 48 blocks, 6.4 match on average (max 19);
      - with them rotated about the home, which keeps the town's density, 1.7 match (max 3).
-   - **By kind (matched / could match / all):** lava 47 / 59 / 80, drowning 34 / 40 / 83, cave fall 25 / 47 / 54,
+   - **By kind (matched / could match / all):** lava 47 / 59 / 80, drowning 34 / 40 / 82, cave fall 25 / 47 / 54,
      dripstone 16 / 40 / 40, suffocation 1 / 8 / 21.
 5. **Tool and refresh.** `hazardmap.py` (ES + files + backup verify), `serve.py` (a restricted read-only key's forced
-   command) and `test_hazardmap.py` (194 cases, including blind-input mutants and code mutants). The alarm surfaces in
+   command) and `test_hazardmap.py` (228 cases, including blind-input mutants and code mutants). The alarm surfaces in
    the fleetstatus header through `patch_fleetstatus.py`. Daily refresh: `install-hazardmap.sh` in three operator steps
    (section 8). Nothing is installed.
 6. **Reviews.** See section 10.
@@ -80,8 +82,11 @@ timestamp.
 - **r2 guards:**
   - verify refuses when the staged and live seeds differ, or when the live world was created after the backup. Either
     means the backup holds another generation;
-  - seeds resolve only up to the verify file's `made_at` + 1 h;
-  - more than 50 validated rows outside every world segment raises.
+  - seeds resolve only up to the verify file's `made_at` + 1 h. Rows after that are not folded, and the heartbeat reads
+    `incomplete`;
+  - more than 50 validated rows outside every world segment raises. That count leaves out quarantine rows and rows
+    within 30 min of a creation or retirement, so a reseed in the window still builds (r3);
+  - the bedrock control for a seed is taken around that seed's own home (r3).
 
 | World | Seed now | Home | Before |
 |---|---|---|---|
@@ -100,7 +105,7 @@ timestamp.
 - Seeds are **strings** in every file, because 64-bit seeds exceed a JavaScript number and lavasight is JS.
 
 **Terrain control** (`verify-summary-2026-10-24.json`). At 867 bedrock cells, y −63..−61 around (355, 147):
-- **within the shared seed: 1.000 for 9 of 9 pairs, over 867 cells each;**
+- **within the shared seed: 1.000 for 9 of 9 pairs, over 867 cells each, around (355, 147), the seed's home;**
 - **across seeds: 0.37-0.72 (21 pairs).**
 
 ## 2. Window, sources, controls, denominators
@@ -115,18 +120,18 @@ timestamp.
 
 **Sources (validated window, rows):**
 
-| Kind | Rows |
-|---|---|
-| `_death` | 632 |
-| `_death_site_recorded` | 632 |
-| `_lava_corridor` | 31,462 |
-| `_explore_blind_step_refused` (lava) | 47,499 |
-| `_reflex_danger_block` | 2,168 |
-| `_lava_adjacent_*` | 1,761 |
-| `_marooned` | 109,591 |
-| `_water_no_air_route` | 4,962 |
-| `_entombed` | 197,225 |
-| `_entombed_unrecoverable` | 19,079 |
+| Kind | Rows | Fewest on one closed day |
+|---|---|---|
+| `_death` | 632 | 28 |
+| `_death_site_recorded` | 632 | 28 |
+| `_lava_corridor` | 31,581 | 1,510 |
+| `_explore_blind_step_refused` (lava) | 47,684 | 1,894 |
+| `_reflex_danger_block` | 2,172 | 62 |
+| `_lava_adjacent_*` | 1,768 | 27 (no retreat) / 9 (stand-off) |
+| `_marooned` | 109,808 | 5,710 |
+| `_water_no_air_route` | 4,970 | 102 |
+| `_entombed` | 197,683 | 11,176 |
+| `_entombed_unrecoverable` | 19,129 | 1,053 |
 
 - Unparsed: 0 in every source.
 - Two kinds of row are recognised and skipped: corridor rows refused for UNKNOWN cells name no lava (about 1 a day),
@@ -136,13 +141,22 @@ timestamp.
 
 **Positive controls, and what makes the build raise.**
 - **Death position:** 632 of 632 validated deaths have the same bot's `_death_site_recorded` row within 2 s. In 620
-  (98.1%) it names a cell within 1 block of `floor(bot.pos)`. It raises below 90% paired or 95% agreeing.
-- **Deaths:** 278 in 7 days, against the mineshaft report's 276 over a window about 15 h earlier.
+  (98.1%) it names a cell within 1 block of `floor(bot.pos)`. It raises below 90% paired or 95% agreeing. The newest 3
+  closed days are checked again on their own: 132 of 132 paired, 127 (96.2%) agreeing. Their floor is 85%, because a
+  real break reads near 0% and a 3-day sample is noisier.
+- **Deaths:** 277 in 7 days, against the mineshaft report's 276 over a window about 16 h earlier.
 - **Hot spots:** the mineshaft report's two top cells come back as the top two lava hazards, with 18 and 18 deaths in 7
   days.
-- **Recent health (r2):** every source, and `_water_float`, must speak on each of the newest 3 closed days (10-21,
-  10-22 and 10-23 in this build). Each day's `_death` count must match its `_death_site_recorded` count within 2. A
-  kind renamed yesterday cannot hide behind the weeks it spoke before.
+- **Recent health (r2, r3):**
+  - Every source, and `_water_float`, must speak on each of the newest 3 closed days (10-21, 10-22 and 10-23 in this
+    build). The exception is `_water_no_air_route`. About 80% of its rows are one trapped bot, and it may go quiet once
+    he is freed, so it must speak at least once in the newest 7.
+  - The unparsed share is judged over the whole window and again over the newest 3 days (with at least 50 rows).
+  - Each day's `_death` count must match its `_death_site_recorded` count within 2.
+  - Every validated day up to the expected cutoff must be cached, non-void, and closed once it has ended. A missing tail
+    is a stale map.
+
+  A kind renamed or reformatted yesterday cannot hide behind the weeks it spoke before.
 
 **Denominators.** Every number in sections 4-6 states what it is out of.
 
@@ -166,7 +180,7 @@ Every label comes from a row the bot wrote about the world. None comes from an i
 - within 3 blocks of the spell's first row;
 - split at the bot's deaths.
 
-The longest spell, board-a-Comet's, has no gap over 15 min across 389.1 h. Dry maroon spells (633 spells, 1,014 bot-h)
+The longest spell, board-a-Comet's, has no gap over 15 min across 389.9 h. Dry maroon spells (633 spells, 1,014 bot-h)
 are not water pits by this rule. They are counted and excluded, and are a candidate for a later kind.
 
 **Rules.**
@@ -207,7 +221,7 @@ installed. Column notes:
 | cave fall | 371, −9, 154 | 5 / 5 / 4 | 4 | — | 10 / 10 | high |
 | dripstone | 373, −5, 151 | 6 / 6 / 4 | 5 | — | 10 / 10 | high |
 | dripstone | 431, −4, 177 | 6 / 6 / 5 | 3 | — | 10 / 10 | high |
-| **ceiling trap (board-a copper)** | 359, 40, 187 | 0 | — | **556.0** (4 spells, longest 389.1) | **1 / 10 (board-a)** | high |
+| **ceiling trap (board-a copper)** | 359, 40, 187 | 0 | — | **556.7** (4 spells, longest 389.9) | **1 / 10 (board-a)** | high |
 | ceiling trap | 419, 60, 83 | 0 | — | 77.2 | 6 / 10 | high |
 | **water pit (board-d)** | 329, 61, 213 | 0 | — | **273.9** (3 spells) | **0 / 10** (present 10-22) | medium (absent: lowered) |
 | **water pit (board-d)** | 555, 61, 116 | 0 | — | **167.8** | **0 / 10** (present 10-22) | medium (absent: lowered) |
@@ -237,15 +251,17 @@ installed. Column notes:
 
 ## 5. Does it still exist? (verify, and its controls)
 
-Verify runs on the staged backup, only after that night's `good <day>` line. 27,913 probes were made across 16 worlds:
-26,598 present, 1,287 absent and 28 not generated. It took 67 s and used 543 MB.
+Verify runs on the staged backup, only after that night's `good <day>` line. 27,914 probes were made across 16 worlds:
+26,599 present, 1,287 absent and 28 not generated. It took 70 s and used 544 MB.
 
-**How a negative is claimed (r2).**
-- `absent` requires every cell the check needs to have been read.
+**How a negative is claimed (r2, r3).**
+- `absent` requires every cell the check read to have been read successfully. That includes cells outside the probe's
+  footprint, such as a pit wall at r + 1.
 - A probe that straddles an ungenerated chunk, or that hits a cell that does not decode, reads `unknown`.
 - A hazard's probes in one world combine as follows: present if any probe is present; absent only if all are absent.
-- An absence counts only for the same probe cells (results carry the cells as a fingerprint), and only if no evidence
-  arrived after the request was made. Otherwise it reads `unchecked`.
+- An absence counts only while two things still match what was checked: the probe cells, and a fingerprint of the
+  hazard's whole evidence footprint. It also counts only if no evidence arrived after the request. Late-ingested rows
+  change the fingerprint. Otherwise it reads `unchecked`.
 
 **Positive control on a pit that existed.** The 10-22 NAS archive of board-d was read, read-only. It was made before
 poolescape-01 freed the bots on 10-23 at 01:50Z.
@@ -262,7 +278,7 @@ It used 400 probes per kind (100 for the ceiling trap).
 
 | Kind | Present at the hazard | Present 48 blocks away | Reading |
 |---|---|---|---|
-| lava | 95.5% | **0.75%** | strong |
+| lava | 95.75% | **0.75%** | strong |
 | dripstone | 96.0% | 23.3% | good |
 | cave fall | 95.0% | 35.5% | moderate |
 | water pit | 4.75% | 0.25% | the shape is rare; see section 4 |
@@ -281,13 +297,17 @@ another world?
   at least 24 h earlier. A daily map cannot know a death from an hour ago.
 - **"Beyond per-world memory":** a match that has no earlier same-kind death at the cell in its own world, at ANY lag.
   keepout and world facts update live.
-- **Window:** 10-17 05:26Z to 10-24 05:26Z.
-- **Denominators:** all 278 deaths, and the 194 on a seed that two or more worlds shared at the time of death. The
-  other 84 died in a singleton-seed world and could not match. The build asserts that every match is one of the 194.
+- **Window:** 10-17 06:07Z to 10-24 06:07Z.
+- **Denominators:**
+  - all 277 deaths;
+  - the 194 that could match. For these, another world (current, or since reseeded away) had a segment on their seed
+    that began at least 24 h before the death.
 
-| | Matched | Of 278 | Of 194 |
+  The other 83 died in a singleton-seed world and could not match. The build asserts that every match is one of the 194.
+
+| | Matched | Of 277 | Of 194 |
 |---|---:|---:|---:|
-| **Headline** | **123** | 44.2% | 63.4% |
+| **Headline** | **123** | 44.4% | 63.4% |
 | ... with no earlier same-kind death there in their own world (beyond per-world memory) | **40** | 14.4% | 20.6% |
 | Chance null 1: earlier deaths moved 48 blocks, 8 directions | mean 6.4, max 19 | 2.3% | 3.3% |
 | Chance null 2: earlier deaths rotated 90/180/270° about the home (the town's density kept) | mean 1.7, max 3 | 0.6% | 0.9% |
@@ -299,7 +319,7 @@ another world?
 | Kind | Matched / could match / all deaths |
 |---|---|
 | lava | 47 / 59 / 80 |
-| drowning | 34 / 40 / 83 |
+| drowning | 34 / 40 / 82 |
 | cave fall | 25 / 47 / 54 |
 | dripstone | 16 / 40 / 40 |
 | suffocation | 1 / 8 / 21 |
@@ -362,12 +382,13 @@ cross-world map adds over per-world memory. And keepout covers only fire, and on
   - it reads seeds and the probes requested the previous day from the staged copy;
   - it writes `~/hazardmap/out/verify.json`.
 - **10.0.0.31, cron 05:10Z.** `hazardmap.py refresh`:
-  1. **The gate:** the installed copy's own suite, 194 cases including the mutants. A failure publishes nothing and
+  1. **The gate:** the installed copy's own suite, 228 cases including the mutants. A failure publishes nothing and
      sets the heartbeat to `gate_failed`.
   2. Pull `verify.json` over the restricted key.
   3. Fetch new or changed ES days.
   4. Build. It refuses a verify file older than 72 h, and the header alarms after 30 h.
-  5. Write the map, the report and the heartbeat.
+  5. Write the map, the report and the heartbeat. The heartbeat reads `incomplete` (an alarm) in two cases: rows were
+     left unfolded past the seeds' horizon (a missed or failed verify), or a seed failed the terrain control.
   6. Push tomorrow's request. A failed push sets the heartbeat to `push_failed`.
 
   Lag: a hazard first seen today is `unchecked` until the next night.
@@ -375,7 +396,9 @@ cross-world map adds over per-world memory. And keepout covers only fire, and on
   installed fleetstatus header with `patch_fleetstatus.py`:
   - it is anchored on the frontier lines, so it composes with structcount's patch;
   - the copy is backed up first, and the edit is idempotent;
-  - the repo's `scripts/test_fleetstatus.py` passes 46 of 46 on a patched copy.
+  - the repo's `scripts/test_fleetstatus.py` passes 46 of 46 on a patched copy;
+  - `--revert` takes out exactly its three insertions. On the installed copy, which already carries structcount's
+    patch, patching and then reverting gives back a byte-identical file.
 - **The key** is `restrict,from="10.0.0.31",command=".../serve.py"`. It answers `verify` | `status` | `request`
   (stdin, ≤ 16 MB, validated, then written atomically to the one file it may write). It never runs sudo or a shell.
   This is the pattern of the structcount key, which both engines reviewed.
@@ -393,14 +416,14 @@ on 10.0.0.31:  bash scripts/host/hazardmap/install-hazardmap.sh --verify --insta
 - **Rollback:**
   - delete the cron lines ending `# hazardmap`;
   - remove the key line on .30 (a `.bak` is beside it);
-  - restore fleetstatus from its `.bak-hazardmap-*` copy;
+  - run `patch_fleetstatus.py <installed fleetstatus> --revert`, which keeps any later structcount edit;
   - remove `~/hazardmap` on both hosts.
 
   Both hosts' cron runs in UTC (`date +%z` = +0000).
 - **Rehearsed:** steps 1 and 2 ran end to end in throwaway `HOME`s on both hosts (r1 code), with no cron. The forced
   command was exercised locally. Step 3 needs the real key, so it was not run.
 - **Cost:** a full ES backfill takes ~6 min. A daily refresh is about 5 s of recounts, 12 s of build (510 MB) and about
-  60 s of gate. Verify takes about 67 s at nice 19 and 540 MB.
+  2 min of gate. Verify takes about 70 s at nice 19 and 544 MB.
 
 ## 9. What this does not show
 
@@ -422,10 +445,10 @@ on 10.0.0.31:  bash scripts/host/hazardmap/install-hazardmap.sh --verify --insta
 
 On 10.0.0.31 (ES key) and 10.0.0.30 (staged backup), from a checkout of the branch:
 ```
-python3 -B scripts/host/hazardmap/test_hazardmap.py                    # 194 cases
+python3 -B scripts/host/hazardmap/test_hazardmap.py                    # 228 cases
 python3 -B scripts/host/hazardmap/hazardmap.py fetch --home H           # .31
 python3 -B scripts/host/hazardmap/hazardmap.py verify --out O [--request R]   # .30; copy O/verify.json to H/in/
 python3 -B scripts/host/hazardmap/hazardmap.py build --home H           # .31; H/out/{hazardmap.json, report-*.txt, request.json}
 python3 -B scripts/host/hazardmap/hazardmap.py check --home H           # the header line
 ```
-The r2 map was built at 10-24 05:26Z. Its verify used backup 2026-10-24 and the r2 request.
+The r3 map was built at 10-24 06:07Z. Its verify used backup 2026-10-24 and the r3 request.

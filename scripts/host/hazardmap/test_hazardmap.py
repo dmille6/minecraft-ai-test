@@ -62,9 +62,36 @@ def isoz(ms):
     return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
 
 
-class FakeEs:
+class _Docs:
+    """The fake index: rows sorted by time, per kind, so a window is a bisect (the fixture holds ~6k rows)."""
+    def __set_name__(self, owner, name):
+        self.name = name
+
+    def __get__(self, obj, owner):
+        return owner.__dict__.get('_docs', [])
+
+    def __set__(self, obj, v):
+        raise AttributeError
+
+
+class _FakeMeta(type):
+    def __setattr__(cls, name, value):
+        if name == 'DOCS':
+            import bisect  # noqa: F401
+            rows = sorted(value, key=lambda r: T(r['@timestamp']))
+            type.__setattr__(cls, '_docs', rows)
+            by = {}
+            for r in rows:
+                by.setdefault(r['skill']['name'], []).append(r)
+            type.__setattr__(cls, '_by_kind', {k: ([T(r['@timestamp']) for r in v], v) for k, v in by.items()})
+            type.__setattr__(cls, '_all', ([T(r['@timestamp']) for r in rows], rows))
+            return
+        type.__setattr__(cls, name, value)
+
+
+class FakeEs(metaclass=_FakeMeta):
     """Just the EsEvents surface fetch_day() and recount() use, over a list of ES-shaped rows."""
-    DOCS = []
+    _docs, _by_kind, _all = [], {}, ([], [])
 
     def __init__(self, since, until):
         self.since, self.until = since, until
@@ -74,14 +101,16 @@ class FakeEs:
     def load(cls, stream, since=None, until=None, **kw):
         return cls(T(since), T(until))
 
-    def _in(self):
-        return [r for r in self.DOCS if self.since <= T(r['@timestamp']) < self.until]
+    def _slice(self, kind):
+        import bisect
+        ts, rows = self._all if kind is None else self._by_kind.get(kind, ([], []))
+        return rows[bisect.bisect_left(ts, self.since):bisect.bisect_left(ts, self.until)]
 
     def total(self):
-        return len(self._in())
+        return len(self._slice(None))
 
     def _match(self, kind, detail_contains=None):
-        out = [r for r in self._in() if kind is None or r['skill']['name'] == kind]
+        out = self._slice(kind)
         if detail_contains:
             out = [r for r in out if re.search(r'\b%s\b' % re.escape(detail_contains), r['skill'].get('detail') or '')]
         return out
@@ -90,7 +119,7 @@ class FakeEs:
         return len(self._match(kind, detail_contains))
 
     def rows(self, kind, fields=None, max_rows=0, detail_contains=None, allow_zero=False):
-        return iter(sorted(self._match(kind, detail_contains), key=lambda r: r['@timestamp']))
+        return iter(self._match(kind, detail_contains))
 
     def histogram(self, kind=None, interval='1h', split=None, allow_zero=False):
         step = {'10m': 600_000, '1h': 3_600_000}[interval]
@@ -114,6 +143,7 @@ def site_rows(docs):
 
 
 def row(t, bot, kind, detail='', pos=(0.5, 64, 0.5), fail_class=None):
+    t = int(t) if isinstance(t, float) else t
     r = {'@timestamp': isoz(t) if isinstance(t, int) else t, 'bot': {'name': bot}, 'skill': {'name': kind, 'detail': detail}}
     if pos is not None:
         r['bot']['pos'] = {'x': pos[0], 'y': pos[1], 'z': pos[2]}
@@ -133,7 +163,7 @@ def fleet_docs():
     L = lambda m: D0 + m * M
     # background: every bot speaks every 10 min for 4 days (positive control rows; bot-hours)
     for bot in ('hive-a-Alpha', 'board-a-Bravo', 'hive-c-Comet'):
-        for m in range(0, 4 * 1440, 10):
+        for m in range(0, 4 * 1440 + 110, 10):          # through 10-18 01:50Z: today's partial day is not void
             d.append(row(L(m), bot, 'goto', 'moved', (300.5, 70, 300.5)))
     # A lava cave at ~(336,36,204): board-a dies there on day 1, hive-a on day 3 (the value match), hive-a's guard named it
     d.append(row(L(100), 'board-a-Bravo', '_death', 'tried to swim in lava; idle at the moment of death | x', (336.4, 36, 204.2), 'fire'))
@@ -149,6 +179,16 @@ def fleet_docs():
     d.append(row(L(4500), 'board-a-Bravo', '_death', 'tried to swim in lava; idle', (336.7, 36, 205.5), 'fire'))
     # a DIFFERENT-KIND death in another world at the lava cave, > 24 h after board-a's lava death: never a same-kind match
     d.append(row(L(3100), 'hive-a-Alpha', '_death', 'drowned; idle', (336.5, 36, 204.5), 'drowning'))
+    # the own-world lag pair at a dripstone site: board-a dies, then hive-a twice (25 h and 26 h later); hive-a's second
+    # death has an OWN-world prior 1 h old, so it is known from another world but NOT beyond per-world memory
+    d.append(row(L(110), 'board-a-Bravo', '_death', 'was impaled on a stalagmite after falling 4 blocks', (600.5, 10, 600.5), 'other'))
+    d.append(row(L(1600), 'hive-a-Alpha', '_death', 'was impaled on a stalagmite after falling 4 blocks', (600.5, 10, 600.5), 'other'))
+    d.append(row(L(1660), 'hive-a-Alpha', '_death', 'was impaled on a stalagmite after falling 4 blocks', (600.5, 10, 600.5), 'other'))
+    # 4,000 good corridor rows of history (10-14) and 60 on the newest closed day (10-17): the recent-parse dilution test
+    for k in range(4000):
+        d.append(row(L(10 + k * 0.3), 'board-a-Bravo', '_lava_corridor', 'lava_corridor: lava below at 7000,60,7000 after 3 samples; the leg is refused', (7000.5, 61, 7000.5)))
+    for k in range(60):
+        d.append(row(L(4400 + k), 'board-a-Bravo', '_lava_corridor', 'lava_corridor: lava below at 7100,60,7100 after 3 samples; the leg is refused', (7100.5, 61, 7100.5)))
     # a same-cell pair on DIFFERENT SEEDS, 32 h apart: board-a (S1) then hive-c (S2, after its reseed): never a match
     d.append(row(L(50), 'board-a-Bravo', '_death', 'drowned; idle', (120.5, 60, 120.5), 'drowning'))
     d.append(row(L(2000), 'hive-c-Comet', '_death', 'drowned; idle', (120.5, 60, 120.5), 'drowning'))
@@ -224,7 +264,7 @@ def verify_doc(**over):
 def fetch_all(hm, docs):
     FakeEs.DOCS = docs
     days = []
-    for day in ['2026-09-10', '2026-09-27', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17']:
+    for day in ['2026-09-10', '2026-09-27', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18']:
         days.append(hm.fetch_day(day, FakeEs, NOW))
     return days
 
@@ -286,7 +326,7 @@ def fold_cases(hm):
     cases.append(('fold: seeds are strings in the document', all(isinstance(k, str) for k in doc['seeds']), True))
     cases.append(('fold: an unchecked hazard says so', (lava or {}).get('exists', {}).get('summary'), 'unchecked'))
     cases.append(('fold: the death-position control pairs every validated death', (doc['controls']['death_site_recorded']['paired_with_site_row'],
-                  doc['controls']['death_site_recorded']['site_within_1_block']), (34, 34)))
+                  doc['controls']['death_site_recorded']['site_within_1_block']), (37, 37)))
     cases.append(('fold: the UNKNOWN-cell corridor row is skipped', sum(d['skipped'].get('corridor', 0) for d in days), 1))
     cases.append(('fold: one vine danger row alone is not a hazard (one episode)', bool(find(doc, 'S1', 'lava', (700, 69, 700))), False))
     try:
@@ -298,15 +338,16 @@ def fold_cases(hm):
     # value: hive-a's lava death (t=3000) follows board-a's (t=100) in ANOTHER world; board-a's second (t=3500) has both an
     # own-world prior and another-world prior; board-a's second drowning has only an own-world prior
     val = hm.value_report(deaths, seeds, NOW, days=7)
-    cases.append(('value: three deaths were known from another world', val['headline'].get('known_from_another_world'), 3))
-    cases.append(('value: ... two of them ONLY from another world', val['headline'].get('known_only_from_another_world'), 2))
-    cases.append(('value: own-world priors are counted separately', val['headline'].get('known_from_own_world'), 2))
+    cases.append(('value: five deaths were known from another world', val['headline'].get('known_from_another_world'), 5))
+    cases.append(('value: ... three of them ONLY from another world', val['headline'].get('known_only_from_another_world'), 3))
+    cases.append(('value: an own-world prior 1 h old counts (no lag for per-world memory)', val['headline'].get('known_from_own_world'), 3))
     cases.append(('value: the matched deaths', [(m['bot'], m['kind']) for m in val['matched']],
-                  [('hive-a-Alpha', 'lava'), ('hive-a-Alpha', 'cave_fall'), ('board-a-Bravo', 'lava')]))
-    cases.append(('value: denominator = deaths in the window', val['headline'].get('deaths'), 34))
+                  [('hive-a-Alpha', 'dripstone'), ('hive-a-Alpha', 'dripstone'), ('hive-a-Alpha', 'lava'), ('hive-a-Alpha', 'cave_fall'),
+                   ('board-a-Bravo', 'lava')]))
+    cases.append(('value: denominator = deaths in the window', val['headline'].get('deaths'), 37))
     cases.append(('value: rotated about home, the priors match nothing (the town-density null)', val['rotation_null']['max'], 0))
     cases.append(('value: per-kind could-match denominators', val['could_match_by_kind'].get('lava'), 3))
-    cases.append(('value: without the 24 h lag the stalagmite death also matches', val['variants']['no_lag'].get('known_from_another_world'), 4))
+    cases.append(('value: without the 24 h lag the stalagmite death also matches', val['variants']['no_lag'].get('known_from_another_world'), 6))
     cases.append(('value: shifted priors match nothing (chance null)', val['chance_null']['max'], 0))
     cases.append(('value: hive-c S2 death has no S1 prior match', any(m['bot'].startswith('hive-c') for m in val['matched']), False))
     # request: probes for every current world of the seed, never for entombment
@@ -318,27 +359,31 @@ def fold_cases(hm):
     # verify results flow back (results carry the probed cells: the fingerprint an answer is valid for)
     cells = sorted(list(c) for c in hm.probe_cells(lava)) if lava else []
     A = {'state': 'absent', 'found': {}}
-    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'by_world': {'hive-a': A, 'board-a': A}}})
+    fp = (lava or {}).get('evidence_fp')
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'fp': fp, 'by_world': {'hive-a': A, 'board-a': A}}})
     doc2, _, _, _ = built(hm, verify=v)
     lava2 = find(doc2, 'S1', 'lava', (336, 36, 204))
     cases.append(('verify flow: absent in every world -> summary absent', (lava2 or {}).get('exists', {}).get('summary'), 'absent'))
     cases.append(('verify flow: absent everywhere lowers confidence one step', (lava2 or {}).get('confidence'), 'medium'))
-    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'by_world': {'hive-a': A, 'board-a': {'state': 'present', 'found': {'lava': 3}}}}})
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'fp': fp, 'by_world': {'hive-a': A, 'board-a': {'state': 'present', 'found': {'lava': 3}}}}})
     lava3 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
     cases.append(('verify flow: present in one world -> present, named', ((lava3 or {}).get('exists', {}).get('summary'),
                                                                           (lava3 or {}).get('exists', {}).get('present_in')), ('present', ['board-a'])))
-    v = verify_doc(results={'S1/lava/336,36,204': {'cells': [[1, 2, 3]], 'by_world': {'hive-a': A, 'board-a': A}}})
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': [[1, 2, 3]], 'fp': fp, 'by_world': {'hive-a': A, 'board-a': A}}})
     lava4 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
     cases.append(('verify flow: an absence for OTHER probe cells no longer covers the hazard', (lava4 or {}).get('exists', {}).get('summary'), 'unchecked'))
-    v = verify_doc(request_made_at='2026-10-15T00:00:00Z', results={'S1/lava/336,36,204': {'cells': cells, 'by_world': {'hive-a': A, 'board-a': A}}})
+    v = verify_doc(request_made_at='2026-10-15T00:00:00Z', results={'S1/lava/336,36,204': {'cells': cells, 'fp': fp, 'by_world': {'hive-a': A, 'board-a': A}}})
     lava5 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
     cases.append(('verify flow: evidence newer than the request voids an absence', (lava5 or {}).get('exists', {}).get('summary'), 'unchecked'))
-    try:
-        built(hm, verify=verify_doc(terrain_control={'within_seed': {'S1': {'min_agreement': 0.8, 'min_cells': 867}}}))
-        got = 'merged worlds whose bedrock disagrees'
-    except hm.Blind as e:
-        got = 'refused' if 'terrain control' in str(e) else str(e)[:80]
-    cases.append(('terrain gate: a seed whose worlds disagree (0.8) is not merged', got, 'refused'))
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'fp': '0' * 16, 'by_world': {'hive-a': A, 'board-a': A}}})
+    lava6 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
+    cases.append(('verify flow: late-ingested evidence (another fingerprint) voids an absence', (lava6 or {}).get('exists', {}).get('summary'), 'unchecked'))
+    for agree, cells_n, label in ((0.8, 867, 'terrain gate: a seed whose worlds disagree (0.8) is not merged'),
+                                  (1.0, 100, 'terrain gate: too few compared cells (100) is not merged either')):
+        d8, _, _, _ = built(hm, verify=verify_doc(terrain_control={'within_seed': {'S1': {'min_agreement': agree, 'min_cells': cells_n}}}))
+        cases.append((label, (sorted(k for k in d8['seeds'] if k.startswith('S1')), sorted(d8['controls']['unmerged_seeds']),
+                              hm.heartbeat_status(d8)[0]),
+                      (['S1@board-a', 'S1@hive-a', 'S1@hive-c'], ['S1'], 'incomplete')))
     sd = hm.Seeds.from_verify(verify_doc(made_at='2026-10-16T00:00:00Z'))
     cases.append(('seeds: a row after the observation horizon is not resolved', sd.seed_at('hive-a', T('2026-10-16T01:30:00Z')), (None, 'after_seed_observation')))
     cases.append(('seeds: a row inside it is', sd.seed_at('hive-a', T('2026-10-15T23:00:00Z'))[0], 'S1'))
@@ -346,15 +391,105 @@ def fold_cases(hm):
 
 
 # ------------------------------------------------------------------ blind-input mutants: the build must RAISE for the reason
+def guard_cases(hm):
+    """The guards r2's reviewers found untested: each raises for its reason, and a legitimate case still builds."""
+    c = []
+    days = fetch_all(hm, fleet_docs())
+    seeds = lambda **kw: hm.Seeds.from_verify(verify_doc(**kw))
+
+    def outcome(fn):
+        try:
+            fn()
+            return 'built'
+        except hm.Blind as e:
+            return 'Blind: ' + str(e)[:60]
+    got = outcome(lambda: hm.build([d for d in days if d['day'] != '2026-10-15'], seeds(), now_ms=NOW))
+    c.append(('coverage: a missing validated day raises', got.startswith('Blind: validated day(s) missing'), True))
+    got = outcome(lambda: hm.build([d for d in days if d['day'] != '2026-10-18'], seeds(), now_ms=NOW))
+    c.append(('coverage: a missing tail (today absent) raises', got.startswith('Blind: validated day(s) missing'), True))
+    stale = [dict(d, closed=False) if d['day'] == '2026-10-17' else d for d in days]
+    got = outcome(lambda: hm.build(stale, seeds(), now_ms=NOW))
+    c.append(('coverage: a day that ended > 1 h ago but is cached open raises', got.startswith('Blind: day(s)'), True))
+    # 60 validated board-a rows before board-a existed (created 10-15 12:00 in this table): the table does not describe it
+    late = verify_doc()
+    late['worlds'] = dict(late['worlds'], **{'board-a': dict(late['worlds']['board-a'], created='2026-10-14T20:00:00Z')})
+    extra = [row(D0 + (300 + k) * M, 'board-a-Bravo', '_reflex_danger_block', 'lava', (8000.5, 60, 8000.5)) for k in range(60)]
+    got = outcome(lambda: hm.build(fetch_all(hm, fleet_docs() + extra), hm.Seeds.from_verify(late), now_ms=NOW))
+    c.append(('lifetime: > 50 validated rows outside every world segment raise', 'outside every world' in got, True))
+    # a reseed INSIDE the window (same seed): 60 rows in its quarantine are dropped by design and the build goes on
+    rs = verify_doc()
+    rs['worlds'] = dict(rs['worlds'], **{'board-a': {'seed': 'S1', 'home': [355, 73, 147], 'created': '2026-10-15T12:05:00Z',
+                                                    'previous': [{'seed': 'S1', 'created': '2026-08-22T14:16:49Z', 'retired': '2026-10-15T12:00:00Z'}]}})
+    q = [row(T('2026-10-15T12:06:00Z') + k * 5000, 'board-a-Bravo', '_reflex_danger_block', 'lava', (8000.5, 60, 8000.5)) for k in range(60)]
+    got = outcome(lambda: hm.build(fetch_all(hm, fleet_docs() + q), hm.Seeds.from_verify(rs), now_ms=NOW))
+    c.append(('lifetime: a reseed in the window (60 quarantine rows) still builds', got, 'built'))
+    # campfire danger rows are recognised and skipped, never a lava sighting
+    r = row('2026-10-22T00:00:00.000Z', 'hive-a-Alpha', '_reflex_danger_block', 'campfire', (1.5, 70, 3.5))
+    c.append(('compact: a campfire danger row is skipped, not lava', hm.compact('danger', r)[0], 'skip'))
+    # heartbeat: a failed push and an incomplete fold are never `ok`
+    hb = os.path.join(tempfile.mkdtemp(prefix='hb-'), 'heartbeat.json')
+    hm.atomic_json(hb, {'status': 'ok'})
+    with contextlib.redirect_stdout(io.StringIO()):
+        rc = hm.record_push(hb, 255)
+    c.append(('heartbeat: a failed request push -> push_failed', (rc, hm.load_json(hb)['status']), (1, 'push_failed')))
+    c.append(('heartbeat: rows after the seed horizon -> incomplete', hm.heartbeat_status(
+        {'controls': {'excluded': {'death:after_seed_observation': 4}, 'verify_made_at': 'x'}})[0], 'incomplete'))
+    return c
+
+
+class FakeWorld:
+    """status() ok everywhere; block() answers from a dict, stone elsewhere, and None (a failed read, counted) at `blind`."""
+    def __init__(self, cells, blind=()):
+        import collections as _c
+        self.cells, self.blind, self.stats = cells, set(blind), _c.Counter()
+
+    def status(self, x, z):
+        return 'ok'
+
+    def block(self, x, y, z, props=False):
+        if (x, y, z) in self.blind:
+            self.stats['blind_reads'] += 1
+            return (None, {}) if props else None
+        n = self.cells.get((x, y, z), 'minecraft:stone')
+        return (n, {}) if props else n
+
+
+def probe_cases(hm):
+    """A pit wall OUTSIDE the probe footprint (r + 1) that cannot be read must make a negative `unknown` (Codex r2 P1-2)."""
+    # the pit cell sits at the EDGE of the footprint (x=11 for a probe at x=10, r=1): its east wall (12, 61, 10) is at r + 1
+    cells = {(11, 60, 10): 'minecraft:water', (11, 61, 10): 'minecraft:air'}
+    p = {'id': 'x', 'world': 'hive-a', 'kind': 'water_pit', 'x': 10, 'y': 60, 'z': 10, 'r': 1}
+    c = [('probe: a pit with all walls read is present', hm.probe(FakeWorld(cells), p)['state'], 'present')]
+    c.append(('probe: an opened pit is absent', hm.probe(FakeWorld({**cells, (10, 61, 10): 'minecraft:air'}), p)['state'], 'absent'))
+    c.append(('probe: an unread wall beyond the footprint makes a negative unknown',
+              hm.probe(FakeWorld(cells, blind={(12, 61, 10)}), p)['state'], 'unknown'))
+    return c
+
+
 def value_cases(hm):
     """value() called directly on the folded deaths (no value_report, so its subset guard cannot mask a broken fold)."""
     days = fetch_all(hm, fleet_docs())
     seeds = hm.Seeds.from_verify(verify_doc())
     _, deaths, _, _ = hm.evidence_points(days, seeds, hm.parse_ms(hm.VALIDATED_SINCE))
     direct = hm.value(deaths, NOW)[0].get('known_from_another_world')
-    c = [('value(): a same-cell death on ANOTHER SEED never matches', direct, 3),
+    c = [('value(): a same-cell death on ANOTHER SEED never matches', direct, 5),
          ('value(): a different-kind prior is not a same-kind match',
-          (direct, hm.value(deaths, NOW, same_kind=False)[0].get('known_from_another_world')), (3, 4))]
+          (direct, hm.value(deaths, NOW, same_kind=False)[0].get('known_from_another_world')), (5, 6))]
+    # Codex r2 P2-5 / Claude r2 P2-3: a world reseeded AWAY from a seed still warned the seed's later deaths
+    sd = hm.Seeds({'board-a': {'seed': 'S1', 'home': [355, 73, 147], 'segments': [{'seed': 'S1', 'from_ms': 0, 'until_ms': None}]},
+                   'hive-c': {'seed': 'S2', 'home': [-68, 68, -68], 'segments': [
+                       {'seed': 'S1', 'from_ms': 0, 'until_ms': NOW - 20 * hm.DAY_MS}, {'seed': 'S2', 'from_ms': NOW - 20 * hm.DAY_MS, 'until_ms': None}]}})
+    hist = [{'t': NOW - 25 * hm.DAY_MS, 'bot': 'hive-c-X', 'world': 'hive-c', 'cell': (9, 60, 9), 'kind': 'drowning', 'seed': 'S1', 'category': 'drowned'},
+            {'t': NOW - 1 * hm.DAY_MS, 'bot': 'board-a-X', 'world': 'board-a', 'cell': (9, 60, 9), 'kind': 'drowning', 'seed': 'S1', 'category': 'drowned'}]
+    try:
+        vr = hm.value_report(hist, sd, NOW)
+        got = (vr['headline'].get('known_from_another_world'), vr['shared_seed_deaths'])
+    except hm.Blind as e:
+        got = 'refused: %s' % str(e)[:50]
+    c.append(('value_report: a match from a world since reseeded away is a legitimate match', got, (1, 1)))
+    # the reseeded world must come FIRST in any order the code might use: name it so it sorts first too
+    homes = hm.seed_homes(hm.Seeds({'aaa-reseeded': sd.worlds['hive-c'], 'board-a': sd.worlds['board-a']}))
+    c.append(('seed_homes: the shared home survives a reseeded world listed first', homes.get('S1'), (355, 147)))
     # the subset guard: a "match" on a seed that held ONE world at the time is a broken fold, and value_report refuses it
     bad = [{'t': NOW - 3 * hm.DAY_MS, 'bot': 'board-a-X', 'world': 'board-a', 'cell': (9, 60, 9), 'kind': 'drowning', 'seed': 'S2', 'category': 'drowned'},
            {'t': NOW - 1 * hm.DAY_MS, 'bot': 'hive-c-X', 'world': 'hive-c', 'cell': (9, 60, 9), 'kind': 'drowning', 'seed': 'S2', 'category': 'drowned'}]
@@ -380,8 +515,8 @@ def blind_inputs():
 
     def refmt(d):
         out, k = [], 0
-        for r in d:                           # every other corridor row: the source still speaks, half its cells are unread
-            if r['skill']['name'] == '_lava_corridor':
+        for r in d:                           # every other 10-14 corridor row: recent days are clean, the pooled share is not
+            if r['skill']['name'] == '_lava_corridor' and T(r['@timestamp']) < D0 + 1440 * M:
                 k += 1
                 if k % 2:
                     r = dict(r, skill=dict(r['skill'], detail=re.sub(r'at (-?\d+),(-?\d+),(-?\d+)', r'@\1/\2/\3', r['skill']['detail'])))
@@ -421,6 +556,11 @@ def blind_inputs():
     def no_wet(d):
         return [dict(r, skill=dict(r['skill'], name='_water_floating')) if r['skill']['name'] == '_water_float' else r for r in d]
 
+    def recent_reformat(d):                 # only the newest closed day's corridor rows, behind 4,000 good rows of history
+        lo, hi = D0 + 3 * 1440 * M, D0 + 4 * 1440 * M
+        return [dict(r, skill=dict(r['skill'], detail=r['skill']['detail'].replace(' at ', ' @ ')))
+                if r['skill']['name'] == '_lava_corridor' and lo <= T(r['@timestamp']) < hi else r for r in d]
+
     def moved_sites(d):
         return [dict(r, skill=dict(r['skill'], detail=re.sub(r'at (-?\d+),', lambda m: 'at %d,' % (int(m.group(1)) + 5), r['skill']['detail'])))
                 if r['skill']['name'] == '_death_site_recorded' else r for r in d]
@@ -438,6 +578,7 @@ def blind_inputs():
         ('blind: give-ups renamed for the newest two days only', late_gaveup, "source 'gave_up'"),
         ('blind: three of one day\'s deaths renamed', three_renamed, '_death_site_recorded rows'),
         ('blind: the wet kind renamed (every pit would read dry)', no_wet, '_water_float is SILENT'),
+        ('blind: corridor rows reformatted on the newest day only (history dilutes the pooled share)', recent_reformat, 'newest 3 closed days did not parse'),
     ]
 
 
@@ -678,6 +819,14 @@ def verify_cases(hm, tmp):
     except hm.Blind as e:
         got = 'refused' if 'differ' in str(e) else str(e)
     cases.append(('verify: a reseed since the backup (staged and live seeds differ) is refused', got, 'refused'))
+    try:
+        hm.verify(req, st, live, log, day='2026-10-18', cat=cat, birth=lambda p: '2026-10-18T05:00:00Z', ls=ls)
+        got = 'paired the staged copy with a world created after it'
+    except hm.Blind as e:
+        got = 'refused' if 'after the backup' in str(e) else str(e)[:80]
+    except Exception as e:
+        got = 'crashed: %s' % type(e).__name__
+    cases.append(('verify: a live world created after the backup is refused', got, 'refused'))
     shutil.copy(os.path.join(st, 'hive-a', 'world', 'level.dat'), os.path.join(live, 'hive-a', 'world', 'level.dat'))
     cases.append(('verify: seeds read from level.dat', (v['worlds']['hive-a']['seed'], v['worlds']['hive-c']['seed']), ('111', '999')))
     cases.append(('verify: the pre-reseed copy is hive-c\'s previous seed',
@@ -782,7 +931,13 @@ def patch_cases(tmp):
     t1, why1 = pf.patch(base)
     t2, why2 = pf.patch(t1) if t1 else (None, None)
     c = [('patch: applies once, then already patched', (why1, why2), ('patched', 'already patched')),
-         ('patch: refuses a copy without the anchors', pf.patch(base.replace('frontier_line(now), ', ''))[1][:12], 'anchor found')]
+         ('patch: refuses a copy without the anchors', pf.patch(base.replace('frontier_line(now), ', ''))[1][:12], 'anchor found'),
+         ('patch: --revert restores the original exactly, keeping a later edit', pf.revert(t1 + '# later edit\n')[0], base + '# later edit\n'),
+         ('patch: --revert of an unpatched copy is a no-op', pf.revert(base)[1], 'not patched')]
+    # a structcount-like patch applied AFTER ours at the same _ts anchor: --revert leaves exactly the structcount-only file
+    ts = "def _ts(s):\n    return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))\n"
+    sc = lambda t: t.replace(ts, ts + "\n\n# SC block\ndef sc_line(now):\n    return 'sc'\n\n", 1)
+    c.append(('patch: --revert after a later structcount patch keeps the structcount patch', pf.revert(sc(t1))[0], sc(base)))
     ns = {}
     exec(compile(t1, 'patched', 'exec'), ns)
     home = os.path.join(tmp, 'hmhome')
@@ -827,14 +982,19 @@ def compact_cases(hm):
 
 # ------------------------------------------------------------------ code mutants
 BEHAVIOUR = [
-    ('value: three deaths were known from another world', "                        if p['world'] != d['world']:\n", "                        if True:\n"),
-    ('value: ... two of them ONLY from another world', "            if not hit_same:\n", "            if True:\n"),
+    ('value: five deaths were known from another world', "                        if p['world'] != d['world']:\n", "                        if True:\n"),
+    ('value: ... three of them ONLY from another world', "            if not hit_same:\n", "            if True:\n"),
+    ('value: ... three of them ONLY from another world', "                        else:\n                            hit_same = True",
+     "                        elif p['t'] <= d['t'] - lag_ms:\n                            hit_same = True"),
     ('fold: hive-c after its reseed folds into S2', "            if s['from_ms'] <= t and (s['until_ms'] is None or t < s['until_ms']):",
      "            if s['from_ms'] <= t:"),
     ('fold: the quarantine row is dropped and counted', "                if t < s['from_ms'] + QUARANTINE_MS:", "                if False:"),
     ('fold: a 40-min DRY maroon spell is not', "        return 'water_pit' if wet >= 0.5 else 'excluded:marooned_dry'", "        return 'water_pit'"),
     ('fold: ... and not an entombment', "    if c.get('no_air', 0) / n >= 0.2:", "    if c.get('no_air', 0) / n >= 0.9:"),
-    ('value: three deaths were known from another world', "                            if p['t'] <= d['t'] - lag_ms:", "                            if True:"),
+    ('value: five deaths were known from another world', "                            if p['t'] <= d['t'] - lag_ms:", "                            if True:"),
+    ('value_report: a match from a world since reseeded away is a legitimate match',
+     "            if any(s['seed'] == d['seed'] and s['from_ms'] <= d['t'] - lag_ms\n                   for w, info in seeds.worlds.items() if w != d['world'] for s in info['segments']):",
+     "            if sum(1 for w, info in seeds.worlds.items() for s in info['segments'] if s['seed'] == d['seed'] and s['until_ms'] is None) >= 2:"),
     ('fold: a lava cell seen once is not', "        return h['sightings']['episodes'] >= 2", "        return h['sightings']['episodes'] >= 1"),
     ('fold: two deaths in two worlds -> confidence high', "    if len(h['death_worlds']) >= 2 or d >= 3 or sh >= 6:", "    if d >= 3 or sh >= 6:"),
     ('verify flow: absent everywhere lowers confidence one step', "    if (h.get('exists') or {}).get('summary') == 'absent':",
@@ -865,6 +1025,10 @@ BEHAVIOUR = [
     ('fold: a verify file older than 72 h is refused (the seeds may predate a reseed)', "    if age > VERIFY_MAX_AGE_H:", "    if False:"),
     ('terrain gate: a seed whose worlds disagree (0.8) is not merged', "        if (t.get('min_agreement') or 0) < TERRAIN_MIN_AGREE or",
      "        if False or"),
+    ('terrain gate: too few compared cells (100) is not merged either', "or (t.get('min_cells') or 0) < TERRAIN_MIN_CELLS:", ":"),
+    ('verify flow: late-ingested evidence (another fingerprint) voids an absence',
+     "    changed = sorted(list(c) for c in probe_cells(h)) != res.get('cells') or res.get('fp') != h.get('evidence_fp')",
+     "    changed = sorted(list(c) for c in probe_cells(h)) != res.get('cells')"),
     ('value(): a same-cell death on ANOTHER SEED never matches', "    return (seed, x // 8, z // 8)", "    return (None, x // 8, z // 8)"),
     ('value(): a different-kind prior is not a same-kind match', "                    if p['t'] >= d['t'] or (same_kind and p['kind'] != d['kind']):",
      "                    if p['t'] >= d['t']:"),
@@ -872,15 +1036,30 @@ BEHAVIOUR = [
     ('value: rotated about home, the priors match nothing (the town-density null)', "            dx, dz = -dz, dx", "            pass"),
     ('fold: death cells most-deaths first (not coordinate order)', "    return [list(k) for k, v in sorted(c.items(), key=lambda kv: (-kv[1][0], -kv[1][1], kv[0]))]",
      "    return [list(k) for k, v in sorted(c.items(), key=lambda kv: kv[0])]"),
+    ('verify: a live world created after the backup is refused', "        if backup_ms is not None and parse_ms(info['created']) > backup_ms:",
+     "        if False:"),
+    ('coverage: a missing validated day raises', "    missing = [d for d in want if d not in by_day or by_day[d].get('void')]",
+     "    missing = []"),
+    ('coverage: a missing tail (today absent) raises', "    last = iso(now_ms)[:10] if now_ms - today0 > 3_600_000 else iso(today0 - DAY_MS)[:10]",
+     "    last = max(by_day)"),
+    ('coverage: a day that ended > 1 h ago but is cached open raises', "    if unclosed:\n", "    if False:\n"),
+    ('lifetime: > 50 validated rows outside every world segment raise', "    if sum(lost_validated.values()) > VALIDATED_LOSS_OK:", "    if False:"),
+    ('lifetime: a reseed in the window (60 quarantine rows) still builds',
+     "            if t >= validated_ms and why == 'outside_world_lifetime' and not seeds.near_boundary(world, t):",
+     "            if t >= validated_ms and why in ('outside_world_lifetime', 'quarantine'):"),
+    ('compact: a campfire danger row is skipped, not lava', "        if det in DANGER_NOT_LAVA:\n            return ('skip', 'campfire')",
+     "        if False:\n            return ('skip', 'campfire')"),
+    ('heartbeat: a failed request push -> push_failed', "        if hbv.get('status') == 'ok':", "        if False:"),
+    ('heartbeat: rows after the seed horizon -> incomplete', "    if late:\n        return 'incomplete'", "    if False:\n        return 'incomplete'"),
+    ('probe: an unread wall beyond the footprint makes a negative unknown', "    if res['state'] == 'absent' and (sts != {'ok'} or blind):",
+     "    if res['state'] == 'absent' and sts != {'ok'}:"),
     ('seeds: a row after the observation horizon is not resolved', "        if self.horizon_ms is not None and t > self.horizon_ms:", "        if False:"),
     ('verify flow: an absence for OTHER probe cells no longer covers the hazard', "        elif r['state'] != 'present' and (changed or newer):",
      "        elif r['state'] != 'present' and newer:"),
     ('verify flow: evidence newer than the request voids an absence', "        elif r['state'] != 'present' and (changed or newer):",
      "        elif r['state'] != 'present' and changed:"),
-    ('verify: a negative that straddles an ungenerated chunk is unknown, not absent',
-     "    if res['state'] == 'absent' and (sts != {'ok'} or w.stats['undecoded'] > before):", "    if False:"),
     ('reduce: absent + unknown -> unknown', "    if st and all(x == 'absent' for x in st):", "    if st and 'absent' in st:"),
-    ('verify: a reseed since the backup (staged and live seeds differ) is refused', "        if not live_raw or level_seed(live_raw) != seed:",
+    ('verify: a reseed since the backup (staged and live seeds differ) is refused', "        if not live_raw or live_seed != seed:",
      "        if not live_raw:"),
     ('compact: a corridor refused for UNKNOWN cells is skipped, not unparsed', "                return ('skip', 'names no lava cell')",
      "                return ('unparsed', 'names no lava cell')"),
@@ -891,14 +1070,16 @@ BEHAVIOUR = [
     ('cache: 10-07 is refused, never loaded', "        if day in REFUSED_DAYS:\n            stats['refused'] += 1", "        if False:\n            stats['refused'] += 1"),
 ]
 BLIND_CODE = [   # code mutants that blind the guards: the named blind-input case must then SURVIVE (the guard is what stops it)
-    ('blind: give-ups renamed for the newest two days only', "            if not spoke_today:", "            if False:"),
+    ('blind: give-ups renamed for the newest two days only', "        if (need_each and len(days_spoken) < len(window)) or not days_spoken:", "        if False:"),
     ('blind: fail_class renamed fire -> burning', "            if fc not in (FAIL_CLASSES if validated else HISTORY_FAIL_CLASSES) or cat is None:",
      "            if cat is None:"),
     ('blind: the corridor row cell reformatted', "        if seen and unp[src] / seen > UNPARSED_OK:", "        if False:"),
     ('blind: a world the seeds table does not know', "            if why == 'unknown_world' and t >= validated_ms:", "            if False:"),
-    ('blind: the death position is not the recorded death site', "    if len(deaths) >= 20 and (paired < 0.9 * len(deaths) or agree < 0.95 * paired):",
-     "    if False:"),
+    ('blind: the death position is not the recorded death site', "        if n >= 20 and (p < 0.9 * n or a < agree_floor * p):",
+     "        if False:"),
     ('blind: three of one day\'s deaths renamed', "        if abs(nd - ns) > DEATH_SITE_SLACK:", "        if False:"),
+    ('blind: corridor rows reformatted on the newest day only (history dilutes the pooled share)',
+     "        if r_ok + r_bad >= RECENT_PARSE_FLOOR and r_bad / (r_ok + r_bad) > UNPARSED_OK:", "        if False:"),
     ('blind: the wet kind renamed (every pit would read dry)', "        if not rec['counts'].get(WET_KIND):", "        if False:"),
 ]
 SERVE = [
@@ -932,7 +1113,8 @@ def all_cases(hm, sv, tmp):
     groups = [('compact', lambda: compact_cases(hm)), ('fold', lambda: fold_cases(hm)), ('blind', lambda: blind_cases(hm)),
               ('cache', lambda: cache_cases(hm, os.path.join(tmp, 'c1'))), ('request', lambda: request_cases(hm)),
               ('verify', lambda: verify_cases(hm, os.path.join(tmp, 'v1'))), ('serve', lambda: serve_cases(sv, hm, tmp)),
-              ('check', lambda: check_cases(hm, tmp)), ('patch', lambda: patch_cases(tmp)), ('value', lambda: value_cases(hm))]
+              ('check', lambda: check_cases(hm, tmp)), ('patch', lambda: patch_cases(tmp)), ('value', lambda: value_cases(hm)),
+              ('guards', lambda: guard_cases(hm)), ('probe', lambda: probe_cases(hm))]
     for name, fn in groups:
         try:
             c += fn()

@@ -178,6 +178,9 @@ DANGER_BELOW = frozenset({'air', 'cave_air', 'void_air', 'bubble_column'})
 UNPARSED_OK = 0.02
 WET_KIND = '_water_float'
 RECENT_DAYS = 3                  # every MUST_SPEAK source and the wet kind must speak on each of the newest 3 closed days
+RECENT_DAYS_RARE = 7             # ... except a source whose volume is one trapped bot: at least once in the newest 7
+RARE_SOURCES = frozenset({'no_air'})     # _water_no_air_route: ~80% board-a-Comet's trap; it may quieten when he is freed
+RECENT_PARSE_FLOOR = 50          # the recent unparsed share is judged once the newest days hold this many rows
 DEATH_SITE_SLACK = 2             # per day, _death and _death_site_recorded (written in the same ms) may differ by at most 2
 FIELDS = ['@timestamp', 'bot.name', 'bot.pos', 'skill.detail', 'skill.fail_class']
 
@@ -371,6 +374,14 @@ class Seeds:
             raise Blind('the verify file has no made_at: when the seeds were observed is unknown')
         return cls(worlds, horizon_ms=parse_ms(v['made_at']) + 3_600_000)
 
+    def near_boundary(self, world, t, ms=30 * 60 * 1000):
+        """Within 30 min of a segment's creation or retirement: a reseed's own stragglers, never evidence of a bad table."""
+        for s in (self.worlds.get(world) or {}).get('segments', ()):
+            for edge in (s['from_ms'], s['until_ms']):
+                if edge is not None and abs(t - edge) <= ms:
+                    return True
+        return False
+
     def seed_at(self, world, t):
         """(seed, None) or (None, why)."""
         w = self.worlds.get(world)
@@ -384,6 +395,14 @@ class Seeds:
                     return None, 'quarantine'
                 return s['seed'], None
         return None, 'outside_world_lifetime'
+
+    def split(self, seeds_to_split):
+        """Keep the worlds of each named seed apart: every segment on it becomes '<seed>@<world>'."""
+        for w, info in self.worlds.items():
+            for sgm in info['segments']:
+                if sgm['seed'] in seeds_to_split:
+                    sgm['seed'] = '%s@%s' % (sgm['seed'], w)
+            info['seed'] = info['segments'][-1]['seed']
 
     def current(self):
         out = collections.defaultdict(list)
@@ -539,9 +558,17 @@ def classify_deaths(days, validated_ms):
     return out, dict(unknown_hist)
 
 
-def source_controls(days, validated_ms):
-    """The positive controls on the sources: totals, rows and unparsed shares in the validated window. Raises Blind."""
+def source_controls(days, validated_ms, now_ms):
+    """The positive controls on the sources. Raises Blind. Every check that can be diluted by history is ALSO applied to
+    the newest closed days (r2/r3 reviews: a kind renamed or reformatted yesterday must not hide behind weeks of rows):
+      * coverage: every validated day up to the expected cutoff (yesterday once it has closed, today once 1 h old) is in
+        the cache, non-void, and closed when it should be -- a missing tail is a stale map, not a quiet day;
+      * silence: each MUST_SPEAK source speaks on each of its newest closed days (RECENT_DAYS, or RECENT_DAYS_RARE for a
+        source whose volume is one trapped bot), and _water_float on each of the newest RECENT_DAYS;
+      * parsing: the unparsed share over the whole window AND over the newest RECENT_DAYS (>= RECENT_PARSE_FLOOR rows);
+      * deaths: each day's _death count against its _death_site_recorded count."""
     tot = collections.Counter(); unp = collections.Counter(); ex = {}; vdays = 0; spoke = collections.Counter()
+    daily_min = {}
     for rec in days:
         if parse_ms(rec['day'] + 'T00:00:00Z') < validated_ms or rec.get('void'):
             continue
@@ -554,14 +581,21 @@ def source_controls(days, validated_ms):
                 spoke[src] += 1
             if rec['unparsed'].get(src):
                 ex[src] = rec['unparsed_examples'].get(src)
+            if rec.get('closed'):
+                daily_min[src] = min(daily_min.get(src, n), n)
     if not vdays:
         raise Blind('no validated day is in the cache: nothing could have been seen')
-    have = {r['day'] for r in days if not r.get('void')}
-    newest = max(r['day'] for r in days)
-    want = [d for d in days_between(VALIDATED_SINCE, parse_ms(newest + 'T00:00:00Z')) if d not in REFUSED_DAYS]
-    missing = [d for d in want if d not in have and d >= iso(validated_ms)[:10]]
+    by_day = {r['day']: r for r in days}
+    today0 = parse_ms(iso(now_ms)[:10] + 'T00:00:00Z')
+    last = iso(now_ms)[:10] if now_ms - today0 > 3_600_000 else iso(today0 - DAY_MS)[:10]
+    want = [d for d in days_between(iso(validated_ms), parse_ms(last + 'T00:00:00Z')) if d not in REFUSED_DAYS]
+    missing = [d for d in want if d not in by_day or by_day[d].get('void')]
     if missing:
-        raise Blind('validated day(s) missing or void in the cache: %s -- a gap is not a quiet week' % missing[:5])
+        raise Blind('validated day(s) missing or void in the cache: %s -- a gap or a missing tail is not a quiet week'
+                    % missing[:5])
+    unclosed = [d for d in want if now_ms - (parse_ms(d + 'T00:00:00Z') + DAY_MS) > 3_600_000 and not by_day.get(d, {}).get('closed')]
+    if unclosed:
+        raise Blind('day(s) %s ended over an hour ago but the cache holds them open: a stale cache (did fetch run?)' % unclosed[:3])
     for src in MUST_SPEAK:
         if tot[src] == 0:
             raise Blind('source %r (%s) is SILENT over %d validated days: a renamed kind or a broken query, not a safe fleet'
@@ -571,22 +605,33 @@ def source_controls(days, validated_ms):
         if seen and unp[src] / seen > UNPARSED_OK:
             raise Blind('source %r: %d of %d rows did not parse (> %.0f%%) -- the detail format changed? e.g. %r'
                         % (src, unp[src], seen, 100 * UNPARSED_OK, (ex.get(src) or ['?'])[0]))
-    # RECENT health: a kind renamed last week is hidden by the weeks it spoke before, so each source must speak on each of
-    # the newest RECENT_DAYS closed validated days (a source's rows, unparsed or skipped rows all count as speaking)
     closed = sorted((r for r in days if r.get('closed') and not r.get('void')
                      and parse_ms(r['day'] + 'T00:00:00Z') >= validated_ms), key=lambda r: r['day'])
+    if len(closed) < RECENT_DAYS:
+        raise Blind('only %d closed validated day(s) in the cache: the recent-health check needs %d' % (len(closed), RECENT_DAYS))
     recent = closed[-RECENT_DAYS:]
-    if len(recent) < RECENT_DAYS:
-        raise Blind('only %d closed validated day(s) in the cache: the recent-health check needs %d' % (len(recent), RECENT_DAYS))
+
+    def spoke_on(rec, src):
+        return len(rec['rows'].get(src, ())) + rec['unparsed'].get(src, 0) + rec.get('skipped', {}).get(src, 0)
+    for src in MUST_SPEAK:
+        window = closed[-RECENT_DAYS_RARE:] if src in RARE_SOURCES else recent
+        need_each = src not in RARE_SOURCES
+        days_spoken = [rec['day'] for rec in window if spoke_on(rec, src)]
+        if (need_each and len(days_spoken) < len(window)) or not days_spoken:
+            quiet = [rec['day'] for rec in window if not spoke_on(rec, src)]
+            raise Blind('source %r (%s) is SILENT on %s (newest %d closed days): a renamed kind or a broken query, not a '
+                        'safe day' % (src, SOURCES[src]['kind'], quiet[:3], len(window)))
     for rec in recent:
-        for src in MUST_SPEAK:
-            spoke_today = len(rec['rows'].get(src, ())) + rec['unparsed'].get(src, 0) + rec.get('skipped', {}).get(src, 0)
-            if not spoke_today:
-                raise Blind('source %r (%s) is SILENT on %s, one of the newest %d closed days: a renamed kind or a broken '
-                            'query, not a safe day' % (src, SOURCES[src]['kind'], rec['day'], RECENT_DAYS))
         if not rec['counts'].get(WET_KIND):
             raise Blind('%s is SILENT on %s: every maroon spell would read dry' % (WET_KIND, rec['day']))
-    # the death count against the bot's own death-site record, day by day (an independent second writer of every death)
+    for src in SOURCES:
+        r_ok = sum(len(rec['rows'].get(src, ())) for rec in recent)
+        r_bad = sum(rec['unparsed'].get(src, 0) for rec in recent)
+        if r_ok + r_bad >= RECENT_PARSE_FLOOR and r_bad / (r_ok + r_bad) > UNPARSED_OK:
+            raise Blind('source %r: %d of %d rows on the newest %d closed days did not parse -- the detail format changed '
+                        'recently? e.g. %r' % (src, r_bad, r_ok + r_bad, RECENT_DAYS,
+                                               next((rec['unparsed_examples'].get(src) for rec in recent
+                                                     if rec['unparsed'].get(src)), ['?'])[0]))
     recon = {}
     for rec in days:
         if parse_ms(rec['day'] + 'T00:00:00Z') < validated_ms or rec.get('void'):
@@ -597,7 +642,8 @@ def source_controls(days, validated_ms):
         if abs(nd - ns) > DEATH_SITE_SLACK:
             raise Blind('%s: %d _death rows but %d _death_site_recorded rows -- one of the two kinds changed' % (rec['day'], nd, ns))
     return {'validated_days': vdays, 'rows': dict(tot), 'unparsed': dict(unp), 'days_with_rows': dict(spoke),
-            'recent_days': [r['day'] for r in recent], 'death_vs_site_by_day': recon}
+            'min_rows_per_closed_day': daily_min, 'recent_days': [r['day'] for r in recent],
+            'death_vs_site_by_day': recon}
 
 
 def evidence_points(days, seeds, validated_ms):
@@ -613,7 +659,7 @@ def evidence_points(days, seeds, validated_ms):
                 raise Blind('%s row from world %r, which the seeds table does not know: a new world needs its seed measured '
                             'before its rows fold' % (what, world))
             excl['%s:%s' % (what, why)] += 1
-            if t >= validated_ms and why in ('outside_world_lifetime', 'quarantine'):
+            if t >= validated_ms and why == 'outside_world_lifetime' and not seeds.near_boundary(world, t):
                 lost_validated[why] += 1
         return s
 
@@ -711,6 +757,7 @@ def site_of(seed, kind, P, now_ms, validated_ms):
                    'longest_h': round(max((p['spell_ms'] for p in sp), default=0) / 3_600_000, 2),
                    'bots': sorted({p['bot'] for p in sp})},
         'worlds_with_evidence': worlds, 'death_worlds': death_worlds, 'bots': len({p['bot'] for p in P}),
+        'evidence_fp': hashlib.sha256(json.dumps(sorted({(p['x'], p['y'], p['z'], p['ev']) for p in P})).encode()).hexdigest()[:16],
     }
     return h
 
@@ -768,7 +815,7 @@ def apply_verify(h, verify, seed_worlds):
         return
     # a NEGATIVE answer is only as good as what was asked: if the hazard's probe cells changed, or evidence arrived after the
     # request was made, an old `absent` no longer covers it (a `present` still does: those blocks were seen)
-    changed = sorted(list(c) for c in probe_cells(h)) != res.get('cells')
+    changed = sorted(list(c) for c in probe_cells(h)) != res.get('cells') or res.get('fp') != h.get('evidence_fp')
     newer = bool(verify.get('request_made_at')) and parse_ms(h['last_seen']) > parse_ms(verify['request_made_at'])
     by = {}
     for w in seed_worlds:
@@ -796,8 +843,8 @@ def build(days, seeds, verify=None, now_ms=None, world_facts=None):
     """THE FOLD. days: the day cache; seeds: Seeds; verify: the newest verify file (or None). Returns the map document."""
     now_ms = now_ms or int(time.time() * 1000)
     vms = parse_ms(VALIDATED_SINCE)
-    controls = source_controls(days, vms)
-    terrain_gate(verify, seeds)
+    controls = source_controls(days, vms, now_ms)
+    unmerged = terrain_gate(verify, seeds)
     pts, deaths, excl, spell_list = evidence_points(days, seeds, vms)
     by = collections.defaultdict(list)
     for p in pts:
@@ -841,7 +888,7 @@ def build(days, seeds, verify=None, now_ms=None, world_facts=None):
                    'days_folded': len(days), 'until': max((r['until'] for r in days), default=None),
                    'history_note': 'rows before validated_since are ES-unreconciled history (lib/estelemetry caveat); '
                                    'every hazard carries deaths.validated separately'},
-        'controls': dict(controls, death_site_recorded=death_ctrl, excluded=dict(excl),
+        'controls': dict(controls, death_site_recorded=death_ctrl, excluded=dict(excl), unmerged_seeds=unmerged,
                          bot_hours_by_world=dict(bot_hours),
                          terrain=(verify or {}).get('terrain_control'),
                          verify_backup_day=(verify or {}).get('backup_day'), verify_made_at=(verify or {}).get('made_at')),
@@ -857,17 +904,21 @@ TERRAIN_MIN_CELLS = 500
 
 def terrain_gate(verify, seeds):
     """Merging worlds by seed RESTS on same seed -> same terrain: every seed with >= 2 current worlds must show bedrock
-    agreement >= 0.99 over >= 500 compared cells in the verify file, or the build refuses (it would merge unlike worlds)."""
+    agreement >= 0.99 over >= 500 compared cells (around that seed's own home) in the verify file. A seed that fails is
+    NOT merged: each of its worlds becomes its own pseudo-seed '<seed>@<world>' (Seeds.split), and the map says so
+    (controls.unmerged_seeds, and the header alarms). Returns {seed: why} for the split seeds."""
     if verify is None:
-        return
+        return {}
     tc = (verify.get('terrain_control') or {}).get('within_seed') or {}
+    bad = {}
     for seed, ws in seeds.current().items():
         if len(ws) < 2:
             continue
         t = tc.get(seed) or {}
         if (t.get('min_agreement') or 0) < TERRAIN_MIN_AGREE or (t.get('min_cells') or 0) < TERRAIN_MIN_CELLS:
-            raise Blind('seed %s: the terrain control does not show one terrain (%s): worlds are not merged on a seed '
-                        'whose bedrock disagrees' % (seed, t or 'missing'))
+            bad[seed] = t or 'missing'
+    seeds.split(set(bad))
+    return bad
 
 
 def death_site_control(days, validated_ms):
@@ -875,21 +926,31 @@ def death_site_control(days, validated_ms):
     within 2 s, naming a cell within 1 block of floor(bot.pos). If < 90% pair, or < 95% of pairs agree, the position the
     map folds is not the death site (Blind). Applied once >= 20 validated deaths are in the window."""
     deaths = [r for rec in days for r in rec['rows'].get('death', ()) if r[0] >= validated_ms]
+    recent_ms = max((parse_ms(r['day'] + 'T00:00:00Z') for r in days if r.get('closed')), default=validated_ms) - (RECENT_DAYS - 1) * DAY_MS
     sites = collections.defaultdict(list)
     for rec in days:
         for r in rec['rows'].get('site', ()):
             if r[0] >= validated_ms - 5000:
                 sites[r[1]].append(r)
-    paired = agree = 0
-    for d in deaths:
-        near = [s for s in sites.get(d[1], ()) if abs(s[0] - d[0]) <= 2000]
-        if near:
-            paired += 1
-            s = min(near, key=lambda s: abs(s[0] - d[0]))
-            agree += max(abs(s[2] - d[2]), abs(s[3] - d[3]), abs(s[4] - d[4])) <= 1
-    out = {'deaths_validated': len(deaths), 'paired_with_site_row': paired, 'site_within_1_block': agree}
-    if len(deaths) >= 20 and (paired < 0.9 * len(deaths) or agree < 0.95 * paired):
-        raise Blind('death-position control failed: %s -- the folded death cell is not the recorded death site' % out)
+    def pair(ds):
+        paired = agree = 0
+        for d in ds:
+            near = [s for s in sites.get(d[1], ()) if abs(s[0] - d[0]) <= 2000]
+            if near:
+                paired += 1
+                s = min(near, key=lambda s: abs(s[0] - d[0]))
+                agree += max(abs(s[2] - d[2]), abs(s[3] - d[3]), abs(s[4] - d[4])) <= 1
+        return paired, agree
+    paired, agree = pair(deaths)
+    recent = [d for d in deaths if d[0] >= recent_ms]
+    rp, ra = pair(recent)
+    out = {'deaths_validated': len(deaths), 'paired_with_site_row': paired, 'site_within_1_block': agree,
+           'recent': {'deaths': len(recent), 'paired': rp, 'within_1_block': ra}}
+    # whole window: >= 90% paired and >= 95% agreeing (fleet: 632/632, 620 = 98.1%); the newest days, a smaller sample
+    # (fleet 10-21..23: 132/132, 127 = 96.2%), are held to 85% so binomial noise never halts the map -- a real break is ~0%
+    for n, p, a, agree_floor in ((len(deaths), paired, agree, 0.95), (len(recent), rp, ra, 0.85)):
+        if n >= 20 and (p < 0.9 * n or a < agree_floor * p):
+            raise Blind('death-position control failed: %s -- the folded death cell is not the recorded death site' % out)
     return out
 
 
@@ -958,14 +1019,15 @@ def value(deaths, now_ms, days=7, link=(3, 4), same_kind=True, prior_since_ms=No
     return dict(res), dict(by_kind), matched
 
 
-def could_match(deaths, seeds, lo, hi):
-    """Deaths in [lo, hi) on a seed that held >= 2 worlds at that moment: the only deaths another world could have warned."""
+def could_match(deaths, seeds, lo, hi, lag_ms=DAY_MS):
+    """Deaths in [lo, hi) that ANOTHER world could have warned: some other world -- current or since reseeded -- had a
+    segment on the death's seed that began at least lag_ms before the death (r2 reviews: a retired world's history still
+    counts)."""
     out = []
     for d in deaths:
         if lo <= d['t'] < hi and d.get('seed'):
-            k = sum(1 for w, info in seeds.worlds.items() for s in info['segments']
-                    if s['seed'] == d['seed'] and s['from_ms'] <= d['t'] and (s['until_ms'] is None or d['t'] < s['until_ms']))
-            if k >= 2:
+            if any(s['seed'] == d['seed'] and s['from_ms'] <= d['t'] - lag_ms
+                   for w, info in seeds.worlds.items() if w != d['world'] for s in info['segments']):
                 out.append(d)
     return out
 
@@ -978,14 +1040,13 @@ NULL_OFFSETS = ((48, 0), (-48, 0), (0, 48), (0, -48), (34, 34), (-34, 34), (34, 
 
 
 def seed_homes(seeds):
-    """{seed: (x, z)} of the seed's current home (all shared-seed worlds share one), for the rotation null."""
+    """{seed: (x, z)} from the CURRENT worlds' homes (all worlds on one seed share it), for the rotation null. A seed with
+    no current world has no home here; its priors are sent out of reach (never a match)."""
     out = {}
-    for w, info in seeds.worlds.items():
+    for w, info in sorted(seeds.worlds.items()):
         if info.get('home'):
             out.setdefault(info['seed'], (info['home'][0], info['home'][2]))
-            for sgm in info['segments'][:-1]:
-                out.setdefault(sgm['seed'], (info['home'][0], info['home'][2]) if sgm['seed'] == info['seed'] else None)
-    return {k: v for k, v in out.items() if v}
+    return out
 
 
 def rotate(homes, quarter):
@@ -1069,8 +1130,9 @@ def make_request(doc, now_ms):
                 if len(probes) >= MAX_PROBES:
                     break
                 probes.append({'id': hid, 'world': w, 'kind': h['kind'], 'x': c[0], 'y': c[1], 'z': c[2], 'r': PROBE_R[h['kind']]})
+    fps = {h['id']: h['evidence_fp'] for _, hid, seed, h in order}
     return {'schema': REQUEST_SCHEMA, 'schema_version': 1, 'made_at': iso(now_ms), 'probes': probes,
-            'truncated': len(probes) >= MAX_PROBES}
+            'truncated': len(probes) >= MAX_PROBES, 'fingerprints': fps}
 
 
 def validate_request(req, max_probes=MAX_PROBES):
@@ -1080,6 +1142,12 @@ def validate_request(req, max_probes=MAX_PROBES):
     ps = req.get('probes')
     if not isinstance(ps, list) or len(ps) > max_probes:
         raise ValueError('probes must be a list of at most %d' % max_probes)
+    fps = req.get('fingerprints', {})
+    if not isinstance(fps, dict) or len(fps) > max_probes or not all(
+            isinstance(k, str) and len(k) <= 120 and isinstance(v, str) and re.fullmatch(r'[0-9a-f]{16}', v) for k, v in fps.items()):
+        raise ValueError('fingerprints must map ids to 16 hex digits')
+    if set(req) - {'schema', 'schema_version', 'made_at', 'probes', 'truncated', 'fingerprints'}:
+        raise ValueError('unknown top-level field')
     for p in ps:
         if not isinstance(p, dict) or set(p) != {'id', 'world', 'kind', 'x', 'y', 'z', 'r'}:
             raise ValueError('a probe has the wrong fields')
@@ -1199,6 +1267,7 @@ class World:
     def block(self, x, y, z, props=False):
         st, secs = self.chunk(x >> 4, z >> 4)
         if st != 'ok':
+            self.stats['blind_reads'] += 1                 # every unread cell, wherever it lies, is counted
             return (None, {}) if props else None
         s = secs.get(y >> 4)
         if s is None:
@@ -1210,11 +1279,11 @@ class World:
             if vals is None:
                 vals = s[3] = section_values(bs, len(names))
             if vals is None or len(vals) < 4096:
-                self.stats['undecoded'] += 1
+                self.stats['undecoded'] += 1; self.stats['blind_reads'] += 1
                 return (None, {}) if props else None
             v = vals[(y & 15) * 256 + (z & 15) * 16 + (x & 15)]
             if v >= len(names):
-                self.stats['undecoded'] += 1
+                self.stats['undecoded'] += 1; self.stats['blind_reads'] += 1
                 return (None, {}) if props else None
         return (names[v], pprops[v]) if props else names[v]
 
@@ -1248,11 +1317,12 @@ def is_solid(name, props):
 def probe(w, p):
     """One probe -> {'state': present|absent|not_generated|unknown, 'found': {...}}. ABSENT is claimed only when every cell
     the check needs was read: a column in an ungenerated chunk or a cell that did not decode makes a negative `unknown`."""
-    before = w.stats['undecoded']
+    before = w.stats['blind_reads']
     res = _probe(w, p)
     sts = {w.status(x, z) for x in range(p['x'] - p['r'], p['x'] + p['r'] + 1) for z in range(p['z'] - p['r'], p['z'] + p['r'] + 1)}
-    if res['state'] == 'absent' and (sts != {'ok'} or w.stats['undecoded'] > before):
-        return {'state': 'unknown', 'why': 'incomplete read (%s)' % ('ungenerated column' if sts != {'ok'} else 'undecoded cells'),
+    blind = w.stats['blind_reads'] - before
+    if res['state'] == 'absent' and (sts != {'ok'} or blind):
+        return {'state': 'unknown', 'why': 'incomplete read (%s)' % ('ungenerated column' if sts != {'ok'} else '%d unread cells' % blind),
                 'found': res.get('found', {})}
     return res
 
@@ -1292,8 +1362,7 @@ def _probe(w, p):
                 h = 0
                 for y in range(y0, min(319, y0 + 64)):
                     n, pr = w.block(x, y, z, props=True)
-                    if n is None:
-                        w.stats['undecoded'] += 1          # a blind cell ends the column AND marks the read incomplete
+                    if n is None:                          # a blind cell ends the column (block() counted it)
                         break
                     if is_solid(n, pr):
                         break
@@ -1325,28 +1394,32 @@ def _probe(w, p):
     return {'state': 'present' if found else 'absent', 'found': dict(found)}
 
 
-BEDROCK_CTRL = [(355 + dx, y, 147 + dz) for dx in range(-24, 25, 3) for dz in range(-24, 25, 3) for y in (-63, -62, -61)]
+BEDROCK_OFFSETS = [(dx, y, dz) for dx in range(-24, 25, 3) for dz in range(-24, 25, 3) for y in (-63, -62, -61)]
+BEDROCK_CTRL = [(355 + dx, y, 147 + dz) for dx, y, dz in BEDROCK_OFFSETS]      # the across-seed chance control (one place)
 
 
-def terrain_control(worlds_by_seed, open_world):
+def terrain_control(worlds_by_seed, open_world, homes=None):
     """Same seed -> same terrain: the bedrock floor (y -63..-61, seeded noise no bot digs) at 867 cells around the shared
     home, compared world against world. Within a seed agreement should be ~1.0; across seeds it is the chance level."""
-    fp = {}
+    fp = {}; own = {}
     for seed, ws in worlds_by_seed.items():
+        h = (homes or {}).get(seed) or (355, 0, 147)
+        cells = [(h[0] + dx, y, h[2] + dz) for dx, y, dz in BEDROCK_OFFSETS]      # within a seed: around ITS home
         for wname in ws:
             w = open_world(wname)
             fp[wname] = [w.block(x, y, z) == 'minecraft:bedrock' if w.block(x, y, z) is not None else None for x, y, z in BEDROCK_CTRL]
+            own[wname] = [w.block(x, y, z) == 'minecraft:bedrock' if w.block(x, y, z) is not None else None for x, y, z in cells]
     out = {'cells': len(BEDROCK_CTRL), 'within_seed': {}, 'across_seeds': {}}
     names = sorted(fp)
     seed_of = {w: s for s, ws in worlds_by_seed.items() for w in ws}
 
-    def agree(a, b):
-        pairs = [(x, y) for x, y in zip(fp[a], fp[b]) if x is not None and y is not None]
+    def agree(a, b, src=fp):
+        pairs = [(x, y) for x, y in zip(src[a], src[b]) if x is not None and y is not None]
         return (sum(1 for x, y in pairs if x == y) / len(pairs), len(pairs)) if pairs else (None, 0)
     for seed, ws in worlds_by_seed.items():
         ws = sorted(ws)
         if len(ws) >= 2:
-            vals = [agree(ws[0], b) for b in ws[1:]]
+            vals = [agree(ws[0], b, own) for b in ws[1:]]
             out['within_seed'][seed] = {'reference': ws[0], 'min_agreement': min((v for v, _ in vals if v is not None), default=None),
                                         'min_cells': min((n for _, n in vals), default=0),
                                         'pairs': {b: round(v, 4) if v is not None else None for b, (v, _) in zip(ws[1:], vals)}}
@@ -1406,11 +1479,18 @@ def measure_worlds(staging, live, cat=sudo_cat, birth=sudo_birth, ls=None, backu
         tp = cat(os.path.join(staging, w, 'TOWN-PLACED.json'))
         home = json.loads(tp).get('home') if tp else None
         seed = level_seed(raw)
-        live_raw = cat(os.path.join(live, w, 'world', 'level.dat'))
-        if not live_raw or level_seed(live_raw) != seed:
+        live_seed = None
+        for attempt in (1, 2):                       # the LIVE file may be mid-rewrite by the server: read it twice at most
+            live_raw = cat(os.path.join(live, w, 'world', 'level.dat'))
+            try:
+                live_seed = level_seed(live_raw) if live_raw else None
+                break
+            except Exception:
+                time.sleep(2)
+        if not live_raw or live_seed != seed:
             # the creation time below is the LIVE world's: it may only be paired with the staged seed if both are one world
             raise Blind('%s: the staged level.dat (seed %s) and the live one (%s) differ -- a reseed since the backup; the '
-                        'next night\'s copy will agree' % (w, seed, level_seed(live_raw) if live_raw else 'missing'))
+                        'next night\'s copy will agree' % (w, seed, live_seed or 'missing/unreadable'))
         info = {'seed': seed, 'home': home, 'created': birth(os.path.join(live, w, 'world', 'datapacks')),
                 'previous': [], 'measured_at': iso(int(time.time() * 1000))}
         if backup_ms is not None and parse_ms(info['created']) > backup_ms:
@@ -1451,7 +1531,8 @@ def verify(request, staging, live, backup_log, day=None, cat=sudo_cat, birth=sud
             cache.clear()
             cache[wname] = fresh(wname)
         return cache[wname]
-    tc = terrain_control(dict(by_seed), fresh)
+    homes = {info['seed']: tuple(info['home']) for info in worlds.values() if info.get('home')}
+    tc = terrain_control(dict(by_seed), fresh, homes)
     per = collections.defaultdict(lambda: collections.defaultdict(list))
     cells = collections.defaultdict(set)
     state_counts = collections.Counter()
@@ -1466,7 +1547,8 @@ def verify(request, staging, live, backup_log, day=None, cat=sudo_cat, birth=sud
         state_counts[a['state']] += 1
     results = {}
     for hid, by in per.items():
-        results[hid] = {'cells': sorted(list(c) for c in cells[hid]), 'by_world': {w: reduce_states(v) for w, v in by.items()}}
+        results[hid] = {'cells': sorted(list(c) for c in cells[hid]), 'fp': ((request or {}).get('fingerprints') or {}).get(hid),
+                        'by_world': {w: reduce_states(v) for w, v in by.items()}}
     null = null_control(probes, worlds, open_world)
     return {'schema': VERIFY_SCHEMA, 'schema_version': 1, 'made_at': iso(now_ms), 'backup_day': day, 'backup_line': good,
             'request_made_at': (request or {}).get('made_at'), 'probes': len((request or {}).get('probes', [])),
@@ -1538,7 +1620,8 @@ def report_text(doc, val, top=8):
     if val:
         L.append('')
         hd = val['headline']
-        L.append('VALUE (%s .. %s): of %d deaths, %d on a seed shared by >= 2 worlds; %d were within 3 xz / 4 y of a same-kind '
+        L.append('VALUE (%s .. %s): of %d deaths, %d could match (another world, now or before a reseed, was on their seed '
+                 '>= 24 h earlier); %d were within 3 xz / 4 y of a same-kind '
                  'death >= 24 h EARLIER in ANOTHER world (%d of them with no such earlier death in their own world). '
                  'Chance nulls: priors shifted 48 blocks mean %.1f (max %d); rotated about home mean %.1f (max %d).' % (
                      val['window'][0], val['window'][1], hd.get('deaths', 0), val['shared_seed_deaths'],
@@ -1617,7 +1700,9 @@ def cmd_build(a, now_ms=None):
     txt = report_text(doc, val)
     with open(os.path.join(out, 'report-%s.txt' % day), 'w') as f:
         f.write(txt)
-    atomic_json(os.path.join(out, 'heartbeat.json'), {'at': iso(now_ms), 'status': 'ok', 'hazards': sum(len(s['hazards']) for s in doc['seeds'].values()),
+    st, why = heartbeat_status(doc)
+    atomic_json(os.path.join(out, 'heartbeat.json'), {'at': iso(now_ms), 'status': st, 'error': why,
+                                                      'hazards': sum(len(s['hazards']) for s in doc['seeds'].values()),
                                                       'probes': len(req['probes'])})
     for name in sorted(os.listdir(out)):                     # keep 21 days of dated files
         m = re.match(r'^(hazardmap|report)-(\d{4}-\d{2}-\d{2})\.(json|txt)$', name)
@@ -1657,17 +1742,36 @@ def cmd_refresh(a):
         reqp = os.path.join(a.home, 'out', 'request.json')
         with open(reqp, 'rb') as f:
             r = subprocess.run(ssh_cmd(a, 'request'), input=f.read(), capture_output=True, timeout=300)
-        if r.returncode:
-            print('request push FAILED (exit %d)' % r.returncode)
-            hbv = load_json(hb)
-            hbv.update(status='push_failed', error='request push exit %d: tomorrow\'s verify checks the previous request' % r.returncode)
-            atomic_json(hb, hbv)
-            return 1
-        print('request pushed')
-        return 0
+        return record_push(hb, r.returncode)
     except Exception as e:
         atomic_json(hb, {'at': iso(int(time.time() * 1000)), 'status': 'error', 'error': '%s: %s' % (type(e).__name__, str(e)[:300])})
         raise
+
+
+def record_push(hb, rc):
+    """The request push's outcome goes into the heartbeat: a failed push is an ALARM (tomorrow's verify would check the
+    previous request), never an ok heartbeat."""
+    if rc:
+        print('request push FAILED (exit %d)' % rc)
+        hbv = load_json(hb)
+        if hbv.get('status') == 'ok':
+            hbv.update(status='push_failed', error='request push exit %d: tomorrow\'s verify checks the previous request' % rc)
+        atomic_json(hb, hbv)
+        return 1
+    print('request pushed')
+    return 0
+
+
+def heartbeat_status(doc):
+    """ok, or 'incomplete' when rows were left unfolded because they are newer than the seeds' observation horizon (a
+    missed or failed verify): a reduced map is published, but never under an ok heartbeat."""
+    late = sum(v for k, v in (doc['controls'].get('excluded') or {}).items() if k.endswith(':after_seed_observation'))
+    if late:
+        return 'incomplete', '%d rows after the seeds were observed (%s) are not folded: the .30 verify or the pull failed' % (
+            late, doc['controls'].get('verify_made_at'))
+    if doc['controls'].get('unmerged_seeds'):
+        return 'incomplete', 'seed(s) %s failed the terrain control and are kept per world' % sorted(doc['controls']['unmerged_seeds'])
+    return 'ok', ''
 
 
 def cmd_value(a):

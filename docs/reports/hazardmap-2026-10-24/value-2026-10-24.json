@@ -57,16 +57,16 @@
  "deaths_by_kind": {
   "cave_fall": 54,
   "dripstone": 40,
-  "drowning": 83,
+  "drowning": 82,
   "lava": 80,
   "suffocation": 21
  },
  "headline": {
-  "deaths": 278,
+  "deaths": 277,
   "known_from_another_world": 123,
   "known_from_own_world": 121,
   "known_only_from_another_world": 40,
-  "resolved": 278
+  "resolved": 277
  },
  "headline_by_kind": {
   "cave_fall": 25,
@@ -1445,36 +1445,36 @@
  "shared_seed_deaths": 194,
  "variants": {
   "any_kind": {
-   "deaths": 278,
+   "deaths": 277,
    "known_from_another_world": 132,
    "known_from_own_world": 130,
    "known_only_from_another_world": 40,
-   "resolved": 278
+   "resolved": 277
   },
   "link_6_6": {
-   "deaths": 278,
+   "deaths": 277,
    "known_from_another_world": 146,
    "known_from_own_world": 139,
    "known_only_from_another_world": 46,
-   "resolved": 278
+   "resolved": 277
   },
   "no_lag": {
-   "deaths": 278,
+   "deaths": 277,
    "known_from_another_world": 125,
    "known_from_own_world": 121,
    "known_only_from_another_world": 41,
-   "resolved": 278
+   "resolved": 277
   },
   "priors_validated_only": {
-   "deaths": 278,
+   "deaths": 277,
    "known_from_another_world": 102,
    "known_from_own_world": 100,
    "known_only_from_another_world": 35,
-   "resolved": 278
+   "resolved": 277
   }
  },
  "window": [
-  "2026-10-17T05:26:29Z",
-  "2026-10-24T05:26:29Z"
+  "2026-10-17T06:07:20Z",
+  "2026-10-24T06:07:20Z"
  ]
 }
