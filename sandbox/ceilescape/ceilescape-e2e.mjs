@@ -250,10 +250,11 @@ async function main () {
   const buildOk = isCand ? licence.some(d => /^on=1 /.test(d)) : rows.every(r => !/^_(ceilescape|needs_rescue)/.test(kind(r)))
   const alive = botProc.exitCode === null && botProc.signalCode === null && r1('list').includes(bot.name)   // and still connected
   const shaOk = process.env.CE_EXPECT_SHA ? sha === process.env.CE_EXPECT_SHA : null
+  const endDry = dryAt(p)              // BEFORE the validity list (Codex driver r4 P2): a failed final observation must invalidate
   const invalid = [shaOk === false ? `sha ${sha} != expected ${process.env.CE_EXPECT_SHA}` : null, obsFailures ? `${obsFailures} block observations failed` : null,
     sceneHeld ? null : 'the scene did not hold (column water or ceiling changed)', rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
     polls && seen / polls >= 0.8 ? null : `observed ${seen}/${polls} polls`, alive ? null : `the bot process ended (code ${botProc.exitCode}, signal ${botProc.signalCode})`].filter(Boolean)
-  const left = invalid.length === 0 && sceneHeld && !inTrap(p) && dryAt(p) && held >= 30 && !died && inArena
+  const left = invalid.length === 0 && sceneHeld && !inTrap(p) && endDry && held >= 30 && !died && inArena
   const outcome = invalid.length ? 'INVALID' : left ? 'LEFT' : 'STAYED'
   // a BASE run is a positive control only when the scene held and the base swung its futile dig (Claude driver r2 P3-2)
   const controlOk = isCand ? null : (sceneHeld && cut.some(s => /dig exceeded/.test(s)))
