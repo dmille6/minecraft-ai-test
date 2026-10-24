@@ -137,7 +137,9 @@ function exposedAt (R, x, y, z) {
   return { exposed: sides >= EDGE_SIDES, own, sides, blind }
 }
 
-export const GROUNDED_MIN = 8          // a support with this many solid cells straight under it stands on the ground
+export const GROUNDED_MIN = 16         // solid cells straight under a support that stands on the ground (a 9-block hanging
+                                       // column is not ground: Codex r3 P1-2)
+export const DECK_MAX = 4              // a deck up to this thick over a deadly open run still floats (Codex r3 P1-1)
 export const REGION_DROP = 6           // the walk profile's maxDropDown (index.mjs): where the model's own walks can take the bot
 
 /** The top of a block's collision box (1 for a cube, 0.5 for a bottom slab; a fake without shapes is a cube). Pure. */
@@ -149,6 +151,26 @@ const topOf = b => {
 /** Feet-to-landing fall for a run {open, landY} at column (x, z): open cells plus the landing block's missing top. */
 const fallOf = (R, x, z, r) => r.open + (r.landY == null ? 0 : 1 - topOf(R.block(x, r.landY, z)))
 /** Is support (x, y, z) on the ground: GROUNDED_MIN solid cells straight under it? */
+const LEAVES = /_leaves$/
+/**
+ * Does support (x, y, z) FLOAT: up to DECK_MAX solid cells under it (the deck's own thickness) and then ELEVATED_MIN or
+ * more open cells onto anything but water? Natural foliage never floats (a jungle canopy is terrain: Codex r3 P2-4); a
+ * tree standing on a deck still reaches the deck's cells. -> true | false | null (unloaded).
+ */
+const floatsAt = (R, x, y, z) => {
+  if (LEAVES.test(String(R.block(x, y, z)?.name ?? ''))) return false
+  let yy = y - 1
+  for (let t = 0; t <= DECK_MAX; t++, yy--) {
+    const k = R.kindAt(x, yy, z)
+    if (k === 'unknown') return null
+    if (k === 'solid') continue
+    if (k !== 'open') return false
+    const r = R.run(x, yy, z)
+    if (r.landing === 'unknown') return null
+    return r.landing !== 'water' && r.open >= ELEVATED_MIN
+  }
+  return false
+}
 const groundedAt = (R, x, y, z) => { for (let k = 1; k <= GROUNDED_MIN; k++) if (R.kindAt(x, y - k, z) !== 'solid') return false; return true }
 /** A stance: a solid support with two open cells over it. */
 const stanceAt = (R, x, y, z) => R.kindAt(x, y, z) === 'solid' && R.kindAt(x, y + 1, z) === 'open' && R.kindAt(x, y + 2, z) === 'open'
@@ -158,7 +180,7 @@ const stanceAt = (R, x, y, z) => R.kindAt(x, y, z) === 'solid' && R.kindAt(x, y 
  * step to a side one up (a jump) or level or down at most REGION_DROP through open cells -- where the model's own walks
  * (maxDropDown 6) can take the bot, so a tree top on the deck reaches the deck. -> {grounded, floating, blind, n}:
  *   grounded  some stance in it stands on the ground (GROUNDED_MIN solid cells under it)
- *   floating  the first stance in it with ELEVATED_MIN open under it onto anything but water (a deck cell)
+ *   floating  the first stance in it that floats (floatsAt: a deck up to DECK_MAX thick over a deadly open run; not leaves)
  * A region with a floating stance and NO grounded one is a PLATFORM: a deck, a thick patch of deck, a tree standing on a
  * deck. A bot on the ground beside a bridge is not on one (its own stance is grounded); a cliff top is not (no stance in it
  * floats). Pure.
@@ -171,9 +193,9 @@ export function regionAt (R, s, { radius = START_RADIUS, cap = 900 } = {}) {
     const c = q.shift()
     if (!grounded && groundedAt(R, c.x, c.y, c.z)) grounded = true
     if (!floating) {
-      const own = R.run(c.x, c.y - 1, c.z)
-      if (own.landing === 'unknown') blind = true
-      else if (own.landing !== 'water' && own.open >= ELEVATED_MIN) floating = c
+      const f = floatsAt(R, c.x, c.y, c.z)
+      if (f == null) blind = true
+      else if (f) floating = c
     }
     for (const [dx, dz] of SIDES) {
       const nx = c.x + dx, nz = c.z + dz
@@ -357,10 +379,11 @@ export function descendOrder ({ now = Date.now(), lastSpawnAt = null, el = null,
   if (!on) { s.active = false; return { issue: false, why: 'off', state: s } }
   if (s.active) {
     if (done?.done === true && !el?.transient) { s.active = false; s.transientSince = null; return { issue: false, why: 'down: a safe stance', state: s } }
-    // SWIMMING ends it (poolescape and the swim reflexes own a wet body); so does a transient reading that lasts
-    // TRANSIENT_MAX_MS (a ladder, a snow layer, a body the server keeps in the air): the bot is handed back, with the row
+    // SWIMMING ends it (poolescape and the swim reflexes own a wet body); so does a body kept OFF THE GROUND for
+    // TRANSIENT_MAX_MS (a ladder, vines, scaffolding): the bot is handed back, with the row. Unreadable geometry (an
+    // unloaded column, no solid support) never releases it: the bot stays held until the world reads (Codex r3 P1-3)
     if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water' } }
-    if (el?.transient) {
+    if (el?.transient && el.why === 'not on the ground') {
       s.transientSince ??= now
       if (now - s.transientSince > TRANSIENT_MAX_MS) { s.active = false; s.transientSince = null; return { issue: false, why: `transient for ${Math.round(TRANSIENT_MAX_MS / 1000)} s (${el.why})`, state: s, ended: 'transient' } }
     } else s.transientSince = null
