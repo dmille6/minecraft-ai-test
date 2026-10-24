@@ -25,6 +25,7 @@ import { logRescueRow } from './rescuerow.mjs'
 import { airAdmission, airDeclineNext } from './airstate.mjs'
 import { pickRelocationTargetAsync, landingCheck, reasonsLabel } from './relocate.mjs'
 import { relocationForbidden } from './keepout.mjs'   // keepout-01 x homefix-02: no relocation into a fire column
+import { composeRelocationForbid } from './lavasight.mjs'   // lavasight-01 x homefix-02: nor beside remembered live lava
 import { Vec3 } from 'vec3'
 
 // ---------------------------------------------------------------------------
@@ -574,7 +575,12 @@ export class StagnationWatchdog {
       // a world-facts read error never breaks the rescue ladder (Claude jit-1022b P3): no sites -> the base rule
       let fire = []
       try { fire = this.bot.fireSitesNow?.() ?? [] } catch { fire = [] }
-      const pick = await pickRelocationTargetAsync({ p, read, ...(fire.length ? { forbid: (x, y, z) => relocationForbidden(fire, x, y, z) } : {}) })
+      // lavasight-01: nor beside a remembered lava cell that reads lava now (lavasight.mjs relocationLavaForbidden), named
+      // `lavasight` in the reasons; composed with the fire column by OR. No target -> the fallback below (home), unchanged.
+      let lava = []
+      try { lava = this.bot.lavaActiveNow?.() ?? [] } catch { lava = [] }
+      const forbid = composeRelocationForbid(fire, lava, relocationForbidden)
+      const pick = await pickRelocationTargetAsync({ p, read, ...(forbid ? { forbid } : {}) })
       const dryMs = Date.now() - t0
       const rowExtra = { dry_tries: pick.tries, dry_reasons: reasonsLabel(pick.reasons), dry_ms: dryMs }
       if (pick.ok) {
