@@ -4995,8 +4995,9 @@ export async function escapeStairUp (bot, {
       if ((yielded = yieldTo())) return 'yielded'
     }
     bot.setControlState('jump', false)
-    surfaced++
-    return !submergedAt(bot)
+    const out = !submergedAt(bot)
+    if (out) surfaced++              // successes only (Claude r4 P3-1): the row's surfaced= is heads brought out
+    return out
   }
   let surfaced = 0
 
@@ -5338,14 +5339,16 @@ export async function escapeStairUp (bot, {
     const gone = () => (yielded = yieldTo())
     while (!taken && plug && stepRetry < PLUG_STEP_RETRIES && inColumn()) {
       if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
-      if (Date.now() > deadline) break
-      const still = stairUpStep({ at, bear: bearing, canBreak, submerged: submergedAt(bot) })
-      if (!still.ok || still.dig.length) break
       if ((await surfaceFirst()) === 'yielded') { stopped = `yielded the body to ${yielded}`; return finish() }
-      stepRetry++
-      stepRetries++
       await bot.look(Math.atan2(-bearing.x, -bearing.z), 0, true).catch(() => {})
       if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
+      // EVERYTHING ASKED AGAIN AFTER THE AWAITS, IMMEDIATELY BEFORE THE MOVE (Codex r4 P2): the step still open in the same
+      // frame with nothing to dig, the body still in its column, and time left for the whole jump (450 + 350 + 250 ms)
+      const still = stairUpStep({ at, bear: bearing, canBreak, submerged: submergedAt(bot) })
+      if (!still.ok || still.dig.length || !inColumn()) break
+      if (deadline - Date.now() < RETRY_JUMP_MS) { stopped = 'budget spent before a step retry'; break }
+      stepRetry++
+      stepRetries++
       bot.setControlState('forward', true)
       bot.setControlState('jump', true)
       await sleep(450)
@@ -6363,6 +6366,7 @@ export function sameBlock (a, b) {
 }
 
 const key3 = c => c.join(',')
+const RETRY_JUMP_MS = 1050   // plugcut-01: one step jump, the base's own timings (450 + 350 + 250)
 /** plugcut-01: a licensed ramp step was TAKEN -- the body stands in the cell one up and one along `bear` from the frame `p`
  *  the step was planned in (floored; Claude r1 P3: the x,z as well as the y). Pure. */
 export const stepTaken = (q, p, bear) => Math.floor(q.y + 1e-6) === Math.floor(p.y + 1e-6) + 1 &&
