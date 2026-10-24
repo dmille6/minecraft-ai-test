@@ -335,7 +335,7 @@ await ta('MUTANT KILLED: without the SAVE_MIN bar a bot walks across the deck to
   // a deck cell two over with a 2-block stub under it: it saves 2 blocks, less than SAVE_MIN
   const stub = skyWorld(); stub.m.set(key(357, 179, 150), COBBLE); stub.m.set(key(357, 178, 150), COBBLE)
   assert.equal(cheapestStart({ at: stub.at, support: { x: 355, y: 180, z: 150 } }).own, true)
-  await withMutant(RF_URL, '      if (own.ok && own.cost - p.cost < SAVE_MIN + walk && !(p.cost === 0 && own.cost > 0)) continue\n', '', async m => {
+  await withMutant(RF_URL, '      if (own.ok && own.cost - p.cost < SAVE_MIN + walk && !(p.cost === 0 && own.cost > 0) && !(!pays(own.cost) && pays(p.cost))) continue\n', '', async m => {
     assert.equal(m.cheapestStart({ at: stub.at, support: { x: 355, y: 180, z: 150 } }).own, false)
   })
   assert.equal(SAVE_MIN, 4)
@@ -673,6 +673,22 @@ await ta('r9 (Claude r7 P2-1): a solid mass hanging over a sky-open void with a 
   assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
   await withMutant(RF_URL, "    if (r.landing === 'water') return true\n    if (r.open >= ELEVATED_MIN) {", "    if (r.landing === 'water' || r.landing === 'lava') return true\n    if (r.open >= ELEVATED_MIN) {", async m => {
     assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
+  })
+})
+
+await ta('r10 (Codex r7 P2-1): an affordable column saving under SAVE_MIN is offered when the own column is unaffordable', async () => {
+  // own column: 10 open to the stub below (cost 10, needs 12); the neighbour has a 1-block stub under it (cost 9, needs 11)
+  const w = skyWorld({ deckY: 0 })
+  const m = w.m
+  for (const x of [300, 301]) m.set(key(x, 85, 300), COBBLE)
+  m.set(key(301, 84, 300), COBBLE)
+  const own = descentCost(w.at, { x: 300, y: 85, z: 300 }).cost, nb = descentCost(w.at, { x: 301, y: 85, z: 300 }).cost
+  assert.ok(own - nb > 0 && own - nb < SAVE_MIN, `own ${own}, neighbour ${nb}`)
+  assert.equal(rankStarts({ at: w.at, support: { x: 300, y: 85, z: 300 } }).length, 1, 'with an unlimited purse only the own column is offered')
+  const r = rankStarts({ at: w.at, support: { x: 300, y: 85, z: 300 }, canPay: nb + MARGIN })
+  assert.ok(r.some(c => c.cell.x === 301), `the affordable neighbour is offered (${JSON.stringify(r)})`)
+  await withMutant(RF_URL, ' && !(!pays(own.cost) && pays(p.cost))) continue', ') continue', async mm => {
+    assert.ok(!mm.rankStarts({ at: w.at, support: { x: 300, y: 85, z: 300 }, canPay: nb + MARGIN }).some(c => c.cell.x === 301))
   })
 })
 

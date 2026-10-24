@@ -29,8 +29,8 @@ export const MARGIN = 2                // blocks kept in hand beyond a non-zero 
 export const EDGE_SIDES = 3
 export const START_RADIUS = 8
 export const SAVE_MIN = 4              // another column must save this many blocks over the own one (a deck walk has its own risk)
-export const SPAWN_GRACE_MS = 3000
-export const TRANSIENT_MAX_MS = 60_000 // an episode waits this long on transient readings, then hands the bot back     // no floor dig in the first 3 s after a spawn: the server drops them (ghost blocks, 09-29)
+export const SPAWN_GRACE_MS = 3000     // no floor dig in the first 3 s after a spawn: the server drops them (ghost blocks, 09-29)
+export const TRANSIENT_MAX_MS = 60_000 // a body off the ground this long ends an episode (unreadable geometry never does)
 
 /**
  * THE ESCAPE LATTICE STANDS ASIDE WHILE sky_descend OWNS THE EPISODE (Codex r1 P1-3, Claude r1 P2-4): a bot held for
@@ -285,7 +285,7 @@ const stanceAt = (R, x, y, z) => R.kindAt(x, y, z) === 'solid' && R.kindAt(x, y 
  * THE REGION A BODY CAN WALK FROM SUPPORT `s` (Claude r2 P1-1, Codex r2 P1-2): a flood within `radius` over stances, each
  * step to a side one up (a jump) or level or down at most REGION_DROP through open cells -- where the model's own walks
  * (maxDropDown 6) can take the bot, so a tree top on the deck reaches the deck. -> {grounded, floating, blind, n}:
- *   grounded  some stance in it stands on the ground (GROUNDED_MIN solid cells under it)
+ *   grounded  some stance in it is a grounded column (followed to the world floor) with no floating neighbour
  *   floating  the first stance in it that floats (floatsAt: a deck up to DECK_MAX thick over a deadly open run; not leaves)
  * A region with a floating stance and NO grounded one is a PLATFORM: a deck, a thick patch of deck, a tree standing on a
  * deck. A bot on the ground beside a bridge is not on one (its own stance is grounded); a cliff top is not (no stance in it
@@ -455,7 +455,7 @@ export const descentDone = (at, s) => doneAt(columnReader(at), s.x, s.y, s.z)
  * blocks (and the cost of its walk: one block per 4 cells walked); sorted by cost, then walk. `exclude` holds cells whose
  * walk already failed. -> [{cell, cost, dist, own, why}]. Pure; never throws.
  */
-export function rankStarts ({ at, support, radius = START_RADIUS, diggable = null, exclude = null }) {
+export function rankStarts ({ at, support, radius = START_RADIUS, diggable = null, exclude = null, canPay = Infinity }) {
   const R = columnReader(at)
   const key = c => `${c.x},${c.y},${c.z}`
   const stance = c => fullCube(R.block(c.x, c.y, c.z)) && R.kindAt(c.x, c.y + 1, c.z) === 'open' && R.kindAt(c.x, c.y + 2, c.z) === 'open'
@@ -489,7 +489,10 @@ export function rankStarts ({ at, support, radius = START_RADIUS, diggable = nul
       if (!p.ok) continue
       const walk = Math.floor((d + 1) / 4)
       // a FREE way down is always offered against a paid own column (a stair for a bot with no blocks: Codex r5 P2-2)
-      if (own.ok && own.cost - p.cost < SAVE_MIN + walk && !(p.cost === 0 && own.cost > 0)) continue
+      // a FREE way down is always offered against a paid own column, and an AFFORDABLE one against an own column the bot
+      // cannot pay for (`canPay`: blocks + 3 per log; Codex r7 P2-1, Claude r7 P3-2)
+      const pays = n => n === 0 || canPay >= n + MARGIN
+      if (own.ok && own.cost - p.cost < SAVE_MIN + walk && !(p.cost === 0 && own.cost > 0) && !(!pays(own.cost) && pays(p.cost))) continue
       out.push({ cell: n, cost: p.cost, dist: d + 1, own: false, why: p.why })
     }
   }
