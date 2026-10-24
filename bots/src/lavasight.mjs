@@ -1,14 +1,17 @@
-// LAVASIGHT-01 (mineshaft-safety F5b; docs/reports/lavasight-01-design-2026-10-24.md). Lava that any bot has seen is
+// LAVASIGHT-01 (mineshaft-safety F5b; docs/reports/lavasight-01-design-2026-10-24.md r2). Lava that any bot has seen is
 // remembered per world -- from the per-seed hazard map (OWNER 2026-10-24: fed from the map from day one) and this bot's own
-// refusals -- and the pathfinder PRICES the footprint the corridor guard refuses. A price, never a wall: no walk, jump,
-// drop or scaffold move is ever deleted by it (the bound in the design's 3.4, held by lavasight.test.mjs over the
-// installed pathfinder's own move generators), so no goal becomes unreachable because of memory.
+// refusals -- and the pathfinder learns, BEFORE it plans, which moves the corridor guard would refuse.
+//
+// A PRICE ON A MOVE THE BASE ALREADY MADE, NEVER A WALL: the base move generator decides which moves exist; wrapNeighbors
+// only raises the cost of those whose 0.5-block samples the guard would refuse for a remembered lava cell. The neighbour
+// set is the base's by construction (no `cost > 100` deletion is reachable from here), so the move graph is identical, an
+// uncapped search reaches exactly the goals the base reaches, and no goal becomes unreachable because of memory.
 //
 // THE FILE: `<poolStateDir(memory.pool)>/lava-map.json`, written by scripts/host/lavasight/lavamap_publish.py (mcbot,
-// atomic rename) from ~/hazardmap/out/hazardmap.json. No file, a stale one, one for another world or a malformed one ->
-// no map cells and the bot routes as the base does (FAIL OPEN), with the state named in `_lavasight_mode`.
+// atomic rename) from ~/hazardmap/out/hazardmap.json. No file, a stale one, one for another world or pool, or a malformed
+// one -> no map cells and the bot routes as the base (FAIL OPEN), with the state named in `_lavasight_mode`.
 //   { "schema": "mcai.lavamap", "schema_version": 1, "world": "board-a", "seed": "1239381899",
-//     "generated_at": ISO, "stale_after": ISO, "cells": [[x, y, z], ...], "warn": [{kind, center: [x,y,z], deaths}] }
+//     "generated_at": ISO, "stale_after": ISO, "cells": [[x, y, z], ...] }
 //
 // EVERYTHING HERE IS PURE except lavaMapReader (fs) and hashedSeedOf (node:crypto, deterministic).
 import fs from 'node:fs'
@@ -20,19 +23,13 @@ export const LAVAMAP_FILE = 'lava-map.json'
 export const LAVAMAP_SCHEMA = 'mcai.lavamap'
 export const LAVAMAP_VERSION = 1
 export const MAX_CELLS = 4096
-export const MAX_WARN = 256
-export const WARN_KINDS = new Set(['drowning', 'cave_fall', 'dripstone'])
-/** Per charging of the pathfinder's step hook. 5 chargings (a diagonal jump-up) x 16 = 80: a plain move stays < 100. */
+/** The index's price for a footprint cell (a marker: the move surcharge is CORE_MOVE). */
 export const CORE_PRICE = 16
-export const RING_PRICE = 4
-export const RING_R = 3            // Chebyshev (xz) of the soft margin around a lava cell
-export const RING_DY0 = 0          // ring feet heights relative to the lava cell: y .. y+2
-export const RING_DY1 = 2
 export const OVER_DY = 3           // cellLavaSafe's "lava below" scan
 export const DROP_DY = 12          // dropLavaSafe's reach
-export const EGRESS_R = 2          // a cell this near the bot's own feet costs the ring price at most
 export const RING_MAX = 512        // the own-sighting ring
 export const LIVE_R = 192          // memory cells farther than this (xz) from the bot are not re-read
+export const INDEX_MAX = 250_000   // a bound on the index (measured: 1,862 board-a cells, no occlusion, 130k entries, ~11 MB)
 export const RELOAD_MS = 60_000
 export const LIVE_MS = 20_000
 
@@ -60,12 +57,12 @@ const cellOk = c => Array.isArray(c) && c.length >= 3 && isInt(c[0]) && isInt(c[
   Math.abs(c[0]) < 2 ** 21 && Math.abs(c[2]) < 2 ** 21 && c[1] >= -64 && c[1] < 448
 
 /**
- * THE FILE -> { state, cells, warn, bad, meta }. Pure. `worldId` is this bot's login hashedSeed rendering ('' or null:
+ * THE FILE -> { state, cells, bad, meta }. Pure. `worldId` is this bot's login hashedSeed rendering ('' or null:
  * unknown). States: ok | absent | bad_schema | world_mismatch | world_unknown | stale. Only `ok` carries cells.
  * A reseeded world never inherits the old seed's lava: an unknown login seed refuses the file (world_unknown).
  */
 export function parseLavaMap (raw, { worldId = null, now = Date.now(), pool = null } = {}) {
-  const none = (state, extra = {}) => ({ state, cells: [], warn: [], bad: [], meta: {}, ...extra })
+  const none = (state, extra = {}) => ({ state, cells: [], bad: [], meta: {}, ...extra })
   if (raw == null) return none('absent')
   if (typeof raw !== 'object' || Array.isArray(raw)) return none('bad_schema', { why: 'not_an_object' })
   if (raw.schema !== LAVAMAP_SCHEMA) return none('bad_schema', { why: `schema:${String(raw.schema).slice(0, 24)}` })
@@ -93,13 +90,7 @@ export function parseLavaMap (raw, { worldId = null, now = Date.now(), pool = nu
     if (seen.has(k)) continue
     seen.add(k); cells.push({ x: c[0], y: c[1], z: c[2] })
   }
-  const warn = []
-  for (const w of Array.isArray(raw.warn) ? raw.warn : []) {
-    if (warn.length >= MAX_WARN) break
-    if (!w || !WARN_KINDS.has(w.kind) || !cellOk(w.center)) continue
-    warn.push({ kind: w.kind, x: w.center[0], y: w.center[1], z: w.center[2], deaths: isInt(w.deaths) ? w.deaths : 0 })
-  }
-  return { state: 'ok', cells, warn, bad, meta: { ...meta, stale_ms: staleMs } }
+  return { state: 'ok', cells, bad, meta: { ...meta, stale_ms: staleMs } }
 }
 
 /** One number per cell for the A* hot path: no string, no allocation. |x|, |z| < 2^21, -64 <= y < 448. */
@@ -117,16 +108,10 @@ export function packKey (x, y, z) {
  *           "lava below" under the 3x3.
  *   DROP    F in L's column or a cardinal of it, F.y = L.y+1..L.y+12, F's OWN column open from F.y-1 down to L.y+1:
  *           dropLavaSafe's straight-down and "lava beside the drop".
- *   RING    max(|dx|, |dz|) <= 3, F.y = L.y..L.y+2: the soft margin (RING_PRICE).
  */
 export function footprintOf (L, solidAt, emit) {
   const { x, y, z } = L
   const open = (cx, cz, yTop, yBot) => { for (let yy = yTop; yy >= yBot; yy--) if (solidAt(cx, yy, cz) === true) return false; return true }
-  for (let dx = -RING_R; dx <= RING_R; dx++) {
-    for (let dz = -RING_R; dz <= RING_R; dz++) {
-      for (let dy = RING_DY0; dy <= RING_DY1; dy++) emit(x + dx, y + dy, z + dz, RING_PRICE)
-    }
-  }
   for (let dx = -2; dx <= 2; dx++) {
     for (let dz = -2; dz <= 2; dz++) {
       if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue
@@ -145,60 +130,52 @@ export function footprintOf (L, solidAt, emit) {
   }
 }
 
-/** THE PRICE INDEX over the ACTIVE lava cells -> Map(packKey -> price). A core price always wins over a ring price. */
-export function buildPriceIndex (active, solidAt = () => null) {
-  const idx = new Map()
-  const emit = (x, y, z, p) => {
+/** THE INDEX over the ACTIVE lava cells -> Set(packKey) of footprint feet cells, at most INDEX_MAX (`full` says it hit). */
+export function buildPriceIndex (active, solidAt = () => null, { max = INDEX_MAX } = {}) {
+  const idx = new Set()
+  const emit = (x, y, z) => {
+    if (idx.size >= max) { idx.full = true; return }
     if (Math.abs(x) >= 2 ** 21 || Math.abs(z) >= 2 ** 21 || y < -64 || y >= 448) return
-    const k = packKey(x, y, z)
-    const was = idx.get(k)
-    if (was === undefined || p > was) idx.set(k, p)
+    idx.add(packKey(x, y, z))
   }
   for (const L of active) footprintOf(L, solidAt, emit)
   return idx
 }
 
-/**
- * THE STEP HOOK'S LAVA PRICE FOR ONE CELL -> 0 | RING_PRICE | CORE_PRICE. Pure, allocation-free (the A* hot path).
- * `feet` is the bot's own position at plan time: within EGRESS_R (xz and y) of it, at most the ring price -- a bot standing
- * beside lava pays at most 4 per charging to step away.
- */
-export function priceAt (idx, x, y, z, feet = null) {
-  if (!idx || idx.size === 0) return 0
+/** Is this feet cell in the footprint? Pure, allocation-free (the A* hot path). */
+export function inFootprint (idx, x, y, z) {
+  if (!idx || idx.size === 0) return false
   const fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z)
-  if (!Number.isFinite(fx) || !Number.isFinite(fy) || !Number.isFinite(fz)) return 0
-  if (Math.abs(fx) >= 2 ** 21 || Math.abs(fz) >= 2 ** 21 || fy < -64 || fy >= 448) return 0
-  const p = idx.get(packKey(fx, fy, fz))
-  if (p === undefined) return 0
-  if (feet && Math.abs(fx - Math.floor(feet.x)) <= EGRESS_R && Math.abs(fz - Math.floor(feet.z)) <= EGRESS_R &&
-      Math.abs(fy - Math.floor(feet.y)) <= EGRESS_R) return p > RING_PRICE ? RING_PRICE : p
-  return p
+  if (!Number.isFinite(fx) || !Number.isFinite(fy) || !Number.isFinite(fz)) return false
+  if (Math.abs(fx) >= 2 ** 21 || Math.abs(fz) >= 2 ** 21 || fy < -64 || fy >= 448) return false
+  return idx.has(packKey(fx, fy, fz))
 }
 
-/** A move's surcharge (design r2: MOVE level, after the base generated it). A move the guard would refuse costs this much more. */
+/** A move's surcharge (r2: MOVE level, after the base generated it): a move the guard would refuse costs this much more. */
 export const CORE_MOVE = 50
-export const RING_MOVE = 4
+
+/** One segment's samples, as corridorSafe takes them (k = 1..n at 0.5 steps, floored), against the footprint. */
+function segmentHits (idx, ax, ay, az, bx, by, bz) {
+  const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay, bz - az) / 0.5))
+  for (let k = 1; k <= n; k++) {
+    const t = k / n
+    if (inFootprint(idx, ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t)) return true
+  }
+  return false
+}
 
 /**
- * ONE MOVE'S LAVA SURCHARGE -> 0 | RING_MOVE | CORE_MOVE. Pure, allocation-free. The move from node (an A* cell) to `m` is
- * sampled exactly as lavaguard corridorSafe samples a path segment: from block centre to block centre at 0.5-block steps,
- * the start excluded, each sample floored. Any sample on a CORE cell -> CORE_MOVE (the guard would refuse this move for a
- * remembered lava cell); else any RING sample -> RING_MOVE.
+ * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE. Pure, allocation-free. The guard samples the path it is handed, and a path's
+ * nodes reach it in two forms: block centres (postProcessPath puts walk nodes on top of their block, +0.5) and bare
+ * integer cells (every node after the first dig or place, and the bot's own floored start; index.mjs path_update). A
+ * mixed-sign diagonal samples a side cell in the integer form only (Claude design r1 P1-1). So the move is judged in BOTH
+ * forms, and priced if either would put a sample on the footprint.
  */
 export function moveSurcharge (idx, node, m) {
   if (!idx || idx.size === 0 || !node || !m) return 0
-  const ax = node.x + 0.5, ay = node.y, az = node.z + 0.5
-  const bx = m.x + 0.5, by = m.y, bz = m.z + 0.5
-  const len = Math.hypot(bx - ax, by - ay, bz - az)
-  const n = Math.max(1, Math.ceil(len / 0.5))
-  let best = 0
-  for (let k = 1; k <= n; k++) {
-    const t = k / n
-    const p = priceAt(idx, ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t)
-    if (p === CORE_PRICE) return CORE_MOVE
-    if (p === RING_PRICE) best = RING_MOVE
-  }
-  return best
+  if (segmentHits(idx, node.x + 0.5, node.y, node.z + 0.5, m.x + 0.5, m.y, m.z + 0.5)) return CORE_MOVE
+  if (segmentHits(idx, node.x, node.y, node.z, m.x, m.y, m.z)) return CORE_MOVE
+  return 0
 }
 
 /**
@@ -287,29 +264,17 @@ export function memoryCells (fileCells, ringCells) {
   return out
 }
 
-/** A PLANNED ROUTE AGAINST THE INDEX -> { core_nodes, ring_nodes, min_d }. Pure (the `_lavasight_route` row's args). */
+/** A PLANNED ROUTE AGAINST THE INDEX -> { core_nodes, min_d }. Pure (the `_lavasight_route` row's args). */
 export function routeSummary (idx, nodes, active) {
-  let core = 0, ring = 0, minD = null
+  let core = 0, minD = null
   for (const n of nodes ?? []) {
-    const p = idx?.get?.(packKey(Math.floor(n.x), Math.floor(n.y), Math.floor(n.z)))
-    if (p === CORE_PRICE) core++; else if (p === RING_PRICE) ring++
+    if (inFootprint(idx, n.x, n.y, n.z)) core++
     for (const c of active ?? []) {
       const d = Math.max(Math.abs(c.x - Math.floor(n.x)), Math.abs(c.y - Math.floor(n.y)), Math.abs(c.z - Math.floor(n.z)))
       if (minD === null || d < minD) minD = d
     }
   }
-  return { core_nodes: core, ring_nodes: ring, min_d: minD }
-}
-
-/** WARN-ONLY KINDS: the first warn hazard within 3 (xz) and 4 (y) of a planned node -> { hazard, node } | null. Pure. */
-export function warnNear (warn, nodes, { r = 3, dy = 4 } = {}) {
-  if (!warn?.length || !nodes?.length) return null
-  for (const n of nodes) {
-    for (const w of warn) {
-      if (Math.abs(w.x - n.x) <= r && Math.abs(w.z - n.z) <= r && Math.abs(w.y - n.y) <= dy) return { hazard: w, node: n }
-    }
-  }
-  return null
+  return { core_nodes: core, min_d: minD }
 }
 
 /**
@@ -368,8 +333,8 @@ export function lavaMapReader ({ file, worldId = () => null, pool = () => null, 
 /** The licence row's args (`_lavasight_mode`). Pure. */
 export function lavasightModeArgs (st, { on = true, worldId = null } = {}) {
   return { on: on ? 1 : 0, state: on ? (st?.state ?? 'unread') : 'off', why: st?.why ?? st?.kept ?? null,
-           world: st?.meta?.world ?? null, world_id: worldId ?? null, cells: st?.cells?.length ?? 0, warn: st?.warn?.length ?? 0,
+           world: st?.meta?.world ?? null, world_id: worldId ?? null, cells: st?.cells?.length ?? 0,
            generated_at: st?.meta?.generated_at ?? null, stale_after: st?.meta?.stale_after ?? null, v: 1 }
 }
 export const lavasightModeDetail = (a) =>
-  `phase=mode v=1 on=${a.on} state=${a.state}${a.why ? ` why=${a.why}` : ''} cells=${a.cells} warn=${a.warn} world=${a.world ?? '-'} gen=${a.generated_at ?? '-'}`
+  `phase=mode v=1 on=${a.on} state=${a.state}${a.why ? ` why=${a.why}` : ''} cells=${a.cells} world=${a.world ?? '-'} gen=${a.generated_at ?? '-'}`
