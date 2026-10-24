@@ -4,8 +4,9 @@
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits). DENOMINATORS FIRST.
 #
 # WHY (ES, 7 d to 10-24 13:00Z): 96 fall-family deaths of 278; gather 44 of them in 1,400 gather bot-h (31 per 1,000 h, the
-# highest of any skill). Above 13 of 67 shared-seed cave landings the backup holds a one-block hole in a floor (19% vs 5% at
-# control cells): bots digging the floor under their own feet over a cave. The canary removes that dig.
+# highest of any skill). gather may dig the floor under its own feet over a cave (the code allows it; Baritone forbids it);
+# what SHARE of the falls that is, neither the world copies nor the logs could say (design section 0.3), so the effect lines
+# are reported and the gates are about the rule doing what it says and not refusing too much.
 #
 # THE CHANGE (rows only this build writes):
 #   _cavefall_mode    once per spawn (the licence): on=0|1 rule=floor_over_drop ...
@@ -20,7 +21,7 @@
 #   G2 refused_fell   WATCH, as G1: after a `refused` row the same bot is seen standing ON the refused cell and then, within 60 s, in
 #                     its column (x, z within 0.5) >= 6 below its top: an observed transition through a floor the rule refused.
 #   ARMS              REVERT: a control `_cavefall_*` row after the deploy.
-#   H1 refusals_up    HOLD: the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
+#   H1 refusals_up    HOLD (and INCONCLUSIVE, blocking KEEP, while any arm x period has < 20 gather runs): the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
 #                     change (pre vs post): the rule refusing too much is the harm this change can actually cause.
 #   LIVENESS          every canary bot seen after the deploy carries the licence on=1, its latest (BLOCKS KEEP).
 #   EXPOSURE          >= 5 canary `_cavefall_skip` + `_cavefall_floor refused` rows.
@@ -101,7 +102,7 @@ def inside(iv, bot, t):
     return any(a - 1 <= t <= b + 1 for a, b in iv.get(bot, ()))
 
 
-def judge(rows, *, cut, cans, fleet=False, pre_s=None):
+def judge(rows, *, cut, cans, fleet=False, pre_s=None, roster=None):
     res = {}
     arm = (lambda b: 'canary') if fleet else (lambda b: 'canary' if pool_of(b) in cans else 'control')
     post = [r for r in rows if r['t'] >= cut]
@@ -112,7 +113,9 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None):
             lic[r['bot']].append(kv(r['detail']).get('on') == '1')
     res['licence_on'] = sum(1 for v in lic.values() if v and v[-1])
     # EVERY canary bot seen after the deploy must carry the licence, on (Codex r2 P2-7)
-    roster = sorted({r['bot'] for r in can})
+    # the roster is every canary bot seen after the deploy ON ANY BUILD (Codex r3 P2-3: the loader drops off-build rows before
+    # judge sees them, so a bot still on the base would vanish from a roster built from `can`)
+    roster = sorted(set(roster) if roster is not None else {r['bot'] for r in can})
     res['licence_missing'] = [b for b in roster if not (lic.get(b) and lic[b][-1])]
     res['licence_all'] = 1 if roster and not res['licence_missing'] else 0
     floors = [(r, floor_row(r['detail'])) for r in can if r['name'] == '_cavefall_floor']
@@ -201,6 +204,8 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None):
     vals = [share(sh[k]) for k in (('canary', 'post'), ('canary', 'pre'), ('control', 'post'), ('control', 'pre'))]
     res['refusal_did'] = None if None in vals else round((vals[0] - vals[1]) - (vals[2] - vals[3]), 4)
     res['refusals_up'] = 1 if res['refusal_did'] is not None and res['refusal_did'] > 0.10 else 0
+    # H1 READINESS (Codex r3 P2-4): every cell needs >= 20 gather runs, or H1 cannot pass -- it is INCONCLUSIVE, and KEEP waits
+    res['h1_ready'] = 1 if all(sh[k][1] >= 20 for k in sh) else 0
     mv = {a: Counter() for a in ('canary', 'control')}
     for r in post:
         if r['name'] in ('explore', 'goto'):
@@ -264,6 +269,11 @@ def selftest():
     lr = judge(base + [row('board-a-Delta', cut + 30)], cut=cut, cans={'board-a'})
     assert lr['licence_all'] == 0 and lr['licence_missing'] == ['board-a-Delta'], lr
     assert judge(base, cut=cut, cans={'board-a'})['licence_all'] == 1
+    # MIXED BUILDS (Codex r3 P2-3): a bot seen only on the base build (its rows dropped by the loader) is still on the roster
+    mb = judge(base, cut=cut, cans={'board-a'}, roster={C, 'board-a-Echo'})
+    assert mb['licence_all'] == 0 and mb['licence_missing'] == ['board-a-Echo'], mb
+    # H1 READINESS: empty or thin cells are INCONCLUSIVE, never 'ok'
+    assert judge(base, cut=cut, cans={'board-a'}, pre_s=3600)['h1_ready'] == 0
     assert judge(base + [R], cut=cut, cans={'board-a'})['refused'] == 1
     # ARMS: a control row after the deploy
     assert judge(base + [row(K, cut + 50, '_cavefall_mode', detail='on=1')], cut=cut, cans={'board-a'})['rows_control'] == 1
@@ -298,6 +308,8 @@ def selftest():
         [gr(K, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(K, cut + 100 + i, 'no_safe_target' if i == 0 else None) for i in range(4)]
     hr = judge(h, cut=cut, cans={'board-a'}, pre_s=3600)
     assert hr['refusal_did'] == 0.5 and hr['refusals_up'] == 1, (hr['refusal_did'], hr['no_safe_target'])
+    big = [lic] + [gr(b, t0 + i, None) for b in (C, K) for t0 in (cut - 900, cut + 100) for i in range(20)]
+    assert judge(big, cut=cut, cans={'board-a'}, pre_s=3600)['h1_ready'] == 1
     h2 = [lic] + [gr(C, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(C, cut + 100 + i, 'no_safe_target' if i < 2 else None) for i in range(4)] + \
         [gr(K, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(K, cut + 100 + i, 'no_safe_target' if i < 2 else None) for i in range(4)]
     assert judge(h2, cut=cut, cans={'board-a'}, pre_s=3600)['refusals_up'] == 0
@@ -348,6 +360,7 @@ if __name__ == '__main__':
 
     raw = load_window(PRE, END)
     rows, walked, offbuild, withpos = [], 0, 0, 0
+    roster = set()
     bots = defaultdict(set)
     kinds = Counter()
     for r in raw:
@@ -359,6 +372,8 @@ if __name__ == '__main__':
         arm = 'canary' if (fleet or pool_of(b) in CANS) else 'control'
         per = 'post' if t >= CUT else 'pre'
         ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if arm == 'canary' and per == 'post':
+            roster.add(b)                    # every canary bot, whatever its build (the licence roster)
         if not fleet and arm == 'canary' and per == 'post' and CV and ver and not ver.startswith(CV):
             offbuild += 1
             continue
@@ -375,14 +390,14 @@ if __name__ == '__main__':
             rows.append({'t': t.timestamp(), 'name': name, 'detail': (r.get('detail') or '') if name in KEEP else '', 'bot': b,
                          'pos': p, 'status': sk.get('status'), 'dur': sk.get('duration_ms') if name == 'gather' else None,
                          'fc': sk.get('fail_class')})
-    res = judge(rows, cut=CUT.timestamp(), cans=CANS, fleet=fleet, pre_s=W * 60)
+    res = judge(rows, cut=CUT.timestamp(), cans=CANS, fleet=fleet, pre_s=W * 60, roster=roster)
     print('DENOMINATORS rows walked %d (canary rows on another build skipped %d; rows with bot.pos %d) | bots post canary %d control %d | window %d min%s'
           % (walked, offbuild, withpos, len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, ' | FLEET TRIPWIRE' if fleet else ''))
     print('CONTROLS     kinds walked %s' % json.dumps(dict(kinds)))
     print('WATCH        G1 allowed floor dig then a bigger fall %d %s | G2 refused floor fallen through %d %s'
           % (res['allowed_fell'], res['_g1'][:5] or '', res['refused_fell'], res['_g2'][:5] or ''))
     print('DEFECTS      ARMS control rows %d | H1 no_safe_target share DiD %s -> %s %s'
-          % (res['rows_control'], res['refusal_did'], 'HOLD' if res['refusals_up'] else 'ok', json.dumps(res['no_safe_target'])))
+          % (res['rows_control'], res['refusal_did'], 'HOLD' if res['refusals_up'] else ('ok' if res['h1_ready'] else 'INCONCLUSIVE (a cell has < 20 gather runs)'), json.dumps(res['no_safe_target'])))
     print('REPORTED     explore/goto runs post %s' % json.dumps(res['moves_post']))
     print('PRIMARY      gather fall episodes (>= 12, not water) per gather bot-h %s | DiD %s' % (json.dumps(res['primary']), res['primary_did']))
     print('REPORTED     fall deaths %s | canary named %s | gather %s ratio %s' % (json.dumps(res['fall_deaths']), res['fall_deaths_canary_named'] or '-', json.dumps(res['gather']), res['gather_ok_ratio']))
