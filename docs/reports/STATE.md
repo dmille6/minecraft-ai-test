@@ -101,6 +101,26 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-24 02:20Z — FLEET 3cc5f14d (chatgate-01 KEPT +360 01:52Z, promoted 02:02Z); ironsmelt-01 LAUNCHED (canary fb8de72f); structcount + valuescore installed
+
+- **chatgate-01** `3cc5f14d` drawn placebo-b, hive-d, hive-a, hive-c (4 pools) 19:39Z. +180 NOT_YET (one canary death v control's:
+  hive-c-Comet 71-block cave fall, idle; not linked). +360 KEEP: deaths 2 v 4 (0.017 v 0.017/bh); one v14c rung-linked flag
+  (hive-c-Comet 00:12:30 livelock_escape) reviewed: chat gating cannot reach that rung, not linked. Promoted 02:02Z.
+- **Isolated phase 2** tripwire OK at +240 (3 deaths in 74 bot-h: two dripstone/cave falls, one lava swim; not the conversion);
+  hold released 19:29Z (accepted quiet 240).
+- **Infra gap 02:02-02:15Z** (operator install-hold, ironsmelt held): **structcount** installed on 10.0.0.30 (check PASS 106/106,
+  cron 03:45Z..05:45Z after the nightly backup; first real count tonight starts the 3-day baseline); Q8 key installed on .30;
+  `install-structcount-key.sh --verify --install-cron` on .31 must run AFTER the first published count (pull exits 3 until then).
+  **valuescore** installed on .31 (cron 00:50Z; 10-23 = 9.22 value/bot-h). Merged structcount (1d2a0a30, fleetstatus conflict
+  resolved keeping coop + structcount lines; tests 106/106 on main).
+- **Queue:** ironsmelt-01 (fb8de72f, drawing) -> townplan-01 -> found-01 -> junkout-01 -> ledger-01 -> [lavastep-01, mats-01 when
+  filed] ... parked: bamboo-03, foldwatch-01, treefarm-03 (HOLD, 1 pool each). Not yet queued: towniron-01 (Claude review after
+  10-26 06:00 CDT; tier 3, hive-b required), indexsearch-02 (kit-led exposure, after ironsmelt).
+- **Owner decisions 10-23** (memory): next tiers; queue speed (designs NOT installed, tier-2 needs 4 pools or tier 3); designs
+  answered (mineshaft O1-O13, building Q1-Q11 + reserves logs/copper 512, cobble 256, torch 32, sand 16, planks 71, sticks 40,
+  cooperation 1-5 with existing keys); production breakdown (no fleet reseed); towniron-01 one reserve, shovels gated;
+  furnaceseen-01 tier-1 after ledger-01. Open: D (board-a-Comet escape fix).
+
 ## 10-23 15:40Z — indexsearch-01 CLOSED INCONCLUSIVE +180 (early, unexposed); isolated phase 2 APPLIED; owner set the next tiers
 
 - **drop16 (M2b) DONE** 08:06:59-08:23:20Z: 80/80 bots on OLLAMA_BASE_URLS .72 only; re-verify 08:26Z OK (1,810 rows all .72, 0 on
