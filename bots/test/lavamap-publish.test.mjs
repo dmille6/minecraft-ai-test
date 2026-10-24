@@ -23,6 +23,12 @@ t('test_lavamap_publish.py: every behaviour test passes and every mutant is kill
   assert.match(out, /(\d+) of \1 passed/)
 })
 
+t('lavasightread.py --selftest: every gate fails on its fixture and passes its control', () => {
+  const r = spawnSync('python3', ['-B', path.join(REPO, 'scripts/host/lavasightread.py'), '--selftest'], { encoding: 'utf8', timeout: 60_000 })
+  assert.equal(r.status, 0, ((r.stdout || '') + (r.stderr || '')).slice(-800))
+  assert.match(r.stdout, /SELFTEST ok/)
+})
+
 t('ONE CONTRACT: what the publisher writes, the bot parses as ok for that world and pool (and for no other)', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'lavamap-contract-'))
   mkdirSync(path.join(root, '_pool-board-a'))
