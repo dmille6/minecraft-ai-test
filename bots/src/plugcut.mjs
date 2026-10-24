@@ -26,6 +26,7 @@ export const PLUG_MAX = 3              // wet faces one cut may plug
 export const PLUG_ROUNDS = 3           // plug-and-replan rounds per firing
 export const PLUG_CLEAR_UP = 2         // a licensed ramp is not handed back to the planner below this many blocks of climb
 export const PLUG_BUDGET_MS = 90_000   // a licensed firing's budget: poolescape's POOL_BUDGET_MS (the unlicensed ramp keeps 60 s)
+export const PLUG_SURFACE_MS = 1500     // a licensed firing swims its head out of the water (jump held) at most this long before it plans
 export const PLUG_STEP_RETRIES = 2     // a licensed step cut but not taken (the body still in its column) is jumped again
 export const PLUG_SETTLE_MS = 1200     // after the last plug, the faces are asked again this much later before the cut (Claude r1 P2)
 
@@ -208,5 +209,5 @@ export const plugDue = (soFar, env) => plugCutOn(env) && Number(soFar) >= PLUG_A
 
 /** The `_plugcut_mode` licence row, once per spawn (index.mjs). Pure. */
 export function plugCutModeDetail (env = typeof process !== 'undefined' ? process.env : {}) {
-  return `on=${plugCutOn(env) ? 1 : 0} after_refusals=${PLUG_AFTER_REFUSALS} max_plugs=${PLUG_MAX} rounds=${PLUG_ROUNDS} clear_up=${PLUG_CLEAR_UP} budget_s=${PLUG_BUDGET_MS / 1000} step_retries=${PLUG_STEP_RETRIES}`
+  return `on=${plugCutOn(env) ? 1 : 0} after_refusals=${PLUG_AFTER_REFUSALS} max_plugs=${PLUG_MAX} rounds=${PLUG_ROUNDS} clear_up=${PLUG_CLEAR_UP} budget_s=${PLUG_BUDGET_MS / 1000} step_retries=${PLUG_STEP_RETRIES} surface_ms=${PLUG_SURFACE_MS}`
 }

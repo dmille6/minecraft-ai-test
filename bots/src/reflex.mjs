@@ -55,7 +55,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
-         PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, isUtilityBlock } from './plugcut.mjs'
+         PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
 import { ceilEscapeOn, ceilingEscapeDecision, firstSwingEscalation, envSettled, envTag, dirName, swingFits, cellFloods,
@@ -4609,6 +4609,7 @@ export async function escapeStairUp (bot, {
       plugged,
       plugNote,
       stepRetries,
+      surfaced,
     }
   }
 
@@ -4933,6 +4934,26 @@ export async function escapeStairUp (bot, {
     return d.reason
   }
 
+  // PLUGCUT-01, SURFACE BEFORE PLANNING (licensed firings only; Paper library gate, isolated-c: the body sank to the pool floor
+  // after the cut, the step was planned under the flood check's submerged exemption, and the dig was then refused live with the
+  // head in air -- the firing ended at the lip). A pinned bot's plans are made with its head in air: jump is held until the
+  // head is out (PLUG_SURFACE_MS at most), the owner asked every 100 ms. 'yielded' | true (head in air) | false (still under:
+  // the plan then reads the exemption, as today).
+  const surfaceFirst = async () => {
+    if (!plug || !submergedAt(bot)) return true
+    if ((yielded = yieldTo())) return 'yielded'
+    bot.setControlState('jump', true)
+    const t0 = Date.now()
+    while (submergedAt(bot) && Date.now() - t0 < PLUG_SURFACE_MS && Date.now() < deadline) {
+      await sleep(100)
+      if ((yielded = yieldTo())) return 'yielded'
+    }
+    bot.setControlState('jump', false)
+    surfaced++
+    return !submergedAt(bot)
+  }
+  let surfaced = 0
+
   // TAKE THE CEILING FIRST, OR THE RAMP CANNOT HAVE A FIRST STEP.
   //
   // `stairUpStep` asks for `at(0,2,0)` to be passable and `isEntombed` is
@@ -4962,6 +4983,7 @@ export async function escapeStairUp (bot, {
       stopped = `a falling column overhead outlasted ${BREACH_MAX_SWINGS} swings`
       return finish()
     }
+    if ((await surfaceFirst()) === 'yielded') { stopped = `yielded the body to ${yielded}`; return finish() }
     const p = bot.entity.position
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
     const submerged = submergedAt(bot)
@@ -5082,6 +5104,7 @@ export async function escapeStairUp (bot, {
   for (; steps < maxSteps; steps++) {
     if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
     if (Date.now() > deadline) { stopped = 'budget spent'; break }
+    if ((await surfaceFirst()) === 'yielded') { stopped = `yielded the body to ${yielded}`; return finish() }
     const p = bot.entity.position
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
     const submerged = submergedAt(bot)
@@ -5272,6 +5295,7 @@ export async function escapeStairUp (bot, {
       if (Date.now() > deadline) break
       const still = stairUpStep({ at, bear: bearing, canBreak, submerged: submergedAt(bot) })
       if (!still.ok || still.dig.length) break
+      if ((await surfaceFirst()) === 'yielded') { stopped = `yielded the body to ${yielded}`; return finish() }
       stepRetry++
       stepRetries++
       await bot.look(Math.atan2(-bearing.x, -bearing.z), 0, true).catch(() => {})
@@ -5909,7 +5933,7 @@ export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo =
   logEvent({ kind: 'climb_flood_ramp', status: step.progressed ? 'success' : 'failed',
              detail: `handler=${handler} y=${y0} steps=${stair.steps ?? 0} sidestep=${stair.sidestepped ?? 0} ` +
                      `climbed=${(stair.climbed ?? 0).toFixed(1)} flood=${stair.flood ?? 'none'} ` +
-                     `yielded=${stair.yielded ? 1 : 0} dry=${wet ? 0 : 1} plugged=${stair.plugged ?? 0} retries=${stair.stepRetries ?? 0} — stopped because ${stair.stopped}`,
+                     `yielded=${stair.yielded ? 1 : 0} dry=${wet ? 0 : 1} plugged=${stair.plugged ?? 0} retries=${stair.stepRetries ?? 0} surfaced=${stair.surfaced ?? 0} — stopped because ${stair.stopped}`,
              snapshot: snapshot(bot) })
   // PREEMPTION FIRST (Codex r2): whatever the ramp did before the drowning rescue took the body, the branch's
   // outcome is not the ramp's -- no counter reset, no refusal, no back-off.
