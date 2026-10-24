@@ -111,7 +111,7 @@ await t('THE CHAIN (real CognitiveLoop): sky_descend replaces found_work; once d
   assert.deepEqual(ran.slice(0, 2), ['sky_descend', 'found_work'], JSON.stringify(ran))
 })
 await t('MUTANT KILLED: the descent without the refund -> the found visit is spent on an order that never ran (no found_work after the descent)', async () => {
-  const old = "{ const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"
+  const old = "{ const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }"
   await withMutant(COG_PATH, old, '{ const sd = this.#skyDescendOrder(order); if (sd) order = sd }', async M => {
     const ran = await decisions(town(), 3, { Loop: M.CognitiveLoop })
     assert.equal(ran[0], 'sky_descend', JSON.stringify(ran))
