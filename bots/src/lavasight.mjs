@@ -226,7 +226,9 @@ export function processedForms (blockAt, n, ids = {}) {
 export const formsOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
   const c = cellOf(n)
   if (n._lsRaw) return { forms: [{ x: c.x, y: c.y, z: c.z }], climb: false }
-  if (n._lsGen !== true) return { forms: [start ?? { x: c.x, y: c.y, z: c.z }], climb: false }
+  // the search's own start: the bot's floored position, PINNED on first use so a resumed search (the bot has walked on)
+  // still judges the start's segments from where the search began (Claude r6 P3-1)
+  if (n._lsGen !== true) { if (!n._lsSt) n._lsSt = start ?? { x: c.x, y: c.y, z: c.z }; return { forms: [n._lsSt], climb: false } }
   if (!n._lsF) n._lsF = blockAt ? processedForms(blockAt, c, ids) : { forms: [{ x: c.x + 0.5, y: c.y, z: c.z + 0.5 }], climb: false }
   return n._lsF
 }
@@ -249,6 +251,9 @@ export const cellOf = n => n._lsC ?? { x: Math.floor(n.x), y: Math.floor(n.y), z
  * edges). On a complete path every segment is then charged exactly as the guard refuses it, except a path that ENDS on a
  * climbable, whose last segment can be under-charged (never over-charged). An accepted route is therefore never priced, which
  * is what keeps a cost-capped search the base passes by an accepted route passable (section 3.4).
+ * THE UPSTREAM RESIDUAL (design 3.3): the pathfinder re-post-processes nodes once per partial result, and on a climbable that is
+ * not idempotent (each pass lifts the node a block), so a climbable that appeared in several partial results is executed
+ * elsewhere than its once-processed form, by the base itself. The charge follows the once-processed form.
  */
 export function moveSurcharge (idx, node, m, env = {}) {
   if (!node || !m) return 0
