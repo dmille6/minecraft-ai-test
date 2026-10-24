@@ -54,7 +54,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
          POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
-import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, plugDue, PLUG_MAX, PLUG_ROUNDS } from './plugcut.mjs'
+import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, plugDue, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP, PLUG_BUDGET_MS } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -4932,7 +4932,10 @@ export async function escapeStairUp (bot, {
     // fix here.
     await sleep(250)
 
-    if (bot.entity.position.y - before.y < 0.5) {
+    // PLUGCUT-01, A BOBBING START (licensed firings only): a bot jumping from water starts anywhere in its cell (Paper 10-24,
+    // isolated-d-Bravo: before.y 60.6 at the jump, on the step at 61.0 -- a taken step read as refused). With the licence the
+    // step is judged on the floored cell, the comparison `mine` already uses; without it, today's raw 0.5.
+    if (plug ? Math.floor(bot.entity.position.y + 1e-6) <= Math.floor(before.y + 1e-6) : bot.entity.position.y - before.y < 0.5) {
       // DUG A STEP AND DID NOT TAKE IT. Stop rather than cut another: the
       // failure to avoid is carving a widened ledge while every log line says
       // the climb is progressing, which `mine` did for twenty-three days.
@@ -4940,7 +4943,11 @@ export async function escapeStairUp (bot, {
       break
     }
 
-    if (await canStartAPath(bot)) {
+    // PLUGCUT-01, NOT HANDED BACK AT THE LIP (licensed firings only): a pinned bot's first dry step is still beside the pit it
+    // spent the week in (Paper 10-24: isolated-c-Alpha and isolated-d-Bravo, one step up, "a route exists again", then idle at
+    // 1.4 blocks with the model off). With the licence the ramp keeps climbing until it is PLUG_CLEAR_UP above where this
+    // firing started; the step budget, the deadline and every refusal still bound it.
+    if ((!plug || bot.entity.position.y - startY >= PLUG_CLEAR_UP) && await canStartAPath(bot)) {
       steps++
       stopped = 'a route exists again'
       break
@@ -5512,8 +5519,11 @@ export function ceilingFloodRisk (bot, dy = 2) {
  */
 export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp } = {}) {
   const y0 = Math.round(bot.entity?.position?.y ?? 0)
-  // plugcut-01: from the 4th consecutive flood refusal the ramp may plug the ceiling's wet face and cut (plugcut.mjs)
-  const stair = await ramp(bot, { yieldTo, plug: plugDue(refusals) })
+  // plugcut-01: from the 4th consecutive flood refusal the ramp may plug the wet faces and cut (plugcut.mjs), and gets
+  // poolescape's 90 s firing instead of 60 s: the plugs, a ceiling cut from water and two bare-handed steps (Paper 10-24:
+  // isolated-c-Alpha's plug, cut, plug and first step took 47 s; the second step's two diorite cells are 15 s grounded)
+  const due = plugDue(refusals)
+  const stair = await ramp(bot, due ? { yieldTo, plug: true, budgetMs: PLUG_BUDGET_MS } : { yieldTo, plug: false })
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const step = floodChainStep({ refusals: refusals + 1, stair })
   const q = bot.entity.position
