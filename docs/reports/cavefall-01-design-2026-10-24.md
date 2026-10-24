@@ -246,28 +246,47 @@ shelf's centre with a stone pickaxe, an iron shovel, 16 cobblestone and 8 logs; 
 - `ground`: the cave filled to y 28. Both must dig the shelf and live: the no-regression control.
 - `water`: 2-deep water under the shelf. Both may dig it; both must live.
 
-### 7.1 Results
+### 7.1 Paper results (10-24 16:14-17:29Z; sandbox6 = base fb8de72f, sandbox7 = candidate 72e1054e, run in parallel pairs)
 
-**PENDING.** Every sandbox5-8 per-server lock was held by other agents for the whole build (sandbox5 by lavastep since 10-23
-17:28Z; sandbox6-8 by plugcut-01 from 10-24 12:11Z, with its scenes still running at 15:30Z), and the brief names only those
-four. Nothing was run on sandbox..sandbox3. Staged and ready:
-- the driver on branch `cavefall-sandbox-1024` @ `46c7d29b` (origin/main + `sandbox/cavefall/cavefall-e2e.mjs` + the registry's
-  wired-driver count 20 -> 21; `run-tests.mjs sandbox-registry` passes there);
-- the bot roots: `git archive fb8de72f bots` (base) and `git archive 72e1054e bots` (candidate), each with `SHA` and
-  `bots/node_modules`.
+The driver is `sandbox/cavefall/cavefall-e2e.mjs` (cavefall-sandbox-1024) plus three driver-only fixes made during the runs:
 
-How to run (from an extract of the sandbox branch, with the lock taken: `sandbox/sbxlock.sh take sandbox6 cavefall "..."`):
-```
-for scene in cave ground water; do for i in 1 2 3; do
-  node sandbox/cavefall/cavefall-e2e.mjs <base root> base-$i $scene sandbox6 4
-  node sandbox/cavefall/cavefall-e2e.mjs <cand root> cand-$i $scene sandbox6 4
-done; done      # results: $TMPDIR/cavefall-e2e/results.jsonl
-```
-Admission (both engines, r3-r7): the base must dig its own floor and fall in `cave` in at least 2 of 3 (the positive control);
-the candidate must never fall there, dig no shelf cell, and end `no_safe_target` with the all-floors message and a
-`_cavefall_skip front=1` row; in `ground` both must dig the shelf and live; in `water` both must live. The result rows carry
-gather `duration_ms` (whole-search latency, Codex r4 P3-4). If the base does NOT dig its floor in `cave`, the item stops here
-and folds into §5.2.
+- it records which shelf cell went, when, where the bot stood, and whether a block **capped** the cell;
+- the output path is absolute;
+- a result with no rows read is marked `valid: false`.
+
+Each run is 4 minutes. Results: `.cf/paper/results.jsonl` in the building worktree.
+
+Six runs were set aside because their rows were unreadable (rep 2/3: a relative `CF_OUT` sent the bot's LOG_DIR into its own
+tree). Only their `bot.out` is evidence: base cave 2 of 2 impaled, candidate cave 0 of 2 dead.
+
+| scene | base (valid runs) | candidate (valid runs) |
+|---|---|---|
+| **cave** (positive control) | **4 of 4 died**: impaled on a stalagmite after falling 48-56 blocks, running `gather dirt`. Each dug the shelf centre it stood on (3603,29,3606), uncapped | **4 of 4 lived**: health 20, never below the shelf (min y 30). Each run wrote 3 `_cavefall_skip ... front=1` rows; gather ended failed with no dig of a floor anyone stood on. 3 of 4 runs lost one shelf cell, each **capped by a cobblestone the pathfinder had placed on it** (capped=true in reps 5 and 7; rep 1, before the capture, shows the same pillar-then-bridge rows). A capped cell is not a floor (the exact fast path), and it was dug from off the shelf: harmless |
+| **ground** (no-regression) | 3 of 3 collected 5 dirt, digging their shelf (1-block drops); gather 7.8-9.6 s | 3 of 3 collected 4 dirt (the count asked), digging their shelf; gather 3.2 s; no skip rows |
+| **water** (swimming is travel) | 3 of 3 lived after falling into the water (min y 8); one gather timed out at 180 s | 3 of 3 lived. Each wrote `_cavefall_floor allowed: dirt at 3683,29,3606; drop 20 onto water` and swam (min y 8). One run skipped 5 natural dirt cells over solid drops outside the arena (`land=solid:5`) |
+
+**Read.**
+
+- The base digs its own floor and dies onto stalagmites every time: the mechanism is real, deterministic, and reachable from
+  `gather dirt` on a cave shelf.
+- The candidate refuses those floors and lives every time. It still digs where the drop is 1 block, and over water.
+- No candidate run lost a cell a body could stand on.
+- **Paper: PASS on safety** (positive control 4 of 4, candidate 4 of 4, ground and water unchanged). Two of the six
+  criteria written before the runs are not met as written; both are explained below and need a reviewer's confirmation.
+
+**Against the admission criteria written before the runs (r3-r7):**
+
+- Base digs its floor and falls in `cave` in >= 2 of 3: **met** (4 of 4).
+- Candidate never falls in `cave`: **met**.
+- Candidate digs no shelf cell: **not met as written** (3 of 4 runs lost one cell). Each lost cell had a block placed on it
+  by the bot's own pathfinder before it was dug, so no body could stand on it when it went. That is the criterion's purpose,
+  but the reviewers should confirm the reading.
+- Candidate ends `no_safe_target` with the all-floors message: **not met as written**. The arena sits in natural terrain
+  with 650+ other dirt candidates in range, so the round is mixed (15 skipped of 653), not all-floors. Gather ended
+  "unreachable after 3 attempts" or "every candidate is buried". The skip rows (`front=1`) are the record that the floors
+  were refused.
+- `ground`: both dig the shelf and live: **met**.
+- `water`: both live: **met**.
 
 ## 8. Read and registration
 
@@ -304,7 +323,7 @@ and its control).
 - **Tier:** `drawexposure.py cavefall-01 --registrations <tmp>` at 13:23Z (6 h, fall_path ~ 'running gather' >= 10): **11 of
   11 drawable pools eligible** (board-a 47, board-b 43, board-c 36, board-d 38, hive-a 78, hive-b 21, hive-c 59, hive-d 53,
   placebo-a 50, placebo-b 17, placebo-d 31), so the 4-pool policy would allow tier 2. **Registered tier 3**: the effect size is
-  unknown (§0.3), Paper is pending, and both engines recommended tier 3 (r3-r7). `draw_require_pools` board-c and hive-a, the
+  unknown (§0.3) and both engines recommended tier 3 (r3-r7); Paper passed on 10-24 (§7.1). `draw_require_pools` board-c and hive-a, the
   drawable pools with the most cave-fall deaths under the shared town.
 - **Registration and entry fragment** (drafts, staged; nothing queued): `~/mcai-analysis/cavefall-01.72e1054e.json` (sha256
   b76c439b...) and `~/mcai-analysis/cavefall-01.queue-entry.draft.json`, which carries a Paper hold and no `approved`, so
