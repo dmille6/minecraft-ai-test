@@ -2778,7 +2778,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                        status: rampStatus(ramp),
                        detail: `no route from y=${yNow} and ${got.tried} adjacent block(s) ` +
                                `yielded nothing when dug${lavaNote}; steps=${ramp.steps} ` +
-                               `climbed=${ramp.climbed.toFixed(1)} — stopped because ${ramp.stopped}`,
+                               `climbed=${ramp.climbed.toFixed(1)} fire=${ramp.fire ?? '-'} — stopped because ${ramp.stopped}`,
                        snapshot: snapshot(bot) })
             // CEILESCAPE-01: no swing of this firing could finish in a full budget -- say so where a human will see it
             if (ramp.ceil?.action === 'escalate') noteRescue('marooned', ramp)
@@ -3049,7 +3049,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // tries the ramp (a step sideways first when the ceiling itself is
             // refused), and if nothing moved the bot, it stays dry and backs off.
             const fb = await floodBranch(bot, { handler: 'marooned', refusals: floodRefusals,
-                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => maroonGrant) })
+                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => maroonGrant), steering: steerRamp })
             floodRefusals = fb.refusals
             if (!fb.progressed && !fb.preempted) lastMaroonCheck = Date.now() + fb.backoffMs
           }
@@ -3278,7 +3278,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                            status: rampStatus(stair),
                            detail: `pillar declined (${climbed}) at y=${Math.round(yBefore)} for want ` +
                                    `of blocks; steps=${stair.steps} breached=${stair.breached} ` +
-                                   `climbed=${stair.climbed.toFixed(1)} — stopped because ${stair.stopped}`,
+                                   `climbed=${stair.climbed.toFixed(1)} fire=${stair.fire ?? '-'} — stopped because ${stair.stopped}`,
                            snapshot: snapshot(bot) })
               }
               if (stair && stair.steps > 0) {
@@ -3333,7 +3333,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // prerequisite, and the legal move named. The failure counter is
             // cleared: it described attempts that were not this one.
             const fb = await floodBranch(bot, { handler: 'entombed', refusals: floodRefusals,
-                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant) })
+                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant), steering: steerRamp })
             floodRefusals = fb.refusals
             if (fb.preempted) { /* the drowning rescue took the body: not this branch's outcome (Codex r3) */ }
             else if (fb.progressed) { climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0 }
@@ -4598,6 +4598,9 @@ export async function escapeStairUp (bot, {
   let ceReplans = 0
   let ceSettled = false
   let ceDug = 0
+  // the FIRING id: on every `_ceilescape` row and returned, so the arms' ramp_cut row names the firing it ends (the read pairs
+  // by it: a stranded lattice's stair_up writes `_ceilescape` rows and no ramp_cut -- Codex code r2 P2)
+  const ceFire = `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36).padStart(2, '0')}`
 
   // WHOEVER OWNS THE BODY, IT IS NOT THIS. `yieldTo` returns a reason when a
   // reflex with a stronger claim has taken the controls -- in practice the
@@ -4631,6 +4634,7 @@ export async function escapeStairUp (bot, {
       flood,
       sidestepped,
       ceil,
+      fire: ceFire,
     }
   }
 
@@ -4656,7 +4660,7 @@ export async function escapeStairUp (bot, {
     try {
       const p = bot.entity.position
       logEvent({ kind: 'ceilescape', status: f.status ?? 'failed',
-                 detail: `where=${f.where} at=${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} block=${f.block} ` +
+                 detail: `where=${f.where} fire=${ceFire} at=${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} block=${f.block} ` +
                          `held=${bot.heldItem?.name ?? 'hand'} grounded_ms=${f.groundedMs ?? '?'} first_ms=${f.firstMs ?? '?'} ` +
                          `env_ms=${f.envMs ?? '?'} full_ms=${budgetMs} ` +
                          `left_ms=${f.leftMs} env=${f.env ? envTag(f.env) : '?'} settled=${f.settledMs ?? '-'} ` +
@@ -5791,9 +5795,9 @@ export function ceilingFloodRisk (bot, dy = 2) {
  *     back-off on the existing curve, and NO prerequisite -- neither blocks nor a pickaxe fixes wet rock.
  * Returns { progressed, preempted, refusals, backoffMs, prereq: null, stair, dry }; the handler applies it.
  */
-export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp } = {}) {
+export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp, steering = () => {} } = {}) {
   const y0 = Math.round(bot.entity?.position?.y ?? 0)
-  const stair = await ramp(bot, { yieldTo })
+  const stair = await ramp(bot, { yieldTo, steering })   // ceilescape-01: the float hold stands aside here too
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const step = floodChainStep({ refusals: refusals + 1, stair })
   const q = bot.entity.position
