@@ -383,11 +383,11 @@ export function describeDescent ({ outcome, el, have, need, startY, endY, placed
  * The stay's reason (and the `_needs_rescue` detail). It says only what is true and what happens next (Claude r1 P1-1):
  * the bot is HELD, the order comes back every decision, and the flag is up. No advice it cannot act on. Pure.
  */
-export function stayRefusal ({ el, have, need, why = null }) {
+export function stayRefusal ({ el, have, need, why = null, crafted = 0 }) {
   const where = `${el?.open ?? '?'} open blocks below onto ${el?.landing ?? '?'}`
   if (why) return `sky_descend: staying put -- ${where}, and no column within ${START_RADIUS} it can climb down (${why}); walking off is a fall. Held here for rescue (_needs_rescue raised); it re-checks every decision`
   return `sky_descend: staying put -- ${where}; the cheapest column down needs ${need + (need > 0 ? MARGIN : 0)} placeable blocks and it carries ${have} ` +
-    `(its logs already turned into planks); walking off is a fall. Held here for rescue (_needs_rescue raised); it climbs down as soon as it carries enough`
+    `${crafted ? `(after turning ${crafted} log(s) into planks)` : '(no logs to turn into planks)'}; walking off is a fall. Held here for rescue (_needs_rescue raised); it climbs down as soon as it carries enough`
 }
 
 /** The licence row's detail (`_respawnfall_mode`, once per spawn). */
