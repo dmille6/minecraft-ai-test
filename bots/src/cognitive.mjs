@@ -1016,10 +1016,11 @@ export class CognitiveLoop {
       // an open episode ends only on a verified safe stance (descentDone), never on an unreadable or transient reading
       const done = this.skyState?.active && !el.transient ? descentDone(at, el.support ?? supportOf(bot.entity.position)) : null
       const d = descendOrder({ now: Date.now(), lastSpawnAt: bot.lastSpawnAt ?? null, el, done, state: this.skyState ?? {}, on: respawnfallOn(process.env) })
-      if ((this.skyState?.active === true) !== (d.state.active === true)) bot.skyWaitSince = null   // a fresh wait clock per episode (Claude r4 P3-6)
+      if (d.fresh) bot.skyWaitSince = null   // a fresh wait clock per episode (Claude r4 P3-6, r5 P2-2: descendOrder says when)
       this.skyState = d.state
       bot.skyActive = d.state.active === true   // the escape lattice stands aside while the episode is open (respawnfall.mjs skyEscapeBlocked)
       // an episode handed back without a safe stance (swimming, a long transient) says so: the read and a human can see it
+      if (d.ended) bot.skyHoldUntil = 0   // an episode handed back releases its hold (Claude r5 P3-6)
       if (d.ended) { try { logEvent({ kind: 'sky_descend_end', status: 'no_effect', detail: `ended=${d.ended} -- ${d.why}` }) } catch { /* telemetry never costs the body */ } }
       if (!d.issue) return null
       return { skill: 'sky_descend', args: {}, why: `spawned on a high platform (${d.why}): climbing down first${order ? ` (instead of ${order.skill})` : ''}` }
