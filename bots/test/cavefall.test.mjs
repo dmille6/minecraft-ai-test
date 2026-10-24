@@ -404,7 +404,7 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
   assert.ok(src.split(cnt).length === 2, 'count anchor present once'); assert.ok(src.split(at).length === 2, 'reinsertion anchor present once (Claude r4 P2-2)')
   const i = src.indexOf(at), eol = src.indexOf('\n', i) + 1
   const early = src.replace(cnt, '').slice(0, eol) + cnt + src.replace(cnt, '').slice(eol)
-  assert.ok(early.indexOf(cnt) > 0 && early.indexOf(cnt) < early.indexOf('if (reachable.length === 0 && !viaSource && positions.length > 0)'), 'the mutant really moved the count before the fallbacks')
+  assert.ok(early.indexOf(cnt) > 0 && early.indexOf(cnt) < early.indexOf('if (reachable.length === 0 && !viaSource)'), 'the mutant really moved the count before the fallbacks')
   assert.equal(wired(early), false, 'counting before the fallbacks fails the assertion')
   // the emptied search refuses BEFORE gather's early "nothing found" return (Claude r4 P1 / Codex r4 P2-1)
   const body = src.slice(src.indexOf('async function gatherRun'))
