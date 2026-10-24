@@ -1,0 +1,6 @@
+== stuck-1853-placebo-d-198_34_187 start 0
+  base started 3, results 3, valid 3 | lava deaths 0 | survived 0 | episodes [0, 0, 0] | corridor rows [0, 0, 0] | blind [0, 0, 0] | danger [0, 0, 0]
+  cand started 3, results 3, valid 0 (invalid: ['no post-placement route or liveness row with an active cell', 'no post-placement route or liveness row with an active cell', 'no post-placement route or liveness row with an active cell']) | lava deaths 0 | survived 0 | episodes [] | corridor rows [] | blind [] | danger []  | hook cells [1, 1, 1] active [0, 0, 0] priced [0, 0, 0]
+== stuck-1899-isolated-c-356_47_176 start 0
+  base started 3, results 3, valid 3 | lava deaths 0 | survived 0 | episodes [0, 0, 0] | corridor rows [0, 0, 0] | blind [0, 0, 0] | danger [0, 0, 0]
+  cand started 3, results 3, valid 0 (invalid: ['no post-placement route or liveness row with an active cell', 'no post-placement route or liveness row with an active cell', 'no post-placement route or liveness row with an active cell']) | lava deaths 0 | survived 0 | episodes [] | corridor rows [] | blind [] | danger []  | hook cells [0, 0, 0] active [0, 0, 0] priced [0, 0, 0]

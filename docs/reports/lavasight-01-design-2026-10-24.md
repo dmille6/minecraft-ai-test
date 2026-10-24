@@ -418,3 +418,43 @@ would ask for roughly a halving of episodes at canary rates.
   ring filtered at source, composter's generator, `lavasight` as homefix's reason (Codex P2, Claude P2-5, P3-1..P3-4).
 - Codex P2 "recovery tests stop before execution": routes now assert the guard's verdict on the planned path, and the homefix
   chain is driven through `pickRelocationTarget`. The full executed escape is Paper's (§11).
+
+## 11. Paper (10-24, sandbox5 + sandbox8 under per-server `lavasight` locks)
+
+Base `fb8de72f` vs candidate `23d6dd1c`, run back to back (base first in each pair) by `sandbox/lavasight/lavasight-paper.sh` on
+branch `lavasight-sandbox-1024` (`02a6f4e6`). The candidate reads the REAL isolated-a lava map (the publisher's output from
+`~/hazardmap/out/hazardmap.json`) moved into the arena by `pool-hook.mjs`, bound to the sandbox's own seed and pool name.
+`paper-summary.py` joins each result to its own run dir. A run is INVALID if it has no log, or, for the candidate, if its map
+did not bind or bound with nothing to price. Evidence: `docs/reports/lavasight-01-2026-10-24/paper/`.
+
+**Denominators.** 8 runs per build per scene (4 starts x 2 reps); 0 invalid. Every candidate run bound (`ok`), with 42-50 active
+cells and priced moves on every run. Episodes = distinct bot-minutes after placement with a lava `_lava_corridor` or a
+lava-naming blind-step refusal, never for an unknown cell.
+
+| scene | build | lava refusal episodes (per run) | sum | lava deaths | danger-block rows |
+|---|---|---|---|---|---|
+| cave lake 332_35_205 | base | s0 1,1  s1 4,4  s2 1,0  s3 1,1 | 13 | 0 | 0 |
+| cave lake | cand | s0 0,0  s1 4,3  s2 0,0  s3 0,0 | **7** | 0 | 0 |
+| surface pool 392_70_104 | base | s0 1,3  s1 0,2  s2 3,3  s3 2,3 | 17 | **1** (s0) | 8 |
+| surface pool | cand | s0 4,4  s1 3,0  s2 3,3  s3 1,1 | 19 | 0 | **0** |
+
+- **Positive control:** the base hits lava refusals in both scenes (30 episodes over 16 runs), so the instrument can see them.
+- **Cave lake:** on starts 0, 2 and 3 the candidate had 0 episodes in 6 of 6 runs; the base had >= 1 in 5 of 6. Start 1 (the bot
+  starts inside the footprint and has to leave it) is unchanged, 8 vs 7, as §3.4 predicts: a bot on the edge refuses
+  before any route exists.
+- **Surface pool: NOT reduced** (17 vs 19). Blind-step refusals fell on start 2 (72/97 -> 17/17) and the danger-block reflex
+  rows fell 8 -> 0. The one base lava death (start 0) is a single death: reported, not a verdict.
+- So Paper shows the mechanism engaged on every candidate run and fewer refusals where the bot routes across a cave floor.
+  It does not show a reduction at an open surface pool, where the guard's refusals come from walks that start beside the
+  pool. The canary's primary (episodes per bot-hour, DiD <= -0.5) is the real test.
+
+**Library non-regression (the 4 stuck scenes, start 0, 3 reps per build, real per-world maps): INCONCLUSIVE by rule, and
+identical outcomes.** The fleet maps have no lava within the cut of board-a, placebo-c or isolated-c, and placebo-d's one cell
+was not confirmed live in the arena. So every candidate run bound (`ok`) with an empty index and is marked invalid under
+the rule the reviewers asked for: "the candidate never priced anything". Raw outcomes (`library-outcomes.txt`): 12 of 12
+base and 12 of 12 candidate runs `stayed`, all matched the fleet, 0 deaths, 0 lava episodes. That is the bound-but-empty
+path, which is most of the fleet's bot-time. The price on a stuck scene is not exercised, because no stuck scene in the
+library has lava in its cut.
+
+Tooling note: both batch shells exited 2 *after* their last run ("syntax error near `done`"). The driver script was edited
+(tooling r6) while bash was still reading it by byte offset. Every started run wrote a result (16/16 and 16/16).
