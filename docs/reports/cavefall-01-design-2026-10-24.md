@@ -273,7 +273,8 @@ Positions and health are RCON samples every 3 s: minimum y and minimum health ar
 
 **Cave (the positive control).**
 
-- **Base: 4 of 4 died**, impaled on a stalagmite after falling 48-56 blocks, while running `gather dirt`. Each dug the
+- **Base: 4 of 4 died**, impaled on a stalagmite while running `gather dirt`. The server's message said "after falling
+  48-56 blocks" (the tracker's peak); the arena's shelf-to-tip drop is about 21. Each dug the
   shelf centre it stood on (3603,29,3606).
 - **Candidate: 4 of 4 lived** (sampled health 20, never below the shelf: min y 30). Each run wrote 3 `_cavefall_skip ...
   front=1` rows.
@@ -308,12 +309,13 @@ Positions and health are RCON samples every 3 s: minimum y and minimum health ar
 
 **Read.**
 
-- The base digs its own floor and dies onto stalagmites every time. The mechanism is real, deterministic, and reachable from
-  `gather dirt` on a cave shelf.
-- The candidate refuses those floors and lives every time.
+- The base's floor dig and death onto the stalagmites reproduced in all 4 valid base runs. The mechanism is real and
+  reachable from `gather dirt` on a cave shelf.
+- All 4 candidate runs survived.
 - It still digs where the drop is 1 block, and it is **permitted** to dig over water. The water scene shows survival and that
   permission, **not** equal gathering performance: neither arm collected anything there.
-- In the **cave** runs, no candidate lost a cell a body could stand on. In ground and water it digs its shelf by design.
+- In the **cave** runs, the 3 cells the candidate removed were capped: recorded in two cases (reps 5 and 7), inferred in
+  rep 1. In ground and water it digs its shelf by design.
 - **Paper: PASS on safety** (positive control 4 of 4, candidate 4 of 4; ground and water survival unchanged). Two of the six
   criteria written before the runs are not met as written; both are explained below.
 
@@ -331,7 +333,8 @@ Positions and health are RCON samples every 3 s: minimum y and minimum health ar
 **Review.** Codex confirmation r1 of this record (10-24, CHANGES: 2 P2, 1 P3): the denominators are correct, and both "not met as written"
 readings are reasonable (a capped cell is excluded by §4's pre-existing rule; a mixed round cannot reach the all-floors
 message). Its three reporting corrections are applied above: the set-aside accounting, the water gather outcomes, and the
-precision of the claims. Confirmation r2 is pending.
+precision of the claims. **Confirmation r2: APPROVE** (no P1/P2). Its two P3 wording fixes (the reported versus the
+geometric fall distance; conclusions bounded by four runs) are applied.
 
 ## 8. Read and registration
 
