@@ -72,7 +72,7 @@ import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { lavasightOn, lavaMapReader, lavaMapFileIn, lavasightModeArgs, lavasightModeDetail, SightRing, memoryCells, liveConfirm,
-         buildPriceIndex, addFootprint, packKey, wrapNeighbors, priceLive, routeSummary,
+         buildPriceIndex, addFootprint, packKey, wrapNeighbors, priceLive, lsHolder, routeSummary,
          RELOAD_MS as LAVASIGHT_RELOAD_MS, LIVE_MS as LAVASIGHT_LIVE_MS } from './lavasight.mjs'   // lavasight-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
@@ -417,6 +417,13 @@ function connect() {
     }
     bot.lavaActiveNow = () => (LS_ON && lsOverworld() ? lsActive : [])
     bot.lavasightIndex = () => lsIdx
+    // LAVASIGHT-01 x LAVASTEP-01 (JIT 10-24, Codex P2): WHO HOLDS THE BODY for the price and the route row. lavastep-01's danger
+    // mover steers the body without being one of activeReflex()'s arms, so it is asked first (lavasight.mjs lsHolder)
+    const lsHeld = () => {
+      let moving = false
+      try { moving = !!stopReflexes?.dangerMover?.()?.moving?.() } catch { moving = false }
+      return lsHolder({ reflex: stopReflexes?.activeReflex?.() ?? null, dangerMoving: moving })
+    }
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
@@ -505,7 +512,7 @@ function connect() {
       const lsIds = { water: bot.registry.blocksByName.water?.id, ladder: bot.registry.blocksByName.ladder?.id, vine: bot.registry.blocksByName.vine?.id }
       const lsBlockAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
       moves.getNeighbors = wrapNeighbors(Movements.prototype.getNeighbors, () => {
-        const reflex = stopReflexes?.activeReflex?.() ?? null
+        const reflex = lsHeld()
         const p = bot.entity?.position
         const idx = lsOverworld() ? lsIdx : null
         return { idx, live: priceLive({ on: LS_ON, reflex }), reflex,
@@ -1133,7 +1140,7 @@ function connect() {
         const g = bot.pathfinder?.goal
         const goal = g && Number.isFinite(g.x) && Number.isFinite(g.z) ? `${g.x},${Number.isFinite(g.y) ? g.y : '?'},${g.z}` : (g ? (g.constructor?.name ?? 'goal') : null)
         const args = { status, profile: bot.movementProfile ?? 'walk', nodes: nodes ? nodes.length : null, core_nodes: s.core_nodes, min_d: s.min_d,
-                       refused: refused ? 1 : 0, priced: pricedNow - lsPricedMark, held: stopReflexes?.activeReflex?.() ?? null,
+                       refused: refused ? 1 : 0, priced: pricedNow - lsPricedMark, held: lsHeld(),
                        active: lsActive.length, index: lsIdx.size, goal }
         lsPricedMark = pricedNow
         logEvent({ kind: 'lavasight_route', status: 'success', snapshot: snapshot(bot), args,

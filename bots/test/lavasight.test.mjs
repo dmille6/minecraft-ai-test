@@ -569,6 +569,44 @@ await t('SCOPE on the wrapper: a reflex-held search is not priced, and G2 counts
   assert.ok(counters.held_seen > 0, 'positive control: the moves were in the footprint')
   assert.equal(counters.held_priced ?? 0, 0)
 })
+// LAVASIGHT-01 x LAVASTEP-01 (JIT 10-24, Codex P2): lavastep-01's danger mover holds the body without being one of
+// activeReflex()'s arms (null, or 'eat' while it eats). The holder the wrapper and the route row read is lsHolder: a live mover
+// is 'lavastep' -> no price, G2 counts held_seen, never held_priced; when the mover ends the price comes back.
+await t('LAVASTEP HOLDS THE BODY: a live danger mover with the arms reading null or eat -> base costs, held_seen counted, held_priced 0; the mover ends -> priced again', () => {
+  assert.equal(LS.lsHolder({ reflex: null, dangerMoving: true }), 'lavastep')
+  assert.equal(LS.lsHolder({ reflex: 'eat', dangerMoving: true }), 'lavastep')
+  assert.equal(LS.lsHolder({ reflex: 'escape', dangerMoving: false }), 'escape')
+  assert.equal(LS.lsHolder({ reflex: null, dangerMoving: false }), null)
+  const world = poolWorld(), H = harness(world)
+  const idx = LS.buildPriceIndex([{ x: 4, y: 60, z: 1 }], world.solidAt)
+  const node = () => ({ x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0', toBreak: [], toPlace: [], _lsGen: true })
+  const base = H.profile().getNeighbors(node()).map(n => n.cost)
+  let mover = true
+  for (const arms of [null, 'eat']) {
+    mover = true
+    const counters = {}
+    const cand = H.profile()
+    cand.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => { const reflex = LS.lsHolder({ reflex: arms, dangerMoving: mover }); return { idx, live: LS.priceLive({ on: true, reflex }), reflex } }, counters)
+    assert.deepEqual(cand.getNeighbors(node()).map(n => n.cost), base, `arms=${arms}: the mover holds -> base costs`)
+    assert.ok(counters.held_seen > 0, `arms=${arms}: positive control, the moves were in the footprint`)
+    assert.equal(counters.held_priced ?? 0, 0)
+    mover = false
+    const after = cand.getNeighbors(node()).map(n => n.cost)
+    assert.ok(after.some((c, i) => c > base[i]), `arms=${arms}: the mover ended -> the price is back`)
+    assert.equal(counters.held_priced ?? 0, 0)
+  }
+})
+await t('MUTANT KILLED: lsHolder that ignores the danger mover -> a live mover with null arms is priced', async () => {
+  await withMutant(LS_URL, "  return dangerMoving ? 'lavastep' : (reflex ?? null)\n", '  return reflex ?? null\n', async mod => {
+    const world = poolWorld(), H = harness(world)
+    const idx = mod.buildPriceIndex([{ x: 4, y: 60, z: 1 }], world.solidAt)
+    const node = { x: 3, y: 61, z: 0, remainingBlocks: 0, hash: '3,61,0', toBreak: [], toPlace: [], _lsGen: true }
+    const base = H.profile().getNeighbors({ ...node }).map(n => n.cost)
+    const cand = H.profile()
+    cand.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => { const reflex = mod.lsHolder({ reflex: null, dangerMoving: true }); return { idx, live: mod.priceLive({ on: true, reflex }), reflex } }, {})
+    assert.ok(cand.getNeighbors({ ...node }).map(n => n.cost).some((c, i) => c > base[i]), 'mutant: priced while the mover holds the body')
+  })
+})
 await t('MUTANT KILLED: a wrapper that ignores live (prices under a reflex) trips G2 (held_priced > 0)', async () => {
   await withMutant(LS_URL, '      if (!c.live) continue\n', '', async mod => {
     const world = poolWorld(), H = harness(world)
@@ -644,7 +682,9 @@ const wiredOrder = src => {
   const clones = ['const gatherMoves = Object.create(', 'const ascendMoves = Object.create(', 'const descendMoves = Object.create(', 'const waterMoves = Object.create(']
     .map(c => s.indexOf(c))
   return w > 0 && clones.every(c => c > w) && /return \{ idx, live: priceLive\(\{ on: LS_ON, reflex \}\), reflex,/.test(s) && /const idx = lsOverworld\(\) \? lsIdx : null/.test(s) &&
-         /const reflex = stopReflexes\?\.activeReflex\?\.\(\) \?\? null/.test(s)
+         // re-anchored (lavasight-01 x lavastep-01, JIT 10-24): the holder is lsHeld(), which asks the danger mover first
+         /const reflex = lsHeld\(\)\n/.test(s) && /return lsHolder\(\{ reflex: stopReflexes\?\.activeReflex\?\.\(\) \?\? null, dangerMoving: moving \}\)/.test(s) &&
+         /moving = !!stopReflexes\?\.dangerMover\?\.\(\)\?\.moving\?\.\(\)/.test(s)
 }
 await t('WIRED: the wrapper is installed on the walk profile BEFORE every clone, gated on the reflex; MUTANT KILLED when moved after', () => {
   assert.equal(wiredOrder(INDEX), true)
@@ -656,6 +696,16 @@ await t('WIRED: the wrapper is installed on the walk profile BEFORE every clone,
   const moved = rest.replace(AFTER, AFTER + block)
   assert.ok(moved.includes(block) && moved.length === INDEX.length, 'the mutant moved, not deleted')
   assert.equal(wiredOrder(moved), false)
+})
+await t('WIRED MUTANT KILLED: the wrapper back on activeReflex() alone (the mover unseen) fails the wiring check', () => {
+  const old = '        const reflex = lsHeld()\n'
+  assert.ok(INDEX.split(old).length === 2, 'ANCHOR MISSING or not unique')
+  assert.equal(wiredOrder(INDEX.replace(old, '        const reflex = stopReflexes?.activeReflex?.() ?? null\n')), false)
+})
+await t('WIRED: the route row names the same holder (held: lsHeld())', () => {
+  const s = strip(INDEX)
+  assert.ok(s.split('priced: pricedNow - lsPricedMark, held: lsHeld(),').length === 2)
+  assert.ok(!/held: stopReflexes\?\.activeReflex/.test(s), 'no route row reads the arms alone')
 })
 await t('WIRED: the corridor hook counts and rings; the blind step rings lava only; the rows exist', () => {
   const s = strip(INDEX)
