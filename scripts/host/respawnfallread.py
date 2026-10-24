@@ -17,10 +17,11 @@
 # GATES
 #   ARMS            REVERT: a control `_respawnfall_mode` / `_sky_descend` / `_needs_rescue arm=sky_descend` row after the deploy.
 #   LIVENESS        REVERT-class (blocks KEEP): every canary-pool bot seen in the window carries the licence on=1 as its latest.
-#   G1 descent_fell WATCH: a canary fall episode (a fall-family `_death`, or a `_fall_path` row with fell >= 6 and >= 4 hp lost)
-#                   inside a `sky_descend` run's interval (start .. start + duration + 5 s): the descent itself let the bot fall.
-#   G2 acted        WATCH: any canary `_sky_descend` row whose outcome is not the no_effect 'grounded'. No drawable world has a
-#                   platform, so each is a real bot pillar or a false trigger: a human reads its position before KEEP.
+#   G1 descent_fell WATCH: ANY canary `_death` (Claude r1 P3-11: lava too), or a `_fall_path` row with fell >= 6 and >= 4 hp
+#                   lost, inside a `sky_descend` run's interval (start .. start + duration + 5 s): the descent let the bot die or fall.
+#   G2 acted        WATCH: any canary `_sky_descend` row with status other than no_effect (grounded, progress, stay, stopped).
+#                   No drawable world was seen to hold a platform, so each is a bot pillar, a natural spire or a false trigger:
+#                   a human reads its position before KEEP. (`wait` rows are no_effect: a transient reading, nothing done.)
 #   H1 runaway      HOLD: more than RUNAWAY = 30 `sky_descend` runs by one canary bot in the window.
 # REPORTED  runs by outcome; `_needs_rescue` by bot and cell; placed / rode totals; fall-family deaths by arm (two-death
 #           floor: one is named, not a verdict); sky_descend share of canary decisions.
@@ -32,7 +33,7 @@ sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
 RUNAWAY, FELL_MIN, HP_MIN, EP_S, TAIL_S = 30, 6, 4, 10, 5
-DESC = re.compile(r'^(grounded|progress|stay|stopped): y (\S+) -> (\S+); open below (\S+) onto (\w+|\?); blocks have (\d+) need (\S+); placed (\d+) rode (\d+)')
+DESC = re.compile(r'^(grounded|progress|stay|stopped|wait): y (\S+) -> (\S+); open below (\S+) onto (\w+|\?); blocks have (\d+) need (\S+); placed (\d+) rode (\d+)')
 FELL = re.compile(r'fell (\d+)')
 HP = re.compile(r'hp (-?[\d.]+)')
 FALL_CAUSES = ('fell from a high place', 'hit the ground', 'doomed to fall', 'stalagmite', 'stalactite', 'fell off')
@@ -105,7 +106,7 @@ def judge(rows, *, cut, cans, fleet=False, roster=None):
         if not inside(r['bot'], r['t']):
             continue
         d = (r['detail'] or '')
-        if r['name'] == '_death' and any(k in d.lower() for k in FALL_CAUSES) and 'lava' not in d.lower():
+        if r['name'] == '_death':
             g1.append((r['bot'], round(r['t']), 'death', d[:80]))
         elif r['name'] == '_fall_path':
             m, h = FELL.search(d), HP.search(d)
@@ -169,6 +170,9 @@ def selftest():
     small = row(C, cut + 130, '_fall_path', detail='candidate damage: fell 3, hp -0; descent 1s ago')
     big = row(C, cut + 130, '_fall_path', detail='candidate damage: fell 9, hp -6; descent 1s ago')
     assert judge([lic, S, small], cut=cut, cans={'board-a'})['descent_fell'] == 0
+    assert judge([lic, S, row(C, cut + 130, '_death', detail='tried to swim in lava after falling 4 blocks')], cut=cut, cans={'board-a'})['descent_fell'] == 1, 'any death inside a run'
+    WT = 'wait: y 181.0 -> 181.0; open below ? onto ?; blocks have 288 need 0; placed 0 rode 0; stopped: not on the ground'
+    assert desc_row(WT)['outcome'] == 'wait' and judge([lic, row(C, cut + 20, '_sky_descend', detail=WT, status='no_effect')], cut=cut, cans={'board-a'})['acted'] == 0
     assert judge([lic, S, big], cut=cut, cans={'board-a'})['descent_fell'] == 1
     # a control bot's fall in the same seconds is not the canary's
     assert judge([lic, S, row(K, cut + 130, '_death', detail='fell from a high place after falling 40 blocks')], cut=cut, cans={'board-a'})['descent_fell'] == 0
