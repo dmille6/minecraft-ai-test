@@ -1,4 +1,4 @@
-# ceilescape-01: never start a ramp swing that cannot finish; leave sideways, or flag for rescue (design r3, 2026-10-24)
+# ceilescape-01: never start a ramp swing that cannot finish; leave sideways, or flag for rescue (design r3 + records, 2026-10-24)
 
 OWNER 2026-10-23, through the coordinator: build the board-a-Comet escape fix ("do whatever you recommend"). This is a named
 exception to the 09-30 no-stuck-hunts rule, like board-d's pool escape. The brief is §4 of
@@ -435,6 +435,82 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
 - An entry fragment only: `docs/reports/ceilescape-01.queue-entry-fragment.json` and the registrations
   `docs/reports/ceilescape-01.<sha8>.json`.
 
+## 9a. Paper results (10-24, the final candidate 37ebba2b against the base 3cc5f14d)
+
+**The driver.** `sandbox/ceilescape/ceilescape-e2e.mjs` is on branch `ceilescape-sandbox-1024`. That branch is origin/main plus
+the driver and the registry test's wired count, 19 → 20.
+- Driver reviews: Claude r1 CHANGES, r2-r9 APPROVE; Codex r1-r8 CHANGES, then **r9 APPROVE (520cd12b)**. Every round after
+  r2 made the classification stricter. None of them can turn a run into LEFT.
+- **LEFT** means all of the following:
+  - out of the TRAP: the column, plus each of its eight neighbours that held water at setup;
+  - feet and head confirmed not fluid (water, bubble column, lava, or a waterlogged block), held 30 s to the last observed poll;
+  - the scene still set at the end (the column's water and ceiling);
+  - alive and in the arena.
+  - This is stricter than the design's arrival, which allows wet feet.
+- **INVALID**, never a negative, if any of these fails: the rows were read; the build's own licence is present (candidate
+  on=1) or absent (base: no `_ceilescape` rows); the sha matches; at least 80% of polls observed position and health; the
+  bot is alive and connected; no block observation failed.
+- Before measuring, every scene edit, the live bag (by id and count), the teleport height and a fresh body (health 20,
+  food 20) are verified.
+- A base STAYED counts as the positive control only when the scene held AND the base logged its futile `dig exceeded`.
+
+**The clean set (r9 driver; 10 of 10 valid; 12 min a scene; per-server locks on sandbox, sandbox2 and sandbox3, because
+sandbox5-8 were held by other agents).** The record is `docs/reports/ceilescape-01-paper-2026-10-24.jsonl`.
+
+| scene | BASE 3cc5f14d | CANDIDATE 37ebba2b |
+|---|---|---|
+| comet (the live column) | STAYED, control (3 × `dig exceeded` on the copper) | **LEFT** east: 1 lateral; ladder + dirt dug, copper intact; health 20 |
+| copper2 (a dry south decoy with a copper new ceiling) | STAYED, control | **LEFT** east, not south: the dearer decoy untouched |
+| lava (lava behind the east feet cell) | STAYED, control | STAYED, 4 escalations, nothing dug, lava intact, health 20 |
+| wethead (a source beside the east head cell) | STAYED, control | STAYED, 4 escalations, nothing dug (cellFloods), health 20 |
+| noexit (placebo-c-Bravo's shaft) | STAYED, control | STAYED, 4 escalations, no swing, 1 `_needs_rescue`, health 20 |
+
+**Before r9.** The r1 driver runs on da0d07b0 and 8685e231 read the same outcomes. The r2 driver measured nothing: its bag
+check refused every run at a truncated RCON reply.
+
+## 9b. The failure-mining input (coordinator 10-24): chain B is a different dead end
+
+`failmine-1024` (b9994cb0) found four week-long wet-under-ceiling bots, failing through two chains:
+- **A** (`_entombed` → `_maroon_climb_refused` → ramp "dig exceeded"): board-a-Comet and placebo-c-Bravo. This is ceilescape-01.
+- **B** (`_climb_flood_guard` / `_climb_flood_refused`): isolated-c-Alpha and placebo-d-Delta. The scene cuts, decoded:
+  - both bots wade with the head in AIR, so the flood check has no submerged exemption;
+  - the dirt ceiling has one wet face: isolated-c-Alpha's N is water[1] on granite, placebo-d-Delta's N is a source on stone;
+  - every lateral bearing is wet;
+  - **no swing is ever attempted**, so there is no price problem.
+
+**Both engines: DIFFERENT** (Codex and Claude, independently, on the cuts).
+- B is a CORRECT flood refusal.
+- ceilescape-01 as built does not touch it: the flood refusal comes before `ceilingAdmission`, and the flood sidestep runs
+  without the new options.
+- The remedy is a separate design: PLUG the wet face first, then cut, reusing poolescape-01's plug planner, as a rung in the
+  flood branch for an entombed, unsubmerged bot. Both bots hold 77-192 cobblestone.
+- poolescape never takes these bots: maroonState is 'none' for an entombed bot, and poolStep needs a floor and headroom.
+- Relaxing the flood guard is rejected (the drownings history). A bucket answers only a source, not flowing water.
+
+So ceilescape-01 stays scoped to chain A, and B is proposed as its own fix. The library gate below confirms that B is not
+regressed.
+
+**The library gate** runs the failmine tree's own `scene-e2e.mjs` and `abVerdict`, 3 base and 3 candidate runs per scene, on
+sandbox6-8 under `failmine` per-server locks:
+| library scene (failmine b9994cb0) | chain | base (3 runs) | candidate 37ebba2b (3 runs) | verdict |
+|---|---|---|---|---|
+| stuck-1899-board-a-359_40_187 | A | stayed ×3 (as the fleet) | **escaped ×3** (first in 241 s) | **PASS** |
+| stuck-1899-placebo-c-559_37_219 | A, no exit | stayed ×3 | stayed ×3: 2 `_ceilescape` escalations and 1 `_needs_rescue` per run, no timed-out swing | FAIL, as designed: the escalation case |
+| stuck-1899-isolated-c-356_47_176 | B | stayed ×3 | stayed ×3 | FAIL, out of scope (chain B) |
+| stuck-1853-placebo-d-198_34_187 | B | stayed ×3 | stayed ×3; the same row kinds as the base, and no `_ceilescape` row | FAIL, out of scope (chain B): not regressed |
+
+The record is `ceilescape-01-2026-10-24/failmine-library-gate.jsonl`.
+
+The library's own whole-family verdict for "stuck" is therefore **FAIL**. It is honestly so, because ceilescape frees one of
+the four bots:
+- placebo-c-Bravo has no exit a bare hand can afford. It gets the flag instead of the futile swing.
+- isolated-c-Alpha and placebo-d-Delta need the separate plug-then-cut fix (above).
+- No library scene's base failed to reproduce, and no candidate run regressed a base behaviour.
+
+**The tier is unchanged.** drawexposure (6 h and 24 h, `entombed_ramp_cut` containing `dig exceeded`) finds board-a only,
+because chain A's other bot is in placebo-c, which is never drawable. placebo-d belongs to chain B, so it is not this fix's
+population. TIER 3 stands.
+
 ## 10. What it is NOT
 
 - No tool-using ramp: the hands stay empty, as the ramp's invariant requires.
@@ -456,3 +532,5 @@ Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on
 | code r1 (da0d07b0) | CHANGES (1 P1, 3 P2); r2 design P1s RESOLVED except the recheck | CHANGES (1 P1 test-only, 4 P2, 5 P3) | r4:<br>- the destination (tread, lava, head flooding) and the frame asked AFTER the swim-up, immediately before the stroke;<br>- the steering counter raised inside the try;<br>- the sink case on a slow swimmer, with a real no-swim-up kill and a lava-during-the-rise case (killed by the old order);<br>- Bravo's marooned step admission asserted unconditionally;<br>- the read: the column box of section 9, the licence at each decision's time, G3 bounded to a firing's own rows;<br>- the trace comparison loads the base scaffold.mjs too;<br>- rescue_line() selftested on a fake EsEvents. |
 | code r2 (79bbdc71) | CHANGES (2 P2, read only); r1 all RESOLVED | CHANGES (1 P1 read-only, 3 P3) | r5:<br>- a death is not an escape (the primary reads only pre-death positions: `died`);<br>- the liveness gate reads the latest licence;<br>- G3 pairs rows by a FIRING ID (`fire=` on every `_ceilescape` row and on both arms' ramp_cut rows);<br>- floodBranch passes the steering flag too;<br>- the post-promotion check for the flag named. |
 | code r3 (8685e231) | **APPROVE** (all r2 RESOLVED, no findings) | **APPROVE** (3 P3) | r6 (tests and the read's header only; bots/src unchanged): mutants for the five new wiring assertions (flood-branch steering x2, floodBranch's own call, both ramp_cut `fire=` lines); the G3 blind spot (floodBranch and lattice firings write no ramp_cut row) named in the read's header. |
+| Paper driver r1-r10 | r1-r8 CHANGES, **r9 APPROVE** (520cd12b) | r1 CHANGES, r2-r9 APPROVE | the clean ten-scene set ran on r9; r10 adds kelp/seagrass to the fluids (neither arena holds any) |
+| scope: chain B (failmine) | **DIFFERENT** | **DIFFERENT** | ceilescape stays scoped to chain A; plug-then-cut proposed separately; library gate (section 9b) |
