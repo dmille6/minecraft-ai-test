@@ -2690,7 +2690,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // real search and this loop ticks twice a second.
         // RESPAWNFALL-01: the whole maroon lattice (need_scaffold, need_pickaxe, stranded_high and its step_off, climb) stands
         // aside while sky_descend owns the episode (respawnfall.mjs skyEscapeBlocked)
-        if (!escaping && !marooned && !dangerMovingNow() && !runner.isBusy() && !skyEscapeBlocked(bot) && Date.now() >= airPocketBreatheUntil &&
+        if (!escaping && !marooned && !dangerMovingNow() && !skyEscapeBlocked(bot) && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))

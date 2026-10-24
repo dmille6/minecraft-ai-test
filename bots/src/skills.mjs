@@ -2651,7 +2651,7 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   const bot = ctx.bot
   const t0 = Date.now(), until = t0 + runMs
   const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
-  const el0 = elevation({ pos: bot.entity?.position, at, onGround: bot.entity?.onGround !== false })
+  const el0 = elevation({ pos: bot.entity?.position, at, onGround: bot.entity?.onGround !== false, inWater: bot.entity?.isInWater === true })
   const startY = bot.entity?.position?.y
   const count = () => rescueBlocks(bot).reduce((n, it) => n + (it.count ?? 0), 0)
   let have = count(), need = blocksNeeded(el0), walked = null, crafted = 0
@@ -2677,6 +2677,8 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
     bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, end + 60_000)
     while (Date.now() < end) { check(signal); await sleep(Math.min(1000, Math.max(0, end - Date.now())), signal) }
   }
+  // IN WATER: swimming is travel -- nothing to do here, and nothing held (cognitive.mjs ends the episode on it)
+  if (el0.water) { bot.skyHoldUntil = 0; row('no_effect', 'grounded', { stopped: 'in water' }); return { status: 'no_effect', detail: 'in water: swimming is travel' } }
   const s0 = supportOf(bot.entity?.position ?? { x: 0, y: 0, z: 0 })
   const d0 = el0.transient ? { done: false, unknown: true, why: el0.why } : descentDone(at, s0)
   // 0. TRANSIENT: wait on it (an episode never ends on it; cognitive.mjs re-issues the order)
@@ -2699,7 +2701,12 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
     check(signal)
     const here = supportOf(bot.entity.position)
     const ranked = rankStarts({ at, support: here, diggable, exclude: failed })
-    if (!ranked.length) { lastWhy = descentCost(at, here, { diggable }).why; break }
+    if (!ranked.length) {
+      // the own support's price, or why it was not priced (Claude r2 P3-6: never a success message as a reason)
+      const own = fullCube(bot.blockAt(new Vec3(here.x, here.y, here.z))) ? descentCost(at, here, { diggable }) : { ok: false, why: 'standing on a partial block and no full block it can reach' }
+      lastWhy = own.ok ? 'its own column is priced but no stance was found' : own.why
+      break
+    }
     const best = ranked[0]
     if (best.own) { chosen = best; break }
     // out of walks or of clock: the own column if it is priced at all, else stay
