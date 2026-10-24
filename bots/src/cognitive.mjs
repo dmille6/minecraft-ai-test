@@ -10,6 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
+import { elevation, descendOrder, respawnfallOn } from './respawnfall.mjs'   // respawnfall-01
+import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
@@ -899,6 +901,19 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /** RESPAWNFALL-01: the `sky_descend` order, or null (respawnfall.mjs decides; this supplies readings). */
+  #skyDescendOrder(order) {
+    try {
+      const bot = this.bot
+      if (!bot.entity?.position) return null
+      const el = elevation({ pos: bot.entity.position, at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)), onGround: bot.entity.onGround !== false })
+      const d = descendOrder({ now: Date.now(), lastSpawnAt: bot.lastSpawnAt ?? null, el, state: this.skyState ?? {}, on: respawnfallOn(process.env) })
+      this.skyState = d.state
+      if (!d.issue) return null
+      return { skill: 'sky_descend', args: {}, why: `spawned on a high platform (${d.why}): climbing down first${order ? ` (instead of ${order.skill})` : ''}` }
+    } catch { return null }
+  }
+
   /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
   #keepoutExitOrder(order) {
     try {
@@ -1260,6 +1275,9 @@ export class CognitiveLoop {
     // in the chain on purpose, so it overrides every order above -- except a town job inside a column that covers the town
     // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
     // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
+    // RESPAWNFALL-01: A BOT THAT SPAWNED ON A HIGH PLATFORM CLIMBS DOWN BEFORE ANYTHING ELSE (respawnfall.mjs) -- ahead of
+    // every order above; keep-out's exit (below) still outranks it: a fire column is the nearer danger
+    { const sd = this.#skyDescendOrder(order); if (sd) order = sd }
     { const ko = this.#keepoutExitOrder(order); if (ko) order = ko }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
