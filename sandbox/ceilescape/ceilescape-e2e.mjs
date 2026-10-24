@@ -226,20 +226,21 @@ async function main () {
   batch([`effect give ${bot.name} minecraft:instant_health 1 10 true`, `effect give ${bot.name} minecraft:saturation 1 10 true`])
   await sleep(1500)
   batch([`effect clear ${bot.name}`])
-  const food = /(\d+)/.exec(r1(`data get entity ${bot.name} foodLevel`)), hp = healthOf(bot.name)
+  const food = /entity data: (\d+)/.exec(r1(`data get entity ${bot.name} foodLevel`)), hp = healthOf(bot.name)   // the value after the prefix, never the name
   if (!food || Number(food[1]) < 20 || hp == null || hp < 19.5) throw new Error(`not a fresh body: health ${hp}, food ${food?.[1]}`)
   const start = posOf(bot.name)
   P_('placed', start)
   const col = q => q && Math.floor(q.x) === A.x && Math.floor(q.z) === A.z
   if (!col(start) || Math.abs(start.y - (A.y + FEET_Y)) > 0.6) throw new Error('the bot is not in the column after the teleport: ' + JSON.stringify(start))
   const deadline = Date.now() + MINUTES * 60_000
-  let outAt = null, minHealth = 20, track = [], polls = 0, seen = 0
+  let outAt = null, minHealth = 20, track = [], polls = 0, seen = 0, hSeen = 0, lastPollAt = Date.now()
   while (Date.now() < deadline) {
     await sleep(5000)
     polls++
     const p = posOf(bot.name), h = healthOf(bot.name)
     if (p) seen++
-    if (h != null) minHealth = Math.min(minHealth, h)
+    if (h != null) { minHealth = Math.min(minHealth, h); hSeen++ }
+    lastPollAt = Date.now()
     if (p) track.push([Math.round((Date.now() - T0) / 1000), +p.x.toFixed(1), +p.y.toFixed(1), +p.z.toFixed(1)])
     // OUT AND DRY, continuously (Codex driver r2 P2): the hold clock runs only while both hold
     if (p && !inTrap(p) && dryAt(p)) { outAt ??= Date.now() } else outAt = null
@@ -257,9 +258,12 @@ async function main () {
   const p = posOf(bot.name), hEnd = healthOf(bot.name)
   if (hEnd != null) minHealth = Math.min(minHealth, hEnd)
   const endDry = dryAt(p)              // BEFORE the validity list (Codex driver r4 P2): a failed final observation must invalidate
+  // ...and the body did not move while its cells were read (Codex driver r7 P2): the dryness describes where it still is
+  const p2 = posOf(bot.name)
+  const steady = !!p && !!p2 && Math.floor(p2.x) === Math.floor(p.x) && Math.floor(p2.y) === Math.floor(p.y) && Math.floor(p2.z) === Math.floor(p.z)
   const alive = botProc.exitCode === null && botProc.signalCode === null && r1('list').includes(bot.name)   // and still connected
   const rows = rowsOf(bot)
-  const held = outAt ? (Date.now() - outAt) / 1000 : 0
+  const held = outAt ? (lastPollAt - outAt) / 1000 : 0   // measured to the last OBSERVED poll, not to the end of the evidence reads
   const died = rows.some(r => kind(r) === '_death') || minHealth <= 0
   // BLOCK COORDINATES (Codex driver r6 P2): any cell of the arena's interior is in it
   const inArena = !!p && Math.abs(Math.floor(p.x) - A.x) <= RX && Math.abs(Math.floor(p.z) - A.z) <= RX && Math.floor(p.y) >= A.y - DN && Math.floor(p.y) <= A.y + UP
@@ -271,7 +275,8 @@ async function main () {
   const isCand = LABEL.startsWith('cand')
   const buildOk = isCand ? licence.some(d => /^on=1 /.test(d)) : rows.every(r => !/^_(ceilescape|needs_rescue)/.test(kind(r)))
   const shaOk = process.env.CE_EXPECT_SHA ? sha === process.env.CE_EXPECT_SHA : null
-  const invalid = [p ? null : 'the final position could not be read (Codex driver r5 P2)', shaOk === false ? `sha ${sha} != expected ${process.env.CE_EXPECT_SHA}` : null, obsFailures ? `${obsFailures} block observations failed` : null,
+  const invalid = [p ? null : 'the final position could not be read (Codex driver r5 P2)', steady ? null : 'the body moved during the final observation',
+    hEnd != null ? null : 'the final health could not be read', polls && hSeen / polls >= 0.8 ? null : `health observed ${hSeen}/${polls} polls`, shaOk === false ? `sha ${sha} != expected ${process.env.CE_EXPECT_SHA}` : null, obsFailures ? `${obsFailures} block observations failed` : null,
     sceneHeld ? null : 'the scene did not hold (column water or ceiling changed)', rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
     polls && seen / polls >= 0.8 ? null : `observed ${seen}/${polls} polls`, alive ? null : `the bot process ended (code ${botProc.exitCode}, signal ${botProc.signalCode})`].filter(Boolean)
   const left = invalid.length === 0 && sceneHeld && !inTrap(p) && endDry && held >= 30 && !died && inArena
