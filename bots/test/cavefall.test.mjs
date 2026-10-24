@@ -253,6 +253,8 @@ await ta('baseFront: the base\'s two tiers (approachable first, then nearest) de
   assert.equal(baseFront({ pos: eye, skipped: [S], kept: [K], approachable: appr }), false)
   // ...but when nothing kept is approachable either, distance decides again (Claude r5 P3-2)
   assert.equal(baseFront({ pos: eye, skipped: [S], kept: [K], approachable: () => false }), true)
+  // findBlocks' distance (block coordinates from the floored position), not eye-to-centre (Codex r6 P2)
+  assert.equal(baseFront({ pos: { x: 0.5, y: 0, z: 0.5 }, skipped: [{ x: 2, y: 2, z: 0 }], kept: [{ x: 2, y: -1, z: 0 }] }), false)
 })
 await ta('THE FAST PATH changes no verdict: with and without it, the same skip on every cell of four worlds (shelf, cliff, cave floor, roof)', async () => {
   // Codex r4 P2-2's case: stone T on stone, LAVA beside the cell under T, open beside T -- and an unloaded neighbour
