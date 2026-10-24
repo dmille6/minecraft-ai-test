@@ -5943,7 +5943,7 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
     try {
       logEvent({ kind: 'plugcut', status: result === 'placed' ? 'success' : 'failed',
                  detail: `at=${f.x},${f.y},${f.z} for=${what} cell=${q ? key3(q.cell) : '-'} ref=${q ? key3(q.ref) : '-'} ` +
-                         `block=${bot.heldItem?.name ?? '-'} result=${result} plugged=${placed} -- ${why ?? ''}`,
+                         `block=${bot.heldItem?.name ?? '-'} result=${result} plugged=${placed} sub=${submergedAt(bot) ? 1 : 0} -- ${why ?? ''}`,
                  snapshot: snapshot(bot) })
     } catch { /* telemetry */ }
   }

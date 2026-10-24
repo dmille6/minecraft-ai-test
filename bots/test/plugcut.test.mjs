@@ -259,7 +259,7 @@ await t('CANDIDATE on isolated-c: plugs the ceiling\'s face, cuts the ceiling, p
   assert.ok(Math.floor(bot.entity.position.x) <= -1, `the bot did not go W: ${cellOf(bot)}`)
   const placed = pcRows().filter(x => / result=placed /.test(x.detail))
   assert.deepStrictEqual(placed.map(x => / for=(\S+) /.exec(x.detail)[1]), ['ceiling', 'step:-1,0'])
-  for (const x of placed) assert.ok(x.detail.length <= 300)
+  for (const x of placed) { assert.ok(x.detail.length <= 300); assert.match(x.detail, / sub=0 /, "a placement row must say the head was in air") }
 })
 
 await t('CANDIDATE on isolated-d: the ceiling\'s face, then the S step\'s three; the ceiling plug is the S headroom, cut only once dry', async () => {
