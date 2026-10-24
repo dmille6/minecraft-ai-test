@@ -543,7 +543,7 @@ await t('MUTANT KILLED: the retry blind to the owner -> it writes controls under
 })
 
 await t('MUTANT KILLED: the retry not re-asking the step -> it jumps into the refilled step', async () => {
-  await withMutant(REFLEX_PATH, '      if (!still.ok || still.dig.length) break\n', '', async m => {
+  await withMutant(REFLEX_PATH, '      if (!still.ok || still.dig.length || !inColumn()) break\n', '', async m => {
     const bot = missFirst()
     const set = bot.setControlState
     let refilled = false
@@ -829,6 +829,31 @@ await t('SURFACE BEFORE PLANNING (Paper gate, isolated-c): a licensed bot sunk a
   assert.ok(lic.r.surfaced >= 1, `the licensed ramp never surfaced: ${lic.r.stopped}`)
   const base = await run({ budgetMs: PC.PLUG_BUDGET_MS })
   assert.strictEqual(base.r.surfaced, 0, 'POSITIVE CONTROL: the unlicensed ramp surfaced')
+})
+
+await t('SURFACING YIELDS (Claude r4 P3-2): an owner taking the body during the hold gets no further control write and no dig', async () => {
+  const bot = sinker({ stuck: true })                                     // cannot swim up: the hold runs its full length
+  let held = null
+  const set = bot.setControlState
+  bot.setControlState = (n, on) => { if (n === 'jump' && on && held == null && bot.digs.length) held = Date.now(); return set(n, on) }
+  const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (held != null && Date.now() >= held + 300 ? 'drowning' : null) })
+  assert.ok(held != null, 'POSITIVE CONTROL: no surfacing hold after the cut')
+  assert.strictEqual(r.yielded, 'drowning')
+  const i = bot.controls.lastIndexOf('jump:true')
+  assert.deepStrictEqual(bot.controls.slice(i + 1), [], `controls written under the new owner: ${bot.controls.slice(i + 1)}`)
+  assert.ok(!bot.digs.some(d => d.at > held), 'dug under the new owner')
+})
+
+await t('MUTANT KILLED: surfacing blind to the owner -> it writes jump:false (and goes on) under the drowning rescue', async () => {
+  await withMutant(REFLEX_PATH, "      await sleep(100)\n      if ((yielded = yieldTo())) return 'yielded'\n", '      await sleep(100)\n', async m => {
+    const bot = sinker({ stuck: true })
+    let held = null
+    const set = bot.setControlState
+    bot.setControlState = (n, on) => { if (n === 'jump' && on && held == null && bot.digs.length) held = Date.now(); return set(n, on) }
+    await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (held != null && Date.now() >= held + 300 ? 'drowning' : null) }, m)
+    const i = bot.controls.lastIndexOf('jump:true')
+    assert.ok(bot.controls.slice(i + 1).length > 0, 'the mutant did not change behaviour')
+  })
 })
 
 await t('MUTANT KILLED: surfacing off -> the licensed sunk bot plans under the exemption', async () => {
