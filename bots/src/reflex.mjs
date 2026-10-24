@@ -27,6 +27,7 @@ import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan }
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
 import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
+import { skyHoldActive } from './respawnfall.mjs'   // respawnfall-01: a held bot never takes step_off
 import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
 // import from it -- which is the entire reason the lattice's most-chosen rung
@@ -1791,7 +1792,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // `pillar_up` above the bottom, so reaching the bottom WITH blocks means
         // something else is wrong and killing the bot would not fix it.
         const terminal = plan === 'step_off'
-        if (terminal ? est.blocks === 0 : plan !== 'none') {
+        // RESPAWNFALL-01: a bot sky_descend is holding for rescue never takes the deliberate fall (respawnfall.mjs)
+        if (!(terminal && skyHoldActive(bot)) && (terminal ? est.blocks === 0 : plan !== 'none')) {
           lastMaroonPrereqAt = Date.now()
           const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
           logEvent({
@@ -2959,6 +2961,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           let acted = null
           if (plan === 'step_off' && Date.now() - lastStepOffAt < STEP_OFF_COOLDOWN_MS) {
             acted = { ok: false, why: 'step_off on cooldown' }
+          } else if (plan === 'step_off' && skyHoldActive(bot)) {
+            // RESPAWNFALL-01: held for rescue on a platform (sky_descend's stay): staying put, never the deliberate fall
+            acted = { ok: false, why: 'step_off refused: sky_descend holds this bot for rescue (stay put, _needs_rescue raised)' }
           } else {
             if (plan === 'step_off') lastStepOffAt = Date.now()
             const routine = ESCAPE_ROUTINES[plan]
