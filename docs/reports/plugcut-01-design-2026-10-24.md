@@ -192,6 +192,15 @@ bearing from the FRAME the step was planned in: floored, x and z as well as y (C
   check called it refused.
 - The lip rule's climb is floored the same way.
 - The base keeps the raw check (a pre-existing misread, out of scope).
+- **Surface before planning** (r5; Paper library gate on 04b32da6, isolated-c stayed in 1 of 2). After the cut the body sank
+  to the pool floor, and the step was planned under the submerged exemption. The dig was then refused live with the head in
+  air, and the firing ended at the lip.
+  - `surfaceFirst` (licensed only) holds jump until the head is out (PLUG_SURFACE_MS 1.5 s; the owner is asked every 100 ms;
+    it respects the deadline).
+  - It runs at the top of each breach and step iteration and before each retry jump.
+  - A surfaced plan is the STRICTER one: no exemption. `surfaced=` on the ramp row counts heads brought out (r6, Claude r4
+    P3-1).
+  - Tested against the base, with a yield test and mutants.
 - **One more jump** (r3; Paper library gate run 2 on 6ee31c1f, isolated-d). The S step was cut, the jump from a bob was not
   taken, the firing ended, and with the ceiling open no reflex fired again in the run's nine minutes. A licensed step that
   was cut but not taken is jumped again, up to PLUG_STEP_RETRIES (2), in the SAME frame: no re-plan (a bobbing body reads
@@ -201,6 +210,9 @@ bearing from the FRAME the step was planned in: floored, x and z as well as y (C
   - r4 (Claude r3 P3-1): before each jump it re-asks `stairUpStep` in the same frame. It needs ok with nothing to dig, so a
     gravel refill or lava ends the retries.
   - The ramp row carries `retries=` (Claude r3 P3-3).
+  - r6 (Codex r4 P2 x2): the retry surfaces and looks first, then asks everything again immediately before the move:
+    the owner, the step still open with nothing to dig, the body in its column, and time left for the whole jump
+    (1,050 ms).
   - Each of these is tested, with a mutant.
 
 **Spare the plugs (`sparePlugs`).** The licensed step loop chooses first among the bearings whose first step digs none of
@@ -254,7 +266,7 @@ this firing's plugs.
 - Not a fix for water ABOVE the ceiling (a pocket: refused, one row), or for falling columns (refused).
 - It does not change the base ramp. Every behavioural change is behind the licence.
 
-## 5. Tests (`bots/test/plugcut.test.mjs`, 67; the variant 68)
+## 5. Tests (`bots/test/plugcut.test.mjs`, 71; the variant 72)
 
 **Fixtures.** `bots/test/fixtures/plugcut-scenes.json` holds 9x10x9 windows cut from the three failmine scenes by
 `pc_fixtures.py`, with full block states.
@@ -372,7 +384,7 @@ The variant is the branch `plugcut-on-c488c3e3`: the primary applied onto ceiles
   rides on the `ramp` wrapper.
 - **The diff matches the primary.** Its bots/src +/- lines are identical to the primary's, compared line for line.
 - **One variant-only test** (section F): a licensed firing prices its swings against its own 90 s.
-- **Suites:** ceilescape 67/67; plugcut 68 (the primary's 67 + F).
+- **Suites:** ceilescape 67/67; plugcut 72 (the primary's 71 + F).
 
 ## 9. Results (filled as they land)
 
