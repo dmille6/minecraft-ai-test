@@ -71,6 +71,7 @@ import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDe
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
+import { ceilEscapeModeDetail } from './ceilescape.mjs'   // ceilescape-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -322,6 +323,8 @@ function connect() {
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
     // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
     try { logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() }) } catch {}
+    // ceilescape-01: the licence row, once per spawn -- `_ceilescape_mode`, a kind the base cannot write (ceilescape.mjs)
+    try { logEvent({ kind: 'ceilescape_mode', status: 'success', snapshot: snapshot(bot), detail: ceilEscapeModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
     // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
