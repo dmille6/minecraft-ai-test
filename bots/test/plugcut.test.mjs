@@ -259,8 +259,8 @@ await t('THE LICENCE: due from the 3rd consecutive refusal counted (the 4th firi
   assert.deepStrictEqual([0, 1, 2, 3, 9].map(n => PC.plugDue(n, {})), [false, false, false, true, true])
   assert.strictEqual(PC.plugDue(5, { PLUGCUT: '0' }), false)
   assert.strictEqual(PC.plugDue(5, { PLUGCUT: '1' }), true)
-  assert.strictEqual(PC.plugCutModeDetail({}), 'on=1 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90 step_retries=2')
-  assert.strictEqual(PC.plugCutModeDetail({ PLUGCUT: '0' }), 'on=0 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90 step_retries=2')
+  assert.strictEqual(PC.plugCutModeDetail({}), 'on=1 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90 step_retries=2 surface_ms=1500')
+  assert.strictEqual(PC.plugCutModeDetail({ PLUGCUT: '0' }), 'on=0 after_refusals=3 max_plugs=3 rounds=3 clear_up=2 budget_s=90 step_retries=2 surface_ms=1500')
 })
 
 // ================================================================================================================
@@ -380,9 +380,11 @@ await t('SPARE THE PLUGS (pure): bearings whose first step digs a placed plug ar
 
 /** isolated-c, licensed: plugged and cut, then the body SINKS to the pool floor (head under: the flood check's exemption). */
 const DIRT_BAG = () => [{ name: 'dirt', count: 32, type: reg.itemsByName.dirt.id }, COBBLE(64)]
-const sinker = () => botFor(ISOC, { items: DIRT_BAG(), onDig: (k, w, b) => { popSapling(k, w); if (k === '0,2,0') b.entity.position = new Vec3(0.5, -0.9, 0.5) } })
+// `stuck: true`: a body that cannot swim up (rise 0), so the licensed surfacing fails and the plans read the submerged
+// exemption -- the case where sparing is what keeps the plug (Paper probe 3, before r5's surfacing)
+const sinker = ({ stuck = false } = {}) => botFor(ISOC, { items: DIRT_BAG(), ...(stuck ? { rise: 0 } : {}), onDig: (k, w, b) => { popSapling(k, w); if (k === '0,2,0') b.entity.position = new Vec3(0.5, -0.9, 0.5) } })
 await t('SUBMERGED AFTER THE CUT (Paper probe 3): the ramp does not dig the ceiling\'s plug back out; it takes a bearing that spares it', async () => {
-  const bot = sinker()
+  const bot = sinker({ stuck: true })
   await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
   assert.deepStrictEqual(bot.places.filter(p => p.ok).map(p => p.cell), ['0,2,-1'], 'POSITIVE CONTROL: the ceiling was not plugged')
   assert.ok(bot.digs.some(d => d.cell === '0,2,0'), 'POSITIVE CONTROL: the ceiling was not cut')
@@ -672,7 +674,7 @@ await t('THE CHAIN on isolated-c: three refusals as today (nothing placed, a gro
   assert.strictEqual(f4.refusals, 0, 'progress resets the counter')
   assert.strictEqual(f4.stair.plugged, 2)
   const ramp4 = rows.find(x => x.kind === '_climb_flood_ramp')
-  assert.match(ramp4.detail, / plugged=2 retries=\d+ /)
+  assert.match(ramp4.detail, / plugged=2 retries=\d+ surfaced=\d+ /)
 })
 
 await t('ROLLBACK (PLUGCUT=0): the 4th firing and every one after refuse exactly as the base, nothing placed', async () => {
@@ -814,9 +816,32 @@ await t('MUTANT KILLED: the step plan trusts its plugs without re-asking stairUp
     })
 })
 
+await t('SURFACE BEFORE PLANNING (Paper gate, isolated-c): a licensed bot sunk after the cut swims up before it plans; the base plans sunk', async () => {
+  const run = async (opts, mod = R) => {
+    const bot = sinker()
+    const trace = []
+    const set = bot.setControlState
+    bot.setControlState = (n, on) => { trace.push(`${n}:${on}:${R.submergedAt ? '' : ''}`); return set(n, on) }
+    const r = await ramp(bot, opts, mod)
+    return { bot, r }
+  }
+  const lic = await run({ plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(lic.r.surfaced >= 1, `the licensed ramp never surfaced: ${lic.r.stopped}`)
+  const base = await run({ budgetMs: PC.PLUG_BUDGET_MS })
+  assert.strictEqual(base.r.surfaced, 0, 'POSITIVE CONTROL: the unlicensed ramp surfaced')
+})
+
+await t('MUTANT KILLED: surfacing off -> the licensed sunk bot plans under the exemption', async () => {
+  await withMutant(REFLEX_PATH, '    if (!plug || !submergedAt(bot)) return true\n', '    return true\n', async m => {
+    const bot = sinker()
+    const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
+    assert.strictEqual(r.surfaced, 0, 'the mutant did not change behaviour')
+  })
+})
+
 await t('MUTANT KILLED: no plug sparing -> the submerged bot digs the ceiling\'s plug out first (N, top down)', async () => {
   await withMutant(REFLEX_PATH, '      if (!plug) return any()\n', '      return any()\n', async m => {
-    const bot = sinker()
+    const bot = sinker({ stuck: true })
     await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
     assert.ok(bot.digs.some(d => d.cell === '0,2,-1'), `the mutant did not change behaviour: ${bot.digs.map(d => d.cell)}`)
   })
