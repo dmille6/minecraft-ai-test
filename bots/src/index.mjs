@@ -411,6 +411,7 @@ function connect() {
           // IN PLACE and bounded (Codex r3 P2, Claude r3 P3-2): a search running now only sees costs change, never moves
           addFootprint(lsIdx, cell, (x, y, z) => { const q = bot.blockAt(new Vec3(x, y, z)); return q == null ? null : q.boundingBox === 'block' })
           lsActive = [...lsActive, { x: cell.x, y: cell.y, z: cell.z }]
+          if (lsIdx.full) lsLast = { ...lsLast, full: true }   // said in the next liveness row, not only after a rebuild
         }
       } catch { /* telemetry */ }
     }

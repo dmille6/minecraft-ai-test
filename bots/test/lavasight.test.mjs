@@ -329,28 +329,70 @@ await t('A SLAB FLOOR: the guard floors a node on a bottom slab a cell lower, an
     assert.ok(r2.path.every(n => !(n._lsS > 0)), 'the mutant prices none of them')
   })
 })
-await t('A LADDER: a climb up past lava is priced where the guard refuses the node on top of the ladder (Codex r3 P1)', () => {
-  // a ladder column against a wall at (0, 61..64, 0); lava at (2,65,1) beside the top; the climb ends at (0,65,0)
+// a ladder column against a wall at (0, 61..64, 0) with an open top room; lava at (2,65,1) beside the top (Codex r3 P1, r4 P1)
+function ladderWorld () {
   const ladderBlocks = [], air = []
   for (let y = 61; y <= 66; y++) air.push([0, y, 0])
   for (let y = 61; y <= 64; y++) ladderBlocks.push([0, y, 0])
   for (let x = -2; x <= 3; x++) for (let z = -2; z <= 3; z++) for (let y = 65; y <= 67; y++) air.push([x, y, z])
   const base = makeWorld({ floor: 64, air, lava: [[2, 65, 1]] })
-  // ladders: a second world layer (prismarine 'ladder' block, default facing)
   const lad = new Set(ladderBlocks.map(c => c.join(',')))
   const world = { ...base, at: (x, y, z) => { const k = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`; if (lad.has(k)) { const b = Block.fromStateId(registry.blocksByName.ladder.defaultState, 0); b.position = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z)); return b } return base.at(x, y, z) } }
   world.solidAt = (x, y, z) => { const b = world.at(x, y, z); return b == null ? null : b.boundingBox === 'block' }
-  const H = harness(world, new Vec3(0.5, 61, 0.5))
+  return world
+}
+// the charge of a whole path against the guard's verdict on each executed segment: exact, except that a path ENDING on a
+// climbable may under-charge its last segment (never over-charge)
+function pathCharges (world, H, res) {
+  const nodes = H.guardNodes(res)
+  let refused = 0, lastIntoClimbRefused = false
+  for (let i = 0; i < res.path.length; i++) {
+    const g = lavaRefused(world.at, [nodes[i], nodes[i + 1]])
+    if (g) refused++
+    if (i === res.path.length - 1) { const b = world.at(res.path[i].x, res.path[i].y, res.path[i].z); lastIntoClimbRefused = g && b?.name === 'ladder' }
+  }
+  const charged = res.path.reduce((a, n) => a + (n._lsS ?? 0), 0)
+  return { refused, charged, lastIntoClimbRefused }
+}
+await t('A LADDER, UP: a climb past lava beside the ladder\'s top is charged exactly for the segments the guard refuses (Codex r3 P1)', () => {
+  const world = ladderWorld(), H = harness(world, new Vec3(0.5, 61, 0.5))
   const idx = LS.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
   const res = H.plan(H.wrap(H.profile(), idx), new goals.GoalBlock(0, 65, 0))
   assert.equal(res.status, 'success', 'the climb plans')
-  const nodes = H.guardNodes(res)
-  let refused = 0
-  for (let i = 0; i < res.path.length; i++) {
-    const g = lavaRefused(world.at, [nodes[i], nodes[i + 1]])
-    if (g) { refused++; assert.ok((res.path[i]._lsS ?? 0) > 0, `a refused climb segment ${i} (${JSON.stringify(nodes[i + 1])}) is priced`) }
-  }
-  assert.ok(refused >= 1, `positive control: the guard refuses ${refused} segment(s) of the climb`)
+  const c = pathCharges(world, H, res)
+  assert.ok(c.refused >= 1, `positive control: the guard refuses ${c.refused} segment(s) of the climb`)
+  assert.equal(c.charged, LS.CORE_MOVE * c.refused, `charged ${c.charged} for ${c.refused} refused segment(s)`)
+})
+await t('A LADDER, DOWN: a descent the guard accepts costs exactly the base, and a capped search still passes (Codex r4 P1)', () => {
+  const world = ladderWorld(), H = harness(world, new Vec3(0.5, 65, 0.5))
+  const idx = LS.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
+  const goal = new goals.GoalBlock(0, 63, 0)
+  const rb = H.plan(H.profile(), goal), rc = H.plan(H.wrap(H.profile(), idx), goal)
+  assert.equal(rb.status, 'success'); assert.equal(rc.status, 'success')
+  assert.equal(lavaRefused(world.at, H.guardNodes(rc)), false, 'positive control: the guard accepts the whole descent')
+  assert.equal(rc.cost, rb.cost, `an accepted route is never priced (${rc.cost} vs ${rb.cost})`)
+  assert.equal(H.plan(H.wrap(H.profile(), idx), goal, 1).status, 'success', 'capped at 1: the candidate passes where the base does')
+  assert.equal(H.plan(H.profile(), goal, 1).status, 'success', 'control: the base passes at that cap')
+})
+await t('MUTANT KILLED: charging a move into a climbable on EITHER form (r4) over-prices the accepted descent', async () => {
+  await withMutant(LS_URL, '    own = B0.forms.every(b => hits(from, b)) ? CORE_MOVE : 0\n', '    own = B0.forms.some(b => hits(from, b)) ? CORE_MOVE : 0\n', async mod => {
+    const world = ladderWorld(), H = harness(world, new Vec3(0.5, 65, 0.5))
+    const idx = mod.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
+    const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
+    const m = H.profile(); m.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null, env: { start: { x: 0, y: 65, z: 0 }, blockAt: (x, y, z) => world.at(x, y, z), ids } }), {})
+    assert.notEqual(H.plan(m, new goals.GoalBlock(0, 63, 0), 1).status, 'success', 'the mutant walls the capped descent off')
+  })
+})
+await t('MUTANT KILLED: never settling the climbable\'s charge on its child under-prices the refused climb', async () => {
+  await withMutant(LS_URL, '    if (node._lsIn) settle = Math.max(0, (hits(node._lsIn.from, from) ? CORE_MOVE : 0) - node._lsIn.charged)\n', '', async mod => {
+    const world = ladderWorld(), H = harness(world, new Vec3(0.5, 61, 0.5))
+    const idx = mod.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
+    const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
+    const m = H.profile(); m.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null, env: { start: { x: 0, y: 61, z: 0 }, blockAt: (x, y, z) => world.at(x, y, z), ids } }), {})
+    const res = H.plan(m, new goals.GoalBlock(0, 65, 0))
+    const c = pathCharges(world, H, res)
+    assert.ok(c.charged < LS.CORE_MOVE * c.refused, `the mutant under-charges (${c.charged} for ${c.refused})`)
+  })
 })
 await t('CAPPED SEARCHES: wherever the base reaches a goal within a cost cap by a route the guard accepts, the candidate does too (Codex r2 P1, r3 P2)', () => {
   // GoalBlock, so the base's cost >= h(start) and the cap is a real cap (searchRadius >= 0); one slice per search (the

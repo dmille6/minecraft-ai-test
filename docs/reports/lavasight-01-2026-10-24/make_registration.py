@@ -57,10 +57,11 @@ def reg(sha, base):
              'note': 'MAPPED: >= 80% of ALL canary bots with newest mode state ok (the publisher reached them). BLOCKS KEEP.'},
             {'read': 'lavasightread', 'field': 'instrument', 'op': '>=', 'value': 1, 'on_fail': 'REVERT',
              'note': 'INSTRUMENT: liveness coverage >= 0.75 of the canary\'s observed 10-min slots, both arms present. BLOCKS KEEP.'},
-            {'read': 'lavasightread', 'field': 'episode_did', 'op': '<=', 'value': 0, 'on_fail': 'REVERT',
-             'note': 'PRIMARY (pre-declared, Claude r2 P2-2): lava refusal episodes per bot-h, DiD canary v control, must not RISE. '
-                     'Null (4 base-build dry runs): -0.48 .. +0.96 on rates of ~1-2/bot-h, so this line alone is close to a coin '
-                     'flip; it blocks a KEEP on a rise, it does not prove a fall. BLOCKS KEEP (INCONCLUSIVE, not REVERT).'},
+            {'read': 'lavasightread', 'field': 'episode_did', 'op': '<=', 'value': -0.5, 'on_fail': 'REVERT',
+             'note': 'PRIMARY (pre-declared; Claude r2 P2-2, r4 P2-1): lava refusal episodes per bot-h, DiD canary v control, '
+                     '<= -0.5 -- a fall beyond the whole null range (4 base-build dry runs, roughly two independent windows: '
+                     '-0.48 .. +0.96 on rates of ~1-2/bot-h). So a KEEP means the episodes FELL, not merely that nothing objected; '
+                     'a smaller or absent fall closes INCONCLUSIVE. BLOCKS KEEP (INCONCLUSIVE, not REVERT).'},
             {'read': 'lavasightread', 'field': 'timeout_did', 'op': '<=', 'value': 6, 'on_fail': 'REVERT',
              'note': 'NO-HARM: path_timeout per bot-h DiD <= +6. Null (4 base-build dry runs, 180 min, 4 pools): -4.5 .. +2.3; base ~19/bot-h. BLOCKS KEEP.'},
             {'read': 'lavasightread', 'field': 'nopath_did', 'op': '<=', 'value': 50, 'on_fail': 'REVERT',
