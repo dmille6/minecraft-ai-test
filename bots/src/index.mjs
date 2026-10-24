@@ -75,7 +75,7 @@ import { lavasightOn, lavaMapReader, lavaMapFileIn, lavasightModeArgs, lavasight
 import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
 import { ceilEscapeModeDetail } from './ceilescape.mjs'   // ceilescape-01
 import { plugCutModeDetail } from './plugcut.mjs'   // plugcut-01
-import { respawnfallModeDetail } from './respawnfall.mjs'   // respawnfall-01
+import { respawnfallModeDetail, SAFE_DROP as SKY_SAFE_DROP } from './respawnfall.mjs'   // respawnfall-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -919,6 +919,22 @@ function connect() {
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
     bot.descentMovements = descendMoves
+    // RESPAWNFALL-01: the DECK profile -- a walk across a high platform to the cheapest column down (skills.mjs skyDescend).
+    // No drop a body cannot take for free (SAFE_DROP), no digging, no towering, no parkour, no sprint (a sprint overshoots a
+    // 1-wide bridge), and no bridging: nothing in this walk may step past what is already there.
+    const deckMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(deckMoves, moves)
+    deckMoves.canDig = false
+    deckMoves.allow1by1towers = false
+    deckMoves.allowParkour = false
+    deckMoves.allowSprinting = false
+    deckMoves.maxDropDown = SKY_SAFE_DROP
+    deckMoves.scafoldingBlocks = []
+    bot.withDeckMovements = async (fn) => {
+      bot.pathfinder.setMovements(deckMoves); bot.movementProfile = 'deck'
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
     bot.withDescentMovements = async (fn) => {
       bot.pathfinder.setMovements(descendMoves); bot.movementProfile = 'descend'
       try { return await fn() }
