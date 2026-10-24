@@ -15382,7 +15382,9 @@ export function foundBankGroups (bot, wanted = []) {
   const out = new Set()
   try {
     const items = bot.inventory?.items?.() ?? []
-    for (const st of townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active }).steps ?? []) { const n = st?.name ?? st?.it?.name; if (n) out.add(groupOfItem(n)) }
+    // JUNKOUT-01 x FOUND-01 (JIT 10-24, Codex P2): WITHOUT junkout's allowance rows (tail: false) -- the rows' surplus (torches,
+    // bone meal, spare stations) is the tail's to bank, never a reason to assign or found a store chest; the base's groups exactly
+    for (const st of townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active, tail: false }).steps ?? []) { const n = st?.name ?? st?.it?.name; if (n) out.add(groupOfItem(n)) }
     for (const d of depositPlan(items, null, { wants: wanted }) ?? []) if (d?.name) out.add(groupOfItem(d.name))
   } catch { /* nothing known */ }
   return [...out]

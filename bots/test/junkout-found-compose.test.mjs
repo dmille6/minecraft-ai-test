@@ -51,7 +51,6 @@ async function withMutant (p, old, neu, fn) {
   writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
-async function killedBy (fn) { try { await fn(); return false } catch { return true } }
 
 /** found-compose.test's greenfield town + ONE chest beside the bot (not a plan cell: the tail's container). */
 const CHEST = { x: 3, y: 64, z: 2 }
@@ -112,22 +111,43 @@ await t('THE YIELD LIST (pure): the visit yields to the town deposit, the plinth
     assert.equal(COG.visitYieldsTo(o), false, JSON.stringify(o))
   }
 })
+// The mutants assert the REGRESSION itself (Claude JIT 10-24 review P3: a bare "it threw" would also score a timeout as a kill):
+// under each mutant the first decision is the tail, not found_work.
 const FOUND_IN_LIST = "'count_town', 'found_store', 'found_work'])"
 await t('MUTANT KILLED: the found slot dropped from the visit\'s yield list -> the tail replaces found_work (the found visit spent on nothing)', async () => {
-  const k = await withMutant(COG_PATH, FOUND_IN_LIST, "'count_town'])", async M => killedBy(async () => {
+  await withMutant(COG_PATH, FOUND_IN_LIST, "'count_town'])", async M => {
     const w = town(FOUND_BAG())
     const { ran } = await decisions(w.bot, 1, { Loop: M.CognitiveLoop })
-    assert.equal(ran[0]?.skill, 'found_work', JSON.stringify(ran))
-  }))
-  assert.ok(k, 'the mutant survived')
+    assert.ok(isTail(ran[0]), `mutant: the tail took found_work's decision: ${JSON.stringify(ran)}`)
+  })
 })
 await t('MUTANT KILLED: the visit no longer asks the yield list (the blocked line) -> the tail replaces found_work', async () => {
-  const k = await withMutant(COG_PATH, 'const blocked = visitYieldsTo(order) || exitFirst()', 'const blocked = exitFirst()', async M => killedBy(async () => {
+  await withMutant(COG_PATH, 'const blocked = visitYieldsTo(order) || exitFirst()', 'const blocked = exitFirst()', async M => {
     const w = town(FOUND_BAG())
     const { ran } = await decisions(w.bot, 1, { Loop: M.CognitiveLoop })
-    assert.equal(ran[0]?.skill, 'found_work', JSON.stringify(ran))
-  }))
-  assert.ok(k, 'the mutant survived')
+    assert.ok(isTail(ran[0]), `mutant: the tail took found_work's decision: ${JSON.stringify(ran)}`)
+  })
+})
+
+// THE FOUND SLOT'S BANK GROUPS (Codex JIT 10-24 P2 / Claude P3): foundBankGroups asks townDepositPlan which groups a deposit
+// would bank. Under junkout-01 (BAG_ALLOWANCE on) the default plan APPENDS the allowance rows (torch -> build, bone meal ->
+// farm, spare stations), so allowance-only surplus made the found slot assign or found a store chest for them -- a new chest
+// for the tail's cleanup, which the tail itself never builds. The found slot reads the plan WITHOUT the rows (tail: false):
+// its groups are exactly the base's.
+const bagBot = stacks => { stacks.forEach((it, i) => { it.slot = 9 + i }); return fakeWorld({ bag: stacks, at: [2.5, 64, 0.5] }).bot }
+const TD = await import('../src/towndeposit.mjs')
+const ROWS_BAG = () => [stack('torch', 11), stack('bone_meal', 30)]
+await t('FOUND BANK GROUPS: allowance-only surplus (torches, bone meal) gives NO group; POSITIVE CONTROL: the deposit\'s own plan banks both; CONTROL: base surplus (a third log stack) still gives its group', () => {
+  const b = bagBot(ROWS_BAG())
+  assert.deepEqual(TD.townDepositPlan(b.inventory.items(), {}).steps.map(st => st.name).sort(), ['bone_meal', 'torch'], 'the rows are live in the deposit')
+  assert.deepEqual(S.foundBankGroups(b, []), [], 'the found slot does not see them')
+  assert.deepEqual(S.foundBankGroups(bagBot([stack('oak_log', 64), stack('oak_log', 64), stack('oak_log', 64)]), []), ['wood'])
+})
+await t('MUTANT KILLED: foundBankGroups without tail: false -> the rows\' groups (build, farm) reach the found slot', async () => {
+  const SK_PATH = new URL('../src/skills.mjs', import.meta.url)
+  await withMutant(SK_PATH, 'townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active, tail: false })', 'townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active })', async M => {
+    assert.deepEqual(M.foundBankGroups(bagBot(ROWS_BAG()), []).sort(), ['build', 'farm'], 'mutant: the allowance rows feed the found slot')
+  })
 })
 
 console.log(`\njunkout-found-compose: ${pass} passed, ${fail} failed`)
