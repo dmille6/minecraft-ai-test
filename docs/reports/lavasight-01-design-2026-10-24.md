@@ -1,4 +1,4 @@
-# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r2, 2026-10-24)
+# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r3, 2026-10-24)
 
 Mineshaft safety fix **F5b** (`docs/reports/mineshaft-safety-2026-10-23.md` §7, approved r10; OWNER ANSWERS O3). **OWNER
 2026-10-24:** run it right after lavastep-01, and feed it **from the per-seed hazard map from day one**
@@ -8,7 +8,13 @@ Base: fleet `fb8de72f` (ironsmelt-01, promoted 10-24 ~08:28Z: rows carry `run_id
 fb8de72f`). Branch `lavasight-on-fb8de72`. No bot, host, queue, scheduler, manifest, env or world was changed. Host actions
 were read-only: the population query (§1) and a dry run of the read against live rows (§7).
 
-**r2** answers the r1 reviews (both CHANGE; §10). The mechanism moved from the step hook to the **move level**, which makes
+**r3** answers the r2 reviews (Codex CHANGE, 4 P1; Claude APPROVE with P2s; §10): a move is now judged in the ONE form
+the guard is handed (postProcessPath's support tops before the first dig, raw cells after, the bot's floored start), which
+makes the price exact on executed paths and keeps every cost-capped search the base passes by an accepted route; the read
+counts observed bot-time; the publisher requires the refresh heartbeat and ships with its cron wrapper, rehearsal and
+header line.
+
+**r2** answered the r1 reviews (both CHANGE). The mechanism moved from the step hook to the **move level**, which makes
 "never a wall" true by construction instead of by arithmetic; the footprint is now the guard's own refusal set, proved cell
 by cell; the ring, egress and warn rows are gone.
 
@@ -71,8 +77,16 @@ by cell; the ring, egress and warn rows are gone.
 
 ### 2.1 The publisher (`scripts/host/lavasight/lavamap_publish.py`, staged; the operator installs)
 
-- **Triggered by a good refresh** (Claude r1 R5): it publishes only when `~/hazardmap/out/heartbeat.json` says `ok` at this
-  map's `generated_at`; otherwise it writes nothing and exits 0. An hourly cron at :40 picks the 05:10Z refresh up.
+- **Triggered by a good refresh** (Claude r1 R5), and the heartbeat is **required** (Codex r2 P2): it publishes only when
+  `~/hazardmap/out/heartbeat.json` says `ok` at this map's `generated_at` (live check 10-24: heartbeat `at` 08:56:43Z = the
+  map's `generated_at`, `refresh_ok` true); otherwise it writes nothing and exits 0. An hourly cron at :40 picks the 05:10Z
+  refresh up.
+- **How it runs** (`lavamap-cron.sh`, the frontier publisher's pattern): mcbot cannot read /home/mike, so mike's shell sends
+  everything on stdin -- the program text, the map, the heartbeat -- to a one-line BOOT under `sudo -n -u mcbot`, one run at
+  a time (flock). Rehearsed end to end on .31 into a trial root as mike (16 of 16 pools written, `check` OK; removed after).
+- **Install** (`install-lavamap.sh --rehearse | --install | --rollback`, the operator's step, before the draw): the app copy,
+  the suite, one real publish, the cron line, and the fleetstatus header line (`patch_fleetstatus.py`, anchored on the
+  frontier lines like the hazardmap patch; patch + revert rehearsed byte-identical on a copy of the installed file).
 - Refuses an unknown `schema`/`schema_version`, a map past `stale_after`, or seed keys that are not decimal strings: exit 3,
   nothing written (the bots' own rule then fails them open at the old file's `stale_after`).
 - For each world W of `seeds[s].worlds` whose `/var/lib/mcai/_pool-W` exists: lava hazards whose
@@ -81,8 +95,10 @@ by cell; the ring, egress and warn rows are gone.
 - Writes `lava-map.json` by temp file in the same directory, fsync, rename. As **mcbot** via `sudo -n -u mcbot` (the frontier
   publisher's pattern), never root (refused), never through a symlink (refused), never creates a directory. A re-run of the
   same map is byte-identical and leaves the file alone (the file carries no clock of its own).
-- `check` gives the fleetstatus header line: `lavamap OK: N pool files inside stale_after`, or `LAVAMAP ALARM: ...` (absent,
-  unreadable, stale), skipping `.pre-reseed-*` and `_pool-self-*` directories.
+- `check` gives the fleetstatus header line: `lavamap OK: N of N pool files inside stale_after`, or `LAVAMAP ALARM: ...`
+  (absent, unreadable, stale; zero pools examined is an alarm too), over the pools whose world the map lists, skipping
+  `.pre-reseed-*` and `_pool-self-*` directories. Live 10-24, before any install: `LAVAMAP ALARM: 16 of 16 pool files bad`,
+  as it should be.
 - Base builds never open the file, so publishing to every pool cannot touch the control arm.
 - Tests: 8 behaviour cases and 11 anchored mutants (`test_lavamap_publish.py`, run inside `npm test` by
   `lavamap-publish.test.mjs`, which also feeds the publisher's own output to the bot's parser: one contract, both halves).
@@ -139,27 +155,39 @@ Unknown cells count as open (more price, never less). **Test:** 60 synthetic wor
 itself, random caves and slabs, open shafts), every feet cell in an 11x11x17 box: core == guard refusal for all of them, with
 a positive control (core is neither empty nor everything), and two mutants (no occlusion; no drop column) that break it.
 
-### 3.3 The move surcharge
+### 3.3 The move surcharge, in the form the guard will see
 
-- A move from node N to M is sampled exactly as `corridorSafe` samples a segment (k = 1..n at 0.5 steps, floored) **in both
-  node forms the guard is handed**: block centres (postProcessPath puts walk nodes on top of their block, +0.5) and bare
-  integer cells (nodes after the first dig or place, and the bot's floored start). A mixed-sign diagonal samples a side cell
-  only in the integer form (Claude r1 P1-1), so both forms are judged and either one prices the move.
+- index.mjs's corridor hook hands the guard `[floor(bot position), ...result.path]`, and postProcessPath has moved every node
+  **before the first dig or place** onto the top of its support (water and climbables: the cell centre; else the top of the
+  feet cell's shapes, else of the cell below's, else one below), leaving the rest as raw cells. On a bottom slab a node sits at
+  y - 0.5 and the guard floors it a cell lower (Codex r2 P1-1).
+- So each generated move is annotated (`_lsRaw`: it digs or places, or its parent was raw) and judged on ONE segment: from the
+  parent's executed form (the search's start = the bot's floored position) to its own (`processedPos`, a transcription of
+  postProcessPath and getPositionOnTopOf, or the raw cell), sampled exactly as `corridorSafe` samples (k = 1..n at 0.5 steps,
+  floored). r2 judged the union of two forms, which priced moves the guard accepts (Codex r2 P1-2).
 - Any sample in the footprint -> `CORE_MOVE` = 50 (a detour of up to ~50 blocks per refused move is preferred).
-- **Test:** every neighbour of every node in a 13x13x4 box on 20 noisy worlds: priced iff the guard refuses the move in either
-  form.
+- **Tests, on the REAL pathfinder** (the installed plugin on a fake bot, so getPathFromTo applies postProcessPath): every
+  segment of every planned path on 40 noisy worlds with slabs, carpets, water and digging profiles is priced iff the guard
+  refuses that executed segment; and a slab-floor world where the processed nodes sit at y - 0.5.
+- Not modelled: pathFromPlayer can drop the first node(s) of a re-plan, so the guard's first segment can span more than one
+  move (Claude r2 P3-1); and a climbable's form depends on the next node. Both only shift price; the guard is unchanged.
 
 ### 3.4 Never a wall, and what can still change
 
 - **The neighbour set is the base's** (§0.3). An exhaustive search (no cost cap) is noPath for the candidate iff it is for the
-  base (tested on a fenced plot).
+  base (tested on a fenced plot). One caveat (Claude r2 P2-4): A* keys nodes on xyz, but a node carries `remainingBlocks`
+  (scaffold left), which gates towers and bridges downstream; a raised cost can make A* keep a different predecessor of a
+  node, with fewer blocks left. That can only differ where the base's best route to the node crosses a priced (= refused)
+  move, so it is harmless in practice and not claimed away.
 - **What can change:**
   - which path is chosen (the point);
   - **timeouts**, because A* explores more before accepting a priced move (no-harm line in the read);
-  - **cost-capped searches** (`searchRadius` is a cost cap): the gather approach and its re-plans (slack 400), the ore tunnel
-    (400), reachprobe (96). A capped search can now fail where the base succeeded, but only by spending its slack on moves the
-    guard refuses, so the base's success there was a route the guard would refuse anyway (a target beside lava). Reported
-    through movement successes in the no-harm line, not claimed away.
+  - **cost-capped searches** (`searchRadius` is a cost cap: the gather approach and its re-plans, slack 400; the ore tunnel,
+    400; reachprobe, 96). A move the guard accepts is never priced, so **wherever the base reaches a goal within a cap by a
+    route the guard accepts, the candidate does too, at no greater cost** -- tested as a property over 40 noisy worlds at the
+    tightest cap the base passes (Codex r2 P1-2). A capped search fails for the candidate only where every route within the
+    cap has a refused move, which the base would have executed into the guard's refusal. Reported through movement
+    successes in the no-harm line.
 
 ### 3.5 Where it applies
 
@@ -196,9 +224,10 @@ refuses an unsafe leg as today, and today's chain runs from there.
 | `_lavasight` | every 10 min, whatever happened | `state`, `file_cells`, `ring`, `active`, `unloaded`, `removed`, `index`, `full`, `rebuild_ms`, `priced_moves`, `held_seen`, `held_priced`, `set_changed`, `corridor_checks`, `corridor_refused`, `ring_added` (counters are per 10 min) |
 | `_lavasight_route` | `path_update` success/partial at most 1 per 30 s, plus every noPath/timeout | `status`, `profile`, `nodes`, `core_nodes`, `min_d`, `refused`, `priced` (moves surcharged since the last route row), `held`, `active`, `index`, `goal` |
 
-- `held_priced` and `set_changed` are counted **at the wrapper, from what it did**, not from its decision inputs: `held_priced`
-  counts a surcharge applied while a body-moving reflex was active; `set_changed` counts a returned neighbour list whose length
-  differs from the base's. Each has a mutant that makes it nonzero (§6).
+- `held_priced` and `set_changed` are **code-regression tripwires, 0 by construction in this wiring** (Claude r2 P2-1): the
+  wrapper decides and counts from the same reflex value, and it maps over the base's own array. Each has a mutant that makes
+  it nonzero (§6), so a regression is caught; neither can see an arm that owns the body without appearing in
+  `activeReflex()`. G2 is reported **NOT EXERCISED** when `held_seen` = 0 (no held search met the footprint at all).
 - `corridor_checks` / `corridor_refused` count every guard decision, unsampled (Codex r1 P2).
 - Rollback: `LAVASIGHT=0` (no wrapper installed, no ring, no relocation forbid; the mode row says `off`).
 
@@ -221,12 +250,18 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
 
 ## 7. Read and registration (`scripts/host/lavasightread.py`)
 
-- **Defects (REVERT):** G2 `held_priced` > 0; G3 `set_changed` > 0; G4 any `_lavasight*` row on a control pool after the deploy;
-  G5 a canary `_lavasight` row without its gate fields. Each has a failing fixture in `--selftest` (run inside `npm test`).
-- **Liveness (blocks KEEP):** a canary licence `on=1`; >= 80% of canary bots' newest mode state `ok` ("mapped": the publisher
-  ran); liveness coverage >= 0.75 of the canary's 10-min slots and both arms present (INSTRUMENT).
+- **Defects (REVERT):** G2 `held_priced` > 0 and G3 `set_changed` > 0 (tripwires, §5); G4 any `_lavasight*` row on a control
+  pool after the deploy; G5 a canary `_lavasight` row without its gate fields. Each has a failing fixture in `--selftest`
+  (run inside `npm test`).
+- **Bot-time is observed, not assumed** (Codex r2 P1-3): bot-hours are (bot, 10-min slot) pairs with a retained row / 6, so a
+  bot restarted onto the canary build mid-window, or one whose off-build rows were skipped, adds only the slots it was seen
+  in (a staggered-restart fixture shows no manufactured fall).
+- **Liveness (blocks KEEP):** a canary licence `on=1`; >= 80% of **all** canary bots (a bot without a mode row is unmapped;
+  Codex r2 P1-4) with newest mode state `ok` ("mapped": the publisher ran); liveness coverage >= 0.75 of the canary's
+  observed slots and both arms present (INSTRUMENT).
 - **Primary (DiD, per bot-h):** lava refusal **episodes** -- bot-minutes with >= 1 `_lava_corridor` or lava blind-step row
-  (rows are throttled at 5 s and a failed leg writes up to four blind-step rows; Claude r1 P2-3). **Co-primary:** danger-block
+  (rows are throttled at 5 s and a failed leg writes up to four blind-step rows; Claude r1 P2-3), never counting a refusal for
+  an unknown cell (Claude r2 P3-7). **Co-primary:** danger-block
   episodes on lava-like blocks. Descriptive on the canary: guard refusals per check (unsampled), priced moves, core nodes.
 - **No-harm:** `path_noPath` and `path_timeout` per bot-h DiD; movement successes (goto, explore, gather) per bot-h DiD.
 - **Report lines:** deaths by family per arm (**the two-death floor applies**: one death is named, never a verdict); **deaths at
@@ -252,12 +287,31 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   ("Pathfinder doesn't avoid lava") is open.
 - **Mindcraft, Voyager, Odyssey:** no lava memory (mineshaft §10).
 
-## 9. Open for the reviewers
+## 9. Settled with the reviewers
 
-- **R7.** `CORE_MOVE` = 50: search effort vs strength. Paper and the no-harm timeout line measure it.
-- **R8.** The cost-capped searches (§3.4): accept and report, or exempt the capped probes?
+- **R7.** `CORE_MOVE` = 50: kept (Claude r2): a priced move is a refused move, so the size trades a detour found against search
+  effort; the no-harm timeout line measures it.
+- **R8.** Cost-capped searches: accept and report (Claude r2), now with the property test (§3.4) that a guard-accepted route
+  within the base's cap is always found.
 
 ## 10. Review record
+
+**Design r2 + code r1** (`72189ab4`): Codex CHANGE (4 P1, 3 P2); Claude APPROVE (no P1; 4 P2, 10 P3). What r3 changed:
+- the move judged in the one executed form, with postProcessPath's support tops, tested on the real pathfinder over every
+  planned segment and on a slab floor (Codex P1-1, P1-2; Claude P3-1); capped searches tested as a property (Codex P1-2, R8);
+- the read's bot-time from observed slots, a staggered-restart fixture (Codex P1-3); the mapped share over all canary bots
+  (Codex P1-4); unknown-cell refusals out of the primary (Claude P3-7); G2/G3 relabelled tripwires, G2 NOT EXERCISED without
+  a held search (Claude P2-1);
+- unknown cells stop the footprint's scans as they stop the guard's, with a two-implication oracle where an unknown cell can
+  refuse first, and a mutant (Codex P2); one scan per column (Claude P3-4);
+- the overworld checked at every consumer (Codex P2); a guard-named cell re-admitted and priced at once (Claude P3-2, P3-3);
+- the publisher: heartbeat required, honest `check` totals and an alarm on zero pools, the directory fsync, the stdin cron
+  wrapper, the installer and the header line (Codex P2, Claude P2-3, P3-8); python mutants count only an assertion as a
+  kill, and the WIRED mutant moves the block rather than deleting it (Claude P3-9);
+- wording: `remainingBlocks` (Claude P2-4); the route row's `priced` is per row interval (Claude P3-5).
+- Not built: a no-price counterfactual search on terminal routes (Claude r1 P2-4); the noPath/timeout DiD stands in for it.
+- The full runner caught one stale source anchor on r2 (lava-guards-wired.test.mjs: the corridor refusal block's window);
+  the lavasight hook now sits inside that block, after the goal is cleared.
 
 **Design r1** (`882dfb66`): Codex CHANGE (4 P1, 3 P2); Claude CHANGE (2 P1, 5 P2, 6 P3). What r2 changed:
 - the step-hook price and its bound argument -> a move-level surcharge on an identical move graph (Codex P1-1/P1-2, Claude
