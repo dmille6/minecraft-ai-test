@@ -235,7 +235,7 @@ const skyOpenAt = (R, x, yy, z) => {
 const floatsAt = (R, x, y, z) => {
   if (LEAVES.test(String(R.block(x, y, z)?.name ?? ''))) return false
   let yy = y - 1
-  for (let t = 1; t < DECK_MAX + 1; t++, yy--) {       // cells y-1 .. y-DECK_MAX: the deck's thickness is the support + up to 3
+  for (let t = 1; t < DECK_MAX + 1; t++, yy--) {       // cells y-1 .. y-DECK_MAX: the deck's thickness is the support + up to 15
     const k = R.kindAt(x, yy, z)
     if (k === 'unknown') return null
     if (k === 'solid') continue
@@ -248,7 +248,7 @@ const floatsAt = (R, x, y, z) => {
   return false
 }
 /**
- * Is support (x, y, z) on the GROUND (a column's own test; the region's ground also needs at most one deadly side)? A column whose first solid stretch is
+ * Is support (x, y, z) on the GROUND (a column's own test; the region's ground also needs no floating neighbour)? A column whose first solid stretch is
  * GROUNDED_MIN or more, followed down to the world's floor through short gaps and ENCLOSED caves. Water under it is ground
  * (an aquifer); a deadly gap OPEN TO THE SKY at any depth means the stretch above it hangs; unreadable, or past the scan,
  * is not ground.
@@ -268,7 +268,7 @@ const groundedAt = (R, x, y, z) => {
     if (k !== 'open') return true                               // lava deep under a grounded stretch: still ground (Claude r6 P2-2)
     const r = R.run(x, yy, z)
     if (r.landing === 'unknown') return false
-    if (r.landing === 'water' || r.landing === 'lava') return true
+    if (r.landing === 'water') return true
     if (r.open >= ELEVATED_MIN) {
       // a deadly gap open to the sky: the stretch above it HANGS; an enclosed one is a cave in the ground, followed on
       const sky = skyOpenAt(R, x, yy, z)
@@ -297,8 +297,6 @@ export function regionAt (R, s, { radius = START_RADIUS, cap = 900 } = {}) {
   let grounded = false, floating = null, blind = false
   while (q.length && seen.size <= cap) {
     const c = q.shift()
-    // the region's ground: a grounded column with at most one deadly side (a 2-wide column under a deck patch is not ground:
-    // Claude r5 P3-5); a platform cannot follow it (Claude r3 P2-3)
     // the region's ground: a grounded column none of whose four neighbours floats -- not a pillar beside or under a deck
     // patch, not a 2-wide column under one (Claude r5 P3-5, r6 P3-4); a platform cannot follow it (Claude r3 P2-3)
     if (!grounded && groundedAt(R, c.x, c.y, c.z) && !SIDES.some(([dx, dz]) => floatsAt(R, c.x + dx, c.y, c.z + dz) === true)) { grounded = true; break }
@@ -345,10 +343,7 @@ export function doneAt (R, x, y, z) {
   // (an ENCLOSED cave under a natural roof is terrain, not a drop the descent must close: nothing breaks the support once
   // it is done -- Codex r5 P2-3; a void open to the sky under the support is the platform's own)
   if (!(own.landing === 'water' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP)) {
-    // enclosed only if CLOSED AT EVERY 8th LAYER down to the landing: a deck's void can be cluttered at its top and open lower
-    // down (Claude r6 P1-1)
-    let sky = own.open > 0 ? false : true
-    for (let yy = y - 1; own.open > 0 && yy > (own.landY ?? y - 1 - own.open) && sky === false; yy -= ELEVATED_MIN) sky = skyOpenAt(R, x, yy, z)
+    const sky = own.open > 0 ? skyOpenAt(R, x, y - 1, z) : true
     if (sky !== false) return { done: false, unknown: sky === null, why: `${own.open} open below` }
   }
   // ON THE GROUND, a deadly side is terrain (a natural pit beside the landing: Codex r2 P2-4), not a platform edge
