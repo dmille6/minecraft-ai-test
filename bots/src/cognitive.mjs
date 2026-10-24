@@ -1409,8 +1409,9 @@ export class CognitiveLoop {
     // RESPAWNFALL-01 x FOUND-01 (JIT 10-24; r2 Codex P2 / Claude P3-1): an order the descent replaces never ran -- refunded
     // through refundDeclined, which knows every order that charges at issue with no outcome of its own (found_store /
     // found_work: the cooldown AND the visit; build_plinth, prune_town, smelt_town, furnace_drain: the cooldown) and answers {}
-    // for the rest -- so on the ground, still in town, the order can issue again
-    { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); order = sd } }
+    // for the rest -- so on the ground, still in town, the order can issue again. RESPAWNFALL-01 x JUNKOUT-01 (JIT 10-24): a
+    // junkout visit the descent displaces is refunded the way keep-out's exit refunds one (visitDisplacedRefund; {} otherwise)
+    { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
     // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
     // jit-1023 (junkout-01 x keepout-01, Codex fix review P2): a junkout visit the exit DISPLACES here never ran -- refunded as
