@@ -81,6 +81,26 @@
    ]
   },
   {
+   "file": "stuck-1899-isolated-d-340_60_200.json",
+   "id": "stuck-1899-isolated-d-340_60_200",
+   "family": "stuck",
+   "label": "stuck:wet-under-ceiling",
+   "world": "isolated-d",
+   "seed": 1239381899,
+   "cells_sha256": "3a9791c930b874e420be1da496ddc3926587d990fa23a32dff4dc1b921856538",
+   "oracle": "escape",
+   "fleet": "isolated-d-Bravo still at this cell 2026-10-18T19:50:00.000Z .. 2026-10-24T03:20:00.000Z (127.4 h; ongoing)",
+   "base_runs": 3,
+   "base_matched": 3,
+   "base_passed": 0,
+   "reproducing_starts": [
+    0
+   ],
+   "gating_starts": [
+    0
+   ]
+  },
+  {
    "file": "stuck-1899-placebo-c-559_37_219.json",
    "id": "stuck-1899-placebo-c-559_37_219",
    "family": "stuck",
