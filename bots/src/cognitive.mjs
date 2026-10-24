@@ -1010,12 +1010,14 @@ export class CognitiveLoop {
       const bot = this.bot
       if (!bot.entity?.position) return null
       const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
-      const el = elevation({ pos: bot.entity.position, at, onGround: bot.entity.onGround !== false })
+      const el = elevation({ pos: bot.entity.position, at, onGround: bot.entity.onGround !== false, inWater: bot.entity.isInWater === true })
       // an open episode ends only on a verified safe stance (descentDone), never on an unreadable or transient reading
       const done = this.skyState?.active && !el.transient ? descentDone(at, supportOf(bot.entity.position)) : null
       const d = descendOrder({ now: Date.now(), lastSpawnAt: bot.lastSpawnAt ?? null, el, done, state: this.skyState ?? {}, on: respawnfallOn(process.env) })
       this.skyState = d.state
       bot.skyActive = d.state.active === true   // the escape lattice stands aside while the episode is open (respawnfall.mjs skyEscapeBlocked)
+      // an episode handed back without a safe stance (swimming, a long transient) says so: the read and a human can see it
+      if (d.ended) { try { logEvent({ kind: 'sky_descend_end', status: 'no_effect', detail: `ended=${d.ended} -- ${d.why}` }) } catch { /* telemetry never costs the body */ } }
       if (!d.issue) return null
       return { skill: 'sky_descend', args: {}, why: `spawned on a high platform (${d.why}): climbing down first${order ? ` (instead of ${order.skill})` : ''}` }
     } catch { return null }
