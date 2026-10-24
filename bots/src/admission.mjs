@@ -267,6 +267,10 @@ export class AdmissionControl {
     // bot standing over a marked lava pool.
     // (an inventory click in flight still waits: the escape step equips a tool -- Claude r2 P3-4)
     if (skill === 'keepout_exit' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'keepout_exit' }
+    // RESPAWNFALL-01: the climb down from a high platform is the same kind of deterministic safety order (cognitive.mjs issues
+    // it only for an elevated bot after a spawn); no repeat window or learned rule may keep a bot standing at a deadly edge
+    if (skill === 'sky_descend' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'sky_descend' }
+    if (skill === 'sky_descend') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
     if (skill === 'keepout_exit') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
 
     // --- argument sanity, per skill ---------------------------------------
