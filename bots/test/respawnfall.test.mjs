@@ -692,6 +692,27 @@ await ta('r10 (Codex r7 P2-1): an affordable column saving under SAVE_MIN is off
   })
 })
 
+/** Runs skyDescend while probing the stuck reflex's own decision 36 s into a stillness; -> did it ever fire? */
+async function stuckProbe (sk, opts) {
+  const RX = await import('../src/reflex.mjs')
+  const w = skyWorld({ deckY: 85 }); const { bot } = fakeBot(w, { x: 355.5, y: 86, z: 150.5 }, { blocks: 200, placeWorks: false })
+  let fired = false
+  const probe = setInterval(() => {
+    const now = Date.now() + 36_000
+    if (RX.stuckDecision({ busy: true, digging: false, stationaryUntil: bot.stationaryUntil, moved: false, now, stillSince: now - 36_000, stuckMs: 35_000 }).fire) fired = true
+  }, 20)
+  try { await sk.skyDescend({ bot }, {}, ac(), opts) } finally { clearInterval(probe) }
+  return fired
+}
+await ta('r11 (Codex r8 P2-1): a failed placement then the full stay keep the stillness DECLARED, so the stuck reflex never fires', async () => {
+  assert.equal(await stuckProbe(SK, { stayMs: 400, runMs: 600_000 }), false)
+})
+await ta('MUTANT KILLED: a run without the declaration lets the stuck reflex nudge a held bot off the deck', async () => {
+  await withMutant(SK_URL, '  bot.stationaryUntil = Math.max(bot.stationaryUntil ?? 0, until + 5_000)\n', '', async m => {
+    assert.equal(await stuckProbe(m, { stayMs: 400, runMs: 600_000 }), true)
+  })
+})
+
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
 await ta('WIRING: the order runs ahead of every order but keep-out; admission; the lattice and the watchdog ask the gate; spawn is stamped', async () => {
   const strip = u => readFileSync(new URL(u, import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
