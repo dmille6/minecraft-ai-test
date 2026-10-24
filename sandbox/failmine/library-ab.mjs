@@ -37,10 +37,15 @@ const run = (root, label, file, start) => {
 const rows = []
 for (const s of scenes) {
   if (!s.reproducing_starts.length) { console.log(`SKIP     ${s.id}: no admitted start (its base never reproduced often enough)`); continue }
+  const gating = new Set(s.gating_starts || [])
   for (const start of s.reproducing_starts) {
     const bs = [], cs = []
     for (let i = 0; i < R; i++) { bs.push(run(BASE, 'base', s.file, start)); cs.push(run(CAND, 'cand', s.file, start)) }
     const { verdict } = abVerdict(bs, cs)
+    if (!gating.has(start)) {   // reported, never part of the verdict (a contact start no build has been seen to survive)
+      console.log('REPORT   ' + abLine(s.id, start, bs, cs).slice(9) + ' [non-gating start]')
+      continue
+    }
     rows.push({ scene: s.id, start, base: bs.map(b => b.outcome), cand: cs.map(c => c.outcome), verdict })
     console.log(abLine(s.id, start, bs, cs))
   }

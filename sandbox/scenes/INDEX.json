@@ -17,7 +17,8 @@
    "reproducing_starts": [
     4,
     6
-   ]
+   ],
+   "gating_starts": []
   },
   {
    "file": "stuck-1853-placebo-d-198_34_187.json",
@@ -33,6 +34,9 @@
    "base_matched": 3,
    "base_passed": 0,
    "reproducing_starts": [
+    0
+   ],
+   "gating_starts": [
     0
    ]
   },
@@ -51,6 +55,9 @@
    "base_passed": 0,
    "reproducing_starts": [
     0
+   ],
+   "gating_starts": [
+    0
    ]
   },
   {
@@ -67,6 +74,9 @@
    "base_matched": 3,
    "base_passed": 0,
    "reproducing_starts": [
+    0
+   ],
+   "gating_starts": [
     0
    ]
   },
@@ -85,8 +95,11 @@
    "base_passed": 0,
    "reproducing_starts": [
     0
+   ],
+   "gating_starts": [
+    0
    ]
   }
  ],
- "rule": "a fix touching a family must pass every scene of it on the reproducing starts; the base must still fail there (sandbox/failmine/library-ab.mjs); a base that passes retires the scene, it never counts as a candidate pass"
+ "rule": "a fix touching a family must pass every scene of it on the GATING starts; the base must still fail there (sandbox/failmine/library-ab.mjs); a base that passes retires the scene, it never counts as a candidate pass; a reproducing start that does not gate (a lava contact no build has survived yet) is run and REPORTED only"
 }

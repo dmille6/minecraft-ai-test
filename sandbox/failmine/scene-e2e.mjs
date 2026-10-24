@@ -19,7 +19,8 @@
 //   node sandbox/failmine/scene-e2e.mjs <botRoot> <label> <scene.json> [server] [minutes]
 // sandbox5..sandbox8 only, and only under that server's OWN per-server lock with `failmine` as its owner's first word (the
 // global lock alone is refused: Codex r1 P2). The verdict is oracle.mjs's (a pure function, tested in bots/test/failmine.test.mjs).
-// World edits on its own arena only; cleanup leaves the arena a plain stone block (not the sandbox's original terrain).
+// World edits on its own arena only; cleanup leaves the arena a plain stone block (not the sandbox's original terrain), and
+// the holding pad's 3x5x3 stone block 20 west of it stays (harmless, sandbox only).
 import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -27,6 +28,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { decide, fidelityProbes } from './oracle.mjs'
+import { createHash } from 'node:crypto'
 
 const [BOT_ROOT, LABEL, SCENE_FILE, SERVER = 'sandbox6', MIN_S, START_S = '0'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENE_FILE) throw new Error('usage: scene-e2e.mjs <botRoot> <label> <scene.json> [server] [minutes] [start#]')
@@ -117,7 +119,7 @@ const at = (x, y, z) => FLAT[(y * SZ + z) * SX + x]                 // cut-local
 // THE HOLDING PAD: a stone block AT THE START'S HEIGHT, 20 blocks west of the arena (its own forceloaded chunk). It used to
 // sit 14 above the arena's top, and the teleport down from it reached the bot as a fall: every lava proof died "after
 // falling 24-41 blocks" (the bot's own fall tracker), a descent the fleet bot never made. Level, the teleport is not a fall.
-const PAD = { x: lo.x - 20, y: Math.floor(ST.pos[1]) - 1, z: BZ }
+const PAD = { x: lo.x - 20, y: Math.max(-63, Math.floor(ST.pos[1]) - 1), z: BZ }   // the floor never below the world
 const topOpen = (() => { let open = 0; for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) if (/^(air|cave_air)$/.test(nameOf(names[at(x, SY - 1, z)]))) open++; return open / (SX * SZ) >= 0.3 })()
 function arenaCmds () {
   const c = [`kill @e[type=!player,x=${lo.x},y=${lo.y},z=${lo.z},dx=${hi.x - lo.x},dy=${hi.y - lo.y + 14},dz=${hi.z - lo.z}]`]
@@ -201,6 +203,9 @@ const kind = r => r?.skill?.name ?? ''
 const classify = msg => JSON.parse(execFileSync('python3', ['-B', FM, 'classify', msg], { encoding: 'utf8' }))
 const ruleNames = Object.keys(S.gamerules || {})
 let savedRules = null
+let placedAt = Infinity
+// THE DRIVER'S OWN IDENTITY in every result row (Claude r5 P3): which code built the arena and judged the run
+const DRIVER_SHA256 = createHash('sha256').update(fs.readFileSync(fileURLToPath(import.meta.url))).update(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'oracle.mjs'))).digest('hex')
 
 async function main () {
   let pl = r1('list')
@@ -244,6 +249,7 @@ async function main () {
   await sleep(5000)
   const h0 = Number(ST.health)
   rcon(...(h0 > 0 && h0 < 20 ? [`damage ${b.name} ${(20 - h0).toFixed(1)} minecraft:generic`] : []), `tp ${b.name} ${sp[0] + DX} ${sp[1]} ${sp[2] + DZ}`)
+  placedAt = Date.now()
   await sleep(600)
   const start = posOf(b.name)
   if (!start) throw new Error('the bot was not observed after placement')
@@ -288,14 +294,19 @@ async function main () {
   const verdict = decide(S.oracle, obs, { deathCell: ST.death?.pos ? ST.death.pos.map(Math.floor) : null })
   const { outcome, pass } = verdict
   const matched = verdict.matched_fleet
+  // only rows logged AFTER the teleport to the start: the holding pad is an enclosed pocket, and its own `_entombed` would
+  // otherwise count toward the overlap with the fleet's rows (Claude r5 P3)
   const kinds = {}
-  for (const r of rows) { const k = kind(r); if (k) kinds[k] = (kinds[k] || 0) + 1 }
+  for (const r of rows) {
+    const t = Date.parse(r['@timestamp'] ?? r.ts ?? '')
+    const k = kind(r); if (k && !(t < placedAt)) kinds[k] = (kinds[k] || 0) + 1
+  }
   const top = Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 14)
   // MECHANISM, not just outcome: which of the fleet bot's own top row kinds at this site the sandbox bot also logged
   const fk = (S.fleet_kinds || []).map(([k]) => k)
   const mechanism = fk.length ? { fleet: fk, seen: fk.filter(k => kinds[k]), share: +(fk.filter(k => kinds[k]).length / fk.length).toFixed(2) } : null
   const ev = { at: new Date().toISOString(), label: LABEL, scene: S.id, cells_sha256: S.cells_sha256, sceneLabel: S.label, sha, server: SERVER, minutes: MINUTES, outcome, pass,
-    matched_fleet: matched, start_index: START, observation: { ...obs, polls, missed }, fleet: ALT ? `${ALT.death?.bot} ${ALT.death?.t}: ${String(ALT.death?.detail || '').slice(0, 160)}` : S.base.fleet, death: died ? died.slice(0, 220) : null, deathClass: dc,
+    matched_fleet: matched, start_index: START, driver_sha256: DRIVER_SHA256, observation: { ...obs, polls, missed }, fleet: ALT ? `${ALT.death?.bot} ${ALT.death?.t}: ${String(ALT.death?.detail || '').slice(0, 160)}` : S.base.fleet, death: died ? died.slice(0, 220) : null, deathClass: dc,
     start: start && [start.x, start.y, start.z].map(v => +v.toFixed(2)), end: end && cellOf(end), maxDistance: +maxDist.toFixed(1),
     minHealth, fidelity: fid, mechanism, rows: rows.length, topKinds: top, kinds, script: scriptLine(), bagStacks: bag.length, bagDropped: dropped,
     detail: `${outcome}; moved max ${maxDist.toFixed(1)} blocks; min health ${minHealth}`,

@@ -98,6 +98,13 @@ t('the library is not vacuous: INDEX.json exists and holds the stuck and lava sc
   assert.ok(index.scenes.some(s => s.id === 'stuck-1899-board-a-359_40_187'), "board-a-Comet's copper trap is the owner's named scene")
 })
 
+t('gating: the board-a-Comet scene gates fixes; the cave-lava contact starts are REPORTED until a build survives them', () => {
+  const e = id => index.scenes.find(s => s.id === id)
+  assert.deepEqual(e('stuck-1899-board-a-359_40_187').gating_starts, [0])
+  const lava = e('lava-1899-isolated-a-332_35_205')
+  assert.ok(lava.reproducing_starts.length >= 1 && lava.gating_starts.length === 0, JSON.stringify(lava))
+  for (const s of index.scenes) for (const st of s.gating_starts) assert.ok(s.reproducing_starts.includes(st), `${s.id} gates on a start it never reproduced`)
+})
 t('INDEX.json names exactly the scene files on disk, with their ids and cells hashes', () => {
   assert.deepEqual(index.scenes.map(s => s.file).sort(), files)
   for (const e of index.scenes) {

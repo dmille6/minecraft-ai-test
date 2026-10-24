@@ -1327,6 +1327,20 @@ def cmd_prove(a):
     print(json.dumps(v))
 
 
+def start_rule_of(sc, st):
+    return sc['bot'].get('start_rule', '') if not st else (sc.get('alternates') or [{}] * st)[st - 1].get('start_rule', '')
+
+
+def gating_starts(sc):
+    """The admitted starts a fix must PASS. A lava-contact start is admitted as a reproduction but does not gate until
+    some build has been seen to survive it (a non-base run that passed, `role` other): at the fleet's contact health the
+    base dies before its first reflex tick, so it may measure lava damage, not code (Claude r5 P2) -- a gate no build can
+    pass would fail every lava fix."""
+    rep = reproducing_starts(sc.get('proof') or [])
+    passed = {p.get('start_index') or 0 for p in sc.get('proof') or [] if p.get('role') == 'other' and p.get('pass')}
+    return [st for st in rep if not start_rule_of(sc, st).startswith('lava contact') or st in passed]
+
+
 def build_index(lib):
     """sandbox/scenes/INDEX.json: one entry per scene file, with its base proof summarised."""
     out = []
@@ -1340,10 +1354,11 @@ def build_index(lib):
                     'cells_sha256': sc['cells_sha256'], 'oracle': sc['oracle']['type'], 'fleet': sc['base'].get('fleet', '')[:200],
                     'base_runs': len(base), 'base_matched': sum(1 for p in base if p.get('matched_fleet')),
                     'base_passed': sum(1 for p in base if p.get('pass')),
-                    'reproducing_starts': reproducing_starts(sc.get('proof') or [])})
+                    'reproducing_starts': reproducing_starts(sc.get('proof') or []), 'gating_starts': gating_starts(sc)})
     return {'schema': 'failmine-library/1', 'scenes': out,
-            'rule': 'a fix touching a family must pass every scene of it on the reproducing starts; the base must still fail there '
-                    '(sandbox/failmine/library-ab.mjs); a base that passes retires the scene, it never counts as a candidate pass'}
+            'rule': 'a fix touching a family must pass every scene of it on the GATING starts; the base must still fail there '
+                    '(sandbox/failmine/library-ab.mjs); a base that passes retires the scene, it never counts as a candidate pass; '
+                    'a reproducing start that does not gate (a lava contact no build has survived yet) is run and REPORTED only'}
 
 
 def cmd_index(a):
