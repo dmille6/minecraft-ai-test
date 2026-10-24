@@ -310,8 +310,9 @@ async function withMutant (url, old, neu, fn) {
 await ta('MUTANT KILLED: "done" at the trigger threshold leaves the bot 8 above the ground beside its pillar', async () => {
   // a floating block 4 over the ground (breaking it is a fall of 5), walled at feet and head height on all four sides, so
   // only the own test can see it (the void under it is open to the sky two cells out)
-  const walls = new Set(['301,77,300', '299,77,300', '300,77,301', '300,77,299', '301,78,300', '299,78,300', '300,78,301', '300,78,299'])
-  const shaft = (x, y, z) => (x === 300 && y === 76 && z === 300 ? COBBLE : walls.has(`${x},${y},${z}`) ? STONE : y <= 71 ? STONE : AIR)
+  // a floating block 4 over the ground (breaking it is a fall of 5) beside a pillar to the ground (its only exit); its void is
+  // open to the sky on the other three sides, so only the own-run test stops it being done
+  const shaft = (x, y, z) => ((x === 300 && y === 76 && z === 300) || (x === 301 && z === 300 && y <= 76) ? COBBLE : y <= 71 ? STONE : AIR)
   assert.equal(doneAt(columnReader(shaft), 300, 76, 300).done, false, 'breaking it is a fall of 5')
   await withMutant(RF_URL, '  if (!(own.landing === \'water\' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP))', '  if (!(own.landing === \'water\' || own.open <= ELEVATED_MIN))', async m => {
     assert.equal(m.doneAt(m.columnReader(shaft), 300, 76, 300).done, true)
@@ -510,14 +511,6 @@ await ta('MUTANT KILLED: a float test without the sky check turns every thin cav
     assert.equal(m.elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at: caveRoof }).elevated, true)
   })
 })
-await ta('MUTANT KILLED: ground that ignores a deadly run under a short solid stretch counts a hanging column as ground', async () => {
-  await withMutant(RF_URL, '      if (sky !== false) return false\n', '', async m => {
-    const w = thickPatch(); for (let y = 170; y <= 178; y++) w.m.set(key(355, y, 150), COBBLE)   // hangs under the patch centre
-    assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
-    assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
-  })
-})
-
 await ta('r6 (Codex r4): a LONG hanging column is not ground; a single-layer canopy is terrain; a stair down is a free way down', () => {
   // a 2-thick deck with a 17-block column hanging under one cell (163..178)
   const thick = new Map()
@@ -585,12 +578,6 @@ await ta('r7: a fence top is its own support; descendOrder says when the wait cl
   assert.equal(descendOrder({ now: 1e7, el, state: { active: true } }).fresh, undefined, 'a running one does not')
   assert.equal(descendOrder({ now: 1e7, el: { elevated: false, why: 'x' }, done: { done: true }, state: { active: true } }).fresh, true, 'an ending one does')
 })
-await ta('MUTANT KILLED: a pillar counted as the region\'s ground makes a thick patch beside it look like the ground', async () => {
-  await withMutant(RF_URL, ' && (exposedAt(R, c.x, c.y, c.z)?.sides ?? 0) <= 1) { grounded = true; break }', ') { grounded = true; break }', async m => {
-    const pillar = patchBy(w => { for (let y = 72; y <= 179; y++) w.m.set(key(358, y, 152), COBBLE) })
-    assert.equal(m.elevation({ pos: { x: 355.5, y: 181, z: 150.5 }, at: pillar.at }).elevated, false)
-  })
-})
 await ta('MUTANT KILLED: one sky-open direction turns a cave mouth 12 away into a platform', async () => {
   await withMutant(RF_URL, 'export const SKY_SIDES = 3 ', 'export const SKY_SIDES = 1 ', async m => {
     assert.equal(m.elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at: caveMouth }).elevated, true)
@@ -610,6 +597,75 @@ await ta('MUTANT KILLED: an episode that never says fresh keeps the last episode
   })
 })
 
+await ta('r8 (Codex r6 + Claude r6): a 5-layer deck floats; a deck treetop is not done; lava deep under ground is ground; a patch over a pillar is a platform', () => {
+  const five = (x, y, z) => (y >= 176 && y <= 180 && Math.abs(x - 355) <= 20 && Math.abs(z - 150) <= 20 ? COBBLE : y <= 71 ? STONE : AIR)
+  assert.equal(elevation({ pos: ON_DECK, at: five }).elevated, true, '5-layer deck')
+  assert.equal(descentDone(five, { x: 355, y: 180, z: 150 }).done, false)
+  // a deck treetop: the bot rode its trunk to 183, leaves at feet and head height all round
+  const t = treeOnDeck(); const LEAF = { name: 'oak_leaves', boundingBox: 'block' }
+  for (const yy of [183, 184, 185]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) t.m.set(key(355 + dx, yy, 150 + dz), LEAF)
+  assert.equal(descentDone(t.at, { x: 355, y: 182, z: 150 }).done, false, 'walled in by a canopy 100 up')
+  // ground beside a 12-deep natural pit, lava far down at y=-56: still ground, so the descent stops at the surface
+  const lavaDeep = (x, y, z) => (x === 301 && z === 300 && y > 59 ? AIR : y === -56 ? LAVA : y <= 71 ? STONE : AIR)
+  assert.equal(descentDone(lavaDeep, { x: 300, y: 71, z: 300 }).done, true)
+  // a 3x3 two-thick patch with a full pillar under its centre: a bot beside it is on a platform
+  const pp = thickPatch(); for (let y = 72; y <= 178; y++) pp.m.set(key(355, y, 150), COBBLE)
+  assert.equal(elevation({ pos: { x: 357.5, y: 181, z: 152.5 }, at: pp.at }).elevated, true)
+  // a gappy hanging column under the patch centre (0 deadly sides): not ground
+  const gp = thickPatch(); for (let y = 165; y <= 178; y++) if (y !== 170 && y !== 171) gp.m.set(key(355, y, 150), COBBLE)
+  assert.equal(descentDone(gp.at, { x: 355, y: 180, z: 150 }).done, false)
+})
+await ta('SKILL (Codex r6 P2-2): a bare bot on a pillar with one gap walks 8 to a continuous pillar and rides it', async () => {
+  const w = skyWorld({ deckY: 0 })
+  for (let y = 72; y <= 90; y++) { if (y !== 80) w.m.set(key(300, y, 300), COBBLE); w.m.set(key(308, y, 300), COBBLE) }
+  for (let x = 301; x <= 307; x++) w.m.set(key(x, 90, 300), COBBLE)   // the walk between the two tops
+  const { bot } = fakeBot(w, { x: 300.5, y: 91, z: 300.5 }, { blocks: 0 })
+  let r = null
+  for (let k = 0; k < 5 && !(r && r.status === 'success' && descentDone(w.at, supportOf(bot.entity.position)).done); k++) r = await SK.skyDescend({ bot }, {}, ac(), FAST)
+  assert.ok(descentDone(w.at, supportOf(bot.entity.position)).done, `down (${JSON.stringify(r)})`)
+})
+
+// mutants whose fixtures leave only the mutated layer to decide (the rules overlap by design elsewhere)
+/** A 5x5 solid block hanging under the deck centre, y from..180 (thicker than DECK_MAX, so its cells do not float). */
+const hanging5 = (from, gap = null) => {
+  const w = skyWorld()
+  for (let x = 353; x <= 357; x++) for (let z = 148; z <= 152; z++) for (let y = from; y <= 179; y++) if (!gap || !gap.includes(y)) w.m.set(key(x, y, z), COBBLE)
+  return w
+}
+await ta('MUTANT KILLED: a sky-open gap under a solid stretch read as ground makes a hanging block look like the ground', async () => {
+  const w = hanging5(160)
+  assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
+  await withMutant(RF_URL, '      if (sky !== false) return false\n', '', async m => {
+    assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
+  })
+})
+await ta('MUTANT KILLED: a short gap read as ground ends the column early', async () => {
+  const w = hanging5(140, [158, 159])
+  assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
+  await withMutant(RF_URL, '    yy -= r.open\n  }\n  return false', '    return true\n  }\n  return false', async m => {
+    assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
+  })
+})
+await ta('MUTANT KILLED: a pillar under a deck patch counted as the region\'s ground', async () => {
+  const pp = thickPatch(); for (let y = 72; y <= 178; y++) pp.m.set(key(355, y, 150), COBBLE)
+  // on the patch, two cells from the pillar: locally safe (2 deadly sides), so only the region decides
+  assert.equal(elevation({ pos: { x: 354.5, y: 181, z: 149.5 }, at: pp.at }).elevated, true)
+  await withMutant(RF_URL, ' && !SIDES.some(([dx, dz]) => floatsAt(R, c.x + dx, c.y, c.z + dz) === true)) { grounded = true; break }', ') { grounded = true; break }', async m => {
+    assert.equal(m.elevation({ pos: { x: 354.5, y: 181, z: 149.5 }, at: pp.at }).elevated, false)
+  })
+})
+await ta('MUTANT KILLED: an enclosed stance off the ground ends a descent in a tall tree\'s canopy on the deck', async () => {
+  // a 25-log trunk on the deck (thicker than DECK_MAX), the bot on it at 200 with leaves at feet and head height all round
+  const w = skyWorld(); const LOG = { name: 'oak_log', boundingBox: 'block' }, LEAF = { name: 'oak_leaves', boundingBox: 'block' }
+  for (let y = 181; y <= 200; y++) w.m.set(key(355, y, 150), LOG)
+  // leaves down the four sides of the trunk to the deck: no side is a drop, every side is a wall -- only the walls rule decides
+  for (let yy = 181; yy <= 202; yy++) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) w.m.set(key(355 + dx, yy, 150 + dz), LEAF)
+  assert.equal(descentDone(w.at, { x: 355, y: 200, z: 150 }).done, false)
+  await withMutant(RF_URL, "  if (walls === 4 && !ground) return { done: false, unknown: false, why: 'walled in off the ground (a canopy, not the ground)' }", '', async m => {
+    assert.equal(m.descentDone(w.at, { x: 355, y: 200, z: 150 }).done, true)
+  })
+})
+
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
 await ta('WIRING: the order runs ahead of every order but keep-out; admission; the lattice and the watchdog ask the gate; spawn is stamped', async () => {
   const strip = u => readFileSync(new URL(u, import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
@@ -617,6 +673,8 @@ await ta('WIRING: the order runs ahead of every order but keep-out; admission; t
   const iSky = cog.indexOf('{ const sd = this.#skyDescendOrder(order); if (sd) order = sd }'), iKo = cog.indexOf('{ const ko = this.#keepoutExitOrder(order); if (ko) order = ko }')
   assert.ok(iSky > 0 && iKo > iSky, 'the sky order precedes keep-out\'s (which therefore wins)')
   assert.ok(cog.includes('bot.skyActive = d.state.active === true'), 'the open episode is published for the lattice')
+  assert.ok(cog.includes('if (d.fresh) bot.skyWaitSince = null'), 'the wait clock restarts on a fresh episode (Claude r6 P3-3)')
+  assert.ok(cog.includes('if (d.ended) bot.skyHoldUntil = 0'), 'an ended episode releases its hold (Claude r6 P3-3)')
   assert.ok(cog.includes('if (!this.skyState?.active && !(bot.lastSpawnAt != null && Date.now() - bot.lastSpawnAt <= SPAWN_WINDOW_MS)) return null'), 'the flood runs only in a window or an episode')
   assert.ok(/if \(skill === 'sky_descend' && !bot\?\.inventoryUnsettled\) return \{ ok: true/.test(strip('../src/admission.mjs')))
   assert.ok(/if \(skyEscapeBlocked\(this\.bot\)\) return/.test(strip('../src/watchdog.mjs')))
