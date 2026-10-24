@@ -252,3 +252,76 @@ P3
    blind-step guards feed it.
 10. Not built: my r1 P2-4 suggestion (a no-price counterfactual search on terminal routes). The noPath/timeout DiD is an
     acceptable substitute. Note the choice in 10.
+
+==================================================================================================================
+CODE r2 / DESIGN r3 (502103d1) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+- **P1 — Executed-form pricing still misses ladder moves.** `bots/src/lavasight.mjs:197` always centres ladders/vines; pathfinder `index.js:175` does so only before a descending successor. Read-only real-plugin probe: ladder ascent to `(0,64,0)`, lava at `(2,65,1)`. The final executed node is `(0.5,65,0.703125)` and the guard refuses it, but `_lsForm` is `(0.5,64,0.5)` and surcharge is **0**. Match successor-dependent processing or provide a tested fallback; the documented exception contradicts the exact-pricing guarantee.
+
+- **P2 — The regression tests overstate their evidence.** `bots/test/lavasight.test.mjs:320` discards `pricedSeen`: the slab fixture actually returns **four safe, unpriced segments**, proving no hazardous slab move is priced. At `:337`, negative calculated `searchRadius` disables capping in A*: **98/127 eligible cases are uncapped**. Require a refused slab segment and assert an active cap with a base-search positive control. The harness’s 10-second tick budget (`:228`) also provides no asserted partial-resumption or mid-search index-fill coverage.
+
+- **P2 — Incremental sightings bypass the index bound.** `bots/src/index.mjs:388–390` copies the index and inserts footprints without `INDEX_MAX` or coordinate checks, unlike `buildPriceIndex`. A full 250,000-entry index can immediately exceed its declared bound; copying also drops its `full` property. Reuse a bounded insertion helper and preserve saturation reporting.
+
+Reader selftest and guard-wiring test passed. File-writing suites were not run; no files were modified.
+codex exit 0
+
+==================================================================================================================
+CODE r2 / DESIGN r3 (502103d1) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: APPROVE
+
+Reviewed 72189ab4..502103d1. No P1. Codex's four r2 P1s and my r2 P2s are fixed in the code, not only in the text. Passing at
+502103d1: lavasight.test.mjs (28), lavamap-publish (3), lava-guards-wired (4) and keepout-homefix (5). I did not run the full
+npm test runner.
+
+Verified
+- Executed form (Codex P1-1, P1-2). processedPos (lavasight.mjs:196-200) copies postProcessPath (index.js:168-190) and
+  getPositionOnTopOf (:304-324): water and climbables are centred, then the feet cell's shape top, then the cell below's,
+  else one cell lower. The rawness rule matches postProcessPath's break at the first dig or place: _lsRaw is set when the
+  parent is raw or the move itself digs or places. The start form is floor(bot position), which is what the guard gets. It
+  is not A*'s slab-offset start (index.js:80-85). All callers of getPathFromTo start at the bot's position
+  (digapproach.mjs:219,348, reachprobe.mjs:218, oretunnel.mjs:226), so env.start is right for probes too. Annotations stay
+  consistent with the final path. A* only replaces the data of open nodes, and those have no children yet. The _lsForm
+  cache survives postProcessPath mutating the Move objects in place on partial results.
+- Capped searches. "Accepted, so never priced" holds wherever a search runs in one slice.
+- Footprint. Unknown cells now stop the scan. For a cardinal drop column the cell at L.y must be known (:131), because
+  dropLavaSafe returns at an unknown cell before it looks beside it. The two-implication oracle is the right one when an
+  unknown cell can refuse first. One scan per column; the occlusion and drop mutants were re-anchored.
+- Read. Bot-time now comes from observed slots, and mapped share is taken over all canary bots (Codex P1-3, P1-4).
+  Unknown-cell refusals are out of the primary. G2 is reported NOT EXERCISED when held_seen is 0.
+- Publisher. The heartbeat is now required. check reports honest totals and alarms when it examined zero pools. The
+  directory is fsynced after the rename. The stdin framing in BOOT and publish-stdin reads correctly. A python mutant now
+  counts as killed only on an AssertionError. The WIRED mutant now moves the block instead of deleting it.
+- Cost. I measured the wrapper's per-node overhead with a non-empty index on the real plugin: ~5-30 us per node, which is
+  acceptable.
+
+P2
+1. The read's bot-time is inflated on the canary arm only. Population slots come from every retained row, _lavasight*
+   included (lavasightread.py:345 and :101; hrs at :168). The liveness row fires every 10 minutes on canary bots alone
+   (index.mjs liveness setInterval(..., 600_000)). So a canary bot is "observed" in every slot it is connected. A control bot
+   is observed only in slots where it happened to write a row. Any silent slot (an idle bot, a stalled LLM) therefore adds
+   bot-hours to canary post and nowhere else. That pushes the canary-post rates down, so the primary DiD falls and the
+   noPath/timeout no-harm lines look better. The bias is in the treatment's favour. The base-build dry run cannot show it,
+   because no arm wrote lavasight rows. Fix: build the population only from rows both builds write (skip names starting
+   _lavasight) at both sites. Add a fixture: a canary bot with liveness rows only in a slot must add no bot-time.
+
+P3
+1. The capped-search property is single-slice only. I copied the suite to /private/tmp and changed only tickTimeout: 10000 to
+   0.05 (lavasight.test.mjs:215), so searches return partial results as they do on the fleet (40 ms ticks). CAPPED then fails
+   (candidate 3.41 vs base 2.41). Control: the unwrapped base also "succeeds" above its own cap, by +1 (e.g. 10.41 capped to
+   11.41), and the wrapper with an empty index diverges the same way. postProcessPath mutating nodes mid-search makes the base
+   non-deterministic. So this is not a lavasight defect, but the 3.4 claim should say "single-slice searches; time-sliced ones
+   are noisy in the base by about one move". The same probe's EGRESS failure was my probe's own warm-up timeout, which hit
+   base and candidate alike.
+2. lavasightNote copies the whole index. It runs new Set(lsIdx) (index.mjs:388) for every newly noted live cell, which is up
+   to 250k entries, and the result ignores INDEX_MAX. Adding in place is safe: a mid-search change only mixes costs.
+3. Climbables. processedPos always centres them (lavasight.mjs:197). postProcessPath centres a ladder only when the next node
+   is lower; otherwise the guard samples on top of the ladder's shape, which is y+1 and offset toward the wall. The design
+   acknowledges this; it only shifts price.
+4. WIRED misses the call sites. It asserts the counter line inside lsGuardSeen but not its calls (index.mjs:1139, :1143).
+   Deleting a call would pass the test.
+5. Install order. install-lavamap.sh:37 installs the cron line before the fleetstatus patch runs (:38). If the patch refuses
+   on an anchor, the cron is live with no header line. Patch first, or roll the cron line back on failure. The rehearsal also
+   never exercises sudo -n -u mcbot (it sets LM_SELF=1), so the first real publish during install is that path's first test.

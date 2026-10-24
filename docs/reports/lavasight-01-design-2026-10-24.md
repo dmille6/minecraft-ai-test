@@ -1,4 +1,4 @@
-# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r3, 2026-10-24)
+# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r4, 2026-10-24)
 
 Mineshaft safety fix **F5b** (`docs/reports/mineshaft-safety-2026-10-23.md` §7, approved r10; OWNER ANSWERS O3). **OWNER
 2026-10-24:** run it right after lavastep-01, and feed it **from the per-seed hazard map from day one**
@@ -8,7 +8,13 @@ Base: fleet `fb8de72f` (ironsmelt-01, promoted 10-24 ~08:28Z: rows carry `run_id
 fb8de72f`). Branch `lavasight-on-fb8de72`. No bot, host, queue, scheduler, manifest, env or world was changed. Host actions
 were read-only: the population query (§1) and a dry run of the read against live rows (§7).
 
-**r3** answers the r2 reviews (Codex CHANGE, 4 P1; Claude APPROVE with P2s; §10): a move is now judged in the ONE form
+**r4** answers the r3 reviews (Codex CHANGE, 1 P1 + 2 P2; Claude APPROVE + 1 P2): a ladder or vine is processed by its
+successor (centred only when the next node is lower), so the move INTO a climbable is judged on both of its forms and the
+move OUT on the one its successor picks; the slab test now holds a segment the guard refuses; the capped test uses real caps
+with a binding control; the incremental note is bounded and in place; the read's bot-time comes only from rows both builds
+write; the installer patches the header line before it adds the cron.
+
+**r3** answered the r2 reviews (Codex CHANGE, 4 P1; Claude APPROVE with P2s; §10): a move is now judged in the ONE form
 the guard is handed (postProcessPath's support tops before the first dig, raw cells after, the bot's floored start), which
 makes the price exact on executed paths and keeps every cost-capped search the base passes by an accepted route; the read
 counts observed bot-time; the publisher requires the refresh heartbeat and ships with its cron wrapper, rehearsal and
@@ -169,8 +175,13 @@ a positive control (core is neither empty nor everything), and two mutants (no o
 - **Tests, on the REAL pathfinder** (the installed plugin on a fake bot, so getPathFromTo applies postProcessPath): every
   segment of every planned path on 40 noisy worlds with slabs, carpets, water and digging profiles is priced iff the guard
   refuses that executed segment; and a slab-floor world where the processed nodes sit at y - 0.5.
+- **Climbables** (Codex r3 P1): postProcessPath centres a ladder or vine only when the NEXT node is lower, else puts it on
+  top of the climbable's shape (y + 1, offset to the wall). The move INTO a climbable is judged on both forms (its successor is
+  unknown at expansion), the move OUT of it on the form its successor picks. So the price is exact except that a move into a
+  climbable can be priced where only one of its two forms is refused. Tested: a climb past lava beside the ladder's top is
+  priced on the segment the guard refuses.
 - Not modelled: pathFromPlayer can drop the first node(s) of a re-plan, so the guard's first segment can span more than one
-  move (Claude r2 P3-1); and a climbable's form depends on the next node. Both only shift price; the guard is unchanged.
+  move (Claude r2 P3-1). It only shifts price; the guard is unchanged.
 
 ### 3.4 Never a wall, and what can still change
 
@@ -184,8 +195,10 @@ a positive control (core is neither empty nor everything), and two mutants (no o
   - **timeouts**, because A* explores more before accepting a priced move (no-harm line in the read);
   - **cost-capped searches** (`searchRadius` is a cost cap: the gather approach and its re-plans, slack 400; the ore tunnel,
     400; reachprobe, 96). A move the guard accepts is never priced, so **wherever the base reaches a goal within a cap by a
-    route the guard accepts, the candidate does too, at no greater cost** -- tested as a property over 40 noisy worlds at the
-    tightest cap the base passes (Codex r2 P1-2). A capped search fails for the candidate only where every route within the
+    route the guard accepts, the candidate does too, at no greater cost** -- tested as a property over noisy worlds at the
+    tightest cap the base passes, with GoalBlock goals so every cap is a real one (searchRadius >= 0) and a control that half
+    of each cap fails the base (Codex r3 P2). The property is per search slice: a time-sliced search (40 ms ticks on the
+    fleet) is nondeterministic in the base itself by about one move (Claude r3 P3-1). A capped search fails for the candidate only where every route within the
     cap has a refused move, which the base would have executed into the guard's refusal. Reported through movement
     successes in the no-harm line.
 
@@ -255,7 +268,8 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   (run inside `npm test`).
 - **Bot-time is observed, not assumed** (Codex r2 P1-3): bot-hours are (bot, 10-min slot) pairs with a retained row / 6, so a
   bot restarted onto the canary build mid-window, or one whose off-build rows were skipped, adds only the slots it was seen
-  in (a staggered-restart fixture shows no manufactured fall).
+  in (a staggered-restart fixture shows no manufactured fall). Only rows BOTH builds write count (Claude r3 P2): the canary's
+  own 10-min liveness row would otherwise mark every connected canary slot observed and none of the control's (fixture).
 - **Liveness (blocks KEEP):** a canary licence `on=1`; >= 80% of **all** canary bots (a bot without a mode row is unmapped;
   Codex r2 P1-4) with newest mode state `ok` ("mapped": the publisher ran); liveness coverage >= 0.75 of the canary's
   observed slots and both arms present (INSTRUMENT).
@@ -268,6 +282,11 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   map hazards** of the pool's seed (within 3 xz / 4 y of a hazard cell or centre) by kind per arm -- the warn-only treatment of
   drowning, falls and dripstone.
 - **Exposure:** canary priced moves >= 200, >= 30 canary lava refusal episodes, and mapped.
+- **The null** (four base-build dry runs of the read, 180 min, four pools each, at -200/-260/-330/-400 min, 10-24): primary
+  episode DiD -0.48 .. +0.96 (rates ~1-2 per bot-h); noPath DiD -44.6 .. +24.7 (rates ~60); timeout -4.5 .. +2.3 (~19); movement
+  successes -4.0 .. +2.9 (~16). The registration's no-harm lines sit outside that band (noPath <= +50, timeout <= +6, movement
+  >= -6). The primary line (DiD <= 0) is close to a coin flip under this null: it blocks a KEEP when episodes rise; it does not
+  prove a fall. That is said in the registration.
 - **Dry run on live rows** (10-24 13:5xZ, `CANARY_DRYRUN` with four pools, 90 min, base build): 189,919 rows walked; episodes
   2.40 / 2.62 (canary-to-be pre/post) v 0.90 / 0.84 (control) per bot-h, danger episodes nonzero on both arms, every gate 0,
   licence and instrument correctly BLIND (no lavasight rows on a base build), and 5,769 rows of a pool running another canary
@@ -295,6 +314,16 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   within the base's cap is always found.
 
 ## 10. Review record
+
+**Code r2 / design r3** (`502103d1`): Codex CHANGE (1 P1, 2 P2); Claude APPROVE (1 P2, 5 P3). What r4 changed:
+- ladders and vines processed by their successor (Codex P1; Claude P3-3), with a real-plugin climb test;
+- the slab test holds a segment the guard refuses (and a mutant that prices raw cells misses it); the capped test uses GoalBlock
+  goals, asserts every cap is real, and a control that half the cap fails the base (Codex P2);
+- the note's footprint added in place and bounded through `addFootprint`, which the rebuild uses too (Codex P2, Claude P3-2);
+- the read's bot-time only from rows both builds write, with a fixture (Claude P2);
+- WIRED asserts both call sites of the guard hook (Claude P3-4); the installer patches the header line before the cron, and its
+  failure stops the install (Claude P3-5);
+- the no-harm thresholds calibrated on four null dry runs (§7).
 
 **Design r2 + code r1** (`72189ab4`): Codex CHANGE (4 P1, 3 P2); Claude APPROVE (no P1; 4 P2, 10 P3). What r3 changed:
 - the move judged in the one executed form, with postProcessPath's support tops, tested on the real pathfinder over every
