@@ -18,7 +18,7 @@ const SK = await import('../src/skills.mjs')
 const RF_URL = new URL('../src/respawnfall.mjs', import.meta.url)
 const SK_URL = new URL('../src/skills.mjs', import.meta.url)
 const { elevation, columnUnder, columnReader, supportOf, doneAt, descendOrder, stayRefusal, respawnfallOn, respawnfallModeDetail, descentCost,
-  descentDone, rankStarts, cheapestStart, skyEscapeBlocked, fullCube, ELEVATED_MIN, SAFE_DROP, SPAWN_WINDOW_MS, MARGIN, SAVE_MIN, START_RADIUS, EDGE_SIDES } = RF
+  descentDone, rankStarts, cheapestStart, skyEscapeBlocked, fullCube, regionAt, ELEVATED_MIN, SAFE_DROP, SPAWN_WINDOW_MS, MARGIN, SAVE_MIN, START_RADIUS, EDGE_SIDES } = RF
 
 let pass = 0, fail = 0
 const ta = async (name, fn) => {
@@ -311,7 +311,7 @@ await ta('MUTANT KILLED: "done" at the trigger threshold leaves the bot 8 above 
   // a placed block in a 1x1 shaft through rock, a 5-high hollow under it: walled all round, so only the own test can see it
   const shaft = (x, y, z) => (x === 300 && z === 300 ? (y === 90 ? COBBLE : y >= 85 && y < 90 ? AIR : y > 90 ? AIR : STONE) : (y <= 95 ? STONE : AIR))
   assert.equal(doneAt(columnReader(shaft), 300, 90, 300).done, false, 'breaking it is a fall of 6')
-  await withMutant(RF_URL, '  if (!(own.open <= SAFE_DROP - 1 || own.landing === \'water\'))', '  if (!(own.open <= ELEVATED_MIN || own.landing === \'water\'))', async m => {
+  await withMutant(RF_URL, '  if (!(own.landing === \'water\' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP))', '  if (!(own.landing === \'water\' || own.open <= ELEVATED_MIN))', async m => {
     assert.equal(m.doneAt(m.columnReader(shaft), 300, 90, 300).done, true)
   })
 })
@@ -372,6 +372,98 @@ await ta('MUTANT KILLED: without the centring check a straddling bot digs its fl
   })
 })
 
+// ---------------------------------------------------------------- r3: the region, lava, slabs, water, long transients
+/** The deck plus a 3x3 patch two blocks thick (y=179 solid under it) centred on (355,150). */
+const thickPatch = () => { const w = skyWorld(); for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) w.m.set(key(355 + dx, 179, 150 + dz), COBBLE); return w }
+/** The deck plus an oak on it at (355,150): trunk 181..184, a leaf cap at 185 and leaves round the top of the trunk. */
+const treeOnDeck = () => {
+  const w = skyWorld(); const LOG = { name: 'oak_log', boundingBox: 'block' }, LEAF = { name: 'oak_leaves', boundingBox: 'block' }
+  for (let y = 181; y <= 184; y++) w.m.set(key(355, y, 150), LOG)
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { if (dx || dz) w.m.set(key(355 + dx, 184, 150 + dz), LEAF) }
+  w.m.set(key(355, 185, 150), LEAF)
+  return w
+}
+await ta('REGION: a thick patch of deck is still the platform -- not done, not a free start, and elevated (Claude r2 P1-1)', () => {
+  const w = thickPatch()
+  assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
+  assert.match(descentDone(w.at, { x: 355, y: 180, z: 150 }).why, /still on a platform/)
+  const best = cheapestStart({ at: w.at, support: { x: 352, y: 180, z: 150 } })
+  assert.ok(best.cost > 0, `no free start on the patch (${JSON.stringify(best)})`)
+  assert.equal(elevation({ pos: ON_DECK, at: w.at }).elevated, true)
+})
+await ta('REGION: a bot on a tree standing on the deck is on the platform (Codex r2 P1-2)', () => {
+  const e = elevation({ pos: { x: 355.5, y: 186, z: 150.5 }, at: treeOnDeck().at })
+  assert.equal(e.elevated, true, JSON.stringify(e)); assert.match(e.why, /on a platform/)
+})
+await ta('REGION: a bot on the ground beside a bridge over a ravine is NOT on a platform (its own stance is grounded)', () => {
+  // ground top 72; a ravine x 302..306 down to y=40; a one-block bridge at y=71 across it
+  const m = new Map()
+  for (let x = 302; x <= 306; x++) m.set(key(x, 71, 300), COBBLE)
+  const at = (x, y, z) => m.get(key(x, y, z)) ?? (x >= 302 && x <= 306 && y > 40 ? AIR : y <= 71 ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at }).elevated, false)
+  assert.equal(regionAt(columnReader(at), { x: 300, y: 71, z: 300 }).platform, false)
+  assert.ok(regionAt(columnReader(at), { x: 300, y: 71, z: 300 }).floating, 'the bridge IS seen floating; the ground beside it decides')
+})
+await ta('LAVA is never a landing: a deck over a lava lake is not priced and no stance over it is done (Codex r2 P1-1)', () => {
+  const w = skyWorld({ deckY: 90, under: LAVA })
+  for (let x = 340; x <= 370; x++) for (let z = 140; z <= 160; z++) w.m.set(key(x, 72, z), LAVA)
+  assert.equal(descentCost(w.at, { x: 355, y: 90, z: 150 }).ok, false)
+  assert.equal(doneAt(columnReader(w.at), 355, 75, 150).done, false)
+})
+await ta('A NATURAL PIT beside the landing is terrain: the pillar ride stops at the ground, not at the pit floor (Codex r2 P2-4)', () => {
+  const m = new Map()
+  for (let y = 72; y <= 89; y++) m.set(key(300, y, 300), COBBLE)
+  const at = (x, y, z) => m.get(key(x, y, z)) ?? ((x === 301 && z === 300 && y > 44) ? AIR : y <= 71 ? STONE : AIR)
+  const c = descentCost(at, { x: 300, y: 89, z: 300 })
+  assert.equal(c.ok, true, JSON.stringify(c)); assert.ok(c.endY >= 71, `stopped at ${c.endY}`)
+})
+await ta('SLABS at the landing: the half block counts, so the descent goes one further (Codex r2 P2-5)', () => {
+  const w = skyWorld(); for (let x = 340; x <= 370; x++) for (let z = 140; z <= 160; z++) w.m.set(key(x, 72, z), SLAB)
+  const c = descentCost(w.at, { x: 357, y: 180, z: 152 })
+  // landing top is 72.5: feet at endY + 1 must be within 3 of it
+  assert.ok(c.endY + 1 - 72.5 <= SAFE_DROP, `feet ${c.endY + 1} over a slab top 72.5`)
+})
+await ta('A partial block inside the column is not a free ride (Claude r2 P3-7)', () => {
+  const w = pillarWorld(); w.m.set(key(354, 150, 148), SLAB)
+  assert.match(descentCost(w.at, { x: 354, y: 180, z: 148 }).why, /a partial block/)
+})
+await ta('WATER ends an episode (swimming is travel); a transient reading ends it after TRANSIENT_MAX_MS (both r2)', () => {
+  const now = 10_000_000
+  assert.equal(elevation({ pos: ON_DECK, at: skyWorld().at, inWater: true }).water, true)
+  const w = descendOrder({ now, el: { elevated: false, water: true, why: 'in water' }, state: { active: true } })
+  assert.equal(w.issue, false); assert.equal(w.state.active, false); assert.equal(w.ended, 'water')
+  const tr = { elevated: false, transient: true, why: 'not on the ground' }
+  const a = descendOrder({ now, el: tr, state: { active: true } })
+  assert.equal(a.issue, true); assert.equal(a.state.transientSince, now)
+  const b = descendOrder({ now: now + RF.TRANSIENT_MAX_MS + 1, el: tr, state: a.state })
+  assert.equal(b.issue, false); assert.equal(b.ended, 'transient')
+  const c = descendOrder({ now: now + 1000, el: { elevated: true, why: 'x' }, state: a.state })
+  assert.equal(c.state.transientSince, null, 'a good reading resets the clock')
+})
+await ta('MUTANT KILLED: done without the region test ends an episode on a thick patch of deck', async () => {
+  await withMutant(RF_URL, "  if (reg.platform) return { done: false, unknown: false, why: `still on a platform", "  if (false) return { done: false, unknown: false, why: `still on a platform", async m => {
+    assert.equal(m.descentDone(thickPatch().at, { x: 355, y: 180, z: 150 }).done, true)
+  })
+})
+await ta('MUTANT KILLED: a trigger without the region test leaves a bot on a tree on the deck to the model', async () => {
+  await withMutant(RF_URL, '  if (reg.platform) return { elevated: true, why: `on a platform', '  if (false) return { elevated: true, why: `on a platform', async m => {
+    assert.equal(m.elevation({ pos: { x: 355.5, y: 186, z: 150.5 }, at: treeOnDeck().at }).elevated, false)
+  })
+})
+await ta('MUTANT KILLED: lava read as a landing makes a stance over a lava lake "done"', async () => {
+  await withMutant(RF_URL, "  if (own.landing === 'lava') return { done: false, unknown: false, why: 'lava below' }", '', async m => {
+    const w = skyWorld({ deckY: 90 }); for (let x = 340; x <= 370; x++) for (let z = 140; z <= 160; z++) w.m.set(key(x, 72, z), LAVA)
+    // a single placed block over the lake, two above it, sides into lava: only the own test saw the lava under it
+    w.m.set(key(355, 75, 150), COBBLE)
+    assert.notEqual(m.doneAt(m.columnReader(w.at), 355, 75, 150).why, 'lava below')
+  })
+})
+await ta('MUTANT KILLED: an episode that ignores water keeps a swimming bot owned for ever', async () => {
+  await withMutant(RF_URL, "    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water' } }\n", '', async m => {
+    assert.equal(m.descendOrder({ el: { elevated: false, water: true, why: 'in water' }, state: { active: true } }).state.active, true)
+  })
+})
+
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
 await ta('WIRING: the order runs ahead of every order but keep-out; admission; the lattice and the watchdog ask the gate; spawn is stamped', async () => {
   const strip = u => readFileSync(new URL(u, import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
@@ -382,7 +474,8 @@ await ta('WIRING: the order runs ahead of every order but keep-out; admission; t
   assert.ok(/if \(skill === 'sky_descend' && !bot\?\.inventoryUnsettled\) return \{ ok: true/.test(strip('../src/admission.mjs')))
   assert.ok(/if \(skyEscapeBlocked\(this\.bot\)\) return/.test(strip('../src/watchdog.mjs')))
   const rfx = strip('../src/reflex.mjs')
-  assert.ok(rfx.includes('if (!escaping && !marooned && !runner.isBusy() && !skyEscapeBlocked(bot) && Date.now() >= airPocketBreatheUntil &&'), 'the maroon lattice asks the gate')
+  assert.ok(rfx.includes('if (!escaping && !marooned && !skyEscapeBlocked(bot) && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&'), 'the maroon lattice asks the gate')
+  assert.ok(/deckMoves\.infiniteLiquidDropdownDistance = false/.test(strip('../src/index.mjs')), 'the deck walk plans no plunge into water')
   assert.ok(rfx.includes('longEnough && !poolEscaping && !skyEscapeBlocked(bot) &&'), 'the last-resort branch asks the gate')
   assert.ok(/bot\.on\('spawn', \(\) => \{ bot\.lastSpawnAt = Date\.now\(\) \}\)/.test(strip('../src/index.mjs')))
   assert.ok(/sky_descend: \{ run: skyDescend, usage: 'sky_descend', args: \[\], chatOnly: true, rescue: true \}/.test(strip('../src/skills.mjs')))

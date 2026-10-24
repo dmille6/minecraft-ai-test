@@ -941,6 +941,7 @@ function connect() {
     deckMoves.allowSprinting = false
     deckMoves.maxDropDown = SKY_SAFE_DROP
     deckMoves.scafoldingBlocks = []
+    deckMoves.infiniteLiquidDropdownDistance = false   // a deck walk never plans a plunge into water either (Claude r2 P2-3)
     bot.withDeckMovements = async (fn) => {
       bot.pathfinder.setMovements(deckMoves); bot.movementProfile = 'deck'
       try { return await fn() }
