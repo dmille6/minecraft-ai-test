@@ -24,7 +24,11 @@ def sky_flags(rows, latest_pos):
     -> [(bot, at, since_iso, why)]. Pure."""
     last, first = {}, {}
     for bot, ts, det, pos in sorted(rows, key=lambda r: r[1]):
-        stay = (det or '').startswith(('stay:', 'stopped:'))
+        # a `wait:` row (a transient reading, still held) neither starts nor clears a stay (Codex r4 P2-4); a
+        # `_needs_rescue arm=sky_descend` row passed in as 'rescue: ...' is a stay
+        if (det or '').startswith('wait:'):
+            continue
+        stay = (det or '').startswith(('stay:', 'stopped:', 'rescue:'))
         last[bot] = (ts, det, pos, stay)
         if stay:
             first.setdefault(bot, ts)
@@ -54,6 +58,13 @@ def rescue_sky_line(now, client=None):
         if not n_sd:
             return f'needs rescue (respawnfall-01): no _sky_descend rows in {SKY_WINDOW.total_seconds() / 3600:.0f} h -- not deployed here, or no platform respawn'
         rows = []
+        for r in ev.rows('_needs_rescue', fields=['bot.name', 'bot.pos', 'skill.detail', '@timestamp'], max_rows=50_000, allow_zero=True):
+            d = (r.get('skill') or {}).get('detail') or ''
+            if 'arm=sky_descend' not in d:
+                continue
+            q = (r.get('bot') or {}).get('pos') or {}
+            pos = (float(q['x']), float(q['y']), float(q['z'])) if q.get('x') is not None else None
+            rows.append(((r.get('bot') or {}).get('name'), r.get('@timestamp'), 'rescue: ' + d, pos))
         for r in ev.rows('_sky_descend', fields=['bot.name', 'bot.pos', 'skill.detail', '@timestamp'], max_rows=50_000, allow_zero=True):
             q = (r.get('bot') or {}).get('pos') or {}
             pos = (float(q['x']), float(q['y']), float(q['z'])) if q.get('x') is not None else None
@@ -88,6 +99,11 @@ def selftest():
     assert sky_flags([('b', '2026-10-24T01:00:00Z', S, P)], {})[0][0] == 'b', 'no position: listed (louder, never quieter)'
     run = [('b', '2026-10-24T01:00:00Z', S, P), ('b', '2026-10-24T01:05:00Z', G, P), ('b', '2026-10-24T01:20:00Z', S, P), ('b', '2026-10-24T01:40:00Z', S, P)]
     assert sky_flags(run, {})[0][2] == '2026-10-24T01:20:00Z', 'the episode starts at the first stay of the current run'
+    # a long unreadable wait: the rescue row lists it, and the wait rows after it do not clear it (Codex r4 P2-4)
+    W = 'wait: y 181.0 -> 181.0; open below ? onto ?; blocks have 0 need 0; placed 0 rode 0; stopped: the column below is not loaded yet'
+    R = 'rescue: arm=sky_descend at=4353,181,4147 open=? landing=? have=0 need=? -- sky_descend: held 11 min on an unreadable reading'
+    lw = sky_flags([('b', '2026-10-24T01:00:00Z', W, P), ('b', '2026-10-24T01:11:00Z', R, P), ('b', '2026-10-24T01:12:00Z', W, P)], {'b': P})
+    assert [x[0] for x in lw] == ['b'] and lw[0][2] == '2026-10-24T01:11:00Z', lw
     global EsEvents
 
     class FakeEv:
@@ -96,7 +112,9 @@ def selftest():
         def names(self):
             return {'_sky_descend': len(self._rows), '_needs_rescue': 1} if self._rows else {}
         def rows(self, kind, fields=None, max_rows=None, allow_zero=False):
-            assert kind == '_sky_descend' and 'skill.detail' in fields and 'bot.pos' in fields and allow_zero
+            assert kind in ('_sky_descend', '_needs_rescue') and 'skill.detail' in fields and 'bot.pos' in fields and allow_zero
+            if kind == '_needs_rescue':
+                return iter([])
             return iter({'bot': {'name': b, 'pos': {'x': p[0], 'y': p[1], 'z': p[2]}}, '@timestamp': ts, 'skill': {'detail': d}} for b, ts, d, p in self._rows)
         def latest(self, require=None, fields=None, allow_zero=False):
             return {}
