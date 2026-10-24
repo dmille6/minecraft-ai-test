@@ -27,7 +27,7 @@ import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan }
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
 import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
-import { skyHoldActive } from './respawnfall.mjs'   // respawnfall-01: a held bot never takes step_off
+import { skyEscapeBlocked } from './respawnfall.mjs'   // respawnfall-01: the escape lattice stands aside for an open sky episode
 import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
 // import from it -- which is the entire reason the lattice's most-chosen rung
@@ -1765,7 +1765,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const longEnough =
         (strandedSince && Date.now() - strandedSince > LAST_RESORT_STRANDED_MS) ||
         (sealedSince && Date.now() - sealedSince > SEALED_ESCAPE_MS)
-      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping && !dangerMovingNow() && !rampSteering &&
+      // RESPAWNFALL-01: not while sky_descend owns the episode (held or open): its rungs include the walk-off and a dig_down
+      // priced by health, and the owner's rule for a platform bot is climb down safely or stay put (respawnfall.mjs)
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping && !dangerMovingNow() && !rampSteering && !skyEscapeBlocked(bot) &&
           Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
         // `trapped` comes from the lattice's own observation rather than a
         // separate flag, so this branch and the plan it obeys are reading the
@@ -1792,8 +1794,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // `pillar_up` above the bottom, so reaching the bottom WITH blocks means
         // something else is wrong and killing the bot would not fix it.
         const terminal = plan === 'step_off'
-        // RESPAWNFALL-01: a bot sky_descend is holding for rescue never takes the deliberate fall (respawnfall.mjs)
-        if (!(terminal && skyHoldActive(bot)) && (terminal ? est.blocks === 0 : plan !== 'none')) {
+        if (terminal ? est.blocks === 0 : plan !== 'none') {
           lastMaroonPrereqAt = Date.now()
           const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
           logEvent({
@@ -2687,7 +2688,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a journey begin at all", which is what the trap denies and what
       // canStartAPath() measures. Cheap guards first, because that call runs a
       // real search and this loop ticks twice a second.
-        if (!escaping && !marooned && !dangerMovingNow() && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
+        // RESPAWNFALL-01: the whole maroon lattice (need_scaffold, need_pickaxe, stranded_high and its step_off, climb) stands
+        // aside while sky_descend owns the episode (respawnfall.mjs skyEscapeBlocked)
+        if (!escaping && !marooned && !dangerMovingNow() && !runner.isBusy() && !skyEscapeBlocked(bot) && Date.now() >= airPocketBreatheUntil &&
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
@@ -2961,9 +2964,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           let acted = null
           if (plan === 'step_off' && Date.now() - lastStepOffAt < STEP_OFF_COOLDOWN_MS) {
             acted = { ok: false, why: 'step_off on cooldown' }
-          } else if (plan === 'step_off' && skyHoldActive(bot)) {
-            // RESPAWNFALL-01: held for rescue on a platform (sky_descend's stay): staying put, never the deliberate fall
-            acted = { ok: false, why: 'step_off refused: sky_descend holds this bot for rescue (stay put, _needs_rescue raised)' }
           } else {
             if (plan === 'step_off') lastStepOffAt = Date.now()
             const routine = ESCAPE_ROUTINES[plan]
