@@ -98,7 +98,10 @@ def judge(rows, W=180, CANS=(), population=None, hazards=None):
     named = []
     for r in rows:
         a, p, n, b, t = r['arm'], r['per'], r['name'], r['bot'], r['t']
-        bots[(p, a)].add((b, int(t // 600)))
+        # bot-time from rows BOTH builds write (Claude r3 P2): the canary's 10-min liveness row would otherwise mark every
+        # connected canary slot observed and none of the control's, deflating the canary's rates
+        if not n.startswith('_lavasight'):
+            bots[(p, a)].add((b, int(t // 600)))
         minute = int(t // 60)
         d = r.get('detail') or ''
         # a refusal for an UNKNOWN cell is not lava's (lavasight cannot move it; Claude r2 P3-7)
@@ -270,6 +273,10 @@ def selftest():
     # an unknown-cell refusal is not a lava episode (Claude r2 P3-7)
     unk = judge(base + can + [R('_lava_corridor', 'lava_corridor: unknown below at 1,2,3', t=T0 + 5)], CANS=('board-d',))
     assert unk['episode_rates'] == ok['episode_rates'], 'unknown is not lava'
+    # the canary's own liveness rows add NO bot-time (Claude r3 P2): a silent slot holding only `_lavasight` stays unobserved
+    extra = [R('_lavasight', args=LIVE(), t=T0 + 10800 + i * 600) for i in range(6)]
+    nb = judge(base + can + extra, CANS=('board-d',))
+    assert nb['bot_h'] == ok['bot_h'], ('liveness-only slots counted as bot-time', nb['bot_h'], ok['bot_h'])
     assert ok['g2_exercised'] == 1 and judge(base + [R('_lavasight_mode', args={'on': 1, 'state': 'ok'})] + [R('_lavasight', args=LIVE(held_seen=0), t=T0 + i * 600) for i in range(18)], CANS=('board-d',))['g2_exercised'] == 0
     # deaths: families, the floor is the registration's; at hazards by kind
     hz = hazard_index({'seeds': {'1': {'worlds': {'board-d': {}}, 'hazards': [{'kind': 'lava', 'center': [396, 69, 109], 'sightings': {'cells': [[397, 69, 109, 5]]}, 'deaths': {'cells': []}}]}}})
@@ -342,9 +349,10 @@ if __name__ == '__main__':
         if arm == 'canary' and per == 'post' and CV and ver and not ver.startswith(CV):
             offbuild += 1
             continue
-        bots[(per, arm)].add((b, int(t.timestamp() // 600)))
         sk = ((r.get('raw') or {}).get('skill') or {})
         name = sk.get('name') or r.get('name')
+        if not str(name or '').startswith('_lavasight'):        # rows both builds write (Claude r3 P2)
+            bots[(per, arm)].add((b, int(t.timestamp() // 600)))
         if name in KEEP:
             pos = ((r.get('raw') or {}).get('bot') or {}).get('pos')
             rows.append({'t': t.timestamp(), 'per': per, 'arm': arm, 'name': name, 'status': sk.get('status'), 'detail': r.get('detail') or '',

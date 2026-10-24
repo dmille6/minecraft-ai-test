@@ -72,7 +72,7 @@ import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { lavasightOn, lavaMapReader, lavaMapFileIn, lavasightModeArgs, lavasightModeDetail, SightRing, memoryCells, liveConfirm,
-         buildPriceIndex, footprintOf, packKey, wrapNeighbors, priceLive, routeSummary,
+         buildPriceIndex, addFootprint, packKey, wrapNeighbors, priceLive, routeSummary,
          RELOAD_MS as LAVASIGHT_RELOAD_MS, LIVE_MS as LAVASIGHT_LIVE_MS } from './lavasight.mjs'   // lavasight-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
@@ -408,10 +408,9 @@ function connect() {
         if (lsRing.add(cell)) lsCounters.ring_added = (lsCounters.ring_added ?? 0) + 1
         const b = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
         if (b && LAVA_LIKE.has(b.name) && !lsActive.some(c => c.x === cell.x && c.y === cell.y && c.z === cell.z)) {
-          const next = new Set(lsIdx)
-          footprintOf(cell, (x, y, z) => { const q = bot.blockAt(new Vec3(x, y, z)); return q == null ? null : q.boundingBox === 'block' }, (x, y, z) => { next.add(packKey(x, y, z)) })
+          // IN PLACE and bounded (Codex r3 P2, Claude r3 P3-2): a search running now only sees costs change, never moves
+          addFootprint(lsIdx, cell, (x, y, z) => { const q = bot.blockAt(new Vec3(x, y, z)); return q == null ? null : q.boundingBox === 'block' })
           lsActive = [...lsActive, { x: cell.x, y: cell.y, z: cell.z }]
-          lsIdx = next
         }
       } catch { /* telemetry */ }
     }
