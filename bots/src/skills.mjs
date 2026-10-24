@@ -2047,13 +2047,16 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // CAVEFALL-01: the round's one verdict per cell (cavefall.mjs), asked AT ENUMERATION too, as town ground and keep-out are,
     // so the 32 nearest candidates findBlocks returns are the nearest that are NOT floors over a drop (Claude r3 P2-1)
     const cave = caveFilter(bot)
+    const searchFrom = bot.entity?.position?.floored?.() ?? null   // findBlocks' own point (blocks.js: entity position, floored)
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
-      if (b.position && cave.skip(b.position)) return false
+      // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
+      // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
       return true
     }
     ko?.refresh?.()
@@ -2087,6 +2090,15 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 
     const skippedNow = townSkipped
     if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
+    // CAVEFALL-01 (Codex r4 P2-1): a search that enumeration emptied because every candidate in range was a floor over a drop
+    // is a refusal, not "nothing found": its skip row (front=1 when one of them was exposed and permitted -- with nothing kept,
+    // the base would have dug it) and the all-floors message, here, before the early return
+    if (positions.length === 0 && collected === 0 && cave.skipped().length) {
+      const sk = cave.skipped()
+      const front = sk.some(v => { const q = new Vec3(v.at.x, v.at.y, v.at.z); return horizontalDistanceFromSpawn(q) <= config.world.borderRadius && isExposed(bot, q) && townTargetPermit(q, bot.blockAt(q)?.name, townHome()).ok })
+      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: sk, considered: cave.considered(), front }) }) } catch { /* a measurement may never cost the skill its turn */ }
+      return { status: 'failed', failClass: 'no_safe_target', detail: allFloorsMessage({ name: blockName, n: sk.length, verdicts: sk.slice(0, 8) }) }
+    }
     if (positions.length === 0) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
@@ -2145,9 +2157,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const ironStrict = IRON_KINDS.includes(blockName)
     // CAVEFALL-01: a floor over a harmful drop is never a target (cavefall.mjs); counted apart so the message names it
     const caveSkip = cave.skip     // the same round's verdicts: enumeration, the exposed list and both fallbacks
-    const safeTarget = p => !caveSkip(p) && townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
+    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
+    // CAVEFALL-01: the base's conjunction, then the cave rule first (baseSafe alone is kept for the exposure measure below)
+    const safeTarget = p => !caveSkip(p) && baseSafe(p)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
     // findBlocks would return a trunk section five blocks up in the foliage,
@@ -2307,9 +2321,16 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 
     // CAVEFALL-01: the round's skips, counted AFTER both fallbacks (Codex r2 P2-6), one row per round with a skip
     const caveSkipped = cave.skipped()
+    // EXPOSURE (Codex r4 P2-3): would the BASE have taken a skipped floor first? A skipped cell counts only if it is in the
+    // border, exposed, passes the base's own conjunction and is approachable -- the base's ranking minus its A* reorder --
+    // and is nearer than the round's front kept candidate
+    const caveFront = () => frontSkipped(bot.entity?.position,
+      caveSkipped.map(v => v.at).filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
+        .map(q => new Vec3(q.x, q.y, q.z)).filter(q => exposed(q) && baseSafe(q) && approachable(q)),
+      reachable.length ? [reachable[0]] : [])
     if (caveSkipped.length) {
       try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.considered(),
-        front: frontSkipped(bot.entity?.position, caveSkipped.map(v => v.at), reachable.length ? [reachable[0]] : positions) }) }) } catch { /* a measurement may never cost the skill its turn */ }
+        front: caveFront() }) }) } catch { /* a measurement may never cost the skill its turn */ }
     }
     if (reachable.length === 0) {
       if (collected > 0) {
