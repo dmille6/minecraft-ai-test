@@ -291,6 +291,17 @@ export function relocationLavaForbidden (active, x, y, z) {
 }
 
 /**
+ * HOMEFIX'S COMPOSED FORBID -> null (nothing to forbid: the base rule) | (x, y, z) -> true (keepout's fire column, as
+ * before) | 'lavasight' | false. Pure. `fireForbidden` is keepout.mjs relocationForbidden(sites, x, y, z).
+ */
+export function composeRelocationForbid (fire, lava, fireForbidden) {
+  const f = Array.isArray(fire) && fire.length && typeof fireForbidden === 'function'
+  const l = Array.isArray(lava) && lava.length
+  if (!f && !l) return null
+  return (x, y, z) => (f && fireForbidden(fire, x, y, z)) || (l && relocationLavaForbidden(lava, x, y, z) ? 'lavasight' : false)
+}
+
+/**
  * THE READER -> { map(), state(), refresh() }. fs at the edge, the decision in parseLavaMap. FAIL OPEN on everything: a
  * missing, unreadable, malformed, foreign or stale file means no map cells (Codex design r1 P2: no retain-last-good). The
  * bytes are re-parsed when mtime, size, the login world or the pool change; the clock is re-judged on EVERY refresh, so a
