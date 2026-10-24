@@ -357,7 +357,7 @@ eighth). The full `npm test` result is in §7.
 
 Scenes: `deck` (respawn at 353,181,147), `bridge` (355,126,145), `tree` (355,185,147, on a tree standing on the deck) and `bare` (the deck, no blocks).
 
-**Results (10-24 17:43-22:05Z; sandbox6 = base 2d1aa8c1, sandbox7 = candidate, run in parallel pairs; `.cf/rfpaper/results.jsonl` in the building worktree).**
+**Results (10-24 17:43-22:35Z; sandbox6 = base 2d1aa8c1, sandbox7 = candidate, run in parallel pairs; `.cf/rfpaper/results.jsonl` in the building worktree).**
 
 Each run is 15 minutes; rep 1 is 8. Deaths are counted from the bot's own `_death` rows after the respawn. Rep 1's single
 "death" on each arm is the driver's own kill, before the filter was fixed. Positions are RCON samples every 3 s.
@@ -365,17 +365,21 @@ Each run is 15 minutes; rep 1 is 8. Deaths are counted from the bot's own `_deat
 | scene | base 2d1aa8c1 | candidate |
 |---|---|---|
 | **deck** (y=181) | **5 falls in 5 runs** (75 min): rep 2: 1 (79 blocks), rep 6: 2, rep 7: 2 (109 each), reps 3 and 9: 0. All while exploring; it never reached the ground alive | r2: down in 270-282 s (2 runs). r3 / r6 / r7 / r9: **0 deaths**, on the ground (y 73) in 279-283 s, 8 platform cells used |
-| **bridge** (y=126) | **1 fall in 3 runs** (rep 7: 55 blocks) | r2: **1 death**. It stopped on the y=100 layer (r2's local "done"), explored, and fell 37. Fixed in r3 by the region test. r3 / r7: **0 deaths**, on the ground in 82 s, one ride |
-| **tree** (y=185) | 0 falls in 1 run | r7: 0 deaths, on the ground in 279 s |
-| **bare** (deck, pickaxe only) | 0 falls in 3 runs, explored 15 min | r2 / r3 / r7: 0 deaths. **Held**: it walked to the cheapest column (drift 5) and stayed, with one `_needs_rescue` row ("needs 102 placeable blocks and it carries 0") |
+| **bridge** (y=126) | **2 falls in 4 runs** (rep 7: 55, rep 9: 54) | r2: **1 death**. It stopped on the y=100 layer (r2's local "done"), explored, and fell 37. Fixed in r3 by the region test. r3 / r7 / r9: **0 deaths**, on the ground in 81-82 s |
+| **tree** (y=185) | 0 falls in 2 runs | r7 / r9: 0 deaths, on the ground in 279-321 s |
+| **bare** (deck, pickaxe only) | **1 fall in 4 runs** (rep 9: 109 blocks), the rest explored 15 min | r2 / r3 / r7 / r9: 0 deaths. **Held**: it walked to the cheapest column (drift 5) and stayed, with one `_needs_rescue` row ("needs 102 placeable blocks and it carries 0") |
 
 **Read.**
 
-- **The base's fall mechanism reproduced:** 6 falls in 11 base runs on deck and bridge (2.0 h).
-- **The candidate on r3 and later:** 0 deaths in 10 runs (2.5 h). Every non-bare run reached the ground alive, and every
+- **The base's fall mechanism reproduced:** 8 falls in 15 base runs (3.75 h; 2.1 an hour).
+- **The candidate on r3 and later:** 0 deaths in 12 runs (3.0 h). Every non-bare run reached the ground alive, and every
   bare run was held, never walked off.
-- r9 (ef29366e) and r10 differ from r7 only in geometry rules this arena does not exercise (stone ground, no lava). r9's
-  deck run matched r7's.
+- r10 and r11 (the canary sha, e8dd7460) change only:
+  - the purse rule in `rankStarts`;
+  - the stationary declaration.
+
+  The Codex and Claude confirmations probed both on the real platform: 975 of 975 stances, 0 of 174 + 975 live rides ending
+  high, and no purse sending a bot to a column it cannot finish.
 - **Synthetic:**
   - flat stone ground at y=70;
   - no jungle;
@@ -456,3 +460,6 @@ latest `_sky_descend` row is a stay and it has not moved 2 blocks since. This li
 | design + code r7 (465ed13f) | CHANGES (1 P2) | CHANGES (2 P2, 3 P3) | r9 (ef29366e): lava under a sky-open gap is not ground (an r8 clause had reopened a release; fixture + mutant; Claude P2-1); the every-8th-layer loop removed (Claude P2-2); stale comments (P3-3). r10: an affordable column saving under SAVE_MIN is offered when the own column is unaffordable -- rankStarts takes the bot's purse (Codex P2-1 on the real platform: support 345,125,144 with 54 blocks now gets 352,125,144 at cost 52; Claude P3-2); the comments Claude r8 named |
 | confirmation r8 (ef29366e) | -- | **APPROVE** (no P1/P2; 21 mutants killed; liveride 0/174 + 0/975 at three ground heights; P3s: a void cluttered at its top over ground raised to y=88 reads enclosed -- constructed, the real ground is ~66-71; doc and comment nits, applied in r10) | |
 | confirmation r8 (5672b09c) | CHANGES (1 P2) | -- | r11: the stuck reflex (STUCK_SECONDS 35, then unstick's nudges and sprints) could fire on a held bot after a placement timeout plus the 30-s stay; every sky_descend run now declares itself stationary through stuckDecision's own mechanism (bot.stationaryUntil = the run's clock + 5 s, the transient wait included), released on a finished descent; a probe of the reflex's own decision during a failed-placement-then-stay run, and a mutant that fires without the declaration (Codex P2-1). 66 tests |
+| confirmation r9 (e8dd7460) | **APPROVE** (no P1/P2; 975/975, 0 of 174 + 975 live rides end high, 0/2,209) | **APPROVE** (no P1/P2; the purse rule probed on all 975 real stances at six purses: never a column it cannot finish; P3s recorded below) | -- |
+
+**Open P3s (recorded, not changed after both approvals):** the stationary declaration can outlive the hold by up to ~145 s on a non-grounded return (it only delays the stuck reflex during another busy skill, never a danger reflex); the stuck probe test is coarse; a bot with no affordable column still walks to the cheapest unaffordable one before staying; a `pays` helper to hoist. A void cluttered at its top over ground raised to y=88 reads enclosed (constructed; real ground ~66-71). Natural jungle branches can make a canopy stance read as a platform (a safe descent, not a fall).
