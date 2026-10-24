@@ -865,7 +865,8 @@ const WIRES = [
   ['the pocket rung stands down', '!escaping && !marooned && !pocketing && !dangerMovingNow()) {'],
   ['the stand-off stands down', '!runner.isBusy() && !escaping && !marooned && !dangerMovingNow() && !standOffInWater'],
   ['the float hold stands down', 'if (!pocketing && !poolEscaping && !dangerMovingNow()) {'],
-  ['the maroon check stands down', 'if (!escaping && !marooned && !dangerMovingNow() && !runner.isBusy()'],
+  // re-anchored (lavastep-01 x respawnfall-01, JIT 10-24): respawnfall's gate rides on the same line
+  ['the maroon check stands down', 'if (!escaping && !marooned && !dangerMovingNow() && !skyEscapeBlocked(bot) && !runner.isBusy()'],
   ['the mover is created only when on', 'if (lavastepOn()) {\n    lavastepMover = makeDangerMover(bot, runner, {'],
 ]
 await t('G1 WIRED (reflex.mjs, comments stripped): the arm, the rollback, the stand-downs, ownership and air preemption -- each once', () => {
