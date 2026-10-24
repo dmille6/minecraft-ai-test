@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """lavasight-01: publish one `lava-map.json` per pool directory from the per-seed hazard map.
 
-    sudo -n -u mcbot python3 -B lavamap_publish.py publish --map ~mike/hazardmap/out/hazardmap.json --root /var/lib/mcai
-    python3 -B lavamap_publish.py plan --map ... --root ...        # what it would write, writes nothing
-    python3 -B lavamap_publish.py check --root ...                 # one header line: OK, or LAVAMAP ALARM: <why>
+    sudo -n -u mcbot python3 -B lavamap_publish.py publish --map /home/mike/hazardmap/out/hazardmap.json \
+        --hazard-heartbeat /home/mike/hazardmap/out/heartbeat.json --root /var/lib/mcai --heartbeat <file>
+    python3 -B lavamap_publish.py plan --map ... --root ...        # what it would write; writes nothing
+    python3 -B lavamap_publish.py check --root ...                 # one header line: lavamap OK, or LAVAMAP ALARM: <why>
 
-Rules (docs/reports/lavasight-01-design-2026-10-24.md 2.1):
+Rules (docs/reports/lavasight-01-design-2026-10-24.md r2, 2.1):
+- TRIGGERED BY A GOOD REFRESH (Claude design r1 R5): it publishes only when the hazard map's own heartbeat says `ok` for
+  the map's `generated_at`; otherwise it writes nothing and exits 0 (a later run picks the refresh up). Run hourly.
 - the map: schema `mcai.hazardmap`, schema_version 1, not past `stale_after` -> else exit 3 and write NOTHING (the bots'
   own staleness rule then fails them open at the old file's stale_after);
 - per world W of `seeds[s].worlds` whose `<root>/_pool-W` directory exists (never created, never a symlink): the per-world
-  view of hazardmap report 7 -- lava hazards not `absent` in W, `sightings.cells` + `deaths.cells`, deduplicated, ranked by
-  the hazard's deaths, then the cell's sighting rows, at most 4096; warn-only hazards (drowning, cave_fall, dripstone) with a
-  death, not absent in W, ranked by deaths, at most 256;
-- written as a temp file in the same directory, fsync, rename; a byte-identical file is left alone;
+  view of hazardmap report 7 -- lava hazards not `absent` in W, `sightings.cells` (most-seen first) then `deaths.cells`,
+  deduplicated, at most 4096. No other kind is delivered (design r2 2.2);
+- written as a temp file in the same directory, fsync, rename; a byte-identical file is left alone (the file carries no
+  clock of its own, so a re-run of the same map is byte-identical);
 - never as root.
 """
-import argparse, hashlib, json, os, sys, tempfile, time
+import argparse, datetime, hashlib, json, os, sys, tempfile, time
 
 SCHEMA, VERSION = 'mcai.lavamap', 1
 MAP_SCHEMA, MAP_VERSION = 'mcai.hazardmap', 1
-MAX_CELLS, MAX_WARN = 4096, 256
-WARN_KINDS = ('drowning', 'cave_fall', 'dripstone')
+MAX_CELLS = 4096
 FILE = 'lava-map.json'
-HEARTBEAT = 'lavamap-publish.json'
 
 
 class Refuse(Exception):
@@ -30,7 +31,6 @@ class Refuse(Exception):
 
 
 def parse_iso(s):
-    import datetime
     return datetime.datetime.fromisoformat(str(s).replace('Z', '+00:00')).timestamp()
 
 
@@ -56,6 +56,20 @@ def check_map(m, now):
             raise Refuse('seed key %r is not a decimal string' % (s,))
 
 
+def refresh_ok(m, hb):
+    """Did the hazard map's own refresh finish `ok` for THIS map? -> (bool, why). Pure."""
+    if not isinstance(hb, dict):
+        return False, 'no hazardmap heartbeat'
+    if hb.get('status') != 'ok':
+        return False, 'hazardmap heartbeat status %r' % hb.get('status')
+    try:
+        if abs(parse_iso(hb['at']) - parse_iso(m['generated_at'])) > 120:
+            return False, 'heartbeat %s is not this map (%s)' % (hb.get('at'), m.get('generated_at'))
+    except Exception:
+        return False, 'heartbeat or map time unreadable'
+    return True, 'ok'
+
+
 def _state(h, world):
     return (((h.get('exists') or {}).get('by_world') or {}).get(world) or {}).get('state')
 
@@ -65,49 +79,48 @@ def _cell(c):
 
 
 def world_view(m, world):
-    """-> (seed, cells, warn) for one world, or (None, [], []) when no seed lists it. Pure."""
+    """-> (seed, cells) for one world, or (None, []) when no seed lists it. Pure.
+
+    Lava hazards not `absent` in the world. SIGHTING cells first (each names a lava cell a guard refused), most-seen first;
+    then death cells (where a bot died: mostly not lava itself, so the bot's live re-read drops most; Claude design r1
+    P3-3); deduplicated; at most MAX_CELLS.
+    """
     for seed, s in m['seeds'].items():
         if world not in (s.get('worlds') or {}):
             continue
-        ranked = []   # (-deaths, -rows, x, y, z)
-        warn = []
+        sight, death = [], []
         for h in s.get('hazards') or []:
-            if _state(h, world) == 'absent':
+            if h.get('kind') != 'lava' or _state(h, world) == 'absent':
                 continue
             deaths = int(((h.get('deaths') or {}).get('total')) or 0)
-            if h.get('kind') == 'lava':
-                for c in (h.get('sightings') or {}).get('cells') or []:
-                    if _cell(c):
-                        rows = c[3] if len(c) > 3 and isinstance(c[3], int) else 0
-                        ranked.append((-deaths, -rows, c[0], c[1], c[2]))
-                for c in (h.get('deaths') or {}).get('cells') or []:
-                    if _cell(c):
-                        ranked.append((-deaths, 0, c[0], c[1], c[2]))
-            elif h.get('kind') in WARN_KINDS and deaths > 0 and _cell(h.get('center')):
-                warn.append((-deaths, h['kind'], h['center'][:3]))
-        ranked.sort()
+            for c in (h.get('sightings') or {}).get('cells') or []:
+                if _cell(c):
+                    rows = c[3] if len(c) > 3 and isinstance(c[3], int) else 0
+                    sight.append((-rows, -deaths, c[0], c[1], c[2]))
+            for c in (h.get('deaths') or {}).get('cells') or []:
+                if _cell(c):
+                    death.append((-deaths, 0, c[0], c[1], c[2]))
         seen, cells = set(), []
-        for _, _, x, y, z in ranked:
+        for _, _, x, y, z in sorted(sight) + sorted(death):
             if (x, y, z) in seen:
                 continue
             seen.add((x, y, z))
             cells.append([x, y, z])
             if len(cells) >= MAX_CELLS:
                 break
-        warn.sort(key=lambda w: (w[0], w[1], w[2]))
-        return seed, cells, [{'kind': k, 'center': c, 'deaths': -d} for d, k, c in warn[:MAX_WARN]]
-    return None, [], []
+        return seed, cells
+    return None, []
 
 
 def build_file(m, world, map_sha):
-    """-> dict | None. Pure (no clock: published_at is the map's generated_at, so a re-run is byte-identical)."""
-    seed, cells, warn = world_view(m, world)
+    """-> dict | None. Pure (no clock of its own: a re-run of the same map is byte-identical)."""
+    seed, cells = world_view(m, world)
     if seed is None:
         return None
     return {'schema': SCHEMA, 'schema_version': VERSION, 'world': world, 'seed': seed,
             'generated_at': m.get('generated_at'), 'stale_after': m['stale_after'],
             'source': {'map_sha256': map_sha, 'map_generated_at': m.get('generated_at')},
-            'cells': cells, 'warn': warn}
+            'cells': cells}
 
 
 def dumps(d):
@@ -158,13 +171,21 @@ def write_atomic(path, data):
     return True
 
 
-def publish(map_path, root, now=None, heartbeat=None):
+def publish(map_path, root, hazard_heartbeat=None, now=None, heartbeat=None, euid=None):
     now = time.time() if now is None else now
-    if os.geteuid() == 0:
+    if (os.geteuid() if euid is None else euid) == 0:
         raise Refuse('refusing to run as root')
     raw = open(map_path, 'rb').read()
     m = json.loads(raw)
     check_map(m, now)
+    if hazard_heartbeat is not None:
+        try:
+            hb = json.load(open(hazard_heartbeat))
+        except Exception:
+            hb = None
+        ok, why = refresh_ok(m, hb)
+        if not ok:
+            return {'at': iso(now), 'status': 'waiting', 'why': why, 'written': [], 'same': [], 'skipped': {}}
     sha = hashlib.sha256(raw).hexdigest()
     res = {'at': iso(now), 'map_generated_at': m.get('generated_at'), 'stale_after': m['stale_after'], 'written': [],
            'same': [], 'skipped': {}}
@@ -179,11 +200,10 @@ def publish(map_path, root, now=None, heartbeat=None):
     return res
 
 
-def check(root, now=None, heartbeat=None):
-    """The fleetstatus header line -> (ok, line). Every pool's file must parse and be inside its stale_after."""
+def check(root, now=None):
+    """The fleetstatus header line -> (ok, line). Every shared pool's file must parse and be inside its stale_after."""
     now = time.time() if now is None else now
-    bad = []
-    n = 0
+    bad, n = [], 0
     for name in sorted(os.listdir(root)):
         if not name.startswith('_pool-') or '.pre-reseed-' in name or name.startswith('_pool-self-'):
             continue
@@ -211,6 +231,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('cmd', choices=['publish', 'plan', 'check'])
     ap.add_argument('--map', default=os.path.expanduser('~/hazardmap/out/hazardmap.json'))
+    ap.add_argument('--hazard-heartbeat', default=None)
     ap.add_argument('--root', default='/var/lib/mcai')
     ap.add_argument('--heartbeat', default=None)
     a = ap.parse_args(argv)
@@ -225,9 +246,9 @@ def main(argv=None):
             check_map(m, time.time())
             for w, path, data, why in plan(m, a.root, hashlib.sha256(raw).hexdigest()):
                 d = json.loads(data) if data else None
-                print('%-12s %-6s %s' % (w, why, ('cells=%d warn=%d %s' % (len(d['cells']), len(d['warn']), path)) if d else path))
+                print('%-12s %-12s %s' % (w, why, ('cells=%d %s' % (len(d['cells']), path)) if d else path))
             return 0
-        r = publish(a.map, a.root, heartbeat=a.heartbeat)
+        r = publish(a.map, a.root, hazard_heartbeat=a.hazard_heartbeat, heartbeat=a.heartbeat)
         print(json.dumps(r, sort_keys=True))
         return 0
     except Refuse as e:
