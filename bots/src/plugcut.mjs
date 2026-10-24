@@ -24,6 +24,8 @@ export const plugCutOn = (env = typeof process !== 'undefined' ? process.env : {
 export const PLUG_AFTER_REFUSALS = 3   // the rung runs from the 4th CONSECUTIVE flood refusal (a pinned bot, never a passer-by)
 export const PLUG_MAX = 3              // wet faces one cut may plug
 export const PLUG_ROUNDS = 3           // plug-and-replan rounds per firing
+export const PLUG_CLEAR_UP = 2         // a licensed ramp is not handed back to the planner below this many blocks of climb
+export const PLUG_BUDGET_MS = 90_000   // a licensed firing's budget: poolescape's POOL_BUDGET_MS (the unlicensed ramp keeps 60 s)
 
 const solid = b => !!b && b.boundingBox === 'block'
 const plainWater = b => !!b && /^(water|flowing_water)$/.test(b.name ?? '') && b.isWaterlogged !== true
@@ -164,5 +166,5 @@ export const plugDue = (refusals, env) => plugCutOn(env) && Number(refusals) >= 
 
 /** The `_plugcut_mode` licence row, once per spawn (index.mjs). Pure. */
 export function plugCutModeDetail (env = typeof process !== 'undefined' ? process.env : {}) {
-  return `on=${plugCutOn(env) ? 1 : 0} after_refusals=${PLUG_AFTER_REFUSALS} max_plugs=${PLUG_MAX} rounds=${PLUG_ROUNDS}`
+  return `on=${plugCutOn(env) ? 1 : 0} after_refusals=${PLUG_AFTER_REFUSALS} max_plugs=${PLUG_MAX} rounds=${PLUG_ROUNDS} clear_up=${PLUG_CLEAR_UP} budget_s=${PLUG_BUDGET_MS / 1000}`
 }

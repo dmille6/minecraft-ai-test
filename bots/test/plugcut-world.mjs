@@ -94,7 +94,7 @@ const isWater = b => !!b && (b.name === 'water' || b.isWaterlogged === true)
  */
 export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, rise = 0.1, held = null, stuckHand = false, items = [],
                                          onDig = null, yieldAt = null, canPath = false, onTick = null,
-                                         placeFails = false, onPlace = null } = {}) {
+                                         placeFails = false, onPlace = null, ledge = false } = {}) {
   const m = new Map(Object.entries(cells))
   const world = {
     get (x, y, z) { const k = `${x},${y},${z}`; return m.has(k) ? m.get(k) : fill },
@@ -102,7 +102,7 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, ri
   }
   const digs = [], controls = [], looks = [], places = []
   const ctl = { forward: false, jump: false, back: false, left: false, right: false, sneak: false, sprint: false }
-  let yaw = 0, digging = null
+  let yaw = 0, digging = null, vy = 0
   const ent = { position: new Vec3(0.5, feetY, 0.5), onGround: false, eyeHeight: 1.62, yaw: 0, velocity: new Vec3(0, 0, 0), effects: {} }
   Object.defineProperty(ent, 'yaw', { get: () => yaw, set: v => { yaw = v } })
   const cellAt = (x, y, z) => world.get(Math.floor(x), Math.floor(y), Math.floor(z))
@@ -179,7 +179,25 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, ri
       onTick?.(world, bot)
       const p = ent.position
       const feet = blockAtXYZ(p.x, p.y, p.z)
-      if (isWater(feet)) {
+      // PLUGCUT-01 ADDITION, `ledge` (default off: the copied physics exactly). Vanilla's jump out of a fluid
+      // (LivingEntity.travel, the fluid branch: horizontalCollision && the box moved up 0.6 is free -> motion.y = 0.3) is the
+      // one impulse the ramp's own step from water relies on (Paper 10-24: isolated-c-Alpha took the plugged W step that
+      // way). Modelled as that rule and nothing more: in water, forward held, the cell ahead solid at the feet and free at
+      // the feet + 0.6 for the whole body -> vy = 0.3; then vy decays 0.08 a tick (gravity) until it is spent.
+      if (ledge && vy <= 0 && isWater(feet) && ctl.forward) {
+        const b = yawBear(yaw)
+        const ax = p.x + b.x * 0.6, az = p.z + b.z * 0.6
+        if (solidAt(blockAtXYZ(ax, p.y + 0.01, az)) && !solidAt(blockAtXYZ(ax, p.y + 0.61, az)) && !solidAt(blockAtXYZ(ax, p.y + 0.6 + 1.79, az)) &&
+            !solidAt(blockAtXYZ(p.x, p.y + 0.6 + 1.79, p.z))) vy = 0.3
+      }
+      // ...and the ordinary jump from the ground (vanilla 0.42), so a dry step can be taken at all (the copied world has none)
+      if (ledge && vy <= 0 && !isWater(feet) && ent.onGround && ctl.jump) { vy = 0.42; ent.onGround = false }
+      if (ledge && vy > 0) {
+        // the stroke still adds while the feet are in water; a solid block at the head stops the rise (and the impulse)
+        const dy = vy + (ctl.jump && isWater(feet) ? rise : 0)
+        if (solidAt(blockAtXYZ(p.x, p.y + dy + 1.8, p.z))) vy = 0
+        else { ent.position = new Vec3(p.x, p.y + dy, p.z); vy -= 0.08 }
+      } else if (isWater(feet)) {
         ent.onGround = false
         if (ctl.jump) {
           const headTop = p.y + 1.8
