@@ -813,7 +813,10 @@ export function composterSafeMovements (base, keep) {
   if (!base) return base
   const proto = Object.getPrototypeOf(base)
   const m = Object.assign(Object.create(proto), base)
-  m.getNeighbors = function (node) { return proto.getNeighbors.call(this, node).filter(keep) }
+  // the BASE PROFILE's generator, which is the prototype's unless the base carries its own (lavasight-01's move wrapper on
+  // the walk profile: calling proto directly here skipped it -- Claude lavasight design r1 P1-1)
+  const inner = typeof base.getNeighbors === 'function' ? base.getNeighbors : proto.getNeighbors
+  m.getNeighbors = function (node) { return inner.call(this, node).filter(keep) }
   return m
 }
 
