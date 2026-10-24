@@ -22,6 +22,7 @@ const OPEN_TRAPDOOR = () => stateBlock('oak_trapdoor', { facing: 'north', half: 
 /** Overlay real block objects on a shelf world. */
 const withBlocks = (sh, cells) => ({ ...sh, at: (x, y, z) => { const k = `${x},${y},${z}`; return k in cells ? cells[k] : sh.at(x, y, z) } })
 process.env.OLLAMA_MODEL ??= 'test'
+process.env.HOME_X ??= '5000'; process.env.HOME_Y ??= '65'; process.env.HOME_Z ??= '5000'   // the town's ground far from every fixture
 process.env.LOG_DIR ??= mkdtempSync(join(tmpdir(), 'cavefall-test-'))
 const CF = await import('../src/cavefall.mjs')
 const SK = await import('../src/skills.mjs')
@@ -249,13 +250,15 @@ await ta('frontSkipped: the nearest skipped floor nearer the eye than the neares
 })
 await ta('THE FAST PATH changes no verdict: with and without it, the same skip on every cell of four worlds (shelf, cliff, cave floor, roof)', async () => {
   // Codex r4 P2-2's case: stone T on stone, LAVA beside the cell under T, open beside T -- and an unloaded neighbour
-  const lavaSide = mkWorld((x, y, z) => (x === 20 && z === 20 && (y === 10 || y === 9)) ? 'stone' : (x === 21 && z === 20 && y === 9) ? 'lava' : (x === 19 && z === 20 && y === 10) ? '__unknown__' : 'air')
+  const lavaSide = mkWorld((x, y, z) => (x === 20 && z === 20 && (y === 10 || y === 9)) ? 'stone' : (x === 21 && z === 20 && y === 9) ? 'lava' : 'air')
+  const unkSide = mkWorld((x, y, z) => (x === 20 && z === 20 && (y === 10 || y === 9)) ? 'stone' : (x === 19 && z === 20 && y === 10) ? '__unknown__' : 'air')
   const worlds = [shelf('drip'), shelf('ground'), shelf('water'), shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone', [key(3, 30, 6)]: 'white_carpet' }),
-    { at: (x, y, z) => lavaSide.getBlock(new Vec3(x, y, z)) }]
+    { at: (x, y, z) => lavaSide.getBlock(new Vec3(x, y, z)) }, { at: (x, y, z) => unkSide.getBlock(new Vec3(x, y, z)) }]
   const cells = [{ x: 20, y: 10, z: 20 }, { x: 20, y: 9, z: 20 }]
   for (let x = -1; x <= 9; x++) for (const y of [7, 8, 20, 28, 29]) for (let z = 3; z <= 9; z += 3) cells.push({ x, y, z })
   const fast = worlds.map(w => cells.map(c => floorOverDrop({ target: c, at: w.at }).skip))
-  assert.equal(fast[4][0], true, 'the lava-beside case is skipped (a straddling body meets the lava)')
+  assert.equal(fast[4][0], false, 'the lava-beside case: the cube under T catches the body first (a tie goes to the solid)')
+  assert.equal(fast[5][0], true, 'an UNLOADED cell beside T at the body\'s own level is never assumed safe')
   const src = readFileSync(CF_URL, 'utf8')
   const fast1 = "    if (fullCube(rd(t.x, t.y + 1, t.z))) return { skip: false, why: 'nothing can stand on it' }\n"
   const i2 = src.indexOf('    if (fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z))'), j2 = src.indexOf('    }\n', i2) + 6
@@ -384,10 +387,16 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
     assert.ok(src.split(old).length === 2, `anchor present once: ${old.slice(0, 40)}`)
     assert.equal(wired(src.replace(old, neu)), false, `the mutant fails the assertion: ${neu.slice(0, 40)}`)
   }
-  const cnt = '    const caveSkipped = cave.skipped()\n'
-  assert.ok(src.split(cnt).length === 2)
-  const early = src.replace(cnt, '').replace('    const caveSkip = cave.skip\n', '    const caveSkip = cave.skip\n' + cnt)
+  const cnt = '    const caveSkipped = cave.skipped()\n', at = '    const caveSkip = cave.skip'
+  assert.ok(src.split(cnt).length === 2, 'count anchor present once'); assert.ok(src.split(at).length === 2, 'reinsertion anchor present once (Claude r4 P2-2)')
+  const i = src.indexOf(at), eol = src.indexOf('\n', i) + 1
+  const early = src.replace(cnt, '').slice(0, eol) + cnt + src.replace(cnt, '').slice(eol)
+  assert.ok(early.indexOf(cnt) > 0 && early.indexOf(cnt) < early.indexOf('if (reachable.length === 0 && !viaSource)'), 'the mutant really moved the count before the fallbacks')
   assert.equal(wired(early), false, 'counting before the fallbacks fails the assertion')
+  // the emptied search refuses BEFORE gather's early "nothing found" return (Claude r4 P1 / Codex r4 P2-1)
+  const body = src.slice(src.indexOf('async function gatherRun'))
+  assert.ok(body.indexOf('if (positions.length === 0 && collected === 0 && cave.skipped().length)') > 0 &&
+    body.indexOf('if (positions.length === 0 && collected === 0 && cave.skipped().length)') < body.indexOf("failClass: 'nothing_found'"))
 })
 await ta('MUTANT KILLED: a stalagmite read as rock lets a 2.3-block drop onto a tip through', async () => {
   const at = shelf('ground', { [key(3, 28, 6)]: 'air', [key(3, 27, 6)]: 'pointed_dripstone' }).at   // drop 2.3125: free onto rock, 3 onto a tip
@@ -485,6 +494,64 @@ await ta('CAVEFALL=0 keeps the base dig sequence exactly: no forced look, dig(bl
   assert.deepEqual(off, { looks: [], digs: ['undefined'] }, 'the base: the library looks inside dig')
   assert.deepEqual(on, { looks: [true], digs: ['ignore'] }, 'on: an instant look, the re-ask, then dig with ignore')
   void pathToFileURL
+})
+
+// ---------------------------------------------------------------- gather itself (gatherRun) on a fake findBlocks that applies the
+// matcher, as keepout-protectzone-compose.test.mjs's gatherWorld does: the enumeration-time verdict, the all-floors refusal
+// and its row, and a mixed round taking the nearest dirt that is not a floor (Claude r4 P1, Codex r4 P2-1)
+function gatherShelf ({ shelfDirt, rockDirt = [], at = [3.5, 30, 6.5] }) {
+  const MCD = MC
+  const D = MCD.blocksByName.dirt
+  const dirt = [...shelfDirt, ...rockDirt]
+  const set = new Set(dirt.map(([x, y, z]) => key(x, y, z)))
+  const rock = new Set([...rockDirt.map(([x, y, z]) => key(x, y - 1, z)), ...[...Array(15)].map((_, i) => key(0, 29 - i, 6))])
+  const digs = []
+  const blk = (x, y, z) => {
+    const isDirt = set.has(key(x, y, z)), isRock = !isDirt && rock.has(key(x, y, z))
+    const t = isDirt ? D : isRock ? MCD.blocksByName.stone : MCD.blocksByName.air
+    return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: (isDirt || isRock) ? 'block' : 'empty', diggable: isDirt,
+             canHarvest: () => true, digTime: () => 50, material: 'mineable/shovel', hardness: isDirt ? 0.5 : 0 }
+  }
+  const bot = {
+    entity: { position: new Vec3(...at), velocity: new Vec3(0, 0, 0), onGround: true, yaw: 0 },
+    health: 20, food: 20,
+    inventory: { items: () => [], emptySlotCount: () => 30 },
+    registry: { blocksByName: MCD.blocksByName, blocks: MCD.blocks, itemsByName: MCD.itemsByName },
+    blockAt: p => blk(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)),
+    findBlocks ({ matching, maxDistance = 16, count = 1 }) {
+      const fn = typeof matching === 'function' ? matching : (b => b && b.type === matching)
+      if (!fn({ type: D.id, name: 'dirt' })) return []
+      return dirt.map(([x, y, z]) => blk(x, y, z)).filter(b => b.position.distanceTo(bot.entity.position) <= maxDistance && fn(b))
+        .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)).slice(0, count).map(b => b.position)
+    },
+    collectBlock: { movements: {} },
+    pathfinder: { movements: {}, setMovements () {}, setGoal () {}, stop () {}, isMining: () => false, async goto () {} },
+    nearestEntity: () => null, entities: {},
+    async dig (b) { digs.push(b.position); set.delete(key(b.position.x, b.position.y, b.position.z)) },
+    async equip () {}, async lookAt () {}, assertNav () {}, chat () {}, setControlState () {}, clearControlStates () {},
+    withGatherMovements: async fn => fn(),
+    fireSitesNow: () => [], protectZones: () => [],
+  }
+  return { bot, digs }
+}
+const SHELF_CELLS = []; for (let x = 2; x <= 4; x++) for (let z = 4; z <= 8; z++) SHELF_CELLS.push([x, 29, z])
+const runGather = bot => SK.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(e => ({ status: 'threw', detail: e.message }))
+await ta('GATHER (behaviour): every dirt in range a floor over the void -> no_safe_target, the all-floors message, one skip row, no dig', async () => {
+  const { tapRecords } = await import('../src/logger.mjs')
+  const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_cavefall_skip') rows.push(r.skill.detail) })
+  try {
+    const { bot, digs } = gatherShelf({ shelfDirt: SHELF_CELLS })
+    const r = await runGather(bot)
+    assert.equal(digs.length, 0, `dug ${JSON.stringify(digs)}`)
+    assert.equal(r.failClass, 'no_safe_target', JSON.stringify(r).slice(0, 200)); assert.match(r.detail, /are floors over a drop into a cave/)
+    assert.ok(rows.length >= 1, 'a skip row'); assert.match(rows[0], /^dirt: 15 of \d+ candidate\(s\) are floors over a harmful drop; skipped own=15 /)
+  } finally { untap() }
+})
+await ta('GATHER (behaviour): a mixed round digs the nearest dirt that is NOT a floor (on rock 6 blocks off), never a shelf cell', async () => {
+  const { bot, digs } = gatherShelf({ shelfDirt: SHELF_CELLS, rockDirt: [[9, 29, 6]] })
+  await runGather(bot)
+  assert.ok(digs.length >= 1, 'it dug'); assert.deepEqual([digs[0].x, digs[0].y, digs[0].z], [9, 29, 6])
+  assert.ok(!digs.some(p => p.x >= 2 && p.x <= 4 && p.y === 29), 'never the shelf')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
