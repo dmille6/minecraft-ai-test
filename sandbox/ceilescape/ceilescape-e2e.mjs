@@ -147,9 +147,14 @@ const kind = r => r?.skill?.name ?? ''
 // THE TRAP, NOT ONE CELL (Claude driver P1): open water lies beside both columns (Comet's N and W cells, Bravo's N), and both
 // bots drift across a cell boundary, so "out of the column cell" is not an escape. The trap box is the column and every water
 // cell beside it: x A.x-1 .. A.x (inclusive), z A.z-1 .. A.z+1, y within the column's height; LEFT also needs dry feet and head.
-const inTrap = q => !!q && q.x >= A.x - 1 && q.x < A.x + 1 && q.z >= A.z - 1 && q.z < A.z + 2 &&
-  q.y >= A.y - DN && q.y <= A.y + (SCENE === 'noexit' ? 4 : 2)
+// The trap's cells are measured at setup (Codex driver r2 P2): the column, plus each of its eight neighbours that holds water at
+// the feet or head height then. A dry bearing (copper2's south decoy) is therefore NOT trap: a bot standing dry there is out.
+const FH = SCENE === 'noexit' ? [2, 3] : [0, 1]
+let trapCells = new Set([`${A.x},${A.z}`])
+const inTrap = q => !!q && trapCells.has(`${Math.floor(q.x)},${Math.floor(q.z)}`) && q.y >= A.y - DN && q.y <= A.y + FH[1] + 1
 let setupBegan = false
+let lastInvalid = false
+const dryAt = q => !!q && !isBlock(Math.floor(q.x), Math.floor(q.y), Math.floor(q.z), 'water') && !isBlock(Math.floor(q.x), Math.floor(q.y) + 1, Math.floor(q.z), 'water')
 let botProc = null
 
 async function main () {
@@ -170,29 +175,39 @@ async function main () {
   const want = SCENE === 'noexit' ? column
     : { ...column, eastFeet: ['dirt', ...at(1, 0, 0)], eastHead: ['ladder', ...at(1, 1, 0)], eastTread: ['dirt', ...at(1, -1, 0)],
         ...(SCENE === 'lava' ? { lava: ['lava', ...at(2, 0, 0)] } : {}),
-        ...(SCENE === 'wethead' ? { wetSrc: ['water', ...at(1, 1, 1)] } : {}),
+        ...(SCENE === 'wethead' ? { wetSrc: ['water[level=0]', ...at(1, 1, 1)] } : {}),
         ...(SCENE === 'copper2' ? { southCeil: ['copper_ore', ...at(0, 2, 1)], southFeet: ['dirt', ...at(0, 0, 1)], southHead: ['dirt', ...at(0, 1, 1)],
                                     southTread: ['stone', ...at(0, -1, 1)] } : {}) }
   const check = w => Object.fromEntries(Object.entries(w).map(([k, [b, x, y, z]]) => [k, isBlock(x, y, z, b)]))
   const set = check(want)
   P_('arena set', set)
   if (!Object.values(set).every(Boolean)) throw new Error('arena did not set: ' + JSON.stringify(set))
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    if (FH.some(dy => isBlock(A.x + dx, A.y + dy, A.z + dz, 'water'))) trapCells.add(`${A.x + dx},${A.z + dz}`)
+  }
+  P_('trap cells', [...trapCells])
   const bot = launch(who)
   botProc = bot.child
   let joined = false
   for (let k = 0; k < 60; k++) { await sleep(2000); if (r1('list').includes(bot.name)) { joined = true; break } }
   if (!joined) throw new Error('the bot did not join: ' + r1('list'))
-  rcon(`gamemode survival ${bot.name}`, `clear ${bot.name}`, `effect clear ${bot.name}`, `tp ${bot.name} ${A.x + 0.5} ${A.y + FEET_Y} ${A.z + 0.5}`,
-       ...BAGS[who].map((it, i) => { const [id, n] = it.split(' '); return `item replace entity ${bot.name} container.${9 + i} with minecraft:${id} ${n}` }))
+  // every setup command's reply is checked (batch throws on an error reply: Codex driver r2 P2)
+  batch([`gamemode survival ${bot.name}`, `clear ${bot.name}`, `effect clear ${bot.name}`, `tp ${bot.name} ${A.x + 0.5} ${A.y + FEET_Y} ${A.z + 0.5}`,
+         ...BAGS[who].map((it, i) => { const [id, n] = it.split(' '); return `item replace entity ${bot.name} container.${9 + i} with minecraft:${id} ${n}` })])
   await sleep(3000)
-  // THE BAG TOOK (Codex driver P2): every item of the live bag is in the inventory read back
-  const inv = r1(`data get entity ${bot.name} Inventory`)
-  const missing = BAGS[who].map(it => it.split(' ')[0].replace(/\[.*$/, '')).filter(id => !inv.includes(`minecraft:${id}`))
-  if (missing.length) throw new Error('the bag did not take: ' + missing.join(','))
+  // THE BAG TOOK: every item of the live bag, by id AND count (`execute if items` counts across the inventory). Damage is set by
+  // the replace command and not read back.
+  const short = []
+  for (const it of BAGS[who]) {
+    const [id, n] = it.split(' '), base = id.replace(/\[.*$/, '')
+    const m = /count: (\d+)/.exec(r1(`execute if items entity ${bot.name} container.* minecraft:${base}`))
+    if (!m || Number(m[1]) < Number(n)) short.push(`${base} ${m ? m[1] : 0}/${n}`)
+  }
+  if (short.length) throw new Error('the bag did not take: ' + short.join(','))
   const start = posOf(bot.name)
   P_('placed', start)
   const col = q => q && Math.floor(q.x) === A.x && Math.floor(q.z) === A.z
-  if (!col(start)) throw new Error('the bot is not in the column after the teleport: ' + JSON.stringify(start))
+  if (!col(start) || Math.abs(start.y - (A.y + FEET_Y)) > 0.6) throw new Error('the bot is not in the column after the teleport: ' + JSON.stringify(start))
   const deadline = Date.now() + MINUTES * 60_000
   let outAt = null, minHealth = 20, track = [], polls = 0, seen = 0
   while (Date.now() < deadline) {
@@ -202,8 +217,9 @@ async function main () {
     if (p) seen++
     if (h != null) minHealth = Math.min(minHealth, h)
     if (p) track.push([Math.round((Date.now() - T0) / 1000), +p.x.toFixed(1), +p.y.toFixed(1), +p.z.toFixed(1)])
-    if (p && !inTrap(p)) { outAt ??= Date.now() } else outAt = null
-    if (outAt && Date.now() - outAt >= 60_000) break                  // out of the trap a full minute: done
+    // OUT AND DRY, continuously (Codex driver r2 P2): the hold clock runs only while both hold
+    if (p && !inTrap(p) && dryAt(p)) { outAt ??= Date.now() } else outAt = null
+    if (outAt && Date.now() - outAt >= 60_000) break                  // out of the trap and dry a full minute: done
   }
   const rows = rowsOf(bot)
   const p = posOf(bot.name)
@@ -219,17 +235,20 @@ async function main () {
   // (a cheap dry ceiling) can never read as the design's success
   const endCol = check(column)
   const sceneHeld = Object.values(endCol).every(Boolean)
-  const dryAt = q => !!q && !isBlock(Math.floor(q.x), Math.floor(q.y), Math.floor(q.z), 'water') && !isBlock(Math.floor(q.x), Math.floor(q.y) + 1, Math.floor(q.z), 'water')
   // THE INSTRUMENT (Claude driver P2-2, Codex driver P2): the bot's own log was read, the right build ran, it was observed,
   // and it was alive to the end -- otherwise the run is INVALID, never an ordinary negative
   const licence = rows.filter(r => kind(r) === '_ceilescape_mode').map(r => String(r.skill.detail))
   const isCand = LABEL.startsWith('cand')
   const buildOk = isCand ? licence.some(d => /^on=1 /.test(d)) : rows.every(r => !/^_(ceilescape|needs_rescue)/.test(kind(r)))
-  const alive = botProc.exitCode === null && botProc.signalCode === null
-  const invalid = [rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
+  const alive = botProc.exitCode === null && botProc.signalCode === null && r1('list').includes(bot.name)   // and still connected
+  const invalid = [sceneHeld ? null : 'the scene did not hold (column water or ceiling changed)', rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
     polls && seen / polls >= 0.8 ? null : `observed ${seen}/${polls} polls`, alive ? null : `the bot process ended (code ${botProc.exitCode}, signal ${botProc.signalCode})`].filter(Boolean)
   const left = invalid.length === 0 && sceneHeld && !inTrap(p) && dryAt(p) && held >= 30 && !died && inArena
-  const ev = { scene: SCENE, sha, server: SERVER, lock: 'ceilescape (per-server)', bot: who, name: bot.name, start, end: p, left,
+  const outcome = invalid.length ? 'INVALID' : left ? 'LEFT' : 'STAYED'
+  // a BASE run is a positive control only when the scene held and the base swung its futile dig (Claude driver r2 P3-2)
+  const controlOk = isCand ? null : (sceneHeld && cut.some(s => /dig exceeded/.test(s)))
+  const ev = { scene: SCENE, outcome, controlOk, sha, shaExpected: process.env.CE_EXPECT_SHA || null,
+    shaOk: process.env.CE_EXPECT_SHA ? sha === process.env.CE_EXPECT_SHA : null, server: SERVER, lock: 'ceilescape (per-server)', bot: who, name: bot.name, start, end: p, left,
     endedEast: !!p && p.x >= A.x + 1, sceneHeld, endColumn: endCol, invalid, heldOutS: +held.toFixed(0),
     inArena, minHealth, deaths: rows.filter(r => kind(r) === '_death').map(r => String(r.skill.detail).slice(0, 160)), licence: licence.map(d => d.slice(0, 40)),
     actions: ce.reduce((m, d) => { const a = (/ action=(\S+)/.exec(d) || [])[1] ?? '?'; m[a] = (m[a] || 0) + 1; return m }, {}),
@@ -237,6 +256,7 @@ async function main () {
     rampStops: cut.slice(0, 8), digExceeded: cut.filter(s => /dig exceeded/.test(s)).length, entombed: rows.filter(r => kind(r) === '_entombed').length,
     world, track: track.filter((_, i) => i % 6 === 0).slice(0, 40), rows: rows.length, polls, seen }
   ev.synthetic = 'arena copied from a fresh region copy (states kept, stone shell); the bot teleported in with its live bag; model off'
+  lastInvalid = invalid.length > 0
   fs.appendFileSync(RES, JSON.stringify({ at: new Date().toISOString(), label: LABEL, ...ev }) + '\n')
   P_('RESULT', ev)
 }
@@ -262,5 +282,5 @@ async function cleanupOnce () {
   return ok
 }
 // a cleanup that failed exits non-zero (Codex driver P3)
-main().then(() => cleanup().then(ok => process.exit(ok ? 0 : 2)), e => { P_('FATAL', e.stack || e.message); cleanup().then(() => process.exit(1)) })
+main().then(() => cleanup().then(ok => process.exit(ok ? (lastInvalid ? 3 : 0) : 2)), e => { P_('FATAL', e.stack || e.message); cleanup().then(() => process.exit(1)) })
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { stopping = true; cleanup().then(() => process.exit(1)) })
