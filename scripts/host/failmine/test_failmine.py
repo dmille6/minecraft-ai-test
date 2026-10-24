@@ -384,6 +384,18 @@ def t_scene_goal_outside_cut(F):
     with_region(go)
 
 
+def t_drowning_measured_not_cut_by_default(F):
+    docs = fleet()
+    for d in docs:
+        if d['skill']['name'] == '_death':
+            d['skill']['detail'] = 'drowned; idle at the moment of death'
+    res = F.mine(source(F, docs), META, top_deaths=3, min_deaths=1)
+    assert res['death_clusters'] and res['death_clusters'][0]['family'] == 'drowned', 'drowning is still measured and ranked'
+    assert not [p for p in res['picks'] if p['kind'] == 'death'], 'but not cut unless asked'
+    res = F.mine(source(F, docs), META, top_deaths=3, min_deaths=1, families=('drowned',))
+    assert [p for p in res['picks'] if p['kind'] == 'death'], 'asked for by name, it is cut'
+
+
 def t_spells_basic(F):
     b = boxes_for('board-a-Bravo', 0, 4, (10, 40, 10), 0.5) + boxes_for('board-a-Alpha', 0, 4, (0, 64, 0), 30)
     s = F.find_spells(b)
@@ -733,6 +745,7 @@ MUTANTS = [
     ('failmine.py', "    if not m1.get('backup_done') or k(m1) != k(m2):", "    if False:", 't_same_staging'),
     ('failmine.py', "        if m >= ADMIT_MIN_MATCHED and m / len(ps) >= ADMIT_MIN_RATE and not any(p.get('pass') for p in ps):", "        if m >= 1:", 't_reproducing_starts_rule'),
     ('failmine.py', "    if n < 2:", "    if False:", 't_spells_one_row_bucket_is_not_still'),
+    ('failmine.py', " and c['family'] in families][:top_deaths]:", "][:top_deaths]:", 't_drowning_measured_not_cut_by_default'),
     ('failmine.py', "    if newest is not None and ms_of(src.until) - newest > INGEST_SLACK_MS:", "    if False:", 't_es_ingest_lag_raises'),
     ('failmine.py', "    if not inside(goal_of(pick.get('script'))):", "    if False:", 't_scene_goal_outside_cut'),
     ('failmine.py', "    if have and have != generation:", "    if False:", 't_fetch_refuses_mixed_generations'),

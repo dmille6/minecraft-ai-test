@@ -547,7 +547,12 @@ def in_world(c, w):
     return d
 
 
-def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0, extra_worlds=0):
+# THE SCOPED EXCEPTION (CLAUDE.md, owner 09-30 / 10-24): drowning is measured and ranked like every other family, but its
+# clusters are not CUT into scenes unless asked for by name (--families ...,drowned)
+CUT_FAMILIES = ('fall', 'lava', 'stalactite', 'suffocated', 'unclassified')
+
+
+def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0, extra_worlds=0, families=CUT_FAMILIES):
     ctl = src.controls()
     if not ctl['docs']:
         raise ZeroLooksWrong('the window holds no documents at all')
@@ -574,7 +579,7 @@ def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0, extr
                             'bots_with_a_spell': len({s['bot'] for s in spells})},
            'deaths_by_family': dict(fam.most_common()), 'death_clusters': dcl, 'stuck_clusters': scl, 'picks': []}
     picks = []
-    for c in [c for c in dcl if c['deaths'] >= min_deaths][:top_deaths]:
+    for c in [c for c in dcl if c['deaths'] >= min_deaths and c['family'] in families][:top_deaths]:
         picks.append(c)
         # a death is a rare draw: the same place in up to `extra_worlds` more worlds of the seed (>= 3 deaths there each)
         # gives the base proof more starts on the same geometry
@@ -1154,7 +1159,7 @@ def cmd_mine(a):
     if bd and ms_of(until) > ms_of(bd):
         until = bd
     since = (dt.datetime.fromisoformat(until.replace('Z', '+00:00')) - dt.timedelta(days=a.days)).strftime('%Y-%m-%dT%H:%M:%SZ')
-    res = mine(EsSource(since, until), meta, a.top_deaths, a.top_stuck, extra_worlds=a.extra_worlds)
+    res = mine(EsSource(since, until), meta, a.top_deaths, a.top_stuck, extra_worlds=a.extra_worlds, families=tuple(a.families.split(',')))
     res['backup'] = {k: full.get(k) for k in ('backup_day', 'backup_done')}     # the night the seeds/meta came from
     os.makedirs(a.out, exist_ok=True)
     json.dump(res, open(os.path.join(a.out, 'clusters.json'), 'w'), indent=1, default=list)
@@ -1231,7 +1236,8 @@ def cmd_weekly(a):
     if bd:
         until = min(until, dt.datetime.fromisoformat(bd.replace('Z', '+00:00')).replace(second=0, microsecond=0))
     since = until - dt.timedelta(days=7)
-    res = mine(EsSource(since.strftime('%Y-%m-%dT%H:%M:%SZ'), until.strftime('%Y-%m-%dT%H:%M:%SZ')), meta['worlds'], a.top_deaths, a.top_stuck)
+    res = mine(EsSource(since.strftime('%Y-%m-%dT%H:%M:%SZ'), until.strftime('%Y-%m-%dT%H:%M:%SZ')), meta['worlds'], a.top_deaths, a.top_stuck,
+               families=tuple(a.families.split(',')))
     res['backup'] = {k: meta.get(k) for k in ('backup_day', 'backup_done')}
     json.dump(res, open(os.path.join(out, 'clusters.json'), 'w'), indent=1, default=list)
     open(os.path.join(out, 'table.txt'), 'w').write(render(res) + '\n')
@@ -1353,12 +1359,14 @@ def main(argv=None):
     m = sub.add_parser('mine'); m.add_argument('--seeds', required=True); m.add_argument('--until'); m.add_argument('--days', type=int, default=7)
     m.add_argument('--out', default='.'); m.add_argument('--top-deaths', type=int, default=3); m.add_argument('--top-stuck', type=int, default=2)
     m.add_argument('--extra-worlds', type=int, default=0, help='also cut each top death cluster from N more worlds of its seed')
+    m.add_argument('--families', default=','.join(CUT_FAMILIES), help='death families whose clusters are cut (drowned only by name)')
     c = sub.add_parser('cut'); c.add_argument('clusters'); c.add_argument('regions'); c.add_argument('--out', default='scenes')
     c.add_argument('--only'); c.add_argument('--library'); c.add_argument('--backup-day')
     f = sub.add_parser('fetch'); f.add_argument('clusters'); f.add_argument('regions'); f.add_argument('--only')
     me = sub.add_parser('meta'); me.add_argument('out')
     w = sub.add_parser('weekly'); w.add_argument('--home', default='~/failmine'); w.add_argument('--top-deaths', type=int, default=3)
     w.add_argument('--top-stuck', type=int, default=2); w.add_argument('--library', default=os.path.expanduser('~/failmine/library'))
+    w.add_argument('--families', default=','.join(CUT_FAMILIES))
     t = sub.add_parser('table'); t.add_argument('clusters')
     v = sub.add_parser('validate'); v.add_argument('scene')
     k = sub.add_parser('classify'); k.add_argument('message')
