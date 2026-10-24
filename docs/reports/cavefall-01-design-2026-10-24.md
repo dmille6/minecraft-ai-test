@@ -34,7 +34,8 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
      hole in a floor (the column open, at least 3 of 4 neighbours solid at that level). r2 compared that with control cells 3
      blocks away (9 of 169, 5%) and called it a 3.8x enrichment; Claude r2 showed the control was biased (a landing column is
      open up to the bot's height by construction, a control usually is not). **With matched controls -- cave-floor cells 2-8
-     blocks away whose open column reaches at least as high as the landing's -- the signature is 38 of 216 (18%) against 19%:
+     blocks away whose open column reaches at least as high as the landing's -- landings 13 of 67 (19%) against matched controls
+     38 of 216 (18%):
      no enrichment.**
    - **The reach probe's target** was the cell under the bot's last position in 4 of 35 gather deaths, against 38 of 275
      (13.8%) earlier probes for the same bots: no enrichment.
@@ -142,6 +143,11 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
 A ceiling block (an ore in a cave roof, rock above it) is never a floor, so the bot under it may still dig it.
 
 **Where it acts (`skills.mjs`).**
+- **At enumeration** (Claude r3 P2-1): the same verdict is asked in `findBlocks`' matcher, beside town ground and keep-out, so
+  the 32 nearest candidates returned are the nearest that are NOT floors over a drop (otherwise a bot on a shelf gets 32
+  shelf cells back, all skipped, and is told there is nothing to gather while ordinary dirt lies just beyond them). A fast
+  path keeps that cheap: a full cube directly under T (most candidates are buried) or directly over it decides at once; a
+  test proves the fast path changes no verdict.
 - **The candidate filter:** `safeTarget` (which already composes town ground, keep-out, `isSafeToBreak` and the iron
   six-face check) starts with `!caveSkip(p)` from `caveFilter(bot)`: one verdict per cell per round, shared by the exposed
   list, the source fallback and the foliage fallback. After both fallbacks the round writes one `_cavefall_skip` row when it
@@ -172,7 +178,7 @@ A ceiling block (an ore in a cave roof, rock above it) is never a floor, so the 
   skipped. It does not erode a shelf or lose items (the r1 executor did both: §9).
 
 **Rows.** `_cavefall_mode` (licence, once per spawn: `on=1 rule=floor_over_drop safe_drop=3 scan=32 ...`); `_cavefall_skip`
-(per gather round with a skip: count of exposed candidates skipped); `_cavefall_floor` (`refused` at the dig, `allowed` for a
+(per gather round with a skip: `N of M ... skipped own=A nbr=B land=... front=0|1`); `_cavefall_floor` (`refused` at the dig, `allowed` for a
 standing floor dig with drop >= 2 or water). Rollback `CAVEFALL=0`: the mode row says `on=0` and nothing else changes.
 
 **Cost.** One verdict reads at most 9 columns x ~35 cells (cached within the verdict), then evaluates 121 placements in memory;
@@ -249,7 +255,8 @@ and its control).
 - **H1 (HOLD):** the canary's share of gather runs ending `no_safe_target` rose by more than 0.10 over the control's change
   (pre vs post). Refusing too much is the harm this change can actually cause. Explore and goto runs per arm are reported
   (a bot pushed off gathering moves more).
-- **Exposure:** >= 5 canary `_cavefall_skip` rows or `refused` rows.
+- **Exposure:** >= 5 canary rows that are `_cavefall_skip front=1` (the skipped floor was the round's nearest candidate: the
+  base would have dug it first) or `_cavefall_floor refused`, from at least 2 distinct bots (Claude r3 P2-2).
 - **Primary (DiD, canary vs control, pre vs post; reported, KEEP does not need it, and it is not expected to move: Claude r2
   P3-10):** gather fall episodes per gather
   bot-hour: `_fall_path` rows (damage or death) with fell >= 12, deduplicated per bot within 10 s, attributed to gather when
@@ -269,6 +276,7 @@ and its control).
 |---|---|---|---|
 | design r1 | CHANGES (7 P1, 3 P2) | CHANGES (2 P1, 7 P2, 4 P3) | the step-beside executor removed (it lost the item and eroded the shelf, Claude P1-1; unbounded GoalBlock walk, Codex P1-4; abort, P1-5; airborne acceptance, P1-3); the rule moved to the target, with real collision tops, the worst open column (Claude P2-3), carpet/snow support (both), up-tip-only stalagmites (Codex P2-10); the evidence restated (Claude P1-2, Codex P2-9: path_reset needs an active path; the world-hole signature added; Paper pending); remedy-first messages (Codex P1-6); gates rebuilt (Codex P1-7, Claude P2-8); primary population (Claude P2-9) |
 | r2 (design + code) | CHANGES (2 P1, 6 P2) | CHANGES (1 P1, 2 P2, 7 P3) | landing physics: the first stop wins, scenarios (centred, straddle) and their worst (Claude P1); partial shapes by footprint, open trapdoors (Codex P1); the re-ask moved after the look (Codex P2-3); `caveFilter` counts after both fallbacks, behaviour-tested (Codex P2-6/8, Claude P3-4); G1/G2 -> WATCH, measured from the support height with an observed transition (Codex P1-2, Claude P2-2), H1 refusal HOLD added; licence roster (Codex P2-7, Claude P3-9); **the world signature withdrawn as evidence (Claude P2-3: matched controls 18% vs 19%)**, expected size now unknown (Codex P2-4); conservative exclusions documented and tested (cliff lip, shaft rim kept; Codex P2-5); skip row split own/nbr (Claude P3-6); mixed message (P3-7); neutral refusal wording (P3-8) |
+| r3 (design + code) | CHANGES (1 P1, 4 P2, 1 P3) | **APPROVE** (P2s before launch, 7 P3s) | r4: every body placement over T (11 x 11, edges; Codex P1), departure from T's real top (P2-2), read roster on any build (P2-3), H1 INCONCLUSIVE without denominators (P2-4), route mutants (P2-5), header (P3-6). r5 (Claude's P2s/P3s): the verdict at ENUMERATION with a fast path proven verdict-neutral (P2-1), exposure = front skips + refusals from >= 2 bots (P2-2), withdrawn evidence reworded (P2-3), a CAVEFALL=0 subprocess test of the dig sequence (P3-4), G1 onset rounding (P3-6), H1 floor 100 runs (P3-7), mixed message exposed-only (P3-8), pre-walk-only mutant (P3-9), primary needs >= 4 hp or a death (P3-10); P3-5 is moot (the straddle footprints were replaced) |
 
 ## 10. Questions for the reviewers (r3)
 
