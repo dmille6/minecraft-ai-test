@@ -135,15 +135,26 @@ export function footprintOf (L, solidAt, emit) {
   }
 }
 
+/**
+ * ADD ONE LAVA CELL'S FOOTPRINT to an index IN PLACE, bounded by INDEX_MAX (`idx.full` says it hit) and to the packable
+ * range. The rebuild and index.mjs's incremental note both go through it (Codex r3 P2: the note used to copy the Set and
+ * skip the bound).
+ */
+export function addFootprint (idx, L, solidAt = () => null, { max = INDEX_MAX } = {}) {
+  footprintOf(L, solidAt, (x, y, z) => {
+    if (Math.abs(x) >= 2 ** 21 || Math.abs(z) >= 2 ** 21 || y < -64 || y >= 448) return
+    const k = packKey(x, y, z)
+    if (idx.has(k)) return
+    if (idx.size >= max) { idx.full = true; return }
+    idx.add(k)
+  })
+  return idx
+}
+
 /** THE INDEX over the ACTIVE lava cells -> Set(packKey) of footprint feet cells, at most INDEX_MAX (`full` says it hit). */
 export function buildPriceIndex (active, solidAt = () => null, { max = INDEX_MAX } = {}) {
   const idx = new Set()
-  const emit = (x, y, z) => {
-    if (idx.size >= max) { idx.full = true; return }
-    if (Math.abs(x) >= 2 ** 21 || Math.abs(z) >= 2 ** 21 || y < -64 || y >= 448) return
-    idx.add(packKey(x, y, z))
-  }
-  for (const L of active) footprintOf(L, solidAt, emit)
+  for (const L of active) addFootprint(idx, L, solidAt, { max })
   return idx
 }
 
@@ -186,49 +197,55 @@ export function positionOnTopOf (block) {
 }
 
 /**
- * WHERE THE GUARD WILL SEE A WALK NODE -> {x, y, z}. Pure over `blockAt`. mineflayer-pathfinder's postProcessPath
- * (index.js:168-190) moves every node BEFORE the first dig or place onto the top of its support: water (and a climbable)
- * -> the cell centre at its own y; else the top of the feet cell's shapes, else of the cell below's, else the centre one
- * below. So on a bottom slab the node sits at y - 0.5 and the guard floors it a cell LOWER (Codex r2 P1). A climbable is
- * judged at its centre (the pathfinder's ladder case depends on the next node, unknown here).
+ * WHERE THE GUARD MAY SEE A WALK NODE -> { forms: [{x, y, z}, ...], climb }. Pure over `blockAt`. mineflayer-pathfinder's
+ * postProcessPath (index.js:168-190) moves every node BEFORE the first dig or place: water -> the cell centre at its own y;
+ * a ladder or vine -> the cell centre ONLY when the next node is lower (Codex r3 P1), else on top of its shapes; anything
+ * else -> the top of the feet cell's shapes, else of the cell below's, else the centre one below. So on a bottom slab the
+ * node sits at y - 0.5 and the guard floors it a cell LOWER (Codex r2 P1). A climbable gives BOTH forms [centre, top]: the
+ * move INTO it is judged on both (its successor is unknown), the move OUT of it on the one its successor picks.
  */
-export function processedPos (blockAt, n, ids = {}) {
+export function processedForms (blockAt, n, ids = {}) {
   const b = blockAt(n.x, n.y, n.z)
-  if (b && (b.type === ids.water || b.type === ids.ladder || b.type === ids.vine)) return { x: Math.floor(n.x) + 0.5, y: Math.floor(n.y), z: Math.floor(n.z) + 0.5 }
-  const np = positionOnTopOf(b) ?? positionOnTopOf(blockAt(n.x, n.y - 1, n.z))
-  return np ?? { x: Math.floor(n.x) + 0.5, y: n.y - 1, z: Math.floor(n.z) + 0.5 }
+  const centre = { x: Math.floor(n.x) + 0.5, y: Math.floor(n.y), z: Math.floor(n.z) + 0.5 }
+  if (b && b.type === ids.water) return { forms: [centre], climb: false }
+  const top = positionOnTopOf(b) ?? positionOnTopOf(blockAt(n.x, n.y - 1, n.z)) ?? { x: Math.floor(n.x) + 0.5, y: n.y - 1, z: Math.floor(n.z) + 0.5 }
+  if (b && (b.type === ids.ladder || b.type === ids.vine)) return { forms: [centre, top], climb: true }
+  return { forms: [top], climb: false }
 }
 
 /**
- * THE FORM THE GUARD IS HANDED for a node of a planned path. index.mjs's corridor hook builds [floor(bot position),
+ * THE FORMS THE GUARD IS HANDED for a node of a planned path. index.mjs's corridor hook builds [floor(bot position),
  * ...result.path]: the bot's floored position, then postProcessPath's nodes -- processed up to the first node that digs or
- * places, raw integer cells from that node on. A move judged in that ONE form is priced iff the guard would refuse it
- * (Codex r2 P1-2: judging the union of forms priced moves the guard accepts, and a cost-capped search can then fail where the
- * base reaches the goal by a route the guard accepts).
+ * places, raw integer cells from that node on. A move judged in that form is priced iff the guard would refuse it (Codex r2
+ * P1-2: judging a union of forms priced moves the guard accepts, and a cost-capped search can then fail where the base
+ * reaches the goal by a route the guard accepts). The one exception is a climbable endpoint, judged on both of its forms.
  *   start  (a node the wrapper did not generate: the search's own start) -> the bot's floored position
  *   raw    (this move digs or places, or its parent was raw)            -> the integer cell
- *   else                                                                  -> processedPos
+ *   else                                                                  -> processedForms (cached on the node)
  */
-export const formOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
-  if (n._lsForm) return n._lsForm
-  if (n._lsRaw) return { x: n.x, y: n.y, z: n.z }
-  if (n._lsGen !== true) return start ?? { x: n.x, y: n.y, z: n.z }
-  return blockAt ? processedPos(blockAt, n, ids) : { x: n.x + 0.5, y: n.y, z: n.z + 0.5 }
+export const formsOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
+  if (n._lsRaw) return { forms: [{ x: n.x, y: n.y, z: n.z }], climb: false }
+  if (n._lsGen !== true) return { forms: [start ?? { x: n.x, y: n.y, z: n.z }], climb: false }
+  if (!n._lsF) n._lsF = blockAt ? processedForms(blockAt, n, ids) : { forms: [{ x: n.x + 0.5, y: n.y, z: n.z + 0.5 }], climb: false }
+  return n._lsF
 }
 
 /**
  * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE. The segment from the parent's executed form to the move's, sampled as the
- * guard samples it. `env` = { start, blockAt, ids }. Annotates the move (its rawness, its form) for its own children.
+ * guard samples it. `env` = { start, blockAt, ids }. Annotates the move (its rawness) for its own children.
  */
 export function moveSurcharge (idx, node, m, env = {}) {
   if (!node || !m) return 0
   m._lsGen = true
   m._lsRaw = !!(node._lsRaw || (m.toBreak && m.toBreak.length) || (m.toPlace && m.toPlace.length))
   if (!idx || idx.size === 0) return 0
-  const a = formOf(node, env)
-  const b = formOf(m, env)
-  m._lsForm = b
-  m._lsS = segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z) ? CORE_MOVE : 0
+  const A0 = formsOf(node, env)
+  // a climbable PARENT is centred only when this move goes down from it (postProcessPath's ladder case), else on its top
+  const A = A0.climb ? [m.y < node.y ? A0.forms[0] : A0.forms[1]] : A0.forms
+  const B = formsOf(m, env).forms
+  let hit = false
+  for (const a of A) for (const b of B) if (!hit && segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z)) hit = true
+  m._lsS = hit ? CORE_MOVE : 0
   return m._lsS
 }
 

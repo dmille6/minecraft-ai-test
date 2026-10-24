@@ -301,47 +301,85 @@ await t('THE MOVE IS PRICED IFF THE GUARD REFUSES IT AS EXECUTED: every segment 
   }
   assert.ok(planned >= 100 && priced > 10 && priced < segs, `positive control: ${priced} of ${segs} executed segments priced, ${planned} paths`)
 })
-await t('A SLAB FLOOR: the guard floors a node on a bottom slab a cell lower, and the move is priced for it (Codex r2 P1)', () => {
-  const slab = []; for (let x = -1; x <= 6; x++) for (let z = -2; z <= 2; z++) slab.push([x, 60, z])
-  const world = makeWorld({ floor: 59, slab, lava: [[2, 60, 2]] })
-  const H = harness(world, new Vec3(0.5, 60.5, 0.5))
+await t('A SLAB FLOOR: the guard floors a node on a bottom slab a cell lower, and the move is priced for it (Codex r2 P1, r3 P2)', async () => {
+  // a sealed slab corridor (rock to y 62; air at y 61-62; slabs at y 60) with lava BURIED at (2,60,2): a guard sample at the
+  // slab's own level (y 60, the floor of 60.5) has it beside within 2 and refuses; a sample at y 61 (the raw cell) does not
+  const air = [], slab = []
+  for (let x = -1; x <= 6; x++) { air.push([x, 61, 0], [x, 62, 0]); slab.push([x, 60, 0]) }
+  const world = makeWorld({ floor: 62, air, slab, lava: [[2, 60, 2]] })
+  const H = harness(world, new Vec3(-0.5, 60.5, 0.5))
   const idx = LS.buildPriceIndex([{ x: 2, y: 60, z: 2 }], world.solidAt)
-  const res = H.plan(H.wrap(H.profile(), idx), new goals.GoalBlock(4, 61, 0))
-  assert.ok(res.path.length, 'a path')
+  const res = H.plan(H.wrap(H.profile(), idx), new goals.GoalBlock(5, 61, 0))
+  assert.equal(res.status, 'success')
   const nodes = H.guardNodes(res)
   assert.ok(nodes.slice(1).some(n => n.y === 60.5), 'positive control: postProcessPath put the nodes on the slab tops')
-  let pricedSeen = 0
+  let refused = 0
   for (let i = 0; i < res.path.length; i++) {
     const g = lavaRefused(world.at, [nodes[i], nodes[i + 1]])
-    if (g) pricedSeen++
+    if (g) refused++
     assert.equal((res.path[i]._lsS ?? 0) > 0, g, `segment ${i}`)
   }
-  void pricedSeen
+  assert.ok(refused >= 1, `positive control: ${refused} slab segments the guard refuses, each priced`)
+  assert.equal(lavaRefused(world.at, [{ x: 2, y: 61, z: 0 }, { x: 2, y: 61, z: 0 }]), false, 'control: the raw cell is accepted (the r2 code priced nothing here)')
+  // MUTANT: the raw cell instead of the support top misses every refused slab segment
+  await withMutant(LS_URL, '  return { forms: [top], climb: false }\n}', '  return { forms: [{ x: n.x + 0.5, y: n.y, z: n.z + 0.5 }], climb: false }\n}', async mod => {
+    const H2 = harness(world, new Vec3(-0.5, 60.5, 0.5))
+    const m = H2.profile(); m.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null, env: { start: { x: -1, y: 60, z: 0 }, blockAt: (x, y, z) => world.at(x, y, z), ids: { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id } } }), {})
+    const r2 = H2.plan(m, new goals.GoalBlock(5, 61, 0))
+    assert.ok(r2.path.every(n => !(n._lsS > 0)), 'the mutant prices none of them')
+  })
 })
-await t('CAPPED SEARCHES: wherever the base reaches a goal within a cost cap by a route the guard accepts, the candidate does too (Codex r2 P1)', () => {
+await t('A LADDER: a climb up past lava is priced where the guard refuses the node on top of the ladder (Codex r3 P1)', () => {
+  // a ladder column against a wall at (0, 61..64, 0); lava at (2,65,1) beside the top; the climb ends at (0,65,0)
+  const ladderBlocks = [], air = []
+  for (let y = 61; y <= 66; y++) air.push([0, y, 0])
+  for (let y = 61; y <= 64; y++) ladderBlocks.push([0, y, 0])
+  for (let x = -2; x <= 3; x++) for (let z = -2; z <= 3; z++) for (let y = 65; y <= 67; y++) air.push([x, y, z])
+  const base = makeWorld({ floor: 64, air, lava: [[2, 65, 1]] })
+  // ladders: a second world layer (prismarine 'ladder' block, default facing)
+  const lad = new Set(ladderBlocks.map(c => c.join(',')))
+  const world = { ...base, at: (x, y, z) => { const k = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`; if (lad.has(k)) { const b = Block.fromStateId(registry.blocksByName.ladder.defaultState, 0); b.position = new Vec3(Math.floor(x), Math.floor(y), Math.floor(z)); return b } return base.at(x, y, z) } }
+  world.solidAt = (x, y, z) => { const b = world.at(x, y, z); return b == null ? null : b.boundingBox === 'block' }
+  const H = harness(world, new Vec3(0.5, 61, 0.5))
+  const idx = LS.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
+  const res = H.plan(H.wrap(H.profile(), idx), new goals.GoalBlock(0, 65, 0))
+  assert.equal(res.status, 'success', 'the climb plans')
+  const nodes = H.guardNodes(res)
+  let refused = 0
+  for (let i = 0; i < res.path.length; i++) {
+    const g = lavaRefused(world.at, [nodes[i], nodes[i + 1]])
+    if (g) { refused++; assert.ok((res.path[i]._lsS ?? 0) > 0, `a refused climb segment ${i} (${JSON.stringify(nodes[i + 1])}) is priced`) }
+  }
+  assert.ok(refused >= 1, `positive control: the guard refuses ${refused} segment(s) of the climb`)
+})
+await t('CAPPED SEARCHES: wherever the base reaches a goal within a cost cap by a route the guard accepts, the candidate does too (Codex r2 P1, r3 P2)', () => {
+  // GoalBlock, so the base's cost >= h(start) and the cap is a real cap (searchRadius >= 0); one slice per search (the
+  // property holds per slice; a time-sliced base is itself nondeterministic by about a move -- Claude r3 P3-1)
   const r = rng(23)
-  let checked = 0
-  for (let w = 0; w < 40; w++) {
+  let checked = 0, binding = 0
+  for (let w = 0; w < 60; w++) {
     const { world, lava } = noisyWorld(r)
     const idx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), world.solidAt)
     for (let k = 0; k < 6; k++) {
       const pos = spot(world, r); if (!pos) continue
       const H = harness(world, pos)
-      const goal = new goals.GoalNear(Math.floor(r() * 17) - 8, 61, Math.floor(r() * 17) - 8, 1)
+      const gx = Math.floor(r() * 17) - 8, gz = Math.floor(r() * 17) - 8
+      if (world.nameAt(gx, 61, gz) !== 'air' || !world.solidAt(gx, 60, gz)) continue
+      const goal = new goals.GoalBlock(gx, 61, gz)
       const rb = H.plan(H.profile(), goal)
       if (rb.status !== 'success' || !rb.path.length || lavaRefused(world.at, H.guardNodes(rb))) continue
-      // the tightest cap the base still passes: astar's maxCost = h(start) + searchRadius = the base route's own cost
       const start = { x: Math.floor(pos.x), y: 61, z: Math.floor(pos.z) }
       const cap = rb.cost - goal.heuristic(start) + 1e-6
+      assert.ok(cap >= 0, `a real cap (${cap})`)
+      if (cap > 0.01 && H.plan(H.profile(), goal, cap / 2).status !== 'success') binding++   // the cap binds: half of it fails the base
       const rc = H.plan(H.wrap(H.profile(), idx), goal, cap)
       checked++
       assert.equal(rc.status, 'success', `world ${w}: capped at ${cap.toFixed(2)} the candidate failed where the base passed by a guard-accepted route`)
       assert.ok(rc.cost <= rb.cost + 1e-6, `and no dearer (${rc.cost} vs ${rb.cost})`)
     }
   }
-  assert.ok(checked >= 40, `positive control: ${checked} capped cases`)
+  assert.ok(checked >= 40 && binding >= 10, `positive control: ${checked} capped cases, the cap binding the base in ${binding}`)
 })
-
 // ------------------------------------------------------------------ 5. routes on the real pathfinder
 await t('ROUTE: the base plans the pool edge the guard refuses; the candidate plans a detour the guard accepts', () => {
   const world = poolWorld(), H = harness(world), goal = new goals.GoalBlock(10, 61, 0)
@@ -491,6 +529,9 @@ await t('WIRED: the wrapper is installed on the walk profile BEFORE every clone,
 await t('WIRED: the corridor hook counts and rings; the blind step rings lava only; the rows exist', () => {
   const s = strip(INDEX)
   assert.match(s, /lsCounters\.corridor_checks = \(lsCounters\.corridor_checks \?\? 0\) \+ 1/)
+  // and CALLED on both of the guard's outcomes (Claude r3 P3-4): inside the refusal block, after the goal is cleared, and after it
+  assert.equal(s.split('if (LS_ON) lsGuardSeen(v, r.status, nodes)').length - 1, 2, 'the hook is called on refusal and on acceptance')
+  assert.match(s, /if \(!v\.safe\) \{\s*try \{ bot\.pathfinder\.setGoal\(null\) \} catch \{ *\}\s*if \(LS_ON\) lsGuardSeen\(v, r\.status, nodes\)/)
   assert.match(s, /if \(\/lava\/\.test\(v\.why \?\? ''\) && !\/unknown\/\.test\(v\.why \?\? ''\) && Array\.isArray\(v\.at\)\) bot\.lavasightNote\(/)
   assert.match(s, /kind: 'lavasight_route'/); assert.match(s, /kind: 'lavasight'/); assert.match(s, /kind: 'lavasight_mode'/)
   assert.match(strip(SKILLS), /if \(\/lava\/\.test\(v\.why \?\? ''\) && !\/unknown\/\.test\(v\.why \?\? ''\) && Array\.isArray\(v\.at\)\) bot\.lavasightNote\?\.\(/)
