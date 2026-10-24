@@ -233,13 +233,19 @@ export function skipDetail ({ name, verdicts = [], considered = 0, front = 0 }) 
   return `${name}: ${verdicts.length} of ${considered} candidate(s) are floors over a harmful drop; skipped own=${own} nbr=${verdicts.length - own} land=${kinds || '-'} front=${front ? 1 : 0}`
 }
 
-/** Was the round's nearest skipped floor nearer the bot than the nearest kept candidate -- would the base have picked a skipped
- * one first? (The read's exposure; Claude r3 P2-2.) `pos` the bot's position, `skipped` cells, `kept` cells. Pure. */
-export function frontSkipped (pos, skipped = [], kept = []) {
+/**
+ * Would the BASE have dug a skipped floor first? (The read's exposure; Claude r3 P2-2, r5 P2/P3.) The base ranks its safe
+ * candidates in two tiers -- approachable first, then the rest -- nearest first within each (gatherRun's `reachable`);
+ * `skipped` are the floors this build skipped that pass the base's own conjunction, `kept` this round's candidates. True
+ * when the head of that combined order is a skipped cell. A proxy: the base's A* reorder is not replayed. Pure.
+ */
+export function baseFront ({ pos, skipped = [], kept = [], approachable = () => true }) {
   if (!pos || !skipped.length) return false
   const d = c => Math.hypot(c.x + 0.5 - pos.x, c.y + 0.5 - (pos.y + 1.62), c.z + 0.5 - pos.z)
-  const ns = Math.min(...skipped.map(d)), nk = kept.length ? Math.min(...kept.map(d)) : Infinity
-  return ns < nk
+  const all = [...skipped.map(c => ({ c, s: 1 })), ...kept.map(c => ({ c, s: 0 }))]
+    .map(e => ({ ...e, tier: approachable(e.c) ? 0 : 1, d: d(e.c) }))
+    .sort((a, b) => a.tier - b.tier || a.d - b.d || b.s - a.s)
+  return all[0].s === 1
 }
 
 /** gather's message when every safe candidate in range is a floor over a drop. Remedy first. Pure. */

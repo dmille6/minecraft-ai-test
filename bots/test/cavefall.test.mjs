@@ -28,7 +28,7 @@ const CF = await import('../src/cavefall.mjs')
 const SK = await import('../src/skills.mjs')
 const CF_URL = new URL('../src/cavefall.mjs', import.meta.url)
 const SK_URL = new URL('../src/skills.mjs', import.meta.url)
-const { cellKind, fallDamage, standable, dropIfRemoved, floorOverDrop, underFeet, floorRefusal, allFloorsMessage, skipDetail, frontSkipped, describeFloor, cavefallOn, cavefallModeDetail, SAFE_DROP, SCAN, NEEDS_SUPPORT } = CF
+const { cellKind, fallDamage, standable, dropIfRemoved, floorOverDrop, underFeet, floorRefusal, allFloorsMessage, skipDetail, baseFront, describeFloor, cavefallOn, cavefallModeDetail, SAFE_DROP, SCAN, NEEDS_SUPPORT } = CF
 
 let pass = 0, fail = 0
 const ta = async (name, fn) => {
@@ -242,11 +242,17 @@ await ta('skipDetail splits own-column and neighbour-column skips, with landing 
   assert.equal(d, 'dirt: 3 of 9 candidate(s) are floors over a harmful drop; skipped own=2 nbr=1 land=stalagmite:2,solid:1 front=0')
   assert.match(skipDetail({ name: 'dirt', considered: 1, verdicts: [{ col: [0, 0], landing: 'deep' }], front: true }), / front=1$/)
 })
-await ta('frontSkipped: the nearest skipped floor nearer the eye than the nearest kept candidate (the base would have dug it first)', () => {
+await ta('baseFront: the base\'s two tiers (approachable first, then nearest) decide whether a skipped floor was its pick', () => {
   const eye = { x: 3.5, y: 30, z: 6.5 }
-  assert.equal(frontSkipped(eye, [{ x: 3, y: 29, z: 6 }], [{ x: 9, y: 29, z: 6 }]), true)
-  assert.equal(frontSkipped(eye, [{ x: 9, y: 29, z: 6 }], [{ x: 3, y: 29, z: 6 }]), false)
-  assert.equal(frontSkipped(eye, [{ x: 3, y: 29, z: 6 }], []), true); assert.equal(frontSkipped(eye, [], [{ x: 3, y: 29, z: 6 }]), false)
+  const S = { x: 3, y: 29, z: 6 }, K = { x: 9, y: 29, z: 6 }
+  assert.equal(baseFront({ pos: eye, skipped: [S], kept: [K] }), true)
+  assert.equal(baseFront({ pos: eye, skipped: [K], kept: [S] }), false)
+  assert.equal(baseFront({ pos: eye, skipped: [S], kept: [] }), true); assert.equal(baseFront({ pos: eye, skipped: [], kept: [S] }), false)
+  // a NEARER skipped floor that is not approachable loses to an approachable kept one (the base's first tier)...
+  const appr = c => c !== S
+  assert.equal(baseFront({ pos: eye, skipped: [S], kept: [K], approachable: appr }), false)
+  // ...but when nothing kept is approachable either, distance decides again (Claude r5 P3-2)
+  assert.equal(baseFront({ pos: eye, skipped: [S], kept: [K], approachable: () => false }), true)
 })
 await ta('THE FAST PATH changes no verdict: with and without it, the same skip on every cell of four worlds (shelf, cliff, cave floor, roof)', async () => {
   // Codex r4 P2-2's case: stone T on stone, LAVA beside the cell under T, open beside T -- and an unloaded neighbour
@@ -374,7 +380,7 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
     const iCave = body.indexOf('const cave = caveFilter(bot)'), iSkip = body.indexOf('const caveSkip = cave.skip')
     const iSource = body.indexOf('const cand = found.filter(exposed).filter(safeTarget)')
     const iCover = body.indexOf('positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)')
-    const iCoverEnd = body.indexOf('coverRounds++'), iCount = body.indexOf('const caveSkipped = cave.skipped()')
+    const iCoverEnd = body.indexOf('coverRounds++'), iCount = body.indexOf('const caveSkipped = caveInBorder()')
     // both fallbacks pass their candidates through safeTarget, and the round is counted AFTER the foliage fallback
     const iEnum = body.indexOf('if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false'), iNotTown = body.indexOf('const notTown = id => b => {')
     return iCave > 0 && iNotTown > iCave && iEnum > iNotTown && iEnum < iSkip && iSkip > iCave && iFilter > iSkip && iSource > iFilter && iCover > iSource && iCount > iCoverEnd && iCoverEnd > iCover
@@ -392,7 +398,7 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
     assert.ok(src.split(old).length === 2, `anchor present once: ${old.slice(0, 40)}`)
     assert.equal(wired(src.replace(old, neu)), false, `the mutant fails the assertion: ${neu.slice(0, 40)}`)
   }
-  const cnt = '    const caveSkipped = cave.skipped()\n', at = '    const caveSkip = cave.skip'
+  const cnt = '    const caveSkipped = caveInBorder()\n', at = '    const caveSkip = cave.skip'
   assert.ok(src.split(cnt).length === 2, 'count anchor present once'); assert.ok(src.split(at).length === 2, 'reinsertion anchor present once (Claude r4 P2-2)')
   const i = src.indexOf(at), eol = src.indexOf('\n', i) + 1
   const early = src.replace(cnt, '').slice(0, eol) + cnt + src.replace(cnt, '').slice(eol)
@@ -400,8 +406,8 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
   assert.equal(wired(early), false, 'counting before the fallbacks fails the assertion')
   // the emptied search refuses BEFORE gather's early "nothing found" return (Claude r4 P1 / Codex r4 P2-1)
   const body = src.slice(src.indexOf('async function gatherRun'))
-  assert.ok(body.indexOf('if (positions.length === 0 && collected === 0 && cave.skipped().length)') > 0 &&
-    body.indexOf('if (positions.length === 0 && collected === 0 && cave.skipped().length)') < body.indexOf("failClass: 'nothing_found'"))
+  const iEarly = body.indexOf('if (positions.length === 0 && !caveInBorder().length) {')
+  assert.ok(iEarly > 0 && iEarly < body.indexOf("failClass: 'nothing_found'"), 'the early nothing_found return is taken only with no skip in the border')
 })
 await ta('MUTANT KILLED: a stalagmite read as rock lets a 2.3-block drop onto a tip through', async () => {
   const at = shelf('ground', { [key(3, 28, 6)]: 'air', [key(3, 27, 6)]: 'pointed_dripstone' }).at   // drop 2.3125: free onto rock, 3 onto a tip
