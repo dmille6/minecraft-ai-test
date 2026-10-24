@@ -53,15 +53,10 @@ export function cellKind (b) {
   return shapesOf(b).length ? 'solid' : 'open'
 }
 
-/** The footprint (cell-local x and z ranges) a 0.6-wide body standing on T can occupy in a column. */
+/** The centred body's footprint in T's column (cell-local x and z ranges). */
 const CENTRED = { x: [0.2, 0.8], z: [0.2, 0.8] }
-/** A body straddling from T toward the neighbour (dx, dz): its part over T's column, and its part over the neighbour's. */
-const straddle = (dx, dz) => ({
-  t: { x: dx > 0 ? [0.4, 1] : dx < 0 ? [0, 0.6] : CENTRED.x, z: dz > 0 ? [0.4, 1] : dz < 0 ? [0, 0.6] : CENTRED.z },
-  n: { x: dx > 0 ? [0, 0.3] : dx < 0 ? [0.7, 1] : CENTRED.x, z: dz > 0 ? [0, 0.3] : dz < 0 ? [0.7, 1] : CENTRED.z },
-})
 /** Highest top (block units above the cell's y) of the shapes that overlap the footprint, or null: a partial shape (an open
- * trapdoor, a wall-mounted ladder) that the body misses is not a floor (Codex r2 P1). */
+ * trapdoor, a wall-mounted ladder, a fence post) that the body misses is not a floor (Codex r2 P1). */
 const topIn = (b, fp) => {
   let top = null
   for (const s of shapesOf(b)) {
@@ -69,21 +64,13 @@ const topIn = (b, fp) => {
   }
   return top
 }
+/** Does a shape of `b` (cell at height cy) overlap the footprint AND the vertical span (lo, hi)? */
+const meets = (b, cy, fp, lo, hi) => shapesOf(b).some(s => s[0] < fp.x[1] && s[3] > fp.x[0] && s[2] < fp.z[1] && s[5] > fp.z[0] && cy + s[1] < hi && cy + s[4] > lo)
 const KIND_RANK = { water: 0, solid: 1, stalagmite: 2, lava: 3, unknown: 4, deep: 5 }
-
-/** The first thing a body falling in ONE column meets, from `fromY` down, within the footprint: {top, kind}. Pure. */
-function columnStop (at, x, z, fromY, fp, scan) {
-  for (let y = fromY; y >= fromY - scan; y--) {
-    let b
-    try { b = at(x, y, z) } catch { b = null }
-    const k = cellKind(b)
-    if (k === 'water' || k === 'lava' || k === 'unknown') return { top: y + 1, kind: k }
-    if (k === 'open') continue
-    const top = topIn(b, fp)
-    if (top != null) return { top: y + top, kind: k }
-  }
-  return { top: -Infinity, kind: 'deep' }
-}
+const HALF = 0.3, BODY_H = 1.8
+/** Body-centre positions (cell-local) tried over T: every placement whose 0.6-wide box overlaps T's column, edges included
+ * (Codex r3 P1: a body at x 0.97 misses a fence post that every centred-or-half-straddle footprint met). */
+export const PLACEMENTS = [-0.28, -0.12, 0.03, 0.19, 0.34, 0.5, 0.66, 0.81, 0.97, 1.12, 1.28]
 
 /** Fall damage (half-hearts) for a drop onto a landing kind. Infinity where the landing itself kills or is unknown. */
 export function fallDamage (drop, landing) {
@@ -93,41 +80,84 @@ export function fallDamage (drop, landing) {
   return Infinity                                            // lava, unknown, deep
 }
 
-/** Can something stand on T: the cell above is open, or holds a block that needs T. */
+/** Can a centred body stand on T: the cell above is open, holds a block that needs T, or a partial shape it does not meet. */
 export function standable (at, t) {
   let a
   try { a = at(t.x, t.y + 1, t.z) } catch { a = null }
   if (a == null) return true                                 // unloaded above: assume a body could be there
   const k = cellKind(a)
   if (k === 'open' || NEEDS_SUPPORT.test(String(a.name ?? ''))) return true
-  // a partial shape the body does not meet (an open trapdoor, a ladder on the wall) leaves room to stand on T (Codex r2 P1)
   return k === 'solid' && topIn(a, CENTRED) == null
 }
 
 /**
- * The fall a body standing on T would take if T were gone. A falling body stops at the FIRST thing any part of it meets, so
- * each placement of the body is one scenario: centred on T (T's column only), or straddling toward each cardinal neighbour
- * that is open at T's level (T's column and that one; the higher stop wins). The WORST scenario is the verdict
- * {drop, landing, damage, col}. A neighbour that is solid at T's level holds a straddling body up; an unloaded one is not
- * known to be open, so T's own column decides. Pure; never throws.
+ * The fall a body standing on T would take if T were gone. Every placement of the 0.6-wide body whose box rests on T is
+ * tried (PLACEMENTS x PLACEMENTS, edges included). For each one: the feet are at T's real top within the box (a fence 1.5, a
+ * slab 0.5; a carpet or snow layer on T counts as T's and goes with it); a placement whose box meets a solid in its own
+ * volume is impossible, and one that another cell also holds up does not fall; otherwise the body falls in every column its
+ * box covers and stops at the FIRST thing any part of it meets (the highest stop; water, lava and an unloaded cell stop it
+ * too). The WORST placement is the verdict {drop, landing, damage, col, standing}; `standing` 0 means no body can stand on T.
+ * Pure; never throws.
  */
 export function dropIfRemoved (at, t, { scan = SCAN } = {}) {
-  const feetY = t.y + 1
-  const verdict = (stops, col) => {
-    const st = stops.reduce((a, b) => (b.top > a.top || (b.top === a.top && KIND_RANK[b.kind] > KIND_RANK[a.kind])) ? b : a)
-    const drop = st.kind === 'deep' ? scan + 1 : Math.max(0, feetY - st.top)
-    return { drop, landing: st.kind, damage: fallDamage(drop, st.kind), col }
+  const cache = new Map()
+  const get = (x, y, z) => { const k = `${x},${y},${z}`; if (!cache.has(k)) { let b; try { b = at(x, y, z) } catch { b = null } cache.set(k, b) } return cache.get(k) }
+  const tb = get(t.x, t.y, t.z)
+  const above = get(t.x, t.y + 1, t.z)
+  const carried = above && NEEDS_SUPPORT.test(String(above.name ?? '')) ? above : null   // goes with T
+  let worst = { drop: 0, landing: 'solid', damage: 0, col: [0, 0] }
+  let standing = 0
+  for (const cx of PLACEMENTS) {
+    for (const cz of PLACEMENTS) {
+      const box = { x: [cx - HALF, cx + HALF], z: [cz - HALF, cz + HALF] }
+      const cols = []
+      for (const dx of [-1, 0, 1]) {
+        for (const dz of [-1, 0, 1]) {
+          const ix = [Math.max(box.x[0], dx), Math.min(box.x[1], dx + 1)], iz = [Math.max(box.z[0], dz), Math.min(box.z[1], dz + 1)]
+          if (ix[1] - ix[0] > EPS && iz[1] - iz[0] > EPS) cols.push({ dx, dz, fp: { x: [ix[0] - dx, ix[1] - dx], z: [iz[0] - dz, iz[1] - dz] } })
+        }
+      }
+      const own = cols.find(c => !c.dx && !c.dz)
+      if (!own) continue
+      const tTop = topIn(tb, own.fp)
+      if (tTop == null) continue                                                        // the box is not over T's shape
+      const cTop = carried ? topIn(carried, own.fp) : null
+      const feet = cTop != null ? t.y + 1 + cTop : t.y + tTop
+      // impossible: a solid (not T, not what T carries) inside the body's own volume
+      let blocked = false, held = false
+      for (const c of cols) {
+        for (let y = Math.floor(feet - 0.5); y <= Math.floor(feet + BODY_H); y++) {
+          if (!c.dx && !c.dz && (y === t.y || (carried && y === t.y + 1))) continue
+          const b = get(t.x + c.dx, y, t.z + c.dz)
+          if (b == null) continue
+          if (meets(b, y, c.fp, feet + 0.01, feet + BODY_H)) blocked = true
+          else if (!(!c.dx && !c.dz)) { const top = topIn(b, c.fp); if (top != null && Math.abs(y + top - feet) <= 0.01) held = true }
+        }
+      }
+      if (blocked) continue
+      standing++
+      if (held) continue                                                                 // another cell holds it up
+      // the fall: every covered column, from just under the feet down; the highest stop wins
+      let stop = { top: -Infinity, kind: 'deep', col: [0, 0] }
+      for (const c of cols) {
+        for (let y = Math.floor(feet - EPS); y >= Math.floor(feet) - 1 - scan; y--) {
+          if (!c.dx && !c.dz && (y === t.y || (carried && y === t.y + 1))) continue    // T (and what it carries) are gone
+          const b = get(t.x + c.dx, y, t.z + c.dz)
+          const k = cellKind(b)
+          let top = null
+          if (k === 'water' || k === 'lava' || k === 'unknown') top = Math.min(y + 1, feet)
+          else if (k !== 'open') { const tp = topIn(b, c.fp); if (tp != null && y + tp <= feet + 0.01) top = y + tp }
+          if (top == null) continue
+          if (top > stop.top || (top === stop.top && KIND_RANK[k] > KIND_RANK[stop.kind])) stop = { top, kind: k, col: [c.dx, c.dz] }
+          break
+        }
+      }
+      const drop = stop.kind === 'deep' ? scan + 1 : Math.max(0, feet - stop.top)
+      const v = { drop: +drop.toFixed(4), landing: stop.kind, damage: fallDamage(drop, stop.kind), col: stop.col }
+      if (v.damage > worst.damage || (v.damage === worst.damage && v.drop > worst.drop)) worst = v
+    }
   }
-  let worst = verdict([columnStop(at, t.x, t.z, t.y - 1, CENTRED, scan)], [0, 0])
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    let b
-    try { b = at(t.x + dx, t.y, t.z + dz) } catch { b = null }
-    if (cellKind(b) !== 'open') continue
-    const fp = straddle(dx, dz)
-    const v = verdict([columnStop(at, t.x, t.z, t.y - 1, fp.t, scan), columnStop(at, t.x + dx, t.z + dz, t.y, fp.n, scan)], [dx, dz])
-    if (v.damage > worst.damage) worst = v
-  }
-  return worst
+  return { ...worst, standing }
 }
 
 /**
@@ -143,8 +173,8 @@ export function floorOverDrop ({ target, at }) {
     try { b = at(t.x, t.y, t.z) } catch { b = null }
     const k = cellKind(b)
     if (k !== 'solid' && k !== 'stalagmite') return { skip: false, why: 'not solid' }
-    if (!standable(at, t)) return { skip: false, why: 'nothing can stand on it' }
     const f = dropIfRemoved(at, t)
+    if (!f.standing) return { skip: false, why: 'nothing can stand on it' }
     return f.damage >= 1 ? { skip: true, drop: f.drop, landing: f.landing, damage: f.damage, col: f.col }
       : { skip: false, why: 'the fall is harmless', drop: f.drop, landing: f.landing, damage: f.damage }
   } catch (e) { return { skip: false, why: `verdict failed: ${String(e?.message ?? e).slice(0, 60)}` } }
