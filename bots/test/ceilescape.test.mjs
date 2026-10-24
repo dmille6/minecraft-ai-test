@@ -250,11 +250,30 @@ await t('WATER INTO THE HEAD CELL before the recheck: refused, no step, and stil
   assert.ok(!bot.digs.some(d => d.name === 'copper_ore'))
 })
 
-await t('SINKING DURING THE DIG (one cell): the frame stands, the bot swims up, then enters the target', async () => {
-  const bot = makeWorldBot(COMET(), { onDig: (k, w, b) => { if (k === '1,1,0') { const p = b.entity.position; b.entity.position = new Vec3(p.x, -1.0, p.z) } } })
-  const r = await ramp(bot)
+/** A SLOW SWIMMER that sinks a full cell on the LAST dig (Claude code r1 P1): the falling settles cannot restore its height,
+ *  so the frame's sank-one branch and the swim-up wait really run. `firstForwardY` is the body's height at the first stroke. */
+const sinker = () => {
+  const s = { firstForwardY: null }
+  s.bot = makeWorldBot(COMET(), {
+    rise: 0.015,
+    onDig: (k, w, b) => { if (k === '1,0,0') { const p = b.entity.position; b.entity.position = new Vec3(p.x, -1.0, p.z) } },
+    onTick: (w, b) => { if (s.firstForwardY === null && b.ctl.forward) s.firstForwardY = b.entity.position.y },
+  })
+  return s
+}
+await t('SINKING DURING THE LAST DIG (one cell): the frame stands, the bot swims up BEFORE the stroke, then enters', async () => {
+  const s = sinker()
+  const r = await ramp(s.bot)
+  assert.ok(s.firstForwardY !== null && s.firstForwardY < -0.1, `POSITIVE CONTROL: the body was still sunk when the stroke began (${s.firstForwardY}): the swim-up ran to its cap`)
   assert.strictEqual(r.sidestepped, 1, r.stopped)
-  assert.strictEqual(cellOf(bot), '1,0,0')
+  assert.strictEqual(cellOf(s.bot), '1,0,0')
+})
+await t('MUTANT KILLED: no swim-up -> the sunk slow swimmer never enters the target', async () => {
+  await withMutant(REFLEX_PATH, '        while (bot.entity.position.y < top && Date.now() < until) {', '        while (false) {', async mod => {
+    const s = sinker()
+    const r = await ramp(s.bot, { mod })
+    assert.strictEqual(r.sidestepped, 0, `the mutant still arrived: ${r.stopped}`)
+  })
 })
 
 await t('DISPLACED during the digs: re-planned from where the body is, at most once, never dug from a shifted frame', async () => {
@@ -263,7 +282,8 @@ await t('DISPLACED during the digs: re-planned from where the body is, at most o
   const r = await ramp(bot)
   const plans = ceRows().filter(x => /^where=ceiling /.test(x.detail))
   assert.ok(plans.length >= 2, `the breach was not planned again: ${plans.map(x => x.detail).join(' | ')}`)
-  assert.ok(!bot.digs.some(d => d.cell === '1,0,0' && moved && d.at === undefined))
+  assert.notStrictEqual(/ at=(\S+)/.exec(plans[1].detail)[1], /at=(\S+)/.exec(plans[0].detail)[1], 'the second plan is from where the body is')
+  assert.ok(!bot.digs.some(d => d.cell === '1,0,-1'), 'an offset of the old frame was applied to the new origin')
   assert.ok(!bot.digs.some(d => d.name === 'copper_ore'), r.stopped)
 })
 
@@ -309,11 +329,14 @@ await t('placebo-c-BRAVO, ENTOMBED (y 37.2): escalated with no swing at all', as
   assert.ok(r.virtualMs <= 6000, `an escalated firing must be cheap: ${r.virtualMs} ms`)
 })
 
-await t('placebo-c-BRAVO, MAROONED (y 35.4): no swing that times out; if a step was priced it escalates', async () => {
+await t('placebo-c-BRAVO, MAROONED (y 35.4): the first step swing is priced and escalated, nothing swung', async () => {
   const bot = makeWorldBot(BRAVO(), { feetY: 0.4 })
   const r = await ramp(bot)
-  assert.ok(!bot.digs.some(d => d.aborted), `a swing timed out: ${JSON.stringify(bot.digs)}`)
-  if (r.ceil) assert.strictEqual(r.ceil.action, 'escalate', r.stopped)
+  assert.deepStrictEqual(bot.digs, [], r.stopped)
+  assert.strictEqual(r.ceil?.where, 'step', 'the step admission must have run (Claude code r1 P2-4)')
+  assert.strictEqual(r.ceil?.action, 'escalate', r.stopped)
+  assert.ok(ceRows().some(x => /^where=step /.test(x.detail) && / action=escalate /.test(x.detail)), 'the step decision row')
+  assert.match(String(r.stopped), /no affordable first swing: stone [NESW] 187\.5s/)
 })
 
 const TOMB = (block) => { const c = { '0,0,0': 'air', '0,1,0': 'air' }; for (let x = -2; x <= 2; x++) for (let z = -2; z <= 2; z++) for (let y = -2; y <= 4; y++) if (!c[`${x},${y},${z}`]) c[`${x},${y},${z}`] = block; return c }
@@ -511,20 +534,46 @@ await t('MUTANT KILLED: no settle -> a jump\'s transient price decides (no dig)'
   })
 })
 await t('MUTANT KILLED: the steering flag never raised -> the float hold turns the body', async () => {
-  await withMutant(REFLEX_PATH, '    if (wetStart) { try { steering(true) } catch { /* a caller\'s flag */ } bot.setControlState(\'jump\', true) }',
-    "    if (wetStart) { bot.setControlState('jump', true) }", async mod => {
+  await withMutant(REFLEX_PATH, '      if (wetStart) { try { steering(true) } catch { /* a caller\'s flag */ } bot.setControlState(\'jump\', true) }',
+    "      if (wetStart) { bot.setControlState('jump', true) }", async mod => {
     let owned = false
     const bot = makeWorldBot(COMET(), { onTick: floatHold(() => owned) })
     await ramp(bot, { mod, opts: { steering: v => { owned = v } } })
     assert.notStrictEqual(cellOf(bot), '1,0,0')
   })
 })
-await t('MUTANT KILLED: no swim-up before forward -> a sunk body cannot enter the target', async () => {
-  await withMutant(REFLEX_PATH, '        while (bot.entity.position.y < top && Date.now() < until) {', '        while (false) {', async mod => {
-    const bot = makeWorldBot(COMET(), { onDig: (k, w, b) => { if (k === '1,0,0') { const p = b.entity.position; b.entity.position = new Vec3(p.x, -1.0, p.z) } } })
-    // the stroke would lift it during the forward too; release it to isolate the swim-up phase
+await t('LAVA APPEARS DURING THE SWIM-UP: the destination is asked again after the rise and refused (Codex code r1 P1)', async () => {
+  let lava = false
+  const bot = makeWorldBot(COMET(), {
+    onDig: (k, w, b) => { if (k === '1,0,0') { const p = b.entity.position; b.entity.position = new Vec3(p.x, -1.0, p.z) } },
+    onTick: (w, b) => { if (!lava && b.digs.length === 2 && b.digs[1].done && b.entity.position.y > -0.4 && b.entity.position.y < 0) { lava = true; w.set(2, 0, 0, 'lava') } },
+    rise: 0.02,
+  })
+  const r = await ramp(bot)
+  assert.ok(lava, 'POSITIVE CONTROL: the lava arrived while the body was rising')
+  assert.strictEqual(r.sidestepped, 0, r.stopped)
+  assert.match(String(r.stopped), /side cell changed before the step: lava against the feet cell/)
+  assert.notStrictEqual(cellOf(bot).split(',')[0], '1', 'it walked in beside the lava')
+})
+
+await t('MUTANT KILLED: the destination checked BEFORE the rise (da0d07b0\'s order) walks in beside the lava', async () => {
+  const LAST = "      const last = floodSidestep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), bear: side.bear,\n" +
+               "                                   canBreak, submerged: submergedAt(bot), wetFeet: wetStart })\n" +
+               "      if (!last.ok || last.dig.length) return `the side cell changed before the step: ${last.reason ?? 'a cell refilled'}`\n" +
+               '      const fl = headFloods()\n' +
+               '      if (fl) return `the side cell changed before the step: ${fl}`\n'
+  const TAIL = "      if (ceChecked && !inFrame()) return 'displaced'\n      bot.setControlState('forward', true)\n"
+  const SWIM = '      if (wetStart) {\n        // SWIM UP FIRST (ceilescape-01)'
+  await withMutants(REFLEX_PATH, [[LAST + TAIL, TAIL], [SWIM, LAST + SWIM]], async mod => {
+    let lava = false
+    const bot = makeWorldBot(COMET(), {
+      onDig: (k, w, b) => { if (k === '1,0,0') { const p = b.entity.position; b.entity.position = new Vec3(p.x, -1.0, p.z) } },
+      onTick: (w, b) => { if (!lava && b.digs.length === 2 && b.digs[1].done && b.entity.position.y > -0.4 && b.entity.position.y < 0) { lava = true; w.set(2, 0, 0, 'lava') } },
+    rise: 0.02,
+    })
     const r = await ramp(bot, { mod })
-    assert.ok(r.sidestepped === 0 || bot.entity.position.y < 0.5, `the mutant still arrived: ${r.stopped}`)
+    assert.ok(lava, 'POSITIVE CONTROL: the lava arrived while the body was rising')
+    assert.strictEqual(r.sidestepped, 1, `the mutant still refused: ${r.stopped}`)
   })
 })
 await t('MUTANT KILLED: the wetStart default flipped changes the existing flood sidestep', async () => {
@@ -584,11 +633,17 @@ await t('WIRED (meta): body-claim\'s re-anchored arm end really bounds the arm -
 
 /** The BASE reflex (the fleet's 3cc5f14d) as a module, to compare traces against CEILESCAPE=0 (Claude r2 P2-4). */
 async function withBase (fn) {
+  // THE BASE's reflex.mjs AND scaffold.mjs (Claude code r1 P3-2: the two files this change edits that the OFF path runs), over
+  // the shared libs. Needs 3cc5f14d in the local clone (it is the fleet's sha, so every working clone has it); a missing sha
+  // FAILS this test rather than skipping it.
   const { execFileSync } = await import('node:child_process')
-  const src = execFileSync('git', ['show', '3cc5f14d:bots/src/reflex.mjs'], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', maxBuffer: 64 << 20 })
-  const out = new URL(`./_base-ce-${process.pid}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
-  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+  const show = f => execFileSync('git', ['show', `3cc5f14d:bots/src/${f}`], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', maxBuffer: 64 << 20 })
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2)}`
+  const scaf = new URL(`./_base-scaffold-${tag}.mjs`, import.meta.url)
+  const out = new URL(`./_base-ce-${tag}.mjs`, import.meta.url)
+  writeFileSync(scaf, show('scaffold.mjs').replace(/from '\.\//g, "from '../src/"))
+  writeFileSync(out, show('reflex.mjs').replace(/from '\.\/scaffold\.mjs'/g, `from './_base-scaffold-${tag}.mjs'`).replace(/from '\.\/(?!_base-)/g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { for (const f of [out, scaf]) { try { unlinkSync(f) } catch {} } }
 }
 const FLOOD_SCENE = () => {
   const c = TOMB('stone')

@@ -86,9 +86,10 @@ const isWater = b => !!b && (b.name === 'water' || b.isWaterlogged === true)
  * at anchor + (0.5, feetY, 0.5) with `feetY` the fractional feet height (Comet floats at 0.2). Unknown cells read `fill`.
  *   onDig(cellKey, world, bot)  -> world changes after a dig lands (water flowing in, a sink)
  *   sink                         -> feet drop per tick in water without jump (0 = a steady float)
+ *   rise                         -> feet rise per tick in water with jump held (a slower swimmer)
  *   held                         -> the held item ({ name, type }) or null; unequip empties it unless `stuckHand`
  */
-export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, held = null, stuckHand = false, items = [],
+export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, rise = 0.1, held = null, stuckHand = false, items = [],
                                          onDig = null, yieldAt = null, canPath = false, onTick = null } = {}) {
   const m = new Map(Object.entries(cells))
   const world = {
@@ -156,8 +157,8 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, he
         if (ctl.jump) {
           const headTop = p.y + 1.8
           const above = blockAtXYZ(p.x, headTop + 0.1, p.z)
-          if (!solidAt(above)) ent.position = new Vec3(p.x, p.y + 0.1, p.z)
-          else ent.position = new Vec3(p.x, Math.min(p.y + 0.1, Math.floor(headTop + 0.1) - 1.8), p.z)
+          if (!solidAt(above)) ent.position = new Vec3(p.x, p.y + rise, p.z)
+          else ent.position = new Vec3(p.x, Math.min(p.y + rise, Math.floor(headTop + 0.1) - 1.8), p.z)
         } else if (sink > 0) {
           const floor = Math.floor(p.y)
           const below = blockAtXYZ(p.x, p.y - sink, p.z)
