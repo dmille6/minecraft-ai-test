@@ -1,4 +1,4 @@
-# ceilescape-01: never start a ceiling dig that cannot finish; leave sideways, or ask for rescue (design r1, 2026-10-24)
+# ceilescape-01: never start a ramp swing that cannot finish; leave sideways, or flag for rescue (design r2, 2026-10-24)
 
 OWNER 2026-10-23, through the coordinator: build the board-a-Comet escape fix ("do whatever you recommend"). This is a named
 exception to the 09-30 no-stuck-hunts rule, like board-d's pool escape. The brief is §4 of
@@ -60,271 +60,334 @@ the eye AND off the ground:
 The ramp's budget is 60 s. The brief said a stone pickaxe would bring the copper to about 28 s. That is wrong: under both
 penalties it is 112.5 s. The point does not matter here, because the ramp is bare-handed by design.
 
-## 2. The fact the design rests on: a dig whose start price exceeds the time left never finishes
+## 2. The fact the design rests on: a swing whose start price exceeds the time left cannot finish
 
-1. **mineflayer fixes the dig's wait when the dig starts.** Its `bot.dig` computes
-   `waitTime = bot.digTime(block)`, which is `block.digTime(heldType, creative, eyeLevelBlockIsWater, !onGround, ...)`, and sets
-   `setTimeout(finishDigging, waitTime)` (mineflayer `lib/plugins/digging.js:27, 135, 248-252`).
-   - `digEnv(bot)` (`digbudget.mjs:191`) mirrors those inputs argument for argument.
-   - A change of state after the start does not shorten the wait.
-2. **`digBounded` stops the dig at `min(budget, time left)`** (`reflex.mjs:5833`), with `stopDigging`.
-3. **Vanilla discards the progress of an aborted dig.** A later dig starts from zero.
+1. **mineflayer fixes the dig's wait when the dig starts.**
+   - `bot.dig` computes `waitTime = bot.digTime(block)` BEFORE it looks at the block. `bot.digTime` is
+     `block.digTime(heldItemType, creative, eyeLevelBlockIsWater, !onGround, ...)`.
+   - It then sets `setTimeout(finishDigging, waitTime)` (mineflayer `lib/plugins/digging.js:27, 135, 228-256`).
+   - A change of state after the start does not shorten the wait. The look comes after the price, so the real wait is a little
+     longer than the price.
+2. **`digBounded` (`reflex.mjs:5833`) stops the dig at `min(budget, time left)`.** It calls `stopDigging`, which sends status 1,
+   a cancel (`digging.js:165-189`).
+3. **The server keeps nothing from a cancelled dig.**
+   - Vanilla and Paper judge completion only on status 2 ("finished"): the destroy progress at that moment × the elapsed ticks
+     must be at least 0.7.
+   - The client sends status 2 only when its own wait is over, and a timed-out dig never gets there.
+   - Paper's delayed-destroy state starts only from a status 2. A cancel discards the progress.
+4. **The one other ending (Codex r1 P2-7).** A dig also completes early if a block update turns the cell to air
+   (`digging.js:192-206`).
+   - That is some other actor breaking the block: a bot, or a falling block leaving. It is not a path the bot can count on.
+   - Paper confirms the timed-out case for the deployed build: the base positive control (§9) must log `dig exceeded` and must
+     leave the block in place.
 
-So when `predictedDigMs(block, null, digEnv(bot)) > deadline - now` at the moment of the swing, that swing cannot complete, and
-it leaves nothing behind. Today the ramp makes that swing:
-- it holds the body for the rest of its budget (up to 60 s);
-- it returns `ceiling dig failed ... dig exceeded`;
-- after four of those, the entombed arm asks the goal layer for materials the bot cannot reach.
+So when the price of the swing about to start (§3: the hand that will actually dig it, the eye-level water, onGround) exceeds
+`deadline - now`, that swing cannot complete, and it leaves nothing behind. **Declining it removes no move that could have
+worked.** The rule acts per SWING, and only there:
+- cells already cleared stay cleared;
+- a multi-dig step still completes over several firings, as it does today (Codex r1 P1-2);
+- every other part of the arms is untouched (§5).
 
-**Declining that swing removes no move that could have worked.** This is the property that lets the new branch compose with
-every existing guard: it acts only where today's action is certain to fail.
-
-The registry stays the only source of hardness. `canBreak` and the refusal stay on the GROUNDED price (`dig-split.test.mjs`
-pins that, and this design keeps it). The environmental price is used only to ask "can this particular swing finish in the
-time left", which is the question the deadline already answers one line later.
+The registry stays the only source of hardness. `canBreak` and every refusal stay on the GROUNDED price (`dig-split.test.mjs`
+pins that). The price at the time of the swing only answers "can this swing finish in the time left", which is the question the
+deadline already answers one line later.
 
 ## 3. The decision (pure, `bots/src/ceilescape.mjs`)
 
-`ceilingEscapeDecision({ ceilingMs, leftMs, candidates })`:
-- **`ceiling`**: today's code, unchanged. Returned when `ceilingMs` is unknown (null: test fakes, modded blocks; `planDig`
-  treats unknown as "try it", so this does too) or `ceilingMs <= leftMs`.
-- **`lateral`**: otherwise, the cheapest affordable candidate, where `costMs + CE_RESERVE_MS <= leftMs`. Ties go in the facing
-  order that `escapeBearings` gives. A candidate's cost is:
-  - the sum of its digs at the CURRENT environmental price (the bot digs them from where it is);
-  - `FLOW_SETTLE_MS` (300) per dig, and `FALLING_SETTLE_MS` (500) once if anything was dug;
-  - `CE_MOVE_MS` (2,000): the look, at most 1,500 of forward, and the 250 settle;
-  - the new column's ceiling at the GROUNDED-DRY price (the destination is dry by plan, §4; 0 when that cell is open).
-  - A candidate with any unknown price is never affordable. "I cannot price it" is not "it is cheap".
-- **`escalate`**: otherwise. It carries the reason, worded for the row:
-  `no affordable ramp exit: ceiling <block> <s>s against <s>s left; best bearing <dir> <s>s (<why>) | none (<why>)`.
+**The price** is `digPriceOf(bot, block)`, which is `bot.digTime(block)`: mineflayer's own wait, taken after `safeEmptyHand`.
+- It therefore prices the hand that will actually dig. `emptyHand` can keep a tool (`kept_tool`, `failed`: `toolfor.mjs:337-350`),
+  and pricing a bare hand would overstate the cost (Codex r1 P1-1, Claude r1 P2-5).
+- When an older fake has no `digTime`, it falls back to the registry with `digEnv` (the same inputs).
+- An unknown price means "try it", as `planDig` has it: today's path.
 
-**The candidates** are each `escapeBearings(yaw)` bearing for which `floodSidestep` (`scaffold.mjs:838`) returns `ok`, with
-exactly today's flood, lava, tread and new-ceiling rules. Two filters are added:
-- **The destination feet cell must be dry at plan time.** This is already true: `floodSidestep` refuses an empty water cell
-  there.
-- **A live fire column is never entered** (`poolForbid` / `routeForbids` on the feet and head cells, as poolescape has it).
+**Settling.**
+- Only a swing that does not fit is re-priced, after `settledEnv`: `{onGround, eyeWet}` sampled every 1 s until two samples
+  agree, or 5 s, with `yieldTo` asked at each sample.
+- It runs once per firing (`ceSettled`).
+- If the body changed cell during the settle, the breach is planned again from where the body now is (Claude r1 P1-2: no candidate
+  offset is ever applied to a shifted origin).
+- A jump lands, or a sinking body reaches its floor, before a transient price can decide anything.
+- With `CEILESCAPE=0` there is no settle. The swing goes ahead at once, exactly as today, and only the row records what the new
+  branch would have done.
 
-`CE_RESERVE_MS` = 3,000 covers the stabilisation sample and the yield checks. `ceilingMs <= leftMs` carries no reserve on purpose:
-an affordable ceiling must take exactly today's path (§8, the "unchanged" mutant).
+**`ceilingEscapeDecision({ ceilingMs, leftMs, fullMs, candidates, refusals, moved })`.** `fullMs` is the firing's whole budget,
+60 s.
+- **`ceiling`**: `ceilingMs <= leftMs`, or the price is unknown. This is today's code, byte for byte. There is no reserve on this
+  comparison, so an affordable ceiling cannot change path.
+- **`wait`**: no swing, and no flag. It is returned when:
+  - this firing has already sidestepped (one per firing); or
+  - the ceiling, or some candidate, would fit a FULL firing's budget even though it does not fit the time left.
+  - The firing stops. The next one starts with the full budget and decides again. This is Claude r1 P1-3: an escalation is never
+    raised because of time already spent on a gravel swing, a settle or an earlier step.
+- **`lateral`**: the cheapest candidate with `costMs + 3,000 <= leftMs`. Ties go dry-first, then in facing order.
+- **`escalate`**: nothing fits even a full firing. This is a named stop plus the `_needs_rescue` flag (§5).
 
-**Repricing waits for a stable state (the brief's item 2), bounded.**
-- Only an UNAFFORDABLE first price triggers it. An affordable price goes straight to today's dig, with no wait added.
-- Then `settledEnv` samples `{onGround, eyeWet}` every `CE_SETTLE_SAMPLE_MS` (1,000) until two consecutive samples agree, or
-  `CE_SETTLE_MAX_MS` (5,000) has passed. It reprices from the last sample.
-- It asks `yieldTo` at every sample. A drowning rescue that takes the body ends the firing, as it does today.
-- A jump in progress (dry and airborne) lands within the wait and reprices grounded.
-- A bot that is still unaffordable after that takes the lateral branch or escalates.
-- Comet floats in a steady state (eye cell water, airborne), so it is priced once more and stays at 375 s.
+**A candidate's cost.**
+- Its digs at the price they will be dug at: the held item and the eye-level water now, and OFF the ground when the bot is
+  submerged, because the sidestep swims while it digs (Claude r1 P2-6).
+- Plus 250 ms (look and hand) and the 300 ms flow settle per dig.
+- Plus 500 ms falling settle once if anything was dug.
+- Plus the move: 4,500 ms, for the look, a swim-up of at most 2,000 ms and a forward of at most 2,000 ms.
+- Plus the new column's ceiling at the price it will be dug at after the step: eye dry (the head must breathe), off the ground
+  if the destination feet are water. It is 0 when that cell is open.
+- Any unknown price makes the candidate unaffordable.
 
-**The first step gets the same rule** (placebo-c-Bravo's 495 marooned rows). At `steps === 0` in the step loop, before the first
-dig of the chosen bearing's step, it prices that step's digs at the environmental price.
-- If they do not fit the time left, the code settles and reprices as above.
-- If they still do not fit, the step is substituted: the cheapest AFFORDABLE first step among the bearings that `stairUpStep`
-  allows is taken instead (`stepEscapeDecision`).
-- If there is none, the result is `escalate` ("no affordable first step: ...").
-- At `steps > 0` nothing changes, because progress has been made and the next firing resumes from the top.
-- The step's bearing choice (`chooseStairUpBearing`, by runway) is untouched wherever its step is affordable.
+**The candidates** are the `escapeBearings(yaw)` bearings that pass every filter below:
+- **`floodSidestep`**, the existing planner with its flood, lava, tread and new-ceiling rules. A SUBMERGED bot plans with
+  `wetFeet: true`.
+  - So water in the destination feet cell is allowed: water that flowed into a dug exit must not make that exit
+    un-retryable (Codex r1 P1-3).
+  - A waterlogged destination head block is refused.
+- **`cellFloods` on the destination head cell**, for a submerged bot. The shared flood check exempts water for a submerged bot,
+  so nothing else asks this. It applies vanilla's FlowingFluid.spread rules, conservatively:
+  - water directly above falls in;
+  - a source beside it, or a waterlogged block (which holds a source), spreads in;
+  - flowing or falling water beside it spreads sideways only when it rests on a solid block. Over water or over an open cell it
+    flows down instead. Level 7 spreads nowhere;
+  - an unreadable level counts as a source, and an unloaded cell is a refusal.
+  - This is what refuses Comet's W bearing: the head dirt sits beside falling water resting on stone.
+  - It passes E: the bot's own level-2 head water rests on falling water, the cell above is air, and the other sides are air
+    and stone.
+- **No live fire column is entered** (`poolForbid`, as poolescape has it).
+- **No falling block above a solid new ceiling.** That column would need several swings the cost model does not price.
 
-## 4. The actuator (`escapeStairUp`, `reflex.mjs:4464`)
+**The step loop: per swing (§2), and with no substitution.**
+- Before EACH step dig, if `digPriceOf` does not fit the time left, the settle above runs once, the swing is priced again, and
+  if it still does not fit the step stops there with no swing. Cells already cleared stay cleared.
+- It escalates only on the firing's very first swing, with `steps === 0`, nothing dug yet, and no sidestep. The test is
+  `firstSwingEscalation`: when no bearing's first swing (stairUpStep's plan for each) fits even a full firing. Otherwise the stop
+  is a `wait`.
+- No other bearing is substituted. Both reviewers said it has no measured beneficiary.
+- This is placebo-c-Bravo's marooned side: the stone at 187.5 s fits no firing.
+
+## 4. The actuator (`escapeStairUp`, `reflex.mjs`)
 
 **The ceiling loop.**
-- The new code runs immediately before `digChecked(b, 'ramp_breach')`, and only when `ceilEscapeOn()` and `plan.dig[0]` is the
-  ceiling cell itself (dy === 2). A falling block resting on the ceiling (dy === 3) is not priced: it keeps today's path.
-- On `lateral`, and only when `sidestepped === 0`, it calls `takeSidestep(side, { wetStart: submergedAt(bot) })`.
-  - `true`: `sidestepped++` and `continue`. The breach is planned again from the new cell, as the flood sidestep already does.
-  - `'displaced'`: the loop re-plans from where the bot now is, at most `CE_REPLANS` (1) times.
-  - Anything else: stop with the sidestep's reason. No fallback swing at the ceiling is made: §2 says it cannot finish.
-- On `escalate`: stop with the reason and set `ceil = { action: 'escalate', where: 'ceiling', ... }`. No swing.
-- `finish()` returns a new field, `ceil`: `null` when the branch never ran, otherwise `{ action, where, ceilingMs, leftMs, bestMs,
-  bear, reason, moved }`.
+- `ceilingAdmission` runs after `safeEmptyHand` and before `digChecked(b, 'ramp_breach')`.
+- It runs only for the ceiling cell itself (dy === 2). A falling block resting on the ceiling keeps today's path.
+- It returns:
+  - `dig`: today's swing;
+  - `replan`: the body moved, so plan again;
+  - `moved`: the sidestep was taken, so re-breach from the new column, as the flood sidestep already does;
+  - `stop`: `stopped` and `ceil` say why.
+- A failed sidestep stops with its reason. It makes no fallback swing at the ceiling, because §2 says that swing cannot finish.
 
-**`takeSidestep(side, { wetStart = false })`.** With `wetStart` false it is byte-for-byte today's function. The existing flood
-sidestep (`reflex.mjs:4670-4716`) never passes the option. With `wetStart` true (the bot began the sidestep submerged), this is
-the brief's items 3 and 4:
-1. **Hold `jump` while it digs** (the swim stroke keeps the height). It asks `yieldTo` at every boundary, as today. On a yield
-   the controls are left to the new owner. Otherwise the jump is released before the move.
-2. **After the digs and the falling settle, read the position again.**
-   - The target is the planned cell in the ORIGINAL frame: `fx, fz`, and the tread at `floor(p0.y) - 1`.
-   - The bot may have sunk while digging (Comet's rows show y 39.0 as well as 40.2). If it is still in the same x/z cell and its
-     feet are at most one cell lower, the plan stands: the rechecks run in that same original frame, as they do today.
-   - Any other displacement (horizontal, or more than one cell down) returns `'displaced'`, and the loop re-plans from scratch.
-3. **Both rechecks** call `floodSidestep(..., { wetFeet: true })`.
-   - The new `wetFeet` option accepts an EMPTY water cell in the destination FEET cell only. That is water that flowed into the
-     dug cell; the brief's fixture has exactly that.
-   - It still requires a dry, solid tread, a head cell that is breathable (passable and not water), no lava in or beside the
-     cells, and the new ceiling rules.
-   - `wetFeet` defaults to false, so every other caller is unchanged.
-4. **Move with forward + jump** for at most 1,500 ms, stopping when the bot enters `fx, fz`; then release and settle 250 ms.
-   - The jump is what climbs the one-cell rise after a sink: the poolescape physics, `prismarine-physics` index.js:499, gives a
-     horizontally collided bot in water vel.y 0.3.
-5. **Arrival** requires the target x/z cell and `|q.y - floor(p0.y)| < 0.5`, measured against the TARGET's floor and not the
-   stale start height. It also requires a head cell that is not water. Feet water is allowed.
+**`takeSidestep(side, { wetStart, frame })`.** With neither option it is today's function: the existing flood sidestep never
+passes them, and a mutant flipping the default must turn the climb-flood suites red (§8). With `wetStart` (the bot is submerged)
+and `frame` (the decision's own position):
+1. **The frame.** If the body is no longer in the frame's cell after the hand change, the result is `displaced` and the breach is
+   planned again (at most once).
+2. **Steering.** The water-posture hold stands aside, through `steering(true)`, until the sidestep ends (Claude r1 P1-1).
+   - The reflex tick's hold otherwise clears `forward` every 500 ms for a `no_air_route` float (Comet's state: 4,011 rows), and
+     steers a `surface_out` itself.
+   - The flag reaches the hold as `owned: rescuing || rampSteering`, so the hold returns false while the sidestep steers.
+   - The sidestep holds the swim stroke (`jump`) itself, from the first dig to arrival. That is the same life support the hold
+     gave.
+   - The drowning rescue still preempts, through `yieldTo` at every boundary. On a yield the controls are left to it.
+3. **The digs** go through `digChecked`, as today: the live flood check and the flow settle.
+4. **The frame stands or is re-made.** After the digs and the falling settle:
+   - a body still in the frame's x/z cell and at most one cell lower is re-checked in that frame;
+   - any other displacement returns `displaced`.
+5. **Both rechecks** call `floodSidestep(..., { wetFeet: true })`.
+6. **The move.**
+   - First, swim up: wait, at most 2 s, until the feet are at the target's floor or above.
+   - Then forward and jump, re-asserted every 60 ms (nothing else may clear the stroke), for at most 2 s, stopping when the body
+     enters the target cell.
+   - There is no reliance on the ledge impulse. Codex r1 P1-4: `prismarine-physics` grants it only when the raised box holds no
+     water. The test world has no impulse at all (§8), so a test passes only if the actuator gets the body up first.
+7. **Arrival** requires the target x/z cell, `|y - floor(frame.y)| < 0.5` (the TARGET's floor, not the stale start height), and a
+   head cell that is not water. Feet water is allowed.
 
-**What the plan refuses, deliberately (a departure from the brief's item 4).** The brief accepts water in the destination feet
-cell "at the plan" for a bot that started submerged. This design accepts it only at the rechecks and on arrival, and plans only
-dry destinations.
-- The reason is measured on Comet's W bearing. Its feet are water, so a wet-feet plan would rank it CHEAPEST: the head dirt at
-  18.75 s plus an open-ish new column, against E's 33.75 s.
-- But its head dirt sits beside falling water on stone, so digging the dirt floods the head cell. The recheck would refuse,
-  after the bot had spent 19 s and opened one more water cell beside its only breathing margin.
-- A wet destination is still reachable: it is simply never the reason a bearing wins.
-- The brief's own concern (the dig-then-refuse when water flows INTO the dug feet cell) is fully covered by the rechecks and
-  arrival accepting it.
+**What Paper must show, because no unit test can.** Real fluid updates, real physics, and Comet's actual column. That means the
+head cell stays dry once the ladder is gone, the swim stroke holds the height, and the forward move enters the cell. §9 holds
+the scenes.
 
-## 5. Escalation: a named refusal, a hold, no prerequisite, a flag
+## 5. Escalation: a named stop and a flag, nothing else
 
-CLAUDE.md requires a refusal to name a remedy the bot can perform from where it is. This branch names none, and it does not
-pretend to. The outcome is an UNRESOLVED ESCALATION, as the brief says: "this bot still needs help".
+CLAUDE.md requires a refusal to name a remedy the bot can perform. An escalation names none, and does not pretend to. It is an
+UNRESOLVED ESCALATION: "this bot still needs help".
 
-**The rows.**
-- **`_needs_rescue`** (status failed), once per escalation. Its detail:
-  `arm=entombed|marooned at=x,y,z where=ceiling|step ceiling=<block>:<ms> left=<ms> best=<dir>:<ms>|none env=g<0|1>w<0|1> hold_min=30
-  -- <reason>`.
-  - Nothing else in the fleet writes this kind.
-- **`_needs_rescue_cancel`**, when a hold ends early, naming why.
+**What changes in the arms: almost nothing.** Both r1 reviews found real costs in the r1 hold and in the prerequisite suppression,
+so both are gone:
+- **No hold** (Codex r1 P1-5, Claude r1 P1-4).
+  - The existing back-offs still pace the firings: `refusalEscalation` runs the ramp on every 4th refusal and backs off up to
+    10 min; the marooned arm runs on its 120 s cooldown.
+  - An escalated firing now costs about 1-6 s of settle with no swing, where it used to cost 60 s.
+  - Every firing re-decides from the live world, so any change in terrain, effects, tools or position is seen at once, with no
+    cancel rule to get wrong.
+- **The prerequisite is unchanged** (Codex r1 P1-6, Claude r1 P2-8). A bot that can craft a pickaxe from its bag is still asked
+  for one.
+- **The entombed arm.** `else if (stair?.ceil?.moved)` resets the counters: a lateral exit is progress. On `escalate` it also calls
+  `noteRescue`.
+- **The marooned arm** calls `noteRescue` on `escalate`.
+- **`rampStatus`** scores a lateral exit as success (Claude r1 P3-12).
 
-**The hold** (`rescueHoldStep`, pure). The `rescueHold` object is shared by both arms, so one escalation quiets both.
-- **What it holds.**
-  - The entombed arm does not fire while it is held: its gate gains `&& !rescueHeld()`.
-  - The marooned arm's `need_scaffold` branch skips ONLY the ramp while held, and reports it as
-    `ramp: held (needs rescue since <t>)`. `harvestAdjacent`, the underfoot dig and poolescape's second hook still run, so
-    nothing that can move the bot is removed.
-- **No prerequisite.** On an escalated or held firing, neither arm writes `pendingPrereq` (`climbPrereqFor` /
-  `scaffoldPrereq`): the material loop the brief names.
-  - The `_entombed_needs_blocks` / `_marooned_needs_scaffold` rows still write, so their denominators are kept. Their detail
-    says `escalated: needs rescue` in place of "asked the goal layer".
-- **It ends** at 30 min (`CE_HOLD_MS`), or earlier on any change that can change the price or the remedies:
-  - the bot's x/z cell changes;
-  - its feet floor leaves `[anchor - 2, anchor + 2]`. That band is wider than both measured bobs: Comet's floor 39-40 and
-    placebo-c-Bravo's 35-37. Without it, the hold would cancel on every bob.
-  - the inventory key changes: tools by name, and the placeable-block count the pillar uses;
-  - a STABLE environment with fewer dig penalties than the one the escalation was priced in: the same `{onGround, eyeWet}` on two
-    samples at least 1 s apart.
-  - **Departure from the brief:** the brief cancels on ANY onGround or eye-water change. A bobbing bot flips both every few
-    seconds, so a hold that ended on a flip would not hold at all. A change toward a cheaper price is the case the brief cares
-    about, and that is the case kept.
-- **On expiry or cancel** the next firing re-runs the whole arm and reprices. A bot that still has no exit writes a new
-  `_needs_rescue` (about 2/h at most per bot).
+**`_needs_rescue`** (status failed): at most one row per cell per 30 min (`rescueRowDue`). It carries:
+- `arm= at= where=ceiling|step block= price_ms= left_ms= best_ms= env=`
+- the decision's reason. For placebo-c-Bravo the reason says the stone is 187.5 s against a 60 s firing. Its grounded,
+  eye-in-water price would be 37.5 s, so the flag line also prints `env=` (Claude r1 P3-14: the bot is kept afloat).
 
-**The flag** goes in the fleetstatus header. It is host-side and staged as `scripts/host/ceilescape/patch_fleetstatus.py`, which
-the coordinator runs, in the same shape as structcount's patcher.
-- One line: `needs rescue: <bot> at x,y,z (<arm>, since <first row in 3 h>)` for every bot with a `_needs_rescue` row in the
-  last 3 h.
-- It has a positive control: the line prints `needs rescue: none (N rows of kind ... read)` when there are none.
-- It is surfaced, not logged into a file nobody reads (the 10-20 ELK lesson).
-- **Why not world-facts.** The brief named "world-facts" as the flag's home. World-facts is the bots' shared prompt store
-  (chatgate-01 limits its hazard kinds to `entombed`, `drowning` and `suffocating`), so putting a rescue flag there would place it
-  in other bots' prompts. That is a comms change, and out of scope. A human or the overseer reads the fleetstatus line.
+**The flag** goes in the fleetstatus header. It is staged as `scripts/host/ceilescape/patch_fleetstatus.py` for the coordinator
+to run, in structcount's shape.
+- It covers bots whose LATEST `_ceilescape` row in 3 h is `action=escalate`, with no later `moved`/`ceiling` row and no position
+  change of more than 2 cells since. That way a rescued or freed bot drops off (Codex r1 P2-10).
+- It has a positive control: the rows read, by kind.
+- Why it is not in world-facts: world-facts is the bots' shared prompt store. chatgate-01 limits its hazard kinds, so a rescue
+  flag there would be a comms change, out of scope.
 
-## 6. Step 0, the observe-only pricing row: it rides inside the canary
+## 6. Step 0, the observe-only pricing row
 
-**`_ceilescape`**, one row per decision: at every ramp ceiling admission and every first-step admission, affordable or not. It
-records:
+**`_ceilescape`**, one row per decision: every ceiling admission (affordable or not) and every step swing that did not fit.
+- Fields: `where= at= block= held= grounded_ms= first_ms= env_ms= full_ms= left_ms= env= settled= cands= action=` and the reason.
+- `action` is one of `ceiling`, `lateral`, `wait`, `escalate`, or `off` (under `CEILESCAPE=0`, where the arm runs today's code).
+- `_ceilescape_mode` is written once per spawn: the licence, `on=0|1`.
 
-`arm= at= where=ceiling|step block= grounded_ms= env_ms= left_ms= env=g<>w<> settled=<ms|-> cands=E:33750+...|- action=ceiling|lateral|escalate|off
-outcome=dug|moved|refused:<why>|escalated`
+**Rollout: the reviewers split.** Codex r1 says ship it first, alone, as a tier-1 owner-direct instrumentation rollout with a 48 h
+read. Claude r1 says it can ride inside the canary, with a post-promotion fleet-wide tripwire on `_ceilescape action!=ceiling`.
+r2 asks both again on the r2 design. The facts for the decision:
+- **Codex's grounds.** Codex rested its case on findings 1-6. The r2 removes the hold, the prerequisite change and the
+  substitution, and prices the real hand. What remains changes behaviour only at a swing that cannot finish (§2) and at a
+  lateral exit.
+- **Cost of a separate rollout.** It is a base change and voids the pre-built variants of every queued canary (ironsmelt-01's
+  included).
+- **What a 48 h read would size.** The tier (2 vs 3). §9 shows tier 2 is unavailable anyway: only two pools are exposed.
+- **The fleet-wide population.** Inside the canary, only the canary pools write the row; the control pools run the base, which
+  has none. So before promotion the fleet-wide size is only the logged lower bound (§1), which is Codex's point. A separate
+  rollout would measure it before any behaviour ships. Riding inside measures it after promotion, from the tripwire read.
 
-Volume: the fleet's ramps fired about 370 times a day over the 7 days, so a 20-bot draw writes a few dozen rows a day.
-
-**Proposal, for the reviewers to decide: it rides inside the canary as a reported line, not as its own tier-1 rollout.**
-- **Cost.** A separate owner-direct rollout is a base change. It would void the pre-built variants of every queued canary
-  (ironsmelt-01's included), and the coordinator asked to avoid that if the evidence allows.
-- **Why the evidence allows it.**
-  - The row cannot change a decision. With `CEILESCAPE=0` (the rollback) it still writes `action=off` plus what the decision
-    WOULD have been, and the arm runs today's code.
-  - The population question it answers ("how many bots does the new branch reach?") has a hard lower bound already (§1: three
-    bots in 7 days).
-  - By §2, the branch acts only where today's swing is certain to fail. So a larger population changes how much the canary can
-    gain, not what it can break.
-- **Tier.** The tier is chosen on the logged population (§9). The canary's read reports the `_ceilescape` rows, so the 48 h
-  sizing comes out of the canary's own pools. The fleet-wide size is read after promotion from the same row.
-
-## 7. Composition (each guard, and the chain)
+## 7. Composition
 
 | guard | how it composes |
 |---|---|
-| **drowning rescue / homefix-02 air state** | `yieldTo` at every sample, dig, recheck and move; a yield leaves the controls to the owner (unchanged contract). The entombed gate already waits for `pocketing`/`pocketPending`/`airPocketBreatheUntil`; the hold never blocks the drowning or air-pocket reflexes (they have their own gates). |
-| **poolescape-01** | Not on Comet's path (`wading` needs a breathable head: level-2 water is not). The hold does NOT skip poolescape's second hook; a wading bot whose ramp escalated still gets the pool rung. |
-| **keepout-01** | The lateral dig is a reflex dig (survival purpose, `guardPurpose`), which `keepoutDigGuard` never refuses -- same as every ramp dig today. A live fire column is a movement VETO on the destination (`poolForbid`), as poolescape has it. |
-| **protectzone** | Ramp digs are survival-class (`SURVIVAL_OPS`); zones are not consulted, as for the ramp today and poolescape's veto rule ("a veto would build the dead end"). |
-| **townground** | Unchanged (the reflex tick runs under `digScoped({purpose: 'survival'})`). |
-| **flood check (climbflood-01/02)** | Every lateral dig still goes through `digChecked` (overheadBreakRisk on the live world, with the submerged exemption read NOW). The flood sidestep path is not touched (`wetStart` defaults false). |
-| **entombed arm** | `steps > 0` OR `ceil.moved` counts as progress (counters reset); `ceil.action === 'escalate'` -> needs-rescue path; everything else unchanged. |
+| **drowning rescue / homefix-02 air state** | `yieldTo` at every sample, dig, recheck and move. A yield leaves the controls to the owner, an unchanged contract. The entombed gate already waits for `pocketing`, `pocketPending` and `airPocketBreatheUntil`. |
+| **float hold (water posture)** | Stands aside only while a submerged sidestep steers (`owned: rescuing \|\| rampSteering`). The sidestep holds the swim stroke itself. Everywhere else the hold is unchanged, including through the ceiling decision and its settle, where its jump keeps Comet pinned at y 40.2. |
+| **poolescape-01** | Untouched. No hold now, so its second hook is reached exactly as today. Comet is not wading: its level-2 head water is not breathable by poolescape's predicate. |
+| **keepout-01** | The lateral digs are reflex digs, which `keepoutDigGuard` never refuses (survival purpose), the same as every ramp dig. A live fire column vetoes the destination (`poolForbid`). |
+| **protectzone, townground** | Ramp digs are survival-class, as today. |
+| **flood check (climbflood-01/02)** | Every lateral dig still goes through `digChecked`. The existing flood sidestep is called without the new options. |
+| **entombed / marooned arms** | Progress on `ceil.moved`; `noteRescue` on `escalate`; everything else byte-identical. |
 
-**The refusal chain, tested composed** (CLAUDE.md "composed"): pillar refuses (needs_blocks) -> refusal escalation -> ramp ->
-ceiling unaffordable -> (a) lateral: dig, recheck, step, re-breach from the new cell, steps -> progress; (b) no lateral:
-`_needs_rescue`, hold, NO prerequisite, no swing; the next three ticks do not fire; an inventory change cancels and the next
-firing reprices. Run through the REAL entombed arm (`startReflexes` on a fake bot, as `entombed-escape.test.mjs` does).
+**The chain, tested composed.** Run on the real `escapeStairUp` with the arms' own pure pieces (`refusalEscalation`,
+`climbPrereqFor`, `rampStatus`), as `climb-flood-chain.test.mjs` does, over REPEATED firings:
+- pillar refusal → escalation → ramp → lateral → re-breach → progress;
+- pillar refusal → ramp → escalate → flag, with the prerequisite still written → the next firing re-decides.
+The arms' wiring is asserted structurally: comments stripped, anchored, each assertion seen to fail by a mutant. Codex r1 P2-9
+was right that `startReflexes` cannot be driven to these branches.
 
-## 8. Tests (behaviour first; source assertions only for wiring)
+## 8. Tests
 
-`bots/test/ceilescape.test.mjs`, on a fixture copied from the region file (`bots/test/fixtures/ceilescape-board-a-comet.json`, the
-11x11x8 block around the bot with water levels and the ladder's facing; and `ceilescape-placebo-c-bravo.json`):
-- the pure decision: unknown/affordable -> `ceiling`; ranking by FULL cost (a geometrically-first bearing with a copper new ceiling
-  loses to a later dirt one); reserve; ties in facing order; unknown prices never affordable; escalate reason text.
-- `rescueHoldStep`: holds through Comet's and placebo-c's measured bobs; cancels on cell, band, inventory, and a stable cheaper env;
-  not on a one-sample flip; expires at 30 min.
-- **the real `escapeStairUp`** on a fake bot whose dig sleeps the price at dig start (mineflayer's rule, §2), at a time scale
-  (prices /20, budget 6 s) where the arithmetic is the same:
-  - BASE positive control: the same fixture with `CEILESCAPE=0` swings at the copper and stops `dig exceeded` (the fixture sets
-    the conditions; nothing is assumed);
-  - candidate: digs the ladder and the dirt (never the copper), passes both rechecks with water flowing into the feet cell before
-    the first, steps east, head breathable, re-breaches from (360,40,187) (open), `ceil.moved`;
-  - sinking during the dig (40.2 -> 39.0): the plan stands, forward+jump climbs, arrival against the target floor;
-  - displaced two cells: `displaced`, one replan;
-  - water INTO the head cell before the recheck: refused, no step (the recheck guards);
-  - lava at (361,40,187): E refused at plan, escalate;
-  - placebo-c-Bravo's shaft: escalate, no swing, no prerequisite;
-  - a dry airborne bot (a jump): settles, reprices grounded, digs (the transient-price case);
-  - submerged -> grounded during the settle: the grounded price is used;
-  - affordable ceiling: byte-identical dig sequence to base (the "unchanged" case);
-  - drowning yield mid-lateral: controls untouched, `yielded`.
-- the chain (§7) through the real arm; the hold blocks firings; an inventory change (a stone pickaxe arrives) cancels and reprices;
-  the marooned arm while held: ramp skipped, poolescape hook still reached (wiring + behaviour on a wading fixture).
-- **mutants** (`withMutant`, anchor present and unique, each must turn a named case red): remove the affordability branch; rank by
-  geometry only; drop `wetFeet` at the recheck (dig-then-refuse returns); allow wet feet at the plan (W chosen); drop the fire veto;
-  drop the settle (transient escalates); hold cancels on any env flip; no-prereq guard removed; the `wetStart` default flipped (the
-  existing flood sidestep changes -- the climb-flood suites go red).
-- existing suites stay green unmodified (escape-stair, climb-flood*, entombed-*, dig-split, poolescape).
+`bots/test/ceilescape.test.mjs` runs on `bots/test/ceilescape-world.mjs`.
 
-Full `npm test` from `bots/` (`node scripts/run-tests.mjs`); eslint `no-undef` on the changed files.
+**The test world.**
+- A virtual clock: the global `Date.now`/`setTimeout`, this process only.
+  - The REAL prices and the REAL 60 s budget, with no scaling (Codex r1 P2-9).
+  - It reproduces the fleet's string exactly: the base on Comet's fixture stops `ceiling dig failed on copper_ore: dig exceeded
+    60000ms` after 60 virtual seconds.
+- Real prismarine-block 1.21.8 blocks.
+- Fixtures copied from the region files, with water levels and the ladder's facing:
+  `bots/test/fixtures/ceilescape-{board-a-comet,placebo-c-bravo}.json`, made by
+  `docs/reports/ceilescape-01-2026-10-24/make_fixture.py`.
+- A deliberately small body physics, with NO ledge impulse:
+  - in water, `jump` rises 0.1/tick to the ceiling, and without it the body sinks at `sink`;
+  - `forward` enters a cell only if the body fits it at its current height.
+- A fake dig that waits `digTime` at its start, as mineflayer does, and rejects one tick after `stopDigging`.
+
+**The cases.**
+- **The pure decisions:** `ceiling` / `lateral` / `wait` / `escalate`, the full-budget rule, ranking by full cost (a geometric
+  first with a copper new ceiling loses), dry-first ties, unknown prices; `firstSwingEscalation`; `cellFloods` cell by cell
+  (above, a source, falling water on stone, falling water on water, level 7, waterlogged, unloaded); `envSettled`;
+  `rescueRowDue`; `swingFits`.
+- **The real `escapeStairUp`:**
+  - **BASE** (`CEILESCAPE=0`) on Comet: one copper swing, `dig exceeded`. This is the positive control.
+  - **CANDIDATE** on Comet:
+    - it digs the ladder and the dirt and never the copper;
+    - water flows into the feet cell before the first recheck;
+    - the step east, head dry, re-breach from the open column, `ceil.moved`, `rampStatus` success.
+  - **Sinking during the dig** (`sink` > 0 with the stroke released by a mutant, then not): the frame stands, the swim-up and
+    forward reach the target.
+  - **Displaced two cells:** `displaced`, one replan.
+  - **The concurrent float hold:** a fake tick that clears `forward` every 500 ms unless `owned`. With `steering` wired the step
+    lands; with it unwired (mutant) it does not.
+  - **Water into the head cell before the recheck:** refused, no step.
+  - **Lava at (361,40,187)** (beside the destination feet cell): E refused at the plan, escalate.
+  - **A source above the head cell:** `cellFloods` refuses E.
+  - **A second bearing whose new ceiling is copper:** the dirt one is chosen.
+  - **placebo-c-Bravo's shaft:** escalate, no swing, at both of its heights (entombed at 37, marooned at 35).
+  - **A dry airborne bot (a jump):** it settles, reprices grounded, and digs.
+  - **An affordable ceiling:** the same dig sequence as the base.
+  - **A held tool** (`stuckHand`): it is priced with the tool.
+  - **Time left vs full budget:** with 20 s left, the copper is a `wait`, not an escalation.
+  - **No escalation after a move.**
+  - **A drowning yield mid-sidestep:** the controls are untouched, `yielded`.
+- **The chain over repeated firings (§7)**, and the arms' wiring (structural, with mutants).
+- **Mutants** (`withMutant`, anchor present and unique). Each must turn a named case red:
+  - no affordability branch;
+  - escalate on time left;
+  - geometry-only ranking;
+  - no `wetFeet` at the recheck;
+  - no `cellFloods`;
+  - no fire veto;
+  - no settle;
+  - forward not re-asserted, or `steering` unwired;
+  - the arrival measured against the stale y;
+  - the `wetStart` default flipped (must turn a climb-flood case red, or be shown not to; Claude r1 P3-13).
+- **The existing suites stay green unmodified.**
+
+Then the full `npm test` (`node scripts/run-tests.mjs`) and eslint `no-undef` on the changed files.
 
 ## 9. Paper, read, registration
 
-**Paper** (sandbox5-8, per-server lock owner `ceilescape`, driver `sandbox/ceilescape/ceilescape-e2e.mjs` on the poolescape
-driver's pattern: the whole bot, model off; the arena copied cell for cell from the region copies WITH states; the bot given
-Comet's bag). Scenes: `comet` (the live column), `noexit` (placebo-c-Bravo's shaft), `lava` (comet with lava behind the east dirt,
-encased), `wethead` (comet with a source above (360,41,187)'s neighbour so the head floods), `copper2` (a second bearing whose new
-ceiling is copper). BASE `3cc5f14d` vs CANDIDATE on every scene; the base is the positive control (it must stay in the column and
-log `dig exceeded`). Outcome from the world (RCON position, health) and the build's own rows.
+**Paper.**
+- **Setup.** Sandbox5-8 under the per-server lock, owner `ceilescape`. The driver is `sandbox/ceilescape/ceilescape-e2e.mjs`, on
+  the poolescape driver's pattern: the whole bot, model off, so the float hold, the drowning rescue and the arms are all live.
+- **The arena** is copied cell for cell with states from a FRESH read-only region copy (Claude r1 P2-9). It is 25 × 25 × 24
+  around the column, so it includes the cascade's feed (sources about 10 up to the north-west); a drained arena is not Comet's.
+- **Scenes:**
+  - `comet`;
+  - `noexit`: placebo-c-Bravo's shaft;
+  - `lava`: lava behind the east dirt, encased;
+  - `wethead`: a source set above (360,41,187);
+  - `copper2`: a second dry bearing whose new ceiling is copper.
+- **Runs.** BASE `3cc5f14d` against CANDIDATE on every scene, repeated firings (12 min a scene). The base is the positive control:
+  it must log `dig exceeded` and stay.
+- **Outcomes** come from RCON (position, health) and the build's own rows.
 
-**Read** `scripts/host/ceilescaperead.py` (instrument = `bot.pos`, not the rung's rows): a TRAPPED spell = a bot whose x/z stays
-in one 2x2 cell for >= 30 min while below y 63 with no route row; trapped bot-h pre/post, canary vs control (DiD). Gates: G1 a
-canary bot that escapes and dies within 10 min of a `_ceilescape outcome=moved` (REVERT); G2 drowning/suffocation inside a
-ramp window (start to end + 120 s) on a canary bot (REVERT); G3 a `_ceilescape` row with `env_ms <= left_ms` and an action other than
-`ceiling` (the "unchanged" promise, REVERT); G4 a `_needs_rescue` row for a bot whose position moved > 2 cells in the
-prior 10 min (a false escalation, REVERT); ARMS, LIVENESS, INSTRUMENT (row coverage), EXPOSURE (>= 1 `_ceilescape` row with
-action != ceiling in a canary pool). Primary: trapped bot-h, canary pools, post <= half of pre with DiD < 0 (KEEP needs it).
+**Read** `scripts/host/ceilescaperead.py`.
+- **The instrument is `bot.pos`** (all rows), not the rung's rows.
+- **Primary, deterministic (Claude r1 P2-10: n = 1).** Did board-a-Comet leave? It counts as left when its x/z leaves
+  359.0-360.0 / 186.0-188.0 or its y leaves 38.5-41.0, and it stays out 30 min. Each other canary bot that logs
+  `_ceilescape action=lateral` is reported the same way.
+- **Gates:**
+  - **G1 deaths.** The owner's two-death floor (CLAUDE.md). A canary death within 120 s after a `_ceilescape` row on the same
+    bot is reported as mechanism-linked, by name. Two of those, or the death gate, decide.
+  - **G2 the unchanged promise** (a correctness REVERT). A `_ceilescape` row with `env_ms <= left_ms` and an action other than
+    `ceiling`.
+  - **G3 a swing past its price** (a correctness REVERT). A `_ceilescape action=escalate|wait` row followed within 60 s by a
+    `dig exceeded` ramp stop on the same bot.
+  - **ARMS:** the `_ceilescape_mode` licence on every canary bot, and none on control.
+  - **LIVENESS / INSTRUMENT:** position coverage of at least 75 % for the named bots.
+  - **EXPOSURE:** at least 1 `_ceilescape` row with an action other than `ceiling` in a canary pool.
 
-**Registration.** drawexposure requirement: `entombed_ramp_cut` + `marooned_ramp_cut` rows containing `dig exceeded`, min 2 in 6 h.
-Today that is board-a and placebo-c only -- two pools, so not tier 2's four: **TIER 3**, `draw_require_pools: ["board-a",
-"placebo-c"]` (both exposed pools; board-a is the one the fix can free). An entry fragment only; no queue commands.
+**Registration.**
+- The drawexposure requirement is `entombed_ramp_cut` + `marooned_ramp_cut` rows containing `dig exceeded`, at least 2 in 6 h.
+- Today that is board-a and placebo-c only: two pools, so tier 2's four are unavailable. **TIER 3**, with
+  `draw_require_pools: ["board-a", "placebo-c"]`: both exposed pools, where placebo-c exercises the escalation.
+- An entry fragment only.
 
 ## 10. What it is NOT
 
-- No tool-using ramp (the brief's separate question): the hands stay empty, the invariant that exempts the ramp from
-  `mayDigForEscape` is kept.
-- No change to `canBreak`, `planDig`, `planDigSplit`, `headroomBreach`, `overheadBreakRisk`, `stairUpStep`,
-  `chooseStairUpBearing`, the pathfinder, or the flood sidestep's behaviour.
-- No new water reflex; swimming stays travel. The jump during the dig is part of the escape's own stroke, and yields to the air
-  reflex like every other control this routine sets.
-- Not a fix for placebo-c-Bravo. It stops that bot's futile swings and its material-prerequisite loop and raises the flag.
-- The `surface` skill and the watchdog also dig Comet's copper with a 120 s limit (169 rows/day in the board-a report). They are
-  not changed here; if Comet leaves the column they stop on their own.
+- No tool-using ramp: the hands stay empty, as the ramp's invariant requires.
+- No change to:
+  - `canBreak`, `planDig`, `planDigSplit`, `headroomBreach`, `overheadBreakRisk`, `stairUpStep`, `chooseStairUpBearing`;
+  - the pathfinder, the prerequisites, or the arms' cadence;
+  - the existing flood sidestep.
+- No new water reflex. The sidestep's swim stroke is part of its own move, and it yields to the air reflex.
+- Not a fix for placebo-c-Bravo. It removes that bot's futile swings and raises the flag.
+- The `surface` skill and the watchdog also dig Comet's copper with a 120 s limit. They are unchanged, and they stop on their
+  own once Comet is out.
 
-## 11. Open questions for the reviewers
+## 11. Review rounds
 
-1. Step 0 as a reported line inside the canary (§6) vs a tier-1 owner-direct rollout first.
-2. The hold's cancel rule (§5): band +-2 floors and "stable and cheaper" in place of the brief's "any onGround/eye-water change".
-3. Dry destinations only at the plan (§4) in place of the brief's wet-feet-at-plan.
-4. The first-step substitution (§3) -- in scope for placebo-c-Bravo's marooned rows, or leave the step loop untouched.
+| round | Codex | Claude subagent | what changed |
+|---|---|---|---|
+| design r1 (03799f71) | CHANGES (6 P1, 3 P2) | CHANGES (4 P1, 6 P2, 4 P3) | r2:<br>- price the real hand (`bot.digTime`);<br>- per-swing in the step loop, with no substitution;<br>- the full-budget rule (`wait` vs `escalate`);<br>- wet feet at the plan, plus `cellFloods`;<br>- the frame passed and checked;<br>- the float hold stands aside while steering;<br>- forward re-asserted;<br>- swim-up before forward, no ledge impulse;<br>- no hold;<br>- the prerequisite unchanged;<br>- the flag consumes resolution;<br>- read gates on the death floor;<br>- the Paper arena includes the feed;<br>- the virtual-clock test world. |
