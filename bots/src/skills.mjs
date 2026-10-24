@@ -7097,7 +7097,12 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       let stepOk = false
       for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
-        if (!v.safe) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
+        if (!v.safe) {
+          logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) })
+          // lavasight-01: a lava cell this guard named joins the bot's own ring (a drop, a void or an unknown cell does not)
+          if (/lava/.test(v.why ?? '') && !/unknown/.test(v.why ?? '') && Array.isArray(v.at)) bot.lavasightNote?.({ x: v.at[0], y: v.at[1], z: v.at[2] })
+          continue
+        }
         // ...AND NEVER BLIND INTO A RECORDED DEATH. The pathfinder prices death sites (deathsites.mjs); this walk has
         // no pathfinder, so it asks the same list. 5 of 5 post-promotion lava deaths on 16 Sep followed a corridor
         // refusal and then a walk that was not the refused leg.
