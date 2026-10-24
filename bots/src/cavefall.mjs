@@ -64,6 +64,8 @@ const topIn = (b, fp) => {
   }
   return top
 }
+/** A solid whose shapes fill the whole cell (dirt, stone): the fast path's test. */
+const fullCube = b => cellKind(b) === 'solid' && shapesOf(b).some(s => s[0] <= 0 && s[2] <= 0 && s[3] >= 1 && s[5] >= 1 && s[1] <= 0 && s[4] >= 1)
 /** Does a shape of `b` (cell at height cy) overlap the footprint AND the vertical span (lo, hi)? */
 const meets = (b, cy, fp, lo, hi) => shapesOf(b).some(s => s[0] < fp.x[1] && s[3] > fp.x[0] && s[2] < fp.z[1] && s[5] > fp.z[0] && cy + s[1] < hi && cy + s[4] > lo)
 const KIND_RANK = { water: 0, solid: 1, stalagmite: 2, lava: 3, unknown: 4, deep: 5 }
@@ -173,6 +175,13 @@ export function floorOverDrop ({ target, at }) {
     try { b = at(t.x, t.y, t.z) } catch { b = null }
     const k = cellKind(b)
     if (k !== 'solid' && k !== 'stalagmite') return { skip: false, why: 'not solid' }
+    // THE FAST PATH (gather asks this of every candidate cell in range at enumeration, most of them buried): a full cube
+    // directly under T catches every placement 1 down; a full cube directly over it leaves no room to stand
+    let below, over
+    try { below = at(t.x, t.y - 1, t.z) } catch { below = null }
+    if (fullCube(below)) return { skip: false, why: 'solid under it', drop: 1, landing: 'solid', damage: 0 }
+    try { over = at(t.x, t.y + 1, t.z) } catch { over = null }
+    if (fullCube(over)) return { skip: false, why: 'nothing can stand on it' }
     const f = dropIfRemoved(at, t)
     if (!f.standing) return { skip: false, why: 'nothing can stand on it' }
     return f.damage >= 1 ? { skip: true, drop: f.drop, landing: f.landing, damage: f.damage, col: f.col }
@@ -208,10 +217,19 @@ export function floorRefusal ({ name, target, verdict }) {
 
 /** The `_cavefall_skip` row: how many of the round's candidates were skipped, split by which column decided (T's own, or a
  * neighbour a straddling body would meet first), with the landing kinds -- so the read can see over-refusal. Pure. */
-export function skipDetail ({ name, verdicts = [], considered = 0 }) {
+export function skipDetail ({ name, verdicts = [], considered = 0, front = 0 }) {
   const own = verdicts.filter(v => !v.col || (!v.col[0] && !v.col[1])).length
   const kinds = Object.entries(verdicts.reduce((a, v) => { a[v.landing] = (a[v.landing] ?? 0) + 1; return a }, {})).map(([k, n]) => `${k}:${n}`).join(',')
-  return `${name}: ${verdicts.length} of ${considered} candidate(s) are floors over a harmful drop; skipped own=${own} nbr=${verdicts.length - own} land=${kinds || '-'}`
+  return `${name}: ${verdicts.length} of ${considered} candidate(s) are floors over a harmful drop; skipped own=${own} nbr=${verdicts.length - own} land=${kinds || '-'} front=${front ? 1 : 0}`
+}
+
+/** Was the round's nearest skipped floor nearer the bot than the nearest kept candidate -- would the base have picked a skipped
+ * one first? (The read's exposure; Claude r3 P2-2.) `pos` the bot's position, `skipped` cells, `kept` cells. Pure. */
+export function frontSkipped (pos, skipped = [], kept = []) {
+  if (!pos || !skipped.length) return false
+  const d = c => Math.hypot(c.x + 0.5 - pos.x, c.y + 0.5 - (pos.y + 1.62), c.z + 0.5 - pos.z)
+  const ns = Math.min(...skipped.map(d)), nk = kept.length ? Math.min(...kept.map(d)) : Infinity
+  return ns < nk
 }
 
 /** gather's message when every safe candidate in range is a floor over a drop. Remedy first. Pure. */
