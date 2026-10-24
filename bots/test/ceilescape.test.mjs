@@ -231,6 +231,7 @@ await t('CANDIDATE: digs the ladder and the dirt, never the copper, and steps ea
   assert.ok(!/water/.test(bot.world.get(1, 1, 0)), 'the head cell is dry')
   const lat = ceRows().find(x => / action=lateral /.test(x.detail))
   assert.ok(lat, `no lateral row: ${ceRows().map(x => x.detail).join(' | ')}`)
+  assert.ok(r.fire && ceRows().every(x => x.detail.includes(` fire=${r.fire} `)), 'every decision row names the firing the result returns (the read pairs ramp_cut rows by it)')
   assert.ok(r.virtualMs < 60_000)
 })
 
@@ -457,6 +458,11 @@ function assertWired (code) {
   assert.match(code, /const ramp = await escapeStairUp\(bot, \{ yieldTo: [^\n]*, steering: steerRamp \}\)/, 'the marooned ramp cannot tell the hold')
   assert.match(code, /const stair = esc\.ramp \? await escapeStairUp\(bot, \{ yieldTo: [^\n]*, steering: steerRamp \}\)/, 'the entombed ramp cannot tell the hold')
   assert.match(code, /owned: rescuing \|\| rampSteering,/, 'the float hold does not stand aside')
+  assert.match(code, /handler: 'marooned', refusals: floodRefusals,\s+yieldTo: [^\n]*, steering: steerRamp \}\)/, 'the marooned flood branch cannot tell the hold')
+  assert.match(code, /handler: 'entombed', refusals: floodRefusals,\s+yieldTo: [^\n]*, steering: steerRamp \}\)/, 'the entombed flood branch cannot tell the hold')
+  assert.match(code, /const stair = await ramp\(bot, \{ yieldTo, steering \}\)/, 'floodBranch drops the steering flag')
+  assert.match(code, /climbed=\$\{stair\.climbed\.toFixed\(1\)\} fire=\$\{stair\.fire \?\? '-'\} — stopped because/, 'the entombed ramp_cut row does not name its firing')
+  assert.match(code, /climbed=\$\{ramp\.climbed\.toFixed\(1\)\} fire=\$\{ramp\.fire \?\? '-'\} — stopped because/, 'the marooned ramp_cut row does not name its firing')
 }
 await t('WIRED: progress on a lateral exit, the flag on escalation, the prerequisite kept, the hold told', () => {
   assertWired(strip(readFileSync(REFLEX_PATH, 'utf8')))
@@ -634,7 +640,8 @@ await t('WIRED (meta): body-claim\'s re-anchored arm end really bounds the arm -
 /** The BASE reflex (the fleet's 3cc5f14d) as a module, to compare traces against CEILESCAPE=0 (Claude r2 P2-4). */
 async function withBase (fn) {
   // THE BASE's reflex.mjs AND scaffold.mjs (Claude code r1 P3-2: the two files this change edits that the OFF path runs), over
-  // the shared libs. Needs 3cc5f14d in the local clone (it is the fleet's sha, so every working clone has it); a missing sha
+  // the shared libs (other modules that import scaffold.mjs -- poolescape, ... -- still get the candidate's copy; the four OFF
+  // scenes below never reach them: Claude code r2 P3-3). Needs 3cc5f14d in the local clone (it is the fleet's sha, so every working clone has it); a missing sha
   // FAILS this test rather than skipping it.
   const { execFileSync } = await import('node:child_process')
   const show = f => execFileSync('git', ['show', `3cc5f14d:bots/src/${f}`], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', maxBuffer: 64 << 20 })
