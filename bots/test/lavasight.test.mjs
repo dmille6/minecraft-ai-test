@@ -706,6 +706,12 @@ await t('WIRED: the route row names the same holder (held: lsHeld())', () => {
   const s = strip(INDEX)
   assert.ok(s.split('priced: pricedNow - lsPricedMark, held: lsHeld(),').length === 2)
   assert.ok(!/held: stopReflexes\?\.activeReflex/.test(s), 'no route row reads the arms alone')
+  // MUTANT (Claude JIT 10-24 r1 P3-5): the row back on the arms alone fails both assertions
+  const ROW = 'priced: pricedNow - lsPricedMark, held: lsHeld(),'
+  assert.ok(INDEX.split(ROW).length === 2, 'ANCHOR MISSING or not unique')
+  const m = strip(INDEX.replace(ROW, 'priced: pricedNow - lsPricedMark, held: stopReflexes?.activeReflex?.() ?? null,'))
+  assert.equal(m.split(ROW).length, 1, 'mutant: the holder is gone')
+  assert.ok(/held: stopReflexes\?\.activeReflex/.test(m), 'mutant: the arms-only read is seen')
 })
 await t('WIRED: the corridor hook counts and rings; the blind step rings lava only; the rows exist', () => {
   const s = strip(INDEX)
