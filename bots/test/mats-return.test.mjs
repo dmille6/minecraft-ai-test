@@ -132,6 +132,7 @@ test('A WAIT IS NOT A TRY, AND NOT A VERDICT (Codex r3 P1-1, Claude r3 P1-1/P2-1
   assert.equal(field(d, 'drained'), 'lit'); assert.equal(field(d, 'verdict'), 'pending', d); assert.equal(field(d, 'stop'), 'open')
   const n = S.readMatsNote(w.bot)
   assert.equal(n.tries, 2, 'the wait used no try'); assert.equal(n.waits, 1)
+  assert.ok(n.waitUntil > Date.now() + 60_000, 'and it yields until waitUntil (Codex r4 P1): the town deposit gets the decisions')
   fs.rmSync(NOTE_FILE(), { force: true })
 })
 
@@ -144,7 +145,9 @@ test('EVERY ATTEMPT\'S BANK IS KEPT (Codex r3 P2-4, Claude r3 P2-2): 4 banked in
   await run(w)
   assert.equal(field(lastRow(), 'verdict'), 'pending'); assert.equal(count(w, 'stone_bricks'), 8)
   assert.deepEqual(S.readMatsNote(w.bot)?.deposited, { stone_bricks: 4 })
-  w.set(11, 64, 0, 'chest')                                             // room appears in town
+  // room appears in town -- at a cell no earlier test's index names (11,64,0 is one: this note's first attempt found nothing
+  // there and avoids it 30 min, correctly)
+  w.set(13, 64, 0, 'chest')
   await run(w)
   const d = lastRow()
   assert.equal(field(d, 'stop'), 'closed', d); assert.equal(field(d, 'verdict'), 'ok', d); assert.equal(field(d, 'out'), '12')
@@ -165,15 +168,38 @@ test('THE SWEEP PAST THE BOT\'S REACH (Codex r3 P1-2): the two chests in reach a
 
 test('PLACEMENTS ARE COUNTED BY THE SLOT UPDATE THAT LANDS AFTER THE BLOCK (Claude r3 P2-4): a lagging decrement is the placement; a stray one is not', async () => {
   const inv = new EventEmitter()
+  const bag = [{ name: 'cobblestone', count: 10, slot: 36 }]
+  inv.items = () => bag.filter(Boolean)
   const bot = { heldItem: { name: 'cobblestone' }, inventory: inv, placeBlock: async () => {} }
   const pl = S.countPlacements(bot)
   await bot.placeBlock({}, {})
   assert.deepEqual(pl.placed, {}, 'nothing yet: the server has not sent the slot')
   await new Promise(r => setTimeout(r, 60))
-  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 10 }, { name: 'cobblestone', count: 9 })
+  bag[0].count = 9; inv.emit('updateSlot', 36, { name: 'cobblestone', count: 10 }, { name: 'cobblestone', count: 9 })
   assert.deepEqual(pl.placed, { cobblestone: 1 }, 'the late slot update is the placement')
-  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 9 }, { name: 'cobblestone', count: 8 })
+  bag[0].count = 8; inv.emit('updateSlot', 36, { name: 'cobblestone', count: 9 }, { name: 'cobblestone', count: 8 })
   assert.deepEqual(pl.placed, { cobblestone: 1 }, 'a decrement with no placement call is not one')
+  // A STACK MOVED BETWEEN SLOTS after a failed placement is no placement (Codex r4 P2-5): the bag's total never fell
+  await bot.placeBlock({}, {})
+  bag[0] = null; bag[1] = { name: 'cobblestone', count: 8, slot: 37 }
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 8 }, null); inv.emit('updateSlot', 37, null, { name: 'cobblestone', count: 8 })
+  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'the move credited nothing')
   pl.restore()
   assert.equal(inv.listenerCount('updateSlot'), 0, 'restored: no listener left')
+})
+
+test('AN ABORT MID-SWEEP KEEPS WHAT LANDED (Codex r4 P2-2): 4 into the first chest, the walk to the second aborted -> the note holds deposited 4', async () => {
+  const w = fakeWorld({ bag: [stack('stone_bricks', 12), stack('wooden_pickaxe', 1)], at: [6.5, 64, 0.5] })
+  w.bot.username = 'MatsReturnBot'
+  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0, 'dirt'); w.containers.get('5,64,0').slots[0] = stack('stone_bricks', 60)
+  w.set(9, 64, 0, 'chest')
+  const ac = new AbortController()
+  const goto0 = w.bot.pathfinder.goto.bind(w.bot.pathfinder)
+  let walks = 0
+  w.bot.pathfinder.goto = async goal => { if (goal.x === 9 && ++walks) { ac.abort(); throw Object.assign(new Error('aborted'), { aborted: true }) } return goto0(goal) }
+  S.writeMatsNote(w.bot, { ...note(), furnace: null, loaded: { ...LOADED, inputAfter: 0 } })
+  await S.SKILLS.mats_return.run({ bot: w.bot }, {}, ac.signal).catch(() => {})
+  assert.ok(walks >= 1, 'the walk to the second chest was the one aborted')
+  assert.deepEqual(S.readMatsNote(w.bot)?.deposited, { stone_bricks: 4 })
+  fs.rmSync(NOTE_FILE(), { force: true })
 })

@@ -465,6 +465,7 @@ if __name__ == '__main__':
     g1_rows = [(b, f.get('kind'), f.get('forbidden')) for _, b, _, f in jobs + ret_rows if f.get('verdict') == 'forbidden']
     loss_rows = [(b, f.get('kind'), f.get('verdict'), f.get('stop')) for _, b, st, f in mv_all if f.get('verdict') in ('loss', 'overburn') and st != 'aborted']
     scaffold_rows = verdicts.get('scaffold', 0)
+    taken_rows = sum(1 for _, _, _, f in ret_rows if f.get('verdict') == 'taken')   # another bot's drain took the batch: reported
     g2 = int(len(loss_rows) >= 2 and reconciled > 0 and len(loss_rows) / reconciled > 0.05)
     unrec = Counter(f.get('verdict') for _, _, _, f in mv).get('unreconciled', 0)
     judged = [(b, f.get('kind')) + judge_reserve(f, reserve) for _, b, _, f in jobs]
@@ -564,8 +565,8 @@ if __name__ == '__main__':
     print('G4 (gate)    stone rose by >= 4 with the note closed: %d %s' % (len(g4_rows), g4_rows[:4]))
     print('G5 (gate)    overlapping materials leases in a pool %d %s (of %d leases) | UNJUDGED moved rows with no ml= (blocks KEEP) %d | overlapping leased furnace sessions with a mats session %d %s (mats sessions %d) | with an unleased session (WATCH) %d %s'
           % (len(g5_runs), g5_runs[:3], sum(len(v) for v in runs.values()), len(g5_unjudged), len(g5_furn), g5_furn[:3], mats_fsess, len(g5_furn_unleased), g5_furn_unleased[:3]))
-    print('NOTES        mats_return stops %s | notes OPEN at the window end %d %s | unreconciled moved rows %d of %d | tools lost on orders %s (reported)'
-          % (dict(returns), len(open_end), open_end[:5], unrec, len(mv), dict(tools_lost) or '-'))
+    print('NOTES        mats_return stops %s | notes OPEN at the window end %d %s | unreconciled moved rows %d of %d | tools lost on orders %s (reported) | taken by another drain %d (reported)'
+          % (dict(returns), len(open_end), open_end[:5], unrec, len(mv), dict(tools_lost) or '-', taken_rows))
     print('G6 (gate)    canary bots over 7 make_material rows in any 60 min: %d %s' % (len(loop_bots), loop_bots[:5]))
     print('ARMS         control licence / _make_material rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   control rung rows post %d | control pools with index records %d | every canary pool has index records %s | furnace session rows %d (canary mats sessions %d, canary smelted %d)'
@@ -585,7 +586,7 @@ if __name__ == '__main__':
             'parts_made_ok': made_ok, 'world_parts_canary': canary_post, 'world_parts_did': None if world_did is None else round(world_did, 2),
             'exposure_ready': int(made_ok >= 20 and (canary_post or 0) >= 12 and instrument == 1),
             'g1_forbidden': len(g1_rows), 'g2_loss': g2, 'loss_rows': len(loss_rows), 'reconciled_rows': reconciled, 'moved_rows': len(mv_all),
-            'scaffold_rows': scaffold_rows, 'return_rows': len(ret_rows),
+            'scaffold_rows': scaffold_rows, 'return_rows': len(ret_rows), 'taken_rows': taken_rows,
             'g3_reserve_crossed': len(g3_rows), 'g3_unjudged': len(g3_unjudged), 'g4_stone_leak': len(g4_rows),
             'g5_overlap': len(g5_runs) + len(g5_furn), 'g5_unjudged': len(g5_unjudged), 'g5_unleased_watch': len(g5_furn_unleased), 'g6_loop': len(loop_bots),
             'notes_abandoned': returns.get('abandoned', 0), 'notes_open_end': len(open_end),

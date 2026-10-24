@@ -22,7 +22,7 @@ const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
 // mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
-import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys } from './skills.mjs'
+import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -755,7 +755,7 @@ export class CognitiveLoop {
       const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
       if (!atTown) return null
       const note = readMatsNote(bot)
-      const r = returnOrder({ on: matsEnabled(process.env, config.memory.scope).on, atTown, noteOpen: note?.phase === 'open', now: Date.now(), state: this.matsState ?? {} })
+      const r = returnOrder({ on: matsEnabled(process.env, config.memory.scope).on, atTown, noteOpen: note?.phase === 'open', now: Date.now(), waitUntil: note?.waitUntil ?? 0, state: this.matsState ?? {} })
       this.matsState = r.state
       if (r.order) this.matsIssuedAt = Date.now()
       return r.order
@@ -1214,12 +1214,12 @@ export class CognitiveLoop {
           const r = materialOrder({ now, on: sw.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }),
             noteOpen: note?.phase === 'open', freeSlots: 36 - items.length, bagSpare: matsBagSpare(bot),
             town: () => matsTownStock(bot), furnace: () => matsFurnaceCandidates(bot).length > 0, table: () => matsTableReady(bot),
-            lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
+            lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bankRoom: () => matsTownHasRoom(bot), bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
             reserve: matsReserve().table, buffers: matsBuffers().table, state: this.matsState ?? {} })
           this.matsState = r.state
           if (r.order) { order = r.order; this.matsIssuedAt = now }
           // why the job did not run, at most once per 30 min per reason, for the reasons that say something about the town
-          const why = ['inputs', 'no_furnace', 'no_table', 'index_coverage', 'index_unreadable', 'body_budget', 'room', 'stocked'].includes(r.skip) ? r.skip : null
+          const why = ['inputs', 'no_furnace', 'no_table', 'index_coverage', 'index_unreadable', 'body_budget', 'room', 'stocked', 'town_full'].includes(r.skip) ? r.skip : null
           this.matsSkipAt ??= {}
           if (why && now - (this.matsSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
             this.matsSkipAt[why] = now

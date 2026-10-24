@@ -206,7 +206,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  *                (skills.mjs matsRecountKeys): below the coverage the order RECOUNTS them (kind `count`) instead of skipping
  */
 export function materialOrder ({ now = 0, on = true, shared = true, atTown = false, holds = false, noteOpen = false, freeSlots = 0,
-                                 bagSpare = {}, town = null, furnace = () => true, table = () => true, lease = () => true, unknown = () => 0,
+                                 bagSpare = {}, town = null, furnace = () => true, table = () => true, lease = () => true, unknown = () => 0, bankRoom = () => true,
                                  bodyMs = 0, reserve = BUILD_RESERVE, buffers = MATS_BUFFERS_DEFAULT, state = {} } = {}) {
   const s = { ...state }
   const no = (skip, more = {}) => ({ order: null, kind: null, state: s, skip, ...more })
@@ -231,6 +231,8 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
   const u = Number(lazy(unknown)) || 0
   if (u > 0) return { order: { skill: 'make_material', args: { item: 'count' }, why: `the town index does not know ${u} of the town's containers in reach (it knows ${Math.round(t.coverage * 100)}%): recount them first (town materials job)` }, kind: 'count', state: s, skip: null }
   if (!(t.coverage >= MATS_MIN_COVERAGE)) return no('index_coverage', { coverage: t.coverage })
+  // NO ROOM IN TOWN, NO ORDER: a part made with nowhere in town to bank it would sit in a bag until its note was given up
+  if (!lazy(bankRoom)) return no('town_full', { coverage: t.coverage })
   const reasons = []
   for (const kind of KIND_ORDER) {
     const k = KINDS[kind]
@@ -260,9 +262,12 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
 }
 
 /** THE RECOVERY ORDER (mats_return, design 3.2): an open carry note at town runs FIRST, before any other town order. */
-export function returnOrder ({ on = true, atTown = false, noteOpen = false, now = 0, state = {} } = {}) {
+export function returnOrder ({ on = true, atTown = false, noteOpen = false, now = 0, waitUntil = 0, state = {} } = {}) {
   const s = { ...state }
   if (!on || !atTown || !noteOpen) return { order: null, state: s, skip: !noteOpen ? 'no_note' : !atTown ? 'away' : 'off' }
+  // A WAITING RECOVERY YIELDS (Codex r4 P1): after a wait (the furnace lit or leased, a bag without room) the note says when to
+  // look again, and until then every other town order has the decision -- the town deposit that makes room among them
+  if (now < (Number(waitUntil) || 0)) return { order: null, state: s, skip: 'waiting' }
   if (now - (s.lastReturnAt ?? -Infinity) < 60_000) return { order: null, state: s, skip: 'cooldown' }
   s.lastReturnAt = now
   return { order: { skill: 'mats_return', args: {}, why: 'a materials order did not finish: reconcile its carry note (craft any stone, bank the parts and what was taken)' }, state: s, skip: null }
@@ -375,9 +380,15 @@ export function returnPlan (note, bag = {}) {
     // THE REMEDY FOR CHARCOAL WITH NO STICK OF THE ORDER'S (Codex r3 P2-5, Claude r3 P3-1): the recovery makes the sticks from WOOD
     // ABOVE bag0 (the order's own planks first, else its own log) -- never the kit's sticks or planks (below bag0)
     if (out.charcoalLeft > 0) {
-      out.sticksShort = out.charcoalLeft
-      const pl = ACCT_PLANKS.find(n => above(n) >= 2), lg = LOG_NAMES.find(n => above(n) >= 1)
-      out.stickWood = pl ? { planks: pl } : lg ? { log: lg, planks: PLANKS_OF[lg] } : null
+      // the new sticks first refill the bag's own deficit below bag0 (Claude r4 P3-3), then make the torches
+      out.sticksShort = out.charcoalLeft + Math.max(0, (Number(note.bag0?.stick) || 0) - (Number(bag?.stick) || 0))
+      // a species whose SURPLUS funds every craft (2 planks -> 4 sticks), else the most surplus one, crafts capped by it; else a log
+      // of the order's (4 planks, 2 crafts) -- never a plank below bag0 (Codex r4 P3)
+      const crafts = Math.ceil(out.sticksShort / 4)
+      const pls = ACCT_PLANKS.filter(n => above(n) >= 2).sort((a, b) => above(b) - above(a))
+      const full = pls.find(n => above(n) >= 2 * crafts), lg = LOG_NAMES.find(n => above(n) >= 1)
+      out.stickWood = full ? { planks: full, crafts } : lg ? { log: lg, planks: PLANKS_OF[lg], crafts: Math.min(crafts, 2) }
+        : pls.length ? { planks: pls[0], crafts: Math.floor(above(pls[0]) / 2) } : null
     }
   }
   if (note.kind === 'cut_copper') { const bl = Math.min(above('copper_block'), 4); out.cutCopper = bl >= 4 ? 4 : 0; if (bl - out.cutCopper > 0) out.bank.copper_block = bl - out.cutCopper }
@@ -411,7 +422,7 @@ export function noteSettled (note, bag = {}, { furnaceDone = true } = {}) {
  * on the way back, a stack dropped). A kind with no furnace, or a note never loaded, has nothing in flight: ok. RESIDUAL
  * (named): input the bot gains on the way (cobble mined) can hide a shortfall up to that gain -- `back` is reported.
  */
-export function recoveryBalance (note, { bag = {}, banked = {} } = {}) {
+export function recoveryBalance (note, { bag = {}, banked = {}, placed = {} } = {}) {
   const k = KINDS[note?.kind]
   if (k && !k.smelt) return copperBalance(note, { bag, banked })
   const n = Math.max(0, Number(note?.loaded?.input?.n) || 0)
@@ -423,11 +434,17 @@ export function recoveryBalance (note, { bag = {}, banked = {} } = {}) {
   const midUnits = Math.min(n, above(k.smelt.out)) + (Number(banked?.[k.smelt.out]) || 0) + depMid
   const out = Math.min(n, midUnits + partUnits)
   const inName = note.loaded.input.name
-  const after = Number(note.loaded.inputAfter)
-  const back = Number.isFinite(after) ? Math.min(n - out, Math.max(0, (Number(bag?.[inName]) || 0) - after)) : 0
+  // the bag's input after the load; a kill between the first record and the load has only inputBefore (the bag before it):
+  // its "after" is inputBefore - n (Codex r4 P2-4), so input never loaded counts as back, not lost
+  const after = Number.isFinite(Number(note.loaded.inputAfter)) && note.loaded.inputAfter != null ? Number(note.loaded.inputAfter)
+    : Number.isFinite(Number(note.loaded.inputBefore)) && note.loaded.inputBefore != null ? Number(note.loaded.inputBefore) - n : NaN
+  // input the recovery itself placed as scaffold came back first (Claude r4 P3-2 B: counted by countPlacements)
+  const back = Number.isFinite(after) ? Math.min(n - out, Math.max(0, (Number(bag?.[inName]) || 0) + (Number(placed?.[inName]) || 0) - after)) : 0
   const short = Math.max(0, Math.round((n - out - back) * 100) / 100)
   return { verdict: short > 1e-9 ? 'loss' : 'ok', batch: n, out: Math.round(out * 100) / 100, back, short }
 }
+/** How long a recovery that WAITED yields before it looks again (Codex r4 P1): longer than a batch's burn (12 x 10 s). */
+export const MATS_RETURN_WAIT_MS = 3 * 60 * 1000
 /** Recovery attempts before a note is given up as ABANDONED (reported, never silently: the read counts them). */
 export const MATS_RETURN_MAX = 6
 export const MATS_RETURN_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -446,6 +463,14 @@ export function recoveryContentsOk (loaded, { input = null, fuel = null, output 
   return { ok: true, why: null }
 }
 
+/** THE RECOVERY'S VERDICT -> the balance's, except a loss of the WHOLE batch with nothing of it anywhere after the furnace was
+ *  found EMPTY (Claude r4 P3-2 A): another bot's furnace_drain took the burnt batch into town while this one waited -- TAKEN,
+ *  reported, never the defect gate. Part of the batch found is still judged. Pure. */
+export function recoveryVerdict (bal, drained) {
+  if (!bal) return null
+  if (bal.verdict === 'loss' && drained === 'empty' && bal.out === 0 && bal.back === 0) return 'taken'
+  return bal.verdict
+}
 /**
  * THE COPPER KINDS' RECOVERY BALANCE (Codex r3 P2-6) -> as recoveryBalance. The ingots the order took (town and bag) are in
  * copper units: still ingots above bag0 (capped by the batch), blocks (9), cut copper (9) or doors (2), in the bag, banked now
@@ -459,9 +484,11 @@ export function copperBalance (note, { bag = {}, banked = {} } = {}) {
   const got = x => above(x) + (Number(banked?.[x]) || 0) + (Number(note.deposited?.[x]) || 0)
   const parts = note.kind === 'cut_copper' ? 9 * (Math.min(4, got('copper_block')) + Math.min(4, got('cut_copper'))) : 2 * Math.min(3, got('copper_door'))
   const out = Math.min(n, parts)
-  const back = Math.min(n - out, above('copper_ingot'))
-  const short = Math.max(0, n - out - back)
-  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
+  // NO PART MADE = NEVER CRAFTED (Claude r4 P3-2 D): the ingots are inputs wherever they went (a town deposit between attempts
+  // banks them); a craft step is all-or-nothing (4 blocks, 4 cut, 3 doors), so a part made means every ingot was spent
+  if (out === 0) return { verdict: 'ok', batch: n, out: 0, back: Math.min(n, above('copper_ingot')), short: 0 }
+  const short = Math.max(0, n - out)
+  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back: 0, short }
 }
 
 /** THE RECOUNT'S OWN BACKOFF (Claude r3 P2-3): a container that could not be counted sits out its backoff -- the order's trigger
