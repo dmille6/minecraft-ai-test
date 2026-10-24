@@ -1,0 +1,137 @@
+lavasight-01 review record. Each round: the engines' final answers verbatim; the response to each finding is in
+docs/reports/lavasight-01-design-2026-10-24.md section 10.
+
+==================================================================================================================
+DESIGN r1 (882dfb66) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+1. **Price-only is reasonable, but the "never a wall" proof is false.** Movement costs include omitted charges and entity costs; legal base moves can disappear.
+2. **The footprint is approximate, not equivalent to the guard.** It misses deep-drop checks, ignores solid occlusion, and does not correctly represent all head/intermediate/landing charges.
+3. **Seed hashing checks out:** all three examples reproduce using signed int64 little-endian input and digest `readInt32LE(4):readInt32LE(0)`. Atomic publishing is appropriate. Expiration, world-to-directory mapping, and same-seed foreign files need explicit contracts.
+4. **Reflex suppression is the right approach.** Keepout's intentional exclusions remain, but ordinary skill/homefix paths inherit the cost-deletion problem. Protectzone shares the same accumulated movement cost; it is not arithmetically independent. The proposed tests do not establish executable recovery through the corridor guard.
+5. **The gates are insufficient.** G2 is tautological as specified; G3 is neither independently recomputable nor a check of move preservation. Refusals/bot-hour alone can reward reduced movement.
+6. **R1-R6:** R1 agree, with lifecycle fixes; R2 reject the current proof; R3 max-composition is sensible, but 16/4 needs a corrected bound; R4 defer warn-only rows unless a decision uses them; R5 separate publisher is acceptable with explicit destination mapping; R6 retain bot-hour rates as secondary, adding guard-check and completed-goal denominators.
+
+**Findings**
+
+- **P1 - A priced walk can be deleted.** Design `docs/reports/lavasight-01-design-2026-10-24.md:159` excludes entity costs, which `bots/node_modules/mineflayer-pathfinder/lib/movements.js:284` adds before the deletion checks. A read-only probe of the installed forward generator produced **base cost 53, candidate no neighbour**: 26 entity intersections in each checked body cell plus three 16-point charges yields 101. This is a no-dig walk. Preserve base-admitted moves at the move level, or retain a deterministic recovery mechanism; a per-cell cap alone cannot prove preservation.
+
+- **P1 - The move enumeration and dig exception are incomplete.** At `movements.js:417`, `:419`, `:439`, and `:449`, diagonal cost includes **4-5 selected charges**, or **5-6 for jump-up**; both side alternatives are evaluated, so raw hook calls are higher. Forward normally charges 3, cardinal jump-up 3, drop-down 3, vertical down 1, and up/tower 1. Parkour is disabled. Design `:152` misses the conditional diagonal charge and miscounts vertical down. Also, `dontCreateFlow` checks immediate liquid neighbours (`movements.js:257`), not the whole core/ring; it does not justify dismissing newly deleted digs at design `:163`. Include water, `liquidCost=2`, entities, placements, and dig labour in behavioural comparisons. The actual death-site price is **16**, not 25 (`bots/src/deathsites.mjs:19`).
+
+- **P1 - "Exactly the footprint" and its proposed equivalence test are wrong.** Design `:141-146` conflicts with `bots/src/lavaguard.mjs:12`, `:29-38`, and `:54-58`: solid blocks terminate below scans, while the centre drop scan reaches 12 blocks and checks lateral lava. Probes confirmed that solid-covered lava is accepted despite being in the proposed core, while lava six below is refused outside even the ring. Drop-down also never charges its landing cell (`movements.js:489-500`); a generic head adjustment cannot repair that. Specify a conservative approximation honestly or price the actual swept move footprint, including occlusion and drops.
+
+- **P1 - G2 cannot detect its intended defect.** Design `:212` defines `priced` as "index non-empty and not held"; consequently G2 at `:240` cannot observe `held=1, priced=1`, even if the callback incorrectly charges during a reflex. Record actual nonzero callback results with ownership inputs. G3 at `:241` also lacks replay inputs and checks only `>16`, missing an egress charge of 16 where the limit is 4. Require behavioural mutants that fail these gates.
+
+- **P2 - Delivery needs explicit lifecycle and destination rules.** Design `:79`, `:103-113` assumes world W maps to `_pool-W`, and specifies rereading only on mtime changes. Expiration must run without a file change; login identity changes must invalidate cached cells; same-seed foreign-world files need world-label validation. Define handling for mixed-world directories, `POOL_STATE_DIR` overrides, and isolated pools without existing directories. See `bots/src/worldfacts.mjs:540-551`. Do not copy protectzone's retain-last-good error behaviour (`bots/src/protectzone.mjs:299`) into this fail-open reader.
+
+- **P2 - Recovery tests stop before execution.** Design `:227-230` accepts "candidate finds the edge path" and "fallback selects home." But the corridor hook clears unsafe goals (`bots/src/index.mjs:1031-1035`), so neither proves escape or arrival. Test composed outward movement, corridor acceptance, and actual recovery completion, including exhausted relocation candidates and reflex ownership transitions.
+
+- **P2 - The primary metric can improve through inactivity.** Design `:246` combines throttled corridor rows with blind-step refusals; corridor logging itself is limited to once per five seconds (`bots/src/index.mjs:1034`). Record unsampled checks/refusals, report refusal fraction per check, and pair that with completed lava-exposed goals per attempted goal. Keep refusals/bot-hour and productivity as supporting measures.
+
+Review limitation: the referenced mineshaft r10 and hazardmap §7 reports were unavailable in the checked repository paths. Their exact contracts remain unverified. No files were modified.
+
+==================================================================================================================
+DESIGN r1 (882dfb66) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+Answers to the six questions
+1. Price-only instead of r10's exclusions. The approach is sound. For moves that do not dig, the bound holds with room to
+   spare, but the text of 3.4 has several wrong facts (P2-1). With max() in force, I could not find any walk, jump, drop or
+   scaffold move that lavasight deletes. The worst case is a diagonal jump-up: 1.414 + 5x16 + liquidCost 2 + 1 + 5 water
+   entries = 89.4. Moves that dig can be deleted outside the guard's refusal set (P2-1). lavasight adds no dead end compared
+   with the base. It also does not remove the one that already exists (P2-2).
+2. Footprint and egress. The beside-core matches corridorSafe. The over-core does not, and drops are not priced (P1-1). The
+   head-cell handling is fine: it only adds price. Egress works against the design's own goal (P2-2).
+3. Delivery. Hashed-seed binding is correct. The uncommitted WIP bots/src/lavasight.mjs:47-55 does writeBigInt64LE, then
+   readInt32LE(4):readInt32LE(0). That matches Guava hashLong().asLong() and the hi:lo of composter.mjs:529-533. Add a
+   negative-seed case to the tests. Fail-open, the reseed handling (world_mismatch until the next refresh) and atomic rename
+   are fine. The r1 text has gaps (P2-5).
+4. Composition. I found no new dead end. keepout's 101 and the well's 1000 stay deliberate. protectzone, homefix and lavastep
+   are independent. Two gaps: cost-capped searches (P1-1) and the reflex list (P3-1).
+5. The read. G2 cannot fail (P1-2). G3 is a self-report (P2-4). The primary metric is distorted by the way its rows are
+   written (P2-3).
+6. R1-R6: answered at the end.
+
+P1 (must fix)
+- P1-1. The footprint is not what the guard refuses, so the "iff" test in 6 cannot pass. Design 0.2, 3.3 lines 139-147, 6
+  line 222.
+  - Over-core ignores solid floors. It prices F.y = y+1..y+3 within Chebyshev 1 regardless of what is in between. But
+    cellLavaSafe stops its downward scan at the first solid block (lavaguard.mjs:12), and dropLavaSafe returns safe at dy=1
+    on a solid block (lavaguard.mjs:38). So a walk on a stone floor directly above a lava lake is accepted by the guard and
+    core-priced by lavasight. That matters most at the depths where deep miners will work.
+  - The over-pricing becomes a wall in capped searches. searchRadius is a cost cap (astar.js:51,95): the gather approach and
+    its re-plans, APPROACH_SLACK 400 (digapproach.mjs:77,251-256, index.mjs:733); the ore tunnel, SEARCH_SLACK 400
+    (oretunnel.mjs:49,227); reachprobe, 96 (reachprobe.mjs:143). About 8 over-priced core steps is enough for a target the
+    base reaches to come back noPath.
+  - The guard refuses things the price never sees. Lava 4-12 below an open column, and lava beside the drop
+    (lavaguard.mjs:29-40), are guard refusals the footprint omits. The pathfinder never charges a drop's landing cell
+    (movements.js:476-521; already noted at deathsites.mjs:14-16).
+  - Mixed-sign diagonals are sampled differently. For (0,0) to (1,-1), corridorSafe samples the side cell (0,-1)
+    (lavaguard.mjs:54, integer nodes from index.mjs:1030). getMoveDiagonal charges only min(cost1, cost2)
+    (movements.js:430-436). So a diagonal hugging the core can be cheap to the planner and still refused by the guard.
+  - Fix. Price only where the column in between is open, read at index rebuild. Add the drop rule. In the A* behaviour test,
+    assert that corridorSafe accepts the candidate's planned path.
+  - The WIP has moved past r1. bots/src/lavasight.mjs already has solidity and DROP in its footprint, and a move-level
+    wrapNeighbors/moveSurcharge. The doc must be re-issued to describe that mechanism. The WIP also has two defects:
+    moveSurcharge samples from block centres (+0.5), while corridorSafe interpolates integer nodes. For the diagonal above
+    the WIP samples (1,0); the guard samples (0,-1). So the claim "sampled exactly as corridorSafe" is false.
+    composterSafeMovements calls proto.getNeighbors (composter.mjs:749), which bypasses a wrapper installed on the moves
+    instance.
+- P1-2. G2 cannot fail. 5 line 212 and 7 line 240 define priced as "index non-empty and not held", so held=1 && priced=1 is
+  impossible by construction. Rows are also sampled at 1 per 30 s, which misses rare reflex-held searches. Fix. Count
+  price>0 while held at the hook itself, from the reflex name, in liveness counters. The WIP's held_priced counter does this.
+  Write it into the doc. Also name a gate mutant positive control, as the common contract in mineshaft 7 requires.
+
+P2 (should fix)
+- P2-1. The arithmetic in 3.4 (lines 151-165) is wrong in several places. The death disc costs 16, not 25
+  (deathsites.mjs:19). The comment at index.mjs:572 is stale. So max() is a no-op where both apply, and that is the correct
+  reason it is safe. liquidCost is 2 (index.mjs:518) and is not counted in 87.4. Chargings per move: drop-down 3
+  (movements.js:489-494); getMoveDown 1; getMoveUp 1; diagonal can be 6 (movements.js:419,428; deathsites.mjs:10). Dig
+  deletions are not limited to cells the guard already refuses. Two hand-dug deepslate blocks inside the ring cost
+  1 + 2x46 = 93 in the base and 105 with lavasight. The move-level wrapper (cost added after the move is generated) avoids
+  every cost > 100 guard, digs included. Adopt it and drop the per-charging argument.
+- P2-2. Egress (3.3 line 147) flattens the price gradient right where the guard refuses. Within Chebyshev 2 of the bot, a
+  core cell costs the same as a cell further from the lava. A bot standing in the ring therefore plans its first steps
+  along the lava edge, and the guard refuses them. The bound already guarantees the bot can always leave, so egress buys
+  nothing. The price is not what holds a bot inside the footprint: corridorSafe samples the bot's own cell on any +x/+z
+  first step (lavaguard.mjs:54 with index.mjs:1030). That trap belongs to lavastep and the stand-off reflex. Drop egress.
+  Or cap a cell only at the bot's own cell's price, never below it. Separately, "plan time" is really live
+  bot.entity.position read mid-search. Capture it once per search.
+- P2-3. The primary metric is distorted by how its rows are written (7 line 246, R6). _lava_corridor is throttled to one
+  row per 5 s per bot (index.mjs:1034), so it saturates during refusal storms. A failed explore leg writes up to 4
+  blind-step rows, one per heading (skills.mjs:6957-6959). Those rows also rise with any failed leg, and the price can cause
+  more failed legs through larger searches and timeouts. Use bot-minutes with at least one lava refusal (episodes). Make
+  danger-block episodes the co-primary.
+- P2-4. No gate can see the harm the design worries about. G3 is the function's own max_price. Make it record the combined
+  max(death, lava) value so the sum-instead-of-max mutant trips it. Add a counterfactual: on each canary noPath or timeout
+  where moves were priced, run a bounded search with the price off (reachprobe-sized) and log base_found. Gate: noPath
+  where the base would have found a path, compared on the same budget. This is r10's excl_blocked, kept.
+- P2-5. r1's delivery text is missing three things. Staleness must be re-judged on every 60 s tick even when mtime is
+  unchanged. The WIP does; r1 does not say so. Ten worlds share a seed, so seed binding alone cannot tell board-a's file
+  from board-d's. Add the pool label check (WIP world_label). A file with published_at is never byte-identical, which
+  defeats the skip-if-identical rule (2.1 line 87). The WIP uses generated_at instead.
+
+P3 (nits)
+- P3-1. activeReflexOf (pickuplog.mjs:85) leaves out unstick's pathfinder gotos (reflex.mjs:6162,6197) and the
+  climb/stair claims (reflex.mjs:3033). Those are priced. That is harmless, but 3.5 and G2 should say so.
+- P3-2. The own-sighting ring needs a reason filter. v.at can be an unknown cell (lavaguard.mjs:11-12). A blind step's at
+  can be a drop or no-floor cell (lavaguard.mjs:148-151). The live re-read self-heals these, but filter at the source.
+- P3-3. deaths.cells are where bots died, mostly not lava cells. They will mostly be removed_live, yet the 4,096 cap is
+  ranked by deaths first. Rank lava sightings first.
+- P3-4. Relocation reuses the reason keepout (relocate.mjs:78). Give lavasight its own reason so the read can split them.
+- P3-5. The mutant "drop the head-cell rule" (6 line 232) refers to a rule the design never specifies.
+- P3-6. The forward core step is mostly 1+32+4=37, not 49 (the head cell is core only within Chebyshev 1).
+
+R1-R6
+- R1: agree. No same-day shared write in v1. Your own table shows 77.3% of refusals had the bot's own refusal within 1
+  block in the prior hour, so the ring carries most of the re-encounter value. The ring is lost on restart; accept that.
+- R2: missed moves and facts as in P1-1 and P2-1: diagonal at 6 chargings, the drop landing never charged, liquidCost, the
+  death disc at 16, digs in the ring.
+- R3: 16 is the right number because it is the death-site constant, built on the same 6-charging arithmetic. max() is
+  required; sum would delete diagonals. 4 for the ring is fine.
+- R4: drop the warn rows from this canary. They change no behaviour and add an O(nodes x 256) scan to every path_update,
+  which fires on every partial. Ship them as separate telemetry.
+- R5: keep the publisher as a separate mcbot job, but trigger it from a successful refresh rather than a fixed 05:40 cron.
+- R6: see P2-3. Count episodes rather than rows, and pair them with danger-block episodes.
