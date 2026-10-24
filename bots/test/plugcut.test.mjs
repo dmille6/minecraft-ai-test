@@ -506,6 +506,51 @@ await t('A STEP CUT BUT NOT TAKEN (Paper gate, isolated-d): the licensed ramp ju
   assert.strictEqual(digsW, 1, 'the step cell was cut again (a widened ledge)')
 })
 
+await t('THE RETRY YIELDS (Codex r3 P2): an owner that takes the body after the missed jump gets no control write from the retry', async () => {
+  const bot = missFirst()
+  let firstAt = null
+  const set = bot.setControlState
+  bot.setControlState = (n, on) => { if (n === 'jump' && on && firstAt == null) firstAt = Date.now(); return set(n, on) }
+  const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (firstAt != null && Date.now() >= firstAt + 900 ? 'drowning' : null) })
+  assert.ok(firstAt != null, 'POSITIVE CONTROL: no jump was made')
+  assert.strictEqual(r.yielded, 'drowning')
+  const writes = bot.controls.filter(c => /^(forward|jump):true$/.test(c))
+  assert.strictEqual(writes.length, 2, `the retry wrote controls under the new owner: ${bot.controls.join(' ')}`)   // the first stroke's jump (forward swallowed into jump) + its jump
+})
+
+await t('THE RETRY RE-ASKS THE STEP (Claude r3 P3-1): a step cell that refills between jumps ends the retries, nothing dug', async () => {
+  const bot = missFirst()
+  const set = bot.setControlState
+  let refilled = false
+  bot.setControlState = (n, on) => { if (n === 'jump' && !on && !refilled) { refilled = true; bot.world.set(-1, 1, 0, 'gravel') } return set(n, on) }
+  const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(refilled, 'POSITIVE CONTROL: no refill')
+  assert.strictEqual(r.stepRetries, 0, `retried into a refilled step: ${r.stopped}`)
+  assert.match(r.stopped, /could not stand in it/)
+})
+
+await t('MUTANT KILLED: the retry blind to the owner -> it writes controls under the drowning rescue', async () => {
+  await withMutant(REFLEX_PATH, '    const gone = () => (yielded = yieldTo())\n', '    const gone = () => null\n', async m => {
+    const bot = missFirst()
+    let firstAt = null
+    const set = bot.setControlState
+    bot.setControlState = (n, on) => { if (n === 'jump' && on && firstAt == null) firstAt = Date.now(); return set(n, on) }
+    await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (firstAt != null && Date.now() >= firstAt + 900 ? 'drowning' : null) }, m)
+    assert.ok(bot.controls.filter(c => /^(forward|jump):true$/.test(c)).length > 2, 'the mutant did not change behaviour')
+  })
+})
+
+await t('MUTANT KILLED: the retry not re-asking the step -> it jumps into the refilled step', async () => {
+  await withMutant(REFLEX_PATH, '      if (!still.ok || still.dig.length) break\n', '', async m => {
+    const bot = missFirst()
+    const set = bot.setControlState
+    let refilled = false
+    bot.setControlState = (n, on) => { if (n === 'jump' && !on && !refilled) { refilled = true; bot.world.set(-1, 1, 0, 'gravel') } return set(n, on) }
+    const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
+    assert.ok(r.stepRetries > 0, 'the mutant did not change behaviour')
+  })
+})
+
 await t('MUTANT KILLED: no retry -> the licensed ramp stops at the missed jump', async () => {
   await withMutant(REFLEX_PATH, '    while (!taken && plug && stepRetry < PLUG_STEP_RETRIES && inColumn()) {',
     '    while (false) {', async m => {
@@ -572,9 +617,37 @@ await t('A RECOVERY BACK TO THE SAME PIT (Codex r2 P1): a body that LEFT the pla
   assert.deepStrictEqual(s2, [false])
 })
 
+await t('A STREAK FORGOTTEN DURING THE RAMP STAYS FORGOTTEN (Codex r3 P1): the 4th ramp leaves A, a tick sees it, it returns -> not licensed next', async () => {
+  const seen = []
+  let k = 0
+  const fake = async (b, o) => {
+    seen.push(!!o.plug)
+    if (++k === 4) { const home = b.entity.position; b.entity.position = new Vec3(40.5, 70.1, 40.5); R.plugStreakTouch(b); b.entity.position = home }
+    return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' }
+  }
+  const bot = botFor(ISOC)
+  for (let i = 0; i < 5; i++) await R.floodBranch(bot, { handler: 'entombed', refusals: i, ramp: fake })
+  assert.deepStrictEqual(seen, [false, false, false, true, false], 'the 5th firing was licensed from a resurrected streak')
+})
+
+await t('MUTANT KILLED: the streak rebuilt from the pre-ramp copy -> the 5th firing is licensed', async () => {
+  await withMutant(REFLEX_PATH, '  const live = plugStreaks.get(bot) === prevStreak ? prevStreak : null\n', '  const live = prevStreak\n', async m => {
+    const seen = []
+    let k = 0
+    const fake = async (b, o) => {
+      seen.push(!!o.plug)
+      if (++k === 4) { const home = b.entity.position; b.entity.position = new Vec3(40.5, 70.1, 40.5); m.plugStreakTouch(b); b.entity.position = home }
+      return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' }
+    }
+    const bot = botFor(ISOC)
+    for (let i = 0; i < 5; i++) await m.floodBranch(bot, { handler: 'entombed', refusals: i, ramp: fake })
+    assert.strictEqual(seen[4], true, 'the mutant did not change behaviour')
+  })
+})
+
 await t('WIRED (structural): the reflex tick touches the streak, and the entombed success clears it (each seen to fail on a mutant)', () => {
   const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => (/^\s*\/\//.test(l) ? '' : l.replace(/(^|\s)\/\/.*$/, '$1'))).join('\n')
-  const wired = src => { const c = strip(src); return /publishAir\(\)\n\s*\n*\s*plugStreakTouch\(bot\)/.test(c.replace(/\n\s*\n/g, '\n')) && /floodRefusals = 0; plugStreakClear\(bot\) \}/.test(c) }
+  const wired = src => { const c = strip(src); return /healthBeforeTick = bot\.health \?\? null\n\s*plugStreakTouch\(bot\)\n\s*if \(airPocketing\) return/.test(c.replace(/\n\s*\n/g, '\n')) && /floodRefusals = 0; plugStreakClear\(bot\) \}/.test(c) }
   const src = readFileSync(REFLEX_PATH, 'utf8')
   assert.ok(wired(src))
   const a = '      plugStreakTouch(bot)\n', b = 'floodRefusals = 0; plugStreakClear(bot) }'
@@ -599,7 +672,7 @@ await t('THE CHAIN on isolated-c: three refusals as today (nothing placed, a gro
   assert.strictEqual(f4.refusals, 0, 'progress resets the counter')
   assert.strictEqual(f4.stair.plugged, 2)
   const ramp4 = rows.find(x => x.kind === '_climb_flood_ramp')
-  assert.match(ramp4.detail, / plugged=2 /)
+  assert.match(ramp4.detail, / plugged=2 retries=\d+ /)
 })
 
 await t('ROLLBACK (PLUGCUT=0): the 4th firing and every one after refuse exactly as the base, nothing placed', async () => {

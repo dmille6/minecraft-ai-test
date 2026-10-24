@@ -87,6 +87,10 @@ The isolated-d-Bravo scene was cut for this work (`stuck-1899-isolated-d-340_60_
   - **Leaving the place clears it, by any route** (r3, Codex r2 P1). Every reflex tick calls `plugStreakTouch`: a body no
     longer at its streak's place forgets the streak, so a return to the same pit later starts again. The entombed arm's own
     success also clears it (`plugStreakClear`). Tested: three at A, out, back to A is not licensed; a bob within 2 keeps it.
+    r4 (Codex r3 P1): a streak forgotten by the tick DURING the ramp stays forgotten. floodBranch rebuilds only from the
+    streak still on record, never from its pre-ramp copy. Tested on the interleaving, with a mutant.
+    The touch sits after the chest-cursor release and before the tick's first early return. publishAir stays the first
+    statement (homefix2-chain B1).
   - **Fleet positive control for the place rule** (r3, Claude r2 P2-1). Replaying every `_climb_flood_refused at=` row over
     3 d (ES to 10-24 14:00Z, 4,611 rows) through the rule:
 
@@ -158,6 +162,8 @@ Per placement:
    - r3 (both engines r2): the owner is asked after the settle, before ok is returned, because the step caller digs next.
      The deadline is asked again after the equip, and a settle the deadline cannot hold is never started (the rung stops;
      the next firing cuts). Every return after an await asks the owner first. Tested with mutants.
+   - r4 (Claude r3 P3-2): a settle skipped only for the deadline writes `stopped` "budget spent before the settle". It used
+     to write a misleading "still wet" or "nothing to plug".
 2. The plan is re-planned live, before and after the equip (same cell, same reference, or the placement is skipped).
 3. `sub0` (the head at this decision) is sampled, then the block is placed.
 4. After `FLOW_SETTLE_MS` the cell is ALWAYS read back and the row is written, even when another owner took the body
@@ -191,6 +197,11 @@ bearing from the FRAME the step was planned in: floored, x and z as well as y (C
   was cut but not taken is jumped again, up to PLUG_STEP_RETRIES (2), in the SAME frame: no re-plan (a bobbing body reads
   another frame) and nothing dug. This happens only while the body is still in its own column, so it can never widen a
   ledge. Tested, with a mutant.
+  - r4 (Codex r3 P2): the retry asks the owner after every await and before every control write, and it stops at the deadline.
+  - r4 (Claude r3 P3-1): before each jump it re-asks `stairUpStep` in the same frame. It needs ok with nothing to dig, so a
+    gravel refill or lava ends the retries.
+  - The ramp row carries `retries=` (Claude r3 P3-3).
+  - Each of these is tested, with a mutant.
 
 **Spare the plugs (`sparePlugs`).** The licensed step loop chooses first among the bearings whose first step digs none of
 this firing's plugs.
@@ -243,7 +254,7 @@ this firing's plugs.
 - Not a fix for water ABOVE the ceiling (a pocket: refused, one row), or for falling columns (refused).
 - It does not change the base ramp. Every behavioural change is behind the licence.
 
-## 5. Tests (`bots/test/plugcut.test.mjs`, 61; the variant 62)
+## 5. Tests (`bots/test/plugcut.test.mjs`, 67; the variant 68)
 
 **Fixtures.** `bots/test/fixtures/plugcut-scenes.json` holds 9x10x9 windows cut from the three failmine scenes by
 `pc_fixtures.py`, with full block states.
@@ -361,7 +372,7 @@ The variant is the branch `plugcut-on-c488c3e3`: the primary applied onto ceiles
   rides on the `ramp` wrapper.
 - **The diff matches the primary.** Its bots/src +/- lines are identical to the primary's, compared line for line.
 - **One variant-only test** (section F): a licensed firing prices its swings against its own 90 s.
-- **Suites:** ceilescape 67/67; plugcut 62 (the primary's 61 + F).
+- **Suites:** ceilescape 67/67; plugcut 68 (the primary's 67 + F).
 
 ## 9. Results (filled as they land)
 
