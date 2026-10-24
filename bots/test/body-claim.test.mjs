@@ -224,10 +224,13 @@ t('A REFUSAL ASKS FOR BLOCKS, NOT A PICKAXE, AND BACKS OFF', () => {
   // for the wrong reason in this repo. So the window is generous AND its
   // sufficiency is asserted rather than assumed.
   const branch = code.slice(i, i + 6000)
-  assert.ok(branch.includes('else if ('),
+  // THE ARM ENDS WHERE THE OUTER CHAIN CONTINUES (ceilescape-01): the refusal arm now holds an `else if` of its own (a lateral
+  // exit is progress), so the end is the chain's next arm by name, not the first `else if (` in the text.
+  const END = "else if (climbOutcomeRoute(climbed) === 'flood')"
+  assert.ok(branch.includes(END),
     'the window is too narrow to reach the end of the refusal arm, so every ' +
     'assertion below is scoped to a fragment of the branch it names')
-  const arm = branch.slice(0, branch.indexOf('else if ('))
+  const arm = branch.slice(0, branch.indexOf(END))
 
   // TWO COUNTERS, AND BOTH MUST ADVANCE.
   //
@@ -290,7 +293,7 @@ t('A REFUSED PILLAR IS NOT SCORED AS A FAILED ESCAPE — but an EXHAUSTED one is
   // Structural, not a character window: whatever sits between the refusal arm
   // opening and the else-if must not advance the counter.
   const start = code.indexOf("if (climbed === 'needs_blocks'")
-  const elseIf = code.indexOf('else if (', start)
+  const elseIf = code.indexOf("else if (climbOutcomeRoute(climbed) === 'flood')", start)   // the outer chain's next arm (ceilescape-01)
   assert.ok(start > 0 && elseIf > start, 'the refusal / escape-failure branches are gone')
   const refusalArm = code.slice(start, elseIf)
   assert.ok(!/escapeFailures\+\+/.test(refusalArm),
