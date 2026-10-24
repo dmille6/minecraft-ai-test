@@ -1,0 +1,45 @@
+--- a/canary-loop.sh
++++ b/canary-loop.sh
+@@ -25,6 +25,13 @@
+ # below behaves as before.
+ BAGFIX=$(python3 -c "import json; print('1' if json.load(open('$REG')).get('class') == 'bag-fix' else '')")
+ BAGFIX_POOLS=4
++# TIER 2 (OWNER POLICY 2026-10-24): tierrule.tier_of, the one definition. A registration that declares a tier which cannot
++# be classified (tierrule unreadable) is refused before the draw. T2_DRAW_MAX_H: the bounded draw wait (below).
++TIER2=$(python3 -c "import json,sys,os; sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); r=json.load(open('$REG'))
++if 'tier' not in r: print('')
++else:
++    import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')" 2>/dev/null) || { page error "registration $RUN declares a tier that cannot be classified (tierrule.py unreadable?)"; exit 2; }
++T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}   # CANARY_T2_DRAW_MAX_H: replay/tests only; production sets none
+ # brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
+ # canary pool's canary.env by mcai-canary-tree (via fleet-deploy's CANARY_ENV, which survives the sudo and is checked
+ # in a live bot's /proc/<pid>/environ: FLAG MISSING exits 4). Unset or empty = every line below behaves as before.
+@@ -146,8 +153,28 @@
+ # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
+ if [ "$(mf canary_code_version)" != "$SHA" ]; then
+   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
++  # a tier-2 registration that caps its draw below 4 (draw_k) can never draw: refused here, before the draw, with its fix
++  if [ -n "$TIER2" ] && python3 -c "import json,sys; k=json.load(open('$REG')).get('draw_k'); sys.exit(0 if isinstance(k, int) and k < 4 else 1)"; then
++    page error "tier-2 $RUN caps its draw below 4 pools (draw_k): it can never draw. Remedy: drop draw_k, or re-register it tier 3"
++    journal refused-tier2-k "tier 2 with draw_k < 4: nothing drawn or deployed"
++    exit 2
++  fi
+   journal draw "waiting for two pools"
++  _DRAW_T0=$(_now)
+   while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -)
++    # TIER 2: EXACTLY FOUR POOLS OR A BOUNDED WAIT (OWNER POLICY 2026-10-24; tier2-four-pools-2026-10-24.md). drawrec draws
++    # a tier-2 run on 4 pools or not at all. Each short draw is journalled `draw-short` (so the scheduler's draw-stall
++    # page at 3 h names it); after T2_DRAW_MAX_H the loop REFUSES -- nothing is deployed, the entry is blocked, and the
++    # page names the two remedies a human can perform from there: re-register it tier 3 (`queue replace-variant`) or
++    # `rearm` it to wait again. 12 h: every ledger exclusion has lapsed by then, so a longer wait is structural.
++    if [ -n "$TIER2" ] && [ -z "$P" ]; then
++      journal draw-short "tier 2 needs exactly 4 pools (owner 10-24); drawrec: $(echo "$D" | tail -1 | cut -c1-160) -- waiting 20 min"
++      if [ $(( $(_now) - _DRAW_T0 )) -ge $(( T2_DRAW_MAX_H * 3600 )) ]; then
++        journal refused-tier2-draw "waited ${T2_DRAW_MAX_H} h for 4 pools without a draw; nothing deployed"
++        page error "tier-2 $RUN waited ${T2_DRAW_MAX_H} h for exactly 4 pools and is NOT deployed (last: $(echo "$D" | tail -1 | cut -c1-140)). Remedy: re-register it tier 3 (a variant without \"tier\": 2, \`canary-sched.py queue replace-variant $RUN <entry>\`, then \`rearm $RUN <why>\`), or \`rearm $RUN <why>\` to wait again"
++        exit 2
++      fi
++    fi
+     # v33: WIDENING MID-RUN IS NOT DONE (a second deploy rewrites the one declared_at, restarts the pools already on
+     # canary and rebuilds the canary tree under them). Its safe equivalent: a bag fix starts at 20 bots, or waits.
+     # THREE-POOL BAG FIXES (OPERATOR + CODEX 10-10, owner's delegation). The decision is bagfixrule.draw_decision, asked

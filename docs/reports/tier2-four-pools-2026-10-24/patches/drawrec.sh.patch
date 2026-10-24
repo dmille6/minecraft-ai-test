@@ -1,0 +1,30 @@
+--- a/mcai-analysis/drawrec.sh
++++ b/mcai-analysis/drawrec.sh
+@@ -301,6 +301,27 @@
+     elif isinstance(_dk, int) and 1 <= _dk < TARGET_K:
+         TARGET_K = _dk; MIN_K = min(MIN_K, _dk)
+         print('draw_k: registration caps the draw at %d pool(s)' % _dk)
++    # TIER 2 DRAWS EXACTLY FOUR POOLS OR WAITS (OWNER POLICY 2026-10-24, tier2-four-pools-2026-10-24.md). A tier-2 KEEP at
++    # +180 needs exactly 4 pools (tierrule.keep_early), and a tier-2 run drawn short on early-released pools can neither
++    # KEEP at +180 nor, usually, have a clean +360 baseline (indexsearch-01 10-23). Tier is tierrule.tier_of -- the one
++    # definition verdict.py and drawsteady use. A registration that carries `tier` but cannot be classified (tierrule
++    # unreadable) draws NOTHING (fail closed; the loop waits and its bound refuses). No `tier` key = exactly as before.
++    if _r is not None and 'tier' in _r:
++        try:
++            sys.path.insert(0, os.path.expanduser('~/mcai-analysis'))
++            import tierrule as _TRM
++            _t2 = _TRM.tier_of(_r) == 2
++        except Exception as _e:
++            _t2 = None
++            TARGET_K = 0; MIN_K = 1
++            print('tier: tierrule.py unreadable (%s) for a registration that declares a tier -- drawing nothing' % type(_e).__name__)
++        if _t2:
++            if TARGET_K < 4:
++                TARGET_K = 0; MIN_K = 1
++                print('tier 2: the registration caps the draw below 4 (draw_k) -- a contradiction; drawing nothing')
++            else:
++                TARGET_K = 4; MIN_K = 4
++                print('tier 2: exactly 4 pools or no draw (owner policy 10-24)')
+ rng = secrets.SystemRandom()
+ npick = min(TARGET_K, len(e))
+ if npick < MIN_K:

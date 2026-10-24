@@ -1,0 +1,69 @@
+--- a/scripts/host/test_canary_sched.py
++++ b/scripts/host/test_canary_sched.py
+@@ -14,6 +14,9 @@
+ SRC = os.path.join(HERE, 'canary-sched.py')
+ LIB = next(d for d in (os.path.normpath(os.path.join(HERE, '..', 'lib')), os.path.join(HERE, 'lib'),
+                        os.path.expanduser('~/mcai-analysis/lib')) if os.path.exists(os.path.join(d, 'openloop.py')))
++TIERRULE = next((os.path.join(d, 'tierrule.py') for d in (os.path.normpath(os.path.join(HERE, '..')), HERE,
++                                                           os.path.expanduser('~/mcai-analysis'))
++                 if os.path.exists(os.path.join(d, 'tierrule.py'))), None)
+ NOW = dt.datetime(2026, 10, 8, 12, 0, 0, tzinfo=dt.timezone.utc)
+ POOLS = ['board-a', 'hive-a']
+ BOTS = ['%s-%s' % (p, n) for p in POOLS for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')]
+@@ -87,6 +90,7 @@
+             'import os, sys\nm = os.environ.get("FIX_DE", "undeclared")\n'
+             'if m == "undeclared": print(sys.argv[1] + " declares no draw_exposure block"); sys.exit(0)\n'
+             'if m == "ok": print("eligible on exposure: [\'board-a\', \'hive-a\']"); sys.exit(0)\n'
++            'if m == "four": print("eligible on exposure: [\'board-a\', \'board-b\', \'hive-a\', \'hive-b\']"); sys.exit(0)\n'
+             'if m == "few": print("eligible on exposure: [\'board-a\']"); sys.exit(2)\n'
+             'if m == "little": print("REFUSED: the exposure read found too little to prove anything"); sys.exit(2)\n'
+             'raise SystemExit("Traceback: crash")\n')
+@@ -588,8 +592,35 @@
+ 
+ def t_r10_undeclared_must_say_so(CS, F):
+     F.enqueue(CS); expect(CS, F, 'block', 'R10', FIX_DE='ok')
++
++
++def _t2_reg(F, tier=2, tierrule=True):
++    """A registration declaring draw_exposure and a tier; tierrule.py (the repo's) placed where the host has it."""
++    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}, 'tier': tier})
++    if tierrule:
++        shutil.copy(TIERRULE, os.path.join(F.home, 'mcai-analysis', 'tierrule.py'))
+ 
+ 
++def t_r10_tier2_needs_four_exposure_pools(CS, F):
++    """Owner policy 10-24: a tier-2 head with 2-3 pools able to expose it WAITS here (paged like any R10 wait), never
++    parks a loop in `draw` holding the lock; with 4 it launches."""
++    _t2_reg(F); F.enqueue(CS)
++    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='ok')        # 2 exposure pools
++    expect(CS, F, 'launch', FIX_DE='four')
++
++
++def t_r10_tier3_unchanged(CS, F):
++    """Positive control: the same 2 exposure pools launch a tier-3 (and an untiered) head, as today."""
++    _t2_reg(F, tier=3); F.enqueue(CS)
++    expect(CS, F, 'launch', FIX_DE='ok')
++
++
++def t_r10_tier_unclassifiable_blocks(CS, F):
++    """A registration with a tier but no tierrule.py to classify it BLOCKS (fail closed), naming the fix."""
++    _t2_reg(F, tierrule=False); F.enqueue(CS)
++    expect(CS, F, 'block', 'R10', 'tierrule', FIX_DE='four')
++
++
+ def _launch(CS, F, mode):
+     with Env(F.env(FIX_LOOP=mode)):
+         assert CS.tick(CS.paths()) == 0
+@@ -1116,6 +1147,12 @@
+     ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
+      "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
+     ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
++    # tier 2 needs four exposure pools (owner policy 10-24)
++    ('                if tier2 and len(set(re.findall(r"\'([a-z]+-[a-z])\'", elig))) < 4:',
++     '                if tier2 and len(set(re.findall(r"\'([a-z]+-[a-z])\'", elig))) < 2:'),
++    ("                if tier2 is None:", "                if False:"),
++    ("        return m.tier_of(reg) == 2", "        return bool(reg.get('tier'))"),
++    ("    if 'tier' not in reg:\n        return False", "    if 'tier' not in reg:\n        return True"),
+ ]
+ 
+ 

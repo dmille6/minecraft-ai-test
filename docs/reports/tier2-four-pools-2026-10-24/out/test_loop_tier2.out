@@ -1,0 +1,18 @@
+PASS  ready: tier 2, 4 pools at once -> drawn, no draw-short
+PASS  late: tier 2, pools after 1 h -> draw-short rows, then drawn
+PASS  bound: tier 2, never -> refused-tier2-draw, exit 2, nothing drawn
+PASS  bound: the refusal waited the full 12 h (>= 36 draws at 20 min) and not much more
+PASS  bound: the page names both remedies (re-register tier 3 via replace-variant; rearm)
+PASS  bound is the configured T2_DRAW_MAX_H (1 h in this fixture -> 3-4 draws)
+PASS  tier3 positive control: no tier -> drawn after 1 h, NO draw-short (as today)
+PASS  drawk: tier 2 with draw_k 2 -> refused before any draw
+PASS  notierrule: a tier key with tierrule.py absent -> refused before the draw
+PASS  positive control: no tier key, tierrule.py absent -> drawn as today
+test_loop_tier2: 10/10 pass
+  mutant 'journal draw-short "tier 2 needs exactly 4 pools'                       killed
+  mutant 'if [ $(( $(_now) - _DRAW_T0 )) -ge $(( T2_DRAW_MAX_H * 3600 )) ]; then' killed
+  mutant 'exit 2\n      fi\n    fi'                                               killed
+  mutant 'if [ -n "$TIER2" ] && python3 -c'                                       killed
+  mutant "import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')"        killed
+  mutant 'T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}'                              killed
+mutants: 6 of 6 killed

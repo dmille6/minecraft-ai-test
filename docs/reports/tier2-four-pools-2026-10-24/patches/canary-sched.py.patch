@@ -1,0 +1,42 @@
+--- a/canary-sched.py
++++ b/canary-sched.py
+@@ -671,6 +671,23 @@
+             pass
+         out.append(('H4', 'read %s: %s is absent and %s does not have the queued md5 %s' % (name, live, src, want[:8])))
+     return out, stage
++
++
++def tier2_of(P, reg_path):
++    """True / False, or None when the registration declares a `tier` that tierrule.py (next to the draw, in
++    ~/mcai-analysis) cannot classify. No `tier` key = False without loading anything (exactly as before)."""
++    with open(reg_path) as f:
++        reg = json.load(f)
++    if 'tier' not in reg:
++        return False
++    try:
++        import importlib.util as _u
++        spec = _u.spec_from_file_location('sched_tierrule', os.path.join(P['home'], 'mcai-analysis', 'tierrule.py'))
++        m = _u.module_from_spec(spec)
++        spec.loader.exec_module(m)
++        return m.tier_of(reg) == 2
++    except Exception:
++        return None
+ 
+ 
+ def r10_check(P, e, v):
+@@ -688,6 +705,15 @@
+             return ''
+         if declared and 'eligible on exposure:' in txt and 'REFUSED: the exposure read found' not in txt:
+             if r.returncode == 0:
++                # TIER 2 DRAWS EXACTLY FOUR (OWNER POLICY 2026-10-24): fewer than four pools that can expose it means the
++                # loop's draw could only wait, holding the loop lock for up to its 12-h bound -- so wait HERE instead,
++                # paged like any R10 wait (W4). Tier from tierrule.tier_of, the one definition; unreadable = block.
++                elig = next((l for l in txt.splitlines() if l.startswith('eligible on exposure:')), '')
++                tier2 = tier2_of(P, v['registration'])
++                if tier2 is None:
++                    return 'the registration declares a tier and tierrule.py cannot classify it: fix tierrule.py'
++                if tier2 and len(set(re.findall(r"'([a-z]+-[a-z])'", elig))) < 4:
++                    return 'WAIT fewer than four pools can expose this tier-2 change now (%s); re-checked every tick' % elig.strip()
+                 return ''
+             if r.returncode == 2:
+                 # fewer than two pools can expose it TODAY: wait here rather than park a loop in `draw` holding the

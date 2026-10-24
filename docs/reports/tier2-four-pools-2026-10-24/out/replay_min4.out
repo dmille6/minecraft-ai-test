@@ -1,0 +1,44 @@
+scan 18881136 rows to 10-24T03:30Z
+
+run             drew   actual pools                       actual draw  4-pool draw  wait
+cobblekeep-01   4      board-a,hive-c,placebo-a,placebo-d 10-20T05:06Z -            0 (already 4)  recorded KEEP +360
+  [bagbudget-01] at its draw: draw_exposure allows 8 pool(s) ['board-a', 'board-c', 'board-d', 'hive-a', 'hive-b', 'hive-c', 'placebo-a', 'placebo-b']; draw_require -
+bagbudget-01    2      board-d,hive-a                     10-20T11:35Z 10-20T12:14Z 0.7 h  recorded INCONCLUSIVE +None
+     4-pool counterfactual board-d,hive-a,hive-b,placebo-b declared ~10-20T12:19Z
+     R1 baseline +180 (lookback 240) [approx]: NOT CLEAN board-d-Alpha ran 31416ee5e1a89e8e1c74 in the bucket at 10-20T11:39Z while the controls ran 9e7d9980 -- CASCADE-BLIND: the run's own canary on ['board-d', 'hive-a'] is inside this lookback; REASONED
+     R1 baseline +360 (lookback 360) [approx]: NOT CLEAN board-d-Alpha ran 31416ee5e1a89e8e1c74 in the bucket at 10-20T11:39Z while the controls ran 9e7d9980 -- CASCADE-BLIND: the run's own canary on ['board-d', 'hive-a'] is inside this lookback; REASONED
+  [toolkit-03] at its draw: draw_exposure allows 5 pool(s) ['board-a', 'board-c', 'hive-a', 'hive-b', 'placebo-a']; draw_require -
+toolkit-03      3      board-a,hive-b,placebo-a           10-21T01:11Z 10-21T08:25Z 7.3 h  recorded KEEP +720
+     4-pool counterfactual board-a,hive-a,hive-b,placebo-a declared ~10-21T08:30Z
+     R1 baseline +180 (lookback 240) [approx]: NOT CLEAN board-a-Alpha ran 34d3e5e9629a45bcdb54 in the bucket at 10-21T04:30Z while the controls ran 9e7d9980 -- CASCADE-BLIND: the run's own canary on ['board-a', 'hive-b', 'placebo-a'] is inside this lookback; REASONED
+     R1 baseline +720 (lookback 720) [approx]: NOT CLEAN board-a-Alpha ran 34d3e5e9629a45bcdb54 in the bucket at 10-21T01:10Z while the controls ran 9e7d9980 -- CASCADE-BLIND: the run's own canary on ['board-a', 'hive-b', 'placebo-a'] is inside this lookback; REASONED
+     R2 death gate to +720: canary 9 / 240 bh vs control 8 / 480 bh; trips none -- CASCADE-BLIND (own canary period overlaps on ['board-a', 'hive-b', 'placebo-a']): REASONED
+     R3 REASONED +180 KEEP with 4 pools: no (a guard, line or the death gate is on WATCH/HOLD: WATCH: death gate held (v21))
+  [ironpick-01] at its draw: draw_exposure allows 11 pool(s) ['board-a', 'board-b', 'board-c', 'board-d', 'hive-a', 'hive-b', 'hive-c', 'hive-d', 'placebo-a', 'placebo-b', 'placebo-d']; draw_require -
+ironpick-01     3      hive-c,hive-d,placebo-b            10-22T00:36Z 10-22T01:36Z 1.1 h  recorded KEEP +360
+     4-pool counterfactual board-a,hive-c,hive-d,placebo-b declared ~10-22T01:41Z (one of 6 valid draws)
+     R1 baseline +180 (lookback 240) [approx]: NOT CLEAN hive-c-Alpha ran 2719ee0e946d1998a4f3 in the bucket at 10-22T00:31Z while the controls ran d014ec2cb -- CASCADE-BLIND: the run's own canary on ['hive-c', 'hive-d', 'placebo-b'] is inside this lookback; REASONED
+     R1 baseline +360 (lookback 360) [approx]: NOT CLEAN hive-c-Alpha ran 2719ee0e946d1998a4f3 in the bucket at 10-22T00:31Z while the controls ran d014ec2cb -- CASCADE-BLIND: the run's own canary on ['hive-c', 'hive-d', 'placebo-b'] is inside this lookback; REASONED
+     R2 death gate to +360: canary 1 / 120 bh vs control 4 / 240 bh; trips none -- CASCADE-BLIND (own canary period overlaps on ['hive-c', 'hive-d', 'placebo-b']): REASONED
+     R3 REASONED +180 KEEP with 4 pools: YES (tier 2 (owner 10-19): 4 pools, 60.0 canary bot-h, exposure 1.0 met, no WATCH/block/undefined line, licence kind, canary death rate 0/60.0 bh)
+     -> the same KEEP 3.0 h sooner after its draw
+protectzone-01  4      board-a,board-b,board-c,hive-a     10-22T13:36Z -            0 (already 4)  recorded KEEP +180
+  [townindex-01] at its draw: draw_exposure allows 7 pool(s) ['board-a', 'board-c', 'hive-a', 'hive-c', 'hive-d', 'placebo-a', 'placebo-d']; draw_require -
+townindex-01    3      hive-c,hive-d,placebo-d            10-22T18:56Z 10-22T19:34Z 0.7 h  recorded KEEP +360
+     4-pool counterfactual board-d,hive-c,hive-d,placebo-d declared ~10-22T19:39Z
+     R1 baseline +180 (lookback 240) [approx]: NOT CLEAN hive-c-Alpha ran c0fec81273e256e672e4 in the bucket at 10-22T18:59Z while the controls ran 1f5b4b4e2 -- CASCADE-BLIND: the run's own canary on ['hive-c', 'hive-d', 'placebo-d'] is inside this lookback; REASONED
+     R1 baseline +360 (lookback 360) [approx]: NOT CLEAN hive-c-Alpha ran c0fec81273e256e672e4 in the bucket at 10-22T18:59Z while the controls ran 1f5b4b4e2 -- CASCADE-BLIND: the run's own canary on ['hive-c', 'hive-d', 'placebo-d'] is inside this lookback; REASONED
+     R2 death gate to +360: canary 4 / 120 bh vs control 1 / 240 bh; trips none -- CASCADE-BLIND (own canary period overlaps on ['hive-c', 'hive-d', 'placebo-d']): REASONED
+     R3 REASONED +180 KEEP with 4 pools: no (exposure not ready (0.0))
+  [poolescape-01] at its draw: draw_exposure allows 11 pool(s) ['board-a', 'board-b', 'board-c', 'board-d', 'hive-a', 'hive-b', 'hive-c', 'hive-d', 'placebo-a', 'placebo-b', 'placebo-d']; draw_require ['board-d']
+poolescape-01   3      board-d,hive-b,placebo-a           10-23T01:48Z -            >= 6.3 h (no 4th pool before its actual close; unknowable after)  recorded KEEP +360
+  [indexsearch-01] at its draw: draw_exposure allows 2 pool(s) ['board-a', 'placebo-a'] -> R10 for tier 2 (>= 4 exposure pools) would have WAITED in the scheduler; draw_require -
+indexsearch-01  2      board-a,placebo-a                  10-23T12:14Z -            >= 3.3 h (no 4th pool before its actual close; unknowable after)  recorded INCONCLUSIVE +None
+chatgate-01     4      hive-a,hive-c,hive-d,placebo-b     10-23T19:39Z -            0 (already 4)  recorded KEEP +360
+  [ironsmelt-01] at its draw: draw_exposure allows 11 pool(s) ['board-a', 'board-b', 'board-c', 'board-d', 'hive-a', 'hive-b', 'hive-c', 'hive-d', 'placebo-a', 'placebo-b', 'placebo-d']; draw_require -
+ironsmelt-01    3      board-d,hive-b,placebo-d           10-24T02:21Z 10-24T02:59Z 0.7 h  recorded None +None
+     4-pool counterfactual board-b,board-d,hive-b,placebo-d declared ~10-24T03:04Z
+     R1 baseline +180 (lookback 240) [approx]: NOT CLEAN board-d-Alpha ran fb8de72f7369257d26c3 in the bucket at 10-24T02:24Z while the controls ran 3cc5f14d -- CASCADE-BLIND: the run's own canary on ['board-d', 'hive-b', 'placebo-d'] is inside this lookback; REASONED
+     R1 baseline +360 (lookback 360) [approx]: NOT CLEAN board-d-Alpha ran fb8de72f7369257d26c3 in the bucket at 10-24T02:24Z while the controls ran 3cc5f14d -- CASCADE-BLIND: the run's own canary on ['board-d', 'hive-b', 'placebo-d'] is inside this lookback; REASONED
+
+first-order lane effect: waits >= +20.2 h (poolescape-01, indexsearch-01 only lower bounds, each capped at the 12-h bound), earlier KEEPs -3.0 h (reasoned), net >= +17.2 h; later draws not re-simulated
