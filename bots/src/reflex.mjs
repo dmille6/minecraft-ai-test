@@ -55,8 +55,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
-         PLUG_BUDGET_MS, PLUG_SETTLE_MS } from './plugcut.mjs'
-import { INTERACTIVE } from './poolescape.mjs'
+         PLUG_BUDGET_MS, PLUG_SETTLE_MS, isUtilityBlock } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -4802,7 +4801,7 @@ export async function escapeStairUp (bot, {
       const f = p.floored()
       const spared = sparePlugs({ bearings: all, placed: plugCells.map(c => [c.x - f.x, c.y - f.y, c.z - f.z]),
                                   firstDig: b => stairUpStep({ at, bear: b, canBreak, submerged }).dig,
-                                  avoid: c => INTERACTIVE.test(at(...c)?.name ?? '') })
+                                  avoid: c => isUtilityBlock(at(...c)?.name) })
       const c = spared.length ? chooseStairUpBearing({ at, bearings: spared, depth, canBreak, submerged }) : null
       return c && c.runway > 0 ? c : any()
     }
@@ -5554,7 +5553,10 @@ export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo =
   const here = p0 ? [Math.floor(p0.x), Math.floor(p0.y), Math.floor(p0.z)] : null
   const prevStreak = plugStreaks.get(bot) ?? null
   const due = plugDue(plugSoFar(prevStreak, here, Date.now()))
-  const stair = await ramp(bot, due ? { yieldTo, plug: true, budgetMs: PLUG_BUDGET_MS } : { yieldTo, plug: false })
+  // THE LICENCE RIDES ON THE RAMP ITSELF, so this function's own call below is the base's line unchanged (and ceilescape-01's
+  // wiring test still reads it): a licensed firing's ramp gets plug + the 90 s budget, an unlicensed one exactly today's call
+  if (due) { const plain = ramp; ramp = (b, o) => plain(b, { ...o, plug: true, budgetMs: PLUG_BUDGET_MS }) }
+  const stair = await ramp(bot, { yieldTo })
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const step = floodChainStep({ refusals: refusals + 1, stair })
   if (!stair.yielded && here) plugStreaks.set(bot, plugStreak(prevStreak, { at: here, now: Date.now(), refused: !step.progressed }))
@@ -5941,13 +5943,9 @@ const plugBlocks = bot => poolBlockCount((bot.inventory?.items?.() ?? []).filter
 /** PLUGCUT-01: the ceiling's wet faces (plugcut.mjs ceilingPlugPlan), then the cut is the breach loop's to decide. */
 function plugCeiling (bot, p, { yieldTo = () => null, deadline = Infinity } = {}) {
   const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
-  return plugFaces(bot, p, {
-    what: 'ceiling',
-    plan: () => ceilingPlugPlan({ at, blocks: plugBlocks(bot), submerged: submergedAt(bot) }),
-    clear: () => !overheadBreakRisk({ at: (x, y, z) => at(x, 2 + y, z), submerged: submergedAt(bot) }),
-    yieldTo,
-    deadline,
-  })
+  const plan = () => ceilingPlugPlan({ at, blocks: plugBlocks(bot), submerged: submergedAt(bot) })
+  const clear = () => !overheadBreakRisk({ at: (x, y, z) => at(x, 2 + y, z), submerged: submergedAt(bot) })
+  return plugFaces(bot, p, { what: 'ceiling', plan, clear, yieldTo, deadline })
 }
 
 /**
