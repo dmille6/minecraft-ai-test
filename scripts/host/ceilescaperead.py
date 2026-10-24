@@ -46,7 +46,6 @@ sys.path.insert(0, '/home/mike/mcai-analysis')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 BUCKET_S, COVERAGE, HOLD_OUT_S, LINK_S = 600, 0.75, 1800, 120
 NEAR_MS = 1000
-FIRING_S = 70          # a ramp firing is 60 s of budget plus at most a 5 s settle and the ramp_cut write
 COMET = 'board-a-Comet'
 COMET_BOX = ((359.0, 360.0), (186.0, 188.0), (38.5, 41.0))   # design section 9: the COLUMN (x, z, y ranges); its east cell is out (Codex code r1 P2)
 RAMP_CUTS = ('_entombed_ramp_cut', '_marooned_ramp_cut')
@@ -75,35 +74,39 @@ def in_box(p, box):
 
 def left_box(rows, bot, box, cut, newest):
     """'left' (out after the deploy and no position back inside for HOLD_OUT_S of its own positions), 'out_pending' (out, not
-    yet 30 min observed), 'still_in', or 'unobserved'. Pure."""
-    ps = sorted((r['t'], r['pos']) for r in rows if r['bot'] == bot and r.get('pos') is not None and r['t'] >= cut)
+    yet 30 min observed), 'still_in', 'died' (a `_death` after the deploy, before it had left: a respawn is not an escape --
+    Claude code r2 P1), or 'unobserved'. Only positions BEFORE the bot's first post-deploy death count. Pure."""
+    death = min((r['t'] for r in rows if r['bot'] == bot and r['name'] == '_death' and r['t'] >= cut), default=None)
+    ps = sorted((r['t'], r['pos']) for r in rows if r['bot'] == bot and r.get('pos') is not None and r['t'] >= cut
+                and (death is None or r['t'] < death))
     if not ps:
-        return 'unobserved'
+        return 'died' if death is not None else 'unobserved'
     for i, (t, p) in enumerate(ps):
         if in_box(p, box):
             continue
         later = ps[i:]
         if any(in_box(q, box) for s, q in later if s - t <= HOLD_OUT_S):
             continue
-        return 'left' if later[-1][0] - t >= HOLD_OUT_S else 'out_pending'
-    return 'still_in'
+        return 'left' if later[-1][0] - t >= HOLD_OUT_S else ('died' if death is not None else 'out_pending')
+    return 'died' if death is not None else 'still_in'
 
 
 def firings(rows):
-    """Per bot: [(ceilescape rows of the firing, the ramp_cut row)] in time order. Pure."""
-    by = defaultdict(list)
+    """Per bot: [(ceilescape rows of the firing, the ramp_cut row)]. PAIRED BY THE FIRING ID (Codex code r2 P2, Claude code r2
+    P3-1): every `_ceilescape` row and the arms' ramp_cut rows carry `fire=<id>` from the one escapeStairUp call, so a stranded
+    lattice's stair_up (which writes `_ceilescape` rows and no ramp_cut) never joins another firing. A ramp_cut row without an
+    id pairs with nothing. Pure."""
+    ce = defaultdict(list)
     for r in sorted(rows, key=lambda r: r['t']):
-        if r['name'] in RAMP_CUTS or r['name'] == '_ceilescape':
-            by[r['bot']].append(r)
+        if r['name'] == '_ceilescape':
+            f = kv(r['detail']).get('fire')
+            if f:
+                ce[(r['bot'], f)].append(r)
     out = []
-    for bot, rs in by.items():
-        cur = []
-        for r in rs:
-            if r['name'] == '_ceilescape':
-                cur.append(r)
-            else:
-                out.append((bot, cur, r))
-                cur = []
+    for r in sorted(rows, key=lambda r: r['t']):
+        if r['name'] in RAMP_CUTS:
+            f = kv(r['detail']).get('fire')
+            out.append((r['bot'], ce.get((r['bot'], f), []) if f else [], r))
     return out
 
 
@@ -124,7 +127,7 @@ def judge(rows, *, cut, cans, fleet=False):
             if ts <= t:
                 on = v
         return on
-    res['licence_on'] = sum(1 for b, v in lic_t.items() if any(x for _, x in v))
+    res['licence_on'] = sum(1 for b, v in lic_t.items() if v and v[-1][1])   # the LATEST licence per bot (Codex code r2 P2)
     ce = [r for r in can if r['name'] == '_ceilescape']
     res['actions'] = dict(Counter(kv(r['detail']).get('action', '?') for r in ce))
     res['actions_by_bot'] = {b: dict(Counter(kv(r['detail']).get('action', '?') for r in ce if r['bot'] == b)) for b in sorted({r['bot'] for r in ce})}
@@ -142,9 +145,6 @@ def judge(rows, *, cut, cans, fleet=False):
     # G3: a declined swing that was swung anyway (per firing), and the reported near/far misses
     g3, near, far = [], 0, 0
     for bot, crs, cut_row in firings([r for r in post if arm(r['bot']) == 'canary']):
-        # ONLY THIS FIRING'S OWN ROWS (Claude code r1 P2-2): the stranded lattice's stair_up also runs the ramp and writes
-        # `_ceilescape` rows but no ramp_cut row, so rows older than one firing (60 s budget + settle) are not this firing's
-        crs = [r for r in crs if r['t'] >= cut_row['t'] - FIRING_S]
         if not crs or 'dig exceeded' not in (cut_row.get('detail') or ''):
             continue
         k = kv(crs[-1]['detail'])
@@ -237,21 +237,42 @@ def selftest():
     assert judge(out + [row(COMET, cut + 200, '_ceilescape', detail=bad2)], cut=cut, cans={'board-a'})['unchanged_broken'] == 1
     off = bad2.replace('action=lateral', 'action=off')
     assert judge(out + [row(COMET, cut + 200, '_ceilescape', detail=off)], cut=cut, cans={'board-a'})['unchanged_broken'] == 0
-    # G3: a wait firing that ended dig exceeded trips; a ceiling near-miss is reported, not gated
+    # G3: a wait firing that ended dig exceeded trips; a ceiling near-miss is reported, not gated. Rows pair by the firing id.
     W = LAT.replace('action=lateral', 'action=wait')
-    g3 = out + [row(COMET, cut + 4000, '_ceilescape', detail=W), row(COMET, cut + 4060, '_entombed_ramp_cut', detail='steps=0 -- stopped because ceiling dig failed on stone: dig exceeded 59000ms')]
+    F = lambda d, f: d.replace(' action=', f' fire={f} action=')
+    CUT_ = lambda f, why: f'steps=0 breached=0 climbed=0.0 fire={f} -- stopped because {why}'
+    g3 = out + [row(COMET, cut + 4000, '_ceilescape', detail=F(W, 'f1')), row(COMET, cut + 4060, '_entombed_ramp_cut', detail=CUT_('f1', 'ceiling dig failed on stone: dig exceeded 59000ms'))]
     assert judge(g3, cut=cut, cans={'board-a'})['declined_swung'] == 1
     N = LAT.replace('action=lateral', 'action=ceiling').replace('env_ms=375000', 'env_ms=58500')
-    nm = out + [row(COMET, cut + 4000, '_ceilescape', detail=N), row(COMET, cut + 4060, '_entombed_ramp_cut', detail='stopped because ceiling dig failed on stone: dig exceeded 59000ms')]
+    nm = out + [row(COMET, cut + 4000, '_ceilescape', detail=F(N, 'f1')), row(COMET, cut + 4060, '_entombed_ramp_cut', detail=CUT_('f1', 'ceiling dig failed on stone: dig exceeded 59000ms'))]
     r = judge(nm, cut=cut, cans={'board-a'})
     assert r['declined_swung'] == 0 and r['dig_exceeded_near'] == 1 and r['dig_exceeded_far'] == 0, r
-    # a firing correlates by the ramp_cut boundary: a wait row in an EARLIER firing does not pair with a later dig exceeded
-    sep = out + [row(COMET, cut + 4000, '_ceilescape', detail=W), row(COMET, cut + 4010, '_entombed_ramp_cut', detail='stopped because no affordable ramp exit'),
-                 row(COMET, cut + 4020, '_ceilescape', detail=N), row(COMET, cut + 4080, '_entombed_ramp_cut', detail='stopped because ceiling dig failed: dig exceeded 59000ms')]
+    # two firings: a wait row in an EARLIER firing does not pair with a later dig exceeded
+    sep = out + [row(COMET, cut + 4000, '_ceilescape', detail=F(W, 'f1')), row(COMET, cut + 4010, '_entombed_ramp_cut', detail=CUT_('f1', 'no affordable ramp exit')),
+                 row(COMET, cut + 4020, '_ceilescape', detail=F(N, 'f2')), row(COMET, cut + 4080, '_entombed_ramp_cut', detail=CUT_('f2', 'ceiling dig failed: dig exceeded 59000ms'))]
     assert judge(sep, cut=cut, cans={'board-a'})['declined_swung'] == 0
-    # G3 grouping: a lattice wait row 10 min before an entombed firing with no row of its own does not pair with it
-    lat2 = out + [row(COMET, cut + 4000, '_ceilescape', detail=W), row(COMET, cut + 4600, '_entombed_ramp_cut', detail='stopped because dig failed on stone: dig exceeded 59000ms')]
+    # a stranded-lattice stair_up's wait row 65 s before an entombed firing with no row of its own (Codex code r2's reproduction,
+    # and the concurrent case Claude code r2 P3-1 named) does not pair with it
+    lat2 = out + [row(COMET, cut + 4100, '_ceilescape', detail=F(W, 'L1')), row(COMET, cut + 4165, '_entombed_ramp_cut', detail=CUT_('f9', 'dig failed on stone: dig exceeded 59000ms'))]
     assert judge(lat2, cut=cut, cans={'board-a'})['declined_swung'] == 0
+    conc = out + [row(COMET, cut + 4150, '_ceilescape', detail=F(N, 'f9')), row(COMET, cut + 4160, '_ceilescape', detail=F(W, 'L1')),
+                  row(COMET, cut + 4165, '_entombed_ramp_cut', detail=CUT_('f9', 'ceiling dig failed: dig exceeded 59000ms'))]
+    rc = judge(conc, cut=cut, cans={'board-a'})
+    assert rc['declined_swung'] == 0 and rc['dig_exceeded_near'] == 1, rc
+    # a ramp_cut row with no id (an old build) pairs with nothing
+    assert judge(out + [row(COMET, cut + 4000, '_ceilescape', detail=F(W, 'f1')), row(COMET, cut + 4060, '_entombed_ramp_cut', detail='stopped because dig exceeded 59000ms')],
+                 cut=cut, cans={'board-a'})['declined_swung'] == 0
+    # PRIMARY: a death is not an escape (Claude code r2 P1) -- dies in the column, respawns at home for 60 min -> died, not left
+    died = stay(COMET, cut - 3600, cut + 600) + [lic, row(COMET, cut + 60, '_ceilescape', detail=LAT), row(COMET, cut + 600, '_death', fc='drowning', pos=None)] + \
+        stay(COMET, cut + 610, cut + 4200, (355.5, 73.0, 147.5))
+    rd = judge(died, cut=cut, cans={'board-a'})
+    assert rd['comet'] == 'died' and rd['primary_left'] == 0, rd
+    # ...but a bot that left alive and died much later still LEFT
+    late = out + [row(COMET, cut + 7000, '_death', fc='fire', pos=None)]
+    assert judge(late, cut=cut, cans={'board-a'})['comet'] == 'left'
+    # LIVENESS reads the LATEST licence (Codex code r2 P2): on=1 then on=0 is not live
+    assert judge(out + [row(COMET, cut + 3000, '_ceilescape_mode', detail='on=0')], cut=cut, cans={'board-a'})['licence_on'] == 0
+
     # ARMS: a control row after the deploy
     assert judge(out + [row('hive-a-Alpha', cut + 50, '_ceilescape_mode', detail='on=1')], cut=cut, cans={'board-a'})['rows_control'] == 1
     # --fleet: every pool is the arm; control rows are not a defect there
