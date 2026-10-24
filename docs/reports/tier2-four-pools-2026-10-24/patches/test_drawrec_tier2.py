@@ -2,8 +2,8 @@
 """test_drawrec_tier2.py <PATCHED drawrec.sh> <drawrequire.py> <tierrule.py> [--mutants] -- the REAL drawrec.sh Python
 block (patched by drawrec.sh.patch) on a fixture, as scripts/test_drawrequire.py runs it: /tmp/drawrec.txt rewritten to
 a fixture file, HOME a fixture tree (registration, drawrequire.py, tierrule.py, stub drawexposure/drawsteady). Nothing
-live is read or written. The pick is parsed by the LOOP'S OWN pipeline, cut from canary-loop.sh when given (else the
-same grep). The band holds `n_in` pools in band; the rest are far outside it."""
+live is read or written. The pick is parsed from drawrec's `DRAW (...): [...]` line by this test's own regex (the loop's
+pipeline is exercised in test_loop_tier2.py). Every pool is in band; only `n_in` pass the exposure filter."""
 import json, os, re, shutil, subprocess, sys, tempfile
 
 DRAWREC, DRQ, TRM = sys.argv[1:4]
@@ -71,6 +71,11 @@ def cases(src):
     t('tier True (not the integer 2) -> today\'s rule (3 drawn)', len(p) == 3, o)
     p, o = run(src, {'tier': 2, 'draw_k': 2}, 6)
     t('TIER 2 with draw_k 2 -> nothing drawn (a contradiction, refused)', p == [] and 'contradiction' in o, o)
+    for k in (4, 5, 0, False):
+        p, o = run(src, {'tier': 2, 'draw_k': k}, 6)
+        t('TIER 2 with draw_k %r (allows 4, or ignored by drawrec) -> exactly 4 drawn' % (k,), len(p) == 4, o)
+    p, o = run(src, {'tier': 2, 'draw_k': True}, 6)
+    t('TIER 2 with draw_k True (an int to drawrec: caps at 1) -> nothing (the loop refuses it too)', p == [], o)
     p, o = run(src, {'tier': 2}, 6, tierrule=False)
     t('a tier declared but tierrule.py unreadable -> nothing drawn (fail closed)', p == [] and 'unreadable' in o, o)
     p, o = run(src, {}, 6, tierrule=False)

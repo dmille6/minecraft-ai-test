@@ -1,0 +1,14 @@
+PASS  positive control: the ROUND-1 method on the regression stub loses the 4th pool (3)
+PASS  regression (Codex r1 P1-1): required own pool + own live deploy -> 4 eligible incl. board-a
+PASS  the simulator's live set is restored afterwards
+PASS  a ledger-excluded other pool is still excluded (3 -> waits)
+PASS  ANOTHER run's live deployment still excludes its pools
+PASS  own pools' treated telemetry is kept out of the band median (A2): board-a stays in band
+PASS  steady release is decided in the WAITING world (the run's own deploy not live): board-c released -> 5
+PASS  positive control: not released -> board-c stays excluded (4)
+PASS  a required pool that is NOT one of its own and not drawable -> nothing
+test_replay_min4: 9/9 pass
+  mutant 'sim.live = [x for x in saved_live if x[3] != run]'                    killed
+  mutant 'sim.band = lambda tt: {p: v for p, v in saved_band(tt).items() if p no' killed
+  mutant 'if any(p not in own and (p in excl or p not in band) for p in req):'  killed
+mutants: 3 of 3 killed

@@ -1,0 +1,37 @@
+PASS  no field: an ordinary four-pool draw without hive-d (out of band, low exposure)
+PASS  required hive-d (out of band, below the exposure filter) is IN the draw, plus 3 from the eligible set
+PASS  required hive-d (out of band, below the exposure filter) is IN the draw, plus 3 from the eligible set
+PASS  required hive-d (out of band, below the exposure filter) is IN the draw, plus 3 from the eligible set
+PASS  required hive-d inside its 12-h exclusion -> NO draw (waits; never substitutes)
+PASS  hive-d released at 6 h by drawsteady -> drawn
+PASS  hive-d at 7 h, not released (12 h) -> NO draw
+PASS  hive-d is the live canary -> NO draw
+PASS  hive-d manually excluded (draw-exclude.txt) -> NO draw
+PASS  hive-d has no band row (no data) -> NO draw
+PASS  a malformed field (a string) -> NO draw (fail closed), says REFUSED
+PASS  duplicate names -> NO draw
+PASS  placebo-c required -> NO draw (never drawable)
+PASS  five required pools (> the 4-pool target) -> NO draw
+PASS  the registration is missing -> NO draw (fail closed)
+PASS  the registration is corrupt JSON -> NO draw (fail closed)
+PASS  hive-d free but every other pool excluded -> 1 pool < 2: NO draw
+PASS  two required pools, nothing else eligible -> exactly those two (MIN_K 2)
+PASS  a drawsteady REFUSAL is PAGED (level error, names the refusal)
+PASS  a second refusal within 6 h is NOT paged again (one page)
+PASS  a normal "no candidate" answer never pages
+PASS  an answer with NO RELEASE line pages (a crash is a refusal)
+PASS  mutant runner control: the unmutated copies pass (22)
+PASS  mutant killed: drawrequire.py: exclusion ignored for required pools
+PASS  mutant killed: drawrequire.py: no band row accepted
+PASS  mutant killed: drawrequire.py: placebo-c/isolated accepted
+PASS  mutant killed: drawrequire.py: malformed accepted
+PASS  mutant killed: drawrequire.py: over-target accepted
+PASS  mutant killed: drawrequire.py: MIN_K ignored
+PASS  mutant killed: drawrequire.py: required dropped from the draw
+PASS  mutant killed: drawrec.sh: a refusal is never paged
+PASS  mutant killed: drawrec.sh: no 6-h dedupe
+PASS  mutant killed: drawrec.sh: a missing RELEASE line not treated as a refusal
+PASS  mutant killed: drawrec.sh: requirement never applied
+PASS  mutant killed: drawrec.sh: unreadable registration draws anyway
+
+35/35 pass

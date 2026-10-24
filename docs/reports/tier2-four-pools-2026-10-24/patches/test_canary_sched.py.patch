@@ -10,33 +10,46 @@
  NOW = dt.datetime(2026, 10, 8, 12, 0, 0, tzinfo=dt.timezone.utc)
  POOLS = ['board-a', 'hive-a']
  BOTS = ['%s-%s' % (p, n) for p in POOLS for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')]
-@@ -87,6 +90,7 @@
+@@ -87,6 +90,8 @@
              'import os, sys\nm = os.environ.get("FIX_DE", "undeclared")\n'
              'if m == "undeclared": print(sys.argv[1] + " declares no draw_exposure block"); sys.exit(0)\n'
              'if m == "ok": print("eligible on exposure: [\'board-a\', \'hive-a\']"); sys.exit(0)\n'
 +            'if m == "four": print("eligible on exposure: [\'board-a\', \'board-b\', \'hive-a\', \'hive-b\']"); sys.exit(0)\n'
++            'if m == "three": print("eligible on exposure: [\'board-a\', \'board-b\', \'hive-a\']"); sys.exit(0)\n'
              'if m == "few": print("eligible on exposure: [\'board-a\']"); sys.exit(2)\n'
              'if m == "little": print("REFUSED: the exposure read found too little to prove anything"); sys.exit(2)\n'
              'raise SystemExit("Traceback: crash")\n')
-@@ -588,8 +592,35 @@
- 
- def t_r10_undeclared_must_say_so(CS, F):
+@@ -590,6 +595,97 @@
      F.enqueue(CS); expect(CS, F, 'block', 'R10', FIX_DE='ok')
-+
-+
-+def _t2_reg(F, tier=2, tierrule=True):
+ 
+ 
++def _t2_reg(F, tier=2, tierrule=True, **more):
 +    """A registration declaring draw_exposure and a tier; tierrule.py (the repo's) placed where the host has it."""
-+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}, 'tier': tier})
++    F.write_reg(dict({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []},
++                      'tier': tier}, **more))
 +    if tierrule:
 +        shutil.copy(TIERRULE, os.path.join(F.home, 'mcai-analysis', 'tierrule.py'))
- 
- 
++
++
 +def t_r10_tier2_needs_four_exposure_pools(CS, F):
 +    """Owner policy 10-24: a tier-2 head with 2-3 pools able to expose it WAITS here (paged like any R10 wait), never
 +    parks a loop in `draw` holding the lock; with 4 it launches."""
 +    _t2_reg(F); F.enqueue(CS)
 +    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='ok')        # 2 exposure pools
++    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='three')     # 3
 +    expect(CS, F, 'launch', FIX_DE='four')
++
++
++def t_r10_tier2_required_pool_counts(CS, F):
++    """drawrec exempts required pools from the exposure filter, so a required pool OFF the exposure list still counts:
++    three exposure pools + required hive-b = four -> launch; a required pool already on the list adds nothing."""
++    _t2_reg(F, draw_require_pools=['hive-b']); F.enqueue(CS)
++    expect(CS, F, 'launch', FIX_DE='three')
++
++
++def t_r10_tier2_required_on_list_adds_nothing(CS, F):
++    _t2_reg(F, draw_require_pools=['board-a']); F.enqueue(CS)
++    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='three')
 +
 +
 +def t_r10_tier3_unchanged(CS, F):
@@ -51,16 +64,75 @@
 +    expect(CS, F, 'block', 'R10', 'tierrule', FIX_DE='four')
 +
 +
++def t_r10_wait_pages_decision(CS, F):
++    """The W4 decision as behaviour: a flag past 3 h naming the floor (two; four for tier 2); a tier-2 ERROR with both
++    remedies from 12 h, never before; an untiered wait never gets the error, however long."""
++    p = CS.r10_wait_pages('r1', 2.9, True, 'x')
++    assert p == [], p
++    p = CS.r10_wait_pages('r1', 3.1, True, 'x')
++    assert [l for l, _k, _m in p] == ['flag'] and 'fewer than four pools' in p[0][2], p
++    p = CS.r10_wait_pages('r1', 11.9, True, 'x')
++    assert [l for l, _k, _m in p] == ['flag'], p
++    p = CS.r10_wait_pages('r1', 12.0, True, 'x')
++    assert [l for l, _k, _m in p] == ['flag', 'error'], p
++    assert 'replace-variant r1' in p[1][2] and 'queue hold r1' in p[1][2] and 'NOT deployed' in p[1][2], p
++    p = CS.r10_wait_pages('r1', 40.0, False, 'x')
++    assert [l for l, _k, _m in p] == ['flag'] and 'fewer than two pools' in p[0][2], p
++
++
++def _tick_at(CS, F, hours, **extra):
++    t = NOW + dt.timedelta(hours=hours)
++    for b in BOTS:
++        F.log(b, t - dt.timedelta(minutes=1), F.base[:7] + '+abc123')
++    with Env(F.env(SCHED_FAKE_NOW=Z(t), **extra)):
++        assert CS.tick(CS.paths()) == 0
++
++
++def t_w4_tier2_r10_wait_bounded_at_12h(CS, F):
++    """A tier-2 head that only two pools can expose: flagged at 3 h ('four'), an ERROR with the remedies at 12 h, and
++    it is still not launched (the wait goes on; a block would halt the serial queue no differently)."""
++    _t2_reg(F); F.enqueue(CS)
++    _tick_at(CS, F, 0, FIX_DE='ok')
++    _tick_at(CS, F, 3.1, FIX_DE='ok')
++    pg = open(os.path.join(F.home, 'digest', 'page.jsonl')).read()
++    assert 'fewer than four pools' in pg and 'r10wait-t2' not in pg and '12-h tier-2 bound' not in pg, pg
++    _tick_at(CS, F, 12.1, FIX_DE='ok')
++    pg = [json.loads(l) for l in open(os.path.join(F.home, 'digest', 'page.jsonl')) if l.strip()]
++    err = [x for x in pg if x['level'] == 'error' and '12-h tier-2 bound' in x['msg']]
++    assert len(err) == 1 and 'replace-variant' in err[0]['msg'], pg
++    expect(CS, F, 'wait', 'R10', 'four pools', FIX_DE='ok', SCHED_FAKE_NOW=Z(NOW + dt.timedelta(hours=12, minutes=10)))
++
++
++def t_w4_tier3_r10_wait_never_errors(CS, F):
++    """Positive control: an untiered head waiting on R10 (one exposure pool) pages the flag ('two') and never the
++    tier-2 error, even at 13 h."""
++    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}})
++    F.enqueue(CS)
++    _tick_at(CS, F, 0, FIX_DE='few')
++    _tick_at(CS, F, 13, FIX_DE='few')
++    pg = open(os.path.join(F.home, 'digest', 'page.jsonl')).read()
++    assert 'fewer than two pools' in pg and '12-h tier-2 bound' not in pg, pg
++
++
  def _launch(CS, F, mode):
      with Env(F.env(FIX_LOOP=mode)):
          assert CS.tick(CS.paths()) == 0
-@@ -1116,6 +1147,12 @@
+@@ -1115,7 +1211,20 @@
+      "                if not dropin(b) and ((last_rec and ent) or"),
      ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
       "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
-     ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
+-    ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
++    ("    if h > STALL_H:\n        out.append(('flag', '%s|r10wait'", "    if False:\n        out.append(('flag', '%s|r10wait'"),
++    # the tier-2 R10 bound (round 2, Codex P1-3)
++    ("    if tier2 and h >= T2_WAIT_MAX_H:", "    if tier2 and h > T2_WAIT_MAX_H * 2:"),
++    ("'four' if tier2 else 'two'", "'two'"),
++    ("            for level, key, msg in r10_wait_pages(run, h, t2, d[1][0][1]):",
++     "            for level, key, msg in r10_wait_pages(run, h, False, d[1][0][1]):"),
++    ("T2_WAIT_MAX_H = 12.0 ", "T2_WAIT_MAX_H = 24.0 "),
 +    # tier 2 needs four exposure pools (owner policy 10-24)
-+    ('                if tier2 and len(set(re.findall(r"\'([a-z]+-[a-z])\'", elig))) < 4:',
-+     '                if tier2 and len(set(re.findall(r"\'([a-z]+-[a-z])\'", elig))) < 2:'),
++    ("                    if len(can) < 4:", "                    if len(can) < 3:"),
++    ("                    can = set(re.findall(r\"'([a-z]+-[a-z])'\", elig)) | req",
++     "                    can = set(re.findall(r\"'([a-z]+-[a-z])'\", elig))"),
 +    ("                if tier2 is None:", "                if False:"),
 +    ("        return m.tier_of(reg) == 2", "        return bool(reg.get('tier'))"),
 +    ("    if 'tier' not in reg:\n        return False", "    if 'tier' not in reg:\n        return True"),

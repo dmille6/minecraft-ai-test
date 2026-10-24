@@ -1,18 +1,33 @@
 PASS  ready: tier 2, 4 pools at once -> drawn, no draw-short
+PASS  ready: the draw row says it waits for exactly four (tier 2)
 PASS  late: tier 2, pools after 1 h -> draw-short rows, then drawn
 PASS  bound: tier 2, never -> refused-tier2-draw, exit 2, nothing drawn
-PASS  bound: the refusal waited the full 12 h (>= 36 draws at 20 min) and not much more
-PASS  bound: the page names both remedies (re-register tier 3 via replace-variant; rearm)
-PASS  bound is the configured T2_DRAW_MAX_H (1 h in this fixture -> 3-4 draws)
-PASS  tier3 positive control: no tier -> drawn after 1 h, NO draw-short (as today)
-PASS  drawk: tier 2 with draw_k 2 -> refused before any draw
-PASS  notierrule: a tier key with tierrule.py absent -> refused before the draw
+PASS  bound: refused at the first unsuccessful draw at or past 12 h (36-38 draws at 20 min; a hung drawrec is not bounded here -- the scheduler pages it at 3 h)
+PASS  bound: the page names both remedies and when each applies
+PASS  bound is the configured T2_DRAW_MAX_H (1 h in this fixture -> 3-5 draws)
+PASS  tier3 positive control: no tier -> drawn after 1 h, NO draw-short, "two pools" as today
+PASS  tier3 positive control: no tier, drawrec gives 3 -> drawn on 3 (as today)
+PASS  count interlock: drawrec returns 3 for a tier-2 run -> refused-tier2-count, nothing drawn
+PASS  pre: tier 2 with draw_k 2 -> refused-tier2-pre before any draw
+PASS  pre: tier 2 with draw_k True -> refused-tier2-pre before any draw
+PASS  pre: tier 2 with draw_k 0 is not refused (drawrec ignores it or allows 4) -> drawn
+PASS  pre: tier 2 with draw_k False is not refused (drawrec ignores it or allows 4) -> drawn
+PASS  pre: tier 2 with draw_k 4 is not refused (drawrec ignores it or allows 4) -> drawn
+PASS  pre: tier 2 with draw_k 5 is not refused (drawrec ignores it or allows 4) -> drawn
+PASS  pre: tier 2 requiring 5 pools -> refused-tier2-pre before any draw
+PASS  pre: tier 2 requiring 1 pool -> not refused, drawn
+PASS  notierrule: a tier key with tierrule.py absent -> refused-tier2-tier, journalled, before the draw
 PASS  positive control: no tier key, tierrule.py absent -> drawn as today
-test_loop_tier2: 10/10 pass
-  mutant 'journal draw-short "tier 2 needs exactly 4 pools'                       killed
+test_loop_tier2: 20/20 pass
+positive control: the anchor assertion fires on an absent anchor
+  mutant 'journal draw-short "drawrec drew nothing;'                              killed
   mutant 'if [ $(( $(_now) - _DRAW_T0 )) -ge $(( T2_DRAW_MAX_H * 3600 )) ]; then' killed
-  mutant 'exit 2\n      fi\n    fi'                                               killed
-  mutant 'if [ -n "$TIER2" ] && python3 -c'                                       killed
+  mutant 'exit 2\n      fi\n    fi\n    # v33'                                    killed
+  mutant 'if isinstance(k, int) and 1 <= k < 4: w.append'                         killed
+  mutant 'if q and len(q) > 4: w.append'                                          killed
   mutant "import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')"        killed
   mutant 'T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}'                              killed
-mutants: 6 of 6 killed
+  mutant 'if [ -n "$TIER2" ] && [ "$(echo "$P" | tr \',\' \'\\n\' | grep -c .)" -ne 4 ]' killed
+  mutant 'journal refused-tier2-tier "'                                           killed
+  mutant 'if [ -n "$TIER2" ]; then _WFOR="exactly four pools (tier 2)"; else _WFOR' killed
+mutants: 10 of 10 killed

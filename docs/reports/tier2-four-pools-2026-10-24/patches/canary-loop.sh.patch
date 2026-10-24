@@ -1,45 +1,76 @@
 --- a/canary-loop.sh
 +++ b/canary-loop.sh
-@@ -25,6 +25,13 @@
+@@ -25,6 +25,8 @@
  # below behaves as before.
  BAGFIX=$(python3 -c "import json; print('1' if json.load(open('$REG')).get('class') == 'bag-fix' else '')")
  BAGFIX_POOLS=4
-+# TIER 2 (OWNER POLICY 2026-10-24): tierrule.tier_of, the one definition. A registration that declares a tier which cannot
-+# be classified (tierrule unreadable) is refused before the draw. T2_DRAW_MAX_H: the bounded draw wait (below).
-+TIER2=$(python3 -c "import json,sys,os; sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); r=json.load(open('$REG'))
-+if 'tier' not in r: print('')
-+else:
-+    import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')" 2>/dev/null) || { page error "registration $RUN declares a tier that cannot be classified (tierrule.py unreadable?)"; exit 2; }
++# TIER 2 draws exactly four pools or waits, at most T2_DRAW_MAX_H (owner policy 2026-10-24; the DRAW phase below).
 +T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}   # CANARY_T2_DRAW_MAX_H: replay/tests only; production sets none
  # brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
  # canary pool's canary.env by mcai-canary-tree (via fleet-deploy's CANARY_ENV, which survives the sudo and is checked
  # in a live bot's /proc/<pid>/environ: FLAG MISSING exits 4). Unset or empty = every line below behaves as before.
-@@ -146,8 +153,28 @@
+@@ -146,8 +148,49 @@
  # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
  if [ "$(mf canary_code_version)" != "$SHA" ]; then
    if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
-+  # a tier-2 registration that caps its draw below 4 (draw_k) can never draw: refused here, before the draw, with its fix
-+  if [ -n "$TIER2" ] && python3 -c "import json,sys; k=json.load(open('$REG')).get('draw_k'); sys.exit(0 if isinstance(k, int) and k < 4 else 1)"; then
-+    page error "tier-2 $RUN caps its draw below 4 pools (draw_k): it can never draw. Remedy: drop draw_k, or re-register it tier 3"
-+    journal refused-tier2-k "tier 2 with draw_k < 4: nothing drawn or deployed"
-+    exit 2
+-  journal draw "waiting for two pools"
++  # TIER 2 (OWNER POLICY 2026-10-24; tier2-four-pools-2026-10-24.md): a tier-2 run deploys on EXACTLY four pools or not
++  # at all. Classified here, in the draw phase only (a resume of a deployed canary never needs it), with
++  # tierrule.tier_of -- the one definition verdict.py and drawsteady use. No `tier` key = TIER2 empty, nothing loaded.
++  TIER2=$(python3 -c "import json,sys,os; sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); r=json.load(open('$REG'))
++if 'tier' not in r: print('')
++else:
++    import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')" 2>/dev/null) || {
++    journal refused-tier2-tier "the registration declares a tier that tierrule.py cannot classify: nothing drawn or deployed"
++    page error "$RUN declares a tier that ~/mcai-analysis/tierrule.py cannot classify (unreadable?): NOT drawn. Remedy: restore tierrule.py (the gate bundle's), then \`rearm $RUN <why>\`"
++    exit 2; }
++  if [ -n "$TIER2" ]; then
++    # a tier-2 registration that can never draw four is refused BEFORE the draw, naming its fix: draw_k read exactly as
++    # drawrec reads it (an int with 1 <= k < 4 caps the draw), and more than four required pools
++    _T2PRE=$(python3 -c "import json,sys,os; sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); r=json.load(open('$REG')); k=r.get('draw_k'); w=[]
++if isinstance(k, int) and 1 <= k < 4: w.append('draw_k %r caps the draw below 4 pools' % (k,))
++try:
++    import drawrequire; q, _b = drawrequire.parse(r)
++except Exception: q = None
++if q and len(q) > 4: w.append('draw_require_pools names %d pools, more than 4' % len(q))
++print('; '.join(w))" 2>&1)
++    if [ -n "$_T2PRE" ]; then
++      journal refused-tier2-pre "tier 2 can never draw exactly 4: $(echo "$_T2PRE" | tail -1 | cut -c1-200); nothing drawn or deployed"
++      page error "tier-2 $RUN can never draw exactly 4 pools ($(echo "$_T2PRE" | tail -1 | cut -c1-200)): NOT drawn. Remedy: a variant without that field (\`canary-sched.py queue replace-variant $RUN <entry>\`), or one registered tier 3, then \`rearm $RUN <why>\`"
++      exit 2
++    fi
 +  fi
-   journal draw "waiting for two pools"
++  if [ -n "$TIER2" ]; then _WFOR="exactly four pools (tier 2)"; else _WFOR="two pools"; fi
++  journal draw "waiting for $_WFOR"
 +  _DRAW_T0=$(_now)
    while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -)
-+    # TIER 2: EXACTLY FOUR POOLS OR A BOUNDED WAIT (OWNER POLICY 2026-10-24; tier2-four-pools-2026-10-24.md). drawrec draws
-+    # a tier-2 run on 4 pools or not at all. Each short draw is journalled `draw-short` (so the scheduler's draw-stall
-+    # page at 3 h names it); after T2_DRAW_MAX_H the loop REFUSES -- nothing is deployed, the entry is blocked, and the
-+    # page names the two remedies a human can perform from there: re-register it tier 3 (`queue replace-variant`) or
-+    # `rearm` it to wait again. 12 h: every ledger exclusion has lapsed by then, so a longer wait is structural.
++    # TIER 2: a BOUNDED wait. Each attempt that draws nothing is journalled `draw-short` (so the scheduler's draw-stall
++    # page at 3 h names it). The bound is checked after each attempt that drew nothing: at the first such attempt at or
++    # past T2_DRAW_MAX_H the loop REFUSES -- nothing deployed, the entry blocked -- and pages the remedies. A draw of
++    # four that arrives at any time deploys (that is the policy). A drawrec that HANGS is not bounded here, as for every
++    # run today; the scheduler's draw-stall page fires on it at 3 h. 12 h: every ledger exclusion has lapsed by then.
 +    if [ -n "$TIER2" ] && [ -z "$P" ]; then
-+      journal draw-short "tier 2 needs exactly 4 pools (owner 10-24); drawrec: $(echo "$D" | tail -1 | cut -c1-160) -- waiting 20 min"
++      journal draw-short "drawrec drew nothing; tier 2 draws exactly 4 or waits (owner 10-24). drawrec: $(echo "$D" | tail -1 | cut -c1-160) -- waiting 20 min"
 +      if [ $(( $(_now) - _DRAW_T0 )) -ge $(( T2_DRAW_MAX_H * 3600 )) ]; then
-+        journal refused-tier2-draw "waited ${T2_DRAW_MAX_H} h for 4 pools without a draw; nothing deployed"
-+        page error "tier-2 $RUN waited ${T2_DRAW_MAX_H} h for exactly 4 pools and is NOT deployed (last: $(echo "$D" | tail -1 | cut -c1-140)). Remedy: re-register it tier 3 (a variant without \"tier\": 2, \`canary-sched.py queue replace-variant $RUN <entry>\`, then \`rearm $RUN <why>\`), or \`rearm $RUN <why>\` to wait again"
++        journal refused-tier2-draw "waited ${T2_DRAW_MAX_H} h for exactly 4 pools without a draw; nothing deployed"
++        page error "tier-2 $RUN waited ${T2_DRAW_MAX_H} h and is NOT deployed (drawrec's last word: $(echo "$D" | tail -1 | cut -c1-140)). If that names the 4-pool floor (fewer than 4 eligible, or required + eligible < 4): re-register it tier 3 (a variant without \"tier\": 2, \`canary-sched.py queue replace-variant $RUN <entry>\`, then \`rearm $RUN <why>\`), or \`rearm $RUN <why>\` to wait again. If it names another refusal (draw-exclude.txt, drawsteady, the registration): fix that, then rearm"
 +        exit 2
 +      fi
 +    fi
      # v33: WIDENING MID-RUN IS NOT DONE (a second deploy rewrites the one declared_at, restarts the pools already on
      # canary and rebuilds the canary tree under them). Its safe equivalent: a bag fix starts at 20 bots, or waits.
      # THREE-POOL BAG FIXES (OPERATOR + CODEX 10-10, owner's delegation). The decision is bagfixrule.draw_decision, asked
+@@ -177,6 +220,13 @@
+       esac
+     fi
+     [ -n "$P" ] && break; sleep 1200; done
++  # TIER 2 INTERLOCK: the loop itself checks the count, so a drawrec that does not enforce the rule (a partial install,
++  # a rollback of drawrec alone, a later edit) can never again deploy a tier-2 run short (ironsmelt-01, 10-24)
++  if [ -n "$TIER2" ] && [ "$(echo "$P" | tr ',' '\n' | grep -c .)" -ne 4 ]; then
++    journal refused-tier2-count "drawrec returned $P for a tier-2 run: not exactly 4 pools; nothing deployed"
++    page error "tier-2 $RUN: drawrec returned $P -- not exactly 4 pools, so the installed drawrec.sh does not enforce the tier-2 draw (partial install or rollback?). NOT deployed. Remedy: install drawrec.sh from the same bundle as this loop, then \`rearm $RUN <why>\`"
++    exit 2
++  fi
+   journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
+   if [ "$NOACT" = "--no-act" ]; then echo "would deploy $SHA to $P"; exit 0; fi
+   # v34-HYB (Codex launch condition 2): the matched-pool control is FROZEN after the draw and BEFORE the deploy, and

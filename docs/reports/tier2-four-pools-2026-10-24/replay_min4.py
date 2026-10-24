@@ -32,6 +32,55 @@ def grid(t):
     return t.replace(second=0, microsecond=0) - dt.timedelta(minutes=t.minute % 5)
 
 
+def eligible_waiting(sim, t, run, own):
+    """drawrec at t for `run` IN THE WAITING WORLD -> (eligible list, info). Round 2 (Codex P1-1): the round-1 replay
+    called sim.eligible() -- which counts the run's OWN real deployment as live, excluding its pools, and returns []
+    when a required pool is so excluded -- and only then added the run's pools back, so a required pool's 4th-pool
+    candidates were already discarded (poolescape-01's ">= 6.3 h" was that artefact). Here the run's own deployment is
+    removed from the live set BEFORE anything is decided (in this world it has not deployed), and its own pools are:
+      A1 eligible, as they were at its draw (their real rows hold its canary, so they cannot be re-read);
+      A2 kept out of the band median and of every steady-release reference (their telemetry is treated).
+    Every other pool is read exactly as sim.eligible reads it. The estimate is CONDITIONAL on A1 and A2."""
+    saved_live, saved_band, saved_q = sim.live, sim.band, sim.qualify
+    sim.live = [x for x in saved_live if x[3] != run]
+    sim.band = lambda tt: {p: v for p, v in saved_band(tt).items() if p not in own}
+    sim.qualify = lambda p, tt, fv, build='single': (None, 'own pool, treated telemetry (A2)') if p in own \
+        else saved_q(p, tt, fv, build=build)
+    try:
+        rows, _f = sim.ledger_rows(t)
+        excl = set()
+        for r in rows:
+            if (t - T(r['ts'])).total_seconds() < 12 * 3600 and T(r['ts']) <= t:
+                excl |= sim.DS.pools_in(r)
+        early, notes = sim.steady_release(t, run, 'today')
+        excl -= early
+        excl |= sim.live_pools(t)
+        band = sim.band(t)
+        _all = sorted(band.values())
+        med = _all[len(_all) // 2] if _all else 0
+        ex = sim.expo(t)
+        allowed = sim.allowed(run, t) if run else None
+
+        def elig(w):
+            return [p for p, ibh in sorted(band.items()) if p != 'placebo-c' and not p.startswith('isolated')
+                    and p not in excl and med and abs(ibh - med) / med <= w and p in ex
+                    and (allowed is None or p in allowed)]
+        e = elig(0.25)
+        if len(e) < 4:
+            e = elig(0.40)
+        e = sorted(set(e) | set(own))
+        info = {'excl': sorted(excl), 'allowed': allowed, 'median': med}
+        req = (sim.reg(run) or {}).get('draw_require_pools')
+        if req:
+            if any(p not in own and (p in excl or p not in band) for p in req):
+                info['require'] = 'required %s not drawable' % req
+                return [], info
+            e = sorted(set(req) | set(e))
+        return e, info
+    finally:
+        sim.live, sim.band, sim.qualify = saved_live, saved_band, saved_q
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('snap'); ap.add_argument('scan'); ap.add_argument('hostmods'); ap.add_argument('patches')
@@ -82,8 +131,7 @@ def main():
         t = grid(drawn_at - dt.timedelta(minutes=2))
         first, el = None, []
         while t < min(close, end):
-            e, info = sim.eligible(t, run)
-            e = sorted(set(e) | set(pools))         # its own pools: eligible at the draw, unchanged while it waits
+            e, info = eligible_waiting(sim, t, run, set(pools))
             if len(e) >= 4:
                 first, el = t, e; break
             t += STEP
@@ -96,7 +144,7 @@ def main():
             reg.get('draw_require_pools') or '-'))
         window_h = (min(close, end) - t0).total_seconds() / 3600
         wait_h = (first - t0).total_seconds() / 3600 if first else None
-        tag = ('%.1f h' % wait_h) if first else '>= %.1f h (no 4th pool before its actual close; unknowable after)' % window_h
+        tag = ('%.1f h' % wait_h) if first else 'not within %.1f h (no 4th pool before its actual close; unknowable after)' % window_h
         if first and wait_h > BOUND_H:
             tag += '  >>> PAST THE 12-h BOUND: the loop would have refused at +12 h'
         if not first and window_h >= BOUND_H:
@@ -160,13 +208,14 @@ def main():
             print('     R3 REASONED +180 KEEP with 4 pools: %s (%s)' % ('YES' if k else 'no', kw[:140]))
             if k and v == 'KEEP':
                 saved = (M - 180) / 60.0
-                print('     -> the same KEEP %.1f h sooner after its draw' % saved)
+                print('     -> HYPOTHETICAL: the same KEEP %.1f h sooner after its draw (R3 reasoned, not re-run)' % saved)
             elif k and v != 'KEEP':
                 print('     >>> a +180 KEEP where the run was recorded %s: REASONED (pools that never ran it)' % v)
         total_wait += wait_h
         total_saved += saved
-    print('\nfirst-order lane effect: waits >= +%.1f h (%s only lower bounds, each capped at the 12-h bound), earlier '
-          'KEEPs -%.1f h (reasoned), net >= %+.1f h; later draws not re-simulated'
+    print('\nfirst-order lane effect, a CONDITIONAL ESTIMATE (assumptions A1/A2 in eligible_waiting; not a bound): '
+          'waits +%.1f h (%s not found inside the window: counted as the window, capped at the 12-h bound), a '
+          'HYPOTHETICAL earlier KEEP -%.1f h (R3, reasoned), net %+.1f h; later draws not re-simulated'
           % (total_wait, ', '.join(lower_bound_runs) or 'none', total_saved, total_wait - total_saved))
     if a.emit_queries:
         json.dump(queries, open(a.emit_queries, 'w'))
