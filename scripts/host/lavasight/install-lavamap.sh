@@ -33,10 +33,11 @@ case "${1:-}" in
     cp "$HERE/lavamap_publish.py" "$D/app/"; cp "$HERE/lavamap-cron.sh" "$D/"
     bash "$D/lavamap-cron.sh"; tail -1 "$D/out/publish.log"
     python3 -B "$D/app/lavamap_publish.py" check --root /var/lib/mcai --map /home/mike/hazardmap/out/hazardmap.json
+    # the header line FIRST (Claude r3 P3-5): a refused patch must not leave a live cron with no alarm line
+    python3 -B "$HERE/patch_fleetstatus.py" "$FS" || { echo "fleetstatus patch refused: no cron installed"; exit 1; }
     crontab -l > "$D/crontab.bak-$(date -u +%Y%m%dT%H%M%SZ)"
     if ! crontab -l | grep -q '# lavamap$'; then { crontab -l; echo "$CRON"; } | crontab -; fi
-    python3 -B "$HERE/patch_fleetstatus.py" "$FS"
-    echo "installed: cron '$CRON'; header line patched into $FS";;
+    echo "installed: header line patched into $FS; cron '$CRON'";;
   --rollback)
     crontab -l | grep -v '# lavamap$' | crontab - || true
     python3 -B "$HERE/patch_fleetstatus.py" "$FS" --revert || true
