@@ -379,7 +379,8 @@ await t('SPARE THE PLUGS (pure): bearings whose first step digs a placed plug ar
 })
 
 /** isolated-c, licensed: plugged and cut, then the body SINKS to the pool floor (head under: the flood check's exemption). */
-const sinker = () => botFor(ISOC, { onDig: (k, w, b) => { popSapling(k, w); if (k === '0,2,0') b.entity.position = new Vec3(0.5, -0.9, 0.5) } })
+const DIRT_BAG = () => [{ name: 'dirt', count: 32, type: reg.itemsByName.dirt.id }, COBBLE(64)]
+const sinker = () => botFor(ISOC, { items: DIRT_BAG(), onDig: (k, w, b) => { popSapling(k, w); if (k === '0,2,0') b.entity.position = new Vec3(0.5, -0.9, 0.5) } })
 await t('SUBMERGED AFTER THE CUT (Paper probe 3): the ramp does not dig the ceiling\'s plug back out; it takes a bearing that spares it', async () => {
   const bot = sinker()
   await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
@@ -479,7 +480,7 @@ async function firing (bot, refusals, mod = R) {
 
 await t('THE CHAIN ACROSS A RECOVERY (Codex r1 P1): three refusals in one pit, a recovery by another route, then a refusal in the next pit is NOT licensed', async () => {
   const seen = []
-  const fake = async (_bot, o) => { seen.push(o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+  const fake = async (_bot, o) => { seen.push(!!o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
   const bot = botFor(ISOC)
   let refusals = 0
   for (let k = 0; k < 3; k++) refusals = (await R.floodBranch(bot, { handler: 'entombed', refusals, ramp: fake })).refusals
@@ -488,7 +489,7 @@ await t('THE CHAIN ACROSS A RECOVERY (Codex r1 P1): three refusals in one pit, a
   assert.deepStrictEqual(seen, [false, false, false, false], 'the first refusal in a new place was licensed')
   // POSITIVE CONTROL: the same four firings in ONE place license the 4th
   const seen2 = []
-  const fake2 = async (_bot, o) => { seen2.push(o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+  const fake2 = async (_bot, o) => { seen2.push(!!o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
   const b2 = botFor(ISOC)
   for (let k = 0; k < 4; k++) await R.floodBranch(b2, { handler: 'entombed', refusals: k, ramp: fake2 })
   assert.deepStrictEqual(seen2, [false, false, false, true])
@@ -686,8 +687,8 @@ await t('MUTANT KILLED: the licensed firing on the base budget -> floodBranch ha
   await pinned()
   assert.deepStrictEqual([seen.plug, seen.budgetMs], [true, PC.PLUG_BUDGET_MS])
   await R.floodBranch(botFor(ISOC), { handler: 'entombed', refusals: 2, ramp: fake })
-  assert.deepStrictEqual([seen.plug, seen.budgetMs], [false, undefined], 'an unlicensed firing keeps the ramp\'s own 60 s')
-  await withMutant(REFLEX_PATH, 'due ? { yieldTo, plug: true, budgetMs: PLUG_BUDGET_MS }', 'due ? { yieldTo, plug: true }', async m => {
+  assert.deepStrictEqual([!!seen.plug, seen.budgetMs], [false, undefined], 'an unlicensed firing keeps the ramp\'s own 60 s')
+  await withMutant(REFLEX_PATH, 'ramp = (b, o) => plain(b, { ...o, plug: true, budgetMs: PLUG_BUDGET_MS })', 'ramp = (b, o) => plain(b, { ...o, plug: true })', async m => {
     await pinned(m)
     assert.deepStrictEqual([seen.plug, seen.budgetMs], [true, undefined], 'the mutant did not change behaviour')
   })
@@ -722,7 +723,7 @@ await t('MUTANT KILLED: no PLUG_MAX cap -> a refilling face takes more than PLUG
 await t('MUTANT KILLED: the licence on the arm\'s counter again -> the first refusal in a new pit is licensed', async () => {
   await withMutant(REFLEX_PATH, 'const due = plugDue(plugSoFar(prevStreak, here, Date.now()))', 'const due = plugDue(refusals)', async m => {
     const seen = []
-    const fake = async (_bot, o) => { seen.push(o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
+    const fake = async (_bot, o) => { seen.push(!!o.plug); return { steps: 0, climbed: 0, stopped: 'fake', flood: 'ramp_breach' } }
     const bot = botFor(ISOC)
     let refusals = 0
     for (let k = 0; k < 3; k++) refusals = (await m.floodBranch(bot, { handler: 'entombed', refusals, ramp: fake })).refusals
@@ -733,7 +734,7 @@ await t('MUTANT KILLED: the licence on the arm\'s counter again -> the first ref
 })
 
 await t('MUTANT KILLED: no utility-block sparing -> the licensed ramp digs the furnace', async () => {
-  await withMutant(REFLEX_PATH, "avoid: c => INTERACTIVE.test(at(...c)?.name ?? '') })", 'avoid: () => false })', async m => {
+  await withMutant(REFLEX_PATH, 'avoid: c => isUtilityBlock(at(...c)?.name) })', 'avoid: () => false })', async m => {
     const { cells } = afterCut(ISOC)
     cells['-1,1,1'] = 'cobblestone'; cells['-1,1,0'] = 'furnace'
     const lic = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
