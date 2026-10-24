@@ -105,7 +105,7 @@ Codex r1 **CHANGE** (1 P1, 5 P2). Changes:
   self-isolated per-bot towns). By UNITS (ingots + raw) the no_iron towns read 62-167 and the clean towns 73-263: the units do
   not separate them (placebo-a holds 129 units, 78 of them raw iron the kit cannot use until it is smelted -- ironsmelt-01).
   The default stays the owner's 64; on today's readings it marks ONE shared town (hive-b, 62). It is a setting; the read
-  reports per town reading so it can be tuned. Draw exposure decides the tier (section 5).
+  reports per town reading so it can be tuned. Draw exposure decides the tier (section 9).
 - **P2, the read's gates** use the issuing order's `low` (the toolkit runner row's args), the delivery rows and exposure
   (section 3, the read).
 
@@ -127,3 +127,86 @@ Codex r2 **CHANGE** (1 P1, 3 P2). Changes:
   crafts (TOWN_IRON_RUNG is one constant at the end of TECH_LADDER; the mutant puts it first) and the chain fails for it.
 - The read: scripts/host/townironread.py (gates G1 tier broken, G2 stone over a usable shovel, G3 own iron delivered, G4
   delivery loop, ARMS, LIVENESS, INSTRUMENT, EXPOSURE; primary iron delivered + the index-known town iron DiD).
+
+## 6. Review rounds 3-6 (Codex) and what changed
+
+- **r3 CHANGE (1 P1 + read P2s).** P1: `deliverOrder` cleared the round when the bag held no surplus, so the round recorded
+  while the town task was current was gone before the bot had mined anything (it records at the START of the task). Now a
+  surplus of 0 skips with `none` and KEEPS the round; only `deliverOutcome` with the run's `surplusLeft === 0` ends it
+  (mutant `roundErasedEarly`). The read: G2 is judged from the order's structured args (before=, `@full` counted usable), not
+  from prose; EXPOSURE needs BOTH consumers (>= 2 low-reading bots, >= 2 stone shovels, >= 2 deliveries that banked); the world
+  fold replays ops (pre/post/held marks) as the bot's index does.
+- **r4 CHANGE (the read).** Only the oldest index file's checkpoint is the base (an endpoint before its `at` is unavailable;
+  newer checkpoints are covered by the raw records of the files they folded); the tie-break is (at, dirty over obs, larger id),
+  ids kept through checkpoint expansion; `before='-'` is -1 (judged).
+- **r5 CHANGE (1 P3).** The `noCarryCap` probe also failed on the ORIGINAL (its bag lacked a bucket and an iron pickaxe, so the
+  own keep was 9, not 3): a probe that fails on both reads as a kill. `probeKill` now runs every probe against the real module
+  first; the probe carries the bucket and the iron pickaxe.
+- **r6 APPROVE, all three items.** A: every probe passes on the original and fails on its mutant for the intended reason.
+  B: the stacked variants' +/- lines match the primary's apart from the two resolved conflict sites (index.mjs: both licence
+  rows and imports; fakeworld NAMES: ironsmelt's `raw_iron`, then `stone_shovel`, `bucket`), and the composition with
+  ironsmelt-01 is sound: the delivery banks raw iron the smelt job then withdraws and smelts; `ironSmeltCount` caps the
+  furnace input at the verified withdrawal and `ironBankPlan` preserves the bag's opening raw iron and ingots, even when they
+  include an undelivered town round (`fed`, `fe=`); stone shovels draw no iron or coal; the order sequence stays earlier orders
+  -> delivery -> toolkit -> smelt/drain. C: the whole change APPROVE, with one observation: on the 6e1afb52 primary ALONE the
+  banked raw iron is not smelted automatically (that is ironsmelt-01), and raw iron counts toward the reserve, so there the
+  reserve can read met on iron the toolkit cannot yet draw. No P1/P2/P3. (Codex judged the probes by inspection; the suite
+  runs them.)
+
+The **independent Claude review has NOT run**: the weekly limit (resets 10-26 06:00 CDT). OWNER 10-23 B: it runs before the
+operator queues the change; the entry fragment carries the hold `CLAUDE REVIEW PENDING (owner 10-23 B)`.
+
+## 7. Tests
+
+`npm test` (node scripts/run-tests.mjs): 295/295 at f41c8ba4 (primary), 291/291 at 8fa28100 (on f4b3252f), 295/295 at
+8f3c16d4 (on fb8de72f). `bots/test/towniron.test.mjs`: 19 tests; 14 anchored mutants, each probe passing on the original first
+(noTierSwap, anyShovelIgnored, skillIgnoresLow, rungIgnoresTown, noCarryCap, noMinContainers, unknownIsLow, deliverNoHold,
+noStoneOnly, dirtyCounts, townRungFirst, noRoundGate, roundErasedEarly, retryOnlyRound). Refusal chains, both consumers:
+the real MilestoneController (a short town opens the town task, never ahead of the bot's own bucket; town ok / unknown / no ore
+-> no means, stepped over; released by the no-progress skip; the carry cap ends it), and the real toolkit order (town short
+with no kit iron -> a stone-shovel order; an unfundable iron axe ahead of it -> the stone shovel alone; a full bag -> no order;
+the control: town not short -> no order). The continuous chain: the controller's town task -> the round -> 19 raw iron -> the
+real deliver_iron banks 16 and keeps 3 -> the round ends; a failed second deposit is retried. eslint no-undef: the base's one pre-existing hit (reflex.mjs:2506) on every tip.
+
+## 8. Paper (sandbox, the base as positive control)
+
+Driver `sandbox/craft/towniron-e2e.cjs` (branch towniron-sandbox-on-ab00709; requireSandboxLock, tag `towniron`), sandbox6,
+10-24 00:22-01:35Z. One fresh real bot per scene, a scripted brain (status / short walks only), the server's slots read before and
+after (every bag slot, three town chests, the ground). The town index is seeded from the server under the bot's own world id: 3
+known containers, below the 64 reserve. Base = 6e1afb52 (the positive control), candidate = f41c8ba4.
+
+| driver | build | shovel | deliver |
+|---|---|---|---|
+| r1 (e2ff5c72), index seeded before chest A | base | BASE_SHAPE | BASE_SHAPE |
+| r1 | candidate | FAIL (the scene, below) | CANDIDATE_PASS |
+| r1, seeded after chest A | base x3 | BASE_SHAPE x3 | BASE_SHAPE x3 |
+| r1, seeded after chest A | candidate x3 | CANDIDATE_PASS x3 | CANDIDATE_PASS x3 |
+| r2 (648e56c3, Codex driver r1 P2s) | base x3 | BASE_SHAPE x3: `_toolkit crafted=iron_shovel`, bag iron_shovel +1, chest A iron_ingot -1 | BASE_SHAPE x3: the 19 raw iron stay in the bag, town raw_iron +0 |
+| r2 | candidate x3 | CANDIDATE_PASS x3: `_town_iron state=low units=20`, `_toolkit crafted=stone_shovel`, bag stone_shovel +1 cobblestone -1, no ingot moved | CANDIDATE_PASS x3: `_deliver_iron stop=done bag=3/19>3/0 dep=0/19 keep=3/0`, bag raw_iron -19, town raw_iron +19, the bag's 3 ingots kept |
+
+Driver r2 (Codex driver r1 CHANGE, 3 P2): the oracle fails closed (one strict slot reader for the snapshot and the seed; the
+ground '' or one parseable item per entity); the scene is checked exactly before it is measured (bag, three chests, ground; the
+deliver cargo) and verdicts read deltas plus the run's own row; cleanup is confirmed (a signal aborts the scene at the next await,
+the child's exit is awaited with SIGKILL escalation, every cleanup reply checked, exit 3 otherwise; SIGTERM mid-scene -> exit 1,
+no player, the forceload removed). The new precondition caught the setup's own mob kill dropping 3 porkchops on the ground (now
+killed when the measured bag is set).
+Driver review: Codex r1 CHANGE (the 3 P2s above, plus the stick-only admission as a P3, "a bounded inherited limitation"; it
+confirmed the r1 diagnosis), r2 APPROVE (648e56c3), no findings.
+
+**r1's shovel FAIL was the scene.** The index was seeded before chest A's sticks went in by RCON. Sticks are a need the journal
+counts completely (withdrawpick `NEED_COUNT_COMPLETE`), so the seeded zero-stick observation marked all three chests OUT and the
+stick search found no candidate (`_toolkit outcome=short sticks=0 cand=0 visits=0`); the base's iron search is not subject to
+that rule (cand=3). Fixed in the driver by seeding AFTER chest A is filled (20 units, still short); the bot is unchanged.
+
+**What it exposed for the fleet (P3, not changed):** the stone-only order (0 ingots, 2 sticks) does not ask the town search for
+sticks (`missFor` runs only when ingots > 0), so in a town the index knows holds no sticks, with no wood in the bag, the run
+fails `short` without a visit and backs off 30 min (TOOLKIT_BACKOFF_MS): at most ~2 cheap failed runs per bot-h, the same
+bound as the base's zero-ingot credit runs. The `toolkit` result prose says "from the town's iron (0 ingot(s) drawn)" for a
+stone shovel (wording only; the `_toolkit` row says crafted=stone_shovel).
+
+## 9. Draw exposure and the tier
+
+`drawexposure.py` on the proxy (6 h: `toolkit` outcome=no_iron >= 3 and phase=kit >= 6 per pool), 10-23 23:50Z: eligible
+hive-b (7 / 14), placebo-a (9 / 13), placebo-d (12 / 16); every other shared pool 0-2 no_iron. Three pools, not four: by the
+owner's 10-23 policy the change registers **TIER 3** (the old behaviour: reads 180/360, KEEP from +360 when exposed, extend
+for exposure). `draw_require_pools: ["hive-b"]`: the one drawable town the index reads below 64 (58 units 10-23).
