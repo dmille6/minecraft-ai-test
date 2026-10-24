@@ -84,7 +84,9 @@ def at_hazard(hz, pos):
 
 
 def judge(rows, W=180, CANS=(), population=None, hazards=None):
-    """rows: dicts {t, per, arm, name, status, detail, args, bot, pos}. population: {(per, arm): set(bot)}. -> fields. Pure."""
+    """rows: dicts {t, per, arm, name, status, detail, args, bot, pos}. population: {(per, arm): set((bot, slot))} -- every
+    (bot, 10-min slot) the walk saw a RETAINED row in (Codex r2 P1-3: a bot restarted onto the canary build mid-window, or one
+    whose off-build rows were skipped, contributes only the slots it was observed in; never the whole window). -> fields. Pure."""
     bots = defaultdict(set)
     for k, v in (population or {}).items():
         bots[k] |= set(v)
@@ -96,10 +98,11 @@ def judge(rows, W=180, CANS=(), population=None, hazards=None):
     named = []
     for r in rows:
         a, p, n, b, t = r['arm'], r['per'], r['name'], r['bot'], r['t']
-        bots[(p, a)].add(b)
+        bots[(p, a)].add((b, int(t // 600)))
         minute = int(t // 60)
         d = r.get('detail') or ''
-        if n == '_lava_corridor' or (n == '_explore_blind_step_refused' and 'lava' in d):
+        # a refusal for an UNKNOWN cell is not lava's (lavasight cannot move it; Claude r2 P3-7)
+        if (n == '_lava_corridor' and 'unknown' not in d) or (n == '_explore_blind_step_refused' and 'lava' in d and 'unknown' not in d):
             ep[(p, a)].add((b, minute))
         elif n == '_reflex_danger_block' and any(k in d for k in LAVA_LIKE):
             dep[(p, a)].add((b, minute))
@@ -162,7 +165,7 @@ def judge(rows, W=180, CANS=(), population=None, hazards=None):
                 if k:
                     deaths_at[(a, k)] += 1
     out = {}
-    hrs = lambda per, arm: len(bots[(per, arm)]) * W / 60
+    hrs = lambda per, arm: len(bots[(per, arm)]) / 6.0          # observed (bot, 10-min) slots -> bot-hours
     rate = lambda cnt, per, arm: (cnt / hrs(per, arm)) if hrs(per, arm) else None
 
     def did(get):
@@ -179,15 +182,19 @@ def judge(rows, W=180, CANS=(), population=None, hazards=None):
     out['malformed'] = c['malformed']
     out['licence_canary'] = c['lic']
     out['licence_on'] = int(c['lic_on'] >= 1)
-    states = Counter(s for _, s in newest_mode.values())
+    can_bots = {b for b, _ in bots[('post', 'canary')]}
+    # EVERY canary bot is in the denominator; one without a mode row is unmapped (Codex r2 P1-4)
+    states = Counter(newest_mode[b][1] if b in newest_mode else 'no_row' for b in can_bots)
     out['mode_states'] = dict(states)
-    out['mapped_share'] = round(states.get('ok', 0) / len(newest_mode), 3) if newest_mode else 0.0
-    can_bots = bots[('post', 'canary')]
-    slots = max(1, int(W // 10))
-    out['coverage'] = round(sum(len(v) for v in live_slots.values()) / (len(can_bots) * slots), 3) if can_bots else 0.0
+    out['mapped_share'] = round(states.get('ok', 0) / len(can_bots), 3) if can_bots else 0.0
+    can_slots = len(bots[('post', 'canary')])
+    out['coverage'] = round(sum(len(v) for v in live_slots.values()) / can_slots, 3) if can_slots else 0.0
     out['instrument'] = int(out['coverage'] >= 0.75 and len(can_bots) >= 1 and len(bots[('pre', 'control')]) >= 1 and len(bots[('post', 'control')]) >= 1)
     out['mapped'] = int(out['mapped_share'] >= 0.8)
     out['priced_moves'] = c['priced_moves']; out['held_seen'] = c['held_seen']
+    # G2 is a TRIPWIRE, 0 by construction in this wiring (Claude r2 P2-1): it is EXERCISED only when a held search met the
+    # footprint at all (held_seen > 0); otherwise it is said, not passed
+    out['g2_exercised'] = int(c['held_seen'] > 0)
     out['corridor_checks'] = c['corridor_checks']; out['corridor_refused'] = c['corridor_refused']
     out['refused_per_check'] = round(c['corridor_refused'] / c['corridor_checks'], 4) if c['corridor_checks'] else None
     out['episodes_canary'] = len(ep[('pre', 'canary')]) + len(ep[('post', 'canary')])
@@ -201,21 +208,23 @@ def judge(rows, W=180, CANS=(), population=None, hazards=None):
     out['deaths_at_hazards'] = {'%s/%s' % k: v for k, v in sorted(deaths_at.items())}
     out['deaths_named'] = named[:8]
     out['bot_h'] = {'%s/%s' % k: round(hrs(*k), 1) for k in (('pre', 'canary'), ('post', 'canary'), ('pre', 'control'), ('post', 'control'))}
+    out['canary_bots'] = len(can_bots)
     return out
 
 
 def selftest():
-    T0 = 1_760_000_000
+    T0 = 1_760_000_400                                  # on a 10-min slot boundary
     R = lambda name, detail='', bot='board-d-Alpha', arm='canary', per='post', t=T0, args=None, status='success', pos=None: {
         't': t, 'per': per, 'arm': arm, 'name': name, 'status': status, 'detail': detail, 'args': args or {}, 'bot': bot, 'pos': pos}
     LIVE = lambda **o: dict({'state': 'ok', 'priced_moves': 30, 'held_priced': 0, 'set_changed': 0, 'held_seen': 2, 'corridor_checks': 100,
                              'corridor_refused': 3, 'active': 40, 'index': 900, 'removed': 2, 'rebuild_ms': 4}, **o)
     base = []
     for per in ('pre', 'post'):
-        for i in range(40):
-            base.append(R('_lava_corridor', 'lava_corridor: lava beside at 1,2,3', per=per, t=T0 + i * 60))
-            base.append(R('_lava_corridor', 'lava_corridor: lava beside at 1,2,3', per=per, arm='control', bot='hive-a-Alpha', t=T0 + i * 60))
-        base.append(R('goto', per=per)); base.append(R('goto', per=per, arm='control', bot='hive-a-Alpha'))
+        t0 = T0 - 10800 if per == 'pre' else T0           # 180 min each side, one row a minute: 18 slots per bot
+        for i in range(180):
+            base.append(R('_lava_corridor', 'lava_corridor: lava beside at 1,2,3', per=per, t=t0 + i * 60))
+            base.append(R('_lava_corridor', 'lava_corridor: lava beside at 1,2,3', per=per, arm='control', bot='hive-a-Alpha', t=t0 + i * 60))
+        base.append(R('goto', per=per, t=t0)); base.append(R('goto', per=per, arm='control', bot='hive-a-Alpha', t=t0))
     can = [R('_lavasight_mode', args={'on': 1, 'state': 'ok'})] + [R('_lavasight', args=LIVE(), t=T0 + i * 600) for i in range(18)]
     ok = judge(base + can, CANS=('board-d',))
     for k in ('held_priced', 'set_changed', 'rows_control', 'malformed'):
@@ -228,7 +237,7 @@ def selftest():
     better = judge([r for r in base if not (r['per'] == 'post' and r['arm'] == 'canary' and r['name'] == '_lava_corridor' and r['t'] % 120 == T0 % 120)] + can, CANS=('board-d',))
     assert better['episode_did'] < 0, ('fewer refusal minutes on the canary: the DiD falls', better['episode_did'])
     # a blind-step row counts only when it names lava
-    bs = judge(base + can + [R('_explore_blind_step_refused', 'blind_step: drop of 7 ahead at 1,2,3', t=T0 + 99999)], CANS=('board-d',))
+    bs = judge(base + can + [R('_explore_blind_step_refused', 'blind_step: drop of 7 ahead at 1,2,3', t=T0 + 5)], CANS=('board-d',))
     assert bs['episode_rates'] == ok['episode_rates'], 'a drop refusal is not a lava episode'
     # G2 / G3 / G4 / G5
     assert judge(base + can + [R('_lavasight', args=LIVE(held_priced=1))], CANS=('board-d',))['held_priced'] == 1, 'G2'
@@ -245,8 +254,23 @@ def selftest():
     low = judge(base + can[:1] + [R('_lavasight', args=LIVE(priced_moves=1), t=T0 + i * 600) for i in range(18)], CANS=('board-d',))
     assert low['exposure'] == 0, 'priced 18 < 200'
     # the denominator: silent control bots halve the control rates
-    pop = judge(base + can, CANS=('board-d',), population={('post', 'control'): {'hive-a-Alpha', 'hive-a-Bravo'}})
-    assert pop['episode_rates'][3] == ok['episode_rates'][3] / 2, (pop['episode_rates'], ok['episode_rates'])
+    alpha = {int(r['t'] // 600) for r in base if r['arm'] == 'control' and r['per'] == 'post'}
+    slots = {(b, q) for b in ('hive-a-Alpha', 'hive-a-Bravo') for q in alpha}
+    pop = judge(base + can, CANS=('board-d',), population={('post', 'control'): slots})
+    assert pop['episode_rates'][3] == ok['episode_rates'][3] / 2, ('a silent control bot doubles the slots', pop['episode_rates'], ok['episode_rates'])
+    # STAGGERED RESTARTS (Codex r2 P1-3): a canary bot seen only in the last slot contributes one slot, not the window
+    late = [r for r in base if not (r['arm'] == 'canary' and r['per'] == 'post' and r['t'] < T0 + 170 * 60)]
+    st = judge(late, CANS=('board-d',))
+    assert abs(st['bot_h']['post/canary'] - 1 / 6) < 0.05, ('one observed slot is a sixth of a bot-hour', st['bot_h'])
+    assert abs(st['episode_rates'][1] - ok['episode_rates'][1]) / ok['episode_rates'][1] < 0.05, ('no manufactured fall', st['episode_rates'], ok['episode_rates'])
+    # MAPPED: a canary bot without a mode row is unmapped (Codex r2 P1-4)
+    other = [R('_lava_corridor', 'lava_corridor: lava beside at 1,2,3', bot='board-d-Bravo', t=T0 + i * 60) for i in range(180)]
+    mp = judge(base + can + other, CANS=('board-d',))
+    assert mp['mapped_share'] == 0.5 and mp['mapped'] == 0, ('one of two canary bots mapped', mp['mode_states'])
+    # an unknown-cell refusal is not a lava episode (Claude r2 P3-7)
+    unk = judge(base + can + [R('_lava_corridor', 'lava_corridor: unknown below at 1,2,3', t=T0 + 5)], CANS=('board-d',))
+    assert unk['episode_rates'] == ok['episode_rates'], 'unknown is not lava'
+    assert ok['g2_exercised'] == 1 and judge(base + [R('_lavasight_mode', args={'on': 1, 'state': 'ok'})] + [R('_lavasight', args=LIVE(held_seen=0), t=T0 + i * 600) for i in range(18)], CANS=('board-d',))['g2_exercised'] == 0
     # deaths: families, the floor is the registration's; at hazards by kind
     hz = hazard_index({'seeds': {'1': {'worlds': {'board-d': {}}, 'hazards': [{'kind': 'lava', 'center': [396, 69, 109], 'sightings': {'cells': [[397, 69, 109, 5]]}, 'deaths': {'cells': []}}]}}})
     dd = judge(base + can + [R('_death', 'board-d-Alpha tried to swim in lava', pos=(397.5, 70, 110.2)), R('_death', 'board-d-Alpha drowned', pos=(0.5, 60, 0.5)),
@@ -318,7 +342,7 @@ if __name__ == '__main__':
         if arm == 'canary' and per == 'post' and CV and ver and not ver.startswith(CV):
             offbuild += 1
             continue
-        bots[(per, arm)].add(b)
+        bots[(per, arm)].add((b, int(t.timestamp() // 600)))
         sk = ((r.get('raw') or {}).get('skill') or {})
         name = sk.get('name') or r.get('name')
         if name in KEEP:
@@ -332,10 +356,10 @@ if __name__ == '__main__':
     print('PRIMARY      lava refusal episodes (bot-minutes) per bot-h [canary pre, post, control pre, post] %s -> DiD %s (should FALL)'
           % (res['episode_rates'], res['episode_did']))
     print('CO-PRIMARY   danger-block episodes on lava per bot-h %s -> DiD %s' % (res['danger_rates'], res['danger_did']))
-    print('DEFECTS      G2 priced while a reflex held the body %d | G3 neighbour set changed %d | G4 control rows %d | G5 malformed gate rows %d'
-          % (res['held_priced'], res['set_changed'], res['rows_control'], res['malformed']))
-    print('LIVENESS     licence %d (on: %s) | newest mode states %s (mapped share %.2f, need 0.80) | coverage %.2f (need 0.75) -> INSTRUMENT %s'
-          % (res['licence_canary'], 'yes' if res['licence_on'] else 'NO', res['mode_states'] or '-', res['mapped_share'], res['coverage'],
+    print('DEFECTS      G2 priced while a reflex held the body %d (a tripwire, 0 by construction; %s: held searches that met the footprint %d) | G3 neighbour set changed %d (tripwire) | G4 control rows %d | G5 malformed gate rows %d'
+          % (res['held_priced'], 'exercised' if res['g2_exercised'] else 'NOT EXERCISED', res['held_seen'], res['set_changed'], res['rows_control'], res['malformed']))
+    print('LIVENESS     licence %d (on: %s) | newest mode states of %d canary bots %s (mapped share %.2f, need 0.80) | coverage %.2f of observed slots (need 0.75) -> INSTRUMENT %s'
+          % (res['licence_canary'], 'yes' if res['licence_on'] else 'NO', res['canary_bots'], res['mode_states'] or '-', res['mapped_share'], res['coverage'],
              'ok' if res['instrument'] else 'BLIND'))
     print('MECHANISM    priced moves %d (held_seen %d) | guard refusals per check (canary, unsampled) %s of %d | route core nodes %d | terminal routes %s | max %s'
           % (res['priced_moves'], res['held_seen'], res['refused_per_check'], res['corridor_checks'], res['core_nodes'], res['route_terminal'], res['max']))

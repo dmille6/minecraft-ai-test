@@ -8,7 +8,7 @@ import { tunnelMovements } from './oretunnel.mjs'
 import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSafeMovements } from './composter.mjs'
 import { townWalkMovements } from './towndeposit.mjs'
 import { Vec3 } from 'vec3'
-import { corridorSafe } from './lavaguard.mjs'
+import { corridorSafe, LAVA_LIKE } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch } from './skills.mjs'
@@ -70,7 +70,7 @@ import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavasightOn, lavaMapReader, lavaMapFileIn, lavasightModeArgs, lavasightModeDetail, SightRing, memoryCells, liveConfirm,
-         buildPriceIndex, packKey, wrapNeighbors, priceLive, routeSummary, cellFromDetail,
+         buildPriceIndex, footprintOf, packKey, wrapNeighbors, priceLive, routeSummary,
          RELOAD_MS as LAVASIGHT_RELOAD_MS, LIVE_MS as LAVASIGHT_LIVE_MS } from './lavasight.mjs'   // lavasight-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
@@ -393,9 +393,25 @@ function connect() {
     const lsLiveTimer = setInterval(lsRefresh, LAVASIGHT_LIVE_MS); lsLiveTimer.unref?.()
     const lsFirst = setTimeout(lsRefresh, 5_000); lsFirst.unref?.()
     bot.once('end', () => { clearInterval(lsReloadTimer); clearInterval(lsLiveTimer); clearTimeout(lsFirst) })
-    // a cell this bot's own guard named (corridor, blind step, danger feet): remembered at once, re-read at the next refresh
-    bot.lavasightNote = (cell) => { try { if (LS_ON && cell && lsRing.add(cell)) lsCounters.ring_added = (lsCounters.ring_added ?? 0) + 1 } catch {} }
-    bot.lavaActiveNow = () => (LS_ON ? lsActive : [])
+    // a lava cell this bot's own guard named (the corridor and the blind step): remembered, re-admitted if this process had
+    // removed it (flowing lava comes back; Claude r2 P3-2), and -- when it reads lava now -- priced AT ONCE, not at the next
+    // 20 s rebuild, so the immediate re-plan already sees it (Claude r2 P3-3). Overworld only (Codex r2 P2).
+    bot.lavasightNote = (cell) => {
+      try {
+        if (!LS_ON || !cell || !lsOverworld()) return
+        const k = packKey(cell.x, cell.y, cell.z)
+        lsRemoved.delete(k)
+        if (lsRing.add(cell)) lsCounters.ring_added = (lsCounters.ring_added ?? 0) + 1
+        const b = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
+        if (b && LAVA_LIKE.has(b.name) && !lsActive.some(c => c.x === cell.x && c.y === cell.y && c.z === cell.z)) {
+          const next = new Set(lsIdx)
+          footprintOf(cell, (x, y, z) => { const q = bot.blockAt(new Vec3(x, y, z)); return q == null ? null : q.boundingBox === 'block' }, (x, y, z) => { next.add(packKey(x, y, z)) })
+          lsActive = [...lsActive, { x: cell.x, y: cell.y, z: cell.z }]
+          lsIdx = next
+        }
+      } catch { /* telemetry */ }
+    }
+    bot.lavaActiveNow = () => (LS_ON && lsOverworld() ? lsActive : [])
     bot.lavasightIndex = () => lsIdx
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
@@ -480,9 +496,16 @@ function connect() {
     // remembered lava cell (lavasight.mjs moveSurcharge). Off while a body-moving reflex holds the body (priceLive). The
     // counters are the gates' own observations: held_priced (G2) and set_changed (G3) must stay 0.
     if (LS_ON) {
+      // the guard's view of the path (lavasight.mjs formOf): the bot's floored start, postProcessPath's support tops, and the
+      // block ids its water/climbable case keys on
+      const lsIds = { water: bot.registry.blocksByName.water?.id, ladder: bot.registry.blocksByName.ladder?.id, vine: bot.registry.blocksByName.vine?.id }
+      const lsBlockAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
       moves.getNeighbors = wrapNeighbors(Movements.prototype.getNeighbors, () => {
         const reflex = stopReflexes?.activeReflex?.() ?? null
-        return { idx: lsIdx, live: priceLive({ on: LS_ON, reflex }), reflex }
+        const p = bot.entity?.position
+        const idx = lsOverworld() ? lsIdx : null
+        return { idx, live: priceLive({ on: LS_ON, reflex }), reflex,
+                 env: { start: p ? { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) } : null, blockAt: lsBlockAt, ids: lsIds } }
       }, lsCounters)
     }
     // canDig=false is deliberate and load-bearing. With digging enabled the
@@ -1083,8 +1106,19 @@ function connect() {
     let lavaCorridorLoggedAt = 0
     let deathSiteCrossLoggedAt = 0
     // lavasight-01: `_lavasight_route` -- at most one per 30 s, plus EVERY noPath/timeout. `priced` is the moves the wrapper
-    // surcharged since the last route row (the search's exposure), `held` the reflex holding the body at the row.
+    // surcharged SINCE THE LAST ROUTE ROW (every search in between, probes included -- not this search alone; Claude r2 P3-5),
+    // `held` the reflex holding the body at the row.
     let lsRouteAt = 0, lsPricedMark = 0
+    // every guard decision is COUNTED, unsampled (the read's per-check denominator; Codex design r1 P2); a lava cell the guard
+    // names joins this bot's ring; the route row is sampled
+    const lsGuardSeen = (v, status, nodes) => {
+      lsCounters.corridor_checks = (lsCounters.corridor_checks ?? 0) + 1
+      if (!v.safe) {
+        lsCounters.corridor_refused = (lsCounters.corridor_refused ?? 0) + 1
+        if (/lava/.test(v.why ?? '') && !/unknown/.test(v.why ?? '') && Array.isArray(v.at)) bot.lavasightNote({ x: v.at[0], y: v.at[1], z: v.at[2] })
+      }
+      lsRouteRow(status, nodes, !v.safe)
+    }
     const lsRouteRow = (status, nodes, refused, terminal = false) => {
       try {
         const now = Date.now()
@@ -1121,21 +1155,13 @@ function connect() {
         const p = bot.entity.position
         const nodes = [{ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, ...r.path.map(n => ({ x: n.x, y: n.y, z: n.z }))]
         const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)
-        // lavasight-01: every guard decision is COUNTED, unsampled (the read's per-check denominator; Codex design r1 P2), a
-        // lava cell the guard names joins this bot's ring, and one route row per 30 s says what the plan crossed
-        if (LS_ON) {
-          lsCounters.corridor_checks = (lsCounters.corridor_checks ?? 0) + 1
-          if (!v.safe) {
-            lsCounters.corridor_refused = (lsCounters.corridor_refused ?? 0) + 1
-            if (/lava/.test(v.why ?? '') && !/unknown/.test(v.why ?? '') && Array.isArray(v.at)) bot.lavasightNote({ x: v.at[0], y: v.at[1], z: v.at[2] })
-          }
-          lsRouteRow(r.status, nodes, !v.safe)
-        }
         if (!v.safe) {
           try { bot.pathfinder.setGoal(null) } catch { /* not connected */ }
+          if (LS_ON) lsGuardSeen(v, r.status, nodes)
           if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
           return
         }
+        if (LS_ON) lsGuardSeen(v, r.status, nodes)
         // POSITIVE CONTROL for the death-site price: a route the corridor guard accepted that still passes through a disc is logged
         // (not refused -- the price is a detour, and a bot standing inside a disc has to walk out of it).
         const crossed = pathCrossesDeathSite(bot.deathSitesNow?.() ?? [], r.path)

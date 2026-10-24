@@ -100,8 +100,9 @@ export function packKey (x, y, z) {
 
 /**
  * THE GUARD'S FOOTPRINT OF ONE LAVA CELL, as feet cells -> calls emit(x, y, z, price). Pure. `solidAt(x, y, z)` -> true |
- * false | null (unknown); unknown counts as open, which can only add price. Mirrors lavaguard.mjs exactly (the test
- * checks it against corridorSafe on synthetic worlds):
+ * false | null (unknown). An UNKNOWN cell between stops the scan and emits nothing (Codex r2 P2): within 3 the guard refuses
+ * it for being unknown, deeper it stops safe -- neither is a refusal because of this lava. Mirrors lavaguard.mjs exactly (the
+ * test checks it against corridorSafe on synthetic worlds, unknown cells included):
  *   BESIDE  F.y = L.y, |dx| <= 2, |dz| <= 2 except the (±2, ±2) corners: corridorSafe's 3x3 sample of cellLavaSafe's
  *           five-cell "lava beside".
  *   OVER    F within Chebyshev 1 of L's column, F.y = L.y+1..L.y+3, L's column open strictly between: cellLavaSafe's
@@ -111,22 +112,26 @@ export function packKey (x, y, z) {
  */
 export function footprintOf (L, solidAt, emit) {
   const { x, y, z } = L
-  const open = (cx, cz, yTop, yBot) => { for (let yy = yTop; yy >= yBot; yy--) if (solidAt(cx, yy, cz) === true) return false; return true }
+  // ONE SCAN PER COLUMN (Claude r2 P3-4): how many cells directly above L.y are known and not solid, counted upward from
+  // L.y + 1 and stopping at the first solid or unknown one (an unknown cell stops the guard's scan too), capped at DROP_DY - 1
+  const openUp = (cx, cz) => { let n = 0; while (n < DROP_DY - 1 && solidAt(cx, y + 1 + n, cz) === false) n++; return n }
   for (let dx = -2; dx <= 2; dx++) {
     for (let dz = -2; dz <= 2; dz++) {
       if (Math.abs(dx) === 2 && Math.abs(dz) === 2) continue
       emit(x + dx, y, z + dz, CORE_PRICE)
     }
   }
-  for (let k = 1; k <= OVER_DY; k++) {
-    if (!open(x, z, y + k - 1, y + 1)) break
+  // OVER: a sample k above L (k = 1..3) has L in its 3x3's below-scan when L's column is open strictly between
+  const upL = openUp(x, z)
+  for (let k = 1; k <= OVER_DY && k - 1 <= upL; k++) {
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) emit(x + dx, y + k, z + dz, CORE_PRICE)
   }
+  // DROP: the sample's own column, open from F.y - 1 down to L.y + 1; for a cardinal column the cell AT L.y must be known
+  // too (dropLavaSafe returns at an unknown cell before it looks beside it)
   for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    for (let k = 1; k <= DROP_DY; k++) {
-      if (!open(x + dx, z + dz, y + k - 1, y + 1)) break
-      emit(x + dx, y + k, z + dz, CORE_PRICE)
-    }
+    if ((dx || dz) && solidAt(x + dx, y, z + dz) == null) continue
+    const up = dx || dz ? openUp(x + dx, z + dz) : upL
+    for (let k = 1; k <= DROP_DY && k - 1 <= up; k++) emit(x + dx, y + k, z + dz, CORE_PRICE)
   }
 }
 
@@ -165,17 +170,66 @@ function segmentHits (idx, ax, ay, az, bx, by, bz) {
 }
 
 /**
- * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE. Pure, allocation-free. The guard samples the path it is handed, and a path's
- * nodes reach it in two forms: block centres (postProcessPath puts walk nodes on top of their block, +0.5) and bare
- * integer cells (every node after the first dig or place, and the bot's own floored start; index.mjs path_update). A
- * mixed-sign diagonal samples a side cell in the integer form only (Claude design r1 P1-1). So the move is judged in BOTH
- * forms, and priced if either would put a sample on the footprint.
+ * mineflayer-pathfinder's getPositionOnTopOf (index.js:304), verbatim in effect: the point on top of a block's collision
+ * shapes, or null for a block with none. Pure.
  */
-export function moveSurcharge (idx, node, m) {
-  if (!idx || idx.size === 0 || !node || !m) return 0
-  if (segmentHits(idx, node.x + 0.5, node.y, node.z + 0.5, m.x + 0.5, m.y, m.z + 0.5)) return CORE_MOVE
-  if (segmentHits(idx, node.x, node.y, node.z, m.x, m.y, m.z)) return CORE_MOVE
-  return 0
+export function positionOnTopOf (block) {
+  if (!block || !Array.isArray(block.shapes) || block.shapes.length === 0) return null
+  const p = { x: 0.5, y: 0, z: 0.5 }
+  let n = 1
+  for (const shape of block.shapes) {
+    const h = shape[4]
+    if (h === p.y) { p.x += (shape[0] + shape[3]) / 2; p.z += (shape[2] + shape[5]) / 2; n++ } else if (h > p.y) { n = 2; p.x = 0.5 + (shape[0] + shape[3]) / 2; p.y = h; p.z = 0.5 + (shape[2] + shape[5]) / 2 }
+  }
+  p.x /= n; p.z /= n
+  return { x: block.position.x + p.x, y: block.position.y + p.y, z: block.position.z + p.z }
+}
+
+/**
+ * WHERE THE GUARD WILL SEE A WALK NODE -> {x, y, z}. Pure over `blockAt`. mineflayer-pathfinder's postProcessPath
+ * (index.js:168-190) moves every node BEFORE the first dig or place onto the top of its support: water (and a climbable)
+ * -> the cell centre at its own y; else the top of the feet cell's shapes, else of the cell below's, else the centre one
+ * below. So on a bottom slab the node sits at y - 0.5 and the guard floors it a cell LOWER (Codex r2 P1). A climbable is
+ * judged at its centre (the pathfinder's ladder case depends on the next node, unknown here).
+ */
+export function processedPos (blockAt, n, ids = {}) {
+  const b = blockAt(n.x, n.y, n.z)
+  if (b && (b.type === ids.water || b.type === ids.ladder || b.type === ids.vine)) return { x: Math.floor(n.x) + 0.5, y: Math.floor(n.y), z: Math.floor(n.z) + 0.5 }
+  const np = positionOnTopOf(b) ?? positionOnTopOf(blockAt(n.x, n.y - 1, n.z))
+  return np ?? { x: Math.floor(n.x) + 0.5, y: n.y - 1, z: Math.floor(n.z) + 0.5 }
+}
+
+/**
+ * THE FORM THE GUARD IS HANDED for a node of a planned path. index.mjs's corridor hook builds [floor(bot position),
+ * ...result.path]: the bot's floored position, then postProcessPath's nodes -- processed up to the first node that digs or
+ * places, raw integer cells from that node on. A move judged in that ONE form is priced iff the guard would refuse it
+ * (Codex r2 P1-2: judging the union of forms priced moves the guard accepts, and a cost-capped search can then fail where the
+ * base reaches the goal by a route the guard accepts).
+ *   start  (a node the wrapper did not generate: the search's own start) -> the bot's floored position
+ *   raw    (this move digs or places, or its parent was raw)            -> the integer cell
+ *   else                                                                  -> processedPos
+ */
+export const formOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
+  if (n._lsForm) return n._lsForm
+  if (n._lsRaw) return { x: n.x, y: n.y, z: n.z }
+  if (n._lsGen !== true) return start ?? { x: n.x, y: n.y, z: n.z }
+  return blockAt ? processedPos(blockAt, n, ids) : { x: n.x + 0.5, y: n.y, z: n.z + 0.5 }
+}
+
+/**
+ * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE. The segment from the parent's executed form to the move's, sampled as the
+ * guard samples it. `env` = { start, blockAt, ids }. Annotates the move (its rawness, its form) for its own children.
+ */
+export function moveSurcharge (idx, node, m, env = {}) {
+  if (!node || !m) return 0
+  m._lsGen = true
+  m._lsRaw = !!(node._lsRaw || (m.toBreak && m.toBreak.length) || (m.toPlace && m.toPlace.length))
+  if (!idx || idx.size === 0) return 0
+  const a = formOf(node, env)
+  const b = formOf(m, env)
+  m._lsForm = b
+  m._lsS = segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z) ? CORE_MOVE : 0
+  return m._lsS
 }
 
 /**
@@ -188,10 +242,11 @@ export function wrapNeighbors (baseGetNeighbors, ctx, counters = {}) {
     const ns = baseGetNeighbors.call(this, node)
     let c
     try { c = ctx() } catch { return ns }
-    if (!c || !c.idx || c.idx.size === 0) return ns
+    if (!c) return ns
     const n0 = ns.length
     for (let i = 0; i < ns.length; i++) {
-      const s = moveSurcharge(c.idx, node, ns[i])
+      // every move is annotated (its rawness), even with an empty index: the index can fill mid-search
+      const s = moveSurcharge(c.idx, node, ns[i], c.env ?? {})
       if (!s) continue
       // THE EFFECT, observed independently of the decision (G2): a surcharge computed while a body-moving reflex is active
       if (c.reflex && !/^eat/.test(String(c.reflex))) counters.held_seen = (counters.held_seen ?? 0) + 1

@@ -162,6 +162,12 @@ def write_atomic(path, data):
             os.fsync(fh.fileno())
         os.chmod(tmp, 0o644)
         os.rename(tmp, path)
+        # the rename itself durable too (Claude r2 P3-8)
+        dfd = os.open(d, os.O_RDONLY)
+        try:
+            os.fsync(dfd)
+        finally:
+            os.close(dfd)
     except Exception:
         try:
             os.unlink(tmp)
@@ -171,21 +177,29 @@ def write_atomic(path, data):
     return True
 
 
-def publish(map_path, root, hazard_heartbeat=None, now=None, heartbeat=None, euid=None):
+def publish(map_path, root, hazard_heartbeat, now=None, heartbeat=None, euid=None):
+    """The hazard map's heartbeat is REQUIRED (Codex r2 P2): no heartbeat, or one that is not `ok` for this map, writes nothing."""
+    if not hazard_heartbeat:
+        raise Refuse('the hazardmap heartbeat path is required')
+    raw = open(map_path, 'rb').read()
+    try:
+        hb = json.load(open(hazard_heartbeat))
+    except Exception:
+        hb = None
+    return publish_bytes(raw, hb, root, now=now, heartbeat=heartbeat, euid=euid)
+
+
+def publish_bytes(raw, hb, root, now=None, heartbeat=None, euid=None):
+    """The publisher's core over the map's BYTES and the parsed heartbeat (None = missing): the cron's stdin path sends both,
+    because mcbot cannot read /home/mike (the frontier publisher's pattern)."""
     now = time.time() if now is None else now
     if (os.geteuid() if euid is None else euid) == 0:
         raise Refuse('refusing to run as root')
-    raw = open(map_path, 'rb').read()
     m = json.loads(raw)
     check_map(m, now)
-    if hazard_heartbeat is not None:
-        try:
-            hb = json.load(open(hazard_heartbeat))
-        except Exception:
-            hb = None
-        ok, why = refresh_ok(m, hb)
-        if not ok:
-            return {'at': iso(now), 'status': 'waiting', 'why': why, 'written': [], 'same': [], 'skipped': {}}
+    ok, why = refresh_ok(m, hb)
+    if not ok:
+        return {'at': iso(now), 'status': 'waiting', 'why': why, 'written': [], 'same': [], 'skipped': {}}
     sha = hashlib.sha256(raw).hexdigest()
     res = {'at': iso(now), 'map_generated_at': m.get('generated_at'), 'stale_after': m['stale_after'], 'written': [],
            'same': [], 'skipped': {}}
@@ -200,44 +214,60 @@ def publish(map_path, root, hazard_heartbeat=None, now=None, heartbeat=None, eui
     return res
 
 
-def check(root, now=None):
-    """The fleetstatus header line -> (ok, line). Every shared pool's file must parse and be inside its stale_after."""
+def check(root, now=None, worlds=None):
+    """The fleetstatus header line -> (ok, line). Every pool directory whose world the map lists (`worlds`; all `_pool-*`
+    directories when None) must hold a file that parses and is inside its stale_after. Zero pools examined is an alarm
+    (Codex r2 P2: an OK over nothing is a blind check), and the total is the pools examined, each counted once."""
     now = time.time() if now is None else now
-    bad, n = [], 0
+    bad, good, skipped = [], 0, []
     for name in sorted(os.listdir(root)):
         if not name.startswith('_pool-') or '.pre-reseed-' in name or name.startswith('_pool-self-'):
+            continue
+        w = name[len('_pool-'):]
+        if worlds is not None and w not in worlds:
+            skipped.append(w)
             continue
         p = os.path.join(root, name, FILE)
         try:
             d = json.load(open(p))
         except FileNotFoundError:
-            bad.append('%s:absent' % name[6:])
+            bad.append('%s:absent' % w)
             continue
         except Exception:
-            bad.append('%s:unreadable' % name[6:])
+            bad.append('%s:unreadable' % w)
             continue
-        n += 1
         try:
             if now > parse_iso(d['stale_after']):
-                bad.append('%s:stale' % name[6:])
+                bad.append('%s:stale' % w)
+                continue
         except Exception:
-            bad.append('%s:stale_after' % name[6:])
+            bad.append('%s:stale_after' % w)
+            continue
+        good += 1
+    total = good + len(bad)
+    if total == 0:
+        return False, 'LAVAMAP ALARM: no pool directory examined under %s' % root
     if bad:
-        return False, 'LAVAMAP ALARM: %d of %d pool files bad: %s' % (len(bad), len(bad) + n, ', '.join(bad[:6]))
-    return True, 'lavamap OK: %d pool files inside stale_after' % n
+        return False, 'LAVAMAP ALARM: %d of %d pool files bad: %s' % (len(bad), total, ', '.join(bad[:6]))
+    return True, 'lavamap OK: %d of %d pool files inside stale_after%s' % (good, total, ('; not on the map: ' + ','.join(skipped)) if skipped else '')
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['publish', 'plan', 'check'])
+    ap.add_argument('cmd', choices=['publish', 'publish-stdin', 'plan', 'check'])
     ap.add_argument('--map', default=os.path.expanduser('~/hazardmap/out/hazardmap.json'))
-    ap.add_argument('--hazard-heartbeat', default=None)
+    ap.add_argument('--hazard-heartbeat', default=os.path.expanduser('~/hazardmap/out/heartbeat.json'))
     ap.add_argument('--root', default='/var/lib/mcai')
     ap.add_argument('--heartbeat', default=None)
     a = ap.parse_args(argv)
     try:
         if a.cmd == 'check':
-            ok, line = check(a.root)
+            worlds = None
+            try:
+                worlds = {w for s in json.load(open(a.map))['seeds'].values() for w in (s.get('worlds') or {})}
+            except Exception:
+                pass
+            ok, line = check(a.root, worlds=worlds)
             print(line)
             return 0 if ok else 1
         if a.cmd == 'plan':
@@ -248,7 +278,20 @@ def main(argv=None):
                 d = json.loads(data) if data else None
                 print('%-12s %-12s %s' % (w, why, ('cells=%d %s' % (len(d['cells']), path)) if d else path))
             return 0
-        r = publish(a.map, a.root, hazard_heartbeat=a.hazard_heartbeat, heartbeat=a.heartbeat)
+        if a.cmd == 'publish-stdin':
+            # after the program text (lavamap-cron.sh's BOOT): one line with the map's byte count, the map, then the heartbeat
+            b = sys.stdin.buffer
+            n = int(b.readline())
+            raw = b.read(n)
+            if len(raw) != n:
+                raise Refuse('short map on stdin: %d of %d bytes' % (len(raw), n))
+            try:
+                hb = json.loads(b.read() or b'null')
+            except Exception:
+                hb = None
+            r = publish_bytes(raw, hb, a.root, heartbeat=a.heartbeat)
+        else:
+            r = publish(a.map, a.root, hazard_heartbeat=a.hazard_heartbeat, heartbeat=a.heartbeat)
         print(json.dumps(r, sort_keys=True))
         return 0
     except Refuse as e:
