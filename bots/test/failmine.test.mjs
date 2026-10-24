@@ -15,6 +15,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { decide, MAX_GAP_S } from '../../sandbox/failmine/oracle.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const FM = path.join(REPO, 'scripts/host/failmine/failmine.py')
@@ -31,6 +32,37 @@ t('test_failmine.py: every behaviour test passes and every mutant is killed', ()
   const m = /(\d+) of (\d+) mutants killed/.exec(out)
   assert.ok(m && m[1] === m[2] && Number(m[2]) >= 15, `mutant line: ${m && m[0]}`)
   assert.match(out, /(\d+) of \1 passed/)
+})
+
+// THE VERDICT (sandbox/failmine/oracle.mjs), by behaviour: an absence is a no-run, never a result (Claude r1 P1, Codex r1 P1)
+const ESC = { type: 'escape', hold_s: 20 }
+const SURV = { type: 'survive', fail_families: ['lava'] }
+const alive = { deathsLog: 0, deathsScore: 0, deathFamily: null, deathCell: null, childExited: false, maxGapS: 3, lastSeenAgoS: 2,
+  endHealth: 20, outHeldS: 0, inArenaEnd: true }
+t('verdict: a live bot that stayed in the trap is the fleet\'s failure; one held out of it escaped', () => {
+  assert.deepEqual(decide(ESC, alive), { outcome: 'stayed', pass: false, matched_fleet: true })
+  assert.deepEqual(decide(ESC, { ...alive, outHeldS: 25 }), { outcome: 'escaped', pass: true, matched_fleet: false })
+  assert.equal(decide(ESC, { ...alive, outHeldS: 25, inArenaEnd: false }).pass, false, 'out of the arena is not an escape')
+})
+t('verdict: a crashed, disconnected or unobserved bot is NO-RUN for both oracles (never stayed, never survived)', () => {
+  for (const o of [ESC, SURV]) {
+    for (const bad of [{ childExited: true }, { maxGapS: MAX_GAP_S + 1 }, { lastSeenAgoS: 30 }, { endHealth: 0 }, { endHealth: null }, { deathsScore: null }]) {
+      const v = decide(o, { ...alive, ...bad })
+      assert.equal(v.pass, null, `${o.type} ${JSON.stringify(bad)} -> ${v.outcome}`); assert.equal(v.matched_fleet, null)
+    }
+  }
+})
+t('verdict: a death the bot did not log (the server counter disagrees) is NO-RUN, not survived', () => {
+  const v = decide(SURV, { ...alive, deathsScore: 1 })
+  assert.equal(v.pass, null); assert.match(v.outcome, /counter says 1/)
+})
+t('verdict: a lava death matches the fleet only of the family AND near the fleet death (6 blocks)', () => {
+  const d = { ...alive, deathsLog: 1, deathsScore: 1, deathFamily: 'lava', deathCell: [391, 70, 106] }
+  assert.deepEqual(decide(SURV, d, { deathCell: [392, 70, 106] }), { outcome: 'died:lava', pass: false, matched_fleet: true })
+  assert.equal(decide(SURV, d, { deathCell: [420, 70, 106] }).matched_fleet, false, 'a lava death elsewhere in the cut is not this one')
+  assert.equal(decide(SURV, { ...d, deathFamily: 'fall' }, { deathCell: [392, 70, 106] }).matched_fleet, false, 'another family')
+  assert.equal(decide(ESC, d, { deathCell: [392, 70, 106] }).matched_fleet, false, 'a death never reproduces a stuck scene')
+  assert.equal(decide(SURV, { ...alive }).pass, true)
 })
 
 const files = existsSync(LIB) ? readdirSync(LIB).filter(f => f.endsWith('.json') && f !== 'INDEX.json').sort() : []
@@ -58,8 +90,15 @@ for (const f of files) {
     assert.equal(r.status, 0, (r.stderr || r.stdout).slice(-400))
     const s = JSON.parse(readFileSync(path.join(LIB, f), 'utf8'))
     const base = (s.proof || []).filter(p => p.role === 'base')
-    assert.ok(base.some(p => p.matched_fleet === true), `${s.id}: no base run reproduced the fleet's failure (${JSON.stringify(base.map(p => p.outcome))})`)
-    assert.ok(!base.some(p => p.pass === true), `${s.id}: a base run PASSED the oracle -- the scene no longer holds the failure`)
+    // ADMISSION (failmine.py reproducing_starts): some start with >= 2 base runs matching the fleet, >= 2 of every 3, none passing
+    const e = index.scenes.find(x => x.file === f)
+    assert.ok(e.reproducing_starts.length >= 1, `${s.id}: no start reproduces the fleet's failure often enough (${JSON.stringify(base.map(p => [p.start_index, p.outcome]))})`)
+    for (const st of e.reproducing_starts) {
+      const ps = base.filter(p => (p.start_index ?? 0) === st && p.matched_fleet !== null)
+      const m = ps.filter(p => p.matched_fleet === true).length
+      assert.ok(m >= 2 && m / ps.length >= 2 / 3, `${s.id} start ${st}: ${m} of ${ps.length}`)
+      assert.ok(!ps.some(p => p.pass === true), `${s.id} start ${st}: a base run PASSED -- the scene no longer holds the failure`)
+    }
     for (const p of base) assert.ok(p.fidelity && p.fidelity.share >= 0.98 && !p.fidelity.checksFailed?.length, `${s.id}: a base proof on an arena that did not set`)
   })
 }

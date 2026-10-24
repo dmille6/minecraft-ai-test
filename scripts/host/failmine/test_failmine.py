@@ -297,6 +297,91 @@ def boxes_for(bot, t0, n, c, jitter=0.0):
     return [[bot, t0 + i * 600_000, 10, c[0] - jitter, c[0] + jitter, c[1], c[1], c[2] - jitter, c[2] + jitter] for i in range(n)]
 
 
+def t_es_missing_axis_raises(F):
+    # Codex r1 P1: positions with z gone. The query needs all three axes, so the stream thins and the coverage guard raises
+    docs = fleet()
+    for d in docs:
+        if d['bot']['name'] in ('board-a-Alpha', 'hive-a-Comet', 'board-a-Bravo') and 'pos' in d['bot'] and d['skill']['name'] != '_death':
+            d['bot']['pos'].pop('z')
+    raises(F.BlindInput, lambda: F.mine(source(F, docs), META), 'positions are missing from part')
+    # and a box with a null extreme handed to the detector directly is refused, never read as motion
+    b = boxes_for('a-a-A', 0, 10, (0, 0, 0), 30)
+    b[3][7] = None
+    raises(F.BlindInput, lambda: F.check_boxes(b, ['a-a-A']), 'lack an axis')
+
+
+def t_spells_ongoing_and_clipped(F):
+    hi = 10 * 600_000 + 360_000                      # the window ends 6 min into the 11th bucket
+    # still through the 10th bucket, whose end is within one bucket of the window's end -- then the partial 11th MOVES
+    b = boxes_for('x-a-B', 0, 10, (10, 40, 10)) + boxes_for('x-a-B', 10 * 600_000, 1, (40, 40, 10), 20)
+    s = F.find_spells(b, 0, hi)
+    assert len(s) == 1 and not s[0]['ongoing'], 'a spell followed by a moving bucket is not ongoing'
+    b = boxes_for('x-a-B', 0, 11, (10, 40, 10))
+    s = F.find_spells(b, 120_000, hi)                # starts 2 min into the first bucket, ends 6 min into the last
+    assert s[0]['ongoing'], s
+    assert abs(s[0]['bot_h'] - (hi - 120_000) / 3_600_000) < 1e-3, ('edge buckets are clipped to the window', s[0]['bot_h'])
+
+
+def t_region_missing_data_raises(F):
+    def go(d):
+        reg = F.Regions(d, 'board-a')
+        c = reg.chunk(22, 11)
+        sec = next(s_ for s_ in c['sections'] if s_['Y'] == 2)
+        sec['block_states'].pop('data')
+        raises(F.BlindInput, lambda: reg.block(359, 40, 187), 'no packed data')
+    with_region(go)
+
+
+def t_spells_one_row_bucket_is_not_still(F):
+    b = boxes_for('x-a-B', 0, 4, (10, 40, 10))
+    for r in b:
+        r[2] = 1
+    assert F.find_spells(b) == [], 'a bucket of one row cannot show stillness'
+
+
+def t_classify_ladder_falls(F):
+    for m in ('fell off a ladder', 'fell while climbing', 'fell out of the water', 'fell off some vines'):
+        assert F.classify_death(m)[1] == 'fall', m
+
+
+def t_es_ingest_lag_raises(F):
+    raises(F.BlindInput, lambda: F.mine(F.EsSource(SINCE, '2026-10-14T07:00:00Z', client=FakeES(fleet()), now=NOW), META), 'ingest lag')
+
+
+def t_same_staging(F):
+    a = {'backup_day': '2026-10-24', 'backup_done': '2026-10-24T03:16:17Z'}
+    assert F.same_staging(a, dict(a))
+    raises(F.BlindInput, lambda: F.same_staging(a, dict(a, backup_done='2026-10-24T09:01:00Z')), 'changed')
+    raises(F.BlindInput, lambda: F.same_staging({'backup_day': 'x'}, {'backup_day': 'x'}), 'changed')
+
+
+def t_reproducing_starts_rule(F):
+    P = lambda st, m, ok=False: {'role': 'base', 'start_index': st, 'matched_fleet': m, 'pass': ok}
+    assert F.reproducing_starts([P(0, True), P(0, True), P(0, False)]) == [0]
+    assert F.reproducing_starts([P(0, True), P(0, False), P(0, False)]) == [], 'one in three is a draw, not a reproduction'
+    assert F.reproducing_starts([P(0, True), P(0, True), P(0, False, ok=True)]) == [], 'a base run that PASSED retires the start'
+    assert F.reproducing_starts([P(1, True), P(1, True), P(0, None)]) == [1], 'a no-run proves nothing'
+    raises(F.BlindInput, lambda: F.prove({'id': 'x', 'cells_sha256': 'y', 'proof': []}, [], ''), '7 hex')
+
+
+def t_scene_goal_outside_cut(F):
+    def go(d):
+        pick = {'id': 'fall-1899-board-a-359_40_187', 'kind': 'death', 'family': 'fall', 'rank': 1, 'world': 'board-a', 'seed': 1239381899,
+                'home': [355, 73, 147], 'start': {'rule': 'lead', 'pos': [359.3, 40.2, 187.4]},
+                'death': {'pos': (359.5, 38.0, 187.5), 'cause': 'fall', 'fell': 3, 'bot': 'board-a-Comet', 't': 'x', 'detail': 'fell'},
+                'bag': F.bag_of(row(ts(1), 'board-a-Comet', pos=(0, 0, 0))), 'script': {'skill': 'goto', 'args': {'x': 359, 'y': 41, 'z': 187}},
+                'alternates': [{'start': {'rule': 'lead', 'pos': [361.5, 40.0, 187.5]}, 'script': {'skill': 'goto', 'args': {'x': 900, 'y': 40, 'z': 187}},
+                                'bag': {'stacks': []}, 'running': None, 'death': {'bot': 'board-a-Bravo', 't': 'y', 'pos': (1, 2, 3)}},
+                               {'start': {'rule': 'lead', 'pos': [361.5, 40.0, 187.5]}, 'script': None,
+                                'bag': {'stacks': []}, 'running': None, 'death': {'bot': 'board-a-Delta', 't': 'z', 'pos': (1, 2, 3)}}],
+                'box': F.stuck_box((359.3, 40.2, 187.4))}
+        s = F.make_scene(pick, F.Regions(d, 'board-a'), 'now', 'day')
+        assert len(s['alternates']) == 1 and s['alternates_dropped'] == [{'bot': 'board-a-Bravo', 't': 'y', 'why': 'start or goal outside the cut'}]
+        pick['script'] = {'skill': 'goto', 'args': {'x': 900, 'y': 40, 'z': 187}}
+        raises(F.BlindInput, lambda: F.make_scene(pick, F.Regions(d, 'board-a'), 'now', 'day'), 'outside the cut')
+    with_region(go)
+
+
 def t_spells_basic(F):
     b = boxes_for('board-a-Bravo', 0, 4, (10, 40, 10), 0.5) + boxes_for('board-a-Alpha', 0, 4, (0, 64, 0), 30)
     s = F.find_spells(b)
@@ -469,6 +554,11 @@ def t_scene_tampered_raises(F):
         s = json.loads(json.dumps(scene_for(F, d)))
         s['checks'][0]['is'] = 'diamond_block'
         raises(F.BlindInput, lambda: F.scene_valid(s), 'disagrees')
+        # a PROPERTY is part of the state (Codex r1 P2): the head's level-2 water checked as level 0 must disagree
+        s = json.loads(json.dumps(scene_for(F, d)))
+        k = next(i for i, c in enumerate(s['checks']) if c['is'] == 'water[level=2]')
+        s['checks'][k]['is'] = 'water[level=0]'
+        raises(F.BlindInput, lambda: F.scene_valid(s), 'disagrees')
     with_region(go)
 
 
@@ -498,10 +588,13 @@ def t_regions_for_box(F):
 
 def t_fetch_refuses_short(F):
     res = {'picks': [{'id': 'x', 'world': 'board-a', 'box': {'lo': [0, 0, 0], 'hi': [1, 1, 1]}}]}
+    G = '2026-10-24T03:16:17Z'
     with tempfile.TemporaryDirectory() as d:
-        raises(F.BlindInput, lambda: F.fetch(res, d, req=lambda r: b'tiny'))
-        got = F.fetch(res, d, req=lambda r: b'\x00' * 9000)
-        assert got and os.path.getsize(got[0]) == 9000
+        raises(F.BlindInput, lambda: F.fetch(res, d, req=lambda r: b'\x00' * 9000), 'generation')
+        raises(F.BlindInput, lambda: F.fetch(res, d, req=lambda r: b'tiny', generation=G))
+        asked = []
+        got = F.fetch(res, d, req=lambda r: asked.append(r) or b'\x00' * 9000, generation=G)
+        assert got and os.path.getsize(got[0]) == 9000 and asked == [f'region board-a 0 0 {G}'], asked
 
 
 # ------------------------------------------------------------------ fmserve
@@ -517,30 +610,36 @@ def sv(fn):
 def t_serve_backup_state(S):
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, 'log')
-        open(p, 'w').write('2026-10-23T03:15:02Z start 2026-10-23: x\n2026-10-23T03:16:16Z good 2026-10-23: 16/16\n'
-                           '2026-10-24T03:15:01Z start 2026-10-24: x\n2026-10-24T03:15:30Z ok board-a: raw\n'
+        open(p, 'w').write('2026-10-23T03:15:02Z start 2026-10-23: 16 fleet worlds -> x\n2026-10-23T03:16:16Z good 2026-10-23: 16/16\n'
+                           '2026-10-24T03:15:01Z start 2026-10-24: 16 fleet worlds -> x\n2026-10-24T03:15:30Z ok board-a: raw\n'
                            '2026-10-24T03:15:31Z good 2026-10-23: (a stray echo of the previous night)\n')
         assert S.backup_state(p) is None, 'a run in progress must not serve the previous night'
         open(p, 'a').write('2026-10-24T03:16:17Z good 2026-10-24: 16/16 worlds\n')
+        assert S.backup_state(p) == ('2026-10-24', '2026-10-24T03:16:17Z')
+        # a `start` naming another world count is not the fleet's run (structcount.backup_record's rule): it changes nothing
+        open(p, 'a').write('2026-10-24T09:00:00Z start 2026-10-24: 1 fleet worlds -> elsewhere\n')
         assert S.backup_state(p) == ('2026-10-24', '2026-10-24T03:16:17Z')
 
 
 @sv
 def t_serve_refuses_everything_else(S):
     ok = lambda: ('2026-10-24', 'x')
-    for bad in ('cat /etc/passwd', 'meta; id', 'region board-a 0', 'region ../board-a 0 0', 'region board-a 0 0 x', 'region board-e 0 0',
-                'region board-a 1e3 0', 'region board-a 0 0;id', '', 'census x'):
+    G = '2026-10-24T03:16:17Z'
+    for bad in ('cat /etc/passwd', 'meta; id', 'region board-a 0', 'region ../board-a 0 0 ' + G, 'region board-a 0 0 x', 'region board-e 0 0 ' + G,
+                'region board-a 1e3 0 ' + G, 'region board-a 0 0;id ' + G, 'region board-a 0 0', 'region board-a 0 0 ' + G + ' x', '', 'census x'):
         out = io.BytesIO()
         assert S.serve(bad, out=out, state_fn=ok, worlds_fn=lambda: ['board-a'], cat=lambda p: b'X' * 9000) == 2, bad
         assert out.getvalue() == b'', bad
     # a well-formed world name that is not in the staging is refused too
-    assert S.serve('region hive-c 0 0', out=io.BytesIO(), state_fn=ok, worlds_fn=lambda: ['board-a'], cat=lambda p: b'X' * 9000) == 2
+    assert S.serve('region hive-c 0 0 x', out=io.BytesIO(), state_fn=ok, worlds_fn=lambda: ['board-a'], cat=lambda p: b'X' * 9000) == 2
+    assert S.serve('region hive-c 0 0 2026-10-24T03:16:17Z', out=io.BytesIO(), state_fn=lambda: ('2026-10-24', '2026-10-24T03:16:17Z'),
+                   worlds_fn=lambda: ['board-a'], cat=lambda p: b'X' * 9000) == 2
 
 
 @sv
 def t_serve_junk_world_never_reaches_sudo(S):
     calls = []
-    for bad in ('region ../../etc 0 0', 'region board-a/../x 0 0', 'region * 0 0'):
+    for bad in ('region ../../etc 0 0 2026-10-24T03:16:17Z', 'region board-a/../x 0 0 2026-10-24T03:16:17Z', 'region * 0 0 2026-10-24T03:16:17Z'):
         assert S.serve(bad, out=io.BytesIO(), state_fn=lambda: calls.append('state') or ('d', 't'),
                        worlds_fn=lambda: calls.append('ls') or ['board-a'], cat=lambda p: calls.append(p) or b'X') == 2
     assert calls == [], f'a junk world name ran {calls}'
@@ -548,15 +647,30 @@ def t_serve_junk_world_never_reaches_sudo(S):
 
 @sv
 def t_serve_region_and_busy(S):
+    G = '2026-10-24T03:16:17Z'
+    st = lambda: ('2026-10-24', G)
     out = io.BytesIO()
     seen = []
-    assert S.serve('region board-a 0 -1', out=out, state_fn=lambda: ('d', 't'), worlds_fn=lambda: ['board-a'],
+    assert S.serve(f'region board-a 0 -1 {G}', out=out, state_fn=st, worlds_fn=lambda: ['board-a'],
                    cat=lambda p: seen.append(p) or b'R' * 9000) == 0
     assert seen == ['/srv/world-backup/staging/board-a/world/region/r.0.-1.mca'] and len(out.getvalue()) == 9000
     out = io.BytesIO()
-    assert S.serve('region board-a 0 0', out=out, state_fn=lambda: None, worlds_fn=lambda: ['board-a'], cat=lambda p: b'R') == 4
+    assert S.serve(f'region board-a 0 0 {G}', out=out, state_fn=lambda: None, worlds_fn=lambda: ['board-a'], cat=lambda p: b'R') == 4
     assert out.getvalue() == b''
     assert S.serve('meta', out=io.BytesIO(), state_fn=lambda: None) == 4
+
+
+@sv
+def t_serve_region_bound_to_its_night(S):
+    # Codex r1 P1: a region of another night, or one read while a backup began, writes NOTHING
+    G = '2026-10-24T03:16:17Z'
+    out = io.BytesIO()
+    assert S.serve('region board-a 0 0 2026-10-23T03:16:16Z', out=out, state_fn=lambda: ('2026-10-24', G),
+                   worlds_fn=lambda: ['board-a'], cat=lambda p: b'R' * 9000) == 4 and out.getvalue() == b''
+    states = iter([('2026-10-24', G), None])          # good before the read, a new `start` after it
+    out = io.BytesIO()
+    assert S.serve(f'region board-a 0 0 {G}', out=out, state_fn=lambda: next(states),
+                   worlds_fn=lambda: ['board-a'], cat=lambda p: b'R' * 9000) == 4 and out.getvalue() == b''
 
 
 # ------------------------------------------------------------------ the runner and the mutants
@@ -595,6 +709,21 @@ MUTANTS = [
     ('failmine.py', "            if len(vals) < 4096 or max(vals) >= len(pal):", "            if len(vals) < 4096:", 't_region_palette_overflow_raises'),
     ('failmine.py', "and ms_of(r['@timestamp']) < t\n", "and ms_of(r['@timestamp']) <= t + 2000\n", 't_leadup_idle_takes_last_skill_before_death'),
     ('failmine.py', "    if s['cells_sha256'] != cells_sha(s['cells']):", "    if False:", 't_scene_tampered_raises'),
+    ('failmine.py', "        if cells.get(tuple(c['at'])) != c['is']:", "        if bname(cells.get(tuple(c['at']))) != bname(c['is']):", 't_scene_tampered_raises'),
+    ('failmine.py', "    if incomplete:\n", "    if False:\n", 't_es_missing_axis_raises'),
+    ('failmine.py', "        if dat is None and len(pal) > 1:", "        if False:", 't_region_missing_data_raises'),
+    ('failmine.py', "and s['t1'] == last_seen[s['bot']] and", "and", 't_spells_ongoing_and_clipped'),
+    ('fmserve.py', "        if st[1] != parts[4]:", "        if False:", 't_serve_region_bound_to_its_night'),
+    ('fmserve.py', "        if m and int(m.group(3)) == EXPECT_WORLDS:", "        if m:", 't_serve_backup_state'),
+    ('failmine.py', "    if expected is not None and len(rows) != expected:", "    if False:", 't_death_points_count_mismatch_raises'),
+    ('failmine.py', "        if off == 0:\n", "        if False:\n", 't_region_absent_chunk_raises'),
+    ('failmine.py', "            if not os.path.exists(p):\n                raise BlindInput(f'region copy missing", "            if False:\n                raise BlindInput(f'region copy missing", 't_region_missing_file_raises'),
+    ('failmine.py', "    if not m1.get('backup_done') or k(m1) != k(m2):", "    if False:", 't_same_staging'),
+    ('failmine.py', "        if m >= ADMIT_MIN_MATCHED and m / len(ps) >= ADMIT_MIN_RATE and not any(p.get('pass') for p in ps):", "        if m >= 1:", 't_reproducing_starts_rule'),
+    ('failmine.py', "    if n < 2:", "    if False:", 't_spells_one_row_bucket_is_not_still'),
+    ('failmine.py', "    if newest is not None and ms_of(src.until) - newest > INGEST_SLACK_MS:", "    if False:", 't_es_ingest_lag_raises'),
+    ('failmine.py', "    if not inside(goal_of(pick.get('script'))):", "    if False:", 't_scene_goal_outside_cut'),
+    ('fmserve.py', "        if state_fn() != st:\n            return 4                      # a backup began", "        if False:\n            return 4                      # a backup began", 't_serve_region_bound_to_its_night'),
     ('failmine.py', "    return (x1 - x0) <= STILL_BOX and (y1 - y0) <= STILL_BOX and (z1 - z0) <= STILL_BOX", "    return (x1 - x0) <= STILL_BOX or (y1 - y0) <= STILL_BOX", 't_spells_basic'),
     ('failmine.py', "    if sum(unk.values()) > MAX_UNCLASSIFIED_DEATH_SHARE * len(pts):", "    if False:", 't_death_points_format_change_raises'),
     ('fmserve.py', "        if m and m.group(2) == start[1]:", "        if m:", 't_serve_backup_state'),

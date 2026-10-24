@@ -50,6 +50,7 @@ MIN_POSITIONED_BOT_SHARE = 0.9   # buckets must exist for >= 90% of the bots ES 
 MAX_STILL_SHARE = 0.6            # > 60% of positioned bot-time still = positions are frozen, not a finding (7 d: 19.5%)
 MAX_UNCLASSIFIED_DEATH_SHARE = 0.25
 LEADUP_S = 180
+INGEST_SLACK_MS = 10 * 60_000
 
 class ZeroLooksWrong(LookupError):
     """A zero (or an absence) that is probably the instrument, not the fleet. Same name as lib/telemetry.py's."""
@@ -79,7 +80,7 @@ DEATH_CAUSES = [
     ('burned', 'lava', r'burn|walked into fire|went up in flames|crisp'),
     ('drowned', 'drowned', r'^drowned'),
     ('stalagmite', 'fall', r'impaled on a stalagmite'),
-    ('fall', 'fall', r'fell from a high place|hit the ground'),
+    ('fall', 'fall', r'fell from a high place|hit the ground|^fell (off|while|out of|into)'),
     ('doomed to fall', 'fall', r'doomed to fall'),
     ('stalactite', 'stalactite', r'stalactite'),
     ('suffocated', 'suffocated', r'suffocated'),
@@ -175,6 +176,10 @@ def check_boxes(boxes, bots_present, active=None):
     if active is not None and len(boxes) < MIN_POSITIONED_BOT_SHARE * active:
         raise BlindInput(f'position buckets cover {len(boxes)} of {active} active (bot, 10-min) buckets '
                          f'({100 * len(boxes) / active:.0f}%): positions are missing from part of the stream')
+    incomplete = [b for b in boxes if None in b[3:9]]
+    if incomplete:
+        raise BlindInput(f'{len(incomplete)} position buckets lack an axis (e.g. {incomplete[0][:2]}): a null extreme reads as '
+                         f'motion, so the still detector would be blind there')
     seen = {b[0] for b in boxes}
     missing = sorted(set(bots_present) - seen)
     if bots_present and len(seen & set(bots_present)) < MIN_POSITIONED_BOT_SHARE * len(set(bots_present)):
@@ -191,6 +196,8 @@ def check_boxes(boxes, bots_present, active=None):
 def is_still(b):
     _, _, n, x0, x1, y0, y1, z0, z1 = b
     if None in (x0, x1, y0, y1, z0, z1):
+        return False
+    if n < 2:                    # one row cannot show motion, so it cannot show stillness either (Claude r1 P3)
         return False
     return (x1 - x0) <= STILL_BOX and (y1 - y0) <= STILL_BOX and (z1 - z0) <= STILL_BOX
 
@@ -232,10 +239,16 @@ def find_spells(boxes, window_lo_ms=None, window_hi_ms=None):
             cur = {'bot': bot, 't0': r[1], 't1': r[1], 'anchor': c, 'buckets': 1, 'rows': r[2]} if c else None
         if cur and cur['buckets'] >= MIN_SPELL_BUCKETS:
             spells.append(cur)
+    last_seen = {bot: max(r[1] for r in rows) for bot, rows in by.items()}
     for s in spells:
-        s['bot_h'] = round(s['buckets'] / 6, 3)
+        # hours CLIPPED to the window: an edge bucket counts only its part inside [lo, hi) (Codex r1 P2)
+        lo = window_lo_ms if window_lo_ms is not None else s['t0']
+        hi = window_hi_ms if window_hi_ms is not None else s['t1'] + BUCKET_MS
+        s['bot_h'] = round(max(0, min(s['t1'] + BUCKET_MS, hi) - max(s['t0'], lo)) / 3_600_000, 3)
         s['from_window_start'] = window_lo_ms is not None and s['t0'] - window_lo_ms < BUCKET_MS
-        s['ongoing'] = window_hi_ms is not None and window_hi_ms - (s['t1'] + BUCKET_MS) < BUCKET_MS
+        # ONGOING (Codex r1 P2): the spell holds the bot's LAST observed bucket, and that bucket touches the window's end --
+        # a spell followed by a moving bucket has ended, however close to the end it is
+        s['ongoing'] = window_hi_ms is not None and s['t1'] == last_seen[s['bot']] and window_hi_ms - (s['t1'] + BUCKET_MS) < BUCKET_MS
     return spells
 
 
@@ -474,7 +487,9 @@ class EsSource:
         self.ev = EsEvents.load('skill', since=since, until=until, **self.kw)
 
     def controls(self):
-        return {'docs': int(self.ev.total()), 'bots': self.ev.bots_present(), 'caveats': list(self.ev.caveats)}
+        nw = self.ev.newest_in_window()
+        return {'docs': int(self.ev.total()), 'bots': self.ev.bots_present(), 'caveats': list(self.ev.caveats),
+                'newest': int(nw.timestamp() * 1000) if nw else None}
 
     def deaths(self):
         n = int(self.ev.count('_death'))          # zero-guarded: a renamed kind raises ZeroLooksWrong here
@@ -494,7 +509,8 @@ class EsSource:
             u = min(t + dt.timedelta(days=1), hi)
             ev = self.E.load('skill', since=t.strftime('%Y-%m-%dT%H:%M:%SZ'), until=u.strftime('%Y-%m-%dT%H:%M:%SZ'), **self.kw)
             q = ev._query()
-            q['bool']['filter'].append({'exists': {'field': 'bot.pos.y'}})
+            for ax in 'xyz':           # Codex r1 P1: a bucket with one axis missing would read as MOVING, never still
+                q['bool']['filter'].append({'exists': {'field': 'bot.pos.' + ax}})
             sub = {}
             for ax in 'xyz':
                 sub['mn' + ax] = {'min': {'field': 'bot.pos.' + ax}}
@@ -526,6 +542,11 @@ def mine(src, meta, top_deaths=3, top_stuck=2, min_deaths=3, min_bot_h=3.0):
     ctl = src.controls()
     if not ctl['docs']:
         raise ZeroLooksWrong('the window holds no documents at all')
+    newest = ctl.get('newest')
+    if newest is not None and ms_of(src.until) - newest > INGEST_SLACK_MS:
+        # Claude r1 P3: ES behind the window's end leaves its last bucket empty, so no spell can be ongoing -- a silent zero
+        raise BlindInput(f'the newest document is {iso_ms(newest)}, {(ms_of(src.until) - newest) / 60000:.0f} min before the window '
+                         f'ends {src.until}: ES is behind (ingest lag) -- end the window earlier')
     n, rows = src.deaths()
     pts = death_points(rows, meta, expected=n)
     boxes = src.boxes()
@@ -799,7 +820,9 @@ class Regions:
         if not pal:
             raise BlindInput(f'{self.world} ({cx},{sy},{cz}): empty palette')
         dat = bs.get('data')
-        if dat is None or len(pal) == 1:
+        if dat is None and len(pal) > 1:   # Codex r1 P1: never 4,096 copies of palette entry 0
+            raise BlindInput(f'{self.world} ({cx},{sy},{cz}): a palette of {len(pal)} with no packed data')
+        if len(pal) == 1:
             vals = None
         else:
             bits = max(4, (len(pal) - 1).bit_length()); per = 64 // bits; mask = (1 << bits) - 1
@@ -960,6 +983,18 @@ def make_scene(pick, reg, made_at=None, backup_day=None):
     if feet not in cells:
         raise BlindInput(f'{pick["id"]}: the start {start} lies outside the cut {box}')
     facts = site_facts(cells, feet)
+    # A START IS KEPT only when it, and the goal its script walks to, lie inside the cut (Claude r1 P3: a goal outside walks
+    # the bot into the shell); the drops are counted in the scene, never silent
+    inside = lambda q: q is None or cell_of(q) in cells
+    goal_of = lambda sc: [sc['args'][k] for k in 'xyz'] if sc and sc.get('skill') == 'goto' else None
+    if not inside(goal_of(pick.get('script'))):
+        raise BlindInput(f'{pick["id"]}: the scene script walks to {goal_of(pick["script"])}, outside the cut {box}')
+    kept_alts, dropped_alts = [], []
+    for a in pick.get('alternates') or []:
+        if inside(a['start']['pos']) and inside(goal_of(a.get('script'))):
+            kept_alts.append(a)
+        else:
+            dropped_alts.append({'bot': a['death']['bot'], 't': a['death']['t'], 'why': 'start or goal outside the cut'})
     if pick['kind'] == 'stuck':
         label = stuck_label(facts)
         oracle = {'type': 'escape', 'minutes': 9, 'from_cell': list(feet), 'min_horizontal': 2, 'min_up': 2, 'hold_s': 20,
@@ -977,10 +1012,10 @@ def make_scene(pick, reg, made_at=None, backup_day=None):
     for d in ((0, 0, 0), (0, 1, 0), (0, 2, 0), (0, -1, 0), (1, 0, 0), (-1, 0, 0), (0, 0, 1), (0, 0, -1)):
         c = (feet[0] + d[0], feet[1] + d[1], feet[2] + d[2])
         if c in cells:
-            checks.append({'at': list(c), 'is': bname(cells[c])})
+            checks.append({'at': list(c), 'is': cells[c]})
     if pick['kind'] == 'death' and cell_of(pick['death']['pos']) in cells:
         c = cell_of(pick['death']['pos'])
-        checks.append({'at': list(c), 'is': bname(cells[c])})
+        checks.append({'at': list(c), 'is': cells[c]})
     scene = {'schema': SCHEMA, 'id': pick['id'], 'label': label, 'family': pick['family'], 'kind': pick['kind'],
              'world': pick['world'], 'seed': pick['seed'], 'home': pick.get('home'), 'gamerules': pick.get('gamerules') or {},
              'source': {'backup_day': backup_day, 'cut_at': made_at, **reg.provenance, 'tool_sha256': file_sha(os.path.abspath(__file__))},
@@ -988,8 +1023,8 @@ def make_scene(pick, reg, made_at=None, backup_day=None):
              'bot': {'pos': list(start), 'start_rule': pick['start']['rule'], 'bag': pick['bag'],
                      'start_candidates': pick.get('start_candidates')},
              'alternates': [{'pos': list(a['start']['pos']), 'start_rule': a['start']['rule'], 'bag': a['bag'], 'script': a['script'],
-                             'running': a['running'], 'death': a['death'], 'health': a['start'].get('health')} for a in pick.get('alternates') or []
-                            if cell_of(a['start']['pos']) in cells],
+                             'running': a['running'], 'death': a['death'], 'health': a['start'].get('health')} for a in kept_alts],
+             'alternates_dropped': dropped_alts,
              'script': pick.get('script'), 'running': pick.get('running'), 'path_goal': pick.get('path_goal'),
              'death': pick.get('death'), 'spell': pick.get('spell'), 'fleet_kinds': pick.get('fleet_kinds') or [],
              'oracle': oracle, 'base': base, 'checks': checks,
@@ -1018,7 +1053,7 @@ def scene_valid(s):
     if not s['bot']['bag'].get('stacks') and s['kind'] == 'stuck':
         raise BlindInput(f'scene {s["id"]}: an empty bag for a stuck scene (the bag is what the trap is measured against)')
     for c in s['checks']:
-        if bname(cells.get(tuple(c['at']))) != c['is']:
+        if cells.get(tuple(c['at'])) != c['is']:
             raise BlindInput(f'scene {s["id"]}: check {c} disagrees with the cells')
     return True
 
@@ -1061,7 +1096,10 @@ def regions_for(box):
     return sorted({(cx >> 5, cz >> 5) for cx in range(lo[0] >> 4, (hi[0] >> 4) + 1) for cz in range(lo[2] >> 4, (hi[2] >> 4) + 1)})
 
 
-def fetch(res, dest, only=None, req=remote):
+def fetch(res, dest, only=None, req=remote, generation=None):
+    """Region copies for the picks. `generation` = meta's backup_done: fmserve refuses a region of any other night."""
+    if not generation:
+        raise BlindInput('fetch needs the backup generation from meta (backup_done): an unbound read could mix two nights')
     got = []
     for p in res['picks']:
         if only and p['id'] not in only:
@@ -1070,7 +1108,7 @@ def fetch(res, dest, only=None, req=remote):
             out = os.path.join(dest, p['world'], f'r.{rx}.{rz}.mca')
             if os.path.exists(out):
                 continue
-            data = req(f'region {p["world"]} {rx} {rz}')
+            data = req(f'region {p["world"]} {rx} {rz} {generation}')
             if len(data) < 8192:
                 raise BlindInput(f'region {p["world"]} {rx} {rz}: {len(data)} bytes')
             os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -1116,7 +1154,8 @@ def cmd_cut(a):
 def cmd_fetch(a):
     res = json.load(open(a.clusters))
     only = set(a.only.split(',')) if a.only else None
-    for f in fetch(res, a.regions, only):
+    gen = json.loads(remote('meta'))['backup_done']
+    for f in fetch(res, a.regions, only, generation=gen):
         print('fetched', f)
 
 
@@ -1126,6 +1165,14 @@ def cmd_meta(a):
         raise BlindInput('meta: no worlds')
     json.dump(m, open(a.out, 'w'), indent=1)
     print(f'{len(m["worlds"])} worlds; backup {m.get("backup_day")}')
+
+
+def same_staging(m1, m2):
+    """The staging the regions were read from is still the one the clusters were matched against (same night, same run)."""
+    k = lambda m: (m.get('backup_day'), m.get('backup_done'))
+    if not m1.get('backup_done') or k(m1) != k(m2):
+        raise BlindInput(f'the staging changed during the run ({k(m1)} -> {k(m2)}): rerun')
+    return True
 
 
 def cmd_weekly(a):
@@ -1146,10 +1193,8 @@ def cmd_weekly(a):
     json.dump(res, open(os.path.join(out, 'clusters.json'), 'w'), indent=1, default=list)
     open(os.path.join(out, 'table.txt'), 'w').write(render(res) + '\n')
     regions = os.path.join(home, 'work', gen)
-    fetch(res, regions)
-    meta2 = json.loads(remote('meta'))
-    if meta2.get('backup_day') != meta.get('backup_day'):
-        raise BlindInput(f'the staging changed during the run ({meta.get("backup_day")} -> {meta2.get("backup_day")}): rerun')
+    fetch(res, regions, generation=meta['backup_done'])
+    same_staging(meta, json.loads(remote('meta')))
     sdir = os.path.join(out, 'scenes')
     os.makedirs(sdir, exist_ok=True)
     made = iso_ms(int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000))
@@ -1184,11 +1229,32 @@ def cmd_classify(a):
     print(json.dumps({'cause': cause, 'family': fam}))
 
 
-def prove(scene, results, sha_base):
+ADMIT_MIN_MATCHED = 2          # a start enters the library's gate with >= 2 base runs matching the fleet ...
+ADMIT_MIN_RATE = 2 / 3         # ... in >= 2 of every 3, and no base run passing (Claude r1 P2: one draw is not a verdict)
+
+
+def reproducing_starts(proof):
+    """The starts whose BASE runs reproduce the fleet's failure often enough to gate a fix on."""
+    by = collections.defaultdict(list)
+    for p in proof:
+        if p.get('role') == 'base' and p.get('matched_fleet') is not None:   # no-runs prove nothing either way
+            by[p.get('start_index') or 0].append(p)
+    out = []
+    for st, ps in sorted(by.items()):
+        m = sum(1 for p in ps if p['matched_fleet'])
+        if m >= ADMIT_MIN_MATCHED and m / len(ps) >= ADMIT_MIN_RATE and not any(p.get('pass') for p in ps):
+            out.append(st)
+    return out
+
+
+def prove(scene, results, sha_base, label=None):
     """Fold driver results (results.jsonl rows for this scene) into scene['proof']; returns the base verdict.
-    A BASE proof is a run on the base build whose outcome MATCHED the fleet (stayed / died of the family)."""
+    A BASE proof is a run on the base build whose outcome MATCHED the fleet (stayed / died of the family nearby)."""
+    if not re.match(r'^[0-9a-f]{7,40}$', sha_base or ''):
+        raise BlindInput(f'--base-sha {sha_base!r}: give at least 7 hex digits of the base build')
     # only runs on THESE cells: a re-cut scene keeps its id, and an older arena's runs prove nothing about it
-    rows = [r for r in results if r.get('scene') == scene['id'] and r.get('cells_sha256') == scene['cells_sha256']]
+    rows = [r for r in results if r.get('scene') == scene['id'] and r.get('cells_sha256') == scene['cells_sha256']
+            and (label is None or r.get('label') == label)]
     if not rows:
         raise BlindInput(f'no driver result for {scene["id"]}')
     for r in rows:
@@ -1198,13 +1264,14 @@ def prove(scene, results, sha_base):
         if entry not in scene['proof']:
             scene['proof'].append(entry)
     base = [p for p in scene['proof'] if p['role'] == 'base']
-    return {'base_runs': len(base), 'base_matched': sum(1 for p in base if p['matched_fleet']), 'base_passed': sum(1 for p in base if p['pass'])}
+    return {'base_runs': len(base), 'base_matched': sum(1 for p in base if p['matched_fleet']), 'base_passed': sum(1 for p in base if p['pass']),
+            'reproducing_starts': reproducing_starts(scene['proof'])}
 
 
 def cmd_prove(a):
     s = json.load(open(a.scene))
     rows = [json.loads(l) for l in open(a.results) if l.strip()]
-    v = prove(s, rows, a.base_sha)
+    v = prove(s, rows, a.base_sha, a.label)
     scene_valid(s)
     json.dump(s, open(a.scene, 'w'), separators=(',', ':'))
     print(json.dumps(v))
@@ -1223,7 +1290,7 @@ def build_index(lib):
                     'cells_sha256': sc['cells_sha256'], 'oracle': sc['oracle']['type'], 'fleet': sc['base'].get('fleet', '')[:200],
                     'base_runs': len(base), 'base_matched': sum(1 for p in base if p.get('matched_fleet')),
                     'base_passed': sum(1 for p in base if p.get('pass')),
-                    'reproducing_starts': sorted({p.get('start_index') or 0 for p in base if p.get('matched_fleet')})})
+                    'reproducing_starts': reproducing_starts(sc.get('proof') or [])})
     return {'schema': 'failmine-library/1', 'scenes': out,
             'rule': 'a fix touching a family must pass every scene of it on the reproducing starts; the base must still fail there '
                     '(sandbox/failmine/library-ab.mjs); a base that passes retires the scene, it never counts as a candidate pass'}
@@ -1251,6 +1318,7 @@ def main(argv=None):
     v = sub.add_parser('validate'); v.add_argument('scene')
     k = sub.add_parser('classify'); k.add_argument('message')
     pr = sub.add_parser('prove'); pr.add_argument('scene'); pr.add_argument('results'); pr.add_argument('--base-sha', required=True)
+    pr.add_argument('--label', help='only driver runs with this label (exploratory runs carry another)')
     ix = sub.add_parser('index'); ix.add_argument('library')
     a = ap.parse_args(argv)
     if a.cmd == 'table':

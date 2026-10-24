@@ -17,7 +17,8 @@
 // row, classified by failmine.py's own table (the same one the clusters were built with).
 //
 //   node sandbox/failmine/scene-e2e.mjs <botRoot> <label> <scene.json> [server] [minutes]
-// Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `failmine` as its owner's first word.
+// sandbox5..sandbox8 only, and only under that server's OWN per-server lock with `failmine` as its owner's first word (the
+// global lock alone is refused: Codex r1 P2). The verdict is oracle.mjs's (a pure function, tested in bots/test/failmine.test.mjs).
 // World edits on its own arena only; cleanup leaves the arena a plain stone block (not the sandbox's original terrain).
 import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -25,15 +26,18 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { decide } from './oracle.mjs'
 
 const [BOT_ROOT, LABEL, SCENE_FILE, SERVER = 'sandbox6', MIN_S, START_S = '0'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL || !SCENE_FILE) throw new Error('usage: scene-e2e.mjs <botRoot> <label> <scene.json> [server] [minutes] [start#]')
 const require = createRequire(import.meta.url)
 const sbx = require('../lib/sbxlock.cjs')
-// sandbox4 stays excluded: it is the model benchmark's
-const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => n !== 'sandbox4'))
-if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).join(', ')})`)
-sbx.requireSandboxLock(SERVER, 'failmine')
+// the owner's scope: the four new sandboxes (sandbox4 is the model benchmark's; sandbox..sandbox3 belong to older drivers)
+const ALLOWED = ['sandbox5', 'sandbox6', 'sandbox7', 'sandbox8']
+const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => ALLOWED.includes(n)))
+if (!PORTS[SERVER]) throw new Error(`failmine runs on ${ALLOWED.join(', ')} only, not ${SERVER}`)
+const LOCK = sbx.requireSandboxLock(SERVER, 'failmine')
+if (!/per-server: failmine\b/.test(LOCK)) throw new Error(`take ${SERVER}'s own lock (sandbox/sbxlock.sh take ${SERVER} failmine): ${LOCK}`)
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const FM = path.join(REPO, 'scripts/host/failmine/failmine.py')
 // THE LIBRARY CONTRACT IS PYTHON'S (one implementation): a scene that does not validate is never built
@@ -54,8 +58,15 @@ const T0 = Date.now()
 const P_ = (...a) => { const s = `[${LABEL}/${S.id} ${((Date.now() - T0) / 1000).toFixed(1)}] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' '); fs.appendFileSync(`${OUT}/driver.log`, s + '\n'); console.log(s) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 let stopping = false
-let sha = 'unknown'
-try { sha = execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() } catch { try { sha = fs.readFileSync(path.join(BOT_ROOT, 'SHA'), 'utf8').trim() } catch {} }
+// THE BUILD'S SHA decides base vs candidate in the proof (Claude r1 P2): git only when BOT_ROOT IS the repository's top (a
+// `git archive` extract inside another checkout would report THAT checkout's HEAD), else its SHA file, else refuse
+let sha = null
+try {
+  const top = execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  if (fs.realpathSync(top) === fs.realpathSync(BOT_ROOT)) sha = execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+} catch {}
+if (!sha) { try { sha = fs.readFileSync(path.join(BOT_ROOT, 'SHA'), 'utf8').trim() } catch {} }
+if (!/^[0-9a-f]{40}$/.test(sha || '')) throw new Error(`cannot tell which build ${BOT_ROOT} is (no repository top, no 40-hex SHA file)`)
 
 // ---------------------------------------------------------------- RCON (sandbox only, through the worlds host's helper)
 const SSH = ['-o', 'BatchMode=yes', '-o', 'ControlMaster=auto', '-o', `ControlPath=${process.env.HOME}/.ssh/cm-fm-%C`, '-o', 'ControlPersist=600', 'mike@10.0.0.30']
@@ -73,6 +84,12 @@ function batch (cmds, what = 'rcon') {
   const bad = out.filter(x => BAD.test(x.reply) && !/No blocks were filled/.test(x.reply))
   if (bad.length) throw new Error(`${what}: ` + bad.slice(0, 3).map(x => x.cmd + ' => ' + x.reply).join('; '))
   return out
+}
+const POS_RE = /\[(-?[\d.E-]+)d, (-?[\d.E-]+)d, (-?[\d.E-]+)d\]/
+function observe (name) {
+  const [p, h] = rcon(`data get entity ${name} Pos`, `data get entity ${name} Health`)
+  const m = POS_RE.exec(p?.reply ?? ''), mh = /([\d.]+)f/.exec(h?.reply ?? '')
+  return { pos: m ? { x: +m[1], y: +m[2], z: +m[3] } : null, health: mh ? +mh[1] : null, at: Date.now() }
 }
 const posOf = name => { const m = /\[(-?[\d.E-]+)d, (-?[\d.E-]+)d, (-?[\d.E-]+)d\]/.exec(r1(`data get entity ${name} Pos`)); return m ? { x: +m[1], y: +m[2], z: +m[3] } : null }
 const healthOf = name => { const m = /([\d.]+)f/.exec(r1(`data get entity ${name} Health`)); return m ? +m[1] : null }
@@ -191,8 +208,13 @@ async function main () {
   for (let k = 0; k < 30 && !/There are 0 of/.test(pl); k++) { await sleep(2000); pl = r1('list') }
   if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   P_(`root=${BOT_ROOT} sha=${sha} server=${SERVER} scene=${S.id} label=${S.label} cells=${valid.cells} arena=${BX},${OY},${BZ} (dx ${DX}, dz ${DZ}) topOpen=${topOpen} script=${scriptLine()}`)
-  savedRules = Object.fromEntries(ruleNames.map(g => [g, (/set to: (\S+)/.exec(r1(`gamerule ${g}`)) || [])[1]]))
+  const saved = Object.fromEntries(ruleNames.map(g => [g, (/set to: (\S+)/.exec(r1(`gamerule ${g}`)) || [])[1]]))
+  const unread = Object.entries(saved).filter(([, v]) => v == null).map(([g]) => g)
+  if (unread.length) throw new Error(`cannot read the sandbox's current gamerule(s) ${unread.join(', ')}: refusing to change what cannot be restored`)
+  savedRules = saved
   batch(ruleNames.map(g => `gamerule ${g} ${S.gamerules[g]}`), 'gamerules')
+  // THE DEATH COUNTER, independent of the bot's own logging (Claude r1 P1)
+  rcon('scoreboard objectives add fmdeaths deathCount')
   r1(`forceload add ${lo.x} ${lo.z} ${hi.x} ${hi.z}`)
   await sleep(3000)
   const cmds = arenaCmds()
@@ -214,6 +236,7 @@ async function main () {
   // its chunks took to arrive, and the health set afterwards then killed it with a GENERIC death -- not the fleet's):
   //   1. bag and gamemode at the join point, then a wait on the HOLDING PAD above the arena until its chunks are in;
   //   2. ONE batch: the fleet health (generic damage, applied on the pad) and the teleport to the start.
+  batch([`scoreboard players set ${b.name} fmdeaths 0`], 'death counter')
   const placed = rcon(`gamemode survival ${b.name}`, `clear ${b.name}`, `effect clear ${b.name}`, `tp ${b.name} ${PAD.x + 0.5} ${PAD.y + 1} ${PAD.z + 0.5}`,
     ...bag.map((it, i) => `item replace entity ${b.name} container.${i} with minecraft:${it.id}${it.damage != null ? `[damage=${it.damage}]` : ''} ${it.count}`))
   const badGive = placed.filter(x => BAD.test(x.reply))
@@ -223,40 +246,48 @@ async function main () {
   rcon(...(h0 > 0 && h0 < 20 ? [`damage ${b.name} ${(20 - h0).toFixed(1)} minecraft:generic`] : []), `tp ${b.name} ${sp[0] + DX} ${sp[1]} ${sp[2] + DZ}`)
   await sleep(600)
   const start = posOf(b.name)
+  if (!start) throw new Error('the bot was not observed after placement')
   P_('placed', start, { stacks: bag.length, dropped })
   const F = S.oracle.from_cell ?? ST.pos.map(Math.floor)
   const cellOf = p => [Math.floor(p.x - DX), Math.floor(p.y), Math.floor(p.z - DZ)]
   const inArena = p => p && p.x >= lo.x && p.x <= hi.x + 1 && p.z >= lo.z && p.z <= hi.z + 1 && p.y >= lo.y - 1 && p.y <= hi.y + 14
   const isOut = p => { if (!p) return false; const c = cellOf(p); return Math.max(Math.abs(c[0] - F[0]), Math.abs(c[2] - F[2])) >= (S.oracle.min_horizontal ?? 2) || c[1] - F[1] >= (S.oracle.min_up ?? 2) }
   const deadline = Date.now() + MINUTES * 60_000
-  let outAt = null, minHealth = 20, maxDist = 0, died = null, lastPos = start
+  let outAt = null, minHealth = 20, maxDist = 0, lastPos = start, lastSeen = Date.now(), maxGapS = 0, polls = 0, missed = 0, lastHealth = null
+  const deathRows = () => rowsOf(b).filter(r => kind(r) === '_death')
   while (Date.now() < deadline) {
     await sleep(3000)
-    const deaths = rowsOf(b).filter(r => kind(r) === '_death')
-    if (deaths.length) { died = String(deaths[0].skill.detail || ''); break }
-    const p = posOf(b.name), h = healthOf(b.name)
-    if (h != null) minHealth = Math.min(minHealth, h)
-    if (p) { lastPos = p; maxDist = Math.max(maxDist, Math.hypot(p.x - start.x, p.y - start.y, p.z - start.z)) }
+    if (deathRows().length) break
+    if (b.child.exitCode !== null || b.child.signalCode !== null) break
+    const o = observe(b.name); polls++
+    if (o.pos && o.health != null) {
+      maxGapS = Math.max(maxGapS, (o.at - lastSeen) / 1000); lastSeen = o.at; lastPos = o.pos; lastHealth = o.health
+      minHealth = Math.min(minHealth, o.health)
+      maxDist = Math.max(maxDist, Math.hypot(o.pos.x - start.x, o.pos.y - start.y, o.pos.z - start.z))
+      if (o.health <= 0) break
+    } else { missed++; maxGapS = Math.max(maxGapS, (o.at - lastSeen) / 1000) }
     if (S.oracle.type === 'escape') {
-      if (isOut(p) && inArena(p)) { outAt ??= Date.now(); if (Date.now() - outAt >= (S.oracle.hold_s ?? 20) * 1000) break } else outAt = null
+      if (o.pos && isOut(o.pos) && inArena(o.pos)) { outAt ??= Date.now(); if (Date.now() - outAt >= (S.oracle.hold_s ?? 20) * 1000) break } else outAt = null
     }
   }
-  await sleep(1500)
+  await sleep(2000)
+  const fin = observe(b.name)
+  if (fin.pos && fin.health != null) { maxGapS = Math.max(maxGapS, (fin.at - lastSeen) / 1000); lastSeen = fin.at; lastPos = fin.pos; lastHealth = fin.health }
   const rows = rowsOf(b)
-  const d0 = rows.find(r => kind(r) === '_death')
-  if (d0 && !died) died = String(d0.skill.detail || '')
+  const dRows = rows.filter(r => kind(r) === '_death')
+  const died = dRows.length ? String(dRows[0].skill.detail || '') : null
   const dc = died ? classify(died.split(';')[0].split('|')[0].trim()) : null
-  const end = posOf(b.name) ?? lastPos
-  let outcome, pass, matched
-  if (S.oracle.type === 'escape') {
-    const held = outAt ? (Date.now() - outAt) / 1000 : 0
-    if (died) { outcome = `died:${dc.family}`; pass = false; matched = false }
-    else if (outAt && held >= (S.oracle.hold_s ?? 20) && inArena(end)) { outcome = 'escaped'; pass = true; matched = false }
-    else { outcome = isOut(end) ? 'out-not-held' : 'stayed'; pass = false; matched = outcome === 'stayed' }
-  } else {
-    if (died) { outcome = `died:${dc.family}`; pass = false; matched = (S.oracle.fail_families || []).includes(dc.family) }
-    else { outcome = 'survived'; pass = true; matched = false }
-  }
+  const dp = dRows[0]?.bot?.pos
+  const scoreTxt = r1(`scoreboard players get ${b.name} fmdeaths`)
+  const ms = /has (\d+) \[/.exec(scoreTxt)
+  const obs = { deathsLog: dRows.length, deathsScore: ms ? Number(ms[1]) : null, deathFamily: dc?.family ?? null,
+    deathCell: dp ? cellOf(dp) : null, childExited: b.child.exitCode !== null || b.child.signalCode !== null,
+    maxGapS, lastSeenAgoS: (Date.now() - lastSeen) / 1000, endHealth: lastHealth,
+    outHeldS: outAt && lastPos && isOut(lastPos) ? (Date.now() - outAt) / 1000 : 0, inArenaEnd: inArena(lastPos) }
+  const end = lastPos
+  const verdict = decide(S.oracle, obs, { deathCell: ST.death?.pos ? ST.death.pos.map(Math.floor) : null })
+  const { outcome, pass } = verdict
+  const matched = verdict.matched_fleet
   const kinds = {}
   for (const r of rows) { const k = kind(r); if (k) kinds[k] = (kinds[k] || 0) + 1 }
   const top = Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 14)
@@ -264,7 +295,7 @@ async function main () {
   const fk = (S.fleet_kinds || []).map(([k]) => k)
   const mechanism = fk.length ? { fleet: fk, seen: fk.filter(k => kinds[k]), share: +(fk.filter(k => kinds[k]).length / fk.length).toFixed(2) } : null
   const ev = { at: new Date().toISOString(), label: LABEL, scene: S.id, cells_sha256: S.cells_sha256, sceneLabel: S.label, sha, server: SERVER, minutes: MINUTES, outcome, pass,
-    matched_fleet: matched, start_index: START, fleet: ALT ? `${ALT.death?.bot} ${ALT.death?.t}: ${String(ALT.death?.detail || '').slice(0, 160)}` : S.base.fleet, death: died ? died.slice(0, 220) : null, deathClass: dc,
+    matched_fleet: matched, start_index: START, observation: { ...obs, polls, missed }, fleet: ALT ? `${ALT.death?.bot} ${ALT.death?.t}: ${String(ALT.death?.detail || '').slice(0, 160)}` : S.base.fleet, death: died ? died.slice(0, 220) : null, deathClass: dc,
     start: start && [start.x, start.y, start.z].map(v => +v.toFixed(2)), end: end && cellOf(end), maxDistance: +maxDist.toFixed(1),
     minHealth, fidelity: fid, mechanism, rows: rows.length, topKinds: top, kinds, script: scriptLine(), bagStacks: bag.length, bagDropped: dropped,
     detail: `${outcome}; moved max ${maxDist.toFixed(1)} blocks; min health ${minHealth}`,
