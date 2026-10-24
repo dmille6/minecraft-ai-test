@@ -9,7 +9,7 @@
 set -euo pipefail
 SERVER="$1"; BASE="$2"; CAND="$3"; WMAP="$4"; OUT="$5"; REP="$6"; shift 6
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/../.." && pwd)"
-mkdir -p "$OUT"
+mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"   # absolute: result rows name their run dir by it (Codex driver r2 P2)
 for spec in "$@"; do
   scene="${spec%%:*}"; start="${spec##*:}"
   for i in $(seq 1 "$REP"); do

@@ -326,7 +326,7 @@ async function main () {
   // MECHANISM, not just outcome: which of the fleet bot's own top row kinds at this site the sandbox bot also logged
   const fk = (S.fleet_kinds || []).map(([k]) => k)
   const mechanism = fk.length ? { fleet: fk, seen: fk.filter(k => kinds[k]), share: +(fk.filter(k => kinds[k]).length / fk.length).toFixed(2) } : null
-  const ev = { at: new Date().toISOString(), run_dir: RUN, placed_at: new Date(placedAt).toISOString(), pool_hook: hookNote, label: LABEL, scene: S.id, cells_sha256: S.cells_sha256, sceneLabel: S.label, sha, server: SERVER, minutes: MINUTES, outcome, pass,
+  const ev = { at: new Date().toISOString(), run_dir: path.resolve(RUN), placed_at: new Date(placedAt).toISOString(), pool_hook: hookNote, label: LABEL, scene: S.id, cells_sha256: S.cells_sha256, sceneLabel: S.label, sha, server: SERVER, minutes: MINUTES, outcome, pass,
     matched_fleet: matched, start_index: START, driver_sha256: DRIVER_SHA256, observation: { ...obs, polls, missed }, fleet: ALT ? `${ALT.death?.bot} ${ALT.death?.t}: ${String(ALT.death?.detail || '').slice(0, 160)}` : S.base.fleet, death: died ? died.slice(0, 220) : null, deathClass: dc,
     start: start && [start.x, start.y, start.z].map(v => +v.toFixed(2)), end: end && cellOf(end), maxDistance: +maxDist.toFixed(1),
     minHealth, fidelity: fid, mechanism, rows: rows.length, topKinds: top, kinds, script: scriptLine(), bagStacks: bag.length, bagDropped: dropped,

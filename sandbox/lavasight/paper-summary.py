@@ -69,7 +69,7 @@ def summarize(dirs):
             elif r['label'] == 'cand' and mode != 'ok':
                 why = 'map not bound (%s)' % mode
             elif r['label'] == 'cand' and active == 0:
-                why = 'nothing indexed'
+                why = 'no post-placement route or liveness row with an active cell'
             table[(r['scene'], r.get('start_index', 0))][r['label']].append({
                 'invalid': why, 'outcome': r.get('outcome'), 'pass': r.get('pass'), 'death': (r.get('deathClass') or {}).get('family'),
                 'episodes': len(ep), 'corridor': k.get('_lava_corridor', 0), 'blind': k.get('_explore_blind_step_refused', 0),
@@ -80,7 +80,9 @@ def summarize(dirs):
 
 def main(dirs):
     table, started = summarize(dirs)
-    for key in sorted(table):
+    # every (scene, start) STARTED or with a result: a scene whose runs all crashed still shows (Claude driver r2 P3-1)
+    keys = set(table) | {(s, st) for (s, st, _) in started}
+    for key in sorted(keys):
         print('== %s start %s' % key)
         for b in ('base', 'cand'):
             xs = table[key].get(b, [])
