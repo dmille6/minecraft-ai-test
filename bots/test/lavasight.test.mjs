@@ -384,7 +384,7 @@ await t('MUTANT KILLED: charging a move into a climbable on EITHER form (r4) ove
   })
 })
 await t('MUTANT KILLED: never settling the climbable\'s charge on its child under-prices the refused climb', async () => {
-  await withMutant(LS_URL, '    if (node._lsIn) settle = Math.max(0, (hits(node._lsIn.from, from) ? CORE_MOVE : 0) - node._lsIn.charged)\n', '', async mod => {
+  await withMutant(LS_URL, '    if (inc) settle = Math.max(0, (hits(inc.from, from) ? CORE_MOVE : 0) - inc.charged)\n', '', async mod => {
     const world = ladderWorld(), H = harness(world, new Vec3(0.5, 61, 0.5))
     const idx = mod.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
     const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
@@ -393,6 +393,59 @@ await t('MUTANT KILLED: never settling the climbable\'s charge on its child unde
     const c = pathCharges(world, H, res)
     assert.ok(c.charged < LS.CORE_MOVE * c.refused, `the mutant under-charges (${c.charged} for ${c.refused})`)
   })
+})
+const Move = require_('mineflayer-pathfinder/lib/move.js')
+await t('RESUMED SEARCHES: partial slices (postProcessPath moves the A* nodes in place) charge the final path exactly (Codex r5 P2)', () => {
+  // tickTimeout ~0: every compute() yields a partial, which getPathFromTo post-processes IN PLACE before the search resumes
+  let sliced = 0
+  for (const [world, pos, goal, idxCells] of [
+    [ladderWorld(), new Vec3(0.5, 61, 0.5), new goals.GoalBlock(0, 65, 0), [{ x: 2, y: 65, z: 1 }]],
+    [poolWorld(), new Vec3(0.5, 61, 0.5), new goals.GoalBlock(10, 61, 0), [2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 }))],
+  ]) {
+    const H = harness(world, pos)
+    const idx = LS.buildPriceIndex(idxCells, world.solidAt)
+    const m = H.wrap(H.profile(), idx)
+    const g = H.bot.pathfinder.getPathFromTo(m, H.bot.entity.position, goal, { timeout: 10000, tickTimeout: 0.2 })   // below ~0.05 ms the base pathfinder itself never finishes
+    let v = g.next().value, n = 1
+    while (v.result.status === 'partial') { v = g.next().value; n++ }
+    assert.equal(v.result.status, 'success', `status after ${n} slices`)
+    if (n > 1) sliced++
+    const c = pathCharges(world, H, v.result)
+    assert.equal(c.charged, LS.CORE_MOVE * c.refused, `after ${n} slices: charged ${c.charged} for ${c.refused} refused segment(s)`)
+  }
+  assert.ok(sliced >= 1, `positive control: ${sliced} searches actually resumed`)
+})
+await t('MUTANT KILLED: reading the A* node\'s mutable x/y/z (no recorded search cell) mis-charges a resumed climb', async () => {
+  await withMutant(LS_URL, 'export const cellOf = n => n._lsC ?? {', 'export const cellOf = n => null ?? {', async mod => {
+    let wrong = 0
+    for (let rep = 0; rep < 6; rep++) {
+      const world = ladderWorld(), H = harness(world, new Vec3(0.5, 61, 0.5))
+      const idx = mod.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
+      const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
+      const m = H.profile(); m.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null, env: { start: { x: 0, y: 61, z: 0 }, blockAt: (x, y, z) => world.at(x, y, z), ids } }), {})
+      const g = H.bot.pathfinder.getPathFromTo(m, H.bot.entity.position, new goals.GoalBlock(0, 65, 0), { timeout: 10000, tickTimeout: 0.2 })
+      let v = g.next().value; while (v.result.status === 'partial') v = g.next().value
+      const c = pathCharges(world, H, v.result)
+      if (c.charged !== LS.CORE_MOVE * c.refused) wrong++
+    }
+    assert.ok(wrong > 0, 'the mutant charged every resumed climb exactly: the test cannot see the mutation')
+  })
+})
+await t('A LATE INDEX: a ladder generated while the index was empty still settles its incoming segment once lava is indexed (Codex r5 P3)', () => {
+  const world = ladderWorld()
+  const idx = LS.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
+  const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
+  const env = { start: { x: 0, y: 63, z: 0 }, blockAt: (x, y, z) => world.at(x, y, z), ids }
+  const chain = (firstIdx) => {
+    const start = new Move(0, 63, 0, 0, 0)
+    const a = new Move(0, 64, 0, 0, 1), b = new Move(0, 65, 0, 0, 1)
+    const s1 = LS.moveSurcharge(firstIdx, start, a, env)
+    const s2 = LS.moveSurcharge(idx, a, b, env)
+    return s1 + s2
+  }
+  const full = chain(idx), late = chain(new Set())
+  assert.ok(full > 0, `positive control: the climb past the lava is charged (${full})`)
+  assert.equal(late, full, 'the segment into the ladder is settled on its child even though it was generated unpriced')
 })
 await t('CAPPED SEARCHES: wherever the base reaches a goal within a cost cap by a route the guard accepts, the candidate does too (Codex r2 P1, r3 P2)', () => {
   // GoalBlock, so the base's cost >= h(start) and the cap is a real cap (searchRadius >= 0); one slice per search (the
