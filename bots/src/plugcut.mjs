@@ -198,6 +198,10 @@ export function plugStreak (prev, { at, now, refused }) {
   return { at: plugSamePlace(prev, at, now) ? prev.at : at, n: plugSoFar(prev, at, now) + 1, t: now }
 }
 
+/** A utility block (poolescape's INTERACTIVE: a furnace, a crafting table, a chest...): never clicked, spared from a first
+ *  step's digs where another bearing runs. Re-exported here so reflex.mjs keeps its ONE poolescape import. Pure. */
+export const isUtilityBlock = name => INTERACTIVE.test(name ?? '')
+
 /** Is the plug rung due on this flood refusal? When PLUG_AFTER_REFUSALS refusals were already counted HERE. Pure. */
 export const plugDue = (soFar, env) => plugCutOn(env) && Number(soFar) >= PLUG_AFTER_REFUSALS
 
