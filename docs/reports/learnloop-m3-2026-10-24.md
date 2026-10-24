@@ -123,11 +123,66 @@ RUNNING. Results are filled in when the runs finish.
   starts only after boot-01 ends with verdict OK and a merged model (and Ollama stopped): its own 50-step fit test
   (`fit-qwen25`), then the same 40k set, same recipe. ~28 h.
 - Then per arm: `export` (+ `export-base` for Qwen3), `template-check`, `eval.sh` (rung a, fleet settings),
-  `export_check.sh` (q4_K_M and q8_0 vs bf16, greedy, with the determinism control), rung (a) serving test.
+  `export_check.sh` (q8_0 -- owner A1 -- and q4_K_M vs bf16, greedy, with the determinism control), the rung (a)
+  serving test (owner A2, s.6.2). Rung (a) scores the Q8_0 artifact.
 
-## 6. Serving note for M7 (arithmetic, to be measured in the rung (a) serving test)
+## 6. Owner amendments (OWNER 10-24, "both yes")
 
-Qwen3-8B's KV cache is ~144 KB/token (36 layers x 8 KV heads x 128 x K+V x 2 B) vs qwen2.5-7B's ~56 KB (28 x 4).
-At the fleet's 16 slots x 8,192 ctx that is ~18 GiB of fp16 KV for Qwen3-8B vs ~7 GiB for qwen2.5: a Qwen3-8B
-candidate does not fit the 16 GB 5080 at today's settings, at any weight quantization. Options for the operator:
-`OLLAMA_KV_CACHE_TYPE=q8_0`, a smaller `num_ctx` (prompts are p95 ~2,830 tokens), or fewer slots.
+### 6.1 A1: export at Q8_0, not Q4_K_M (amends design s.3.2 "Export to Ollama", step 3)
+
+- **Step 3 is now `ollama create -q q8_0`** (Ollama's bundled llama.cpp quantizer, from the bf16 GGUF). Q4_K_M is
+  still built and reported, but it is no longer the candidate that is served or scored.
+- **The export check is unchanged in its gate and changed in its method, as run in s.4.3.** Every model replays
+  greedy (`LLM_TEMPERATURE=0`, otherwise the fleet's client). Q8_0 vs the merged bf16 must choose the same skill on
+  >= 97% of the 600 items both answer schema-valid, with complete coverage, and Q8_0's schema-valid share must not
+  be below bf16's. The determinism control (the same quant replayed twice) is printed beside every verdict, with
+  `ceiling_below_gate` when the control itself cannot reach 97% (`export_check.sh`, `export_summary.py`).
+- Why: on the dry round, greedy q4_K_M vs bf16 gave 87.8% (FAIL) and q8_0 vs bf16 gave 97.2% (PASS), against a
+  determinism ceiling of 96.7%.
+- Cost: weights 8.7 GB instead of 5.0 GB. Rung (a) and everything after it score the Q8_0 artifact.
+
+### 6.2 A2: serving is chosen by the 16-stream serving test (amends design s.4(a) "Serving test")
+
+**Rule.** The rung (a) serving test picks the CHEAPEST combination that holds today's fleet latency gates on the
+3090: **p50 <= 2.5 s, p95 <= 5 s, p99 <= 10 s** per decision (the same gates as drop16.sh's verify). The record must
+name the combination chosen and why. Nothing changes on 10.0.0.72; that serving change is the operator's at M7.
+
+**Why it is needed (arithmetic).** Qwen3-8B's KV cache is ~144 KiB/token (36 layers x 8 KV heads x 128 x K+V x 2 B),
+against qwen2.5-7B's ~56 KiB (28 x 4). At the fleet's 16 slots x 8,192 ctx that is ~18 GiB of fp16 KV for Qwen3-8B
+vs ~7 GiB for qwen2.5, which does not fit the 16 GB 5080 at any weight quantization.
+
+**Do the bots' real prompts fit a smaller context? Yes, for 4,096.** Measured on 10-23 (146,829 model decisions,
+5 code versions, 0 rows without token counts):
+
+| | p50 | p95 | p99 | p99.9 | max |
+|---|---|---|---|---|---|
+| prompt tokens | 2,514 | 2,722 | 2,800 | 2,896 | 2,998 |
+| completion tokens | 58 | 89 | 103 | - | 125 |
+| prompt + completion | - | - | - | 2,969 | 3,070 |
+
+0 of 146,829 exceeded 3,072, so 0 exceeded 4,096. The client's reserve is `num_predict` 512, and the largest prompt
+seen (2,998) + 512 = 3,510, which leaves 586 tokens of headroom under 4,096. Any context below 3,584 is ruled out.
+Counts are qwen2.5's tokenizer; Qwen3's matched it on every item the template check counted. **A smaller context
+is a BOT env change** (`OLLAMA_NUM_CTX=8192` in all 80 env files; the client sends `num_ctx` on every request), so
+it costs an 80-file env transaction at M7. The KV type and slot count are server-only.
+
+**Candidates, cheapest first** (16 slots unless stated; KV for Qwen3-8B; weights Q8_0 8.7 GB):
+
+| # | combination | KV | change at M7 | quality risk |
+|---|---|---|---|---|
+| 1 | `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0`, ctx 8,192 | ~9 GiB | server env only | q8 KV: small; re-scored |
+| 2 | ctx 4,096, fp16 KV | ~9 GiB | 80 bot env files | none (no prompt exceeds 3,070 + reserve) |
+| 3 | ctx 4,096 + q8_0 KV | ~4.5 GiB | both | as 1 |
+| 4 | fewer slots (12, then 8) at the cheapest fitting KV/ctx | scales | server env only | none; latency is the risk |
+
+- The order is by change cost, then by risk: a server-only change before an 80-file bot env change, and slots last
+  because they trade directly against latency.
+- **Test.** Ollama on the 3090 at each combination, 16 concurrent streams of real, varied prompts (the 600 cell-C
+  items cycled, never one prompt repeated, per memory `decision-cadence-formula`), through the fleet's client.
+  Read decide() latency p50/p95/p99, `/api/ps` `size_vram` = size (no CPU offload), and load_duration p95 < 1 s.
+- The first combination, in order, that holds all three gates with the model fully on the GPU is chosen.
+- A combination that changes KV precision must also re-pass rung (a)'s schema-valid / hard / rep_fail gates at
+  that setting before it is chosen.
+- **3090 caveat:** ethan-gpu holds 6 GB, leaving ~17.5 GB. A combination that fits the 3090 but would not fit the
+  5080 beside the honeypot is recorded as such; the operator reads .72's free VRAM, no agent does.
+- Result: PENDING (runs with the bootstrap candidates).
