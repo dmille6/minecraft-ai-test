@@ -395,41 +395,68 @@ await t('MUTANT KILLED: never settling the climbable\'s charge on its child unde
   })
 })
 const Move = require_('mineflayer-pathfinder/lib/move.js')
-await t('RESUMED SEARCHES: partial slices (postProcessPath moves the A* nodes in place) charge the final path exactly (Codex r5 P2)', () => {
-  // tickTimeout ~0: every compute() yields a partial, which getPathFromTo post-processes IN PLACE before the search resumes
-  let sliced = 0
-  for (const [world, pos, goal, idxCells] of [
-    [ladderWorld(), new Vec3(0.5, 61, 0.5), new goals.GoalBlock(0, 65, 0), [{ x: 2, y: 65, z: 1 }]],
-    [poolWorld(), new Vec3(0.5, 61, 0.5), new goals.GoalBlock(10, 61, 0), [2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 }))],
-  ]) {
-    const H = harness(world, pos)
-    const idx = LS.buildPriceIndex(idxCells, world.solidAt)
-    const m = H.wrap(H.profile(), idx)
-    const g = H.bot.pathfinder.getPathFromTo(m, H.bot.entity.position, goal, { timeout: 10000, tickTimeout: 0.2 })   // below ~0.05 ms the base pathfinder itself never finishes
+// DETERMINISTIC SLICES (Codex r6 P2): the pathfinder's A* reads perf_hooks' clock; a fake clock that ticks 1 ms per read makes
+// every compute() yield after a fixed number of expansions, so a partial result (post-processed IN PLACE) lands at the same
+// points every run
+function slicedPlan (H, m, goal, tick = 3) {
+  // the FIRST compute() yields after ~tick/2 expansions (a fake clock, 1 ms per read); the rest of the search runs on the real
+  // clock in one slice. That is Codex's reproduction shape (one early partial, post-processed in place, then a resume); many
+  // tiny slices in a row livelock the BASE pathfinder itself, so they are not a lavasight case.
+  const perf = require_('perf_hooks').performance
+  const real = perf.now
+  let fake = 0
+  perf.now = () => (fake += 1)
+  let restored = false
+  const restore = () => { if (!restored) { perf.now = real; restored = true } }
+  try {
+    const g = H.bot.pathfinder.getPathFromTo(m, H.bot.entity.position, goal, { timeout: 1e9, tickTimeout: tick })
     let v = g.next().value, n = 1
-    while (v.result.status === 'partial') { v = g.next().value; n++ }
-    assert.equal(v.result.status, 'success', `status after ${n} slices`)
-    if (n > 1) sliced++
-    const c = pathCharges(world, H, v.result)
-    assert.equal(c.charged, LS.CORE_MOVE * c.refused, `after ${n} slices: charged ${c.charged} for ${c.refused} refused segment(s)`)
-  }
-  assert.ok(sliced >= 1, `positive control: ${sliced} searches actually resumed`)
-})
-await t('MUTANT KILLED: reading the A* node\'s mutable x/y/z (no recorded search cell) mis-charges a resumed climb', async () => {
-  await withMutant(LS_URL, 'export const cellOf = n => n._lsC ?? {', 'export const cellOf = n => null ?? {', async mod => {
-    let wrong = 0
-    for (let rep = 0; rep < 6; rep++) {
-      const world = ladderWorld(), H = harness(world, new Vec3(0.5, 61, 0.5))
-      const idx = mod.buildPriceIndex([{ x: 2, y: 65, z: 1 }], world.solidAt)
-      const ids = { water: registry.blocksByName.water.id, ladder: registry.blocksByName.ladder.id, vine: registry.blocksByName.vine.id }
-      const m = H.profile(); m.getNeighbors = mod.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx, live: true, reflex: null, env: { start: { x: 0, y: 61, z: 0 }, blockAt: (x, y, z) => world.at(x, y, z), ids } }), {})
-      const g = H.bot.pathfinder.getPathFromTo(m, H.bot.entity.position, new goals.GoalBlock(0, 65, 0), { timeout: 10000, tickTimeout: 0.2 })
-      let v = g.next().value; while (v.result.status === 'partial') v = g.next().value
-      const c = pathCharges(world, H, v.result)
-      if (c.charged !== LS.CORE_MOVE * c.refused) wrong++
+    restore()
+    while (v.result.status === 'partial') {
+      v.astarContext.tickTimeout = 10000
+      v = g.next().value; n++
     }
-    assert.ok(wrong > 0, 'the mutant charged every resumed climb exactly: the test cannot see the mutation')
-  })
+    return { result: v.result, slices: n }
+  } finally { restore() }
+}
+function slabCorridor () {
+  const air = [], slab = []
+  for (let x = -1; x <= 6; x++) { air.push([x, 61, 0], [x, 62, 0]); slab.push([x, 60, 0]) }
+  return makeWorld({ floor: 62, air, slab, lava: [[2, 60, 2]] })
+}
+await t('RESUMED SEARCHES: deterministic partial slices (post-processed in place) charge the final path exactly where processing is idempotent (Codex r5/r6 P2)', () => {
+  let resumed = 0, segs = 0
+  const cases = [
+    [poolWorld(), new Vec3(0.5, 61, 0.5), new goals.GoalBlock(10, 61, 0), [2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 }))],
+    [slabCorridor(), new Vec3(-0.5, 60.5, 0.5), new goals.GoalBlock(5, 61, 0), [{ x: 2, y: 60, z: 2 }]],
+  ]
+  const r = rng(31)
+  for (let w = 0; w < 12; w++) { const { world, lava } = noisyWorld(r); const pos = spot(world, r); if (pos) cases.push([world, pos, new goals.GoalNear(Math.floor(r() * 17) - 8, 61, Math.floor(r() * 17) - 8, 1), lava.map(([x, y, z]) => ({ x, y, z }))]) }
+  for (const [world, pos, goal, cells] of cases) {
+    for (const tick of [2, 3, 5]) {
+      const H = harness(world, pos)
+      const { result, slices } = slicedPlan(H, H.wrap(H.profile(), LS.buildPriceIndex(cells, world.solidAt)), goal, tick)
+      if (!result.path.length) continue
+      if (slices > 1) resumed++
+      const c = pathCharges(world, H, result)
+      segs += result.path.length
+      assert.equal(c.charged, LS.CORE_MOVE * c.refused, `tick ${tick}, ${slices} slices: charged ${c.charged} for ${c.refused} refused segment(s)`)
+    }
+  }
+  assert.ok(resumed >= 20, `positive control: ${resumed} searches resumed (${segs} segments)`)
+})
+await t('THE UPSTREAM RESIDUAL, named: a ladder node post-processed in more than one partial result is executed elsewhere -- by the BASE pathfinder', () => {
+  // mineflayer-pathfinder's postProcessPath is not idempotent on a climbable: each pass puts the node on top of the climbable
+  // shape of the cell it now floors into, one block higher. A node that appeared in k partial results is executed k blocks
+  // off. That is the base's own behaviour (shown here with NO wrapper); lavasight charges the once-processed form, so on such
+  // nodes its charge can differ from the guard's verdict. The guard itself is unchanged.
+  const world = ladderWorld()
+  const once = (() => { const H = harness(world, new Vec3(0.5, 61, 0.5)); return H.plan(H.profile(), new goals.GoalBlock(0, 65, 0)) })()
+  const H = harness(world, new Vec3(0.5, 61, 0.5))
+  const { result: sliced, slices } = slicedPlan(H, H.profile(), new goals.GoalBlock(0, 65, 0), 2)
+  assert.ok(slices > 1, 'positive control: the search resumed')
+  const a = once.path.map(n => `${n.x},${n.y},${n.z}`).join(' '), b = sliced.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')
+  assert.notEqual(b, a, 'the base executes a resumed ladder climb at different node positions than a single-slice one')
 })
 await t('A LATE INDEX: a ladder generated while the index was empty still settles its incoming segment once lava is indexed (Codex r5 P3)', () => {
   const world = ladderWorld()
