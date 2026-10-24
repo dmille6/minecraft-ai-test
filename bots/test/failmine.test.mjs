@@ -88,12 +88,14 @@ t('fidelity probes carry the FULL block state (a water level, a facing), for the
 const files = existsSync(LIB) ? readdirSync(LIB).filter(f => f.endsWith('.json') && f !== 'INDEX.json').sort() : []
 const index = existsSync(path.join(LIB, 'INDEX.json')) ? JSON.parse(readFileSync(path.join(LIB, 'INDEX.json'), 'utf8')) : null
 
-t('the library is not vacuous: INDEX.json exists and names at least the three first scene classes', () => {
-  // POSITIVE CONTROL for the two checks below: without scenes they would pass forever
+t('the library is not vacuous: INDEX.json exists and holds the stuck and lava scenes proven on 10-24', () => {
+  // POSITIVE CONTROL for the checks below: without scenes they would pass forever. (No cave-fall scene reproduced its
+  // base in 0 of 11 starts in three worlds, so none is admitted: they wait in candidates/, docs/reports/failmine-2026-10-24.md 5.)
   assert.ok(index && Array.isArray(index.scenes), 'sandbox/scenes/INDEX.json missing')
-  assert.ok(files.length >= 3, `only ${files.length} scene files`)
+  assert.ok(files.length >= 5, `only ${files.length} scene files`)
   const fams = new Set(index.scenes.map(s => s.family))
-  for (const f of ['stuck', 'fall', 'lava']) assert.ok(fams.has(f), `no ${f} scene in the library`)
+  for (const f of ['stuck', 'lava']) assert.ok(fams.has(f), `no ${f} scene in the library`)
+  assert.ok(index.scenes.some(s => s.id === 'stuck-1899-board-a-359_40_187'), "board-a-Comet's copper trap is the owner's named scene")
 })
 
 t('INDEX.json names exactly the scene files on disk, with their ids and cells hashes', () => {
@@ -119,7 +121,29 @@ for (const f of files) {
       assert.ok(m >= 2 && m / ps.length >= 2 / 3, `${s.id} start ${st}: ${m} of ${ps.length}`)
       assert.ok(!ps.some(p => p.pass === true), `${s.id} start ${st}: a base run PASSED -- the scene no longer holds the failure`)
     }
-    for (const p of base) assert.ok(p.fidelity && p.fidelity.share >= 0.98 && !p.fidelity.checksFailed?.length, `${s.id}: a base proof on an arena that did not set`)
+    for (const p of base) assert.ok(p.fidelity && p.fidelity.share >= 0.98 && !p.fidelity.checksFailed?.length && p.fidelity.mode === 'full-state',
+      `${s.id}: a base proof on an arena that did not set (or was checked by name only)`)
+  })
+}
+
+// CANDIDATES (sandbox/scenes/candidates/): cut and run, never admitted. Each still validates, and none may hold a start that
+// meets the admission rule -- that scene belongs in the library, and leaving it here would hide a gate from every fix
+const CAND = path.join(LIB, 'candidates')
+const cands = existsSync(CAND) ? readdirSync(CAND).filter(f => f.endsWith('.json')).sort() : []
+for (const f of cands) {
+  t(`candidates/${f}: validates, carries its base runs, and none of its starts is admissible`, () => {
+    const r = spawnSync('python3', ['-B', FM, 'validate', path.join(CAND, f)], { encoding: 'utf8' })
+    assert.equal(r.status, 0, (r.stderr || r.stdout).slice(-400))
+    const s = JSON.parse(readFileSync(path.join(CAND, f), 'utf8'))
+    const base = (s.proof || []).filter(p => p.role === 'base')
+    assert.ok(base.length >= 1, `${s.id}: a candidate with no recorded base run`)
+    const by = {}
+    for (const p of base) if (p.matched_fleet !== null && p.fidelity?.mode === 'full-state') (by[p.start_index ?? 0] ??= []).push(p)
+    for (const [st, ps] of Object.entries(by)) {
+      const m = ps.filter(p => p.matched_fleet).length
+      assert.ok(!(m >= 2 && m * 3 >= ps.length * 2 && !ps.some(p => p.pass)), `${s.id} start ${st} is admissible: move it into the library`)
+    }
+    assert.ok(!files.includes(f), `${f} is both a candidate and a library scene`)
   })
 }
 

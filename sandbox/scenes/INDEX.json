@@ -1,0 +1,92 @@
+{
+ "schema": "failmine-library/1",
+ "scenes": [
+  {
+   "file": "lava-1899-isolated-a-332_35_205.json",
+   "id": "lava-1899-isolated-a-332_35_205",
+   "family": "lava",
+   "label": "death:lava",
+   "world": "isolated-a",
+   "seed": 1239381899,
+   "cells_sha256": "2b071e5a1606709c8fd681520c197b625547a0b29463aec028448df01462c757",
+   "oracle": "survive",
+   "fleet": "isolated-a-Alpha 2026-10-23T11:20:41.270Z: tried to swim in lava after falling 4 blocks; idle at the moment of death | leading up: goto->failed, goto->failed, goto->unknown, explore->failed, explore->",
+   "base_runs": 6,
+   "base_matched": 6,
+   "base_passed": 0,
+   "reproducing_starts": [
+    4,
+    6
+   ]
+  },
+  {
+   "file": "stuck-1853-placebo-d-198_34_187.json",
+   "id": "stuck-1853-placebo-d-198_34_187",
+   "family": "stuck",
+   "label": "stuck:wet-under-ceiling",
+   "world": "placebo-d",
+   "seed": 2021899648305791853,
+   "cells_sha256": "37de067a9482433cd56ead0a6ac9fc7478cd1c47e5bfc047c086e5548535c741",
+   "oracle": "escape",
+   "fleet": "placebo-d-Delta still at this cell 2026-10-17T03:20:00.000Z .. 2026-10-24T03:20:00.000Z (167.933 h; ongoing)",
+   "base_runs": 3,
+   "base_matched": 3,
+   "base_passed": 0,
+   "reproducing_starts": [
+    0
+   ]
+  },
+  {
+   "file": "stuck-1899-board-a-359_40_187.json",
+   "id": "stuck-1899-board-a-359_40_187",
+   "family": "stuck",
+   "label": "stuck:wet-under-ceiling",
+   "world": "board-a",
+   "seed": 1239381899,
+   "cells_sha256": "be6124e5fca9bfc5a76570b09789a8b4914174cecc93ae73291ba6278026ab6b",
+   "oracle": "escape",
+   "fleet": "board-a-Comet still at this cell 2026-10-17T03:10:00.000Z .. 2026-10-24T03:20:00.000Z (168.0 h; ongoing)",
+   "base_runs": 3,
+   "base_matched": 3,
+   "base_passed": 0,
+   "reproducing_starts": [
+    0
+   ]
+  },
+  {
+   "file": "stuck-1899-isolated-c-356_47_176.json",
+   "id": "stuck-1899-isolated-c-356_47_176",
+   "family": "stuck",
+   "label": "stuck:wet-under-ceiling",
+   "world": "isolated-c",
+   "seed": 1239381899,
+   "cells_sha256": "8b6eb104613f0e8617108a8ad545c20a48d0c995db8aa4bd47de5e3a09cbb71b",
+   "oracle": "escape",
+   "fleet": "isolated-c-Alpha still at this cell 2026-10-17T03:10:00.000Z .. 2026-10-24T03:20:00.000Z (168.0 h; ongoing)",
+   "base_runs": 3,
+   "base_matched": 3,
+   "base_passed": 0,
+   "reproducing_starts": [
+    0
+   ]
+  },
+  {
+   "file": "stuck-1899-placebo-c-559_37_219.json",
+   "id": "stuck-1899-placebo-c-559_37_219",
+   "family": "stuck",
+   "label": "stuck:wet-under-ceiling",
+   "world": "placebo-c",
+   "seed": 1239381899,
+   "cells_sha256": "4411c13784a93e074bee9a9b02a7eb46f9c59abb82306d3d432159dba1e613f7",
+   "oracle": "escape",
+   "fleet": "placebo-c-Bravo still at this cell 2026-10-17T03:10:00.000Z .. 2026-10-24T03:20:00.000Z (168.0 h; ongoing)",
+   "base_runs": 3,
+   "base_matched": 3,
+   "base_passed": 0,
+   "reproducing_starts": [
+    0
+   ]
+  }
+ ],
+ "rule": "a fix touching a family must pass every scene of it on the reproducing starts; the base must still fail there (sandbox/failmine/library-ab.mjs); a base that passes retires the scene, it never counts as a candidate pass"
+}
