@@ -203,6 +203,12 @@ test('PLACEMENTS: an exact -1 on the HELD slot, landing after the block (Claude 
   inv.emit('updateSlot', 36, { name: 'cobblestone', count: 7 }, { name: 'cobblestone', count: 6 })
   await pl.settle()
   assert.deepEqual(pl.placed, { cobblestone: 3 }, 'settled before the balance reads it')
+  // A SECOND -1 LANDING INSIDE THE FIRST WAIT (Claude r8 P3-B): settle waits until nothing is pending
+  await bot.placeBlock({}, {}); await bot.placeBlock({}, {})
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 6 }, { name: 'cobblestone', count: 5 })
+  setTimeout(() => inv.emit('updateSlot', 36, { name: 'cobblestone', count: 5 }, { name: 'cobblestone', count: 4 }), 40)
+  await pl.settle()
+  assert.deepEqual(pl.placed, { cobblestone: 5 }, 'both credits settled')
   pl.restore()
   assert.equal(inv.listenerCount('updateSlot'), 0, 'restored: no listener left')
 })

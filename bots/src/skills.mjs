@@ -12751,7 +12751,8 @@ export function countPlacements (bot) {
   bot.placeBlock = wrapped
   // SETTLE BEFORE A BALANCE READS `placed` (Codex r7 P2): a -1 that landed inside the last MOVE_MS is still deferred; settle waits
   // it out with the cancel listener still attached, so the final balance sees it (or its cancellation)
-  const settle = async () => { if (held.length) await new Promise(r => setTimeout(r, MOVE_MS + 10)) }
+  // until NOTHING is pending (Claude r8 P3-B: a second -1 landing inside the first wait), at most 5 waits (~350 ms)
+  const settle = async () => { for (let i = 0; i < 5 && held.length; i++) await new Promise(r => setTimeout(r, MOVE_MS + 10)) }
   // (a deferred timer that fires after restore() only touches this `placed` object, after the caller has read it: harmless)
   return { placed, settle, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onAny) } catch { /* gone */ } } }
 }
@@ -13124,9 +13125,11 @@ async function matsReturn (ctx, _args, signal) {
     // holds the batch out of sight (verdict=pending, never a loss)
     try { await rpl?.settle?.() } catch { /* settled */ }
     const balNow = recoveryBalance(note, { bag: heldMap(bot), banked: {}, placed: rpl?.placed ?? {} })
-    // kept with the note when it stays open -- ONLY once the furnace is accounted for (Claude r7 P3-1): while it is still lit or
-    // leased the loaded input is inside it, so anything "back" then is input the bot gathered meanwhile, never the batch's
-    if (furnaceDone && balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back
+    // kept with the note when it stays open -- ONLY when this attempt's drain TOUCHED the furnace, or there is none (Claude r7 P3-1,
+    // Codex r8 P2): an untouched lit/busy/unloaded wait has the loaded input still inside, so anything "back" then is input
+    // gathered meanwhile; a PARTIAL drain (input back, output stuck) did return input, and that is the batch's
+    const touched = !note.furnace || /^(drained:\d+|empty)$/.test(drained)
+    if (touched && balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back
     balNow.verdict = recoveryVerdict(balNow, drained, note.kind)                     // TAKEN: mats.mjs recoveryVerdict
     // B3 ON THE RECOVERY (Claude r2 P2-D): no iron-ladder or fuel name fewer after it than before, beyond the order's own
     // charcoal made into torches
