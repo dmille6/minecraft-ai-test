@@ -391,7 +391,9 @@ async function runScene (scene) {
     await startBot(envRel, botOut, trace)
     rcon(`tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`)
   }
-  const done = await waitFor(() => DONE(scene, skillRows(skillLog).filter(r => r.ts >= t0 - 5000)), CANDIDATE ? WINDOW_MS : BASE_WINDOW_MS, 1000)
+  // a recovery waits out the burn and the dead process's lease (mats_return yields 90 s per wait): the kill scenes get 10 min
+  const winMs = CANDIDATE ? (/^kill/.test(scene) ? Math.max(WINDOW_MS, 600000) : WINDOW_MS) : BASE_WINDOW_MS
+  const done = await waitFor(() => DONE(scene, skillRows(skillLog).filter(r => r.ts >= t0 - 5000)), winMs, 1000)
   if (done) await sleep(8000)
   const after = snapshot(spec)
   const rows = skillRows(skillLog)
