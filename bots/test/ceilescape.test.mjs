@@ -627,10 +627,11 @@ await t('MUTANT KILLED: no same-block check -> the stale copper object is swung 
 
 await t('WIRED: the stranded lattice does not start while a sidestep steers (Claude r2 P2-1)', () => {
   const code = strip(readFileSync(REFLEX_PATH, 'utf8'))
-  assert.match(code, /longEnough && !poolEscaping && !rampSteering &&/)
-  const src = readFileSync(REFLEX_PATH, 'utf8'), old = 'longEnough && !poolEscaping && !rampSteering &&'
+  // re-anchored (ceilescape-01 x lavastep-01, JIT 10-24): lavastep's stand-down sits beside it on the same line
+  assert.match(code, /longEnough && !poolEscaping && !dangerMovingNow\(\) && !rampSteering &&/)
+  const src = readFileSync(REFLEX_PATH, 'utf8'), old = 'longEnough && !poolEscaping && !dangerMovingNow() && !rampSteering &&'
   assert.strictEqual(src.split(old).length, 2, 'ANCHOR NOT UNIQUE')
-  assert.doesNotMatch(strip(src.replace(old, 'longEnough && !poolEscaping &&')), /longEnough && !poolEscaping && !rampSteering &&/, 'MUTANT: the assertion sees the removal')
+  assert.doesNotMatch(strip(src.replace(old, 'longEnough && !poolEscaping && !dangerMovingNow() &&')), /longEnough && !poolEscaping && !dangerMovingNow\(\) && !rampSteering &&/, 'MUTANT: the assertion sees the removal')
 })
 
 await t('WIRED (meta): body-claim\'s re-anchored arm end really bounds the arm -- deleting the outer flood arm breaks it', () => {
