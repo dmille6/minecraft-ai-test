@@ -241,7 +241,9 @@ export function skipDetail ({ name, verdicts = [], considered = 0, front = 0 }) 
  */
 export function baseFront ({ pos, skipped = [], kept = [], approachable = () => true }) {
   if (!pos || !skipped.length) return false
-  const d = c => Math.hypot(c.x + 0.5 - pos.x, c.y + 0.5 - (pos.y + 1.62), c.z + 0.5 - pos.z)
+  // findBlocks' own order within a tier: block coordinates from the FLOORED position (mineflayer blocks.js:158, :200; Codex r6)
+  const o = { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }
+  const d = c => Math.hypot(c.x - o.x, c.y - o.y, c.z - o.z)
   const all = [...skipped.map(c => ({ c, s: 1 })), ...kept.map(c => ({ c, s: 0 }))]
     .map(e => ({ ...e, tier: approachable(e.c) ? 0 : 1, d: d(e.c) }))
     .sort((a, b) => a.tier - b.tier || a.d - b.d || b.s - a.s)

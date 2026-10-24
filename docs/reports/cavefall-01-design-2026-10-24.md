@@ -261,9 +261,11 @@ and its control).
   (pre vs post). Refusing too much is the harm this change can actually cause. Explore and goto runs per arm are reported
   (a bot pushed off gathering moves more).
 - **Exposure:** >= 5 canary rows that are `_cavefall_skip front=1` or `_cavefall_floor refused`, from at least 2 distinct
-  bots (Claude r3 P2-2). `front=1` is a PROXY for "the base would have dug it first": a skipped cell in the border, exposed,
-  passing the base's own target conjunction (`baseSafe`: town ground, keep-out, `isSafeToBreak`/shoreline, iron's six faces)
-  and approachable, nearer than the round's front kept candidate; it does not replay the base's A* reorder (Codex r5 P2-2).
+  bots (Claude r3 P2-2). `front=1` is a PROXY for "the base would have dug it first" (`baseFront`): the skipped cells in the
+  border that are exposed and pass the base's own target conjunction (`baseSafe`: town ground, keep-out,
+  `isSafeToBreak`/shoreline, iron's six faces) are ranked with the round's kept candidates in the base's two tiers --
+  approachable first, then the rest, each by findBlocks' distance from the floored position -- and `front=1` when the head is
+  a skipped cell. It does not replay the base's A* reorder (Codex r5 P2-2, r6).
 - **Primary (DiD, canary vs control, pre vs post; reported, KEEP does not need it, and it is not expected to move: Claude r2
   P3-10):** gather fall episodes per gather
   bot-hour: `_fall_path` rows (damage or death) with fell >= 12, deduplicated per bot within 10 s, attributed to gather when
