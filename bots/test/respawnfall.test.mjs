@@ -719,7 +719,7 @@ await ta('WIRING: the order runs ahead of every order but keep-out; admission; t
   const cog = strip('../src/cognitive.mjs')
   // re-anchored (JIT 10-24 on 21dd0ce1): found-01 made keep-out's override refund a found order it replaces, and
   // respawnfall-01 x found-01 makes the descent do the same; the order of the two lines is the assertion
-  const iSky = cog.indexOf("{ const sd = this.#skyDescendOrder(order); if (sd) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"),
+  const iSky = cog.indexOf("{ const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"),
     iKo = cog.indexOf("{ const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = ko } }")
   assert.ok(iSky > 0 && iKo > iSky, 'the sky order precedes keep-out\'s (which therefore wins)')
   assert.ok(cog.includes('bot.skyActive = d.state.active === true'), 'the open episode is published for the lattice')
