@@ -134,6 +134,24 @@ await ta('A CLIFF LIP and A SHAFT RIM (Claude r2 P1) are kept: the body meets th
   const rim = floorOverDrop({ target: T, at: shelf('ground', set).at })
   assert.equal(rim.skip, false); assert.equal(rim.drop, 1)
 })
+await ta('EDGE PLACEMENTS (Codex r3 P1): a fence post 2 under T over the cave does not hold a body standing at T\'s edge -> skipped', () => {
+  // a centred body (and r3's half-straddles) met the post; a body at x 0.97 misses it and falls to the stalagmites
+  // a lone dirt cell over the cave (no shelf neighbour to hold an edge placement), the post 2 under it
+  const L = { x: 8, y: 29, z: 8 }
+  const v = floorOverDrop({ target: L, at: shelf('drip', { [key(8, 29, 8)]: 'dirt', [key(8, 27, 8)]: 'oak_fence' }).at })
+  assert.equal(v.skip, true); assert.equal(v.landing, 'stalagmite')
+  // a full-width block 2 under it holds every placement: harmless (the positive control)
+  assert.equal(floorOverDrop({ target: L, at: shelf('drip', { [key(8, 29, 8)]: 'dirt', [key(8, 27, 8)]: 'stone' }).at }).skip, false)
+  // on the shelf, the same post under the centre cell: every edge placement that misses it rests on a shelf neighbour -> held
+  assert.equal(floorOverDrop({ target: T, at: shelf('drip', { [key(3, 27, 6)]: 'oak_fence' }).at }).skip, false)
+})
+await ta('DEPARTURE HEIGHT (Codex r3 P2): a fence target departs from 1.5, so 3.5 above rock is harmful; a slab from 0.5', () => {
+  const set = { [key(3, 29, 6)]: 'oak_fence', [key(3, 28, 6)]: 'air', [key(3, 27, 6)]: 'air', [key(3, 26, 6)]: 'stone' }
+  const v = floorOverDrop({ target: T, at: shelf('ground', set).at })
+  assert.equal(v.drop, 3.5); assert.equal(v.skip, true)
+  const slab = floorOverDrop({ target: T, at: shelf('ground', { ...set, [key(3, 29, 6)]: 'stone_slab' }).at })
+  assert.equal(slab.drop, 2.5); assert.equal(slab.skip, false)
+})
 await ta('standable: open above, or a block that needs T (carpet, rail) above; not under a solid block or a slab', () => {
   const { at } = shelf('drip', { [key(3, 30, 6)]: 'white_carpet', [key(2, 30, 6)]: 'stone_slab', [key(4, 30, 6)]: 'rail' })
   assert.equal(standable(at, T), true, 'carpet'); assert.equal(standable(at, { x: 4, y: 29, z: 6 }), true, 'rail')
@@ -316,13 +334,28 @@ await ta('WIRING (structural, comments stripped): safeTarget starts with the cav
     const body = c.slice(c.indexOf('async function gatherRun'), c.indexOf('async function keepoutExit'))
     const iFilter = body.indexOf('const safeTarget = p => !caveSkip(p) && townTargetPermit(')
     const iCave = body.indexOf('const cave = caveFilter(bot)'), iSkip = body.indexOf('const caveSkip = cave.skip')
-    const iSource = body.indexOf('if (reachable.length === 0 && !viaSource)'), iCount = body.indexOf('const caveSkipped = cave.skipped()')
-    return iCave > 0 && iSkip > iCave && iFilter > iSkip && iCount > iSource
+    const iSource = body.indexOf('const cand = found.filter(exposed).filter(safeTarget)')
+    const iCover = body.indexOf('positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)')
+    const iCoverEnd = body.indexOf('coverRounds++'), iCount = body.indexOf('const caveSkipped = cave.skipped()')
+    // both fallbacks pass their candidates through safeTarget, and the round is counted AFTER the foliage fallback
+    return iCave > 0 && iSkip > iCave && iFilter > iSkip && iSource > iFilter && iCover > iSource && iCount > iCoverEnd && iCoverEnd > iCover
   }
-  assert.equal(wired(readFileSync(SK_URL, 'utf8')), true)
-  const src = readFileSync(SK_URL, 'utf8'); const old = 'const safeTarget = p => !caveSkip(p) && townTargetPermit('
-  assert.ok(src.split(old).length === 2, 'anchor present once')
-  assert.equal(wired(src.replace(old, 'const safeTarget = p => townTargetPermit(')), false, 'the mutant (filter removed) fails the assertion')
+  const src = readFileSync(SK_URL, 'utf8')
+  assert.equal(wired(src), true)
+  // each mutant makes the assertion fail (Codex r3 P2-5): filter removed; either fallback bypassing it; counting moved early
+  const muts = [
+    ['const safeTarget = p => !caveSkip(p) && townTargetPermit(', 'const safeTarget = p => townTargetPermit('],
+    ['const cand = found.filter(exposed).filter(safeTarget)', 'const cand = found.filter(exposed)'],
+    ['positions.filter(q => foliageCovered(bot, q)).filter(safeTarget)', 'positions.filter(q => foliageCovered(bot, q))'],
+  ]
+  for (const [old, neu] of muts) {
+    assert.ok(src.split(old).length === 2, `anchor present once: ${old.slice(0, 40)}`)
+    assert.equal(wired(src.replace(old, neu)), false, `the mutant fails the assertion: ${neu.slice(0, 40)}`)
+  }
+  const cnt = '    const caveSkipped = cave.skipped()\n'
+  assert.ok(src.split(cnt).length === 2)
+  const early = src.replace(cnt, '').replace('    const caveSkip = cave.skip\n', '    const caveSkip = cave.skip\n' + cnt)
+  assert.equal(wired(early), false, 'counting before the fallbacks fails the assertion')
 })
 await ta('MUTANT KILLED: a stalagmite read as rock lets a 2.3-block drop onto a tip through', async () => {
   const at = shelf('ground', { [key(3, 28, 6)]: 'air', [key(3, 27, 6)]: 'pointed_dripstone' }).at   // drop 2.3125: free onto rock, 3 onto a tip
@@ -349,19 +382,19 @@ await ta('MUTANT KILLED: ignoring the straddle scenarios misses the rock beside 
   for (let y = 8; y <= 28; y++) set[key(5, y, 6)] = y === 20 ? 'stone' : 'air'
   const at = shelf('deep', set).at
   assert.equal(floorOverDrop({ target: { x: 4, y: 29, z: 6 }, at }).skip, true)
-  await withMutant(CF_URL, "    if (cellKind(b) !== 'open') continue\n", '    continue\n', async m => {
+  await withMutant(CF_URL, 'export const PLACEMENTS = [-0.28, -0.12, 0.03, 0.19, 0.34, 0.5, 0.66, 0.81, 0.97, 1.12, 1.28]', 'export const PLACEMENTS = [0.5]', async m => {
     assert.equal(m.floorOverDrop({ target: { x: 4, y: 29, z: 6 }, at }).skip, false)
   })
 })
 await ta('MUTANT KILLED: without the carpet rule the dirt under a carpet over the cave is dug', async () => {
   const at = shelf('drip', { [key(3, 30, 6)]: 'white_carpet' }).at
-  await withMutant(CF_URL, "if (k === 'open' || NEEDS_SUPPORT.test(String(a.name ?? ''))) return true", "if (k === 'open') return true", async m => {
+  await withMutant(CF_URL, "const carried = above && NEEDS_SUPPORT.test(String(above.name ?? '')) ? above : null", 'const carried = null', async m => {
     assert.equal(m.floorOverDrop({ target: T, at }).skip, false)
   })
 })
 await ta('MUTANT KILLED: dropping the standable test skips a cave-roof ore the bot stands under', async () => {
   const at = shelf('drip', { [key(8, 20, 6)]: 'iron_ore', [key(8, 21, 6)]: 'stone' }).at
-  await withMutant(CF_URL, "    if (!standable(at, t)) return { skip: false, why: 'nothing can stand on it' }\n", '', async m => {
+  await withMutant(CF_URL, 'if (meets(b, y, c.fp, feet + 0.01, feet + BODY_H)) blocked = true', 'if (false) blocked = true', async m => {
     assert.equal(m.floorOverDrop({ target: { x: 8, y: 20, z: 6 }, at }).skip, true)
   })
 })
@@ -374,7 +407,7 @@ await ta('MUTANT KILLED: a landing that ignores the footprint lands the body on 
 })
 await ta('MUTANT KILLED: without the partial-shape rule above T, an open trapdoor over the shelf cell hides the floor', async () => {
   const above = withBlocks(shelf('drip'), { [key(3, 30, 6)]: OPEN_TRAPDOOR() })
-  await withMutant(CF_URL, "return k === 'solid' && topIn(a, CENTRED) == null", 'return false', async m => {
+  await withMutant(CF_URL, 'const meets = (b, cy, fp, lo, hi) => shapesOf(b).some(s => s[0] < fp.x[1] && s[3] > fp.x[0] && s[2] < fp.z[1] && s[5] > fp.z[0] && ', 'const meets = (b, cy, fp, lo, hi) => shapesOf(b).some(s => ', async m => {
     assert.equal(m.floorOverDrop({ target: T, at: above.at }).skip, false)
   })
 })
