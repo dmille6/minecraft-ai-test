@@ -1631,9 +1631,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // THE AIR STATE + C3b, FIRST THING IN THE TICK (homefix-02 C3; before the release await below and every early
       // return -- Claude r2 P2 / r4 P3-4, Codex r2 P4). See publishAir.
       publishAir()
-      // plugcut-01 (Codex r2 P1): a body that has LEFT the place of its flood-refusal streak, by any route (a pillar,
-      // poolescape, a relocation, a swim), starts again -- re-entering the same pit later is a new streak
-      plugStreakTouch(bot)
       // --- a cursor held over a chest is never worth a death (withdraw, skills.mjs holdUnsettled) -------------------
       // While held, equip and the rest refuse; a survival situation releases the hold first: one last settle, then the
       // close, with a row. Movement-only reflexes below run either way.
@@ -1646,6 +1643,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (why) { try { await bot.inventoryUnsettled.release(why) } catch { /* the reflexes below still run */ } }
       }
       healthBeforeTick = bot.health ?? null
+      // plugcut-01 (Codex r2 P1): a body that has LEFT the place of its flood-refusal streak, by any route (a pillar,
+      // poolescape, a relocation, a swim), starts again -- re-entering the same pit later is a new streak. Here, after the
+      // release and before the first early return (publishAir stays the tick's first statement: homefix2-chain B1).
+      plugStreakTouch(bot)
       // AIRPOCKET OWNS THE BODY WHILE IT DIGS: no other arm may steer, release or re-seize until the step returns (it
       // is bounded by the health budget, ~30 s at most). The release above has already run.
       if (airPocketing) return
@@ -4570,6 +4571,7 @@ export async function escapeStairUp (bot, {
   const plugCells = []
   let breachPlugWhy = null      // why the ceiling rung did not open the cut, kept through the sidestep's own stop text
   let stepRetry = 0             // licensed jumps again at a step cut but not taken (PLUG_STEP_RETRIES)
+  let stepRetries = 0           // ...over the firing (the ramp row's retries=)
 
   // WHOEVER OWNS THE BODY, IT IS NOT THIS. `yieldTo` returns a reason when a
   // reflex with a stronger claim has taken the controls -- in practice the
@@ -4606,6 +4608,7 @@ export async function escapeStairUp (bot, {
       fire: ceFire,
       plugged,
       plugNote,
+      stepRetries,
     }
   }
 
@@ -5261,15 +5264,25 @@ export async function escapeStairUp (bot, {
     // bob not taken, and with the ceiling open no reflex fired again). The SAME step in the SAME frame -- no re-plan (a bobbing
     // body would read another frame), nothing dug -- and only while the body is still in its own column: never a widened ledge.
     const inColumn = () => { const q = bot.entity.position; return Math.floor(q.x) === Math.floor(p.x) && Math.floor(q.z) === Math.floor(p.z) }
+    // THE OWNER AFTER EVERY AWAIT, BEFORE EVERY CONTROL WRITE, AND THE DEADLINE (Codex r3 P2); THE STEP STILL OPEN IN THE SAME
+    // FRAME WITH NOTHING TO DIG (Claude r3 P3-1: a gravel refill or lava during the retries ends them)
+    const gone = () => (yielded = yieldTo())
     while (!taken && plug && stepRetry < PLUG_STEP_RETRIES && inColumn()) {
+      if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
+      if (Date.now() > deadline) break
+      const still = stairUpStep({ at, bear: bearing, canBreak, submerged: submergedAt(bot) })
+      if (!still.ok || still.dig.length) break
       stepRetry++
+      stepRetries++
       await bot.look(Math.atan2(-bearing.x, -bearing.z), 0, true).catch(() => {})
+      if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
       bot.setControlState('forward', true)
       bot.setControlState('jump', true)
       await sleep(450)
+      if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
       bot.setControlState('jump', false)
       await sleep(350)
-      if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
+      if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
       bot.clearControlStates()
       await sleep(250)
       taken = stepTaken(bot.entity.position, p, bearing)
@@ -5887,13 +5900,16 @@ export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo =
   const stair = await ramp(bot, { yieldTo, steering })   // ceilescape-01: the float hold stands aside here too
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const step = floodChainStep({ refusals: refusals + 1, stair })
-  if (!stair.yielded && here) plugStreaks.set(bot, plugStreak(prevStreak, { at: here, now: Date.now(), refused: !step.progressed }))
+  // A STREAK FORGOTTEN DURING THE RAMP STAYS FORGOTTEN (Codex r3 P1): the tick's plugStreakTouch may have seen the body leave
+  // the place mid-firing; then this refusal starts a new streak rather than resurrecting the old one
+  const live = plugStreaks.get(bot) === prevStreak ? prevStreak : null
+  if (!stair.yielded && here) plugStreaks.set(bot, plugStreak(live, { at: here, now: Date.now(), refused: !step.progressed }))
   const q = bot.entity.position
   const wet = isWaterCell(bot.blockAt(q)) || isWaterCell(bot.blockAt(q.offset(0, 1, 0)))
   logEvent({ kind: 'climb_flood_ramp', status: step.progressed ? 'success' : 'failed',
              detail: `handler=${handler} y=${y0} steps=${stair.steps ?? 0} sidestep=${stair.sidestepped ?? 0} ` +
                      `climbed=${(stair.climbed ?? 0).toFixed(1)} flood=${stair.flood ?? 'none'} ` +
-                     `yielded=${stair.yielded ? 1 : 0} dry=${wet ? 0 : 1} plugged=${stair.plugged ?? 0} — stopped because ${stair.stopped}`,
+                     `yielded=${stair.yielded ? 1 : 0} dry=${wet ? 0 : 1} plugged=${stair.plugged ?? 0} retries=${stair.stepRetries ?? 0} — stopped because ${stair.stopped}`,
              snapshot: snapshot(bot) })
   // PREEMPTION FIRST (Codex r2): whatever the ramp did before the drowning rescue took the body, the branch's
   // outcome is not the ramp's -- no counter reset, no refusal, no back-off.
@@ -6324,6 +6340,8 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
     // DONE IS DONE BEFORE THE FRAME IS ASKED (Paper probe 3, isolated-d-Bravo: all three step plugs placed, then the bob took
     // the body out of the frame and the finished rung reported "the body moved"). `clear()` reads the world, not the body.
     // THE OWNER IS ASKED AFTER THE SETTLE, before ok is returned (both engines r2): the step caller digs next
+    // A SETTLE SKIPPED ONLY FOR THE DEADLINE SAYS SO (Claude r3 P3-2), not "still wet" or "nothing to plug"
+    if (placed > 0 && clear() && deadline - Date.now() < PLUG_SETTLE_MS) { row(null, 'stopped', 'budget spent before the settle'); return out(false, 'budget spent plugging') }
     if (placed > 0 && await settledClear()) return yieldTo() ? out(false, 'yielded') : out(true, `plugged ${placed} (${what})`)
     if (yieldTo()) return out(false, 'yielded')
     // NEVER MORE THAN PLUG_MAX, NEVER PAST THE FIRING'S DEADLINE (Claude r1 P2)
