@@ -60,12 +60,15 @@ test('THE REGION IS arrivedAt\'s: every landing goto accepts that lies in a colu
   assert.ok(refused > 0 && refused < checked, `both kinds of target seen (${refused} of ${checked} refusable)`)
 })
 test('WIRED: the watchdog passes the forbid; MUTANT KILLED without it', () => {
+  // lavasight-01: the forbid is composed (lavasight.mjs composeRelocationForbid, behaviour-tested in lavasight.test.mjs:
+  // fire alone answers exactly as relocationForbidden did) and passed whenever there is anything to forbid
   const raw = readFileSync(new URL('../src/watchdog.mjs', import.meta.url), 'utf8')
-  const wired = s => /pickRelocationTargetAsync\(\{ p, read, \.\.\.\(fire\.length \? \{ forbid: \(x, y, z\) => relocationForbidden\(fire, x, y, z\) \} : \{\}\) \}\)/.test(strip(s))
+  const wired = s => /const forbid = composeRelocationForbid\(fire, lava, relocationForbidden\)/.test(strip(s)) &&
+                     /pickRelocationTargetAsync\(\{ p, read, \.\.\.\(forbid \? \{ forbid \} : \{\}\) \}\)/.test(strip(s))
   assert.equal(wired(raw), true)
-  const anchor = '...(fire.length ? { forbid: (x, y, z) => relocationForbidden(fire, x, y, z) } : {})'
+  const anchor = '...(forbid ? { forbid } : {})'
   assert.ok(raw.includes(anchor) && raw.split(anchor).length === 2, 'ANCHOR MISSING or not unique')
   assert.equal(wired(raw.replace(anchor, '')), false)
   const rl = readFileSync(new URL('../src/relocate.mjs', import.meta.url), 'utf8')
-  assert.match(strip(rl), /if \(typeof opts\.forbid === 'function' && opts\.forbid\(x, fy, z\)\) return \{ ok: false, why: 'keepout' \}/)
+  assert.match(strip(rl), /const fb = typeof opts\.forbid === 'function' \? opts\.forbid\(x, fy, z\) : false\s*if \(fb\) return \{ ok: false, why: typeof fb === 'string' \? fb : 'keepout' \}/)
 })

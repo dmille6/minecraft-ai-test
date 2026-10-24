@@ -358,5 +358,64 @@ await t('relocationLavaForbidden: the 7x7 (-1..+3) around an active cell; nothin
   assert.equal(LS.relocationLavaForbidden([], 0, 61, 0), false)
 })
 
+await t('HOMEFIX CHAIN: the composed forbid answers fire as keepout did, lava as `lavasight`; all forbidden -> no target -> home', async () => {
+  const KO = await import('../src/keepout.mjs')
+  const RL = await import('../src/relocate.mjs')
+  const fire = [{ kind: 'death:fire', x: 100, y: 60, z: 100, count: 1, weight: 1, last: Date.now() }]
+  assert.equal(LS.composeRelocationForbid([], [], KO.relocationForbidden), null, 'nothing to forbid: the base rule (no forbid passed)')
+  const onlyFire = LS.composeRelocationForbid(fire, [], KO.relocationForbidden)
+  for (const [x, y, z] of [[100, 61, 100], [104, 66, 100], [120, 61, 100], [100, 80, 100]]) {
+    assert.equal(!!onlyFire(x, y, z), KO.relocationForbidden(fire, x, y, z), `fire alone at ${x},${y},${z}: the old answer`)
+  }
+  const both = LS.composeRelocationForbid(fire, [{ x: 0, y: 60, z: 0 }], KO.relocationForbidden)
+  assert.equal(both(1, 61, 1), 'lavasight'); assert.equal(both(30, 61, 30), false)
+  // the chain: a flat dry world whose every candidate is beside live lava -> no_dry_target (the watchdog's fallback is home)
+  const read = (x, y) => ({ name: y <= 60 ? 'stone' : 'air', boundingBox: y <= 60 ? 'block' : 'empty' })
+  const lavaEverywhere = []; for (let x = -75; x <= 75; x += 3) for (let z = -75; z <= 75; z += 3) lavaEverywhere.push({ x, y: 60, z })
+  const f = LS.composeRelocationForbid([], lavaEverywhere, KO.relocationForbidden)
+  const pick = RL.pickRelocationTarget({ p: { x: 0.5, y: 61, z: 0.5 }, read, forbid: f })
+  assert.equal(pick.ok, false); assert.equal(pick.why, 'no_dry_target')
+  assert.ok(pick.reasons.lavasight > 0, `named in the reasons: ${JSON.stringify(pick.reasons)}`)
+  const free = RL.pickRelocationTarget({ p: { x: 0.5, y: 61, z: 0.5 }, read, forbid: LS.composeRelocationForbid([], [{ x: 0, y: 60, z: 0 }], KO.relocationForbidden) })
+  assert.equal(free.ok, true, 'positive control: one lava cell leaves targets')
+})
+
+await t('COMPOSTER: its clone calls the BASE profile\'s generator (the wrapper), not the prototype\'s (behaviour)', async () => {
+  const C = await import('../src/composter.mjs')
+  const proto = { getNeighbors () { return [{ hash: 'proto' }] } }
+  const base = Object.create(proto); base.getNeighbors = function () { return [{ hash: 'wrapped' }] }
+  assert.deepEqual(C.composterSafeMovements(base, () => true).getNeighbors({}).map(n => n.hash), ['wrapped'])
+  const plain = Object.create(proto)
+  assert.deepEqual(C.composterSafeMovements(plain, () => true).getNeighbors({}).map(n => n.hash), ['proto'], 'no wrapper: the base behaviour')
+})
+
+// WIRED (structural: behaviour cannot reach index.mjs's spawn handler without a server). Comments stripped; each anchor is the
+// executable line, present and unique, and a mutant shows the assertion can fail.
+const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+const INDEX = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+const SKILLS = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+const wiredOrder = src => {
+  const s = strip(src)
+  const w = s.indexOf('moves.getNeighbors = wrapNeighbors(Movements.prototype.getNeighbors, () => {')
+  const clones = ['const gatherMoves = Object.create(', 'const ascendMoves = Object.create(', 'const descendMoves = Object.create(', 'const waterMoves = Object.create(']
+    .map(c => s.indexOf(c))
+  return w > 0 && clones.every(c => c > w) && /return \{ idx: lsIdx, live: priceLive\(\{ on: LS_ON, reflex \}\), reflex \}/.test(s) &&
+         /const reflex = stopReflexes\?\.activeReflex\?\.\(\) \?\? null/.test(s)
+}
+await t('WIRED: the wrapper is installed on the walk profile BEFORE every clone, gated on the reflex; MUTANT KILLED when moved after', () => {
+  assert.equal(wiredOrder(INDEX), true)
+  const anchor = '    if (LS_ON) {\n      moves.getNeighbors = wrapNeighbors('
+  assert.ok(INDEX.split(anchor).length === 2, 'ANCHOR MISSING or not unique')
+  const moved = INDEX.replace(anchor, '    if (LS_ON) {\n      const _x = wrapNeighbors(')
+  assert.equal(wiredOrder(moved), false)
+})
+await t('WIRED: the corridor hook counts and rings; the blind step rings lava only; the rows exist', () => {
+  const s = strip(INDEX)
+  assert.match(s, /lsCounters\.corridor_checks = \(lsCounters\.corridor_checks \?\? 0\) \+ 1/)
+  assert.match(s, /if \(\/lava\/\.test\(v\.why \?\? ''\) && !\/unknown\/\.test\(v\.why \?\? ''\) && Array\.isArray\(v\.at\)\) bot\.lavasightNote\(/)
+  assert.match(s, /kind: 'lavasight_route'/); assert.match(s, /kind: 'lavasight'/); assert.match(s, /kind: 'lavasight_mode'/)
+  assert.match(strip(SKILLS), /if \(\/lava\/\.test\(v\.why \?\? ''\) && !\/unknown\/\.test\(v\.why \?\? ''\) && Array\.isArray\(v\.at\)\) bot\.lavasightNote\?\.\(/)
+})
+
 console.log(`\nlavasight: ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
