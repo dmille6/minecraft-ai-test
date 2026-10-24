@@ -1405,8 +1405,10 @@ export class CognitiveLoop {
     // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
     // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
     // RESPAWNFALL-01: A BOT THAT SPAWNED ON A HIGH PLATFORM CLIMBS DOWN BEFORE ANYTHING ELSE (respawnfall.mjs) -- ahead of
-    // every order above; keep-out's exit (below) still outranks it: a fire column is the nearer danger
-    { const sd = this.#skyDescendOrder(order); if (sd) order = sd }
+    // every order above; keep-out's exit (below) still outranks it: a fire column is the nearer danger.
+    // RESPAWNFALL-01 x FOUND-01 (JIT 10-24): a found order the descent replaces never ran -- refunded as keep-out's exit does
+    // (refundDeclined), so on the ground, still in town, the found slot issues it again
+    { const sd = this.#skyDescendOrder(order); if (sd) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
     // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
     // jit-1023 (junkout-01 x keepout-01, Codex fix review P2): a junkout visit the exit DISPLACES here never ran -- refunded as
