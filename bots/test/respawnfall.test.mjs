@@ -717,7 +717,10 @@ await ta('MUTANT KILLED: a run without the declaration lets the stuck reflex nud
 await ta('WIRING: the order runs ahead of every order but keep-out; admission; the lattice and the watchdog ask the gate; spawn is stamped', async () => {
   const strip = u => readFileSync(new URL(u, import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
   const cog = strip('../src/cognitive.mjs')
-  const iSky = cog.indexOf('{ const sd = this.#skyDescendOrder(order); if (sd) order = sd }'), iKo = cog.indexOf('{ const ko = this.#keepoutExitOrder(order); if (ko) order = ko }')
+  // re-anchored (JIT 10-24 on 21dd0ce1): found-01 made keep-out's override refund a found order it replaces, and
+  // respawnfall-01 x found-01 makes the descent do the same; the order of the two lines is the assertion
+  const iSky = cog.indexOf("{ const sd = this.#skyDescendOrder(order); if (sd) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"),
+    iKo = cog.indexOf("{ const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = ko } }")
   assert.ok(iSky > 0 && iKo > iSky, 'the sky order precedes keep-out\'s (which therefore wins)')
   assert.ok(cog.includes('bot.skyActive = d.state.active === true'), 'the open episode is published for the lattice')
   assert.ok(cog.includes('if (d.fresh) bot.skyWaitSince = null'), 'the wait clock restarts on a fresh episode (Claude r6 P3-3)')
