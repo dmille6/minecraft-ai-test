@@ -10,7 +10,9 @@
 #
 # THE CHANGE (rows only this build writes):
 #   _cavefall_mode    once per spawn (the licence): on=0|1 rule=floor_over_drop ...
-#   _cavefall_skip    per gather round with a skip: "<block>: N of M exposed candidate(s) are floors over a harmful drop; skipped"
+#   _cavefall_skip    per gather round with a skip: "<block>: N of M candidate(s) are floors over a harmful drop; skipped own=A
+#                     nbr=B land=<kind>:<n>,... front=0|1" (front=1: the nearest skipped floor was nearer than the nearest kept
+#                     candidate -- the base would have dug it first)
 #   _cavefall_floor   "refused: <block> at x,y,z; drop D onto K (damage N)" at the dig; "allowed: ..." for a standing floor dig
 #                     with drop >= 2 or water
 # GATES
@@ -24,7 +26,7 @@
 #   H1 refusals_up    HOLD (and INCONCLUSIVE, blocking KEEP, while any arm x period has < 20 gather runs): the canary's share of gather runs ending `no_safe_target` rose more than 0.10 above the control's
 #                     change (pre vs post): the rule refusing too much is the harm this change can actually cause.
 #   LIVENESS          every canary bot seen after the deploy carries the licence on=1, its latest (BLOCKS KEEP).
-#   EXPOSURE          >= 5 canary `_cavefall_skip` + `_cavefall_floor refused` rows.
+#   EXPOSURE          >= 5 canary `_cavefall_skip front=1` + `_cavefall_floor refused` rows, from >= 2 distinct bots.
 # PRIMARY (REPORTED; KEEP does not need it): gather fall episodes (fell >= 12, deduplicated per bot within 10 s, inside a
 #   gather run's interval, feet not water) per gather bot-hour, canary vs control, pre vs post: the DiD.
 # REPORTED  fall-family deaths by cause (two-death floor: one is named, not a verdict); skips and refusals by bot; gather
@@ -36,7 +38,8 @@ sys.path.insert(0, '/srv/mcb-analysis-lib')
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
-ONSET_S, LAND_XZ, EXTRA_DROP, G2_S, G2_DEPTH, EP_S, EXPOSE_MIN = 5, 1.5, 2, 60, 6, 10, 5
+ONSET_S, LAND_XZ, EXTRA_DROP, G2_S, G2_DEPTH, EP_S, EXPOSE_MIN, H1_MIN_RUNS, HP_MIN = 5, 1.5, 2, 60, 6, 10, 5, 100, 4
+HP = re.compile(r'hp (-?[\d.]+)')
 FLOOR = re.compile(r'^(allowed|refused): (\S+) at (-?\d+),(-?\d+),(-?\d+); drop ([\d.]+|\?) onto (\w+)')
 FELL = re.compile(r'fell (\d+)')
 ONSET = re.compile(r'descent (\d+)s ago')
@@ -74,17 +77,20 @@ def episodes(rows):
         if not m:
             continue
         fell = int(m.group(1))
+        h = HP.search(d)
+        hp = abs(float(h.group(1))) if h else None
         o = ONSET.search(d)
         onset = r['t'] - (int(o.group(1)) if o else 1.5)
         f = FEET.search(d)
         e = last.get(r['bot'])
         if e and r['t'] - e['t'] <= EP_S:
             e['fell'] = max(e['fell'], fell); e['death'] = e['death'] or d.startswith('death'); e['onset'] = min(e['onset'], onset)
+            e['hp'] = max(e['hp'] or 0, hp or 0) or e['hp']
             e['feet'] = e['feet'] or (f.group(1) if f else None)
             e['pos'] = r.get('pos') or e['pos']
             continue
         e = {'bot': r['bot'], 't': r['t'], 'onset': onset, 'fell': fell, 'pos': r.get('pos'), 'death': d.startswith('death'),
-             'feet': f.group(1) if f else None}
+             'feet': f.group(1) if f else None, 'hp': hp}
         out.append(e); last[r['bot']] = e
     return out
 
@@ -124,8 +130,14 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None, roster=None):
     res['skips'] = len(skips)
     res['refused'] = sum(1 for _, f in floors if f['decision'] == 'refused')
     res['allowed'] = sum(1 for _, f in floors if f['decision'] == 'allowed')
-    res['exposure'] = res['skips'] + res['refused']
-    res['exposure_ready'] = 1 if res['exposure'] >= EXPOSE_MIN else 0
+    # EXPOSURE (Claude r3 P2-2): a skip counts only when the skipped floor was the round's FRONT candidate (the base would have
+    # dug it first: `front=1`), plus every dig-time refusal; from at least 2 distinct bots
+    fronts = [r for r in skips if kv(r['detail']).get('front') == '1']
+    res['front_skips'] = len(fronts)
+    exp_rows = fronts + [r for r, f in floors if f['decision'] == 'refused']
+    res['exposure'] = len(exp_rows)
+    res['exposure_bots'] = len({r['bot'] for r in exp_rows})
+    res['exposure_ready'] = 1 if res['exposure'] >= EXPOSE_MIN and res['exposure_bots'] >= 2 else 0
     res['by_bot'] = {b: {'skip': sum(1 for r in skips if r['bot'] == b), 'refused': sum(1 for r, f in floors if r['bot'] == b and f['decision'] == 'refused'),
                          'allowed': sum(1 for r, f in floors if r['bot'] == b and f['decision'] == 'allowed')}
                      for b in sorted({r['bot'] for r in skips} | {r['bot'] for r, _ in floors})}
@@ -147,7 +159,7 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None, roster=None):
         if not (r.get('pos') and on_top(r['pos'], tx, ty, tz)):
             continue
         for e in ceps:
-            if e['bot'] != r['bot'] or not (r['t'] <= e['onset'] <= r['t'] + ONSET_S) or not e['pos']:
+            if e['bot'] != r['bot'] or not (r['t'] - 1 <= e['onset'] <= r['t'] + ONSET_S) or not e['pos']:   # onset is rounded to 1 s
                 continue
             below = (ty + 1) - e['pos'][1]
             if abs(e['pos'][0] - (tx + 0.5)) <= LAND_XZ and abs(e['pos'][2] - (tz + 0.5)) <= LAND_XZ and below >= 6 and below > (f['drop'] or 0) + EXTRA_DROP:
@@ -183,8 +195,10 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None, roster=None):
             hrs = sum(min(e, cut if per == 'pre' else 1e18) - max(s, lo if per == 'pre' else cut)
                       for b, ivs in iv.items() if arm(b) == a for s, e in ivs
                       if (in_per(s) or in_per(e))) / 3600.0
+            # a real fall (Claude r3 P3-10): >= 12 by the tracker AND a death or >= HP_MIN health lost (a walk down summed with a
+            # small planned drop costs 1-3)
             n = sum(1 for e in eps if arm(e['bot']) == a and in_per(e['t']) and e['fell'] >= 12 and inside(iv, e['bot'], e['onset'])
-                    and not (e['feet'] or '').startswith(('water', 'bubble_column')))
+                    and (e['death'] or (e['hp'] or 0) >= HP_MIN) and not (e['feet'] or '').startswith(('water', 'bubble_column')))
             cells[(a, per)] = (n, round(max(hrs, 0.0), 2))
     rate = lambda c: (c[0] / c[1]) if c[1] > 0 else None
     r_ = {k: rate(v) for k, v in cells.items()}
@@ -205,7 +219,7 @@ def judge(rows, *, cut, cans, fleet=False, pre_s=None, roster=None):
     res['refusal_did'] = None if None in vals else round((vals[0] - vals[1]) - (vals[2] - vals[3]), 4)
     res['refusals_up'] = 1 if res['refusal_did'] is not None and res['refusal_did'] > 0.10 else 0
     # H1 READINESS (Codex r3 P2-4): every cell needs >= 20 gather runs, or H1 cannot pass -- it is INCONCLUSIVE, and KEEP waits
-    res['h1_ready'] = 1 if all(sh[k][1] >= 20 for k in sh) else 0
+    res['h1_ready'] = 1 if all(sh[k][1] >= H1_MIN_RUNS for k in sh) else 0
     mv = {a: Counter() for a in ('canary', 'control')}
     for r in post:
         if r['name'] in ('explore', 'goto'):
@@ -239,9 +253,11 @@ def selftest():
         return {'t': t, 'bot': bot, 'name': name, 'detail': detail, 'pos': pos, 'status': status, 'dur': dur, 'fc': fc}
     C, K = 'board-a-Comet', 'hive-a-Alpha'
     lic = row(C, cut + 5, '_cavefall_mode', detail='on=1 rule=floor_over_drop safe_drop=3')
-    base = [lic] + [row(C, cut + 10 + i, '_cavefall_skip', detail='dirt: 3 of 9 exposed candidate(s) are floors over a harmful drop; skipped') for i in range(5)]
+    SK = 'dirt: 3 of 9 candidate(s) are floors over a harmful drop; skipped own=3 nbr=0 land=stalagmite:3 front=1'
+    base = [lic, row(K.replace('hive-a', 'board-a'), cut + 6, '_cavefall_mode', detail='on=1')] + \
+        [row(C if i % 2 else K.replace('hive-a', 'board-a'), cut + 10 + i, '_cavefall_skip', detail=SK) for i in range(5)]
     ok = judge(base, cut=cut, cans={'board-a'})
-    assert ok['licence_on'] == 1 and ok['exposure'] == 5 and ok['exposure_ready'] == 1 and ok['allowed_fell'] == 0 and ok['refused_fell'] == 0 and ok['rows_control'] == 0, ok
+    assert ok['licence_on'] == 2 and ok['licence_all'] == 1 and ok['exposure'] == 5 and ok['exposure_ready'] == 1 and ok['allowed_fell'] == 0 and ok['refused_fell'] == 0 and ok['rows_control'] == 0, ok
     # G1: an allowed 2-block floor dig, then a 21-block fall at that column 2 s later -> 1; a 3-block fall -> 0; another column -> 0
     A = row(C, cut + 100, '_cavefall_floor', pos=(3.5, 30.0, 6.5), detail='allowed: dirt at 3,29,6; drop 2 onto solid (damage 0)')
     fall = lambda t, fell, pos=(3.5, 8.7, 6.5): row(C, t, '_fall_path', pos=pos, detail=f'candidate damage: fell {fell}, hp -20; descent 1s ago: path none; ... running gather; ctl none; feet air head air')
@@ -278,9 +294,15 @@ def selftest():
     # ARMS: a control row after the deploy
     assert judge(base + [row(K, cut + 50, '_cavefall_mode', detail='on=1')], cut=cut, cans={'board-a'})['rows_control'] == 1
     # LIVENESS reads the latest licence
-    assert judge(base + [row(C, cut + 900, '_cavefall_mode', detail='on=0')], cut=cut, cans={'board-a'})['licence_on'] == 0
-    # EXPOSURE below 5 is not ready
-    assert judge([lic, row(C, cut + 10, '_cavefall_skip', detail='x')], cut=cut, cans={'board-a'})['exposure_ready'] == 0
+    lo0 = judge(base + [row(C, cut + 900, '_cavefall_mode', detail='on=0')], cut=cut, cans={'board-a'})
+    assert lo0['licence_on'] == 1 and lo0['licence_all'] == 0 and lo0['licence_missing'] == [C], lo0
+    # EXPOSURE: below 5 is not ready; front=0 skips do not count; one bot alone is not ready
+    assert judge([lic, row(C, cut + 10, '_cavefall_skip', detail=SK)], cut=cut, cans={'board-a'})['exposure_ready'] == 0
+    assert judge([lic] + [row(C, cut + 10 + i, '_cavefall_skip', detail=SK.replace('front=1', 'front=0')) for i in range(9)], cut=cut, cans={'board-a'})['exposure'] == 0
+    assert judge([lic] + [row(C, cut + 10 + i, '_cavefall_skip', detail=SK) for i in range(9)], cut=cut, cans={'board-a'})['exposure_ready'] == 0
+    # G1 onset rounding: a fall whose rounded onset is 0.4 s before the allowed row still counts
+    early = row(C, cut + 100.6, '_fall_path', pos=(3.5, 8.7, 6.5), detail='candidate damage: fell 21, hp -20; descent 1s ago; feet air head air')
+    assert judge(base + [dict(A), early], cut=cut, cans={'board-a'})['allowed_fell'] == 1
     # episodes: a damage row and its death row 0.2 s apart are ONE descent; 30 s apart, two
     ep = episodes([fall(cut + 1, 21), row(C, cut + 1.2, '_fall_path', detail='death (fall): fell 22; descent: path unknown'), fall(cut + 40, 13)])
     assert len(ep) == 2 and ep[0]['fell'] == 22 and ep[0]['death'], ep
@@ -292,12 +314,15 @@ def selftest():
             G(C, cut + 100, 1000), fall(cut + 500, 30, (3.5, 0, 6.5)),                    # canary post: 1
             row(C, cut + 600, '_fall_path', pos=(3.5, 0, 6.5), detail='candidate damage: fell 25, hp -5; descent 1s ago; ctl none; feet water head water'),   # water: not counted
             row(C, cut + 5000, '_fall_path', detail='candidate damage: fell 25, hp -5; descent 1s ago; feet air head air'),     # outside gather: not counted
-            G(K, cut - 3000, 1000), row(K, cut - 2500, '_fall_path', pos=(0, 0, 0), detail='candidate damage: fell 20; descent 1s ago; feet air head air'),
-            G(K, cut + 100, 1000), row(K, cut + 500, '_fall_path', pos=(0, 0, 0), detail='candidate damage: fell 20; descent 1s ago; feet air head air')]
+            G(K, cut - 3000, 1000), row(K, cut - 2500, '_fall_path', pos=(0, 0, 0), detail='candidate damage: fell 20, hp -6; descent 1s ago; feet air head air'),
+            G(K, cut + 100, 1000), row(K, cut + 500, '_fall_path', pos=(0, 0, 0), detail='candidate damage: fell 20, hp -6; descent 1s ago; feet air head air')]
     p = judge(rows, cut=cut, cans={'board-a'}, pre_s=pre_s)
     assert p['primary']['canary_pre']['episodes'] == 2 and p['primary']['canary_post']['episodes'] == 1, p['primary']
     assert p['primary']['control_pre']['episodes'] == 1 and p['primary']['control_post']['episodes'] == 1, p['primary']
     assert p['primary_did'] is not None and p['primary_did'] < 0, p['primary_did']
+    # a 'fell 25' tracker sum with hp -2 (a walk down plus a small drop) is not a fall episode
+    small = rows + [row(C, cut + 700, '_fall_path', detail='candidate damage: fell 25, hp -2; descent 1s ago; feet air head air')]
+    assert judge(small, cut=cut, cans={'board-a'}, pre_s=pre_s)['primary']['canary_post']['episodes'] == 1
     # deaths: fall family by arm; a lava death after a fall is not one
     d = judge(base + [row(C, cut + 10, '_death', detail='was impaled on a stalagmite after falling 21 blocks'),
                       row(K, cut + 20, '_death', detail='tried to swim in lava after falling 6 blocks')], cut=cut, cans={'board-a'})
@@ -308,7 +333,7 @@ def selftest():
         [gr(K, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(K, cut + 100 + i, 'no_safe_target' if i == 0 else None) for i in range(4)]
     hr = judge(h, cut=cut, cans={'board-a'}, pre_s=3600)
     assert hr['refusal_did'] == 0.5 and hr['refusals_up'] == 1, (hr['refusal_did'], hr['no_safe_target'])
-    big = [lic] + [gr(b, t0 + i, None) for b in (C, K) for t0 in (cut - 900, cut + 100) for i in range(20)]
+    big = [lic] + [gr(b, t0 + i, None) for b in (C, K) for t0 in (cut - 900, cut + 100) for i in range(100)]
     assert judge(big, cut=cut, cans={'board-a'}, pre_s=3600)['h1_ready'] == 1
     h2 = [lic] + [gr(C, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(C, cut + 100 + i, 'no_safe_target' if i < 2 else None) for i in range(4)] + \
         [gr(K, cut - 900 + i, 'no_safe_target' if i == 0 else None) for i in range(4)] + [gr(K, cut + 100 + i, 'no_safe_target' if i < 2 else None) for i in range(4)]
