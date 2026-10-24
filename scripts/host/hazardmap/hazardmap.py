@@ -8,6 +8,7 @@ READ-ONLY on the fleet: it reads Elasticsearch (read-only key), the world-facts 
     hazardmap.py value    [--home ~/hazardmap] [--days 7]             the map's potential value (see value())
     hazardmap.py verify   --request FILE --out DIR [--staging /srv/world-backup/staging] [--live /srv/block2]
                           [--backup-log /var/log/mcai-monitor/world-backup.log]        10.0.0.30 cron, after the nightly backup
+    hazardmap.py check    [--home ~/hazardmap]            one status line (OK / HAZARDMAP ALARM), exit 1 on alarm
     hazardmap.py selftest
 
 WHAT A HAZARD IS. A place where the WORLD killed or trapped a bot, located in ABSOLUTE block coordinates. Worlds generated
@@ -44,7 +45,7 @@ SCHEMA = 'mcai.hazardmap'
 SCHEMA_VERSION = 1
 VERIFY_SCHEMA = 'mcai.hazardmap.verify'
 REQUEST_SCHEMA = 'mcai.hazardmap.request'
-DAY_SCHEMA = 4                                   # the day-cache file format; a change refetches every day
+DAY_SCHEMA = 5                                   # the day-cache file format; a change refetches every day
 HISTORY_SINCE = '2026-08-22T00:00:00Z'           # the first Block-2 world was created 08-22 14:16Z (ext4 birth time)
 VALIDATED_SINCE = '2026-10-08T00:00:00Z'         # ES reconciled from here (docs/reports/es-completeness-2026-10-14.md)
 REFUSED_DAYS = ('2026-10-07',)                   # duplicate docs (lib/estelemetry KNOWN_GAPS): never folded
@@ -79,7 +80,7 @@ KINDS = {
     'drowning': {'what': 'drowning deaths', 'link': (3, 4),
                  'check': 'head-deep water (two stacked water, waterlogged or water-plant cells) within 1 (xz) and -1..+1 (y) '
                           'of the death cell'},
-    'water_pit': {'what': 'a trapped spell >= 30 min, mostly _marooned rows, in >= 50% wet 10-min buckets (the board-d pit '
+    'water_pit': {'what': 'a trapped spell >= 30 min, >= 20% _marooned rows, in >= 50% wet 10-min buckets (the board-d pit '
                           'shape: a water cell on a solid floor, its four head-level walls solid)', 'link': (2, 2),
                   'check': 'the pit shape at a cell within 1 of the spell cell'},
     'water_ceiling_trap': {'what': 'a trapped spell >= 30 min with >= 20% _water_no_air_route rows (the board-a copper '
@@ -171,9 +172,13 @@ MUST_SPEAK = ('death', 'corridor', 'blind_lava', 'danger', 'marooned', 'no_air',
 NOT_LAVA = {'corridor': re.compile(r'^lava_corridor: unknown at -?\d+,-?\d+,-?\d+ ')}
 SITE_AT = re.compile(r'death:(\w+) x\d+ at (-?\d+),(-?\d+),(-?\d+)')
 LAVA_AT = re.compile(r'lava (below|beside the drop|beside) at (-?\d+),(-?\d+),(-?\d+)')
-DANGER_FEET = frozenset({'lava', 'magma_block', 'fire', 'soul_fire', 'campfire', 'soul_campfire'})
+DANGER_FEET = frozenset({'lava', 'magma_block', 'fire', 'soul_fire'})
+DANGER_NOT_LAVA = frozenset({'campfire', 'soul_campfire'})      # a town campfire: recognised, skipped, never a lava hazard
 DANGER_BELOW = frozenset({'air', 'cave_air', 'void_air', 'bubble_column'})
 UNPARSED_OK = 0.02
+WET_KIND = '_water_float'
+RECENT_DAYS = 3                  # every MUST_SPEAK source and the wet kind must speak on each of the newest 3 closed days
+DEATH_SITE_SLACK = 2             # per day, _death and _death_site_recorded (written in the same ms) may differ by at most 2
 FIELDS = ['@timestamp', 'bot.name', 'bot.pos', 'skill.detail', 'skill.fail_class']
 
 
@@ -204,6 +209,8 @@ def compact(src, r):
         return ('unparsed', 'no bot.pos')
     x, y, z = cell(pos)
     if spec['cell'] == 'danger':
+        if det in DANGER_NOT_LAVA:
+            return ('skip', 'campfire')
         if det in DANGER_FEET:
             return [t, bot, x, y, z, 'feet:' + det]
         if det in DANGER_BELOW or (re.match(r'^[a-z_]+$', det) and PASSABLE.match('minecraft:' + det)):
@@ -249,8 +256,10 @@ def fetch_day(day, EsEvents, now_ms, max_rows=500_000):
         rec['skipped'][src] = skip
         rec['unparsed'][src] = sum(bad.values())
         rec['unparsed_examples'][src] = [k for k, _ in bad.most_common(3)]
-    # wet 10-minute buckets per bot (the poolescape spell rule: a bucket that holds a _water_float row)
-    h = ev.histogram('_water_float', interval='10m', split='bot.name', allow_zero=True)
+    # wet 10-minute buckets per bot (the poolescape spell rule: a bucket that holds a _water_float row). The kind is COUNTED
+    # like a source, so a renamed _water_float trips the recent-health check instead of turning every pit 'dry'.
+    rec['counts'][WET_KIND] = int(ev.count(WET_KIND, allow_zero=True))
+    h = ev.histogram(WET_KIND, interval='10m', split='bot.name', allow_zero=True)
     wet = collections.defaultdict(list)
     for b, per in h.items():
         k = parse_ms(b) // 600_000
@@ -279,6 +288,7 @@ def recount(day, EsEvents, now_ms):
         for src, spec in SOURCES.items():
             kw = {'detail_contains': spec['detail_contains']} if spec.get('detail_contains') else {}
             out[src] = int(ev.count(spec['kind'], allow_zero=True, **kw))
+        out[WET_KIND] = int(ev.count(WET_KIND, allow_zero=True))
     return total, out
 
 
@@ -335,8 +345,9 @@ class Seeds:
     """Which seed each world was on at each time. Built from verify()'s measurement of level.dat (staged backup copies) and
     the pre-reseed world copies on 10.0.0.30. Seeds are STRINGS: 64-bit seeds exceed a JS number (lavasight is JS)."""
 
-    def __init__(self, worlds):
+    def __init__(self, worlds, horizon_ms=None):
         self.worlds = worlds            # {world: {'seed', 'home', 'segments': [{'seed', 'from_ms', 'until_ms'|None}]}}
+        self.horizon_ms = horizon_ms    # the seeds were OBSERVED at verify's made_at: a row after it (+1 h) is not resolved
 
     @classmethod
     def from_verify(cls, v):
@@ -344,7 +355,7 @@ class Seeds:
             raise Blind('the verify file is not %s (got %r)' % (VERIFY_SCHEMA, v.get('schema')))
         worlds = {}
         for w, info in (v.get('worlds') or {}).items():
-            if not WORLD_RE.match(w):
+            if not WORLD_RE.fullmatch(w):
                 raise Blind('verify names a world %r outside the fleet pattern' % w)
             segs = []
             for p in sorted(info.get('previous') or [], key=lambda p: p['created']):
@@ -356,13 +367,17 @@ class Seeds:
             worlds[w] = {'seed': str(info['seed']), 'home': info.get('home'), 'segments': segs}
         if len(worlds) < 1:
             raise Blind('the verify file names no worlds')
-        return cls(worlds)
+        if not v.get('made_at'):
+            raise Blind('the verify file has no made_at: when the seeds were observed is unknown')
+        return cls(worlds, horizon_ms=parse_ms(v['made_at']) + 3_600_000)
 
     def seed_at(self, world, t):
         """(seed, None) or (None, why)."""
         w = self.worlds.get(world)
         if w is None:
             return None, 'unknown_world'
+        if self.horizon_ms is not None and t > self.horizon_ms:
+            return None, 'after_seed_observation'
         for s in w['segments']:
             if s['from_ms'] <= t and (s['until_ms'] is None or t < s['until_ms']):
                 if t < s['from_ms'] + QUARANTINE_MS:
@@ -541,6 +556,12 @@ def source_controls(days, validated_ms):
                 ex[src] = rec['unparsed_examples'].get(src)
     if not vdays:
         raise Blind('no validated day is in the cache: nothing could have been seen')
+    have = {r['day'] for r in days if not r.get('void')}
+    newest = max(r['day'] for r in days)
+    want = [d for d in days_between(VALIDATED_SINCE, parse_ms(newest + 'T00:00:00Z')) if d not in REFUSED_DAYS]
+    missing = [d for d in want if d not in have and d >= iso(validated_ms)[:10]]
+    if missing:
+        raise Blind('validated day(s) missing or void in the cache: %s -- a gap is not a quiet week' % missing[:5])
     for src in MUST_SPEAK:
         if tot[src] == 0:
             raise Blind('source %r (%s) is SILENT over %d validated days: a renamed kind or a broken query, not a safe fleet'
@@ -550,12 +571,38 @@ def source_controls(days, validated_ms):
         if seen and unp[src] / seen > UNPARSED_OK:
             raise Blind('source %r: %d of %d rows did not parse (> %.0f%%) -- the detail format changed? e.g. %r'
                         % (src, unp[src], seen, 100 * UNPARSED_OK, (ex.get(src) or ['?'])[0]))
-    return {'validated_days': vdays, 'rows': dict(tot), 'unparsed': dict(unp), 'days_with_rows': dict(spoke)}
+    # RECENT health: a kind renamed last week is hidden by the weeks it spoke before, so each source must speak on each of
+    # the newest RECENT_DAYS closed validated days (a source's rows, unparsed or skipped rows all count as speaking)
+    closed = sorted((r for r in days if r.get('closed') and not r.get('void')
+                     and parse_ms(r['day'] + 'T00:00:00Z') >= validated_ms), key=lambda r: r['day'])
+    recent = closed[-RECENT_DAYS:]
+    if len(recent) < RECENT_DAYS:
+        raise Blind('only %d closed validated day(s) in the cache: the recent-health check needs %d' % (len(recent), RECENT_DAYS))
+    for rec in recent:
+        for src in MUST_SPEAK:
+            spoke_today = len(rec['rows'].get(src, ())) + rec['unparsed'].get(src, 0) + rec.get('skipped', {}).get(src, 0)
+            if not spoke_today:
+                raise Blind('source %r (%s) is SILENT on %s, one of the newest %d closed days: a renamed kind or a broken '
+                            'query, not a safe day' % (src, SOURCES[src]['kind'], rec['day'], RECENT_DAYS))
+        if not rec['counts'].get(WET_KIND):
+            raise Blind('%s is SILENT on %s: every maroon spell would read dry' % (WET_KIND, rec['day']))
+    # the death count against the bot's own death-site record, day by day (an independent second writer of every death)
+    recon = {}
+    for rec in days:
+        if parse_ms(rec['day'] + 'T00:00:00Z') < validated_ms or rec.get('void'):
+            continue
+        nd = len(rec['rows'].get('death', ())) + rec['unparsed'].get('death', 0)
+        ns = len(rec['rows'].get('site', ())) + rec['unparsed'].get('site', 0)
+        recon[rec['day']] = (nd, ns)
+        if abs(nd - ns) > DEATH_SITE_SLACK:
+            raise Blind('%s: %d _death rows but %d _death_site_recorded rows -- one of the two kinds changed' % (rec['day'], nd, ns))
+    return {'validated_days': vdays, 'rows': dict(tot), 'unparsed': dict(unp), 'days_with_rows': dict(spoke),
+            'recent_days': [r['day'] for r in recent], 'death_vs_site_by_day': recon}
 
 
 def evidence_points(days, seeds, validated_ms):
     """Every evidence point, resolved to its seed. Returns (points, deaths, excluded counter, spell list)."""
-    excl = collections.Counter(); excl_h = collections.Counter()
+    excl = collections.Counter(); excl_h = collections.Counter(); lost_validated = collections.Counter()
     deaths, unknown_hist = classify_deaths(days, validated_ms)
     pts = []
 
@@ -566,6 +613,8 @@ def evidence_points(days, seeds, validated_ms):
                 raise Blind('%s row from world %r, which the seeds table does not know: a new world needs its seed measured '
                             'before its rows fold' % (what, world))
             excl['%s:%s' % (what, why)] += 1
+            if t >= validated_ms and why in ('outside_world_lifetime', 'quarantine'):
+                lost_validated[why] += 1
         return s
 
     deaths_by_bot = collections.defaultdict(list)
@@ -613,10 +662,14 @@ def evidence_points(days, seeds, validated_ms):
         excl['spell_bot_hours:' + k] = round(v, 1)
     for k, v in unknown_hist.items():
         excl['death:history_unrecognised:' + k] += v
+    if sum(lost_validated.values()) > VALIDATED_LOSS_OK:
+        raise Blind('%d validated rows fall outside every world segment %s: the seeds table does not describe these worlds '
+                    '(a reseed or a wrong creation time)' % (sum(lost_validated.values()), dict(lost_validated)))
     return pts, deaths, excl, spell_list
 
 
 SIGHT = ('corridor', 'blind_lava', 'danger', 'adjacent', 'standoff')
+VALIDATED_LOSS_OK = 50           # validated rows outside every world segment (none expected: no reseed since 09-27)
 
 
 def site_of(seed, kind, P, now_ms, validated_ms):
@@ -648,7 +701,8 @@ def site_of(seed, kind, P, now_ms, validated_ms):
                    'last_7d': sum(1 for p in deaths if p['t'] >= now_ms - 7 * DAY_MS),
                    'by_world': dict(collections.Counter(p['world'] for p in deaths)),
                    'messages': dict(collections.Counter(p['tag'] for p in deaths)),
-                   'cells': sorted({(p['x'], p['y'], p['z']) for p in deaths})[:16]},
+                   'cells_total': len({(p['x'], p['y'], p['z']) for p in deaths}),
+                   'cells': death_cells(deaths)[:16]},
         'sightings': {'rows': len(sights), 'episodes': len(episodes),
                       'by_source': dict(collections.Counter(p['ev'] for p in sights)), 'cells_total': len(cells),
                       'cells': sorted(([k[0], k[1], k[2], v[0], v[1]] for k, v in cells.items()), key=lambda a: (-a[3], a[:3]))[:64]},
@@ -658,8 +712,17 @@ def site_of(seed, kind, P, now_ms, validated_ms):
                    'bots': sorted({p['bot'] for p in sp})},
         'worlds_with_evidence': worlds, 'death_worlds': death_worlds, 'bots': len({p['bot'] for p in P}),
     }
-    h['deaths']['cells'] = [list(x) for x in h['deaths']['cells']]
     return h
+
+
+def death_cells(deaths):
+    """Distinct death cells, most deaths first, then most recent: the cells a consumer and the probes should see first."""
+    c = collections.defaultdict(lambda: [0, 0])
+    for p in deaths:
+        k = (p['x'], p['y'], p['z'])
+        c[k][0] += 1
+        c[k][1] = max(c[k][1], p['t'])
+    return [list(k) for k, v in sorted(c.items(), key=lambda kv: (-kv[1][0], -kv[1][1], kv[0]))]
 
 
 def qualifies(h):
@@ -703,19 +766,28 @@ def apply_verify(h, verify, seed_worlds):
     if not res:
         h['exists'] = {'summary': 'unchecked', 'why': 'not in the last request (new since)', 'backup_day': verify.get('backup_day')}
         return
+    # a NEGATIVE answer is only as good as what was asked: if the hazard's probe cells changed, or evidence arrived after the
+    # request was made, an old `absent` no longer covers it (a `present` still does: those blocks were seen)
+    changed = sorted(list(c) for c in probe_cells(h)) != res.get('cells')
+    newer = bool(verify.get('request_made_at')) and parse_ms(h['last_seen']) > parse_ms(verify['request_made_at'])
     by = {}
     for w in seed_worlds:
-        r = res.get(w)
-        by[w] = r if r else {'state': 'unchecked'}
+        r = (res.get('by_world') or {}).get(w)
+        if not r:
+            r = {'state': 'unchecked'}
+        elif r['state'] != 'present' and (changed or newer):
+            r = {'state': 'unchecked', 'why': 'evidence changed since the check' if changed else 'new evidence since the request',
+                 'was': r['state']}
+        by[w] = r
     states = [r['state'] for r in by.values()]
     if 'present' in states:
         s = 'present'
     elif states and all(x == 'absent' for x in states):
         s = 'absent'
-    elif any(x in ('unknown', 'not_generated', 'unchecked') for x in states):
-        s = 'unknown'
-    else:
+    elif not states or all(x == 'unchecked' for x in states):
         s = 'unchecked'
+    else:
+        s = 'unknown'
     h['exists'] = {'summary': s, 'backup_day': verify.get('backup_day'), 'by_world': by,
                    'present_in': sorted(w for w, r in by.items() if r['state'] == 'present')}
 
@@ -725,6 +797,7 @@ def build(days, seeds, verify=None, now_ms=None, world_facts=None):
     now_ms = now_ms or int(time.time() * 1000)
     vms = parse_ms(VALIDATED_SINCE)
     controls = source_controls(days, vms)
+    terrain_gate(verify, seeds)
     pts, deaths, excl, spell_list = evidence_points(days, seeds, vms)
     by = collections.defaultdict(list)
     for p in pts:
@@ -742,7 +815,7 @@ def build(days, seeds, verify=None, now_ms=None, world_facts=None):
     bot_hours = collections.Counter()
     for rec in days:
         for w, n in rec.get('bot_hours', {}).items():
-            if WORLD_RE.match(w):
+            if WORLD_RE.fullmatch(w):
                 bot_hours[w] += n
     seeds_doc = {}
     all_seeds = set(out_seeds) | set(current)
@@ -771,11 +844,30 @@ def build(days, seeds, verify=None, now_ms=None, world_facts=None):
         'controls': dict(controls, death_site_recorded=death_ctrl, excluded=dict(excl),
                          bot_hours_by_world=dict(bot_hours),
                          terrain=(verify or {}).get('terrain_control'),
-                         verify_backup_day=(verify or {}).get('backup_day')),
+                         verify_backup_day=(verify or {}).get('backup_day'), verify_made_at=(verify or {}).get('made_at')),
         'kinds': KINDS, 'confidence_rule': CONFIDENCE_RULE,
         'seeds': seeds_doc,
     }
     return doc, deaths
+
+
+TERRAIN_MIN_AGREE = 0.99
+TERRAIN_MIN_CELLS = 500
+
+
+def terrain_gate(verify, seeds):
+    """Merging worlds by seed RESTS on same seed -> same terrain: every seed with >= 2 current worlds must show bedrock
+    agreement >= 0.99 over >= 500 compared cells in the verify file, or the build refuses (it would merge unlike worlds)."""
+    if verify is None:
+        return
+    tc = (verify.get('terrain_control') or {}).get('within_seed') or {}
+    for seed, ws in seeds.current().items():
+        if len(ws) < 2:
+            continue
+        t = tc.get(seed) or {}
+        if (t.get('min_agreement') or 0) < TERRAIN_MIN_AGREE or (t.get('min_cells') or 0) < TERRAIN_MIN_CELLS:
+            raise Blind('seed %s: the terrain control does not show one terrain (%s): worlds are not merged on a seed '
+                        'whose bedrock disagrees' % (seed, t or 'missing'))
 
 
 def death_site_control(days, validated_ms):
@@ -802,6 +894,7 @@ def death_site_control(days, validated_ms):
 
 
 VERIFY_MAX_AGE_H = 72
+VERIFY_ALARM_H = 30              # one missed nightly verify is an alarm in the header; three refuse the build
 
 
 def check_fresh(v, now_ms):
@@ -814,18 +907,26 @@ def check_fresh(v, now_ms):
 
 
 # ------------------------------------------------------------------------------------------------- value
-def value(deaths, now_ms, days=7, link=(3, 4), same_kind=True, prior_since_ms=None, offset=(0, 0), lag_ms=DAY_MS):
+def vkey(seed, x, z):
+    """value()'s grid cell: 8x8 columns, PER SEED (a death is never compared with another seed's terrain)."""
+    return (seed, x // 8, z // 8)
+
+
+def value(deaths, now_ms, days=7, link=(3, 4), same_kind=True, prior_since_ms=None, transform=None, lag_ms=DAY_MS):
     """How many of the last `days` days' deaths happened where the map ALREADY KNEW the hazard from an EARLIER death in
     ANOTHER world on the same seed. Denominators: every death in the window; those on a seed that held >= 2 worlds at the
-    time (only those could match). `offset` shifts the prior deaths (a chance null: same density, wrong place). `lag_ms`: a
-    prior counts only if it is at least this much older -- a map refreshed daily cannot have known a death from an hour ago."""
+    time (only those could match). `transform(seed, x, z) -> (x, z)` moves the prior deaths (the chance nulls: same deaths,
+    wrong place). `lag_ms`: an ANOTHER-world prior counts only if it is at least this much older -- a map refreshed daily
+    cannot have known a death from an hour ago. An OWN-world prior counts with no lag (keepout and world facts update live),
+    so `known_only_from_another_world` is what the map adds beyond per-world memory."""
     lo = now_ms - days * DAY_MS
     lxz, ly = link
     ok = [d for d in deaths if d.get('seed') and d['kind']]
     prior = [d for d in ok if prior_since_ms is None or d['t'] >= prior_since_ms]
     grid = collections.defaultdict(list)
     for p in prior:
-        grid[(p['seed'], (p['cell'][0] + offset[0]) // 8, (p['cell'][2] + offset[1]) // 8)].append(p)
+        x, z = transform(p['seed'], p['cell'][0], p['cell'][2]) if transform else (p['cell'][0], p['cell'][2])
+        grid[vkey(p['seed'], x, z)].append((x, z, p))
     window = [d for d in deaths if lo <= d['t'] < now_ms]
     res = collections.Counter(); by_kind = collections.Counter(); matched = []
     for d in window:
@@ -835,16 +936,15 @@ def value(deaths, now_ms, days=7, link=(3, 4), same_kind=True, prior_since_ms=No
             continue
         res['resolved'] += 1
         hit_other = hit_same = False
-        gx, gz = d['cell'][0] // 8, d['cell'][2] // 8
-        for dx in (-1, 0, 1):
-            for dz in (-1, 0, 1):
-                for p in grid.get((d['seed'], gx + dx, gz + dz), ()):
-                    if p['t'] > d['t'] - lag_ms or (same_kind and p['kind'] != d['kind']):
+        for dx in (-8, 0, 8):
+            for dz in (-8, 0, 8):
+                for px, pz, p in grid.get(vkey(d['seed'], d['cell'][0] + dx, d['cell'][2] + dz), ()):
+                    if p['t'] >= d['t'] or (same_kind and p['kind'] != d['kind']):
                         continue
-                    if (abs(p['cell'][0] + offset[0] - d['cell'][0]) <= lxz and abs(p['cell'][2] + offset[1] - d['cell'][2]) <= lxz
-                            and abs(p['cell'][1] - d['cell'][1]) <= ly):
+                    if abs(px - d['cell'][0]) <= lxz and abs(pz - d['cell'][2]) <= lxz and abs(p['cell'][1] - d['cell'][1]) <= ly:
                         if p['world'] != d['world']:
-                            hit_other = True
+                            if p['t'] <= d['t'] - lag_ms:
+                                hit_other = True
                         else:
                             hit_same = True
         if hit_other:
@@ -858,18 +958,48 @@ def value(deaths, now_ms, days=7, link=(3, 4), same_kind=True, prior_since_ms=No
     return dict(res), dict(by_kind), matched
 
 
-def shared_seed_deaths(deaths, seeds, lo, hi):
-    """Deaths in [lo, hi) on a seed that held >= 2 worlds at that moment."""
-    n = 0
+def could_match(deaths, seeds, lo, hi):
+    """Deaths in [lo, hi) on a seed that held >= 2 worlds at that moment: the only deaths another world could have warned."""
+    out = []
     for d in deaths:
         if lo <= d['t'] < hi and d.get('seed'):
             k = sum(1 for w, info in seeds.worlds.items() for s in info['segments']
                     if s['seed'] == d['seed'] and s['from_ms'] <= d['t'] and (s['until_ms'] is None or d['t'] < s['until_ms']))
-            n += k >= 2
-    return n
+            if k >= 2:
+                out.append(d)
+    return out
+
+
+def shared_seed_deaths(deaths, seeds, lo, hi):
+    return len(could_match(deaths, seeds, lo, hi))
 
 
 NULL_OFFSETS = ((48, 0), (-48, 0), (0, 48), (0, -48), (34, 34), (-34, 34), (34, -34), (-34, -34))
+
+
+def seed_homes(seeds):
+    """{seed: (x, z)} of the seed's current home (all shared-seed worlds share one), for the rotation null."""
+    out = {}
+    for w, info in seeds.worlds.items():
+        if info.get('home'):
+            out.setdefault(info['seed'], (info['home'][0], info['home'][2]))
+            for sgm in info['segments'][:-1]:
+                out.setdefault(sgm['seed'], (info['home'][0], info['home'][2]) if sgm['seed'] == info['seed'] else None)
+    return {k: v for k, v in out.items() if v}
+
+
+def rotate(homes, quarter):
+    """Rotate a prior about its seed's home by quarter * 90 degrees: the same distance from home (the town's density kept),
+    the wrong bearing."""
+    def f(seed, x, z):
+        h = homes.get(seed)
+        if not h:
+            return x + 10_000, z + 10_000           # no home known: out of reach (never a match)
+        dx, dz = x - h[0], z - h[1]
+        for _ in range(quarter):
+            dx, dz = -dz, dx
+        return h[0] + dx, h[1] + dz
+    return f
 
 
 def value_report(deaths, seeds, now_ms, days=7):
@@ -882,15 +1012,25 @@ def value_report(deaths, seeds, now_ms, days=7):
     out['headline_by_kind'] = kinds
     out['shared_seed_deaths'] = shared_seed_deaths(deaths, seeds, lo, now_ms)
     out['deaths_by_kind'] = dict(collections.Counter(d['kind'] or 'not_a_hazard' for d in deaths if lo <= d['t'] < now_ms))
+    could = could_match(deaths, seeds, lo, now_ms)
+    out['could_match_by_kind'] = dict(collections.Counter(d['kind'] for d in could if d['kind']))
+    ids = {id(d) for d in could}
+    if any(id(d) not in ids for d in matched):
+        raise Blind('a matched death is not one that could match (its seed held one world): the value fold is wrong')
     out['variants'] = {
         'priors_validated_only': value(deaths, now_ms, days, prior_since_ms=vms)[0],
         'any_kind': value(deaths, now_ms, days, same_kind=False)[0],
         'link_6_6': value(deaths, now_ms, days, link=(6, 6))[0],
         'no_lag': value(deaths, now_ms, days, lag_ms=1)[0],
     }
-    nulls = [value(deaths, now_ms, days, offset=o)[0].get('known_from_another_world', 0) for o in NULL_OFFSETS]
+    nulls = [value(deaths, now_ms, days, transform=lambda s, x, z, o=o: (x + o[0], z + o[1]))[0].get('known_from_another_world', 0)
+             for o in NULL_OFFSETS]
     out['chance_null'] = {'offsets': [list(o) for o in NULL_OFFSETS], 'matched': nulls,
                           'mean': round(sum(nulls) / len(nulls), 2), 'max': max(nulls)}
+    homes = seed_homes(seeds)
+    rot = [value(deaths, now_ms, days, transform=rotate(homes, q))[0].get('known_from_another_world', 0) for q in (1, 2, 3)]
+    out['rotation_null'] = {'what': 'priors rotated 90/180/270 degrees about their seed\'s home (distance from home kept)',
+                            'matched': rot, 'mean': round(sum(rot) / 3, 2), 'max': max(rot)}
     out['matched'] = [{'t': iso(d['t']), 'bot': d['bot'], 'kind': d['kind'], 'cell': list(d['cell']), 'category': d['category']}
                       for d in sorted(matched, key=lambda d: d['t'])]
     return out
@@ -899,6 +1039,16 @@ def value_report(deaths, seeds, now_ms, days=7):
 # ------------------------------------------------------------------------------------------------- the request
 MAX_PROBES = 100_000
 PROBE_R = {'lava': 2, 'fire': 2, 'drowning': 1, 'water_pit': 1, 'water_ceiling_trap': 1, 'cave_fall': 1, 'dripstone': 2}
+
+
+def probe_cells(h):
+    """The cells a hazard is probed at (the request) -- also its fingerprint when the answer comes back."""
+    cells = [tuple(c) for c in h['deaths']['cells'][:4]]
+    if not cells:
+        cells = [tuple(c[:3]) for c in h['sightings']['cells'][:4]]
+    if not cells:
+        cells = [tuple(h['center'])]
+    return cells
 
 
 def make_request(doc, now_ms):
@@ -913,11 +1063,7 @@ def make_request(doc, now_ms):
             order.append((-(h['deaths']['total'] * 10 + h['spells']['bot_hours'] + h['sightings']['episodes']), h['id'], seed, h))
     order.sort(key=lambda o: (o[0], o[1]))
     for _, hid, seed, h in order:
-        cells = [tuple(c) for c in h['deaths']['cells'][:4]]
-        if not cells:
-            cells = [tuple(c[:3]) for c in h['sightings']['cells'][:4]]
-        if not cells:
-            cells = [tuple(h['center'])]
+        cells = probe_cells(h)
         for w in sorted(doc['seeds'][seed]['worlds']):
             for c in cells:
                 if len(probes) >= MAX_PROBES:
@@ -937,7 +1083,7 @@ def validate_request(req, max_probes=MAX_PROBES):
     for p in ps:
         if not isinstance(p, dict) or set(p) != {'id', 'world', 'kind', 'x', 'y', 'z', 'r'}:
             raise ValueError('a probe has the wrong fields')
-        if not (isinstance(p['world'], str) and WORLD_RE.match(p['world'])):
+        if not (isinstance(p['world'], str) and WORLD_RE.fullmatch(p['world'])):
             raise ValueError('a probe names a world outside the fleet pattern')
         if p['kind'] not in PROBE_R or not isinstance(p['id'], str) or len(p['id']) > 120:
             raise ValueError('a probe has a bad kind or id')
@@ -1100,7 +1246,18 @@ def is_solid(name, props):
 
 
 def probe(w, p):
-    """One probe -> {'state': present|absent|not_generated|unknown, 'found': {...}}."""
+    """One probe -> {'state': present|absent|not_generated|unknown, 'found': {...}}. ABSENT is claimed only when every cell
+    the check needs was read: a column in an ungenerated chunk or a cell that did not decode makes a negative `unknown`."""
+    before = w.stats['undecoded']
+    res = _probe(w, p)
+    sts = {w.status(x, z) for x in range(p['x'] - p['r'], p['x'] + p['r'] + 1) for z in range(p['z'] - p['r'], p['z'] + p['r'] + 1)}
+    if res['state'] == 'absent' and (sts != {'ok'} or w.stats['undecoded'] > before):
+        return {'state': 'unknown', 'why': 'incomplete read (%s)' % ('ungenerated column' if sts != {'ok'} else 'undecoded cells'),
+                'found': res.get('found', {})}
+    return res
+
+
+def _probe(w, p):
     x0, y0, z0, r, kind = p['x'], p['y'], p['z'], p['r'], p['kind']
     sts = {w.status(x, z) for x in range(x0 - r, x0 + r + 1) for z in range(z0 - r, z0 + r + 1)}
     if 'unknown' in sts:
@@ -1135,7 +1292,10 @@ def probe(w, p):
                 h = 0
                 for y in range(y0, min(319, y0 + 64)):
                     n, pr = w.block(x, y, z, props=True)
-                    if n is None or is_solid(n, pr):
+                    if n is None:
+                        w.stats['undecoded'] += 1          # a blind cell ends the column AND marks the read incomplete
+                        break
+                    if is_solid(n, pr):
                         break
                     h += 1
                 best = max(best, h)
@@ -1188,6 +1348,7 @@ def terrain_control(worlds_by_seed, open_world):
         if len(ws) >= 2:
             vals = [agree(ws[0], b) for b in ws[1:]]
             out['within_seed'][seed] = {'reference': ws[0], 'min_agreement': min((v for v, _ in vals if v is not None), default=None),
+                                        'min_cells': min((n for _, n in vals), default=0),
                                         'pairs': {b: round(v, 4) if v is not None else None for b, (v, _) in zip(ws[1:], vals)}}
     reps = [sorted(ws)[0] for ws in worlds_by_seed.values()]
     for i, a in enumerate(reps):
@@ -1231,21 +1392,30 @@ def level_seed(raw):
     return str((d.get('WorldGenSettings') or {})['seed'])
 
 
-def measure_worlds(staging, live, cat=sudo_cat, birth=sudo_birth, ls=None):
+def measure_worlds(staging, live, cat=sudo_cat, birth=sudo_birth, ls=None, backup_ms=None):
     """{world: {seed, home, created, previous: [{seed, created, retired}]}} from the STAGED level.dat (the backup copy), the
     world dir's birth time, and every live `world.pre-reseed-<ts>` copy (seed from its level.dat, retired = its <ts>)."""
     ls = ls or (lambda d: subprocess.run(['sudo', '-n', 'ls', d], capture_output=True, text=True).stdout.split())
     out = {}
     for w in sorted(ls(staging)):
-        if not WORLD_RE.match(w):
+        if not WORLD_RE.fullmatch(w):
             continue
         raw = cat(os.path.join(staging, w, 'world', 'level.dat'))
         if not raw:
             continue
         tp = cat(os.path.join(staging, w, 'TOWN-PLACED.json'))
         home = json.loads(tp).get('home') if tp else None
-        info = {'seed': level_seed(raw), 'home': home, 'created': birth(os.path.join(live, w, 'world', 'datapacks')),
-                'previous': []}
+        seed = level_seed(raw)
+        live_raw = cat(os.path.join(live, w, 'world', 'level.dat'))
+        if not live_raw or level_seed(live_raw) != seed:
+            # the creation time below is the LIVE world's: it may only be paired with the staged seed if both are one world
+            raise Blind('%s: the staged level.dat (seed %s) and the live one (%s) differ -- a reseed since the backup; the '
+                        'next night\'s copy will agree' % (w, seed, level_seed(live_raw) if live_raw else 'missing'))
+        info = {'seed': seed, 'home': home, 'created': birth(os.path.join(live, w, 'world', 'datapacks')),
+                'previous': [], 'measured_at': iso(int(time.time() * 1000))}
+        if backup_ms is not None and parse_ms(info['created']) > backup_ms:
+            raise Blind('%s: the live world was created %s, after the backup (%s): the staged copy is another world'
+                        % (w, info['created'], iso(backup_ms)))
         for name in sorted(ls(os.path.join(live, w))):
             m = re.match(r'^world\.pre-reseed-(\d{8}T\d{6}Z)$', name)
             if m:
@@ -1264,7 +1434,8 @@ def verify(request, staging, live, backup_log, day=None, cat=sudo_cat, birth=sud
     good = read_backup_log(backup_log, day)
     if not good:
         raise Blind('no "good %s" line in %s: the staged copy may be mid-backup; refusing to read it' % (day, backup_log))
-    worlds = measure_worlds(staging, live, cat=cat, birth=birth, ls=ls)
+    m = re.match(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ) ', good)
+    worlds = measure_worlds(staging, live, cat=cat, birth=birth, ls=ls, backup_ms=parse_ms(m.group(1)) if m else None)
     if not worlds:
         raise Blind('no fleet world found in %s' % staging)
     by_seed = collections.defaultdict(list)
@@ -1281,24 +1452,39 @@ def verify(request, staging, live, backup_log, day=None, cat=sudo_cat, birth=sud
             cache[wname] = fresh(wname)
         return cache[wname]
     tc = terrain_control(dict(by_seed), fresh)
-    results = collections.defaultdict(dict)
+    per = collections.defaultdict(lambda: collections.defaultdict(list))
+    cells = collections.defaultdict(set)
     state_counts = collections.Counter()
     probes = sorted((request or {}).get('probes', []), key=lambda p: (p['world'], p['x'] >> 9, p['z'] >> 9))
     for p in probes:
+        cells[p['id']].add((p['x'], p['y'], p['z']))
         if p['world'] not in worlds:
-            results[p['id']][p['world']] = {'state': 'unknown', 'why': 'world not staged'}
+            per[p['id']][p['world']].append({'state': 'unknown', 'why': 'world not staged'})
             continue
         a = probe(open_world(p['world']), p)
-        prev = results[p['id']].get(p['world'])
-        rank = {'present': 3, 'absent': 2, 'not_generated': 1, 'unknown': 0}
-        if prev is None or rank[a['state']] > rank[prev['state']]:
-            results[p['id']][p['world']] = a
+        per[p['id']][p['world']].append(a)
         state_counts[a['state']] += 1
+    results = {}
+    for hid, by in per.items():
+        results[hid] = {'cells': sorted(list(c) for c in cells[hid]), 'by_world': {w: reduce_states(v) for w, v in by.items()}}
     null = null_control(probes, worlds, open_world)
     return {'schema': VERIFY_SCHEMA, 'schema_version': 1, 'made_at': iso(now_ms), 'backup_day': day, 'backup_line': good,
             'request_made_at': (request or {}).get('made_at'), 'probes': len((request or {}).get('probes', [])),
             'probe_states': dict(state_counts), 'null_control': null, 'worlds': worlds, 'terrain_control': tc,
             'results': dict(results)}
+
+
+def reduce_states(answers):
+    """One hazard's probes in one world -> one state: present if ANY probe found it; absent only if EVERY probe read
+    absent; not_generated if every probe was ungenerated; otherwise unknown (an incomplete negative is not an absence)."""
+    st = [a['state'] for a in answers]
+    if 'present' in st:
+        return next(a for a in answers if a['state'] == 'present')
+    if st and all(x == 'absent' for x in st):
+        return {'state': 'absent', 'found': {}, 'probes': len(st)}
+    if st and all(x == 'not_generated' for x in st):
+        return {'state': 'not_generated', 'probes': len(st)}
+    return {'state': 'unknown', 'probes': len(st), 'states': dict(collections.Counter(st))}
 
 
 NULL_SHIFT = (48, 48)
@@ -1354,11 +1540,12 @@ def report_text(doc, val, top=8):
         hd = val['headline']
         L.append('VALUE (%s .. %s): of %d deaths, %d on a seed shared by >= 2 worlds; %d were within 3 xz / 4 y of a same-kind '
                  'death >= 24 h EARLIER in ANOTHER world (%d of them with no such earlier death in their own world). '
-                 'Chance null (priors shifted ~48 blocks): mean %.1f, max %d.' % (
+                 'Chance nulls: priors shifted 48 blocks mean %.1f (max %d); rotated about home mean %.1f (max %d).' % (
                      val['window'][0], val['window'][1], hd.get('deaths', 0), val['shared_seed_deaths'],
                      hd.get('known_from_another_world', 0), hd.get('known_only_from_another_world', 0),
-                     val['chance_null']['mean'], val['chance_null']['max']))
-        L.append('  by kind matched: %s ; deaths by kind: %s' % (val['headline_by_kind'], val['deaths_by_kind']))
+                     val['chance_null']['mean'], val['chance_null']['max'], val['rotation_null']['mean'], val['rotation_null']['max']))
+        L.append('  by kind matched: %s ; could match: %s ; all deaths: %s' % (val['headline_by_kind'], val['could_match_by_kind'],
+                                                                              val['deaths_by_kind']))
         L.append('  variants: %s' % json.dumps(val['variants'], sort_keys=True))
     return '\n'.join(L) + '\n'
 
@@ -1470,7 +1657,13 @@ def cmd_refresh(a):
         reqp = os.path.join(a.home, 'out', 'request.json')
         with open(reqp, 'rb') as f:
             r = subprocess.run(ssh_cmd(a, 'request'), input=f.read(), capture_output=True, timeout=300)
-        print('request pushed' if r.returncode == 0 else 'request push FAILED (exit %d)' % r.returncode)
+        if r.returncode:
+            print('request push FAILED (exit %d)' % r.returncode)
+            hbv = load_json(hb)
+            hbv.update(status='push_failed', error='request push exit %d: tomorrow\'s verify checks the previous request' % r.returncode)
+            atomic_json(hb, hbv)
+            return 1
+        print('request pushed')
         return 0
     except Exception as e:
         atomic_json(hb, {'at': iso(int(time.time() * 1000)), 'status': 'error', 'error': '%s: %s' % (type(e).__name__, str(e)[:300])})
@@ -1486,6 +1679,37 @@ def cmd_value(a):
     print(json.dumps(value_report(deaths, seeds, now_ms, days=a.days), indent=1, sort_keys=True))
 
 
+def check_line(home, now_ms):
+    """One status line for a header (fleetstatus can call it later): OK, or ALARM naming why. A missing or unreadable map,
+    a map past stale_after, a heartbeat that is not ok, or a verify older than 72 h is an ALARM -- never a quiet OK."""
+    out = os.path.join(home, 'out')
+    try:
+        hb = load_json(os.path.join(out, 'heartbeat.json'))
+        doc = load_json(os.path.join(out, 'hazardmap.json'))
+    except Exception as e:
+        return 'HAZARDMAP ALARM: no readable map/heartbeat in %s (%s)' % (out, type(e).__name__), 1
+    if hb.get('status') != 'ok':
+        return 'HAZARDMAP ALARM: last refresh %s at %s: %s' % (hb.get('status'), hb.get('at'), hb.get('error', '')[:120]), 1
+    if now_ms > parse_ms(doc['stale_after']):
+        return 'HAZARDMAP ALARM: the map is past stale_after (%s)' % doc['stale_after'], 1
+    vday = (doc.get('controls') or {}).get('verify_backup_day')
+    vmade = (doc.get('controls') or {}).get('verify_made_at')
+    if not vday or not vmade or now_ms - parse_ms(vmade) > VERIFY_ALARM_H * 3_600_000:
+        # a stale verify also stops new rows folding (they are after the seeds' observation horizon): say so loudly
+        return 'HAZARDMAP ALARM: the verify file (seeds + existence) is from %s, backup %s: the .30 verify or the pull is ' \
+               'failing, and rows after it are not folded' % (vmade, vday), 1
+    n = sum(len(x['hazards']) for x in doc['seeds'].values())
+    v = (doc.get('value') or {}).get('headline') or {}
+    return ('hazard map OK %s: %d hazards on %d seeds, backup %s; 7d deaths known from another world %s of %s'
+            % (doc['generated_at'], n, len(doc['seeds']), vday, v.get('known_from_another_world'), v.get('deaths'))), 0
+
+
+def cmd_check(a):
+    line, rc = check_line(a.home, int(time.time() * 1000))
+    print(line)
+    return rc
+
+
 def cmd_verify(a):
     req = None
     if a.request and os.path.exists(a.request):
@@ -1497,7 +1721,7 @@ def cmd_verify(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('cmd', choices=['refresh', 'fetch', 'build', 'value', 'verify', 'selftest'])
+    ap.add_argument('cmd', choices=['refresh', 'fetch', 'build', 'value', 'verify', 'check', 'selftest'])
     ap.add_argument('--home', default=os.path.expanduser('~/hazardmap'))
     ap.add_argument('--since')
     ap.add_argument('--verify')
@@ -1516,7 +1740,8 @@ def main(argv=None):
         return test_hazardmap.main([])
     if os.geteuid() == 0:
         print('refusing to run as root'); return 2
-    rc = {'refresh': cmd_refresh, 'fetch': cmd_fetch, 'build': cmd_build, 'value': cmd_value, 'verify': cmd_verify}[a.cmd](a)
+    rc = {'refresh': cmd_refresh, 'fetch': cmd_fetch, 'build': cmd_build, 'value': cmd_value, 'verify': cmd_verify,
+          'check': cmd_check}[a.cmd](a)
     return rc if isinstance(rc, int) else 0
 
 

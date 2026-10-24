@@ -1,19 +1,19 @@
 {
  "backup_day": "2026-10-24",
  "backup_line": "2026-10-24T03:16:17Z good 2026-10-24: 16/16 worlds, raw 2.7GB -> zst 2.1GB, 76s",
- "made_at": "2026-10-24T04:26:27Z",
+ "made_at": "2026-10-24T05:25:21Z",
  "null_control": {
   "cave_fall": {
    "n": 400,
    "same_probes": {
-    "absent": 18,
+    "absent": 19,
     "not_generated": 1,
-    "present": 381
+    "present": 380
    },
    "shifted": {
-    "absent": 259,
+    "absent": 257,
     "not_generated": 1,
-    "present": 140
+    "present": 142
    }
   },
   "dripstone": {
@@ -23,28 +23,28 @@
     "present": 384
    },
    "shifted": {
-    "absent": 301,
-    "present": 99
+    "absent": 307,
+    "present": 93
    }
   },
   "drowning": {
    "n": 400,
    "same_probes": {
-    "absent": 5,
+    "absent": 12,
     "not_generated": 2,
-    "present": 393
+    "present": 386
    },
    "shifted": {
-    "absent": 214,
+    "absent": 225,
     "not_generated": 1,
-    "present": 185
+    "present": 174
    }
   },
   "lava": {
    "n": 400,
    "same_probes": {
-    "absent": 19,
-    "present": 381
+    "absent": 18,
+    "present": 382
    },
    "shifted": {
     "absent": 397,
@@ -77,12 +77,12 @@
   }
  },
  "probe_states": {
-  "absent": 1313,
+  "absent": 1287,
   "not_generated": 28,
-  "present": 26576
+  "present": 26598
  },
- "probes": 27917,
- "request_made_at": "2026-10-24T04:21:33Z",
+ "probes": 27913,
+ "request_made_at": "2026-10-24T05:24:46Z",
  "schema": "mcai.hazardmap.verify",
  "schema_version": 1,
  "terrain_control": {
@@ -113,6 +113,7 @@
   "within_seed": {
    "1239381899": {
     "min_agreement": 1.0,
+    "min_cells": 867,
     "pairs": {
      "board-c": 1.0,
      "board-d": 1.0,
@@ -136,6 +137,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -146,6 +148,7 @@
     65,
     144
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [
     {
      "created": "2026-08-22T14:16:59Z",
@@ -162,6 +165,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -172,6 +176,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -182,6 +187,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -192,6 +198,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -202,6 +209,7 @@
     68,
     -68
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [
     {
      "created": "2026-08-25T01:51:35Z",
@@ -218,6 +226,7 @@
     65,
     68
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [
     {
      "created": "2026-08-25T01:51:53Z",
@@ -234,6 +243,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -244,6 +254,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -254,6 +265,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -264,6 +276,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -274,6 +287,7 @@
     75,
     -144
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [
     {
      "created": "2026-08-22T14:17:28Z",
@@ -290,6 +304,7 @@
     65,
     -388
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [
     {
      "created": "2026-08-22T14:17:38Z",
@@ -306,6 +321,7 @@
     73,
     147
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [],
    "seed": "1239381899"
   },
@@ -316,6 +332,7 @@
     75,
     73
    ],
+   "measured_at": "2026-10-24T05:25:21Z",
    "previous": [
     {
      "created": "2026-08-25T01:53:53Z",

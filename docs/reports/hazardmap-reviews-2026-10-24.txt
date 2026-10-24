@@ -1,0 +1,123 @@
+hazardmap review record (branch hazardmap-1024). Each round verbatim, then the response to each finding.
+Codex: `codex exec --sandbox read-only - < prompt` from the worktree, with a kill watchdog. Claude: an independent subagent
+with no part in the build, read-only. Both got the same scope (the value number, seed resolution, blind guards, the forced
+command and installer, the existence predicates, the format).
+
+==================================================================== ROUND 1 (ff3de77b + 23384ca1)
+
+---------------------------------------------------------------- Codex r1, verbatim
+Review of the specified commits. The full suite was blocked by the read-only sandbox's inability to create temporary files; 76 in-memory fixture cases passed. Findings reference the committed versions.
+
+- **P1 — Historical rows mask newly silent sources.** `scripts/host/hazardmap/hazardmap.py:544`: `MUST_SPEAK` checks the entire history since October 8. Once a source has spoken, a subsequent rename can remain undetected indefinitely. Renaming only recent `_death` rows reduced the fixture's deaths from 33 to 29 without `Blind`, compromising both map and value denominators. **Fix:** check source health over a recent bounded window with positive activity controls, reconcile deaths against independently recorded death-site rows, and test renames beginning midway through history.
+
+- **P1 — Wetness has no blind guard.** `scripts/host/hazardmap/hazardmap.py:253`: `_water_float` is queried with `allow_zero=True` but never checked for silence. Renaming it removed the fixture's water-pit hazard without raising; wet spells became "dry" exclusions. **Fix:** include wetness in source-health controls and cache recount validation, and add a renamed-wet-source mutant.
+
+- **P1 — Seed metadata mixes different world generations.** `scripts/host/hazardmap/hazardmap.py:1247`: the seed comes from the staged backup, while creation time comes from the current live world. A reseed between backup and verification creates a segment with the old seed and new birth time. An injected example accepted this combination and resolved a new-world row to the old seed. **Fix:** capture generation identity and creation metadata with the backup; refuse mismatched staged/live generations. Bound seed resolution to the verified observation horizon rather than extrapolating indefinitely.
+
+- **P1 — Incomplete probes report absence.** `scripts/host/hazardmap/hazardmap.py:1105`: mixed generated/missing chunks pass the initial checks, and undecodable block states returning `None` are treated as negative evidence. Both cases reproduced `absent`. Additionally, `verify()` at line 1293 ranks `absent` above `unknown`, concealing incomplete multi-cell checks. Consumers are instructed to discard absent hazards. **Fix:** emit absence only when every required cell/probe was successfully checked; otherwise preserve uncertainty unless positive evidence establishes presence.
+
+- **P2 — Old absence applies to expanded hazards.** `scripts/host/hazardmap/hazardmap.py:702`: verification results are joined solely by stable hazard ID. New evidence can expand a cluster while retaining that ID, so yesterday's absence suppresses newly observed cells. Extending the fixture's lava cluster reproduced this. **Fix:** attach a probe/evidence fingerprint and observation cutoff to results; invalidate negative results when covered cells change or newer evidence arrives.
+
+- **P2 — Unrelated crashes count as successful mutant kills.** `scripts/host/hazardmap/test_hazardmap.py:778`: any exception anywhere in `all_cases()` counts as killing the named case. The UNKNOWN-corridor mutant demonstrates this: its compact assertion remains satisfied (`[0]` is unchanged), but a later source-control exception earns the kill. **Fix:** execute and attribute each mutant to its named case, fail on unrelated exceptions, and make the compact assertion check the changed tuple discriminator.
+
+VERDICT: CHANGE
+
+---------------------------------------------------------------- Claude r1, verbatim
+Verdict: one P1 has to be fixed before install. The guard against a renamed or silent source is checked over the whole window since 10-08, so a rename after install will quietly shrink the map. The value number holds up on the checks you asked about, but its chance null and its "42" are weaker than the report says.
+
+The suite gave 147 cases, 0 failed, in about 40 s. I also ran some extra input and code mutants from my scratchpad; the results are quoted in the findings below.
+
+**P1 (must fix before install)**
+
+1. **The silent-source and unparsed guards only look at the whole window since 10-08, so they lose strength every day.** `hazardmap.py:544-547` raises only when a MUST_SPEAK source has zero rows across *every* validated day. `:548-552` uses one 2% unparsed share pooled over the same window. After install, a kind renamed by a bot deploy still has 17+ days of history behind it, so the build never raises, and that is exactly how this tool gets blind.
+   - Reproduced: I renamed `_death` -> `_died` on the last fixture day only. The build succeeded with 32 deaths instead of 33 and raised nothing.
+   - The existing blind mutant renames every day, which is why it passes.
+   - The same pooling weakens `death_site_control` (`:781-801`, aggregate 90% / 95%).
+   - Fix: run the MUST_SPEAK, unparsed-share and death-site checks on the most recent closed validated day, or the last 2-3 for rare sources, as well as over the whole window; add a per-day check that `death` and `site` counts are equal (they pair 630/630, so renaming either one breaks it the same day); add blind mutants that change only the last fixture day, and require them to raise.
+
+**P2 (should fix)**
+
+2. **Rows can fold into the wrong seed.** `measure_worlds` (`:1243-1248`) reads the seed from the *staged* `level.dat` but `created` from the *live* `world/datapacks` birth time. `Seeds.from_verify` (`:352`) leaves the current segment open-ended. A reseed between the 03:15Z backup and the verify run records the new world under the old seed. A reseed after verify misfolds that world's rows into the old seed until the next good verify (up to 72 h, because `check_fresh` allows it). Fix: end the open segment at the backup-line time and exclude later rows; in `measure_worlds`, flag or skip a world whose live datapacks birth is later than the backup; publish a `measured_at` per world; optionally a hashed seed for a live check.
+3. **Validated rows outside a world's lifetime are dropped quietly.** `seed_for` (`:562-569`) raises only for `unknown_world`. Reproduced: moving board-a's `created` to 10-15 built a map that just counted the dropped rows under `excluded:*outside_world_lifetime`. Fix: in the validated window, raise when `outside_world_lifetime` or `quarantine` rows go over a small floor.
+4. **Other blind inputs the zero rule does not cover:** `_water_float` (`:253`) is not guarded (renamed -> every maroon spell becomes `marooned_dry`, all water pits disappear quietly); a `void` validated day (`:230-232`, skipped at `:531`) is ignored; `load_days` (`:323-330`) skips files of another schema and never checks the days are contiguous. Fix: make the wet histogram a guarded source, raise on a void or missing validated day, and check the cache covers every day from history_since to now except 10-07.
+5. **The terrain control is measured but never enforced.** `terrain_control` (`:1172-1198`) is only copied into `controls.terrain` (`:773`), yet merging worlds by seed rests entirely on it. Fix: raise in build (or keep worlds separate) when `within_seed.min_agreement < 0.99`, or when too few cells were comparable.
+6. **The value chance null does not keep the death density around the home** (`:872`, `:891`). All 10 shared-seed worlds have the same home, and deaths crowd around it. Moving priors 48 blocks pushes them out of that dense area; the spread across the 8 directions (0..19) shows the result depends on where the shift lands, so "mean 6.2" understates chance. Fix: add a null that keeps distance from home (rotate priors 90/180/270 about the seed's home, or singleton-seed priors translated by the difference between homes) and report it next to the 48-block shift.
+7. **The "42 beyond per-world memory" applies the 24 h lag to own-world priors too** (`:842`). keepout's per-world memory updates live, so an own-world prior from an hour ago should count. Fix: use lag 0 for `hit_same`. Expect roughly 38-41.
+8. **`deaths.cells` is the 16 cells first in coordinate sort order, with no total** (`:651`, `:661`). Probes also take `cells[:4]` (`:916`). A pool with 188 deaths hands lavasight its 16 west-most cells. Fix: sort by count, then most recent; add `cells_total`; probe the top-count cells.
+9. **The board-d pit label is stronger than its evidence** (report 0.3, 4, "Trap shapes do not transfer"). "Absent in all 10 because poolescape-01's digs changed them" depends on a check that finds the pit at only 4.75% of its own targets; there is no positive control on a copy taken before poolescape-01. Fix: show the check reading `present` on an older board-d copy, or reword.
+10. **The test harness credits a crash as a kill** (`test_hazardmap.py:800-802`): one BEHAVIOUR mutant ("corridor UNKNOWN skipped") kills only by crashing; a mutant that fails to compile would also score as killed. Fix: score a kill only when the named case fails.
+11. **Two value guards have no killing test.** Removing the `same_kind` filter survives; dropping the seed from value's grid key is caught only by the own-world count. Add a different-world, different-seed death at the same cell, and add both mutants.
+12. **The alarm is not surfaced.** `check_line` (`:1490`) is not wired into the fleetstatus header. Memory says "alarms must surface in the fleetstatus header". Wire it in at install, or list it as an install step.
+
+**P3 (nits)**
+
+13. A failed request push still leaves the heartbeat `ok`.
+14. In verify, `absent` outranks `unknown` (`:1294`); undecoded sections return None, which probes read as absent. Return `unknown` when a read fails inside an ok chunk.
+15. The cron lines are in host local time but documented as 04:30Z / 05:10Z; check `date +%z` or set `CRON_TZ=UTC`. The `# hazardmap` marker is only on the comment line, so the rollback instruction leaves the job line.
+16. `WORLD_RE` uses `$`, which also matches before a trailing newline. Use `fullmatch` or `\Z`.
+17. `DANGER_FEET` includes campfire and soul_campfire, so a town campfire becomes a `lava` hazard.
+18. `KINDS['water_pit'].what` says "mostly _marooned rows", but the code threshold is >= 20%.
+19. Per-kind value denominators include singleton-seed deaths. Give the shared-seed denominator per kind. Assert that matched deaths are a subset of the deaths that could match.
+20. A hostile request can cost verify a lot of work (100k probes x r=3 x +-30M). Only .31's key can push, so the bound is acceptable. Consider capping distinct regions.
+21. The report's section 10 cites `docs/reports/hazardmap-reviews-2026-10-24.txt`, which is not on the branch.
+
+**Checked and found sound:** value() matching (grid keys include the seed; priors must be lag_ms older; "another world" compares world names); the report's sums (279 = 84 singleton + 195; by-kind matches sum to 122); serve.py (only exact verify, status, request; writes only in/request.json after validating; any exception exits 3); verify path safety (sudo -n cat paths only from regex-filtered ls names and ints); installer idempotence; mutant anchors unique and outside comments; section 5 readings honest.
+
+VERDICT: CHANGE
+
+---------------------------------------------------------------- Response to round 1 (r2)
+All findings taken. Both P1-level themes were independent and agreed (recent blindness; staged/live seed mix).
+
+Codex P1-1 / Claude P1-1 (history masks a recent rename): source_controls now requires every MUST_SPEAK source AND
+  _water_float to speak on each of the newest 3 closed validated days, and each validated day's _death count to match
+  its _death_site_recorded count within 2 (632/632 pair on the fleet). New blind inputs: _death renamed for the newest
+  two days (stopped: "is SILENT on"), _entombed_unrecoverable renamed for the newest two days (stopped by the recent
+  check alone; its guard mutant SURVIVES -> the guard is proven), three of one day's deaths renamed (stopped by the
+  per-day reconciliation alone; guard mutant proven).
+Codex P1-2 / Claude P2-4 (wetness unguarded): _water_float is counted per day (cache recount watches it) and must speak
+  on each recent day; blind input "wet kind renamed" stopped, guard mutant proven.
+Codex P1-3 / Claude P2-2 (seed metadata mixes generations): measure_worlds reads the LIVE level.dat too and refuses when
+  staged and live seeds differ; refuses a live world created after the backup line; publishes measured_at per world.
+  Seeds.from_verify bounds resolution at verify.made_at + 1 h ('after_seed_observation'); the header alarms when the
+  verify is > 30 h old (rows stop folding), the build refuses at 72 h. Tests: a staged/live mismatch is refused; a row
+  after the horizon is not resolved; both with mutants.
+Codex P1-4 / Claude P3-14 (incomplete probes read absent): probe() returns `unknown` for a negative read that touched an
+  ungenerated column or an undecoded cell; verify reduces a hazard's probes per world as present-if-any, absent-only-if-
+  all-absent, else not_generated/unknown. Fixture probe straddling an ungenerated chunk -> unknown; reduce tests; mutants.
+Codex P2-5 (old absence on an expanded hazard): results carry the probed cells; apply_verify voids a non-present answer
+  when the hazard's probe cells changed or its evidence is newer than the request (-> `unchecked`). Two cases + mutants.
+Codex P2-6 / Claude P2-10 (a crash counted as a kill): case groups run separately; a crashed group is ONE failing entry;
+  a mutant is KILLED only if its own named case ran and failed; a blind-guard mutant is proven only if the blind input
+  then BUILDS A MAP. Mutants that only crashed were redesigned (the value seed-key mutant got its own direct value()
+  group; the backup-line case catches a crash as a non-refusal).
+Claude P2-3 (validated rows outside a segment dropped quietly): > 50 validated rows outside every segment raises.
+  Measured on the fleet: 0 validated rows fall outside (horizon off).
+Claude P2-4 (void / missing day, contiguity): every validated day from VALIDATED_SINCE to the newest cached day must be
+  in the cache and non-void, else Blind.
+Claude P2-5 (terrain control not enforced): terrain_gate() refuses a seed with >= 2 worlds unless bedrock agreement
+  >= 0.99 over >= 500 compared cells (min_cells now in the verify file); case + mutant.
+Claude P2-6 (null keeps no town density): rotation null added (priors rotated 90/180/270 about the seed's home, distance
+  kept). Fleet: mean 1.7, max 3 -- LOWER than the shift null (6.4, max 19), so the shift null is the conservative one;
+  both reported. Case + mutant (rotation removed -> the null equals the headline).
+Claude P2-7 (own-world lag): own-world priors count at any lag now; known_only = 40 (was 42).
+Claude P2-8 (death cells in coordinate order): deaths.cells most-deaths first then most recent, cells_total added, the
+  probes take the top cells. Case + mutant.
+Claude P2-9 (pit label without a positive control): the 10-22 NAS archive of board-d (before poolescape freed the bots on
+  10-23 01:50Z) was read read-only: the pit check reads PRESENT at both board-d pits there and ABSENT on the 10-24 staged
+  copy; the wall that changed is named in report section 5.
+Claude P2-11 (value guards untested): fixture adds a same-cell pair on different seeds (S1 board-a, S2 hive-c, 32 h
+  apart) and a different-kind prior at the lava cave; direct value() cases; mutants on vkey's seed and on same_kind.
+Claude P2-12 (alarm not surfaced): `hazardmap.py check` -> one line (OK / HAZARDMAP ALARM: why: no map, stale map, a
+  failed gate or push, a verify > 30 h old). patch_fleetstatus.py adds it to the INSTALLED fleetstatus header (anchored
+  on the frontier lines, so it composes with structcount's patch in either order; backed up; idempotent); the
+  installer's --verify --install-cron runs it. A patched copy of the repo fleetstatus passes scripts/test_fleetstatus.py
+  46/46. Tests for the patch and the line (not installed -> no line; a silent check -> ALARM).
+Claude P3-13 push failure -> heartbeat push_failed (and check alarms). P3-15 both hosts are UTC (date +%z = +0000);
+  the job lines now end with '# hazardmap'. P3-16 WORLD_RE.fullmatch everywhere. P3-17 campfire / soul_campfire danger
+  rows are skipped, never lava. P3-18 the kind text says ">= 20% _marooned rows". P3-19 could-match denominators per kind
+  in the report; value_report raises if any match is not a could-match death (case + mutant). P3-20 accepted as is (only
+  .31's key can push; requests are schema-validated; missing regions are cheap). P3-21 this file.
+
+Suite r2: 194 cases, 0 failed (fixture fleet, written Anvil worlds, 16 blind inputs, 45 behaviour mutants and 7 blind-guard mutants, each attributed to
+its own case). Fleet r2 build 10-24 05:26Z: value 123 of 278 (194 could match), 40 beyond per-world memory, nulls 6.4 /
+1.7.

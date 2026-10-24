@@ -1,16 +1,16 @@
-hazard map 2026-10-24T04:43:27Z  (window 2026-08-22T00:00:00Z .. 2026-10-24T04:28:05Z; validated from 2026-10-08T00:00:00Z; 2026-10-07 refused)
-controls: 17 validated days; rows {'death': 630, 'corridor': 31370, 'blind_lava': 47357, 'danger': 2166, 'adjacent': 1459, 'standoff': 300, 'marooned': 109430, 'no_air': 4957, 'entombed': 196796, 'gave_up': 19036, 'site': 630}; unparsed {'death': 0, 'corridor': 0, 'blind_lava': 0, 'danger': 0, 'adjacent': 0, 'standoff': 0, 'marooned': 0, 'no_air': 0, 'entombed': 0, 'gave_up': 0, 'site': 0}
+hazard map 2026-10-24T05:26:29Z  (window 2026-08-22T00:00:00Z .. 2026-10-24T05:09:27Z; validated from 2026-10-08T00:00:00Z; 2026-10-07 refused)
+controls: 17 validated days; rows {'death': 632, 'corridor': 31462, 'blind_lava': 47499, 'danger': 2168, 'adjacent': 1461, 'standoff': 300, 'marooned': 109591, 'no_air': 4962, 'entombed': 197225, 'gave_up': 19079, 'site': 632}; unparsed {'death': 0, 'corridor': 0, 'blind_lava': 0, 'danger': 0, 'adjacent': 0, 'standoff': 0, 'marooned': 0, 'no_air': 0, 'entombed': 0, 'gave_up': 0, 'site': 0}
 
 SEED 1239381899  worlds now: board-a, board-c, board-d, hive-a, hive-b, isolated-a, isolated-b, isolated-c, isolated-d, placebo-c  (past: board-b until 2026-09-27, hive-c until 2026-09-27, hive-d until 2026-09-27, placebo-a until 2026-09-18, placebo-b until 2026-09-19, placebo-d until 2026-09-27)
-  hazards: {'lava': 253, 'drowning': 1095, 'cave_fall': 386, 'dripstone': 82, 'entombment': 767, 'water_ceiling_trap': 10, 'water_pit': 43}
-  lava               396,69,109       deaths 188 (validated  46, 7d 18; 16 worlds)  spells   0.0 bot-h  sightings 16630 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
-  lava               335,38,210       deaths 290 (validated  43, 7d 18; 16 worlds)  spells   0.0 bot-h  sightings 2591 ep  high    exists=present in board-a,board-c,board-d,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
-  lava               334,39,154       deaths  13 (validated  12, 7d  9; 4 worlds)  spells   0.0 bot-h  sightings  742 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  hazards: {'lava': 253, 'drowning': 1095, 'cave_fall': 386, 'dripstone': 82, 'entombment': 768, 'water_ceiling_trap': 10, 'water_pit': 43}
+  lava               396,69,109       deaths 188 (validated  46, 7d 18; 16 worlds)  spells   0.0 bot-h  sightings 16649 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               335,35,205       deaths 291 (validated  44, 7d 18; 16 worlds)  spells   0.0 bot-h  sightings 2593 ep  high    exists=present in board-a,board-c,board-d,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               334,39,154       deaths  13 (validated  12, 7d  9; 4 worlds)  spells   0.0 bot-h  sightings  747 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   lava               325,58,217       deaths  34 (validated  10, 7d  4; 10 worlds)  spells   0.0 bot-h  sightings 1074 ep  high    exists=present in board-a,board-d,hive-a,isolated-a,isolated-b,isolated-c,isolated-d
   lava               327,-35,124      deaths   4 (validated   4, 7d  3; 3 worlds)  spells   0.0 bot-h  sightings   52 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   lava               521,63,239       deaths   9 (validated   3, 7d  0; 6 worlds)  spells   0.0 bot-h  sightings  806 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
-  lava               300,70,295       deaths  29 (validated   1, 7d  1; 14 worlds)  spells   0.0 bot-h  sightings  467 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
-  lava               562,52,403       deaths  16 (validated   1, 7d  0; 10 worlds)  spells   0.0 bot-h  sightings   81 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               389,18,106       deaths  13 (validated   2, 7d  2; 9 worlds)  spells   0.0 bot-h  sightings  370 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+  lava               300,70,295       deaths  29 (validated   1, 7d  1; 14 worlds)  spells   0.0 bot-h  sightings  468 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   drowning           356,60,178       deaths 132 (validated  40, 7d 14; 16 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   drowning           324,60,218       deaths  88 (validated  19, 7d  9; 14 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   drowning           344,60,197       deaths 108 (validated  17, 7d  2; 16 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
@@ -23,7 +23,7 @@ SEED 1239381899  worlds now: board-a, board-c, board-d, hive-a, hive-b, isolated
   water_pit          555,61,116       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 167.8 bot-h  sightings    0 ep  medium  exists=absent
   water_pit          1813,61,539      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   8.1 bot-h  sightings    0 ep  medium  exists=absent
   water_pit          349,61,194       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   5.8 bot-h  sightings    0 ep  medium  exists=present in board-c
-  water_ceiling_trap 359,40,187       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 555.2 bot-h  sightings    0 ep  high    exists=present in board-a
+  water_ceiling_trap 359,40,187       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 556.0 bot-h  sightings    0 ep  high    exists=present in board-a
   water_ceiling_trap 607,43,104       deaths   0 (validated   0, 7d  0; 0 worlds)  spells  85.2 bot-h  sightings    0 ep  medium  exists=absent
   water_ceiling_trap 419,60,83        deaths   0 (validated   0, 7d  0; 0 worlds)  spells  77.2 bot-h  sightings    0 ep  high    exists=present in board-c,hive-a,isolated-b,isolated-c,isolated-d,placebo-c
   water_ceiling_trap 363,57,174       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   2.4 bot-h  sightings    0 ep  medium  exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
@@ -43,14 +43,14 @@ SEED 1239381899  worlds now: board-a, board-c, board-d, hive-a, hive-b, isolated
   dripstone          322,4,188        deaths   2 (validated   2, 7d  2; 2 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   dripstone          404,-2,171       deaths   2 (validated   2, 7d  2; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  medium  exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
   dripstone          514,4,207        deaths   5 (validated   1, 7d  1; 5 worlds)  spells   0.0 bot-h  sightings    0 ep  high    exists=present in board-a,board-c,board-d,hive-a,hive-b,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
-  entombment         365,39,191       deaths   4 (validated   3, 7d  1; 3 worlds)  spells 408.9 bot-h  sightings    0 ep  high    exists=not_applicable
-  entombment         559,37,219       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 486.3 bot-h  sightings    0 ep  high    exists=not_applicable
-  entombment         342,43,205       deaths   1 (validated   0, 7d  0; 1 worlds)  spells 477.5 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         365,39,191       deaths   4 (validated   3, 7d  1; 3 worlds)  spells 409.5 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         559,37,219       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 486.9 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         342,43,205       deaths   1 (validated   0, 7d  0; 1 worlds)  spells 478.1 bot-h  sightings    0 ep  high    exists=not_applicable
   entombment         370,40,190       deaths   1 (validated   1, 7d  0; 1 worlds)  spells 269.0 bot-h  sightings    0 ep  high    exists=not_applicable
 
 SEED 2021899648305791853  worlds now: placebo-d  (past: -)
   hazards: {'lava': 39, 'drowning': 28, 'cave_fall': 2, 'entombment': 114}
-  lava               209,32,110       deaths   5 (validated   4, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  300 ep  high    exists=present in placebo-d
+  lava               209,32,110       deaths   5 (validated   4, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings  301 ep  high    exists=present in placebo-d
   lava               225,55,-2        deaths   5 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings  127 ep  high    exists=present in placebo-d
   lava               135,68,131       deaths   2 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings  845 ep  medium  exists=present in placebo-d
   lava               148,64,188       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   81 ep  medium  exists=present in placebo-d
@@ -68,7 +68,7 @@ SEED 2021899648305791853  worlds now: placebo-d  (past: -)
   drowning           141,57,53        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
   cave_fall          321,-8,121       deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
   cave_fall          405,75,273       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=present in placebo-d
-  entombment         198,34,187       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 206.7 bot-h  sightings    0 ep  high    exists=not_applicable
+  entombment         198,34,187       deaths   0 (validated   0, 7d  0; 0 worlds)  spells 207.4 bot-h  sightings    0 ep  high    exists=not_applicable
   entombment         167,49,72        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
   entombment         232,33,95        deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
   entombment         210,30,114       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   1.5 bot-h  sightings    0 ep  low     exists=not_applicable
@@ -124,7 +124,7 @@ SEED 4534598234323719516  worlds now: hive-d  (past: -)
   entombment         35,45,78         deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    0 ep  low     exists=not_applicable
 
 SEED 6443945553241215903  worlds now: board-b  (past: -)
-  hazards: {'lava': 38, 'cave_fall': 13, 'drowning': 13, 'entombment': 105}
+  hazards: {'lava': 38, 'cave_fall': 13, 'drowning': 13, 'entombment': 106}
   lava               -163,-33,124     deaths   1 (validated   1, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   31 ep  medium  exists=present in board-b
   lava               -256,38,94       deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    2 ep  medium  exists=present in board-b
   lava               -34,-56,410      deaths   1 (validated   1, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    3 ep  medium  exists=present in board-b
@@ -155,8 +155,8 @@ SEED 6443945553241215903  worlds now: board-b  (past: -)
   entombment         -128,47,264      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   3.6 bot-h  sightings    0 ep  medium  exists=not_applicable
 
 SEED 7843072457371465157  worlds now: placebo-b  (past: -)
-  hazards: {'drowning': 22, 'lava': 44, 'cave_fall': 5, 'entombment': 74, 'water_pit': 2}
-  lava               331,-15,-421     deaths   2 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings    8 ep  medium  exists=present in placebo-b
+  hazards: {'drowning': 22, 'lava': 43, 'cave_fall': 5, 'entombment': 75, 'water_pit': 2}
+  lava               331,-15,-421     deaths   2 (validated   2, 7d  1; 1 worlds)  spells   0.0 bot-h  sightings   19 ep  medium  exists=present in placebo-b
   lava               393,-39,-324     deaths   2 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    8 ep  medium  exists=present in placebo-b
   lava               189,1,-432       deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    6 ep  medium  exists=present in placebo-b
   lava               199,55,-507      deaths   1 (validated   0, 7d  0; 1 worlds)  spells   0.0 bot-h  sightings    1 ep  low     exists=present in placebo-b
@@ -216,6 +216,6 @@ SEED 8948499624371160708  worlds now: placebo-a  (past: -)
   entombment         330,13,-306      deaths   0 (validated   0, 7d  0; 0 worlds)  spells   4.3 bot-h  sightings    0 ep  medium  exists=not_applicable
   entombment         443,51,-71       deaths   0 (validated   0, 7d  0; 0 worlds)  spells   4.1 bot-h  sightings    0 ep  medium  exists=not_applicable
 
-VALUE (2026-10-17T04:43:27Z .. 2026-10-24T04:43:27Z): of 279 deaths, 195 on a seed shared by >= 2 worlds; 122 were within 3 xz / 4 y of a same-kind death >= 24 h EARLIER in ANOTHER world (42 of them with no such earlier death in their own world). Chance null (priors shifted ~48 blocks): mean 6.2, max 19.
-  by kind matched: {'lava': 46, 'cave_fall': 25, 'dripstone': 16, 'drowning': 34, 'suffocation': 1} ; deaths by kind: {'drowning': 84, 'cave_fall': 55, 'lava': 79, 'suffocation': 21, 'dripstone': 40}
-  variants: {"any_kind": {"deaths": 279, "known_from_another_world": 131, "known_from_own_world": 124, "known_only_from_another_world": 44, "resolved": 279}, "link_6_6": {"deaths": 279, "known_from_another_world": 145, "known_from_own_world": 133, "known_only_from_another_world": 50, "resolved": 279}, "no_lag": {"deaths": 279, "known_from_another_world": 124, "known_from_own_world": 120, "known_only_from_another_world": 41, "resolved": 279}, "priors_validated_only": {"deaths": 279, "known_from_another_world": 102, "known_from_own_world": 97, "known_only_from_another_world": 37, "resolved": 279}}
+VALUE (2026-10-17T05:26:29Z .. 2026-10-24T05:26:29Z): of 278 deaths, 194 on a seed shared by >= 2 worlds; 123 were within 3 xz / 4 y of a same-kind death >= 24 h EARLIER in ANOTHER world (40 of them with no such earlier death in their own world). Chance nulls: priors shifted 48 blocks mean 6.4 (max 19); rotated about home mean 1.7 (max 3).
+  by kind matched: {'lava': 47, 'cave_fall': 25, 'dripstone': 16, 'drowning': 34, 'suffocation': 1} ; could match: {'suffocation': 8, 'dripstone': 40, 'lava': 59, 'cave_fall': 47, 'drowning': 40} ; all deaths: {'drowning': 83, 'suffocation': 21, 'dripstone': 40, 'lava': 80, 'cave_fall': 54}
+  variants: {"any_kind": {"deaths": 278, "known_from_another_world": 132, "known_from_own_world": 130, "known_only_from_another_world": 40, "resolved": 278}, "link_6_6": {"deaths": 278, "known_from_another_world": 146, "known_from_own_world": 139, "known_only_from_another_world": 46, "resolved": 278}, "no_lag": {"deaths": 278, "known_from_another_world": 125, "known_from_own_world": 121, "known_only_from_another_world": 41, "resolved": 278}, "priors_validated_only": {"deaths": 278, "known_from_another_world": 102, "known_from_own_world": 100, "known_only_from_another_world": 35, "resolved": 278}}

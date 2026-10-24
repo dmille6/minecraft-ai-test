@@ -48,6 +48,8 @@ def load(name, text=None):
     mod = types.ModuleType('mut_' + name)
     mod.__file__ = path
     exec(compile(text if text is not None else open(path).read(), path, 'exec'), mod.__dict__)
+    if name == 'hm':
+        mod.VALIDATED_SINCE = '2026-10-14T00:00:00Z'      # the fixture fleet's validated window: its four contiguous days
     return mod
 
 
@@ -144,7 +146,12 @@ def fleet_docs():
     d.append(row(L(2103), 'hive-a-Alpha', '_reflex_danger_block', 'cave_air', (336.3, 37.0, 204.6)))
     d.append(row(L(3000), 'hive-a-Alpha', '_death', 'tried to swim in lava after falling 6 blocks; idle | y', (336.7, 36, 205.1), 'fire'))
     # board-a dies there AGAIN: known from its own world (board-a@100) AND from another (hive-a@3000)
-    d.append(row(L(4500), 'board-a-Bravo', '_death', 'tried to swim in lava; idle', (335.5, 36, 204.5), 'fire'))
+    d.append(row(L(4500), 'board-a-Bravo', '_death', 'tried to swim in lava; idle', (336.7, 36, 205.5), 'fire'))
+    # a DIFFERENT-KIND death in another world at the lava cave, > 24 h after board-a's lava death: never a same-kind match
+    d.append(row(L(3100), 'hive-a-Alpha', '_death', 'drowned; idle', (336.5, 36, 204.5), 'drowning'))
+    # a same-cell pair on DIFFERENT SEEDS, 32 h apart: board-a (S1) then hive-c (S2, after its reseed): never a match
+    d.append(row(L(50), 'board-a-Bravo', '_death', 'drowned; idle', (120.5, 60, 120.5), 'drowning'))
+    d.append(row(L(2000), 'hive-c-Comet', '_death', 'drowned; idle', (120.5, 60, 120.5), 'drowning'))
     # a lava pool seen only (one episode -> not a hazard) and one seen twice by two bots (a hazard)
     d.append(row(L(500), 'hive-a-Alpha', '_lava_corridor', 'lava_corridor: lava below at 900,60,900 after 2 samples; the leg is refused', (900.5, 61, 900.5)))
     d.append(row(L(500), 'hive-a-Alpha', '_lava_corridor', 'lava_corridor: lava below at 396,72,108 after 2 samples; the leg is refused', (396.5, 73, 108.5)))
@@ -183,19 +190,33 @@ def fleet_docs():
     d.append(row(L(600), 'hive-a-Alpha', '_lava_corridor', 'lava_corridor: unknown at 15,64,97 after 23 samples; the leg is refused', (15.5, 64, 97.5)))
     # a danger row whose feet are in a vine: the DANGER block is below
     d.append(row(L(601), 'hive-a-Alpha', '_reflex_danger_block', 'vine', (700.5, 70, 700.5)))
-    # 20 more deaths far away so the death-position control applies (>= 20 validated deaths)
+    # 20 more deaths far away, spread over the 4 days, so the death-position control applies (>= 20 validated deaths)
     for k in range(20):
-        d.append(row(L(2200 + k), 'hive-a-Alpha', '_death', 'drowned; idle', (2000.5 + 40 * k, 60, 2000.5), 'drowning'))
+        d.append(row(L(720 + (k % 4) * 1440 + k), 'hive-a-Alpha', '_death', 'drowned; idle', (2000.5 + 40 * k, 60, 2000.5), 'drowning'))
+    # every source speaks once a day, far from everything (single rows: no hazard, no spell)
+    for day in range(4):
+        m = 700 + day * 1440; x = 5000 + 50 * day
+        d.append(row(L(m), 'hive-a-Alpha', '_lava_corridor', 'lava_corridor: lava below at %d,60,5000 after 2 samples; the leg is refused' % x, (x + .5, 61, 5000.5)))
+        d.append(row(L(m), 'hive-a-Alpha', '_explore_blind_step_refused', 'blind_step: lava beside at %d,60,5003: the fallback walk is refused' % x, (x + .5, 61, 5003.5)))
+        d.append(row(L(m), 'hive-a-Alpha', '_reflex_danger_block', 'lava', (x + .5, 60, 5006.5)))
+        d.append(row(L(m), 'hive-a-Alpha', '_lava_adjacent_no_retreat', 'lava within a block and no verified retreat cell: holding still', (x + .5, 61, 5009.5)))
+        d.append(row(L(m), 'hive-a-Alpha', '_lava_adjacent_stand_off', 'lava within a block; stepping 0,1 onto verified ground', (x + .5, 61, 5012.5)))
+        d.append(row(L(m + 100), 'board-a-Bravo', '_marooned', 'no path can start from y=61 with an open column above -- climbing out', (x + .5, 61, 6000.5)))
+        d.append(row(L(m + 100), 'board-a-Bravo', '_water_float', 'afloat and unowned -- float', (x + .5, 61, 6000.5)))
+        d.append(row(L(m + 200), 'board-a-Bravo', '_water_no_air_route', 'afloat and unowned -- no_air_route (head water, health 20)', (x + .5, 40, 6100.5)))
+        d.append(row(L(m + 300), 'board-a-Bravo', '_entombed', 'walled in at y=30', (x + .5, 30, 6200.5)))
+        d.append(row(L(m + 400), 'board-a-Bravo', '_entombed_unrecoverable', 'gave up after 4 escape attempts at y=30 (give-up #1)', (x + .5, 30, 6300.5)))
     return site_rows(d)
 
 
 def verify_doc(**over):
-    v = {'schema': 'mcai.hazardmap.verify', 'schema_version': 1, 'backup_day': '2026-10-18',
+    v = {'schema': 'mcai.hazardmap.verify', 'schema_version': 1, 'backup_day': '2026-10-18', 'made_at': isoz(NOW),
+         'request_made_at': isoz(NOW),
          'worlds': {'hive-a': {'seed': 'S1', 'home': [355, 73, 147], 'created': '2026-08-22T14:31:27Z', 'previous': []},
                     'board-a': {'seed': 'S1', 'home': [355, 73, 147], 'created': '2026-08-22T14:16:49Z', 'previous': []},
                     'hive-c': {'seed': 'S2', 'home': [-68, 68, -68], 'created': '2026-09-27T12:35:42Z',
                                'previous': [{'seed': 'S1', 'created': '2026-08-25T01:51:35Z', 'retired': '2026-09-27T12:35:23Z'}]}},
-         'results': {}, 'terrain_control': {}}
+         'results': {}, 'terrain_control': {'within_seed': {'S1': {'min_agreement': 1.0, 'min_cells': 867}}}}
     v.update(over)
     return v
 
@@ -236,6 +257,8 @@ def fold_cases(hm):
     cases.append(('fold: two deaths in two worlds -> confidence high', ((fall or {}).get('deaths', {}).get('total'), (fall or {}).get('confidence')),
                   (2, 'high')))
     cases.append(('fold: ... id anchors on its earliest evidence cell', (lava or {}).get('id'), 'S1/lava/336,36,204'))
+    cases.append(('fold: death cells most-deaths first (not coordinate order)', ((lava or {}).get('deaths', {}).get('cells', [None])[0],
+                  (lava or {}).get('deaths', {}).get('cells_total')), ([336, 36, 205], 2)))
     cases.append(('fold: a lava pool seen by two bots is a hazard (2 episodes)', bool(find(doc, 'S1', 'lava', (396, 72, 108))), True))
     cases.append(('fold: a lava cell seen once is not', find(doc, 'S1', 'lava', (900, 60, 900)), None))
     cases.append(('fold: drowning site', (find(doc, 'S1', 'drowning', (362, 58, 175)) or {}).get('deaths', {}).get('total'), 2))
@@ -263,7 +286,7 @@ def fold_cases(hm):
     cases.append(('fold: seeds are strings in the document', all(isinstance(k, str) for k in doc['seeds']), True))
     cases.append(('fold: an unchecked hazard says so', (lava or {}).get('exists', {}).get('summary'), 'unchecked'))
     cases.append(('fold: the death-position control pairs every validated death', (doc['controls']['death_site_recorded']['paired_with_site_row'],
-                  doc['controls']['death_site_recorded']['site_within_1_block']), (31, 31)))
+                  doc['controls']['death_site_recorded']['site_within_1_block']), (34, 34)))
     cases.append(('fold: the UNKNOWN-cell corridor row is skipped', sum(d['skipped'].get('corridor', 0) for d in days), 1))
     cases.append(('fold: one vine danger row alone is not a hazard (one episode)', bool(find(doc, 'S1', 'lava', (700, 69, 700))), False))
     try:
@@ -280,7 +303,9 @@ def fold_cases(hm):
     cases.append(('value: own-world priors are counted separately', val['headline'].get('known_from_own_world'), 2))
     cases.append(('value: the matched deaths', [(m['bot'], m['kind']) for m in val['matched']],
                   [('hive-a-Alpha', 'lava'), ('hive-a-Alpha', 'cave_fall'), ('board-a-Bravo', 'lava')]))
-    cases.append(('value: denominator = deaths in the window', val['headline'].get('deaths'), 31))
+    cases.append(('value: denominator = deaths in the window', val['headline'].get('deaths'), 34))
+    cases.append(('value: rotated about home, the priors match nothing (the town-density null)', val['rotation_null']['max'], 0))
+    cases.append(('value: per-kind could-match denominators', val['could_match_by_kind'].get('lava'), 3))
     cases.append(('value: without the 24 h lag the stalagmite death also matches', val['variants']['no_lag'].get('known_from_another_world'), 4))
     cases.append(('value: shifted priors match nothing (chance null)', val['chance_null']['max'], 0))
     cases.append(('value: hive-c S2 death has no S1 prior match', any(m['bot'].startswith('hive-c') for m in val['matched']), False))
@@ -290,20 +315,58 @@ def fold_cases(hm):
     cases.append(('request: lava probed in both S1 worlds', sorted({p['world'] for p in req['probes'] if p['id'] == 'S1/lava/336,36,204'}),
                   ['board-a', 'hive-a']))
     cases.append(('request: entombment is never probed', any(p['kind'] == 'entombment' for p in req['probes']), False))
-    # verify results flow back
-    v = verify_doc(results={'S1/lava/336,36,204': {'hive-a': {'state': 'absent', 'found': {}}, 'board-a': {'state': 'absent', 'found': {}}}})
+    # verify results flow back (results carry the probed cells: the fingerprint an answer is valid for)
+    cells = sorted(list(c) for c in hm.probe_cells(lava)) if lava else []
+    A = {'state': 'absent', 'found': {}}
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'by_world': {'hive-a': A, 'board-a': A}}})
     doc2, _, _, _ = built(hm, verify=v)
     lava2 = find(doc2, 'S1', 'lava', (336, 36, 204))
     cases.append(('verify flow: absent in every world -> summary absent', (lava2 or {}).get('exists', {}).get('summary'), 'absent'))
     cases.append(('verify flow: absent everywhere lowers confidence one step', (lava2 or {}).get('confidence'), 'medium'))
-    v = verify_doc(results={'S1/lava/336,36,204': {'hive-a': {'state': 'absent'}, 'board-a': {'state': 'present', 'found': {'lava': 3}}}})
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': cells, 'by_world': {'hive-a': A, 'board-a': {'state': 'present', 'found': {'lava': 3}}}}})
     lava3 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
     cases.append(('verify flow: present in one world -> present, named', ((lava3 or {}).get('exists', {}).get('summary'),
                                                                           (lava3 or {}).get('exists', {}).get('present_in')), ('present', ['board-a'])))
+    v = verify_doc(results={'S1/lava/336,36,204': {'cells': [[1, 2, 3]], 'by_world': {'hive-a': A, 'board-a': A}}})
+    lava4 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
+    cases.append(('verify flow: an absence for OTHER probe cells no longer covers the hazard', (lava4 or {}).get('exists', {}).get('summary'), 'unchecked'))
+    v = verify_doc(request_made_at='2026-10-15T00:00:00Z', results={'S1/lava/336,36,204': {'cells': cells, 'by_world': {'hive-a': A, 'board-a': A}}})
+    lava5 = find(built(hm, verify=v)[0], 'S1', 'lava', (336, 36, 204))
+    cases.append(('verify flow: evidence newer than the request voids an absence', (lava5 or {}).get('exists', {}).get('summary'), 'unchecked'))
+    try:
+        built(hm, verify=verify_doc(terrain_control={'within_seed': {'S1': {'min_agreement': 0.8, 'min_cells': 867}}}))
+        got = 'merged worlds whose bedrock disagrees'
+    except hm.Blind as e:
+        got = 'refused' if 'terrain control' in str(e) else str(e)[:80]
+    cases.append(('terrain gate: a seed whose worlds disagree (0.8) is not merged', got, 'refused'))
+    sd = hm.Seeds.from_verify(verify_doc(made_at='2026-10-16T00:00:00Z'))
+    cases.append(('seeds: a row after the observation horizon is not resolved', sd.seed_at('hive-a', T('2026-10-16T01:30:00Z')), (None, 'after_seed_observation')))
+    cases.append(('seeds: a row inside it is', sd.seed_at('hive-a', T('2026-10-15T23:00:00Z'))[0], 'S1'))
     return cases
 
 
 # ------------------------------------------------------------------ blind-input mutants: the build must RAISE for the reason
+def value_cases(hm):
+    """value() called directly on the folded deaths (no value_report, so its subset guard cannot mask a broken fold)."""
+    days = fetch_all(hm, fleet_docs())
+    seeds = hm.Seeds.from_verify(verify_doc())
+    _, deaths, _, _ = hm.evidence_points(days, seeds, hm.parse_ms(hm.VALIDATED_SINCE))
+    direct = hm.value(deaths, NOW)[0].get('known_from_another_world')
+    c = [('value(): a same-cell death on ANOTHER SEED never matches', direct, 3),
+         ('value(): a different-kind prior is not a same-kind match',
+          (direct, hm.value(deaths, NOW, same_kind=False)[0].get('known_from_another_world')), (3, 4))]
+    # the subset guard: a "match" on a seed that held ONE world at the time is a broken fold, and value_report refuses it
+    bad = [{'t': NOW - 3 * hm.DAY_MS, 'bot': 'board-a-X', 'world': 'board-a', 'cell': (9, 60, 9), 'kind': 'drowning', 'seed': 'S2', 'category': 'drowned'},
+           {'t': NOW - 1 * hm.DAY_MS, 'bot': 'hive-c-X', 'world': 'hive-c', 'cell': (9, 60, 9), 'kind': 'drowning', 'seed': 'S2', 'category': 'drowned'}]
+    try:
+        hm.value_report(bad, seeds, NOW)
+        got = 'reported a match no other world could have made'
+    except hm.Blind:
+        got = 'refused'
+    c.append(('value_report: a match on a one-world seed is refused (the subset guard)', got, 'refused'))
+    return c
+
+
 def blind_inputs():
     def ren_kind(d):
         return [dict(r, skill=dict(r['skill'], name='_died')) if r['skill']['name'] == '_death' else r for r in d]
@@ -342,6 +405,22 @@ def blind_inputs():
     def silent_entombed(d):
         return [r for r in d if r['skill']['name'] != '_entombed']
 
+    def late_rename(d):                     # the death kind renamed only for the newest two days: history must not hide it
+        return [dict(r, skill=dict(r['skill'], name='_died')) if r['skill']['name'] == '_death' and T(r['@timestamp']) >= D0 + 2 * 1440 * M
+                else r for r in d]
+
+    def late_gaveup(d):                     # a kind with no second writer, renamed for the newest two days
+        return [dict(r, skill=dict(r['skill'], name='_entombed_gave_up')) if r['skill']['name'] == '_entombed_unrecoverable'
+                and T(r['@timestamp']) >= D0 + 2 * 1440 * M else r for r in d]
+
+    def three_renamed(d):                   # three of one day's deaths renamed: the day still has deaths, the count is short
+        xs = {2000.5 + 40 * k for k in (3, 7, 11)}
+        return [dict(r, skill=dict(r['skill'], name='_died')) if r['skill']['name'] == '_death' and r['bot']['pos']['x'] in xs
+                else r for r in d]
+
+    def no_wet(d):
+        return [dict(r, skill=dict(r['skill'], name='_water_floating')) if r['skill']['name'] == '_water_float' else r for r in d]
+
     def moved_sites(d):
         return [dict(r, skill=dict(r['skill'], detail=re.sub(r'at (-?\d+),', lambda m: 'at %d,' % (int(m.group(1)) + 5), r['skill']['detail'])))
                 if r['skill']['name'] == '_death_site_recorded' else r for r in d]
@@ -355,6 +434,10 @@ def blind_inputs():
         ('blind: the danger block name changes case', danger, "source 'danger'"),
         ('blind: the entombed kind goes silent', silent_entombed, "source 'entombed'"),
         ('blind: the death position is not the recorded death site', moved_sites, 'death-position control'),
+        ('blind: the death kind renamed for the newest two days only', late_rename, 'is SILENT on'),
+        ('blind: give-ups renamed for the newest two days only', late_gaveup, "source 'gave_up'"),
+        ('blind: three of one day\'s deaths renamed', three_renamed, '_death_site_recorded rows'),
+        ('blind: the wet kind renamed (every pit would read dry)', no_wet, '_water_float is SILENT'),
     ]
 
 
@@ -548,7 +631,7 @@ def hazards_edits(full=True):
 PROBES = [
     ('P-lava', 'lava', (340, 59, 140), 2), ('P-pit', 'water_pit', (350, 55, 150), 1), ('P-trap', 'water_ceiling_trap', (360, 40, 160), 1),
     ('P-drop', 'cave_fall', (370, 30, 140), 1), ('P-drip', 'dripstone', (365, 30, 165), 2), ('P-wlog', 'drowning', (345, 50, 165), 1),
-    ('P-far', 'lava', (5000, 60, 5000), 2),
+    ('P-far', 'lava', (5000, 60, 5000), 2), ('P-edge', 'lava', (383, 59, 140), 2),
 ]
 
 
@@ -561,7 +644,8 @@ def verify_cases(hm, tmp):
     os.makedirs(os.path.join(live, 'hive-c', 'world.pre-reseed-20260927T123523Z'), exist_ok=True)
     shutil.copy(os.path.join(st, 'hive-a', 'world', 'level.dat'), os.path.join(live, 'hive-c', 'world.pre-reseed-20260927T123523Z', 'level.dat'))
     for w in ('hive-a', 'board-a', 'hive-c'):
-        os.makedirs(os.path.join(live, w), exist_ok=True)
+        os.makedirs(os.path.join(live, w, 'world'), exist_ok=True)
+        shutil.copy(os.path.join(st, w, 'world', 'level.dat'), os.path.join(live, w, 'world', 'level.dat'))
     log = os.path.join(tmp, 'backup.log')
     with open(log, 'w') as f:
         f.write('2026-10-18T03:16:17Z good 2026-10-18: 16/16 worlds\n')
@@ -575,13 +659,26 @@ def verify_cases(hm, tmp):
                       for i, k, c, r in PROBES for w in ('hive-a', 'board-a')]}
     hm.validate_request(req)
     v = hm.verify(req, st, live, log, day='2026-10-18', cat=cat, birth=birth, ls=ls, now_ms=T('2026-10-18T04:00:00Z'))
-    R = v['results']
-    for pid, _, _, _ in PROBES[:-1]:
+    R = {k: x['by_world'] for k, x in v['results'].items()}
+    for pid, _, _, _ in PROBES[:-2]:
         cases.append(('verify: %s present in hive-a' % pid, R[pid]['hive-a']['state'], 'present'))
         cases.append(('verify: %s absent in board-a' % pid, R[pid]['board-a']['state'], 'absent'))
     cases.append(('verify: a probe in an ungenerated region -> not_generated', R['P-far']['hive-a']['state'], 'not_generated'))
+    cases.append(('verify: a negative that straddles an ungenerated chunk is unknown, not absent', R['P-edge']['board-a']['state'], 'unknown'))
+    cases.append(('verify: the probed cells come back as the fingerprint', v['results']['P-lava']['cells'], [[340, 59, 140]]))
     cases.append(('verify: the pit count', R['P-pit']['hive-a']['found'].get('pit_cells'), 1))
     cases.append(('verify: the trap ceiling is named', R['P-trap']['hive-a']['found'].get('ceiling:copper_ore'), 1))
+    cases.append(('reduce: absent + unknown -> unknown', hm.reduce_states([{'state': 'absent'}, {'state': 'unknown'}])['state'], 'unknown'))
+    cases.append(('reduce: absent + present -> present', hm.reduce_states([{'state': 'absent'}, {'state': 'present', 'found': {}}])['state'], 'present'))
+    world_fixture(os.path.join(tmp, 'other'), 'hive-a', 222, {})
+    shutil.copy(os.path.join(tmp, 'other', 'hive-a', 'world', 'level.dat'), os.path.join(live, 'hive-a', 'world', 'level.dat'))
+    try:
+        hm.verify(req, st, live, log, day='2026-10-18', cat=cat, birth=birth, ls=ls)
+        got = 'paired a staged seed with a reseeded live world'
+    except hm.Blind as e:
+        got = 'refused' if 'differ' in str(e) else str(e)
+    cases.append(('verify: a reseed since the backup (staged and live seeds differ) is refused', got, 'refused'))
+    shutil.copy(os.path.join(st, 'hive-a', 'world', 'level.dat'), os.path.join(live, 'hive-a', 'world', 'level.dat'))
     cases.append(('verify: seeds read from level.dat', (v['worlds']['hive-a']['seed'], v['worlds']['hive-c']['seed']), ('111', '999')))
     cases.append(('verify: the pre-reseed copy is hive-c\'s previous seed',
                   [(p['seed'], p['retired']) for p in v['worlds']['hive-c']['previous']], [('111', '2026-09-27T12:35:23Z')]))
@@ -594,6 +691,8 @@ def verify_cases(hm, tmp):
         got = 'read a staging copy with no good backup line'
     except hm.Blind as e:
         got = 'refused' if 'good 2026-10-19' in str(e) else str(e)
+    except Exception as e:                        # any other failure is not the refusal this case is about
+        got = 'crashed: %s' % type(e).__name__
     cases.append(('verify: refuses without that day\'s "good" backup line', got, 'refused'))
     seeds = hm.Seeds.from_verify(dict(v, schema='mcai.hazardmap.verify'))
     cases.append(('verify -> Seeds: hive-c before the reseed is 111', seeds.seed_at('hive-c', T('2026-09-01T00:00:00Z'))[0], '111'))
@@ -648,6 +747,57 @@ def serve_cases(sv, hm, tmp):
     return cases
 
 
+def check_cases(hm, tmp):
+    """check_line(): OK only when a fresh map, an ok heartbeat and a recent verify are all there; every gap is an ALARM."""
+    cases = []
+    home = os.path.join(tmp, 'chk'); out = os.path.join(home, 'out')
+    os.makedirs(out, exist_ok=True)
+    cases.append(('check: no map -> ALARM', hm.check_line(home, NOW)[1], 1))
+    doc = {'generated_at': '2026-10-18T01:00:00Z', 'stale_after': '2026-10-19T13:00:00Z', 'seeds': {'S1': {'hazards': [{}]}},
+           'controls': {'verify_backup_day': '2026-10-18', 'verify_made_at': '2026-10-18T01:30:00Z'},
+           'value': {'headline': {'deaths': 9, 'known_from_another_world': 3}}}
+    hm.atomic_json(os.path.join(out, 'hazardmap.json'), doc)
+    hm.atomic_json(os.path.join(out, 'heartbeat.json'), {'status': 'ok', 'at': 'x'})
+    cases.append(('check: a fresh map -> OK', hm.check_line(home, NOW)[1], 0))
+    hm.atomic_json(os.path.join(out, 'hazardmap.json'), dict(doc, stale_after='2026-10-18T01:59:00Z'))
+    cases.append(('check: past stale_after -> ALARM', hm.check_line(home, NOW)[1], 1))
+    hm.atomic_json(os.path.join(out, 'hazardmap.json'), doc)
+    hm.atomic_json(os.path.join(out, 'hazardmap.json'), dict(doc, controls={'verify_backup_day': '2026-10-16', 'verify_made_at': '2026-10-16T04:30:00Z'}))
+    cases.append(('check: a verify 45 h old -> ALARM (rows after it are not folding)', hm.check_line(home, NOW)[1], 1))
+    hm.atomic_json(os.path.join(out, 'hazardmap.json'), doc)
+    hm.atomic_json(os.path.join(out, 'heartbeat.json'), {'status': 'gate_failed', 'at': 'x', 'error': 'e'})
+    cases.append(('check: a failed gate -> ALARM', hm.check_line(home, NOW)[1], 1))
+    return cases
+
+
+def patch_cases(tmp):
+    """patch_fleetstatus: the three anchored edits, idempotent, refuses a copy without the anchors; and the line it adds is
+    None when the tool is not installed, the check's own line when it is, and an ALARM when the check prints nothing."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('pf', os.path.join(HERE, 'patch_fleetstatus.py'))
+    pf = importlib.util.module_from_spec(spec); spec.loader.exec_module(pf)
+    base = ("import os\nimport sys\nimport datetime as dt\n\n\ndef _ts(s):\n    return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))\n\n\n"
+            "def frontier_line(now):\n    return 'f'\n\n\ndef main(now):\n    rep = {'frontier': frontier_line(now), 'x': 1}\n"
+            "    if rep.get('frontier'):\n        print(rep['frontier'])\n    return rep\n")
+    t1, why1 = pf.patch(base)
+    t2, why2 = pf.patch(t1) if t1 else (None, None)
+    c = [('patch: applies once, then already patched', (why1, why2), ('patched', 'already patched')),
+         ('patch: refuses a copy without the anchors', pf.patch(base.replace('frontier_line(now), ', ''))[1][:12], 'anchor found')]
+    ns = {}
+    exec(compile(t1, 'patched', 'exec'), ns)
+    home = os.path.join(tmp, 'hmhome')
+    c.append(('fleetstatus line: no line when the tool is not installed', ns['hazardmap_line'](None, home=home), None))
+    tool = os.path.join(home, 'app', 'scripts', 'host', 'hazardmap', 'hazardmap.py')
+    os.makedirs(os.path.dirname(tool), exist_ok=True)
+    with open(tool, 'w') as f:
+        f.write("print('hazard map OK fixture')\n")
+    c.append(('fleetstatus line: the check\'s own line', ns['hazardmap_line'](None, home=home), 'hazard map OK fixture'))
+    with open(tool, 'w') as f:
+        f.write("import sys\nsys.exit(1)\n")
+    c.append(('fleetstatus line: a silent check is an ALARM', (ns['hazardmap_line'](None, home=home) or '')[:15], 'HAZARDMAP ALARM'))
+    return c
+
+
 def compact_cases(hm):
     c = []
     r = row('2026-10-22T00:01:43.889Z', 'placebo-a-Delta', '_lava_corridor', 'lava_corridor: lava beside the drop at 299,60,-97 after 7 samples; the leg is refused', (302.3, 63.4, -97.7))
@@ -684,7 +834,7 @@ BEHAVIOUR = [
     ('fold: the quarantine row is dropped and counted', "                if t < s['from_ms'] + QUARANTINE_MS:", "                if False:"),
     ('fold: a 40-min DRY maroon spell is not', "        return 'water_pit' if wet >= 0.5 else 'excluded:marooned_dry'", "        return 'water_pit'"),
     ('fold: ... and not an entombment', "    if c.get('no_air', 0) / n >= 0.2:", "    if c.get('no_air', 0) / n >= 0.9:"),
-    ('value: three deaths were known from another world', "                    if p['t'] > d['t'] - lag_ms or", "                    if p['t'] >= d['t'] or"),
+    ('value: three deaths were known from another world', "                            if p['t'] <= d['t'] - lag_ms:", "                            if True:"),
     ('fold: a lava cell seen once is not', "        return h['sightings']['episodes'] >= 2", "        return h['sightings']['episodes'] >= 1"),
     ('fold: two deaths in two worlds -> confidence high', "    if len(h['death_worlds']) >= 2 or d >= 3 or sh >= 6:", "    if d >= 3 or sh >= 6:"),
     ('verify flow: absent everywhere lowers confidence one step', "    if (h.get('exists') or {}).get('summary') == 'absent':",
@@ -706,25 +856,50 @@ BEHAVIOUR = [
      "    return name in WATER_NAMES"),
     ('verify: a probe in an ungenerated region -> not_generated', "    if sts == {'not_generated'}:", "    if False:"),
     ('verify: refuses without that day\'s "good" backup line', "    if not good:\n        raise Blind(", "    if False:\n        raise Blind("),
-    ('request: refused: world outside the pattern', "        if not (isinstance(p['world'], str) and WORLD_RE.match(p['world'])):",
+    ('request: refused: world outside the pattern', "        if not (isinstance(p['world'], str) and WORLD_RE.fullmatch(p['world'])):",
      "        if not isinstance(p['world'], str):"),
     ('request: refused: an extra field', "        if not isinstance(p, dict) or set(p) != {'id', 'world', 'kind', 'x', 'y', 'z', 'r'}:",
      "        if not isinstance(p, dict):"),
     ('cache: a late death changes the count -> that day is refetched',
      "            if recount(day, EsEvents, now_ms) == (rec['total'], rec['counts']):", "            if True:"),
     ('fold: a verify file older than 72 h is refused (the seeds may predate a reseed)', "    if age > VERIFY_MAX_AGE_H:", "    if False:"),
+    ('terrain gate: a seed whose worlds disagree (0.8) is not merged', "        if (t.get('min_agreement') or 0) < TERRAIN_MIN_AGREE or",
+     "        if False or"),
+    ('value(): a same-cell death on ANOTHER SEED never matches', "    return (seed, x // 8, z // 8)", "    return (None, x // 8, z // 8)"),
+    ('value(): a different-kind prior is not a same-kind match', "                    if p['t'] >= d['t'] or (same_kind and p['kind'] != d['kind']):",
+     "                    if p['t'] >= d['t']:"),
+    ('value_report: a match on a one-world seed is refused (the subset guard)', "    if any(id(d) not in ids for d in matched):", "    if False:"),
+    ('value: rotated about home, the priors match nothing (the town-density null)', "            dx, dz = -dz, dx", "            pass"),
+    ('fold: death cells most-deaths first (not coordinate order)', "    return [list(k) for k, v in sorted(c.items(), key=lambda kv: (-kv[1][0], -kv[1][1], kv[0]))]",
+     "    return [list(k) for k, v in sorted(c.items(), key=lambda kv: kv[0])]"),
+    ('seeds: a row after the observation horizon is not resolved', "        if self.horizon_ms is not None and t > self.horizon_ms:", "        if False:"),
+    ('verify flow: an absence for OTHER probe cells no longer covers the hazard', "        elif r['state'] != 'present' and (changed or newer):",
+     "        elif r['state'] != 'present' and newer:"),
+    ('verify flow: evidence newer than the request voids an absence', "        elif r['state'] != 'present' and (changed or newer):",
+     "        elif r['state'] != 'present' and changed:"),
+    ('verify: a negative that straddles an ungenerated chunk is unknown, not absent',
+     "    if res['state'] == 'absent' and (sts != {'ok'} or w.stats['undecoded'] > before):", "    if False:"),
+    ('reduce: absent + unknown -> unknown', "    if st and all(x == 'absent' for x in st):", "    if st and 'absent' in st:"),
+    ('verify: a reseed since the backup (staged and live seeds differ) is refused', "        if not live_raw or level_seed(live_raw) != seed:",
+     "        if not live_raw:"),
     ('compact: a corridor refused for UNKNOWN cells is skipped, not unparsed', "                return ('skip', 'names no lava cell')",
      "                return ('unparsed', 'names no lava cell')"),
+    ('check: past stale_after -> ALARM', "    if now_ms > parse_ms(doc['stale_after']):", "    if False:"),
+    ('check: a failed gate -> ALARM', "    if hb.get('status') != 'ok':", "    if False:"),
+    ('check: a verify 45 h old -> ALARM (rows after it are not folding)', "    if not vday or not vmade or now_ms - parse_ms(vmade) > VERIFY_ALARM_H * 3_600_000:",
+     "    if not vday or not vmade:"),
     ('cache: 10-07 is refused, never loaded', "        if day in REFUSED_DAYS:\n            stats['refused'] += 1", "        if False:\n            stats['refused'] += 1"),
 ]
 BLIND_CODE = [   # code mutants that blind the guards: the named blind-input case must then SURVIVE (the guard is what stops it)
-    ('blind: the death kind renamed _death -> _died', "    for src in MUST_SPEAK:\n        if tot[src] == 0:", "    for src in MUST_SPEAK:\n        if False:"),
+    ('blind: give-ups renamed for the newest two days only', "            if not spoke_today:", "            if False:"),
     ('blind: fail_class renamed fire -> burning', "            if fc not in (FAIL_CLASSES if validated else HISTORY_FAIL_CLASSES) or cat is None:",
      "            if cat is None:"),
     ('blind: the corridor row cell reformatted', "        if seen and unp[src] / seen > UNPARSED_OK:", "        if False:"),
     ('blind: a world the seeds table does not know', "            if why == 'unknown_world' and t >= validated_ms:", "            if False:"),
     ('blind: the death position is not the recorded death site', "    if len(deaths) >= 20 and (paired < 0.9 * len(deaths) or agree < 0.95 * paired):",
      "    if False:"),
+    ('blind: three of one day\'s deaths renamed', "        if abs(nd - ns) > DEATH_SITE_SLACK:", "        if False:"),
+    ('blind: the wet kind renamed (every pit would read dry)', "        if not rec['counts'].get(WET_KIND):", "        if False:"),
 ]
 SERVE = [
     ('serve: refused [verify x]', "    if parts == ['verify']:", "    if parts[:1] == ['verify']:"),
@@ -751,14 +926,18 @@ def mutate(name, anchor, repl):
 
 
 def all_cases(hm, sv, tmp):
+    """Every case group runs on its own: a group that crashes is ONE failing entry and the other groups still run, so a
+    mutant is credited only through its own named case (Codex r1 P2: an unrelated crash is never a kill)."""
     c = []
-    c += compact_cases(hm)
-    c += fold_cases(hm)
-    c += blind_cases(hm)
-    c += cache_cases(hm, os.path.join(tmp, 'c1'))
-    c += request_cases(hm)
-    c += verify_cases(hm, os.path.join(tmp, 'v1'))
-    c += serve_cases(sv, hm, tmp)
+    groups = [('compact', lambda: compact_cases(hm)), ('fold', lambda: fold_cases(hm)), ('blind', lambda: blind_cases(hm)),
+              ('cache', lambda: cache_cases(hm, os.path.join(tmp, 'c1'))), ('request', lambda: request_cases(hm)),
+              ('verify', lambda: verify_cases(hm, os.path.join(tmp, 'v1'))), ('serve', lambda: serve_cases(sv, hm, tmp)),
+              ('check', lambda: check_cases(hm, tmp)), ('patch', lambda: patch_cases(tmp)), ('value', lambda: value_cases(hm))]
+    for name, fn in groups:
+        try:
+            c += fn()
+        except Exception as e:
+            c.append(('group %s CRASHED' % name, '%s: %s' % (type(e).__name__, str(e)[:160]), 'no crash'))
     return c
 
 
@@ -772,18 +951,17 @@ def main(argv=None):
         if err:
             results.append(('mutant ' + case, err, 'applies')); continue
         k += 1
-        try:
-            got = {c[0]: c for c in all_cases(load('hm', text), sv, os.path.join(tmp, 'm%d' % k))}
-            killed = case in got and got[case][1] != got[case][2]
-        except Exception:
-            killed = True                    # a crash in the mutated build fails the suite -> the case cannot pass
-        results.append(('mutant ' + case, 'KILLED' if killed else 'SURVIVED', 'KILLED'))
+        got = {c[0]: c for c in all_cases(load('hm', text), sv, os.path.join(tmp, 'm%d' % k))}
+        if case not in got:
+            results.append(('mutant ' + case, 'its case did not run (its group crashed)', 'KILLED')); continue
+        results.append(('mutant ' + case, 'KILLED' if got[case][1] != got[case][2] else 'SURVIVED', 'KILLED'))
     for case, anchor, repl in BLIND_CODE:
         text, err = mutate('hm', anchor, repl)
         if err:
             results.append(('blind-guard mutant ' + case, err, 'applies')); continue
         got = {c[0]: c for c in blind_cases(load('hm', text))}
-        results.append(('blind-guard mutant ' + case, 'KILLED' if got[case][1] != 'STOPPED' else 'SURVIVED', 'KILLED'))
+        # the guard was what stopped it: with the guard removed the blind input must BUILD A MAP (a crash proves nothing)
+        results.append(('blind-guard mutant ' + case, 'KILLED' if got[case][1].startswith('SURVIVED') else 'NOT PROVEN: %s' % got[case][1][:80], 'KILLED'))
     for case, anchor, repl in SERVE:
         text, err = mutate('sv', anchor, repl)
         if err:

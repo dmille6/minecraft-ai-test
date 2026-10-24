@@ -3,7 +3,7 @@
   "matched": [
    6,
    2,
-   3,
+   4,
    8,
    0,
    9,
@@ -11,7 +11,7 @@
    3
   ],
   "max": 19,
-  "mean": 6.25,
+  "mean": 6.38,
   "offsets": [
    [
     48,
@@ -47,41 +47,37 @@
    ]
   ]
  },
- "deaths_by_kind": {
-  "cave_fall": 55,
+ "could_match_by_kind": {
+  "cave_fall": 47,
   "dripstone": 40,
-  "drowning": 84,
-  "lava": 79,
+  "drowning": 40,
+  "lava": 59,
+  "suffocation": 8
+ },
+ "deaths_by_kind": {
+  "cave_fall": 54,
+  "dripstone": 40,
+  "drowning": 83,
+  "lava": 80,
   "suffocation": 21
  },
  "headline": {
-  "deaths": 279,
-  "known_from_another_world": 122,
-  "known_from_own_world": 117,
-  "known_only_from_another_world": 42,
-  "resolved": 279
+  "deaths": 278,
+  "known_from_another_world": 123,
+  "known_from_own_world": 121,
+  "known_only_from_another_world": 40,
+  "resolved": 278
  },
  "headline_by_kind": {
   "cave_fall": 25,
   "dripstone": 16,
   "drowning": 34,
-  "lava": 46,
+  "lava": 47,
   "suffocation": 1
  },
  "lag": "a prior counts only if >= 24 h older (a daily map)",
  "link": "within 3 blocks horizontally and 4 vertically",
  "matched": [
-  {
-   "bot": "placebo-c-Alpha",
-   "category": "lava after a fall",
-   "cell": [
-    336,
-    38,
-    209
-   ],
-   "kind": "lava",
-   "t": "2026-10-17T05:19:01Z"
-  },
   {
    "bot": "isolated-b-Bravo",
    "category": "lava",
@@ -1412,41 +1408,73 @@
    ],
    "kind": "cave_fall",
    "t": "2026-10-24T04:11:46Z"
+  },
+  {
+   "bot": "board-d-Comet",
+   "category": "lava",
+   "cell": [
+    335,
+    35,
+    205
+   ],
+   "kind": "lava",
+   "t": "2026-10-24T04:30:49Z"
+  },
+  {
+   "bot": "isolated-b-Delta",
+   "category": "lava",
+   "cell": [
+    389,
+    18,
+    106
+   ],
+   "kind": "lava",
+   "t": "2026-10-24T04:44:41Z"
   }
  ],
- "shared_seed_deaths": 195,
+ "rotation_null": {
+  "matched": [
+   1,
+   1,
+   3
+  ],
+  "max": 3,
+  "mean": 1.67,
+  "what": "priors rotated 90/180/270 degrees about their seed's home (distance from home kept)"
+ },
+ "shared_seed_deaths": 194,
  "variants": {
   "any_kind": {
-   "deaths": 279,
-   "known_from_another_world": 131,
-   "known_from_own_world": 124,
-   "known_only_from_another_world": 44,
-   "resolved": 279
+   "deaths": 278,
+   "known_from_another_world": 132,
+   "known_from_own_world": 130,
+   "known_only_from_another_world": 40,
+   "resolved": 278
   },
   "link_6_6": {
-   "deaths": 279,
-   "known_from_another_world": 145,
-   "known_from_own_world": 133,
-   "known_only_from_another_world": 50,
-   "resolved": 279
+   "deaths": 278,
+   "known_from_another_world": 146,
+   "known_from_own_world": 139,
+   "known_only_from_another_world": 46,
+   "resolved": 278
   },
   "no_lag": {
-   "deaths": 279,
-   "known_from_another_world": 124,
-   "known_from_own_world": 120,
+   "deaths": 278,
+   "known_from_another_world": 125,
+   "known_from_own_world": 121,
    "known_only_from_another_world": 41,
-   "resolved": 279
+   "resolved": 278
   },
   "priors_validated_only": {
-   "deaths": 279,
+   "deaths": 278,
    "known_from_another_world": 102,
-   "known_from_own_world": 97,
-   "known_only_from_another_world": 37,
-   "resolved": 279
+   "known_from_own_world": 100,
+   "known_only_from_another_world": 35,
+   "resolved": 278
   }
  },
  "window": [
-  "2026-10-17T04:43:27Z",
-  "2026-10-24T04:43:27Z"
+  "2026-10-17T05:26:29Z",
+  "2026-10-24T05:26:29Z"
  ]
 }
