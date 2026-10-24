@@ -119,11 +119,16 @@ def main(dirs):
     dirs = [d for d in dirs if d != '--library']
     table, started = summarize(dirs)
     if library:
-        bad = 0
-        for key, (v, why) in sorted(library_verdict(table).items()):
+        verdicts = library_verdict(table)
+        # a scene that was STARTED and wrote no result at all is INCONCLUSIVE too, never absent (Codex + Claude tooling r4 P2)
+        for (sc, st, _) in started:
+            if (sc, st) not in verdicts:
+                verdicts[(sc, st)] = ('INCONCLUSIVE', 'started, no results')
+        for key, (v, why) in sorted(verdicts.items()):
             print('LIBRARY %-12s %s start %s: %s' % (v, key[0], key[1], why))
-            bad += v == 'REGRESSED'
-        sys.exit(1 if bad else 0)
+        vs = [v for v, _ in verdicts.values()]
+        # exit 1 REGRESSED anywhere; 2 when anything could not be judged or nothing was ok; 0 only for an all-ok library
+        sys.exit(1 if 'REGRESSED' in vs else 2 if ('INCONCLUSIVE' in vs or 'ok' not in vs) else 0)
     # every (scene, start) STARTED or with a result: a scene whose runs all crashed still shows (Claude driver r2 P3-1)
     keys = set(table) | {(s, st) for (s, st, _) in started}
     for key in sorted(keys):
@@ -150,6 +155,23 @@ def selftest():
     assert v([R()] * 3, [R(invalid='map not bound (absent)')] * 3) == 'INCONCLUSIVE', 'unbound candidates are not runs'
     assert v([R(matched=False)] * 3, [R()] * 3) == 'INCONCLUSIVE', 'a base that no longer reproduces cannot show a regression'
     assert v([R(dead=True)] * 3, [R(dead=True)] * 3) == 'ok', 'the same deaths: not worse'
+    # THE SEAM (Claude tooling r4 P3): summarize() itself marks a missing log, an unbound and an empty candidate invalid
+    import tempfile
+    d = tempfile.mkdtemp(prefix='lsps-')
+    def run(label, mode, active, log=True):
+        rd = tempfile.mkdtemp(dir=d)
+        if log:
+            os.makedirs(os.path.join(rd, 'bot', 'log'))
+            with open(os.path.join(rd, 'bot', 'log', 'skill-bot.jsonl'), 'w') as f:
+                f.write(json.dumps({'@timestamp': '2026-10-24T00:00:00Z', 'skill': {'name': '_lavasight_mode', 'args': {'state': mode}}}) + '\n')
+                f.write(json.dumps({'@timestamp': '2026-10-24T00:01:00Z', 'skill': {'name': '_lavasight_route', 'args': {'active': active, 'priced': 5}}}) + '\n')
+        return {'label': label, 'scene': 's', 'start_index': 0, 'run_dir': rd, 'placed_at': '2026-10-24T00:00:30Z', 'pass': False, 'matched_fleet': True, 'observation': {}}
+    rows = [run('base', None, 0), run('base', None, 0, log=False), run('cand', 'ok', 4), run('cand', 'absent', 4), run('cand', 'ok', 0)]
+    with open(os.path.join(d, 'results.jsonl'), 'w') as f:
+        f.write(''.join(json.dumps(r) + '\n' for r in rows))
+    tb, _ = summarize([d])
+    inv = {(x['invalid'] or 'valid') for side in tb[('s', 0)].values() for x in side}
+    assert inv == {'valid', 'no log', 'map not bound (absent)', 'no post-placement route or liveness row with an active cell'}, inv
     print('SELFTEST ok')
 
 
