@@ -186,7 +186,10 @@ export function floorOverDrop ({ target, at }) {
     //     reaching a diagonal column reaches both cardinals beside it), so none falls further.
     const rd = (x, y, z) => { try { return at(x, y, z) } catch { return null } }
     if (fullCube(rd(t.x, t.y + 1, t.z))) return { skip: false, why: 'nothing can stand on it' }
-    if (fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z)) && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => fullCube(rd(t.x + dx, t.y, t.z + dz)))) {
+    //     Not when T carries a carpet, snow layer or the like: the feet are then above the cardinal cubes' tops (Codex r5 P2-1)
+    const over = rd(t.x, t.y + 1, t.z)
+    const carries = over && NEEDS_SUPPORT.test(String(over.name ?? ''))
+    if (!carries && fullCube(b) && fullCube(rd(t.x, t.y - 1, t.z)) && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => fullCube(rd(t.x + dx, t.y, t.z + dz)))) {
       return { skip: false, why: 'solid under and around it', drop: 1, landing: 'solid', damage: 0 }
     }
     const f = dropIfRemoved(at, t)
