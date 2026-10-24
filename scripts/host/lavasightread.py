@@ -191,7 +191,9 @@ def judge(rows, W=180, CANS=(), population=None, hazards=None):
     out['mode_states'] = dict(states)
     out['mapped_share'] = round(states.get('ok', 0) / len(can_bots), 3) if can_bots else 0.0
     can_slots = len(bots[('post', 'canary')])
-    out['coverage'] = round(sum(len(v) for v in live_slots.values()) / can_slots, 3) if can_slots else 0.0
+    # only liveness in an OBSERVED slot counts (Codex r4 P2): a liveness row in a slot outside the denominator cannot cover it
+    covered = sum(1 for b, q in bots[('post', 'canary')] if q in live_slots.get(b, ()))
+    out['coverage'] = round(covered / can_slots, 3) if can_slots else 0.0
     out['instrument'] = int(out['coverage'] >= 0.75 and len(can_bots) >= 1 and len(bots[('pre', 'control')]) >= 1 and len(bots[('post', 'control')]) >= 1)
     out['mapped'] = int(out['mapped_share'] >= 0.8)
     out['priced_moves'] = c['priced_moves']; out['held_seen'] = c['held_seen']
@@ -277,6 +279,12 @@ def selftest():
     extra = [R('_lavasight', args=LIVE(), t=T0 + 10800 + i * 600) for i in range(6)]
     nb = judge(base + can + extra, CANS=('board-d',))
     assert nb['bot_h'] == ok['bot_h'], ('liveness-only slots counted as bot-time', nb['bot_h'], ok['bot_h'])
+    # COVERAGE counts liveness only inside observed slots (Codex r4 P2): two observed slots without liveness and two
+    # liveness-only slots elsewhere cover nothing
+    cov = [R('_lava_corridor', 'lava_corridor: lava beside at 1,2,3', bot='board-d-Echo', t=T0 + 600 * i) for i in (0, 1)] + \
+          [R('_lavasight', args=LIVE(), bot='board-d-Echo', t=T0 + 600 * i) for i in (5, 6)] + [R('_lavasight_mode', args={'on': 1, 'state': 'ok'}, bot='board-d-Echo')]
+    cv = judge([r for r in base if r['arm'] == 'control'] + cov, CANS=('board-d',))
+    assert cv['coverage'] == 0.0 and cv['instrument'] == 0, ('liveness outside the observed slots covered them', cv['coverage'])
     assert ok['g2_exercised'] == 1 and judge(base + [R('_lavasight_mode', args={'on': 1, 'state': 'ok'})] + [R('_lavasight', args=LIVE(held_seen=0), t=T0 + i * 600) for i in range(18)], CANS=('board-d',))['g2_exercised'] == 0
     # deaths: families, the floor is the registration's; at hazards by kind
     hz = hazard_index({'seeds': {'1': {'worlds': {'board-d': {}}, 'hazards': [{'kind': 'lava', 'center': [396, 69, 109], 'sightings': {'cells': [[397, 69, 109, 5]]}, 'deaths': {'cells': []}}]}}})

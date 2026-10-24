@@ -231,21 +231,36 @@ export const formsOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
 }
 
 /**
- * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE. The segment from the parent's executed form to the move's, sampled as the
- * guard samples it. `env` = { start, blockAt, ids }. Annotates the move (its rawness) for its own children.
+ * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE | 2 x CORE_MOVE. The segment from the parent's executed form to the move's,
+ * sampled as the guard samples it. `env` = { start, blockAt, ids }. Annotates the move (its rawness) for its children.
+ *
+ * A CLIMBABLE'S FORM IS SETTLED BY ITS SUCCESSOR (Codex r3 P1, r4 P1): postProcessPath centres a ladder or vine only when
+ * the next node is lower, else puts it on top of its shape. So the segment INTO a climbable is charged, when that move is
+ * generated, at the MINIMUM over its two forms (never more than the guard will refuse, whatever comes next), and the rest is
+ * SETTLED on each child move once the child fixes the form: max(0, actual - charged), never negative (A* needs non-negative
+ * edges). On a complete path every segment is then charged exactly as the guard refuses it, except a path that ENDS on a
+ * climbable, whose last segment can be under-charged (never over-charged). An accepted route is therefore never priced, which
+ * is what keeps a cost-capped search the base passes by an accepted route passable (section 3.4).
  */
 export function moveSurcharge (idx, node, m, env = {}) {
   if (!node || !m) return 0
   m._lsGen = true
   m._lsRaw = !!(node._lsRaw || (m.toBreak && m.toBreak.length) || (m.toPlace && m.toPlace.length))
   if (!idx || idx.size === 0) return 0
+  const hits = (a, b) => segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z)
   const A0 = formsOf(node, env)
-  // a climbable PARENT is centred only when this move goes down from it (postProcessPath's ladder case), else on its top
-  const A = A0.climb ? [m.y < node.y ? A0.forms[0] : A0.forms[1]] : A0.forms
-  const B = formsOf(m, env).forms
-  let hit = false
-  for (const a of A) for (const b of B) if (!hit && segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z)) hit = true
-  m._lsS = hit ? CORE_MOVE : 0
+  let from = A0.forms[0], settle = 0
+  if (A0.climb) {
+    from = m.y < node.y ? A0.forms[0] : A0.forms[1]
+    if (node._lsIn) settle = Math.max(0, (hits(node._lsIn.from, from) ? CORE_MOVE : 0) - node._lsIn.charged)
+  }
+  const B0 = formsOf(m, env)
+  let own
+  if (B0.climb) {
+    own = B0.forms.every(b => hits(from, b)) ? CORE_MOVE : 0
+    m._lsIn = { from, charged: own }
+  } else own = hits(from, B0.forms[0]) ? CORE_MOVE : 0
+  m._lsS = own + settle
   return m._lsS
 }
 

@@ -1,4 +1,4 @@
-# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r4, 2026-10-24)
+# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r5, 2026-10-24)
 
 Mineshaft safety fix **F5b** (`docs/reports/mineshaft-safety-2026-10-23.md` §7, approved r10; OWNER ANSWERS O3). **OWNER
 2026-10-24:** run it right after lavastep-01, and feed it **from the per-seed hazard map from day one**
@@ -8,7 +8,12 @@ Base: fleet `fb8de72f` (ironsmelt-01, promoted 10-24 ~08:28Z: rows carry `run_id
 fb8de72f`). Branch `lavasight-on-fb8de72`. No bot, host, queue, scheduler, manifest, env or world was changed. Host actions
 were read-only: the population query (§1) and a dry run of the read against live rows (§7).
 
-**r4** answers the r3 reviews (Codex CHANGE, 1 P1 + 2 P2; Claude APPROVE + 1 P2): a ladder or vine is processed by its
+**r5** answers the r4 reviews (Codex CHANGE, 1 P1 + 1 P2; Claude APPROVE + 1 P2): the segment into a climbable is charged
+at the minimum over its two forms and SETTLED on the child that fixes the form, so an accepted route is never priced (the
+descent Codex reproduced now costs exactly the base and passes a cap of 1); coverage counts liveness only in observed slots;
+the primary line needs a fall beyond the null range.
+
+**r4** answered the r3 reviews (Codex CHANGE, 1 P1 + 2 P2; Claude APPROVE + 1 P2): a ladder or vine is processed by its
 successor (centred only when the next node is lower), so the move INTO a climbable is judged on both of its forms and the
 move OUT on the one its successor picks; the slab test now holds a segment the guard refuses; the capped test uses real caps
 with a binding control; the incremental note is bounded and in place; the read's bot-time comes only from rows both builds
@@ -175,11 +180,14 @@ a positive control (core is neither empty nor everything), and two mutants (no o
 - **Tests, on the REAL pathfinder** (the installed plugin on a fake bot, so getPathFromTo applies postProcessPath): every
   segment of every planned path on 40 noisy worlds with slabs, carpets, water and digging profiles is priced iff the guard
   refuses that executed segment; and a slab-floor world where the processed nodes sit at y - 0.5.
-- **Climbables** (Codex r3 P1): postProcessPath centres a ladder or vine only when the NEXT node is lower, else puts it on
-  top of the climbable's shape (y + 1, offset to the wall). The move INTO a climbable is judged on both forms (its successor is
-  unknown at expansion), the move OUT of it on the form its successor picks. So the price is exact except that a move into a
-  climbable can be priced where only one of its two forms is refused. Tested: a climb past lava beside the ladder's top is
-  priced on the segment the guard refuses.
+- **Climbables** (Codex r3 P1, r4 P1): postProcessPath centres a ladder or vine only when the NEXT node is lower, else puts
+  it on top of the climbable's shape (y + 1, offset to the wall). So the segment INTO a climbable is charged, when that move is
+  generated, at the MINIMUM over the climbable's two forms, and the rest is SETTLED on each child move once the child fixes
+  the form (max(0, actual - charged): never negative, as A* needs). Every segment of a complete path is then charged exactly as
+  the guard refuses it, except that a path ENDING on a climbable can under-charge its last segment -- never over-charge. r4
+  charged a move into a climbable on either form, which priced an accepted descent and walled off a capped search (Codex's
+  reproduction, now a test). Tested on the real plugin: a climb up past lava is charged exactly for its refused segments; the
+  accepted descent costs exactly the base and passes a cap of 1; mutants for "either form" and "never settle".
 - Not modelled: pathFromPlayer can drop the first node(s) of a re-plan, so the guard's first segment can span more than one
   move (Claude r2 P3-1). It only shifts price; the guard is unchanged.
 
@@ -197,7 +205,8 @@ a positive control (core is neither empty nor everything), and two mutants (no o
     400; reachprobe, 96). A move the guard accepts is never priced, so **wherever the base reaches a goal within a cap by a
     route the guard accepts, the candidate does too, at no greater cost** -- tested as a property over noisy worlds at the
     tightest cap the base passes, with GoalBlock goals so every cap is a real one (searchRadius >= 0) and a control that half
-    of each cap fails the base (Codex r3 P2). The property is per search slice: a time-sliced search (40 ms ticks on the
+    of each cap fails the base (Codex r3 P2). Climbables keep it: a segment into one is charged its minimum form, so an accepted one is charged 0 whatever the
+    successor (r5). The property is per search slice: a time-sliced search (40 ms ticks on the
     fleet) is nondeterministic in the base itself by about one move (Claude r3 P3-1). A capped search fails for the candidate only where every route within the
     cap has a refused move, which the base would have executed into the guard's refusal. Reported through movement
     successes in the no-harm line.
@@ -272,7 +281,7 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   own 10-min liveness row would otherwise mark every connected canary slot observed and none of the control's (fixture).
 - **Liveness (blocks KEEP):** a canary licence `on=1`; >= 80% of **all** canary bots (a bot without a mode row is unmapped;
   Codex r2 P1-4) with newest mode state `ok` ("mapped": the publisher ran); liveness coverage >= 0.75 of the canary's
-  observed slots and both arms present (INSTRUMENT).
+  observed slots, counting liveness only inside an observed slot (Codex r4 P2), and both arms present (INSTRUMENT).
 - **Primary (DiD, per bot-h):** lava refusal **episodes** -- bot-minutes with >= 1 `_lava_corridor` or lava blind-step row
   (rows are throttled at 5 s and a failed leg writes up to four blind-step rows; Claude r1 P2-3), never counting a refusal for
   an unknown cell (Claude r2 P3-7). **Co-primary:** danger-block
@@ -284,9 +293,10 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
 - **Exposure:** canary priced moves >= 200, >= 30 canary lava refusal episodes, and mapped.
 - **The null** (four base-build dry runs of the read, 180 min, four pools each, at -200/-260/-330/-400 min, 10-24): primary
   episode DiD -0.48 .. +0.96 (rates ~1-2 per bot-h); noPath DiD -44.6 .. +24.7 (rates ~60); timeout -4.5 .. +2.3 (~19); movement
-  successes -4.0 .. +2.9 (~16). The registration's no-harm lines sit outside that band (noPath <= +50, timeout <= +6, movement
-  >= -6). The primary line (DiD <= 0) is close to a coin flip under this null: it blocks a KEEP when episodes rise; it does not
-  prove a fall. That is said in the registration.
+  successes -4.0 .. +2.9 (~16). The windows overlap, so this is roughly two independent samples (Claude r4). The no-harm lines
+  sit outside that band (noPath <= +50, timeout <= +6, movement >= -6). **The primary line needs episode DiD <= -0.5, a fall
+  beyond the whole null range** (Claude r4 P2-1): a KEEP means the refusal episodes fell, not merely that nothing objected; a
+  smaller or absent fall closes INCONCLUSIVE.
 - **Dry run on live rows** (10-24 13:5xZ, `CANARY_DRYRUN` with four pools, 90 min, base build): 189,919 rows walked; episodes
   2.40 / 2.62 (canary-to-be pre/post) v 0.90 / 0.84 (control) per bot-h, danger episodes nonzero on both arms, every gate 0,
   licence and instrument correctly BLIND (no lavasight rows on a base build), and 5,769 rows of a pool running another canary
@@ -314,6 +324,12 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   within the base's cap is always found.
 
 ## 10. Review record
+
+**Code r3 / design r4** (`8e755c7e`): Codex CHANGE (1 P1, 1 P2); Claude APPROVE (1 P2, 4 P3). What r5 changed:
+- the climbable rule: minimum-form charge on the move into it, settled on the child (Codex P1, Claude P3-2/P3-3), with the
+  descent regression, a capped-at-1 control and two mutants;
+- coverage only from liveness in observed slots, with a fixture (Codex P2);
+- the primary line at <= -0.5, beyond the null range (Claude P2-1); the incremental note reports `full` at once (Claude P3-4).
 
 **Code r2 / design r3** (`502103d1`): Codex CHANGE (1 P1, 2 P2); Claude APPROVE (1 P2, 5 P3). What r4 changed:
 - ladders and vines processed by their successor (Codex P1; Claude P3-3), with a real-plugin climb test;
