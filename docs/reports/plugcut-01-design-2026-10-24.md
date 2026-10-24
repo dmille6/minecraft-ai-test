@@ -266,7 +266,7 @@ this firing's plugs.
 - Not a fix for water ABOVE the ceiling (a pocket: refused, one row), or for falling columns (refused).
 - It does not change the base ramp. Every behavioural change is behind the licence.
 
-## 5. Tests (`bots/test/plugcut.test.mjs`, 71; the variant 72)
+## 5. Tests (`bots/test/plugcut.test.mjs`, 73; the variant 74)
 
 **Fixtures.** `bots/test/fixtures/plugcut-scenes.json` holds 9x10x9 windows cut from the three failmine scenes by
 `pc_fixtures.py`, with full block states.
@@ -384,7 +384,7 @@ The variant is the branch `plugcut-on-c488c3e3`: the primary applied onto ceiles
   rides on the `ramp` wrapper.
 - **The diff matches the primary.** Its bots/src +/- lines are identical to the primary's, compared line for line.
 - **One variant-only test** (section F): a licensed firing prices its swings against its own 90 s.
-- **Suites:** ceilescape 67/67; plugcut 72 (the primary's 71 + F).
+- **Suites:** ceilescape 67/67; plugcut 74 (the primary's 73 + F).
 
 ## 9. Results (filled as they land)
 

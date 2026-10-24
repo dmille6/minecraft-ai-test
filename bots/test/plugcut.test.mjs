@@ -490,8 +490,10 @@ await t('THE DEADLINE (Claude r2 P3-2, Codex r2 P2): a deadline that passes duri
 })
 
 /** preplugged, with the FIRST forward stroke swallowed (the jump from a bob that does not carry): a step cut and not taken. */
-const missFirst = () => {
-  const bot = makeWorldBot(preplugged(), { feetY: 0.1, items: [COBBLE(64)], ledge: true })
+const missFirst = ({ cut = false } = {}) => {
+  const cells = preplugged()
+  if (cut) cells['-1,1,0'] = 'air'                                    // the W step already cut: no dig, only the jumps
+  const bot = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
   const set = bot.setControlState.bind(bot)
   let missed = false
   bot.setControlState = (n, on) => { if (n === 'forward' && on && !missed) { missed = true; return set('jump', true) } return set(n, on) }
@@ -551,6 +553,25 @@ await t('MUTANT KILLED: the retry not re-asking the step -> it jumps into the re
     const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
     assert.ok(r.stepRetries > 0, 'the mutant did not change behaviour')
   })
+})
+
+await t('NO RETRY THE DEADLINE CANNOT HOLD (both engines r5): a missed step with under 1050 ms left is not jumped again, and says why', async () => {
+  const probe = missFirst()
+  const r0 = await ramp(probe, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(r0.stepRetries >= 1, 'POSITIVE CONTROL: the retry runs with time left')
+  // a budget that ends inside the window of a second jump (the first stroke spends 1050 ms of 1500)
+  const tight = missFirst({ cut: true })
+  const rt = await ramp(tight, { plug: true, budgetMs: 1500 })
+  assert.strictEqual(rt.stepRetries, 0, `retried past the deadline: ${rt.stopped}`)
+  assert.match(rt.stopped, /budget spent before a step retry/, rt.stopped)
+})
+
+await t('MUTANT KILLED: the retry reason overwritten -> the stop reads "could not stand"', async () => {
+  await withMutant(REFLEX_PATH, "      stopped = retryStop ?? `cut a step at y=${Math.round(before.y)} but could not stand in it`\n",
+    "      stopped = `cut a step at y=${Math.round(before.y)} but could not stand in it`\n", async m => {
+      const rt = await ramp(missFirst({ cut: true }), { plug: true, budgetMs: 1500 }, m)
+      assert.doesNotMatch(rt.stopped, /budget spent before a step retry/, 'the mutant did not change behaviour')
+    })
 })
 
 await t('MUTANT KILLED: no retry -> the licensed ramp stops at the missed jump', async () => {
