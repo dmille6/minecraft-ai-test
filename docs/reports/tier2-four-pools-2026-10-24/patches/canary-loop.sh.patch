@@ -9,7 +9,7 @@
  # brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
  # canary pool's canary.env by mcai-canary-tree (via fleet-deploy's CANARY_ENV, which survives the sudo and is checked
  # in a live bot's /proc/<pid>/environ: FLAG MISSING exits 4). Unset or empty = every line below behaves as before.
-@@ -146,8 +148,49 @@
+@@ -146,8 +148,51 @@
  # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
  if [ "$(mf canary_code_version)" != "$SHA" ]; then
    if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
@@ -26,12 +26,14 @@
 +    exit 2; }
 +  if [ -n "$TIER2" ]; then
 +    # a tier-2 registration that can never draw four is refused BEFORE the draw, naming its fix: draw_k read exactly as
-+    # drawrec reads it (an int with 1 <= k < 4 caps the draw), and more than four required pools
++    # drawrec reads it (an int with 1 <= k < 4 caps the draw), more than four required pools, or a malformed list
++    # (drawrequire.parse; drawrec refuses it on every attempt). drawrequire.py unreadable: left to drawrec (fail closed)
 +    _T2PRE=$(python3 -c "import json,sys,os; sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); r=json.load(open('$REG')); k=r.get('draw_k'); w=[]
 +if isinstance(k, int) and 1 <= k < 4: w.append('draw_k %r caps the draw below 4 pools' % (k,))
 +try:
 +    import drawrequire; q, _b = drawrequire.parse(r)
-+except Exception: q = None
++except Exception: q, _b = [], None
++if q is None: w.append('draw_require_pools is malformed (%s)' % _b)
 +if q and len(q) > 4: w.append('draw_require_pools names %d pools, more than 4' % len(q))
 +print('; '.join(w))" 2>&1)
 +    if [ -n "$_T2PRE" ]; then
@@ -60,7 +62,7 @@
      # v33: WIDENING MID-RUN IS NOT DONE (a second deploy rewrites the one declared_at, restarts the pools already on
      # canary and rebuilds the canary tree under them). Its safe equivalent: a bag fix starts at 20 bots, or waits.
      # THREE-POOL BAG FIXES (OPERATOR + CODEX 10-10, owner's delegation). The decision is bagfixrule.draw_decision, asked
-@@ -177,6 +220,13 @@
+@@ -177,6 +222,13 @@
        esac
      fi
      [ -n "$P" ] && break; sleep 1200; done

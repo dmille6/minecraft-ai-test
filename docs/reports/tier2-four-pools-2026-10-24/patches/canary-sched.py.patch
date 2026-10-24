@@ -1,9 +1,11 @@
 --- a/canary-sched.py
 +++ b/canary-sched.py
-@@ -673,6 +673,46 @@
+@@ -671,6 +671,46 @@
+             pass
+         out.append(('H4', 'read %s: %s is absent and %s does not have the queued md5 %s' % (name, live, src, want[:8])))
      return out, stage
- 
- 
++
++
 +def tier2_of(P, reg_path):
 +    """True / False, or None when the registration declares a `tier` that tierrule.py (next to the draw, in
 +    ~/mcai-analysis) cannot classify. No `tier` key = False without loading anything (exactly as before)."""
@@ -42,15 +44,20 @@
 +                    'reorder; it launches by itself only if four pools can expose it' % (run, h, T2_WAIT_MAX_H,
 +                                                                                        why[:160], run, run)))
 +    return out
-+
-+
+ 
+ 
  def r10_check(P, e, v):
-     """drawexposure.py for the head, against a temp registrations dir holding only its registration. '' = fine."""
-     d = tempfile.mkdtemp(prefix='sched-r10-')
-@@ -688,6 +728,25 @@
+@@ -687,12 +727,33 @@
+         if not declared and r.returncode == 0 and 'declares no draw_exposure' in txt:
              return ''
          if declared and 'eligible on exposure:' in txt and 'REFUSED: the exposure read found' not in txt:
-             if r.returncode == 0:
+-            if r.returncode == 0:
+-                return ''
+-            if r.returncode == 2:
+-                # fewer than two pools can expose it TODAY: wait here rather than park a loop in `draw` holding the
+-                # loop lock (which shuts installers out) for hours
++            if r.returncode in (0, 2):
++                # (exit 0: two or more exposure pools; exit 2: a VALID read with fewer than two -- both are answers.)
 +                # TIER 2 DRAWS EXACTLY FOUR (OWNER POLICY 2026-10-24): fewer than four pools that can expose it means the
 +                # loop's draw could only wait, holding the loop lock for up to its 12-h bound -- so wait HERE instead,
 +                # paged like any R10 wait (W4, with its own 12-h tier-2 error). The pools that can count: the exposure
@@ -58,7 +65,7 @@
 +                # not sufficient: the band, the ledger and steady release are the draw's, so a head that passes here
 +                # can still wait in the loop (bounded there). Tier from tierrule.tier_of; a tier it cannot classify
 +                # BLOCKS, a tier-3 head included (fail closed).
-+                elig = next((l for l in txt.splitlines() if l.startswith('eligible on exposure:')), '')
+                 elig = next((l for l in txt.splitlines() if l.startswith('eligible on exposure:')), '')
 +                tier2 = tier2_of(P, v['registration'])
 +                if tier2 is None:
 +                    return 'the registration declares a tier and tierrule.py cannot classify it: fix tierrule.py'
@@ -66,14 +73,20 @@
 +                    with open(v['registration']) as f:
 +                        req = json.load(f).get('draw_require_pools')
 +                    req = set(req) if isinstance(req, list) and all(isinstance(x, str) for x in req) else set()
++                    req = {x for x in req if x != 'placebo-c' and not x.startswith('isolated')}   # never drawable
 +                    can = set(re.findall(r"'([a-z]+-[a-z])'", elig)) | req
 +                    if len(can) < 4:
 +                        return ('WAIT fewer than four pools can expose this tier-2 change now (%s%s); re-checked every '
 +                                'tick' % (elig.strip(), ' + required %s' % sorted(req) if req else ''))
-                 return ''
-             if r.returncode == 2:
-                 # fewer than two pools can expose it TODAY: wait here rather than park a loop in `draw` holding the
-@@ -1103,10 +1162,14 @@
++                    return ''              # four with the required pools, even when drawexposure said fewer than two
++                if r.returncode == 0:
++                    return ''
++                # exit 2, not tier 2: fewer than two pools can expose it TODAY: wait here rather than park a loop in
++                # `draw` holding the loop lock (which shuts installers out) for hours -- exactly as before
+                 return 'WAIT fewer than two pools can expose it now (%s); re-checked every tick' % elig.strip()
+         return 'drawexposure.py did not answer for a %s registration (exit %s): %s' % (
+             'declared' if declared else 'undeclared', r.returncode, ' '.join(txt.split())[-240:])
+@@ -1103,10 +1164,14 @@
              append_state(P, {'state': 'r10wait', 'run': run})
          else:
              h = (st['now'] - (ts(seen[-1].get('at')) or st['now'])).total_seconds() / 3600

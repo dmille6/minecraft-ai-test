@@ -15,19 +15,22 @@ PASS  pre: tier 2 with draw_k False is not refused (drawrec ignores it or allows
 PASS  pre: tier 2 with draw_k 4 is not refused (drawrec ignores it or allows 4) -> drawn
 PASS  pre: tier 2 with draw_k 5 is not refused (drawrec ignores it or allows 4) -> drawn
 PASS  pre: tier 2 requiring 5 pools -> refused-tier2-pre before any draw
+PASS  pre: tier 2 with a malformed draw_require_pools (a string) -> refused-tier2-pre
+PASS  positive control: the same malformed field untiered -> no preflight (drawrec decides, as today)
 PASS  pre: tier 2 requiring 1 pool -> not refused, drawn
 PASS  notierrule: a tier key with tierrule.py absent -> refused-tier2-tier, journalled, before the draw
 PASS  positive control: no tier key, tierrule.py absent -> drawn as today
-test_loop_tier2: 20/20 pass
+test_loop_tier2: 22/22 pass
 positive control: the anchor assertion fires on an absent anchor
   mutant 'journal draw-short "drawrec drew nothing;'                              killed
   mutant 'if [ $(( $(_now) - _DRAW_T0 )) -ge $(( T2_DRAW_MAX_H * 3600 )) ]; then' killed
   mutant 'exit 2\n      fi\n    fi\n    # v33'                                    killed
   mutant 'if isinstance(k, int) and 1 <= k < 4: w.append'                         killed
   mutant 'if q and len(q) > 4: w.append'                                          killed
+  mutant 'if q is None: w.append'                                                 killed
   mutant "import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')"        killed
   mutant 'T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}'                              killed
   mutant 'if [ -n "$TIER2" ] && [ "$(echo "$P" | tr \',\' \'\\n\' | grep -c .)" -ne 4 ]' killed
   mutant 'journal refused-tier2-tier "'                                           killed
   mutant 'if [ -n "$TIER2" ]; then _WFOR="exactly four pools (tier 2)"; else _WFOR' killed
-mutants: 10 of 10 killed
+mutants: 11 of 11 killed

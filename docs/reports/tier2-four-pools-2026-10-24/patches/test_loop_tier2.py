@@ -112,6 +112,12 @@ def cases(src):
     rc, o, ph, pg, n, J = run(src, {'tier': 2, 'draw_require_pools': req5}, 0)
     t('pre: tier 2 requiring 5 pools -> refused-tier2-pre before any draw', rc == 2 and ph == ['refused-tier2-pre']
       and n == 0 and 'draw_require_pools' in pg, (rc, ph, n, pg))
+    rc, o, ph, pg, n, J = run(src, {'tier': 2, 'draw_require_pools': 'hive-b'}, 0)
+    t('pre: tier 2 with a malformed draw_require_pools (a string) -> refused-tier2-pre', rc == 2
+      and ph == ['refused-tier2-pre'] and n == 0 and 'malformed' in pg, (rc, ph, n, pg))
+    rc, o, ph, pg, n, J = run(src, {'draw_require_pools': 'hive-b'}, 0)
+    t('positive control: the same malformed field untiered -> no preflight (drawrec decides, as today)', n >= 1
+      and 'refused-tier2-pre' not in ph, (rc, ph, n))
     rc, o, ph, pg, n, J = run(src, {'tier': 2, 'draw_require_pools': ['hive-b']}, 0)
     t('pre: tier 2 requiring 1 pool -> not refused, drawn', rc == 0 and ph[-1] == 'drawn', (rc, ph, n))
     rc, o, ph, pg, n, J = run(src, {'tier': 2}, 0, tierrule=False)
@@ -128,6 +134,7 @@ MUTANTS = [
     ('        exit 2\n      fi\n    fi\n    # v33', '        true\n      fi\n    fi\n    # v33'),
     ("if isinstance(k, int) and 1 <= k < 4: w.append", "if isinstance(k, int) and k < 4: w.append"),
     ("if q and len(q) > 4: w.append", "if False: w.append"),
+    ("if q is None: w.append", "if False: w.append"),
     ("    import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')", "    print('')"),
     ('T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}', 'T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-24}'),
     ('  if [ -n "$TIER2" ] && [ "$(echo "$P" | tr \',\' \'\\n\' | grep -c .)" -ne 4 ]; then',
