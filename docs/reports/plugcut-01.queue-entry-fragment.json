@@ -1,0 +1,36 @@
+{
+ "run": "plugcut-01",
+ "after": [
+  "ceilescape-01"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "ENTRY FRAGMENT (the building agent ran no queue command). OWNER 2026-10-24: plug the wet face first, then cut (the climb-flood escape). TIER 3, draw_require_pools [\"placebo-d\"]. Queues after ceilescape-01: draw the variant that matches the fleet then (primary on fb8de72f, variant on c488c3e3). Install the drawn variant's registration as ~/mcai-analysis/registrations/plugcut-01.json and ~/mcai-analysis/plugcutread.py (scripts/host/plugcutread.py on the branch; md5 below). The failmine library scene for isolated-d-Bravo is on branch plugcut-sandbox-1024 (origin/main + the scene + INDEX.json): merge it with the canary at merge time. Record: docs/reports/plugcut-01-design-2026-10-24.md.",
+ "variants": {
+  "fb8de72f7369257d26c31ec974ec4b029cd29f65": {
+   "registration": "/home/mike/mcai-analysis/plugcut-01.a584945f.json",
+   "approved": "plugcut-01 agent 2026-10-24: plugcut-on-fb8de72 @ a584945f on the fleet fb8de72f. Design+code reviewed together over five rounds: Codex r1 CHANGES, r2 CHANGES, r3 CHANGES, r4 CHANGES, r5 APPROVE (7c268b31; a584945f = its one P3); Claude r1 CHANGES, r2 APPROVE-conditional, r3 APPROVE, r4 APPROVE, r5 APPROVE (the same P3). npm test 295/295 on a584945f; plugcut.test.mjs 73 (anchored mutants incl. wiring); eslint no-undef only the pre-existing reflex.mjs withinBody. PAPER (failmine library gate, scene-e2e under per-server locks, base fb8de72f 3 runs per gating scene): the candidate ESCAPED isolated-c, placebo-d and isolated-d (newly admitted, 3/3 base stayed) where the base stayed 3/3; board-a and placebo-c (chain A, ceilescape-01's) stayed as the base did -- not covered, not regressed. TIER 3, draw_require_pools [placebo-d]. PRIMARY.",
+   "canary_sha": "a584945f52a0fa848afa07dcf81c5021d1385a07",
+   "branch": "plugcut-on-fb8de72",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plugcutread": "530fd78862bc255acd1782dd21c70625",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "b3aac70e5a4f69ae08d82c82ec8a2a9108634286e58f9c937e978683dc9568ec"
+  },
+  "c488c3e3180773c049ec0476b966382415e74b4f": {
+   "registration": "/home/mike/mcai-analysis/plugcut-01.5b4ee24a.json",
+   "approved": "plugcut-01 agent 2026-10-24: plugcut-on-fb8de72 @ a584945f on the fleet fb8de72f. Design+code reviewed together over five rounds: Codex r1 CHANGES, r2 CHANGES, r3 CHANGES, r4 CHANGES, r5 APPROVE (7c268b31; a584945f = its one P3); Claude r1 CHANGES, r2 APPROVE-conditional, r3 APPROVE, r4 APPROVE, r5 APPROVE (the same P3). npm test 295/295 on a584945f; plugcut.test.mjs 73 (anchored mutants incl. wiring); eslint no-undef only the pre-existing reflex.mjs withinBody. PAPER (failmine library gate, scene-e2e under per-server locks, base fb8de72f 3 runs per gating scene): the candidate ESCAPED isolated-c, placebo-d and isolated-d (newly admitted, 3/3 base stayed) where the base stayed 3/3; board-a and placebo-c (chain A, ceilescape-01's) stayed as the base did -- not covered, not regressed. TIER 3, draw_require_pools [placebo-d]. VARIANT: the primary on ceilescape-01's fb8de72f variant c488c3e3; 7 conflicts resolved, bots/src +/- lines identical to the primary's; floodBranch keeps ceilescape's own ramp call; npm test 296/296 on the variant (plugcut 74, ceilescape 67). USE ONLY if ceilescape-01 is KEPT and promoted as c488c3e3.",
+   "canary_sha": "5b4ee24a19a8ac0f5aa42280d03d87c87c44de43",
+   "branch": "plugcut-on-c488c3e3",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plugcutread": "530fd78862bc255acd1782dd21c70625",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "549c585f1bc583e4de827fc0688296795d942b17780f5db43ba1c65cb4f37129"
+  }
+ }
+}

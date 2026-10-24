@@ -1,0 +1,118 @@
+{
+ "run_id": "plugcut-01",
+ "sha": "5b4ee24a19a8ac0f5aa42280d03d87c87c44de43",
+ "registered_at": "2026-10-24T16:23:08Z",
+ "tier": 3,
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "draw_require_pools": [
+  "placebo-d"
+ ],
+ "notes": "plugcut-01 (OWNER 2026-10-24 through the coordinator: \"plug the wet face first, then cut\", reusing poolescape's plug planner; a named exception to the no-stuck-hunts rule). THE CHANGE, licensed from the 4th consecutive flood refusal AT ONE PLACE (a pinned bot): the ceiling refused for ONE wet face is plugged with the bot's own block and cut through the unchanged flood check; a step refused the same way after the cut is plugged likewise; the licensed ramp is not handed back below 2 blocks of climb, judges a step on the planned frame, spares its own plugs and utility blocks, and has poolescape's 90 s. PLUGCUT=0 = the base. MEASURED (ES 3 d to 10-24 13:00Z): 51 of 76 bots with a flood refusal reached a 4th; the acting shape (water BESIDE the ceiling) is placebo-d-Delta 657, isolated-d-Bravo 638, isolated-c-Alpha 637, isolated-d-Alpha 448, scattered 1-13 elsewhere. Paper (failmine scenes): the candidate ESCAPED all three named scenes where the base fb8de72f stayed. Record: docs/reports/plugcut-01-design-2026-10-24.md. TIER 3 (design 7.1): the acting shape is confirmed in placebo-d only; isolated-* are never drawable (read --fleet after promotion).",
+ "lint": "eslint no-undef on this tip: exactly one hit, bots/src/reflex.mjs 'withinBody' -- the pre-existing guarded line.",
+ "licence": {
+  "class": "kind",
+  "kind": "_plugcut_mode",
+  "min_rows": 1,
+  "note": "Only a plugcut-01 build writes _plugcut_mode (on=1 after_refusals=3 ...), once per spawn in index.mjs."
+ },
+ "reads": [
+  "plugcutread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1080,
+ "change_rows": [
+  "plugcut"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [],
+  "note": "draw_require_pools [\"placebo-d\"]: placebo-d-Delta is the one drawable named bot. drawexposure (climb_flood_refused ~ \"refusals=4 \", min 1) finds 8 pools in 6 h and 10 in 24 h -- an upper bound: it counts the arm counter, the licence counts one place."
+ },
+ "exposure": {
+  "read": "plugcutread",
+  "field": "exposure",
+  "min": 1,
+  "note": ">= 1 canary _plugcut row (placebo-d-Delta writes one at its 4th refusal, minutes after the restart)."
+ },
+ "own_lines": [
+  {
+   "read": "plugcutread",
+   "field": "primary_left",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "PRIMARY (BLOCKS KEEP, deterministic, n = 1): placebo-d-Delta, in its pit (x 197-199, z 186-188, y <= 36.5) at the deploy, leaves it and stays out >= 30 min of its own positions; a death first is not leaving. Paper: candidate escaped; base stayed."
+  },
+  {
+   "read": "plugcutread",
+   "field": "linked_deaths",
+   "op": "<=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: canary deaths within 120 s after a _plugcut result=placed row of the same bot -- the two-death floor (one is reported)."
+  },
+  {
+   "read": "plugcutread",
+   "field": "placed_submerged",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: a _plugcut result=placed row with sub0=1 (the head under at the decision; the planner refuses it by construction)."
+  },
+  {
+   "read": "plugcutread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "ARMS: a control _plugcut* row after the deploy. BLOCKS KEEP."
+  },
+  {
+   "read": "plugcutread",
+   "field": "licence_on",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: a canary licence on=1. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "plugcutread",
+   "field": "instrument",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "INSTRUMENT: placebo-d-Delta positions in >= 75% of its post 10-min buckets. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "plugcutread",
+  "field": "primary_left",
+  "note": "REPORTED: results by bot and for=, top refusal reasons, breaches at a plugged cell (>= 2 a WATCH), licensed ramps that progressed, placements that sank after (sub0=0 sub=1), every canary death."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor and gather_ratio < 0.43 of control (immobiledid). POST-PROMOTION TRIPWIRE: run plugcutread.py --fleet 2880 48 h after promotion and report every bot's _plugcut rows and LEFT state (isolated-c-Alpha, isolated-d-Bravo and isolated-d-Alpha are read only there), plus G1/G2."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. World changes: the bots' own plugs (dirt/cobble placed into water beside a cut) and the cut/step cells, left. Rollback without a canary: PLUGCUT=0."
+ },
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Tier 3 (the old behaviour): reads 180/360, KEEP from +360 when exposed, extend for exposure."
+ },
+ "requires": "The fleet must be c488c3e3180773c049ec0476b966382415e74b4f (ceilescape-01 KEPT and promoted as its fb8de72f variant).",
+ "reads_md5": {
+  "plugcutread": "530fd78862bc255acd1782dd21c70625"
+ }
+}
