@@ -859,8 +859,9 @@ const WIRES = [
   ['every reflex helper\'s ownership check includes the move', 'const ownsBody = (grantOf) => () => !dangerMovingNow() && (!config.reflex.arbiter'],
   ['the air rescue outranks the move', 'airHolds: () => rescuing || airPocketing || airPocketWanted(),'],
   ['the stranded ladder stands down', 'longEnough && !poolEscaping && !dangerMovingNow() &&'],
-  ['the stranded ladder yields mid-run', "? await routine(bot, { yieldTo: bodyYield })\n                  .catch(e => ({ ok: false, why: String(e?.message ?? e) }))"],
-  ['the escape lattice yields mid-run', "? await routine(bot, { yieldTo: bodyYield })\n                  .catch(e => ({ ok: false, why: `threw: ${e.message}` }))"],
+  // re-anchored (ceilescape-01 x lavastep-01, JIT 10-24): ceilescape's steering flag rides on the same call
+  ['the stranded ladder yields mid-run', "? await routine(bot, { yieldTo: bodyYield, steering: steerRamp })\n                  .catch(e => ({ ok: false, why: String(e?.message ?? e) }))"],
+  ['the escape lattice yields mid-run', "? await routine(bot, { yieldTo: bodyYield, steering: steerRamp })\n                  .catch(e => ({ ok: false, why: `threw: ${e.message}` }))"],
   ['the pocket rung stands down', '!escaping && !marooned && !pocketing && !dangerMovingNow()) {'],
   ['the stand-off stands down', '!runner.isBusy() && !escaping && !marooned && !dangerMovingNow() && !standOffInWater'],
   ['the float hold stands down', 'if (!pocketing && !poolEscaping && !dangerMovingNow()) {'],
