@@ -1570,7 +1570,9 @@ test('junkout-01 x KEEPOUT CONTROL (real loop): a YIELDED column (C12 town job) 
 const { withMutantsAll } = await import('./helpers/mutant.mjs')
 const COG_TD = new URL('../src/cognitive.mjs', import.meta.url)
 const PROBE = [' || exitFirst()\n', '\n']
-const REFUND = ['if (ko) { Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }', 'if (ko) order = ko }']
+// re-anchored (junkout-01 x found-01, JIT 10-24): the override also carries found-01's refund (refundDeclined) ahead of the
+// visit's; the mutant removes the visit's refund only, so the found refund stays as in the real line
+const REFUND = [' Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }', ' order = ko } }']
 test('junkout-01 x KEEPOUT BOUNDARY (real loop): a visit issued and then DISPLACED by the exit is refunded -- the tail still runs once the bot is out', async () => {
   await withMutantsAll(COG_TD, [PROBE], async mod => {
     const { ran, loop, chest } = await koTailChain(mod.CognitiveLoop)
