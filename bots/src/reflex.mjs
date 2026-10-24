@@ -4741,11 +4741,13 @@ export async function escapeStairUp (bot, {
     // as it works (Comet's rows: y 39.0 as well as 40.2), and the tread it is digging toward is level with its feet only at
     // the top of the column. The stroke is this routine's own control, released on every exit that is not a yield; the
     // water-posture hold is told to stand aside for exactly as long (`steering`).
-    if (wetStart) { try { steering(true) } catch { /* a caller's flag */ } bot.setControlState('jump', true) }
     // THE HEAD CELL IS RE-ASKED BEFORE THE MOVE (Codex r2 P1-3): the rechecks see only water already there; a feed that opened
     // during the digs is the predictor's question.
     const headFloods = () => (wetStart ? cellFloods((x, y, z) => bot.blockAt(p.offset(side.bear.x + x, 1 + y, side.bear.z + z))) : null)
     try {
+      // INSIDE the try (Claude code r1 P2-1): a throwing control call must not leave the counter raised, which would stand the
+      // float hold aside for the life of the process
+      if (wetStart) { try { steering(true) } catch { /* a caller's flag */ } bot.setControlState('jump', true) }
       for (const [dx, dy, dz] of side.dig) {
         if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
         const b = bot.blockAt(p.offset(dx, dy, dz))
@@ -4767,11 +4769,6 @@ export async function escapeStairUp (bot, {
       // AFTER THE LOOK, BEFORE THE FIRST STROKE (Codex r3): the body may have been taken and the cell may have
       // changed during the await; neither is allowed to be discovered only after the bot has walked in.
       if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
-      const last = floodSidestep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), bear: side.bear,
-                                   canBreak, submerged: submergedAt(bot), wetFeet: wetStart })
-      if (!last.ok || last.dig.length) return `the side cell changed before the step: ${last.reason ?? 'a cell refilled'}`
-      const fl = headFloods()
-      if (fl) return `the side cell changed before the step: ${fl}`
       if (wetStart) {
         // SWIM UP FIRST (ceilescape-01): the body may enter the side cell only with its feet at the tread's top or above; the
         // swim stroke is still held, so this waits for the rise, at most 2 s.
@@ -4782,7 +4779,14 @@ export async function escapeStairUp (bot, {
           if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
         }
       }
-      // AND THE FRAME ONCE MORE, IMMEDIATELY BEFORE THE STROKE (Codex r2 P1-4): the look and the rise were awaits.
+      // THE LAST LOOK AT THE DESTINATION IS THE ONE IMMEDIATELY BEFORE THE STROKE (Codex code r1 P1): the look and the rise were
+      // awaits, so the side cell, its tread, its lava faces and (for a submerged start) its head-cell flooding are all asked
+      // again here, and the body's frame with them -- nothing found during a wait is discovered only after walking in.
+      const last = floodSidestep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), bear: side.bear,
+                                   canBreak, submerged: submergedAt(bot), wetFeet: wetStart })
+      if (!last.ok || last.dig.length) return `the side cell changed before the step: ${last.reason ?? 'a cell refilled'}`
+      const fl = headFloods()
+      if (fl) return `the side cell changed before the step: ${fl}`
       if (ceChecked && !inFrame()) return 'displaced'
       bot.setControlState('forward', true)
       try {
