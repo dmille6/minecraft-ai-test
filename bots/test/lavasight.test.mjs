@@ -51,6 +51,8 @@ await t('hashedSeedOf refuses a number (a 64-bit seed does not survive one) and 
   assert.equal(LS.hashedSeedOf('12x'), null)
   assert.equal(LS.hashedSeedOf('99999999999999999999'), null, 'out of int64')
   assert.ok(LS.hashedSeedOf('-9223372036854775808'), 'int64 min is a seed')
+  // a negative seed: the same bytes Python's struct.pack('<q') hashes (Claude design r1)
+  assert.equal(LS.hashedSeedOf('-1'), (() => { const h = require_('node:crypto').createHash('sha256').update(Buffer.from('ffffffffffffffff', 'hex')).digest(); return `${h.readInt32LE(4)}:${h.readInt32LE(0)}` })())
 })
 
 // ------------------------------------------------------------------ 2. the file
@@ -134,7 +136,7 @@ await t('CORE == the corridor guard\'s refusal, cell by cell, on 60 synthetic wo
     const idx = LS.buildPriceIndex([{ x: Lx, y: Ly, z: Lz }], world.solidAt)
     for (let x = -5; x <= 5; x++) for (let z = -5; z <= 5; z++) for (let y = Ly - 2; y <= Ly + 14; y++) {
       const g = guardRefusesAt(world.at, { x, y, z })
-      const p = idx.get(LS.packKey(x, y, z)) === LS.CORE_PRICE
+      const p = idx.has(LS.packKey(x, y, z))
       cells++; if (p) core++
       assert.equal(p, g, `world ${w} lava ${Lx},${Ly},${Lz}: feet ${x},${y},${z} guard=${g} core=${p}`)
     }
@@ -146,7 +148,7 @@ await t('MUTANT KILLED: dropping the occlusion test (lava under a roof priced) b
     const world = makeWorld({ floor: 60, lava: [[0, 57, 0]] })
     const idx = mod.buildPriceIndex([{ x: 0, y: 57, z: 0 }], world.solidAt)
     assert.equal(guardRefusesAt(world.at, { x: 0, y: 59, z: 0 }), false, 'the guard accepts: a roof at 58 stops the scan')
-    assert.equal(idx.get(mod.packKey(0, 59, 0)), mod.CORE_PRICE, 'the mutant prices it anyway')
+    assert.equal(idx.has(mod.packKey(0, 59, 0)), true, 'the mutant prices it anyway')
   })
 })
 await t('MUTANT KILLED: dropping the 12-deep drop column misses a pit over lava', async () => {
@@ -155,7 +157,7 @@ await t('MUTANT KILLED: dropping the 12-deep drop column misses a pit over lava'
     const world = makeWorld({ floor: 60, lava: [[0, 51, 0]], air })
     const idx = mod.buildPriceIndex([{ x: 0, y: 51, z: 0 }], world.solidAt)
     assert.equal(guardRefusesAt(world.at, { x: 1, y: 60, z: 0 }), true, 'the guard refuses: lava beside the drop 9 down')
-    assert.notEqual(idx.get(mod.packKey(1, 60, 0)), mod.CORE_PRICE, 'the mutant misses it')
+    assert.equal(idx.has(mod.packKey(1, 60, 0)), false, 'the mutant misses it')
   })
 })
 
@@ -183,7 +185,7 @@ const poolWorld = () => {
   const lava = []; for (let x = 2; x <= 8; x++) lava.push([x, 60, 1])      // a lava strip in the floor, beside the straight line
   return makeWorld({ floor: 60, lava })
 }
-await t('NEVER A WALL: the wrapped profile yields the base\'s neighbour set exactly; costs only rise, by 0, 4 or 50', () => {
+await t('NEVER A WALL: the wrapped profile yields the base\'s neighbour set exactly; costs only rise, by 0 or CORE_MOVE', () => {
   const world = poolWorld(), bot = pfBot(world)
   const idx = LS.buildPriceIndex([2, 3, 4, 5, 6, 7, 8].map(x => ({ x, y: 60, z: 1 })), world.solidAt)
   for (const canDig of [false, true]) {
@@ -197,7 +199,7 @@ await t('NEVER A WALL: the wrapped profile yields the base\'s neighbour set exac
       assert.deepEqual(b.map(n => n.hash), a.map(n => n.hash), `node ${x},${y},${z}: the neighbour set moved`)
       for (let i = 0; i < a.length; i++) {
         const d = b[i].cost - a[i].cost
-        assert.ok([0, LS.RING_MOVE, LS.CORE_MOVE].includes(Math.round(d * 1000) / 1000), `cost diff ${d}`)
+        assert.ok([0, LS.CORE_MOVE].includes(Math.round(d * 1000) / 1000), `cost diff ${d}`)
         if (d > 0) priced++
       }
     }
@@ -218,6 +220,28 @@ await t('MUTANT KILLED: a wrapper that drops priced moves (a wall) is caught by 
   })
 })
 
+await t('THE MOVE IS PRICED IFF THE GUARD WOULD REFUSE IT (either node form), over every neighbour on 20 noisy worlds', () => {
+  const r = rng(11)
+  let moves = 0, priced = 0
+  for (let w = 0; w < 20; w++) {
+    const lava = [[Math.floor(r() * 5) - 2, 57 + Math.floor(r() * 4), Math.floor(r() * 5) - 2]]
+    const air = [], stone = []
+    for (let i = 0; i < 40; i++) (r() < 0.5 ? air : stone).push([Math.floor(r() * 13) - 6, 58 + Math.floor(r() * 5), Math.floor(r() * 13) - 6])
+    const world = makeWorld({ floor: 60, lava, air, stone })
+    const idx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), world.solidAt)
+    const m = profile(pfBot(world), { canDig: true })
+    for (let x = -6; x <= 6; x++) for (let z = -6; z <= 6; z++) for (const y of [59, 60, 61, 62]) {
+      for (const n of m.getNeighbors({ x, y, z, remainingBlocks: 2, hash: `${x},${y},${z}` })) {
+        const g = !corridorSafe(world.at, [{ x, y, z }, { x: n.x, y: n.y, z: n.z }]).safe ||
+                  !corridorSafe(world.at, [{ x: x + 0.5, y, z: z + 0.5 }, { x: n.x + 0.5, y: n.y, z: n.z + 0.5 }]).safe
+        const p = LS.moveSurcharge(idx, { x, y, z }, n) > 0
+        moves++; if (p) priced++
+        assert.equal(p, g, `world ${w}: move ${x},${y},${z} -> ${n.hash} guard=${g} priced=${p}`)
+      }
+    }
+  }
+  assert.ok(priced > 100 && priced < moves, `positive control: ${priced} of ${moves} moves priced`)
+})
 // ------------------------------------------------------------------ 5. routes on a real A*
 const AStar = require_('mineflayer-pathfinder/lib/astar.js')
 const Move = require_('mineflayer-pathfinder/lib/move.js')
@@ -256,6 +280,21 @@ await t('ROUTE, NO DETOUR: a sealed 1-wide tunnel beside lava -- the candidate s
   assert.equal(rb.status, 'success'); assert.equal(rc.status, 'success', 'the candidate is never worse at reaching the goal')
   assert.deepEqual(rc.path.map(n => n.hash), rb.path.map(n => n.hash), 'the only way, the same way')
   assert.ok(rc.cost > rb.cost, 'positive control: the candidate did price it')
+})
+await t('NOPATH IS THE BASE\'S: an unreachable goal is noPath for both, a reachable one reached by both (same graph)', () => {
+  // a fenced plot (stone walls 3 high, no digging, no scaffold) makes the search finite
+  const stone = []
+  for (let x = -5; x <= 13; x++) for (const z of [-5, 6]) for (const y of [61, 62, 63]) stone.push([x, y, z])
+  for (let z = -5; z <= 6; z++) for (const x of [-5, 13]) for (const y of [61, 62, 63]) stone.push([x, y, z])
+  const lava = []; for (let x = 2; x <= 8; x++) lava.push([x, 60, 1])
+  const fenced = makeWorld({ floor: 60, lava, stone })
+  const fb = pfBot(fenced)
+  const fidx = LS.buildPriceIndex(lava.map(([x, y, z]) => ({ x, y, z })), fenced.solidAt)
+  const fw = profile(fb); fw.getNeighbors = LS.wrapNeighbors(Movements.prototype.getNeighbors, () => ({ idx: fidx, live: true, reflex: null }), {})
+  const outside = new goals.GoalBlock(20, 61, 0)
+  assert.equal(plan(profile(fb), { x: 0, y: 61, z: 0 }, outside).status, 'noPath', 'positive control: the base cannot leave the plot')
+  assert.equal(plan(fw, { x: 0, y: 61, z: 0 }, outside).status, 'noPath')
+  assert.equal(plan(fw, { x: 0, y: 61, z: 0 }, new goals.GoalBlock(10, 61, 0)).status, 'success')
 })
 await t('ROUTE, EGRESS: a bot standing on the pool edge gets a path out, and the first step leaves the core', () => {
   const world = poolWorld(), bot = pfBot(world, new Vec3(5.5, 61, 0.5))
