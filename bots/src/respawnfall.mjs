@@ -20,6 +20,10 @@ export const SAFE_DROP = 3             // vanilla: fall damage = ceil(d - 3), so
 export const SCAN = 400                // the build limit is 320 above -64: read the whole column
 export const SPAWN_WINDOW_MS = 10 * 60 * 1000
 export const MARGIN = 2                // blocks kept in hand beyond the count needed (a mistimed placement retries)
+// A COLUMN STANDING IN THE AIR, NOT A CLIFF TOP: the side rule needs this many of the four sides to be deadly drops. A pillar
+// (alone, or inside a deck whose cells are over the void) has four; a natural cliff edge has one, a corner two -- a bot that
+// spawns beside a ravine is not on a platform and must not dig itself a shaft beside it.
+export const EDGE_SIDES = 3
 
 /** RESPAWNFALL=0 turns the order off (the one-setting rollback); anything else, or unset, leaves it on. */
 export const respawnfallOn = (env = typeof process !== 'undefined' ? process.env : {}) => String(env?.RESPAWNFALL ?? '1') !== '0'
@@ -69,10 +73,11 @@ export function elevation ({ pos, at, onGround = true }) {
   if (c.landing === 'unknown') return { elevated: false, why: 'the column below is not loaded yet', unknown: true, support: s, ...c }
   if (c.landing === 'water') return { elevated: false, why: 'water below: a fall into it is safe', support: s, ...c }
   if (c.open >= ELEVATED_MIN) return { elevated: true, why: `${c.open} open below onto ${c.landing}`, support: s, ...c }
-  // ...OR ON A COLUMN WITH THE VOID BESIDE IT: a pillar top inside the deck, or the pillar itself once the deck is above.
-  // Its own column is solid (rideFloorDown rides it for free), but a step to any side is the deadly drop. The side's drop
-  // is read from the support's level down: beside an open side cell it starts at that cell, under a solid one below it.
-  let edge = null
+  // ...OR ON A COLUMN WITH THE VOID AROUND IT: a pillar top inside the deck, or the pillar itself once the deck is above.
+  // Its own column is solid (rideFloorDown rides it for free), but a step to a side is the deadly drop -- on at least
+  // EDGE_SIDES of the four. The side's drop is read from the support's level down: beside an open side cell it starts at
+  // that cell, under a solid one below it.
+  let edge = null, sides = 0
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const n = { x: s.x + dx, y: s.y, z: s.z + dz }
     let nb
@@ -80,9 +85,9 @@ export function elevation ({ pos, at, onGround = true }) {
     if (nb == null) continue
     const cc = kind(nb) === 'open' ? columnUnder(at, { x: n.x, y: n.y + 1, z: n.z }) : columnUnder(at, n)
     if (cc.landing === 'water' || cc.landing === 'unknown') continue
-    if (cc.open >= ELEVATED_MIN && (!edge || cc.open > edge.open)) edge = { ...cc, side: [dx, dz] }
+    if (cc.open >= ELEVATED_MIN) { sides++; if (!edge || cc.open > edge.open) edge = { ...cc, side: [dx, dz] } }
   }
-  if (edge) return { elevated: true, why: `a ${edge.open}-block drop beside the support (${edge.side.join(',')})`, support: s, ...c, edge }
+  if (edge && sides >= EDGE_SIDES) return { elevated: true, why: `a ${edge.open}-block drop on ${sides} sides of the support`, support: s, ...c, edge, sides }
   return { elevated: false, why: `only ${c.open} open below`, support: s, ...c }
 }
 
@@ -124,7 +129,7 @@ export function columnReader (at, { scan = SCAN } = {}) {
 
 /**
  * Is a body on support cell (x, y, z) still exposed to a deadly drop -- elevation()'s test on the memoised reader? Its
- * own run (from y-1) >= ELEVATED_MIN onto anything but water, or a cardinal side's (from y when that side is open, else
+ * own run (from y-1) >= ELEVATED_MIN onto anything but water, or EDGE_SIDES cardinal sides' (from y when that side is open, else
  * from y-1) onto anything but water. Unknown under its own column -> null (not priced); an unloaded side is `blind` (a
  * descent is never called done beside a column it could not read).
  */
@@ -132,15 +137,16 @@ function exposedAt (R, x, y, z) {
   const own = R.run(x, y - 1, z)
   if (own.landing === 'unknown') return null
   if (own.landing !== 'water' && own.open >= ELEVATED_MIN) return { exposed: true, own }
-  let blind = false
+  let blind = false, sides = 0
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const nk = R.kindAt(x + dx, y, z + dz)
     if (nk === 'unknown') { blind = true; continue }
     const r = nk === 'open' ? R.run(x + dx, y, z + dz) : R.run(x + dx, y - 1, z + dz)
     if (r.landing === 'unknown') { blind = true; continue }
     if (r.landing === 'water') continue
-    if (r.open >= ELEVATED_MIN) return { exposed: true, own }
+    if (r.open >= ELEVATED_MIN) sides++
   }
+  if (sides >= EDGE_SIDES) return { exposed: true, own }
   return { exposed: false, own, blind }
 }
 
@@ -246,4 +252,4 @@ export function stayRefusal ({ el, have, need, why = null }) {
 
 /** The licence row's detail (`_respawnfall_mode`, once per spawn). */
 export const respawnfallModeDetail = (env = typeof process !== 'undefined' ? process.env : {}) =>
-  `on=${respawnfallOn(env) ? 1 : 0} elevated_min=${ELEVATED_MIN} safe_drop=${SAFE_DROP} window_min=${SPAWN_WINDOW_MS / 60000} margin=${MARGIN} radius=${START_RADIUS} save_min=${SAVE_MIN} way=cheapest_column+ride_floor_down`
+  `on=${respawnfallOn(env) ? 1 : 0} elevated_min=${ELEVATED_MIN} safe_drop=${SAFE_DROP} window_min=${SPAWN_WINDOW_MS / 60000} margin=${MARGIN} edge_sides=${EDGE_SIDES} radius=${START_RADIUS} save_min=${SAVE_MIN} way=cheapest_column+ride_floor_down`
