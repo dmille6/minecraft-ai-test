@@ -12749,7 +12749,11 @@ export function countPlacements (bot) {
     return orig.apply(this, a)
   }
   bot.placeBlock = wrapped
-  return { placed, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onAny) } catch { /* gone */ } } }
+  // SETTLE BEFORE A BALANCE READS `placed` (Codex r7 P2): a -1 that landed inside the last MOVE_MS is still deferred; settle waits
+  // it out with the cancel listener still attached, so the final balance sees it (or its cancellation)
+  const settle = async () => { if (held.length) await new Promise(r => setTimeout(r, MOVE_MS + 10)) }
+  // (a deferred timer that fires after restore() only touches this `placed` object, after the caller has read it: harmless)
+  return { placed, settle, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onAny) } catch { /* gone */ } } }
 }
 
 /** DOES THE TOWN HAVE ROOM for a part (materialOrder's town_full gate)? -> true when a container the index KNOWS has a free slot.
@@ -12978,6 +12982,7 @@ async function makeMaterial (ctx, args, signal) {
         else { note.phase = 'open'; note.deposited = { ...f.deposited }; writeMatsNote(bot, note); f.stop += '+note_open' }
       }
     } catch { uncertain = true }
+    try { await pl.settle() } catch { /* settled */ }
     pl.restore()
     // t1 BEFORE the release (Codex r2 P2-6): the next maker's ml= can only start after this one's ends
     const mlEnd = Date.now()
@@ -13117,8 +13122,11 @@ async function matsReturn (ctx, _args, signal) {
     plan = returnPlan(note, heldMap(bot))
     // THE BALANCE IS JUDGED ONLY WHEN THE NOTE ENDS (Codex r3 P1-1, Claude r3 P1-1): an attempt whose furnace is not drained yet
     // holds the batch out of sight (verdict=pending, never a loss)
+    try { await rpl?.settle?.() } catch { /* settled */ }
     const balNow = recoveryBalance(note, { bag: heldMap(bot), banked: {}, placed: rpl?.placed ?? {} })
-    if (balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back       // kept with the note when it stays open
+    // kept with the note when it stays open -- ONLY once the furnace is accounted for (Claude r7 P3-1): while it is still lit or
+    // leased the loaded input is inside it, so anything "back" then is input the bot gathered meanwhile, never the batch's
+    if (furnaceDone && balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back
     balNow.verdict = recoveryVerdict(balNow, drained, note.kind)                     // TAKEN: mats.mjs recoveryVerdict
     // B3 ON THE RECOVERY (Claude r2 P2-D): no iron-ladder or fuel name fewer after it than before, beyond the order's own
     // charcoal made into torches

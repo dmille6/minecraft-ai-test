@@ -465,12 +465,13 @@ if __name__ == '__main__':
     g1_rows = [(b, f.get('kind'), f.get('forbidden')) for _, b, _, f in jobs + ret_rows if f.get('verdict') == 'forbidden']
     loss_rows = [(b, f.get('kind'), f.get('verdict'), f.get('stop')) for _, b, st, f in mv_all if f.get('verdict') in ('loss', 'overburn') and st != 'aborted']
     scaffold_rows = verdicts.get('scaffold', 0)
-    taken_rows = sum(1 for _, _, _, f in ret_rows if f.get('verdict') == 'unreconciled' and f.get('drained') == 'empty')   # batch nowhere, furnace empty
+    taken_rows = None   # computed with ret_end below (Claude r7 P3-2: ended recoveries only, like the share it is a part of)
     g2 = int(len(loss_rows) >= 2 and reconciled > 0 and len(loss_rows) / reconciled > 0.05)
     # the unreconciled share counts order rows AND the recoveries that ended unreconciled (r6: the batch nowhere after an empty
     # furnace -- another bot's drain, or a loss; Codex r5 P2-2)
     ret_end = [(t_, b, st, f) for t_, b, st, f in ret_rows if f.get('stop') in ('closed', 'abandoned') and (num(f.get('batch')) or 0) > 0]
     unrec = Counter(f.get('verdict') for _, _, _, f in mv + ret_end).get('unreconciled', 0)
+    taken_rows = sum(1 for _, _, _, f in ret_end if f.get('verdict') == 'unreconciled' and f.get('drained') == 'empty')
     judged = [(b, f.get('kind')) + judge_reserve(f, reserve) for _, b, _, f in jobs]
     g3_rows = [(b, k_, c_) for b, k_, c_, _ in judged if c_]
     g3_unjudged = [(b, k_, u_) for b, k_, _, u_ in judged if u_]
@@ -568,8 +569,8 @@ if __name__ == '__main__':
     print('G4 (gate)    stone rose by >= 4 with the note closed: %d %s' % (len(g4_rows), g4_rows[:4]))
     print('G5 (gate)    overlapping materials leases in a pool %d %s (of %d leases) | UNJUDGED moved rows with no ml= (blocks KEEP) %d | overlapping leased furnace sessions with a mats session %d %s (mats sessions %d) | with an unleased session (WATCH) %d %s'
           % (len(g5_runs), g5_runs[:3], sum(len(v) for v in runs.values()), len(g5_unjudged), len(g5_furn), g5_furn[:3], mats_fsess, len(g5_furn_unleased), g5_furn_unleased[:3]))
-    print('NOTES        mats_return stops %s | notes OPEN at the window end %d %s | unreconciled %d of %d (moved orders + ended recoveries) | tools lost on orders %s (reported) | of them, the batch nowhere after an empty furnace %d'
-          % (dict(returns), len(open_end), open_end[:5], unrec, len(mv) + len(ret_end), dict(tools_lost) or '-', taken_rows))
+    print('NOTES        mats_return stops %s | notes OPEN at the window end %d %s | unreconciled %d of %d (moved orders + ended recoveries; %d of the unreconciled: the batch nowhere after an empty furnace) | tools lost on orders %s (reported)'
+          % (dict(returns), len(open_end), open_end[:5], unrec, len(mv) + len(ret_end), taken_rows, dict(tools_lost) or '-'))
     print('G6 (gate)    canary bots over 7 make_material rows in any 60 min: %d %s' % (len(loop_bots), loop_bots[:5]))
     print('ARMS         control licence / _make_material rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   control rung rows post %d | control pools with index records %d | every canary pool has index records %s | furnace session rows %d (canary mats sessions %d, canary smelted %d)'

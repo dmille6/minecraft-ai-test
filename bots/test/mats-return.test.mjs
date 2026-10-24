@@ -198,6 +198,11 @@ test('PLACEMENTS: an exact -1 on the HELD slot, landing after the block (Claude 
   inv.emit('updateSlot', 41, null, { name: 'cobblestone', count: 1 })
   await new Promise(r => setTimeout(r, 90))
   assert.deepEqual(pl.placed, { cobblestone: 2 }, 'the singleton move credited nothing')
+  // A -1 THAT LANDS RIGHT BEFORE THE BALANCE (Codex r7 P2): settle() waits out the deferral, so the balance sees it
+  await bot.placeBlock({}, {})
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 7 }, { name: 'cobblestone', count: 6 })
+  await pl.settle()
+  assert.deepEqual(pl.placed, { cobblestone: 3 }, 'settled before the balance reads it')
   pl.restore()
   assert.equal(inv.listenerCount('updateSlot'), 0, 'restored: no listener left')
 })

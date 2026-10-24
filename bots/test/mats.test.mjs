@@ -509,7 +509,7 @@ test('STRUCTURAL: both skills are registered HOUSEKEEPING (chatOnly) with their 
   // WIRING (Codex r5 P2-1): the copper kinds' write-ahead is written BEFORE the crafts (copperBalance judges a note that says it)
   assert.match(skills, /if \(!K\.smelt\) \{ note\.crafting = true; writeMatsNote\(bot, note\) \}\s*\n\s*f\.made = await matsCrafts\(/, 'the crafting write-ahead precedes the crafts')
   // WIRING (Codex r6 P2): every attempt keeps the high-water mark of input seen back in the note (recoveryBalance reads it)
-  assert.match(skills, /if \(balNow\.back > \(Number\(note\.backSeen\) \|\| 0\)\) note\.backSeen = balNow\.back/, 'the recovery persists backSeen')
+  assert.match(skills, /if \(furnaceDone && balNow\.back > \(Number\(note\.backSeen\) \|\| 0\)\) note\.backSeen = balNow\.back/, 'the recovery persists backSeen, once the furnace is accounted for')
   const calls = skills.match(/await matsSession\(ctx, \{[^}]*\}/g) ?? []
   assert.equal(calls.length, 1, 'one session call in make_material')
   assert.match(calls[0], /\bown: null\b/, 'own: null')
