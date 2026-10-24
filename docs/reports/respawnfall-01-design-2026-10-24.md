@@ -1,4 +1,4 @@
-# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r5, 2026-10-24)
+# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r6, 2026-10-24)
 
 OWNER 2026-10-24 (through the coordinator): no world edits, so the one-time cleanup of isolated-a's sky platform is
 **not pursued** (that plan was never written). Build the code fix instead. A bot that spawns or respawns on a high
@@ -83,8 +83,14 @@ r2 separates **when an episode starts** from **when it is over** (Codex r1 P1-2)
   - **Floating:** a deck up to DECK_MAX = 4 thick over 8 or more open cells onto anything but water, **whose void is open
     to the sky** within SKY_REACH = 32 cells sideways (8 open cells above its top layer). Leaves never float, so a jungle
     canopy is terrain; a cave under a thin natural roof is not open to the sky, so it is not a platform.
-  - **Grounded:** 8 solid cells under the support, and either 16 of them or no deadly open run right under the solid
-    stretch. An aquifer is ground; a 9-block hanging column is not.
+  - **Grounded (r6):** a column with fewer than 3 deadly sides (a pillar is never ground) whose first solid stretch is 8 or
+    more, followed down through gaps shorter than 8. It is ground when 64 solid cells are counted, or at water (an
+    aquifer). A deadly gap at any depth means the stretch hangs (Claude r4 P1-1).
+  - **Sky-open (r6):** walking straight along the void's top layer, at least 3 of the 4 directions reach a column open to
+    the build top within 64. A cave mouth or a high dome does not count (Claude r4 P2-2).
+  - **Foliage** is skipped by the local triggers too, so a single canopy layer is terrain (Codex r4 P2-2).
+  - **The starts flood across levels** by the deck profile's own moves: a jump of 1 or a drop of up to 3. A stair down is a
+    free way down (Codex r4 P2-3).
   - A bot that is locally safe on a platform region is elevated: a thick patch of deck, or a tree standing on the deck
     (37 of the 174 spawn-square columns are topped by trees).
   - A bot on the ground beside a bridge over a ravine is not: its own stance is grounded.
@@ -119,7 +125,7 @@ r2 separates **when an episode starts** from **when it is over** (Codex r1 P1-2)
     - a body kept **off the ground** for TRANSIENT_MAX_MS = 60 s (a ladder, vines, scaffolding).
   - **Unreadable geometry never ends it** (Codex r3 P1-3): an unloaded column, or no solid support, keeps the bot held.
     After 10 min of waiting the skill raises `_needs_rescue` while still holding it (Claude r3 P1-2).
-  - A body on a block edge takes its support from under its hitbox (`bodySupport`), not from the air under its centre.
+  - A body on a block edge takes its support from under its hitbox (`bodySupport`), not from the air under its centre. A fence or wall top (collision 1.5 high) is its own support (Claude r4 P3-4).
   - The trigger, and its flood, run **only inside a spawn window or an open episode**, and the flood stops at the first
     grounded stance (Claude r3 P2-3).
   - The model never gets a turn while an episode is open.
@@ -422,3 +428,4 @@ latest `_sky_descend` row is a stay and it has not moved 2 blocks since. This li
 | design + code r1 (d6b69508) | CHANGES (9 P1, 1 P2) | CHANGES (1 P1, 4 P2, 7 P3) | r2 (16b2e923): done separated from the trigger (Codex P1-2, Claude P3-6); episodes end only on a verified stance (Codex P1-6, Claude P2-2); the lattice/last-resort/watchdog gate (Codex P1-3, Claude P2-4); a free column needs no blocks (P1-4); ranked reachable starts with failed walks excluded (P1-5, Claude P3-10); water under one column (P1-7); truthful stay text, no pickup claim, Q3 (Codex P1-8, Claude P1-1); full-cube supports only (P2-9); diggable supports priced (Claude P2-3); the centre verified (Codex P1-1; Claude showed fullStop snaps); the spawn grace (Claude P2-5); the run inside 140 s (P3-7); vacuous tests replaced (P3-8); G1 any death (P3-11); exposure worded to the measured population with evidence files (Codex P10, Claude P3-12). Claude P3-9 (extract the step_off decision): the gate is now one exported pure predicate, behaviour-tested, asked at two sites |
 | design + code r2 (16b2e923) | CHANGES (3 P1, 3 P2) | CHANGES (1 P1, 4 P2, 2 P3) | r3 (1012a88e): the region test in the trigger and done (Claude P1-1, Codex P1-2); lava never a landing (Codex P1-1); water ends an episode and a 60-s transient clock (Codex P1-3, Claude P2-2); the deck walk's liquid plunge off (Claude P2-3); thick decks via the region (Claude P2-4); a grounded landing beside a natural pit (Codex P2-4); slab landings (Codex P2-5); a partial block in the column (Claude P3-7); the stay reason on a partial support (Claude P3-6); Paper deck runs recorded (§7; Codex P2-6, Claude P2-5) |
 | design + code r3 (8183bc10 / a58497e4) | CHANGES (3 P1, 2 P2, 1 P3) | CHANGES (2 P1, 1 P2, 2 P3) | r4 (a58497e4, Codex r3): thick decks float (DECK_MAX); leaves never float; a hanging column is not ground; only an airborne body releases on the clock; the lava mutant isolated. r5 (e6455247, Claude r3): the sky-open void test (a cave roof is not a platform); ground = 8 with no deadly run under, or 16 (an aquifer is ground); bodySupport for a body on an edge; a 10-min wait raises _needs_rescue; the flood only inside a window or an episode, stopping at ground; the DECK_MAX bound. Probe on the real 1,118-cell platform: 975/975 stances elevated, 0 falsely done; 2,209 ground samples around it, 0 elevated |
+| design + code r4 (96352dc4 / e6455247) | CHANGES (1 P1, 4 P2) | CHANGES (1 P1, 2 P2, 4 P3) | r6 (f2bdee96): ground followed down through gaps, pillars never ground (Codex P1-1, Claude P1-1, P2-1); the sky test to the build top in 3 of 4 directions, only the origin cached (Claude P2-2, P3-3); foliage skips the local triggers (Codex P2-2); the starts flood across levels (Codex P2-3); the header keeps a held bot through wait rows and lists rescue rows (Codex P2-4); a fence top's support (Claude P3-4); a fresh wait clock per episode (Claude P3-6). Claude P3-5 (cave mouth cleared by a walk) is moot with P2-2. The reviewers' probes rf4probe/rf4probe2 all read correctly on r6 |
