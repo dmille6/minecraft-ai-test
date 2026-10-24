@@ -243,7 +243,26 @@ shelf's centre with a stone pickaxe, an iron shovel, 16 cobblestone and 8 logs; 
 
 ### 7.1 Results
 
-(pending: every sandbox5-8 lock was held by other agents from 12:11Z; see §10)
+**PENDING.** Every sandbox5-8 per-server lock was held by other agents for the whole build (sandbox5 by lavastep since 10-23
+17:28Z; sandbox6-8 by plugcut-01 from 10-24 12:11Z, with its scenes still running at 15:30Z), and the brief names only those
+four. Nothing was run on sandbox..sandbox3. Staged and ready:
+- the driver on branch `cavefall-sandbox-1024` @ `46c7d29b` (origin/main + `sandbox/cavefall/cavefall-e2e.mjs` + the registry's
+  wired-driver count 20 -> 21; `run-tests.mjs sandbox-registry` passes there);
+- the bot roots: `git archive fb8de72f bots` (base) and `git archive 72e1054e bots` (candidate), each with `SHA` and
+  `bots/node_modules`.
+
+How to run (from an extract of the sandbox branch, with the lock taken: `sandbox/sbxlock.sh take sandbox6 cavefall "..."`):
+```
+for scene in cave ground water; do for i in 1 2 3; do
+  node sandbox/cavefall/cavefall-e2e.mjs <base root> base-$i $scene sandbox6 4
+  node sandbox/cavefall/cavefall-e2e.mjs <cand root> cand-$i $scene sandbox6 4
+done; done      # results: $TMPDIR/cavefall-e2e/results.jsonl
+```
+Admission (both engines, r3-r7): the base must dig its own floor and fall in `cave` in at least 2 of 3 (the positive control);
+the candidate must never fall there, dig no shelf cell, and end `no_safe_target` with the all-floors message and a
+`_cavefall_skip front=1` row; in `ground` both must dig the shelf and live; in `water` both must live. The result rows carry
+gather `duration_ms` (whole-search latency, Codex r4 P3-4). If the base does NOT dig its floor in `cave`, the item stops here
+and folds into §5.2.
 
 ## 8. Read and registration
 
@@ -277,7 +296,14 @@ and its control).
 - **Reported:** fall-family deaths by cause, canary vs control, under the two-death floor (one is named, not a verdict);
   skips per bot-h; the world signature (§0.3) re-run on the next backup for canary and control cave falls.
 - **Draw exposure:** pools with >= 10 `_fall_path` rows "running gather" in the 6 h before the draw.
-- **Tier** from `drawexposure.py cavefall-01 --registrations <tmp>` under the 4-pool policy.
+- **Tier:** `drawexposure.py cavefall-01 --registrations <tmp>` at 13:23Z (6 h, fall_path ~ 'running gather' >= 10): **11 of
+  11 drawable pools eligible** (board-a 47, board-b 43, board-c 36, board-d 38, hive-a 78, hive-b 21, hive-c 59, hive-d 53,
+  placebo-a 50, placebo-b 17, placebo-d 31), so the 4-pool policy would allow tier 2. **Registered tier 3**: the effect size is
+  unknown (§0.3), Paper is pending, and both engines recommended tier 3 (r3-r7). `draw_require_pools` board-c and hive-a, the
+  drawable pools with the most cave-fall deaths under the shared town.
+- **Registration and entry fragment** (drafts, staged; nothing queued): `~/mcai-analysis/cavefall-01.72e1054e.json` (sha256
+  b76c439b...) and `~/mcai-analysis/cavefall-01.queue-entry.draft.json`, which carries a Paper hold and no `approved`, so
+  `queue add` refuses it until the Paper record is in. Canary sha `72e1054e` (later commits on the branch are docs only).
 
 ## 9. Review record
 
@@ -289,6 +315,8 @@ and its control).
 | r4 (design + code) | CHANGES (3 P2, 1 P3) | CHANGES (1 P1, 1 P2, 5 P3) | r6: the fast path made exact (full cube over T; or T, the cube under it and all four cardinals full; Codex P2-2); the matcher judges only in-range cells (Codex P2-3, Claude P3-5); a search enumeration emptied is a `no_safe_target` refusal with its row, before gather's early return (Codex P2-1 = Claude P1); `front=1` only for a cell the base would have ranked first (`baseSafe`, exposed, approachable; Codex P2-3, Claude P3-4); cost text (Codex P3-4). r7: ties go to the solid stop (Claude P3-3), the counting-early mutant re-anchored and the emptied-search order asserted (Claude P2-2), the roster from every canary-pool bot seen pre or post (P3-7), H1 text from the constant (P3-6), and **gatherRun behaviour tests** on a fake findBlocks that applies the matcher (all-floors refusal + row; a mixed round digs the nearest non-floor). The full runner caught 5 other suites whose fake gather worlds float dirt over 32+ blocks of air (keepout, keepout-protectzone-compose, protectzone, townground, toolfor-spent): their fixtures now put rock under the dirt, and townground's mutant anchor moved to `baseSafe` |
 | r5 (design + code) | CHANGES (2 P2) | CHANGES (1 P2, 6 P3; APPROVE once r8 + the approachable tier) | r8: the boxed-in fast path is bypassed when T carries a carpet or snow layer (Codex P2-1, with its case in the equivalence test); `baseSafe` hoisted so every exposure measure asks the base's own conjunction (Codex P2-2). r9: one `baseFront` measure for every round, ranking skipped and kept candidates in the base's two tiers (approachable first, then nearest; Claude P2/P3-2); the emptied search no longer has its own branch -- it goes on through the round's count and the all-floors refusal like every other round, so a later round (`collected > 0`) writes its row too (P3-5); only skips inside the border count (P3-3); the all-floors message keeps the town-ground and below-ground hints (P3-4); the read's roster wording (P3-7) |
 | r6 (confirmation) | CHANGES (1 P2, 1 P3) | **APPROVE** (eac08e5f; 5 P3s) | r10: `baseFront` ranks within a tier by findBlocks' own distance (block coordinates from the floored position; Codex P2, with its counterexample as a test) and the exposure text says so (P3). r11 (Claude's P3s): a fallback's candidates are not ranked against the base's main-block floors, and only cells of the asked type count (P3-1); an emptied round does not repeat the first fallback's searches (P3-2); behaviour tests for a later emptied round's row and for `front=0` when the base itself refuses the floors (P3-3); the skip row's denominator counts in-border cells only (P3-4); the stale comment (P3-5, r10). The r5 P3-6 "dead clause" became live again in r9 (the emptied search reaches it) |
+| r7 (confirmation) | **APPROVE** (b819ceae) | **APPROVE** (b819ceae) | no findings; one optional P3 (the later-round test never reaches gather's `collected > 0` return because the fake bag never grows) noted |
+| r8 (confirmation) | **APPROVE** (72e1054e) | -- | r12 restores the line `if (reachable.length === 0 && !viaSource)` that drops.test.mjs asserts (the full runner caught it); the emptied-round source skip moved inside the loop's iterable: behaviour identical |
 
 ## 10. Questions for the reviewers (r3)
 
