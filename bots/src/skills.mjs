@@ -2810,6 +2810,10 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
       lastWhy = own.ok ? 'its own column is priced but no stance was found' : own.why
       break
     }
+    // AFFORDABLE FIRST (Codex r6 P2-2): a free or affordable column ahead of one it cannot pay for (stable: cost order kept)
+    const canPay = count() + 3 * skyLogs(bot).reduce((n, it) => n + (it.count ?? 0), 0)
+    const affordable = r => r.cost === 0 || canPay >= reserve(r.cost)
+    ranked.sort((a, b) => (affordable(b) ? 1 : 0) - (affordable(a) ? 1 : 0))
     const best = ranked[0]
     if (best.own) { chosen = best; break }
     // out of walks or of clock: the own column if it is priced at all, else stay
