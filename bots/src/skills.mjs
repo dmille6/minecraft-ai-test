@@ -100,7 +100,7 @@ import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
-import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail, frontSkipped } from './cavefall.mjs'
+import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail, baseFront } from './cavefall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -2098,16 +2098,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 
     const skippedNow = townSkipped
     if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
-    // CAVEFALL-01 (Codex r4 P2-1): a search that enumeration emptied because every candidate in range was a floor over a drop
-    // is a refusal, not "nothing found": its skip row (front=1 when one of them was exposed and permitted -- with nothing kept,
-    // the base would have dug it) and the all-floors message, here, before the early return
-    if (positions.length === 0 && collected === 0 && cave.skipped().length) {
-      const sk = cave.skipped()
-      const front = sk.some(v => { const q = new Vec3(v.at.x, v.at.y, v.at.z); return horizontalDistanceFromSpawn(q) <= config.world.borderRadius && isExposed(bot, q) && baseSafe(q) })
-      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: sk, considered: cave.considered(), front }) }) } catch { /* a measurement may never cost the skill its turn */ }
-      return { status: 'failed', failClass: 'no_safe_target', detail: allFloorsMessage({ name: blockName, n: sk.length, verdicts: sk.slice(0, 8) }) }
-    }
-    if (positions.length === 0) {
+    // CAVEFALL-01 (Codex r4 P2-1, Claude r5): a search that enumeration emptied because candidates in the border were floors
+    // over a drop is NOT "nothing found": it goes on to the round's count (its skip row, the base-ranked front) and the
+    // all-floors refusal below, with every later round's shape -- so this early return is only for a search with no such skip
+    const caveInBorder = () => cave.skipped().filter(v => horizontalDistanceFromSpawn(v.at) <= config.world.borderRadius)
+    if (positions.length === 0 && !caveInBorder().length) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
         : { status: 'failed', failClass: 'nothing_found',
@@ -2324,14 +2319,13 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     }
 
     // CAVEFALL-01: the round's skips, counted AFTER both fallbacks (Codex r2 P2-6), one row per round with a skip
-    const caveSkipped = cave.skipped()
+    const caveSkipped = caveInBorder()
     // EXPOSURE (Codex r4 P2-3): would the BASE have taken a skipped floor first? A skipped cell counts only if it is in the
     // border, exposed, passes the base's own conjunction and is approachable -- the base's ranking minus its A* reorder --
     // and is nearer than the round's front kept candidate
-    const caveFront = () => frontSkipped(bot.entity?.position,
-      caveSkipped.map(v => v.at).filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
-        .map(q => new Vec3(q.x, q.y, q.z)).filter(q => exposed(q) && baseSafe(q) && approachable(q)),
-      reachable.length ? [reachable[0]] : [])
+    const caveFront = () => baseFront({ pos: bot.entity?.position, approachable,
+      skipped: caveSkipped.map(v => new Vec3(v.at.x, v.at.y, v.at.z)).filter(q => exposed(q) && baseSafe(q)),
+      kept: reachable })
     if (caveSkipped.length) {
       try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.considered(),
         front: caveFront() }) }) } catch { /* a measurement may never cost the skill its turn */ }
@@ -2343,7 +2337,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // every candidate in range was a floor over a drop: none survived enumeration, or every one asked was skipped
       if (caveSkipped.length && (cave.allSkipped() || positions.length === 0)) {
         return { status: 'failed', failClass: 'no_safe_target',
-                 detail: allFloorsMessage({ name: blockName, n: caveSkipped.length, verdicts: caveSkipped.slice(0, 8) }) }
+                 detail: allFloorsMessage({ name: blockName, n: caveSkipped.length, verdicts: caveSkipped.slice(0, 8) }) +
+                   (skippedNow ? ` (the town's ground, ${TOWN_GROUND_HALF} blocks around home, is kept too)` : '') + belowGroundHint(bot) }
       }
       if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {
         // SAY WHICH RULE REFUSED, not "one of these two".
