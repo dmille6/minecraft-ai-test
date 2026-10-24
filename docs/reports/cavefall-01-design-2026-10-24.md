@@ -90,7 +90,8 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
 - The 10-24 staged backup on 10.0.0.30 via `fmserve.py region` (r.0.0.mca of the 10 shared-seed worlds), decoded with
   failmine's `Regions` reader, which raises on an absent chunk or section.
 - **Controls.** "No drop planned": the same field is non-zero 16 times in the set. The floor-hole signature: the same reader
-  and rule at cells 3 blocks away (169 readable). The block_updated and place_error rates: identical 5.5-s windows. The
+  and rule at MATCHED cave-floor cells 2-8 blocks away whose open column reaches at least as high as the landing's (216
+  readable; r2's unmatched 3-block controls were biased). The block_updated and place_error rates: identical 5.5-s windows. The
   platform's absence in 9 worlds: the same scan that finds it in isolated-a.
 
 ## 2. The mechanism in the code (fb8de72f)
@@ -124,15 +125,19 @@ stalactite" 6, "doomed to fall" 2). That is 35% of all deaths. 84 are in caves; 
 2. something can stand on it: the cell above is open, holds a block that needs T (carpet, snow layer, pressure plate,
    rail, redstone, lily pad), or holds a partial shape a centred body does not meet (an open trapdoor) -- a slab, a block or
    any other solid above is its own floor;
-3. the fall a body standing on T would take if T were gone does damage. A falling body stops at the FIRST thing any part
-   of it meets (Claude r2 P1), so each placement of the body is a scenario: **centred on T** (T's column, footprint x/z
-   0.2-0.8), or **straddling** toward each cardinal neighbour that is open at T's level (T's column and that one; the higher
-   stop wins). The **worst scenario** is the verdict. In a column: open cells continue; water, lava or an unloaded cell is a
-   stop at its cell; a cell is a floor only where one of its collision shapes overlaps the body's footprint (an open trapdoor's
-   thin wall, a wall ladder, are missed: Codex r2 P1), at that shape's real top (a tip 0.6875, a slab 0.5, a fence 1.5);
-   nothing within 32 is `deep`. Damage: rock ceil(d - 3); stalagmite tip (vertical_direction up, thickness tip)
-   ceil(2(d - 1)); water 0; lava, unknown, deep: not survivable. So the lip of a cliff or a shaft (rock under T's own column)
-   is kept: the body meets T's floor first.
+3. the fall a body standing on T would take if T were gone does damage. **Every placement of the 0.6-wide body whose box
+   rests on T is tried**: body centres on an 11 x 11 grid from -0.28 to 1.28 (cell-local), edges included (Codex r3 P1: a body
+   at x 0.97 misses a fence post that a centred footprint meets). For each placement:
+   - the feet are at T's real top within the box (a fence 1.5, a slab 0.5); a carpet, snow layer, rail or pressure plate on T
+     goes with T (Codex r3 P2-2);
+   - a placement whose box meets any other solid inside its own volume is impossible; one that another cell also holds up at
+     the feet does not fall (a body straddling onto a shelf neighbour stays up);
+   - otherwise the body falls in every column its box covers and stops at the **first thing any part of it meets** (the highest
+     stop): a shape counts only where it overlaps the box's footprint in that column (an open trapdoor's thin wall, a wall
+     ladder, a fence post are missed), at its real top; water, lava and an unloaded cell stop it; nothing within 32 is `deep`.
+   The **worst placement** is the verdict. Damage: rock ceil(d - 3); stalagmite tip (vertical_direction up, thickness tip)
+   ceil(2(d - 1)); water 0; lava, unknown, deep: not survivable. So the lip of a cliff or a shaft (rock under T's own column) is
+   kept, the centre of a dirt shelf over a cave is skipped, and a cell no body can stand on (rock above it) is not a floor.
 
 A ceiling block (an ore in a cave roof, rock above it) is never a floor, so the bot under it may still dig it.
 
@@ -170,8 +175,8 @@ A ceiling block (an ore in a cave roof, rock above it) is never a floor, so the 
 (per gather round with a skip: count of exposed candidates skipped); `_cavefall_floor` (`refused` at the dig, `allowed` for a
 standing floor dig with drop >= 2 or water). Rollback `CAVEFALL=0`: the mode row says `on=0` and nothing else changes.
 
-**Cost.** One verdict reads at most 5 columns x 32 cells, memoised per round; a round has at most 32 candidates plus the
-source fallback. Negligible beside the reach probe's A*.
+**Cost.** One verdict reads at most 9 columns x ~35 cells (cached within the verdict), then evaluates 121 placements in memory;
+verdicts are memoised per round; a round has at most 32 candidates plus the fallbacks. Small beside the reach probe's A*.
 
 ## 5. Not in this item (owner questions)
 
