@@ -734,7 +734,7 @@ await t('MUTANT KILLED: the licence on the arm\'s counter again -> the first ref
 })
 
 await t('MUTANT KILLED: no utility-block sparing -> the licensed ramp digs the furnace', async () => {
-  await withMutant(REFLEX_PATH, "avoid: c => INTERACTIVE.test(at(...c)?.name ?? '') })", 'avoid: () => false })', async m => {
+  await withMutant(REFLEX_PATH, 'avoid: c => isUtilityBlock(at(...c)?.name) })', 'avoid: () => false })', async m => {
     const { cells } = afterCut(ISOC)
     cells['-1,1,1'] = 'cobblestone'; cells['-1,1,0'] = 'furnace'
     const lic = makeWorldBot(cells, { feetY: 0.1, items: [COBBLE(64)], ledge: true })
