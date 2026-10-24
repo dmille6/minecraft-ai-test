@@ -114,14 +114,17 @@ function flat () { const f = []; for (let k = 0; k < C.rle.length; k += 2) for (
 const FLAT = flat()
 if (FLAT.length !== SX * SY * SZ) throw new Error('rle length mismatch')
 const at = (x, y, z) => FLAT[(y * SZ + z) * SX + x]                 // cut-local
-// the holding pad: one stone block 14 above the arena's top over its corner (inside the forceloaded footprint)
-const PAD = { x: BX - 1, y: Math.min(300, OY + SY + 14), z: BZ - 1 }
+// THE HOLDING PAD: a stone block AT THE START'S HEIGHT, 20 blocks west of the arena (its own forceloaded chunk). It used to
+// sit 14 above the arena's top, and the teleport down from it reached the bot as a fall: every lava proof died "after
+// falling 24-41 blocks" (the bot's own fall tracker), a descent the fleet bot never made. Level, the teleport is not a fall.
+const PAD = { x: lo.x - 20, y: Math.floor(ST.pos[1]) - 1, z: BZ }
 const topOpen = (() => { let open = 0; for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) if (/^(air|cave_air)$/.test(nameOf(names[at(x, SY - 1, z)]))) open++; return open / (SX * SZ) >= 0.3 })()
 function arenaCmds () {
   const c = [`kill @e[type=!player,x=${lo.x},y=${lo.y},z=${lo.z},dx=${hi.x - lo.x},dy=${hi.y - lo.y + 14},dz=${hi.z - lo.z}]`]
   for (let y = lo.y; y <= hi.y; y++) c.push(`fill ${lo.x} ${y} ${lo.z} ${hi.x} ${y} ${hi.z} minecraft:stone strict`)
   if (topOpen) for (let y = OY + SY; y <= Math.min(319, OY + SY + 12); y++) c.push(`fill ${lo.x} ${y} ${lo.z} ${hi.x} ${y} ${hi.z} minecraft:air strict`)
-  c.push(`fill ${PAD.x - 1} ${PAD.y} ${PAD.z - 1} ${PAD.x + 1} ${PAD.y + 3} ${PAD.z + 1} minecraft:air strict`, `setblock ${PAD.x} ${PAD.y} ${PAD.z} minecraft:stone strict`)
+  c.push(`fill ${PAD.x - 1} ${PAD.y - 1} ${PAD.z - 1} ${PAD.x + 1} ${PAD.y + 3} ${PAD.z + 1} minecraft:stone strict`,
+         `fill ${PAD.x} ${PAD.y + 1} ${PAD.z} ${PAD.x} ${PAD.y + 2} ${PAD.z} minecraft:air strict`)
   // SOLIDS FIRST, bottom up, then fluids: a fluid never meets a cell that is about to change; `strict` sends no updates
   for (const pass of ['solid', 'fluid']) {
     for (let y = 0; y < SY; y++) for (let z = 0; z < SZ; z++) {
@@ -212,6 +215,7 @@ async function main () {
   // THE DEATH COUNTER, independent of the bot's own logging (Claude r1 P1)
   rcon('scoreboard objectives add fmdeaths deathCount')
   r1(`forceload add ${lo.x} ${lo.z} ${hi.x} ${hi.z}`)
+  r1(`forceload add ${PAD.x} ${PAD.z}`)
   await sleep(3000)
   const cmds = arenaCmds()
   P_(`building: ${cmds.length} commands`)
@@ -230,7 +234,7 @@ async function main () {
   const sp = ST.pos
   // PLACEMENT, in two steps (first contact-start run, 10-24: teleported straight into lava, the bot burned for the 4 s
   // its chunks took to arrive, and the health set afterwards then killed it with a GENERIC death -- not the fleet's):
-  //   1. bag and gamemode at the join point, then a wait on the HOLDING PAD above the arena until its chunks are in;
+  //   1. bag and gamemode at the join point, then a wait on the HOLDING PAD (level with the start, beside the arena) until chunks are in;
   //   2. ONE batch: the fleet health (generic damage, applied on the pad) and the teleport to the start.
   batch([`scoreboard players set ${b.name} fmdeaths 0`], 'death counter')
   const placed = rcon(`gamemode survival ${b.name}`, `clear ${b.name}`, `effect clear ${b.name}`, `tp ${b.name} ${PAD.x + 0.5} ${PAD.y + 1} ${PAD.z + 0.5}`,
@@ -310,7 +314,7 @@ async function cleanupOnce () {
   try {
     const c = [`kill @e[type=!player,x=${lo.x},y=${lo.y},z=${lo.z},dx=${hi.x - lo.x},dy=${hi.y - lo.y + 14},dz=${hi.z - lo.z}]`]
     for (let y = lo.y; y <= hi.y; y++) c.push(`fill ${lo.x} ${y} ${lo.z} ${hi.x} ${y} ${hi.z} minecraft:stone strict`)
-    c.push(`setblock ${PAD.x} ${PAD.y} ${PAD.z} minecraft:air strict`, `forceload remove ${lo.x} ${lo.z} ${hi.x} ${hi.z}`)
+    c.push(`forceload remove ${lo.x} ${lo.z} ${hi.x} ${hi.z}`, `forceload remove ${PAD.x} ${PAD.z}`)
     if (savedRules) for (const [g, v] of Object.entries(savedRules)) if (v != null) c.push(`gamerule ${g} ${v}`)
     batch(c, 'cleanup')
     P_('cleanup', r1('list').slice(0, 80))
