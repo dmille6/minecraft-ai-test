@@ -84,6 +84,21 @@ The isolated-d-Bravo scene was cut for this work (`stuck-1899-isolated-d-340_60_
   - The streak lapses after 30 min without a refusal (the back-off curve tops out at 10 min).
   - Progress resets it.
   - Tested: three at A, a recovery, then one at B is not licensed; the positive control is four at A.
+  - **Leaving the place clears it, by any route** (r3, Codex r2 P1). Every reflex tick calls `plugStreakTouch`: a body no
+    longer at its streak's place forgets the streak, so a return to the same pit later starts again. The entombed arm's own
+    success also clears it (`plugStreakClear`). Tested: three at A, out, back to A is not licensed; a bob within 2 keeps it.
+  - **Fleet positive control for the place rule** (r3, Claude r2 P2-1). Replaying every `_climb_flood_refused at=` row over
+    3 d (ES to 10-24 14:00Z, 4,611 rows) through the rule:
+
+    | bot | refusals | licensed firings | longest streak |
+    |---|---|---|---|
+    | placebo-d-Delta | 699 | 696 | 699 |
+    | isolated-d-Alpha | 692 | 684 | 687 |
+    | isolated-c-Alpha | 669 | 666 | 669 |
+    | isolated-d-Bravo | 669 | 666 | 669 |
+
+    The pinned bots never drift a column. Next is placebo-a-Bravo: 97 refusals, 56 licensed. A Chebyshev-1 rule changes
+    little (61), so x,z stay exact.
 - **What the licence grants** (`escapeStairUp`):
   - the two plug rungs;
   - the lip rule and the step check (section 2.5);
@@ -140,6 +155,9 @@ Per placement:
    (never more than PLUG_MAX placements), the firing's deadline, and the frame check.
    - Order matters. Paper probe 3 (isolated-d) placed all three step plugs, then a bob took the body out of the frame and
      the finished rung reported "the body moved". `clear()` reads the world, not the body.
+   - r3 (both engines r2): the owner is asked after the settle, before ok is returned, because the step caller digs next.
+     The deadline is asked again after the equip, and a settle the deadline cannot hold is never started (the rung stops;
+     the next firing cuts). Every return after an await asks the owner first. Tested with mutants.
 2. The plan is re-planned live, before and after the equip (same cell, same reference, or the placement is skipped).
 3. `sub0` (the head at this decision) is sampled, then the block is placed.
 4. After `FLOW_SETTLE_MS` the cell is ALWAYS read back and the row is written, even when another owner took the body
@@ -168,6 +186,11 @@ bearing from the FRAME the step was planned in: floored, x and z as well as y (C
   check called it refused.
 - The lip rule's climb is floored the same way.
 - The base keeps the raw check (a pre-existing misread, out of scope).
+- **One more jump** (r3; Paper library gate run 2 on 6ee31c1f, isolated-d). The S step was cut, the jump from a bob was not
+  taken, the firing ended, and with the ceiling open no reflex fired again in the run's nine minutes. A licensed step that
+  was cut but not taken is jumped again, up to PLUG_STEP_RETRIES (2), in the SAME frame: no re-plan (a bobbing body reads
+  another frame) and nothing dug. This happens only while the body is still in its own column, so it can never widen a
+  ledge. Tested, with a mutant.
 
 **Spare the plugs (`sparePlugs`).** The licensed step loop chooses first among the bearings whose first step digs none of
 this firing's plugs.
@@ -180,6 +203,8 @@ this firing's plugs.
   placebo-d-Delta's W and S steps dig a furnace and a crafting table, and bare-handed from water the furnace outlasted
   its 55 s (probe 1). This is existing `stairUpStep` behaviour, which the licence now reaches. When nothing else runs, the
   same fallback still digs them.
+- **Sparing looks at the first step only** (Claude r2 P3-3). A later step can still dig a plug or a utility block, always
+  through the flood check.
 
 ## 3. Composition (the refusal chain, not one guard)
 
@@ -194,7 +219,8 @@ this firing's plugs.
   breach.
   - Order: the flood refusal comes first (no swing is priced for a refused cell). After the plugs, the breach loop re-plans,
     and ceilescape prices the now-allowed swing.
-  - `floodBranch` passes `{ yieldTo, steering, plug, budgetMs }`.
+  - `floodBranch`'s own call is ceilescape's `ramp(bot, { yieldTo, steering })`, unchanged. A licensed firing wraps `ramp`
+    to add `plug` and the 90 s budget.
   - **The licensed firing prices against its own 90 s** (Claude r1 P2). Ceilescape's `fullMs` is the firing's `budgetMs`,
     so ceilescape's "would a full firing fit" asks about 90 s in a licensed firing. That is accurate: the bot's next firing
     is also licensed while it stays pinned. The variant states it and tests it (section 8).
@@ -217,7 +243,7 @@ this firing's plugs.
 - Not a fix for water ABOVE the ceiling (a pocket: refused, one row), or for falling columns (refused).
 - It does not change the base ramp. Every behavioural change is behind the licence.
 
-## 5. Tests (`bots/test/plugcut.test.mjs`, 53; the variant 54)
+## 5. Tests (`bots/test/plugcut.test.mjs`, 61; the variant 62)
 
 **Fixtures.** `bots/test/fixtures/plugcut-scenes.json` holds 9x10x9 windows cut from the three failmine scenes by
 `pc_fixtures.py`, with full block states.
@@ -294,8 +320,8 @@ The library gate is in section 9.
   (198,34,187), and stays out >= 30 min of its own positions. Death-aware: a death is reported, never counted as leaving.
 - **G1 (defect, two-death floor).** Canary deaths within 120 s after a `_plugcut result=placed` row of the same bot. One is
   reported; two REVERT.
-- **G2 (defect).** A `_plugcut result=placed` row whose bot's head was submerged at the placement. The planner refuses that by
-  construction, so the row carries `sub=0|1`.
+- **G2 (defect).** A `_plugcut result=placed` row with `sub0=1`: the head was under at the DECISION. The planner refuses that by
+  construction. `sub=` (after the settle) is reported only.
 - **REPORTED (not a gate).** A `_climb_flood_breach` row at a cell this bot plugged within the same firing. Sparing makes
   this rare, but the submerged exemption allows it, as on Paper probe 3. Two or more on the canary is a WATCH.
 - **ARMS.** No control `_plugcut*` rows. **LIVENESS.** The licence is on on every canary bot. **INSTRUMENT.** placebo-d-Delta
@@ -328,9 +354,14 @@ would rest on one bot. Reviewers: tier 2 is available on the pool count; this de
 
 ## 8. The variant
 
-The variant is a cherry-pick onto `ceilescape-on-fb8de72` (c488c3e3). The expected conflict is `floodBranch`'s ramp call:
-ceilescape's `{ yieldTo, steering }` becomes `{ yieldTo, steering, plug, budgetMs }`. The step loop was not touched by
-ceilescape.
+The variant is the branch `plugcut-on-c488c3e3`: the primary applied onto ceilescape-01's fb8de72f variant c488c3e3.
+- **Conflicts.** Seven were resolved, each by keeping both sides: index.mjs had 2 (the licence imports and rows); reflex.mjs
+  had 5 (the escapeStairUp options, its state, `finish()`, floodBranch, and the helpers block).
+- **floodBranch** keeps ceilescape's own `ramp(bot, { yieldTo, steering })` line, which its wiring test reads; the licence
+  rides on the `ramp` wrapper.
+- **The diff matches the primary.** Its bots/src +/- lines are identical to the primary's, compared line for line.
+- **One variant-only test** (section F): a licensed firing prices its swings against its own 90 s.
+- **Suites:** ceilescape 67/67; plugcut 62 (the primary's 61 + F).
 
 ## 9. Results (filled as they land)
 
