@@ -16,7 +16,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { abVerdict, MIN_REPEATS } from './oracle.mjs'
+import { abVerdict, abLine, MIN_REPEATS } from './oracle.mjs'
 
 const [BASE, CAND, FAMILY, SERVER = 'sandbox6', MIN] = process.argv.slice(2)
 if (!BASE || !CAND || !FAMILY) throw new Error('usage: library-ab.mjs <baseRoot> <candidateRoot> <family|all> [server] [minutes]')
@@ -40,9 +40,9 @@ for (const s of scenes) {
   for (const start of s.reproducing_starts) {
     const bs = [], cs = []
     for (let i = 0; i < R; i++) { bs.push(run(BASE, 'base', s.file, start)); cs.push(run(CAND, 'cand', s.file, start)) }
-    const { verdict, reproduced, bm, bDone } = abVerdict(bs, cs)
+    const { verdict } = abVerdict(bs, cs)
     rows.push({ scene: s.id, start, base: bs.map(b => b.outcome), cand: cs.map(c => c.outcome), verdict })
-    console.log(`${verdict.padEnd(8)} ${s.id} start ${start}: base ${bs.map(b => b.outcome).join(', ')}${reproduced ? ` (${bm}/${bDone.length} as the fleet)` : ' (DID NOT REPRODUCE: retired)'}; candidate ${cs.map(c => c.outcome).join(', ')}`)
+    console.log(abLine(s.id, start, bs, cs))
   }
 }
 const v = rows.some(r => r.verdict === 'FAIL') ? 'FAIL' : rows.length && rows.every(r => r.verdict === 'PASS') ? 'PASS' : 'INVALID'

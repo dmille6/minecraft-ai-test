@@ -72,3 +72,10 @@ export function fidelityProbes (S, BX, BZ, every = 37) {
   }
   return probes
 }
+
+// one library-ab report line (Codex r3 P3: the denominator printed undefined)
+export function abLine (id, start, bs, cs) {
+  const { verdict, reproduced, bm, bDone } = abVerdict(bs, cs)
+  return `${verdict.padEnd(8)} ${id} start ${start}: base ${bs.map(b => b.outcome).join(', ')}` +
+    (reproduced ? ` (${bm}/${bDone} as the fleet)` : ' (DID NOT REPRODUCE: retired)') + `; candidate ${cs.map(c => c.outcome).join(', ')}`
+}

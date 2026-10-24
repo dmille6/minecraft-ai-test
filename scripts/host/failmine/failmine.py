@@ -1149,6 +1149,10 @@ def cmd_mine(a):
     full = json.load(open(a.seeds))
     meta = full.get('worlds', full)
     until = a.until or dt.datetime.now(dt.timezone.utc).replace(minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
+    # the window may not run past the night the geometry comes from (Claude r3 P3): "ongoing" must mean ongoing THEN
+    bd = full.get('backup_done')
+    if bd and ms_of(until) > ms_of(bd):
+        until = bd
     since = (dt.datetime.fromisoformat(until.replace('Z', '+00:00')) - dt.timedelta(days=a.days)).strftime('%Y-%m-%dT%H:%M:%SZ')
     res = mine(EsSource(since, until), meta, a.top_deaths, a.top_stuck, extra_worlds=a.extra_worlds)
     res['backup'] = {k: full.get(k) for k in ('backup_day', 'backup_done')}     # the night the seeds/meta came from
@@ -1163,6 +1167,13 @@ def cmd_cut(a):
     os.makedirs(a.out, exist_ok=True)
     only = set(a.only.split(',')) if a.only else None
     made = iso_ms(int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000))
+    # THE REGIONS' NIGHT must be the clusters' (Claude r3 P3): read from the directory's GENERATION, never typed by hand
+    want = (res.get('backup') or {}).get('backup_done')
+    gf = os.path.join(a.regions, 'GENERATION')
+    have = open(gf).read().strip() if os.path.exists(gf) else None
+    if not want or have != want:
+        raise BlindInput(f'{a.regions} is of night {have}, the clusters of {want}: fetch the regions for these clusters')
+    a.backup_day = want
     for p in res['picks']:
         if only and p['id'] not in only:
             continue
@@ -1269,7 +1280,8 @@ def reproducing_starts(proof):
     """The starts whose BASE runs reproduce the fleet's failure often enough to gate a fix on."""
     by = collections.defaultdict(list)
     for p in proof:
-        if p.get('role') == 'base' and p.get('matched_fleet') is not None:   # no-runs prove nothing either way
+        # no-runs prove nothing either way, and only a run whose arena was verified by FULL block state counts (Claude r3 P3)
+        if p.get('role') == 'base' and p.get('matched_fleet') is not None and (p.get('fidelity') or {}).get('mode') == 'full-state':
             by[p.get('start_index') or 0].append(p)
     out = []
     for st, ps in sorted(by.items()):

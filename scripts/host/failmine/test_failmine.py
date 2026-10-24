@@ -356,7 +356,9 @@ def t_same_staging(F):
 
 
 def t_reproducing_starts_rule(F):
-    P = lambda st, m, ok=False: {'role': 'base', 'start_index': st, 'matched_fleet': m, 'pass': ok}
+    P = lambda st, m, ok=False, mode='full-state': {'role': 'base', 'start_index': st, 'matched_fleet': m, 'pass': ok, 'fidelity': {'mode': mode}}
+    assert F.reproducing_starts([P(0, True, mode=None), P(0, True, mode=None), P(0, True)]) == [], \
+        'proofs whose arena was checked by block NAME only do not count (Claude r3 P3)'
     assert F.reproducing_starts([P(0, True), P(0, True), P(0, False)]) == [0]
     assert F.reproducing_starts([P(0, True), P(0, False), P(0, False)]) == [], 'one in three is a draw, not a reproduction'
     assert F.reproducing_starts([P(0, True), P(0, True), P(0, False, ok=True)]) == [], 'a base run that PASSED retires the start'
