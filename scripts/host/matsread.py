@@ -7,8 +7,9 @@
 #   _make_material   one per order: kind= verdict= made= forbidden= stone=b0>b1 note= ml=t0-t1 stock= took= reserve= stop= ...
 #                    (the gate fields FIRST: the logger cuts details at 300 chars; stop= is capped at 60 chars)
 #   _mats_mode       once per spawn (the licence): phase=mode v= on= kinds= reserve=k:n,... reserve_src= buffers= ...
-#   _mats_return     the recovery: kind= verdict=ok|loss|forbidden|unreconciled forbidden= stop=closed|open|abandoned|error tries=
-#                    batch= out= back= short= made= banked= drained= ... (r3: its own balance -- Codex r2 P1-4)
+#   _mats_return     the recovery: kind= verdict=ok|loss|forbidden|unreconciled|pending forbidden= stop=closed|open|abandoned|error
+#                    tries= waits= batch= out= back= short= made= banked= drained= ... (its own balance, judged only on the attempt
+#                    that ENDS the note: closed or abandoned; an open one is verdict=pending)
 #   _mats_skip       why=<reason> (at most one per bot per reason per 30 min)
 #   _furnace_session furnace= lease= t0= t1= by=smelt|drain|make_material|mats_return (every furnace lease's interval)
 #   NAMES ARE EXACT: lib.telemetry folds `_x` into `x`, so every count keys on raw skill.name.
@@ -455,7 +456,9 @@ if __name__ == '__main__':
 
     mv = [(t_, b, st, f) for t_, b, st, f in jobs if moved(f)]        # THE DENOMINATOR: orders that moved something
     # a recovery of a LOADED batch carries its own balance (r3): it is a moved row for G2, and every recovery is judged for G1
-    mv_ret = [(t_, b, st, f) for t_, b, st, f in ret_rows if (num(f.get('batch')) or 0) > 0 and f.get('verdict') in ('ok', 'loss')]
+    # judged ONLY where the note ENDED (r4, Codex r3 P1-1 / Claude r3 P1-1): an open attempt writes verdict=pending -- its furnace
+    # may still hold the batch -- and is never a loss
+    mv_ret = [(t_, b, st, f) for t_, b, st, f in ret_rows if (num(f.get('batch')) or 0) > 0 and f.get('stop') in ('closed', 'abandoned') and f.get('verdict') in ('ok', 'loss')]
     mv_all = mv + mv_ret
     verdicts = Counter(f.get('verdict') for _, _, _, f in mv_all)
     reconciled = sum(c for v, c in verdicts.items() if v in ('ok', 'loss', 'gain', 'overburn', 'scaffold'))
@@ -479,7 +482,8 @@ if __name__ == '__main__':
     loop_bots = sorted(b for b, ts in job_ts.items() if window_rate(sorted(ts)) > 7)
     made_ok = sum(num(f.get('made')) or 0 for _, _, st, f in mv if f.get('verdict') == 'ok')
     # the smelt instrument by KIND (Codex r2 P2-7: a cut smelted= read as 0 waived it): moved rows of a smelt kind
-    smelt_made = sum(1 for _, _, _, f in mv if f.get('kind') in ('bricks', 'panes', 'torch'))
+    # orders that SMELTED something (Claude r3 P3-4: a short withdraw never reached a furnace) -- smelted= is a gate field now
+    smelt_made = sum(1 for _, _, _, f in mv if f.get('kind') in ('bricks', 'panes', 'torch') and (num(f.get('smelted')) or 0) > 0)
     made_by_kind = Counter()
     for _, _, _, f in mv:
         if f.get('verdict') == 'ok':

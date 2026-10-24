@@ -342,7 +342,8 @@ export function touchedNames (kind, log = null) {
 export function obligations (kind) {
   const k = KINDS[kind]
   if (!k) return []
-  return [...new Set([k.part, ...(k.smelt ? [k.smelt.out] : []), ...(kind === 'panes' ? ['glass'] : [])])]
+  // cut_copper's copper_block is its intermediate (Codex r3 P2-6: a cut between the two crafts left four blocks unowed)
+  return [...new Set([k.part, ...(k.smelt ? [k.smelt.out] : []), ...(kind === 'panes' ? ['glass'] : []), ...(kind === 'cut_copper' ? ['copper_block'] : [])])]
 }
 
 /**
@@ -360,7 +361,7 @@ export function obligations (kind) {
  *   inputsLeft   unspent inputs above bag0 (booked, never an obligation)
  */
 export function returnPlan (note, bag = {}) {
-  const empty = { craftStone: 0, torches: 0, panes: 0, bank: {}, stoneLeft: 0, charcoalLeft: 0, inputsLeft: {} }
+  const empty = { craftStone: 0, torches: 0, panes: 0, cutCopper: 0, bank: {}, stoneLeft: 0, charcoalLeft: 0, sticksShort: 0, stickWood: null, inputsLeft: {} }
   if (!note?.kind || !KINDS[note.kind]) return empty
   const k = KINDS[note.kind]
   const above = n => Math.max(0, (Number(bag?.[n]) || 0) - (Number(note.bag0?.[n]) || 0))
@@ -371,9 +372,17 @@ export function returnPlan (note, bag = {}) {
   if (note.kind === 'torch') {
     out.torches = Math.min(mid, above('stick'), Math.max(0, Number(note.sticks) || 0))
     out.charcoalLeft = mid - out.torches
+    // THE REMEDY FOR CHARCOAL WITH NO STICK OF THE ORDER'S (Codex r3 P2-5, Claude r3 P3-1): the recovery makes the sticks from WOOD
+    // ABOVE bag0 (the order's own planks first, else its own log) -- never the kit's sticks or planks (below bag0)
+    if (out.charcoalLeft > 0) {
+      out.sticksShort = out.charcoalLeft
+      const pl = ACCT_PLANKS.find(n => above(n) >= 2), lg = LOG_NAMES.find(n => above(n) >= 1)
+      out.stickWood = pl ? { planks: pl } : lg ? { log: lg, planks: PLANKS_OF[lg] } : null
+    }
   }
+  if (note.kind === 'cut_copper') { const bl = Math.min(above('copper_block'), 4); out.cutCopper = bl >= 4 ? 4 : 0; if (bl - out.cutCopper > 0) out.bank.copper_block = bl - out.cutCopper }
   if (note.kind === 'panes') out.panes = Math.floor(mid / 6)
-  const made = { stone_bricks: out.craftStone, torch: out.torches * 4, glass_pane: out.panes * 16 }
+  const made = { stone_bricks: out.craftStone, torch: out.torches * 4, glass_pane: out.panes * 16, cut_copper: out.cutCopper }
   const partCap = k.makes
   const p = Math.min(partCap, above(k.part) + (made[k.part] ?? 0))
   if (p > 0) out.bank[k.part] = p
@@ -391,7 +400,7 @@ export function noteSettled (note, bag = {}, { furnaceDone = true } = {}) {
   if (!note) return true
   if (note.furnace && !furnaceDone) return false
   const p = returnPlan(note, bag)
-  return p.craftStone === 0 && p.torches === 0 && p.panes === 0 && p.charcoalLeft === 0 && !Object.keys(p.bank).length
+  return p.craftStone === 0 && p.torches === 0 && p.panes === 0 && p.cutCopper === 0 && p.charcoalLeft === 0 && !Object.keys(p.bank).length
 }
 /**
  * THE RECOVERY'S BALANCE (Codex r2 P1-4: a closing recovery must prove reconciliation, not absence) -> { verdict, batch, out,
@@ -404,6 +413,7 @@ export function noteSettled (note, bag = {}, { furnaceDone = true } = {}) {
  */
 export function recoveryBalance (note, { bag = {}, banked = {} } = {}) {
   const k = KINDS[note?.kind]
+  if (k && !k.smelt) return copperBalance(note, { bag, banked })
   const n = Math.max(0, Number(note?.loaded?.input?.n) || 0)
   if (!k?.smelt || !n) return { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 }
   const above = x => Math.max(0, (Number(bag?.[x]) || 0) - (Number(note.bag0?.[x]) || 0))
@@ -434,6 +444,30 @@ export function recoveryContentsOk (loaded, { input = null, fuel = null, output 
   if (fuel && (fuel.name !== loaded.fuel.name || fuel.count > loaded.fuel.n)) return { ok: false, why: `fuel:${fuel.name}` }
   if (output && (output.name !== loaded.out || output.count > loaded.input.n)) return { ok: false, why: `output:${output.name}` }
   return { ok: true, why: null }
+}
+
+/**
+ * THE COPPER KINDS' RECOVERY BALANCE (Codex r3 P2-6) -> as recoveryBalance. The ingots the order took (town and bag) are in
+ * copper units: still ingots above bag0 (capped by the batch), blocks (9), cut copper (9) or doors (2), in the bag, banked now
+ * or deposited by the order or an earlier attempt. short > 0 is a LOSS. RESIDUAL (named): ingots the bot gains on the way
+ * (the town smelt job's) can hide a shortfall up to that gain.
+ */
+export function copperBalance (note, { bag = {}, banked = {} } = {}) {
+  const n = (Number(note?.took?.copper_ingot) || 0) + (Number(note?.fromBag?.copper_ingot) || 0)
+  if (!n) return { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 }
+  const above = x => Math.max(0, (Number(bag?.[x]) || 0) - (Number(note.bag0?.[x]) || 0))
+  const got = x => above(x) + (Number(banked?.[x]) || 0) + (Number(note.deposited?.[x]) || 0)
+  const parts = note.kind === 'cut_copper' ? 9 * (Math.min(4, got('copper_block')) + Math.min(4, got('cut_copper'))) : 2 * Math.min(3, got('copper_door'))
+  const out = Math.min(n, parts)
+  const back = Math.min(n - out, above('copper_ingot'))
+  const short = Math.max(0, n - out - back)
+  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
+}
+
+/** THE RECOUNT'S OWN BACKOFF (Claude r3 P2-3): a container that could not be counted sits out its backoff -- the order's trigger
+ *  must not see it, or a town with one unreachable container is all `count` orders. Pure: keys, a Map k -> { until }, now. */
+export function matsRecountable (keys = [], failed = new Map(), now = Date.now(), keyOf = k => k) {
+  return keys.filter(k => !((failed?.get?.(keyOf(k))?.until ?? 0) > now))
 }
 
 /**

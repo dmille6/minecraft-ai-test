@@ -237,8 +237,38 @@ test('the return plan: stone crafted in fours (a 1-3 remainder is ORDINARY stone
   const kit = M.returnPlan({ ...tn, sticks: 2 }, { charcoal: 7, stick: 6 })
   assert.equal(kit.torches, 2, 'the kit\'s sticks are never spent'); assert.equal(kit.charcoalLeft, 4)
   assert.equal(M.noteSettled({ ...tn, sticks: 2 }, { charcoal: 3, stick: 0, torch: 8 }), false, 'the order\'s charcoal is owed to torches: the note stays open')
-  assert.deepEqual(M.returnPlan(null, {}), { craftStone: 0, torches: 0, panes: 0, bank: {}, stoneLeft: 0, charcoalLeft: 0, inputsLeft: {} })
+  assert.deepEqual(M.returnPlan(null, {}), { craftStone: 0, torches: 0, panes: 0, cutCopper: 0, bank: {}, stoneLeft: 0, charcoalLeft: 0, sticksShort: 0, stickWood: null, inputsLeft: {} })
   assert.deepEqual(M.obligations('bricks').sort(), ['stone', 'stone_bricks']); assert.deepEqual(M.obligations('copper_door'), ['copper_door'])
+  // THE MISSING STICKS' REMEDY (Codex r3 P2-5): from wood ABOVE bag0 -- the order's planks, else its log; never the kit's
+  const short = { ...tn, bag0: { charcoal: 1, stick: 8, torch: 8, oak_planks: 4, oak_log: 0 } }
+  const rs = M.returnPlan(short, { charcoal: 7, stick: 12, torch: 8, oak_planks: 4, oak_log: 1 })
+  assert.equal(rs.sticksShort, 2); assert.deepEqual(rs.stickWood, { log: 'oak_log', planks: 'oak_planks' }, 'the 4 planks are the kit\'s (bag0): the log above it is the order\'s')
+  assert.deepEqual(M.returnPlan(short, { charcoal: 7, stick: 12, torch: 8, oak_planks: 6 }).stickWood, { planks: 'oak_planks' })
+  assert.equal(M.returnPlan(short, { charcoal: 7, stick: 12, torch: 8, oak_planks: 4 }).stickWood, null, 'no wood of the order\'s: the note owes (and is given up, counted)')
+  // CUT COPPER'S INTERMEDIATE (Codex r3 P2-6): four blocks cut in recovery; fewer are banked (a project part), never unowed
+  assert.deepEqual(M.obligations('cut_copper').sort(), ['copper_block', 'cut_copper'])
+  const cn = M.newNote({ kind: 'cut_copper', bag0: { copper_block: 0, cut_copper: 0, copper_ingot: 0 } })
+  const cp = M.returnPlan(cn, { copper_block: 4 })
+  assert.equal(cp.cutCopper, 4); assert.deepEqual(cp.bank, { cut_copper: 4 })
+  assert.deepEqual(M.returnPlan(cn, { copper_block: 3 }).bank, { copper_block: 3 }); assert.equal(M.noteSettled(cn, { copper_block: 3 }), false)
+  assert.equal(M.noteSettled(cn, { copper_ingot: 36 }), true, 'unspent ingots are inputs, never owed')
+})
+
+test('THE COPPER RECOVERY BALANCE (Codex r3 P2-6): the ingots taken are ingots, blocks, cut copper or doors -- else a LOSS', () => {
+  const note = { ...M.newNote({ kind: 'cut_copper', took: { copper_ingot: 36 }, bag0: { copper_ingot: 0, copper_block: 0, cut_copper: 0 } }) }
+  assert.equal(M.copperBalance(note, { bag: {}, banked: { cut_copper: 4 } }).verdict, 'ok')
+  assert.equal(M.copperBalance(note, { bag: { copper_ingot: 36 } }).verdict, 'ok', 'never crafted: the ingots are back')
+  assert.equal(M.copperBalance(note, { bag: { copper_block: 2 }, banked: {} }).verdict, 'loss', 'two blocks of four lost')
+  assert.equal(M.copperBalance({ ...note, deposited: { cut_copper: 4 } }, { bag: {} }).verdict, 'ok', 'an earlier attempt banked them')
+  const door = M.newNote({ kind: 'copper_door', took: { copper_ingot: 6 }, bag0: {} })
+  assert.equal(M.recoveryBalance(door, { bag: {}, banked: { copper_door: 3 } }).verdict, 'ok'); assert.equal(M.recoveryBalance(door, { bag: {}, banked: { copper_door: 2 } }).verdict, 'loss')
+})
+
+test('THE RECOUNT TRIGGER HONOURS ITS BACKOFF (Claude r3 P2-3): a container that could not be counted is not a reason to count', () => {
+  const failed = new Map([['T|a', { until: 2000 }], ['T|b', { until: 500 }]])
+  assert.deepEqual(M.matsRecountable(['a', 'b', 'c'], failed, 1000, k => `T|${k}`), ['b', 'c'])
+  // and the order: an unreachable last container in backoff (0 recountable) at 90% coverage -> bricks, not a count
+  assert.equal(M.materialOrder(base({ town: { stock: RICH, coverage: 0.9 }, unknown: () => M.matsRecountable(['a'], failed, 1000, k => `T|${k}`).length })).order?.args.item, 'bricks')
 })
 
 test('THE RECOVERY BALANCE (Codex r2 P1-4): the loaded batch is out units in the bag, banked or deposited, or input back -- else a LOSS', () => {
@@ -382,6 +412,16 @@ test('MUTANTS: the reserve, the coverage rule, the forbidden gate, the qualify r
       X => assert.equal(X.matsBalance({ kind: 'bricks', bag0: { cobblestone: 100 }, withdrawn: { oak_log: 2 }, bag1: { cobblestone: 91, stone: 1, oak_planks: 1 }, deposited: { stone_bricks: 8 }, burnedPlanks: 7, smelted: 9, cut: true }).verdict, 'ok')],
     ['the placements are not booked', "const lost = Object.entries(families).some(([f, d]) => d + (pu[f] ?? 0) < -1e-9)", "const lost = lostRaw",
       X => assert.equal(X.matsBalance({ kind: 'bricks', bag0: { cobblestone: 100, oak_log: 0 }, withdrawn: { oak_log: 2 }, bag1: { cobblestone: 86 }, deposited: { stone_bricks: 12 }, burnedPlanks: 8, smelted: 12, placed: { cobblestone: 2 } }).verdict, 'scaffold')],
+    ['the copper balance is blind', "return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }", "return { verdict: 'ok', batch: n, out, back, short }",
+      X => assert.equal(X.copperBalance({ ...X.newNote({ kind: 'cut_copper', took: { copper_ingot: 36 }, bag0: {} }) }, { bag: { copper_block: 2 } }).verdict, 'loss')],
+    ['copper_block is booked as an unspent input', "...(kind === 'cut_copper' ? ['copper_block'] : [])", "",
+      X => assert.deepEqual(X.returnPlan(X.newNote({ kind: 'cut_copper', bag0: { copper_block: 0, cut_copper: 0 } }), { copper_block: 3 }).inputsLeft, {})],
+    ['leftover blocks are not owed', "if (bl - out.cutCopper > 0) out.bank.copper_block = bl - out.cutCopper", "",
+      X => assert.equal(X.noteSettled(X.newNote({ kind: 'cut_copper', bag0: { copper_block: 0, cut_copper: 0 } }), { copper_block: 3 }), false)],
+    ['the stick wood is the kit\'s', "const pl = ACCT_PLANKS.find(n => above(n) >= 2)", "const pl = ACCT_PLANKS.find(n => (Number(bag?.[n]) || 0) >= 2)",
+      X => assert.equal(X.returnPlan({ ...X.newNote({ kind: 'torch', bag0: { charcoal: 0, stick: 0, oak_planks: 4 } }), loaded: { input: { name: 'oak_log', n: 6 }, out: 'charcoal' }, sticks: 0 }, { charcoal: 6, oak_planks: 4 }).stickWood, null)],
+    ['the recount ignores its backoff', "return keys.filter(k => !((failed?.get?.(keyOf(k))?.until ?? 0) > now))", "return keys",
+      X => assert.deepEqual(X.matsRecountable(['a'], new Map([['a', { until: 9e15 }]]), 1), [])],
     ['the recovery balance is blind', "return { verdict: short > 1e-9 ? 'loss' : 'ok', batch: n,", "return { verdict: 'ok', batch: n,",
       X => assert.equal(X.recoveryBalance({ ...X.newNote({ kind: 'bricks', bag0: { stone: 0, stone_bricks: 0, cobblestone: 80 } }), loaded: { input: { name: 'cobblestone', n: 12 }, out: 'stone', inputAfter: 80 } }, { bag: { cobblestone: 80, stone: 1 }, banked: { stone_bricks: 8 } }).verdict, 'loss')],
   ]

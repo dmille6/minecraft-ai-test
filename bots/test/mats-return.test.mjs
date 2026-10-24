@@ -19,6 +19,8 @@ delete process.env.MATS
 import assert from 'node:assert/strict'
 import test from 'node:test'
 const S = await import('../src/skills.mjs')
+const TI = await import('../src/townindex.mjs')
+const { EventEmitter } = await import('node:events')
 const { fakeWorld, stack } = await import('./fakeworld.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 const RECS = []
@@ -117,4 +119,61 @@ test('THE BOUND HOLDS ON AN EXCEPTION (Codex r2 P1-2): a recovery that throws on
     assert.equal(field(lastRow(), 'stop'), stop, lastRow()); assert.equal(!!S.readMatsNote(w.bot), kept)
     fs.rmSync(path.join(process.env.POOL_STATE_DIR, 'mats-carry-MatsReturnBot.json'), { force: true })
   }
+})
+
+const NOTE_FILE = () => path.join(process.env.POOL_STATE_DIR, 'mats-carry-MatsReturnBot.json')
+
+test('A WAIT IS NOT A TRY, AND NOT A VERDICT (Codex r3 P1-1, Claude r3 P1-1/P2-1): a lit furnace -> verdict=pending, tries unchanged, waits 1', async () => {
+  const w = town({ bag: [stack('wooden_pickaxe', 1)] })
+  w.set(3, 64, 3, 'furnace', { lit: 'true' })
+  S.writeMatsNote(w.bot, { ...note(), furnace: FURN, loaded: LOADED, tries: 2 })
+  await run(w)
+  const d = lastRow()
+  assert.equal(field(d, 'drained'), 'lit'); assert.equal(field(d, 'verdict'), 'pending', d); assert.equal(field(d, 'stop'), 'open')
+  const n = S.readMatsNote(w.bot)
+  assert.equal(n.tries, 2, 'the wait used no try'); assert.equal(n.waits, 1)
+  fs.rmSync(NOTE_FILE(), { force: true })
+})
+
+test('EVERY ATTEMPT\'S BANK IS KEPT (Codex r3 P2-4, Claude r3 P2-2): 4 banked into a near-full town, 8 later -> the closing attempt reads ok (12), not short 8', async () => {
+  const w = fakeWorld({ bag: [stack('stone_bricks', 12), stack('wooden_pickaxe', 1)], at: [6.5, 64, 0.5] })
+  w.bot.username = 'MatsReturnBot'
+  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0, 'dirt')
+  w.containers.get('5,64,0').slots[0] = stack('stone_bricks', 60)
+  S.writeMatsNote(w.bot, { ...note(), furnace: null, loaded: { ...LOADED, inputAfter: 0 } })
+  await run(w)
+  assert.equal(field(lastRow(), 'verdict'), 'pending'); assert.equal(count(w, 'stone_bricks'), 8)
+  assert.deepEqual(S.readMatsNote(w.bot)?.deposited, { stone_bricks: 4 })
+  w.set(11, 64, 0, 'chest')                                             // room appears in town
+  await run(w)
+  const d = lastRow()
+  assert.equal(field(d, 'stop'), 'closed', d); assert.equal(field(d, 'verdict'), 'ok', d); assert.equal(field(d, 'out'), '12')
+})
+
+test('THE SWEEP PAST THE BOT\'S REACH (Codex r3 P1-2): the two chests in reach are full -> the bricks go to a town chest only the index knows, 18 blocks off', async () => {
+  const w = town({ full: true })
+  w.set(9, 64, 0, 'chest'); w.fill(9, 64, 0, 'dirt')
+  w.set(-12, 64, 0, 'chest')
+  const HK = TI.indexHomeKey({ x: 0, y: 64, z: 0 })
+  TI.appendIndex(process.env.POOL_STATE_DIR, HK, null, { t: 'obs', id: `o-${Date.now()}`, k: '-12,64,0', h: ['-12,64,0'], at: Date.now(), bot: 'Other', by: 'count_town', names: {}, used: 0, size: 27 })
+  TI.resetIndexCache()
+  S.writeMatsNote(w.bot, note())
+  const r = await run(w)
+  assert.equal(inChestAt(w, '-12,64,0', 'stone_bricks'), 8, `the far chest took the bricks: ${r.detail}`)
+  assert.equal(S.readMatsNote(w.bot), null)
+})
+
+test('PLACEMENTS ARE COUNTED BY THE SLOT UPDATE THAT LANDS AFTER THE BLOCK (Claude r3 P2-4): a lagging decrement is the placement; a stray one is not', async () => {
+  const inv = new EventEmitter()
+  const bot = { heldItem: { name: 'cobblestone' }, inventory: inv, placeBlock: async () => {} }
+  const pl = S.countPlacements(bot)
+  await bot.placeBlock({}, {})
+  assert.deepEqual(pl.placed, {}, 'nothing yet: the server has not sent the slot')
+  await new Promise(r => setTimeout(r, 60))
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 10 }, { name: 'cobblestone', count: 9 })
+  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'the late slot update is the placement')
+  inv.emit('updateSlot', 36, { name: 'cobblestone', count: 9 }, { name: 'cobblestone', count: 8 })
+  assert.deepEqual(pl.placed, { cobblestone: 1 }, 'a decrement with no placement call is not one')
+  pl.restore()
+  assert.equal(inv.listenerCount('updateSlot'), 0, 'restored: no listener left')
 })

@@ -125,7 +125,7 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
-  recoveryBalance, reserveKeyOf,
+  recoveryBalance, reserveKeyOf, matsRecountable,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail } from './mats.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
@@ -12450,10 +12450,12 @@ export function matsBagSpare (bot) {
   return out
 }
 /** The town containers the index does not KNOW (never opened, stale or dirty) that a recount can reach (Codex r1 P2-9). */
-export const matsRecountKeys = bot => indexRecountKeys(bot, [], Date.now(), { notKnown: true })
+// THE RECOUNT'S OWN BACKOFF FILTERS THE TRIGGER TOO (Claude r3 P2-3): one container that cannot be counted sits out its backoff
+// instead of making every order a `count` (mats.mjs matsRecountable)
+export const matsRecountKeys = bot => matsRecountable(indexRecountKeys(bot, [], Date.now(), { notKnown: true }), indexCountFailed, Date.now(), failKey)
 /** THE COUNT REMEDY: count_town's own reconciliation over up to three of those containers. -> counted */
 async function matsRecount (bot, signal) {
-  const keys = matsRecountKeys(bot).filter(k => !((indexCountFailed.get(failKey(k))?.until ?? 0) > Date.now()))
+  const keys = matsRecountKeys(bot)
   if (!keys.length) return 0
   const until = Date.now() + COUNT_TOWN_BUDGET_MS
   const rx = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { max: 3, backoff: indexCountFailed, row: false, arrive: true })
@@ -12478,6 +12480,8 @@ function clearMatsNote (bot) { try { fs.unlinkSync(matsNotePath(bot)) } catch { 
 
 /** The furnaces the job may try now: town furnaces (townFurnaces: within 48 of home, never deep) that are unlit, not in
  *  another session's lease, and not skipped by this bot in the last 30 min (it saw foreign contents there). Nearest first. */
+/** How many town furnaces one materials session may try (nearest first, while the clock allows). */
+export const MATS_FURNACE_TRIES = 6
 export function matsFurnaceCandidates (bot) {
   const now = Date.now()
   return townFurnaces(bot).filter(f => !f.lit && !furnaceLeasedNow(f.k) && !((bot.matsFurnaceSkip?.[f.k] ?? 0) > now))
@@ -12580,7 +12584,11 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve) {
 export async function matsSession (ctx, { input, n, planksName, out: outName, own, onLoad = null }, signal, deadline) {
   const { bot } = ctx
   const res = { made: 0, prior: {}, burned: 0, furnaceLeft: {}, furnace: '-', lease: '-', uncertain: false, stop: null, tried: [] }
-  for (const cand of matsFurnaceCandidates(bot).slice(0, 3)) {
+  // EVERY QUALIFYING CHANCE THE CLOCK AFFORDS (Paper r3 furn: three foreign furnaces nearer than the one clean one left it
+  // unreached and the order's inputs in the bag): a refusal is a walk and an open, so the candidates are tried nearest first
+  // while the batch still fits the clock, at most MATS_FURNACE_TRIES (each refusal is skipped 30 min, so the next order
+  // starts past it)
+  for (const cand of matsFurnaceCandidates(bot).slice(0, MATS_FURNACE_TRIES)) {
     check(signal)
     if (deadline - Date.now() < n * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS) { res.stop = res.stop ?? 'late'; break }
     let lease = null, furnace = null, leaseAt = null
@@ -12691,22 +12699,39 @@ async function matsCraftDirect (bot, out, times, { allowed, must = null }) {
   return Math.max(0, countItem(bot, out) - before)
 }
 
-/** THE ORDER'S OWN PLACEMENTS (Claude r2 P2-C, design 3.2): bot.placeBlock wrapped for the order's duration (mineflayer-pathfinder
- *  places its scaffold through bot.placeBlock, index.js), each placement counted BY THE BAG -- the held item's count before and
- *  after the call, so a call that threw but placed still counts. -> { placed: {name: n}, restore } */
-function countPlacements (bot) {
-  const placed = {}
+/** THE ORDER'S OWN PLACEMENTS (Claude r2 P2-C, design 3.2) -> { placed: {name: n}, restore }. bot.placeBlock is wrapped for the
+ *  order's duration (mineflayer-pathfinder places its scaffold through it, index.js) and each call notes the HELD item; a
+ *  placement is counted when the bag's own slot update for that name lands -- within PLACE_MATCH_MS of the call, one unit per
+ *  call. NOT by reading the bag when placeBlock resolves (Claude r3 P2-4): mineflayer resolves on the BLOCK update and Paper's
+ *  slot update comes after it (measured 10-05, the place() note above), so that read saw no change. RESIDUAL (named): a
+ *  decrement of the same name within the window that is not the placement (a craft right after a failed placement) is read as
+ *  placed. */
+const PLACE_MATCH_MS = 2000
+export function countPlacements (bot) {
+  const placed = {}, pending = []
   const orig = bot?.placeBlock
   if (typeof orig !== 'function') return { placed, restore: () => {} }
-  const wrapped = async function (...a) {
-    const name = bot.heldItem?.name ?? null
-    const before = name ? countItem(bot, name) : 0
-    try { return await orig.apply(this, a) } finally {
-      if (name) { const d = before - countItem(bot, name); if (d > 0) placed[name] = (placed[name] ?? 0) + d }
+  const inv = bot.inventory
+  const onSlot = (_slot, oldItem, newItem) => {
+    const name = oldItem?.name
+    if (!name) return
+    let d = (Number(oldItem.count) || 0) - (newItem?.name === name ? (Number(newItem.count) || 0) : 0)
+    const now = Date.now()
+    for (const p of pending) {
+      if (!(d > 0)) break
+      if (p.done || p.name !== name || now - p.at > PLACE_MATCH_MS) continue
+      p.done = true; d--
+      placed[name] = (placed[name] ?? 0) + 1
     }
   }
+  try { inv?.on?.('updateSlot', onSlot) } catch { /* no events: nothing is counted */ }
+  const wrapped = function (...a) {
+    const name = bot.heldItem?.name ?? null
+    if (name) { pending.push({ name, at: Date.now(), done: false }); if (pending.length > 64) pending.splice(0, pending.length - 64) }
+    return orig.apply(this, a)
+  }
   bot.placeBlock = wrapped
-  return { placed, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig } }
+  return { placed, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onSlot) } catch { /* gone */ } } }
 }
 
 /** How many town containers one bank of one name tries, nearest first (Claude r2 P1-A). */
@@ -12717,10 +12742,23 @@ const MATS_BANK_TRIES = 3
  *  THE SWEEP (Claude r2 P1-A): a full or unreachable nearest container never strands the part -- the town's containers are
  *  tried nearest first (townContainers: the town memory's full ones already skipped), at most MATS_BANK_TRIES, each attempt
  *  bounded; a walk that throws is the next container's turn. -> { name: banked } */
-async function matsBank (ctx, names, bag0, signal, caps = {}) {
+async function matsBank (ctx, names, bag0, signal, caps = {}, { avoid = {}, full = [], final = false } = {}) {
   const { bot } = ctx
   const banked = {}
   const until = Date.now() + 10 * 60_000
+  // THE CANDIDATES (Codex r3 P1-2): the containers in reach (townContainers: the town memory's full ones skipped) AND the town
+  // index's containers past it, nearest first, without the ones this note found full (`avoid`: key -> until, kept in the note
+  // across attempts); a container a deposit reports full is added to `full`
+  const targets = () => {
+    const me = bot.entity?.position
+    if (!me) return []
+    const near = townContainers(bot, 8).map(b => b.position)
+    let idx = []
+    try { idx = Object.keys(townIndexEntries(bot) ?? {}).map(keyVec).filter(p => p.x === p.x && inTown(homeVec(), p)) } catch { idx = [] }
+    const seen = new Set(), now = Date.now()
+    return [...near, ...idx].filter(p => { const k = posKey(p); if (seen.has(k) || (avoid?.[k] ?? 0) > now || full.includes(k)) return false; seen.add(k); return true })
+      .sort((a, b) => me.distanceTo(a) - me.distanceTo(b)).slice(0, MATS_BANK_TRIES)
+  }
   for (const name of names) {
     const had = heldMap(bot)[name] ?? 0
     const own = Number(bag0?.[name]) || 0
@@ -12732,15 +12770,21 @@ async function matsBank (ctx, names, bag0, signal, caps = {}) {
     const wants0 = bot.currentWants
     try {
       if (name === 'torch') bot.currentWants = [...(Array.isArray(wants0) ? wants0 : []), name]
-      const targets = townContainers(bot, MATS_BANK_TRIES).map(b => b.position)
+      const ts = targets()
       const tried = []
-      for (const at of (targets.length ? targets : [null])) {
+      for (const at of (ts.length ? ts : [null])) {
         check(signal)
         if ((heldMap(bot)[name] ?? 0) <= had - want) break
+        let r = null
         try {
-          await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt: at, exclude: [...tried], until: Date.now() + 30_000 })
+          r = await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt: at, exclude: [...tried], until: Date.now() + 30_000 })
         } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-        if (at) tried.push(at)
+        if (at) { tried.push(at); if (r?.failClass === 'storage_full') full.push(posKey(at)) }
+      }
+      // THE LAST ATTEMPT (Claude r3 P2-5): a town full within reach -> deposit's own full-chest recovery (the fleet's: the town's
+      // other containers, then storage built from the bag), before a note would be given up
+      if (final && (heldMap(bot)[name] ?? 0) > had - want) {
+        try { await deposit(ctx, { item: name }, signal, {}) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       }
     } finally { bot.currentWants = wants0; restore() }
     const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
@@ -12935,10 +12979,15 @@ async function matsReturnDrain (ctx, note, signal) {
     }
     if (bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5)) > STATION_REACH) return { code: 'unreachable', done: false }
     if (!cold()) return { code: 'lit', done: false }
+    // ROOM AGAIN AFTER THE WALK (Codex r3 P1-3): pickups on the way can fill the three slots the check before it saw
+    if (!((() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })() >= 3)) return { code: 'bag_full', done: false }
     try { win = await withTimeout(bot.openFurnace(bot.blockAt(pos)), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e.aborted) throw e; return { code: 'window', done: false } }
     const rd = k => { try { const it = win[k](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
     const slots = { input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem') }
     if (Object.values(slots).includes(undefined) || !cold() || (win.fuel ?? 0) > 0) { try { win.close() } catch { /* closed */ } win = null; return { code: 'unreadable_or_lit', done: false } }
+    // ...AND IN THE WINDOW'S OWN BAG, the one the drain fills (mineflayer copies it back only at the close)
+    const winFree = (() => { try { return win.emptySlotCount?.() } catch { return null } })()
+    if (winFree != null && winFree < 3) { try { win.close() } catch { /* closed */ } win = null; return { code: 'bag_full', done: false } }
     if (!slots.input && !slots.fuel && !slots.output) { try { win.close() } catch { /* closed */ } win = null; return { code: 'empty', done: true } }
     const q = recoveryContentsOk(note.loaded, slots)
     if (!q.ok) { try { win.close() } catch { /* closed */ } win = null; return { code: `foreign:${q.why}`, done: true } }
@@ -12978,19 +13027,41 @@ async function matsReturn (ctx, _args, signal) {
     for (const [n, c] of Object.entries(note.took ?? {})) releaseWithdrawHold(n, c)
     let furnaceDone = true
     if (note.furnace) { const d = await matsReturnDrain(ctx, note, signal); drained = d.code; furnaceDone = d.done }
+    // A WAIT IS NOT A TRY (Claude r3 P2-1): a furnace still lit, leased by the dead process (TTL), out of the loaded chunks, or a
+    // bag without room is nothing the recovery did -- booked as a wait; the 24 h age still bounds the note
+    if (/^(lit|busy|unloaded|bag_full|unreadable_or_lit)$/.test(drained)) { note.tries -= 1; note.waits = (Number(note.waits) || 0) + 1; writeMatsNote(bot, note) }
     // THE CRAFTS AND THE BANK, CAPPED BY THE NOTE (Claude r2 P2-D): returnPlan counts only what the note can own
     const K = KINDS[note.kind]
-    const p0 = returnPlan(note, heldMap(bot))
+    let p0 = returnPlan(note, heldMap(bot))
     const before = heldMap(bot)[K?.part] ?? 0
     check(signal)
+    // THE TORCH KIND'S MISSING STICKS (Codex r3 P2-5, Claude r3 P3-1): made from the order's own wood above bag0, never the kit's
+    if (p0.sticksShort > 0 && p0.stickWood) {
+      const w = p0.stickWood
+      if (w.log) await craft(ctx, { item: w.planks, count: 4 }, signal)
+      const s0 = heldMap(bot).stick ?? 0
+      await matsCraftDirect(bot, 'stick', Math.ceil(p0.sticksShort / 4), { allowed: [w.planks], must: w.planks })
+      const got = Math.max(0, (heldMap(bot).stick ?? 0) - s0)
+      if (got) { note.sticks = (Number(note.sticks) || 0) + got; writeMatsNote(bot, note) }
+      p0 = returnPlan(note, heldMap(bot))
+    }
     if (p0.craftStone >= 4) await craft(ctx, { item: 'stone_bricks', count: p0.craftStone }, signal)
     if (p0.panes > 0) await craft(ctx, { item: 'glass_pane', count: p0.panes * 16 }, signal)
+    if (p0.cutCopper > 0) await craft(ctx, { item: 'cut_copper', count: 4 }, signal)
     if (p0.torches > 0) await matsCraftDirect(bot, 'torch', p0.torches, { allowed: ['charcoal', 'stick'], must: 'charcoal' })
     made = Math.max(0, (heldMap(bot)[K?.part] ?? 0) - before)
     const p1 = returnPlan(note, heldMap(bot))
-    banked = await matsBank(ctx, Object.keys(p1.bank), note.bag0, signal, p1.bank)
+    // the bank: past the bot's reach, full containers remembered in the note, and on the LAST try deposit's own recovery
+    const full = []
+    const lastTry = note.tries >= MATS_RETURN_MAX || Date.now() - (Number(note.at) || 0) > MATS_RETURN_MAX_AGE_MS - 60 * 60_000
+    banked = await matsBank(ctx, Object.keys(p1.bank), note.bag0, signal, p1.bank, { avoid: note.bankFull ?? {}, full, final: lastTry })
+    if (full.length) { note.bankFull = { ...(note.bankFull ?? {}) }; for (const k of full) note.bankFull[k] = Date.now() + 30 * 60_000 }
     plan = returnPlan(note, heldMap(bot))
-    bal = recoveryBalance(note, { bag: heldMap(bot), banked })
+    // THE BALANCE IS JUDGED ONLY WHEN THE NOTE ENDS (Codex r3 P1-1, Claude r3 P1-1): an attempt whose furnace is not drained yet
+    // holds the batch out of sight (verdict=pending, never a loss); every attempt's bank is kept in the note (Codex r3 P2-4)
+    const balNow = recoveryBalance(note, { bag: heldMap(bot), banked })
+    note.deposited = { ...(note.deposited ?? {}) }
+    for (const [n2, c2] of Object.entries(banked)) note.deposited[n2] = (Number(note.deposited[n2]) || 0) + c2
     // B3 ON THE RECOVERY (Claude r2 P2-D): no iron-ladder or fuel name fewer after it than before, beyond the order's own
     // charcoal made into torches
     const f1 = forbiddenCounts(heldMap(bot))
@@ -12999,9 +13070,9 @@ async function matsReturn (ctx, _args, signal) {
       const d = c - (f1[n] ?? 0) - allowed
       if (d > 0) forbidden[n] = d
     }
-    if (noteSettled(note, heldMap(bot), { furnaceDone })) { clearMatsNote(bot); stop = 'closed' }
-    else if (giveUp()) { clearMatsNote(bot); stop = 'abandoned' }
-    else stop = 'open'
+    if (noteSettled(note, heldMap(bot), { furnaceDone })) { clearMatsNote(bot); stop = 'closed'; bal = balNow }
+    else if (giveUp()) { clearMatsNote(bot); stop = 'abandoned'; bal = furnaceDone ? balNow : null }
+    else { stop = 'open'; writeMatsNote(bot, note) }
     const what = `drained ${drained}, made ${made}, banked ${Object.entries(banked).map(([n, c]) => `${c} ${n}`).join(', ') || 'nothing'}`
     return (result = stop === 'closed' ? { status: Object.keys(banked).length || made ? 'success' : 'no_effect', detail: `reconciled the materials note: ${what}` }
       : stop === 'abandoned' ? { status: 'no_effect', detail: `gave the materials note up after ${note.tries} tries (${what}); the read counts it` }
@@ -13014,9 +13085,9 @@ async function matsReturn (ctx, _args, signal) {
     return (result = { status: 'failed', failClass: 'other', detail: `mats_return stopped${stop === 'abandoned' ? ' (the note is given up)' : ''}: ${String(e?.message ?? e).slice(0, 120)}` })
   } finally {
     const kvs = m => Object.entries(m ?? {}).filter(([, c]) => c).map(([n, c]) => `${n}:${c}`).join(',') || '-'
-    const verdict = Object.keys(forbidden).length ? 'forbidden' : bal ? bal.verdict : stop === 'error' || stop === 'abandoned' ? 'unreconciled' : '-'
+    const verdict = Object.keys(forbidden).length ? 'forbidden' : bal ? bal.verdict : stop === 'open' ? 'pending' : stop === 'error' || stop === 'abandoned' ? 'unreconciled' : '-'
     // THE GATE FIELDS FIRST (300-char cut): verdict and forbidden, the balance, then the bookkeeping
-    try { logEvent({ kind: 'mats_return', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: `kind=${note?.kind ?? '-'} verdict=${verdict} forbidden=${kvs(forbidden)} stop=${stop ?? '-'} tries=${note?.tries ?? 0} batch=${bal?.batch ?? 0} out=${bal?.out ?? 0} back=${bal?.back ?? 0} short=${bal?.short ?? 0} made=${made} banked=${kvs(banked)} drained=${drained} stone_left=${plan?.stoneLeft ?? 0} charcoal_left=${plan?.charcoalLeft ?? 0} inputs_left=${kvs(plan?.inputsLeft)} furnace=${note?.furnace ?? '-'} err=${err ?? '-'} t0=${note?.at ?? '-'}` }) } catch { /* never break */ }
+    try { logEvent({ kind: 'mats_return', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: `kind=${note?.kind ?? '-'} verdict=${verdict} forbidden=${kvs(forbidden)} stop=${stop ?? '-'} tries=${note?.tries ?? 0} waits=${note?.waits ?? 0} batch=${bal?.batch ?? 0} out=${bal?.out ?? 0} back=${bal?.back ?? 0} short=${bal?.short ?? 0} made=${made} banked=${kvs(banked)} drained=${drained} stone_left=${plan?.stoneLeft ?? 0} charcoal_left=${plan?.charcoalLeft ?? 0} inputs_left=${kvs(plan?.inputsLeft)} furnace=${note?.furnace ?? '-'} err=${err ?? '-'} t0=${note?.at ?? '-'}` }) } catch { /* never break */ }
     if (result) result.made = made
   }
 }
