@@ -46,8 +46,9 @@ sys.path.insert(0, '/home/mike/mcai-analysis')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 BUCKET_S, COVERAGE, HOLD_OUT_S, LINK_S = 600, 0.75, 1800, 120
 NEAR_MS = 1000
+FIRING_S = 70          # a ramp firing is 60 s of budget plus at most a 5 s settle and the ramp_cut write
 COMET = 'board-a-Comet'
-COMET_BOX = ((357, 362), (185, 190), 44.0)      # x range, z range, y ceiling of the trap (the column and its east cell)
+COMET_BOX = ((359.0, 360.0), (186.0, 188.0), (38.5, 41.0))   # design section 9: the COLUMN (x, z, y ranges); its east cell is out (Codex code r1 P2)
 RAMP_CUTS = ('_entombed_ramp_cut', '_marooned_ramp_cut')
 KEEP = ('_ceilescape_mode', '_ceilescape', '_needs_rescue', '_death', '_water_no_air_route', '_water_no_air_route_ended') + RAMP_CUTS
 
@@ -68,8 +69,8 @@ def num(v):
 
 
 def in_box(p, box):
-    (x0, x1), (z0, z1), ytop = box
-    return x0 <= p[0] <= x1 and z0 <= p[2] <= z1 and p[1] <= ytop
+    (x0, x1), (z0, z1), (y0, y1) = box
+    return x0 <= p[0] < x1 and z0 <= p[2] < z1 and y0 <= p[1] <= y1
 
 
 def left_box(rows, bot, box, cut, newest):
@@ -112,11 +113,18 @@ def judge(rows, *, cut, cans, fleet=False):
     post = [r for r in rows if r['t'] >= cut]
     can = [r for r in post if arm(r['bot']) == 'canary']
     newest = max((r['t'] for r in rows), default=cut)
-    lic = {}
+    # THE LICENCE AT EACH DECISION'S OWN TIME (Codex code r1 P2): a later rollback must not erase an earlier violation
+    lic_t = defaultdict(list)
     for r in sorted(can, key=lambda r: r['t']):
         if r['name'] == '_ceilescape_mode':
-            lic[r['bot']] = kv(r['detail']).get('on') == '1'
-    res['licence_on'] = sum(1 for v in lic.values() if v)
+            lic_t[r['bot']].append((r['t'], kv(r['detail']).get('on') == '1'))
+    def lic_at(bot, t):
+        on = None
+        for ts, v in lic_t.get(bot, []):
+            if ts <= t:
+                on = v
+        return on
+    res['licence_on'] = sum(1 for b, v in lic_t.items() if any(x for _, x in v))
     ce = [r for r in can if r['name'] == '_ceilescape']
     res['actions'] = dict(Counter(kv(r['detail']).get('action', '?') for r in ce))
     res['actions_by_bot'] = {b: dict(Counter(kv(r['detail']).get('action', '?') for r in ce if r['bot'] == b)) for b in sorted({r['bot'] for r in ce})}
@@ -126,7 +134,7 @@ def judge(rows, *, cut, cans, fleet=False):
     for r in ce:
         k = kv(r['detail'])
         e, l, a = num(k.get('env_ms')), num(k.get('left_ms')), k.get('action')
-        if a in ('off', 'ceiling') or e is None or l is None or lic.get(r['bot']) is False:
+        if a in ('off', 'ceiling') or e is None or l is None or lic_at(r['bot'], r['t']) is False:
             continue
         if e <= l:
             g2.append((r['bot'], round(r['t']), a))
@@ -134,6 +142,9 @@ def judge(rows, *, cut, cans, fleet=False):
     # G3: a declined swing that was swung anyway (per firing), and the reported near/far misses
     g3, near, far = [], 0, 0
     for bot, crs, cut_row in firings([r for r in post if arm(r['bot']) == 'canary']):
+        # ONLY THIS FIRING'S OWN ROWS (Claude code r1 P2-2): the stranded lattice's stair_up also runs the ramp and writes
+        # `_ceilescape` rows but no ramp_cut row, so rows older than one firing (60 s budget + settle) are not this firing's
+        crs = [r for r in crs if r['t'] >= cut_row['t'] - FIRING_S]
         if not crs or 'dig exceeded' not in (cut_row.get('detail') or ''):
             continue
         k = kv(crs[-1]['detail'])
@@ -180,7 +191,7 @@ def judge(rows, *, cut, cans, fleet=False):
             ax, ay, az = (float(v) for v in kv(r0['detail']).get('at', '').split(','))
         except ValueError:
             continue
-        others[b] = left_box(post, b, ((ax - 2, ax + 2), (az - 2, az + 2), ay + 3), cut, newest)
+        others[b] = left_box(post, b, ((ax, ax + 1), (az, az + 1), (ay - 1.5, ay + 1.0)), cut, newest)   # its own column cell
     res['others_left'] = others
     res['primary_left'] = 1 if res['comet'] == 'left' else 0
     return res
@@ -199,6 +210,12 @@ def selftest():
     ok = judge(out, cut=cut, cans={'board-a'})
     assert ok['primary_left'] == 1 and ok['instrument'] == 1 and ok['exposure'] == 1 and ok['licence_on'] == 1, ok
     assert ok['unchanged_broken'] == 0 and ok['declined_swung'] == 0 and ok['linked_deaths'] == 0 and ok['rows_control'] == 0, ok
+    # PRIMARY: the designed lateral exit itself (the east cell, 360.5,40,187.5) held 59 min IS left (Codex code r1 P2)
+    east = stay(COMET, cut - 3600, cut + 60) + [lic, row(COMET, cut + 60, '_ceilescape', detail=LAT)] + stay(COMET, cut + 120, cut + 3660, (360.5, 40.0, 187.5))
+    assert judge(east, cut=cut, cans={'board-a'})['comet'] == 'left'
+    # G2 at the decision's own time: a violation under on=1 survives a later on=0 licence
+    v = out + [row(COMET, cut + 200, '_ceilescape', detail=LAT.replace('env_ms=375000', 'env_ms=15000')), row(COMET, cut + 300, '_ceilescape_mode', detail='on=0')]
+    assert judge(v, cut=cut, cans={'board-a'})['unchanged_broken'] == 1
     # PRIMARY fails: still in the column
     stuck = stay(COMET, cut - 3600, cut + 7200) + [lic, row(COMET, cut + 60, '_ceilescape', detail=LAT)]
     assert judge(stuck, cut=cut, cans={'board-a'})['primary_left'] == 0
@@ -232,6 +249,9 @@ def selftest():
     sep = out + [row(COMET, cut + 4000, '_ceilescape', detail=W), row(COMET, cut + 4010, '_entombed_ramp_cut', detail='stopped because no affordable ramp exit'),
                  row(COMET, cut + 4020, '_ceilescape', detail=N), row(COMET, cut + 4080, '_entombed_ramp_cut', detail='stopped because ceiling dig failed: dig exceeded 59000ms')]
     assert judge(sep, cut=cut, cans={'board-a'})['declined_swung'] == 0
+    # G3 grouping: a lattice wait row 10 min before an entombed firing with no row of its own does not pair with it
+    lat2 = out + [row(COMET, cut + 4000, '_ceilescape', detail=W), row(COMET, cut + 4600, '_entombed_ramp_cut', detail='stopped because dig failed on stone: dig exceeded 59000ms')]
+    assert judge(lat2, cut=cut, cans={'board-a'})['declined_swung'] == 0
     # ARMS: a control row after the deploy
     assert judge(out + [row('hive-a-Alpha', cut + 50, '_ceilescape_mode', detail='on=1')], cut=cut, cans={'board-a'})['rows_control'] == 1
     # --fleet: every pool is the arm; control rows are not a defect there
