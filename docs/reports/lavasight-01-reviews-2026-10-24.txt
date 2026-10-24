@@ -491,3 +491,57 @@ P3
    executed by the base pathfinder at shifted node positions, and lavasight charges the once-processed form. The guard is
    unchanged, so this affects price only.
 3. The -0.5 vs -1.0 primary threshold is noted as the owner's call. Fine.
+
+==================================================================================================================
+CODE r6 / DESIGN r7 (adedd19c) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: APPROVE
+
+- **P3 — Empty-index searches still leave the start unpinned.** `bots/src/lavasight.mjs:264` returns before `formsOf` pins `_lsSt` at line 231. A later climbable settlement can therefore use the bot’s newer position. Confirmed in memory. Pin the start before the empty-index return; test index fill after the bot moves.
+- **P3 — Residual wording is too narrow.** `docs/reports/lavasight-01-design-2026-10-24.md:218` says mismatches occur “only” on climbing paths, but line 209 also excludes unsupported nodes from idempotence. Include both cases.
+
+No blocking findings. The upstream re-processing residual is acceptable for this canary with the unchanged guard retaining final authority.
+
+Validation: read-script selftest and guard-wiring test passed. File-writing mutant/publisher tests were inspected but not run under the read-only constraint.
+codex exit 0
+
+==================================================================================================================
+CODE r6 / DESIGN r7 (adedd19c) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: APPROVE
+
+Reviewed bea0b21e..adedd19c. No P1 or P2. The r6 P1 is fixed: the resumed-search tests now run on a fake clock and are
+deterministic.
+
+Determinism (what you asked me to check)
+- lavasight.test.mjs passed 35/35 on three sequential runs.
+- It also passed 35/35 on four copies run at once alongside four busy-loop CPU burners.
+- At bea0b21e the committed version failed 4 of 5 runs.
+- Only one clock dependency is left, and it is safe: slicedPlan (lavasight.test.mjs:401-421) patches the shared
+  perf_hooks.performance.now, the object astar.js reads, for the first compute() only. That makes the first partial land at
+  a fixed expansion count. It then restores the real clock and sets the context's tickTimeout to 10000. timeout: 1e9 keeps
+  the fake startTime from causing a spurious timeout. Mutant files are named by pid plus a random suffix, so the concurrent
+  runs did not collide.
+- Companion tests pass: lavamap-publish 3/3, lava-guards-wired 4/4, keepout-homefix 5/5. I did not run the full npm test
+  runner.
+
+Verified
+- RESUMED SEARCHES asserts exact charging on the pool world, the slab corridor and 12 noisy worlds, at slice sizes 2, 3 and 5,
+  with a positive control of at least 20 resumed searches. It limits itself to worlds where postProcessPath is idempotent:
+  full blocks, slabs, carpets and water. Climbables are excluded.
+- THE UPSTREAM RESIDUAL shows on the unwrapped base pathfinder that a resumed ladder climb executes at different node
+  positions. The residual is named in 3.3 and in the moveSurcharge docstring (lavasight.mjs:254-256).
+- Dropping the mutable-coordinate mutant is justified. Forms are cached on the node at generation, before any mutation. On
+  idempotent worlds the floor of a mutated node gives the same processed form; for example a slab node at 60.5 floors to 60,
+  whose top is 60.5 again. So cellOf only changes climb direction and settles on climbables, and those are exactly the
+  residual. No idempotent world can kill that mutant.
+- The start pin (lavasight.mjs:229-231) pins the search start on first use.
+
+P3
+1. The pin misses the case I raised. formsOf(start) is first called only when the index is non-empty, because moveSurcharge
+   returns early at lavasight.mjs:264 when it is empty. That is exactly the late-fill case from my r6 P3-1: the index is
+   empty when the start is expanded, and a later settle reaches back through _lsPar to a start pinned at the bot's position
+   at that moment, which may have moved. Fix: pin before the early return, e.g.
+   if (node._lsGen !== true && !node._lsSt) node._lsSt = env.start ?? null. It can only mis-charge, and only when three rare
+   conditions coincide.
+2. The -0.5 primary threshold stays the owner's call, as noted.

@@ -473,6 +473,15 @@ await t('A LATE INDEX: a ladder generated while the index was empty still settle
   const full = chain(idx), late = chain(new Set())
   assert.ok(full > 0, `positive control: the climb past the lava is charged (${full})`)
   assert.equal(late, full, 'the segment into the ladder is settled on its child even though it was generated unpriced')
+  // and with the bot having walked on before the index filled: the settle still reaches back to where the SEARCH began
+  const moved = (() => {
+    const start = new Move(0, 63, 0, 0, 0)
+    const a2 = new Move(0, 64, 0, 0, 1), b2 = new Move(0, 65, 0, 0, 1)
+    const s1 = LS.moveSurcharge(new Set(), start, a2, env)
+    const s2 = LS.moveSurcharge(idx, a2, b2, { ...env, start: { x: 9, y: 70, z: 9 } })
+    return s1 + s2
+  })()
+  assert.equal(moved, full, 'the start was pinned while the index was empty (Claude r7 P3-1, Codex r7 P3)')
 })
 await t('CAPPED SEARCHES: wherever the base reaches a goal within a cost cap by a route the guard accepts, the candidate does too (Codex r2 P1, r3 P2)', () => {
   // GoalBlock, so the base's cost >= h(start) and the cap is a real cap (searchRadius >= 0); one slice per search (the
