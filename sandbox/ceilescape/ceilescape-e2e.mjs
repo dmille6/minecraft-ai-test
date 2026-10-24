@@ -73,8 +73,8 @@ function batch (cmds) {
   if (bad.length) throw new Error('rcon: ' + bad.slice(0, 3).map(x => x.cmd + ' => ' + x.reply).join('; '))
   return out
 }
-const posOf = name => { const m = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(r1(`data get entity ${name} Pos`)); return m ? { x: +m[1], y: +m[2], z: +m[3] } : null }
-const healthOf = name => { const m = /([\d.]+)f/.exec(r1(`data get entity ${name} Health`)); return m ? +m[1] : null }
+const posOf = name => { const m = /entity data: \[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(r1(`data get entity ${name} Pos`)); return m ? { x: +m[1], y: +m[2], z: +m[3] } : null }
+const healthOf = name => { const m = /entity data: ([\d.]+)f/.exec(r1(`data get entity ${name} Health`)); return m ? +m[1] : null }   // after the prefix, never the name
 const isBlock = (x, y, z, b) => /Test passed/.test(r1(`execute if block ${x} ${y} ${z} minecraft:${b}`))
 // TRI-STATE (Codex driver r3 P2): true / false only on an explicit test answer; anything else is null -- an observation that failed
 let obsFailures = 0
@@ -243,7 +243,10 @@ async function main () {
     lastPollAt = Date.now()
     if (p) track.push([Math.round((Date.now() - T0) / 1000), +p.x.toFixed(1), +p.y.toFixed(1), +p.z.toFixed(1)])
     // OUT AND DRY, continuously (Codex driver r2 P2): the hold clock runs only while both hold
-    if (p && !inTrap(p) && dryAt(p)) { outAt ??= Date.now() } else outAt = null
+    // ...and still in the same cell once its cells were read (Codex driver r8 P2): a body that moved during the reads resets it
+    const q = p && !inTrap(p) && dryAt(p) ? posOf(bot.name) : null
+    const same = !!q && Math.floor(q.x) === Math.floor(p.x) && Math.floor(q.y) === Math.floor(p.y) && Math.floor(q.z) === Math.floor(p.z)
+    if (same) { outAt ??= Date.now() } else outAt = null
     if (outAt && Date.now() - outAt >= 60_000) break                  // out of the trap and dry a full minute: done
   }
   // THE WORLD FIRST, THE BODY LAST (Codex driver r6 P2): the slow block reads are made before the final observation, so the
