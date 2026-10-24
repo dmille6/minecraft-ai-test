@@ -81,6 +81,9 @@ case "${1:-}" in
     M=$T/runs/$RUN/merged-16bit
     [ -d "$M" ] || die "no merged model at $M"
     [ -d "$T/llama.cpp" ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp "$T/llama.cpp" || die "llama.cpp clone failed"
+    # QWEN3: force the trained no-think render INTO the GGUF's chat template (nothink_template.py says why: on Ollama
+    # 0.32.14 a Modelfile TEMPLATE alone served the THINKING prompt to a client that sends no `think`, as the fleet's).
+    case "$BASE_TAG" in qwen3*) $PY "$T/nothink_template.py" "$M" || die "no-think template rewrite failed";; esac
     say "convert to GGUF bf16"
     PYTHONPATH=$T/llama.cpp/gguf-py $PY "$T/llama.cpp/convert_hf_to_gguf.py" "$M" --outtype bf16 --outfile "$T/runs/$RUN/$CAND-bf16.gguf" || die "convert failed"
     # THE NO-THINK TEMPLATE: exactly the training render (apply_chat_template(..., enable_thinking=False)), so the served
@@ -124,7 +127,10 @@ for line in (meta.get('parameters') or '').splitlines():
 if not any(p.startswith('PARAMETER stop ') and '<|im_end|>' in p for p in params):
     params.append('PARAMETER stop "<|im_end|>"')
 gguf = os.path.join(d, cand + '-bf16.gguf')
-files = [('bf16', gguf), ('q4', gguf)] + ([('base-nothink', tag)] if tag.startswith('qwen3') else [])
+# the untuned base is built by `run.sh export-base` exactly like the candidate (same converter, template, quantizer)
+base_gguf = os.path.join(os.path.dirname(os.path.dirname(d)), 'runs', 'base-qwen3-8b', 'qwen3-8b-base-bf16.gguf') \
+    if os.path.basename(os.path.dirname(d)) == 'runs' else None
+files = [('bf16', gguf), ('q4', gguf)] + ([('base-nothink', base_gguf)] if tag.startswith('qwen3') and base_gguf else [])
 for name, src in files:
     open(os.path.join(d, 'Modelfile.' + name), 'w').write('FROM %s\nTEMPLATE """%s"""\n%s\n' % (src, tpl, '\n'.join(params)))
 print('Modelfiles written (%s); base %s; params %s; template tail %r' % (', '.join(n for n, _ in files), tag, params, tpl[-12:]))
@@ -133,8 +139,22 @@ PY
     echo "Modelfiles written. With ollama running (start-ollama):"
     echo "  ollama create $CAND-bf16 -f $T/runs/$RUN/Modelfile.bf16"
     echo "  ollama create $CAND -q q4_K_M -f $T/runs/$RUN/Modelfile.q4"
-    case "$BASE_TAG" in qwen3*) echo "  ollama create qwen3-8b-nothink -f $T/runs/$RUN/Modelfile.base-nothink";; esac
+    case "$BASE_TAG" in qwen3*) echo "  (after bash run.sh export-base) ollama create qwen3-8b-nothink -q q4_K_M -f $T/runs/$RUN/Modelfile.base-nothink";; esac
     sha256sum "$T/runs/$RUN/$CAND-bf16.gguf" | tee "$T/runs/$RUN/gguf.sha256"
+    ;;
+  export-base)
+    # the UNTUNED Qwen3-8B, built exactly as a candidate is: HF base weights (symlinked) + the same no-think template
+    # rewrite + the same converter; then `ollama create qwen3-8b-nothink -q q4_K_M` from the Modelfile export wrote
+    B=$T/runs/base-qwen3-8b
+    S=$(ls -d "$HF_HOME"/hub/models--unsloth--Qwen3-8B/snapshots/*/ | head -1)
+    [ -n "$S" ] || die "no unsloth/Qwen3-8B snapshot in $HF_HOME"
+    mkdir -p "$B/hf"
+    for f in "$S"*; do n=$(basename "$f")
+      case "$n" in tokenizer*|chat_template*|special_tokens*|added_tokens*) cp -L "$f" "$B/hf/$n" && chmod u+w "$B/hf/$n";; *) ln -sf "$(readlink -f "$f")" "$B/hf/$n";; esac
+    done
+    $PY "$T/nothink_template.py" "$B/hf" || die "no-think template rewrite failed (base)"
+    PYTHONPATH=$T/llama.cpp/gguf-py $PY "$T/llama.cpp/convert_hf_to_gguf.py" "$B/hf" --outtype bf16 --outfile "$B/qwen3-8b-base-bf16.gguf" || die "convert failed (base)"
+    sha256sum "$B/qwen3-8b-base-bf16.gguf" | tee "$B/gguf.sha256"
     ;;
   base-meta)
     # read-only: the base tags' TEMPLATE + PARAMETERS from this host's Ollama, byte-exact (/api/show); export uses them
@@ -149,9 +169,9 @@ PY
     # the models created (see export's printed commands)
     # per arm (M3 10-24): the HF tokenizer of the arm's base, and an Ollama control model served with a DIFFERENT
     # template (Qwen3 arm: stock qwen3:8b; qwen2.5 arm: qwen3-8b-nothink, whose no-think tail adds tokens)
-    case "$BASE_TAG" in qwen3*) MS="$CAND $CAND-bf16 qwen3-8b-nothink"; CTL=qwen3:8b;; *) MS="$CAND $CAND-bf16 $BASE_TAG"; CTL=qwen3-8b-nothink;; esac
+    case "$BASE_TAG" in qwen3*) MS="$CAND $CAND-bf16 qwen3-8b-nothink"; CTL=qwen3:8b; TV=--think-variants;; *) MS="$CAND $CAND-bf16 $BASE_TAG"; CTL=qwen3-8b-nothink;; esac
     for m in $MS; do
-      $PY "$T/template_check.py" --items "$DATA/m3-eval.jsonl" --model "$m" --base "$BASE" --control-model "$CTL" --n 3 || die "template check FAILED for $m"
+      $PY "$T/template_check.py" --items "$DATA/m3-eval.jsonl" --model "$m" --base "$BASE" --control-model "$CTL" --n 3 ${TV:-} || die "template check FAILED for $m"
     done
     ;;
   start-ollama)

@@ -15,10 +15,12 @@ difference on the Ollama side too. Equal-length substitutions are outside what a
 import argparse, json, os, sys, urllib.request
 
 
-def ollama_count(url, model, system, user):
+def ollama_count(url, model, system, user, think=None):
     body = {'model': model, 'stream': False, 'keep_alive': 0, 'messages': [{'role': 'system', 'content': system},
                                                                           {'role': 'user', 'content': user}],
             'options': {'num_predict': 1, 'num_ctx': 8192, 'temperature': 0}}
+    if think is not None:                      # the fleet's client sends NO think field: the default call omits it
+        body['think'] = think
     req = urllib.request.Request(url + '/api/chat', data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
     return json.loads(urllib.request.urlopen(req, timeout=600).read()).get('prompt_eval_count')
 
@@ -31,6 +33,8 @@ def main():
     ap.add_argument('--url', default='http://127.0.0.1:11434')
     ap.add_argument('--n', type=int, default=3)
     ap.add_argument('--control-model', default='qwen3:8b', help="a model served with a DIFFERENT template ('' to skip)")
+    ap.add_argument('--think-variants', action='store_true',
+                    help='M3 10-24: also require think=false and think=true to serve the same count (Qwen3 arms)')
     a = ap.parse_args()
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(a.base)
@@ -47,9 +51,10 @@ def main():
         hf = len(tok(good, add_special_tokens=False)['input_ids']); hf_wrong = len(tok(wrong, add_special_tokens=False)['input_ids'])
         ol = ollama_count(a.url, a.model, it['system'], it['user'])
         oc = ollama_count(a.url, a.control_model, it['system'], it['user']) if a.control_model else None
+        tv = {str(t): ollama_count(a.url, a.model, it['system'], it['user'], think=t) for t in (False, True)} if a.think_variants else {}
         rows.append({'id': it['id'], 'hf_no_think': hf, 'hf_think_on (control)': hf_wrong, 'ollama': ol,
-                     'ollama_control_model': oc, 'equal': ol == hf})
-        ok = ok and ol == hf and hf_wrong != hf and (oc is None or oc != hf)
+                     'ollama_think_variants': tv, 'ollama_control_model': oc, 'equal': ol == hf})
+        ok = ok and ol == hf and hf_wrong != hf and (oc is None or oc != hf) and all(v == hf for v in tv.values())
     print(json.dumps({'model': a.model, 'items': rows, 'pass': ok}, indent=1))
     sys.exit(0 if ok else 1)
 
