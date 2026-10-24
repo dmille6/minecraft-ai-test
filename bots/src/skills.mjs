@@ -2714,7 +2714,8 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   for (let tries = 0; tries <= SKY_WALK_TRIES; tries++) {
     check(signal)
     const here = bodySupport(bot.entity.position, at)
-    const ranked = rankStarts({ at, support: here, diggable, exclude: failed })
+    const canPay = count() + 3 * skyLogs(bot).reduce((n, it) => n + (it.count ?? 0), 0)
+    const ranked = rankStarts({ at, support: here, diggable, exclude: failed, canPay })
     if (!ranked.length) {
       // the own support's price, or why it was not priced (Claude r2 P3-6: never a success message as a reason)
       const own = fullCube(bot.blockAt(new Vec3(here.x, here.y, here.z))) ? descentCost(at, here, { diggable }) : { ok: false, why: 'standing on a partial block and no full block it can reach' }
@@ -2722,7 +2723,6 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
       break
     }
     // AFFORDABLE FIRST (Codex r6 P2-2): a free or affordable column ahead of one it cannot pay for (stable: cost order kept)
-    const canPay = count() + 3 * skyLogs(bot).reduce((n, it) => n + (it.count ?? 0), 0)
     const affordable = r => r.cost === 0 || canPay >= reserve(r.cost)
     ranked.sort((a, b) => (affordable(b) ? 1 : 0) - (affordable(a) ? 1 : 0))
     const best = ranked[0]
