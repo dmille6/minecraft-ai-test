@@ -1,0 +1,24 @@
+{
+ "run": "lavasight-01",
+ "after": [
+  "lavastep-01"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "ENTRY FRAGMENT (the building agent ran no queue command). OWNER 2026-10-24: lavasight-01 runs right after lavastep-01, fed from the per-seed hazard map. TIER 3. BEFORE THE DRAW: install the publisher on .31 (bash scripts/host/lavasight/install-lavamap.sh --rehearse, then --install, from a checkout of the branch) and confirm the fleetstatus line reads \"lavamap OK: 16 of 16\". Install the drawn variant's registration as ~/mcai-analysis/registrations/lavasight-01.json and ~/mcai-analysis/lavasightread.py (md5 below). Record: docs/reports/lavasight-01-design-2026-10-24.md. Paper driver hooks (FM_TAG, FM_POOL_HOOK) are on branch lavasight-sandbox-1024: merge with the canary at merge time.",
+ "variants": {
+  "fb8de72f7369257d26c31ec974ec4b029cd29f65": {
+   "registration": "/home/mike/mcai-analysis/lavasight-01.23d6dd1c.json",
+   "approved": "lavasight-01 agent 2026-10-24: lavasight-on-fb8de72 @ 23d6dd1c on the fleet fb8de72f (ironsmelt-01 promoted). Design + code: Codex r1 CHANGE (4 P1), r2 CHANGE (4 P1), r3 CHANGE (1 P1), r4 CHANGE (1 P1), r5 CHANGE (P2), r6 CHANGE (P2), r7 APPROVE (adedd19c); Claude r1 CHANGE (2 P1), r2 APPROVE, r3 APPROVE, r4 APPROVE, r5 APPROVE, r6 CHANGE (P1: a flaky wall-clock test), r7 APPROVE (adedd19c); 23d6dd1c = their r7 P3s. Record: docs/reports/lavasight-01-reviews-2026-10-24.txt. eslint no-undef only the pre-existing reflex.mjs withinBody. TIER 3 (routing-wide). THE PUBLISHER MUST BE INSTALLED BEFORE THE DRAW (install-lavamap.sh). npm test 296/296 on 23d6dd1c. Paper (design section 11): every candidate run bound and priced; cave lake 13 -> 7 refusal episodes, surface pool 17 -> 19 (not reduced); library 12/12 identical outcomes, INCONCLUSIVE by rule (no lava in any library cut).",
+   "canary_sha": "23d6dd1ca3ae7a78057185532309d9ff78c19ebb",
+   "branch": "lavasight-on-fb8de72",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "lavasightread": "6a5a6a54b58b36d9a31c8ddd37a755d7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "f9ffed7d6452fbc25bc97c56becabab4566c2beb07d5fb2ea0a0b71e3fdc8740"
+  }
+ }
+}
