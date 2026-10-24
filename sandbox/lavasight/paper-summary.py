@@ -76,7 +76,7 @@ def summarize(dirs):
             if r.get('pass') is None and not why:
                 why = 'incomplete (no oracle verdict)'
             table[(r['scene'], r.get('start_index', 0))][r['label']].append({
-                'matched': bool(r.get('matched_fleet')), 'dead': bool((r.get('observation') or {}).get('deathsLog') or (r.get('observation') or {}).get('deathsScore')),
+                'sha': r.get('sha'), 'matched': bool(r.get('matched_fleet')), 'dead': bool((r.get('observation') or {}).get('deathsLog') or (r.get('observation') or {}).get('deathsScore')),
                 'invalid': why, 'outcome': r.get('outcome'), 'pass': r.get('pass'), 'death': (r.get('deathClass') or {}).get('family'),
                 'episodes': len(ep), 'corridor': k.get('_lava_corridor', 0), 'blind': k.get('_explore_blind_step_refused', 0),
                 'danger': k.get('_reflex_danger_block', 0), 'mode': mode, 'active': active, 'priced': priced,
@@ -100,6 +100,10 @@ def library_verdict(table):
     for key, sides in table.items():
         b = [x for x in sides.get('base', []) if not x['invalid']]
         c = [x for x in sides.get('cand', []) if not x['invalid']]
+        mixed = [lab for lab, xs in (('base', b), ('cand', c)) if len({x.get('sha') for x in xs}) > 1]
+        if mixed:   # one verdict = one build pair (Codex tooling r5 P2)
+            out[key] = ('INCONCLUSIVE', 'mixed builds on %s: %s' % (','.join(mixed), sorted({str(x.get('sha'))[:8] for x in b + c})))
+            continue
         if len(b) < MIN_RUNS or len(c) < MIN_RUNS or len(b) != len(c):
             out[key] = ('INCONCLUSIVE', 'valid runs base %d cand %d (need >= %d each, equal)' % (len(b), len(c), MIN_RUNS))
             continue
@@ -145,7 +149,7 @@ def main(dirs):
 
 
 def selftest():
-    R = lambda matched=True, dead=False, ok=False, invalid=None: {'matched': matched, 'dead': dead, 'pass': ok, 'invalid': invalid}
+    R = lambda matched=True, dead=False, ok=False, invalid=None, sha='a' * 40: {'matched': matched, 'dead': dead, 'pass': ok, 'invalid': invalid, 'sha': sha}
     T = lambda b, c: {('s', 0): {'base': b, 'cand': c}}
     v = lambda b, c: library_verdict(T(b, c))[('s', 0)][0]
     assert v([R()] * 3, [R()] * 3) == 'ok', 'same outcome: ok'
@@ -155,6 +159,7 @@ def selftest():
     assert v([R()] * 3, [R(invalid='map not bound (absent)')] * 3) == 'INCONCLUSIVE', 'unbound candidates are not runs'
     assert v([R(matched=False)] * 3, [R()] * 3) == 'INCONCLUSIVE', 'a base that no longer reproduces cannot show a regression'
     assert v([R(dead=True)] * 3, [R(dead=True)] * 3) == 'ok', 'the same deaths: not worse'
+    assert v([R()] * 3, [R(), R(), R(sha='b' * 40)]) == 'INCONCLUSIVE', 'two candidate builds pooled'
     # THE SEAM (Claude tooling r4 P3): summarize() itself marks a missing log, an unbound and an empty candidate invalid
     import tempfile
     d = tempfile.mkdtemp(prefix='lsps-')
@@ -170,8 +175,10 @@ def selftest():
     with open(os.path.join(d, 'results.jsonl'), 'w') as f:
         f.write(''.join(json.dumps(r) + '\n' for r in rows))
     tb, _ = summarize([d])
-    inv = {(x['invalid'] or 'valid') for side in tb[('s', 0)].values() for x in side}
-    assert inv == {'valid', 'no log', 'map not bound (absent)', 'no post-placement route or liveness row with an active cell'}, inv
+    got = [(x['invalid'] or 'valid') for x in tb[('s', 0)]['base']] + [(x['invalid'] or 'valid') for x in tb[('s', 0)]['cand']]
+    assert got == ['valid', 'no log', 'valid', 'map not bound (absent)', 'no post-placement route or liveness row with an active cell'], got
+    import shutil
+    shutil.rmtree(d)
     print('SELFTEST ok')
 
 
