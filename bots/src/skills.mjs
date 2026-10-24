@@ -100,7 +100,7 @@ import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
-import { cavefallOn, floorDigVerdict, sideStances, describeFloor, floorRefusal } from './cavefall.mjs'
+import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage } from './cavefall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -1217,50 +1217,37 @@ const mustCollectManually = name =>
  */
 /** CAVEFALL=0 is read once per process, like FOOD_SKIP: an env change needs a restart, which a deploy is. */
 const CAVEFALL_ON = cavefallOn(process.env)
-const CAVEFALL_STEP_MS = 6000
-const CAVEFALL_MAX_STANCES = 3
+/** cavefall.mjs's rule on the live world: is the cell at `p` a floor over a harmful drop? `on` false = never. */
+export function cavefallSkip (bot, p, { on = CAVEFALL_ON } = {}) {
+  if (!on || !p) return { skip: false, why: 'off' }
+  return floorOverDrop({ target: p, at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)) })
+}
 /**
- * CAVEFALL-01, the executor of cavefall.mjs's rule at gather's one dig site. Returns when the dig may go ahead: not a
- * floor dig, a floor dig whose fall does no damage, or a floor dig turned into a side dig by walking to a stance beside
- * the target (at most CAVEFALL_MAX_STANCES tried, each a one-block GoalBlock walk on the travel profile, re-judged from
- * where the walk actually ended). Throws `no_safe_target` with the remedy otherwise; gather excludes the candidate and
- * moves on. Every decision on a floor dig writes one `_cavefall_floor` row.
+ * CAVEFALL-01 AT THE DIG, re-asked against the world as it is now (the candidate filter judged it at scan time): a floor over
+ * a harmful drop throws `no_safe_target` with the remedy first (gather excludes the candidate and moves on); a floor dig
+ * the bot stands on that is allowed only because its fall is short or into water writes one `_cavefall_floor allowed` row
+ * (drop >= 2 or water: the plain 1-block self-dig is not logged). Never walks, never digs.
  */
-export async function cavefallFloorGuard (bot, block, signal, { on = CAVEFALL_ON, stepMs = CAVEFALL_STEP_MS } = {}) {
+export function cavefallDigCheck (bot, block, { on = CAVEFALL_ON, quiet = false } = {}) {
   if (!on) return
   const p = block.position
-  const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
-  const v0 = floorDigVerdict({ pos: bot.entity?.position, target: p, at })
-  if (!v0.floor) return
-  const row = (status, decision, verdict, extra = {}) => {
-    try { logEvent({ kind: 'cavefall_floor', status, snapshot: snapshot(bot), detail: describeFloor({ decision, target: p, name: block.name, verdict, ...extra }) }) } catch { /* telemetry never costs the dig */ }
+  const v = cavefallSkip(bot, p, { on })
+  const row = (status, decision) => {
+    try { logEvent({ kind: 'cavefall_floor', status, snapshot: snapshot(bot), detail: describeFloor({ decision, target: p, name: block.name, verdict: v }) }) } catch { /* telemetry never costs the dig */ }
   }
-  if (v0.allow) { row('success', 'allowed', v0); return }
-  const stances = sideStances({ pos: bot.entity.position, target: p, at }).slice(0, CAVEFALL_MAX_STANCES)
-  let tried = 0
-  for (const s of stances) {
-    check(signal)
-    tried++
-    try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(s.x, s.y, s.z)), stepMs, bot, { what: 'cavefall step', needsDrop: false })
-    } catch (e) {
-      if (e?.aborted || signal?.aborted) throw e
-    }
-    check(signal)
-    const v = floorDigVerdict({ pos: bot.entity?.position, target: p, at })
-    if (!v.floor || v.allow) {
-      if (bot.canDigBlock && !bot.canDigBlock(bot.blockAt(p))) { row('no_effect', 'stepped_out_of_reach', v0, { stance: s }); continue }
-      row('success', 'stepped', v0, { stance: s })
-      return
-    }
+  if (v.skip) {
+    row('no_effect', 'refused')
+    throw Object.assign(new Error(floorRefusal({ name: block.name, target: p, verdict: v })), { failClass: 'no_safe_target' })
   }
-  row('no_effect', 'refused', v0, { why: `${tried} of ${stances.length} stance(s) tried` })
-  throw Object.assign(new Error(floorRefusal({ name: block.name, target: p, verdict: v0, tried })), { failClass: 'no_safe_target' })
+  if (!quiet && underFeet(bot.entity?.position, p) && v.landing && (v.landing === 'water' || (v.drop ?? 0) >= 2)) row('success', 'allowed')
 }
 
 export async function collectManually(bot, block, signal, { beforeDig = null } = {}) {
   const p = block.position
   const wanted = block.name
+  // CAVEFALL-01: refuse BEFORE the walk too, so no stance walk is spent on a floor that will not be dug (craft's table
+  // retake has no candidate filter); re-asked at the dig below
+  cavefallDigCheck(bot, block, { quiet: true })
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
   //
   // This was GoalNear(p, 2), then GoalLookAtBlock (ad2a74d, to match the
@@ -1484,9 +1471,9 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   //
   // Only for a block the ORDINARY rule refuses -- an unexempted block is
   // unaffected, so this cannot make the baseline stricter.
-  // CAVEFALL-01 (cavefall.mjs): THE BLOCK UNDER THE FEET OVER A HARMFUL DROP IS DUG FROM BESIDE IT, OR NOT AT ALL. Before
-  // the town and safety re-asks below, so they judge the stance the bot actually digs from.
-  await cavefallFloorGuard(bot, block, signal)
+  // CAVEFALL-01 (cavefall.mjs): A FLOOR OVER A HARMFUL DROP IS NEVER DUG -- re-asked here, after every await that could have
+  // changed the world, like the safety re-ask below. It throws before the dig; it never walks.
+  cavefallDigCheck(bot, block)
   // THE TOWN'S GROUND (townground.mjs): an independent conjunction, outside isSafeToBreak's fail-open path.
   const townOk = townTargetPermit(block.position, block.name, townHome())
   if (!townOk.ok) {
@@ -2139,7 +2126,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     const ironStrict = IRON_KINDS.includes(blockName)
-    const safeTarget = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
+    // CAVEFALL-01: a floor over a harmful drop is never a target (cavefall.mjs); counted apart so the message names it
+    const caveMemo = new Map()   // one verdict per cell per round: the filter, the count and the message share it
+    const caveVerdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!caveMemo.has(k)) caveMemo.set(k, cavefallSkip(bot, p)); return caveMemo.get(k) }
+    const caveSkip = p => caveVerdict(p).skip
+    const safeTarget = p => !caveSkip(p) && townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
@@ -2171,6 +2162,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // wet" is a distinguishable answer rather than folding into "buried".
     const safeOnes = exposedOnes.filter(safeTarget)
     const rejectedUnsafe = exposedOnes.length - safeOnes.length
+    const caveOnes = exposedOnes.filter(caveSkip)
+    if (caveOnes.length) {
+      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: `${blockName}: ${caveOnes.length} of ${exposedOnes.length} exposed candidate(s) are floors over a harmful drop; skipped` }) } catch { /* a measurement may never cost the skill its turn */ }
+    }
     // THE CHANGE ROW, and a canary without one is unreadable.
     //
     // `shorelineExemptAt` is otherwise silent, so nothing in telemetry would say the
@@ -2302,6 +2297,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
+      }
+      if (caveOnes.length > 0 && caveOnes.length === exposedOnes.length) {
+        return { status: 'failed', failClass: 'no_safe_target',
+                 detail: allFloorsMessage({ name: blockName, n: caveOnes.length, verdicts: caveOnes.slice(0, 8).map(caveVerdict) }) }
       }
       if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {
         // SAY WHICH RULE REFUSED, not "one of these two".
