@@ -58,8 +58,7 @@ import { lavastepOn } from './lavastep.mjs'
 import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
-         PLUG_BUDGET_MS, PLUG_SETTLE_MS } from './plugcut.mjs'
-import { INTERACTIVE } from './poolescape.mjs'
+         PLUG_BUDGET_MS, PLUG_SETTLE_MS, isUtilityBlock } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
 import { ceilEscapeOn, ceilingEscapeDecision, firstSwingEscalation, envSettled, envTag, dirName, swingFits, cellFloods,
@@ -5135,7 +5134,7 @@ export async function escapeStairUp (bot, {
       const f = p.floored()
       const spared = sparePlugs({ bearings: all, placed: plugCells.map(c => [c.x - f.x, c.y - f.y, c.z - f.z]),
                                   firstDig: b => stairUpStep({ at, bear: b, canBreak, submerged }).dig,
-                                  avoid: c => INTERACTIVE.test(at(...c)?.name ?? '') })
+                                  avoid: c => isUtilityBlock(at(...c)?.name) })
       const c = spared.length ? chooseStairUpBearing({ at, bearings: spared, depth, canBreak, submerged }) : null
       return c && c.runway > 0 ? c : any()
     }
@@ -6302,13 +6301,9 @@ const plugBlocks = bot => poolBlockCount((bot.inventory?.items?.() ?? []).filter
 /** PLUGCUT-01: the ceiling's wet faces (plugcut.mjs ceilingPlugPlan), then the cut is the breach loop's to decide. */
 function plugCeiling (bot, p, { yieldTo = () => null, deadline = Infinity } = {}) {
   const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
-  return plugFaces(bot, p, {
-    what: 'ceiling',
-    plan: () => ceilingPlugPlan({ at, blocks: plugBlocks(bot), submerged: submergedAt(bot) }),
-    clear: () => !overheadBreakRisk({ at: (x, y, z) => at(x, 2 + y, z), submerged: submergedAt(bot) }),
-    yieldTo,
-    deadline,
-  })
+  const plan = () => ceilingPlugPlan({ at, blocks: plugBlocks(bot), submerged: submergedAt(bot) })
+  const clear = () => !overheadBreakRisk({ at: (x, y, z) => at(x, 2 + y, z), submerged: submergedAt(bot) })
+  return plugFaces(bot, p, { what: 'ceiling', plan, clear, yieldTo, deadline })
 }
 
 /**
