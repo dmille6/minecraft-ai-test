@@ -437,6 +437,10 @@ await ta('WATER ends an episode (swimming is travel); a transient reading ends i
   assert.equal(a.issue, true); assert.equal(a.state.transientSince, now)
   const b = descendOrder({ now: now + RF.TRANSIENT_MAX_MS + 1, el: tr, state: a.state })
   assert.equal(b.issue, false); assert.equal(b.ended, 'transient')
+  // UNREADABLE geometry is held, however long (Codex r3 P1-3)
+  const un = { elevated: false, transient: true, unknown: true, why: 'the column below is not loaded yet' }
+  const u1 = descendOrder({ now, el: un, state: { active: true } })
+  assert.equal(descendOrder({ now: now + 10 * RF.TRANSIENT_MAX_MS, el: un, state: u1.state }).state.active, true)
   const c = descendOrder({ now: now + 1000, el: { elevated: true, why: 'x' }, state: a.state })
   assert.equal(c.state.transientSince, null, 'a good reading resets the clock')
 })
@@ -451,17 +455,33 @@ await ta('MUTANT KILLED: a trigger without the region test leaves a bot on a tre
   })
 })
 await ta('MUTANT KILLED: lava read as a landing makes a stance over a lava lake "done"', async () => {
+  // ground everywhere up to y=75, but lava in the two cells under ONE support: only the own-column guard can see it
+  const pit = (x, y, z) => (x === 300 && z === 300 && (y === 74 || y === 73) ? LAVA : y <= 75 ? STONE : AIR)
+  assert.equal(doneAt(columnReader(pit), 300, 75, 300).done, false)
   await withMutant(RF_URL, "  if (own.landing === 'lava') return { done: false, unknown: false, why: 'lava below' }", '', async m => {
-    const w = skyWorld({ deckY: 90 }); for (let x = 340; x <= 370; x++) for (let z = 140; z <= 160; z++) w.m.set(key(x, 72, z), LAVA)
-    // a single placed block over the lake, two above it, sides into lava: only the own test saw the lava under it
-    w.m.set(key(355, 75, 150), COBBLE)
-    assert.notEqual(m.doneAt(m.columnReader(w.at), 355, 75, 150).why, 'lava below')
+    assert.equal(m.doneAt(m.columnReader(pit), 300, 75, 300).done, true)
   })
 })
 await ta('MUTANT KILLED: an episode that ignores water keeps a swimming bot owned for ever', async () => {
   await withMutant(RF_URL, "    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water' } }\n", '', async m => {
     assert.equal(m.descendOrder({ el: { elevated: false, water: true, why: 'in water' }, state: { active: true } }).state.active, true)
   })
+})
+
+await ta('REGION r4: a uniformly 2-thick deck floats; a 9-block hanging column is not ground; a jungle canopy is terrain (Codex r3)', () => {
+  // a 2-thick deck 41 x 41 at y 179..180 over ground top 72
+  const thick = (x, y, z) => ((y === 180 || y === 179) && Math.abs(x - 355) <= 20 && Math.abs(z - 150) <= 20 ? COBBLE : y <= 71 ? STONE : AIR)
+  assert.equal(elevation({ pos: ON_DECK, at: thick }).elevated, true, 'thick deck')
+  assert.equal(descentDone(thick, { x: 355, y: 180, z: 150 }).done, false)
+  // the thick patch with a 9-block hanging column under a neighbouring deck cell
+  const w = thickPatch(); for (let y = 170; y <= 178; y++) w.m.set(key(357, y, 150), COBBLE)
+  assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false, 'a hanging column is not ground')
+  // a jungle canopy: one layer of leaves at y=90 over a forest floor at 71, a 2-layer patch in it
+  const LEAF = { name: 'jungle_leaves', boundingBox: 'block' }
+  const canopy = (x, y, z) => ((y === 90 || (y === 89 && Math.abs(x - 300) <= 1 && Math.abs(z - 300) <= 1)) && Math.abs(x - 300) <= 12 && Math.abs(z - 300) <= 12 ? LEAF : y <= 71 ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 300.5, y: 91, z: 300.5 }, at: canopy }).elevated, false, 'canopy')
+  // a tree standing on a deck still triggers (its region reaches the deck's cobblestone)
+  assert.equal(elevation({ pos: { x: 355.5, y: 186, z: 150.5 }, at: treeOnDeck().at }).elevated, true)
 })
 
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
