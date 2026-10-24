@@ -181,6 +181,7 @@ RECENT_DAYS = 3                  # every MUST_SPEAK source and the wet kind must
 RECENT_DAYS_RARE = 7             # ... except a source whose volume is one trapped bot: at least once in the newest 7
 RARE_SOURCES = frozenset({'no_air'})     # _water_no_air_route: ~80% board-a-Comet's trap; it may quieten when he is freed
 RECENT_PARSE_FLOOR = 50          # the recent unparsed share is judged once the newest days hold this many rows
+PARTIAL_SLACK_MS = 2 * 3_600_000 # today's open record must reach to within 2 h of the build (refresh fetches, then builds)
 DEATH_SITE_SLACK = 2             # per day, _death and _death_site_recorded (written in the same ms) may differ by at most 2
 FIELDS = ['@timestamp', 'bot.name', 'bot.pos', 'skill.detail', 'skill.fail_class']
 
@@ -583,6 +584,8 @@ def source_controls(days, validated_ms, now_ms):
                 ex[src] = rec['unparsed_examples'].get(src)
             if rec.get('closed'):
                 daily_min[src] = min(daily_min.get(src, n), n)
+        if rec.get('closed'):
+            daily_min[WET_KIND] = min(daily_min.get(WET_KIND, rec['counts'].get(WET_KIND, 0)), rec['counts'].get(WET_KIND, 0))
     if not vdays:
         raise Blind('no validated day is in the cache: nothing could have been seen')
     by_day = {r['day']: r for r in days}
@@ -596,6 +599,17 @@ def source_controls(days, validated_ms, now_ms):
     unclosed = [d for d in want if now_ms - (parse_ms(d + 'T00:00:00Z') + DAY_MS) > 3_600_000 and not by_day.get(d, {}).get('closed')]
     if unclosed:
         raise Blind('day(s) %s ended over an hour ago but the cache holds them open: a stale cache (did fetch run?)' % unclosed[:3])
+    short = []
+    for d in want:
+        rec = by_day.get(d) or {}
+        t1 = parse_ms(d + 'T00:00:00Z') + DAY_MS
+        reach = parse_ms(rec['until'].replace('.000Z', 'Z')) if rec.get('until') else 0
+        expect = t1 if rec.get('closed') else min(t1, now_ms) - PARTIAL_SLACK_MS
+        if reach < expect:
+            short.append('%s until %s' % (d, rec.get('until')))
+    if short:
+        raise Blind('cached day(s) stop short of what they should cover (%s): a stale partial fetch -- run fetch before build'
+                    % short[:3])
     for src in MUST_SPEAK:
         if tot[src] == 0:
             raise Blind('source %r (%s) is SILENT over %d validated days: a renamed kind or a broken query, not a safe fleet'
@@ -657,7 +671,8 @@ def evidence_points(days, seeds, validated_ms):
         if s is None:
             if why == 'unknown_world' and t >= validated_ms:
                 raise Blind('%s row from world %r, which the seeds table does not know: a new world needs its seed measured '
-                            'before its rows fold' % (what, world))
+                            'before its rows fold (verify measures staged worlds matching %s; a world outside that pattern '
+                            'needs WORLD_RE extended in hazardmap.py)' % (what, world, WORLD_RE.pattern))
             excl['%s:%s' % (what, why)] += 1
             if t >= validated_ms and why == 'outside_world_lifetime' and not seeds.near_boundary(world, t):
                 lost_validated[why] += 1
@@ -1754,8 +1769,11 @@ def record_push(hb, rc):
     if rc:
         print('request push FAILED (exit %d)' % rc)
         hbv = load_json(hb)
+        msg = 'request push exit %d: tomorrow\'s verify checks the previous request' % rc
         if hbv.get('status') == 'ok':
-            hbv.update(status='push_failed', error='request push exit %d: tomorrow\'s verify checks the previous request' % rc)
+            hbv.update(status='push_failed', error=msg)
+        else:
+            hbv['error'] = ('%s; %s' % (hbv.get('error') or '', msg)).lstrip('; ')
         atomic_json(hb, hbv)
         return 1
     print('request pushed')
@@ -1777,6 +1795,7 @@ def heartbeat_status(doc):
 def cmd_value(a):
     v = load_verify(a.verify or os.path.join(a.home, 'in', 'verify.json'))
     seeds = Seeds.from_verify(v)
+    terrain_gate(v, seeds)                       # split exactly as build() does, so `value` and the map agree
     days = load_days(os.path.join(a.home, 'cache'))
     now_ms = int(time.time() * 1000)
     pts, deaths, excl, _ = evidence_points(days, seeds, parse_ms(VALIDATED_SINCE))

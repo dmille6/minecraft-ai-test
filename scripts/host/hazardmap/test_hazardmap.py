@@ -233,6 +233,10 @@ def fleet_docs():
     # 20 more deaths far away, spread over the 4 days, so the death-position control applies (>= 20 validated deaths)
     for k in range(20):
         d.append(row(L(720 + (k % 4) * 1440 + k), 'hive-a-Alpha', '_death', 'drowned; idle', (2000.5 + 40 * k, 60, 2000.5), 'drowning'))
+    # 100 more deaths on 10-14, far apart: enough history that a fault on the newest day alone stays above the whole-window
+    # floor (the recent death-position check must be what stops it)
+    for k in range(100):
+        d.append(row(L(400 + k), 'hive-a-Alpha', '_death', 'drowned; idle', (10000.5 + 40 * k, 60, 10000.5), 'drowning'))
     # every source speaks once a day, far from everything (single rows: no hazard, no spell)
     for day in range(4):
         m = 700 + day * 1440; x = 5000 + 50 * day
@@ -326,7 +330,7 @@ def fold_cases(hm):
     cases.append(('fold: seeds are strings in the document', all(isinstance(k, str) for k in doc['seeds']), True))
     cases.append(('fold: an unchecked hazard says so', (lava or {}).get('exists', {}).get('summary'), 'unchecked'))
     cases.append(('fold: the death-position control pairs every validated death', (doc['controls']['death_site_recorded']['paired_with_site_row'],
-                  doc['controls']['death_site_recorded']['site_within_1_block']), (37, 37)))
+                  doc['controls']['death_site_recorded']['site_within_1_block']), (137, 137)))
     cases.append(('fold: the UNKNOWN-cell corridor row is skipped', sum(d['skipped'].get('corridor', 0) for d in days), 1))
     cases.append(('fold: one vine danger row alone is not a hazard (one episode)', bool(find(doc, 'S1', 'lava', (700, 69, 700))), False))
     try:
@@ -344,7 +348,7 @@ def fold_cases(hm):
     cases.append(('value: the matched deaths', [(m['bot'], m['kind']) for m in val['matched']],
                   [('hive-a-Alpha', 'dripstone'), ('hive-a-Alpha', 'dripstone'), ('hive-a-Alpha', 'lava'), ('hive-a-Alpha', 'cave_fall'),
                    ('board-a-Bravo', 'lava')]))
-    cases.append(('value: denominator = deaths in the window', val['headline'].get('deaths'), 37))
+    cases.append(('value: denominator = deaths in the window', val['headline'].get('deaths'), 137))
     cases.append(('value: rotated about home, the priors match nothing (the town-density null)', val['rotation_null']['max'], 0))
     cases.append(('value: per-kind could-match denominators', val['could_match_by_kind'].get('lava'), 3))
     cases.append(('value: without the 24 h lag the stalagmite death also matches', val['variants']['no_lag'].get('known_from_another_world'), 6))
@@ -423,6 +427,29 @@ def guard_cases(hm):
     q = [row(T('2026-10-15T12:06:00Z') + k * 5000, 'board-a-Bravo', '_reflex_danger_block', 'lava', (8000.5, 60, 8000.5)) for k in range(60)]
     got = outcome(lambda: hm.build(fetch_all(hm, fleet_docs() + q), hm.Seeds.from_verify(rs), now_ms=NOW))
     c.append(('lifetime: a reseed in the window (60 quarantine rows) still builds', got, 'built'))
+    # the rare source (no-air) may be quiet on the newest closed days if it spoke within its 7-day window ...
+    quiet = [r for r in fleet_docs() if not (r['skill']['name'] == '_water_no_air_route' and T(r['@timestamp']) >= D0 + 2 * 1440 * M)]
+    qdays = fetch_all(hm, quiet)
+    c.append(('rare source: no-air quiet on the newest two days still builds', outcome(lambda: hm.build(qdays, seeds(), now_ms=NOW)), 'built'))
+    # ... but not beyond it (the window is 2 days here, so the fixture's 4 days can exceed it)
+    keep = hm.RECENT_DAYS_RARE
+    hm.RECENT_DAYS_RARE = 2
+    try:
+        got = outcome(lambda: hm.build(qdays, seeds(), now_ms=NOW))
+    finally:
+        hm.RECENT_DAYS_RARE = keep
+    c.append(('rare source: no-air quiet for its whole window raises', 'SILENT on' in got, True))
+    # a reseed's downtime gap: 60 rows OUTSIDE every segment but within 30 min of the retire / create edges still builds
+    gap = verify_doc()
+    gap['worlds'] = dict(gap['worlds'], **{'board-a': {'seed': 'S1', 'home': [355, 73, 147], 'created': '2026-10-15T12:20:00Z',
+                                                      'previous': [{'seed': 'S1', 'created': '2026-08-22T14:16:49Z', 'retired': '2026-10-15T12:00:00Z'}]}})
+    g = [row(T('2026-10-15T12:02:00Z') + k * 16000, 'board-a-Bravo', '_reflex_danger_block', 'lava', (8000.5, 60, 8000.5)) for k in range(60)]
+    got = outcome(lambda: hm.build(fetch_all(hm, fleet_docs() + g), hm.Seeds.from_verify(gap), now_ms=NOW))
+    c.append(('lifetime: 60 rows in a reseed downtime gap (near its edges) still build', got, 'built'))
+    # a stale partial day: today's record fetched at 00:01 but the build runs at 02:00 (Codex r3)
+    st = [dict(d, until='2026-10-18T00:01:00Z') if d['day'] == '2026-10-18' else d for d in days]
+    got = outcome(lambda: hm.build(st, seeds(), now_ms=NOW + 2 * 3_600_000))
+    c.append(('coverage: a partial day fetched long before the build raises', got.startswith('Blind: cached day(s) stop short'), True))
     # campfire danger rows are recognised and skipped, never a lava sighting
     r = row('2026-10-22T00:00:00.000Z', 'hive-a-Alpha', '_reflex_danger_block', 'campfire', (1.5, 70, 3.5))
     c.append(('compact: a campfire danger row is skipped, not lava', hm.compact('danger', r)[0], 'skip'))
@@ -561,6 +588,11 @@ def blind_inputs():
         return [dict(r, skill=dict(r['skill'], detail=r['skill']['detail'].replace(' at ', ' @ ')))
                 if r['skill']['name'] == '_lava_corridor' and lo <= T(r['@timestamp']) < hi else r for r in d]
 
+    def recent_moved_sites(d):              # the death-site rows wrong on the newest closed day only
+        lo, hi = D0 + 3 * 1440 * M, D0 + 4 * 1440 * M
+        return [dict(r, skill=dict(r['skill'], detail=re.sub(r'at (-?\d+),', lambda m: 'at %d,' % (int(m.group(1)) + 5), r['skill']['detail'])))
+                if r['skill']['name'] == '_death_site_recorded' and lo <= T(r['@timestamp']) < hi else r for r in d]
+
     def moved_sites(d):
         return [dict(r, skill=dict(r['skill'], detail=re.sub(r'at (-?\d+),', lambda m: 'at %d,' % (int(m.group(1)) + 5), r['skill']['detail'])))
                 if r['skill']['name'] == '_death_site_recorded' else r for r in d]
@@ -575,6 +607,7 @@ def blind_inputs():
         ('blind: the entombed kind goes silent', silent_entombed, "source 'entombed'"),
         ('blind: the death position is not the recorded death site', moved_sites, 'death-position control'),
         ('blind: the death kind renamed for the newest two days only', late_rename, 'is SILENT on'),
+        ('blind: death sites wrong on the newest day only (history dilutes the pooled agreement)', recent_moved_sites, 'death-position control'),
         ('blind: give-ups renamed for the newest two days only', late_gaveup, "source 'gave_up'"),
         ('blind: three of one day\'s deaths renamed', three_renamed, '_death_site_recorded rows'),
         ('blind: the wet kind renamed (every pit would read dry)', no_wet, '_water_float is SILENT'),
@@ -1050,6 +1083,11 @@ BEHAVIOUR = [
     ('compact: a campfire danger row is skipped, not lava', "        if det in DANGER_NOT_LAVA:\n            return ('skip', 'campfire')",
      "        if False:\n            return ('skip', 'campfire')"),
     ('heartbeat: a failed request push -> push_failed', "        if hbv.get('status') == 'ok':", "        if False:"),
+    ('rare source: no-air quiet on the newest two days still builds', "        need_each = src not in RARE_SOURCES", "        need_each = True"),
+    ('lifetime: 60 rows in a reseed downtime gap (near its edges) still build',
+     "            if t >= validated_ms and why == 'outside_world_lifetime' and not seeds.near_boundary(world, t):",
+     "            if t >= validated_ms and why == 'outside_world_lifetime':"),
+    ('coverage: a partial day fetched long before the build raises', "        if reach < expect:", "        if False:"),
     ('heartbeat: rows after the seed horizon -> incomplete', "    if late:\n        return 'incomplete'", "    if False:\n        return 'incomplete'"),
     ('probe: an unread wall beyond the footprint makes a negative unknown', "    if res['state'] == 'absent' and (sts != {'ok'} or blind):",
      "    if res['state'] == 'absent' and sts != {'ok'}:"),
@@ -1078,6 +1116,9 @@ BLIND_CODE = [   # code mutants that blind the guards: the named blind-input cas
     ('blind: the death position is not the recorded death site', "        if n >= 20 and (p < 0.9 * n or a < agree_floor * p):",
      "        if False:"),
     ('blind: three of one day\'s deaths renamed', "        if abs(nd - ns) > DEATH_SITE_SLACK:", "        if False:"),
+    ('blind: death sites wrong on the newest day only (history dilutes the pooled agreement)',
+     "    for n, p, a, agree_floor in ((len(deaths), paired, agree, 0.95), (len(recent), rp, ra, 0.85)):",
+     "    for n, p, a, agree_floor in ((len(deaths), paired, agree, 0.95), (len(recent), rp, ra, 0.0)):"),
     ('blind: corridor rows reformatted on the newest day only (history dilutes the pooled share)',
      "        if r_ok + r_bad >= RECENT_PARSE_FLOOR and r_bad / (r_ok + r_bad) > UNPARSED_OK:", "        if False:"),
     ('blind: the wet kind renamed (every pit would read dry)', "        if not rec['counts'].get(WET_KIND):", "        if False:"),

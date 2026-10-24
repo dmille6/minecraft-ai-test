@@ -241,3 +241,91 @@ Claude r2 P3-8 accepted as is (the 1 h grace covers the 04:30Z -> 05:10Z schedul
 Suite r3: 228 cases, 0 failed (17 blind inputs; 58 behaviour mutants and 8 blind-guard mutants, each attributed to its
 own case; ~105 s). Fleet r3 build 10-24 06:07Z: 123 of 277 (194 could match), 40 beyond per-world memory, nulls 6.4 /
 1.7, recent death-position 132/132 paired, 127 agreeing.
+
+==================================================================== ROUND 3 (783e03bf)
+
+---------------------------------------------------------------- Codex r3, verbatim
+Reviewed `783e03bf` after reading `CLAUDE.md`. **One P2 remains; no P1 found.**
+
+**P2 — A stale partial-day cache still produces an OK map.** [`hazardmap.py:588–598`](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a7539688f98727e69/scripts/host/hazardmap/hazardmap.py:588) checks that today’s record exists, but never checks its `until` timestamp. This leaves the current-day portion of Codex r2 finding 6 unresolved.
+
+I reproduced this using actual `fetch_day()` output, not inconsistent hand-edited metadata:
+
+- At 02:00, fresh coverage through 01:50 included **40 deaths**.
+- Substituting a valid earlier fetch ending at 00:01 included **39 deaths**.
+- Both builds succeeded, and both `check_line()` calls returned **OK**, exit 0.
+
+**Fix:** validate each record’s coverage against an explicit expected fetch cutoff, allowing bounded fetch-to-build delay. Require closed records to cover their entire day. Add the stale-but-present current-day case alongside the missing-tail test. Normal `refresh` refetches open days, so this is a blind-input acceptance gap in `build`, rather than a demonstrated nightly false alarm.
+
+The remaining round-2 dispositions are:
+
+| Findings | Assessment and distinguishing case |
+|---|---|
+| Codex 1: recent parsing/position dilution | Fixed. Recent-only parsing corruption trips its guard. Separately, recent position corruption behind substantial valid history was refused; disabling only the recent position check accepted it. |
+| Codex 2; Claude 1’s unread-cell coverage | Fixed. With real `World.block()` reads, the boundary pit was `present` with its wall readable and `unknown` with the wall missing. Removing block-read counters restored incorrect `absent`. Undecodable block states behaved likewise. |
+| Codex 3: late-ingested evidence | Fixed. Adding an older sighting changed the evidence fingerprint while leaving probe cells unchanged: old absence became `unchecked`. Removing fingerprint comparison restored `absent`. |
+| Codex 4; Claude 7: incomplete-map alarm | Fixed for excluded evidence. The incomplete-heartbeat case kills removal of that check; successful pushes preserve the incomplete status. |
+| Codex 5; Claude 3: historical cross-world eligibility | Fixed. A prior from a subsequently reseeded world remains eligible; the concurrent-membership mutant fails its named case. |
+| Codex 7; Claude 1: missing regression cases | Own-world lag, missing middle/tail, unclosed day, validated loss, campfire exclusion, creation-after-backup, and failed-push mutants fail their targeted cases. |
+| Claude 2: reseed quarantine | Fixed. Quarantine builds successfully. An additional 60-row retirement/create-gap case builds with the boundary allowance and fails without it. |
+| Claude 4: `seed_homes` ordering | Fixed; the reseeded-world-first fixture retains the shared seed’s current home. |
+| Claude 5: quiet source days | The longer rare-source window is implemented. A quiet recent `no_air` day passes; restoring daily mandatory speech rejects it. Published daily minima support the other sources, although I could not independently replay fleet caches. |
+| Claude 6: terrain controls | Fixed. Agreement and minimum-cell failures split seeds and alarm instead of refusing the build. Sampling around home `(1000,1000)` compared 867 cells; the old fixed location compared none. |
+| Claude 8–10 | The one-hour horizon grace remains explicitly accepted. A malformed first live read successfully retries. Patch/revert preserves a subsequently inserted structcount-like block; rollback text uses the inverse patch. |
+
+**Validation:** 107 fixture cases passed in memory, plus 28 Anvil/verify cases using an in-memory filesystem. All 14 selected behavior mutants and all eight blind-guard mutants were proven; the creation-after-backup mutant was separately killed. Additional reproductions are described above. Installer shell syntax passed.
+
+The requested full suite remains blocked by temporary-directory permissions. I did not complete the full mutation sweep or validate real filesystem persistence, SSH installation, or daily fleet-cache replay, so I cannot independently certify “228 cases, 0 failed.”
+
+I found no new reproducible r3 halt on an ordinary fleet day. The stale partial-day input above can still pass silently.
+
+VERDICT: CHANGE
+
+---------------------------------------------------------------- Claude r3, verbatim
+No P1 is left in round 3 (783e03bf), and nothing I found would halt the daily refresh on an ordinary fleet day or let a blind input through. VERDICT: APPROVE. Three of the r3 guards have no test that fails without them; they are small to add, listed as P2 below.
+
+The suite reports 228 cases, 0 failed, in about 105 s. I ran my r2 reproductions again, plus 16 new code mutants, from my scratchpad. Nothing in the worktree was edited.
+
+**r2 reproductions, run again:** quarantine reseed now builds (in r2 it stopped); post-reseed could-match now passes `value_report` (in r2 the subset guard raised); `seed_homes` with hive-c listed first now returns both S1 and S2 (in r2 it dropped S1); the subset guard can no longer trip on a real match (a match needs an other-world prior at least 24 h older, and that prior's world necessarily had a segment on the seed starting before it).
+
+**r2 fixes now caught by a case** (each mutant killed by its own named case): own-world lag put back to 24 h; a missing middle day, and a missing tail; a day that ended over 1 h ago but is cached open; more than 50 rows outside every world segment; the campfire skip; a live world created after the backup; an unread wall at r+1 (the blind-read branch); `push_failed` (now in `record_push`); corridor rows reformatted on the newest day only; late-ingested evidence with another fingerprint; `could_match` allowing the dying world itself; rows after the seed horizon making the heartbeat `incomplete`; the terrain split, at 0.8 agreement and at 100 compared cells. Codex's r2 items are covered by the same cases.
+
+**Report section 6 against `value-2026-10-24.json`:** it matches (277 deaths, 123 matched, 40 beyond per-world memory, 194 could match; by-kind sums 123 / 194 / 277; 123/277 = 44%, 123/194 = 63.4%; nulls 6.4 and 1.7).
+
+**Checked for a halt on an ordinary day:** the fewest rows any source had on a closed day is 28 (death and site), every source on 17 of 17 days, so the each-of-3-days rule has a wide margin. Coverage at 05:10Z: yesterday is refetched closed and today is open but present; the horizon (verify `made_at` + 1 h = 05:30Z) clears the ~05:02Z fetch cutoff. The death-vs-site check also covers today's open day; both rows are written in the same millisecond, so the cutoff never splits a pair. A seed split, a missed verify and a failed push all alarm without stopping the map. `--revert` removes exactly the three insertions; a later structcount patch is kept.
+
+**P2 (should fix)**
+
+1. **Three r3 guards are in the code, but no case fails if they are removed.** Each of these mutants SURVIVED the full suite:
+   - **Rare-source window** (`hazardmap.py:610`, `need_each = src not in RARE_SOURCES` -> `True`). This is the fix for my r2 P2-5, so a regression here would bring that halt back. Fix: a fixture where `_water_no_air_route` is silent on the newest 1-2 closed days but spoke within 7 must build; silent for 7 days must raise.
+   - **Recent death-position floor** (`:654`, floor 0.85 -> 0.0). The `moved_sites` input breaks every day, so the whole-window check stops it first. Fix: move the site rows only on the newest closed day, with enough older deaths that the whole-window 95% still passes; it must raise, and must build once that line is removed.
+   - **`near_boundary`** (`:661`, condition removed). The only reseed case uses quarantine rows, which the `why ==` test already excludes, so the 30-minute edge allowance never runs. Fix: put more than 50 `outside_world_lifetime` rows in a reseed's downtime gap, within 30 minutes of the retire and create times; it must build.
+
+**P3 (nits)**
+
+2. A new world name halts the build, and no setting can fix it: a world outside `WORLD_RE` raises "needs its seed measured", but `measure_worlds` skips any directory the regex does not match. Fix: name the pattern in the message, or read the world list from the fleet registry.
+3. `cmd_value` never runs `terrain_gate`; if a seed is split, the manual `value` command reports the merged seed while the map reports it split. Fix: call `terrain_gate(v, seeds)` before `value_report`.
+4. `record_push` keeps a push failure only when the heartbeat is `ok`; on an `incomplete` day the failure is not recorded, though the header still alarms. Fix: append it to `error`.
+5. `min_rows_per_closed_day` does not include `_water_float`, even though it must speak on each of the newest 3 days. Fix: add it.
+
+VERDICT: APPROVE
+
+---------------------------------------------------------------- Response to round 3 (r4)
+Codex r3 P2 (a stale partial day passes): source_controls now checks every wanted record's `until`: a closed day must
+  reach its day's end, today's open record must reach to within PARTIAL_SLACK (2 h) of the build. Case: today's record
+  fetched at 00:01, build at 04:00 -> "cached day(s) stop short"; mutant killed. On the fleet: a build 25 min after the
+  last fetch passed, as does the refresh (fetch, then build).
+Claude r3 P2-1 (three guards without killing cases):
+  - rare-source window: no-air quiet on the newest two closed days still builds (mutant need_each=True killed); with the
+    window set to 2 days, the same input raises "SILENT on".
+  - recent death-position floor: fixture adds 100 history deaths on 10-14 (far apart); blind input moves the site rows
+    on the newest closed day only -> stopped by the recent check alone (its guard mutant, floor 0.0, builds a map).
+  - near_boundary: 60 rows in a reseed's downtime gap (12:02-12:18 between retire 12:00 and create 12:20) still build;
+    the mutant without the edge allowance raises -> killed.
+Claude r3 P3-2 the unknown-world message names WORLD_RE and what to change. P3-3 `value` applies terrain_gate like build.
+  P3-4 record_push appends the push failure to an existing alarm's error. P3-5 `_water_float` is in
+  min_rows_per_closed_day (fleet: 16,736 on its quietest closed day).
+
+Suite r4: 237 cases, 0 failed (18 blind inputs; 61 behaviour mutants and 9 blind-guard mutants, each attributed to its
+own case). Fleet build after r4 (10-24 06:32Z): numbers unchanged (123 of 277, 194 could match, 40 beyond per-world
+memory); heartbeat ok; recent death-position 133/133 paired, 128 agreeing.
