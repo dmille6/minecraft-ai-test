@@ -1232,7 +1232,7 @@ export function caveFilter (bot, { on = CAVEFALL_ON } = {}) {
   const memo = new Map()
   const verdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!memo.has(k)) memo.set(k, { ...cavefallSkip(bot, p, { on }), at: { x: p.x, y: p.y, z: p.z } }); return memo.get(k) }
   const skipped = () => [...memo.values()].filter(v => v.skip)
-  return { verdict, skip: p => verdict(p).skip, skipped, considered: () => memo.size, allSkipped: () => memo.size > 0 && skipped().length === memo.size }
+  return { verdict, skip: p => verdict(p).skip, skipped, all: () => [...memo.values()], considered: () => memo.size, allSkipped: () => memo.size > 0 && skipped().length === memo.size }
 }
 /**
  * CAVEFALL-01 AT THE DIG, re-asked against the world as it is now (the candidate filter judged it at scan time): a floor over
@@ -2263,7 +2263,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     //
     // Still a fallback: it runs only when the exact block yielded no reachable
     // candidate, so it can only turn a failure into an attempt.
-    if (reachable.length === 0 && !viaSource) {
+    // (positions.length > 0: an emptied round's first fallback above already searched every source and found nothing --
+    // Claude r6 P3-2)
+    if (reachable.length === 0 && !viaSource && positions.length > 0) {
       for (const alt of sourcesOf(bot.registry, blockName)) {
         if (alt === blockName) continue
         const altType = bot.registry?.blocksByName?.[alt]
@@ -2324,10 +2326,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // exposed and pass the base's own conjunction are ranked with the kept candidates in the base's two tiers (approachable
     // first, then the rest, by findBlocks' distance) -- the base's ranking minus its A* reorder (cavefall.mjs baseFront)
     const caveFront = () => baseFront({ pos: bot.entity?.position, approachable,
-      skipped: caveSkipped.map(v => new Vec3(v.at.x, v.at.y, v.at.z)).filter(q => exposed(q) && baseSafe(q)),
-      kept: reachable })
+      skipped: caveSkipped.map(v => new Vec3(v.at.x, v.at.y, v.at.z)).filter(q => bot.blockAt(q)?.type === type.id && exposed(q) && baseSafe(q)),
+      // a fallback's candidates are not what the base would have ranked against its own main-block floors (Claude r6 P3-1)
+      kept: (viaSource || viaCover) ? [] : reachable })
     if (caveSkipped.length) {
-      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.considered(),
+      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.all().filter(v => horizontalDistanceFromSpawn(v.at) <= config.world.borderRadius).length,
         front: caveFront() }) }) } catch { /* a measurement may never cost the skill its turn */ }
     }
     if (reachable.length === 0) {
