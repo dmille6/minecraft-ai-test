@@ -44,7 +44,12 @@ if (!PORTS[SERVER]) throw new Error(`failmine runs on ${ALLOWED.join(', ')} only
 const TAG = process.env.FM_TAG || 'failmine'
 if (!/^[A-Za-z0-9][A-Za-z0-9._]*(-[A-Za-z0-9._]+)*$/.test(TAG)) throw new Error(`FM_TAG must be a lock tag word: ${JSON.stringify(TAG)}`)
 const LOCK = TAG === 'failmine' ? sbx.requireSandboxLock(SERVER, 'failmine') : sbx.requireSandboxLock(SERVER, TAG)
-if (!new RegExp(`per-server: ${TAG.replace(/[.]/g, '\\.')}(\\s|$)`).test(LOCK)) throw new Error(`take ${SERVER}'s own lock (sandbox/sbxlock.sh take ${SERVER} ${TAG}): ${LOCK}`)
+// THE PER-SERVER LOCK, judged from the STRUCTURED probe (Codex lavasight-driver P2): the verdict string above is human-readable
+// and an owner note could carry "per-server: <tag>" in a global lock's text
+{
+  const locks = sbx.parseProbe(execFileSync('ssh', ['-o', 'BatchMode=yes', sbx.REGISTRY.lockHost, sbx.probeCmd(SERVER)], { encoding: 'utf8' }), SERVER)
+  if (locks.server === null || !sbx.ownerNames(locks.server, TAG)) throw new Error(`take ${SERVER}'s own lock (sandbox/sbxlock.sh take ${SERVER} ${TAG}): ${LOCK}`)
+}
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const FM = path.join(REPO, 'scripts/host/failmine/failmine.py')
 // THE LIBRARY CONTRACT IS PYTHON'S (one implementation): a scene that does not validate is never built
@@ -209,6 +214,7 @@ const classify = msg => JSON.parse(execFileSync('python3', ['-B', FM, 'classify'
 const ruleNames = Object.keys(S.gamerules || {})
 let savedRules = null
 let placedAt = Infinity
+let hookNote = null
 // THE DRIVER'S OWN IDENTITY in every result row (Claude r5 P3): which code built the arena and judged the run
 const DRIVER_SHA256 = createHash('sha256').update(fs.readFileSync(fileURLToPath(import.meta.url))).update(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'oracle.mjs'))).digest('hex')
 
@@ -238,12 +244,14 @@ async function main () {
   const line = scriptLine()
   if (line) launchBrain(line)
   // AN OPTIONAL POOL FILE before the bot starts (lavasight-01: the per-world lava map it reads at spawn). FM_POOL_HOOK is a
-  // module exporting prepare({ poolDir, pool, DX, DZ, scene, start, rcon }); it writes only inside this run's pool dir.
+  // module exporting prepare({ poolDir, pool, DX, DZ, scene, start, seed }); it is handed the sandbox's seed STRING, not RCON
+  // (Claude lavasight-driver P3-2: a hook must not be able to change the world), and is meant to write only in poolDir.
   if (process.env.FM_POOL_HOOK) {
     const poolDir = path.join(RUN, bname, 'pool'); fs.mkdirSync(poolDir, { recursive: true })
     const hook = await import(path.resolve(process.env.FM_POOL_HOOK))
-    const note = await hook.prepare({ poolDir, pool: `sbxfm-${LABEL}-${slot}`, DX, DZ, scene: S, start: ST, rcon: r1 })
-    P_('pool hook', note)
+    const seed = (/\[(-?\d+)\]/.exec(r1('seed')) || [])[1] ?? null
+    hookNote = await hook.prepare({ poolDir, pool: `sbxfm-${LABEL}-${slot}`, DX, DZ, scene: S, start: ST, seed })
+    P_('pool hook', hookNote)
   }
   const b = launchBot(!!line)
   let joined = false
@@ -318,7 +326,7 @@ async function main () {
   // MECHANISM, not just outcome: which of the fleet bot's own top row kinds at this site the sandbox bot also logged
   const fk = (S.fleet_kinds || []).map(([k]) => k)
   const mechanism = fk.length ? { fleet: fk, seen: fk.filter(k => kinds[k]), share: +(fk.filter(k => kinds[k]).length / fk.length).toFixed(2) } : null
-  const ev = { at: new Date().toISOString(), label: LABEL, scene: S.id, cells_sha256: S.cells_sha256, sceneLabel: S.label, sha, server: SERVER, minutes: MINUTES, outcome, pass,
+  const ev = { at: new Date().toISOString(), run_dir: RUN, placed_at: new Date(placedAt).toISOString(), pool_hook: hookNote, label: LABEL, scene: S.id, cells_sha256: S.cells_sha256, sceneLabel: S.label, sha, server: SERVER, minutes: MINUTES, outcome, pass,
     matched_fleet: matched, start_index: START, driver_sha256: DRIVER_SHA256, observation: { ...obs, polls, missed }, fleet: ALT ? `${ALT.death?.bot} ${ALT.death?.t}: ${String(ALT.death?.detail || '').slice(0, 160)}` : S.base.fleet, death: died ? died.slice(0, 220) : null, deathClass: dc,
     start: start && [start.x, start.y, start.z].map(v => +v.toFixed(2)), end: end && cellOf(end), maxDistance: +maxDist.toFixed(1),
     minHealth, fidelity: fid, mechanism, rows: rows.length, topKinds: top, kinds, script: scriptLine(), bagStacks: bag.length, bagDropped: dropped,

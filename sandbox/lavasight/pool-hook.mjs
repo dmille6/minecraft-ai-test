@@ -3,7 +3,7 @@
 // `lava-map.json` that scripts/host/lavasight/lavamap_publish.py wrote for the scene's fleet world (from
 // ~/hazardmap/out/hazardmap.json). Its cells are translated by the arena's (DX, DZ) -- y is kept, as the driver keeps it --
 // and kept only inside the cut grown by 4 (the rest of the world is not in the sandbox). The file is bound to the SANDBOX's
-// own world: its seed comes from RCON `seed`, so the bot's hashedSeed check is exercised, not skipped; `world` is the run's
+// own world: its seed is the driver's RCON `seed` (handed in as a string), so the bot's hashedSeed check is exercised; `world` is the run's
 // pool name, so the pool-label check is too. stale_after: 36 h from now (a run never sees the clock expire).
 //
 // LAVASIGHT_HOOK_MODE: `real` (default) as above; `empty` (no cells: the file binds but prices nothing, a placebo); `none`
@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export async function prepare ({ poolDir, pool, DX, DZ, scene, rcon }) {
+export async function prepare ({ poolDir, pool, DX, DZ, scene, seed }) {
   const mode = process.env.LAVASIGHT_HOOK_MODE || 'real'
   if (mode === 'none') return { mode, wrote: null }
   const src = process.env.LAVASIGHT_WORLD_MAP
@@ -19,9 +19,8 @@ export async function prepare ({ poolDir, pool, DX, DZ, scene, rcon }) {
   const m = JSON.parse(fs.readFileSync(src, 'utf8'))
   if (m.schema !== 'mcai.lavamap' || m.schema_version !== 1) throw new Error(`not a lava map: ${src}`)
   if (scene.world && m.world !== scene.world) throw new Error(`the map is ${m.world}'s, the scene is ${scene.world}'s`)
-  const seedReply = rcon('seed')
-  const sm = /\[(-?\d+)\]/.exec(seedReply || '')
-  if (!sm) throw new Error(`no seed from RCON: ${JSON.stringify(seedReply)}`)
+  if (typeof seed !== 'string' || !/^-?\d+$/.test(seed)) throw new Error(`no sandbox seed: ${JSON.stringify(seed)}`)
+  const sm = [null, seed]
   const [OX, OY, OZ] = scene.cells.origin, [SX, SY, SZ] = scene.cells.size, G = 4
   const inCut = ([x, y, z]) => x >= OX - G && x < OX + SX + G && z >= OZ - G && z < OZ + SZ + G && y >= OY - G && y < OY + SY + G
   const cells = mode === 'empty' ? [] : m.cells.filter(inCut).map(([x, y, z]) => [x + DX, y, z + DZ])

@@ -16,6 +16,8 @@ for spec in "$@"; do
     for build in base cand; do
       root="$BASE"; [[ "$build" == cand ]] && root="$CAND"
       echo "=== $(date -u +%FT%TZ) $SERVER $build $(basename "$scene") start $start rep $i"
+      sid=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["id"])' "$scene")
+      printf '{"scene": "%s", "start": %s, "label": "%s", "server": "%s", "rep": %s, "t": "%s"}\n' "$sid" "$start" "$build" "$SERVER" "$i" "$(date -u +%FT%TZ)" >> "$OUT/started.jsonl"
       FM_TAG=lavasight FM_OUT="$OUT" FM_POOL_HOOK="$HERE/pool-hook.mjs" LAVASIGHT_WORLD_MAP="$WMAP" \
         node "$REPO/sandbox/failmine/scene-e2e.mjs" "$root" "$build" "$scene" "$SERVER" "" "$start" 2>&1 | grep -E 'RESULT|FATAL|pool hook|placed' | cut -c1-400 || true
     done

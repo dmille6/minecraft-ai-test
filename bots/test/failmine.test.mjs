@@ -176,7 +176,8 @@ t('FM_TAG (lavasight-01): another owner\'s run goes through the SAME lock check 
   assert.match(code, /const TAG = process\.env\.FM_TAG \|\| 'failmine'/)
   assert.match(code, /if \(!\/\^\[A-Za-z0-9\]\[A-Za-z0-9\._\]\*\(-\[A-Za-z0-9\._\]\+\)\*\$\/\.test\(TAG\)\) throw/)
   assert.match(code, /: sbx\.requireSandboxLock\(SERVER, TAG\)/)
-  assert.match(code, /new RegExp\(`per-server: \$\{TAG\.replace/, 'and its OWN per-server lock, as for failmine')
+  assert.match(code, /const locks = sbx\.parseProbe\(execFileSync\('ssh', \['-o', 'BatchMode=yes', sbx\.REGISTRY\.lockHost, sbx\.probeCmd\(SERVER\)\]/, 'and its OWN per-server lock, from the structured probe')
+  assert.match(code, /if \(locks\.server === null \|\| !sbx\.ownerNames\(locks\.server, TAG\)\) throw/)
   const anchor = ': sbx.requireSandboxLock(SERVER, TAG)'
   assert.equal(code.split(anchor).length - 1, 1, 'anchor missing or not unique')
   assert.doesNotMatch(strip(readFileSync(DRIVER, 'utf8').replace(anchor, ': null')), /: sbx\.requireSandboxLock\(SERVER, TAG\)/)

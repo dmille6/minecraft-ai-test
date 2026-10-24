@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """paper-summary.py <outDir> [<outDir> ...] -- lavasight-01's Paper table from scene-e2e's results.jsonl and its run dirs.
 
-Per (scene, start, build): runs, deaths (lava), lava refusal episodes (bot-minutes with a `_lava_corridor` or lava-naming
-`_explore_blind_step_refused` row after placement), refusal rows, danger-block rows on lava, goto/explore/gather successes,
-and for the candidate the mechanism's own evidence from its log: the mode state (must be `ok`: the hook's file bound to the
-sandbox's seed and the run's pool), active cells and priced moves from `_lavasight`/`_lavasight_route` rows. A candidate run
-whose mode state is not `ok` is reported INVALID (the mechanism never had the map), never as a result.
+Each result row names its own run dir (`run_dir`) and placement time (`placed_at`), so a run's bot log is joined EXACTLY,
+never by a time window (Codex/Claude driver review P2). Per (scene, start, build): runs started (the runner's started.jsonl)
+vs runs with a result, deaths (lava), lava refusal episodes (bot-minutes AFTER PLACEMENT with a `_lava_corridor` or a
+lava-naming `_explore_blind_step_refused`, never for an unknown cell), and for the candidate the mechanism's own evidence:
+the mode state, the active cells and priced moves from `_lavasight_route`/`_lavasight` rows.
+
+A run is INVALID (listed, never counted) when its bot log is missing (either build), or -- for the candidate -- when its map
+did not bind (mode state not `ok`) or bound with nothing to price (no active cell): a candidate that never had lava in its
+index is a placebo, not a result.
 """
 import glob, json, os, sys
 from collections import defaultdict
 
 
-def rows_of(path):
+def rows_of(paths):
     out = []
-    for f in glob.glob(path):
+    for f in paths:
         for l in open(f, errors='replace'):
             try:
                 out.append(json.loads(l))
@@ -22,53 +26,71 @@ def rows_of(path):
     return out
 
 
-def main(dirs):
+def summarize(dirs):
     table = defaultdict(lambda: defaultdict(list))
+    started = defaultdict(int)
     for d in dirs:
-        res = [json.loads(l) for l in open(os.path.join(d, 'results.jsonl')) if l.strip()]
-        runs = sorted(glob.glob(os.path.join(d, '*-*-*')), key=os.path.getmtime)
-        for r in res:
-            # the run dir: the newest dir of this label+scene whose bot log ends before this result row was written
-            cands = [x for x in runs if os.path.basename(x).startswith('%s-%s' % (r['label'], r['scene'][:40]))]
-            logs = []
-            for x in cands:
-                lg = glob.glob(os.path.join(x, '*', 'log', 'skill-*.jsonl'))
-                if lg and abs(os.path.getmtime(lg[0]) - (__import__('datetime').datetime.fromisoformat(r['at'].replace('Z', '+00:00')).timestamp())) < 120:
-                    logs = lg
-            rows = rows_of(logs[0]) if logs else []
-            placed = None
-            k = r.get('kinds') or {}
-            ep = set()
-            mode, active, priced = None, 0, 0
+        sp = os.path.join(d, 'started.jsonl')
+        if os.path.exists(sp):
+            for l in open(sp):
+                if l.strip():
+                    s = json.loads(l)
+                    started[(s['scene'], s['start'], s['label'])] += 1
+        rp = os.path.join(d, 'results.jsonl')
+        if not os.path.exists(rp):
+            continue
+        for l in open(rp):
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            logs = glob.glob(os.path.join(r.get('run_dir') or '/nonexistent', '*', 'log', 'skill-*.jsonl'))
+            rows = rows_of(logs)
+            placed = r.get('placed_at') or ''
+            ep, mode, active, priced, after = set(), None, 0, 0, 0
             for x in rows:
-                n = (x.get('skill') or {}).get('name') or ''
-                det = (x.get('skill') or {}).get('detail') or ''
-                args = (x.get('skill') or {}).get('args') or {}
+                sk = x.get('skill') or {}
+                n, det, args = sk.get('name') or '', sk.get('detail') or '', sk.get('args') or {}
+                ts = x.get('@timestamp', '')
                 if n == '_lavasight_mode':
                     mode = args.get('state')
-                elif n == '_lavasight':
+                if ts < placed:
+                    continue
+                after += 1
+                if n in ('_lavasight', '_lavasight_route'):
                     active = max(active, int(args.get('active') or 0))
-                elif n == '_lavasight_route':
-                    # a 6-min run may end before the 10-min liveness row: the route rows carry active and priced too
-                    active = max(active, int(args.get('active') or 0)); priced += int(args.get('priced') or 0)
-                if n == '_lava_corridor' and 'unknown' not in det or (n == '_explore_blind_step_refused' and 'lava' in det):
-                    ep.add(x.get('@timestamp', '')[:16])
-            key = (r['scene'], r.get('start_index', 0))
-            table[key][r['label']].append({'outcome': r.get('outcome'), 'pass': r.get('pass'), 'death': (r.get('deathClass') or {}).get('family'),
-                                           'episodes': len(ep), 'corridor': k.get('_lava_corridor', 0), 'blind': k.get('_explore_blind_step_refused', 0),
-                                           'danger': k.get('_reflex_danger_block', 0), 'route_rows': k.get('_lavasight_route', 0),
-                                           'mode': mode, 'active': active, 'priced': priced, 'log': bool(logs)})
+                    if n == '_lavasight_route':
+                        priced += int(args.get('priced') or 0)
+                if (n == '_lava_corridor' and 'unknown' not in det) or (n == '_explore_blind_step_refused' and 'lava' in det and 'unknown' not in det):
+                    ep.add(ts[:16])
+            k = r.get('kinds') or {}
+            why = None
+            if not logs:
+                why = 'no log'
+            elif r['label'] == 'cand' and mode != 'ok':
+                why = 'map not bound (%s)' % mode
+            elif r['label'] == 'cand' and active == 0:
+                why = 'nothing indexed'
+            table[(r['scene'], r.get('start_index', 0))][r['label']].append({
+                'invalid': why, 'outcome': r.get('outcome'), 'pass': r.get('pass'), 'death': (r.get('deathClass') or {}).get('family'),
+                'episodes': len(ep), 'corridor': k.get('_lava_corridor', 0), 'blind': k.get('_explore_blind_step_refused', 0),
+                'danger': k.get('_reflex_danger_block', 0), 'mode': mode, 'active': active, 'priced': priced,
+                'hook_cells': (r.get('pool_hook') or {}).get('cells')})
+    return table, started
+
+
+def main(dirs):
+    table, started = summarize(dirs)
     for key in sorted(table):
         print('== %s start %s' % key)
         for b in ('base', 'cand'):
             xs = table[key].get(b, [])
-            if not xs:
-                continue
-            valid = [x for x in xs if b == 'base' or x['mode'] == 'ok']
-            print('  %-4s runs %d (valid %d)  lava deaths %d  passed %d  episodes %s  corridor rows %s  blind %s  danger %s%s' % (
-                b, len(xs), len(valid), sum(1 for x in valid if x['death'] == 'lava'), sum(1 for x in valid if x['pass']),
+            valid = [x for x in xs if not x['invalid']]
+            inv = [x['invalid'] for x in xs if x['invalid']]
+            print('  %-4s started %d, results %d, valid %d%s | lava deaths %d | survived %d | episodes %s | corridor rows %s | blind %s | danger %s%s' % (
+                b, started.get((key[0], key[1], b), 0), len(xs), len(valid), (' (invalid: %s)' % inv) if inv else '',
+                sum(1 for x in valid if x['death'] == 'lava'), sum(1 for x in valid if x['pass']),
                 [x['episodes'] for x in valid], [x['corridor'] for x in valid], [x['blind'] for x in valid], [x['danger'] for x in valid],
-                ('  mode %s active %s priced %s' % ([x['mode'] for x in xs], [x['active'] for x in xs], [x['priced'] for x in xs])) if b == 'cand' else ''))
+                ('  | hook cells %s active %s priced %s' % ([x['hook_cells'] for x in xs], [x['active'] for x in xs], [x['priced'] for x in xs])) if b == 'cand' else ''))
 
 
 if __name__ == '__main__':
