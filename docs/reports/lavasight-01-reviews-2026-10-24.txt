@@ -386,3 +386,53 @@ P3
    parent segment's charge when the successor is generated. The design should name it as the one exception to the 3.4
    property.
 4. idx.full from an incremental note is not reported until the next 20 s rebuild (index.mjs:388, lsLast.full). Cosmetic.
+
+==================================================================================================================
+CODE r4 / DESIGN r5 (b4f1d6f5) -- Codex (codex exec --sandbox read-only)
+==================================================================================================================
+VERDICT: CHANGE
+
+- **P2 — Partial searches invalidate cached executed forms.** `bots/src/lavasight.mjs:228,254` caches `_lsF` but compares successors against mutable `node.y`. Pathfinder’s `postProcessPath` mutates the actual A* nodes on every yield (`index.js:95–99,168–190`). Reproduced with the existing `ladderWorld`, forcing three partial slices: final **success**, surcharge **150**, but **four** executed segments refused—requiring **200**. The single-slice control charges 100 for two refusals. Preserve immutable search coordinates and separate processed output nodes; add a deterministic resumed-search regression. The tests’ `tickTimeout: 10000` (`bots/test/lavasight.test.mjs:215`) misses this integration failure.
+
+- **P3 — Empty-index annotation loses pending ladder settlement.** `bots/src/lavasight.mjs:249` returns before recording `_lsIn` at line 261. If the index fills before that ladder’s expansion, line 255 cannot settle its incoming segment. In `ladderWorld`, generating ladder node `(0,64,0)` with an empty index, then expanding toward `(0,65,0)` with lava indexed, charges **50 instead of 100** across the two refused segments. Retain incoming geometry even when the index is empty.
+
+The read selftest and corridor wiring test pass. Full lavasight/publisher suites were not run because they write temporary files and mutants; this review remained read-only.
+
+==================================================================================================================
+CODE r4 / DESIGN r5 (b4f1d6f5) -- Claude (independent subagent, read-only)
+==================================================================================================================
+VERDICT: APPROVE
+
+Reviewed 8e755c7e..b4f1d6f5. No P1. Codex's r4 P1 (the descent priced at 52 against a base of 2) and his P2 (coverage) are
+fixed, my r4 P2 is addressed, and so is my P3-4. Passing at b4f1d6f5: lavasight.test.mjs 32/32, lavamap-publish 3/3,
+lava-guards-wired 4/4. I did not run the full npm test runner.
+
+Verified
+- Climbable settle (lavasight.mjs:246-264). The move into a climbable is charged at the minimum over its two forms (every).
+  The child adds max(0, actual - charged) once it fixes the form, centred when going down and on top otherwise, which is
+  postProcessPath's path[i+1].y < curPoint.y. So each edge cost is never negative, and every segment of a complete path is
+  charged exactly what the guard would refuse. A ladder followed by another ladder works: _lsIn.from is the parent's form,
+  already fixed by the move itself. A climbable followed by a dig is processed, which matches the processing loop's break at
+  the dig node. A better parent replaces the Move object together with its own _lsIn. Open nodes have no children yet, so
+  nothing goes stale.
+- Independent property probe, run under /private/tmp. The test harness was copied with its tests disabled; I generated 120
+  random ladder worlds and 605 planned paths, 599 of which use a ladder. Never over-charged: 0 cases with
+  charged > 50 x refused. Exact on every path except 36 that end on a ladder, where only the last segment can come up
+  short. The docstring says exactly this. Capped property: 104 of 104 capped cases pass at no greater cost than the base, on
+  routes the guard accepts.
+- Tests and mutants. The UP test pins the total charge (charged == 50 x refused). The DOWN test has cost equal to the base,
+  plus cap-1 controls on both arms. Both mutants ("either form" and "never settle") target the right lines.
+- Coverage (lavasightread.py:194-196) counts only liveness rows inside observed slots, and has a fixture.
+- Primary. It is now <= -0.5 (make_registration.py:60-64), so a KEEP now requires a fall.
+- Full flag. An incremental note now sets full at once (index.mjs:391).
+
+P3
+1. The primary threshold barely clears the null. -0.5 sits only 0.02 past the null minimum of -0.48, and that null comes from
+   roughly two independent windows, so its real spread is probably wider. A no-effect canary can still KEEP now and then.
+   Consider -1.0, which is still below the ~-1.2 a halving of episodes would give at canary rates of ~2.4/bot-h, or a
+   relative fall. That is a judgement call for the owner.
+2. Late index fill means no settle. If the index was empty when a climbable node was generated (so it has no _lsIn) and
+   fills before that node is expanded, the segment into it is never charged. The guard is unchanged, so this only
+   under-charges. Worth one line in 3.3.
+3. priced_moves counts settles. It increments on the child move that carries a settle, even when the child's own segment is
+   clean. Fine for exposure, but the route-row and liveness wording says "moves surcharged", not "segments refused".

@@ -224,11 +224,19 @@ export function processedForms (blockAt, n, ids = {}) {
  *   else                                                                  -> processedForms (cached on the node)
  */
 export const formsOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
-  if (n._lsRaw) return { forms: [{ x: n.x, y: n.y, z: n.z }], climb: false }
-  if (n._lsGen !== true) return { forms: [start ?? { x: n.x, y: n.y, z: n.z }], climb: false }
-  if (!n._lsF) n._lsF = blockAt ? processedForms(blockAt, n, ids) : { forms: [{ x: n.x + 0.5, y: n.y, z: n.z + 0.5 }], climb: false }
+  const c = cellOf(n)
+  if (n._lsRaw) return { forms: [{ x: c.x, y: c.y, z: c.z }], climb: false }
+  if (n._lsGen !== true) return { forms: [start ?? { x: c.x, y: c.y, z: c.z }], climb: false }
+  if (!n._lsF) n._lsF = blockAt ? processedForms(blockAt, c, ids) : { forms: [{ x: c.x + 0.5, y: c.y, z: c.z + 0.5 }], climb: false }
   return n._lsF
 }
+
+/**
+ * A NODE'S SEARCH CELL, immune to postProcessPath (Codex r5 P2): mineflayer-pathfinder post-processes every PARTIAL result in
+ * place (index.js:95-99), moving the very Move objects A* keeps expanding onto support tops (x + 0.5, a slab's y - 0.5...).
+ * The wrapper records each move's integer cell when it generates it and reads that, never the object's mutable x/y/z.
+ */
+export const cellOf = n => n._lsC ?? { x: Math.floor(n.x), y: Math.floor(n.y), z: Math.floor(n.z) }
 
 /**
  * ONE MOVE'S LAVA SURCHARGE -> 0 | CORE_MOVE | 2 x CORE_MOVE. The segment from the parent's executed form to the move's,
@@ -245,14 +253,21 @@ export const formsOf = (n, { start = null, blockAt = null, ids = {} } = {}) => {
 export function moveSurcharge (idx, node, m, env = {}) {
   if (!node || !m) return 0
   m._lsGen = true
+  m._lsC = { x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z) }   // before any postProcessPath can move the object
+  m._lsPar = node                                                            // for a settle the index was too empty to charge
   m._lsRaw = !!(node._lsRaw || (m.toBreak && m.toBreak.length) || (m.toPlace && m.toPlace.length))
   if (!idx || idx.size === 0) return 0
   const hits = (a, b) => segmentHits(idx, a.x, a.y, a.z, b.x, b.y, b.z)
+  // the parent's executed form as THIS child fixes it: a climbable parent is centred only when the child is lower
+  const fromOf = (par, ch) => { const P0 = formsOf(par, env); return P0.climb ? (cellOf(ch).y < cellOf(par).y ? P0.forms[0] : P0.forms[1]) : P0.forms[0] }
   const A0 = formsOf(node, env)
-  let from = A0.forms[0], settle = 0
+  const from = fromOf(node, m)
+  let settle = 0
   if (A0.climb) {
-    from = m.y < node.y ? A0.forms[0] : A0.forms[1]
-    if (node._lsIn) settle = Math.max(0, (hits(node._lsIn.from, from) ? CORE_MOVE : 0) - node._lsIn.charged)
+    // the segment INTO this climbable: charged at its minimum form when it was generated, or not at all when the index was
+    // still empty then (Codex r5 P3) -- either way the remainder is settled here, never negative
+    const inc = node._lsIn ?? (node._lsPar ? { from: fromOf(node._lsPar, node), charged: 0 } : null)
+    if (inc) settle = Math.max(0, (hits(inc.from, from) ? CORE_MOVE : 0) - inc.charged)
   }
   const B0 = formsOf(m, env)
   let own
