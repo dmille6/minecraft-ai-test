@@ -1504,10 +1504,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // CEILESCAPE-01 (Claude design r1 P1-1): WHILE A SUBMERGED RAMP SIDESTEP STEERS THE BODY, the float hold stands aside -- it
   // would clear `forward` every tick (no_air_route) or steer a surface_out itself, two controllers on one body. The sidestep
   // holds the swim stroke itself for exactly that long and yields to the drowning rescue, which still runs.
-  let rampSteering = false
-  const steerRamp = v => { rampSteering = !!v }
+  let rampSteering = 0             // a count, not a flag (Claude r2 P3-5): two overlapping sidesteps must not clear each other
+  const steerRamp = v => { rampSteering = Math.max(0, rampSteering + (v ? 1 : -1)) }
   // ceilescape-01: the last `_needs_rescue` row ({ cell, at }) -- one per cell per 30 min; the decision row is every firing
-  let lastRescueRow = null
+  const rescueRows = new Map()     // cell -> last `_needs_rescue` time (rescueRowDue keeps the 8 newest)
   /**
    * CEILESCAPE-01: NO SWING OF THIS FIRING COULD FINISH, EVEN IN A FULL BUDGET -- an UNRESOLVED ESCALATION, not a remedy
    * (design section 5). The arm's own behaviour is unchanged; this only writes the `_needs_rescue` row the fleetstatus
@@ -1517,8 +1517,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     try {
       const p = bot.entity.position
       const cell = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
-      if (!rescueRowDue(lastRescueRow, cell)) return
-      lastRescueRow = { cell, at: Date.now() }
+      if (!rescueRowDue(rescueRows, cell)) return
       const c = ramp?.ceil ?? {}
       logEvent({ kind: 'needs_rescue', status: 'failed',
                  detail: `arm=${arm} at=${cell.x},${cell.y},${cell.z} where=${c.where} block=${c.block} price_ms=${c.ceilingMs} ` +
@@ -1729,7 +1728,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const longEnough =
         (strandedSince && Date.now() - strandedSince > LAST_RESORT_STRANDED_MS) ||
         (sealedSince && Date.now() - sealedSince > SEALED_ESCAPE_MS)
-      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping &&
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping && !rampSteering &&
           Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
         // `trapped` comes from the lattice's own observation rather than a
         // separate flag, so this branch and the plan it obeys are reading the
@@ -4675,9 +4674,19 @@ export async function escapeStairUp (bot, {
     if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
     await safeEmptyHand(bot, 'entombed_a')
     // THE DECISION'S FRAME, NOT A NEW ONE (ceilescape-01, Claude r1 P1-2): the candidate's offsets were planned from `frame`;
-    // a body that left that cell during the hand change is re-planned, never dug from a shifted origin.
+    // a body that left that cell during the hand change is re-planned, never dug from a shifted origin. And the hand change
+    // is an await: the body is asked for again before this routine sets a single control (Codex r2 P1-4).
     const p = frame ?? bot.entity.position
+    // The ceilescape checks: a body still in the frame's x/z cell and at most one cell lower stands in the plan; anything
+    // else is re-planned by the caller. Only a caller that passed a frame or a submerged start gets them (the existing flood
+    // sidestep passes neither and runs exactly as before).
+    const ceChecked = !!frame || wetStart
+    const inFrame = () => {
+      const q = bot.entity.position, sank = Math.floor(p.y) - Math.floor(q.y)
+      return Math.floor(q.x) === Math.floor(p.x) && Math.floor(q.z) === Math.floor(p.z) && sank >= 0 && sank <= 1
+    }
     if (frame) {
+      if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
       const q = bot.entity.position
       if (Math.floor(q.x) !== Math.floor(p.x) || Math.floor(q.y) !== Math.floor(p.y) || Math.floor(q.z) !== Math.floor(p.z)) return 'displaced'
     }
@@ -4687,6 +4696,9 @@ export async function escapeStairUp (bot, {
     // the top of the column. The stroke is this routine's own control, released on every exit that is not a yield; the
     // water-posture hold is told to stand aside for exactly as long (`steering`).
     if (wetStart) { try { steering(true) } catch { /* a caller's flag */ } bot.setControlState('jump', true) }
+    // THE HEAD CELL IS RE-ASKED BEFORE THE MOVE (Codex r2 P1-3): the rechecks see only water already there; a feed that opened
+    // during the digs is the predictor's question.
+    const headFloods = () => (wetStart ? cellFloods((x, y, z) => bot.blockAt(p.offset(side.bear.x + x, 1 + y, side.bear.z + z))) : null)
     try {
       for (const [dx, dy, dz] of side.dig) {
         if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
@@ -4698,14 +4710,7 @@ export async function escapeStairUp (bot, {
       }
       if (side.dig.length) await sleep(FALLING_SETTLE_MS)
       if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
-      // THE PLAN STANDS IN ITS OWN FRAME, OR IT IS RE-MADE (ceilescape-01). The target is the planned cell, read from `p`.
-      // A bot still in that x/z cell and at most one cell lower is re-checked there; any other displacement is re-planned
-      // from scratch by the caller, never stepped from a stale frame.
-      if (wetStart) {
-        const q = bot.entity.position
-        const sank = Math.floor(p.y) - Math.floor(q.y)
-        if (Math.floor(q.x) !== Math.floor(p.x) || Math.floor(q.z) !== Math.floor(p.z) || sank < 0 || sank > 1) return 'displaced'
-      }
+      if (ceChecked && !inFrame()) return 'displaced'
       // `wetFeet` only for a submerged start (ceilescape-01): water that flowed into the dug feet cell is not a reason to stay
       // under the copper; the head cell must still breathe.
       const again = floodSidestep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), bear: side.bear,
@@ -4719,6 +4724,8 @@ export async function escapeStairUp (bot, {
       const last = floodSidestep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), bear: side.bear,
                                    canBreak, submerged: submergedAt(bot), wetFeet: wetStart })
       if (!last.ok || last.dig.length) return `the side cell changed before the step: ${last.reason ?? 'a cell refilled'}`
+      const fl = headFloods()
+      if (fl) return `the side cell changed before the step: ${fl}`
       if (wetStart) {
         // SWIM UP FIRST (ceilescape-01): the body may enter the side cell only with its feet at the tread's top or above; the
         // swim stroke is still held, so this waits for the rise, at most 2 s.
@@ -4729,6 +4736,8 @@ export async function escapeStairUp (bot, {
           if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
         }
       }
+      // AND THE FRAME ONCE MORE, IMMEDIATELY BEFORE THE STROKE (Codex r2 P1-4): the look and the rise were awaits.
+      if (ceChecked && !inFrame()) return 'displaced'
       bot.setControlState('forward', true)
       try {
         const until = Date.now() + (wetStart ? 2000 : 1500)
@@ -4743,6 +4752,14 @@ export async function escapeStairUp (bot, {
       if (wetStart && !yielded) bot.setControlState('jump', false)
       await sleep(250)
       if ((yielded = yieldTo())) return `yielded the body to ${yielded}`   // finish() must not clear a new owner's stroke
+      if (wetStart) {
+        // LET A STROKE THAT CARRIED ONTO DRY GROUND LAND before the height is read (Claude r2 P3-2), at most 600 ms more.
+        const until = Date.now() + 600
+        while (!bot.entity.onGround && !isWaterCell(bot.blockAt(bot.entity.position)) && Date.now() < until) {
+          await sleep(60)
+          if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
+        }
+      }
       const q = bot.entity.position
       if (Math.floor(q.x) !== fx || Math.floor(q.z) !== fz) return 'could not step into the side cell'
       if (wetStart) {
@@ -4783,7 +4800,9 @@ export async function escapeStairUp (bot, {
       if (!st) { stopped = `yielded the body to ${yielded}`; return 'stop' }
       const q = bot.entity.position
       if (Math.floor(q.x) !== Math.floor(p.x) || Math.floor(q.y) !== Math.floor(p.y) || Math.floor(q.z) !== Math.floor(p.z)) return 'replan'
-      block = bot.blockAt(b.position) ?? b
+      // THE BLOCK PRICED IS THE BLOCK SWUNG AT (Codex r2 P1-2): a ceiling that changed during the settle is planned again,
+      // never priced as the new block and dug as the old one.
+      if (!sameBlock(bot.blockAt(b.position), b)) return 'replan'
       env = digEnv(bot); settledMs = st.settledMs; envMs = digPriceOf(bot, block)
     }
     const leftMs = deadline - Date.now()
@@ -4814,7 +4833,10 @@ export async function escapeStairUp (bot, {
       const wet = isWaterCell(at(bear.x, 0, bear.z))
       candidates.push({ bear, dig: r.dig, wet,
                         digMs: r.dig.map(([x, y, z]) => predictedDigMs(at(x, y, z), bot.heldItem ?? null, sideEnv)),
-                        newCeilMs: bodyPassable(top) ? 0 : predictedDigMs(top, null, { notOnGround: wet }) })
+                        // the new ceiling at the ARRIVAL state (Codex r2 P2-6): the hand held now (a kept tool stays kept),
+                        // this bot's effects, a dry eye (the head must breathe), and off the ground whenever the feet may be
+                        // wet on arrival -- a submerged start's dug feet cell can flood after the plan
+                        newCeilMs: bodyPassable(top) ? 0 : predictedDigMs(top, bot.heldItem ?? null, { ...env, inWater: false, notOnGround: wet || submerged }) })
     }
     const d = ceilingEscapeDecision({ ceilingMs: envMs, leftMs, fullMs: budgetMs, candidates, refusals, block: block.name,
                                       moved: sidestepped > 0 })
@@ -4855,7 +4877,8 @@ export async function escapeStairUp (bot, {
       if (Math.floor(q.x) !== Math.floor(p.x) || Math.floor(q.y) !== Math.floor(p.y) || Math.floor(q.z) !== Math.floor(p.z)) {
         return 'moved while the next swing was priced; the next firing re-plans from here'
       }
-      block = bot.blockAt(b.position) ?? b
+      // the block priced is the block swung at (Codex r2 P1-2)
+      if (!sameBlock(bot.blockAt(b.position), b)) return 'the step cell changed while the next swing was priced; the next firing re-plans'
       env = digEnv(bot); settledMs = st.settledMs; envMs = digPriceOf(bot, block)
     }
     const leftMs = deadline - Date.now()
@@ -4867,8 +4890,9 @@ export async function escapeStairUp (bot, {
     const others = !first ? [] : escapeBearings(bot.entity.yaw)
       .filter(o => o.x !== bear.x || o.z !== bear.z)
       .map(o => ({ bear: o, plan: stairUpStep({ at, bear: o, canBreak, submerged: submergedAt(bot) }) }))
-      .filter(o => o.plan.ok && o.plan.dig.length)
-      .map(o => ({ bear: o.bear, priceMs: predictedDigMs(at(...o.plan.dig[0]), bot.heldItem ?? null, env) }))
+      .filter(o => o.plan.ok)
+      // a bearing whose step needs no swing is a move the bot has (Claude r2 P2-2): priced 0
+      .map(o => ({ bear: o.bear, priceMs: o.plan.dig.length ? predictedDigMs(at(...o.plan.dig[0]), bot.heldItem ?? null, env) : 0 }))
     const d = first
       ? firstSwingEscalation({ chosen: { bear, priceMs: envMs }, others, leftMs, fullMs: budgetMs, block: block.name })
       : { escalate: false, reason: `the next swing cannot finish: ${block.name} ${(envMs / 1000).toFixed(1)}s against ${(leftMs / 1000).toFixed(1)}s left` }
@@ -6103,6 +6127,11 @@ export function digPriceOf (bot, block) {
     if (typeof bot?.digTime === 'function') { const t = bot.digTime(block); return Number.isFinite(t) ? t : null }
   } catch { /* fall through to the registry */ }
   return predictedDigMs(block, bot?.heldItem ?? null, digEnv(bot))
+}
+
+/** ceilescape-01: is `a` still the block `b` was (same name and state)? Unknown is not the same. Pure. */
+export function sameBlock (a, b) {
+  return !!a && !!b && a.name === b.name && (a.stateId ?? a.type ?? null) === (b.stateId ?? b.type ?? null)
 }
 
 async function digBounded(bot, block, ms = 8000) {
