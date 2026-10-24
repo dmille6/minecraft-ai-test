@@ -545,3 +545,100 @@ P3
    if (node._lsGen !== true && !node._lsSt) node._lsSt = env.start ?? null. It can only mis-charge, and only when three rare
    conditions coincide.
 2. The -0.5 primary threshold stays the owner's call, as noted.
+
+==================================================================================================================
+PAPER TOOLING (branch lavasight-sandbox-1024) -- Codex rounds 1-6, final answers verbatim
+==================================================================================================================
+
+--- tooling round (drv) ---
+VERDICT: CHANGE
+
+- **P2 — Wrong-run binding evidence:** `sandbox/lavasight/paper-summary.py:31–36` selects the last matching log within **±120 seconds**, including later runs, without matching start/server or consuming matches. Nearby short runs can reuse another run’s log; its `state=ok` then validates an unbound candidate at line 65. Record the run directory in each result and join exactly.
+- **P2 — Per-server requirement can be spoofed by an owner note:** `sandbox/failmine/scene-e2e.mjs:47` searches a human-readable verdict. A global-only owner string `lavasight note per-server: lavasight` passes without a per-server lock. This weakness predates the change for `failmine`; FM_TAG extends it. Check structured lock state.
+- **P3 — Episodes include pre-placement activity:** `sandbox/lavasight/paper-summary.py:38–54` initializes `placed` but never filters timestamps. Holding-pad refusals count despite the documented “after placement” metric. Persist and apply the placement timestamp.
+
+Distinct owner tags still cannot both pass `lockVerdict`. The literal call remains reachable and meaningful as a structural wiring check; registry counting is per file.
+
+The supplied hook writes only `poolDir/lava-map.json`; seed remains a decimal string, pool matches the bot, expiry is 36 hours, and translation preserves Y. The filter includes a four-block halo beyond the cut. Arbitrary `FM_POOL_HOOK` modules are trusted code, **not filesystem-confined** (`scene-e2e.mjs:243–245`); the supplied hook contains no fleet write.
+
+--- tooling round (drv2) ---
+VERDICT: CHANGE
+
+- **P2 — Empty-map candidates can count as valid.** `sandbox/lavasight/paper-summary.py:58–72` accepts `mode == 'ok'` plus any active cell. Active cells also include the bot’s own sighting ring (`lavasight-on-fb8de72:bots/src/index.mjs:365–368`). Thus `LAVASIGHT_HOOK_MODE=empty` can pass once the bot sees lava, despite receiving zero map cells. Require nonempty bound-file evidence, and distinguish placebo runs.
+
+- **P2 — Relative output paths break the run-log join.** `sandbox/lavasight/lavasight-paper.sh:20` passes OUT unchanged; `scene-e2e.mjs:69–72` can consequently record a relative `run_dir`. `paper-summary.py:45` resolves it against the summary process’s working directory, potentially reading another directory or marking valid runs invalid. Record an absolute run directory.
+
+- **P3 — Completely failed scene/start groups disappear.** `paper-summary.py:81` iterates only result-backed keys. If all attempts abort before writing results, their `started.jsonl` entries never appear. Iterate the union of started and result keys.
+
+Otherwise, FM_TAG preserves exact-owner discipline and requires its own per-server lock; the literal-call wiring test remains meaningful. The supplied hook writes only `poolDir/lava-map.json`; seed-string handling, pool binding, expiry and translation match the reader. Its filter intentionally includes a four-block margin.
+
+An arbitrary FM_POOL_HOOK is **trusted executable code**, not confined: importing it grants normal Node filesystem/process access, regardless of passing a seed instead of RCON.
+
+Review was local and read-only; no hosts contacted.
+
+--- tooling round (drv3) ---
+VERDICT: CHANGE
+
+- **P2 — Invalid experiments pass non-regression.** `sandbox/lavasight/library-ab-verdict.mjs:28–36` ignores the oracle’s `INVALID` verdict when deciding `ok` and exit status. Confirmed locally: three reproducing base deaths with either zero candidates or three incomplete candidates produce `non-regression ok`, exit 0. Require complete, comparable runs and a reproducing baseline before judging regression.
+- **P2 — Unbound candidates bypass validation.** `sandbox/lavasight/library-ab-verdict.mjs:15–20` accepts every result without the map-binding checks in `paper-summary.py:69–72`. A candidate rejected by the paper table can still support a successful non-regression verdict. Share the validity checks and report invalid experiments separately.
+
+FM_TAG preserves exact-owner checks and requires its own per-server lock (`scene-e2e.mjs:45–53`). The literal-call test remains meaningful as a structural check. The supplied hook’s seed string, pool name, expiry, padded cut and translation match the reader contract; it writes only `poolDir/lava-map.json`. Arbitrary hook modules are trusted code, however, not filesystem-confined.
+
+The paper summary uses explicit absolute run directories and rejects unbound candidates. No files modified or hosts contacted.
+
+--- tooling round (drv4) ---
+VERDICT: CHANGE
+
+- **P2 — All-crashed scenes disappear from library verdicts.** `sandbox/lavasight/paper-summary.py:120–128`: `--library` ignores `started` and iterates only result-bearing scenes. If every attempt fails before emitting a result, it prints nothing and exits 0. Reproduced in memory; `--selftest` passes. Include started-only scenes and report INCONCLUSIVE; distinguish incomplete evidence from successful non-regression.
+
+Otherwise: FM_TAG preserves exact-owner checks and requires the per-server lock; the literal-call test remains meaningful structurally. The supplied hook writes only the run’s pool file, with consistent seed, pool, expiry, cut filtering, and translation. Arbitrary imported hooks retain full process permissions—this is a trusted extension point, not enforced confinement. Explicit `run_dir` attribution avoids time-window mismatches, and candidates without binding evidence are excluded.
+
+--- tooling round (drv5) ---
+VERDICT: CHANGE
+
+- **P2 — Different builds are silently pooled.** `sandbox/lavasight/paper-summary.py:78` groups solely by scene, start, and `base`/`cand`, discarding the build `sha` recorded at `sandbox/failmine/scene-e2e.mjs:329`. Combining output directories from candidate revisions can therefore produce an “ok” verdict attributed to no single candidate. Reject mixed SHAs per label or partition comparisons by build pair.
+
+Otherwise, the reviewed paths look sound: exact-owner checks and the required per-server lock remain enforced; the literal-call test remains meaningful as a structural check. The supplied hook writes inside the run’s pool directory and correctly supplies the seed string, pool label, expiry, cut filtering, and translation. Arbitrary hook modules are trusted executable code, not confined plugins (`scene-e2e.mjs:251`).
+
+Log matching uses each result’s explicit run directory, and candidates without binding evidence or active cells are excluded (`paper-summary.py:46,69–72`). No files modified or hosts contacted.
+
+--- tooling round (drv6) ---
+VERDICT: APPROVE
+
+No P1/P2/P3 findings in the requested scope.
+
+- Lock discipline remains intact: exact-tag checks plus an explicit owned per-server lock requirement (`sandbox/failmine/scene-e2e.mjs:44–51`). The literal failmine call remains executable; both wiring tests strip comments and exercise mutants (`bots/test/failmine.test.mjs:163–184`).
+- The supplied hook writes only `poolDir/lava-map.json`. Seed remains a decimal string; pool binding, 36-hour expiry, padded cut filtering, and DX/DZ translation match the reader contract (`sandbox/lavasight/pool-hook.mjs:22–33`). **An arbitrary FM_POOL_HOOK module is trusted code, not filesystem-confined** (`sandbox/failmine/scene-e2e.mjs:251`).
+- Results join logs by explicit `run_dir`; unbound or inactive candidates are excluded. Mixed builds per side yield INCONCLUSIVE, and the seam fixture now checks each row (`sandbox/lavasight/paper-summary.py:46–79,103–106,178–179`).
+
+Static review only; no files modified or hosts contacted.
+
+==================================================================================================================
+PAPER TOOLING (branch lavasight-sandbox-1024) -- Claude rounds 1-5 (verdicts and findings, condensed from the final answers)
+==================================================================================================================
+--- tooling r1 (bb4ed8eb): VERDICT: APPROVE ---
+FM_TAG does not weaken lock discipline (scene-e2e.mjs:41-47): the tag is validated as one lock word and passed to the same
+requireSandboxLock / lockVerdict; the run still has to hold the server's own per-server lock under that tag. The hook cannot
+write outside the run dir by itself. The file is accepted by the candidate's parseLavaMap (schema, version, world = the pool
+name = MEMORY_POOL, seed the decimal string from RCON, stale_after +36 h, cells translated by the driver's own DX/DZ).
+P2-1 a candidate run can bind with nothing to price and still count (paper-summary.py:67): require active > 0 or the hook's
+cells. P2-2 a missing log becomes zeros (paper-summary.py:32-38): treat log == False as INVALID; write the run dir into the
+result row. P3-1 nothing tests the tag check's behaviour. P3-2 the hook is handed rcon: pass the seed string. P3-3 episodes
+counted before placement; blind-step lacks the unknown exclusion. P3-4 lavasight-paper.sh hides crashed runs.
+--- tooling r2 (41b6ff2f): VERDICT: APPROVE ---
+Per-server lock check no longer spoofable (parseProbe + ownerNames; locks.server === null refuses a global-only run). The hook
+gets a seed string. Exact run joins (run_dir, placed_at, pool_hook in the row). Validity rules correct. P3-1 fully crashed
+scenes disappear from the table (iterate started U results). P3-2 the "nothing indexed" reason should say "no post-placement
+route or liveness row". P3-3 the per-server lock is probed twice (harmless).
+--- tooling r3 (59861297): VERDICT: CHANGE ---
+P2-1 library-ab-verdict.mjs ignores the validity rules paper-summary.py enforces: an unbound candidate behaves like the base,
+so "never worse" is satisfied without the mechanism running. P2-2 "never worse" compares raw counts. P3-1 the positive control
+(the base reproducing the fleet) is reported, never required. P3-2 unknown labels dropped silently.
+--- tooling r4 (3cd6477a): VERDICT: APPROVE ---
+The library check uses the table's own validity rules and states the inconclusive cases; the 7 fixtures cover each verdict.
+P2-1 INCONCLUSIVE exits 0, and fully crashed scenes are absent from --library: give INCONCLUSIVE a distinct exit and include
+started-only keys. P3-1 the fixtures exercise library_verdict alone, not summarize().
+--- tooling r5 (c23deef5): VERDICT: APPROVE ---
+Started-only scenes count; the exit code is honest (1 / 2 / 0); the new fixture tests the real path. P3-1 the fixture checks a
+set of reasons, not which row got which. P3-2 the selftest leaves its temp directory behind.
+(r6, 02a6f4e6, applied Codex r5's P2 -- mixed builds per side -> INCONCLUSIVE -- and both of these P3s; Codex r6 APPROVE.)
