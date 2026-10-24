@@ -1,0 +1,369 @@
+{
+ "v": 1,
+ "template": "ring@1",
+ "home": {
+  "x": 0,
+  "y": 70,
+  "z": 0
+ },
+ "s": 70,
+ "mode": "greenfield",
+ "orientation": "W",
+ "workSide": 1,
+ "seed": {
+  "why": "ok"
+ },
+ "plots": [
+  {
+   "id": "core",
+   "kind": "plaza",
+   "box": [
+    -6,
+    -6,
+    6,
+    6
+   ],
+   "y": 70,
+   "state": "planned",
+   "keepout": true
+  },
+  {
+   "id": "store",
+   "kind": "storehouse",
+   "box": [
+    -15,
+    -4,
+    -7,
+    4
+   ],
+   "y": 70,
+   "door": [
+    -8,
+    71,
+    0
+   ],
+   "state": "planned",
+   "keepout": true,
+   "building": "clear",
+   "cells": [
+    {
+     "at": [
+      -9,
+      71,
+      2
+     ],
+     "kind": "chest",
+     "stand": [
+      -10,
+      71,
+      1
+     ],
+     "role": "overflow",
+     "group": null,
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -9,
+      71,
+      -2
+     ],
+     "kind": "chest",
+     "stand": [
+      -10,
+      71,
+      -1
+     ],
+     "role": null,
+     "group": null,
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -11,
+      71,
+      2
+     ],
+     "kind": "chest",
+     "stand": [
+      -11,
+      71,
+      1
+     ],
+     "role": null,
+     "group": null,
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -11,
+      71,
+      -2
+     ],
+     "kind": "chest",
+     "stand": [
+      -11,
+      71,
+      -1
+     ],
+     "role": null,
+     "group": null,
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -13,
+      71,
+      0
+     ],
+     "kind": "chest",
+     "stand": [
+      -12,
+      71,
+      0
+     ],
+     "role": null,
+     "group": null,
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -13,
+      71,
+      2
+     ],
+     "kind": "chest",
+     "stand": [
+      -12,
+      71,
+      1
+     ],
+     "role": null,
+     "group": null,
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -13,
+      71,
+      -2
+     ],
+     "kind": "chest",
+     "stand": [
+      -12,
+      71,
+      -1
+     ],
+     "role": null,
+     "group": null,
+     "state": "free",
+     "ready": true
+    }
+   ]
+  },
+  {
+   "id": "work",
+   "kind": "workshop",
+   "box": [
+    -11,
+    -8,
+    -7,
+    -6
+   ],
+   "y": 70,
+   "state": "planned",
+   "keepout": true,
+   "size": "5x3",
+   "stations": [
+    {
+     "at": [
+      -7,
+      71,
+      -7
+     ],
+     "kind": "crafting_table",
+     "stand": [
+      -7,
+      71,
+      -6
+     ],
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -8,
+      71,
+      -7
+     ],
+     "kind": "furnace",
+     "stand": [
+      -8,
+      71,
+      -6
+     ],
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -9,
+      71,
+      -7
+     ],
+     "kind": "furnace",
+     "stand": [
+      -9,
+      71,
+      -8
+     ],
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -10,
+      71,
+      -7
+     ],
+     "kind": "crafting_table",
+     "stand": [
+      -10,
+      71,
+      -8
+     ],
+     "state": "free",
+     "ready": true
+    },
+    {
+     "at": [
+      -11,
+      71,
+      -7
+     ],
+     "kind": "furnace",
+     "stand": [
+      -11,
+      71,
+      -8
+     ],
+     "state": "free",
+     "ready": true
+    }
+   ]
+  },
+  {
+   "id": "well",
+   "kind": "well",
+   "sector": "E",
+   "ref": null,
+   "state": "planned"
+  },
+  {
+   "id": "farm",
+   "kind": "farm",
+   "sector": "S",
+   "composter": [
+    -1,
+    71,
+    9
+   ],
+   "state": "planned"
+  },
+  {
+   "id": "gate",
+   "kind": "gate",
+   "sector": "N",
+   "state": "planned"
+  },
+  {
+   "id": "shaft",
+   "kind": "shaft",
+   "sector": "NE",
+   "state": "planned"
+  },
+  {
+   "id": "monument",
+   "kind": "monument",
+   "sector": "NW",
+   "state": "planned"
+  },
+  {
+   "id": "pavilion",
+   "kind": "pavilion",
+   "sector": "SE",
+   "state": "planned"
+  },
+  {
+   "id": "hall",
+   "kind": "hall",
+   "sector": "SW",
+   "state": "planned"
+  }
+ ],
+ "paths": [
+  {
+   "id": "p-well",
+   "to": "well",
+   "width": 2,
+   "seg": [
+    7,
+    0,
+    9,
+    1
+   ],
+   "state": "planned"
+  },
+  {
+   "id": "p-farm",
+   "to": "farm",
+   "width": 2,
+   "seg": [
+    0,
+    7,
+    1,
+    9
+   ],
+   "state": "planned"
+  },
+  {
+   "id": "p-gate",
+   "to": "gate",
+   "width": 2,
+   "seg": [
+    0,
+    -44,
+    1,
+    -7
+   ],
+   "state": "planned"
+  }
+ ],
+ "groups": {
+  "v": 1,
+  "status": "greenfield",
+  "homes": {},
+  "overflow": [],
+  "drain": [],
+  "pending": []
+ },
+ "zones": {
+  "n": 7,
+  "avoid": 1,
+  "why": "ok"
+ },
+ "gen": 1,
+ "prev": null,
+ "prevSha": null,
+ "world": "1292467317:1056448044",
+ "at": 0,
+ "by": "offline",
+ "code": "townplan-offline",
+ "transitions": []
+}

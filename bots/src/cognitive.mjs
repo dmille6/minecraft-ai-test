@@ -12,7 +12,7 @@
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -31,6 +31,9 @@ import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
+// FOUNDING (found-01): the found slot's decision and readings
+import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign } from './found.mjs'
+import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -217,6 +220,8 @@ export const LIVELOCK_LATCH_MS = 600_000
 export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
+  // found-01: found_store / found_work charge the cooldown AND the visit at issue (found.mjs foundIssued); a declined run refunds both
+  if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: -Infinity, visitUsed: false } }
   if (!at || !st[at[0]]) return {}
   return { [at[0]]: { ...st[at[0]], [at[1]]: -Infinity } }
 }
@@ -738,7 +743,7 @@ export class CognitiveLoop {
     } catch { return null }   // an inventory or world read must never break the decision loop
   }
 
-  #townDepositOrder(milestone) {
+  #townDepositOrder(milestone, { dry = false } = {}) {
     try {
       const bot = this.bot
       const items = bot.inventory?.items?.() ?? []
@@ -758,10 +763,51 @@ export class CognitiveLoop {
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
         // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
-        plan, container: () => !bankClosed(bot) && townContainers(bot).length > 0, state: this.townDepositState ?? {},
+        plan, container: () => !bankClosed(bot) && townContainers(bot).length > 0,
+        // DRY (found-01's slot asks whether the deposit WOULD issue now): its state copied, the 30 s scan throttle ignored, kept nowhere
+        state: dry ? { ...(this.townDepositState ?? {}), lastScanAt: -Infinity } : this.townDepositState ?? {},
       })
+      if (dry) return r.order
       this.townDepositState = r.state
       if (r.order) bot.townDepositWanted = wanted ?? []
+      return r.order
+    } catch { return null }
+  }
+
+  /** THE FOUND SLOT (found-01; found.mjs foundOrder decides, this supplies the readings and keeps the per-bot state) -> an order or
+   *  null. Only in town, only with a plan of this world; the visit and the 10-min cooldown are charged when an order is issued. */
+  #foundOrder(milestone) {
+    try {
+      const bot = this.bot
+      if (!FOUND.on) return null
+      const p = bot.entity?.position
+      const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+      const inT = !!p && inTown(home, p)
+      this.foundState = foundVisit(this.foundState ?? {}, inT)
+      if (!inT) return null
+      // THE HEAD READ FRESH for this decision (Paper FOUND-RETRO 10-22: a bot that decided from its 30-s-old cached head took the
+      // lease the moment another bot released it, crafted a spare table for a station that bot had just filled, and spent its
+      // visit on lost_reservation). One directory read per in-town decision; the walk continues incrementally.
+      try { townPlanHead(bot) } catch { /* the cached head serves */ }
+      const tp = townPlanNow(bot)
+      if (!tp) return null
+      const items = bot.inventory?.items?.() ?? []
+      const wanted = [...(this.#wantedItems(milestone) ?? [])]
+      const bankGroups = foundBankGroups(bot, wanted)
+      // a homeless group takes an unassigned container first: a plan-only publish (no skill, no cooldown, no visit)
+      const as = foundAssign({ plan: tp.plan, bankGroups })
+      if (as) foundAssignHome(bot, as.at, as.group)
+      const tp2 = townPlanNow(bot) ?? tp
+      const r = foundOrder({
+        plan: tp2.plan, zonesKnown: townPlanZones(bot).known, items,
+        wanted: Object.fromEntries(wanted.filter(n => typeof n === 'string').map(n => [n, 64])),
+        townContainer: foundTownContainer(bot), ready: cell => foundCellReady(bot, cell), leaseFree: foundLeaseFree(bot),
+        depositWouldIssue: !!this.#townDepositOrder(milestone, { dry: true }),
+        bankGroups, craftFits: item => foundCraftFits(bot, item),
+        state: this.foundState, now: Date.now(),
+      })
+      if (!r.order) return null
+      this.foundState = foundIssued(this.foundState, Date.now())
       return r.order
     } catch { return null }
   }
@@ -955,13 +1001,16 @@ export class CognitiveLoop {
     // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
     // THE RAISED JUNK WELL GOES BEFORE THE DEPOSIT (plinth.mjs plinthOrder; design 3.4): at town, a funded bot's surplus
     // stone builds the town's well before any of it is banked; one builder per town (the lease), on its own cooldown.
-    order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
+    // FOUNDING (found-01, found.mjs foundOrder): the found slot between the raised well and the town deposit -- a town's first
+    // chest (the deposit can bank nothing without one), its workshop table and furnace, a homeless group's chest; it yields to a
+    // deposit that would issue now except for an F3 with a carried chest (build spec 2.1)
+    order = this.#plinthOrder() ?? this.#foundOrder(milestone) ?? this.#townDepositOrder(milestone) ?? order
     // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
     // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
     // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
     // rung re-issues every decision and would starve it. The town deposit and the plinth build keep their turn (both are
     // bounded and on their own cooldowns; the recount comes on the next decision).
-    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order
+    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1138,7 +1187,7 @@ export class CognitiveLoop {
           for (const it of items) held[it.name] = (held[it.name] ?? 0) + (it.count ?? 0)
           const free = 36 - items.length
           const r = smeltTownOrder({ now: Date.now(), on: sw.on, atTown, holds, held, freeSlots: free,
-            townMiss: () => townCopperMiss(bot), state: this.smeltJobState ?? {} })
+            townMiss: () => townCopperMiss(bot), ironMiss: () => townIronMiss(bot), state: this.smeltJobState ?? {} })   // ironsmelt-01: iron first
           this.smeltJobState = r.state
           tally(r.order ? 'issued' : r.skip)
           if (r.order) order = r.order
@@ -1158,7 +1207,7 @@ export class CognitiveLoop {
             this.smeltSkipAt ??= {}
             if (atTown && sw.on && why && Date.now() - (this.smeltSkipAt[why] ?? -Infinity) >= 10 * 60 * 1000) {
               this.smeltSkipAt[why] = Date.now()
-              logEvent({ kind: 'smelt_job_skip', status: 'no_effect', detail: `why=${why} free=${free} copper=${held.raw_copper ?? 0} fuel=${held.coal ?? 0}`, snapshot: snap })
+              logEvent({ kind: 'smelt_job_skip', status: 'no_effect', detail: `why=${why} free=${free} copper=${held.raw_copper ?? 0} fuel=${held.coal ?? 0} raw_iron=${held.raw_iron ?? 0}`, snapshot: snap })
             }
           }
         } catch { /* an inventory or world read must never break the decision loop */ }

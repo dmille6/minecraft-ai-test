@@ -949,7 +949,7 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l
 const once = (src, needle, where) => { const n = src.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
 const COG = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
 const cogPlinth = src => {
-  once(src, 'order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order', 'cognitive')
+  once(src, 'order = this.#plinthOrder() ?? this.#foundOrder(milestone) ?? this.#townDepositOrder(milestone) ?? order', 'cognitive')   // found-01 (re-anchored): the found slot sits between; plinth still before the deposit
   once(src, "if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", 'cognitive')
   once(src, 'const r = plinthOrder({', 'cognitive')
   once(src, 'chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64))', 'cognitive')
@@ -1003,7 +1003,7 @@ await t('MUTANT (skills): the stair not merged into an existing column -> the ha
 })
 await t('cognitive.mjs: the plinth order goes before the town deposit, and its outcome is fed back', () => cogPlinth(COG))
 await t('MUTANT (cognitive): the deposit first, or the outcome line removed, is detected', () => {
-  const m1 = COG.replace('order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order', 'order = this.#townDepositOrder(milestone) ?? this.#plinthOrder() ?? order')
+  const m1 = COG.replace('order = this.#plinthOrder() ?? this.#foundOrder(milestone) ?? this.#townDepositOrder(milestone) ?? order', 'order = this.#townDepositOrder(milestone) ?? this.#plinthOrder() ?? this.#foundOrder(milestone) ?? order')
   assert.notEqual(m1, COG, 'MUTATION DID NOT APPLY'); assert.throws(() => cogPlinth(m1), /found 0/)
   const m2 = COG.replace("if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", '')
   assert.notEqual(m2, COG, 'MUTATION DID NOT APPLY'); assert.throws(() => cogPlinth(m2), /found 0/)

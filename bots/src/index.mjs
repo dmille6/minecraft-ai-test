@@ -37,7 +37,7 @@ import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { installAirTrace } from './air-trace.mjs'
 import { startChunkEvictor } from './evictor.mjs'
-import { attachCommands } from './commands.mjs'
+import { attachCommands, deathCauseText } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
 import { TOOLKIT, kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
@@ -52,6 +52,10 @@ import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
+import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
+import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
+import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
+import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -63,7 +67,6 @@ import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
-import { startComms } from './comms.mjs'
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -76,7 +79,6 @@ let stopReflexes = null
 let pickupFinal = null
 // The `_dig_town` instrument's final summary (digtown.mjs), for the same reason.
 let digTownFinal = null
-let stopComms = null
 let worldFacts = null
 let cognitive = null
 let lessons = null
@@ -109,12 +111,13 @@ const HP_MAX = 12
 const NOT_A_DEATH = /^(joined|left) the game$/i
 
 function watchForDeathCause(bot) {
-  const onMsg = jsonMsg => {
+  const onMsg = (jsonMsg, position) => {
     try {
       const text = typeof jsonMsg?.toString === 'function' ? jsonMsg.toString() : String(jsonMsg)
-      if (!text.startsWith(`${config.bot.name} `)) return
-      const rest = text.slice(config.bot.name.length + 1).trim()
-      if (!rest || rest.length >= 160 || NOT_A_DEATH.test(rest)) return
+      // A PLAYER'S LINE IS NEVER A DEATH CAUSE (chatgate-01, Codex r1 P2-3): chat, /say and /me arrive as position 'chat';
+      // the server's death message is a system message (commands.mjs deathCauseText)
+      const rest = deathCauseText(text, position, config.bot.name, NOT_A_DEATH)
+      if (rest == null) return
       // Timestamped, and only trusted within a few seconds of the death event.
       // A stale message from minutes ago must never be presented as the cause.
       lastDeathCause = { text: rest, at: Date.now() }
@@ -319,6 +322,14 @@ function connect() {
     try { logEvent({ kind: 'keepout_mode', status: 'success', snapshot: snapshot(bot), detail: keepoutModeDetail(process.env) }) } catch {}
     // townindex-01: the licence row, once per spawn -- `_townindex_mode`, a kind the base cannot write (townindex.mjs)
     try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
+    // ironsmelt-01: the licence row, once per spawn -- `_ironsmelt_mode`, a kind the base cannot write (smeltjob.mjs)
+    try { logEvent({ kind: 'ironsmelt_mode', status: 'success', snapshot: snapshot(bot), detail: ironsmeltModeDetail() }) } catch {}
+    // townplan-01 / found-01: the licence rows, once per spawn -- `_townplan_mode` and `_found_mode`, kinds the base cannot write
+    try {
+      const z = townPlanZones(bot), sd = townPlanSeed(bot)
+      logEvent({ kind: 'townplan_mode', status: 'success', snapshot: snapshot(bot), detail: townPlanModeDetail({ seed: sd.use ? 'ok' : `${sd.ok ? '' : 'bad:'}${sd.why}`, zones: z.known ? `${z.zones.length}` : `unknown:${z.why}` }) })
+    } catch {}
+    if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -335,6 +346,10 @@ function connect() {
     bot.once('end', () => { clearInterval(zoneTimer) })
     // THE OVERWORLD ONLY (Claude r1 P3): the hashed seed is the same in every dimension, the village is not
     bot.protectZones = () => (/overworld$/.test(String(bot.game?.dimension ?? 'overworld')) ? zoneRd.zones() : [])
+    // THE PLANNER TICK (townplan-01, build spec 1.5): every PLAN_TICK_MS while in town -- at most one publish, never throws
+    const planTimer = setInterval(() => { try { townPlanTick(bot) } catch {} }, PLAN_TICK_MS)
+    planTimer.unref?.()
+    bot.once('end', () => clearInterval(planTimer))   // after installCraftSync: craftsync's wiring test reads the nearest open handler
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
@@ -632,7 +647,9 @@ function connect() {
     const zoneFeet = () => bot.entity?.position ?? null
     const zonePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet })
     const zonePlacePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet, grow: 1 })
-    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    // THE PLAN'S FURNITURE (townplan-01; Paper FOUND-NOFIT 10-22) rides in the SAME entry (no new array entry): a placed or reserved
+    // plan cell is never a path's dig. bot.townPlan.cells is kept by every head read, so the A* step costs one Set lookup.
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
@@ -1227,7 +1244,9 @@ function connect() {
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
     // See evictor.mjs: the radius is a CORRECTNESS bound, not a memory knob.
     startChunkEvictor(bot)
-    stopComms = startComms(bot, worldFacts)
+    // PEER CHAT INGESTION IS RETIRED (chatgate-01; comms design 5.3, owner C7): it ingested 0 lines in 24 h in 12 journals
+    // while the server carried them, it is redundant with world-facts on one host, and it believed any name with the
+    // fleet's hyphen count. The `[fleet]` announcements (comms.mjs announce*) stay, as visible lines.
     stopDeathWatch = watchForDeathCause(bot)
     // Sample height on a slow timer. Cheap, and it is the only way to know
     // afterwards how far a bot fell -- position at the moment of death tells
@@ -1247,13 +1266,14 @@ function connect() {
         peakY -= Math.min(0.35, (peakY - y) * 0.06)
       }
     }, 1000)
+    // CHATGATE-01 (commands.mjs): commands only from OWNER_CHAT_NAMES (empty: none), read-only verbs only
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
     log('info', 'spawned', {
       pos: s.bot.pos, health: s.bot.health, food: s.bot.hunger, dimension: s.game.dimension,
     })
-    bot.chat(`${config.bot.name} online (${config.bot.role}) — say "${config.bot.name} help"`)
+    bot.chat(`${config.bot.name} online (${config.bot.role})`)
 
     if (config.viewer.enabled) {
       // A DEBUG VIEWER MUST NOT BE ABLE TO KILL THE AGENT.
@@ -1411,7 +1431,6 @@ function connect() {
 
   bot.on('end', reason => {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
-    if (stopComms) { stopComms(); stopComms = null }
     if (stopDeathWatch) { stopDeathWatch(); stopDeathWatch = null }
     clearInterval(peakTimer)
     if (cognitive) { cognitive.stop(); cognitive = null }

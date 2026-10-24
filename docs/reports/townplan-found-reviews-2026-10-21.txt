@@ -1,0 +1,132 @@
+townplan-01 + found-01: the review record (2026-10-21)
+=====================================================
+
+Reviewers: Codex (codex exec, read-only sandbox) and an independent Claude subagent, every round, on the same input.
+
+SPEC (docs/reports/townplan-found-spec-2026-10-21.md; every finding and its disposition is in the spec's section 6)
+  r1  Codex CHANGE 6 P1 / 10 P2          Claude CHANGE 2 P1 / 10 P2 / 4 P3
+  r2  Codex CHANGE 5 P1 / 7 P2           Claude CHANGE 1 P1 / 4 P2 / 6 P3
+  r3  Codex CHANGE 3 P1 / 2 P2           Claude CHANGE 3 P2 / 2 P3
+  r4  Codex CHANGE 4 P2                  Claude APPROVE with 5 P3
+  r5  Codex CHANGE 1 P2 / 2 P3           Claude APPROVE + 5 P3
+  r6  Codex CHANGE 2 P2                  Claude CHANGE 1 P2 / 2 P3
+  r7  Codex APPROVE                      Claude APPROVE                      (spec 841c8942; re-stacked as 931b680b)
+
+CODE ROUND 1 (townplan-01 aa24b10c on d0a27a5e; found-01's code dormant in it; foundread.py from 7cc73703)
+  Codex CHANGE (7 P2)   Claude CHANGE (8 P2, 8 P3)
+
+  finding                                                                   disposition (code r2)
+  Claude P2  a torn found-lease file blocks founding for good                foundLeaseLive: a torn record is live only until it is older than
+                                                                            the TTL (furnacelease's rule); test THE FOUND LEASE, TORN
+  Claude P2  the composter's and the well's temporary tables ignore the plan planTableForbids: a non-plan cell first, a free plan cell second,
+                                                                            NEVER never, wired into tableCellFor (composter) and wellTableCell
+                                                                            (build_well); test BUILDERS' TEMPORARY TABLES
+  Codex P2   placement re-checks the well after the awaits, not the plan     place(): the head re-read and the plan class re-judged last, for
+                                                                            scanned spots (explicit coordinates are the caller's own); test
+                                                                            TEMPORARY TABLE race + two mutants (scan+late, late alone)
+  Claude P2  D5 false REVERT on a greenfield ground bump                     the audit counts `occupied` only on cells the fit judged READY;
+                                                                            townplan.test AUDIT extended
+  Claude+Codex P2  D3 flags the recovery's own section placement             the read skips tier=section (foundread's G2 judges it); selftest
+  Claude P2  D4's avoid half can never fire                                 the writer records seed.avoid in the plan; selftest positive control
+  Claude+Codex P2  greenfield F3 starves after a recovery chest (role null)  found.mjs foundAssign + skills foundAssignHome: the bag's homeless
+                                                                            group takes the unassigned placed store cell (a plan-only publish)
+                                                                            before foundOrder; test GREENFIELD F3 AFTER A RECOVERY CHEST
+  Claude P2 / Codex P2  growth's extra cells skip READY/access; side-by-side growPlan (e): READY's whole context (solid, cellForbid), every annex
+                                                                            cell a chest never beside another, joint access + accessKept;
+                                                                            townplan.test GROWTH extended
+  Claude+Codex P2  the walk accepts an adoption that changes the intent;     JS walk and Python port: a reservation may set an intent from none,
+             a new reserved cell with a dead until                          never change it; an adoption keeps it exactly; a new reserved cell
+                                                                            needs until > at; planstore tests + an anchored mutant; port selftest
+  Claude P3  seenSince carried into the adopting step froze the plan         refused at that step (seenSince never on a placed cell)
+  Codex P2   plinth ACCESS rejection discards the pass                       the cap refused by ACCESS is avoided and the same pass replanned
+                                                                            (<= 3 times)
+  Claude+Codex P2  the Paper scenes mostly unbuilt                           sandbox/townplan/townplan-e2e.cjs now carries 17 scenes (FOUND-PLINTH
+                                                                            named as fake-world only: see its header); run results below
+  Claude P3  PLAN_MAX_READ_BYTES 32 MB vs the spec's 64                      64 MB
+  Claude P3  the second tier admits any STATION_ITEMS                        crafting_table only (craft's own temporary table)
+  Claude P3  _found_recovery always cell=section                             cell=extra for an extra cell
+  Claude P3  the per-cell READY/ACCESS context cost                          planCtxMemo: 2 s per bot for per-cell checks; the tick builds fresh
+  Claude P3  tests: plan_refused never asserted; mutants without a positive  asserted from the row; positive runs added to the SOFT mutant;
+                                                                            the table mutants rebuilt on a scene that runs unmutated first
+  Claude P3  _gen_index/_rejected keyed (pool, gen); D4 judges stands        kept: one home per pool on the bench (noted); stands are plan cells'
+                                                                            neighbours inside the plot box, a zone over them is still a defect
+  Claude P3  planPlinthKeepOut tiles boxes at s+1 +- 2 only                  kept: the keep-out is 3-D Chebyshev r 2 at the pad level, which
+                                                                            covers s-1..s+3; a plinth cell outside that span is not on the
+                                                                            plan's ground (noted for r2)
+
+CODE ROUND 2 (townplan-01 4a01b891; found-01 ce0d3002)
+  Codex CHANGE (5 P2)   Claude CHANGE (2 P2, 7 P3)
+
+  finding                                                                   disposition (code r3: townplan d96b6cc0, found 14254a58)
+  Claude+Codex P2  F3/F2 pick a cell whose intent conflicts; r2's intent     F3: its own group's cell first, then a no-intent cell, never another
+             rule refuses the reserve -> the same refusal every visit        group's; F2: overflow or no intent. A reservation that SETS an intent
+                                                                            marks it; a release/expiry clears only that; a placement keeps it.
+                                                                            Tests: the matrix + the chain through the real reserve
+  Claude+Codex P2  recovery section placements judged by nobody              foundread: `_found_recovery outcome=placed` enters the found list;
+                                                                            selftest fixtures for clean / G2 / G1 / not-placed
+  Codex P2   builders' tables at explicit coordinates bypass the late check place(..., { planTemp: true }) for the composter's and build_well's
+                                                                            tables; placeIntoPlan passes none; test placeForTest both ways
+  Codex P2 / Claude P3  growth access judged per cell, not the set            the appended set judged together with the committed cells
+  Codex P2   FOUND-ACCESS used goto rows, not opens; FOUND-PLINTH missing    a withdraw of a wool only that chest holds (the bag gaining it is the
+                                                                            open); foundplinth scene (ONLY-BOX fake-world only)
+  Claude P3  appended cell's gen when `placed` loses                          the reserve's gen
+  Claude P3  Python crash on a null until                                     null-safe
+  Claude P3  a cut audit detail can name another cell                         the last name of a 300-char detail is dropped; positive control
+  Claude P3  release clears an older home intent                              intentSet (above)
+  Claude P3  G5 no seed-avoid fixture                                         added
+  Claude P3  chatOnly found skills on a control bot trip arms                 named in the read's header (read the row before calling it a leak)
+
+CODE ROUND 3 (townplan-01 d96b6cc0; found-01 14254a58)
+  Codex CHANGE (2 P2)   Claude APPROVE (6 P3)
+
+  finding                                                                   disposition (code r4)
+  Codex P2   neither walk validates intentSet                                 intentSetRefusal (JS) / intent_set_refusal (port): set exactly when a
+                                                                            reservation sets an intent from none; never on a free/placed cell;
+                                                                            never toggled; its end clears what it set and keeps an older intent;
+                                                                            planstore TRANSITION RULES cover each
+  Codex P2   planTemp asks for a plan before refreshing the head             the head is refreshed first whenever the plan is on
+  Claude P3  the clear-on-release / clear-on-expiry halves never asserted    found.test chain (iron released -> no intent); townplan.test MARKS
+                                                                            (an expiry with and without the marker, both accepted by the walk)
+  Claude P3  the recovery ignores intent                                     recoveryPlanCell: a no-intent cell first, then the overflow cell, never
+                                                                            a group's home cell
+  Claude P3  a stale comment (found.mjs)                                     fixed
+  Claude P3  the joint growth-access fix has no test                         OPEN (named): a two-cell joint cut needs a hand-built ring layout; the
+                                                                            code judges the whole set, the per-cell form is gone
+  Claude P3  a detail of exactly 300 uncut chars loses its last name          kept: errs toward not reverting (noted)
+  Claude P3  tablesOff not in the scene result                               added (foundflat)
+
+CODE ROUND 4 (townplan-01 440008d7; found-01 6d582fcb)
+  Codex APPROVE         Claude APPROVE (5 P3: three test gaps, a group-without-role reserve, the tpcas tree)
+  -> 74ee0f6a (tests and the Paper driver only): the head-refresh test starts with no cached plan; an appended reserved cell's
+     marker; the port's marker rules in townplanread's selftest; tpcas names its tree. The group-without-role reserve: no
+     caller sends one (noted).
+
+PAPER finding (10-22, FOUND-PLINTH on 110b8627): a bot that never read the plan acted as if the town had none -- its first
+planner tick fires PLAN_TICK_MS after spawn, and build_plinth planned the raised well 8 s after spawn inside the core's box.
+  -> 68f4533e: townPlanNow reads the head once when the bot never read it. Re-run on b8f787c5: the cap moved outside every
+     box (tier=outside, never=0). Also townplanread's exposure counts every canary pool.
+
+CODE ROUND 5 (townplan-01 68f4533e; found-01 b8f787c5)
+  Codex APPROVE (1 P3: a failing read retried on every ask)   Claude APPROVE (4 P3: the same retry cost, a double read in
+  place() while failing, plan_towns_canary counting heads not pools, a comment)
+  -> kept as P3 (named): the retry cost only arises past 16 MB of plan files or an unreadable generation (alarmed first);
+     plan_towns_canary needs leftover plan files of an earlier world or key in a canary pool.
+
+PAPER finding (10-22, FOUND-RETRO on b8f787c5): a bot decided F1 from its 30-s-old cached head, took the found lease the moment
+another bot released it, crafted a spare table for the station that bot had just filled, and spent its visit on
+lost_reservation (no harm: the table is carried; the furnace waited one cooldown).
+  -> r6: the found slot reads the head fresh for each in-town decision. Test CHAIN, A STALE CACHE; the CHAIN CONTROL now uses a
+     town with no plan on disk (a nulled cache is no longer "no plan").
+
+CODE ROUND 6 (townplan-01 39d9cfee; found-01 fb5255cb)
+  Codex APPROVE (2 P3)   Claude APPROVE (5 P3: the chain tests are negative-only; the fresh read could follow the cheap skips;
+  a failed fresh read falls back to the cache; townPlanHead not gated by planOn; a double read while failing) -> P3, named.
+  npm test 282/282 at fb5255cb.
+
+PAPER finding (10-22, FOUND-NOFIT on b8f787c5): a livelock relocation's dig-allowed retry dug the workshop table it walked
+past (`_dig_town_sum zone.free.transit.confirmed 1`, the table in the bot's bag), and the plan read it missing. A chest is in
+mineflayer-pathfinder's blocksCantBreak; a table and a furnace are not.
+  -> r7: a placed or reserved plan cell is never a path's dig: planBreakCost (100: canDig needs < 100) rides in the SAME break
+     entry as the junk well (no new array entry), over bot.townPlan.cells kept by every head read. Test with real
+     mineflayer-pathfinder Movements (the move through a placed table is no move; off the plan it is dug as before);
+     well.test's index wiring re-anchored.

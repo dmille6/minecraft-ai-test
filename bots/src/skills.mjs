@@ -47,7 +47,7 @@ import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, wr
          chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES, RECONCILE_AFTER_MS } from './chestfull.mjs'
 // chestfull-02: one town boundary, no deep targets, a walk that never watches digs, closure only when truly closed.
 import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutAction, closesBank, TARGET_BACKOFF_MS,
-         TOWN_SCAN_RADIUS } from './chestfull.mjs'
+         TOWN_SCAN_RADIUS, TOWN_DY, wellKeepout } from './chestfull.mjs'
 import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
@@ -81,7 +81,7 @@ import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, 
          plinthDetail, overlay as plinthOverlay, memoRead, walkReach, standFor, supportsFor, faceCentre, cellKey, inColumn, PLACED as PLINTH_PLACED,
          AIR as PLINTH_AIR, standOk, refUsable, coverableAfter, carryPrev, stuckNext, planBox, startNear, isPitCover, PLINTH_STUCK_VISITS, PLINTH_PREV_MAX,
          PLINTH_REPLACEABLE, PLINTH_STEPS_PER_VISIT, PLINTH_LEASE_MS, PLINTH_VERSION, PLINTH_MIN_FUND, PLINTH_NONE_BACKOFF_MS, PLINTH_REACH, EYE_HEIGHT,
-         wellTableCell, furnitureNear } from './plinth.mjs'
+         wellTableCell, furnitureNear, plinthShell } from './plinth.mjs'
 // plinth-02.1: the safety fixes after the direct rollout (its own statement)
 import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH_LOST_PATIENCE_MS, PLINTH_STRUCT_CONFIRM_MS } from './plinth.mjs'
 // plinthfirst-01: every new junk well is a raised one (its own statement)
@@ -106,7 +106,13 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
-import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS } from './townindex.mjs'   // townindex-01
+import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS, allocateHomes } from './townindex.mjs'   // townindex-01
+// THE TOWN PLAN (townplan-01) and FOUNDING (found-01): the files, the planner, the orders (the section before SKILL_CONTRACTS)
+import { planKey, planHead, publishPlan } from './planstore.mjs'
+import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
+         readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
+import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
+import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
@@ -126,6 +132,8 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
          COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
+import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut,
+         ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
@@ -4265,7 +4273,11 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   reconcileClaims({ dir, key, claims, read: readName, world })
   budget = chestBudget({ claims, world })
   const carried = carriedChest(bot.inventory.items())
-  const next = fullChestNext({ nearHome, unknown, budget, carried: !!carried })
+  const next0 = fullChestNext({ nearHome, unknown, budget, carried: !!carried })
+  // THE GREENFIELD STORE FIRST (found-01, build spec 2.2): with a town plan whose storehouse has a free READY cell, the new chest
+  // goes there -- the section cap, not the recovery's budget (design 5 F3). TOWNPLAN=off, FOUND=off or no such cell: the base.
+  let planCell = next0 === 'defer' ? null : recoveryPlanCell(bot)
+  const next = planCell && next0 === 'refuse_cap' ? (carried ? 'place_carried' : 'craft') : next0
   // TIME ALONE IS NOT A REASON TO PAUSE BANKING (Codex round 4): when every unknown is a container the watchdog left
   // unvisited, the answer is the clamped timeout's own -- deposit again -- with no closure.
   if (next === 'defer' && unknown === unknownTime) {
@@ -4299,20 +4311,40 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   // well never turns "the chest is full" into a closed bank while the town has room for a chest. Only then: without a
   // well in the way, the search is exactly the reviewed one.
   const fallbackAnchors = () => [...fullNear.filter(a => a !== anchor), { x: home.x, y: home.y, z: home.z }]
+  // THE TOWN PLAN'S THREE PASSES (townplan-01, build spec 1.6): with a plan, every anchor -- the full containers, home, and the
+  // plan's annex ring (8 points at Chebyshev 10) -- is searched OUTSIDE the plan first, then on SOFT cells, then in a
+  // committed plot's BOX; a NEVER cell (a plan cell, a reserved/placed stand) never; SOFT/BOX only if ACCESS is kept. The wider
+  // search therefore always runs under a plan (a keep-out refusal included). No plan: exactly the base.
+  const tpRec = townPlanNow(bot)
+  let planRefused = 0, pickTier = null
+  const annexRing = () => [[10, 0], [10, 10], [0, 10], [-10, 10], [-10, 0], [-10, -10], [0, -10], [10, -10]].map(([dx, dz]) => ({ x: home.x + dx, y: home.y, z: home.z + dz }))
   const pickAt = () => {
     const wells = chestWellKeepouts(bot), bodies = bodiesAround(bot)
-    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })
-    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first
-    for (const a of fallbackAnchors()) {
-      const p = pickChestSite({ read, anchor: a, home, composterSites, bodies, wells, skip })
-      if (p.site) return p
+    if (!tpRec) {
+      const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })
+      if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first
+      for (const a of fallbackAnchors()) {
+        const p = pickChestSite({ read, anchor: a, home, composterSites, bodies, wells, skip })
+        if (p.site) return p
+      }
+      return first
+    }
+    let first = null
+    for (const pass of [1, 2, 3]) {
+      for (const a of [anchor, ...fallbackAnchors(), ...annexRing()]) {
+        const p = pickChestSite({ read, anchor: a, home, composterSites, bodies, wells, skip, pass,
+          tierOf: q => planTierAt(bot, q.x, q.y, q.z), accept: q => planAccessKept(bot, [[q.x, q.y, q.z]]) })
+        if (pass === 1) planRefused += p.planRefused ?? 0
+        first ??= p
+        if (p.site) { pickTier = p.tier ?? 'outside'; return p }
+      }
     }
     return first
   }
-  let pick = pickAt()
+  let pick = planCell ? { site: { x: planCell.at[0], y: planCell.at[1], z: planCell.at[2] }, stand: null, why: null } : pickAt()
   if (!pick.site) {
     shut('no_site', pick.why)
-    row(next, 'no_effect', { site: 'none' })
+    row(next, 'no_effect', { site: 'none', ...(tpRec ? { tier: 'none', plan_refused: planRefused, gen: tpRec.gen, keepout: planRefused ? 'plan_only' : 'none' } : {}) })
     return refuse(`keep working and deposit later -- the town chests are full and ${pick.why}; had ${eligible} item(s)`)
   }
 
@@ -4358,10 +4390,32 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     }
   }
   const name = carriedChest(bot.inventory.items())
+  // THE GREENFIELD STORE CELL (found-01): the plan's own reservation protocol puts the chest in its cell (placeIntoPlan: reserve,
+  // walk, re-check immediately before the click, place, read back, open, publish); no recovery claim, the section cap instead.
+  // A cell that cannot be had now falls back to the base's search (with the plan's tiers).
+  let planPlaced = null
+  if (planCell) {
+    if (!sq) sq = stockQualifies(bot, item, 'place', { reserveAt: pick.site, aid })
+    if (!sq.any) {
+      releaseStock()
+      row('stock_target', 'no_effect', { stage: 'place' })
+      return { status: 'no_effect', failClass: null, detail: 'nothing banked: the town holds its stock target of what is left -- the chest is not placed (town stock target)' }
+    }
+    const pr = await placeIntoPlan(ctx, { at: planCell.at, kind: 'chest', role: null, signal })
+    try { logEvent({ kind: 'found_recovery', status: pr.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `cell=${planCell.extra ? 'extra' : 'section'} at=${planCell.at.join(',')} gen=${pr.gen ?? tpRec?.gen ?? '-'} outcome=${pr.outcome ?? pr.status} ${String(pr.detail ?? '').slice(0, 120)}` }) } catch { /* telemetry */ }
+    if (pr.status === 'success') planPlaced = new Vec3(planCell.at[0], planCell.at[1], planCell.at[2])
+    else { planCell = null; pick = pickAt() }
+    if (!planPlaced && !pick?.site) {
+      releaseStock()
+      shut('no_site', pick?.why ?? 'no cell')
+      row(next, 'no_effect', { site: 'none', tier: 'none', plan_refused: planRefused, gen: tpRec?.gen ?? '-' })
+      return refuse(`keep working and deposit later -- the town chests are full and ${pick?.why ?? 'no cell can take a chest'}; had ${eligible} item(s)`)
+    }
+  }
   // SEARCH BEFORE SUBMITTING: walk to the standing cell and re-check the site there, with the bodies as they are now.
   // A refused site may give way to the next one -- nothing has been submitted yet.
   let site = null
-  for (let i = 0; i < 3 && pick.site; i++) {
+  for (let i = 0; i < 3 && pick.site && !planPlaced; i++) {
     check(signal)
     skip.push(pick.site)
     try {
@@ -4379,28 +4433,30 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     if (!chestSiteRefusal(read, pick.site, { home, composterSites, bodies: bodiesAround(bot), wells: chestWellKeepouts(bot) })) { site = pick.site; break }
     pick = pickAt()
   }
-  if (!site) {
+  if (!site && !planPlaced) {
     releaseStock()
     shut('no_site', 'no cell for a new chest stayed valid from its standing cell')
     row(next, 'no_effect', { source, site: 'refused_on_arrival' })
     return refuse(`keep working and deposit later -- the town chests are full and no cell for a new ${name} stayed valid; had ${eligible} item(s)`)
   }
   // ENOUGH TIME FOR THE PLACEMENT, ITS READ-BACK AND THE RETRY, or no claim at all.
-  if (left() < CLAIM_BUDGET_MS) {
+  if (!planPlaced && left() < CLAIM_BUDGET_MS) {
     releaseStock()
     shut('defer', 'not enough of this attempt\'s time left to place a chest')
     row(next, 'no_effect', { source, time: Math.round(left() / 1000) })
     return refuse(`deposit again -- the town chests are full and this attempt had no time left to place the ${name}; had ${eligible} item(s)`)
   }
   // a carried chest: the reservation is taken here, before the placement (a crafted one already holds its claims)
+  if (!planPlaced) {
   if (!sq) sq = stockQualifies(bot, item, 'place', { reserveAt: site, aid })
   else stockRecoveryRow(bot, 'place', sq, { at: site, aid, held: true })
+  }
   if (!sq.any) {
     releaseStock()
     row('stock_target', 'no_effect', { stage: 'place' })
     return { status: 'no_effect', failClass: null, detail: 'nothing banked: the town holds its stock target of what is left -- the chest is not placed (town stock target)' }
   }
-  const claim = claimNewChest({ dir, key, site, world })
+  const claim = planPlaced ? { ok: true, n: 'plan' } : claimNewChest({ dir, key, site, world })
   if (!claim.ok) {
     releaseStock()
     shut('refuse_cap', claim.why, claim.until)
@@ -4409,8 +4465,9 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   }
   // ONE SUBMISSION PER CLAIM (MAX_SITE_TRIES). An abort from here on is never refunded: the claim stays, unresolved,
   // until reconcileClaims reads the cell.
+  if (planPlaced) site = { x: planPlaced.x, y: planPlaced.y, z: planPlaced.z }
   const cell = new Vec3(site.x, site.y, site.z)
-  let placedAt = null, lastWhy = 'did not land'
+  let placedAt = planPlaced, lastWhy = 'did not land'
   for (let i = 0; i < MAX_SITE_TRIES && !placedAt; i++) {
     let put
     try { put = await place(ctx, { item: name, x: site.x, y: site.y, z: site.z }, signal) } catch (e) {
@@ -4426,14 +4483,15 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     lastWhy = String(put?.detail ?? 'did not land').slice(0, 80)
   }
   const distTo = q => (q ? Math.round(Math.hypot(site.x - q.x, site.y - q.y, site.z - q.z) * 10) / 10 : 'none')
-  const where = { at: posKey(site), home_d: distTo(home), composter_d: distTo(composterSites[0] ?? null), source, claim: claim.n }
+  const where = { at: posKey(site), home_d: distTo(home), composter_d: distTo(composterSites[0] ?? null), source, claim: claim.n,
+                  ...(tpRec ? { tier: planPlaced ? 'section' : (pickTier ?? 'outside'), plan_refused: planRefused, gen: tpRec.gen } : {}) }
   if (!placedAt) {
     releaseStock()
     shut('place_failed', `the new chest could not be put down (${lastWhy})`)
     row(next, 'failed', { ...where, placed: 0, last: lastWhy.replace(/\s+/g, '_').slice(0, 40) })
     return refuse(`keep working and deposit later -- the town chests are full and the ${name} could not be put down at ${posKey(site)} (${lastWhy}); had ${eligible} item(s)`)
   }
-  writeClaimState(dir, key, claim.n, 'placed')
+  if (!planPlaced) writeClaimState(dir, key, claim.n, 'placed')
   let again
   try { again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: placedAt, exclude: triedList(), until: Date.now() + Math.max(0, left() - 2_000), reserved: sq.reserved }) } catch (e) {
     releaseStock()
@@ -5638,7 +5696,7 @@ export function slotRemedy(bot, items, keep = []) {
   const isPlaceable = n => placeableBlock(bot.registry, n)
   const fill = bagFill(items, isPlaceable, keep)
   let placeSite = false
-  try { placeSite = !!fill.cheapest && placeSites(bot).length > 0 } catch { placeSite = false }
+  try { placeSite = !!fill.cheapest && placeSites(bot, fill.cheapest?.name ?? null).length > 0 } catch { placeSite = false }
   const depositItem = adviseDeposit(bot, items, keep)
   let advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite, foodOrder: FOOD_PRIORITY, hunger: bot.food ?? 20, depositItem })
   // WHILE THE BANK IS CLOSED (Claude review): no deposit can be made, so "no deposit would empty a stack" is not the
@@ -6252,6 +6310,8 @@ export function plantableSpotNear (bot, radius = 2, item = 'oak_sapling') {
         // 5-to-7 block column for every one of them would be up to 525 blockAt calls
         // on the decision path, and almost all of it discarded.
         if (!PLANTABLE_SOIL.has(soil.name) || !PLANT_REPLACEABLE.has(cell.name)) continue
+        // THE TOWN PLAN (townplan-01, build spec 1.6): never a plan cell, a stand, a plot or a path (a tree would grow into them)
+        if (cell.position && planTierAt(bot, cell.position.x, cell.position.y, cell.position.z) !== null) continue
         const column = []
         for (let i = 1; i <= need; i++) {
           const b = bot.blockAt(p.offset(dx, dy + i, dz))
@@ -6296,11 +6356,17 @@ export function onContainerLid (bot, pos) {
  * given no coordinates (and nothing else: no digging, no soil filter), so a refusal that suggests placing something
  * asks exactly the question place() will. Reads the world; does not change it.
  */
-function placeSites(bot) {
+function placeSites(bot, item = null) {
   const solid = b => b != null && b.boundingBox === 'block'
   const replaceable = b => placeableInto(b)
   const UP = new Vec3(0, 1, 0)
   const candidates = []
+  // THE TOWN PLAN (townplan-01, build spec 1.6): never a NEVER plan cell (a reserved or placed one, a stand); a FREE plan cell
+  // only as a second tier, and only for a station this bot will take back (craft's table: two reads keep it from being
+  // adopted). Counted like wellSkip, which also turns off the make-room dig below.
+  const planSkip = { n: 0 }
+  const planLater = []
+  const planCls = p => { try { return planPlaceClass(bot, p) } catch { return null } }
   // NEVER A JUNK WELL'S CELL (wellcare-01 fix 3, stationRefusalAt): its shell, shaft, stands and a plinth's stair headroom.
   // Skipped here, so place() and craft's room advice agree; the count rides on the array for place()'s `_station_well` row.
   const wellSkip = { n: 0, kind: null }
@@ -6330,10 +6396,13 @@ function placeSites(bot) {
       if (onContainerLid(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // never on a lid (below)
       if (zoneRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // protectzone-01
       if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
+      const pc = planCls(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))
+      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push({ ref: under, face: UP }); continue }   // only craft's own temporary table (Claude code r1 P3)
       ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
     }
   }
   candidates.push(...wet)
+  candidates.push(...planLater)
 
   // THE BLOCK UNDER THE BOT'S OWN FEET WAS NEVER PROBED.
   //
@@ -6360,16 +6429,17 @@ function placeSites(bot) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
         if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z)) &&
             !blocked(bot.protectZones?.() ?? [], underfoot.position.x, underfoot.position.y, underfoot.position.z, bot.entity?.position ?? null) && !zoneRefused(underfoot.position.offset(face.x, face.y, face.z)) &&   // protectzone-01: the reference by the guard's own test (Codex r4 P3)
-            !wellRefused(underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
+            !wellRefused(underfoot.position.offset(face.x, face.y, face.z)) && !planCls(underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
       }
     }
   }
   candidates.wellSkip = wellSkip
   candidates.zoneSkip = zoneSkip
+  candidates.planSkip = planSkip
   return candidates
 }
 
-async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null } = {}) {
+async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null, planTemp = false } = {}) {
   const { bot } = ctx
   // wellcare-01 fix 3: the `_station_well` guard row (a cell refused for the well) -- the read's liveness for this fix
   const wellRow = (action, kind, n = 1, at = null) => { try { logEvent({ kind: 'station_well', status: 'refused', snapshot: snapshot(bot), detail: stationWellDetail({ action, item, kind, at, n, by: by ?? '-' }) }) } catch { /* a row never breaks a place */ } }
@@ -6419,7 +6489,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   // you are standing on.
   const UP = new Vec3(0, 1, 0)
   let candidates = []
-  if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
+  const explicitXYZ = [x, y, z].every(v => Number.isFinite(Number(v)))
+  const planCls = p => { try { return planPlaceClass(bot, p) } catch { return null } }
+  if (explicitXYZ) {
     assertInsideBorder(Number(x), Number(z))
     if (onContainerLid(bot, { x: Number(x), y: Number(y), z: Number(z) })) {
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is on top of a container, which would stop it opening -- place it beside the container` }
@@ -6432,8 +6504,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
     }
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
-    candidates = placeSites(bot)
+    candidates = placeSites(bot, item)
     if (candidates.wellSkip?.n) wellRow('skip', candidates.wellSkip.kind, candidates.wellSkip.n)
+    if (candidates.planSkip?.n) { try { logEvent({ kind: 'townplan_place', status: 'refused', snapshot: snapshot(bot), detail: `item=${item} plan_skipped=${candidates.planSkip.n} candidates=${candidates.length}` }) } catch { /* telemetry */ } }
   }
   // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
   // is right for a crafting table and wrong for anything that needs soil: the
@@ -6462,7 +6535,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   let madeRoom = null
   // BESIDE A WELL, NO DIG FOR ROOM (Claude r1 P3): when the only free cells were the well's, the move is the step away, not a
   // town block dug beside the stand -- the refusal below says so
-  if (!candidates.length && STATION_ITEMS.has(item) && !candidates.wellSkip?.n && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
+  if (!candidates.length && STATION_ITEMS.has(item) && !candidates.wellSkip?.n && !candidates.planSkip?.n && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
     const base = bot.entity.position
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       // A real Vec3 from plain numbers: test fakes give positions without
@@ -6594,6 +6667,17 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // during the equip, the look or an earlier candidate's attempt is honoured by this one
       { const tgt = ref.position.offset(face.x, face.y, face.z), wk = stationRefusalAt(bot, tgt, { own: wellOwn })
         if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}: step 3+ blocks away from the well and place again`); continue } }
+      // THE PLAN READ AGAIN, LAST (townplan-01; Codex code r1/r2 P2): a SCANNED spot -- or a builder's TEMPORARY table at its own
+      // explicit coordinates (planTemp: the composter's and the well's) -- that became a reserved or placed plan cell (or a
+      // stand) during the walk, the equip or the look is not taken. placeIntoPlan's explicit coordinates are its OWN reservation
+      // and pass no planTemp.
+      // the head refreshed FIRST (Codex code r3 P2): a bot with no cached plan still sees one published during the awaits
+      if ((!explicitXYZ || planTemp) && planOn()) { try { townPlanHead(bot) } catch { /* the last head serves */ } }
+      if ((!explicitXYZ || planTemp) && townPlanNow(bot)) {
+        const tgt = ref.position.offset(face.x, face.y, face.z)
+        const pc = planCls(tgt)
+        if (pc === 'never' || (pc === 'plan' && item !== 'crafting_table')) { failures.push(`${tgt} became a town plan cell: place again`); continue }
+      }
       // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
       // never arrive. Unbounded, one silent spot consumed the whole skill budget
       // and the remaining candidates were never reached -- the same open-loop
@@ -7252,7 +7336,7 @@ export function townComposterSite (bot) {
     dir: poolStateDir(config.memory.pool),
     key: townSiteKey(),
     world: bot.worldId ?? null,
-    compute: () => canonicalComposterSite({ home, read }),
+    compute: () => planComposterSite(bot, { home, read }),   // townplan-01 / found-01 F5: the plan's farm.composter first
     refuse: site => siteRefusal(read, site, home),
   })
 }
@@ -7820,11 +7904,11 @@ async function buildComposter (ctx, _args, signal) {
   }
   // place() gets its OWN signal, aborted when the order's is or when the bound runs out, so a timed-out place stops at
   // its next check instead of putting the block down after the order has given up on it.
-  const placeWithin = async args => {
+  const placeWithin = async (args, opts = {}) => {
     const ac = new AbortController()
     const relay = () => ac.abort()
     try { signal?.addEventListener?.('abort', relay, { once: true }) } catch { /* plain-object signal */ }
-    try { return await g.bound(place(ctx, args, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } finally {
+    try { return await g.bound(place(ctx, args, ac.signal, opts), HK_CRAFT_MS, 'place', { controller: ac }) } finally {
       try { signal?.removeEventListener?.('abort', relay) } catch { /* plain-object signal */ }
     }
   }
@@ -7889,16 +7973,20 @@ async function buildComposter (ctx, _args, signal) {
         if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
         // NEVER INTO A BODY: the bot's own and every other's (items aside) are kept out of the table's cell.
         const wellFree = c => !!stationRefusalAt(bot, c)   // wellcare-01: never on a junk well's cells
-        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: wellFree })
+        // THE TOWN PLAN'S TWO TIERS for a temporary table (townplan-01 build spec 1.6 row 5; Claude code r1 P2): a non-plan cell
+        // first, then a free unmarked plan cell; a NEVER cell never
+        const [planStrict, planLoose] = planTableForbids(bot, wellFree)
+        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: planStrict }) ??
+                     tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: planLoose })
         if (!cell) {
-          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, forbid: wellFree })) {
+          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, forbid: planLoose })) {
             return fail('composter_unreachable', `wait for the cells beside the composter's standing cell at ${stand.x},${stand.y},${stand.z} to clear: ` +
                         `every cell where the crafting table could go has someone standing in it`)
           }
           return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
         }
         let put
-        try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, { planTemp: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('composter_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
       }
@@ -8086,7 +8174,8 @@ export function townWellSite (bot) {
     dir: poolStateDir(config.memory.pool),
     key: wellSiteKey(),
     world,
-    compute: () => (searched = first ? plinthFirstSearch(canonicalWellSite({ home, read, avoid })) : canonicalWellSite({ home, read, avoid })),
+    // THE TOWN PLAN (townplan-01, build spec 1.6) in the COMPUTE only: a NEW cap's search; never the re-check below
+    compute: () => (searched = first ? plinthFirstSearch(planWellSearch(bot, { home, read, avoid })) : planWellSearch(bot, { home, read, avoid })),
     refuse: site => {
       const why = wellSiteRefusal(read, site, home, { avoid })
       if (why && why !== 'unknown') refused = { site, why }
@@ -8105,7 +8194,7 @@ export function townWellSite (bot) {
       return why ?? pf
     },
   })
-  return { ...siteAnswer(res, searched), lost, held, refused, shadow: searched?.shadow ?? null, first }
+  return { ...siteAnswer(res, searched), lost, held, refused, shadow: searched?.shadow ?? null, first, planRefused: searched?.planRefused ?? null }
 }
 /** The finished cap's refusal note (plinth.mjs capRefusalNext), beside the plinth record -- never the record itself, which a
  *  replan by the lease holder may be rewriting. Never throws. */
@@ -9003,7 +9092,7 @@ async function buildWell (ctx, _args, signal) {
   if (bot.craftSync?.busy?.()) return skip('craft_busy', 'a craft is in flight; the well build waits for the next town visit')
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the well build waits for the next town visit')
   const home = homeVec(), read = readWellCell(bot)
-  const { site, gen, why, exhausted, tally, lost, held, refused, shadow, first: pfOn } = townWellSite(bot)
+  const { site, gen, why, exhausted, tally, lost, held, refused, shadow, first: pfOn, planRefused } = townWellSite(bot)
   // AN EXHAUSTED SEARCH (every column read and refused) is the town's ground, said with its tally FIRST (the row is cut at
   // 300) and backed off for WELL_NO_SITE_BACKOFF_MS by wellOrderOutcome. Anything else (an unloaded cell, a record race,
   // an unreadable record) is a free skip under its own reason: a deferral is not a verdict on the ground.
@@ -9011,7 +9100,10 @@ async function buildWell (ctx, _args, signal) {
     const rec = writeWellNoSite(bot, tally, lost) ? 'ok' : 'fail'
     // plinth-02.1: lost= the evidence about a finished raised well; cur= the recorded site and why it was refused
     const cur = refused ? ` cur=${refused.site.x},${refused.site.y},${refused.site.z}:${String(refused.why).replace(/\s+/g, '_').slice(0, 40)}` : ''
-    wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec} w=${String(bot.worldId ?? '-').slice(0, 40)}${why === PLINTH_FIRST_WHY ? ` shadow=${shadow ?? '-'}` : ''}${lost ? ` lost=${lost.cls}` : ''}${cur} the town's junk well site cannot be settled: ${why === PLINTH_FIRST_WHY ? PLINTH_FIRST_WHY : `no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules`}; no bot of the town searches again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
+    // townplan-01 (build spec 1.9 / P10): plan_refused= a base-valid column the plan refused; gen= the generation in force
+    const tpw = townPlanNow(bot)
+    const pr = tpw ? ` plan_refused=${planRefused ?? 0} gen=${tpw.gen}` : ''
+    wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec}${pr} w=${String(bot.worldId ?? '-').slice(0, 40)}${why === PLINTH_FIRST_WHY ? ` shadow=${shadow ?? '-'}` : ''}${lost ? ` lost=${lost.cls}` : ''}${cur} the town's junk well site cannot be settled: ${why === PLINTH_FIRST_WHY ? PLINTH_FIRST_WHY : `no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules`}; no bot of the town searches again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
     // PLINTH-FIRST's decline is no verdict on the ground (Paper pfnew 10-18): the 2 h self-backoff an exhausted search earns
     // (wellOrderOutcome well_no_site) would keep THIS bot from capping the plinth the hand-off finishes minutes later. The
     // town's no-site record (townWellBuildPlan's hold, lifted by the hand-off) is what stops the order meanwhile.
@@ -9184,11 +9276,14 @@ async function buildWell (ctx, _args, signal) {
         const tableWhy = {}
         // wellcare-01: the table never takes another well's cell, a stand, the shaft or a plinth stair (its own ring is the builder's)
         const tableForbid = c => !!stationRefusalAt(bot, c, { own: site })
-        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy, tableForbid })
+        // townplan-01 (build spec 1.6 row 5; Claude code r1 P2): a non-plan cell first, then a free unmarked plan cell; NEVER never
+        const [wellStrict, wellLoose] = planTableForbids(bot, tableForbid)
+        const tableArgs = { site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy }
+        const cell = wellTableCell({ ...tableArgs, tableForbid: wellStrict }) ?? wellTableCell({ ...tableArgs, tableForbid: wellLoose })
         if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table (table=${tableWhy.why ?? '-'}); carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
-        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal, { wellOwn: site, by: 'build_well' }), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal, { wellOwn: site, by: 'build_well', planTemp: true }), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('well_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
         // THE BAG CATCHES UP BEFORE THE NEXT CRAFT (sandbox 10-05): place() returns on the BLOCK update, and the server's
@@ -9396,7 +9491,7 @@ function plinthKeepOut (bot) {
   try { const r = recordedWellSite(bot); if (r) out.push({ x: r.x, y: r.y, z: r.z, r: 2 }) } catch { /* none */ }
   return out
 }
-const plinthRow = (bot, status, fields) => logEvent({ kind: 'plinth', status, snapshot: snapshot(bot), detail: plinthDetail(fields) })
+const plinthRow = (bot, status, fields) => logEvent({ kind: 'plinth', status, snapshot: snapshot(bot), detail: (plinthDetail(fields) + (fields?.gen != null ? ` gen=${fields.gen}` : '')).slice(0, 300) })
 /** THE REMEDY for a build with nothing to build from (an executable move: stone is mined anywhere with a pickaxe). */
 export const PLINTH_FUND_REMEDY = `carry more than ${STONE_GUARD} cobblestone, cobbled deepslate, andesite, diorite or granite plus one pit cover block ` +
   `(${STONE_GUARD} stay as the reserve): mine stone with a pickaxe, or leave surplus cobble in the town chests for the builder to take`
@@ -9607,7 +9702,8 @@ async function buildPlinth (ctx, _args, signal) {
       // The POLICY decides the raise, not the 'none' window: a replan out of 'none' is still raised.
       const policy = plinthFirstPolicy({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '', env: process.env })
       const { minK, bare } = plinthFirstMinK({ policy, recState: plinthRecordState(rec, world), rec, noSite: readWellNoSite() })
-      const it = planPlinthSteps({ read: memoRead(read0), home, avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others, minK, bare })
+      // THE TOWN PLAN (townplan-01, build spec 1.6): a NEW plinth is planned in three passes over the plan's keep-outs
+      const it = planPlinthPasses(bot, { read: memoRead(read0), home, avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others, minK, bare })
       let res
       for (;;) {
         const r = it.next()
@@ -9633,7 +9729,7 @@ async function buildPlinth (ctx, _args, signal) {
         const trigger = want.why === 'void' || mine?.trigger === 'void' ? 'void' : null
         if (holdPlinthLease(token, lease.n)) writeRecordAtomic(plinthFile(), { v: PLINTH_VERSION, state: 'none', world, at: Date.now(), by: bot.username ?? null, why: res.why, tally: tallyText(res.tally), prev: carryPrev(mine, hazardOf, null, displaced), trigger, minK })
         try { bot.refreshWells?.() } catch { /* timer */ }
-        plinthRow(bot, 'refused', { stage: 'none', why: res.why, tally: tallyText(res.tally) })
+        plinthRow(bot, 'refused', { stage: 'none', why: res.why, tally: tallyText(res.tally), ...(townPlanNow(bot) ? { gen: townPlanNow(bot).gen } : {}) })
         return { status: 'no_effect', failClass: 'plinth_none', detail: `no raised junk well fits within ${WELL_SEARCH_RADIUS} of home (${res.why}); the town plans again in ${Math.round(PLINTH_NONE_BACKOFF_MS / 60000)} min` }
       }
       const id = `${bot.username ?? 'bot'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
@@ -10939,7 +11035,9 @@ function townSearchView (bot, needs, tried = new Set()) {
   // a pickaxe miss (no usable copy at all) is a trip miss too: the later of the two rules a container out for 'trippick'
   // (Claude trip review P3: otherwise trip-line bots reopen containers already known to hold no pickaxe)
   // smeltjob's copper miss is its own map (COPPER_MISS_KEY, 2 h): toolkit-03 routes the job's draw through this search too
+  // ironsmelt-01: the iron's miss is its own map too (IRON_MISS_KEY, 2 h)
   const missOf = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : need === SMELT_JOB_INPUT ? mem?.[COPPER_MISS_KEY]?.[h]
+    : need === SMELT_IRON_INPUT ? mem?.[IRON_MISS_KEY]?.[h]
     : need === SMELT_JOB_FUEL ? mem?.[COAL_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
   const missAt = (h, need) => need === 'trippick' ? Math.max(missOf(h, 'pick') ?? -Infinity, missOf(h, 'trippick') ?? -Infinity) : missOf(h, need)
   const latest = vals => vals.reduce((a, v) => (Number.isFinite(v) && v > a ? v : a), -Infinity)
@@ -12031,7 +12129,29 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
  *  town container a live copper miss, out of this bot's search, or shut)? For the order. toolkit-03: the SAME rule the job
  *  searches by (the old gate judged every findBlocks key while the sweep skipped shut ones: an order that opened nothing). */
 export function townCopperMiss (bot) {
-  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }
+  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }
+}
+/** ironsmelt-01: the same for RAW IRON (its own 2 h miss and the index rule-out). For the order, which smelts iron first. */
+export function townIronMiss (bot) {
+  try { return townSearchEmpty(bot, [SMELT_IRON_INPUT], { missTtl: { [SMELT_IRON_INPUT]: IRON_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_IRON_INPUT).keys }) } catch { return false }
+}
+/**
+ * THE INDEX RULE-OUT FOR A JOB INPUT, NOW -> { keys, n } (smeltjob.mjs indexRuledOut over the town index's fold and the town
+ * memory's deposit marks). Empty with SMELT_RULEOUT off (IRONSMELT off included), the index unreadable, or `need` not an input:
+ * the base's search exactly. The order's gate and every view of the job's passes ask this, so they agree by construction.
+ */
+export function jobRuledOut (bot, need) {
+  const none = { keys: new Set(), n: 0 }
+  if (!SMELT_RULEOUT.on || (need !== SMELT_IRON_INPUT && need !== SMELT_JOB_INPUT)) return none
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return none
+    let mem = {}
+    try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    const tookAt = {}
+    for (const [h, e] of Object.entries(mem ?? {})) if (e?.o === 'took' && Number.isFinite(e.at)) tookAt[h] = e.at
+    return indexRuledOut(entries, need, Date.now(), { ttl: need === SMELT_IRON_INPUT ? IRON_MISS_TTL_MS : COPPER_MISS_TTL_MS, tookAt })
+  } catch { return none }
 }
 
 /** Would the job's COAL search find no candidate (townSearchEmpty over coal, its own 2 h miss)? The precheck before any
@@ -12068,39 +12188,63 @@ export function furnaceLeasedNow (k) {
 }
 
 const copperIn = held => (held[SMELT_JOB_INPUT] ?? 0) + (held[SMELT_JOB_OUTPUT] ?? 0)
+/** ironsmelt-01: the job's FAMILY count of an input (the input and what it smelts into) -- the balance's unit. */
+const familyIn = (held, input) => (held[input] ?? 0) + (held[SMELT_OUTPUT_OF[input]] ?? 0)
 
 /**
- * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, chest, unsettled, looked, misses, more, coalMore, tried }. The town
- * search (toolkit-03; withdraw_pick's townSearchOrder over townSearchView): the COPPER pass first -- every town container
- * not a live copper miss (2 h), nearest the bot, each once, up to SMELT_COPPER_VISITS, inside its clock -- taking the coal
- * alongside when a copper container has it; then, with copper in hand and no coal yet, the COAL pass, coal as its own need
- * (its own 60 min miss, NEVER skipped for lacking copper), up to SMELT_COAL_VISITS. Every opened container's facts are
- * remembered: no raw copper (the copper miss), no coal (the coal miss). `more` / `coalMore`: that pass ran out of budget or
- * clock with candidates left (the caller's stop is then search_more, never town_has_none / no_fuel).
+ * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, input, chest, unsettled, looked, misses, more, ironMore, coalMore, noCoal,
+ * tried, progressed, ru }. The town search (toolkit-03; withdraw_pick's townSearchOrder over townSearchView), one pass per need,
+ * each its own visit budget and clock, nearest the bot first, each container once per pass:
+ *   1. THE IRON (ironsmelt-01, IRONSMELT on): raw iron only (its own 2 h miss), the copper pass's budget and reserve, until 8 are
+ *      taken or the pass ends. Any raw iron taken makes the job an IRON job. None in hand: a pass cut with candidates left is
+ *      `ironMore` (the caller's search_more / search_stalled), UNLESS the bag carries raw copper, which this job then smelts (an
+ *      unfinished iron search never idles copper in hand -- Codex design r1 P2); a complete iron search falls through to
+ *   2. THE COPPER (the base): the bag's own first (no copper pass), else the copper pass (its own 2 h miss);
+ *   3. THE COAL, as its own need, with input in hand only (its own 2 h miss, never skipped for lacking copper or iron).
+ * Each pass takes ONLY its own input (and coal once input is in hand): one input per job by construction (Claude design r1 P3-2).
+ * Every opened container's facts are remembered for every need (no raw copper, no raw iron, no coal). Every view of an INPUT
+ * pass leaves out that input's index rule-out (jobRuledOut), recomputed at each view (Codex design r1 P2). `ru`: the most
+ * containers a view ruled out. The room-making deposits never bank the bag's own iron (the keep; Codex design r1 P2).
  */
-async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
+const jobWithdrawOut = () => ({ took: {}, input: null, chest: null, unsettled: false, looked: 0, misses: 0, more: false, ironMore: false, coalMore: false,
+  noCoal: false, tried: [], progressed: false, ironProgressed: false, ironCut: false, ru: 0 })
+// `out` is the CALLER'S (Codex code r1 P1): a visit that throws or aborts after a verified take must not lose which input was
+// taken and how much -- smeltTown reads it on every exit, its catch and finally included
+async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, ingots = 0 }, signal, out = jobWithdrawOut()) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
-  const out = { took: {}, chest: null, unsettled: false, looked: 0, misses: 0, more: false, coalMore: false, noCoal: false, tried: [], progressed: false }
-  const keep = roomKeep(bot.currentWants ?? [])
-  let needCopper = copper, needCoal = coal
-  // FUEL ONLY WITH COPPER IN HAND (Claude code r2 P3): a look that finds no copper must not carry town coal away (the town
-  // deposit never banks coal back) -- coal is taken from a container only once the bag holds copper or this one has it
-  let copperInHand = copper <= 0
+  const keep = IRONSMELT.on ? [...roomKeep(bot.currentWants ?? []), SMELT_IRON_INPUT, SMELT_IRON_OUTPUT] : roomKeep(bot.currentWants ?? [])
+  const need = { [SMELT_IRON_INPUT]: 0, [SMELT_JOB_INPUT]: 0 }
+  let needCoal = coal
+  // FUEL ONLY WITH INPUT IN HAND (Claude code r2 P3): a look that finds no input must not carry town coal away (the town
+  // deposit never banks coal back) -- coal is taken from a container only once the job holds its input or this one has it
+  let inHand = false
+  let passInput = null       // the input THIS pass takes; in the coal pass, the job's chosen input (its top-up) or none
   const decide = (inChest, bag, { chestEmpty }) => {
     const takes = []
-    const cu = Math.min(needCopper, haveIn(inChest, SMELT_JOB_INPUT))
-    if (cu > 0) takes.push({ name: SMELT_JOB_INPUT, count: cu })
-    const fuel = needCoal > 0 && (copperInHand || cu > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
+    const nm = passInput
+    const n = nm ? Math.min(need[nm] ?? 0, haveIn(inChest, nm)) : 0
+    if (n > 0) takes.push({ name: nm, count: n })
+    const fuel = needCoal > 0 && (inHand || n > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
     if (fuel) takes.push({ name: fuel, count: 1 })
     return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
   }
-  const COPPER_TTL = { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, COAL_TTL = { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS }
-  // ONE PASS: `need` the search's need, `want` -> true while this pass still wants something
-  const pass = async (need, visits, reserveMs, want, missTtl) => {
+  const TTL = { [SMELT_IRON_INPUT]: { [SMELT_IRON_INPUT]: IRON_MISS_TTL_MS }, [SMELT_JOB_INPUT]: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS },
+                [SMELT_JOB_FUEL]: { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS } }
+  const lacks = (saw, nm) => (nm === SMELT_JOB_FUEL ? !saw.some(it => JOB_FUELS.includes(it.name)) : !saw.some(it => it.name === nm))
+  // ONE PASS: `nd` the search's need, `want` -> true while this pass still wants something
+  const pass = async (nd, visits, reserveMs, want) => {
     const pc = passClock(deadline, reserveMs)
     const passTried = new Set()
-    let next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+    let firstView = true
+    const view = () => {
+      const ro = nd === SMELT_JOB_FUEL ? null : jobRuledOut(bot, nd)
+      // `ru` is what the job STARTED with: the first view's rule-outs (later views also hold this pass's own opens)
+      if (ro && firstView && ro.n > out.ru) out.ru = ro.n
+      firstView = false
+      return townSearchNext(bot, [nd], ro?.keys?.size ? new Set([...passTried, ...ro.keys]) : passTried, {}, { missTtl: TTL[nd] })
+    }
+    let next = view()
     for (let n = 0; n < visits && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
       check(signal)
       const cb = next.block
@@ -12109,18 +12253,20 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
       out.looked++
       out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
       if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
-      // PROGRESS (Codex r2 P2): something the next job's search uses -- a miss for this pass's need, or a container left out
-      if (v.result && SEARCH_FAIL_SKIP.has(v.result.failClass)) out.progressed = true
-      if (v.saw && (need === SMELT_JOB_INPUT ? !v.saw.some(it => it.name === SMELT_JOB_INPUT) : !v.saw.some(it => JOB_FUELS.includes(it.name)))) out.progressed = true
-      // WHAT IT HELD, remembered for both halves: no raw copper -> the copper miss; no coal -> the coal's own miss
+      // PROGRESS (Codex r2 P2): something the next job's search uses -- a miss for this pass's need, or a container left out.
+      // The IRON pass keeps its own flag (Claude code r1 P3-1): the copper and coal passes share theirs, as on the base
+      const learned = (v.result && SEARCH_FAIL_SKIP.has(v.result.failClass)) || (v.saw && lacks(v.saw, nd))
+      if (learned) { if (nd === SMELT_IRON_INPUT) out.ironProgressed = true; else out.progressed = true }
+      // WHAT IT HELD, remembered for both halves and every need: no raw copper, no raw iron (IRONSMELT on), no coal
       if (v.saw) {
         const keys = halvesOf(bot, cb.position, v.double)
-        const noCu = !v.saw.some(it => it.name === SMELT_JOB_INPUT), noCoal = !v.saw.some(it => JOB_FUELS.includes(it.name))
-        if (noCu) out.misses++
-        if (noCu || noCoal) {
+        const noCu = lacks(v.saw, SMELT_JOB_INPUT), noCoal = lacks(v.saw, SMELT_JOB_FUEL), noFe = IRONSMELT.on && lacks(v.saw, SMELT_IRON_INPUT)
+        if (nd !== SMELT_JOB_FUEL && lacks(v.saw, nd)) out.misses++
+        if (noCu || noCoal || noFe) {
           try {
             updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {
               if (noCu) noteItemMisses(e, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)
+              if (noFe) noteItemMisses(e, IRON_MISS_KEY, IRON_MISS_TTL_MS, keys)
               if (noCoal) noteItemMisses(e, COAL_MISS_KEY, COAL_MISS_TTL_MS, keys)
             })
           } catch { /* advisory */ }
@@ -12129,49 +12275,81 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
       if (v.result?.failClass === 'transfer_unsettled') { out.unsettled = true; return }
       const took = v.verified ? (v.moved?.took ?? {}) : {}
       for (const [k, c] of Object.entries(took)) out.took[k] = (out.took[k] ?? 0) + c
-      if (took[SMELT_JOB_INPUT]) { needCopper = Math.max(0, needCopper - took[SMELT_JOB_INPUT]); out.chest = posKey(cb.position); copperInHand = true }
+      for (const nm of [SMELT_IRON_INPUT, SMELT_JOB_INPUT]) {
+        if (took[nm]) { need[nm] = Math.max(0, need[nm] - took[nm]); out.chest = posKey(cb.position); inHand = true; out.input ??= nm }
+      }
       if (JOB_FUELS.some(f => took[f])) needCoal = 0
       if (v.result && !v.verified && v.moved) { out.unsettled = true; return }
-      next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+      next = view()
     }
     return want() && next.order.length > 0   // cut with candidates left
   }
   // 0. NO COAL ANYWHERE IN TOWN (the coal search has no candidate: every container a live coal miss, out of this bot's search,
-  //    or shut, over a town wholly in view): no copper is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
+  //    or shut, over a town wholly in view): no input is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
   if (needCoal > 0 && townCoalMiss(bot)) { out.noCoal = true; return out }
-  // 1. THE COPPER (the bag's own first: copper 0 skips it)
-  if (needCopper > 0) out.more = !!(await pass(SMELT_JOB_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => needCopper > 0, COPPER_TTL))
-  if (out.unsettled) return out
-  // only the copper still wanted keeps `more` meaningful: some copper in hand is a job to run
-  if (copperInHand) out.more = false
-  // 2. THE COAL, as its own need -- with copper in hand only
-  if (needCoal > 0 && copperInHand && !out.unsettled) out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COAL_TTL))
+  // 1. THE IRON (ironsmelt-01): the town's, first
+  if (iron > 0) {
+    need[SMELT_IRON_INPUT] = iron; passInput = SMELT_IRON_INPUT
+    const cut = !!(await pass(SMELT_IRON_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => need[SMELT_IRON_INPUT] > 0))
+    out.ironCut = cut && out.input !== SMELT_IRON_INPUT   // the row says so even when carried copper runs the job (Claude code r2 P3-2)
+    if (out.unsettled) return out
+    if (out.input !== SMELT_IRON_INPUT) {
+      need[SMELT_IRON_INPUT] = 0; passInput = null
+      // ...unless the bag carries copper -- raw (smelted this job) or ingots (banked this job: the carry return; Claude code r1 P3-2)
+      if (cut && !(carried > 0) && !(ingots > 0)) { out.ironMore = true; return out }
+    }
+  }
+  if (out.input !== SMELT_IRON_INPUT) {
+    // 2. THE COPPER (the base): the bag's own first (copper 0 skips the pass)
+    if (carried > 0) { out.input = SMELT_JOB_INPUT; inHand = true }
+    if (copper > 0) {
+      need[SMELT_JOB_INPUT] = copper; passInput = SMELT_JOB_INPUT
+      out.more = !!(await pass(SMELT_JOB_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => need[SMELT_JOB_INPUT] > 0))
+      if (out.unsettled) return out
+    }
+    // only the copper still wanted keeps `more` meaningful: some copper in hand is a job to run
+    if (inHand) out.more = false
+  }
+  // 3. THE COAL, as its own need -- with input in hand only (and the job's input topped up where a coal container has it)
+  passInput = out.input
+  if (needCoal > 0 && inHand && !out.unsettled) out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0))
   return out
 }
 
 /**
- * smelt_town -- the town order (smeltjob.mjs smeltTownOrder): take up to 8 raw copper (the bag's own first) and ONE coal
- * (coal only: JOB_FUELS) from the town -- always from the town, never the bag's own fuel, which the town deposit keeps for the iron
- * ladder (Claude code r1 P2-2) -- smelt in a LEASED furnace (the job fails closed when the lease cannot be recorded) with
- * the EXISTING `smelt`, burning only coal, and bank the ingots and any unsmelted input -- one skill, one
- * budget, so no other order comes between the withdraw and the deposit. One `_smelt_town` row, ALWAYS, with the copper
- * balance (smeltjob.mjs copperBalance) the read re-derives.
+ * smelt_town -- the town order (smeltjob.mjs smeltTownOrder): take up to 8 of ONE input -- the town's raw iron first
+ * (ironsmelt-01), else raw copper (the bag's own first) -- and ONE coal (coal only: JOB_FUELS) from the town -- always from the
+ * town, never the bag's own fuel, which the town deposit keeps for the iron ladder (Claude code r1 P2-2) -- smelt in a LEASED
+ * furnace (the job fails closed when the lease cannot be recorded) with the EXISTING `smelt`, burning only coal, and bank the
+ * ingots and any unsmelted input -- one skill, one budget, so no other order comes between the withdraw and the deposit. One
+ * `_smelt_town` row, ALWAYS, with the balance (smeltjob.mjs copperBalance) in the job's family, which the read re-derives.
  *
- * CARRY RECOVERY (Codex code r1 P2-6): an interrupted job leaves what it took in the bag. It is not stranded: the order's
+ * ONLY THE TOWN'S IRON IS THE JOB'S (ironsmelt-01): the bag's own raw_iron and iron_ingot are the bot's iron ladder. The furnace
+ * is fed at most the town take (ironSmeltCount), and the bank deposits exactly what the bag holds above its opening count of
+ * each name, the opening count held back for that one deposit call (ironBankPlan + swapWithdrawHold).
+ *
+ * CARRY RECOVERY (Codex code r1 P2-6): an interrupted job leaves what it took in the bag. Copper is not stranded: the order's
  * own eligibility takes the BAG'S raw copper first and needs no town copper for it, so the bot's next smelt_town at town
- * (after the 10 min cooldown) smelts it and banks it -- and its ingots, which every job banks. After a restart the
- * withdraw hold is gone and raw_copper/copper_ingot are DEPOSIT_ALWAYS.
+ * (after the 10 min cooldown) smelts it and banks it -- and its ingots, which every job banks. After a restart the withdraw
+ * hold is gone and raw_copper/copper_ingot are DEPOSIT_ALWAYS. Town iron left by an interrupted iron job becomes the bot's own
+ * (a standing target: its town deposit banks it above the ladder's keep); the read counts it.
  */
 async function smeltTown (ctx, _args, signal) {
   const { bot } = ctx
   const f = { stop: null, n: 0, bag0: 0, withdrawn: 0, coal: 0, smelted: 0, prior: 0, deposited: 0, depI: 0, depR: 0, bag1: 0, furnaceLeft: 0,
-              furnace: '-', lease: '-', verdict: null, diff: null, chest: '-', t0: Date.now() }
+              furnace: '-', lease: '-', verdict: null, diff: null, chest: '-', t0: Date.now(), in: '-', fed: '-', ru: '-', fe: '-' }
   let uncertain = false, result = null
   const home = homeVec()
-  f.bag0 = copperIn(heldMap(bot))
-  // BANK THE COPPER: the job's own hold on the input it did not smelt is given back first (the withdraw held it from every
-  // deposit), then one deposit per name, into the chest it came from when that has room. Every exit after a withdraw
-  // passes here, so the job never leaves town copper in a bag.
+  const held00 = heldMap(bot)
+  // BOTH FAMILIES AT THE START (Claude design r1 P3-3): the input is known only after the withdraw
+  const bag0Of = { [SMELT_JOB_INPUT]: copperIn(held00), [SMELT_IRON_INPUT]: familyIn(held00, SMELT_IRON_INPUT) }
+  const raw0 = held00[SMELT_IRON_INPUT] ?? 0, ingot0 = held00[SMELT_IRON_OUTPUT] ?? 0
+  // the job's input and its ingot: copper until the withdraw says iron
+  let IN = SMELT_JOB_INPUT, OUT = SMELT_JOB_OUTPUT
+  let priorRaw = 0
+  // BANK THE JOB'S OUTPUT: the job's own hold on the input it did not smelt is given back first (the withdraw held it from every
+  // deposit), then one deposit per name, into the chest it came from when that has room. Every exit after a withdraw passes
+  // here, so the job never leaves town copper in a bag -- and an IRON job banks exactly what it holds above the bag's own.
   // THE JOB'S WHOLE HOLD GOES AT ITS EXIT, and unburnt town fuel goes back (smeltjob.mjs jobReturns; Claude rebase review
   // 10-15 P2/P3): released ONCE, whichever exit path runs this.
   let fuelName = null, fuelBag0 = 0, released = false, fuelDone = false
@@ -12179,18 +12357,36 @@ async function smeltTown (ctx, _args, signal) {
     const ret = jobReturns({ withdrawn: f.withdrawn, fuelName, fuelTaken: f.coal, fuelBag0, fuelNow: fuelName ? (heldMap(bot)[fuelName] ?? 0) : 0 })
     if (!released) {
       released = true
-      if (ret.releaseRaw > 0) releaseWithdrawHold(SMELT_JOB_INPUT, ret.releaseRaw)
+      if (ret.releaseRaw > 0) releaseWithdrawHold(IN, ret.releaseRaw)
       if (ret.fuel) releaseWithdrawHold(ret.fuel.name, ret.fuel.release)
     }
     const preferAt = f.chest !== '-' ? keyVec(f.chest) : null
-    for (const name of [SMELT_JOB_OUTPUT, SMELT_JOB_INPUT]) {
-      const had = heldMap(bot)[name] ?? 0
-      if (!(had > 0)) continue
-      check(signal)
-      await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt })
-      const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
-      if (name === SMELT_JOB_OUTPUT) f.depI += gone; else f.depR += gone
-      f.deposited += gone
+    if (IN === SMELT_IRON_INPUT) {
+      // PER NAME, the bag's own count held back for exactly this one call, then the name's hold put back as it was (count AND
+      // clock) -- after the job's own take-hold was released above (Claude design r1 P3-3: never the other way round)
+      for (const name of [SMELT_IRON_OUTPUT, SMELT_IRON_INPUT]) {
+        const h = heldMap(bot)
+        const plan = ironBankPlan({ raw0, ingot0, rawNow: h[SMELT_IRON_INPUT] ?? 0, ingotNow: h[SMELT_IRON_OUTPUT] ?? 0, withdrawn: f.withdrawn, priorRaw })
+        const dep = plan[name].deposit
+        if (!(dep > 0)) continue
+        const had = h[name] ?? 0
+        check(signal)
+        const restore = swapWithdrawHold(name, plan[name].own, Date.now() + 10 * 60_000)
+        try { await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt }) } finally { restore() }
+        const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+        if (name === SMELT_IRON_OUTPUT) f.depI += gone; else f.depR += gone
+        f.deposited += gone
+      }
+    } else {
+      for (const name of [SMELT_JOB_OUTPUT, SMELT_JOB_INPUT]) {
+        const had = heldMap(bot)[name] ?? 0
+        if (!(had > 0)) continue
+        check(signal)
+        await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt })
+        const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+        if (name === SMELT_JOB_OUTPUT) f.depI += gone; else f.depR += gone
+        f.deposited += gone
+      }
     }
     // the town's unburnt fuel: `deposit` banks every unit of a name it may, so the bag's OWN fuel (the iron ladder's keep)
     // is held back for this one call by a hold of exactly that count (holds are what deposit already respects)
@@ -12207,24 +12403,40 @@ async function smeltTown (ctx, _args, signal) {
       f.fuelBack = Math.max(0, had - (heldMap(bot)[ret.fuel.name] ?? 0))
     }
   }
-  try {
-    const held0 = heldMap(bot)
-    const carried = held0[SMELT_JOB_INPUT] ?? 0
-    const w = await jobWithdraw(ctx, { copper: carried < 1 ? SMELT_JOB_BATCH : 0, coal: 1 }, signal)
-    f.withdrawn = w.took[SMELT_JOB_INPUT] ?? 0
+  // THE WITHDRAW'S STATE IS OURS (Codex code r1 P1): adopted after the withdraw returns AND on a throw out of it, so the bank,
+  // the balance and the row see a verified take whatever exit follows (adopt is idempotent: the same object, read again)
+  const w = jobWithdrawOut()
+  const held0 = heldMap(bot)
+  const adopt = () => {
+    if (w.input === SMELT_IRON_INPUT) { IN = SMELT_IRON_INPUT; OUT = SMELT_IRON_OUTPUT }
+    f.in = !IRONSMELT.on ? '-' : w.input === SMELT_IRON_INPUT ? 'fe' : w.input === SMELT_JOB_INPUT ? 'cu' : '-'
+    f.ru = SMELT_RULEOUT.on ? w.ru : '-'
+    f.withdrawn = w.took[IN] ?? 0
     f.coal = JOB_FUELS.reduce((t, n) => t + (w.took[n] ?? 0), 0)
     fuelName = JOB_FUELS.find(n => (w.took[n] ?? 0) > 0) ?? null
     fuelBag0 = fuelName ? (held0[fuelName] ?? 0) : 0
     f.chest = w.chest ?? '-'
-    f.looked = w.looked; f.more = w.more ? 'cu' : w.coalMore ? 'coal' : '-'
+    // `more`: the pass cut with candidates left; `fe+<...>` when the iron pass was cut and the bag's copper ran the job instead
+    const more0 = w.more ? 'cu' : w.ironMore ? 'fe' : w.coalMore ? 'coal' : '-'
+    f.looked = w.looked; f.more = w.ironCut && !w.ironMore ? `fe+${more0}` : more0
+  }
+  try {
+    const carried = held0[SMELT_JOB_INPUT] ?? 0
+    try { await jobWithdraw(ctx, { iron: IRONSMELT.on ? SMELT_JOB_BATCH : 0, copper: carried < 1 ? SMELT_JOB_BATCH : 0, carried, ingots: held0[SMELT_JOB_OUTPUT] ?? 0, coal: 1 }, signal, w) } finally { adopt() }
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from the town chest could not be confirmed; the job stops until the bag settles' }) }
-    const have = heldMap(bot)[SMELT_JOB_INPUT] ?? 0
-    // THE TOWN HAS NO COAL (jobWithdraw step 0): nothing was taken; with carried copper the fuel check below says the same
-    if (w.noCoal && have < 1 && !((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) > 0)) {
-      f.stop = 'no_fuel'
-      return (result = { status: 'no_effect', detail: 'no coal in any town container (each looked in lately); the job does not burn the bag\'s own fuel, so it takes no copper and waits' })
+    // THE IRON SEARCH IS NOT DONE (ironsmelt-01): no iron in hand, candidates left, no copper carried -- no answer about the town's
+    // iron yet: search_more when the pass learned something (no strike), search_stalled when it learned nothing (a strike)
+    if (w.ironMore) {
+      f.stop = w.ironProgressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED
+      return (result = { status: 'no_effect', detail: `no raw iron in the ${w.looked} town container(s) looked in yet; others are not yet looked in -- the next job continues the iron search first` })
     }
-    if (have < 1) {
+    const have = heldMap(bot)[IN] ?? 0
+    // THE TOWN HAS NO COAL (jobWithdraw step 0): nothing was taken; with carried copper the fuel check below says the same
+    if (w.noCoal && !((heldMap(bot)[SMELT_JOB_INPUT] ?? 0) > 0) && !((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) > 0)) {
+      f.stop = 'no_fuel'
+      return (result = { status: 'no_effect', detail: 'no coal in any town container (each looked in lately); the job does not burn the bag\'s own fuel, so it takes no input and waits' })
+    }
+    if (IN === SMELT_JOB_INPUT && have < 1) {
       // NOTHING TO SMELT -- BUT INGOTS IN THE BAG ARE BANKED (Codex code r2: the deterministic carry return). An earlier job
       // interrupted after its smelt, or a deposit that found the chest full, leaves ingots; the order fires on them and
       // this banks them.
@@ -12241,18 +12453,26 @@ async function smeltTown (ctx, _args, signal) {
         return (result = { status: 'no_effect', detail: `no raw copper in the ${w.looked} town container(s) looked in yet; others are not yet looked in -- the next job continues the search` })
       }
       f.stop = 'town_has_none'
-      return (result = { status: 'no_effect', detail: 'no raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt' })
+      return (result = { status: 'no_effect', detail: IRONSMELT.on
+        ? 'no raw iron or raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt'
+        : 'no raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt' })
     }
-    // NO TOWN FUEL: the job does not burn the bot's own (the iron ladder's keep) -- the copper goes back and the job waits.
+    // NO TOWN FUEL: the job does not burn the bot's own (the iron ladder's keep) -- the input goes back and the job waits.
     if (f.coal < 1) {
-      // a coal search cut with candidates left: search_more (the copper goes back either way; the next job continues)
-      // (the copper's deposit back ends that container's coal miss: the next job looks there once more -- no re-note, which
+      // a coal search cut with candidates left: search_more (the input goes back either way; the next job continues)
+      // (the input's deposit back ends that container's coal miss: the next job looks there once more -- no re-note, which
       // could hide a coal another bot put there meanwhile (Codex r2 P2); the 6-in-a-row pause bounds the repeat)
       f.stop = w.coalMore ? (w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED) : 'no_fuel'
       await bankCopper()
-      return (result = { status: 'no_effect', detail: 'no coal in the town containers looked in; the job does not burn the bag\'s own fuel, so the copper goes back and the job waits' })
+      return (result = { status: 'no_effect', detail: `no coal in the town containers looked in; the job does not burn the bag's own fuel, so the ${IN === SMELT_IRON_INPUT ? 'raw iron' : 'copper'} goes back and the job waits` })
     }
-    f.n = Math.min(SMELT_JOB_BATCH, have)
+    // the iron job feeds the furnace at most the town take, never the bag's own (smeltjob.mjs ironSmeltCount)
+    f.n = IN === SMELT_IRON_INPUT ? ironSmeltCount({ withdrawn: f.withdrawn, raw0, rawNow: have }) : Math.min(SMELT_JOB_BATCH, have)
+    if (!(f.n > 0)) {
+      f.stop = 'input_gone'
+      await bankCopper()
+      return (result = { status: 'no_effect', detail: 'the raw iron taken from town is no longer in the bag above its own; nothing to smelt' })
+    }
     // NO FURNACE IN REACH AND NONE CARRIED: the remedy `smelt` would print ("craft item=furnace (8 cobblestone); smelt
     // places it for you") is PERFORMED here, deterministically (CLAUDE.md: advice printed is not advice taken) -- only
     // when no furnace exists within smelt's 32 at all (a leased one is a skip, never a reason to craft: Claude r2 N4).
@@ -12272,7 +12492,7 @@ async function smeltTown (ctx, _args, signal) {
         return (result = { status: 'no_effect', detail: `no furnace within 32 blocks and crafting one did not work (${c.failClass ?? c.status}); the job waits` })
       }
     }
-    const ingots0 = heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0
+    const ingots0 = heldMap(bot)[OUT] ?? 0
     check(signal)
     // the job's smelt: town furnaces only (never one more than TOWN_DY above or below home: Claude code r1 P2-3), coal or
     // charcoal only, and a lease that could be recorded (fail closed)
@@ -12283,36 +12503,51 @@ async function smeltTown (ctx, _args, signal) {
     if (smeltDeadline - Date.now() < SMELT_MIN_SMELT_MS) {
       f.stop = SMELT_LATE
       await bankCopper()
-      return (result = { status: 'no_effect', detail: `the town search used the job's clock (${Math.round((smeltDeadline - Date.now()) / 1000)} s left for the smelt); the copper and coal go back and the next job smelts` })
+      return (result = { status: 'no_effect', detail: `the town search used the job's clock (${Math.round((smeltDeadline - Date.now()) / 1000)} s left for the smelt); the input and coal go back and the next job smelts` })
     }
-    const r = await smelt(ctx, { item: SMELT_JOB_INPUT, count: f.n }, signal,
+    const rawBefore = heldMap(bot)[IN] ?? 0
+    const r = await smelt(ctx, { item: IN, count: f.n }, signal,
       { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town', deadline: smeltDeadline })
     f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'
-    f.prior = (r.prior?.[SMELT_JOB_OUTPUT] ?? 0) + (r.prior?.[SMELT_JOB_INPUT] ?? 0)
-    f.smelted = Math.max(0, ((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) - ingots0) - (r.prior?.[SMELT_JOB_OUTPUT] ?? 0))
-    // WHAT THE FURNACE STILL HOLDS AT THE CLOSE (Codex code r1 P1-3): known copper there is OUT of the boundary (the drain
+    priorRaw = r.prior?.[IN] ?? 0
+    f.prior = (r.prior?.[OUT] ?? 0) + (r.prior?.[IN] ?? 0)
+    f.smelted = Math.max(0, ((heldMap(bot)[OUT] ?? 0) - ingots0) - (r.prior?.[OUT] ?? 0))
+    // WHAT THE BAG FED THE FURNACE (Codex design r1 P1): a bag delta of the input across the smelt -- the furnace's own prior
+    // input, merged into the batch and returned by the drain, makes `smelted` larger without costing the bag anything
+    if (IN === SMELT_IRON_INPUT) f.fed = Math.max(0, rawBefore - (heldMap(bot)[IN] ?? 0))
+    // WHAT THE FURNACE STILL HOLDS AT THE CLOSE (Codex code r1 P1-3): known input there is OUT of the boundary (the drain
     // job will take it); an unreadable slot, or a drain that stopped, cannot be closed from the bag -> UNRECONCILED
     if (r.furnace) {
       const cc = closingContents(r.closing)
-      f.furnaceLeft = (cc.items[SMELT_JOB_INPUT] ?? 0) + (cc.items[SMELT_JOB_OUTPUT] ?? 0)
+      f.furnaceLeft = (cc.items[IN] ?? 0) + (cc.items[OUT] ?? 0)
       if (cc.unreadable || r.drainStop) uncertain = true
     }
     if (r.status !== 'success') f.stop = `smelt:${r.failClass ?? r.status}`
     check(signal)
     await bankCopper()
+    const what = IN === SMELT_IRON_INPUT ? 'iron' : 'copper'
     if (r.status !== 'success') {
       return (result = { status: r.status === 'unknown' ? 'unknown' : (f.smelted > 0 ? 'success' : 'no_effect'), failClass: r.status === 'unknown' ? r.failClass : null,
-                         detail: `the smelt did not finish (${r.failClass ?? r.status}: ${String(r.detail ?? '').slice(0, 120)}); banked ${f.deposited} copper` })
+                         detail: `the smelt did not finish (${r.failClass ?? r.status}: ${String(r.detail ?? '').slice(0, 120)}); banked ${f.deposited} ${what}` })
     }
     f.stop = f.stop ?? (f.depI >= f.smelted ? 'done' : 'deposit_short')
-    return (result = { status: 'success', detail: `smelted ${f.smelted} raw copper into ingots and banked ${f.depI} ingots (and ${f.depR} raw) in town (${f.withdrawn} taken from the town chest)` })
+    return (result = { status: 'success', detail: `smelted ${f.smelted} raw ${what} into ingots and banked ${f.depI} ingots (and ${f.depR} raw) in town (${f.withdrawn} taken from the town chest)` })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; throw e }
     f.stop = f.stop ?? 'error'
     uncertain = true
+    // AN IRON JOB'S ERROR EXIT STILL BANKS (Claude design r1 P2-5): the order never fires on the bag's iron, so the town's would
+    // otherwise stay in the bag -- best effort, inside its own guard (copper keeps the base: its carry return recovers it)
+    // ...but an abort DURING that bank is still an interruption, never a failure (Claude code r2 P3-1)
+    if (IN === SMELT_IRON_INPUT) {
+      try { await bankCopper() } catch (e2) { if (e2?.aborted || signal?.aborted) { f.stop = 'interrupted'; throw e2 } /* else: the read counts town iron left in bags */ }
+    }
     return (result = { status: 'failed', failClass: 'other', detail: `the town smelt job stopped: ${String(e?.message ?? e).slice(0, 120)}` })
   } finally {
-    f.bag1 = copperIn(heldMap(bot))
+    const h1 = heldMap(bot)
+    f.bag0 = bag0Of[IN]
+    f.bag1 = familyIn(h1, IN)
+    if (IRONSMELT.on && IN === SMELT_IRON_INPUT) f.fe = `${raw0}/${ingot0}>${h1[SMELT_IRON_INPUT] ?? 0}/${h1[SMELT_IRON_OUTPUT] ?? 0}`
     if (f.stop === 'interrupted' || f.stop === 'error') uncertain = true
     const b = copperBalance({ bag0: f.bag0, withdrawn: f.withdrawn, prior: f.prior, deposited: f.deposited, bag1: f.bag1, furnaceLeft: Number(f.furnaceLeft) || 0, uncertain })
     f.verdict = b.verdict; f.diff = b.diff
@@ -14474,6 +14709,724 @@ export function actionKey(skill, args) {
   return `${skill}:${JSON.stringify(kept)}`
 }
 
+// ================================================================================================================================
+// THE TOWN PLAN (townplan-01) AND FOUNDING (found-01). Design docs/reports/town-plan-2026-10-20.md (both engines APPROVE r9; OWNER
+// 10-20 "yes, lets do this"); build spec docs/reports/townplan-found-spec-2026-10-21.md (both engines APPROVE r7). The decisions are
+// pure (planstore.mjs: the files; townplan.mjs: the fit, the keep-outs, maintenance; found.mjs: the orders); this section reads the
+// world for them, runs the planner tick (index.mjs calls townPlanTick every PLAN_TICK_MS), the two found orders, and supplies the
+// adopters' keep-outs. TOWNPLAN=off / FOUND=off: nothing here acts, and every adopter is the base's.
+// ================================================================================================================================
+const planOn = () => TOWNPLAN.on && config.memory.scope !== 'isolated'
+const planHomeP = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+const planKeyNow = () => planKey(planHomeP())
+/** The planner's reader: name, box, shapes, a snow layer's props; memoised for the reader's own life (one tick, one order). */
+function planReader (bot) {
+  const memo = new Map()
+  return (x, y, z) => {
+    const k = `${x},${y},${z}`
+    if (memo.has(k)) return memo.get(k)
+    let v = null
+    try {
+      const b = bot.blockAt(new Vec3(x, y, z))
+      if (b) {
+        const name = blockNameOf(bot, b)
+        let props = null
+        if (name === 'snow') { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
+      }
+    } catch { v = null }
+    memo.set(k, v)
+    return v
+  }
+}
+
+// THE PROTECTED ZONES (build spec 1.7): protectzone-01's file in the town's directory, re-read every 30 s; the LAST GOOD list of
+// this process is authoritative; with none (malformed at spawn, or any malformed zone at the first read) zones are UNKNOWN.
+const zoneMem = { good: null, at: -Infinity, world: undefined, view: null }
+/** -> { known, zones: [{ id, box }], why }. Never throws. */
+export function townPlanZones (bot, now = Date.now()) {
+  const world = bot?.worldId ?? null
+  if (zoneMem.view && zoneMem.world === world && now - zoneMem.at < PLAN_TICK_MS) return zoneMem.view
+  let json, absent = false
+  try { json = JSON.parse(fs.readFileSync(path.join(townDir(), 'protected-zones.json'), 'utf8')) } catch (e) { if (e?.code === 'ENOENT') absent = true; else json = undefined }
+  // a file holding JSON null is BROKEN, not absent (protectzone's zoneReader keeps its last good list for it; Codex JIT r2 P2):
+  // only a missing file clears the zones
+  if (json === null) json = undefined
+  if (zoneMem.world !== world) zoneMem.good = null
+  let view
+  if (absent) { view = { known: true, zones: [], why: 'absent' }; zoneMem.good = view } else if (json === undefined) {
+    view = zoneMem.good ? { ...zoneMem.good, why: 'stale:unreadable' } : { known: false, zones: [], why: 'unreadable' }
+  } else {
+    const r = parseZones(json, world)
+    const partial = /^(dropped|guard_drops) /.test(r.why)   // a zone the guard drops makes the read partial too (townplan.mjs parseZones)
+    if (r.ok && !partial) { view = { known: true, zones: r.zones, why: r.why }; zoneMem.good = view } else if (partial && zoneMem.good) {
+      // A PARTLY MALFORMED EDIT after a good read (townplan x protectzone, JIT 10-23c): protectzone's guard protects the edit's
+      // VALID zones at once, so the planner avoids them too -- the last good list PLUS them (never fewer than either). RETAINED as
+      // the new last good list (Codex JIT r1 P2): the guard keeps that edit's zones through a later unreadable or all-malformed read
+      const seen = new Set(zoneMem.good.zones.map(z => z.box.join()))
+      view = { ...zoneMem.good, zones: [...zoneMem.good.zones, ...r.zones.filter(z => !seen.has(z.box.join()))], why: `stale:${r.why}` }
+      zoneMem.good = view
+    } else {
+      view = zoneMem.good ? { ...zoneMem.good, why: `stale:${r.why}` } : { known: false, zones: [], why: r.why }
+    }
+  }
+  Object.assign(zoneMem, { view, at: now, world })
+  return view
+}
+/** Forget the zones (tests). */
+export const resetPlanZones = () => Object.assign(zoneMem, { good: null, at: -Infinity, world: undefined, view: null })
+/** The seed (`town-site.json` in the town's directory, the showcase's site file) -> parseSeed's answer. Never throws. */
+export function townPlanSeed (bot) {
+  let json = null
+  try { json = JSON.parse(fs.readFileSync(path.join(townDir(), 'town-site.json'), 'utf8')) } catch (e) { if (e?.code !== 'ENOENT') return { ok: false, use: null, why: 'unreadable' } }
+  return parseSeed(json, { home: planHomeP(), world: bot?.worldId ?? null })
+}
+
+/** The town's head plan (this world) -> planHead's answer; the in-memory copy the adopters read is refreshed with it. */
+export function townPlanHead (bot) {
+  const h = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
+  if (h.ok && bot) bot.townPlan = h.head ? { gen: h.head.gen, plan: h.head.plan, ko: keepouts(h.head.plan), cells: planFurnitureCells(h.head.plan), at: Date.now() } : null
+  return h
+}
+/** THE ADOPTERS' VIEW: the last head this bot read (every tick refreshes it) -> { gen, plan, ko } | null (no plan: the base). */
+// A BOT THAT HAS NEVER READ THE PLAN reads it here, once (Paper FOUND-PLINTH 10-22: the planner tick first fires PLAN_TICK_MS
+// after spawn, and build_plinth planned the raised well 8 s after spawn as if the town had no plan -- inside the core's box).
+// `undefined` = never read; null = read, no plan; an unreadable directory leaves it undefined (retried at the next ask).
+export const townPlanNow = bot => {
+  if (!planOn() || !bot) return null
+  if (bot.townPlan === undefined && bot.worldId) { try { townPlanHead(bot) } catch { /* the next ask retries */ } }
+  return bot.townPlan?.plan ? bot.townPlan : null
+}
+
+/** The tree farm's record cells (`treefarm-<home>.g<N>.json`, the highest that parses) -> Set "x,z". Never throws. */
+function treeFarmCells () {
+  const out = new Set()
+  try {
+    const hk = `treefarm-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+    const re = new RegExp(`^${hk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.g(\\d+)\\.json$`)
+    const gens = fs.readdirSync(townDir()).map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)
+    for (const g of gens) {
+      try {
+        const r = JSON.parse(fs.readFileSync(path.join(townDir(), `${hk}.g${g}.json`), 'utf8'))
+        for (const c of r?.record?.cells ?? r?.cells ?? []) if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) out.add(`${c.x},${c.z}`)
+        break
+      } catch { /* the next lower */ }
+    }
+  } catch { /* no directory */ }
+  return out
+}
+let sectorData = null
+/** The retrofit Z0/M0 sectors for this pool (townsectors.json), checked against home -> { monument, shaft } | {}. */
+function fixedSectors () {
+  try {
+    sectorData ??= JSON.parse(fs.readFileSync(new URL('./townsectors.json', import.meta.url), 'utf8'))
+    const e = sectorData?.pools?.[config.memory.pool]
+    const h = planHomeP()
+    if (!e || e.home?.x !== h.x || e.home?.y !== h.y || e.home?.z !== h.z) return {}
+    return { ...(e.monument ? { monument: e.monument } : {}), ...(e.shaft ? { shaft: e.shaft } : {}) }
+  } catch { return {} }
+}
+
+/**
+ * EVERYTHING THE PLANNER READS FROM THE TOWN -> the fit's ctx (townplan.mjs fitTown). Never throws (a read that fails leaves
+ * its list empty, and an empty list never invents room: the fit's own unknown-cell rule still holds).
+ */
+export function townPlanCtx (bot, read, zonesView = townPlanZones(bot), seedView = townPlanSeed(bot)) {
+  const home = planHomeP()
+  const hv = homeVec()
+  const containers = [], existing = []
+  try {
+    const all = bot.findBlocks?.({ point: hv, matching: b => /^(chest|trapped_chest|barrel|crafting_table|furnace)$/.test(bot.registry?.blocks?.[b.type]?.name ?? ''), maxDistance: 30, count: 512 }) ?? []
+    const entries = townIndexEntries(bot) ?? {}
+    const seen = new Set()
+    for (const p of all) {
+      if (Math.max(Math.abs(p.x - home.x), Math.abs(p.z - home.z)) > FIT_R || Math.abs(p.y - home.y) > TOWN_DY) continue
+      existing.push([p.x, p.y, p.z])
+      const name = blockNameOf(bot, bot.blockAt(p))
+      if (!/^(chest|trapped_chest|barrel)$/.test(name ?? '') || !inTown(hv, p)) continue
+      const k = containerKey(bot, p)
+      if (seen.has(k)) continue
+      seen.add(k)
+      const halves = name === 'barrel' ? 1 : (chestPartner(bot, p) ? 2 : 1)
+      const e = entries[k]
+      containers.push({ k, halves, at: [p.x, p.y, p.z], obs: e?.obs?.names ?? null })
+    }
+  } catch { /* no world yet */ }
+  const wells = []
+  try { for (const w of findTownWells(bot)) wells.push({ x: w.cap.x, y: w.cap.y, z: w.cap.z }) } catch { /* none */ }
+  try { const r = recordedWellSite(bot); if (r) wells.push({ x: r.x, y: r.y, z: r.z }) } catch { /* none */ }
+  try { for (const c of knownPlinthCaps(bot)) wells.push({ x: c.x, y: c.y, z: c.z }) } catch { /* none */ }
+  // PLINTH SHELLS AND STAIRS are solid to the joint-access walk and never a plan cell or stand (build spec 1.5)
+  const solid = new Set()
+  try {
+    for (const col of knownPlinthColumns(bot)) {
+      for (const c of plinthShell(col)) solid.add(`${c.x},${c.y},${c.z}`)
+      for (const s of col.stair ?? []) { solid.add(`${s[0]},${s[1]},${s[2]}`); solid.add(`${s[0]},${s[1] + 1},${s[2]}`); solid.add(`${s[0]},${s[1] + 2},${s[2]}`) }
+    }
+  } catch { /* none */ }
+  // THE BOT'S OWN WELL RULES for a cell: a chest keeps chestfull's wellKeepout (WELL_HOME_CLEARANCE, the well's reserved
+  // cells); a station or a stand keeps stationRefusalAt (the shell, shaft, stands, a plinth's stair headroom)
+  const wk = chestWellKeepouts(bot)
+  const cellForbid = (at, kind) => {
+    const site = { x: at[0], y: at[1], z: at[2] }
+    if ((kind === 'chest' || kind == null) && wellKeepout(site, wk)) return 'the junk well\'s clearance'
+    if (kind !== 'chest') { const r = stationRefusalAt(bot, site); if (r) return `the junk well's ${r}` }
+    return null
+  }
+  let composter = null
+  try { const c = findTownComposter(bot); if (c?.position) composter = [c.position.x, c.position.y, c.position.z] } catch { /* none */ }
+  let wellCap = null
+  try { const w = findTownWell(bot); if (w?.cap) wellCap = w.cap; else { const r = recordedWellSite(bot); if (r) wellCap = r } } catch { /* none */ }
+  const avoid = seedView?.use?.avoid ?? []
+  return {
+    containers, existing, wells, farm: treeFarmCells(), solid, cellForbid, composter, wellCap,
+    wellRef: wellCap ? 'junkwell-site' : null,
+    zones: [...(zonesView?.zones ?? []), ...avoid], seed: seedView?.use ?? null,
+    // the seed's avoid boxes are RECORDED in the plan (Claude code r1 P2): the read's D4 judges every plan cell against them
+    seedInfo: seedView?.use ? { why: seedView.why, avoid: seedView.use.avoid ?? [] } : null,
+    zoneInfo: { n: zonesView?.zones?.length ?? 0, avoid: avoid.length, why: zonesView?.why ?? 'absent' },
+    allocate: allocateHomes, fixed: fixedSectors(),
+  }
+}
+
+/** THE CONTEXT FOR A PER-CELL CHECK (READY in founding, ACCESS for an adopter's candidate), kept PLAN_CTX_MEMO_MS per bot (Claude
+ *  code r1 P3: a findBlocks of up to 512 blocks per cell otherwise; F2 asks for up to 7 cells in one decision). The tick and
+ *  the fits always build it fresh. */
+const PLAN_CTX_MEMO_MS = 2000
+function planCtxMemo (bot, read) {
+  const m = bot.planCtxMemo
+  if (m && Date.now() - m.at < PLAN_CTX_MEMO_MS) return m.ctx
+  const ctx = townPlanCtx(bot, read)
+  bot.planCtxMemo = { at: Date.now(), ctx }
+  return ctx
+}
+// THE ROWS: `_townplan` per publish attempt; a no-plan reason once per 10 min per bot; `_townplan_audit` every 10 min in town
+const PLAN_SAY_MS = 10 * 60 * 1000
+function planRow (bot, status, fields, sayKey = null) {
+  if (sayKey) {
+    bot.townPlanSaid ??= new Map()
+    const last = bot.townPlanSaid.get(sayKey) ?? -Infinity
+    if (Date.now() - last < PLAN_SAY_MS) return
+    bot.townPlanSaid.set(sayKey, Date.now())
+  }
+  try { logEvent({ kind: 'townplan', status, snapshot: snapshot(bot), detail: townPlanRowDetail(fields) }) } catch { /* a row never breaks the tick */ }
+}
+const planSummary = plan => {
+  const st = plan?.plots?.find(p => p.id === 'store'), wk = plan?.plots?.find(p => p.id === 'work')
+  return { mode: plan?.mode, orient: plan?.orientation ?? '-', store: st ? `${st.kind}:${st.cells?.length ?? 0}` : 'none', work: wk ? `${wk.size ?? 'strip'}:${wk.stations?.length ?? 0}` : 'none' }
+}
+/** One publish, row included -> publishPlan's answer. */
+function planPublish (bot, op, mutate, tNow) {
+  const r = publishPlan(townDir(), planKeyNow(), bot.worldId ?? null, mutate, { by: bot.username ?? null, code: config.code?.version ?? null, now: () => tNow })
+  if (r.result !== 'nothing') {
+    const status = r.result === 'accepted' ? 'success' : r.result === 'lost' ? 'no_effect' : 'failed'
+    planRow(bot, status, { op, result: r.result, gen: r.gen ?? '-', prev: r.head?.plan?.prev ?? '-', ...planSummary(r.head?.plan), why: r.why ?? '-' })
+  }
+  if (r.result === 'accepted') townPlanHead(bot)
+  return r
+}
+
+/**
+ * THE PLANNER TICK (build spec 1.5) -> { op, result } (for the tests). index.mjs calls it every PLAN_TICK_MS. Only in town, only
+ * with a world id; at most ONE publish; a walk that is not `ok` writes nothing (never a root). Never throws.
+ */
+export function townPlanTick (bot, { now = Date.now() } = {}) {
+  try {
+    if (!planOn() || !bot?.entity?.position || !bot.worldId) return { op: 'off', result: null }
+    const hv = homeVec()
+    if (!inTown(hv, bot.entity.position)) return { op: 'away', result: null }
+    const h = townPlanHead(bot)
+    if (!h.ok) { planRow(bot, 'no_effect', { op: 'read', result: 'no_plan', why: h.from }, 'read'); return { op: 'read', result: 'error' } }
+    const zones = townPlanZones(bot, now)
+    const read = planReader(bot)
+    if (!h.head) {
+      if (!zones.known) { planRow(bot, 'no_effect', { op: 'root', result: 'no_plan', why: `zones unknown (${zones.why})` }, 'zones'); return { op: 'root', result: 'zones_unknown' } }
+      const ctx = townPlanCtx(bot, read, zones)
+      const r = fitTown(read, planHomeP(), ctx)
+      if (!r.body) { planRow(bot, 'no_effect', { op: 'root', result: 'no_plan', why: r.why }, `fit:${r.why}`); return { op: 'root', result: 'no_plan' } }
+      const p = planPublish(bot, 'root', cur => (cur ? null : r.body), now)
+      return { op: 'root', result: p.result }
+    }
+    // MAINTENANCE: the first step that applies, recomputed on the head the publish reads (a rebase re-applies it)
+    const containers = h.head.plan.mode === 'retrofit' ? townPlanCtx(bot, read, zones).containers : null
+    const m = maintainPlan(h.head.plan, read, { now, containers, allocate: allocateHomes })
+    if (m) {
+      const p = planPublish(bot, m.op, cur => (cur ? maintainPlan(cur, read, { now, containers, allocate: allocateHomes })?.body ?? null : null), now)
+      return { op: m.op, result: p.result }
+    }
+    // GROWTH (e)/(f): once per 10 min per bot, zones known
+    if (zones.known && now - (bot.townPlanGrowAt ?? -Infinity) >= PLAN_SAY_MS) {
+      bot.townPlanGrowAt = now
+      const ctx = townPlanCtx(bot, read, zones)
+      const g = growPlan(h.head.plan, read, ctx)
+      if (g) {
+        const p = planPublish(bot, g.op, cur => (cur ? growPlan(cur, read, ctx)?.body ?? null : null), now)
+        return { op: g.op, result: p.result }
+      }
+    }
+    // THE AUDIT (every 10 min per bot in town)
+    if (now - (bot.townPlanAuditAt ?? -Infinity) >= PLAN_SAY_MS) {
+      bot.townPlanAuditAt = now
+      const t0 = Date.now()
+      const a = auditPlan(h.head.plan, read, { home: planHomeP() })
+      let bytes = 0
+      try { for (const g of h.gens) bytes += fs.statSync(path.join(townDir(), `${planKeyNow()}.g${g}.json`)).size } catch { /* a size is telemetry */ }
+      try { logEvent({ kind: 'townplan_audit', status: 'success', snapshot: snapshot(bot), detail: auditDetail(a, { gen: h.head.gen, gens: h.gens.length, bytes, walk_ms: Date.now() - t0 }) }) } catch { /* telemetry */ }
+      return { op: 'audit', result: 'ok' }
+    }
+    return { op: 'none', result: null }
+  } catch (e) {
+    planRow(bot, 'failed', { op: 'tick', result: 'error', why: String(e?.message ?? e).slice(0, 80) }, 'tick-error')
+    return { op: 'tick', result: 'error' }
+  }
+}
+
+// ---- the adopters' keep-outs ----------------------------------------------------------------------------------------------
+
+/** THE TIER of a cell under this bot's plan -> 'never' | 'box' | 'soft' | null (outside, or no plan). */
+export function planTierAt (bot, x, y, z) {
+  const tp = townPlanNow(bot)
+  return tp ? tp.ko.tier(x, y, z) : null
+}
+/** ACCESS for a SOFT/BOX candidate (build spec 1.6) -> true when it keeps every committed cell and existing container reachable. */
+function planAccessKept (bot, cells) {
+  const tp = townPlanNow(bot)
+  if (!tp) return true
+  try {
+    const read = planReader(bot)
+    const ctx = planCtxMemo(bot, read)
+    const r = accessKept(read, planHomeP(), tp.plan, cells, { existing: ctx.existing })
+    bot.planAccessMs = r.ms
+    return r.ok
+  } catch { return false }
+}
+/** The temporary placement tiers (build spec 1.6): 'never' (a plan cell that is not free+unmarked, or a reserved/placed stand),
+ *  'plan' (a free unmarked plan cell: second tier), null (anything else). */
+export function planPlaceClass (bot, p) {
+  const tp = townPlanNow(bot)
+  if (!tp) return null
+  const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+  if (!tp.ko.never(x, y, z)) return null
+  const cell = tp.plan.plots.flatMap(pl => [...(pl.cells ?? []), ...(pl.stations ?? [])]).find(c => c.at[0] === x && c.at[1] === y && c.at[2] === z)
+  return cell && cell.state === 'free' && !Number.isFinite(cell.seenSince) ? 'plan' : 'never'
+}
+/** A TEMPORARY TABLE'S TWO TIERS over a base forbid ({x,y,z} -> truthy): [no plan cell at all, no NEVER cell]. No plan: the base
+ *  twice (the second pass is the first's answer again, so a picker's result is the base's exactly). */
+export function planTableForbids (bot, base = () => false) {
+  if (!townPlanNow(bot)) return [base, base]
+  return [c => !!base(c) || planPlaceClass(bot, c) !== null, c => !!base(c) || planPlaceClass(bot, c) === 'never']
+}
+/** THE GREENFIELD RECOVERY'S CELL (build spec 2.2): the next free, unmarked, READY store cell in fill order, or null. */
+function recoveryPlanCell (bot) {
+  const tp = townPlanNow(bot)
+  if (!tp || tp.plan.mode !== 'greenfield' || !FOUND.on) return null
+  const store = tp.plan.plots.find(p => p.id === 'store')
+  if (!store || store.kind === 'cluster' || store.kind === 'unplaced') return null
+  const read = planReader(bot)
+  const ctx = foundReadyCtx(bot, read, tp.plan)
+  // a cell with NO intent first, then the overflow cell; never a cell meant for a group's home (Claude code r3 P3: the recovery's
+  // chest in wood's gone home would make wood "homed" in the plan, and F3 would never found it a real one)
+  const ok = c => c.state === 'free' && !Number.isFinite(c.seenSince) && !readyCell(read, c.at, ctx, 'chest')
+  const cells = store.cells ?? []
+  return cells.find(c => (c.role ?? null) === null && ok(c)) ?? cells.find(c => c.role === 'overflow' && ok(c)) ?? null
+}
+/** READY's context for a live re-check (zones, wells, the plan's own cells). */
+function foundReadyCtx (bot, read, plan) {
+  const ctx = planCtxMemo(bot, read)
+  const planned = new Set((plan?.plots ?? []).flatMap(p => [...(p.cells ?? []), ...(p.stations ?? [])]).map(c => c.at.join(',')))
+  return { zones: ctx.zones, home: planHomeP(), planned, wells: ctx.wells, farm: ctx.farm, solid: ctx.solid, cellForbid: ctx.cellForbid }
+}
+const cellIn = (plan, at) => (plan?.plots ?? []).flatMap(p => [...(p.cells ?? []), ...(p.stations ?? [])]).find(c => c.at[0] === at[0] && c.at[1] === at[1] && c.at[2] === at[2]) ?? null
+const KIND_ITEM = { chest: 'chest', crafting_table: 'crafting_table', furnace: 'furnace' }
+const readsAs = (bot, at, kind) => { const n = blockNameOf(bot, bot.blockAt(new Vec3(at[0], at[1], at[2]))); return kind === 'chest' ? /^(chest|trapped_chest)$/.test(n ?? '') : n === kind }
+
+/** Reserve a plan cell for this bot's visit -> { ok, gen, why }. `append` (a retrofit cluster cell) adds it first. */
+function planReserve (bot, at, { visit, role = null, group = null, append = null } = {}) {
+  const tNow = Date.now()
+  const r = planPublish(bot, 'reserve', cur => {
+    if (!cur) return null
+    let c = cellIn(cur, at)
+    if (!c && append) {
+      const st = cur.plots.find(p => p.id === 'store')
+      if (!st) return null
+      st.cells = [...(st.cells ?? []), { at, kind: 'chest', stand: append.stand ?? null, role: null, group: null, state: 'free' }]
+      c = cellIn(cur, at)
+    }
+    if (!c || c.state !== 'free' || Number.isFinite(c.seenSince)) return null
+    // an intent SET by this reservation is marked, so a release or an expiry clears only what the reservation set (Claude code
+    // r2 P3: a gone home keeps its intent for its next placement)
+    const sets = (c.role ?? null) === null && (role ?? null) !== null
+    Object.assign(c, { state: 'reserved', by: bot.username ?? 'bot', visit, until: tNow + FOUND_LEASE_MS, role: role ?? c.role ?? null, group: group ?? c.group ?? null })
+    if (sets) c.intentSet = true
+    return cur
+  }, tNow)
+  return { ok: r.result === 'accepted', gen: r.gen, why: r.result === 'nothing' ? 'the cell is no longer free' : r.why }
+}
+/** Our reservation, still in the head? */
+function planStillOurs (bot, at, visit) {
+  const h = townPlanHead(bot)
+  const c = h.ok && h.head ? cellIn(h.head.plan, at) : null
+  return !!c && c.state === 'reserved' && c.by === (bot.username ?? 'bot') && c.visit === visit
+}
+/** Renew our reservation once more than half its TTL has passed (design 4.6) -> true while it is ours. */
+function planRenew (bot, at, visit) {
+  const h = townPlanHead(bot)
+  const c = h.ok && h.head ? cellIn(h.head.plan, at) : null
+  if (!c || c.state !== 'reserved' || c.by !== (bot.username ?? 'bot') || c.visit !== visit) return false
+  if (Number(c.until) - Date.now() > FOUND_LEASE_MS / 2) return true
+  const tNow = Date.now()
+  const r = planPublish(bot, 'renew', cur => { const x = cur && cellIn(cur, at); if (!x || x.state !== 'reserved' || x.by !== (bot.username ?? 'bot') || x.visit !== visit) return null; x.until = tNow + FOUND_LEASE_MS; return cur }, tNow)
+  return r.result === 'accepted' || planStillOurs(bot, at, visit)
+}
+/** Publish our placement (the reservation's intent kept) -> the result. */
+function planPlaced (bot, at, visit) {
+  const tNow = Date.now()
+  return planPublish(bot, 'placed', cur => {
+    const c = cur && cellIn(cur, at)
+    if (!c || c.state !== 'reserved' || c.by !== (bot.username ?? 'bot') || c.visit !== visit) return null
+    c.state = 'placed'; delete c.until; delete c.seenSince; delete c.intentSet   // the intent is the cell's now
+    return cur
+  }, tNow)
+}
+/** Release our reservation (an explicit transition) -> the result. */
+function planRelease (bot, at, visit) {
+  const tNow = Date.now()
+  return planPublish(bot, 'release', cur => {
+    const c = cur && cellIn(cur, at)
+    if (!c || c.state !== 'reserved' || c.by !== (bot.username ?? 'bot') || c.visit !== visit) return null
+    const by = c.by
+    delete c.by; delete c.visit; delete c.until; delete c.seenSince
+    c.state = 'free'
+    if (c.intentSet) { c.role = null; c.group = null }   // the intent this reservation set goes with it; an older one stays
+    delete c.intentSet
+    cur.transitions = [{ at, why: 'released', by, visit }]
+    return cur
+  }, tNow)
+}
+
+/**
+ * PUT ONE BLOCK INTO ITS PLAN CELL (found-01's click, and the greenfield recovery's) -> { status, detail, at }. The caller holds
+ * the found lease (or is the recovery) and the item is in the bag. Reserve -> walk to the stand -> re-check the lease, the head
+ * (our reservation), READY and bodies immediately before the click -> place -> read back -> (a chest: open once, the index
+ * observes it) -> publish `placed`. On any exit without a placement the reservation is released.
+ */
+async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal, lease = null, append = null } = {}) {
+  const { bot } = ctx
+  const visit = `${String(bot.username ?? 'bot').slice(0, 16)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+  const res = planReserve(bot, at, { visit, role, group, append })
+  if (!res.ok) return { status: 'no_effect', outcome: 'lost_reservation', detail: `the plan cell at ${at.join(',')} could not be reserved (${String(res.why ?? '').slice(0, 60)})` }
+  let placed = false
+  try {
+    const cell = cellIn(townPlanNow(bot)?.plan, at)
+    const stand = Array.isArray(cell?.stand) ? cell.stand : null
+    check(signal)
+    try {
+      const goal = stand ? new goals.GoalBlock(stand[0], stand[1], stand[2]) : new goals.GoalNear(at[0], at[1], at[2], 2)
+      await chestWalk(bot, goal, 25_000)
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      return { status: 'failed', failClass: 'no_path', outcome: 'walk_failed', detail: `could not reach the plan cell at ${at.join(',')}: ${String(e?.message ?? e).slice(0, 60)}` }
+    }
+    check(signal)
+    if (!planRenew(bot, at, visit)) return { status: 'no_effect', outcome: 'lost_reservation', detail: `the reservation of ${at.join(',')} was lost during the walk` }
+    if (lease && !holdsFoundLease(townDir(), planKeyNow(), bot.username ?? 'bot', lease.gen())) return { status: 'no_effect', outcome: 'lost_lease', detail: 'the found lease was lost during the walk' }
+    // IMMEDIATELY BEFORE THE CLICK (design 4.6): our reservation in the head, the cell READY, nobody in it
+    if (!planStillOurs(bot, at, visit)) return { status: 'no_effect', outcome: 'lost_reservation', detail: `the reservation of ${at.join(',')} is no longer in the plan` }
+    const read = planReader(bot)
+    const rctx = foundReadyCtx(bot, read, townPlanNow(bot)?.plan)
+    const why = readyCell(read, at, rctx, kind)
+    if (why) return { status: 'no_effect', outcome: 'unready', detail: `the plan cell at ${at.join(',')} is no longer ready (${why})` }
+    if (bodiesAround(bot).some(b => bodyInCell(b, { x: at[0], y: at[1], z: at[2] }))) return { status: 'no_effect', outcome: 'unready', detail: `someone is standing in the plan cell at ${at.join(',')}` }
+    let put
+    try { put = await place(ctx, { item: KIND_ITEM[kind], x: at[0], y: at[1], z: at[2] }, signal, { by: 'found' }) } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      put = { status: 'failed', detail: String(e?.message ?? e).slice(0, 80) }
+    }
+    for (const until = Date.now() + PLACE_READBACK_MS; !readsAs(bot, at, kind) && Date.now() < until;) await sleep(100, signal)
+    if (!readsAs(bot, at, kind)) return { status: 'failed', failClass: 'place_failed', outcome: 'place_failed', detail: `the ${kind} did not land at ${at.join(',')} (${String(put?.detail ?? 'no reason').slice(0, 60)})` }
+    placed = true
+    // A CHEST IS OPENED ONCE: the index observes what the server shows (never recorded empty by assumption: design 5)
+    if (kind === 'chest') {
+      try {
+        const b = bot.blockAt(new Vec3(at[0], at[1], at[2]))
+        const w = b ? await openTown(bot, b, 8_000) : null
+        if (w) { townIndexObserve(bot, b.position, w, 'found'); try { w.close() } catch { /* gone */ } }
+      } catch { /* the index reads it at the next open */ }
+    }
+    const pub = planPlaced(bot, at, visit)
+    // the cell exists from the RESERVE's generation on (an appended cluster cell): the read judges the placement against it
+    if (pub.result !== 'accepted') return { status: 'success', outcome: 'placed', at, gen: res.gen, detail: `placed the ${kind} at ${at.join(',')}; the plan will observe it (${pub.result})` }
+    return { status: 'success', outcome: 'placed', at, gen: pub.gen, detail: `placed the ${kind} in its plan cell at ${at.join(',')}` }
+  } finally {
+    if (!placed) { try { planRelease(bot, at, visit) } catch { /* it lapses at its until */ } }
+  }
+}
+
+/** place() with its options (the tests: a builder's planTemp late re-check is only reachable through the builders otherwise). */
+export const placeForTest = (ctx, args, signal, opts) => place(ctx, args, signal, opts)
+
+/** found_store / found_work -- the town orders (found.mjs foundOrder; chatOnly, housekeeping). One `_found` row per run, ALWAYS. */
+async function foundStore (ctx, args, signal) { return foundRun(ctx, { ...args, kind: 'chest' }, signal, 'store') }
+async function foundWork (ctx, args, signal) { return foundRun(ctx, args, signal, 'work') }
+async function foundRun (ctx, args, signal, order) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const kind = args?.kind
+  const f = { order, kind, step: args?.step ?? '-', outcome: '-', at: args?.at ?? '-', source: '-', gen: '-', role: args?.role ?? '-', group: args?.group ?? '-', lease: '-', spare: 0 }
+  const out = (status, outcome, detail, failClass = null) => {
+    f.outcome = outcome; f.why = detail
+    try { logEvent({ kind: 'found', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: foundRowDetail({ ...f, ms: Date.now() - t0 }) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail }
+  }
+  if (!FOUND.on || !planOn()) return out('no_effect', 'off', 'founding is switched off (FOUND=off or TOWNPLAN=off)')
+  if (!KIND_ITEM[kind]) return out('no_effect', 'refused', `nothing to found: ${kind}`)
+  const zones = townPlanZones(bot)
+  if (!zones.known) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is founded until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  f.gen = h.head.gen
+  const dir = townDir(), key = planKeyNow(), me = bot.username ?? 'bot'
+  const lease = takeFoundLease(dir, key, me, { planGen: h.head.gen })
+  if (!lease.ok) return out('no_effect', 'lost_lease', `another bot is founding (${lease.why})`)
+  let leaseGen = lease.gen
+  f.lease = leaseGen
+  const renew = () => { const g = renewFoundLease(dir, key, me, leaseGen, { planGen: townPlanNow(bot)?.gen ?? null }); if (g) leaseGen = g; return leaseGen }
+  try {
+    const items = () => bot.inventory?.items?.() ?? []
+    // 1. CRAFT FIRST (nothing is reserved yet: a craft that fails costs nothing; Codex spec r1 P1)
+    if (kind === 'chest') {
+      if (countItem(bot, 'chest') < 1) {
+        if (!args?.craft) return out('no_effect', 'refused', 'no chest carried')
+        const built = await craft(ctx, { item: 'chest', count: 1 }, signal)
+        if (countItem(bot, 'chest') < 1) return out('failed', 'craft_failed', `no chest could be crafted (${String(built?.failClass ?? built?.detail ?? 'none').slice(0, 60)})`, built?.failClass ?? 'craft_failed')
+        f.source = 'crafted'
+      } else f.source = 'carried'
+    } else {
+      const r = stationRule(kind, items(), foundMeans(items(), { wanted: wantedCounts(bot) }))
+      if (!r.ok) return out('no_effect', 'refused', r.why)
+      const before = countItem(bot, kind)
+      if (r.crafts > 0) {
+        const built = await craft(ctx, { item: kind, count: r.crafts }, signal)
+        if (countItem(bot, kind) < before + r.crafts) return out('failed', 'craft_failed', `the ${kind} could not be crafted (${String(built?.failClass ?? built?.detail ?? 'none').slice(0, 60)})`, built?.failClass ?? 'craft_failed')
+      }
+      f.spare = r.crafts; f.source = r.crafts ? 'crafted' : 'carried'
+    }
+    renew()
+    // 2. THE CELL: the order's (greenfield, or a station), or the recovery's own siting around the cluster (retrofit F3)
+    let at = Array.isArray(args?.at) ? args.at : null, append = null
+    if (!at && args?.cluster) {
+      const s = clusterHomeSite(bot)
+      if (!s) return out('no_effect', 'no_site', 'no cell beside the town\'s chests can take a home (the recovery\'s own rules and the plan\'s keep-outs)')
+      at = [s.x, s.y, s.z]; append = { stand: s.stand ? [s.stand.x, s.stand.y, s.stand.z] : null }
+      f.at = at
+    }
+    if (!at) return out('no_effect', 'refused', 'no plan cell named')
+    const done = await placeIntoPlan(ctx, { at, kind, role: args?.role ?? null, group: args?.group ?? null, signal, lease: { gen: () => renew() }, append })
+    if (done.gen) f.gen = done.gen
+    return out(done.status, done.outcome ?? done.status, done.detail, done.failClass ?? null)
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), 'other')
+  } finally {
+    releaseFoundLease(dir, key, me, leaseGen)
+  }
+}
+/** The active rung's wanted names with counts (the founding floor honours them: Claude spec r2 P3). */
+function wantedCounts (bot) {
+  const out = {}
+  for (const n of [bot.currentWants ?? []].flat()) if (typeof n === 'string') out[n] = Math.max(out[n] ?? 0, 64)
+  return out
+}
+/** THE RETROFIT HOME CELL (found-01 F3, cluster): the recovery's own siting beside the cluster, the recovery's claim and budget. */
+function clusterHomeSite (bot) {
+  try {
+    const home = homeVec(), dir = townDir(), key = homeTownKey(), world = bot.worldId ?? null
+    const claims = readClaims(dir, key)
+    if (!chestBudget({ claims, world }).ok) return null
+    const tp = townPlanNow(bot)
+    const homes = Object.values(tp?.plan?.groups?.homes ?? {}).flat().map(k => k.split(',').map(Number))
+    const anchorA = homes.sort((a, b) => Math.hypot(a[0] - home.x, a[2] - home.z) - Math.hypot(b[0] - home.x, b[2] - home.z))[0]
+    if (!anchorA) return null
+    const anchor = { x: anchorA[0], y: anchorA[1], z: anchorA[2] }
+    const read = readCell(bot)
+    const composterSites = [readTownSite(dir, townSiteKey()).site, findTownComposter(bot)?.position].filter(Boolean)
+    for (const pass of [1, 2, 3]) {
+      const p = pickChestSite({ read, anchor, home, composterSites, bodies: bodiesAround(bot), wells: chestWellKeepouts(bot), tierOf: s => planTierAt(bot, s.x, s.y, s.z), pass, accept: s => planAccessKept(bot, [[s.x, s.y, s.z]]) })
+      if (p.site) {
+        const c = claimNewChest({ dir, key, site: p.site, world })
+        return c.ok ? { ...p.site, stand: p.stand } : null
+      }
+    }
+    return null
+  } catch { return null }
+}
+
+// ---- the found slot's readings (cognitive.mjs #foundOrder; found.mjs foundOrder decides) ---------------------------------------
+/** Is this plan cell READY now (a live read)? */
+export function foundCellReady (bot, cell) {
+  try {
+    const tp = townPlanNow(bot)
+    if (!tp || !Array.isArray(cell?.at)) return false
+    const read = planReader(bot)
+    return !readyCell(read, cell.at, foundReadyCtx(bot, read, tp.plan), cell.kind)
+  } catch { return false }
+}
+/** Any container in the town circle (F2 needs none). */
+export function foundTownContainer (bot) {
+  try {
+    const hv = homeVec()
+    return (bot.findBlocks?.({ point: hv, matching: b => /^(chest|trapped_chest|barrel)$/.test(bot.registry?.blocks?.[b.type]?.name ?? ''), maxDistance: TOWN_SCAN_RADIUS, count: 64 }) ?? []).some(p => inTown(hv, p))
+  } catch { return true }   // unknown: never claim the town has none (F2 would found a second "first" chest)
+}
+/** The found lease is free (or ours)? An unreadable lease reads as busy. */
+export function foundLeaseFree (bot) {
+  try { const c = foundLeaseState(townDir(), planKeyNow()); return !c || !c.live || c.rec?.holder === (bot.username ?? 'bot') } catch { return false }
+}
+/** The groups of the stacks EITHER deposit path would bank now (found-01 F3): town_deposit's plan and the deposit verb's. */
+export function foundBankGroups (bot, wanted = []) {
+  const out = new Set()
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    for (const st of townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active }).steps ?? []) { const n = st?.name ?? st?.it?.name; if (n) out.add(groupOfItem(n)) }
+    for (const d of depositPlan(items, null, { wants: wanted }) ?? []) if (d?.name) out.add(groupOfItem(d.name))
+  } catch { /* nothing known */ }
+  return [...out]
+}
+/** A HOMELESS GROUP TAKES AN UNASSIGNED PLACED STORE CELL (found.mjs foundAssign) -> the publish's result. The cell must still be
+ *  placed with role null in the head the mutate sees (a race with another bot's assignment publishes nothing). */
+export function foundAssignHome (bot, at, group) {
+  try {
+    return planPublish(bot, 'assign', head => {
+      const c = (head.plots.find(p => p.id === 'store')?.cells ?? []).find(x => x.at[0] === at[0] && x.at[1] === at[1] && x.at[2] === at[2])
+      if (!c || c.state !== 'placed' || (c.role ?? null) !== null) return null
+      const out = JSON.parse(JSON.stringify(head))
+      const n = out.plots.find(p => p.id === 'store').cells.find(x => x.at[0] === at[0] && x.at[1] === at[1] && x.at[2] === at[2])
+      Object.assign(n, { role: 'home', group })
+      out.transitions = []
+      return out
+    }, Date.now())
+  } catch { return { result: 'error' } }
+}
+/** Room-safe founding: a slot for the product and one for an intermediate (planks from logs). */
+export function foundCraftFits (bot, item) {
+  try { const items = bot.inventory?.items?.() ?? []; return roomForOne(items, item) && items.length <= BAG_SLOTS - 2 } catch { return false }
+}
+
+// ---- the permanent adopters' passes (build spec 1.6) -------------------------------------------------------------------------
+/** ONE `_townplan_adopt` row per NEW site an adopter decides under a plan (build spec 1.6/1.9: tier= plan_refused= gen=), deduped
+ *  per process by what + at (a compute re-run on the same answer is not a second decision). never= counts the decision's own
+ *  cells on a NEVER cell of that generation: the read re-judges the same thing from the plan files (townplanread.py D3). */
+const planAdoptSeen = new Set()
+export function planAdoptRow (bot, what, at, { tier = '-', planRefused = 0, cells = null } = {}) {
+  try {
+    const tp = townPlanNow(bot)
+    if (!tp || !at) return false
+    const k = `${townDir()}|${what}@${at.x},${at.y},${at.z}@${tp.gen}`
+    if (planAdoptSeen.has(k)) return false
+    planAdoptSeen.add(k)
+    if (planAdoptSeen.size > 256) planAdoptSeen.delete(planAdoptSeen.values().next().value)
+    const nev = new Set(tp.ko.neverCells.map(c => c.join(',')))
+    const never = (cells ?? [[at.x, at.y, at.z]]).filter(c => nev.has(c.join(','))).length
+    logEvent({ kind: 'townplan_adopt', status: 'success', snapshot: snapshot(bot),
+               detail: `what=${what} at=${at.x},${at.y},${at.z} tier=${tier} plan_refused=${planRefused} gen=${tp.gen} never=${never}` })
+    return true
+  } catch { return false }   // telemetry never breaks a siting
+}
+/** The plan's chest cells as well `avoid` entries (a NEW well's compute only: WELL_HOME_CLEARANCE, as a bank container). */
+function planWellAvoid (bot) {
+  const tp = townPlanNow(bot)
+  if (!tp) return []
+  return tp.plan.plots.flatMap(p => (p.cells ?? []).filter(c => c.kind === 'chest')).map(c => ({ x: c.at[0], z: c.at[2], r: WELL_HOME_CLEARANCE, what: 'a planned store chest' }))
+}
+/** The plan's well sector first (a preference, never a restriction). */
+function planWellOrder (bot) {
+  const tp = townPlanNow(bot)
+  const sec = tp?.plan?.plots?.find(p => p.id === 'well')?.sector
+  if (!sec) return null
+  const home = planHomeP()
+  return cols => [...cols.filter(c => sectorCard(home, c.x, c.z) === sec), ...cols.filter(c => sectorCard(home, c.x, c.z) !== sec)]
+}
+/** THE NATURAL WELL'S SEARCH under a plan: three passes (OUTSIDE, SOFT, BOX), NEVER refused, ACCESS on soft and box. Exhausted
+ *  only when every pass read and refused every column; a pass that stopped on an unknown read is returned as it is. */
+export function planWellSearch (bot, { home, read, avoid = [] }) {
+  const tp = townPlanNow(bot)
+  if (!tp) return canonicalWellSite({ home, read, avoid })
+  const avoid2 = [...avoid, ...planWellAvoid(bot)], order = planWellOrder(bot)
+  let planRefused = 0, last = null
+  for (const pass of [1, 2, 3]) {
+    const forbid = cap => {
+      const t = footprintTier(tp.ko, cap)
+      if (!tierAllowed(t, pass)) return true
+      return t ? !planAccessKept(bot, [[cap.x, cap.y, cap.z]]) : false
+    }
+    const r = canonicalWellSite({ home, read, avoid: avoid2, order, forbid })
+    if (pass === 1) planRefused += r.planRefused ?? 0
+    if (r.site) {
+      const tier = ['outside', 'soft', 'box'][pass - 1]
+      planAdoptRow(bot, 'well', r.site, { tier, planRefused })
+      return { ...r, planRefused, tier }
+    }
+    if (!r.exhausted) return { ...r, planRefused }
+    last = r
+  }
+  return { ...last, planRefused }
+}
+/** The plan's keep-outs as the plinth planner's `keepOut` entries ({ x, y, z, r }: Chebyshev, its own form). NEVER cells always;
+ *  committed boxes + 1 in passes 1-2; soft boxes + 1 and paths in pass 1. A box is tiled by r = 2 squares at the pad level. */
+export function planPlinthKeepOut (bot, pass) {
+  const tp = townPlanNow(bot)
+  if (!tp) return []
+  const out = tp.ko.neverCells.map(([x, y, z]) => ({ x, y, z, r: 0 }))
+  const y = (tp.plan.s ?? config.world.homeY - 1) + 1
+  const tile = b => { for (let x = b[0] - 1; x <= b[2] + 1; x += 5) for (let z = b[1] - 1; z <= b[3] + 1; z += 5) out.push({ x: x + 2, y, z: z + 2, r: 2 }) }
+  if (pass <= 2) for (const b of tp.ko.boxes) tile(b)
+  if (pass <= 1) { for (const b of tp.ko.softBoxes) tile(b); for (const sg of tp.ko.segs) tile(sg) }
+  return out
+}
+/** THE RAISED WELL'S PLAN under a plan (a generator, as planPlinthSteps): three passes; a plan whose placements would cut a
+ *  committed cell off (ACCESS) is not taken in passes 2-3. No plan: exactly planPlinthSteps. */
+const PLINTH_ACCESS_RETRIES = 3
+function * planPlinthPasses (bot, opts) {
+  const tp = townPlanNow(bot)
+  if (!tp) return yield * planPlinthSteps(opts)
+  let last = null
+  for (const pass of [1, 2, 3]) {
+    // a candidate refused by ACCESS is avoided and the SAME pass planned again, up to PLINTH_ACCESS_RETRIES times (Codex code
+    // r1 P2: the cheapest inaccessible cap would otherwise win every remaining pass and hide a legal alternative)
+    const cut = []
+    for (let tries = 0; tries <= PLINTH_ACCESS_RETRIES; tries++) {
+      const r = yield * planPlinthSteps({ ...opts, avoid: [...(opts.avoid ?? []), ...planWellAvoid(bot), ...cut], keepOut: [...(opts.keepOut ?? []), ...planPlinthKeepOut(bot, pass)] })
+      if (r.plan) {
+        const cells = (r.plan.steps ?? []).filter(st => st.op === 'place' && Array.isArray(st.c)).map(st => st.c)
+        if (pass >= 2 && !planAccessKept(bot, cells)) { last = { ...r, plan: null, why: 'plan_access' }; cut.push({ x: r.plan.cap.x, z: r.plan.cap.z, r: 1, what: 'plan_access' }); continue }
+        const tier = ['outside', 'soft', 'box'][pass - 1]
+        planAdoptRow(bot, 'plinth', r.plan.cap, { tier, cells: [[r.plan.cap.x, r.plan.cap.y, r.plan.cap.z], ...cells] })
+        return { ...r, tier }
+      }
+      if (r.why === 'unknown') return r
+      last = r
+      break
+    }
+  }
+  return last
+}
+/** THE COMPOSTER'S SITE under a plan: farm.composter first, then three passes; NEVER refused, ACCESS on soft and box. */
+export function planComposterSite (bot, { home, read }) {
+  const tp = townPlanNow(bot)
+  if (!tp) return canonicalComposterSite({ home, read })
+  const fc = tp.plan.plots.find(p => p.id === 'farm')?.composter
+  const prefer = Array.isArray(fc) ? { x: fc[0], y: fc[1], z: fc[2] } : null
+  let last = null
+  for (const pass of [1, 2, 3]) {
+    const forbid = q => { const t = tp.ko.tier(q.x, q.y, q.z); if (!tierAllowed(t, pass)) return true; return t ? !planAccessKept(bot, [[q.x, q.y, q.z]]) : false }
+    const r = canonicalComposterSite({ home, read, prefer: pass === 1 ? prefer : null, forbid })
+    if (r.site) planAdoptRow(bot, 'composter', r.site, { tier: String(tp.ko.tier(r.site.x, r.site.y, r.site.z) ?? 'outside') })
+    if (r.site || /^unknown/.test(r.why ?? '')) return r
+    last = r
+  }
+  return last
+}
+
 export const SKILL_CONTRACTS = {
   goto:     { expects: ['position'],              maxMs: 120_000 },
   explore:  { expects: ['position'],              maxMs: 120_000 },
@@ -14534,6 +15487,9 @@ export const SKILL_CONTRACTS = {
   close_well:   { expects: ['world_change'],     maxMs: 60_000 },
   // THE RAISED JUNK WELL (plinth.mjs): a visit places blocks (or records the plan): the cells read back.
   build_plinth: { expects: ['world_change'],     maxMs: 150_000 },
+  // FOUNDING (found-01): a chest / table / furnace placed into its plan cell -- the block reads back (a craft may come first)
+  found_store: { expects: ['world_change'],      maxMs: 150_000 },
+  found_work:  { expects: ['world_change'],      maxMs: 150_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },
@@ -14659,7 +15615,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   // A RECOUNT CHANGES THE TOWN'S JOURNAL AND NOTHING ELSE: its own verified count of containers counted (countTown)
   if (expects.includes('count_effect') && (delta.counted ?? 0) > 0) because.push(`count_effect: ${delta.counted} town container(s) counted`)
   // THE TOWN SMELT JOB's own count of ingots the furnace made from the job's input (smeltTown; prior output excluded)
-  if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw copper smelted into ingots`)
+  if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw ore smelted into ingots`)   // ironsmelt-01: iron or copper
   // THE TOOLKIT MADE A TOOL: its own verified count (a new usable iron axe/shovel copy in the bag after the craft). An abort or
   // a draw with no craft has none, so drawn ingots alone never read as "it worked".
   if (expects.includes('kit_effect') && (delta.kitCrafted ?? 0) > 0) because.push(`kit_effect: ${delta.kitCrafted} kit tool(s) crafted`)
@@ -15667,6 +16623,9 @@ export const SKILLS = {
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
   close_well:   { run: closeWell,   usage: 'close_well',   args: [], chatOnly: true },
   build_plinth: { run: buildPlinth, usage: 'build_plinth', args: [], chatOnly: true },
+  // FOUNDING (found-01): deterministic town orders from cognitive.mjs's found slot (found.mjs foundOrder), never the model's
+  found_store: { run: foundStore, usage: 'found_store', args: [], chatOnly: true },
+  found_work:  { run: foundWork,  usage: 'found_work',  args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
