@@ -403,7 +403,7 @@ await ta('REGION: a bot on the ground beside a bridge over a ravine is NOT on a 
   assert.equal(elevation({ pos: { x: 300.5, y: 72, z: 300.5 }, at }).elevated, false)
   assert.equal(regionAt(columnReader(at), { x: 300, y: 71, z: 300 }).platform, false)
   const mid = regionAt(columnReader(at), { x: 304, y: 71, z: 300 })
-  assert.ok(mid.floating && mid.grounded && !mid.platform, 'from mid-bridge the bridge floats, and the banks are ground')
+  assert.ok(mid.grounded && !mid.platform, 'from mid-bridge the banks are ground (and a ravine open on two sides is not a sky void)')
 })
 await ta('LAVA is never a landing: a deck over a lava lake is not priced and no stance over it is done (Codex r2 P1-1)', () => {
   const w = skyWorld({ deckY: 90, under: LAVA })
@@ -509,10 +509,32 @@ await ta('MUTANT KILLED: a float test without the sky check turns every thin cav
   })
 })
 await ta('MUTANT KILLED: ground that ignores a deadly run under a short solid stretch counts a hanging column as ground', async () => {
-  await withMutant(RF_URL, "  return r.landing === 'water' || r.open < ELEVATED_MIN || r.landing === 'unknown'\n", '  return true\n', async m => {
-    const w = thickPatch(); for (let y = 171; y <= 179; y++) w.m.set(key(357, y, 150), COBBLE)
+  await withMutant(RF_URL, '    if (r.open >= ELEVATED_MIN) return false                    // a deadly gap: the stretch above it hangs\n', '', async m => {
+    const w = thickPatch(); for (let y = 170; y <= 178; y++) w.m.set(key(355, y, 150), COBBLE)   // hangs under the patch centre
+    assert.equal(descentDone(w.at, { x: 355, y: 180, z: 150 }).done, false)
     assert.equal(m.descentDone(w.at, { x: 355, y: 180, z: 150 }).done, true)
   })
+})
+
+await ta('r6 (Codex r4): a LONG hanging column is not ground; a single-layer canopy is terrain; a stair down is a free way down', () => {
+  // a 2-thick deck with a 17-block column hanging under one cell (163..178)
+  const thick = new Map()
+  const at = (x, y, z) => thick.get(key(x, y, z)) ?? ((y === 180 || y === 179) && Math.abs(x - 355) <= 20 && Math.abs(z - 150) <= 20 ? COBBLE : y <= 71 ? STONE : AIR)
+  for (let y = 163; y <= 178; y++) thick.set(key(357, y, 150), COBBLE)
+  assert.equal(elevation({ pos: ON_DECK, at }).elevated, true)
+  assert.equal(descentDone(at, { x: 357, y: 180, z: 150 }).done, false)
+  assert.ok(cheapestStart({ at, support: { x: 355, y: 180, z: 150 } }).cost > 0)
+  // one layer of jungle leaves at y=90 over the forest floor
+  const LEAF = { name: 'jungle_leaves', boundingBox: 'block' }
+  const canopy = (x, y, z) => (y === 90 && Math.abs(x - 300) <= 12 && Math.abs(z - 300) <= 12 ? LEAF : y <= 71 ? STONE : AIR)
+  assert.equal(elevation({ pos: { x: 300.5, y: 91, z: 300.5 }, at: canopy }).elevated, false)
+  // a 1-wide stair from a floating block at 90 down to the ground, one block a step: free (its own column costs 16)
+  const st = new Map()
+  st.set(key(300, 90, 300), COBBLE)
+  for (let i = 1; i <= 18; i++) st.set(key(300 + i, 90 - i, 300), COBBLE)
+  const sat = (x, y, z) => st.get(key(x, y, z)) ?? (y <= 71 ? STONE : AIR)
+  const b = rankStarts({ at: sat, support: { x: 300, y: 90, z: 300 }, radius: 24 })[0]
+  assert.ok(b.cost <= 1 && !b.own, `the stair is taken, not the 16-block column (${JSON.stringify(b)})`)
 })
 
 // ---------------------------------------------------------------- wiring (structural, comments stripped)
