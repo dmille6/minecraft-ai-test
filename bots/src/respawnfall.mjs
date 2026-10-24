@@ -68,8 +68,22 @@ export function elevation ({ pos, at, onGround = true }) {
   const c = columnUnder(at, s)
   if (c.landing === 'unknown') return { elevated: false, why: 'the column below is not loaded yet', unknown: true, support: s, ...c }
   if (c.landing === 'water') return { elevated: false, why: 'water below: a fall into it is safe', support: s, ...c }
-  if (c.open < ELEVATED_MIN) return { elevated: false, why: `only ${c.open} open below`, support: s, ...c }
-  return { elevated: true, why: `${c.open} open below onto ${c.landing}`, support: s, ...c }
+  if (c.open >= ELEVATED_MIN) return { elevated: true, why: `${c.open} open below onto ${c.landing}`, support: s, ...c }
+  // ...OR ON A COLUMN WITH THE VOID BESIDE IT: a pillar top inside the deck, or the pillar itself once the deck is above.
+  // Its own column is solid (rideFloorDown rides it for free), but a step to any side is the deadly drop. The side's drop
+  // is read from the support's level down: beside an open side cell it starts at that cell, under a solid one below it.
+  let edge = null
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const n = { x: s.x + dx, y: s.y, z: s.z + dz }
+    let nb
+    try { nb = at(n.x, n.y, n.z) } catch { nb = null }
+    if (nb == null) continue
+    const cc = kind(nb) === 'open' ? columnUnder(at, { x: n.x, y: n.y + 1, z: n.z }) : columnUnder(at, n)
+    if (cc.landing === 'water' || cc.landing === 'unknown') continue
+    if (cc.open >= ELEVATED_MIN && (!edge || cc.open > edge.open)) edge = { ...cc, side: [dx, dz] }
+  }
+  if (edge) return { elevated: true, why: `a ${edge.open}-block drop beside the support (${edge.side.join(',')})`, support: s, ...c, edge }
+  return { elevated: false, why: `only ${c.open} open below`, support: s, ...c }
 }
 
 /**
