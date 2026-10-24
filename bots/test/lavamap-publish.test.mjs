@@ -37,13 +37,19 @@ t('ONE CONTRACT: what the publisher writes, the bot parses as ok for that world 
   const map = { schema: 'mcai.hazardmap', schema_version: 1, generated_at: gen, stale_after: stale,
                 seeds: { 1239381899: { worlds: { 'board-a': {} }, hazards: [{ kind: 'lava', sightings: { cells: [[396, 69, 109, 5]] }, deaths: { total: 1, cells: [] }, exists: {} }] } } }
   writeFileSync(path.join(root, 'map.json'), JSON.stringify(map))
-  const r = spawnSync('python3', ['-B', PUB, 'publish', '--map', path.join(root, 'map.json'), '--root', root], { encoding: 'utf8' })
+  // the publisher writes only after a good refresh of THIS map (its heartbeat): first without one, then with it
+  const hb = path.join(root, 'heartbeat.json')
+  writeFileSync(hb, JSON.stringify({ status: 'gate_failed', at: gen }))
+  const w = spawnSync('python3', ['-B', PUB, 'publish', '--map', path.join(root, 'map.json'), '--root', root, '--hazard-heartbeat', hb], { encoding: 'utf8' })
+  assert.equal(w.status, 0, w.stderr); assert.match(w.stdout, /"status": "waiting"/)
+  writeFileSync(hb, JSON.stringify({ status: 'ok', at: gen }))
+  const r = spawnSync('python3', ['-B', PUB, 'publish', '--map', path.join(root, 'map.json'), '--root', root, '--hazard-heartbeat', hb], { encoding: 'utf8' })
   assert.equal(r.status, 0, r.stderr)
   const raw = JSON.parse(readFileSync(path.join(root, '_pool-board-a', 'lava-map.json'), 'utf8'))
-  const w = hashedSeedOf('1239381899')
-  const ok = parseLavaMap(raw, { worldId: w, pool: 'board-a' })
+  const wid = hashedSeedOf('1239381899')
+  const ok = parseLavaMap(raw, { worldId: wid, pool: 'board-a' })
   assert.equal(ok.state, 'ok'); assert.deepEqual(ok.cells, [{ x: 396, y: 69, z: 109 }])
-  assert.equal(parseLavaMap(raw, { worldId: w, pool: 'board-d' }).state, 'world_label')
+  assert.equal(parseLavaMap(raw, { worldId: wid, pool: 'board-d' }).state, 'world_label')
   assert.equal(parseLavaMap(raw, { worldId: hashedSeedOf('8948499624371160708'), pool: 'board-a' }).state, 'world_mismatch')
 })
 

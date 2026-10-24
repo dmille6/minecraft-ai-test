@@ -43,6 +43,12 @@ def case(fn):
     return fn
 
 
+def hb_ok(root):
+    p = os.path.join(root, 'hb.json')
+    json.dump({'status': 'ok', 'at': '2026-10-24T08:56:43Z'}, open(p, 'w'))
+    return p
+
+
 def root_with(*worlds):
     d = tempfile.mkdtemp(prefix='lavamap-')
     for w in worlds:
@@ -80,7 +86,7 @@ def a_stale_or_foreign_map_writes_nothing(L):
     for bad in (MAP(stale_after='2026-10-24T11:00:00Z'), MAP(schema='x'), MAP(schema_version=2), MAP(seeds={'abc': {}}), MAP(seeds={})):
         json.dump(bad, open(p, 'w'))
         try:
-            L.publish(p, root, now=NOW, euid=1000)
+            L.publish(p, root, hb_ok(root), now=NOW, euid=1000)
             raise AssertionError('published from %r' % {k: bad[k] for k in ('schema', 'schema_version', 'stale_after')})
         except L.Refuse:
             pass
@@ -93,7 +99,7 @@ def publishes_atomically_only_into_existing_dirs_and_is_idempotent(L):
     root = root_with('board-a', 'hive-d')
     p = os.path.join(root, 'map.json')
     json.dump(MAP(), open(p, 'w'))
-    r = L.publish(p, root, now=NOW, euid=1000)
+    r = L.publish(p, root, hb_ok(root), now=NOW, euid=1000)
     assert r['status'] == 'ok' and sorted(r['written']) == ['board-a', 'hive-d'], r
     assert r['skipped'] == {'board-d': 'no pool dir'}, r['skipped']
     assert not os.path.exists(os.path.join(root, '_pool-board-d')), 'never creates a directory'
@@ -101,7 +107,7 @@ def publishes_atomically_only_into_existing_dirs_and_is_idempotent(L):
     assert f['schema'] == 'mcai.lavamap' and f['seed'] == '1239381899' and f['world'] == 'board-a'
     assert isinstance(f['seed'], str), 'seeds are strings (64-bit seeds exceed a JS number)'
     assert f['stale_after'] == '2026-10-25T20:56:43Z'
-    r2 = L.publish(p, root, now=NOW + 3600, euid=1000)
+    r2 = L.publish(p, root, hb_ok(root), now=NOW + 3600, euid=1000)
     assert r2['written'] == [] and sorted(r2['same']) == ['board-a', 'hive-d'], 'a re-run of the same map is byte-identical'
     assert not [n for n in os.listdir(os.path.join(root, '_pool-board-a')) if n.endswith('.tmp')], 'no temp left behind'
     shutil.rmtree(root)
@@ -114,11 +120,11 @@ def never_through_a_symlink_never_as_root(L):
     os.symlink(real, os.path.join(root, '_pool-hive-d'))
     p = os.path.join(root, 'map.json')
     json.dump(MAP(), open(p, 'w'))
-    r = L.publish(p, root, now=NOW, euid=1000)
+    r = L.publish(p, root, hb_ok(root), now=NOW, euid=1000)
     assert r['skipped'].get('hive-d') == 'pool dir is a symlink', r
     assert os.listdir(real) == []
     try:
-        L.publish(p, root, now=NOW, euid=0)
+        L.publish(p, root, hb_ok(root), now=NOW, euid=0)
         raise AssertionError('ran as root')
     except L.Refuse:
         pass
@@ -137,10 +143,10 @@ def waits_for_a_good_refresh_of_this_map(L):
                 os.unlink(hbp)
         else:
             json.dump(hb, open(hbp, 'w'))
-        r = L.publish(p, root, hazard_heartbeat=hbp, now=NOW, euid=1000)
+        r = L.publish(p, root, hbp, now=NOW, euid=1000)
         assert r['status'] == 'waiting' and r['written'] == [], (hb, r)
     json.dump({'status': 'ok', 'at': '2026-10-24T08:56:43Z'}, open(hbp, 'w'))
-    r = L.publish(p, root, hazard_heartbeat=hbp, now=NOW, euid=1000)
+    r = L.publish(p, root, hbp, now=NOW, euid=1000)
     assert r['status'] == 'ok' and r['written'] == ['board-a'], r
     shutil.rmtree(root)
 
@@ -150,11 +156,20 @@ def check_alarms_on_absent_or_stale_and_skips_retired_dirs(L):
     root = root_with('board-a', 'hive-d', 'self-isolated-a-Alpha', 'placebo-a.pre-reseed-20260918T235209Z')
     p = os.path.join(root, 'map.json')
     json.dump(MAP(), open(p, 'w'))
-    L.publish(p, root, now=NOW, euid=1000)
+    L.publish(p, root, hb_ok(root), now=NOW, euid=1000)
     ok, line = L.check(root, now=NOW)
-    assert ok and line == 'lavamap OK: 2 pool files inside stale_after', line
+    assert ok and line == 'lavamap OK: 2 of 2 pool files inside stale_after', line
+    try:
+        L.publish(p, root, None, now=NOW, euid=1000)
+        raise AssertionError('published without a heartbeat')
+    except L.Refuse:
+        pass
+    ok, line = L.check(tempfile.mkdtemp(prefix='lavamap-empty-'), now=NOW)
+    assert not ok and 'no pool directory' in line, ('an OK over nothing', line)
+    ok, line = L.check(root, now=NOW, worlds={'board-a'})
+    assert ok and line.startswith('lavamap OK: 1 of 1') and 'hive-d' in line, line
     ok, line = L.check(root, now=L.parse_iso('2026-10-26T00:00:00Z'))
-    assert not ok and 'board-a:stale' in line, line
+    assert not ok and 'board-a:stale' in line and '2 of 2' in line, ('each pool counted once', line)
     os.mkdir(os.path.join(root, '_pool-board-c'))
     ok, line = L.check(root, now=NOW)
     assert not ok and 'board-c:absent' in line, line
@@ -180,6 +195,8 @@ MUTANTS = [
      "    return {'schema': SCHEMA, 'schema_version': VERSION, 'world': world, 'seed': int(seed),",
      publishes_atomically_only_into_existing_dirs_and_is_idempotent),
     ('check staleness', "            if now > parse_iso(d['stale_after']):", "            if False:", check_alarms_on_absent_or_stale_and_skips_retired_dirs),
+    ('check zero pools', "    if total == 0:\n", "    if False:\n", check_alarms_on_absent_or_stale_and_skips_retired_dirs),
+    ('heartbeat required', "    if not hazard_heartbeat:\n        raise Refuse", "    if False:\n        raise Refuse", check_alarms_on_absent_or_stale_and_skips_retired_dirs),
 ]
 
 
@@ -203,9 +220,11 @@ def main():
         try:
             fn(M)
             print('  SURVIVED  %s' % name)
-        except Exception:
+        except AssertionError:
             killed += 1
             print('  killed    %s' % name)
+        except Exception as e:
+            print('  CRASHED   %s: %r (a crash is not a kill)' % (name, e))
     print('%d of %d mutants killed' % (killed, len(MUTANTS)))
     return 0 if not FAILS and killed == len(MUTANTS) else 1
 
