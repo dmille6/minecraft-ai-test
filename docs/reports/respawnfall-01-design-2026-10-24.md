@@ -1,4 +1,4 @@
-# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r8, 2026-10-24)
+# respawnfall-01: a bot that respawns on a high platform climbs down instead of walking off it (design r10, 2026-10-24)
 
 OWNER 2026-10-24 (through the coordinator): no world edits, so the one-time cleanup of isolated-a's sky platform is
 **not pursued** (that plan was never written). Build the code fix instead. A bot that spawns or respawns on a high
@@ -355,9 +355,31 @@ eighth). The full `npm test` result is in §7.
   - the jungle not copied;
   - a fleet-typical bag (288 placeable blocks, 64 of them logs), or a pickaxe alone.
 
-Scenes: `deck` (respawn at 353,181,147), `bridge` (355,126,145) and `bare` (the deck, no blocks).
+Scenes: `deck` (respawn at 353,181,147), `bridge` (355,126,145), `tree` (355,185,147, on a tree standing on the deck) and `bare` (the deck, no blocks).
 
-**Results: in progress.**
+**Results (10-24 17:43-22:05Z; sandbox6 = base 2d1aa8c1, sandbox7 = candidate, run in parallel pairs; `.cf/rfpaper/results.jsonl` in the building worktree).**
+
+Each run is 15 minutes; rep 1 is 8. Deaths are counted from the bot's own `_death` rows after the respawn. Rep 1's single
+"death" on each arm is the driver's own kill, before the filter was fixed. Positions are RCON samples every 3 s.
+
+| scene | base 2d1aa8c1 | candidate |
+|---|---|---|
+| **deck** (y=181) | **5 falls in 5 runs** (75 min): rep 2: 1 (79 blocks), rep 6: 2, rep 7: 2 (109 each), reps 3 and 9: 0. All while exploring; it never reached the ground alive | r2: down in 270-282 s (2 runs). r3 / r6 / r7 / r9: **0 deaths**, on the ground (y 73) in 279-283 s, 8 platform cells used |
+| **bridge** (y=126) | **1 fall in 3 runs** (rep 7: 55 blocks) | r2: **1 death**. It stopped on the y=100 layer (r2's local "done"), explored, and fell 37. Fixed in r3 by the region test. r3 / r7: **0 deaths**, on the ground in 82 s, one ride |
+| **tree** (y=185) | 0 falls in 1 run | r7: 0 deaths, on the ground in 279 s |
+| **bare** (deck, pickaxe only) | 0 falls in 3 runs, explored 15 min | r2 / r3 / r7: 0 deaths. **Held**: it walked to the cheapest column (drift 5) and stayed, with one `_needs_rescue` row ("needs 102 placeable blocks and it carries 0") |
+
+**Read.**
+
+- **The base's fall mechanism reproduced:** 6 falls in 11 base runs on deck and bridge (2.0 h).
+- **The candidate on r3 and later:** 0 deaths in 10 runs (2.5 h). Every non-bare run reached the ground alive, and every
+  bare run was held, never walked off.
+- r9 (ef29366e) and r10 differ from r7 only in geometry rules this arena does not exercise (stone ground, no lava). r9's
+  deck run matched r7's.
+- **Synthetic:**
+  - flat stone ground at y=70;
+  - no jungle;
+  - a fleet-typical bag.
 
 ## 8. Read, registration, tier
 
@@ -431,3 +453,5 @@ latest `_sky_descend` row is a stay and it has not moved 2 blocks since. This li
 | design + code r4 (96352dc4 / e6455247) | CHANGES (1 P1, 4 P2) | CHANGES (1 P1, 2 P2, 4 P3) | r6 (f2bdee96): ground followed down through gaps, pillars never ground (Codex P1-1, Claude P1-1, P2-1); the sky test to the build top in 3 of 4 directions, only the origin cached (Claude P2-2, P3-3); foliage skips the local triggers (Codex P2-2); the starts flood across levels (Codex P2-3); the header keeps a held bot through wait rows and lists rescue rows (Codex P2-4); a fence top's support (Claude P3-4); a fresh wait clock per episode (Claude P3-6). Claude P3-5 (cave mouth cleared by a walk) is moot with P2-2. The reviewers' probes rf4probe/rf4probe2 all read correctly on r6 |
 | design + code r5 (f2bdee96) | CHANGES (1 P1, 3 P2) | CHANGES (3 P2, 3 P3) | r7: ground followed to the world floor (WORLD_FLOOR -64), through enclosed caves; a sky-open deadly gap at any depth hangs; past the scan is not ground (Codex P1-1, Claude P3-4); every deadly void must be open to the sky -- the own run and each side in the trigger, and the own run, deadly sides and flat-step exits in done -- so a one-block natural roof over an enclosed cave is terrain (Codex P2-3, Claude P2-1); a free exit is always offered against a paid own column, so a bare bot takes a stair (Codex P2-2; a whole-skill test at the default radius); the region's ground needs at most one deadly side (a pillar or a 2-wide column under a patch is not ground; Claude P3-5); descendOrder returns `fresh` and cognitive resets the wait clock on it (Claude P2-2); an ended episode releases its hold (Claude P3-6); anchored mutants for every r6 fix (pillar-as-ground, SKY_SIDES, fence top, wait clock, sky-open gap) (Claude P2-2). Claude P2-3: the real-platform probe uses the 1,118 bot cells on flat stone; the 657 jungle_leaves, 121 vine and 24 jungle_log cells in the box and everything below y=95 are not in it, so '0 falsely done' holds for that synthetic floor only. 58 tests. Real platform: 975/975 elevated, 0 falsely done; 2,209 ground samples, 0 elevated; rankStarts 196 ms |
 | design + code r6 (43149316) | CHANGES (1 P1, 2 P2) | CHANGES (1 P1, 1 P2, 2 P3) | r8: a descent no longer ends walled in a canopy off the ground, and a void counts as enclosed only if closed at every 8th layer down (Claude P1-1; its live-ride probe now commits as scripts/host/respawnfall/liveride.mjs: 0 of 174 spawn tops and 0 of 975 own-column rides end high); a deck up to 16 thick floats over a sky-open void (Codex P1-1); lava deep under grounded rock is ground (Claude P2-2); the region's ground is a grounded column with no floating neighbour (Claude P3-4; it subsumes the side count); affordable columns ranked first, so a bare bot walks to a free pillar (Codex P2-2, whole-skill test); every layer has an isolated mutant (Claude P3-3) and the cognitive wait-clock and hold-release lines are wiring-asserted. ACCEPTED, not changed (Codex P2-3): a natural jungle branch can make a canopy stance read as a platform; the result is a safe descent through the canopy to the jungle floor (a ride, never a walk-off), costing blocks, not a fall; distinguishing natural branches from deck logs (the deck itself has 176 oak logs, some placed sideways) has no reliable signal. 62 tests; npm test 300/300 on 43149316 |
+| design + code r7 (465ed13f) | CHANGES (1 P2) | CHANGES (2 P2, 3 P3) | r9 (ef29366e): lava under a sky-open gap is not ground (an r8 clause had reopened a release; fixture + mutant; Claude P2-1); the every-8th-layer loop removed (Claude P2-2); stale comments (P3-3). r10: an affordable column saving under SAVE_MIN is offered when the own column is unaffordable -- rankStarts takes the bot's purse (Codex P2-1 on the real platform: support 345,125,144 with 54 blocks now gets 352,125,144 at cost 52; Claude P3-2); the comments Claude r8 named |
+| confirmation r8 (ef29366e) | -- | **APPROVE** (no P1/P2; 21 mutants killed; liveride 0/174 + 0/975 at three ground heights; P3s: a void cluttered at its top over ground raised to y=88 reads enclosed -- constructed, the real ground is ~66-71; doc and comment nits, applied in r10) | |
