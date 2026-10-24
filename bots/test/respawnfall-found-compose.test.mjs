@@ -83,6 +83,7 @@ async function decisions (w, n, { Loop = COG.CognitiveLoop } = {}) {
   loop.start()
   for (let i = 0; i < 300 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
   loop.stop()
+  ran.loop = loop
   return ran
 }
 
@@ -98,19 +99,23 @@ await t('POSITIVE CONTROL (found is live): the same bot on the ground -> found_w
   const ran = await decisions(town({ high: false }), 1)
   assert.equal(ran[0], 'found_work', JSON.stringify(ran))
 })
-await t('POSITIVE CONTROL (the descent is live): on the pillar, freshly spawned -> sky_descend first', async () => {
+await t('POSITIVE CONTROL (the descent is live): on the pillar, freshly spawned -> sky_descend first; the found order WAS issued on that decision and refunded (Claude r1 P3-3)', async () => {
   const ran = await decisions(town(), 1)
   assert.equal(ran[0], 'sky_descend', JSON.stringify(ran))
+  const fs0 = ran.loop.foundState ?? {}
+  assert.ok('prevLastAt' in fs0, `foundIssued ran on the pillar decision (it keeps prevLastAt): ${JSON.stringify(fs0)}`)
+  assert.equal(fs0.visitUsed, false, 'the visit was refunded')
 })
 await t('THE CHAIN (real CognitiveLoop): sky_descend replaces found_work; once down (still in town) the next decision issues found_work', async () => {
   const ran = await decisions(town(), 2)
   assert.deepEqual(ran.slice(0, 2), ['sky_descend', 'found_work'], JSON.stringify(ran))
 })
 await t('MUTANT KILLED: the descent without the refund -> the found visit is spent on an order that never ran (no found_work after the descent)', async () => {
-  const old = "{ const sd = this.#skyDescendOrder(order); if (sd) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"
+  const old = "{ const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"
   await withMutant(COG_PATH, old, '{ const sd = this.#skyDescendOrder(order); if (sd) order = sd }', async M => {
     const ran = await decisions(town(), 3, { Loop: M.CognitiveLoop })
     assert.equal(ran[0], 'sky_descend', JSON.stringify(ran))
+    assert.ok(ran.length >= 2, `the loop made later decisions (else a stall would read as killed; Claude r1 P3-2): ${JSON.stringify(ran)}`)
     assert.ok(!ran.includes('found_work'), `mutant: found_work never came back: ${JSON.stringify(ran)}`)
   })
 })
