@@ -2758,8 +2758,9 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   let placed = 0, rode = 0, stopped = null
   for (;;) {
     check(signal)
+    const el = elevation({ pos: bot.entity.position, at, onGround: true })
     const c = columnUnder(at, supportOf(bot.entity.position))
-    if (c.open <= SKY_SAFE_DROP || c.landing === 'water') break
+    if (!el.elevated && (c.open <= SKY_SAFE_DROP || c.landing === 'water')) break
     if (Date.now() >= until) { stopped = 'this run\'s clock is spent (the order continues on the next decision)'; break }
     const r = await rideFloorDown(bot, { maxSteps: 8, signal, until })
     placed += r.placed ?? 0; rode += r.rode ?? 0
@@ -2768,7 +2769,8 @@ export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, ru
   }
   const descended = (startY ?? 0) - (bot.entity?.position?.y ?? startY ?? 0)
   const c1 = columnUnder(at, supportOf(bot.entity.position))
-  if (c1.open <= SKY_SAFE_DROP || c1.landing === 'water') { row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (placed ${placed}, rode ${rode})` } }
+  const e1 = elevation({ pos: bot.entity.position, at, onGround: true })
+  if (!e1.elevated && (c1.open <= SKY_SAFE_DROP || c1.landing === 'water')) { row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (placed ${placed}, rode ${rode})` } }
   if (descended >= 0.5) { row('success', 'progress', { placed, rode, stopped }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks; ${c1.open} still open below (${stopped ?? 'continuing'})` } }
   const why = `sky_descend: staying put -- the first step down failed (${stopped}); walking off is a fall`
   row('failed', 'stopped', { placed, rode, stopped })
