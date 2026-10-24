@@ -41,7 +41,8 @@ if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).
 sbx.requireSandboxLock(SERVER, 'cavefall')
 const MINUTES = Number(MIN_S)
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const OUT = process.env.CF_OUT || path.join(os.tmpdir(), 'cavefall-e2e')
+// ABSOLUTE: the bot runs with its own cwd, so a relative LOG_DIR lands in its tree and the read sees no rows (10-24 rep 2)
+const OUT = path.resolve(process.env.CF_OUT || path.join(os.tmpdir(), 'cavefall-e2e'))
 fs.mkdirSync(OUT, { recursive: true })
 const RES = `${OUT}/results.jsonl`
 const RUN = fs.mkdtempSync(path.join(OUT, `${LABEL}-${SCENE}-`))
@@ -165,11 +166,19 @@ async function main () {
   const tStart = Date.now()
   const deadline = Date.now() + MINUTES * 60_000
   let minHealth = 20, minY = start.y
+  const gone = {}
   while (Date.now() < deadline) {
     await sleep(3000)
     const p = posOf(b.name), h = healthOf(b.name)
     if (h != null) minHealth = Math.min(minHealth, h)
     if (p) minY = Math.min(minY, p.y)
+    // WHICH SHELF CELL WENT, WHEN, AND WHERE THE BOT STOOD (the first candidate run lost one cell it never stood on)
+    for (const [x, y, z] of shelfCells()) {
+      const k = `${x},${y},${z}`
+      // ...AND WHAT STOOD OVER IT: cavefall.mjs's fast path calls a cell with a full cube over it "not a floor" (nobody can
+      // stand on it), so a cell capped by the bot's own pillar block is a legal dig the shelf count would still score
+      if (!gone[k] && !isBlock(x, y, z, 'dirt')) gone[k] = { t: +((Date.now() - tStart) / 1000).toFixed(0), bot: p ? [+p.x.toFixed(1), +p.y.toFixed(1), +p.z.toFixed(1)] : null, capped: isBlock(x, y + 1, z, 'cobblestone') }
+    }
     if (rowsOf(b).some(r => kind(r) === '_death')) { await sleep(3000); break }
   }
   const rows = rowsOf(b).filter(r => Date.parse(r['@timestamp']) >= tStart - 1000)
@@ -178,14 +187,14 @@ async function main () {
   const collected = rows.filter(r => kind(r) === 'gather').reduce((n, r) => { const m = /collected (\d+) dirt/.exec(r.skill.detail || ''); return n + (m ? +m[1] : 0) }, 0)
   const shelfLeft = shelfCells().filter(([x, y, z]) => isBlock(x, y, z, 'dirt')).length
   const ev = { scene: SCENE, sha, server: SERVER, bot: b.name, start, end: p, died: deaths.length > 0 || minHealth <= 0, deaths, minHealth, minY: +minY.toFixed(1),
-    fellBelowShelf: minY < SHELF.y - 2, collected, shelfDug: 15 - shelfLeft,
+    fellBelowShelf: minY < SHELF.y - 2, collected, shelfDug: 15 - shelfLeft, shelfGone: gone,
     licence: rows.filter(r => kind(r) === '_cavefall_mode').map(r => String(r.skill.detail).slice(0, 120)),
     floor: rows.filter(r => kind(r) === '_cavefall_floor').map(r => String(r.skill.detail).slice(0, 220)),
     falls: rows.filter(r => kind(r) === '_fall_path').map(r => String(r.skill.detail).slice(0, 140)),
     gathers: rows.filter(r => kind(r) === 'gather').map(r => `${r.skill.status}: ${String(r.skill.detail).slice(0, 120)}`),
     gatherMs: rows.filter(r => kind(r) === 'gather').map(r => r.skill.duration_ms),   // whole-search latency (Codex r4 P3-4)
     skips: rows.filter(r => kind(r) === '_cavefall_skip').map(r => String(r.skill.detail).slice(0, 160)),
-    rows: rows.length,
+    rows: rows.length, valid: rows.length > 0,   // no rows = the read could not see the bot: never a result
     synthetic: 'arena built from the measured shape of the fleet cave-fall cluster (not a cell cut); bot teleported onto the shelf with a stone pickaxe, iron shovel, 16 cobblestone, 8 oak logs; fleet gamerules; scripted `gather dirt`' }
   fs.appendFileSync(RES, JSON.stringify({ at: new Date().toISOString(), label: LABEL, ...ev }) + '\n')
   P_('RESULT', ev)
