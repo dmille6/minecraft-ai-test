@@ -1,4 +1,4 @@
-# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r6, 2026-10-24)
+# lavasight-01: the per-seed lava map tells the planner which moves the guard will refuse (design r7, 2026-10-24)
 
 Mineshaft safety fix **F5b** (`docs/reports/mineshaft-safety-2026-10-23.md` §7, approved r10; OWNER ANSWERS O3). **OWNER
 2026-10-24:** run it right after lavastep-01, and feed it **from the per-seed hazard map from day one**
@@ -8,7 +8,13 @@ Base: fleet `fb8de72f` (ironsmelt-01, promoted 10-24 ~08:28Z: rows carry `run_id
 fb8de72f`). Branch `lavasight-on-fb8de72`. No bot, host, queue, scheduler, manifest, env or world was changed. Host actions
 were read-only: the population query (§1) and a dry run of the read against live rows (§7).
 
-**r6** answers the r5 reviews (Codex CHANGE, 1 P2 + 1 P3; Claude APPROVE + 3 P3): the wrapper records each move's search
+**r7** answers the r6 reviews (Codex CHANGE, 1 P2 + 1 P3): mineflayer-pathfinder post-processes the SAME nodes once per
+partial result, and on a ladder or vine that is not idempotent (each pass lifts the node a block), so the executed position of
+such a node depends on how many partial results it appeared in. That is the base pathfinder's own behaviour (now a test that
+shows it with no wrapper); lavasight charges the once-processed form and names the residual. Everywhere processing is
+idempotent, resumed searches are charged exactly (deterministic slicing, tested). Stale design lines fixed.
+
+**r6** answered the r5 reviews (Codex CHANGE, 1 P2 + 1 P3; Claude APPROVE + 3 P3): the wrapper records each move's search
 cell when it generates it, because mineflayer-pathfinder post-processes every PARTIAL result in place and moves the very
 nodes A* keeps expanding; and a climbable generated while the index was still empty settles its incoming segment from its
 recorded parent.
@@ -167,15 +173,17 @@ For an active cell L, the feet cells F at which `corridorSafe([F, F])` refuses b
 - **drop:** F in L's column or a cardinal of it, F.y = L.y+1..L.y+12, F's own column open from F.y-1 down to L.y+1
   (`dropLavaSafe`: straight down, and lava beside the falling column, before the first solid).
 
-Unknown cells count as open (more price, never less). **Test:** 60 synthetic worlds (lava from 10 under the floor to the floor
+An unknown cell stops a scan, as it stops the guard's (within 3 the guard refuses it for being unknown, deeper it stops
+safe: neither is a refusal because of this lava). **Test:** 80 synthetic worlds (lava from 10 under the floor to the floor
 itself, random caves and slabs, open shafts), every feet cell in an 11x11x17 box: core == guard refusal for all of them, with
 a positive control (core is neither empty nor everything), and two mutants (no occlusion; no drop column) that break it.
 
 ### 3.3 The move surcharge, in the form the guard will see
 
 - index.mjs's corridor hook hands the guard `[floor(bot position), ...result.path]`, and postProcessPath has moved every node
-  **before the first dig or place** onto the top of its support (water and climbables: the cell centre; else the top of the
-  feet cell's shapes, else of the cell below's, else one below), leaving the rest as raw cells. On a bottom slab a node sits at
+  **before the first dig or place** onto the top of its support (water: the cell centre; a ladder or vine: the cell centre
+  only when the next node is lower, else the top of its shape; anything else: the top of the feet cell's shapes, else of the
+  cell below's, else one below), leaving the rest as raw cells. On a bottom slab a node sits at
   y - 0.5 and the guard floors it a cell lower (Codex r2 P1-1).
 - So each generated move is annotated (`_lsRaw`: it digs or places, or its parent was raw) and judged on ONE segment: from the
   parent's executed form (the search's start = the bot's floored position) to its own (`processedPos`, a transcription of
@@ -188,19 +196,27 @@ a positive control (core is neither empty nor everything), and two mutants (no o
 - **Climbables** (Codex r3 P1, r4 P1): postProcessPath centres a ladder or vine only when the NEXT node is lower, else puts
   it on top of the climbable's shape (y + 1, offset to the wall). So the segment INTO a climbable is charged, when that move is
   generated, at the MINIMUM over the climbable's two forms, and the rest is SETTLED on each child move once the child fixes
-  the form (max(0, actual - charged): never negative, as A* needs). Every segment of a complete path is then charged exactly as
+  the form (max(0, actual - charged): never negative, as A* needs). Every segment of a complete (once-processed) path is charged as
   the guard refuses it, except that a path ENDING on a climbable can under-charge its last segment -- never over-charge. r4
   charged a move into a climbable on either form, which priced an accepted descent and walled off a capped search (Codex's
   reproduction, now a test). Tested on the real plugin: a climb up past lava is charged exactly for its refused segments; the
   accepted descent costs exactly the base and passes a cap of 1; mutants for "either form" and "never settle". A climbable
   generated while the index was still empty (no charge recorded) settles its whole incoming segment from its recorded parent
   (Codex r5 P3; Claude r5 P3-2), tested.
-- **Resumed searches** (Codex r5 P2): getPathFromTo post-processes each PARTIAL result in place (index.js:95-99), so the Move
-  objects A* goes on expanding have been moved onto support tops (x + 0.5, a slab's y - 0.5, a ladder's top). The wrapper
-  records every move's integer search cell when it generates it (`_lsC`) and judges forms, climb directions and settles from
-  that, never from the object's mutable coordinates. Tested with a 0.2 ms tick (several partial slices) on the ladder and
-  pool worlds: the final path is charged exactly; a mutant reading the mutable coordinates mis-charges the resumed climb.
-  (Below ~0.05 ms per tick the base pathfinder itself never finishes: not a lavasight case.)
+- **Resumed searches** (Codex r5/r6 P2): getPathFromTo post-processes each PARTIAL result in place (index.js:95-99), so the
+  Move objects A* goes on expanding, and the nodes of later results, may have been processed before. The wrapper records every
+  move's integer search cell when it generates it (`_lsC`) and judges from that, never from the object's mutable coordinates.
+  Where post-processing is idempotent -- support tops, cell centres: every node kind except climbables and unsupported nodes --
+  a re-processed node lands where a once-processed one does, and a resumed search is charged exactly: tested with
+  deterministic slicing (a fake clock forcing one early partial, then a resume) on the pool world, a slab corridor and 12
+  noisy worlds, three slice sizes each.
+- **The upstream residual, named** (Codex r6 P2): on a ladder or vine postProcessPath is NOT idempotent -- each pass puts the
+  node on top of the climbable shape of the cell it now floors into, one block higher -- so a climbable node that appeared in
+  k partial results is executed about k blocks off, by the base pathfinder itself (a test shows it with no wrapper: a resumed
+  ladder climb executes at different node positions than a single-slice one). No price can follow a position that depends
+  on how many times the library re-processed a node. lavasight charges the once-processed form; on such nodes its charge can
+  differ from the guard's verdict in either direction, and only on paths that climb near remembered lava after a partial
+  result. The guard is unchanged and still has the last word.
 - `priced_moves` counts moves that carried a charge, a settle included (Claude r5 P3-3): an exposure count, not a count of
   refused segments.
 - Not modelled: pathFromPlayer can drop the first node(s) of a re-plan, so the guard's first segment can span more than one
@@ -339,6 +355,13 @@ publisher -> parser contract), `bots/test/keepout-homefix.test.mjs` (the relocat
   within the base's cap is always found.
 
 ## 10. Review record
+
+**Code r5 / design r6** (`bea0b21e`): Codex CHANGE (1 P2, 1 P3). What r7 changed: deterministic slicing in the resumed test
+(no wall clock), exact charges wherever processing is idempotent, and the climbable re-processing named as the base
+pathfinder's own residual with a test that shows it without the wrapper (Codex P2, Claude P1; a separate "processed output" cannot be
+had without patching the library: the tick loop post-processes the A* objects itself, index.js:443-444); stale lines in
+3.2/3.3 fixed (Codex P3). A mutant reading the mutable coordinates was tried and dropped: where processing is idempotent the
+mutable coordinates floor to the same cell, so no idempotent world can tell them apart -- `_lsC` is defensive.
 
 **Code r4 / design r5** (`b4f1d6f5`): Codex CHANGE (1 P2, 1 P3); Claude APPROVE (3 P3). What r6 changed: the recorded search
 cell (`_lsC`) against in-place post-processing of partial results, with a resumed-search test and a mutant (Codex P2); the
