@@ -386,6 +386,52 @@ The variant is the branch `plugcut-on-c488c3e3`: the primary applied onto ceiles
 - **One variant-only test** (section F): a licensed firing prices its swings against its own 90 s.
 - **Suites:** ceilescape 67/67; plugcut 74 (the primary's 73 + F).
 
-## 9. Results (filled as they land)
+## 9. Results (canary sha a584945f; variant 5b4ee24a)
 
-(npm test, eslint, the isolated-d proof, the library gate.)
+**Reviews (design and code together, five rounds).**
+- Codex: r1 CHANGES, r2 CHANGES, r3 CHANGES, r4 CHANGES, r5 **APPROVE** (7c268b31; a584945f is its one P3).
+- Claude: r1 CHANGES, r2 APPROVE-conditional, r3 APPROVE, r4 APPROVE, r5 **APPROVE** (the same P3).
+- Every finding and its fix is in the commit messages r2 through r7.
+
+**Tests.**
+- `npm test` **295/295** on a584945f.
+- Earlier runs:
+  - 3b0fa12a: 293/295, fixed in r2b.
+  - 04b32da6: 294/295 (homefix2-chain B1), fixed in r4.
+  - 7dd6bbb8: 294/295 (well.test.mjs at 103.9 s under load; 234/234 when run alone with the runner's env).
+- plugcut.test.mjs 73 (the variant 74).
+- eslint no-undef: the one pre-existing `withinBody` hit only.
+- The variant: npm test **296/296** on 5b4ee24a (plugcut 74, ceilescape 67).
+
+**Paper: the failmine library gate on the final candidate a584945f.** scene-e2e under per-server failmine locks on
+sandbox6-8; base fb8de72f, 3 runs per gating start; the candidate's 3 runs, after the base's, on the same servers.
+
+| scene | base fb8de72f | candidate a584945f | verdict |
+|---|---|---|---|
+| stuck-1853-placebo-d-198_34_187 | stayed x3 (as the fleet) | **escaped x3** (198,33,190) | **PASS** |
+| stuck-1899-isolated-c-356_47_176 | stayed x3 | **escaped x3** (357,49-50,179) | **PASS** |
+| stuck-1899-isolated-d-340_60_200 (new) | stayed x3 | **escaped x3** (342,62,201) | **PASS** |
+| stuck-1899-board-a-359_40_187 | stayed x3 | stayed x3 | unchanged |
+| stuck-1899-placebo-c-559_37_219 | stayed x3 | stayed x3 | unchanged |
+| lava-1899-isolated-a-332_35_205 | no gating start (reported only) | -- | -- |
+
+- **board-a and placebo-c** are chain A (ceilescape-01's: an unaffordable dig, not a wet face). The oracle's FAIL there
+  means "not freed", and the base was not freed either. In none of the six candidate runs did the licence ever fire: no
+  `_plugcut` or `_climb_flood_*` row. Not covered, not regressed.
+- **Reported, not attributed: drowning-observed rows on board-a.** Two of six candidate board-a runs (one on 7dd6bbb8, one on
+  a584945f; one of them at 18/20 minimum health) logged `_air_drowning_observed`/`_drowning_route sealed` episodes. The base's
+  six board-a runs logged none, and neither did ceilescape's three candidate runs.
+  - Those runs contain no plugcut decision at all. The only change on an unlicensed path is a per-tick WeakMap lookup.
+  - The episodes sit in board-a's falling-water column.
+  - No death and no lasting harm, but it is named here and should be watched on promotion.
+- **The same gate on earlier shas** (the evidence the r3-r5 changes answer):
+  - 6ee31c1f: isolated-d stayed in 1 of 2 (a missed jump from a bob);
+  - 04b32da6: isolated-c stayed in 1 of 2 (sank after the cut);
+  - 7dd6bbb8: 9/9 on the three named scenes.
+
+**Registration** (built by `docs/reports/plugcut-01-2026-10-24/make_registration.py`):
+- `docs/reports/plugcut-01.a584945f.json` (primary, fleet fb8de72f) and `docs/reports/plugcut-01.5b4ee24a.json` (variant, on
+  ceilescape-01's c488c3e3);
+- the entry fragment `docs/reports/plugcut-01.queue-entry-fragment.json`;
+- tier 3, `draw_require_pools ["placebo-d"]`;
+- the read is plugcutread.py (md5 in the registration).
