@@ -5291,6 +5291,7 @@ export async function escapeStairUp (bot, {
     // THE OWNER AFTER EVERY AWAIT, BEFORE EVERY CONTROL WRITE, AND THE DEADLINE (Codex r3 P2); THE STEP STILL OPEN IN THE SAME
     // FRAME WITH NOTHING TO DIG (Claude r3 P3-1: a gravel refill or lava during the retries ends them)
     const gone = () => (yielded = yieldTo())
+    let retryStop = null
     while (!taken && plug && stepRetry < PLUG_STEP_RETRIES && inColumn()) {
       if (gone()) { stopped = `yielded the body to ${yielded}`; return finish() }
       if ((await surfaceFirst()) === 'yielded') { stopped = `yielded the body to ${yielded}`; return finish() }
@@ -5300,7 +5301,7 @@ export async function escapeStairUp (bot, {
       // frame with nothing to dig, the body still in its column, and time left for the whole jump (450 + 350 + 250 ms)
       const still = stairUpStep({ at, bear: bearing, canBreak, submerged: submergedAt(bot) })
       if (!still.ok || still.dig.length || !inColumn()) break
-      if (deadline - Date.now() < RETRY_JUMP_MS) { stopped = 'budget spent before a step retry'; break }
+      if (deadline - Date.now() < RETRY_JUMP_MS) { retryStop = 'budget spent before a step retry'; break }
       stepRetry++
       stepRetries++
       bot.setControlState('forward', true)
@@ -5318,7 +5319,7 @@ export async function escapeStairUp (bot, {
       // DUG A STEP AND DID NOT TAKE IT. Stop rather than cut another: the
       // failure to avoid is carving a widened ledge while every log line says
       // the climb is progressing, which `mine` did for twenty-three days.
-      stopped = `cut a step at y=${Math.round(before.y)} but could not stand in it`
+      stopped = retryStop ?? `cut a step at y=${Math.round(before.y)} but could not stand in it`
       break
     }
     stepRetry = 0
