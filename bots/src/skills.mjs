@@ -1242,7 +1242,7 @@ export async function cavefallFloorGuard (bot, block, signal, { on = CAVEFALL_ON
     check(signal)
     tried++
     try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(s.x, s.y, s.z)), stepMs, bot)
+      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(s.x, s.y, s.z)), stepMs, bot, { what: 'cavefall step', needsDrop: false })
     } catch (e) {
       if (e?.aborted || signal?.aborted) throw e
     }
