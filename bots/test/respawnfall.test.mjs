@@ -719,8 +719,8 @@ await ta('WIRING: the order runs ahead of every order but keep-out; admission; t
   const cog = strip('../src/cognitive.mjs')
   // re-anchored (JIT 10-24 on 21dd0ce1): found-01 made keep-out's override refund a found order it replaces, and
   // respawnfall-01 x found-01 makes the descent do the same; the order of the two lines is the assertion
-  const iSky = cog.indexOf("{ const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); order = sd } }"),
-    iKo = cog.indexOf("{ const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); order = ko } }")
+  const iSky = cog.indexOf("{ const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }"),
+    iKo = cog.indexOf("{ const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }")
   assert.ok(iSky > 0 && iKo > iSky, 'the sky order precedes keep-out\'s (which therefore wins)')
   assert.ok(cog.includes('bot.skyActive = d.state.active === true'), 'the open episode is published for the lattice')
   assert.ok(cog.includes('if (d.fresh) bot.skyWaitSince = null'), 'the wait clock restarts on a fresh episode (Claude r6 P3-3)')
@@ -729,9 +729,9 @@ await ta('WIRING: the order runs ahead of every order but keep-out; admission; t
   assert.ok(/if \(skill === 'sky_descend' && !bot\?\.inventoryUnsettled\) return \{ ok: true/.test(strip('../src/admission.mjs')))
   assert.ok(/if \(skyEscapeBlocked\(this\.bot\)\) return/.test(strip('../src/watchdog.mjs')))
   const rfx = strip('../src/reflex.mjs')
-  assert.ok(rfx.includes('if (!escaping && !marooned && !skyEscapeBlocked(bot) && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&'), 'the maroon lattice asks the gate')
+  assert.ok(rfx.includes('if (!escaping && !marooned && !dangerMovingNow() && !skyEscapeBlocked(bot) && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&'), 'the maroon lattice asks the gate')
   assert.ok(/deckMoves\.infiniteLiquidDropdownDistance = false/.test(strip('../src/index.mjs')), 'the deck walk plans no plunge into water')
-  assert.ok(rfx.includes('longEnough && !poolEscaping && !skyEscapeBlocked(bot) &&'), 'the last-resort branch asks the gate')
+  assert.ok(rfx.includes('longEnough && !poolEscaping && !dangerMovingNow() && !rampSteering && !skyEscapeBlocked(bot) &&'), 'the last-resort branch asks the gate')
   assert.ok(/bot\.on\('spawn', \(\) => \{ bot\.lastSpawnAt = Date\.now\(\) \}\)/.test(strip('../src/index.mjs')))
   assert.ok(/sky_descend: \{ run: skyDescend, usage: 'sky_descend', args: \[\], chatOnly: true, rescue: true \}/.test(strip('../src/skills.mjs')))
 })
