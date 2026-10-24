@@ -16,7 +16,7 @@
 //   - a plan whose simulated result the shared flood check would STILL refuse (`afterPlug`): no plug is placed for nothing.
 // The actuator (reflex.mjs escapeStairUp) re-asks this against the live world before every placement and re-checks the
 // flood guard on the real cell before the cut; nothing here relaxes the guard.
-import { isWaterCell, isLavaCell, isFallingBlock, isMeltingIce, overheadBreakRisk } from './scaffold.mjs'
+import { isWaterCell, isLavaCell, isFallingBlock, isMeltingIce, overheadBreakRisk, stairUpStep } from './scaffold.mjs'
 import { INTERACTIVE } from './poolescape.mjs'
 
 /** PLUGCUT=0 turns the rung off (the one-setting rollback); anything else, or unset, leaves it on. */
@@ -30,11 +30,11 @@ const plainWater = b => !!b && /^(water|flowing_water)$/.test(b.name ?? '') && b
 const key = c => c.join(',')
 const OWN = [[0, 0, 0], [0, 1, 0]]                                   // the bot's own feet and head cells: never a plug, never a face
 
-/** The first solid, non-interactive neighbour of `c` (offsets from the feet) to click, below first; never the bot's cells. */
-function faceFor (at, c) {
+/** The first solid, non-interactive neighbour of `c` (offsets from the feet) to click, below first; never a kept cell. */
+function faceFor (at, c, keep) {
   for (const [fx, fy, fz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
     const r = [c[0] + fx, c[1] + fy, c[2] + fz]
-    if (OWN.some(o => key(o) === key(r))) continue
+    if (keep.has(key(r))) continue
     const b = at(...r)
     if (solid(b) && !INTERACTIVE.test(b.name ?? '')) return { cell: c, ref: r, face: [-fx, -fy, -fz] }
   }
@@ -42,15 +42,15 @@ function faceFor (at, c) {
 }
 
 /**
- * THE PLUGS THAT MAKE ONE REFUSED CUT DRY -> { ok, plugs: [{cell, ref, face}], reason }. Pure.
+ * THE PLUGS THAT DRY THE FACES OF ONE CELL ABOUT TO BE BROKEN -> { ok, plugs: [{cell, ref, face}], reason }. Pure.
  *   at(dx,dy,dz)  block relative to the bot's FEET (null = unloaded)
- *   cell          the refused cell (the ceiling: [0,2,0])
- *   blocks        placeable, non-falling blocks the bot holds
- *   submerged     the bot's feet and head cells are both water (the flood check's own exemption: nothing to plug for)
+ *   cell          the cell the flood check refused to break
+ *   keep          cells a plug must never fill or be clicked against (the bot's own cells, the path the climb will use)
+ * Reads exactly the faces the shared flood check reads for an ordinary block (above + the four sides) and refuses every
+ * face a block cannot make dry. Does NOT re-ask the flood check; its two callers below do, against the plugged world.
  */
-export function ceilingPlugPlan ({ at = () => null, cell = [0, 2, 0], blocks = 0, submerged = false } = {}) {
+function facePlugs (at, cell, keep) {
   const no = reason => ({ ok: false, plugs: [], reason })
-  if (submerged) return no('submerged: the flood check already exempts water here')
   const T = at(...cell), above = at(cell[0], cell[1] + 1, cell[2])
   if (!T || !above) return no('terrain not loaded at the cut')
   if (!solid(T) || isWaterCell(T) || isLavaCell(T)) return no(`the cut is not a solid dry block (${T.name})`)
@@ -66,20 +66,95 @@ export function ceilingPlugPlan ({ at = () => null, cell = [0, 2, 0], blocks = 0
     if (!isWaterCell(n)) continue
     if (n.isWaterlogged === true) return no(`a waterlogged block beside the cut cannot be plugged (${n.name})`)
     if (!plainWater(n)) return no(`a water plant or bubble column beside the cut cannot be plugged (${n.name})`)
-    if (OWN.some(o => key(o) === key(c))) return no('the wet face is the bot\'s own cell')
-    const f = faceFor(at, c)
+    if (keep.has(key(c))) return no(`the wet face ${key(c)} is a cell the climb needs open`)
+    const f = faceFor(at, c, keep)
     if (!f) return no(`no face to click for the plug at ${key(c)}`)
     plugs.push(f)
   }
   if (!plugs.length) return no('nothing to plug: the refusal is not a wet face')
+  return { ok: true, plugs, reason: null }
+}
+
+/** The world as it reads after `plugs` are placed (each a solid block). */
+const withPlugs = (at, plugs) => {
+  const set = new Set(plugs.map(p => key(p.cell)))
+  return (x, y, z) => set.has(key([x, y, z])) ? { name: 'cobblestone', boundingBox: 'block' } : at(x, y, z)
+}
+
+/**
+ * THE PLUGS THAT MAKE ONE REFUSED CEILING CUT DRY -> { ok, plugs: [{cell, ref, face}], reason }. Pure.
+ *   at(dx,dy,dz)  block relative to the bot's FEET (null = unloaded)
+ *   cell          the refused cell (the ceiling: [0,2,0])
+ *   blocks        placeable, non-falling blocks the bot holds
+ *   submerged     the bot's feet and head cells are both water (the flood check's own exemption: nothing to plug for)
+ */
+export function ceilingPlugPlan ({ at = () => null, cell = [0, 2, 0], blocks = 0, submerged = false } = {}) {
+  const no = reason => ({ ok: false, plugs: [], reason })
+  if (submerged) return no('submerged: the flood check already exempts water here')
+  // THE CELL ABOVE THE CUT IS THE CLIMB'S NEXT CELL, so it is never plugged: water there is a body the bot would climb
+  // into (climb-flood-chain scene C, a 3x3x2 pocket over the ceiling) and a plug only moves the refusal up one block.
+  const fp = facePlugs(at, cell, new Set([...OWN, [cell[0], cell[1] + 1, cell[2]]].map(key)))
+  if (!fp.ok) return fp
+  const plugs = fp.plugs
   if (plugs.length > PLUG_MAX) return no(`${plugs.length} wet faces, more than ${PLUG_MAX}`)
   if (blocks < plugs.length) return no(`needs ${plugs.length} block(s) to plug, holds ${blocks}`)
   // AFTER THE PLUGS, WOULD THE SHARED CHECK STILL REFUSE? A plug is never placed for nothing.
-  const plugged = new Set(plugs.map(p => key(p.cell)))
-  const after = (x, y, z) => plugged.has(key([x, y, z])) ? { name: 'cobblestone', boundingBox: 'block' } : at(x, y, z)
+  const after = withPlugs(at, plugs)
   const risk = overheadBreakRisk({ at: (x, y, z) => after(cell[0] + x, cell[1] + y, cell[2] + z), submerged })
   if (risk) return no(`plugged, the cut would still be refused: ${risk}`)
   return { ok: true, plugs, reason: null }
+}
+
+/** The cells one ramp step along `bear` passes the body through: the bot's own column and the step's three. */
+export const stepKeep = bear => [[0, 0, 0], [0, 1, 0], [0, 2, 0], [bear.x, 1, bear.z], [bear.x, 2, bear.z], [bear.x, 3, bear.z]]
+
+/**
+ * THE PLUGS THAT LET ONE RAMP STEP ALONG `bear` BE CUT -> { ok, plugs, cells, reason }. Pure.
+ *
+ * The ceiling is open (the step loop runs only after the breach), but the step's own cells are refused the same way:
+ * isolated-c-Alpha, plugged and cut on Paper 2026-10-24, then stopped with every bearing's first step refused, the W and
+ * S steps both for ONE flowing-water cell beside their step cell. So this asks the step planner itself (`stairUpStep`,
+ * unchanged) what it refuses, plugs the wet faces of THAT cell, and asks again against the plugged world -- up to the
+ * step's three dig cells and PLUG_MAX plugs in all. It returns ok only when the step planner, reading the plugged world,
+ * accepts the step: a plug is never placed for nothing, and nothing here decides a dig is safe.
+ */
+export function stepPlugPlan ({ at = () => null, bear, blocks = 0, submerged = false, canBreak = () => true } = {}) {
+  const no = reason => ({ ok: false, plugs: [], cells: [], reason })
+  if (submerged) return no('submerged: the flood check already exempts water here')
+  if (!bear || (!bear.x && !bear.z)) return no('no bearing')
+  const keep = new Set(stepKeep(bear).map(key))
+  const plugs = [], cells = []
+  for (let round = 0; round < 3; round++) {
+    const world = withPlugs(at, plugs)
+    const step = stairUpStep({ at: world, bear, canBreak, submerged })
+    if (step.ok) return plugs.length ? { ok: true, plugs, cells, dig: step.dig, reason: null } : no('nothing to plug: the step is already allowed')
+    if (!step.flood) return no(plugs.length ? `plugged, the step is still refused: ${step.reason}` : `not a wet refusal: ${step.reason}`)
+    const fp = facePlugs(world, step.cell, keep)
+    if (!fp.ok) return no(`${step.reason}; ${fp.reason}`)
+    plugs.push(...fp.plugs)
+    cells.push(step.cell)
+    if (plugs.length > PLUG_MAX) return no(`${plugs.length} wet faces, more than ${PLUG_MAX}`)
+    if (blocks < plugs.length) return no(`needs ${plugs.length} block(s) to plug, holds ${blocks}`)
+  }
+  return no('the step has more than three cells to dry')
+}
+
+/**
+ * Of `bearings` (preference order), the step that needs the FEWEST plugs, then the one that digs out the fewest blocks this
+ * firing already placed (`placed`, offsets from the feet: a step through the ceiling's own plug re-digs it -- isolated-c's N
+ * bearing on the fixture), then the order given. Pure.
+ */
+export function chooseStepPlug ({ bearings = [], placed = [], ...opts } = {}) {
+  const mine = new Set(placed.map(key))
+  let best = null
+  const why = []
+  for (const bear of bearings) {
+    const r = stepPlugPlan({ ...opts, bear })
+    if (!r.ok) { why.push(r.reason); continue }
+    const redig = r.dig.filter(c => mine.has(key(c))).length
+    if (!best || r.plugs.length < best.plugs.length || (r.plugs.length === best.plugs.length && redig < best.redig)) best = { ...r, bear, redig }
+  }
+  return best ?? { ok: false, plugs: [], cells: [], reason: why[0] ?? 'no bearing', bear: null }
 }
 
 /** Is the plug rung due on this flood refusal? From the PLUG_AFTER_REFUSALS-th consecutive one (the arm's own counter). Pure. */
