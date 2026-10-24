@@ -241,7 +241,8 @@ function chainBot (name, tools, { held = null, equipTakes = () => true } = {}) {
     entities: {},
     inventory: { items: () => inv, emptySlotCount: () => 5 },
     canDigBlock: () => true,
-    blockAt: p => { const n = world.get(`${p.x},${p.y},${p.z}`); return n ? blk(n, V(p.x, p.y, p.z)) : { name: 'air', boundingBox: 'empty', position: p } },
+    // CAVEFALL-01: the row stands on rock (y < 64) -- a cell floating over 32+ blocks of air is, correctly, a floor over a drop
+    blockAt: p => { const n = world.get(`${p.x},${p.y},${p.z}`) ?? (p.y < 64 ? 'stone' : null); return n ? blk(n, V(p.x, p.y, p.z)) : { name: 'air', boundingBox: 'empty', position: p } },
     equip: async it => { if (equipTakes(it)) bot.heldItem = inv.includes(it) ? it : null },
     unequip: async () => { bot.heldItem = null },
     dig: async b => {
