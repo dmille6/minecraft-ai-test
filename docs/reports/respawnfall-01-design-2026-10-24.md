@@ -448,6 +448,7 @@ the scheduler is outside this item.
   - `~/mcai-analysis/respawnfall-01.queue-entry.draft.json`, which carries the Q1 hold and no `approved`, so `queue add`
     refuses it;
   - the read is staged as `~/mcai-analysis/respawnfallread.py` (md5 4442adfb, selftest ok).
+- **`npm test` on e8dd7460: 300/300.** eslint on the changed files finds only the base's pre-existing `withinBody` (reflex.mjs).
 - Canary sha `e8dd7460`; later commits on the branch are docs only. The Paper driver is `respawnfall-sandbox-1024` @
   `45485994`.
 
