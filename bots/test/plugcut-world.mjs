@@ -126,7 +126,7 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, ri
     async placeBlock (ref, face) {
       const it = bot.heldItem
       const t = ref.position.plus(face)
-      const rec = { cell: `${t.x},${t.y},${t.z}`, ref: `${ref.position.x},${ref.position.y},${ref.position.z}`, item: it?.name ?? null, ok: false }
+      const rec = { cell: `${t.x},${t.y},${t.z}`, ref: `${ref.position.x},${ref.position.y},${ref.position.z}`, item: it?.name ?? null, ok: false, at: Date.now() }
       places.push(rec)
       if (!it || !reg.blocksByName[it.name]) throw new Error('no block in hand')
       if (!solidAt(blockAtXYZ(ref.position.x, ref.position.y, ref.position.z))) throw new Error('no reference block')

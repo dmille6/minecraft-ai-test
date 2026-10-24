@@ -140,9 +140,11 @@ export function stepPlugPlan ({ at = () => null, bear, blocks = 0, submerged = f
 }
 
 /**
- * Of `bearings` (preference order), the step that needs the FEWEST plugs, then the one that digs out the fewest blocks this
- * firing already placed (`placed`, offsets from the feet: a step through the ceiling's own plug re-digs it -- isolated-c's N
- * bearing on the fixture), then the order given. Pure.
+ * Of `bearings` (preference order), the step that digs out the fewest blocks this firing already placed (`placed`, offsets
+ * from the feet: a step through the ceiling's own plug re-digs it -- isolated-c's N bearing on the fixture), then the one that
+ * needs the FEWEST plugs, then the order given. Re-digs rank first because they are the dear part: the ramp digs bare-handed,
+ * and a bare-handed dig from water with the feet off the ground is 25x the block's grounded price (dirt 18.75 s, cobblestone
+ * 250 s), where a placement is one settle (FLOW_SETTLE_MS). Pure.
  */
 export function chooseStepPlug ({ bearings = [], placed = [], ...opts } = {}) {
   const mine = new Set(placed.map(key))
@@ -152,7 +154,7 @@ export function chooseStepPlug ({ bearings = [], placed = [], ...opts } = {}) {
     const r = stepPlugPlan({ ...opts, bear })
     if (!r.ok) { why.push(r.reason); continue }
     const redig = r.dig.filter(c => mine.has(key(c))).length
-    if (!best || r.plugs.length < best.plugs.length || (r.plugs.length === best.plugs.length && redig < best.redig)) best = { ...r, bear, redig }
+    if (!best || redig < best.redig || (redig === best.redig && r.plugs.length < best.plugs.length)) best = { ...r, bear, redig }
   }
   return best ?? { ok: false, plugs: [], cells: [], reason: why[0] ?? 'no bearing', bear: null }
 }

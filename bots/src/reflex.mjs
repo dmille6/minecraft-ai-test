@@ -4512,6 +4512,7 @@ export async function escapeStairUp (bot, {
   // never ran), and the world cells it filled -- so a step is not chosen that digs this firing's own plug back out
   let plugged = 0, plugRounds = 0, plugNote = null
   const plugCells = []
+  let breachPlugWhy = null      // why the ceiling rung did not open the cut, kept through the sidestep's own stop text
 
   // WHOEVER OWNS THE BODY, IT IS NOT THIS. `yieldTo` returns a reason when a
   // reflex with a stronger claim has taken the controls -- in practice the
@@ -4692,6 +4693,7 @@ export async function escapeStairUp (bot, {
           plugNote = r.note
           plugCells.push(...r.cells)
           if (r.placed > 0 && r.ok) continue                // re-plan the breach: the flood check decides the cut
+          breachPlugWhy = r.note
           stopped = `${plan.reason}; plug: ${r.note}`
         }
         // A BURIED BODY IS NOT LEFT BEHIND A FLOOD REFUSAL (Codex r4) -- SIDEWAYS FIRST ONLY WHEN THE WAY IS ALREADY
@@ -4734,6 +4736,7 @@ export async function escapeStairUp (bot, {
             stopped = `${plan.reason}; no dry side column (${side.reason})`
           }
         }
+        if (breachPlugWhy && !stopped.includes('; plug: ')) stopped = `${stopped}; plug: ${breachPlugWhy}`
         flood = 'ramp_breach'
       }
       return finish()
