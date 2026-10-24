@@ -113,7 +113,17 @@ model, 0 transport errors. Reference = qwen2.5:7b-instruct replayed (s.4a).
 
 ## 5. Bootstrap round (40k)
 
-PENDING -- filled in when the runs finish.
+RUNNING. Results are filled in when the runs finish.
+
+- **Qwen3-8B `boot-01`** (`cand-qwen3-8b-v0-boot`): started 10-24 17:51Z, `v0-boot-40000`, 39,997 used, one epoch =
+  2,500 steps x grad-accum 16, checkpoints every 100 steps (`SAVE=100`, resumable with `RESUME=1`). 20:23Z: step 206,
+  ~44 s/step beside ethan-gpu (~940 tok/s), checkpoint-200 saved. Steps 1-100: loss 1.46 -> 0.19, grad-norm
+  0.36-6.72, all finite. ETA ~10-26 00:30Z.
+- **qwen2.5-7B control `boot-qwen25-01`** (`cand-qwen25-7b-v0-boot`): queued on VM 200 by `chain-qwen25.sh`, which
+  starts only after boot-01 ends with verdict OK and a merged model (and Ollama stopped): its own 50-step fit test
+  (`fit-qwen25`), then the same 40k set, same recipe. ~28 h.
+- Then per arm: `export` (+ `export-base` for Qwen3), `template-check`, `eval.sh` (rung a, fleet settings),
+  `export_check.sh` (q4_K_M and q8_0 vs bf16, greedy, with the determinism control), rung (a) serving test.
 
 ## 6. Serving note for M7 (arithmetic, to be measured in the rung (a) serving test)
 
