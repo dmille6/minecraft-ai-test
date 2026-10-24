@@ -324,6 +324,12 @@ await ta('WIRING: the order runs ahead of every order but keep-out, admission le
   assert.ok(/if \(\(this\.bot\.skyHoldUntil \?\? 0\) > Date\.now\(\)\) return/.test(strip('../src/watchdog.mjs')))
   assert.ok(/bot\.on\('spawn', \(\) => \{ bot\.lastSpawnAt = Date\.now\(\) \}\)/.test(strip('../src/index.mjs')))
   assert.ok(/sky_descend: \{ run: skyDescend, usage: 'sky_descend', args: \[\], chatOnly: true, rescue: true \}/.test(strip('../src/skills.mjs')))
+  // THE DELIBERATE FALL IS REFUSED FOR A HELD BOT, AT BOTH OF ITS SITES (escape.mjs's bottom rung, step_off)
+  const rfx = strip('../src/reflex.mjs')
+  assert.ok(rfx.includes("if (!(terminal && skyHoldActive(bot)) && (terminal ? est.blocks === 0 : plan !== 'none')) {"), 'the last-resort drop asks the hold')
+  assert.ok(rfx.includes("} else if (plan === 'step_off' && skyHoldActive(bot)) {"), 'the stranded_high lattice asks the hold')
+  assert.ok(/import \{ skyHoldActive \} from '\.\/respawnfall\.mjs'/.test(rfx))
+  assert.equal(RF.skyHoldActive({ skyHoldUntil: Date.now() + 1000 }), true); assert.equal(RF.skyHoldActive({}), false); assert.equal(RF.skyHoldActive({ skyHoldUntil: Date.now() - 1 }), false)
   // the mutant of the order line fails the first assertion
   assert.equal(cog.replace('{ const sd = this.#skyDescendOrder(order); if (sd) order = sd }', '').indexOf('{ const sd = this.#skyDescendOrder(order); if (sd) order = sd }'), -1)
 })
