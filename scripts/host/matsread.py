@@ -568,8 +568,8 @@ if __name__ == '__main__':
     print('G4 (gate)    stone rose by >= 4 with the note closed: %d %s' % (len(g4_rows), g4_rows[:4]))
     print('G5 (gate)    overlapping materials leases in a pool %d %s (of %d leases) | UNJUDGED moved rows with no ml= (blocks KEEP) %d | overlapping leased furnace sessions with a mats session %d %s (mats sessions %d) | with an unleased session (WATCH) %d %s'
           % (len(g5_runs), g5_runs[:3], sum(len(v) for v in runs.values()), len(g5_unjudged), len(g5_furn), g5_furn[:3], mats_fsess, len(g5_furn_unleased), g5_furn_unleased[:3]))
-    print('NOTES        mats_return stops %s | notes OPEN at the window end %d %s | unreconciled moved rows %d of %d | tools lost on orders %s (reported) | taken by another drain %d (reported)'
-          % (dict(returns), len(open_end), open_end[:5], unrec, len(mv), dict(tools_lost) or '-', taken_rows))
+    print('NOTES        mats_return stops %s | notes OPEN at the window end %d %s | unreconciled %d of %d (moved orders + ended recoveries) | tools lost on orders %s (reported) | of them, the batch nowhere after an empty furnace %d'
+          % (dict(returns), len(open_end), open_end[:5], unrec, len(mv) + len(ret_end), dict(tools_lost) or '-', taken_rows))
     print('G6 (gate)    canary bots over 7 make_material rows in any 60 min: %d %s' % (len(loop_bots), loop_bots[:5]))
     print('ARMS         control licence / _make_material rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   control rung rows post %d | control pools with index records %d | every canary pool has index records %s | furnace session rows %d (canary mats sessions %d, canary smelted %d)'

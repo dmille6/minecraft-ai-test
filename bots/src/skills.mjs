@@ -12708,8 +12708,9 @@ async function matsCraftDirect (bot, out, times, { allowed, must = null }) {
  *  decrement of the same name within the window that is not the placement (a craft right after a failed placement) is read as
  *  placed. */
 const PLACE_MATCH_MS = 2000
+const MOVE_MS = 60
 export function countPlacements (bot) {
-  const placed = {}, pending = []
+  const placed = {}, pending = [], held = []
   const orig = bot?.placeBlock
   if (typeof orig !== 'function') return { placed, restore: () => {} }
   const inv = bot.inventory
@@ -12725,19 +12726,30 @@ export function countPlacements (bot) {
     const p = pending.find(q => !q.done && q.name === name && q.slot === slot && now - q.at <= PLACE_MATCH_MS)
     if (!p) return
     p.done = true
-    placed[name] = (placed[name] ?? 0) + 1
+    // a ONE-ITEM stack moved off the held slot is also a -1 there (Codex r6 P3): the credit waits MOVE_MS and is cancelled when
+    // the same name lands in another slot meanwhile
+    const c = { name, slot, at: now }
+    held.push(c)
+    setTimeout(() => { const i = held.indexOf(c); if (i >= 0) { held.splice(i, 1); placed[name] = (placed[name] ?? 0) + 1 } }, MOVE_MS)
   }
-  try { inv?.on?.('updateSlot', onSlot) } catch { /* no events: nothing is counted */ }
+  const onLand = (slot, oldItem, newItem) => {
+    const name = newItem?.name
+    if (!name || (oldItem?.name === name && (Number(oldItem.count) || 0) >= (Number(newItem.count) || 0))) return
+    const i = held.findIndex(c => c.name === name && c.slot !== slot)
+    if (i >= 0) held.splice(i, 1)
+  }
+  const onAny = (slot, oldItem, newItem) => { onSlot(slot, oldItem, newItem); onLand(slot, oldItem, newItem) }
+  try { inv?.on?.('updateSlot', onAny) } catch { /* no events: nothing is counted */ }
   const wrapped = function (...a) {
-    const held = bot.heldItem
-    if (held?.name) {
-      const slot = Number.isInteger(held.slot) ? held.slot : (Number.isInteger(bot.quickBarSlot) ? 36 + bot.quickBarSlot : null)
-      pending.push({ name: held.name, slot, at: Date.now(), done: false }); if (pending.length > 64) pending.splice(0, pending.length - 64)
+    const h = bot.heldItem
+    if (h?.name) {
+      const slot = Number.isInteger(h.slot) ? h.slot : (Number.isInteger(bot.quickBarSlot) ? 36 + bot.quickBarSlot : null)
+      pending.push({ name: h.name, slot, at: Date.now(), done: false }); if (pending.length > 64) pending.splice(0, pending.length - 64)
     }
     return orig.apply(this, a)
   }
   bot.placeBlock = wrapped
-  return { placed, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onSlot) } catch { /* gone */ } } }
+  return { placed, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onAny) } catch { /* gone */ } } }
 }
 
 /** DOES THE TOWN HAVE ROOM for a part (materialOrder's town_full gate)? -> true when a container the index KNOWS has a free slot.
@@ -13106,7 +13118,8 @@ async function matsReturn (ctx, _args, signal) {
     // THE BALANCE IS JUDGED ONLY WHEN THE NOTE ENDS (Codex r3 P1-1, Claude r3 P1-1): an attempt whose furnace is not drained yet
     // holds the batch out of sight (verdict=pending, never a loss)
     const balNow = recoveryBalance(note, { bag: heldMap(bot), banked: {}, placed: rpl?.placed ?? {} })
-    balNow.verdict = recoveryVerdict(balNow, drained)                     // TAKEN: mats.mjs recoveryVerdict
+    if (balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back       // kept with the note when it stays open
+    balNow.verdict = recoveryVerdict(balNow, drained, note.kind)                     // TAKEN: mats.mjs recoveryVerdict
     // B3 ON THE RECOVERY (Claude r2 P2-D): no iron-ladder or fuel name fewer after it than before, beyond the order's own
     // charcoal made into torches
     const f1 = forbiddenCounts(heldMap(bot))

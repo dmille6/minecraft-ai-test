@@ -263,6 +263,10 @@ test('THE COPPER RECOVERY BALANCE (Codex r3 P2-6): the ingots taken are ingots, 
   // A CRAFT IS INTERRUPTIBLE (Codex r5 P2-1): one block made, 27 ingots kept -> ok; crafting begun and nothing anywhere -> loss
   assert.equal(M.copperBalance(note, { bag: { copper_ingot: 27 }, banked: { copper_block: 1 } }).verdict, 'ok')
   assert.equal(M.copperBalance(note, { bag: {} }).verdict, 'loss', 'crafting begun: the copper must be somewhere')
+  // INPUT ONCE SEEN BACK STAYS BACK (Codex r6 P2): 27 ingots seen by an earlier attempt, then banked by a town deposit
+  assert.equal(M.copperBalance({ ...note, backSeen: 27, deposited: { copper_block: 1 } }, { bag: {} }).verdict, 'ok')
+  const sm = { ...M.newNote({ kind: 'bricks', bag0: { stone: 0, stone_bricks: 0, cobblestone: 80 } }), loaded: { input: { name: 'cobblestone', n: 12 }, out: 'stone', inputAfter: 80 }, backSeen: 3, deposited: { stone_bricks: 8 } }
+  assert.equal(M.recoveryBalance(sm, { bag: { cobblestone: 80, stone: 1 } }).verdict, 'ok', 'the 3 cobble seen back earlier, banked since')
   assert.equal(M.copperBalance({ ...note, crafting: false }, { bag: {} }).verdict, 'ok', 'the write-ahead never written: only inputs, wherever they went')
   const door = { ...M.newNote({ kind: 'copper_door', took: { copper_ingot: 6 }, bag0: {} }), crafting: true }
   assert.equal(M.recoveryBalance(door, { bag: {}, banked: { copper_door: 3 } }).verdict, 'ok'); assert.equal(M.recoveryBalance(door, { bag: {}, banked: { copper_door: 2 } }).verdict, 'loss')
@@ -295,6 +299,9 @@ test('r5 (Claude r4 P3s): placed input is back; a copper note with no part made 
   assert.equal(M.recoveryVerdict({ verdict: 'loss', out: 0, back: 0 }, 'empty'), 'unreconciled', 'an empty furnace proves neither a drain nor a loss (Codex r5 P2-2)')
   assert.equal(M.recoveryVerdict({ verdict: 'loss', out: 4, back: 0 }, 'empty'), 'loss', 'part of it found: judged')
   assert.equal(M.recoveryVerdict({ verdict: 'loss', out: 0, back: 0 }, 'drained:12'), 'loss', 'positive control: drained, then lost')
+  assert.equal(M.recoveryVerdict({ verdict: 'loss', out: 0, back: 0 }, '-', 'cut_copper'), 'unreconciled', 'copper: nothing anywhere is the same ambiguity (Claude r6 P3-1)')
+  assert.equal(M.recoveryVerdict({ verdict: 'loss', out: 9, back: 0 }, '-', 'cut_copper'), 'loss', 'copper: part of it found is judged')
+  assert.equal(M.recoveryVerdict({ verdict: 'loss', out: 0, back: 0 }, '-', 'bricks'), 'loss', 'a smelt kind needs the empty furnace')
 })
 
 test('THE RECOUNT TRIGGER HONOURS ITS BACKOFF (Claude r3 P2-3): a container that could not be counted is not a reason to count', () => {
@@ -447,7 +454,7 @@ test('MUTANTS: the reserve, the coverage rule, the forbidden gate, the qualify r
       X => assert.equal(X.matsBalance({ kind: 'bricks', bag0: { cobblestone: 100, oak_log: 0 }, withdrawn: { oak_log: 2 }, bag1: { cobblestone: 86 }, deposited: { stone_bricks: 12 }, burnedPlanks: 8, smelted: 12, placed: { cobblestone: 2 } }).verdict, 'scaffold')],
     ['the copper balance is blind', "  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }\n}\n\n/** THE RECOUNT'S", "  return { verdict: 'ok', batch: n, out, back, short }\n}\n\n/** THE RECOUNT'S",
       X => assert.equal(X.copperBalance({ ...X.newNote({ kind: 'cut_copper', took: { copper_ingot: 36 }, bag0: {} }), crafting: true }, { bag: { copper_block: 2 } }).verdict, 'loss')],
-    ['copper retained ingots not back', "  const back = Math.min(n - out, above('copper_ingot'))\n  const short = Math.max(0, n - out - back)", "  const back = 0\n  const short = Math.max(0, n - out - back)",
+    ['copper retained ingots not back', "  const back = Math.min(n - out, Math.max(above('copper_ingot'), Number(note.backSeen) || 0))\n  const short = Math.max(0, n - out - back)", "  const back = 0\n  const short = Math.max(0, n - out - back)",
       X => assert.equal(X.copperBalance({ ...X.newNote({ kind: 'cut_copper', took: { copper_ingot: 36 }, bag0: {} }), crafting: true }, { bag: { copper_ingot: 27 }, banked: { copper_block: 1 } }).verdict, 'ok')],
     ['copper_block is booked as an unspent input', "...(kind === 'cut_copper' ? ['copper_block'] : [])", "",
       X => assert.deepEqual(X.returnPlan(X.newNote({ kind: 'cut_copper', bag0: { copper_block: 0, cut_copper: 0 } }), { copper_block: 3 }).inputsLeft, {})],
@@ -467,10 +474,12 @@ test('MUTANTS: the reserve, the coverage rule, the forbidden gate, the qualify r
       X => assert.deepEqual(X.returnPlan({ ...X.newNote({ kind: 'torch', bag0: { charcoal: 0, stick: 0, oak_planks: 6 } }), loaded: { input: { name: 'oak_log', n: 6 }, out: 'charcoal' }, sticks: 0 }, { charcoal: 6, oak_planks: 8 }).stickWood, { planks: 'oak_planks', crafts: 1 })],
     ['the recovery\'s placements are not back', "(Number(bag?.[inName]) || 0) + (Number(placed?.[inName]) || 0) - after", "(Number(bag?.[inName]) || 0) - after",
       X => assert.equal(X.recoveryBalance({ ...X.newNote({ kind: 'bricks', bag0: { cobblestone: 80 } }), loaded: { input: { name: 'cobblestone', n: 12 }, out: 'stone', inputAfter: 80 } }, { bag: { cobblestone: 80, stone: 9 }, placed: { cobblestone: 3 } }).verdict, 'ok')],
-    ['an empty furnace read as a loss', "if (bal.verdict === 'loss' && drained === 'empty' && bal.out === 0 && bal.back === 0) return 'unreconciled'", "",
+    ['an empty furnace read as a loss', "if (nowhere && (drained === 'empty' || (KINDS[kind] && !KINDS[kind].smelt))) return 'unreconciled'", "",
       X => assert.equal(X.recoveryVerdict({ verdict: 'loss', out: 0, back: 0 }, 'empty'), 'unreconciled')],
-    ['an empty furnace excuses a partial loss', "&& bal.out === 0 && bal.back === 0) return 'unreconciled'", ") return 'unreconciled'",
+    ['an empty furnace excuses a partial loss', "const nowhere = bal.verdict === 'loss' && bal.out === 0 && bal.back === 0", "const nowhere = bal.verdict === 'loss'",
       X => assert.equal(X.recoveryVerdict({ verdict: 'loss', out: 4, back: 0 }, 'empty'), 'loss')],
+    ['input seen back is forgotten', "const back = Math.min(n - out, Math.max(above('copper_ingot'), Number(note.backSeen) || 0))", "const back = Math.min(n - out, above('copper_ingot'))",
+      X => assert.equal(X.copperBalance({ ...X.newNote({ kind: 'cut_copper', took: { copper_ingot: 36 }, bag0: {} }), crafting: true, backSeen: 27, deposited: { copper_block: 1 } }, { bag: {} }).verdict, 'ok')],
     ['the recovery balance is blind', "return { verdict: short > 1e-9 ? 'loss' : 'ok', batch: n,", "return { verdict: 'ok', batch: n,",
       X => assert.equal(X.recoveryBalance({ ...X.newNote({ kind: 'bricks', bag0: { stone: 0, stone_bricks: 0, cobblestone: 80 } }), loaded: { input: { name: 'cobblestone', n: 12 }, out: 'stone', inputAfter: 80 } }, { bag: { cobblestone: 80, stone: 1 }, banked: { stone_bricks: 8 } }).verdict, 'loss')],
   ]
@@ -499,6 +508,8 @@ test('STRUCTURAL: both skills are registered HOUSEKEEPING (chatOnly) with their 
   assert.match(skills, /await matsBank\(ctx, obligations\(kind\)[^\n]*\{\s*\n?\s*onBanked:/, 'make_material passes onBanked')
   // WIRING (Codex r5 P2-1): the copper kinds' write-ahead is written BEFORE the crafts (copperBalance judges a note that says it)
   assert.match(skills, /if \(!K\.smelt\) \{ note\.crafting = true; writeMatsNote\(bot, note\) \}\s*\n\s*f\.made = await matsCrafts\(/, 'the crafting write-ahead precedes the crafts')
+  // WIRING (Codex r6 P2): every attempt keeps the high-water mark of input seen back in the note (recoveryBalance reads it)
+  assert.match(skills, /if \(balNow\.back > \(Number\(note\.backSeen\) \|\| 0\)\) note\.backSeen = balNow\.back/, 'the recovery persists backSeen')
   const calls = skills.match(/await matsSession\(ctx, \{[^}]*\}/g) ?? []
   assert.equal(calls.length, 1, 'one session call in make_material')
   assert.match(calls[0], /\bown: null\b/, 'own: null')

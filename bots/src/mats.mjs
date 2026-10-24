@@ -441,7 +441,10 @@ export function recoveryBalance (note, { bag = {}, banked = {}, placed = {} } = 
   const after = Number.isFinite(Number(note.loaded.inputAfter)) && note.loaded.inputAfter != null ? Number(note.loaded.inputAfter)
     : Number.isFinite(Number(note.loaded.inputBefore)) && note.loaded.inputBefore != null ? Number(note.loaded.inputBefore) - n : NaN
   // input the recovery itself placed as scaffold came back first (Claude r4 P3-2 B: counted by countPlacements)
-  const back = Number.isFinite(after) ? Math.min(n - out, Math.max(0, (Number(bag?.[inName]) || 0) + (Number(placed?.[inName]) || 0) - after)) : 0
+  // INPUT ONCE SEEN BACK STAYS BACK (Codex r6 P2): an ordinary deposit between attempts banks what came back without the note
+  // knowing -- note.backSeen keeps the most any attempt saw
+  const backNow = Number.isFinite(after) ? Math.max(0, (Number(bag?.[inName]) || 0) + (Number(placed?.[inName]) || 0) - after) : 0
+  const back = Math.min(n - out, Math.max(backNow, Number(note.backSeen) || 0))
   const short = Math.max(0, Math.round((n - out - back) * 100) / 100)
   return { verdict: short > 1e-9 ? 'loss' : 'ok', batch: n, out: Math.round(out * 100) / 100, back, short }
 }
@@ -472,9 +475,12 @@ export function recoveryContentsOk (loaded, { input = null, fuel = null, output 
  *  found EMPTY: another bot's furnace_drain may have taken the burnt batch into town while this one waited (Claude r4 P3-2 A) --
  *  or it was lost (Codex r5 P2-2). An empty furnace proves neither, so it is UNRECONCILED: visible, counted toward the read's
  *  unreconciled share (blocks KEEP above 5%), never the G2 REVERT. Part of the batch found is still judged. Pure. */
-export function recoveryVerdict (bal, drained) {
+export function recoveryVerdict (bal, drained, kind = null) {
   if (!bal) return null
-  if (bal.verdict === 'loss' && drained === 'empty' && bal.out === 0 && bal.back === 0) return 'unreconciled'
+  // a copper kind has no furnace to find empty: once crafting began, NOTHING of it anywhere is the same ambiguity -- a deposit the
+  // job cannot see (the town deposit at 34+, the model's own) or a loss (Claude r6 P3-1)
+  const nowhere = bal.verdict === 'loss' && bal.out === 0 && bal.back === 0
+  if (nowhere && (drained === 'empty' || (KINDS[kind] && !KINDS[kind].smelt))) return 'unreconciled'
   return bal.verdict
 }
 /**
@@ -494,7 +500,8 @@ export function copperBalance (note, { bag = {}, banked = {} } = {}) {
   // without it holds only inputs -- the ingots are inputs wherever they went (a deposit between attempts). Once crafting began,
   // the retained ingots are back and the rest must be parts: a craft is interruptible, so one block of four is 9 + 27 back.
   if (!note.crafting) return { verdict: 'ok', batch: n, out, back: Math.min(n - out, above('copper_ingot')), short: 0 }
-  const back = Math.min(n - out, above('copper_ingot'))
+  // the retained ingots once seen stay back (Codex r6 P2: a town deposit between attempts banks them, the note never hears)
+  const back = Math.min(n - out, Math.max(above('copper_ingot'), Number(note.backSeen) || 0))
   const short = Math.max(0, n - out - back)
   return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
 }
