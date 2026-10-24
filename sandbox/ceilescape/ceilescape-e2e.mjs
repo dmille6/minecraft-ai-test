@@ -84,7 +84,8 @@ const blockIs = (x, y, z, b) => { const r = r1(`execute if block ${x} ${y} ${z} 
 const FIX = SCENE === 'noexit' ? 'arena-placebo-c-bravo.json' : 'arena-board-a-comet.json'
 const fixture = JSON.parse(fs.readFileSync(path.join(FIXDIR, FIX), 'utf8'))
 const RX = fixture.radius, DN = fixture.down, UP = fixture.up
-const A = { x: 5300 + 64 * SCENES.indexOf(SCENE), y: 100, z: 5300 }   // the bot's FEET cell
+const A = { x: 5300 + 64 * SCENES.indexOf(SCENE), y: 100, z: 5300 }
+{ const odd = [...new Set(Object.values(fixture.cells))].filter(v => /\[wl\]$/.test(v) && !/^(glow_lichen)\[wl\]$/.test(v)); if (odd.length) throw new Error('the fixture holds waterlogged states the dryness check does not name: ' + odd.join(',')) }   // the bot's FEET cell
 const FEET_Y = SCENE === 'noexit' ? 2.2 : 0.2                          // Bravo floats at y 37.2 (anchor 35), Comet at 40.2 (anchor 40)
 const stateOf = raw => {
   const s = String(raw)
@@ -144,6 +145,8 @@ function launch (w) {
   const child = spawn(process.execPath, ['--max-old-space-size=768', 'src/index.mjs'], { cwd: path.join(BOT_ROOT, 'bots'), env, stdio: ['ignore', 'pipe', 'pipe'] })
   const out = fs.createWriteStream(path.join(dir, 'bot.out'))
   child.stdout.pipe(out); child.stderr.pipe(out)
+  // a spawn failure goes through the cleanup like every other fatal (Codex driver r6 P2)
+  child.on('error', e => { P_('FATAL spawn', e.message); cleanup().then(() => process.exit(1)) })
   procs.push(child)
   return { w, name, dir, child, log: path.join(dir, 'log', `skill-${name}.jsonl`) }
 }
@@ -161,7 +164,12 @@ const inTrap = q => !!q && trapCells.has(`${Math.floor(q.x)},${Math.floor(q.z)}`
 let setupBegan = false
 let lastInvalid = false
 // DRY ONLY WHEN BOTH CELLS ARE CONFIRMED NOT WATER: a failed observation is never "dry" (fail closed)
-const dryAt = q => !!q && [0, 1].every(dy => blockIs(Math.floor(q.x), Math.floor(q.y) + dy, Math.floor(q.z), 'water') === false)
+// A FLUID-BEARING CELL, tri-state (Codex driver r6 P2): water, a bubble column, lava, or one of the waterloggable blocks the
+// arenas hold (glow_lichen and ladder: the fixtures' only [wl]/ladder states, asserted at load) when waterlogged.
+const FLUIDS = ['water', 'bubble_column', 'lava', 'glow_lichen[waterlogged=true]', 'ladder[waterlogged=true]']
+const wetIs = (x, y, z) => { const v = FLUIDS.map(f => blockIs(x, y, z, f)); return v.includes(true) ? true : v.includes(null) ? null : false }
+// DRY ONLY WHEN BOTH CELLS ARE CONFIRMED NOT FLUID: a failed observation is never "dry" (fail closed)
+const dryAt = q => !!q && [0, 1].every(dy => wetIs(Math.floor(q.x), Math.floor(q.y) + dy, Math.floor(q.z)) === false)
 let botProc = null
 
 async function main () {
@@ -191,7 +199,9 @@ async function main () {
   P_('arena set', set)
   if (!Object.values(set).every(Boolean)) throw new Error('arena did not set: ' + JSON.stringify(set))
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-    if (FH.some(dy => isBlock(A.x + dx, A.y + dy, A.z + dz, 'water'))) trapCells.add(`${A.x + dx},${A.z + dz}`)
+    const w = FH.map(dy => wetIs(A.x + dx, A.y + dy, A.z + dz))
+    if (w.includes(null)) throw new Error(`the trap could not be measured at ${A.x + dx},${A.z + dz}`)   // tri-state (Codex driver r6 P2)
+    if (w.includes(true)) trapCells.add(`${A.x + dx},${A.z + dz}`)
   }
   P_('trap cells', [...trapCells])
   const bot = launch(who)
@@ -212,6 +222,12 @@ async function main () {
     if (!m || Number(m[1]) < Number(n)) short.push(`${base} ${m ? m[1] : 0}/${n}`)
   }
   if (short.length) throw new Error('the bag did not take: ' + short.join(','))
+  // A FRESH BODY (Codex driver r6 P2): names repeat across runs, so health and hunger are reset and read back
+  batch([`effect give ${bot.name} minecraft:instant_health 1 10 true`, `effect give ${bot.name} minecraft:saturation 1 10 true`])
+  await sleep(1500)
+  batch([`effect clear ${bot.name}`])
+  const food = /(\d+)/.exec(r1(`data get entity ${bot.name} foodLevel`)), hp = healthOf(bot.name)
+  if (!food || Number(food[1]) < 20 || hp == null || hp < 19.5) throw new Error(`not a fresh body: health ${hp}, food ${food?.[1]}`)
   const start = posOf(bot.name)
   P_('placed', start)
   const col = q => q && Math.floor(q.x) === A.x && Math.floor(q.z) === A.z
@@ -229,13 +245,8 @@ async function main () {
     if (p && !inTrap(p) && dryAt(p)) { outAt ??= Date.now() } else outAt = null
     if (outAt && Date.now() - outAt >= 60_000) break                  // out of the trap and dry a full minute: done
   }
-  const rows = rowsOf(bot)
-  const p = posOf(bot.name)
-  const held = outAt ? (Date.now() - outAt) / 1000 : 0
-  const died = rows.some(r => kind(r) === '_death') || minHealth <= 0
-  const inArena = !!p && Math.abs(p.x - A.x) <= RX && Math.abs(p.z - A.z) <= RX && p.y >= A.y - DN && p.y <= A.y + UP
-  const ce = rows.filter(r => kind(r) === '_ceilescape').map(r => String(r.skill.detail))
-  const cut = rows.filter(r => kind(r) === '_entombed_ramp_cut' || kind(r) === '_marooned_ramp_cut').map(r => `${kind(r)}: ${String(r.skill.detail).replace(/^.*stopped because /, '').slice(0, 160)}`)
+  // THE WORLD FIRST, THE BODY LAST (Codex driver r6 P2): the slow block reads are made before the final observation, so the
+  // position, health, dryness, connection and the bot's own rows all describe one moment, at the end
   const cells = SCENE === 'noexit' ? { ceiling: at(0, 4, 0) } : { ceiling: at(0, 2, 0), eastFeet: at(1, 0, 0), eastHead: at(1, 1, 0), southFeet: at(0, 0, 1), southHead: at(0, 1, 1) }
   const NAMES = ['air', 'water', 'copper_ore', 'stone', 'dirt', 'ladder', 'lava', 'cobblestone', 'obsidian']
   const world = Object.fromEntries(Object.entries(cells).map(([k, [x, y, z]]) => [k, NAMES.find(n => isBlock(x, y, z, n)) ?? 'other']))
@@ -243,14 +254,23 @@ async function main () {
   // (a cheap dry ceiling) can never read as the design's success
   const endCol = check(column)
   const sceneHeld = Object.values(endCol).every(Boolean)
+  const p = posOf(bot.name), hEnd = healthOf(bot.name)
+  if (hEnd != null) minHealth = Math.min(minHealth, hEnd)
+  const endDry = dryAt(p)              // BEFORE the validity list (Codex driver r4 P2): a failed final observation must invalidate
+  const alive = botProc.exitCode === null && botProc.signalCode === null && r1('list').includes(bot.name)   // and still connected
+  const rows = rowsOf(bot)
+  const held = outAt ? (Date.now() - outAt) / 1000 : 0
+  const died = rows.some(r => kind(r) === '_death') || minHealth <= 0
+  // BLOCK COORDINATES (Codex driver r6 P2): any cell of the arena's interior is in it
+  const inArena = !!p && Math.abs(Math.floor(p.x) - A.x) <= RX && Math.abs(Math.floor(p.z) - A.z) <= RX && Math.floor(p.y) >= A.y - DN && Math.floor(p.y) <= A.y + UP
+  const ce = rows.filter(r => kind(r) === '_ceilescape').map(r => String(r.skill.detail))
+  const cut = rows.filter(r => kind(r) === '_entombed_ramp_cut' || kind(r) === '_marooned_ramp_cut').map(r => `${kind(r)}: ${String(r.skill.detail).replace(/^.*stopped because /, '').slice(0, 160)}`)
   // THE INSTRUMENT (Claude driver P2-2, Codex driver P2): the bot's own log was read, the right build ran, it was observed,
   // and it was alive to the end -- otherwise the run is INVALID, never an ordinary negative
   const licence = rows.filter(r => kind(r) === '_ceilescape_mode').map(r => String(r.skill.detail))
   const isCand = LABEL.startsWith('cand')
   const buildOk = isCand ? licence.some(d => /^on=1 /.test(d)) : rows.every(r => !/^_(ceilescape|needs_rescue)/.test(kind(r)))
-  const alive = botProc.exitCode === null && botProc.signalCode === null && r1('list').includes(bot.name)   // and still connected
   const shaOk = process.env.CE_EXPECT_SHA ? sha === process.env.CE_EXPECT_SHA : null
-  const endDry = dryAt(p)              // BEFORE the validity list (Codex driver r4 P2): a failed final observation must invalidate
   const invalid = [p ? null : 'the final position could not be read (Codex driver r5 P2)', shaOk === false ? `sha ${sha} != expected ${process.env.CE_EXPECT_SHA}` : null, obsFailures ? `${obsFailures} block observations failed` : null,
     sceneHeld ? null : 'the scene did not hold (column water or ceiling changed)', rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
     polls && seen / polls >= 0.8 ? null : `observed ${seen}/${polls} polls`, alive ? null : `the bot process ended (code ${botProc.exitCode}, signal ${botProc.signalCode})`].filter(Boolean)
