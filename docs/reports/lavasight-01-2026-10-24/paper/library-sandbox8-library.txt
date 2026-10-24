@@ -1,0 +1,3 @@
+LIBRARY INCONCLUSIVE stuck-1899-board-a-359_40_187 start 0: valid runs base 3 cand 0 (need >= 3 each, equal)
+LIBRARY INCONCLUSIVE stuck-1899-placebo-c-559_37_219 start 0: valid runs base 3 cand 0 (need >= 3 each, equal)
+exit 2
