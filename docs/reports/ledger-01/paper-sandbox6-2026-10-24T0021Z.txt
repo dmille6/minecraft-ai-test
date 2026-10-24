@@ -1,0 +1,12 @@
+root=/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/wt-ledger sha=26e76fa04371f28af951100b143fef9bd80625dc server=sandbox6 scenes=drains,frozen,live rounds=3 pool=/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/wt-ledgersbx/sandbox/state/ledger-20261023T234009/pool
+drains r0 PASS  checked=12 exact=12 timing=0 coalesced=0 drops=0 outcomes={"entry":12} reopened=0
+drains r1 PASS  checked=12 exact=12 timing=0 coalesced=0 drops=0 outcomes={"entry":12} reopened=0
+drains r2 PASS  checked=12 exact=12 timing=0 coalesced=0 drops=0 outcomes={"entry":12} reopened=0
+frozen r0 PASS  checked=2 exact=2 timing=0 coalesced=0 drops=0
+frozen r1 PASS  checked=2 exact=2 timing=0 coalesced=0 drops=0
+frozen r2 PASS  checked=2 exact=2 timing=0 coalesced=0 drops=0
+live r0 PASS  checked=2 exact=1 timing=1 coalesced=0 drops=0
+live r1 PASS  checked=2 exact=1 timing=1 coalesced=0 drops=0
+live r2 PASS  checked=2 exact=1 timing=1 coalesced=0 drops=0
+SUMMARY {"at":"2026-10-24T00:21:44.335Z","summary":true,"sha":"26e76fa04371f28af951100b143fef9bd80625dc","server":"sandbox6","gate":"PASS","opensExact":42,"loadsFrozen":3,"loadsLive":3,"fails":0,"missing":[],"rounds":9,"passed":9,"synthetic":"arena and furnace presets by RCON; bot teleported to town with a light bag; scripted brain (status/short walks); sandbox pacing 45 s; glass-walled arena; a fresh pool per smelt round"}
+rc=0
