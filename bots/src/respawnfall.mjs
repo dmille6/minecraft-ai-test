@@ -29,7 +29,8 @@ export const MARGIN = 2                // blocks kept in hand beyond a non-zero 
 export const EDGE_SIDES = 3
 export const START_RADIUS = 8
 export const SAVE_MIN = 4              // another column must save this many blocks over the own one (a deck walk has its own risk)
-export const SPAWN_GRACE_MS = 3000     // no floor dig in the first 3 s after a spawn: the server drops them (ghost blocks, 09-29)
+export const SPAWN_GRACE_MS = 3000
+export const TRANSIENT_MAX_MS = 60_000 // an episode waits this long on transient readings, then hands the bot back     // no floor dig in the first 3 s after a spawn: the server drops them (ghost blocks, 09-29)
 
 /**
  * THE ESCAPE LATTICE STANDS ASIDE WHILE sky_descend OWNS THE EPISODE (Codex r1 P1-3, Claude r1 P2-4): a bot held for
@@ -136,6 +137,66 @@ function exposedAt (R, x, y, z) {
   return { exposed: sides >= EDGE_SIDES, own, sides, blind }
 }
 
+export const GROUNDED_MIN = 8          // a support with this many solid cells straight under it stands on the ground
+export const REGION_DROP = 6           // the walk profile's maxDropDown (index.mjs): where the model's own walks can take the bot
+
+/** The top of a block's collision box (1 for a cube, 0.5 for a bottom slab; a fake without shapes is a cube). Pure. */
+const topOf = b => {
+  const sh = b?.shapes
+  if (!Array.isArray(sh) || !sh.length) return 1
+  return Math.max(...sh.map(q => q[4] ?? 1))
+}
+/** Feet-to-landing fall for a run {open, landY} at column (x, z): open cells plus the landing block's missing top. */
+const fallOf = (R, x, z, r) => r.open + (r.landY == null ? 0 : 1 - topOf(R.block(x, r.landY, z)))
+/** Is support (x, y, z) on the ground: GROUNDED_MIN solid cells straight under it? */
+const groundedAt = (R, x, y, z) => { for (let k = 1; k <= GROUNDED_MIN; k++) if (R.kindAt(x, y - k, z) !== 'solid') return false; return true }
+/** A stance: a solid support with two open cells over it. */
+const stanceAt = (R, x, y, z) => R.kindAt(x, y, z) === 'solid' && R.kindAt(x, y + 1, z) === 'open' && R.kindAt(x, y + 2, z) === 'open'
+
+/**
+ * THE REGION A BODY CAN WALK FROM SUPPORT `s` (Claude r2 P1-1, Codex r2 P1-2): a flood within `radius` over stances, each
+ * step to a side one up (a jump) or level or down at most REGION_DROP through open cells -- where the model's own walks
+ * (maxDropDown 6) can take the bot, so a tree top on the deck reaches the deck. -> {grounded, floating, blind, n}:
+ *   grounded  some stance in it stands on the ground (GROUNDED_MIN solid cells under it)
+ *   floating  the first stance in it with ELEVATED_MIN open under it onto anything but water (a deck cell)
+ * A region with a floating stance and NO grounded one is a PLATFORM: a deck, a thick patch of deck, a tree standing on a
+ * deck. A bot on the ground beside a bridge is not on one (its own stance is grounded); a cliff top is not (no stance in it
+ * floats). Pure.
+ */
+export function regionAt (R, s, { radius = START_RADIUS, cap = 900 } = {}) {
+  const key = c => `${c.x},${c.y},${c.z}`
+  const seen = new Set([key(s)]), q = [s]
+  let grounded = false, floating = null, blind = false
+  while (q.length && seen.size <= cap) {
+    const c = q.shift()
+    if (!grounded && groundedAt(R, c.x, c.y, c.z)) grounded = true
+    if (!floating) {
+      const own = R.run(c.x, c.y - 1, c.z)
+      if (own.landing === 'unknown') blind = true
+      else if (own.landing !== 'water' && own.open >= ELEVATED_MIN) floating = c
+    }
+    for (const [dx, dz] of SIDES) {
+      const nx = c.x + dx, nz = c.z + dz
+      if (Math.abs(nx - s.x) > radius || Math.abs(nz - s.z) > radius) continue
+      let next = null
+      if (R.kindAt(c.x, c.y + 3, c.z) === 'open' && stanceAt(R, nx, c.y + 1, nz)) next = { x: nx, y: c.y + 1, z: nz }
+      else {
+        // level or down: the body moves into the side column at feet/head height, then falls through open cells
+        if (R.kindAt(nx, c.y + 1, nz) !== 'open' || R.kindAt(nx, c.y + 2, nz) !== 'open') { if (R.kindAt(nx, c.y + 1, nz) === 'unknown') blind = true; continue }
+        for (let dy = 0; dy >= -REGION_DROP; dy--) {
+          const k = R.kindAt(nx, c.y + dy, nz)
+          if (k === 'unknown') { blind = true; break }
+          if (k === 'solid') { next = { x: nx, y: c.y + dy, z: nz }; break }
+          if (k !== 'open') break                                   // a liquid: not a walk
+        }
+      }
+      if (!next || seen.has(key(next))) continue
+      seen.add(key(next)); q.push(next)
+    }
+  }
+  return { grounded, floating, blind, n: seen.size, platform: !!floating && !grounded }
+}
+
 /**
  * DONE at support (x, y, z): {done, unknown, why}. A safe stance: at most SAFE_DROP - 1 open under the support or water
  * under it (so even breaking it is a fall of <= SAFE_DROP), NO side a deadly drop (>= ELEVATED_MIN onto anything but
@@ -147,8 +208,12 @@ function exposedAt (R, x, y, z) {
 export function doneAt (R, x, y, z) {
   const own = R.run(x, y - 1, z)
   if (own.landing === 'unknown') return { done: false, unknown: true, why: 'the column below is not loaded' }
-  if (!(own.open <= SAFE_DROP - 1 || own.landing === 'water')) return { done: false, unknown: false, why: `${own.open} open below` }
-  let exits = 0, walls = 0
+  if (own.landing === 'lava') return { done: false, unknown: false, why: 'lava below' }     // never a landing (Codex r2 P1-1)
+  // breaking the support is a fall of open + 1 onto the landing's real top (a bottom slab is half a block lower: Codex r2 P2-5)
+  if (!(own.landing === 'water' || own.open + 1 + (own.landY == null ? 0 : 1 - topOf(R.block(x, own.landY, z))) <= SAFE_DROP)) return { done: false, unknown: false, why: `${own.open} open below` }
+  // ON THE GROUND, a deadly side is terrain (a natural pit beside the landing: Codex r2 P2-4), not a platform edge
+  const ground = groundedAt(R, x, y, z)
+  let exits = 0, walls = 0, deadly = 0, deadlyWhy = null
   for (const [dx, dz] of SIDES) {
     const f = R.kindAt(x + dx, y + 1, z + dz), h = R.kindAt(x + dx, y + 2, z + dz), sk = R.kindAt(x + dx, y, z + dz)
     if (f === 'unknown' || h === 'unknown' || sk === 'unknown') return { done: false, unknown: true, why: 'a side is not loaded' }
@@ -157,11 +222,20 @@ export function doneAt (R, x, y, z) {
     // a deck has the deck at its feet's level all round and the void just below it -- an overhang, not an enclosure
     const r = sk === 'open' ? R.run(x + dx, y, z + dz) : R.run(x + dx, y - 1, z + dz)
     if (r.landing === 'unknown') return { done: false, unknown: true, why: 'a side is not loaded' }
-    if (r.landing !== 'water' && r.open >= ELEVATED_MIN) return { done: false, unknown: false, why: `a ${r.open}-block drop beside it` }
+    const fall = fallOf(R, x + dx, z + dz, r)
+    if (r.landing === 'lava' || (r.landing !== 'water' && r.open >= ELEVATED_MIN)) { deadly++; deadlyWhy ??= `a ${r.open}-block drop beside it${r.landing === 'lava' ? ' into lava' : ''}` }
     if (f !== 'open' || h !== 'open') { walls++; continue }          // a wall: no exit
-    if (r.landing === 'water' || r.open <= SAFE_DROP) exits++
+    if (r.landing !== 'lava' && (r.landing === 'water' || fall <= SAFE_DROP)) exits++
   }
+  // a deadly side ends nothing -- unless the stance is on the ground and fewer than EDGE_SIDES sides are deadly (a natural
+  // pit or ravine beside the landing is terrain); a pillar with the void on EDGE_SIDES sides is never done, grounded or not
+  if (deadly && (!ground || deadly >= EDGE_SIDES)) return { done: false, unknown: false, why: deadlyWhy }
   if (!exits && walls < 4) return { done: false, unknown: false, why: 'no side is a safe step yet' }
+  // AND NOT STILL ON THE PLATFORM: a locally safe stance on a thick patch of deck, or on a tree standing on the deck, is
+  // still on it (Claude r2 P1-1)
+  const reg = regionAt(R, { x, y, z })
+  if (reg.platform) return { done: false, unknown: false, why: `still on a platform (a floating cell at ${reg.floating.x},${reg.floating.y},${reg.floating.z})` }
+  if (reg.blind && !reg.grounded) return { done: false, unknown: true, why: 'the region around it is not loaded' }
   return { done: true, unknown: false, why: walls === 4 ? 'enclosed' : 'a safe stance' }
 }
 
@@ -170,8 +244,10 @@ export function doneAt (R, x, y, z) {
  * support only. TRANSIENT readings -- no position, in the air, no solid support (a rejected dig's ghost air, an edge's open
  * side), an unloaded column -- are flagged: an episode in progress waits on them, never ends on them.
  */
-export function elevation ({ pos, at, onGround = true }) {
+export function elevation ({ pos, at, onGround = true, inWater = false }) {
   if (!pos || ![pos.x, pos.y, pos.z].every(Number.isFinite)) return { elevated: false, why: 'no position', transient: true }
+  // IN WATER: swimming is travel, and never a reading to wait on (Codex r2 P1-3, Claude r2 P2-2)
+  if (inWater) return { elevated: false, why: 'in water', water: true }
   if (!onGround) return { elevated: false, why: 'not on the ground', transient: true }
   const s = supportOf(pos)
   const R = columnReader(at)
@@ -183,6 +259,9 @@ export function elevation ({ pos, at, onGround = true }) {
   if (e.exposed && e.own.open >= ELEVATED_MIN && e.own.landing !== 'water') return { elevated: true, why: `${e.own.open} open below onto ${e.own.landing}`, ...base }
   if (e.exposed) return { elevated: true, why: `a deadly drop on ${e.sides} sides of the support`, ...base }
   if (e.blind) return { elevated: false, why: 'a side column is not loaded yet', unknown: true, transient: true, ...base }
+  // A TREE ON THE DECK, OR A THICK PATCH OF IT: locally safe, but every way off leads onto the platform (Codex r2 P1-2)
+  const reg = regionAt(R, s)
+  if (reg.platform) return { elevated: true, why: `on a platform: a floating cell at ${reg.floating.x},${reg.floating.y},${reg.floating.z} and no ground within ${START_RADIUS}`, ...base, region: true }
   return { elevated: false, why: e.own.landing === 'water' ? 'water below and no deadly sides' : `only ${e.own.open} open below`, ...base }
 }
 
@@ -214,6 +293,7 @@ export function descentCost (at, s, { scan = SCAN, R = columnReader(at, { scan }
       try { g = diggable(s.x, y, s.z) } catch { g = { ok: false, why: 'unreadable' } }
       if (!g?.ok) return { ok: false, cost, steps: step, why: g?.why ?? `cannot break the support at y=${y}`, endY: y }
     }
+    if (k === 'solid' && !fullCube(R.block(s.x, y - 1, s.z))) return { ok: false, cost, steps: step, why: `a partial block (${R.block(s.x, y - 1, s.z)?.name}) in the column at y=${y - 1}`, endY: y }
     if (k === 'open') { cost++; placedAt = y - 1 } else placedAt = null
     y--
   }
@@ -276,7 +356,14 @@ export function descendOrder ({ now = Date.now(), lastSpawnAt = null, el = null,
   const s = { ...state }
   if (!on) { s.active = false; return { issue: false, why: 'off', state: s } }
   if (s.active) {
-    if (done?.done === true && !el?.transient) { s.active = false; return { issue: false, why: 'down: a safe stance', state: s } }
+    if (done?.done === true && !el?.transient) { s.active = false; s.transientSince = null; return { issue: false, why: 'down: a safe stance', state: s } }
+    // SWIMMING ends it (poolescape and the swim reflexes own a wet body); so does a transient reading that lasts
+    // TRANSIENT_MAX_MS (a ladder, a snow layer, a body the server keeps in the air): the bot is handed back, with the row
+    if (el?.water) { s.active = false; s.transientSince = null; return { issue: false, why: 'in water: swimming is travel', state: s, ended: 'water' } }
+    if (el?.transient) {
+      s.transientSince ??= now
+      if (now - s.transientSince > TRANSIENT_MAX_MS) { s.active = false; s.transientSince = null; return { issue: false, why: `transient for ${Math.round(TRANSIENT_MAX_MS / 1000)} s (${el.why})`, state: s, ended: 'transient' } }
+    } else s.transientSince = null
     return { issue: true, why: el?.elevated ? el.why : `episode open: ${el?.transient ? `waiting (${el.why})` : (done?.why ?? el?.why ?? 'not down yet')}`, state: s }
   }
   const inWindow = lastSpawnAt != null && now - lastSpawnAt <= SPAWN_WINDOW_MS
