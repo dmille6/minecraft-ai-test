@@ -66,13 +66,19 @@ const BAD = /not loaded|Cannot|Unknown|Incorrect|Too many|Could not (?!set the b
 function batch (cmds) {
   const out = []
   for (let i = 0; i < cmds.length; i += 400) out.push(...rcon(...cmds.slice(i, i + 400)))
-  const bad = out.filter(x => BAD.test(x.reply))
+  // a missing or empty reply is a failure too (Codex driver r3 P2): every command must answer, and not with an error
+  if (out.length !== cmds.length) throw new Error(`rcon: ${cmds.length} commands, ${out.length} replies`)
+  // (gamemode/effect clear/kill/clear may legitimately answer nothing on a fresh bot or an empty selector)
+  const bad = out.filter(x => BAD.test(x.reply) || (!String(x.reply).trim() && !/^(gamemode|effect clear|kill|clear) /.test(x.cmd)))
   if (bad.length) throw new Error('rcon: ' + bad.slice(0, 3).map(x => x.cmd + ' => ' + x.reply).join('; '))
   return out
 }
 const posOf = name => { const m = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(r1(`data get entity ${name} Pos`)); return m ? { x: +m[1], y: +m[2], z: +m[3] } : null }
 const healthOf = name => { const m = /([\d.]+)f/.exec(r1(`data get entity ${name} Health`)); return m ? +m[1] : null }
 const isBlock = (x, y, z, b) => /Test passed/.test(r1(`execute if block ${x} ${y} ${z} minecraft:${b}`))
+// TRI-STATE (Codex driver r3 P2): true / false only on an explicit test answer; anything else is null -- an observation that failed
+let obsFailures = 0
+const blockIs = (x, y, z, b) => { const r = r1(`execute if block ${x} ${y} ${z} minecraft:${b}`); if (/Test passed/.test(r)) return true; if (/Test failed/.test(r)) return false; obsFailures++; return null }
 
 // ---------------------------------------------------------------- the arena
 const FIX = SCENE === 'noexit' ? 'arena-placebo-c-bravo.json' : 'arena-board-a-comet.json'
@@ -154,7 +160,8 @@ let trapCells = new Set([`${A.x},${A.z}`])
 const inTrap = q => !!q && trapCells.has(`${Math.floor(q.x)},${Math.floor(q.z)}`) && q.y >= A.y - DN && q.y <= A.y + FH[1] + 1
 let setupBegan = false
 let lastInvalid = false
-const dryAt = q => !!q && !isBlock(Math.floor(q.x), Math.floor(q.y), Math.floor(q.z), 'water') && !isBlock(Math.floor(q.x), Math.floor(q.y) + 1, Math.floor(q.z), 'water')
+// DRY ONLY WHEN BOTH CELLS ARE CONFIRMED NOT WATER: a failed observation is never "dry" (fail closed)
+const dryAt = q => !!q && [0, 1].every(dy => blockIs(Math.floor(q.x), Math.floor(q.y) + dy, Math.floor(q.z), 'water') === false)
 let botProc = null
 
 async function main () {
@@ -162,9 +169,10 @@ async function main () {
   for (let k = 0; k < 30 && !/There are 0 of/.test(pl); k++) { await sleep(2000); pl = r1('list') }
   // REFUSED BEFORE SETUP: nothing in the world is touched, not even by the cleanup (Codex driver P2)
   if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
+  if (process.env.CE_EXPECT_SHA && sha !== process.env.CE_EXPECT_SHA) throw new Error(`refused: the tree is ${sha}, expected ${process.env.CE_EXPECT_SHA}`)
   P_(`root=${BOT_ROOT} sha=${sha} server=${SERVER} scene=${SCENE} bot=${who} arena=${A.x},${A.y},${A.z} fixture=${FIX} (${fixture.source}, anchor ${fixture.anchor})`)
   setupBegan = true
-  r1(`forceload add ${A.x - RX - 1} ${A.z - RX - 1} ${A.x + RX + 1} ${A.z + RX + 1}`)
+  batch([`forceload add ${A.x - RX - 1} ${A.z - RX - 1} ${A.x + RX + 1} ${A.z + RX + 1}`])
   await sleep(2000)
   batch(arenaCmds())
   await sleep(3000)                                    // let the copied water settle before anything is measured
@@ -241,14 +249,16 @@ async function main () {
   const isCand = LABEL.startsWith('cand')
   const buildOk = isCand ? licence.some(d => /^on=1 /.test(d)) : rows.every(r => !/^_(ceilescape|needs_rescue)/.test(kind(r)))
   const alive = botProc.exitCode === null && botProc.signalCode === null && r1('list').includes(bot.name)   // and still connected
-  const invalid = [sceneHeld ? null : 'the scene did not hold (column water or ceiling changed)', rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
+  const shaOk = process.env.CE_EXPECT_SHA ? sha === process.env.CE_EXPECT_SHA : null
+  const invalid = [shaOk === false ? `sha ${sha} != expected ${process.env.CE_EXPECT_SHA}` : null, obsFailures ? `${obsFailures} block observations failed` : null,
+    sceneHeld ? null : 'the scene did not hold (column water or ceiling changed)', rows.length > 0 ? null : 'no rows read from the bot log', buildOk ? null : (isCand ? 'no _ceilescape_mode on=1 licence' : 'a base build wrote _ceilescape rows'),
     polls && seen / polls >= 0.8 ? null : `observed ${seen}/${polls} polls`, alive ? null : `the bot process ended (code ${botProc.exitCode}, signal ${botProc.signalCode})`].filter(Boolean)
   const left = invalid.length === 0 && sceneHeld && !inTrap(p) && dryAt(p) && held >= 30 && !died && inArena
   const outcome = invalid.length ? 'INVALID' : left ? 'LEFT' : 'STAYED'
   // a BASE run is a positive control only when the scene held and the base swung its futile dig (Claude driver r2 P3-2)
   const controlOk = isCand ? null : (sceneHeld && cut.some(s => /dig exceeded/.test(s)))
   const ev = { scene: SCENE, outcome, controlOk, sha, shaExpected: process.env.CE_EXPECT_SHA || null,
-    shaOk: process.env.CE_EXPECT_SHA ? sha === process.env.CE_EXPECT_SHA : null, server: SERVER, lock: 'ceilescape (per-server)', bot: who, name: bot.name, start, end: p, left,
+    shaOk, server: SERVER, lock: 'ceilescape (per-server)', bot: who, name: bot.name, start, end: p, left,
     endedEast: !!p && p.x >= A.x + 1, sceneHeld, endColumn: endCol, invalid, heldOutS: +held.toFixed(0),
     inArena, minHealth, deaths: rows.filter(r => kind(r) === '_death').map(r => String(r.skill.detail).slice(0, 160)), licence: licence.map(d => d.slice(0, 40)),
     actions: ce.reduce((m, d) => { const a = (/ action=(\S+)/.exec(d) || [])[1] ?? '?'; m[a] = (m[a] || 0) + 1; return m }, {}),
