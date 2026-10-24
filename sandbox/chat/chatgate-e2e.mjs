@@ -13,7 +13,7 @@
 // candidate's deathCauseText verdict are recorded.
 //
 //   node sandbox/chat/chatgate-e2e.mjs <botRoot> <label> [server]
-// Refuses unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `chatgate01`. No world edits but `kill`.
+// Refuses unless a sandbox lock covering SERVER (global or per-server, on 10.0.0.31) has `chatgate01` as its owner's first word. No world edits but `kill`.
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -22,10 +22,13 @@ import { createRequire } from 'node:module'
 
 const [BOT_ROOT, LABEL, SERVER = 'sandbox3'] = process.argv.slice(2)
 if (!BOT_ROOT || !LABEL) throw new Error('usage: chatgate-e2e.mjs <botRoot> <label> [server]')
-const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601 }        // sandbox4 is the model benchmark's: never
-if (!PORTS[SERVER]) throw new Error('sandbox servers only (sandbox, sandbox2, sandbox3)')
-const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-if (!/chatgate01/.test(lock)) throw new Error(`the sandbox lock does not name chatgate01: ${lock.trim()}`)
+// sandbox names/ports and the lock from the shared registry (sandbox/sandboxes.json via sandbox/lib/sbxlock.cjs);
+// sandbox4 stays excluded: it is the model benchmark's
+const require = createRequire(import.meta.url)
+const sbx = require('../lib/sbxlock.cjs')
+const PORTS = Object.fromEntries(Object.entries(sbx.PORTS).filter(([n]) => n !== 'sandbox4'))
+if (!PORTS[SERVER]) throw new Error(`sandbox servers only (${Object.keys(PORTS).join(', ')})`)
+sbx.requireSandboxLock(SERVER, 'chatgate01')
 const NAME = 'sbx-cg-Alpha'
 const OUT = process.env.CG_OUT || path.join(os.tmpdir(), 'chatgate-e2e')
 fs.mkdirSync(OUT, { recursive: true })
