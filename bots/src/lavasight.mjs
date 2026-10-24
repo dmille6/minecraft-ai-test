@@ -315,6 +315,16 @@ export function wrapNeighbors (baseGetNeighbors, ctx, counters = {}) {
 }
 
 /**
+ * WHO HOLDS THE BODY -> a reflex name or null. Pure. LAVASIGHT-01 x LAVASTEP-01 (JIT 10-24, Codex P2): lavastep-01's danger
+ * mover (reflex.mjs stop.dangerMover().moving()) steers the body on its own cadence and is not one of activeReflex()'s arms,
+ * so a live mover reads 'lavastep' whatever the arms say (null or 'eat' included): the price stays off (priceLive), G2 counts
+ * the held surcharges (held_seen), and the route row names the holder.
+ */
+export function lsHolder ({ reflex = null, dangerMoving = false } = {}) {
+  return dangerMoving ? 'lavastep' : (reflex ?? null)
+}
+
+/**
  * IS THE PRICE ON? -> boolean. Pure. Off while a reflex that moves the body holds it (keepout.mjs scopeHolds' rule: eating
  * does not take the body), and off when LAVASIGHT=0.
  */
