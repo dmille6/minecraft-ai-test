@@ -79,6 +79,9 @@ function arenaCmds () {
   const c = [`forceload add ${A0} ${A0} ${A1} ${A1}`, `kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..80]`]
   c.push(`fill ${A0} ${FLOOR} ${A0} ${A1} ${FLOOR} ${A1} minecraft:stone`)
   for (let y = FLOOR + 1; y <= TOP; y += 2) c.push(`fill ${A0} ${y} ${A0} ${A1} ${Math.min(y + 1, TOP)} ${A1} minecraft:air`)
+  // the fills pop an earlier build's attached blocks (a wall torch) as ITEMS: killed again after them (cand-9 after a SHOP_KEEP
+  // run picked up a popped torch: town + bag -1 against a bill of -2, and banked it back)
+  c.push(`kill @e[type=item,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..80]`)
   c.push(`fill ${A0} ${FLOOR - 1} ${A0} ${A1} ${FLOOR - 1} ${A1} minecraft:stone`)
   return c
 }
