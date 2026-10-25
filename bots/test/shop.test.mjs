@@ -84,6 +84,11 @@ await t('mine names the workshop when its keep-out refuses (Claude r2 P3-1: it r
   assert.strictEqual(MW.keepOutLabel('nonesuch'), 'the town tree farm', 'control: an unknown kind still falls back')
 })
 
+await t('leftoverNames: only what was drawn AND is held above the visit\'s start (never a pre-visit item, never one used up)', () => {
+  assert.deepStrictEqual(S.leftoverNames({ stone_bricks: 20, glass_pane: 4, torch: 2 }, { stone_bricks: 5, torch: 3 }, { stone_bricks: 9, glass_pane: 0, torch: 3, cobblestone: 64 }), ['stone_bricks'])
+  assert.deepStrictEqual(S.leftoverNames({}, {}, { cobblestone: 64 }), [], 'nothing drawn: nothing banked')
+})
+
 console.log('THE FOOTPRINT PRICE')
 await t('a record cell + 1 costs 100 on a WORK or TRAVEL walk, 0 on an escape walk (survival digs kept), 0 outside', () => {
   const cells = S.footprintCells({ cells: [{ at: [10, 70, 10] }] })
@@ -124,7 +129,8 @@ const W = [
   ['skills: the visit draws with the part rule', SK, /matsWithdraw\(ctx, need, signal, 30_000, matsReserve\(\)\.table, shopAllow\)/],
   ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = allow\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
   ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
-  ['skills: the leftovers banked after the visit (A3 fallback: town chests)', SK, /if \(left\.length\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took\) \}/],
+  ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took\) \}/],
+  ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
