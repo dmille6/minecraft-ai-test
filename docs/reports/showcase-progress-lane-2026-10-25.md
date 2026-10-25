@@ -245,3 +245,16 @@ expected build, 37/37 decisions gemma4, LANE: AUTO_FOLLOW not created, RUN_SINCE
 - **Open:** the trial chambers' under-box residual (owner question, section 3); `stage --piece` / `activate --lane` / the
   piece-aware rollback rule before the first showcase-first piece (section 5); the zone-file branch `showcase-start-1025-zones`
   (on d55ce14d, `npm test` 302/302) merges after junkout-01 reaches main.
+
+## 9. The town close-up camera (owner 10-25)
+
+A third timelapse camera `town`: flat orthographic on home (0.5,70,0.5), BlueMap distance 95, 1440 x 1440 -- a real render
+through the timelapse's own BlueMap path (same capture.mjs run as the pair, every 15 min). It spans ~ +-57 blocks at ~12.7 px a
+block (measured against the taiga village's west edge, x 49), so the storehouse (x -15..-7), the workshop and the ring to ~60
+are in frame; the existing topdown is ~8.7 px a block over ~ +-110 x +-62. It is an EXTRA view: published on its own, never part
+of the pair, so the pair's slot accounting is unchanged; the daily / weekly / history / monthly videos build a `town` video from
+its own frames. Cost (18:00Z slot, the first): capture 14.1 CPU-s (10.0-10.2 before), capture wall 249 s (151-167 s), +3.7 MB a
+frame (~355 MB a day; 319 GB free, min_free_gb 20 unchanged). The 18:00Z frame shows the founding blocks as distinct ~13 px
+blocks round the plan cells (four storehouse chests at x -9..-13, z -2..2; the workshop table and furnace at -7/-8,-7); where
+the forest canopy still covers a cell a top-down camera cannot see under the leaves -- the plots clear as they are built.
+Codex review: CHANGE, no P1 (a town-only month was skipped; extra-camera diagnostics dropped) -> fixed in r2 (cefd19f9).
