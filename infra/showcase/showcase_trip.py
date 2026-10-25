@@ -17,10 +17,12 @@ covers the whole world). It never writes a block, a bot file or anything a bench
 
 LINES (each with its denominator; a zero is printed beside the positive control that could have seen a presence)
   S0 LIVENESS     showcase bots with a skill row in the last 15 min (of 10), rows walked, the builds seen
-  S1 DEATHS       `_death` rows in the window, each named (bot, time, detail). TRIP >= 4 in the window (the fleet's 7-d rate
-                  0.0195 / bot-h puts ~0.6 in 3 h on 10 bots; P(>= 4) ~ 0.3 %); WATCH 2-3
-  S2 STUCK        bots whose rows show < 3 blocks of movement for >= 30 min that run to the window's end. TRIP >= 3 bots at
-                  once; WATCH 1-2 (idle at home is legal; three at once is not the town working)
+  S1 DEATHS       `_death` rows, each named; bot-hours observed beside them. TRIP >= 4 inside ANY 180-min span (the fleet's
+                  7-d 0.0195 / bot-h gives ~0.6 per 180 min on 10 bots; P(>= 4) ~ 0.3 %); WATCH 2-3 in a span
+  S2 STUCK        bots with < 3 blocks of 3-D movement for >= 30 min, sampled with no gap > 5 min, to the window's end.
+                  WATCH only, never a stop (Codex 10-25 P1: waiting at home is legal and is not evidence of a trap)
+  S3 UNDER        a bot BELOW an underground zone inside its footprint (the trial chambers' named residual): WATCH,
+                  and TRIP when still there >= 15 min with < 3 blocks moved
   S3 ZONES        Z1 a bot inside a protected box >= 15 min with < 3 blocks moved (TRIP, the dead end protectzone must never
                   make); Z2 >= 60 refusals by one bot in 10 min (WATCH: a remedy not taken); refusals by op (REPORTED)
   S4 INTEGRITY    every protected structure's cells (structure palette) vs the pre-start baseline: a cell REMOVED or changed
@@ -41,7 +43,7 @@ POOL = 'showcase'
 UTC = dt.timezone.utc
 
 DEATH_TRIP, DEATH_WATCH = 4, 2
-STUCK_MIN, STUCK_MOVE, STUCK_TRIP = 30, 3.0, 3
+STUCK_MIN, STUCK_MOVE = 30, 3.0
 TRAP_MIN, TRAP_MOVE = 15, 3.0
 LOOP_N, LOOP_MIN = 60, 10
 LIVE_MIN = 15
@@ -72,15 +74,19 @@ def in_box(p, b):
     return b[0] <= x <= b[3] and b[1] <= y <= b[4] and b[2] <= z <= b[5]
 
 
-def still_spells(rows, boxes, min_min, move):
+def still_spells(rows, boxes, min_min, move, max_gap_min=None):
     """rows: one bot's [(t, pos)] sorted. -> [(start, end, minutes)] spells inside a box with < move blocks of horizontal
     displacement from the spell's first sample (protectzoneread.trapped's rule, with the end kept). Pure."""
     out, start, anchor, last = [], None, None, None
     for t, p in rows:
         inside = p is not None and any(in_box(p, b) for b in boxes)
-        if inside and start is None:
+        if inside and start is not None and max_gap_min is not None and last is not None and (t - last).total_seconds() / 60 > max_gap_min:
+            if (last - start).total_seconds() / 60 >= min_min:
+                out.append((start, last, (last - start).total_seconds() / 60))
+            start, anchor = t, p          # a gap in the samples: what happened in it is unseen, so the spell restarts
+        elif inside and start is None:
             start, anchor = t, p
-        elif inside and math.dist((p['x'], p['z']), (anchor['x'], anchor['z'])) >= move:
+        elif inside and math.dist((p['x'], p['y'], p['z']), (anchor['x'], anchor['y'], anchor['z'])) >= move:
             if last is not None and (last - start).total_seconds() / 60 >= min_min:
                 out.append((start, last, (last - start).total_seconds() / 60))
             start, anchor = t, p
@@ -98,10 +104,26 @@ def stuck_now(by_bot, end, min_min=STUCK_MIN, move=STUCK_MOVE, slack_min=10):
     """by_bot: {bot: [(t, pos)] sorted}. -> {bot: minutes} for bots whose still spell runs to within slack of `end`. Pure."""
     out = {}
     for b, rows in by_bot.items():
-        for s, e, m in still_spells(rows, [WORLD], min_min, move):
+        for s, e, m in still_spells(rows, [WORLD], min_min, move, max_gap_min=5):
             if (end - e).total_seconds() / 60 <= slack_min:
                 out[b] = round(m)
     return out
+
+
+def death_peak(times, span_min=180):
+    """times: death datetimes. -> the most deaths inside any span_min window. Pure."""
+    t = sorted(times)
+    best, j = 0, 0
+    for i in range(len(t)):
+        while (t[i] - t[j]).total_seconds() > span_min * 60:
+            j += 1
+        best = max(best, i - j + 1)
+    return best
+
+
+def under_boxes(zones):
+    """underground zones (y0 above the world's bottom) -> the boxes BELOW them, down to the bottom. Pure."""
+    return [[b[0], -64, b[2], b[3], b[1] - 1, b[5]] for _, b in zones if b[1] > -64]
 
 
 def refusal_peak(minutes, span=LOOP_MIN):
@@ -132,13 +154,17 @@ def verdict(f):
     elif f['live_bots'] < len(NAMES) and f['expect_running']:
         watch.append('S0 %d of %d bots wrote a row in %d min' % (f['live_bots'], len(NAMES), LIVE_MIN))
     if f['deaths'] >= DEATH_TRIP:
-        trip.append('S1 %d deaths in the window' % f['deaths'])
+        trip.append('S1 %d deaths inside 180 min' % f['deaths'])
     elif f['deaths'] >= DEATH_WATCH:
-        watch.append('S1 %d deaths in the window' % f['deaths'])
-    if len(f['stuck']) >= STUCK_TRIP:
-        trip.append('S2 %d bots stuck at once %s' % (len(f['stuck']), f['stuck']))
-    elif f['stuck']:
-        watch.append('S2 stuck %s' % f['stuck'])
+        watch.append('S1 %d deaths inside 180 min' % f['deaths'])
+    if f['stuck']:
+        watch.append('S2 still >= %d min %s' % (STUCK_MIN, f['stuck']))
+    if f.get('under_trapped'):
+        trip.append('S3 UNDER trapped below an underground zone %s' % f['under_trapped'])
+    elif f.get('under'):
+        watch.append('S3 UNDER below an underground zone %s' % f['under'])
+    if f['expect_running'] and f.get('window_min', 0) >= 60 and f.get('plan_towns') == 0 and not f['plan_error']:
+        watch.append('S5 no accepted town plan after %d min (UNEXPOSED: zero defects mean nothing yet)' % f['window_min'])
     if f['trapped']:
         trip.append('S3 Z1 trapped in a zone %s' % f['trapped'])
     if f['refusal_loops']:
@@ -170,19 +196,23 @@ def zone_boxes(path=os.path.join(POOL_DIR, 'protected-zones.json')):
 
 def scan_zone(world, rx, box):
     """-> ({"x,y,z": name} of structure cells inside box, {chunk status: n}). Reads only."""
-    cells, st = {}, collections.Counter()
+    cells, st, okc = {}, collections.Counter(), []
     x0, y0, z0, x1, y1, z1 = box
     for cx in range(x0 >> 4, (x1 >> 4) + 1):
         for cz in range(z0 >> 4, (z1 >> 4) + 1):
             d = world.chunk(cx, cz)
             st[world.chunkstat.get((cx, cz), '?')] += 1
+            if world.chunkstat.get((cx, cz)) == 'ok':
+                okc.append('%d,%d' % (cx, cz))
             if d is None:
                 continue
             for x, y, z, n in world.cells_matching(cx, cz, rx, y0, y1):
                 if x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1:
                     cells['%d,%d,%d' % (x, y, z)] = n
     st['undecoded'] = world.stats.get('undecoded_hit_sections', 0)
-    return cells, dict(st)
+    st = dict(st)
+    st['_ok_chunks'] = sorted(okc)
+    return cells, st
 
 
 def covered(regions, box):
@@ -201,7 +231,7 @@ def cmd_zones_baseline(a):
             continue
         cells, st = scan_zone(SC.World(a.regions), rx, box)
         out['zones'][zid] = {'box': box, 'n': len(cells), 'chunks': st, 'cells': cells}
-        print('  %-24s %6d structure cells  chunks %s' % (zid, len(cells), st))
+        print('  %-24s %6d structure cells  chunks ok %d undecoded %d' % (zid, len(cells), len(st['_ok_chunks']), st['undecoded']))
     tmp = a.out + '.part'
     with open(tmp, 'w') as f:
         json.dump(out, f)
@@ -225,8 +255,12 @@ def integrity(regions, baseline_path, only=None):
             res[zid] = {'status': 'NOT COVERED'}
             continue
         cells, st = scan_zone(SC.World(regions), rx, b['box'])
-        if st.get('ok', 0) != b['chunks'].get('ok', 0) or st.get('undecoded'):
-            res[zid] = {'status': 'UNKNOWN (chunks %s vs baseline %s)' % (st, b['chunks'])}
+        nb = len(range(b['box'][0] >> 4, (b['box'][3] >> 4) + 1)) * len(range(b['box'][2] >> 4, (b['box'][5] >> 4) + 1))
+        if (st['_ok_chunks'] != b['chunks'].get('_ok_chunks') or len(st['_ok_chunks']) != nb or st.get('undecoded')
+                or b['chunks'].get('undecoded')):
+            # every chunk of the box readable NOW and in the baseline, the same chunks, nothing undecoded -- else UNKNOWN
+            res[zid] = {'status': 'UNKNOWN (ok chunks now %d, baseline %d, box %d, undecoded %s/%s)' % (
+                len(st['_ok_chunks']), len(b['chunks'].get('_ok_chunks') or []), nb, st.get('undecoded'), b['chunks'].get('undecoded'))}
             continue
         removed, changed, added = zone_diff(b['cells'], cells)
         res[zid] = {'status': 'BREACH' if removed or changed else 'INTACT', 'base_n': b['n'], 'now_n': len(cells),
@@ -242,7 +276,7 @@ def cmd_zones_compare(a):
         for k in ('removed', 'changed', 'added'):
             if z.get(k):
                 print('      %s %s' % (k, z[k][:5]))
-    return 1 if any(z['status'] == 'BREACH' for z in res.values()) else 0
+    return 3 if any(z['status'] == 'BREACH' for z in res.values()) else 0     # 3, so a crash (1) is never read as one
 
 
 # ------------------------------------------------------------------------------------------------ the read
@@ -255,15 +289,12 @@ def plan_read(rows, since):
     ms = int(since.timestamp() * 1000)
     plans = {POOL: v for k, v in TP.read_plans().items() if k == POOL}
     pl = TP.judge_plans(plans, {POOL}, ms)
-    gen_index, rejected = dict(pl['_gen_index']), dict(pl['_rejected'])
-    for (pool, gen), plan in list(pl['_gen_index'].items()):
-        for b in NAMES:
-            gen_index[(TP.pool_of(b), gen)] = plan
-    for (pool, gen), why in list(pl['_rejected'].items()):
-        for b in NAMES:
-            rejected[(TP.pool_of(b), gen)] = why
-    tprows = [dict(r, arm='canary', per='post') for r in rows if r['name'] in TP.ROW_KINDS]
-    rw, lists = TP.judge_rows(tprows, since, gen_index, rejected)
+    # ONE SHARED TOWN (Codex 10-25 P1): every showcase row is judged as pool 'showcase' (pool_of('showcase') == 'showcase'),
+    # so G4 sees two bots' chests side by side and G1/G3 read every bot's audits; the bot's name is lost from the lists only.
+    shared = lambda r: dict(r, bot=POOL, arm='canary', per='post', who=r['bot'])
+    assert TP.pool_of(POOL) == POOL
+    tprows = [shared(r) for r in rows if r['name'] in TP.ROW_KINDS]
+    rw, lists = TP.judge_rows(tprows, since, pl['_gen_index'], pl['_rejected'])
     acc, zones = {}, {}
     for pool, keys in plans.items():
         for key, info in keys.items():
@@ -271,16 +302,15 @@ def plan_read(rows, since):
                 world = json.loads(wkey) if wkey != '"__unparseable__"' else None
                 head, a_, _, _ = TP.walk(files, world)
                 if head is not None:
-                    for b in NAMES:
-                        acc.setdefault(TP.pool_of(b), []).extend(a_)
-                        zones.setdefault(TP.pool_of(b), []).extend(TP.zones_of(info['dir'], world))
-    fdrows = [dict(r, arm='canary', per='post') for r in rows if r['name'] in FD.ROW_KINDS]
+                    acc.setdefault(POOL, []).extend(a_)
+                    zones.setdefault(POOL, []).extend(TP.zones_of(info['dir'], world))
+    fdrows = [shared(r) for r in rows if r['name'] in FD.ROW_KINDS]
     fo, flists = FD.judge(fdrows, acc, zones)
     defects = {'D1 chain_invalid': pl['chain_invalid'] + rw.get('chain_invalid', 0), 'D2 invalid_rows': rw.get('invalid_rows', 0),
                'D3 never_hits': rw.get('never_hits', 0), 'D4 zone_cells': pl['zone_cells'], 'D5 root_occupied': rw.get('root_occupied', 0),
                'G1 found_lost': fo.get('found_lost', 0), 'G2 off_plan': fo.get('off_plan', 0), 'G3 lid_unreach': fo.get('lid_unreach', 0),
                'G4 shared_side': fo.get('shared_side', 0), 'G5 zone': fo.get('zone', 0)}
-    report = {'towns': pl['_towns'], 'plan_rows': rw.get('rows_townplan_canary', 0),
+    report = {'towns': pl['_towns'], 'plan_towns': pl['plan_towns_canary'], 'gens': len(pl['_gen_index']), 'plan_rows': rw.get('rows_townplan_canary', 0),
               'ops': {k[3:]: v for k, v in sorted(rw.items()) if k.startswith('op_')},
               'found_rows': fo.get('rows_found_canary', 0), 'found_placed': fo.get('found_placed', 0),
               'found_work_placed': fo.get('found_work_placed', 0), 'found_store_placed': fo.get('found_store_placed', 0),
@@ -295,7 +325,7 @@ def cmd_read(a):
     since = ts(a.since) if a.since else now - dt.timedelta(minutes=a.minutes)
     ev = Events.load(paths=LOGS, since=since)
     rows, by_bot, mins, builds = [], collections.defaultdict(list), collections.defaultdict(list), collections.Counter()
-    deaths, refused_by_op, newest = [], collections.Counter(), {}
+    deaths, death_t, refused_by_op, newest = [], [], collections.Counter(), {}
     for r in ev.rows:
         b = (r.get('bot') or {}).get('name')
         if b not in NAMES:
@@ -309,6 +339,7 @@ def cmd_read(a):
         newest[b] = max(newest.get(b, r['t']), r['t'])
         if r['name'] == '_death':
             deaths.append('%s %s %s' % (b, r['t'].strftime('%H:%M:%S'), (r.get('detail') or '')[:90]))
+            death_t.append(r['t'])
         if r['name'] == '_protect_zone':
             kvs = dict(re.findall(r'(?:^| )([a-z_]+)=(\d+)', r.get('detail') or ''))
             n = sum(int(kvs.get(k, 0)) for k in ('dig', 'place', 'use', 'open', 'sleep', 'craft'))
@@ -327,6 +358,12 @@ def cmd_read(a):
                for b, v in by_bot.items()}
     trapped = {b: v for b, v in trapped.items() if v}
     loops = {b: refusal_peak(v) for b, v in mins.items() if refusal_peak(v) >= LOOP_N}
+    ub = under_boxes(boxes)
+    under = {b: sum(1 for _, p in v if p and any(in_box(p, x) for x in ub)) for b, v in by_bot.items()}
+    under = {b: n for b, n in under.items() if n}
+    under_trapped = {b: [(s.strftime('%H:%M'), round(m)) for s, _, m in still_spells(v, ub, TRAP_MIN, TRAP_MOVE)] for b, v in by_bot.items()}
+    under_trapped = {b: v for b, v in under_trapped.items() if v}
+    bot_h = sum((v[-1][0] - v[0][0]).total_seconds() / 3600 for v in by_bot.values() if v)
     integ = None
     if a.zones_baseline and os.path.exists(a.zones_baseline) and a.zones_regions:
         try:
@@ -339,7 +376,10 @@ def cmd_read(a):
     except Exception as e:
         plan_err = '%s: %s' % (type(e).__name__, str(e)[:200])
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
-    facts = {'live_bots': live, 'expect_running': not a.not_running, 'deaths': len(deaths), 'stuck': stuck_now(by_bot, end),
+    facts = {'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
+             'bot_h': round(bot_h, 1), 'under': under, 'under_trapped': under_trapped,
+             'window_min': round((now - since).total_seconds() / 60), 'plan_towns': (report or {}).get('plan_towns'),
+             'stuck': stuck_now(by_bot, end),
              'trapped': trapped, 'refusal_loops': loops, 'integrity': integ, 'plan_defects': defects, 'plan_error': plan_err}
     v, why = verdict(facts)
     W = (now - since).total_seconds() / 60
@@ -347,8 +387,10 @@ def cmd_read(a):
     print('DENOMINATORS rows walked %d | bots with rows %d of %d | builds %s | positions %d' % (
         len(rows), len(by_bot), len(NAMES), dict(builds), sum(1 for v in by_bot.values() for _, p in v if p)))
     print('S0 LIVENESS  %d of %d bots wrote a row in the last %d min' % (live, len(NAMES), LIVE_MIN))
-    print('S1 DEATHS    %d (rows walked %d) %s' % (len(deaths), len(rows), deaths[:6]))
+    print('S1 DEATHS    %d in the window, at most %d inside 180 min, over %.1f bot-h observed (fleet 0.0195/bot-h -> %.2f expected) %s' % (
+        len(deaths), facts['deaths'], bot_h, 0.0195 * bot_h, deaths[:6]))
     print('S2 STUCK     %s (still >= %d min, < %.0f blocks, to the window end)' % (facts['stuck'] or 'none', STUCK_MIN, STUCK_MOVE))
+    print('S3 UNDER     samples below an underground zone %s | trapped there %s' % (under or 'none', under_trapped or 'none'))
     print('S3 ZONES     zones %d | Z1 trapped %s | Z2 refusal loops %s | refusals by op %s (minute rows %d)' % (
         len(boxes), trapped or 'none', loops or 'none', dict(refused_by_op), sum(len(v) for v in mins.values())))
     if integ is None:
@@ -358,6 +400,8 @@ def cmd_read(a):
             print('S4 INTEGRITY %-24s %s %s' % (zid, z['status'], {k: v for k, v in z.items() if k.endswith('_n')}))
     print('S5 TOWN PLAN %s%s' % (defects, (' | READ FAILED ' + plan_err) if plan_err else ''))
     if report:
+        print('EXPOSURE     towns with an accepted plan %d, accepted generations %d, found placements %d%s' % (
+            report['plan_towns'], report['gens'], report['found_placed'], '' if report['plan_towns'] else ' -- UNEXPOSED: zero defects mean nothing yet'))
         print('REPORTED     plans %s' % (report['towns'] or 'none'))
         print('             _townplan rows %d ops %s | _found rows %d placed %d (work %d, store %d) outcomes %s' % (
             report['plan_rows'], report['ops'], report['found_rows'], report['found_placed'], report['found_work_placed'],
@@ -394,8 +438,18 @@ def selftest():
     base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {},
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])
+    assert death_peak([T(0), T(10), T(170), T(179)]) == 4 and death_peak([T(0), T(10), T(200), T(390)]) == 2
+    gap = [(T(m), P(0.5, 0.5)) for m in (0, 2, 4, 20, 22, 24, 26, 28, 30, 32, 34)]
+    assert stuck_now({'a': gap}, T(34)) == {}, 'a 16-min sample gap restarts the spell: no 30 min seen'
+    climb = [(T(m), P(0.5, 0.5, 70 + m)) for m in range(0, 41, 2)]
+    assert stuck_now({'a': climb}, T(40)) == {}, 'vertical movement is movement'
+    ub = under_boxes([('t', [-20, -47, 65, 88, 31, 164]), ('v', [0, -64, 0, 9, 90, 9])])
+    assert ub == [[-20, -64, 65, 88, -48, 164]], ub
+    assert in_box(P(30, 100, -50), ub[0]) and not in_box(P(30, 100, -47), ub[0])
+    assert verdict(dict(base, under={'a': 3}))[0] == 'WATCH' and verdict(dict(base, under_trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
+    assert verdict(dict(base, window_min=90, plan_towns=0))[0] == 'WATCH' and verdict(dict(base, window_min=30, plan_towns=0))[0] == 'OK'
     assert verdict(dict(base, deaths=4))[0] == 'TRIP' and verdict(dict(base, deaths=2))[0] == 'WATCH' and verdict(dict(base, deaths=1))[0] == 'OK'
-    assert verdict(dict(base, stuck={'a': 30, 'b': 31, 'c': 40}))[0] == 'TRIP' and verdict(dict(base, stuck={'a': 30}))[0] == 'WATCH'
+    assert verdict(dict(base, stuck={'a': 30, 'b': 31, 'c': 40}))[0] == 'WATCH', 'stuck never stops the showcase on its own'
     assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
     assert verdict(dict(base, integrity={'v': {'status': 'BREACH', 'removed_n': 1, 'changed_n': 0, 'removed': ['x'], 'changed': []}}))[0] == 'TRIP'
     assert verdict(dict(base, integrity={'v': {'status': 'UNKNOWN (chunks)'}}))[0] == 'WATCH', 'an unreadable zone is never OK'
