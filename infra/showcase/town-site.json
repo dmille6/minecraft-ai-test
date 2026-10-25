@@ -21,16 +21,16 @@
   "s": 70,
   "avoid": [
    {
-    "id": "trial-chambers",
+    "id": "trial-chambers-home-se",
     "box": [
-     -16,
-     -43,
-     69,
-     84,
-     27,
-     160
+     -20,
+     -47,
+     65,
+     88,
+     31,
+     164
     ],
-    "why": "the trial chambers under the SE of town (protectzone-01 left them ASK): no digging plot over them"
+    "why": "the SAME box as the showcase protected-zones.json zone trial-chambers-home-se (owner 10-21 #18: protected); kept so the plan avoids it even before the zones file is read"
    }
   ]
  },

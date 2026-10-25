@@ -1,0 +1,25 @@
+# DRAFT (not installed): the showcase start gate's required runs, one `<run> <sha>` per line
+# (docs/reports/townplan-found-spec-2026-10-21.md section 4). showcase_ops.py pieces_in() counts a line only with a recorded
+# KEEP + promoted (or owner-direct) row on the bench AND the sha inside the release.
+#
+# O9 IS DECIDED (owner 10-21 #11): the showcase starts after Paper + a no-harm bench read, NOT after bench KEEPs. The gate as
+# built cannot express that: it has no record type for "Paper proof + no-harm read". Until one exists (an owner/coordinator
+# change to the gate, not built here), the last three lines FAIL CLOSED: FILL-WHEN-KEPT never resolves, so the gate refuses
+# the start until each is kept or the gate learns the O9 record. Either fill them with the kept shas, or replace them with the
+# O9 record once the gate reads one.
+#   townplan-01: branch townplan-on-d0a27a5 at 37d5aff6 (built on d0a27a5e; the coordinator JIT re-variants it at its turn)
+#   found-01:    branch found2-on-37d5aff (bot code fe149adc; the tip adds the Paper driver and record; JIT re-variant likewise)
+#   sortdeposit-01: not built
+# JIT 10-23c (this variant: f, on townplan-on-fb8de72): the shas brought to the 10-23 fleet -- townindex-01 KEPT on c0fec812 (10-23),
+# protectzone-01 KEPT 1f5b4b4e (10-22; the showcase's own zones run on it), indexsearch-01 = its live canary d4a0f424 and
+# chatgate-01 (owner C4: before the showcase bots start) = the variant's own base where it holds them, else FILL-WHEN-KEPT
+# (fails closed). The trial-chambers zone (owner #18) must be in infra/showcase/protected-zones.showcase.json before the start
+# (it is not yet: docs/reports/townplan-found-jit-1023c-reviews.txt Q3).
+toolkit-03 34d3e5e9629a45bcdb54c0e88870dacf09b8a22b
+protectzone-01 1f5b4b4e28685fefffad074f634dc7b175252be0
+townindex-01 c0fec81273e256e672e4012af08e0964ea3153b8
+indexsearch-01 FILL-WHEN-KEPT
+chatgate-01 3cc5f14da2c7a2acd37d05360d999b47c52a7e9b
+townplan-01 FILL-WHEN-KEPT
+found-01 FILL-WHEN-KEPT
+sortdeposit-01 FILL-WHEN-KEPT

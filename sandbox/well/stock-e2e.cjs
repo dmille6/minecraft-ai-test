@@ -13,6 +13,8 @@
 //           kitsearch smeltcoal (toolkit-03: the far chest of iron / of coal; no well needed; LOCK_OWNER=kitsearch)
 //           ironpick ironpickkeep ironpickfull (ironpick-01: the kit's iron pickaxe; no well needed; LOCK_OWNER=ironpick)
 //           townindex (townindex-01: the index the bot's own orders write, read back against the server; no well; LOCK_OWNER=townindex)
+//           junkbank junkcompost (junkout-01: a fresh arena, no well) build junkwell junkwelloff (junkout-01: after `build`;
+//           NATURAL_BUILD=1 builds a natural well with PLINTH_FIRST=0 for the build bot only); LOCK_OWNER=junkout
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -136,7 +138,7 @@ async function stopBot () {
 }
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 const procs = {}
-async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, early = false } = {}) {
+async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, early = false, env: extraEnv = {} } = {}) {
   const tag = `${RUN}-${scene}-${name}`
   const logRel = `./sandbox/log/stock-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/stock-e2e/${tag}/skill-${name}.jsonl`
@@ -146,6 +148,7 @@ async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NA
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', name); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/stock-e2e-${tag}`); set('MEMORY_POOL', pool)
   set('STOCK_PRUNE_COOLDOWN_MS', 60000)   // the only harness setting beyond well-e2e's: a prune look every minute
+  for (const [k, v] of Object.entries(extraEnv)) set(k, v)   // a scene's own setting (junkout-01: the switches; PLINTH_FIRST=0 for `build`)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
@@ -235,7 +238,9 @@ scenes.build = async () => {
   // the open pit to make the craft's room, planks -> table -> 2 trapdoors, floor trapdoor, cap.
   buildArena()
   const bagSpec = fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]])
-  const files = await startBot('build', bagSpec)
+  // NATURAL_BUILD=1 (bagbudget-01 Paper r2): a NATURAL well, which plinth-first (the fleet default) declines -- PLINTH_FIRST=0
+  // for THIS bot only; every other scene runs the default
+  const files = await startBot('build', bagSpec, process.env.NATURAL_BUILD === '1' ? { env: { PLINTH_FIRST: '0' } } : {})
   const before = bag(NAME)
   const w = await watchOrder(files, 'build_well', 240000)
   await sleep(4000)
@@ -1085,6 +1090,99 @@ scenes.stockrace = async () => {
   result({ scene: 'stockrace', counted: counted?.detail ?? null, visits: [a?.detail ?? null, b?.detail ?? null], chest: { before: chest0.totals, after: chest1.totals },
     takes: jr.filter(r => r.t === 'claim' && r.kind === 'take').map(r => ({ bot: r.bot, n: r.n })), rels: jr.filter(r => r.t === 'rel').length,
     floorOk: (chest1.totals.oak_log ?? 0) >= 64 })
+}
+
+// ---------------------------------------------------------------- JUNKOUT-01 (docs/reports/junkout-01-design-2026-10-21.md)
+// Every verdict is read from the WORLD (the server's bag by RCON `data get`, the chest's contents, the item entities on the
+// arena); the bot's own `_junkout` rows only say which order ran. LOCK_OWNER=junkout. Base = the fleet sha's bots/ tree,
+// candidate = junkout-on-34d3e5e; the same driver for both arms.
+const JO_LISTED = ['egg', 'flint', 'ink_sac', 'glass']
+const joRows = files => rowsOf(files.skillLog).filter(r => /^(dispose_well|_well_dispose|_junkout|_junkout_mode|compost|_compost|town_deposit|_town_deposit|count_town|wear_out)$/.test(r.name))
+  .map(r => `${r.name} ${r.status} ${r.detail.slice(0, 230)}`)
+const unchanged = (before, after, names) => names.filter(n => (before.totals[n] ?? 0) !== (after.totals[n] ?? 0))
+// S1 (after `build`): a NOT-full bag with listed junk at town, no chest, no composter: the visit dispose throws the listed
+// junk ONLY; everything else in the bag is unchanged. `junkwelloff` is the same scene with JUNK_VISIT=off BAG_ALLOWANCE=off.
+async function junkWellScene (scene, env = {}) {
+  if (!CAP) throw new Error('no well (run build first)')
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`); CHEST = pickChest(); rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
+  const spec = [['egg', 16], ['flint', 30], ['ink_sac', 10], ['glass', 5], ['cobblestone', 64], ['oak_log', 20], ['bread', 8], ['stone_pickaxe', 1, 30], ['torch', 4], ['bone_meal', 5]]
+  const keep = ['cobblestone', 'oak_log', 'bread', 'stone_pickaxe', 'torch', 'bone_meal']
+  const files = await startBot(scene, spec, { pool: `sbxstock-${RUN}-${scene}`, env })
+  const before = bag(NAME)
+  const visitRow = () => rowsOf(files.skillLog).find(r => r.name === '_junkout' && /^phase=well /.test(r.detail))
+  const disp = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === 'dispose_well') && visitRow(), 240000, 1000)
+  await sleep(6000)
+  const after = bag(NAME), cs = census(CAP)
+  const anyDispose = rowsOf(files.skillLog).filter(r => r.name === 'dispose_well').length
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_junkout_mode').map(r => r.detail)
+  await stopBot(); BRAIN_WANDER = false
+  const listedLeft = JO_LISTED.filter(n => (after.totals[n] ?? 0) > 0)
+  const changed = unchanged(before, after, keep)
+  result({ scene, root: BOT_ROOT, env, licence, bag: { used: [before.used, after.used], before: before.totals, after: after.totals }, census: cs, visitRow: disp ? disp.detail : null,
+    disposeRuns: anyDispose, listedLeft, otherChanged: changed, rows: joRows(files).slice(0, 20),
+    CANDIDATE_PASS: !!(disp && /status=success/.test(disp.detail) && listedLeft.length === 0 && changed.length === 0 && after.used < before.used && cs.outItems === 0 && cs.inItems > 0),
+    BASE_SHAPE: !!(anyDispose === 0 && listedLeft.length === JO_LISTED.length && changed.length === 0 && after.used === before.used) })
+}
+scenes.junkwell = () => junkWellScene('junkwell')
+scenes.junkwelloff = () => junkWellScene('junkwelloff', { JUNK_VISIT: 'off', BAG_ALLOWANCE: 'off' })
+// S2 (a fresh arena: NO well, so the bag's junk has no exit here and must stay out of the chest): 8 chests + 3 tables + a
+// furnace + five usable stone pickaxes + torches, bone meal, junk, saplings, leaf litter. The candidate banks torch + bone
+// meal (and the usable stone copies beyond the best + 2 once the town is counted); the stations stay (one stack each); no
+// junk enters the chest. The base: a 21-slot bag gets no town deposit at all.
+scenes.junkbank = async () => {
+  buildArena(); BRAIN_WANDER = true; CAP = null
+  rcon(`kill ${ARENA_SEL}`); CHEST = pickChest()
+  const spec = [['chest', 8], ['crafting_table', 3], ['furnace', 1], ['stone_pickaxe', 1, 0], ['stone_pickaxe', 1, 10], ['stone_pickaxe', 1, 20], ['stone_pickaxe', 1, 30], ['stone_pickaxe', 1, 40],
+    ['torch', 11], ['bone_meal', 30], ['egg', 6], ['flint', 4], ['oak_sapling', 12], ['leaf_litter', 10], ['cobblestone', 20], ['stick', 6]]
+  const files = await startBot('junkbank', spec, { pool: `sbxstock-${RUN}-junkbank` })
+  setChest([])
+  const before = bag(NAME), chest0 = chestTotals()
+  const bankRow = () => rowsOf(files.skillLog).find(r => r.name === '_junkout' && /^phase=bank /.test(r.detail))
+  const bank = await waitFor(bankRow, 300000, 1000)
+  await sleep(bank ? 8000 : 0)
+  const after = bag(NAME), chest1 = chestTotals()
+  const picks = b => b.totals.stone_pickaxe ?? 0   // one per copy (a tool does not stack); bag() reports totals only
+  const tds = rowsOf(files.skillLog).filter(r => r.name === 'town_deposit').length
+  // the town's count of stone pickaxes (row P banks only under the target, so a count must come first): the recount order's run
+  const counted = rowsOf(files.skillLog).find(r => r.name === 'count_town' && r.status === 'success')
+  await stopBot(); BRAIN_WANDER = false
+  const junkIn = ['egg', 'flint', 'oak_sapling', 'leaf_litter'].filter(n => (chest1.totals[n] ?? 0) > (chest0.totals[n] ?? 0))
+  const stationsLeft = ['chest', 'crafting_table', 'furnace'].map(n => [n, after.totals[n] ?? 0])
+  // the BASE-owned stacks stay (a tail run banks the rows only: Claude code r1 P3-4)
+  const baseChanged = unchanged(before, after, ['cobblestone', 'stick', 'egg', 'flint', 'oak_sapling', 'leaf_litter'])
+  result({ scene: 'junkbank', root: BOT_ROOT, bag: { used: [before.used, after.used], before: before.totals, after: after.totals }, chest: { before: chest0.totals, after: chest1.totals },
+    bankRow: bank ? bank.detail : null, townDeposits: tds, countedFirst: !!(counted && bank && counted.ts < bank.ts), picks: [picks(before), picks(after)], picksBanked: (chest1.totals.stone_pickaxe ?? 0) - (chest0.totals.stone_pickaxe ?? 0),
+    junkIntoChest: junkIn, stationsLeft, baseChanged, rows: joRows(files).slice(0, 24),
+    CANDIDATE_PASS: !!(bank && (chest1.totals.torch ?? 0) === 11 && (chest1.totals.bone_meal ?? 0) === 30 && junkIn.length === 0 &&
+      stationsLeft.every(([, n]) => n >= 1) && baseChanged.length === 0 && picks(after) === 3 && (chest1.totals.stone_pickaxe ?? 0) - (chest0.totals.stone_pickaxe ?? 0) === 2 && after.used < before.used),
+    BASE_SHAPE: !!(tds === 0 && chest1.used === 0 && after.used === before.used) })
+}
+// S3 (a fresh arena, a composter + a chest in town, peaceful): mushrooms, leaf litter and seeds go into the composter at a
+// NOT-full visit; the saplings stay. The base: a 9-slot bag gets no compost order.
+scenes.junkcompost = async () => {
+  buildArena(); BRAIN_WANDER = true; CAP = null
+  rcon(`kill ${ARENA_SEL}`, 'difficulty peaceful'); CHEST = pickChest(); setChest([])
+  const COMP = [[-4, 4], [4, 4], [-4, -4], [0, -6], [6, 0], [-6, 0]].map(([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz }))
+    .find(c => Math.hypot(c.x - CHEST.x, c.z - CHEST.z) >= 3)
+  rcon(`setblock ${COMP.x} ${COMP.y} ${COMP.z} minecraft:composter`)
+  // cooked_beef, not bread: the peaceful switch composts bread (peacefulkit.mjs PEACEFUL_COMPOST; Codex code r1 P2-4)
+  const spec = [['brown_mushroom', 6], ['red_mushroom', 5], ['leaf_litter', 20], ['wheat_seeds', 7], ['oak_sapling', 20], ['spruce_sapling', 5], ['cobblestone', 20], ['cooked_beef', 3], ['stick', 4]]
+  const files = await startBot('junkcompost', spec, { pool: `sbxstock-${RUN}-junkcompost` })
+  const before = bag(NAME)
+  const visitRow = () => rowsOf(files.skillLog).find(r => r.name === '_junkout' && /^phase=compost /.test(r.detail))
+  const v = await waitFor(visitRow, 240000, 1000)
+  await sleep(4000)
+  const after = bag(NAME)
+  const composts = rowsOf(files.skillLog).filter(r => r.name === 'compost').length
+  await stopBot(); BRAIN_WANDER = false
+  rcon(`setblock ${COMP.x} ${COMP.y} ${COMP.z} minecraft:air`)
+  const gone = ['brown_mushroom', 'red_mushroom', 'leaf_litter', 'wheat_seeds'].filter(n => !(after.totals[n] ?? 0))
+  const kept = unchanged(before, after, ['oak_sapling', 'spruce_sapling', 'cobblestone', 'cooked_beef', 'stick'])
+  result({ scene: 'junkcompost', root: BOT_ROOT, peaceful: /peaceful/i.test(r1('difficulty')), bag: { used: [before.used, after.used], before: before.totals, after: after.totals },
+    visitRow: v ? v.detail : null, compostRuns: composts, gone, otherChanged: kept, rows: joRows(files).slice(0, 20),
+    CANDIDATE_PASS: !!(v && /status=success/.test(v.detail) && gone.length === 4 && kept.length === 0),
+    BASE_SHAPE: !!(composts === 0 && gone.length === 0 && kept.length === 0) })
 }
 
 async function main () {

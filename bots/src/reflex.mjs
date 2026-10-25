@@ -53,6 +53,9 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
          poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS, POOL_STEP_WALK_MS,
          POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
+// lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
+import { lavastepOn } from './lavastep.mjs'
+import { makeDangerMover } from './lavastepmove.mjs'
 import { configuredHome } from './townground.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1285,8 +1288,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // stopped on, a wrongly-refused rescue does not get its bot back.
   // ARBITER GATES for the reflex helpers (flag on): a refused (null) or revoked
   // grant means "you do not own the body" -- the helper stops at its next step.
-  const ownsBody = (grantOf) => () => !config.reflex.arbiter || !runner?.arb || runner.arb.ok(grantOf())
-  const arbiterYield = (grantOf) => (ownsBody(grantOf)() ? null : 'the arbiter (this reflex does not hold the body)')
+  // LAVASTEP-01: WHILE A DANGER MOVE HOLDS THE BODY NO OTHER REFLEX HELPER DOES (design F1 "what stands down"): every
+  // routine already running checks ownsBody / arbiterYield at its steps (the entombed and maroon pillars, the ramp, the
+  // flood branch, poolescape, the pocket rung), so it stops at its next check. The mover is created below, once the air
+  // flags it reads exist; until then (and with LAVASTEP=0) nothing is moving.
+  let lavastepMover = null
+  const dangerMovingNow = () => !!lavastepMover?.moving()
+  const ownsBody = (grantOf) => () => !dangerMovingNow() && (!config.reflex.arbiter || !runner?.arb || runner.arb.ok(grantOf()))
+  const arbiterYield = (grantOf) => (dangerMovingNow() ? 'lavastep (a danger move holds the body)'
+    : ownsBody(grantOf)() ? null : 'the arbiter (this reflex does not hold the body)')
+  // the stranded ladder and the escape lattice yield to the drowning rescue, and to a danger move
+  const bodyYield = () => drowningOwnsBody() || (dangerMovingNow() ? 'lavastep (a danger move holds the body)' : null)
   const drowningOwnsBody = () =>
     (config.reflex.arbiter && runner?.arb ? (runner.arb.holder?.priority === PRIORITY.air ? 'the drowning rescue' : null)
                                          : (rescuing && drowningCouldBeReal(waterCellsAround(bot)) ? 'the drowning rescue' : null))
@@ -1493,6 +1505,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // a SHORT lapse: the pre-empt renews it every tick (500 ms) while it holds, so a request whose step never follows (the
   // scan stopped reading sealed after the climb moved the bot) frees the climb within 3 s (Claude r3)
   const airPocketWanted = () => airPocketWants > 0 && Date.now() - airPocketWants < AP_WANT_LAPSE_MS
+  // LAVASTEP-01: THE DANGER MOVER (lavastepmove.mjs). The air rescue outranks it: while the drowning rescue or the air
+  // pocket holds the body no move starts, and one in flight ends without touching the rescue's controls. LAVASTEP=0 leaves
+  // it null, and the danger arm below runs today's escape() exactly.
+  if (lavastepOn()) {
+    lavastepMover = makeDangerMover(bot, runner, {
+      airHolds: () => rescuing || airPocketing || airPocketWanted(),
+      emit: ({ detail, args }) => {
+        try {
+          logEvent({ kind: 'lava_retreat', snapshot: snapshot(bot), detail, args,
+                     status: args?.phase !== 'firing' ? 'success' : (args?.ended === 'done' && args?.outcome !== 'none') ? 'success' : 'failed' })
+        } catch { /* telemetry */ }
+      },
+    })
+  }
   let lastMaroonPrereqAt = 0
   // POOLESCAPE-01: one firing of the pool rung (poolescape.mjs), from either maroon hook. Gated: on, wading, still no
   // route, the spot's back-off spent. `_poolescape_start` is written BEFORE anything moves (the read's death window opens
@@ -1594,6 +1620,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let healthBeforeTick = null   // for the held-cursor release: damage taken since the last tick
   // THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): a dig reached from the reflex tick is survival.
   const timer = setInterval(digScoped({ purpose: 'survival', by: 'reflex' }, async () => {
+    // lavastep-01: the relaxation's end conditions (no entity, death, the air rescue, in water, expiry, moved off, a new
+    // DANGER cell) run FIRST, before every early return below (Codex code r2 P2); it never throws
+    try { lavastepMover?.tick() } catch { /* the mover's own guard */ }
     if (!bot.entity) return
 
     try {
@@ -1700,7 +1729,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const longEnough =
         (strandedSince && Date.now() - strandedSince > LAST_RESORT_STRANDED_MS) ||
         (sealedSince && Date.now() - sealedSince > SEALED_ESCAPE_MS)
-      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping &&
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping && !dangerMovingNow() &&
           Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
         // `trapped` comes from the lattice's own observation rather than a
         // separate flag, so this branch and the plan it obeys are reading the
@@ -1746,7 +1775,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           strandedRunning++
           try {
             r = routine
-              ? await routine(bot, { yieldTo: drowningOwnsBody })
+              ? await routine(bot, { yieldTo: bodyYield })
                   .catch(e => ({ ok: false, why: String(e?.message ?? e) }))
               : { ok: false, why: `no routine for ${plan}` }
           } catch (e) { r = { ok: false, why: String(e?.message ?? e) } }
@@ -1981,7 +2010,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Treading water is jump without a direction; swimming is jump WITH
         // one. `float` is the single case where up is the only thing wanted,
         // because the head is already out and the bot is simply staying there.
-        if (!pocketing && !poolEscaping) {   // the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4); poolescape-01 steers its own body
+        if (!pocketing && !poolEscaping && !dangerMovingNow()) {   // lavastep-01: a danger move steers its own body; the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4); poolescape-01 steers its own body
           bot.setControlState('jump', true)
           if (holdState === 'surface_out' && airRoute?.target) {
             // LAVA GUARD 2: the push toward the air target must not sweep the body into lava (3-wide, +3 cells, feet
@@ -2484,7 +2513,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // THE TOOLED FLOODED-POCKET RUNG runs on the first tick after the rescue declared the pocket SEALED, before the
       // dry arms (pocket corpus run 2, 2026-09-14: the entombed/maroon arms fired every 30-90 s and the rung never got
       // a turn). Bare-handed it is refused by name; one attempt per 10 min.
-      if (pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing) {
+      if (pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing && !dangerMovingNow()) {
         if (Date.now() - lastPocketRungAt > POCKET_RUNG_COOLDOWN_MS) {
           pocketWanted = 0
           const { plan, floorY, firstDryY, tool, columnCells } = pocketPlanFor(bot)
@@ -2521,7 +2550,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // Not while in water: on -08 (hive-a-Alpha, 06:01:56) it stepped a bot that was drowning sealed in a pocket
       // after the rescue had yielded the body -- harmless there, but a submerged bot's move belongs to the air route.
       const standOffInWater = bot.entity?.isInWater === true || /water/.test(bot.blockAt(bot.entity.position)?.name || '')
-      if (!runner.isBusy() && !escaping && !marooned && !standOffInWater && Date.now() - (runner.lastEndedAt ?? 0) > 20_000 && Date.now() - lastStandOffAt > 10_000) {   // idle: no skill (claims are skill-owned, so none can be held)
+      if (!runner.isBusy() && !escaping && !marooned && !dangerMovingNow() && !standOffInWater && Date.now() - (runner.lastEndedAt ?? 0) > 20_000 && Date.now() - lastStandOffAt > 10_000) {   // idle: no skill (claims are skill-owned, so none can be held)
         const at = bot.entity.position; const feetCell = { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
         const so = lavaStandOff(bmap(bot), feetCell)
         if (so.move) {
@@ -2548,15 +2577,30 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // v2 (Codex pass 1): the tick keeps running -- air rescue, the low-health latch and stuck detection stay
       // alive -- but the four MOVEMENT arms (wall, marooned, entombed, unstick) check `inDanger` and stand down.
       // The escape re-fires every 2.5 s while the danger persists (it clears its controls after 1.5 s).
-      const inDanger = !recoveryArmsMayRun({ feetName: feet?.name, belowName: below?.name })
-      if (inDanger && throttled('danger', 2500)) {
+      // LAVASTEP-01 (F1): the effective names -- a (cell, name) relaxed by the enclosed-unsealable-floor rule reads as no
+      // name (magma or campfires only; lava and fire never) -- so the arm and recoveryArmsMayRun see the same thing.
+      const eff = lavastepMover ? lavastepMover.effective(feet, below) : { feet: feet?.name ?? null, below: below?.name ?? null }
+      const dangerHere = !recoveryArmsMayRun({ feetName: eff.feet, belowName: eff.below })
+      // THE EPISODE INSTRUMENT READS THE RAW NAMES on both arms (Claude code r3 P3-5): a relaxed cell quiets the arm and the
+      // movement arms' stand-down, never the row the read counts episodes from
+      const rawDanger = !recoveryArmsMayRun({ feetName: feet?.name, belowName: below?.name })
+      if (rawDanger && throttled('danger', 2500)) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
+        // the episode instrument, unchanged on both arms: one row per 2.5 s while the danger persists
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
-        runner.interrupt('danger_block')
-        await escape(bot)
+        // LAVASTEP=0: today's arm exactly (no relaxation exists, so rawDanger == dangerHere)
+        if (!lavastepMover) {
+          runner.interrupt('danger_block')
+          await escape(bot)
+        }
         // no `return` (Codex, final pass): the tick continues to the air rescue, the low-health latch and stuck
         // detection; the movement arms below are gated on `inDanger` and stand down on their own.
       }
+      // THE VERIFIED, BOUNDED MOVE (lavastep.mjs decides, lavastepmove.mjs executes; never awaited here): its own cadence
+      // (one per 2.5 s on the ground, one per tick while airborne), never re-classified while a move is in flight
+      if (dangerHere && lavastepMover) lavastepMover.maybeFire({ feet, below })
+      // the movement arms stand down while the feet/below are DANGER, and while a danger move holds the body
+      const inDanger = dangerHere || dangerMovingNow()
 
       // --- health ----------------------------------------------------------
       // Latched, not level-triggered. Firing on every tick while health is low
@@ -2607,7 +2651,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a journey begin at all", which is what the trap denies and what
       // canStartAPath() measures. Cheap guards first, because that call runs a
       // real search and this loop ticks twice a second.
-        if (!escaping && !marooned && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
+        if (!escaping && !marooned && !dangerMovingNow() && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
@@ -2883,7 +2927,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (plan === 'step_off') lastStepOffAt = Date.now()
             const routine = ESCAPE_ROUTINES[plan]
             acted = routine
-              ? await routine(bot, { yieldTo: drowningOwnsBody })
+              ? await routine(bot, { yieldTo: bodyYield })
                   .catch(e => ({ ok: false, why: `threw: ${e.message}` }))
               : { ok: false, why: `NO ROUTINE for ${plan} -- the table is not exhaustive` }
           }
@@ -3323,6 +3367,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // TELEMETRY ONLY (pickuplog.mjs): which reflex arm is driving the body right now, for attributing an item
   // pickup. Read by nothing that decides; the flags it reads are the arms' own and are not changed here.
   stop.activeReflex = () => activeReflexOf({ rescuing, escaping, pocketing, marooned, eating })
+  // lavastep-01: the danger mover (null with LAVASTEP=0), for index.mjs's in-flight dig/place guard
+  stop.dangerMover = () => lavastepMover
   return stop
 }
 

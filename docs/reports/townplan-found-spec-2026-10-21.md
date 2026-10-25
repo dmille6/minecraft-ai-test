@@ -258,7 +258,8 @@ their own adoption lands with them.
   good read in this process (malformed at spawn, or any malformed zone at the first read: Claude r2 P3 -- for siting, a zone it
   cannot parse is a zone it cannot avoid), zones are UNKNOWN: no root, no re-fit, and found places nothing; the accepted plan's
   keep-outs still serve. Re-read every 30 s.
-- Seed `avoid` boxes are siting policy on top (the showcase's trial chambers: not in the zones file, an owner "ASK").
+- Seed `avoid` boxes are siting policy on top. The showcase's trial chambers are now BOTH (owner 10-21 #18: protected): the zones
+  file's `trial-chambers-home-se` and the seed's avoid box, the same id and box (a test asserts they agree).
 - The no-dig zone (townzone-01, kept) refuses TARGET digs of town terrain within Chebyshev 16 above home.y - 12; READY cells need
   no dig at all.
 
@@ -440,18 +441,23 @@ RETROFIT town at frame 0 (design §4.7 says "with the stamp ... the plots are gr
 the conflict is named here), so no storehouse cell would ever be founded. It costs the stamp's beds and torch chest. A third
 option is not built: a seed field forcing greenfield with the stamp's chests as drain.
 
-`REQUIRED_KEPT` (per O9): without the waiver, six lines (§4.7): toolkit-03 34d3e5e9 (KEPT 10-21), townindex-01, indexsearch-01,
-townplan-01, found-01, sortdeposit-01 (shas when they are kept). With the waiver, the gate needs a record type for "Paper proof
-+ no-harm read" for townplan-01, found-01 and sortdeposit-01: an owner decision, not built.
+`REQUIRED_KEPT` (`infra/showcase/REQUIRED_KEPT.draft`): six lines (§4.7): toolkit-03 34d3e5e9 (KEPT 10-21), townindex-01,
+indexsearch-01, townplan-01, found-01, sortdeposit-01. O9 is decided (§5: Paper + a no-harm bench read, not bench KEEPs), but
+the start gate (showcase_ops.py `pieces_in`, followrule.py `kept_runs`) counts only a KEEP + promoted or owner-direct row: it
+has no record type for "Paper proof + no-harm read". That gate change is NOT built here. Until it is, the draft's last three
+lines read `FILL-WHEN-KEPT`, which never resolves, so the gate FAILS CLOSED (refuses the start) rather than starting without
+them.
 
-## 5. Owner decisions this build needs
+## 5. Owner decisions (all DECIDED)
 
-- **D-STAMP:** no stamp (`builds_core: true`, recommended) or the stamp (a retrofit town from frame 0).
-- **O9 (pending):** the showcase gate as designed waits for bench KEEPs of townplan-01 and found-01.
-- **Trial chambers / mineshaft under the showcase town:** protectzone-01 left them "ASK"; the plan keeps its digging plots off
-  the trial chambers through a seed `avoid` box either way.
-- **The founding floor** (2.1): founding may spend below the 64-unit stockpile (to 8 units + 4 planks + scaffold, or the
-  rung's wants); bounded per town.
+- **D-STAMP -- DECIDED 2026-10-22 ~13:00Z: bare ground.** No stamped core; `infra/showcase/town-site.json` `builds_core: true`.
+- **O9 -- DECIDED 2026-10-21 (#11):** the showcase starts after Paper + a no-harm bench read, not after bench KEEPs.
+- **Trial chambers -- DECIDED 2026-10-21 (#18): PROTECTED.** The showcase zones file carries `trial-chambers-home-se`
+  [-20,-47,65,88,31,164]; the seed's `avoid` box is the same id and box (a test asserts they agree).
+  **Mineshaft under home -- DECIDED 2026-10-21 (#19): NOT protected.**
+- **The founding floor -- DECIDED 2026-10-22 ~13:00Z: YES, for founding only.** Founding may spend below the 64-unit wood/cobble
+  stockpile (to 8 units + 4 planks + scaffold, or the rung's wants) to craft the first table, chest and furnace; bounded per town.
+  The switch is `FOUND_BELOW_STOCKPILE` (bots/src/found.mjs), true.
 
 ## 6. Dispositions
 

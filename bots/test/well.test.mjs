@@ -2755,7 +2755,7 @@ await t('MUTANT: the switch without its foodskip half (FOOD_SKIP=off in a peacef
   })
 })
 await t('MUTANT (skills): swords allowed in the pit-first build', async () => {
-  await withMutant(SP, '      out.swordsAllowed = !pit && wellSwordsNow(bot)', '      out.swordsAllowed = wellSwordsNow(bot)', async m => {
+  await withMutant(SP, '      out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)', '      out.swordsAllowed = !listedOnly && wellSwordsNow(bot)', async m => {   // re-anchored: junkout-01's listedOnly
     const town = fakeTown({ hand: S('cobblestone', 64), items: [S('stone_sword', 1), S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(30)] })
     town.bot.serverDifficulty = 'peaceful'
     await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 30000, 'mutant')
@@ -3287,6 +3287,88 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
     assert.match((await rows('_plinth')).filter(x => /^stage=planned/.test(x.skill.detail)).pop()?.skill.detail ?? '', / why=trigger_no_site/)
   })
 })
+}
+
+// ===================================================================================================================
+// junkout-01 (docs/reports/junkout-01-design-2026-10-21.md section 3 A): THE WELL AT EVERY TOWN VISIT, through the REAL
+// CognitiveLoop and the REAL dispose_well on the fake town. A NOT-full bag with listed junk, in the town zone, near the well:
+// the visit order comes, it throws the listed junk ONLY (cobble and everything else stay), and no second visit order comes in
+// the same visit. A breached well gets none (no loop). MUTANT: the loop's visit call removed -> no order (the defect today).
+// ===================================================================================================================
+{
+  const { Lessons } = await import('../src/lessons.mjs')
+  const { CognitiveLoop } = await import('../src/cognitive.mjs')
+  const ldir = mkdtempSync(path.join(tmpdir(), 'mcai-junkout-'))
+  let lseq = 0
+  const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}; return L }
+  const CP = new URL('../src/cognitive.mjs', import.meta.url)
+  /** A real loop; dispose_well RUNS (the real skill), every other skill succeeds as a probe. Records skill + args. */
+  async function visitLoop (town, { n = 4, Loop = CognitiveLoop, maxMs = 8000, until = null } = {}) {
+    Object.assign(town.bot, { oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, experience: { level: 0 }, isInWater: false })
+    const fb = town.bot.findBlocks
+    town.bot.findBlocks = o => (typeof o?.matching === 'function' ? fb(o) : [])
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => {
+      const rec = { skill, args: args ?? {}, slots: town.bot.inventory.items().length }
+      ran.push(rec)
+      if (skill === 'dispose_well') { const r = await within(SKILLS.dispose_well.run({ bot: town.bot }, args ?? {}, { aborted: false }), 15000, 'dispose'); rec.status = r.status; return { ...r, delta: {} } }
+      return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+    } }
+    const loop = new Loop(town.bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    const pace = config.llm.decisionCooldownMs
+    config.llm.decisionCooldownMs = 50
+    try {
+      loop.start()
+      for (const t0 = Date.now(); Date.now() - t0 < maxMs && ran.length < n && !(until && until(ran)); ) await new Promise(r => setTimeout(r, 30))
+      loop.stop()
+    } finally { config.llm.decisionCooldownMs = pace }
+    return { ran, loop }
+  }
+  const visitBag = () => [S('egg', 16), S('flint', 64), S('ink_sac', 10), ...filler(5)]
+  await t('junkout-01 CHAIN (real loop): a NOT-full bag with listed junk at town -> dispose_well {visit} -> the listed junk goes, the cobble stays -> no second visit order in the visit', async () => {
+    const town = fakeTown({ wellAt: CAP, items: visitBag(), botAt: new Vec3(HOME.x + 0.5, HOME.y, HOME.z + 0.5) })
+    const cobble0 = town.count('cobblestone')
+    const { ran, loop } = await visitLoop(town, { n: 5 })
+    const d = ran.filter(x => x.skill === 'dispose_well')
+    assert.equal(d.length, 1, `one visit dispose: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.equal(d[0].args.visit, true); assert.ok(d[0].slots < 34, `below the trigger: ${d[0].slots}`)
+    assert.ok(Number.isFinite(d[0].args.dw) && d[0].args.dw <= 20, `the well within reach: ${d[0].args.dw}`)
+    assert.equal(d[0].status, 'success')
+    for (const n of ['egg', 'flint', 'ink_sac']) assert.equal(town.count(n), 0, `${n} down the well`)
+    assert.equal(town.count('cobblestone'), cobble0, 'nothing else changes')
+    assert.equal(loop.wellVisitState.latched, true, 'the visit is spent')
+    const row = (await rows('_junkout')).filter(x => /^phase=well /.test(x.skill.detail)).pop()
+    assert.match(row?.skill?.detail ?? '', /^phase=well vid=\S+ armed=first dh=\d+ dy=-?\d+ dw=\d+ offlist=0 swords=0 cobble=0 stock=0 slots=8->5 listed=3 n=90 status=success/)
+  })
+  await t('junkout-01 CHAIN (real loop): the latch is TICKED on every decision -- a bot outside the zone starts the outside clock though no visit order runs', async () => {
+    const town = fakeTown({ wellAt: CAP, items: visitBag(), botAt: new Vec3(HOME.x + 30.5, HOME.y, HOME.z + 0.5) })
+    const { ran, loop } = await visitLoop(town, { n: 2 })
+    assert.ok(!ran.some(x => x.skill === 'dispose_well' && x.args.visit), `no visit order 30 from home: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.ok(Number.isFinite(loop.wellVisitState?.outsideSince), 'the outside clock runs')
+  })
+  await t('junkout-01 CHAIN (real loop): a BREACHED well gets no visit order -- no loop, the bot keeps its turns', async () => {
+    const town = fakeTown({ wellAt: CAP, items: visitBag(), botAt: new Vec3(HOME.x + 0.5, HOME.y, HOME.z + 0.5), blocks: { [`${CAP.x + 1},${CAP.y},${CAP.z + 1}`]: 'air' } })
+    const { townWellState: TWS } = await import('../src/skills.mjs')
+    assert.equal(TWS(town.bot)?.breached, true, 'positive control: the fake well reads breached')
+    const { ran } = await visitLoop(town, { n: 4 })
+    assert.ok(ran.length >= 4 && !ran.some(x => x.skill === 'dispose_well'), JSON.stringify(ran.map(x => x.skill)))
+  })
+  await t('junkout-01 MUTANT (cognitive): the loop\'s visit call removed -> the not-full bag of junk gets no well order (the defect the change fixes)', async () => {
+    const src = readFileSync(CP, 'utf8')
+    const old = '      const visit = this.#visitOrder(milestone, { tickOnly: blocked })\n'
+    assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+    const out = new URL(`./_mutant-cog-jo-${process.pid}.mjs`, import.meta.url)
+    writeFileSync(out, src.replace(old, '      const visit = null\n').replace(/from '\.\//g, "from '../src/"))
+    try {
+      const { CognitiveLoop: M } = await import(out.href)
+      const town = fakeTown({ wellAt: CAP, items: visitBag(), botAt: new Vec3(HOME.x + 0.5, HOME.y, HOME.z + 0.5) })
+      const { ran } = await visitLoop(town, { n: 4, Loop: M })
+      assert.ok(!ran.some(x => x.skill === 'dispose_well'), 'mutant inert')
+      assert.equal(town.count('egg'), 16, 'the junk rides out of town again')
+    } finally { try { unlinkSync(out) } catch {} }
+  })
 }
 
 console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)

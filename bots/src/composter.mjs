@@ -24,6 +24,8 @@ import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 import { chainPeak } from './craftroom.mjs'
+// junkout-01 (its own statement): the visit latch, the visit id and the JUNK_VISIT switch (bagallowance.mjs, a leaf)
+import { JUNK_VISIT, visitId, visitLatchIssue, visitArmed } from './bagallowance.mjs'
 import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from './withdrawpick.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch the composter also takes the plants a
 // peaceful world has no use for. Passed as `plants`, beside `apples`, from the same decision.
@@ -93,10 +95,11 @@ export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
  * peaceful kit, the same switch) -- every one of the kit's plants (peacefulkit.mjs PEACEFUL_COMPOST: no reserve, a
  * peaceful world has no use for them). NEVER_COMPOST still wins over every list.
  */
-export function compostAllowance (items = [], { apples = false, plants = false } = {}) {
+export function compostAllowance (items = [], { apples = false, plants = false, saplings = true } = {}) {
   const totals = {}
   for (const it of (Array.isArray(items) ? items : [])) {
-    if (!it?.name || !(isCompostJunk(it.name) || isSapling(it.name) || (apples && it.name === 'apple') ||
+    // `saplings: false` (junkout-01's VISIT fill, Claude r1 P2-5): no sapling goes in -- planting needs > 8 of a species
+    if (!it?.name || !(isCompostJunk(it.name) || (saplings && isSapling(it.name)) || (apples && it.name === 'apple') ||
                        (plants && isPeacefulCompost(it.name) && !NEVER_COMPOST.test(it.name)))) continue
     totals[it.name] = (totals[it.name] ?? 0) + (it.count ?? 0)
   }
@@ -119,9 +122,9 @@ export const VISIT_BUDGET_MS = 45_000
  * compostPlan(items) -> { slots, junk, take: [{ name, count }] }  -- what could go, in planner order, capped.
  * Pure. `junk` is what the trigger counts.
  */
-export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apples = false, plants = false } = {}) {
+export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apples = false, plants = false, saplings = true } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
-  const allow = compostAllowance(list, { apples, plants })
+  const allow = compostAllowance(list, { apples, plants, saplings })
   const junk = Object.values(allow).reduce((a, b) => a + b, 0)
   let left = Math.max(0, maxItems)
   const take = []
@@ -141,9 +144,9 @@ export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apple
  * covers all of it), because only an emptied slot can take the bone meal at the end of the fill.
  * `n` is how many of that stack may go: the whole stack, or a sapling stack down to the reserve.
  */
-export function nextInsert (items = [], { room = true, apples = false, plants = false } = {}) {
+export function nextInsert (items = [], { room = true, apples = false, plants = false, saplings = true } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
-  const allow = compostAllowance(list, { apples, plants })
+  const allow = compostAllowance(list, { apples, plants, saplings })
   const stacks = list.filter(it => (allow[it.name] ?? 0) > 0)
   if (!stacks.length) return null
   if (room) {
@@ -649,6 +652,63 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   if (who.defer) { s.deferrals = (s.deferrals ?? 0) + 1; return none() }
   s.deferrals = 0
   return { order: { skill: 'build_composter', args: {}, why: `at town, no composter, ${plan.carried ? 'carrying one' : `holding ${plan.wood} wood`} and ${freeSlots} free slots` }, state: s }
+}
+
+/**
+ * THE STACKS A FILL WOULD EMPTY WHOLE -> a number. Pure. The composter's own allowance (compostAllowance: the junk, the
+ * peaceful plants and apples under the switch, saplings above SAPLING_RESERVE) taken stack by stack, smallest first: a
+ * stack counts only when the allowance covers all of it (a slot freed). The visit order's minimum (junkout-01). NEVER a
+ * sapling (Claude r1 P2-5): the visit fill runs with `saplings: false`; saplings go at 34+ only, as before.
+ */
+export function compostVisitStacks (items = [], { apples = false, plants = false } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  const allow = compostAllowance(list, { apples, plants, saplings: false })   // never a sapling at a visit
+  let n = 0
+  for (const [name, a] of Object.entries(allow)) {
+    let left = a
+    for (const it of list.filter(x => x.name === name).sort((p, q) => p.count - q.count)) {
+      if (it.count > left) break
+      n++; left -= it.count
+    }
+  }
+  return n
+}
+
+/**
+ * THE COMPOSTER AT EVERY TOWN VISIT (junkout-01; OWNER 10-21 ~20:30Z, "the composter for compostables"). Measured 10-21
+ * (24 h, 80 bots): 3,096 of 5,907 town visits held compost junk or the peaceful plants below TRIGGER_SLOTS -- leaf litter,
+ * seeds, mushrooms -- and the 34-slot `compost` order never fires for them. -> { order, state }. Pure.
+ *   slots, visitStacks   the bag, and the stacks a fill would empty whole (compostVisitStacks)
+ *   inZone, distHome, dy  the town deposit's zone (16 h / 12 v), as the caller read it; dy is carried for the read's J3
+ *   storageNear           townOrder's own reading (lazy)
+ *   distComposter         () -> horizontal distance to the town composter, or null (none): <= VISIT_COMPOST_REACH
+ *   state                the VISIT latch (bagallowance.mjs visitLatchTick, ticked by the caller on every decision)
+ *   townState            read only: the composter's own cooldown and backoff, shared with the 34-slot order
+ * Once per visit, charged at ISSUE; below TRIGGER_SLOTS only (a full bag is the 34-slot order's). A not-full bag always
+ * has room for the bone meal, so the fill only inserts, ripens and harvests (fillDecision).
+ */
+/** The visit order needs the bot this close (horizontally) to the town composter (Claude design r2 P3-1): never a walk across town. */
+export const VISIT_COMPOST_REACH = 20
+export function compostVisitOrder ({ now = 0, slots = 0, visitStacks = 0, inZone = false, distHome = Infinity, dy = null, storageNear = false, distComposter = null,
+                                     state = {}, townState = {}, on = JUNK_VISIT.on, myName = '' } = {}) {
+  const s = { ...state }
+  const none = () => ({ order: null, state: s })
+  // THE TOWN DEPOSIT'S ZONE (16 h / 12 v: the caller's inTownZone; the composter is within 16 of home): never a walk across town
+  if (!on || !inZone || !(distHome <= TOWN_RADIUS) || s.latched) return none()
+  if (!(slots < TRIGGER_SLOTS)) return none()   // a full bag is the 34-slot order's
+  if (now - (townState?.lastCompostAt ?? -Infinity) < COMPOST_COOLDOWN_MS || now < (townState?.compostBackoffUntil ?? 0)) return none()
+  if (now - (s.lastScanAt ?? -Infinity) < TOWN_SCAN_MS) return none()
+  s.lastScanAt = now
+  // the bag's fill plan is built only here, after the cheap gates, and once (Codex code r2 P3)
+  const stacks = lazy(visitStacks)
+  if (!(stacks >= 1)) return none()
+  if (!lazy(storageNear)) return none()
+  const dc = lazy(distComposter)   // null: no town composter (the build order's)
+  if (!(Number.isFinite(dc) && dc <= VISIT_COMPOST_REACH)) return none()
+  const dh = Math.round(distHome)
+  return { order: { skill: 'compost', args: { visit: true, armed: visitArmed(s), dh, dy: Number.isFinite(dy) ? Math.round(dy) : null, dc: Math.round(dc), vid: visitId(myName, now) },
+                    why: `at town (${dh} from home) with ${stacks} stack(s) the composter takes whole and ${slots} of 36 slots used: composted on this visit` },
+           state: visitLatchIssue(s, now) }
 }
 
 /** The runner declined to start the order (it never ran): a free skip, like no_effect. */

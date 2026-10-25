@@ -775,7 +775,9 @@ const wired = {
   step: s => /const deathSitePenalty = \(block\) => deathSiteStepCost\(deathSites, block\) \+ keepoutStepPenalty\(block\)/.test(s),
   brk: s => /gatherMoves\.exclusionAreasBreak = \[\.\.\.moves\.exclusionAreasBreak, \(block\) => keepoutBreakPenalty\(block\)\]/.test(s),
   lic: s => /kind: 'keepout_mode'/.test(s),
-  exitLast: s => { const i = s.indexOf('{ const ko = this.#keepoutExitOrder(order); if (ko) order = ko }'); const j = s.indexOf("logEvent({ kind: 'work_order',"); const k = s.indexOf('plantingOrder({ saplings: sap'); return i > 0 && k > 0 && i > k && i < j },
+  // re-anchored (found-01 x keepout-01 r2, JIT 10-23c; junkout-01 x keepout-01 jit-1023; junkout-01 x found-01 JIT 10-24): the
+  // override refunds a found order it replaces AND a junkout visit it displaces (refundDeclined + visitDisplacedRefund)
+  exitLast: s => { const i = s.indexOf("{ const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }"); const j = s.indexOf("logEvent({ kind: 'work_order',"); const k = s.indexOf('plantingOrder({ saplings: sap'); return i > 0 && k > 0 && i > k && i < j },
 }
 test('WIRED: the dig guard (outside the dig instrument), the route on every profile, the break veto on gather\'s, the licence row, the exit order last', () => {
   for (const [k, f] of Object.entries(wired)) assert.equal(f(k === 'exitLast' ? cog : idx), true, k)
@@ -787,7 +789,7 @@ test('MUTANTS KILLED: each wiring check fails when its line is gone', () => {
     ['step', rawIdx, 'deathSiteStepCost(deathSites, block) + keepoutStepPenalty(block)', 'deathSiteStepCost(deathSites, block)'],
     ['brk', rawIdx, '[...moves.exclusionAreasBreak, (block) => keepoutBreakPenalty(block)]', '[...moves.exclusionAreasBreak]'],
     ['lic', rawIdx, "kind: 'keepout_mode'", "kind: 'keepout_mood'"],
-    ['exitLast', rawCog, '{ const ko = this.#keepoutExitOrder(order); if (ko) order = ko }', ''],
+    ['exitLast', rawCog, "{ const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }", ''],
   ]
   for (const [k, raw, old, neu] of cases) {
     assert.ok(raw.includes(old) && raw.split(old).length === 2, `${k}: ANCHOR MISSING or not unique`)

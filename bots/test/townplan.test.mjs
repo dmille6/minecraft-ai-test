@@ -151,8 +151,10 @@ await t('THE SHOWCASE GROUND (its read-only block dump): ring@1 fits W, s 70, 12
   })
   const read = (x, y, z) => (x < x0 || x > x1 || z < z0 || z > z1 || y < y0 || y > y1) ? null : pal[cells[((y - y0) * nz + (z - z0)) * nx + (x - x0)]]
   const zones = T.parseZones(JSON.parse(fs.readFileSync(new URL('./fixtures/protected-zones.showcase.json', import.meta.url), 'utf8')), '1292467317:1056448044')
-  assert.equal(zones.zones.length, 7)
-  const avoid = T.avoidZones([{ id: 'trial-chambers', box: [-16, -43, 69, 84, 27, 160] }])
+  assert.equal(zones.zones.length, 8)
+  // the seed's avoid boxes as infra/showcase/town-site.json carries them (the start gate's own input)
+  const site = JSON.parse(fs.readFileSync(new URL('../../infra/showcase/town-site.json', import.meta.url), 'utf8'))
+  const avoid = T.avoidZones(site.town_plan.avoid)
   const r = T.fitTown(read, { x: 0, y: 70, z: 0 }, { zones: [...zones.zones, ...avoid] })
   assert.equal(r.summary.orient, 'W'); assert.equal(r.body.s, 70); assert.equal(r.summary.ready, '12/12')
   for (const p of r.body.plots) for (const c of [...(p.cells ?? []), ...(p.stations ?? [])]) assert.equal(T.cellInZones(...c.at, [...zones.zones, ...avoid]), null)
@@ -206,13 +208,20 @@ await t('RETROFIT: containers in town -> cluster store, groups waiting until eve
 })
 
 console.log('townplan: zones, sectors, keep-outs')
-await t('ZONES (the shared fixture with protectzone-01): 7 villages bound to the showcase world; another world 0; a malformed zone dropped and named; all malformed unreadable', () => {
+await t('THE SHOWCASE AGREES WITH ITSELF (coordinator 10-22): every avoid box of infra/showcase/town-site.json is a zone of the showcase protected-zones file (the fixture copy), id and box', () => {
+  const site = JSON.parse(fs.readFileSync(new URL('../../infra/showcase/town-site.json', import.meta.url), 'utf8'))
+  const zones = JSON.parse(fs.readFileSync(new URL('./fixtures/protected-zones.showcase.json', import.meta.url), 'utf8')).zones
+  assert.ok(site.town_plan.avoid.length >= 1)
+  for (const a of site.town_plan.avoid) assert.ok(zones.some(z => z.id === a.id && JSON.stringify(z.box) === JSON.stringify(a.box)), `${a.id} ${a.box} is not a zone`)
+  assert.equal(site.builds_core, true, 'the coordinator default: no stamp')
+})
+await t('ZONES (the shared fixture with protectzone-01): 7 villages and the trial chambers bound to the showcase world; another world 0; a malformed zone dropped and named; all malformed unreadable', () => {
   const json = JSON.parse(fs.readFileSync(new URL('./fixtures/protected-zones.showcase.json', import.meta.url), 'utf8'))
-  assert.equal(T.parseZones(json, '1292467317:1056448044').zones.length, 7)
+  assert.equal(T.parseZones(json, '1292467317:1056448044').zones.length, 8)
   assert.equal(T.parseZones(json, 'other:world').zones.length, 0); assert.equal(T.parseZones(json, 'other:world').ok, true)
   const bad = { ...json, zones: [...json.zones, { id: 'typo', box: [0, 0, 0, 5000, 10, 10] }] }
   const r = T.parseZones(bad, '1292467317:1056448044')
-  assert.ok(r.ok); assert.equal(r.zones.length, 7); assert.match(r.why, /dropped typo/)
+  assert.ok(r.ok); assert.equal(r.zones.length, 8); assert.match(r.why, /dropped typo/)
   assert.equal(T.parseZones({ version: 1, zones: [{ id: 'x', box: [1, 2] }] }, null).ok, false)
   assert.equal(T.parseZones({ version: 2, zones: [] }, null).ok, false)
 })

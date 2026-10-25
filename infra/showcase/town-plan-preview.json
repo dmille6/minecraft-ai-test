@@ -11,7 +11,20 @@
  "orientation": "W",
  "workSide": 1,
  "seed": {
-  "why": "ok"
+  "why": "ok",
+  "avoid": [
+   {
+    "id": "trial-chambers-home-se",
+    "box": [
+     -20,
+     -47,
+     65,
+     88,
+     31,
+     164
+    ]
+   }
+  ]
  },
  "plots": [
   {
@@ -354,7 +367,7 @@
   "pending": []
  },
  "zones": {
-  "n": 7,
+  "n": 8,
   "avoid": 1,
   "why": "ok"
  },

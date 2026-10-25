@@ -1226,6 +1226,7 @@ async function withMutant (path, old, neu, fn) {
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 const CP = new URL('../src/composter.mjs', import.meta.url)
+const SP_C = new URL('../src/skills.mjs', import.meta.url)   // junkout-01's visit-fill mutant
 await t('MUTANT: dropping the compostability allowlist feeds eggs to the composter', async () => {
   await withMutant(CP, '&& Object.hasOwn(COMPOST_CHANCE, name) &&', '&&', async m => assert.ok(m.isCompostJunk('egg'), 'mutant inert'))
 })
@@ -1603,6 +1604,32 @@ await t('#2 TRUTH TABLE: with no live window, stuckDecision equals the old inlin
     }
   }
   assert.equal(cases, 2 * 2 * 2 * 2 * 6 * 4)
+})
+
+// junkout-01 (design section 3 B): THE VISIT FILL -- a not-full bag at the composter composts its junk; the saplings stay
+await t('junkout-01 VISIT (the real skill): compost {visit} on a 14-slot bag -> leaf litter and seeds composted, every sapling stays, a _junkout phase=compost row', async () => {
+  const { bot, count } = fakeTown({ hand: PICK, items: [S('leaf_litter', 30), S('wheat_seeds', 7), S('oak_sapling', 40), S('spruce_sapling', 9), S('egg', 3), ...filler(9)] })
+  const { tapRecords } = await import('../src/logger.mjs')
+  const seen = []
+  const untap = tapRecords(x => { if (x?.skill?.name === '_junkout') seen.push(x) })
+  let r
+  try { r = await within(SKILLS.compost.run({ bot }, { visit: true, dh: 4, dy: 0, dc: 5, vid: 'TestBot.v1', armed: 'first' }, { aborted: false }), 8000, 'compost visit') } finally { untap() }
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count('leaf_litter'), 0); assert.equal(count('wheat_seeds'), 0)
+  assert.equal(count('oak_sapling'), 40, 'saplings never at a visit (planting needs > 8 of a species)'); assert.equal(count('spruce_sapling'), 9)
+  assert.equal(count('egg'), 3, 'not compostable')
+  const row = seen.filter(x => /^phase=compost /.test(x.skill.detail)).at(-1)
+  assert.match(row?.skill?.detail ?? '', /^phase=compost vid=TestBot\.v1 armed=first dh=4 dy=0 dw=5 offlist=0 swords=0 cobble=0 stock=0 slots=15->1[34] listed=- n=37 status=success/)
+  // POSITIVE CONTROL: the same bag WITHOUT the visit flag (the 34-slot order's own fill) takes the oak saplings above 16
+  const t2 = fakeTown({ hand: PICK, items: [S('oak_sapling', 40), ...filler(33)] })
+  assert.equal((await run('compost', t2.bot)).status, 'success'); assert.equal(t2.count('oak_sapling'), 16)
+})
+await t('junkout-01 MUTANT (skills): the visit fill without `saplings: false` composts the saplings (killed)', async () => {
+  await withMutant(SP_C, '  const saplings = !visit\n', '  const saplings = true\n', async m => {
+    const { bot, count } = fakeTown({ hand: PICK, items: [S('leaf_litter', 30), S('oak_sapling', 40), ...filler(9)] })
+    await within(m.SKILLS.compost.run({ bot }, { visit: true }, { aborted: false }), 8000, 'mutant')
+    assert.ok(count('oak_sapling') < 40, 'mutant inert')
+  })
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

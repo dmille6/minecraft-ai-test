@@ -16,8 +16,13 @@ t('the arms may run on stone and in water, never on lava, fire or magma at the f
 })
 t('WIRED: the four movement arms are gated on inDanger and the tick keeps running (source invariant, comments stripped)', () => {
   const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8').split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n')
-  assert.match(src, /const inDanger = !recoveryArmsMayRun\(\{ feetName: feet\?\.name, belowName: below\?\.name \}\)/, 'inDanger is the predicate')
-  assert.match(src, /if \(inDanger && throttled\('danger', 2500\)\) \{/, 'the escape re-fires every 2.5 s while the danger persists')
+  // lavastep-01: the predicate reads the mover's EFFECTIVE names (a relaxed magma/campfire cell reads as none), and the
+  // movement arms also stand down while a danger move holds the body (inDanger = dangerHere || dangerMovingNow())
+  assert.match(src, /const eff = lavastepMover \? lavastepMover\.effective\(feet, below\) : \{ feet: feet\?\.name \?\? null, below: below\?\.name \?\? null \}/, 'the effective names (identical to the raw ones with LAVASTEP=0)')
+  assert.match(src, /const dangerHere = !recoveryArmsMayRun\(\{ feetName: eff\.feet, belowName: eff\.below \}\)/, 'dangerHere is the predicate')
+  assert.match(src, /const rawDanger = !recoveryArmsMayRun\(\{ feetName: feet\?\.name, belowName: below\?\.name \}\)/, 'the episode row reads the raw names')
+  assert.match(src, /if \(rawDanger && throttled\('danger', 2500\)\) \{/, 'the danger row (and, with LAVASTEP=0, the escape) re-fires every 2.5 s while the danger persists')
+  assert.match(src, /const inDanger = dangerHere \|\| dangerMovingNow\(\)/, 'the arms stand down while a danger move holds the body')
   assert.doesNotMatch(src, /await escape\(bot\)\s*return\s*\}/, 'the firing tick does NOT return: air rescue, the low-health latch and stuck detection keep running (Codex, final pass)')
   const gates = [/mstate === 'need_scaffold' && !inDanger &&/, /if \(mstate === 'climb' && (?:!pocketing && !pocketPending && )?!inDanger\) \{/, /!climbing && !inDanger && isEntombed\(bot\) &&/, /fire: !reset && !inDanger && now - stillSince > stuckMs/]
   for (const g of gates) assert.equal((src.match(g) || []).length, 1, `gate present once: ${g}`)

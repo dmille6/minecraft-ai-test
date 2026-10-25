@@ -13,11 +13,13 @@ import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
-import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
+import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
 import { townWellStandY } from './skills.mjs'
 const WELL_DEEP_ROW_MS = 5 * 60 * 1000
+// junkout-01's three visit orders' skills (well.mjs wellVisitOrder, composter.mjs compostVisitOrder, towndeposit.mjs tailOrder)
+const VISIT_SKILLS = ['dispose_well', 'compost', 'town_deposit']
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
@@ -28,13 +30,15 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk, compostVisitOrder, compostVisitStacks, RUNNER_DECLINED } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
 // FOUNDING (found-01): the found slot's decision and readings
-import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign } from './found.mjs'
+import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
-import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
+import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
+// junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
+import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
 import { recountOrder, recountOutcome } from './recount.mjs'
@@ -221,9 +225,40 @@ export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
   // found-01: found_store / found_work charge the cooldown AND the visit at issue (found.mjs foundIssued); a declined run refunds both
-  if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: -Infinity, visitUsed: false } }
+  // ...the cooldown goes back to the one before this order (foundIssued keeps it as prevLastAt: Claude code r9 P3), else none
+  if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: 'prevLastAt' in st.foundState ? st.foundState.prevLastAt : -Infinity, visitUsed: false } }
   if (!at || !st[at[0]]) return {}
   return { [at[0]]: { ...st[at[0]], [at[1]]: -Infinity } }
+}
+
+/**
+ * JUNKOUT-01'S TOWN-VISIT ORDERS YIELD TO THESE (pure): the order in hand keeps the decision and the visit is ticked only
+ * (never issued: issuing latches the visit and charges the well's / composter's / tail's cooldown). The full-bag town
+ * deposit, the plinth build and the recount (junkout-01's own list), and -- JUNKOUT-01 x FOUND-01 (JIT 10-24) -- the found
+ * slot: found_store / found_work charge their visit and 10-min cooldown when they ISSUE, so a visit that replaced one spent
+ * the found slot on an order that never ran (the recount already yields to it for the same reason). The visit comes on a
+ * later decision of the same stay.
+ */
+export const VISIT_YIELDS_TO = new Set(['town_deposit', 'build_plinth', 'count_town', 'found_store', 'found_work'])
+export function visitYieldsTo (order) { return !!order && VISIT_YIELDS_TO.has(order.skill) }
+
+/**
+ * JUNKOUT-01 x KEEPOUT-01 (jit-1023) -> the state fields to assign (pure). A junkout visit order the keep-out exit
+ * DISPLACED never ran: the visit is not spent (the latch re-arms with the reason that armed it, as a decline does:
+ * visitLatchDeclined) and everything its issue charged is given back -- the visit's scan cadence, the tail's own cooldown,
+ * the well's / composter's cooldown (the order could only issue with each of them clear) -- so the visit can issue on the
+ * first decision out of the column. Any other order: {}.
+ */
+export function visitDisplacedRefund (order, st = {}) {
+  const unspend = v => ({ ...visitLatchDeclined(v ?? {}), lastScanAt: -Infinity })
+  if (order?.skill === 'dispose_well' && order.args?.visit === true) {
+    return { wellVisitState: unspend(st.wellVisitState), wellState: { ...(st.wellState ?? {}), lastDisposeAt: -Infinity } }
+  }
+  if (order?.skill === 'compost' && order.args?.visit === true) {
+    return { compostVisitState: unspend(st.compostVisitState), townState: { ...(st.townState ?? {}), lastCompostAt: -Infinity } }
+  }
+  if (order?.skill === 'town_deposit' && order.args?.tail === true) return { tailState: { ...unspend(st.tailState), lastIssuedAt: -Infinity } }
+  return {}
 }
 
 /**
@@ -812,6 +847,65 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /**
+   * THE TOWN-VISIT ORDERS (junkout-01; design docs/reports/junkout-01-design-2026-10-21.md section 3): the junk well, the
+   * composter and the bag allowance's tail, ONCE EACH PER VISIT, below 34 slots, in the town deposit's zone. The three
+   * latches are TICKED HERE ON EVERY DECISION (Codex design r1 P1-1: a latch updated only when its order gets a turn misses
+   * the departures it re-arms on); the first order that issues wins this decision. Every read is lazy and guarded.
+   */
+  #visitOrder(milestone, { tickOnly = false } = {}) {
+    try {
+      const bot = this.bot
+      const now = Date.now()
+      const p = bot.entity?.position ?? null
+      const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+      const inZone = !!p && inTownZone(p, home)
+      this.wellVisitState = visitLatchTick(this.wellVisitState ?? {}, { now, atTown: inZone, stayMs: VISIT_STAY_MS })
+      this.compostVisitState = visitLatchTick(this.compostVisitState ?? {}, { now, atTown: inZone, stayMs: VISIT_STAY_MS })
+      this.tailState = visitLatchTick(this.tailState ?? {}, { now, atTown: inZone, stayMs: TD_STAY_REARM_MS })
+      if (!inZone || tickOnly) return null
+      const items = bot.inventory?.items?.() ?? []
+      const distHome = Math.hypot(home.x - p.x, home.z - p.z), dy = p.y - home.y
+      let wanted = null
+      const wantedNow = () => (wanted ??= [...(this.#wantedItems(milestone) ?? [])])
+      // THE WELL: listed junk only, never a name the goal wants (Claude design r1 P3-6), near the well (VISIT_WELL_REACH)
+      let w = null
+      const well = () => (w ??= townWellState(bot))
+      const rw = wellVisitOrder({
+        now, slots: items.length, inZone, distHome, dy,
+        visitJunkStacks: () => disposePlan(items, { keep: wantedNow() }).junkStacks,
+        well, distWell: () => { const c = well()?.cap; return c ? Math.hypot(c.x + 0.5 - p.x, c.z + 0.5 - p.z) : null },
+        inside: () => insideTownWell(bot), keep: wantedNow,
+        depth: skill => wellOutOfReach({ feetY: p.y, standY: townWellStandY(bot, skill) ?? config.world.homeY }),
+        state: this.wellVisitState, wellState: this.wellState ?? {}, myName: bot.username ?? '',
+      })
+      this.wellVisitState = rw.state
+      if (rw.order) { this.wellState = { ...(this.wellState ?? {}), lastDisposeAt: now }; return rw.order }
+      // THE COMPOSTER: compost junk and the peaceful plants, never a sapling (Claude design r1 P2-5)
+      const peaceful = foodSkipNow(bot).active
+      const rc = compostVisitOrder({
+        now, slots: items.length, inZone, distHome, dy,
+        visitStacks: () => compostVisitStacks(items, { apples: peaceful, plants: peaceful }),
+        storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
+        distComposter: () => { const c = findTownComposter(bot)?.position; return c ? Math.hypot(c.x + 0.5 - p.x, c.z + 0.5 - p.z) : null },
+        state: this.compostVisitState, townState: this.townState ?? {}, myName: bot.username ?? '',
+      })
+      this.compostVisitState = rc.state
+      if (rc.order) { this.townState = { ...(this.townState ?? {}), lastCompostAt: now }; return rc.order }
+      // THE BAG ALLOWANCE'S TAIL: the rows only, into a town container in reach
+      const noSwords = foodSkipNow(bot).active
+      const rt = tailOrder({
+        now, slots: items.length, pos: p, home,
+        plan: () => townDepositPlan(items, { wanted: wantedNow(), noSwords, tail: 'only' }),
+        container: () => !bankClosed(bot) && townContainers(bot).length > 0,
+        state: this.tailState, myName: bot.username ?? '',
+      })
+      this.tailState = rt.state
+      if (rt.order) { bot.townDepositWanted = wantedNow(); return rt.order }
+      return null
+    } catch { return null }   // an inventory or world read must never break the decision loop
+  }
+
   /** THE RAISED JUNK WELL ORDER, or null (plinth.mjs plinthOrder decides; every read is lazy and guarded). */
   #plinthOrder() {
     try {
@@ -899,14 +993,21 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /** KEEPOUT-01: exitDecision's answer for `order` -- the readings only, no counters (jit-1023: the visit orders ask it too). */
+  #keepoutExitDecision(order) {
+    const bot = this.bot
+    const sites = bot.fireSitesNow?.() ?? []
+    if (!sites.length || !bot.entity?.position) return null
+    return exitDecision({ sites, pos: bot.entity.position, home: configuredHome(config.world), skill: order?.skill ?? null,
+      yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
+  }
+
   /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
   #keepoutExitOrder(order) {
     try {
       const bot = this.bot
-      const sites = bot.fireSitesNow?.() ?? []
-      if (!sites.length || !bot.entity?.position) return null
-      const d = exitDecision({ sites, pos: bot.entity.position, home: configuredHome(config.world), skill: order?.skill ?? null,
-        yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
+      const d = this.#keepoutExitDecision(order)
+      if (!d) return null
       // a yield is counted when it STARTS (Claude r1 P3-7), not on every tick it holds
       const yk = d.why === 'town_job' || d.why === 'home' ? `${d.why}@${siteKey(d.site)}` : null
       if (yk && yk !== this.keepoutYieldKey) noteKeepout(bot, d.why === 'home' ? 'yield_home' : 'yield_town_job')
@@ -1011,6 +1112,24 @@ export class CognitiveLoop {
     // rung re-issues every decision and would starve it. The town deposit and the plinth build keep their turn (both are
     // bounded and on their own cooldowns; the recount comes on the next decision).
     if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order
+    // THE TOWN-VISIT ORDERS (junkout-01): after the plinth build, the full-bag town deposit and the recount, AHEAD of the
+    // milestone's work order (Codex design r1 P1-1: a craft-ready rung re-issues every decision and would hold the cleanup off
+    // the whole visit) -- bounded: one well, one compost and one tail run per visit, each on its own cooldown. The latches
+    // are ticked on every decision, whatever wins it.
+    {
+      // code r1 (both engines): an order that cannot win this decision is never ISSUED (issuing latches the visit and charges
+      // the well's / composter's cooldown) -- the latches are only ticked
+      // JUNKOUT-01 x KEEPOUT-01 (jit-1023, Codex rebase review P2): nor while the keep-out exit would replace it -- the exit is
+      // LAST in the chain and overrides any order, so a visit issued now would spend its latch and the well's / composter's
+      // cooldown on a run that never happens. Asked for ONE visit skill: all three are TOWN_JOB_SKILLS, so exitDecision answers
+      // the same for each (a yielded C12 column lets them run). Ticked only: the latch stays armed, and the visit issues on the
+      // first decision outside. The exit's own call below refunds a visit it displaces anyway (visitDisplacedRefund).
+      const exitFirst = () => { try { return this.#keepoutExitDecision({ skill: VISIT_SKILLS[0] })?.start === true } catch { return false } }
+      // JUNKOUT-01 x FOUND-01 (JIT 10-24): the found slot is one of the orders the visit yields to (visitYieldsTo)
+      const blocked = visitYieldsTo(order) || exitFirst()
+      const visit = this.#visitOrder(milestone, { tickOnly: blocked })
+      if (visit) order = visit
+    }
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1260,7 +1379,12 @@ export class CognitiveLoop {
     // in the chain on purpose, so it overrides every order above -- except a town job inside a column that covers the town
     // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
     // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
-    { const ko = this.#keepoutExitOrder(order); if (ko) order = ko }
+    // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
+    // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
+    // jit-1023 (junkout-01 x keepout-01, Codex fix review P2): a junkout visit the exit DISPLACES here never ran -- refunded as
+    // a decline is (the probe above keeps this rare: it differs from this call only if the exit's backoff ran out in between).
+    // junkout-01 x found-01 (JIT 10-24): both refunds stand; each answers {} / nothing for the other's skills.
+    { const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
@@ -1330,8 +1454,21 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
-      if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
+      // junkout-01: the tail's outcome lands in ITS state (Claude design r1 P2-2), never in the full-bag deposit's backoff
+      if (admitted.skill === 'town_deposit') {
+        if (admitted.args?.tail === true) {
+          this.tailState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.tailState ?? {})
+          // a DECLINED tail never ran: the visit is not spent and the reason that armed it stands again (code r1, both engines)
+          if (RUNNER_DECLINED.has(r.failClass ?? null)) this.tailState = visitLatchDeclined(this.tailState)
+        }
+        else this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
+      }
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
+      // junkout-01: a visit order the runner DECLINED never ran -- the visit is not spent (homefix-01's one decline set)
+      if (admitted.args?.visit === true && declined) {
+        if (admitted.skill === 'dispose_well') this.wellVisitState = visitLatchDeclined(this.wellVisitState ?? {})
+        if (admitted.skill === 'compost') this.compostVisitState = visitLatchDeclined(this.compostVisitState ?? {})
+      }
       if (!declined && admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (!declined && admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
       if (!declined && admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
@@ -1346,6 +1483,8 @@ export class CognitiveLoop {
         const o = exitOutcome({ tries: this.keepoutExitTries ?? 0, backoffUntil: this.keepoutExitBackoffUntil ?? 0 }, r.status)
         this.keepoutExitTries = o.tries; this.keepoutExitBackoffUntil = o.backoffUntil
       }
+      // found-01: a body in the plan cell is a FREE skip -- the visit and the cooldown come back, the order is retried after FOUND_RETRY_MS
+      if (!declined && (admitted.skill === 'found_store' || admitted.skill === 'found_work') && r.failClass === 'found_body') this.foundState = foundRetry(this.foundState ?? {}, Date.now(), r.at ?? admitted.args?.at ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

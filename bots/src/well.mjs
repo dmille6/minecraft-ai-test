@@ -42,6 +42,8 @@ import { chainPeak } from './craftroom.mjs'
 import { foodSkipActive } from './foodskip.mjs'
 import { groupOf, isProtected, isToolGroup } from './stocktarget.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
+// junkout-01 (its own statement): the visit latch, the visit id and the JUNK_VISIT switch (bagallowance.mjs, a leaf)
+import { JUNK_VISIT, visitId, visitLatchIssue, visitArmed } from './bagallowance.mjs'
 
 /** The admission radius, needed by the site search above its definition (see ADMISSION_RADIUS). */
 const ADMISSION_RADIUS_FOR_SITE = 5
@@ -245,8 +247,11 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
-export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null } = {}) {
-  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null, keep = null } = {}) {
+  // `keep` (junkout-01's visit, Claude r1 P3-6): names the active goal wants -- never planned, whatever the list says
+  const kept = new Set(Array.isArray(keep) ? keep : [])
+  const all = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  const list = kept.size ? all.filter(it => !kept.has(it.name)) : all
   // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
   const cobble = cobbleAtCap ? cobbleWellStacks(list) : []
   // AT-TARGET SURPLUS of every other targeted group (stocktarget), chosen with it (none of them is reserve stone)
@@ -254,7 +259,7 @@ export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swo
   const cobbleSlots = new Set(cobble.map(c => c.slot))
   const stockSlots = new Set(cobble.filter(c => c.group).map(c => c.slot))
   // In slot order, each stack judged against the reserve the stacks BEFORE it leave (the plan is thrown in this order).
-  let reserve = reserveStone(list) - cobble.reduce((t, c) => t + (RESERVE_SET.has(c.name) ? c.count : 0), 0)
+  let reserve = reserveStone(all) - cobble.reduce((t, c) => t + (RESERVE_SET.has(c.name) ? c.count : 0), 0)
   const junk = []
   for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords) || cobbleSlots.has(x.slot)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
     if (cobbleSlots.has(it.slot)) { junk.push(it); continue }
@@ -263,7 +268,7 @@ export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swo
     reserve = left
     junk.push(it)
   }
-  return { slots: list.length, junkStacks: junk.length, stone: reserveStone(list),
+  return { slots: all.length, junkStacks: junk.length, stone: reserveStone(all),
            stacks: junk.slice(0, Math.max(0, maxStacks)).map(it => ({ slot: it.slot, name: it.name, count: it.count, ...(stockSlots.has(it.slot) ? { stock: groupOf(it.name) } : {}) })) }
 }
 
@@ -1096,6 +1101,55 @@ function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, b
     }
   }
   return none()
+}
+
+/**
+ * THE WELL AT EVERY TOWN VISIT (junkout-01; OWNER 10-21 ~20:30Z). Measured 10-21 (24 h, 80 bots): 2,373 of 5,907 town
+ * visits held >= 1 whole stack of listed junk below TRIGGER_SLOTS, so it rode out of town again -- the 34-slot order above
+ * never fires for them. -> { order, state } | { order: null, state, held }. Pure; cognitive.mjs supplies the readings.
+ *   slots, visitJunkStacks   the bag, and its whole LISTED stacks (disposePlan(items).junkStacks: no swords, no cobble at
+ *                            the cap, no at-target stock -- listed junk only)
+ *   distHome                 horizontal, from home (TOWN_RADIUS, the well order's own test: never a trip)
+ *   well, inside, depth      as wellOrder (a usable, unbreached well; not from inside a well; HELD beyond the walk's reach)
+ *   state                    the VISIT latch (bagallowance.mjs visitLatchTick: ticked by the caller on every decision)
+ *   wellState                read only: the well's own dispose cooldown and backoff, shared with the 34-slot order
+ * ONCE PER VISIT: the latch is charged at ISSUE (a skip or a failure spends the visit too: no loop). Below TRIGGER_SLOTS
+ * only: a full bag is the 34-slot order's, unchanged.
+ */
+export const JUNK_VISIT_MIN_STACKS = 1
+export const VISIT_SCAN_MS = 30 * 1000
+/** The visit order needs the bot this close (horizontally) to the well's cap: never a walk across town (Claude r1 P2-1). */
+export const VISIT_WELL_REACH = 20
+export function wellVisitOrder ({ now = 0, slots = 0, visitJunkStacks = 0, inZone = false, distHome = Infinity, dy = null, distWell = null, well = null,
+                                  inside = false, depth = null, keep = [], state = {}, wellState = {}, on = JUNK_VISIT.on, myName = '' } = {}) {
+  const s = { ...state }
+  const none = () => ({ order: null, state: s })
+  // THE TOWN DEPOSIT'S ZONE (16 h / 12 v of home: the caller's inTownZone), not the well orders' 48: never a walk across town
+  if (!on || !inZone || !(distHome <= TOWN_RADIUS) || s.latched) return none()
+  if (!(slots < TRIGGER_SLOTS)) return none()   // a full bag is the 34-slot order's
+  if (now - (wellState?.lastDisposeAt ?? -Infinity) < DISPOSE_COOLDOWN_MS || now < (wellState?.disposeBackoffUntil ?? 0)) return none()
+  if (now - (s.lastScanAt ?? -Infinity) < VISIT_SCAN_MS) return none()
+  s.lastScanAt = now
+  // the bag's plan is built only here, after the cheap gates, and once (Codex code r2 P3)
+  const stacks = lazy(visitJunkStacks)
+  if (!(stacks >= JUNK_VISIT_MIN_STACKS)) return none()
+  if (lazy(inside)) return none()   // never from inside a well (wellOrder's own rule)
+  const w = lazy(well)
+  if (!w || w.breached || w.open) return none()   // an open well is close_well's (wellOrder), a missing one the build's
+  const dw = lazy(distWell)
+  if (!(Number.isFinite(dw) && dw <= VISIT_WELL_REACH)) return none()
+  if (typeof depth === 'function') {
+    let deep = null
+    try { deep = depth('dispose_well') } catch { deep = null }
+    if (deep) return { order: null, state: s, held: { skill: 'dispose_well', ...deep } }
+  }
+  const dh = Math.round(distHome)
+  const vid = visitId(myName, now)
+  const kp = lazy(keep)
+  const keepNames = [...new Set((Array.isArray(kp) ? kp : []).filter(n => typeof n === 'string' && WELL_JUNK.has(n)))]
+  return { order: { skill: 'dispose_well', args: { visit: true, armed: visitArmed(s), dh, dy: Number.isFinite(dy) ? Math.round(dy) : null, dw: Math.round(dw), vid, ...(keepNames.length ? { keep: keepNames } : {}) },
+                    why: `at town (${dh} from home) with ${stacks} stack(s) of listed junk and ${slots} of 36 slots used: the junk well takes it on this visit` },
+           state: visitLatchIssue(s, now) }
 }
 
 /** After a well order ran -> the new state. A skip, an interruption or a runner refusal costs nothing; a fault backs off. */

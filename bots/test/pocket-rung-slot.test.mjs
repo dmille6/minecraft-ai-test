@@ -10,7 +10,7 @@ const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } c
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
 const src = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
 const once = (s, needle, where) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
-const wiring = src.slice(src.indexOf("if (pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing)"), src.indexOf('const pocketPending = pocketWanted'))
+const wiring = src.slice(src.indexOf("if (pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing && !dangerMovingNow())"), src.indexOf('const pocketPending = pocketWanted'))
 const rung = src.slice(src.indexOf('async function floodedPocketRung'), src.indexOf('async function digBounded'))
 t('the cooldown is stamped once, inside the granted-body branch: a refused plan and a denied grant spend nothing', () => {
   assert.ok(wiring.length > 200, 'the rung wiring block was found')

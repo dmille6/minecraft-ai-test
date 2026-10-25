@@ -233,7 +233,7 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
     ['raw_iron', 5], ['iron_ingot', 3], ['coal', 20], ['stick', 40], ['oak_planks', 20], ['leaf_litter', 30], ['torch', 20],
     ...filler(12)])
   assert.equal(items.length, 36)
-  const p = townDepositPlan(items)
+  const p = townDepositPlan(items, { tail: false })   // the BASE plan; junkout-01's rows (bone meal, torch ...) are junkout.test.mjs's
   const names = p.steps.map(s => s.name)
   for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
     assert.ok(!names.includes(n), `${n} must stay`)
@@ -1038,8 +1038,9 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
   } finally { untap(); done() }
 })
 test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
-  // filler: torches (never bankable, never junk, never compost) -- wool would be the well's junk, and the valve rightly waits for the well
-  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['torch', 1 + (i % 3)])])
+  // filler: ladders (never bankable, never junk, never compost, on no bag-allowance row) -- wool would be the well's junk, and the
+  // valve rightly waits for the well; torches were the filler until junkout-01 made them a bag-allowance row (they bank now)
+  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['ladder', 1 + (i % 3)])])
   // the town really holds its 16 usable stone pickaxes (the bot's own count at the open must agree with the seed)
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 16 ? item('stone_pickaxe', 1) : null)) })
   const now = Date.now()
@@ -1144,7 +1145,7 @@ test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2
 // next deposit is judged on the count -- under target it BANKS. CONTROL (the dead end, today's 34-slot rule): with the
 // recount held off, the same deposit is refused at admission as not yet counted, and the chest is unchanged.
 const fencedTown = async () => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['ladder', 8]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
   const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
@@ -1177,7 +1178,7 @@ test('RECOUNT CHAIN (stocktarget-02): a fenced town, a bag of 7 slots, the model
   } finally { done() }
 })
 test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recount held off -> every deposit is refused at admission as not yet counted; the chest is unchanged', async () => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['ladder', 8]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
   const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
@@ -1217,7 +1218,7 @@ async function asSharedTown (fn) {
 }
 const plinthFencedTown = (Loop = CognitiveLoop) => asSharedTown(() => plinthFencedTown0(Loop))
 const plinthFencedTown0 = async (Loop = CognitiveLoop) => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8],
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['ladder', 8],
     ['cobblestone', 64], ['cobblestone', 64]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
@@ -1345,4 +1346,281 @@ test('IRONPICK-01 x TOWN DEPOSIT: the fresh iron pickaxe stays in a full bag the
     assert.ok(sumOf(c.items, 'iron_pickaxe') <= 1, 'at most the worse copy is banked (keep one usable per name)')
     assert.equal(w.st.dropped, 0); assert.equal(total(serverBag(w)) + total(c.items), total(items), 'nothing lost')
   }
+})
+
+// ==================================================================================================================
+// junkout-01 (docs/reports/junkout-01-design-2026-10-21.md section 3 C): THE SLIM BAG ALLOWANCE AT A NOT-FULL VISIT, through
+// the REAL CognitiveLoop and the REAL town_deposit. A 12-slot bag at town with torches, bone meal, junk and a CRAFT-READY rung
+// (the stone pickaxe): the tail order comes AHEAD of the rung, once; the chest gets the torches and the bone meal, never the
+// junk; the rung gets the next decisions. A full chest lands in the TAIL's backoff, never the full-bag deposit's.
+const tailBot = ({ chest = chestAt(2) } = {}) => {
+  // chainBot's bag (the stone pickaxe rung craft-ready), NOT full, plus the rows' names and junk
+  const items = bag([['dirt', 16], ['oak_log', 64], ['oak_log', 64], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
+    ['wooden_pickaxe', 1, 50], ['stick', 8], ['furnace', 1], ['raw_copper', 5], ['torch', 11], ['bone_meal', 30], ['egg', 12], ['flint', 9], ['oak_sapling', 20], ['chest', 8]])
+  const { bot } = world({ items, containers: [chest], botAt: new Vec3(3, 70, 0) })
+  Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
+    recipesFor: id => (id === mcData.itemsByName.stone_pickaxe.id ? [{ delta: [] }] : []), recipesAll: () => [],
+    findBlock: () => null, clearControlStates: () => {}, players: {}, entities: {}, experience: { level: 0 }, username: 'TownBot' })
+  return bot
+}
+test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit {tail} ahead of the ready rung, ONCE -> torch + bone meal banked, junk never, the stations stay', async () => {
+  const chest = chestAt(2)
+  const bot = tailBot({ chest })
+  const slots0 = bot.inventory.items().length
+  const jrows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_junkout') jrows.push(r.skill.detail) })
+  let ran, loop
+  try { ({ ran, loop } = await decisions(bot, 5)) } finally { untap() }
+  // the bank row the read's J1/J2 parse: complete, mode=tail, the start count : the server-verified banked, the order's dh/dy
+  const bank = jrows.filter(d => /^phase=bank /.test(d))
+  assert.equal(bank.length, 1, jrows.join(' | '))
+  assert.match(bank[0], /^phase=bank v=TownBot\.\w+ mode=tail armed=first dh=3 dy=0 peaceful=\d stacks=2 banked=41 slots=17->15 keep_picks=0 rows=bone_meal:1,torch:1 part=1\/1 allow=bone_meal=30:30 allow=torch=11:11$/)
+  const td = ran.filter(x => x.skill === 'town_deposit')
+  assert.equal(td.length, 1, `one tail run in the stay: ${JSON.stringify(ran.map(x => x.skill))}`)
+  assert.equal(ran[0].skill, 'town_deposit', 'ahead of the craft-ready rung (bounded: once per stay)')
+  assert.ok(td[0].slots < 34 && td[0].slots === slots0, `a not-full bag: ${td[0].slots}`)
+  assert.equal(td[0].status, 'success', td[0].detail)
+  assert.equal(sumOf(chest.items, 'torch'), 11); assert.equal(sumOf(chest.items, 'bone_meal'), 30)
+  for (const n of ['egg', 'flint', 'oak_sapling', 'cobblestone', 'chest', 'crafting_table', 'wooden_pickaxe', 'stick', 'dirt', 'oak_log', 'raw_copper', 'furnace']) assert.equal(sumOf(chest.items, n), 0, `${n} never banked by the tail`)
+  assert.equal(sumOf(bot.inventory.items(), 'chest'), 8, 'one stack of chests is one station slot: it stays')
+  assert.ok(ran.slice(1).some(x => x.skill === 'craft'), `the rung gets its turns after: ${JSON.stringify(ran.map(x => x.skill))}`)
+  assert.equal(loop.tailState.latched, true); assert.equal(loop.townDepositState?.lastIssuedAt, undefined, 'the full-bag deposit was never issued')
+})
+test('junkout-01 TAIL CHAIN (real loop): the chests in reach are FULL -> the tail run fails town_storage_full and backs off ITS state; the full-bag deposit\'s state is untouched', async () => {
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
+  const bot = tailBot({ chest })
+  const { ran, loop } = await decisions(bot, 3)
+  const td = ran.find(x => x.skill === 'town_deposit')
+  assert.equal(td?.status, 'failed', JSON.stringify(ran)); assert.match(td.detail, /waits for a town chest with room -- keep working/)
+  assert.ok(loop.tailState.backoffUntil > Date.now(), 'the tail backs off')
+  assert.equal(loop.townDepositState?.backoffUntil, undefined, 'the full-bag deposit does not')
+})
+test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag deposit\'s state -> a full chest backs off the FULL-bag deposit (killed)', async () => {
+  const CPU = new URL('../src/cognitive.mjs', import.meta.url)
+  const src = fs.readFileSync(CPU, 'utf8')
+  const old = "        if (admitted.args?.tail === true) {\n"
+  assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+  const out = new URL(`./_mutant-cog-tail-${process.pid}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '        if (false) {\n').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const { CognitiveLoop: M } = await import(out.href)
+    const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
+    const bot = tailBot({ chest })
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => {
+      if (skill === 'town_deposit') { const r = await SKILLS[skill].run({ bot }, args ?? {}, null); ran.push(skill); return { ...r, delta: {} } }
+      ran.push(skill); return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+    } }
+    const loop = new M(bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    loop.start()
+    for (let i = 0; i < 200 && ran.length < 3; i++) await new Promise(r => setTimeout(r, 30))
+    loop.stop()
+    assert.ok(loop.townDepositState?.backoffUntil > Date.now(), 'mutant inert')
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
+test('junkout-01 TAIL CHAIN, BAG_ALLOWANCE off (the order\'s own switch): no tail order; the bag rides on', () => {
+  const r = TD.tailOrder({ now: 1e7, slots: 12, pos: { x: 3, y: 70, z: 0 }, home: { x: 0, y: 70, z: 0 }, plan: { freed: 2, steps: [{ allowance: 'torch' }] }, container: true, state: {}, on: false })
+  assert.equal(r.order, null)
+})
+// junkout-01 code r1 (both engines): (1) a visit order that cannot win the decision is never ISSUED -- the recount holds the
+// first decision, and the tail still comes in the same stay; (2) a DECLINED tail restores the reason that armed it (J5).
+test('junkout-01 CHAIN (code r1): the town recount wins the first decision -> the tail is NOT spent behind it; it comes on a later decision of the same stay', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+  const CC = await import('../src/cobblecap.mjs')
+  CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+  bot.findBlock = ({ maxDistance = 64 } = {}) => { const ps = bot.findBlocks({ maxDistance }); return ps.length ? bot.blockAt(ps[0]) : null }
+  try {
+    const { ran } = await decisions(bot, 6, { real: ['count_town'] })
+    assert.equal(ran[0]?.skill, 'count_town', JSON.stringify(ran.map(x => x.skill)))
+    assert.ok(ran.some(x => x.skill === 'town_deposit'), `the tail came after the recount: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.equal(sumOf(chest.items, 'torch'), 8, 'banked by the tail')
+  } finally { done() }
+})
+test('junkout-01 CHAIN (code r1): a DECLINED tail un-latches and keeps the reason that armed it (out:...), so the retry carries it', async () => {
+  const bot = tailBot()
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    ran.push({ skill, args })
+    if (skill === 'town_deposit') return { status: 'failed', failClass: 'runner_busy', detail: 'declined', delta: {} }
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
+  const loop = new CognitiveLoop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.tailState = { armed: 'out:abc-def' }
+  loop.start()
+  for (let i = 0; i < 200 && !ran.some(x => x.skill === 'town_deposit'); i++) await new Promise(r => setTimeout(r, 30))
+  await new Promise(r => setTimeout(r, 100))
+  loop.stop()
+  const td = ran.find(x => x.skill === 'town_deposit')
+  assert.equal(td?.args?.armed, 'out:abc-def', JSON.stringify(td))
+  assert.equal(loop.tailState.latched, false, 'declined: the stay is not spent')
+  assert.equal(loop.tailState.armed, 'out:abc-def', 'the retry carries the reason that armed the declined order')
+})
+
+// the two code-r1 fixes, each killed by its mutant through the same chains
+async function withCogMutant (old, neu, fn) {
+  const CPU = new URL('../src/cognitive.mjs', import.meta.url)
+  const src = fs.readFileSync(CPU, 'utf8')
+  assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+  const out = new URL(`./_mutant-cog-jo-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  try { return await fn((await import(out.href)).CognitiveLoop) } finally { try { fs.unlinkSync(out) } catch {} }
+}
+test('junkout-01 MUTANT (cognitive): a blocked visit order issued and discarded (the r1 code) -> the tail never comes in the stay (killed)', async () => {
+  await withCogMutant('      const visit = this.#visitOrder(milestone, { tickOnly: blocked })\n      if (visit) order = visit\n',
+    '      const visit = this.#visitOrder(milestone)\n      if (visit && !blocked) order = visit\n', async M => {
+      const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+      const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+      const now = Date.now()
+      const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+      const CC = await import('../src/cobblecap.mjs')
+      CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+      bot.findBlock = ({ maxDistance = 64 } = {}) => { const ps = bot.findBlocks({ maxDistance }); return ps.length ? bot.blockAt(ps[0]) : null }
+      const ran = []
+      const runner = { isBusy: () => false, run: async (skill, args) => {
+        const r = ['count_town', 'town_deposit'].includes(skill) ? await SKILLS[skill].run({ bot }, args ?? {}, null) : { status: 'success', detail: 'ok', contractEvidence: [`${skill}: probe 1`] }
+        ran.push(skill); return { ...r, delta: { counted: Number(r.counted ?? 0) } }
+      } }
+      const loop = new M(bot, runner, freshLessons(), null)
+      loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+      loop.milestones.cycle = 540
+      try {
+        loop.start()
+        for (let i = 0; i < 200 && ran.length < 6; i++) await new Promise(r => setTimeout(r, 30))
+        loop.stop()
+        assert.equal(ran[0], 'count_town', JSON.stringify(ran))
+        assert.ok(ran.length >= 6, `the six decisions ran (else the poll expired): ${JSON.stringify(ran)}`)
+        assert.ok(!ran.includes('town_deposit'), `mutant inert: ${JSON.stringify(ran)}`)
+      } finally { done() }
+    })
+})
+test('junkout-01 MUTANT (cognitive): the declined tail\'s restore removed -> the retry would say first (killed)', async () => {
+  await withCogMutant('          if (RUNNER_DECLINED.has(r.failClass ?? null)) this.tailState = visitLatchDeclined(this.tailState)\n', '', async M => {
+    const bot = tailBot()
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => {
+      ran.push(skill)
+      if (skill === 'town_deposit') return { status: 'failed', failClass: 'runner_busy', detail: 'declined', delta: {} }
+      return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+    } }
+    const loop = new M(bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    loop.tailState = { armed: 'out:abc-def' }
+    loop.start()
+    for (let i = 0; i < 200 && !ran.includes('town_deposit'); i++) await new Promise(r => setTimeout(r, 30))
+    await new Promise(r => setTimeout(r, 100))
+    loop.stop()
+    assert.ok(ran.includes('town_deposit'), 'positive control: the tail was ordered')
+    assert.notEqual(loop.tailState.armed, 'out:abc-def', 'mutant inert')
+  })
+})
+
+// ---- jit-1023: junkout-01 x keepout-01 (Codex rebase review P2) --------------------------------------------------------
+// The keep-out exit is LAST in the decision chain and overrides any order. A visit issued on a decision the exit takes would
+// spend the visit's latch (and the well's / composter's cooldown) on a run that never happens -- for the rest of the stay.
+// THE CHAIN: a not-full bag at town, standing in a NON-yielded fire column -> the exit first, the visit only ticked -> the bot
+// is out (still in the town zone) -> the tail visit issues on the next decision and banks the rows. Controls: a YIELDED (C12)
+// column lets the tail run inside, no exit; the mutant (no exit check) spends the visit behind the exit.
+const KO_SITE = { kind: 'death:fire', x: 3, y: 66, z: 0, count: 4, deaths: 1, last: Date.now(), by: ['x'] }
+async function koTailChain (Loop, { yielded = false, pre = null } = {}) {
+  const chest = chestAt(2)
+  const bot = tailBot({ chest })
+  bot.fireSitesNow = () => [KO_SITE]
+  bot.keepoutYields = () => yielded
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    ran.push(skill)
+    // the exit gets the body out of the column (9 east of the site's centre; still inside the town deposit's zone)
+    if (skill === 'keepout_exit') { bot.entity.position = new Vec3(12, 70, 0); return { status: 'success', detail: 'out', delta: {}, contractEvidence: ['keepout_exit: left the column'] } }
+    if (skill === 'town_deposit') { const r = await SKILLS[skill].run({ bot }, args ?? {}, null); return { ...r, delta: {} } }
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
+  const loop = new Loop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  pre?.(loop)
+  loop.start()
+  for (let i = 0; i < 200 && ran.length < 4; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  assert.ok(ran.length >= 4, `the four decisions ran (else the poll expired): ${JSON.stringify(ran)}`)
+  return { ran, loop, chest, bot }
+}
+test('junkout-01 x KEEPOUT CHAIN (real loop): in a non-yielded fire column the exit goes first and the visit is NOT spent; out of the column the tail runs and banks the rows', async () => {
+  const { ran, loop, chest } = await koTailChain(CognitiveLoop)
+  assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
+  assert.ok(ran.slice(1).includes('town_deposit'), `the tail came once the bot was out: ${JSON.stringify(ran)}`)
+  assert.equal(ran.filter(s => s === 'town_deposit').length, 1, `once per stay: ${JSON.stringify(ran)}`)
+  assert.equal(sumOf(chest.items, 'torch'), 11); assert.equal(sumOf(chest.items, 'bone_meal'), 30)
+  assert.equal(loop.tailState.latched, true, 'the visit is spent by the run that happened')
+})
+test('junkout-01 x KEEPOUT CONTROL (real loop): a YIELDED column (C12 town job) -> no exit; the tail runs where the bot stands', async () => {
+  const { ran, chest, bot } = await koTailChain(CognitiveLoop, { yielded: true })
+  assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
+  assert.ok(!ran.includes('keepout_exit'), JSON.stringify(ran))
+  assert.equal(sumOf(chest.items, 'torch'), 11)
+  // the yield is COUNTED once when it starts (the exit order's own counter; the visit's probe never counts one)
+  assert.equal(bot.keepoutStats?.yield_town_job, 1, JSON.stringify(bot.keepoutStats ?? null))
+})
+// THE BOUNDARY (Codex fix review P2): the probe and the exit's own call can disagree (the exit's back-off runs out between
+// them). Simulated by disabling the probe: the visit is issued, the exit displaces it, and the displaced visit is REFUNDED.
+const { withMutantsAll } = await import('./helpers/mutant.mjs')
+const COG_TD = new URL('../src/cognitive.mjs', import.meta.url)
+const PROBE = [' || exitFirst()\n', '\n']
+// re-anchored (junkout-01 x found-01, JIT 10-24): the override also carries found-01's refund (refundDeclined) ahead of the
+// visit's; the mutant removes the visit's refund only, so the found refund stays as in the real line
+const REFUND = [' Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }', ' order = ko } }']
+test('junkout-01 x KEEPOUT BOUNDARY (real loop): a visit issued and then DISPLACED by the exit is refunded -- the tail still runs once the bot is out', async () => {
+  await withMutantsAll(COG_TD, [PROBE], async mod => {
+    const { ran, loop, chest } = await koTailChain(mod.CognitiveLoop)
+    assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
+    assert.equal(ran.filter(s => s === 'town_deposit').length, 1, `the displaced tail came back once: ${JSON.stringify(ran)}`)
+    assert.equal(sumOf(chest.items, 'torch'), 11)
+    assert.equal(loop.tailState.latched, true)
+  })
+})
+test('junkout-01 x KEEPOUT MUTANT (cognitive): neither the probe nor the refund -> the tail is spent behind the exit: no tail after it (killed)', async () => {
+  await withMutantsAll(COG_TD, [PROBE, REFUND], async mod => {
+    const { ran, loop, chest } = await koTailChain(mod.CognitiveLoop)
+    assert.equal(ran[0], 'keepout_exit', JSON.stringify(ran))
+    assert.ok(!ran.includes('town_deposit'), `mutant: the visit was spent behind the exit: ${JSON.stringify(ran)}`)
+    assert.equal(sumOf(chest.items, 'torch'), 0)
+    assert.equal(loop.tailState.latched, true, 'latched by an order that never ran')
+  })
+})
+test('junkout-01 x KEEPOUT MUTANT (cognitive): the exit order without its own `bot` (the split\'s regression, caught by no-undef) -> the C12 yield is never counted (killed)', async () => {
+  await withCogMutant('      const bot = this.bot\n      const d = this.#keepoutExitDecision(order)\n', '      const d = this.#keepoutExitDecision(order)\n', async M => {
+    const { ran, bot } = await koTailChain(M, { yielded: true })
+    assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
+    assert.equal(bot.keepoutStats?.yield_town_job ?? 0, 0, 'mutant inert')
+  })
+})
+test('visitDisplacedRefund (pure): each visit order un-latches with its armed reason and gets back what its issue charged; nothing else is touched', async () => {
+  const { visitDisplacedRefund } = await import('../src/cognitive.mjs')
+  const { TOWN_JOB_SKILLS } = await import('../src/keepout.mjs')
+  const latched = { latched: true, issuedAt: 5, armedUsed: 'out:a-b', armed: null, lastScanAt: 5 }
+  const w = visitDisplacedRefund({ skill: 'dispose_well', args: { visit: true } }, { wellVisitState: latched, wellState: { lastDisposeAt: 5, disposeBackoffUntil: 9 } })
+  assert.deepEqual(w, { wellVisitState: { ...latched, latched: false, armed: 'out:a-b', lastScanAt: -Infinity }, wellState: { lastDisposeAt: -Infinity, disposeBackoffUntil: 9 } })
+  const c = visitDisplacedRefund({ skill: 'compost', args: { visit: true } }, { compostVisitState: latched, townState: { lastCompostAt: 5, compostBackoffUntil: 9 } })
+  assert.deepEqual(c, { compostVisitState: { ...latched, latched: false, armed: 'out:a-b', lastScanAt: -Infinity }, townState: { lastCompostAt: -Infinity, compostBackoffUntil: 9 } })
+  const t = visitDisplacedRefund({ skill: 'town_deposit', args: { tail: true } }, { tailState: { ...latched, lastIssuedAt: 5, backoffUntil: 9 } })
+  assert.deepEqual(t, { tailState: { ...latched, latched: false, armed: 'out:a-b', lastScanAt: -Infinity, lastIssuedAt: -Infinity, backoffUntil: 9 } })
+  // not a visit: the full-bag deposit, the full-bag well order, the town compost order, any other skill -> nothing
+  for (const o of [{ skill: 'town_deposit', args: {} }, { skill: 'dispose_well', args: {} }, { skill: 'compost', args: {} }, { skill: 'gather', args: { visit: true } }, null]) {
+    assert.deepEqual(visitDisplacedRefund(o, { tailState: latched, wellVisitState: latched, compostVisitState: latched }), {}, JSON.stringify(o))
+  }
+  // the probe asks ONE visit skill for all three: they must all be town jobs (exitDecision's only use of the skill)
+  for (const s of ['dispose_well', 'compost', 'town_deposit']) assert.ok(TOWN_JOB_SKILLS.has(s), s)
+})
+test('junkout-01 x KEEPOUT CONTROL (real loop): the exit BACKING OFF (a failed exit) -> the probe does not block; the tail runs inside the column', async () => {
+  const { ran, chest } = await koTailChain(CognitiveLoop, { pre: loop => { loop.keepoutExitBackoffUntil = Date.now() + 60_000 } })
+  assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
+  assert.ok(!ran.includes('keepout_exit'), JSON.stringify(ran))
+  assert.equal(sumOf(chest.items, 'torch'), 11)
 })

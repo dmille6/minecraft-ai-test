@@ -31,9 +31,16 @@
 // bags before and after the plan, at several laps: no rung changes state. That is the "do not fight the ladder" rule
 // as a check rather than a promise.
 
-import { depositPlan, scaffoldKeep, withdrawHolds, setStockKeeps } from './bankable.mjs'
-import { remaining, FLOOR } from './toolfor.mjs'
-import { TRIGGER_SLOTS } from './hygiene.mjs'
+import { depositPlan, scaffoldKeep, withdrawHolds, setStockKeeps, NEVER_BANKABLE, STANDING_TARGETS, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { remaining, FLOOR, tier, isPickaxe } from './toolfor.mjs'
+import { TRIGGER_SLOTS, NEVER_KEEP } from './hygiene.mjs'
+// THE SLIM BAG ALLOWANCE (junkout-01, bagallowance.mjs): the rows' surplus leaves at the town deposit, at any bag size
+import { ALLOWANCE, BAG_ALLOWANCE, allowanceSteps, visitId, visitLatchIssue, visitArmed } from './bagallowance.mjs'
+// junk never enters a chest (owner 10-04): the well's list and the composter's own judgement, not a copy of them
+import { WELL_JUNK } from './well.mjs'
+import { isCompostJunk } from './composter.mjs'
+import { PEACEFUL_COMPOST } from './peacefulkit.mjs'
+import { groupOf } from './stocktarget.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
@@ -206,7 +213,8 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false } = {}) {
+export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
+                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -219,7 +227,12 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
     .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   const holds = withdrawHolds()
-  for (const name of Object.keys(allowance).sort()) {
+  // THE ROWS' MODE (junkout-01): 'only' -- the not-full visit's tail order (tailOrder): the rows' steps and nothing else (no
+  // base plan, no valve); otherwise (a full bag's town deposit, or a chat order) the base plan THEN the rows; off -- today.
+  // A TAIL RUN NEVER BANKS THE BASE PLAN, whatever the switch says (a not-full bag's base plan is not this change's)
+  const baseOn = tail !== 'only'
+  const rowsMode = !bagAllowance || tail === false ? null : tail === 'only' ? 'only' : 'append'
+  for (const name of baseOn ? Object.keys(allowance).sort() : []) {
     const copies = list.filter(it => it.name === name)
     if (TOOL_RE.test(name)) {
       // A TOOL JUST WITHDRAWN (withdraw's 10-min hold): NO copy of that name moves while the hold lasts. The hold is a
@@ -242,7 +255,7 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // compostable or bankable stack), ONE tool copy that TODAY's tool rule would bank (the best usable copy of each name
   // stays, spent copies never move) goes in above the town's tool target -- tools are never destroyed, so a full bag of
   // spare tools keeps this one move. Its claim is a `valve` claim (skills.mjs bankInto); the read gates it.
-  if (!steps.length && valve) {
+  if (!steps.length && valve && baseOn) {
     const free = depositPlan(list, null, { wants: [], noSwords, noToolCap: true })
     for (const { name, count } of free) {
       if (!TOOL_RE.test(name) || (holds[name] ?? 0) > 0) continue
@@ -253,8 +266,83 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       break
     }
   }
-  steps.sort((a, b) => a.slot - b.slot)
-  return { steps, freed: steps.length, slots: list.length, keep, why, banked }
+  // THE ROWS (junkout-01, bagallowance.mjs): stations 1 each, torch 0, bone meal 0 -- whole stacks, smallest first, the goal's
+  // and every townKeeps floor kept, the visit's CREDIT_CAP per name -- and row P, the stone pickaxes beyond the best working
+  // pickaxe and two spares (stonePickSteps). Never a name another layer owns (bankOwned), never junk (notForChest), never a
+  // name the base plan already moves this visit, never a name a withdraw hold covers. After the valve: the valve is only for a
+  // bag with nothing else to free.
+  let keepPicks = null
+  if (rowsMode) {
+    const planned = new Set(steps.map(st => st.name))
+    const owned = n => planned.has(n) || bankOwned(n) || notForChest(n, { peaceful }) || (holds[n] ?? 0) > 0
+    const room = n => Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[n]) || 0)))
+    for (const st of allowanceSteps(list, { owned, keeps: keep, room })) {
+      steps.push({ slot: st.slot, name: st.name, count: st.count, allowance: st.row })
+      banked[st.name] = (banked[st.name] ?? 0) + st.count
+      why[st.name] = `allowance_${st.row}`
+    }
+    if (!planned.has('stone_pickaxe')) {
+      // the tool rule's own room under the town's stone_pickaxe target (depositPlan above), less what this visit moved
+      const toolRoom = Math.max(0, Math.min(allowance.stone_pickaxe ?? 0, CREDIT_CAP) - (Math.max(0, Number(already?.stone_pickaxe) || 0)))
+      const sp = stonePickSteps(list, { holds, room: toolRoom })
+      keepPicks = sp.keepPicks
+      for (const st of sp.steps) {
+        steps.push({ slot: st.slot, name: st.name, count: st.count, allowance: 'pickaxe' })
+        banked[st.name] = (banked[st.name] ?? 0) + st.count
+        why[st.name] = 'allowance_pickaxe'
+      }
+    }
+  }
+  // THE BASE PLAN'S STACKS FIRST (bagbudget-01, Claude design r1 P2-3): fitToContainer takes the first free container slots in
+  // step order, so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
+  steps.sort((a, b) => (a.allowance ? 1 : 0) - (b.allowance ? 1 : 0) || a.slot - b.slot)
+  return { steps, freed: steps.length, slots: list.length, keep, why, banked, keepPicks }
+}
+
+/**
+ * ROW P (junkout-01; OWNER 10-21 "at most 2 spare stone pickaxes beyond the best working pickaxe") -> { steps, keepPicks }.
+ * Pure. The best WORKING pickaxe (> FLOOR uses; highest tier, then most uses, then the lower slot) stays; of the other stone
+ * copies the ALLOWANCE.stoneSpares with the most uses stay; of the rest, only USABLE copies (> FLOOR) are listed -- a worn
+ * or spent copy is never a chest's (the tool rule: toolSlotsToBank), it wears out at a full bag (hygiene wear_out). At most
+ * `room` copies (the town's stone_pickaxe target, through depositPlan's tool cap; the bank click's stock claim re-checks it).
+ * Never an iron (or any other) pickaxe: ironpick-01's toolkit flow owns those. `keepPicks`: the stone copies the rule keeps
+ * whatever happens (the read's J2 floor).
+ * MEASURED 10-21 (80 bags): 172 stone copies; beyond best + 2: 25 copies in 19 bags, ALL spent -- this row moves 0 today.
+ */
+export function stonePickSteps (items = [], { holds = {}, room = Infinity } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && isPickaxe(it.name) && Number.isInteger(it.slot))
+  const working = list.filter(it => remaining(it) > FLOOR)
+    .sort((a, b) => tier(b.name) - tier(a.name) || remaining(b) - remaining(a) || a.slot - b.slot)
+  const best = working[0] ?? null
+  const stone = list.filter(it => it.name === 'stone_pickaxe' && it !== best)
+    .sort((a, b) => remaining(b) - remaining(a) || a.slot - b.slot)
+  const kept = stone.slice(0, ALLOWANCE.stoneSpares)
+  const keepPicks = kept.length + (best?.name === 'stone_pickaxe' ? 1 : 0)
+  if ((holds?.stone_pickaxe ?? 0) > 0) return { steps: [], keepPicks }
+  const steps = stone.slice(ALLOWANCE.stoneSpares).filter(it => remaining(it) > FLOOR).slice(0, Math.max(0, Number(room) || 0))
+    .map(it => ({ slot: it.slot, name: it.name, count: it.count ?? 1, row: 'pickaxe' }))
+  return { steps, keepPicks }
+}
+
+/**
+ * NAMES ANOTHER LAYER OWNS (bagbudget-01): the rows never speak for them. Tools (the tool rule, the wear-out, the tool
+ * target; row P is its own rule above), every targeted group (stocktarget: cobble, logs, planks, sticks, stone, dirt ...),
+ * the iron ladder (ironKeeps), and the bank's standing targets and always-banked ores (bankable.mjs). Pure.
+ */
+export function bankOwned (name) {
+  return typeof name !== 'string' || TOOL_RE.test(name) || !!groupOf(name) || IRON_LADDER.includes(name) ||
+    STANDING_TARGETS.has(name) || DEPOSIT_ALWAYS.includes(name) || COBBLE.includes(name)
+}
+/**
+ * NEVER INTO A CHEST BY THE ROWS (OWNER 10-04 "never deposit junk"; bagbudget-01, Codex design r1 P1-2/P1-3): the bank's
+ * ballast, the junk well's list, hygiene's NEVER_KEEP, what the composter takes -- its plant litter always, and under the
+ * peaceful switch its peaceful plants and the apples -- every sapling (the composter's reserve rule decides them) and
+ * bamboo. The well and the composter stay their only exits. Pure.
+ */
+export function notForChest (name, { peaceful = false } = {}) {
+  return typeof name !== 'string' || NEVER_BANKABLE.has(name) || WELL_JUNK.has(name) || NEVER_KEEP.has(name) ||
+    isCompostJunk(name) || /(_sapling|_propagule)$/.test(name) || name === 'bamboo' ||
+    (peaceful && (Object.hasOwn(PEACEFUL_COMPOST, name) || name === 'apple'))
 }
 
 /**
@@ -337,8 +425,41 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
   if (!lazy(container)) return none()
   s.lastIssuedAt = now
   s.latched = true
-  return { order: { skill: 'town_deposit', args: {},
+  // A ROWS-ONLY PLAN STILL TAKES THE COUNT STEP (bagbudget-01, Claude design r1 P2-6): the rows made freed >= 1, which used to
+  // mean "nothing to count first" -- uncounted cobble or wood is counted in the same run, then planned again
+  const only = Array.isArray(p.steps) && p.steps.length > 0 && p.steps.every(x => x.allowance)
+  const recount = only && !!lazy(count)
+  return { order: { skill: 'town_deposit', args: { ...(recount ? { recount: true, count: 'allowance_only' } : {}) },
                     why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) of surplus to bank${p.steps?.some(x => x.valve) ? ' (the valve: one spare tool)' : ''}` }, state: s }
+}
+
+/**
+ * THE SLIM ALLOWANCE AT A NOT-FULL TOWN VISIT (junkout-01; OWNER 10-21 "do NOT require the bag to be full for this tail").
+ * -> { order, state }. Pure; cognitive.mjs supplies the readings and keeps `state`.
+ *   plan       townDepositPlan(items, { tail: 'only' }) -- the rows' steps ONLY (no base plan, no count, no valve); lazy
+ *   container  a town container within STORAGE_REACH (lazy)
+ *   state      { latched, issuedAt, outsideSince (bagallowance.mjs visitLatchTick, ticked on every decision with the town
+ *              deposit's zone and its 15-min stay), lastIssuedAt, backoffUntil, lastScanAt }
+ * In the town deposit's zone (16 h / 12 v) only, below TD_TRIGGER_SLOTS only (a full bag's town deposit appends the rows
+ * itself), ONCE PER STAY (charged at issue), on the town deposit's own cooldown and backoff. A FREE-DECISION order in
+ * cognitive.mjs's visit slot: never the reason for a trip, a walk across town or a new chest (depositPlan never sees it).
+ */
+export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, on = BAG_ALLOWANCE.on, myName = '' } = {}) {
+  const s = { ...state }
+  const none = () => ({ order: null, state: s })
+  if (!on || !inTownZone(pos, home) || s.latched) return none()
+  if (!(slots < TD_TRIGGER_SLOTS)) return none()
+  if (now - (s.lastIssuedAt ?? -Infinity) < TD_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
+  if (now - (s.lastScanAt ?? -Infinity) < TD_SCAN_MS) return none()
+  s.lastScanAt = now
+  const p = lazy(plan)
+  if (!p || !(p.freed >= 1)) return none()
+  if (!lazy(container)) return none()
+  const dh = Math.round(Math.hypot(pos.x - home.x, pos.z - home.z)), dy = Math.round(pos.y - (home.y ?? pos.y))
+  s.lastIssuedAt = now
+  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now) },
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank` },
+           state: visitLatchIssue(s, now) }
 }
 
 /** The runner declined to start it: the stay is not spent (the cooldown charged at issue still applies). */
