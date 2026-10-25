@@ -168,11 +168,23 @@ await t('A MOAT 11 deep at Chebyshev 12-14: every candidate screens, none is wal
 await t('a ditch 1 deep at Chebyshev 12 is walked through (positive control)', () => {
   assert.ok(B.siteBlueprint(world(ring({}, 12, 12, G, G, 'air')), plan(), BP, { tries: 3 }).ok)
 })
-await t('AN INNER MOAT at Chebyshev 4-6 (Codex siting r1 P2): no town cell outside it -> no_proven_site; a chest bots used outside it -> proven', () => {
+await t('AN INNER MOAT at Chebyshev 4-6 (Codex siting r1 P2): no town outside it -> no_proven_site; ONE chest outside -> still not; TWO -> proven', () => {
   const cells = ring({}, 4, 6, G - 10, G, 'air')
   assert.strictEqual(B.siteBlueprint(world(cells), plan(), BP, { tries: 2 }).why, 'no_proven_site')
   cells[`9,${G + 1},0`] = 'chest'
-  assert.ok(B.siteBlueprint(world(cells), plan(), BP, { tries: 2, town: [[9, G + 1, 0]] }).ok, 'the chest is town: its stand seeds the walk')
+  assert.strictEqual(B.siteBlueprint(world(cells), plan(), BP, { tries: 2, town: [[9, G + 1, 0]] }).why, 'no_proven_site', 'a lone chest is one piece of evidence (r3)')
+  cells[`9,${G + 1},3`] = 'chest'
+  assert.ok(B.siteBlueprint(world(cells), plan(), BP, { tries: 2, town: [[9, G + 1, 0], [9, G + 1, 3]] }).ok, 'two chests in one component are town')
+})
+await t('A CHEST IN A WALL (Codex siting r2 P2): its far side is not town; the near side (with home) is', () => {
+  // a wall 3 high at x = 5 across the whole world, the chest set in it; home on the west, the domain (x >= 22) on the east
+  const cells = {}
+  for (let z = -60; z <= 60; z++) for (let y = G + 1; y <= G + 3; y++) cells[`5,${y},${z}`] = 'stone'
+  cells[`5,${G + 1},0`] = 'chest'
+  const read = world(cells)
+  assert.ok(!B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`), 'the far side of the wall is not reached')
+  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`2,${G + 1},0`), 'the near side is (control)')
+  assert.strictEqual(B.siteBlueprint(read, plan(), BP, { tries: 2, town: [[5, G + 1, 0]] }).why, 'no_proven_site')
 })
 await t('A FENCE RING at Chebyshev 12 (Codex siting r1 P2): a fence is 1.5 high, never a step -> no_proven_site; cobblestone (1 high) -> proven', () => {
   assert.strictEqual(B.siteBlueprint(world(ring({}, 12, 12, G + 1, G + 1, 'oak_fence')), plan(), BP, { tries: 2 }).why, 'no_proven_site')
@@ -263,6 +275,13 @@ await t('A GRAVITY BLOCK over air is not a floor: sand at G over a hole -> clear
   assert.ok(r.clear.some(c => c.at[1] === G && c.name === 'sand'))
   assert.strictEqual(screen(world({ [`${x},${G},${z}`]: 'sand' })).fill.length, 0, 'sand on stone is a floor (control)')
 })
+await t('A GRAVITY CHAIN (Codex siting r2 P2): sand on sand over air is no floor -> filled from the stone; sand on sand on stone is (control)', () => {
+  const [x, , z] = cellOf(4, 3, 0)
+  const r = screen(world({ [`${x},${G},${z}`]: 'sand', [`${x},${G - 1},${z}`]: 'sand', [`${x},${G - 2},${z}`]: 'air' }))
+  assert.strictEqual(r.why, 'ok')
+  assert.ok(r.fill.some(c => c[1] === G - 2) && r.fill.some(c => c[1] === G), 'filled up from G-3')
+  assert.strictEqual(screen(world({ [`${x},${G},${z}`]: 'sand', [`${x},${G - 1},${z}`]: 'sand' })).fill.length, 0)
+})
 await t('a plan path segment through the site refuses it (plan_path_or_keepout)', () => {
   const [x, , z] = cellOf(4, 3, 0)
   assert.strictEqual(screen(flat, B.reservations(plan({ paths: [{ id: 'p', seg: [x, z, x, z] }] }), {})).why, 'plan_path_or_keepout')
@@ -311,6 +330,23 @@ await t('no soil within 8-24 (stone ground around the site) -> no replant cell; 
   assert.strictEqual(r.why, 'ok')
   assert.strictEqual(B.replantFor(world(cells), HOME, r, RES, B.walkFrom(world(cells), HOME)).ok, false)
 })
+await t('TWO TOUCHING TRUNKS (Claude siting r2 P2): an oak on the ground and one on a 1-high step, logs touching -> two trees, two replants owed', () => {
+  const a = cellOf(3, 3, 0), b = cellOf(4, 4, 0)
+  const cells = { [`${b[0]},${G + 1},${b[2]}`]: 'dirt' }
+  for (let y = G + 1; y <= G + 4; y++) cells[`${a[0]},${y},${a[2]}`] = 'oak_log'
+  for (let y = G + 2; y <= G + 5; y++) cells[`${b[0]},${y},${b[2]}`] = 'oak_log'
+  const r = screen(world(cells))
+  assert.strictEqual(r.why, 'ok'); assert.strictEqual(r.felled, 1, 'one connected log set'); assert.strictEqual(r.trees.length, 2, 'two trunks')
+})
+await t('a huge mushroom block in the volume refuses the site (mushroom)', () => {
+  const [x, , z] = cellOf(4, 3, 0)
+  assert.strictEqual(screen(world({ [`${x},${G + 1},${z}`]: 'red_mushroom_block' })).why, 'mushroom')
+})
+await t('town cells beyond the town circle (Chebyshev 16) seed nothing: two chests beside a moated site do not reach it', () => {
+  const cells = ring({}, 4, 6, G - 10, G, 'air')
+  cells[`30,${G + 1},3`] = 'chest'; cells[`30,${G + 1},6`] = 'chest'
+  assert.ok(!B.walkFrom(world(cells), HOME, new Set(), 48, { town: [[30, G + 1, 3], [30, G + 1, 6]] }).has(`30,${G + 1},0`))
+})
 await t('a 2x2 trunk refuses the site (tree_2x2); a dark oak does too', () => {
   const [x, , z] = cellOf(4, 3, 0)
   const two = oakAt(x, z, oakAt(x + 1, z, oakAt(x, z + 1, oakAt(x + 1, z + 1))))
@@ -342,7 +378,13 @@ await t('a felled tree reaching past the plot\'s clear box (the footprint + 3) r
   for (let u = 9; u <= 12; u++) { const b = cellOf(u, 3, 0); cells[`${b[0]},${G + 3},${b[2]}`] = 'oak_log' }
   assert.strictEqual(screen(world(cells)).why, 'tree_beyond_plot')
 })
-await t('D6: a 1-log bush is cleared and owes no replant; a 5-log oak owes one (control above)', () => {
+await t('a rooted 1-log OAK stump owes its replant (Codex siting r2 P2); only a jungle bush is exempt (D6, below)', () => {
+  const [x, , z] = cellOf(4, 3, 0)
+  const r = screen(world({ [`${x},${G + 1},${z}`]: 'oak_log' }))
+  assert.strictEqual(r.why, 'ok'); assert.strictEqual(r.felled, 1); assert.strictEqual(r.trees.length, 1)
+  assert.strictEqual(r.trees[0].species, 'oak')
+})
+await t('D6: a 1-log JUNGLE bush is cleared and owes no replant; a 5-log oak owes one (control above)', () => {
   const [x, , z] = cellOf(4, 3, 0)
   const cells = { [`${x},${G + 1},${z}`]: 'jungle_log' }
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) cells[`${x + dx},${G + 1},${z + dz}`] = 'oak_leaves'
@@ -389,6 +431,34 @@ await t('THE SIGHT LINE IS EXACT (Codex siting r1 P2): any cell a fine sampler f
   }
   assert.ok(checked > 300 && blocked > 50, `enough rays (${checked}) and enough blocked ones (${blocked})`)
 })
+await t('THE SIGHT LINE AT AN EDGE (Codex siting r2 P2, hive-d order 49): a solid touched where two axes tie is refused', () => {
+  const read = (x, y, z) => (x === 93 && y === 66 && z === 47 ? { name: 'stone_bricks', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+  assert.strictEqual(B.sightClear(read, [92.5, 67.62, 47.5], [93.5, 66, 46.5]), false)
+  assert.strictEqual(B.sightClear(() => ({ name: 'air', boundingBox: 'empty' }), [92.5, 67.62, 47.5], [93.5, 66, 46.5]), true, 'open air: clear (control)')
+})
+await t('the sight line on GRID-ALIGNED rays (ties everywhere) never misses a cell the builder\'s 0.05 sampling hits', () => {
+  let seed = 777, checked = 0, blocked = 0
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 }
+  for (let trial = 0; trial < 600; trial++) {
+    const solid = new Set()
+    for (let i = 0; i < 25; i++) solid.add(`${Math.floor(rnd() * 6)},${Math.floor(rnd() * 6)},${Math.floor(rnd() * 6)}`)
+    const read = (x, y, z) => (solid.has(`${x},${y},${z}`) ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+    const half = () => Math.floor(rnd() * 6) + 0.5
+    const eye = [half(), Math.floor(rnd() * 6) + 0.62, half()], pt = [Math.floor(rnd() * 6) + (rnd() < 0.5 ? 0 : 0.5), Math.floor(rnd() * 6) + (rnd() < 0.5 ? 0 : 0.5), Math.floor(rnd() * 6) + 0.5]
+    const ec = eye.map(Math.floor).join(','), pc = pt.map(Math.floor).join(',')
+    if (solid.has(ec)) continue
+    // the builder's own sampling (builder.mjs sightClear: every 0.05, up to 98% of the way)
+    const n = Math.max(2, Math.ceil(Math.hypot(pt[0] - eye[0], pt[1] - eye[1], pt[2] - eye[2]) / 0.05))
+    let builderOpen = true
+    for (let i = 0; i <= n * 0.98; i++) {
+      const c = eye.map((v, k) => Math.floor(v + (pt[k] - v) * (i / n))).join(',')
+      if (c !== pc && solid.has(c)) { builderOpen = false; break }
+    }
+    checked++
+    if (!builderOpen) { blocked++; assert.strictEqual(B.sightClear(read, eye, pt, new Set([pc])), false, `the builder sees a block the proof misses: ${eye} -> ${pt}`) }
+  }
+  assert.ok(checked > 400 && blocked > 80, `enough rays (${checked}) and blocked ones (${blocked})`)
+})
 await t('walkFrom: a cell still to be placed is never a floor (a stand may not rely on a block that is not there yet)', () => {
   const cells = {}
   for (let z = -60; z <= 60; z++) for (let y = G - 20; y <= G; y++) cells[`30,${y},${z}`] = 'air'
@@ -403,12 +473,17 @@ await t('walkFrom: home boxed in (a block over its head, walls round it) walks o
   for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) { cells[`${a},${G + 1},${b}`] = 'stone'; cells[`${a},${G + 2},${b}`] = 'stone' }
   const read = world(cells)
   assert.ok(!B.walkFrom(read, HOME).has(`30,${G + 1},0`), 'home alone: boxed in')
-  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`), 'the chest at (5, 0) seeds the walk')
+  assert.ok(!B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`), 'ONE chest is one piece of evidence: not town (r3)')
+  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0], [5, G + 1, 3]] }).has(`30,${G + 1},0`), 'two chests in one component seed the walk')
 })
-await t('walkFrom: a fence is never a floor (1.5 high); a full cube is (control)', () => {
+await t('walkFrom: a fence is never a floor (1.5 high), WATERLOGGED or not (Codex siting r2 P2); a full cube is (control)', () => {
   const w = n => B.walkFrom(world({ [`30,${G},0`]: n, [`30,${G - 1},0`]: 'stone' }), HOME)
   assert.ok(!w('oak_fence').has(`30,${G + 1},0`))
+  const wet = B.walkFrom((x, y, z) => (x === 30 && y === G && z === 0 ? { name: 'oak_fence[waterlogged]', boundingBox: 'block' } : flat(x, y, z)), HOME)
+  assert.ok(!wet.has(`30,${G + 1},0`))
   assert.ok(w('stone').has(`30,${G + 1},0`))
+  assert.ok(B.fullCube({ name: 'brain_coral_block', boundingBox: 'block' }), 'a coral BLOCK is a full cube')
+  assert.ok(!B.fullCube({ name: 'brain_coral_fan', boundingBox: 'block' }))
 })
 
 console.log('D1: THE SECTOR WHEN THE PAVILION IS UNSITED')
@@ -501,6 +576,17 @@ await t('MUTANT the fill span\'s refusals ignored (a chest under the pad)', () =
 }))
 await t('MUTANT the walk\'s full-cube floor rule relaxed to any solid (a fence)', () => mutantKilled('return !!f && !!a && !!h && fullCube(f) && isPassable(a)', 'return !!f && !!a && !!h && isSolid(f) && isPassable(a)', M => {
   assert.ok(!M.walkFrom(world({ [`30,${G},0`]: 'oak_fence', [`30,${G - 1},0`]: 'stone' }), HOME).has(`30,${G + 1},0`))
+}))
+
+await t('MUTANT the town component\'s two-evidence rule relaxed to one (the chest-in-a-wall scenario)', () => mutantKilled('let keep = new Set([...evidence].filter(([, tags]) => tags.size >= 2).map(([id]) => id))', 'let keep = new Set([...evidence].filter(([, tags]) => tags.size >= 1).map(([id]) => id))', M => {
+  const cells = {}
+  for (let z = -60; z <= 60; z++) for (let y = G + 1; y <= G + 3; y++) cells[`5,${y},${z}`] = 'stone'
+  cells[`5,${G + 1},0`] = 'chest'
+  assert.ok(!M.walkFrom(world(cells), HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`))
+}))
+await t('MUTANT the edge/corner checks dropped from sightClear', () => mutantKilled('      for (const i of tied) { const c = cell.slice(); c[i] += step[i]; if (!open(c)) return false }\n', '', M => {
+  const read = (x, y, z) => (x === 93 && y === 66 && z === 47 ? { name: 'stone_bricks', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+  assert.strictEqual(M.sightClear(read, [92.5, 67.62, 47.5], [93.5, 66, 46.5]), false)
 }))
 
 console.log(`\n${pass} passed, ${fail} failed`)
