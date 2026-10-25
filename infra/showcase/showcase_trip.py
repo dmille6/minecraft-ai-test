@@ -223,6 +223,10 @@ def verdict(f):
         watch.append('S3 zones file unreadable (%s): Z1 / UNDER saw nothing' % f['zones_error'])
     if f.get('mirror_age_min') is None or f.get('mirror_age_min', 0) > MIRROR_MAX_AGE_MIN:
         watch.append('S4 the region copy is %s min old (max %d): integrity read on stale data' % (f.get('mirror_age_min'), MIRROR_MAX_AGE_MIN))
+    if f.get('bad_files'):
+        watch.append('S5 unreadable log files %s: the plan history is partial' % f['bad_files'][:3])
+    if f.get('ack_error'):
+        watch.append('S5 ACK.json problem (%s): it acknowledges nothing until fixed' % f['ack_error'])
     if f.get('run_since_missing'):
         watch.append('EPOCH no run epoch (%s): the read window may reach back past the last start' % RUN_SINCE)
     if f.get('gen_unknown'):
@@ -432,12 +436,31 @@ def plan_read(rows, since, plans=None):
                                                 ('found_gen_unknown', fo.get('found_gen_unknown', 0))) if v}}
     items = {'D1 chain_invalid': pl['_lists'].get('invalid', []) + lists.get('invalid', []),
              'D2 invalid_rows': lists.get('invalid_rows', []), 'D3 never_hits': lists.get('never_hits', []),
-             'D4 zone_cells': pl['_lists'].get('zone', []), 'D5 root_occupied': lists.get('root_occupied', []),
+             'D4 zone_cells': ['%s head g%s' % (x, report['gens']) for x in pl['_lists'].get('zone', [])],
+             'D5 root_occupied': lists.get('root_occupied', []),
              'G1 found_lost': flists.get('lost', []), 'G2 off_plan': flists.get('off_plan', []),
              'G3 lid_unreach': flists.get('lid_unreach', []), 'G4 shared_side': flists.get('shared_side', []),
              'G5 zone': flists.get('zone', [])}
     report['items'] = defect_items(defects, items)
     return defects, report
+
+
+@contextlib.contextmanager
+def ack_lock(path):
+    """One writer at a time for ACK.json (verify-3, Codex P1: the read's prune and `ack` shared an unlocked tmp file)."""
+    import fcntl
+    with open(path + '.lock', 'a') as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        yield
+
+
+def ack_write(path, d):
+    tmp = '%s.%d.part' % (path, os.getpid())
+    with open(tmp, 'w') as f:
+        json.dump(d, f, indent=1)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 def defect_items(counts, lists):
@@ -517,7 +540,10 @@ def plan_rows(since, paths=LOGS):
         except Exception as e:      # a corrupt archive is named; the readable files are still judged
             bad.append('%s: %s' % (os.path.basename(f), type(e).__name__))
         finally:
-            fh.close()
+            try:
+                fh.close()
+            except Exception:
+                pass
     return rows, {'files': n_files, 'lines': n_lines, 'kept': len(rows), 'bad_files': bad}
 
 
@@ -620,31 +646,36 @@ def cmd_read(a):
         report_hist = hist
         full, report = plan_read(prows, town_since)
         report['history'] = report_hist
-        if hist.get('bad_files'):
-            raise RuntimeError('unreadable log files %s' % hist['bad_files'][:3])
-        ackd = {}
-        if os.path.exists(a.ack):
-            ackd = json.load(open(a.ack)).get('items') or {}
-        new, keep = unacked(report['items'], ackd)
-        defects = {g: len(new.get(g, [])) for g in full}
-        report['acked'] = {g: v for g, v in keep.items() if v}
-        report['new_items'] = new
-        if ackd and keep != {g: v for g, v in ackd.items() if v} and not a.not_running:
-            try:
-                d = json.load(open(a.ack))
-                d['items'] = keep
-                d.setdefault('pruned', []).append(now.strftime('%FT%TZ'))
-                with open(a.ack + '.part', 'w') as f:
-                    json.dump(d, f, indent=1)
-                os.replace(a.ack + '.part', a.ack)
-            except Exception as e:
-                print('ack prune failed: %s' % e)
+        # a bad file is a WATCH beside the verdict, never a reason to drop the defects the readable history shows
+        report['bad_files'] = hist.get('bad_files') or []
+        with ack_lock(a.ack):
+            ackd = {}
+            if os.path.exists(a.ack):
+                try:
+                    ackd = json.load(open(a.ack)).get('items') or {}
+                except Exception as e:
+                    ackd = {}            # an unreadable ACK acknowledges NOTHING: every defect trips (fail closed)
+                    report['ack_error'] = str(e)[:80]
+            new, keep = unacked(report['items'], ackd)
+            defects = {g: len(new.get(g, [])) for g in full}
+            report['acked'] = {g: v for g, v in keep.items() if v}
+            report['new_items'] = new
+            if ackd and keep != {g: v for g, v in ackd.items() if v}:
+                # pruned in EVERY read, stopped or not (verify-3: a defect repaired while stopped must re-arm)
+                try:
+                    d = json.load(open(a.ack))
+                    d['items'] = keep
+                    d.setdefault('pruned', []).append(now.strftime('%FT%TZ'))
+                    ack_write(a.ack, d)
+                except Exception as e:
+                    report['ack_error'] = 'prune failed: %s' % str(e)[:80]
     except Exception as e:
         plan_err = '%s: %s' % (type(e).__name__, str(e)[:200])
     paused = brain_paused() if not a.not_running else None
     first = min([v[0][0] for v in by_bot.values() if v], default=now)
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
     facts = {'run_since_missing': run_since is None and not a.since,
+             'bad_files': (report or {}).get('bad_files'), 'ack_error': (report or {}).get('ack_error'),
              'still_in_zone': still_in_zone,
              'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
              'bot_h': round(bot_h, 1), 'under': under, 'under_trapped': under_trapped, 'deep': deep, 'zones_error': zones_error,
@@ -687,6 +718,8 @@ def cmd_read(a):
             print('             lists %s' % report['lists'])
         if report.get('history'):
             print('             history from the town epoch: %s' % report['history'])
+        if report.get('bad_files'):
+            print('             UNREADABLE log files %s' % report['bad_files'][:5])
         if report.get('acked'):
             print('             ACKNOWLEDGED (not judged again until they go away and come back): %s' % report['acked'])
         if report.get('new_items'):
@@ -800,6 +833,9 @@ def selftest():
     assert _nd.search(b'{"skill": {"name": "_found"}}') and _nd.search(b'"name":"_found"') and not _nd.search(b'"name":"_found_mode"')
     assert ts('2026-10-25T15:13:00') == ts('2026-10-25T15:13:00Z'), 'a naive epoch is UTC'
     assert verdict(dict(base, run_since_missing=True))[0] == 'WATCH'
+    assert verdict(dict(base, bad_files=['x.gz: EOFError']))[0] == 'WATCH'
+    assert verdict(dict(base, bad_files=['x.gz: EOFError'], plan_defects={'D4 zone_cells': 1}))[0] == 'TRIP', 'a bad file never hides a defect'
+    assert verdict(dict(base, ack_error='bad json'))[0] == 'WATCH'
     assert verdict(dict(base, deaths=4))[0] == 'TRIP' and verdict(dict(base, deaths=2))[0] == 'WATCH' and verdict(dict(base, deaths=1))[0] == 'OK'
     assert verdict(dict(base, stuck={'a': 30, 'b': 31, 'c': 40}))[0] == 'WATCH', 'stuck never stops the showcase on its own'
     assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
@@ -833,12 +869,14 @@ def cmd_ack(a):
         print('REFUSED: no town epoch in %s' % a.town_since)
         return 1
     prows, hist = plan_rows(town_since)
+    if hist.get('bad_files'):
+        print('REFUSED: the history is partial (unreadable %s); acknowledge only what was read in full' % hist['bad_files'][:3])
+        return 1
     _, report = plan_read(prows, town_since)
     items = {g: v for g, v in report['items'].items() if v}
     d = {'t': dt.datetime.now(UTC).strftime('%FT%TZ'), 'why': a.why, 'items': items, 'history': hist}
-    with open(a.ack + '.part', 'w') as f:
-        json.dump(d, f, indent=1)
-    os.replace(a.ack + '.part', a.ack)
+    with ack_lock(a.ack):
+        ack_write(a.ack, d)
     print('ACKNOWLEDGED %s (%s)' % (items or 'nothing', a.why))
     return 0
 
