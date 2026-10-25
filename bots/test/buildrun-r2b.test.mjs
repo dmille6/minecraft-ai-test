@@ -61,13 +61,23 @@ await t('MUTANT the own-body check dropped', () => both("    if (e.self && inCel
 
 console.log('THE MUTEX AND A GONE HOLDER, THROUGH A VISIT (Codex r3 P1, Claude r3 P3-3)')
 const heldBy = (pr, at) => fs.writeFileSync(path.join(pr.dir, `${pr.key}.mutate.g1.json`), JSON.stringify({ holder: 'A', pid: process.pid, conn: 'A-c2', at }))
-await t('a holder that LEFT after taking the mutex (a playerLeft seen since): B\'s visit takes it and builds', async () => {
+await t('a holder GONE after taking the mutex (its beat stopped, absent from the tab list 10 s since): B\'s visit takes it and builds', async () => {
   const srv = server(), pr = project(SITE.record, ['B'])
-  const at = Date.now() - 5_000
+  const at = Date.now() - 60_000
   heldBy(pr, at)
-  srv.seen.set('A', { online: false, offlineSince: at + 10, leftAt: at + 10 })
+  PJ.presenceWrite(pr.dir, pr.key, 'A', { conn: 'A-c2', now: at - 1_000, beat: at + 1_000 })
+  srv.seen.set('A', { online: false, offlineSince: at + 10, leftAt: null })
   const r = await R.runVisit(pr.p('B'), bot(srv, 'B'), { maxSteps: 20 })
   assert.ok(r.placed > 0, JSON.stringify(r))
+})
+await t('THE CODEX r4 SCENARIO: A\'s lock connection still BEATS -- B\'s tab list says absent for a minute, nothing is displaced', async () => {
+  const srv = server(), pr = project(SITE.record, ['B'])
+  const at = Date.now() - 60_000
+  heldBy(pr, at)
+  PJ.presenceWrite(pr.dir, pr.key, 'A', { conn: 'A-c2', now: at - 1_000, beat: Date.now() })
+  srv.seen.set('A', { online: false, offlineSince: at + 10, leftAt: at + 10 })
+  const r = await R.runVisit(pr.p('B'), bot(srv, 'B'), { maxSteps: 20 })
+  assert.strictEqual(r.placed, 0, `a beating holder is never displaced (${r.stop})`)
 })
 await t('THE CODEX r3 SCENARIO: B noticed A offline BEFORE A reconnected and took the mutex -- the stale notice frees nothing', async () => {
   const srv = server(), pr = project(SITE.record, ['B'])

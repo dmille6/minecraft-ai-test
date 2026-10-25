@@ -170,11 +170,33 @@ await t('holderGone (Codex r3 P1): the evidence must POSTDATE the lock -- a stal
   assert.ok(!P.holderGone(at, { online: false, offlineSince: at + 1, now: at + P.OFFLINE_RETIRE_MS }), 'noticed after, not yet long enough')
   assert.ok(P.holderGone(at, { online: false, offlineSince: at + 1, now: at + 1 + P.OFFLINE_RETIRE_MS }))
   assert.ok(!P.holderGone(at, { online: true, offlineSince: at + 1, now: at + 3_600_000 }), 'online now: never')
-  assert.ok(P.holderGone(at, { online: true, leftAt: at + 10, now: at + 10 + P.RETIRE_MS }), 'a playerLeft after the lock: gone, a rejoin since included')
-  assert.ok(!P.holderGone(at, { online: true, leftAt: at - 10, now: at + 3_600_000 }), 'a playerLeft BEFORE the lock: the lock is the new connection\'s')
-  assert.ok(!P.holderGone(NaN, { online: false, leftAt: 1, now: 1e12 }), 'no time on the record: never')
+  assert.ok(!P.holderGone(NaN, { online: false, offlineSince: 1, now: 1e12 }), 'no time on the record: never')
 })
-await t('MUTANT the postdating dropped (the r3 rule again)', () => mutantKilled('  if (!online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS) return true\n', '  if (!online && offlineSince != null && now - offlineSince >= RETIRE_MS) return true\n', M => {
+await t('holderGone (Codex r4 P1): the holder\'s OWN heartbeat for the lock\'s connection decides before any tab list', () => {
+  const at = 21_000_000
+  const off = { online: false, offlineSince: at + 1 }
+  // the Codex r4 sequence: A (c2) locks at `at`; B processes c1's late leave after it, then sees nothing for a long while -- but
+  // c2 BEATS: never gone
+  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c2', at: at - 5_000, beat: at + 30_000 }, now: at + 35_000 }))
+  // c2's beat stopped 45 s ago (dead, or stopped past the server's keepalive) and the tab list agrees: gone
+  assert.ok(P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c2', at: at - 5_000, beat: at + 2_000 }, now: at + 2_000 + P.BEAT_STALE_MS }))
+  // a presence naming ANOTHER connection proves nothing for c2 here (the superseded rule is the caller's)
+  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c3', at: at + 1, beat: at + 1 }, now: at + 3_600_000 }))
+  // no heartbeat at all (none written yet): the tab list's 10 s alone
+  assert.ok(P.holderGone(at, { ...off, conn: 'c2', presence: null, now: at + 1 + P.OFFLINE_RETIRE_MS }))
+})
+await t('MUTANT the heartbeat ignored (the receipt-time rule again)', () => mutantKilled('  if (presence?.conn && Number.isFinite(Number(presence.beat)) && now - Number(presence.beat) < BEAT_STALE_MS) return false\n', '', M => {
+  const at = 21_000_000
+  assert.ok(!M.holderGone(at, { online: false, offlineSince: at + 1, conn: 'c2', presence: { conn: 'c2', at: at - 5_000, beat: at + 30_000 }, now: at + 35_000 }))
+}))
+await t('presenceWrite: `at` stays the connection\'s login, `beat` moves; a beat without fsync still lands', () => {
+  const d = tmp()
+  P.presenceWrite(d, KEY, 'A', { conn: 'A-c1', now: 1000, beat: 1000 })
+  P.presenceWrite(d, KEY, 'A', { conn: 'A-c1', now: 1000, beat: 11_000, sync: false })
+  const pr = P.presenceRead(d, KEY, 'A')
+  assert.strictEqual(pr.at, 1000); assert.strictEqual(pr.beat, 11_000); assert.strictEqual(pr.conn, 'A-c1')
+})
+await t('MUTANT the postdating dropped (the r3 rule again)', () => mutantKilled('  return !online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS\n', '  return !online && offlineSince != null && now - offlineSince >= RETIRE_MS\n', M => {
   assert.ok(!M.holderGone(1000, { online: false, offlineSince: 999, now: 1e9 }))
 }))
 await t('A RETIRED HOLDER (offline on the server, as the taker saw it: `gone`) -> free; a live, online, suspended one stays held', () => {
@@ -252,8 +274,8 @@ await t('intentRetired: a NEWER presence of another connection; offline >= 1 s; 
   assert.ok(!P.intentRetired(i, { online: false, offlineSince: now + 5, now: now + 5 + P.OFFLINE_RETIRE_MS - 1 }))
   assert.ok(P.intentRetired(i, { online: false, offlineSince: now + 5, now: now + 5 + P.OFFLINE_RETIRE_MS }))
   assert.ok(!P.intentRetired(i, { online: false, offlineSince: now - 5, now: now + 3_600_000 }), 'Codex r3 P1: an offline notice from BEFORE the intent proves nothing')
-  assert.ok(P.intentRetired(i, { online: true, leftAt: now + 10, now: now + 2_000 }), 'left after the intent, online again since: still retired')
-  assert.ok(!P.intentRetired(i, { online: true, leftAt: now - 10, now: now + 2_000 }), 'a playerLeft BEFORE the intent: the intent is the new connection\'s')
+  assert.ok(!P.intentRetired(i, { presence: { conn: 'c1', at: now - 100, beat: now + 20_000 }, online: false, offlineSince: now + 5, now: now + 30_000 }), 'its own connection still BEATS: live, whatever the tab list says')
+  assert.ok(P.intentRetired(i, { presence: { conn: 'c1', at: now - 100, beat: now + 1 }, online: false, offlineSince: now + 5, now: now + 1 + P.BEAT_STALE_MS }), 'the beat stopped and the tab list agrees: retired')
 })
 await t('closeOwn: an earlier connection\'s open intents cancelled, this connection\'s acknowledged ones settled, the rest open; others untouched', () => {
   const d = tmp(), now = 13_000_000

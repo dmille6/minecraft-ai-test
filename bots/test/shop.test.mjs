@@ -123,6 +123,7 @@ const W = [
   ['cognitive: a decline refunds the cooldown', CG, /build_shop:\s*\['shopState',\s*'lastAt'\]/],
   ['index: the footprint price appended to the shared break array', IX, /moves\.exclusionAreasBreak = moves\.exclusionAreasBreak\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
   ['index: the footprint price appended to the shared place array', IX, /moves\.exclusionAreasPlace = moves\.exclusionAreasPlace\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
+  ['skills: the presence heartbeat while the connection lives', SK, /beat = setInterval\(\(\) => mark\(false\), PRESENCE_BEAT_MS\)/],
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
   ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],

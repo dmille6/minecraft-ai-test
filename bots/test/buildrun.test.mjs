@@ -100,9 +100,8 @@ await t('A SILENT CLICK keeps its intent OPEN; another builder\'s closer waits f
   const b = bot(srv, 'B')
   const r1 = await R.runVisit(p('B'), b, { maxSteps: 60, barrierWaitMs: 50 })
   assert.strictEqual(r1.placed, 0, `B placed nothing while A's intent is open (${r1.stop})`)
-  // A RETIRES (a playerLeft for it seen after its intent, RETIRE_MS ago): B's closers go
-  srv.seen.set('A', { online: false, offlineSince: null, leftAt: Date.now() })
-  await new Promise(r => setTimeout(r, PJ.RETIRE_MS + 100))
+  // A RETIRES (it reconnected: its presence, newer than the intent, names another connection): B's closers go
+  PJ.presenceWrite(dir, key, 'A', { conn: 'A-c9' })
   const r2 = await R.runVisit(p('B'), bot(srv, 'B'), { maxSteps: 2000, barrierWaitMs: 50 })
   assert.ok(r2.placed > 0, JSON.stringify(r2))
 })

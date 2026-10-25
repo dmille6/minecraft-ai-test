@@ -39,6 +39,11 @@ export const RETIRE_MS = 1_000
 // "not in the tab list" is weaker evidence than a playerLeft event (a first notice can be the tab list lagging a join), so
 // it must last this long before it retires anything (Codex r3 P1)
 export const OFFLINE_RETIRE_MS = 10_000
+// THE HOLDER'S HEARTBEAT (Codex r4 P1): every live connection rewrites its presence `beat` this often; a beat older than
+// BEAT_STALE_MS means that connection's process is dead or stopped longer than the server's 30 s keepalive -- its socket is
+// closed by the server, so it can send nothing more even if it resumes
+export const PRESENCE_BEAT_MS = 10_000
+export const BEAT_STALE_MS = 45_000
 export const BARRIER_MAX_MS = 10 * 60_000
 export const PUBLISH_TRIES = 3
 
@@ -232,11 +237,12 @@ export function mutexRelease (dir, key, holder, { pid = process.pid, gen = null 
 
 const presenceFile = (dir, key, holder) => path.join(dir, `${key}.presence.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 /** Write the holder's current connection (at every login): a temp file renamed into place. Never throws. */
-export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now = Date.now() } = {}) {
+export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now = Date.now(), beat = null, sync = true } = {}) {
   try {
     fs.mkdirSync(dir, { recursive: true })
     const f = presenceFile(dir, key, holder), tmp = `${f}.${pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
-    writeSynced(tmp, JSON.stringify({ holder, conn, pid, at: now }))
+    const body = JSON.stringify({ holder, conn, pid, at: now, beat: beat ?? now })   // at: the connection's login; beat: now
+    if (sync) writeSynced(tmp, body); else fs.writeFileSync(tmp, body)
     fs.renameSync(tmp, f)
   } catch { /* the other retirement evidence still applies */ }
 }
@@ -295,23 +301,26 @@ export function closeOwn (dir, key, holder, { conn = null, acked = 0, now = Date
 /**
  * IS AN OPEN INTENT'S SENDER RETIRED? (its connection can deliver nothing more) Pure. Any one of:
  *   - its holder's PRESENCE, written after the intent, names another connection (the holder reconnected);
- *   - holderGone (below) at the intent's time: the evidence that the connection is gone POSTDATES the intent.
+ *   - holderGone (below) for the intent's own connection and time.
  */
-export function intentRetired (i, { presence = null, online = true, offlineSince = null, leftAt = null, now = Date.now() } = {}) {
+export function intentRetired (i, { presence = null, online = true, offlineSince = null, now = Date.now() } = {}) {
   if (presence?.conn && i?.conn && presence.conn !== i.conn && Number(presence.at) > Number(i.at)) return true
-  return holderGone(Number(i?.at), { online, offlineSince, leftAt, now })
+  return holderGone(Number(i?.at), { conn: i?.conn ?? null, presence, online, offlineSince, now })
 }
 /**
- * HAS THE CONNECTION THAT DID SOMETHING AT `since` GONE AWAY? (what this bot has seen of its holder) Pure. EVIDENCE MUST POSTDATE
- * `since` (Codex r3 P1: an offline notice from BEFORE a reconnect, not yet undone by the tab list, reclaimed the reconnected
- * holder's fresh mutex): a playerLeft seen at or after `since`, RETIRE_MS ago or more (a rejoin never undoes it); or the holder
- * not in the tab list now, first noticed missing AFTER `since`, for OFFLINE_RETIRE_MS or more. -> boolean
+ * HAS THE CONNECTION `conn` THAT DID SOMETHING AT `since` GONE AWAY? Pure. BOTH (Codex r3 P1, r4 P1: an observer's receipt time
+ * of a playerLeft names no connection -- a late-processed leave of the PREVIOUS connection retired a live one):
+ *   - the holder's own HEARTBEAT is not live for `conn`: its presence names `conn` and its beat is BEAT_STALE_MS old or more, or
+ *     names no connection at all (an old writer, or none yet: the tab list alone then decides); a presence naming ANOTHER
+ *     connection is the caller's superseded rule, not this one -- here it proves nothing for `conn`;
+ *   - the tab list has not shown the holder for OFFLINE_RETIRE_MS, first noticed missing AFTER `since`.
+ * A live connection beats every PRESENCE_BEAT_MS, so whatever this bot's tab list says it is never gone. -> boolean
  */
-export function holderGone (since, { online = true, offlineSince = null, leftAt = null, now = Date.now() } = {}) {
+export function holderGone (since, { conn = null, presence = null, online = true, offlineSince = null, now = Date.now() } = {}) {
   if (!Number.isFinite(since)) return false
-  if (leftAt != null && leftAt >= since && now - leftAt >= RETIRE_MS) return true
-  if (!online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS) return true
-  return false
+  if (presence?.conn && conn && presence.conn !== conn) return false
+  if (presence?.conn && Number.isFinite(Number(presence.beat)) && now - Number(presence.beat) < BEAT_STALE_MS) return false
+  return !online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS
 }
 
 // ---- the barrier ------------------------------------------------------------------------------------------------------------

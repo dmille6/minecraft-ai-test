@@ -116,7 +116,7 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells } from './buildsite.mjs'
-import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow } from './buildproj.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
@@ -16186,8 +16186,15 @@ export function shopAckInstall (bot) {
   acks.conn = `${process.pid}-${Date.now().toString(36)}`
   const me = () => bot.username ?? config.bot?.name ?? 'bot'
   acks.onSettle(id => { try { projIntentClose(townDir(), shopKey(), me(), id, 'settled', { state: 'ack' }) } catch { /* the barrier waits: safe */ } })
-  const mark = () => { try { if (planOn()) presenceWrite(townDir(), shopKey(), me(), { conn: acks.conn }) } catch { /* the other evidence applies */ } }
-  try { bot.once?.('login', mark); bot.once?.('end', () => acks.stop()) } catch { /* a bare bot */ }
+  // THE PRESENCE AND ITS HEARTBEAT (Codex r4 P1): written at login (at = the connection's start), then its `beat` every
+  // PRESENCE_BEAT_MS while this connection lives (no fsync: a lost beat only delays a retirement) -- the other bots' proof that
+  // this connection can still send
+  const mark = (sync = true) => { try { if (planOn()) presenceWrite(townDir(), shopKey(), me(), { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now(), sync }) } catch { /* the other evidence applies */ } }
+  let beat = null
+  try {
+    bot.once?.('login', () => { acks.loginAt = Date.now(); mark(); beat = setInterval(() => mark(false), PRESENCE_BEAT_MS); beat.unref?.() })
+    bot.once?.('end', () => { if (beat) clearInterval(beat); acks.stop() })
+  } catch { /* a bare bot */ }
   return acks
 }
 /** THE WORKSHOP'S RECORD CELLS -> { cells: Set "x,y,z", bottom } | null (no record, or unreadable). Cached by the record's newest
@@ -16281,7 +16288,7 @@ async function buildShop (ctx, args, signal) {
   let effects = null
   try {
     const acks = (bot.shopAcks ??= shopAckInstall(bot))
-    presenceWrite(dir, key, me, { conn: acks.conn })
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
     // THE BAG'S KEEPS at the visit's start (cooperation A2; Codex r1 P3): the bill is drawn on top of them and the visit spends
     // only what is held above them
     const held0 = heldMap(bot)
