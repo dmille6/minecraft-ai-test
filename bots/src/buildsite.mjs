@@ -21,10 +21,11 @@
 //      reserved before anything is felled; a 1-log bush and floating logs owe none (D6);
 //   5. THE PROOF: a construction sequence over the world after the clears -- the fill (`earth`) first, then the blueprint's
 //      segments in order. A cell is placed only with a SUPPORT the builder would click (below or a side, never above, never a
-//      block the click would open: builder.mjs refUsable), a STAND walked to from TOWN (D3: the cells beside the town chests bots
-//      used, the plan's placed stations' stands, home's own start cell) with this segment's cells still to place as obstacles
-//      that are never floors, the face within 4.5 of the eye, the eye on its open side, and a sight line every cell of which is
-//      known and empty (exact voxel traversal); then every open interior cell is walked to through the open doorway.
+//      block the click would open: builder.mjs refUsable), a STAND walked to from cells a bot STOOD on in town (D3: home's own
+//      start cell, the feet cells bots logged within 16 of home -- at runtime the planning bot's own feet -- and the plan's
+//      placed stations' recorded stands) with this segment's cells still to place as obstacles that are never floors, the face
+//      within 4.5 of the eye, the eye on its open side, and a sight line every cell of which is known and empty (exact voxel
+//      traversal, every cell an edge or corner crossing touches); then every open interior cell is walked to through the doorway.
 //
 // NOT PROVEN HERE (named; the actuator's and Paper's): the clear sequence itself (dig order; the reach rule above is the screen's),
 // bodies, ghost blocks, the lease and barrier protocol, the room test with a lit light, whether a sapling grows where reserved.
@@ -60,7 +61,7 @@ const BUILT = /(chest|barrel|furnace|smoker|crafting_table|_bed$|lectern|compost
 const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/
 // a 'block' bounding box that is NOT a full cube a bot stands on as one step: fences and walls are 1.5 high, slabs and stairs
 // are not one step, the rest are short or hollow (Codex siting r1 P2: a fence was walked as a floor)
-const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|^lantern$|^soul_lantern$|^ladder$|^flower_pot$|^potted_|^cocoa$|^chorus_plant$|^chorus_flower$|^repeater$|^comparator$|^turtle_egg$|^sniffer_egg$|sculk_sensor$|^sculk_shrieker$|^frogspawn$|^lightning_rod$|^heavy_core$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral$|_coral_fan$|_coral_wall_fan$|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
+const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|^lantern$|^soul_lantern$|^ladder$|^flower_pot$|^potted_|^cocoa$|^chorus_plant$|^end_portal_frame$|^pitcher_crop$|^dried_ghast$|_hanging_sign$|^repeater$|^comparator$|^turtle_egg$|^sniffer_egg$|sculk_sensor$|^sculk_shrieker$|^frogspawn$|^lightning_rod$|^heavy_core$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral$|_coral_fan$|_coral_wall_fan$|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
 // a block that falls when a neighbour updates: a floor only over another floor
 const GRAVITY = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|[a-z_]+_concrete_powder|anvil)$/
 const SAPLING = { oak: 'oak_sapling', spruce: 'spruce_sapling', birch: 'birch_sapling', jungle: 'jungle_sapling', acacia: 'acacia_sapling', dark_oak: 'dark_oak_sapling', mangrove: 'mangrove_propagule', cherry: 'cherry_sapling', pale_oak: 'pale_oak_sapling' }
@@ -311,17 +312,28 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
       if (!reachable(c)) return { ok: false, why: 'tree_out_of_reach' }
     }
     for (const c of t.logs) addClear(c, 'tree')
-    // THE TRUNKS: every log standing on a solid that is not a log or leaves. Two trunks whose logs touch are TWO trees, each owing
-    // its sapling (Claude siting r2 P2: an oak on a 1-high step beside another was felled with one replant owed)
-    const bases = t.logs.filter(([x, y, z]) => { const below = read(x, y - 1, z); return isSolid(below) && !LOG.test(nm(below)) && !LEAVES.test(nm(below)) })
+    // THE TRUNKS. Every log standing on solid ground that is not a log or leaves is a trunk: two trunks whose logs touch are TWO
+    // trees, each owing its sapling (Claude siting r2 P2). With none, the tree's LOWEST logs are its trunk when air is under them
+    // -- the ground was dug out from under a real tree (Claude siting r3 P2) -- and the logs are floating when leaves are
+    const onGround = t.logs.filter(([x, y, z]) => { const below = read(x, y - 1, z); return isSolid(below) && !LOG.test(nm(below)) && !LEAVES.test(nm(below)) })
+    const low = Math.min(...t.logs.map(c => c[1]))
+    const undermined = t.logs.filter(([x, y, z]) => y === low && !isSolid(read(x, y - 1, z)) && !LEAVES.test(nm(read(x, y - 1, z))))
+    const bases = onGround.length ? onGround : undermined
     // D6: FLOATING logs (no log stands on anything but logs or leaves) and a JUNGLE BUSH (one jungle log, the bush the jungle
-    // generates under oak leaves) owe no replant: no sapling of that kind replaces them. Any other single log is a stump of a
-    // real tree and owes its sapling (Codex siting r2 P2)
-    if (!bases.length || (t.logs.length === 1 && speciesOf(nm(read(...t.logs[0]))) === 'jungle')) continue
+    // generates under oak leaves: r4 requires the oak leaves, Codex r3 P2) owe no replant: no sapling of that kind replaces them.
+    // Any other single log, a jungle one included, is the stump of a real tree and owes its sapling (Codex siting r2 P2)
+    const bush = t.logs.length === 1 && speciesOf(nm(read(...t.logs[0]))) === 'jungle' && (() => {
+      const [x, y, z] = t.logs[0]
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (nm(read(x + dx, y + dy, z + dz)) === 'oak_leaves') return true
+      return false
+    })()
+    if (!bases.length || bush) continue
     for (const b of bases) {
       const species = speciesOf(nm(read(...b)))
-      // a 2x2 trunk (horizontally adjacent bases at one level) refuses: one sapling does not replace it, nor does a dark oak's
-      if (NEEDS_2X2.has(species) || bases.some(o => o !== b && o[1] === b[1] && Math.max(Math.abs(o[0] - b[0]), Math.abs(o[2] - b[2])) === 1)) return { ok: false, why: 'tree_2x2' }
+      // a 2x2 trunk -- a base with a CARDINAL neighbour base within 3 levels: a mega spruce, even staggered on a slope (Codex r3
+      // P3) -- refuses, as a dark oak does: one sapling does not replace it. Two trees touching DIAGONALLY are two trunks.
+      // Conservative: a branch or a fallen log lying on the ground beside its trunk refuses too
+      if (NEEDS_2X2.has(species) || bases.some(o => o !== b && Math.abs(o[1] - b[1]) <= 3 && Math.abs(o[0] - b[0]) + Math.abs(o[2] - b[2]) === 1)) return { ok: false, why: 'tree_2x2' }
       trees.push({ base: b, species, logs: t.logs.length })
     }
   }
@@ -338,12 +350,11 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
  * WHERE A BOT CAN WALK FROM TOWN -> Set of feet keys. Pure. A node: a full-cube floor, feet and head passable, dry and known;
  * `block` cells are OBSTACLES that are never a floor (cells still to place: a stand may not rely on a block that is not there);
  * 4-neighbour steps of dy -1, 0, +1 with head room (symmetric: a reached stand walks back); inside Chebyshev `radius` of home.
- * THE SEEDS (D3): home's own start cell (the nearest node within 2 of home), and every node beside a TOWN cell -- a chest bots
- * used, a placed plan station's stand (`town`: [[x, y, z]], Chebyshev 1 across, feet y - 1 .. y + 1) -- but only in a component
- * of the town circle that holds evidence of two distinct things (r3, below). Never "every plaza cell": a pocket in the plaza is
- * not town (Codex siting r1 P2: a moat inside the plaza was certified).
+ * THE SEEDS (D3, r4): cells a bot STOOD on -- home's own start cell (the nearest node within 2 of home), and every `stood` feet
+ * cell inside the town circle that is a node here. Never "every plaza cell" (Codex r1 P2: a moat inside the plaza), never "beside
+ * a chest" (Codex r2/r3 P2: a chest in a wall is opened from either side).
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R, { town = [] } = {}) {
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [] } = {}) {
   const isNode = (x, y, z) => {
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
@@ -366,37 +377,24 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { town
     }
     return out
   }
-  // THE EVIDENCE: home's start cell, and the cells beside each town cell, each tagged with the cell it is evidence of
+  // THE SEEDS (D3 r4): cells a bot STOOD on -- home's own start cell, and every `stood` feet cell inside the town circle
+  // (Chebyshev TOWN_R) that is a node in this world. Never a cell merely NEAR something a bot used: a chest is opened from
+  // either side of a wall, so "beside a chest" is evidence of neither side (Codex siting r2 and r3 P2: one, then two chests set
+  // in a wall seeded its far side). At runtime the planning bot's own feet are a stood cell; offline, the positions the
+  // pool's bots logged in town, and the stands found-01 recorded for its placed stations.
   const tagged = []
   outer: for (let r = 0; r <= 2; r++) {
     for (const dy of [0, 1, -1, 2, -2]) {
       for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue
         const c = [home.x + dx, home.y + dy, home.z + dz]
-        if (isNode(...c)) { tagged.push([c, 'home']); break outer }
+        if (isNode(...c)) { tagged.push([c]); break outer }
       }
     }
   }
-  town.forEach(([tx, ty, tz], i) => {
-    if (Math.max(Math.abs(tx - home.x), Math.abs(tz - home.z)) > TOWN_R) return
-    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) { const c = [tx + dx, ty + dy, tz + dz]; if (isNode(...c)) tagged.push([c, i]) } })
-  // THE TOWN'S COMPONENTS inside the town circle (Chebyshev TOWN_R): one counts as town only when it holds evidence of TWO
-  // distinct things (two chests, a chest and home, a station's stand and a chest) -- a single chest seen through a wall seeds
-  // nothing on its far side (Codex siting r2 P2). With no such component, home's own start cell's component alone.
-  const comp = new Map()
-  let nc = 0
-  for (const [c] of tagged) {
-    if (comp.has(k3(...c))) continue
-    const id = nc++, q = [c]
-    comp.set(k3(...c), id)
-    for (let i = 0; i < q.length; i++) for (const n of next(q[i], TOWN_R)) { const key = k3(...n); if (!comp.has(key)) { comp.set(key, id); q.push(n) } }
-  }
-  const evidence = new Map()
-  for (const [c, tag] of tagged) { const id = comp.get(k3(...c)); if (!evidence.has(id)) evidence.set(id, new Set()); evidence.get(id).add(tag) }
-  let keep = new Set([...evidence].filter(([, tags]) => tags.size >= 2).map(([id]) => id))
-  if (!keep.size) keep = new Set(tagged.filter(([, tag]) => tag === 'home').map(([c]) => comp.get(k3(...c))))
+  for (const c of stood) if (Array.isArray(c) && c.length === 3 && Math.max(Math.abs(c[0] - home.x), Math.abs(c[2] - home.z)) <= TOWN_R && isNode(...c)) tagged.push([c])
   const seen = new Set(), q = []
-  for (const [c] of tagged) { const key = k3(...c); if (keep.has(comp.get(key)) && !seen.has(key)) { seen.add(key); q.push(c) } }
+  for (const [c] of tagged) { const key = k3(...c); if (!seen.has(key)) { seen.add(key); q.push(c) } }
   for (let i = 0; i < q.length; i++) for (const n of next(q[i], radius)) { const key = k3(...n); if (!seen.has(key)) { seen.add(key); q.push(n) } }
   return seen
 }
@@ -474,9 +472,9 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
 /**
  * THE PROOF of a screened site (section 5 above) -> { ok, why, cells, segments, interior }. Pure.
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
- * the bottom up), then the blueprint's segments in order. `town` = the walk's town seeds (D3).
+ * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { town = [] } = {}) {
+export function proveSite (read, home, bp, site, { stood = [] } = {}) {
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
   const R = overlay(read, over)
@@ -496,7 +494,7 @@ export function proveSite (read, home, bp, site, { town = [] } = {}) {
     // was placed since the last walk (a builder walks onto the pad it has laid); with nothing new, the cell is no_step.
     const mine = cells.filter(c => c.seg === sg.seg)
     const left = mine.slice().sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
-    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), WALK_R, { town }))
+    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), WALK_R, { stood }))
     let nodes = walkNow(), fresh = true, walks = 1
     while (left.length) {
       let pick = -1, step = null
@@ -514,7 +512,7 @@ export function proveSite (read, home, bp, site, { town = [] } = {}) {
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })
   }
   // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
-  const final = walkFrom(R, home, new Set(), WALK_R, { town })
+  const final = walkFrom(R, home, new Set(), WALK_R, { stood })
   const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
   const open = interior.filter(k => !solidInside.has(k))
@@ -587,7 +585,7 @@ export function workshopSectors (plan) {
   const taken = new Set(plots.filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
   return REST_ORDER.filter(s => !taken.has(s)).map(s => ({ sector: s, source: 'free' }))
 }
-/** The plan's own town cells for the walk's seeds: every PLACED plan cell's stand (a reserved one is not built yet). Pure. */
+/** The plan's stood cells: the stand found-01 recorded for every PLACED plan cell (a bot stood there to place it). Pure. */
 export function planTownCells (plan) {
   const out = []
   for (const p of plan?.plots ?? []) for (const c of [...(p.cells ?? []), ...(p.stations ?? [])]) if ((c.state === 'placed') && Array.isArray(c.stand)) out.push(c.stand)
@@ -599,7 +597,7 @@ export function planTownCells (plan) {
  * Pure. Per sector in workshopSectors order: screen every anchor and orientation, sort the survivors (least earthwork, fewest
  * trees, nearest), prove at most `tries` (PROOF_TRIES); the first proven site with its replant cells wins.
  *   plan  the town plan's head (frozen)
- *   ctx   { zones, wells, farm, z0, m0 } (reservations); { town } chest cells bots used (the walk's seeds, D3); { tries }
+ *   ctx   { zones, wells, farm, z0, m0 } (reservations); { stood } feet cells bots stood on in town (the walk's seeds, D3); { tries }
  */
 export function siteBlueprint (read, plan, bp, ctx = {}) {
   const home = plan?.home
@@ -607,7 +605,7 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
   const secs = workshopSectors(plan)
   if (!secs.length) return { ok: false, why: 'no_free_sector', sectors: [] }
   const res = reservations(plan, ctx)
-  const town = [...(ctx.town ?? []), ...planTownCells(plan)]
+  const stood = [...(ctx.stood ?? []), ...planTownCells(plan)]
   const out = []
   for (const { sector, source } of secs) {
     const rejects = {}, ok = []
@@ -628,12 +626,12 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
     for (let i = 0; i < tries; i++) {
       const site = ok[i]
       row.tried = i + 1
-      const p = proveSite(read, home, bp, site, { town })
+      const p = proveSite(read, home, bp, site, { stood })
       if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; continue }
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
       for (const c of site.fill) over.set(k3(...c), SOLID('cobblestone'))
-      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), WALK_R, { town }))
+      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), WALK_R, { stood }))
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
@@ -643,7 +641,7 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
         fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })),
         trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled, replant: rp.cells,
         cells: p.cells, segments: p.segments, interior: p.interior, bom: billOf(bp, p.cells), builders_max: 2,
-        structure_complete: false, plan: { gen: plan.gen }, town_seeds: town.length,
+        structure_complete: false, plan: { gen: plan.gen }, stood_seeds: stood.length,
       }
       return { ok: true, why: 'ok', record, sectors: out }
     }

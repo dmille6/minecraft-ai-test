@@ -1,9 +1,15 @@
-// replay.mjs <run-dir>: every record's clicks, in order, against the BUILDER's own sight rule (builder.mjs eb407fa0 sightClear:
-// sampled every 0.05 up to 98%, any non-empty or unknown cell blocks, the target excluded) and its refUsable support rule.
+// replay.mjs <run-dir>: every record's clicks, in order, against the BUILDER's own rules (builder.mjs eb407fa0):
+//   sightClear  sampled every 0.05 up to 98%, any non-empty or unknown cell blocks, the target excluded;
+//   refUsable   the support is solid, not a liquid, not a block the click would use (it opens) -- placed cells keep their REAL
+//               block (a placed furnace or table is a furnace or table: Claude siting r3 P3);
+//   supportsFor never the face above (face[1] === -1).
+// Positive control: on the r1 records it must report the station clicks and face-above clicks the r1 reviews found.
 import fs from 'node:fs'
 const S = '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/shop/'
 const { dumpReader } = await import(S + 'wt3/bots/scripts/buildsite-offline.mjs')
 const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/
+const LIQUID = /water|lava|bubble_column|\[waterlogged\]/
+const PLACED = { base: 'stone_bricks', step: 'stone_bricks', wall: 'oak_planks', window: 'glass_pane', trim: 'cut_copper', roof: 'oak_planks', furnace: 'furnace', table: 'crafting_table', light: 'torch', fill: 'cobblestone' }
 const dir = process.argv[2]
 for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.record.json')).sort()) {
   const r = JSON.parse(fs.readFileSync(`${dir}/${f}`, 'utf8'))
@@ -11,11 +17,12 @@ for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.record.json')).sort
   const over = new Map()
   for (const c of r.clear) over.set(c.at.join(','), { name: 'air', boundingBox: 'empty' })
   const read = (x, y, z) => over.get(`${x},${y},${z}`) ?? base(x, y, z)
-  let bad = 0, badSup = 0
+  let bad = 0, badSup = 0, above = 0
   const first = []
   for (const c of [...r.cells].sort((a, b) => a.order - b.order)) {
     const sb = read(...c.support)
-    if (!sb || sb.boundingBox !== 'block' || USES.test(sb.name.replace(/\[.*\]$/, ''))) badSup++
+    if (!sb || sb.boundingBox !== 'block' || LIQUID.test(sb.name) || USES.test(sb.name.replace(/\[.*\]$/, ''))) { badSup++; if (first.length < 3) first.push(`order ${c.order} ${c.role}@${c.at} clicks ${sb?.name}`) }
+    if (c.face[1] === -1) { above++; if (first.length < 3) first.push(`order ${c.order} ${c.role}@${c.at} clicks the face above`) }
     const eye = { x: c.stand[0] + 0.5, y: c.stand[1] + 1.62, z: c.stand[2] + 0.5 }
     const pt = { x: c.support[0] + 0.5 + c.face[0] * 0.5, y: c.support[1] + 0.5 + c.face[1] * 0.5, z: c.support[2] + 0.5 + c.face[2] * 0.5 }
     const dx = pt.x - eye.x, dy = pt.y - eye.y, dz = pt.z - eye.z
@@ -28,7 +35,7 @@ for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.record.json')).sort
       const b = read(...k)
       if (!b || b.boundingBox !== 'empty') { bad++; if (first.length < 2) first.push(`order ${c.order} ${c.role}@${c.at} hits ${b?.name}@${k}`); break }
     }
-    over.set(target, { name: c.role === 'light' ? 'torch' : 'stone_bricks', boundingBox: c.role === 'light' ? 'empty' : 'block' })
+    over.set(target, { name: PLACED[c.role] ?? 'stone', boundingBox: c.role === 'light' ? 'empty' : 'block' })
   }
-  console.log(r.world.padEnd(11), 'clicks', r.cells.length, 'builder-sight failures', bad, 'bad supports', badSup, first.join(' | '))
+  console.log(r.world.padEnd(11), 'clicks', r.cells.length, 'builder-sight failures', bad, 'bad supports', badSup, 'face-above', above, first.join(' | '))
 }

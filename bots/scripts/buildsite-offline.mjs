@@ -2,7 +2,7 @@
 // THE BUILDING TIER'S SITING PLANNER, OFFLINE (shop-01 step 1; design docs/reports/building-tier-2026-10-23.md section 4.3:
 // "the runtime planner's run on frozen plans ... before any actuator code").
 //
-//   node scripts/buildsite-offline.mjs <dump.json> <pool-state-dir> [--world W] [--z0m0 zig-z0m0.json] [--blueprint workshop@1]
+//   node scripts/buildsite-offline.mjs <dump.json> <pool-state-dir> [--world W] [--z0m0 zig-z0m0.json] [--stood stood.json] [--blueprint workshop@1]
 //                                      [--out record.json] [--tries N]
 //
 // <dump.json> is scripts/host/townplan_blockdump.py's output over COPIES of a world's region files (read-only). <pool-state-dir>
@@ -63,7 +63,7 @@ export function plinthCells (rec) {
   return out
 }
 
-/** The pool's records -> { key, world, head, zones, wells, farm, town } or { why }. Every file is read fail-closed (readJson). */
+/** The pool's records -> { key, world, head, zones, wells, farm } or { why }. Every file is read fail-closed (readJson). */
 export function poolRecords (dir) {
   try {
     const files = fs.readdirSync(dir)
@@ -86,11 +86,7 @@ export function poolRecords (dir) {
     const tfs = files.filter(f => f.startsWith(`treefarm-${home}.g`) && f.endsWith('.json')).sort((a, b) => gen(b) - gen(a))
     const tf = tfs.length ? readJson(path.join(dir, tfs[0])) : null
     const farm = (tf?.cells ?? []).map(c => [c.x, c.z])
-    // THE TOWN (D3 seeds): every town chest a bot has opened (the town index's observations)
-    const cf = files.find(f => f === `town-chest-${home}.containers.json`)
-    const cj = cf ? readJson(path.join(dir, cf)) : null
-    const town = Object.keys(cj?.entries ?? {}).map(k => k.split(',').map(Number)).filter(c => c.length === 3 && c.every(Number.isFinite))
-    return { key, world: g1?.world ?? null, head: h.head, gens: h.gens, accepted: h.accepted, rejected: h.rejected, zones: z.zones, zonesWhy: z.why, wells, farm, town }
+    return { key, world: g1?.world ?? null, head: h.head, gens: h.gens, accepted: h.accepted, rejected: h.rejected, zones: z.zones, zonesWhy: z.why, wells, farm }
   } catch (e) {
     return { why: `records_unreadable: ${e.message}` }
   }
@@ -108,14 +104,17 @@ if (isMain) {
   const recs = poolRecords(dir)
   if (!recs.head) { console.log(JSON.stringify({ world, ok: false, why: recs.why })); process.exit(0) }
   const zz = flag('--z0m0') ? (readJson(flag('--z0m0'))?.worlds?.[world] ?? {}) : {}
+  // THE STOOD CELLS (D3): --stood <file> = {world: {cells: [[x, y, z]]}}, the feet cells the pool's bots logged in town
+  // (docs/reports/shop-01-siting-2026-10-25/data/stood.py.txt); without it, home's start cell and the plan's stands only
+  const stood = flag('--stood') ? (readJson(flag('--stood'))?.[world]?.cells ?? []) : []
   const bp = loadBlueprint(flag('--blueprint') ?? 'workshop@1')
-  const r = siteBlueprint(read, recs.head.plan, bp, { zones: recs.zones, wells: recs.wells, farm: recs.farm, town: recs.town, z0: zz.ziggurat ?? null, m0: zz.shaft ?? null, tries: flag('--tries') ? Number(flag('--tries')) : undefined })
+  const r = siteBlueprint(read, recs.head.plan, bp, { zones: recs.zones, wells: recs.wells, farm: recs.farm, stood, z0: zz.ziggurat ?? null, m0: zz.shaft ?? null, tries: flag('--tries') ? Number(flag('--tries')) : undefined })
   const out = flag('--out')
   if (out && r.record) fs.writeFileSync(out, JSON.stringify({ world, planGen: recs.head.gen, planSha: recs.head.sha, ...r.record }, null, 1) + '\n')
   const rec = r.record
   console.log(JSON.stringify({
     world, ok: r.ok, why: r.why, plan: { key: recs.key, gen: recs.head.gen, mode: recs.head.plan.mode, pavilion: (recs.head.plan.plots ?? []).find(p => p.kind === 'pavilion')?.sector ?? null, rejectedGens: recs.rejected.length },
-    records: { zones: recs.zones.length, zonesWhy: recs.zonesWhy, wellCells: recs.wells.length, farmCells: recs.farm.length, townCells: recs.town.length, z0: !!zz.ziggurat?.centre, m0: !!zz.shaft?.origin },
+    records: { zones: recs.zones.length, zonesWhy: recs.zonesWhy, wellCells: recs.wells.length, farmCells: recs.farm.length, stoodCells: stood.length, z0: !!zz.ziggurat?.centre, m0: !!zz.shaft?.origin },
     sectors: r.sectors,
     site: rec ? { sector: rec.sector, source: rec.sector_source, anchor: rec.anchor, orient: rec.orient, box: rec.box, s: rec.s, earthwork: rec.earthwork, trees: rec.trees.length, replant: rec.replant.length, clear: rec.clear.length, cells: rec.cells.length, segments: rec.segments.map(s => `${s.seg}:${s.cells}/${s.stands}st`).join(' '), interior: rec.interior, bom: rec.bom } : null,
     ms: Date.now() - t0,
