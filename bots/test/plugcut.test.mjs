@@ -724,6 +724,34 @@ await t('THE DROWNING RESCUE OUTRANKS THE PLUG: a yield after the equip places n
   assert.ok(!bot.controls.slice(equippedAt).includes('clear'), 'the controls were wiped under the new owner')
 })
 
+// PLUGCUT-01 x LAVASTEP-01 (JIT 10-24, Codex P2): the owner changes DURING the placement's look (a danger move takes the
+// body). The plug looks first, asks the owner again, and only then places without a look -- so nothing is placed.
+await t('A NEW OWNER DURING THE LOOK: the plug is not placed (the look comes first, the owner is asked again, the placement has no look of its own)', async () => {
+  const bot = botFor(ISOC)
+  let took = false
+  bot.onLookAt = async () => { took = true }
+  const r = await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (took ? 'lavastep' : null) })
+  assert.ok(bot.lookCalls >= 1, 'POSITIVE CONTROL: the rung reached the plug\'s look')
+  assert.strictEqual(r.yielded, 'lavastep')
+  assert.deepStrictEqual(bot.places, [])
+})
+await t('CONTROL: no new owner -> the same rung looks once per plug and places (the look-then-place path is live)', async () => {
+  const bot = botFor(ISOC)
+  await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(bot.places.length >= 1, JSON.stringify(bot.places))
+  assert.ok(bot.lookCalls >= bot.places.length, `one look per placement: ${bot.lookCalls} looks, ${bot.places.length} places`)
+})
+await t('MUTANT KILLED: the owner not asked after the look -> the plug goes out under the new owner', async () => {
+  await withMutant(REFLEX_PATH, "      if (yieldTo()) return out(false, 'yielded')\n      if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the look'); return out(false, 'budget spent plugging') }\n",
+    "      if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the look'); return out(false, 'budget spent plugging') }\n", async m => {
+    const bot = botFor(ISOC)
+    let took = false
+    bot.onLookAt = async () => { took = true }
+    await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS, yieldTo: () => (took ? 'lavastep' : null) }, m)
+    assert.ok(bot.places.length >= 1, 'mutant: placed under the new owner')
+  })
+})
+
 await t('A BAG OF TOOLS AND TORCHES ONLY: no plug (never a tool, never a non-scaffold block); the base refusal stands', async () => {
   const items = [{ name: 'stone_pickaxe', count: 1, type: reg.itemsByName.stone_pickaxe.id }, { name: 'torch', count: 12, type: reg.itemsByName.torch.id }]
   const bot = botFor(ISOC, { items })
@@ -943,8 +971,11 @@ await t('MUTANT KILLED: no settle before the cut -> the late flow is cut into', 
     })
 })
 
+// re-anchored (plugcut-01 x lavastep-01, JIT 10-24): the look added before the placement asks the deadline again, so a late
+// equip is stopped there too -- the mutant removes BOTH deadline checks (each anchor present and unique)
 await t('MUTANT KILLED: no deadline check after the equip -> the late equip still places', async () => {
-  await withMutant(REFLEX_PATH, "    if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the equip'); return out(false, 'budget spent plugging') }   // Codex r2 P2\n", '', async m => {
+  await withMutants(REFLEX_PATH, [["    if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the equip'); return out(false, 'budget spent plugging') }   // Codex r2 P2\n", ''],
+    ["      if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the look'); return out(false, 'budget spent plugging') }\n", '']], async m => {
     const b2 = botFor(ISOC)
     const equip = b2.equip
     b2.equip = async it => { await new Promise(r => setTimeout(r, 2000)); return equip(it) }
