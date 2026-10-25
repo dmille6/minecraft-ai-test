@@ -12839,6 +12839,25 @@ async function matsRecount (bot, signal) {
 }
 
 // ---- the carry note (fsynced, atomic; one per bot, in the pool's state directory) -----------------------------------------
+/**
+ * AN OPEN NOTE'S OBLIGATIONS ARE HELD (MATS-01 x JUNKOUT-01, re-stack 10-25; Codex P2 / Claude P3): junkout's town-deposit rows
+ * (the tail at any bag size, the full-bag deposit's appended rows) bank every torch and skip only a name another layer owns --
+ * a withdraw hold among them. While a carry note is open, the part and the intermediates above its bag0 are HELD, so no
+ * deposit the note cannot see banks what the recovery still owes (the balance would read it as a loss). Set when an order or
+ * a recovery leaves the note open and at spawn (holds live in memory); released when the note closes or is given up.
+ * matsBank swaps the hold for its own deposit and puts it back. RESIDUAL (named): a hold shares the name with any other
+ * layer's hold of it (a withdraw of torches), which this replaces while the note is open.
+ */
+export function matsHoldNote (bot, note) {
+  try {
+    if (!note?.kind || note.phase !== 'open') return
+    const held = heldMap(bot), until = Date.now() + MATS_RETURN_MAX_AGE_MS
+    for (const n of obligations(note.kind)) swapWithdrawHold(n, Math.max(0, (held[n] ?? 0) - (Number(note.bag0?.[n]) || 0)), until)
+  } catch { /* a hold is a guard, never a failure */ }
+}
+export function matsReleaseNote (note) {
+  try { for (const n of obligations(note?.kind)) swapWithdrawHold(n, 0) } catch { /* nothing held */ }
+}
 const matsNotePath = bot => path.join(townDir(), `mats-carry-${bot?.username ?? config.bot?.name ?? 'bot'}.json`)
 export function readMatsNote (bot) {
   try { return JSON.parse(fs.readFileSync(matsNotePath(bot), 'utf8')) } catch { return null }
@@ -13355,7 +13374,7 @@ async function makeMaterial (ctx, args, signal) {
         f.inputsLeft = plan.inputsLeft; f.stoneLeft = plan.stoneLeft || null
         if (noteSettled(note, bagNow, { furnaceDone })) clearMatsNote(bot)
         // what the order banked travels with an open note: the recovery's balance counts it (mats.mjs recoveryBalance)
-        else { note.phase = 'open'; note.deposited = { ...f.deposited }; writeMatsNote(bot, note); f.stop += '+note_open' }
+        else { note.phase = 'open'; note.deposited = { ...f.deposited }; writeMatsNote(bot, note); matsHoldNote(bot, note); f.stop += '+note_open' }
       }
     } catch { uncertain = true }
     try { await pl.settle() } catch { /* settled */ }
@@ -13513,9 +13532,9 @@ async function matsReturn (ctx, _args, signal) {
       const d = c - (f1[n] ?? 0) - allowed
       if (d > 0) forbidden[n] = d
     }
-    if (noteSettled(note, heldMap(bot), { furnaceDone })) { clearMatsNote(bot); stop = 'closed'; bal = balNow }
-    else if (giveUp()) { clearMatsNote(bot); stop = 'abandoned'; bal = furnaceDone ? balNow : null }
-    else { stop = 'open'; writeMatsNote(bot, note) }
+    if (noteSettled(note, heldMap(bot), { furnaceDone })) { clearMatsNote(bot); matsReleaseNote(note); stop = 'closed'; bal = balNow }
+    else if (giveUp()) { clearMatsNote(bot); matsReleaseNote(note); stop = 'abandoned'; bal = furnaceDone ? balNow : null }
+    else { stop = 'open'; writeMatsNote(bot, note); matsHoldNote(bot, note) }
     const what = `drained ${drained}, made ${made}, banked ${Object.entries(banked).map(([n, c]) => `${c} ${n}`).join(', ') || 'nothing'}`
     return (result = stop === 'closed' ? { status: Object.keys(banked).length || made ? 'success' : 'no_effect', detail: `reconciled the materials note: ${what}` }
       : stop === 'abandoned' ? { status: 'no_effect', detail: `gave the materials note up after ${note.tries} tries (${what}); the read counts it` }
@@ -13524,7 +13543,7 @@ async function matsReturn (ctx, _args, signal) {
     if (e?.aborted || signal?.aborted) throw e
     err = String(e?.message ?? e).slice(0, 40).replace(/\s+/g, '_')
     // THE BOUND HOLDS ON AN EXCEPTION TOO (Codex r2 P1-2): a recovery that throws on its last try or past the age gives up
-    if (giveUp()) { try { clearMatsNote(bot) } catch { /* none */ } stop = 'abandoned' } else stop = 'error'
+    if (giveUp()) { try { clearMatsNote(bot) } catch { /* none */ } matsReleaseNote(note); stop = 'abandoned' } else stop = 'error'
     return (result = { status: 'failed', failClass: 'other', detail: `mats_return stopped${stop === 'abandoned' ? ' (the note is given up)' : ''}: ${String(e?.message ?? e).slice(0, 120)}` })
   } finally {
     try { rpl?.restore() } catch { /* restored */ }
