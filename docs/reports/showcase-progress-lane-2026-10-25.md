@@ -258,3 +258,25 @@ frame (~355 MB a day; 319 GB free, min_free_gb 20 unchanged). The 18:00Z frame s
 blocks round the plan cells (four storehouse chests at x -9..-13, z -2..2; the workshop table and furnace at -7/-8,-7); where
 the forest canopy still covers a cell a top-down camera cannot see under the leaves -- the plots clear as they are built.
 Codex review: CHANGE, no P1 (a town-only month was skipped; extra-camera diagnostics dropped) -> fixed in r2 (cefd19f9).
+
+
+## 10. Owner decisions 10-25 (via the coordinator), applied
+
+1. **REQUIRED_KEPT drops confirmed** (indexsearch-01, sortdeposit-01). Recorded in `/srv/showcase/REQUIRED_KEPT`
+   ("OWNER CONFIRMED 2026-10-25", backup `.bak-20261025-owner`); gate still 17 of 17.
+2. **The trial chambers run to bedrock with a floor (the village shape).** Zone `trial-chambers-home-se` = box
+   [-20,-64,65,88,31,164], `floor_y -47` (the old bottom: survey -43 padded 4), so the chambers' protected volume is unchanged and
+   y -64..-48 under the footprint is added: nobody tunnels in under them, a bot already below the floor digs out sideways.
+   Branch `showcase-start-1025-zones` d27c9f2b: the infra file, the fixture and town-site.json's seed avoid box (the "showcase
+   agrees with itself" tests); protectzone's DATA exemption demands y0 -64 and floor_y = the padded bottom, with the positive
+   control that cells at y -48 / -60 / -64 under the chambers are in the zone, closed to a bot west of the footprint at y -55
+   and to one on the surface, open to a bot already at y -55 inside it, the chambers still closed to it; the r1 shape, no floor
+   and a wrong floor are refused; the DATA test was seen to fail on the r1 file. `npm test` 302/302. **Codex: APPROVE** (no
+   P1/P2; noted: the assertions prove the permissions, and mine's exit columns work underground, but no Paper scene runs an
+   actual escape from under the chambers).
+   **Live 18:11Z:** `/var/lib/mcai/_pool-showcase/protected-zones.json` (md5 b47a3a65) and both town-site.json copies (md5
+   7535523b) installed, backups `.bak-20261025-bedrock`. Tripwire baseline retaken from the pre-bot 04:15Z stage (8 zones,
+   every box chunk ok); the mirror compare INTACT. **Restart** 18:13:45Z (stop-bots / start-bots): all ten logged
+   `_protectzone_mode zones=8 why=ok` (18:13:46-18:15:37Z) and `_townplan_mode seed=ok zones=8`; 26/26 decisions gemma4.
+   **Tripwire (r9):** the space under the chambers is now their DEEP part (WATCH); the UNDER line sees only a floorless
+   underground zone (none) and is a warning, never a stop. Read 18:35Z: OK, trial chambers INTACT.

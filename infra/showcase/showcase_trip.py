@@ -21,8 +21,8 @@ LINES (each with its denominator; a zero is printed beside the positive control 
                   7-d 0.0195 / bot-h gives ~0.6 per 180 min on 10 bots; P(>= 4) ~ 0.3 %); WATCH 2-3 in a span
   S2 STUCK        bots with < 3 blocks of 3-D movement for >= 30 min, sampled with no gap > 5 min, to the window's end.
                   WATCH only, never a stop (Codex 10-25 P1: waiting at home is legal and is not evidence of a trap)
-  S3 UNDER        a bot BELOW an underground zone inside its footprint (the trial chambers' named residual): WATCH,
-                  and TRIP when still there >= 15 min with < 3 blocks moved
+  S3 UNDER        a bot BELOW a floorless underground zone inside its footprint: WATCH only. Since OWNER 10-25 the trial
+                  chambers run to bedrock with floor_y -47, so the space under them is their DEEP part (WATCH), not UNDER
   S3 ZONES        Z1 a bot inside a protected box >= 15 min with < 3 blocks moved (TRIP, the dead end protectzone must never
                   make); Z2 >= 60 refusals by one bot in 10 min (WATCH: a remedy not taken); refusals by op (REPORTED)
   S4 INTEGRITY    every protected structure's cells (structure palette) vs the pre-start baseline: a cell REMOVED or changed
@@ -207,10 +207,13 @@ def verdict(f):
         watch.append('S1 %d deaths inside 180 min' % f['deaths'])
     if f['stuck']:
         watch.append('S2 still >= %d min %s' % (STUCK_MIN, f['stuck']))
+    # OWNER 10-25: the trial chambers now run to bedrock with a floor (the village shape), so the space under them is the
+    # zone's DEEP part (legal ground, a WATCH line above). UNDER only sees an underground zone WITHOUT a floor -- none in the
+    # showcase file -- and is a warning, never a stop.
     if f.get('under_trapped'):
-        trip.append('S3 UNDER trapped below an underground zone %s' % f['under_trapped'])
+        watch.append('S3 UNDER still below a floorless underground zone %s' % f['under_trapped'])
     elif f.get('under'):
-        watch.append('S3 UNDER below an underground zone %s' % f['under'])
+        watch.append('S3 UNDER below a floorless underground zone %s' % f['under'])
     if f['expect_running'] and f.get('window_min', 0) >= 60 and f.get('plan_towns') == 0 and not f['plan_error']:
         watch.append('S5 no accepted town plan after %d min (UNEXPOSED: zero defects mean nothing yet)' % f['window_min'])
     if f['trapped']:
@@ -800,7 +803,12 @@ def selftest():
     ub = under_boxes([('t', [-20, -47, 65, 88, 31, 164]), ('v', [0, -64, 0, 9, 90, 9])])
     assert ub == [[-20, -64, 65, 88, -48, 164]], ub
     assert in_box(P(30, 100, -50), ub[0]) and not in_box(P(30, 100, -47), ub[0])
-    assert verdict(dict(base, under={'a': 3}))[0] == 'WATCH' and verdict(dict(base, under_trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
+    assert verdict(dict(base, under={'a': 3}))[0] == 'WATCH' and verdict(dict(base, under_trapped={'a': [('12:00', 20)]}))[0] == 'WATCH'
+    bed = [('trial', [-20, -64, 65, 88, 31, 164])]
+    assert under_boxes(bed) == [], 'the bedrock-shaped chambers have no "under"'
+    cl2, dp2 = closed_and_deep(bed, {'trial': -47})
+    assert dp2 == [[-20, -64, 65, 88, -48, 164]] and cl2 == [[-20, -47, 65, 88, 31, 164]]
+    assert any(in_box(P(30.5, 110.5, -55), b) for b in dp2) and not any(in_box(P(30.5, 110.5, -55), b) for b in cl2), 'y -55 under the chambers is DEEP'
     assert verdict(dict(base, window_min=90, plan_towns=0))[0] == 'WATCH' and verdict(dict(base, window_min=30, plan_towns=0))[0] == 'OK'
     base = dict(base, mirror_age_min=10)
     assert verdict(dict(base, mirror_age_min=90))[0] == 'WATCH' and verdict(dict(base, mirror_age_min=None))[0] == 'WATCH'
