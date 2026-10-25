@@ -13749,9 +13749,10 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
   const liveZones = () => { try { return bot.protectZones?.() ?? [] } catch { return [] } }
   const townNow = () => {
-    // no tree farm on this base (treefarm-02 composes its cells here); THE WORKSHOP'S RECORD CELLS take the slot (shop-01 r2, Codex
-    // r1 P2 / Claude r1 P2-3: a target dig is not a pathfinder move, so the footprint price never reached the stair)
-    const farm = shopKeepOut()
+    // the tree farm's slot: no tree farm on this base (treefarm-02 composes its part here) -- and THE WORKSHOP'S RECORD CELLS as
+    // their OWN part beside it (shop-01 r2, Codex r1 P2 / Claude r1 P2-3: a target dig is not a pathfinder move, so the
+    // footprint price never reached the stair; Claude r2 P3-2: a part each, so a merge with treefarm-02 drops neither)
+    const farm = composeKeepOut({ forbid: null, bottom: null }, shopKeepOut())
     return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
   }
   // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one --
@@ -16312,13 +16313,20 @@ async function buildShop (ctx, args, signal) {
     })
     bot.shopUnknown ??= new Set()   // cells a dig left unanswered: unknown for the connection, asked again by the next visit
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    // THE LEFTOVERS GO BACK (design 5 "returns what is left", cooperation A3): what this visit drew and did not place -- the bag
+    // above its count at the visit's start, at most what was drawn -- is banked in town chests, nearest first (mats-01's matsBank
+    // sweep: a full or unreachable chest is the next one's turn). NAMED DEVIATION: A3's reserved SITE CHEST does not exist on this
+    // base (cooperation's, not built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
+    let back = {}
+    const left = Object.keys(took).filter(n => (took[n] ?? 0) > 0 && countItem(bot, n) > (held0[n] ?? 0))
+    if (left.length) { try { back = await matsBank(ctx, left, held0, signal, took) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
     const status = r.placed > 0 ? 'success' : 'no_effect'
-    return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')

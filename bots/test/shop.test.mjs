@@ -77,6 +77,13 @@ await t('shopAllow: a PART (no reserve key) up to what the container shows; a re
   assert.ok(S.shopAllow('torch', 20, o) <= 8, 'never through the torch reserve')
 })
 
+await t('mine names the workshop when its keep-out refuses (Claude r2 P3-1: it read "the town tree farm")', async () => {
+  const MW = await import('../src/minewell.mjs')
+  assert.strictEqual(MW.keepOutLabel('workshop'), 'the town workshop')
+  assert.match(MW.keepOutWhy({ kind: 'workshop', cell: { x: 1, y: 2, z: 3 } }), /the town workshop .*1,2,3/)
+  assert.strictEqual(MW.keepOutLabel('nonesuch'), 'the town tree farm', 'control: an unknown kind still falls back')
+})
+
 console.log('THE FOOTPRINT PRICE')
 await t('a record cell + 1 costs 100 on a WORK or TRAVEL walk, 0 on an escape walk (survival digs kept), 0 outside', () => {
   const cells = S.footprintCells({ cells: [{ at: [10, 70, 10] }] })
@@ -112,11 +119,12 @@ const W = [
   ['index: the footprint price appended to the shared break array', IX, /moves\.exclusionAreasBreak = moves\.exclusionAreasBreak\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
   ['index: the footprint price appended to the shared place array', IX, /moves\.exclusionAreasPlace = moves\.exclusionAreasPlace\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
-  ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = shopKeepOut\(\)/],
+  ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
   ['skills: the visit draws with the part rule', SK, /matsWithdraw\(ctx, need, signal, 30_000, matsReserve\(\)\.table, shopAllow\)/],
   ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = allow\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
   ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
+  ['skills: the leftovers banked after the visit (A3 fallback: town chests)', SK, /if \(left\.length\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took\) \}/],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],

@@ -155,6 +155,21 @@ await t('a TORN generation (a kill inside the write) is held for MUTEX_TORN_MS, 
   P.presenceWrite(d2, KEY, 'A', { conn: 'c2', pid: 5151, now: now + 20 })   // A restarted as pid 5151 (pid 4242 may be reused)
   assert.ok(P.mutexTake(d2, KEY, 'B', { now: now + 30, alive: () => true }).ok)
 })
+await t('PID REUSE (Codex r2 P2): the holder restarted under the SAME pid -- its newer presence names another CONNECTION -> free; the same connection -> held', () => {
+  const d = tmp(), now = Date.now()
+  assert.ok(P.mutexTake(d, KEY, 'A', { now, pid: 4242, conn: 'A-c1', alive: () => true }).ok)
+  P.presenceWrite(d, KEY, 'A', { conn: 'A-c1', pid: 4242, now: now + 10 })
+  assert.strictEqual(P.mutexTake(d, KEY, 'B', { now: now + 20, alive: () => true }).ok, false, 'control: a fresh presence of the SAME connection proves nothing')
+  P.presenceWrite(d, KEY, 'A', { conn: 'A-c2', pid: 4242, now: now + 30 })
+  const r = P.mutexTake(d, KEY, 'B', { now: now + 40, alive: () => true })
+  assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.reclaimed, 'A')
+})
+await t('A RETIRED HOLDER (offline on the server, as the taker saw it: `gone`) -> free; a live, online, suspended one stays held', () => {
+  const d = tmp(), now = Date.now()
+  assert.ok(P.mutexTake(d, KEY, 'A', { now, pid: 4242, conn: 'A-c1', alive: () => true }).ok)
+  assert.strictEqual(P.mutexTake(d, KEY, 'B', { now: now + 3_600_000, alive: () => true, gone: () => false }).ok, false)
+  assert.ok(P.mutexTake(d, KEY, 'B', { now: now + 3_600_000, alive: () => true, gone: rec => rec.holder === 'A' }).ok)
+})
 await t('old generations are pruned beyond MUTEX_KEEP; the newest always decides', () => {
   const d = tmp()
   for (let i = 0; i < P.MUTEX_KEEP + 5; i++) { const r = P.mutexTake(d, KEY, 'A'); assert.ok(r.ok); P.mutexRelease(d, KEY, 'A', { gen: r.gen }) }
