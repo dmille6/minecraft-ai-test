@@ -103,7 +103,8 @@ await t('buildBagDetail: under 300 characters, the most negative first, every fi
   const d = S.buildBagDetail('shop', bal)
   assert.ok(d.length <= 300, d.length)
   assert.ok(d.startsWith('project=shop stone_bricks=0/89/0/88/0/0') === false, 'not the most negative')
-  assert.match(d, /^project=shop cobblestone=0\/64\/0\/0\/0\/0 /, 'the most negative (-64) first')
+  assert.match(d, /^project=shop exit=- silent=- cobblestone=0\/64\/0\/0\/0\/0 /, 'the most negative (-64) first')
+  assert.match(S.buildBagDetail('shop', bal, { exit: 'complete', silent: 0 }), /^project=shop exit=complete silent=0 /)
 })
 
 console.log('THE FOOTPRINT PRICE')
@@ -146,12 +147,15 @@ const W = [
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
   ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
-  ['skills: the visit draws with the part rule', SK, /matsWithdraw\(ctx, need, signal, 30_000, matsReserve\(\)\.table, shopAllow\)/],
+  ['skills: the visit draws with the part rule', SK, /matsWithdraw\(ctx, need, signal, 30_000, matsReserve\(\)\.table, shopAllow, /],
   ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = allow\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
   ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
-  ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took\) \}/],
+  ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock, each deposit booked as it lands', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took, \{ onBanked: \(n2, c2\) => \{ backAll\[n2\] = /],
+  ['skills: each verified take booked as it lands', SK, /shopAllow, \(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c \}\)/],
+  ['skills: matsWithdraw reports each verified take', SK, /try \{ onTook\?\.\(k, c\) \} catch/],
   ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
   ['skills: one _build_bag row per visit, in the finally', SK, /if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
+  ['skills: the bag row names the exit (a death inside the visit: died) and the silent clicks', SK, /\{ exit: diedAt \? 'died' : \(f\.outcome \?\? '-'\), silent: f\.silent \?\? '-' \}/],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],

@@ -12864,7 +12864,8 @@ function matsTaking (bot, name) {
  *  known containers plus what the server shows in this one now -- another bot's withdrawal since the order's reading is
  *  seen, never spent through. */
 // `allow` (shop-01 r2): how much of a name may be taken here; mats' own orders keep takeAllowed (a part has no reserve key there)
-async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed) {
+// `onTook(name, n)` (shop-01 read r2): each VERIFIED take as it lands, so a caller's books survive an abort later in the run
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
   const left = { ...take }
@@ -12899,7 +12900,7 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
     if (v.result?.failClass === 'transfer_unsettled' || (v.result && !v.verified && v.moved)) { out.unsettled = true; break }
     const got = v.verified ? (v.moved?.took ?? {}) : {}
-    for (const [k, c] of Object.entries(got)) { out.took[k] = (out.took[k] ?? 0) + c; if (k in left) left[k] = Math.max(0, left[k] - c) }
+    for (const [k, c] of Object.entries(got)) { out.took[k] = (out.took[k] ?? 0) + c; if (k in left) left[k] = Math.max(0, left[k] - c); try { onTook?.(k, c) } catch { /* books only */ } }
     next = townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried)
   }
   out.short = want()
@@ -16210,8 +16211,10 @@ async function buildShop (ctx, args, signal) {
   const slotRef = { gen: slot.gen }   // follows every renewal inside the visit: the release below is the LATEST generation (Codex r1 P3)
   let effects = null
   // THE BAG BALANCE's inputs (the read's conservation gate): set as the visit learns them; written once, in the finally
-  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null
   const crafted = {}
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
   try {
     const acks = (bot.shopAcks ??= shopAckInstall(bot))
     presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
@@ -16230,16 +16233,20 @@ async function buildShop (ctx, args, signal) {
     const need = needFromTown(want, spare0)
     let took = {}
     bag0 = held0
-    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow); took = w.took ?? {}; tookAll = took }
+    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c }); took = w.took ?? {} }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
     const preCraft = heldMap(bot)
-    for (const item of ['furnace', 'crafting_table']) {
-      const lack = (bill[item] ?? 0) - countItem(bot, item)
-      if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    try {
+      for (const item of ['furnace', 'crafting_table']) {
+        const lack = (bill[item] ?? 0) - countItem(bot, item)
+        if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      }
+    } finally {
+      // booked on every exit, an abort mid-craft included
+      const postCraft = heldMap(bot)
+      for (const k of new Set([...Object.keys(preCraft), ...Object.keys(postCraft)])) { const d = (postCraft[k] ?? 0) - (preCraft[k] ?? 0); if (d) crafted[k] = d }
     }
-    const postCraft = heldMap(bot)
-    for (const k of new Set([...Object.keys(preCraft), ...Object.keys(postCraft)])) { const d = (postCraft[k] ?? 0) - (preCraft[k] ?? 0); if (d) crafted[k] = d }
     check(signal)
     effects = botBuildEffects(bot, {
       acks,
@@ -16263,8 +16270,7 @@ async function buildShop (ctx, args, signal) {
     // built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
-    backAll = back ?? {}
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2 } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
@@ -16274,7 +16280,8 @@ async function buildShop (ctx, args, signal) {
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
     try { effects?.close() } catch { /* gone */ }
     // ONE `_build_bag` ROW PER VISIT that reached its bag (every exit: an abort included) -- shop.mjs bagBalance
-    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(SHOP_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap(bot) })) }) } catch { /* telemetry */ } }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(SHOP_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-' }) }) } catch { /* telemetry */ } }
   }
 }
 
