@@ -87,7 +87,7 @@
   "final_on_zero_exposure": "INCONCLUSIVE",
   "note": "Tier 3 (no tier field): the ordinary gates and reads; extend only for exposure."
  },
- "requires": "The fleet must be the variant's base (matset-01 7b9db3a2 = 6e1afb52 + matset-01, rolled out owner-direct 1-2 days before this run's turn). Re-JIT onto whatever is live at the turn.",
+ "requires": "The fleet must be the variant's base: matset-01 re-stacked on d55ce14d (matset-on-d55ce14 @ 376d5f13 = junkout-01 fleet d55ce14d + matset-01), rolled out owner-direct by matset-rollout.sh just before this run's turn. Re-JIT onto whatever is live at the turn.",
  "reads_md5": {
   "matsread": "__MATSREAD_MD5__"
  }

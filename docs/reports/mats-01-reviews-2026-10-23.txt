@@ -1,0 +1,90 @@
+mats-01 -- review, Paper and test record (2026-10-23/24)
+
+Branch mats-on-7b9db3a; base 7b9db3a2 (matset-01 r4 = fleet 6e1afb52 + matset-01). Design:
+docs/reports/building-tier-2026-10-23.md section 3. Tier 3.
+
+CODE REVIEWS (Codex = codex exec read-only; Claude = an independent agent; full texts in the session scratchpad bt/)
+  r1  43863ee9  Codex CHANGES (14)              Claude CHANGES (BLOCKER: the note never closed on leftovers)
+  r2  4d0e42f2  Codex CHANGES (4 P1, 6 P2)      Claude CHANGES (1 P1, 4 P2)
+  r3  bc4442bd  Codex CHANGES (3 P1, 4 P2)      Claude CHANGES (1 P1, 5 P2)
+  r4  b4b08812  Codex CHANGES (1 P1, 4 P2)      Claude APPROVE
+  r5  808dca3a  Codex CHANGES (5 P2)            Claude CHANGES (2 P2)
+  r6  08fcdeef  Codex CHANGES (1 P2)            Claude APPROVE
+  r7  1c605d94  Codex CHANGES (1 P2)            Claude APPROVE
+  r8  416c36bf  Codex CHANGES (1 P2)            Claude APPROVE
+  r9  bca012e2  Codex APPROVE                   Claude APPROVE    <- CONVERGED (no P1/P2 from either engine)
+  r10 d0e39c1f  Claude r9 P3-2 / P3-1 only (the backSeen gate extracted as pure backSeenTouched; gone = touched)
+  B3 (no coal, charcoal other than the torch kind's own, iron or tool spent or deposited): confirmed clean by both
+  engines from r3 on.
+
+PAPER (sandbox7/8, mats-e2e.cjs; one fresh bot per scene; the server's slots before and after)
+  scenes: bricks, furn (F1 coal / F2 iron / F4 stone foreign, F3 clean; SMELT_JOB=0 on both arms), hot (lit with
+  an empty fuel slot), res_at (exactly the reserve), res_one (one batch above), copper (cut_copper), door,
+  torch (Q3 charcoal), panes, kill (SIGKILL mid-burn, restart, recovery), kill_w (SIGKILL after the withdraw)
+  base 7b9db3a2:  r4 driver 11/11 BASE_SHAPE (the instrument's positive control; the driver is unchanged since,
+                  except the kill scenes' window)
+  candidate:      r4 11/11 PASS; r6 11/11 PASS; r8 (416c36bf) 11/11 PASS; r9 (bca012e2) kill, kill_w, bricks, furn,
+                  copper PASS; r10 (d0e39c1f, the code of this canary) kill, kill_w, bricks, furn, copper PASS -- the
+                  r9/r10 deltas touch only the recovery and the placement settle, so the full r8 run covers the rest
+  Defects Paper found and the code fixed: furn (only 3 furnace candidates tried, r4); kill (a verdict on undrained
+  attempts, r3; a flat 3-min wait outlasting the window, r5). kill_w showed a kill inside the take's clicks draws
+  up to a half stack (32 for a 12-cobble order): named residual.
+
+TESTS
+  npm test 295/295 at r3, r4 and r10 (d0e39c1f). mats 31, mats-session 10, mats-chain 7, mats-return 13,
+  matset 9, args-sayable 5. eslint no-undef: only the pre-existing reflex.mjs withinBody. In-suite mutants
+  (withMutant, unique anchors) plus out-of-suite mutants for skills.mjs/cognitive.mjs paths (bt/mut_r3..r9*.py),
+  every one killed by its intended test.
+
+THE READ (scripts/host/matsread.py)
+  Dry runs on .31 at 22:44Z (r2), 23:10Z (r3) and 00:55Z (r5) (board-a, board-c on the base, 180 min; the read is unchanged
+  in its gates since, r8 only reworded its NOTES line): every gate 0, the
+  instruments seeing the base's real activity (control rungs 800+, 10 control pools indexed, furnace sessions
+  550-640). The G5 overlap function found 0 pairs on 551 leased base sessions and 198 with each interval widened
+  by 10 min.
+
+NAMED DESIGN DEVIATIONS (final)
+  1. A qualifying furnace's fuel slot must be empty.
+  2. No kept stone. A 1-3 remainder is ordinary stone; unspent inputs are booked, never owed.
+  3. The 80% coverage floor, with a recount at ANY coverage for a reachable container the index does not know.
+  4. The wood family is accounted over every log and plank name.
+  6. The output slot must be empty (own = null).
+  (5, claims not subtracted, is gone: outstanding draw claims are subtracted at the take.)
+
+NAMED RESIDUALS (in the registration)
+  - copper_ingot has no stock-journal group, so another bot's ordinary copper draw is not subtracted.
+  - Parts in a container no recount can open are not seen by the buffer.
+  - Input gained on the way back can hide a recovery shortfall up to that gain.
+  - A kill inside the take's clicks can draw up to a half stack.
+  - A -1 on the held slot within 2 s of a failed placement that is not the placement can read as one.
+
+FOLLOW-UPS (P3, recorded, not done)
+  - Claude r9 P3-3: the settle test's 30 ms timing margin.
+  - Codex r7 P3: singleton-move cancellation is order- and timing-dependent (a move conserves the bag: no gate
+    effect).
+  - Claude r6 P3-3: the town_full room check is not per kind (fails conservative).
+  - Claude r6 P3-5: double-chest keys against the town memory (fails open on room).
+  - No Paper scene places scaffold (countPlacements is unit-tested on mineflayer's updateSlot shape).
+
+RE-STACK 2026-10-25 (OWNER 10-25: mats-01 onto the fleet d55ce14d = junkout-01, found-01, townplan-01, protectzone-01, plus matset-01)
+  matset-01 re-stacked:  branch matset-on-d55ce14 @ 376d5f13 (6e1afb52..7b9db3a2 cherry-picked clean onto d55ce14d = 81edfa5e;
+                         39a27ff7 matset-rollout.sh BASE = d55ce14d; 376d5f13 test-only: junkout.test's junk example is
+                         stained glass, since plain glass is now a building part). npm test 303/303.
+  mats-01 re-stacked:    branch mats-on-376d5f1. 11826ea1 = the squashed 7b9db3a2..d0e39c1f patch applied three-way, conflicts
+                         resolved by union (hygiene, index, fakeworld, skills, cognitive). The town-order chain is now
+                         mats_return > plinth > found > deposit; the recount and junkout's visit run only when no mats_return
+                         order; VISIT_YIELDS_TO.add('mats_return') (the junkout lines stay verbatim: their mutants anchor them).
+  COMPOSITION REVIEW (found-01, junkout-01, townplan-01, protectzone-01 x mats-01):
+    r1 11826ea1  Codex CHANGES (P2: junkout's town-visit tail banks an open torch note's torches -> a false loss)
+                 Claude APPROVE (P3: the same torch case; chain-test coverage)
+    r2 96a837d4  matsHoldNote / matsReleaseNote: an open note's obligations above bag0 are withdraw-held from junkout's
+                 deposit rows; released at close / abandon. Codex CHANGES (P2: abort/throw exits do not refresh the holds)
+    r3 cab80e87  matsHoldIfOpen in both finally blocks. Codex APPROVE (no P1/P2)
+  PAPER (sandbox7/8, driver fc79c1f2 on mats-sandbox-on-main: no kit torches, because junkout-01's torch allowance is 0
+         and its tail banks a carried torch; measured on the first run as base d(bag){torch-8} d(B){torch+8})
+    base 376d5f13:     bricks, kill, torch, furn  4/4 BASE_SHAPE
+    candidate cab80e87: bricks, kill, torch, furn 4/4 CANDIDATE_PASS (torch: oak_log -8 -> torch +24 in town)
+  TESTS  npm test 307/307 at cab80e87. mats-return 14 (junkout hold + abort hold), junkout 29, junkout-found-compose 8,
+         found 35, found-compose 9, townplan-compose 20, well 238, keepout 60, lidclear 37, plinth-skill 56, towndeposit 90.
+  NEW RESIDUAL  the hold covers an open note's obligations only; a bot's own kit torches (outside a note) are banked by
+                junkout as on the fleet.

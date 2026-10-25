@@ -6,11 +6,11 @@
  "not_before": null,
  "note": "DRAFT -- NOT queued by the building agent (entry only; `queue add` / `replace-variant` are the operator's). OWNER 10-23 'build now, in this order: structcount, matset-01, mats-01'; Q11 lane order lavastep-01, tombexit-01, mats-01, lavatarget-01, shop-01, minelava-01; matset-01 (tier 1, owner-direct) rolls out 1-2 days BEFORE this run's turn. TIER 3 (no tier field). THE CHANGE: make_material, the building tier's materials job (docs/reports/building-tier-2026-10-23.md section 3): town stock above the BUILD_RESERVE turned into stone bricks, glass panes, cut copper, copper doors and torches (Q3: charcoal from surplus logs), to the buffers, on planks only (never coal, charcoal, iron, tools or the kit), with a carry note and mats_return. MATS=0 = the base. Read ~/mcai-analysis/matsread.py (NEW; scripts/host/matsread.py on the branch; md5 in the variant) + immobiledid. drawexposure 10-23 21:54Z (24 h, kind smelt_town >= 20): 11 pools eligible (board-a..d, hive-a..d, placebo-a, placebo-b, placebo-d) -- PREFER a draw without hive-b and hive-d (their logs, 217 and 67, are under the 512 reserve: no bricks there, cut copper and doors only). Install the drawn variant's registration as ~/mcai-analysis/registrations/mats-01.json. The Paper driver (sandbox/craft/mats-e2e.cjs, requireSandboxLock 'mats') is on branch mats-sandbox-on-main: merge it with the canary at merge time.",
  "variants": {
-  "7b9db3a2__MATSET_FULL__": {
+  "376d5f13__MATSET_FULL__": {
    "registration": "/home/mike/mcai-analysis/mats-01.__SHA8__.json",
    "approved": "__APPROVED__",
    "canary_sha": "__SHA__",
-   "branch": "mats-on-7b9db3a",
+   "branch": "mats-on-376d5f1",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {
     "matsread": "__MATSREAD_MD5__",
