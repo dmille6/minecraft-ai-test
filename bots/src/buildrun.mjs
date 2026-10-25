@@ -276,6 +276,9 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
     const v = await click(r.cell, r.sapling, step, 'clear', seg.gen, { want: b => SAPLING.test(nm(b)) })
     PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen)
+    // a silent replant click is counted (Claude read r3 P3-1: its late acknowledgement may have planted the sapling untallied, so
+    // the bag row must not read as a clean exit)
+    if (v === 'silent') out.silent++
     if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else { out.stop = 'no_step'; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }
   }
 

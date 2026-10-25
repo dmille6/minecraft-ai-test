@@ -127,6 +127,14 @@ await t('a felled tree\'s clear row carries the replant cells reading a sapling 
   assert.ok(row, 'the felling row'); assert.strictEqual(row[1].saplings, '1/1')
 })
 
+await t('a SILENT replant click is counted silent (the bag row then reads as not a clean exit; Claude read r3 P3-1)', async () => {
+  const rp = { cell: [SITE.record.box[2] + 10, G + 1, SITE.record.box[1]], species: 'oak', sapling: 'oak_sapling', state: 'pending' }
+  const record = { ...SITE.record, replant: [rp] }
+  const srv = server(), { p } = project(record)
+  const r = await R.runVisit(p('A'), bot(srv, 'A', { ack: t2 => (k3(t2) === k3(rp.cell) ? 'silent' : 'ok'), capWait: 20 }), { maxSteps: 50 })
+  assert.strictEqual(r.silent, 1, JSON.stringify(r)); assert.strictEqual(r.stop, 'no_step')
+})
+
 console.log('THE SLOT REFERENCE (Codex r1 P3)')
 await t('slotRef follows every renewal of the admission slot (the caller releases the LATEST generation on any exit)', async () => {
   const srv = server(), { p } = project()

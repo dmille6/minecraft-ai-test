@@ -33,9 +33,11 @@
 #   ARMS               control rows of these kinds after the deploy (must be 0; build_shop is chatOnly -- a player's chat to a
 #                      CONTROL bot writes `_build_visit outcome=off`: read that row before calling it a leak)
 #   LIVENESS           canary `_build_mode` >= 1 and canary `_build_visit` >= 1
-#   EXPOSURE           WORLD EVIDENCE (read r1, both engines: a completion row is the code's own claim): a canary town counts
-#                      when it has a `_structure_complete` row AND the first structure count after that row shows a LIT ROOM
-#                      INSIDE ITS RECORD'S BOX (rooms_in_box; none there before the deploy); >= EXPOSE_TOWNS such towns. NOT MEASURED
+#   EXPOSURE           NEEDS RECORD CONFORMANCE (F1 >= 0.98 on the record's cells and states) AND PERSISTENCE (a clean survey
+#                      >= 1 h later) -- Codex read r3. No source exists (a structcount scan --record is not built), so exposure
+#                      is NEVER ready from this read (fail closed: INCONCLUSIVE, never KEEP). PRELIMINARY, reported: a town with a
+#                      `_structure_complete` row whose first structure count after it shows a LIT ROOM INSIDE THE RECORD'S CELL
+#                      EXTENT (rooms_in_box, height included), none there before the deploy; missing room data is unknown. NOT MEASURED
 #                      (named): the design's PERSISTENT rule and record conformance F1 >= 0.98 (a `structcount scan --record`
 #                      is not built)
 #   NO HARM (WATCH, DiD of success shares; fails only below its tolerance with z < -2; UNEXPOSED under MIN_CELL)
@@ -193,20 +195,32 @@ def structcount_gens(root=os.path.expanduser('~/structcount/in')):
 
 
 def rooms_in_box(doc, box):
-    """The structure count's lit, roofed rooms (B5 buildings: `building_rooms`, JSON strings with a `centre`) whose centre lies in
-    the record's box [x0, z0, x1, z1] (+-1) -> n. Record-SPECIFIC world evidence (Codex read r2 P2-5): another town building
-    rising elsewhere does not count. Positive control, 10-25 on sandbox8 after SHOP-E2E: one lit room, centre 734.4,121,764 in the
-    record box [731,760,737,768]; the base world: none."""
+    """The structure count's lit rooms (B5 buildings: `building_rooms`, JSON strings with a `centre`) whose centre lies inside the
+    record's cells' extent box = [x0, y0, z0, x1, y1, z1] (+-1) -> n, or None when the town's room data is missing or malformed
+    (Codex read r3 P2-1: unknown is never zero). Record-SPECIFIC, height included (Codex read r3 P2-2: a room above or below
+    does not count). Positive control, 10-25 on sandbox8 after SHOP-E2E: one lit room, centre 734.4,121,764, inside the record's
+    extent; the base world: none."""
+    rooms = (doc or {}).get('building_rooms') if isinstance(doc, dict) else None
+    if not isinstance(rooms, list) or not box or len(box) != 6:
+        return None
     n = 0
-    for raw in (doc or {}).get('building_rooms') or []:
+    for raw in rooms:
         try:
             r = json.loads(raw) if isinstance(raw, str) else raw
-            cx, _, cz = r.get('centre')
+            cx, cy, cz = (float(v) for v in r.get('centre'))
         except Exception:
-            continue
-        if r.get('lit') and box and box[0] - 1 <= cx <= box[2] + 1 and box[1] - 1 <= cz <= box[3] + 1:
+            return None
+        if r.get('lit') and box[0] - 1 <= cx <= box[3] + 1 and box[1] - 1 <= cy <= box[4] + 1 and box[2] - 1 <= cz <= box[5] + 1:
             n += 1
     return n
+
+
+def record_extent(rec):
+    """The record's cells' extent -> [x0, y0, z0, x1, y1, z1] | None."""
+    cells = [c.get('at') for c in (rec or {}).get('cells') or [] if isinstance(c, dict) and isinstance(c.get('at'), list) and len(c['at']) == 3]
+    if not cells:
+        return None
+    return [min(c[0] for c in cells), min(c[1] for c in cells), min(c[2] for c in cells), max(c[0] for c in cells), max(c[1] for c in cells), max(c[2] for c in cells)]
 
 
 def world_evidence(gens, cut, complete_at, boxes=None):
@@ -228,7 +242,10 @@ def world_evidence(gens, cut, complete_at, boxes=None):
             world[pool] = 'no record box'
         else:
             r0, r1 = rooms_in_box(base.get(pool), boxes[pool]), rooms_in_box(after[0][1].get(pool), boxes[pool])
-            world[pool] = 'confirmed' if r0 == 0 and r1 >= 1 else 'lit rooms in the record box %d -> %d' % (r0, r1)
+            if r0 is None or r1 is None:
+                world[pool] = 'room data missing or malformed (before %s, after %s): unknown' % (r0, r1)
+            else:
+                world[pool] = 'room' if r0 == 0 and r1 >= 1 else 'lit rooms in the record extent %d -> %d' % (r0, r1)
     litter = {}
     last = gens[-1][1] if gens and gens[-1][0] > cut else None
     if base is not None and last is not None:
@@ -381,9 +398,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
             out['lease_overlap'] += 1; lists['lease_overlap'].append('%s %s g%s: %s' % (pool, name, gen, why))
     out['complete_towns'] = len(complete_at)
     lists['complete_towns'] = sorted(complete_at)
-    boxes = {p: (pr.get('record') or {}).get('box') for p, pr in projects.items()}
+    boxes = {p: record_extent(pr.get('record')) for p, pr in projects.items()}
     world, litter = world_evidence(list(gens), cut, complete_at, boxes) if cut is not None else ({}, {})
-    out['complete_towns_world'] = sum(1 for v in world.values() if v == 'confirmed')
+    out['complete_towns_room'] = sum(1 for v in world.values() if v == 'room')
     lists['world'] = ['%s: %s' % kv_ for kv_ in sorted(world.items())]
     lists['_litter'] = litter
     lists['_cans'] = sorted(cans)
@@ -398,7 +415,11 @@ def combine(out, lists):
         res[k] = g(k)
     res['arms_breach'] = g('arms_rows_control_post')
     res['liveness'] = int(g('licence_canary') >= 1 and g('visits_canary') >= 1)
-    res['exposure_ready'] = int(g('complete_towns_world') >= EXPOSE_TOWNS)   # WORLD evidence, never the completion row alone
+    # EXPOSURE NEEDS RECORD CONFORMANCE AND PERSISTENCE (Codex read r3: the design's F1 >= 0.98 on the record's cells and states,
+    # then a clean survey >= 1 h later). No source for them exists yet (a structcount scan --record is not built), so exposure is
+    # NEVER ready from this read: the room check above is PRELIMINARY evidence, reported. Fail closed: INCONCLUSIVE, never KEEP.
+    res['conformance_source'] = 0
+    res['exposure_ready'] = int(res['conformance_source'] == 1 and g('complete_towns_room') >= EXPOSE_TOWNS)
     res['instrument_control'] = int(g('craft_post_control') >= 1 and g('gather_post_control') >= 1)
     for name, key in (('gather_ok', 'gather'), ('rung_ok', 'rung')):
         cells = [(g('%s_ok_pre_canary' % key), g('%s_pre_canary' % key)), (g('%s_ok_post_canary' % key), g('%s_post_canary' % key)),
@@ -449,8 +470,9 @@ def selftest():
     res = J(base)
     for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'g5_unjudged', 'unknown_stood', 'bag_loss', 'oracle_missing', 'zone_unknown', 'arms_breach'):
         assert res[k] == 0, (k, res)
-    assert res['liveness'] == 1 and res['exposure_ready'] == 1 and res['instrument_control'] == 1, res
-    assert res['placements'] == 3 and res['complete_towns'] == 2 and res['complete_towns_world'] == 2, res
+    assert res['liveness'] == 1 and res['instrument_control'] == 1, res
+    assert res['placements'] == 3 and res['complete_towns'] == 2 and res['complete_towns_room'] == 2, res
+    assert res['exposure_ready'] == 0 and res['conformance_source'] == 0, 'Codex read r3: never READY without a conformance source'
     assert res['bag_scaffold'] == 4, 'cobblestone short by 4: scaffold, reported, not a loss'
     # G1 off the record
     assert J(base + [R('_build', 'project=shop op=place seg=pad cell=30,70,30 block=stone_bricks', s=13)])['off_record'] == 1
@@ -506,13 +528,19 @@ def selftest():
     # arms
     assert J(base + [R('_build_visit', 'project=shop outcome=off', arm='control', bot='hive-b-A')])['arms_breach'] == 1
     # EXPOSURE is WORLD evidence: completion rows without a count after them, or without a rise, are not ready
-    assert J(base, g=gens[:1])['exposure_ready'] == 0, 'no count after the completion yet'
-    assert J(base, g=[gens[0], (gens[1][0], day(1, 0))])['exposure_ready'] == 0, 'board-b shows no building'
-    assert J(base, g=[])['exposure_ready'] == 0, 'no mirror: never ready'
-    assert J(base, g=[gens[0], (gens[1][0], day(1, 1, where_a=False))])['exposure_ready'] == 0, 'Codex read r2 P2-5: a lit room ELSEWHERE in board-a does not count'
-    assert J(base, g=[gens[0], (gens[1][0], {**day(1, 1), 'board-a': {'buildings': 1, 'building_rooms': [room(11, 10, lit=False)], 'litter_cells': 100}})])['exposure_ready'] == 0, 'an unlit room is no building'
-    assert rooms_in_box({'building_rooms': [json.dumps({'centre': [734.4, 121, 764.0], 'lit': True})]}, [731, 760, 737, 768]) == 1, 'the sandbox8 positive control'
-    assert J([x for x in base if x['bot'] != 'board-b-Alpha'])['exposure_ready'] == 0, 'one town'
+    assert J(base, g=gens[:1])['complete_towns_room'] == 0, 'no count after the completion yet'
+    assert J(base, g=[gens[0], (gens[1][0], day(1, 0))])['complete_towns_room'] == 1, 'board-b shows no building'
+    assert J(base, g=[])['complete_towns_room'] == 0, 'no mirror'
+    assert J(base, g=[gens[0], (gens[1][0], day(1, 1, where_a=False))])['complete_towns_room'] == 1, 'Codex read r2 P2-5: a lit room ELSEWHERE in board-a does not count'
+    assert J(base, g=[gens[0], (gens[1][0], {**day(1, 1), 'board-a': {'buildings': 1, 'building_rooms': [room(11, 10, lit=False)], 'litter_cells': 100}})])['complete_towns_room'] == 1, 'an unlit room is no building'
+    X = [731, 120, 760, 737, 125, 768]   # the sandbox8 record's cell extent
+    assert rooms_in_box({'building_rooms': [json.dumps({'centre': [734.4, 121, 764.0], 'lit': True})]}, X) == 1, 'the sandbox8 positive control'
+    assert rooms_in_box({'building_rooms': [json.dumps({'centre': [734.4, 140, 764.0], 'lit': True})]}, X) == 0, 'Codex read r3 P2-2: a room ABOVE the workshop'
+    assert rooms_in_box({}, X) is None and rooms_in_box({'building_rooms': ['{"cen']}, X) is None and rooms_in_box(None, X) is None, 'Codex read r3 P2-1: missing or malformed is unknown'
+    gm = [(gens[0][0], {k: v for k, v in day(0, 0).items() if k != 'board-a'}), gens[1]]
+    assert J(base, g=gm)['complete_towns_room'] == 1, 'board-a has no room data before the deploy: unknown, not zero'
+    assert J(base, g=[(gens[0][0], {**day(0, 0), 'board-a': {'buildings': 1, 'building_rooms': [room(11, 10)], 'litter_cells': 100}}), gens[1]])['complete_towns_room'] == 1, 'a room in the box BEFORE the deploy: board-a does not count'
+    assert J([x for x in base if x['bot'] != 'board-b-Alpha'])['complete_towns_room'] == 1, 'one town'
     # litter DiD: canary towns' change less the control towns'
     rl = J(base, g=[gens[0], (gens[1][0], day(1, 1, la=180, lb=140, lc=110))])
     assert abs(rl['litter_did'] - (60 - 10)) < 1e-9, rl['litter_did']
@@ -646,10 +674,10 @@ if __name__ == '__main__':
     print('             (gather canary %d/%d -> %d/%d control %d/%d -> %d/%d | rungs canary %d/%d -> %d/%d control %d/%d -> %d/%d ok/rows; UNEXPOSED = a cell under %d rows, never ok)'
           % tuple([G('%s_%s' % (a, b)) for b in ('pre_canary', 'post_canary', 'pre_control', 'post_control') for a in ('gather_ok', 'gather')]
                   + [G('%s_%s' % (a, b)) for b in ('pre_canary', 'post_canary', 'pre_control', 'post_control') for a in ('rung_ok', 'rung')] + [MIN_CELL]))
-    print('EXPOSURE     canary towns complete by their rows %d %s | CONFIRMED by the structure count %d (need %d) -> %s | INSTRUMENT control gather %d craft %d -> %s'
-          % (G('complete_towns'), L.get('complete_towns', []), G('complete_towns_world'), EXPOSE_TOWNS, 'READY' if res['exposure_ready'] else 'NOT YET',
+    print('EXPOSURE     canary towns complete by their rows %d %s | with a lit room in the record extent (PRELIMINARY) %d of need %d; exposure -> %s | INSTRUMENT control gather %d craft %d -> %s'
+          % (G('complete_towns'), L.get('complete_towns', []), G('complete_towns_room'), EXPOSE_TOWNS, 'READY' if res['exposure_ready'] else 'NOT YET',
              G('gather_post_control'), G('craft_post_control'), 'ok' if res['instrument_control'] else 'BLIND'))
-    print('             world per town %s | PERSISTENT and conformance F1: NOT MEASURED (a structcount scan --record is not built)' % L.get('world', []))
+    print('             world per town %s | EXPOSURE NEEDS conformance F1 >= 0.98 + PERSISTENT: no source (a structcount scan --record is not built) -> never READY' % L.get('world', []))
     try:
         if ovr:
             raise RuntimeError('CANARY_DRYRUN set -- not emitting')
