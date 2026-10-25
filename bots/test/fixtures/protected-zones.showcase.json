@@ -115,12 +115,13 @@
    "label": "the trial chambers under the SE of town (owner 10-21 #18: PROTECTED; coordinator 10-22)",
    "box": [
     -20,
-    -47,
+    -64,
     65,
     88,
     31,
     164
-   ]
+   ],
+   "floor_y": -47
   }
  ],
  "generated_by": "infra/showcase/structure_zones.py",
