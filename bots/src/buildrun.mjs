@@ -166,7 +166,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
   // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead
   // holder's lock alive for good)
-  const gone = rec => (!!rec?.holder && rec.holder !== me && PJ.holderGone(Number(rec.at), { ...(e.seen?.(rec.holder, now()) ?? {}), now: now() }))
+  const gone = rec => (!!rec?.holder && rec.holder !== me && PJ.holderGone(Number(rec.at), { ...(e.seen?.(rec.holder, now()) ?? {}), conn: rec.conn ?? null, presence: PJ.presenceRead(dir, key, rec.holder), now: now() }))
   const mutex = () => PJ.mutexTake(dir, key, me, { now: now(), conn, gone })
 
   // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
