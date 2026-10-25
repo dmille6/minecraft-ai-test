@@ -86,7 +86,10 @@ const STAND = { x: 760.5, y: 120, z: 760.5 }
 const FURNACES = { F1, F2, F3, F4 }
 const at = c => `${c.x} ${c.y} ${c.z}`
 const wool = n => Array.from({ length: n }, (_, i) => ['white_wool', 1 + (i % 3)])
-const BAG = [['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ['torch', 8], ['bread', 5], ['coal', 3], ['iron_ingot', 2], ...wool(6)]
+// No kit torches: on the d55ce14d fleet junkout-01's allowance is torch 0, so its town-visit tail banks
+// any torch a bot carries (measured: base d(bag){torch-8} d(B){torch+8}). The hold that keeps an open
+// torch note's bag torches from that tail is covered in mats-return.test.mjs.
+const BAG = [['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ['bread', 5], ['coal', 3], ['iron_ingot', 2], ...wool(6)]
 const stacks = (id, n) => { const o = []; while (n > 0) { o.push([id, Math.min(64, n)]); n -= 64 } return o }
 const BRICKS_A = [...stacks('cobblestone', 320), ...stacks('oak_log', 576), ['coal', 4], ['iron_ingot', 10]]
 const SPEC = {
@@ -296,7 +299,7 @@ function verdict (scene, tb, ta, rows, a, done) {
     need(dTown(tb, ta, 'torch') === 24, `torch +24 in town (${dTown(tb, ta, 'torch')})`)
     need(dTown(tb, ta, 'oak_log') === -8, `oak_log -8 (${dTown(tb, ta, 'oak_log')})`)
     need(!(ta.bag.charcoal > 0) && !dTown(tb, ta, 'charcoal') && !Object.keys(ta.furnace.F1 || {}).length, `no charcoal left in the bag, the town or the furnace (bag ${ta.bag.charcoal || 0})`)
-    need((ta.bag.torch || 0) === 8, `the bag's own 8 torches kept (${ta.bag.torch || 0})`)
+    need((ta.bag.torch || 0) === 0, `no made torch left in the bag (${ta.bag.torch || 0})`)
     need((ta.bag.stick || 0) <= 2 && !(ta.bag.oak_planks > 0) && !(ta.bag.oak_log > 0), `at most the 2 spare sticks left (${diff(tb.bag, ta.bag)})`)
   }
   if (scene === 'panes') {
