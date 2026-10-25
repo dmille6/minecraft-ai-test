@@ -35,7 +35,8 @@ import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell,
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
-const nm = b => String(b?.name ?? '')
+// a block's NAME without a state suffix (`oak_fence[waterlogged]` is an oak_fence: Codex siting r2 P2); liquid is townplan's isLiquid
+const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 
 export const DOMAIN = Object.freeze({ cheb: 22, line: 44 })
 export const EARTH = Object.freeze({ col: 3, fill: 40, cut: 30 })
@@ -46,6 +47,7 @@ export const EYE = 1.62
 export const TREE = Object.freeze({ out: 3, maxLogs: 400 })
 export const REPLANT = Object.freeze({ near: 8, far: 24, clear: 7 })
 export const WALK_R = 48
+export const TOWN_R = 16
 export const PROOF_TRIES = 40
 
 const SOIL = new Set(['grass_block', 'dirt', 'podzol', 'coarse_dirt', 'rooted_dirt'])
@@ -58,7 +60,7 @@ const BUILT = /(chest|barrel|furnace|smoker|crafting_table|_bed$|lectern|compost
 const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/
 // a 'block' bounding box that is NOT a full cube a bot stands on as one step: fences and walls are 1.5 high, slabs and stairs
 // are not one step, the rest are short or hollow (Codex siting r1 P2: a fence was walked as a floor)
-const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|lantern$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
+const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|^lantern$|^soul_lantern$|^ladder$|^flower_pot$|^potted_|^cocoa$|^chorus_plant$|^chorus_flower$|^repeater$|^comparator$|^turtle_egg$|^sniffer_egg$|sculk_sensor$|^sculk_shrieker$|^frogspawn$|^lightning_rod$|^heavy_core$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral$|_coral_fan$|_coral_wall_fan$|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
 // a block that falls when a neighbour updates: a floor only over another floor
 const GRAVITY = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|[a-z_]+_concrete_powder|anvil)$/
 const SAPLING = { oak: 'oak_sapling', spruce: 'spruce_sapling', birch: 'birch_sapling', jungle: 'jungle_sapling', acacia: 'acacia_sapling', dark_oak: 'dark_oak_sapling', mangrove: 'mangrove_propagule', cherry: 'cherry_sapling', pale_oak: 'pale_oak_sapling' }
@@ -184,7 +186,8 @@ const speciesOf = name => (LOG.exec(name) ?? [])[1] ?? null
  */
 export function columnAt (read, x, z, L) {
   const out = { ok: true, fill: [], plants: [], cut: [], litter: [], logs: [], leaves: [] }
-  const floorAt = y => { const b = read(x, y, z); return solidFloor(b) && (!GRAVITY.test(nm(b)) || solidFloor(read(x, y - 1, z))) }
+  // a gravity block is a floor only when the chain under it ends on a floor that does not fall (Codex siting r2 P2)
+  const floorAt = y => { for (let k = 0; k < 16; k++) { const b = read(x, y - k, z); if (!solidFloor(b)) return false; if (!GRAVITY.test(nm(b))) return true } return false }
   let f = L
   while (f >= L - EARTH.col) { if (!read(x, f, z)) return { ok: false, why: 'unknown' }; if (floorAt(f)) break; f-- }
   if (f < L - EARTH.col) return { ok: false, why: 'fill_too_deep' }
@@ -308,16 +311,19 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
       if (!reachable(c)) return { ok: false, why: 'tree_out_of_reach' }
     }
     for (const c of t.logs) addClear(c, 'tree')
-    const bases = t.logs.filter(([x, y, z]) => { const below = nm(read(x, y - 1, z)); return !LOG.test(below) && !LEAVES.test(below) })
-    // D6: FLOATING logs (no log stands on anything but logs or leaves) and a 1-LOG BUSH owe no replant: there is no tree a
-    // sapling of that kind replaces (a jungle bush is one jungle log under oak leaves)
-    if (!bases.length || t.logs.length === 1) continue
-    const lowest = Math.min(...bases.map(c => c[1]))
-    const trunk = bases.filter(c => c[1] === lowest)
-    const species = speciesOf(nm(read(...trunk[0])))
-    if (trunk.length > 1 || NEEDS_2X2.has(species)) return { ok: false, why: 'tree_2x2' }
-    if (!species) return { ok: false, why: 'tree_species' }
-    trees.push({ base: trunk[0], species, logs: t.logs.length })
+    // THE TRUNKS: every log standing on a solid that is not a log or leaves. Two trunks whose logs touch are TWO trees, each owing
+    // its sapling (Claude siting r2 P2: an oak on a 1-high step beside another was felled with one replant owed)
+    const bases = t.logs.filter(([x, y, z]) => { const below = read(x, y - 1, z); return isSolid(below) && !LOG.test(nm(below)) && !LEAVES.test(nm(below)) })
+    // D6: FLOATING logs (no log stands on anything but logs or leaves) and a JUNGLE BUSH (one jungle log, the bush the jungle
+    // generates under oak leaves) owe no replant: no sapling of that kind replaces them. Any other single log is a stump of a
+    // real tree and owes its sapling (Codex siting r2 P2)
+    if (!bases.length || (t.logs.length === 1 && speciesOf(nm(read(...t.logs[0]))) === 'jungle')) continue
+    for (const b of bases) {
+      const species = speciesOf(nm(read(...b)))
+      // a 2x2 trunk (horizontally adjacent bases at one level) refuses: one sapling does not replace it, nor does a dark oak's
+      if (NEEDS_2X2.has(species) || bases.some(o => o !== b && o[1] === b[1] && Math.max(Math.abs(o[0] - b[0]), Math.abs(o[2] - b[2])) === 1)) return { ok: false, why: 'tree_2x2' }
+      trees.push({ base: b, species, logs: t.logs.length })
+    }
   }
   if (litter > LITTER_MAX) return { ok: false, why: 'litter_over_40' }
   return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, felled: felled.size, sector }
@@ -333,8 +339,9 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
  * `block` cells are OBSTACLES that are never a floor (cells still to place: a stand may not rely on a block that is not there);
  * 4-neighbour steps of dy -1, 0, +1 with head room (symmetric: a reached stand walks back); inside Chebyshev `radius` of home.
  * THE SEEDS (D3): home's own start cell (the nearest node within 2 of home), and every node beside a TOWN cell -- a chest bots
- * used, a placed plan station's stand (`town`: [[x, y, z]], Chebyshev 1 across, feet y - 1 .. y + 1). Never "every plaza cell":
- * a pocket in the plaza is not town (Codex siting r1 P2: a moat inside the plaza was certified).
+ * used, a placed plan station's stand (`town`: [[x, y, z]], Chebyshev 1 across, feet y - 1 .. y + 1) -- but only in a component
+ * of the town circle that holds evidence of two distinct things (r3, below). Never "every plaza cell": a pocket in the plaza is
+ * not town (Codex siting r1 P2: a moat inside the plaza was certified).
  */
 export function walkFrom (read, home, block = new Set(), radius = WALK_R, { town = [] } = {}) {
   const isNode = (x, y, z) => {
@@ -342,34 +349,55 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { town
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
     return !!f && !!a && !!h && fullCube(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
   }
-  const seen = new Set(), q = []
-  const seed = c => { const key = k3(...c); if (!seen.has(key) && isNode(...c)) { seen.add(key); q.push(c) } }
+  // the walk's steps from one node -> its neighbours (4-neighbour, dy -1 / 0 / +1 with head room)
+  const next = ([x, y, z], r) => {
+    const out = []
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz
+      if (Math.max(Math.abs(nx - home.x), Math.abs(nz - home.z)) > r) continue
+      for (const dy of [0, 1, -1]) {
+        const ny = y + dy
+        if (dy === 1) { const hb = read(x, y + 2, z); if (!isPassable(hb) || block.has(k3(x, y + 2, z))) continue }
+        if (dy === -1) { const hb = read(nx, y + 1, nz); if (!isPassable(hb) || block.has(k3(nx, y + 1, nz))) continue }
+        if (!isNode(nx, ny, nz)) continue
+        out.push([nx, ny, nz])
+        break
+      }
+    }
+    return out
+  }
+  // THE EVIDENCE: home's start cell, and the cells beside each town cell, each tagged with the cell it is evidence of
+  const tagged = []
   outer: for (let r = 0; r <= 2; r++) {
     for (const dy of [0, 1, -1, 2, -2]) {
       for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
         if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue
         const c = [home.x + dx, home.y + dy, home.z + dz]
-        if (isNode(...c)) { seed(c); break outer }
+        if (isNode(...c)) { tagged.push([c, 'home']); break outer }
       }
     }
   }
-  for (const [tx, ty, tz] of town) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) seed([tx + dx, ty + dy, tz + dz])
-  for (let i = 0; i < q.length; i++) {
-    const [x, y, z] = q[i]
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx, nz = z + dz
-      if (Math.max(Math.abs(nx - home.x), Math.abs(nz - home.z)) > radius) continue
-      for (const dy of [0, 1, -1]) {
-        const ny = y + dy, key = k3(nx, ny, nz)
-        if (seen.has(key)) continue
-        if (dy === 1) { const hb = read(x, y + 2, z); if (!isPassable(hb) || block.has(k3(x, y + 2, z))) continue }
-        if (dy === -1) { const hb = read(nx, y + 1, nz); if (!isPassable(hb) || block.has(k3(nx, y + 1, nz))) continue }
-        if (!isNode(nx, ny, nz)) continue
-        seen.add(key); q.push([nx, ny, nz])
-        break
-      }
-    }
+  town.forEach(([tx, ty, tz], i) => {
+    if (Math.max(Math.abs(tx - home.x), Math.abs(tz - home.z)) > TOWN_R) return
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) { const c = [tx + dx, ty + dy, tz + dz]; if (isNode(...c)) tagged.push([c, i]) } })
+  // THE TOWN'S COMPONENTS inside the town circle (Chebyshev TOWN_R): one counts as town only when it holds evidence of TWO
+  // distinct things (two chests, a chest and home, a station's stand and a chest) -- a single chest seen through a wall seeds
+  // nothing on its far side (Codex siting r2 P2). With no such component, home's own start cell's component alone.
+  const comp = new Map()
+  let nc = 0
+  for (const [c] of tagged) {
+    if (comp.has(k3(...c))) continue
+    const id = nc++, q = [c]
+    comp.set(k3(...c), id)
+    for (let i = 0; i < q.length; i++) for (const n of next(q[i], TOWN_R)) { const key = k3(...n); if (!comp.has(key)) { comp.set(key, id); q.push(n) } }
   }
+  const evidence = new Map()
+  for (const [c, tag] of tagged) { const id = comp.get(k3(...c)); if (!evidence.has(id)) evidence.set(id, new Set()); evidence.get(id).add(tag) }
+  let keep = new Set([...evidence].filter(([, tags]) => tags.size >= 2).map(([id]) => id))
+  if (!keep.size) keep = new Set(tagged.filter(([, tag]) => tag === 'home').map(([c]) => comp.get(k3(...c))))
+  const seen = new Set(), q = []
+  for (const [c] of tagged) { const key = k3(...c); if (keep.has(comp.get(key)) && !seen.has(key)) { seen.add(key); q.push(c) } }
+  for (let i = 0; i < q.length; i++) for (const n of next(q[i], radius)) { const key = k3(...n); if (!seen.has(key)) { seen.add(key); q.push(n) } }
   return seen
 }
 
@@ -384,13 +412,19 @@ export function sightClear (read, eye, pt, through = new Set()) {
   const step = d.map(v => Math.sign(v))
   const tMax = [0, 1, 2].map(i => d[i] === 0 ? Infinity : (step[i] > 0 ? cell[i] + 1 - eye[i] : eye[i] - cell[i]) / Math.abs(d[i]))
   const tDelta = [0, 1, 2].map(i => d[i] === 0 ? Infinity : 1 / Math.abs(d[i]))
-  for (let guard = 0; guard < 64; guard++) {
-    const a = tMax[0] < tMax[1] ? (tMax[0] < tMax[2] ? 0 : 2) : (tMax[1] < tMax[2] ? 1 : 2)
-    if (tMax[a] >= 1 - 1e-9) return true
-    cell[a] += step[a]; tMax[a] += tDelta[a]
-    if (through.has(k3(...cell))) continue
-    const b = read(...cell)
-    if (!b || b.boundingBox !== 'empty') return false
+  const open = c => { if (through.has(k3(...c))) return true; const b = read(...c); return !!b && b.boundingBox === 'empty' }
+  for (let guard = 0; guard < 96; guard++) {
+    const tmin = Math.min(...tMax)
+    if (tmin >= 1 - 1e-9) return true
+    const tied = [0, 1, 2].filter(i => tMax[i] - tmin <= 1e-9)
+    // AN EDGE OR CORNER CROSSING (Codex siting r2 P2: hive-d order 49): every cell the ray touches there is checked, since the
+    // builder's 0.05 sampling can land in any of them
+    if (tied.length > 1) {
+      for (const i of tied) { const c = cell.slice(); c[i] += step[i]; if (!open(c)) return false }
+      if (tied.length === 3) for (const [i, j] of [[0, 1], [0, 2], [1, 2]]) { const c = cell.slice(); c[i] += step[i]; c[j] += step[j]; if (!open(c)) return false }
+    }
+    for (const i of tied) { cell[i] += step[i]; tMax[i] += tDelta[i] }
+    if (!open(cell)) return false
   }
   return false
 }
@@ -553,7 +587,7 @@ export function workshopSectors (plan) {
   const taken = new Set(plots.filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
   return REST_ORDER.filter(s => !taken.has(s)).map(s => ({ sector: s, source: 'free' }))
 }
-/** The plan's own town cells for the walk's seeds: every placed or reserved plan cell's stand. Pure. */
+/** The plan's own town cells for the walk's seeds: every PLACED plan cell's stand (a reserved one is not built yet). Pure. */
 export function planTownCells (plan) {
   const out = []
   for (const p of plan?.plots ?? []) for (const c of [...(p.cells ?? []), ...(p.stations ?? [])]) if ((c.state === 'placed') && Array.isArray(c.stand)) out.push(c.stand)
