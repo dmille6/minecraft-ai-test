@@ -731,16 +731,18 @@ class Timelapse(unittest.TestCase):
 
     def test_town_camera_is_extra_and_never_costs_the_pair(self):
         self.assertEqual(TL.extra_views({'cameras': {'topdown': {}, 'angled': {}, 'town': {}}}), ['town'])
-        (rc, msg, got, _, _, extra), jobs, root = self._capture_with({'topdown', 'angled'}, 1)
+        (rc, msg, got, _, _, extra, err, raw), jobs, root = self._capture_with({'topdown', 'angled'}, 1)
+        self.assertEqual((raw, list(err)), (1, ['town']), 'the town failure keeps its diagnostics')
         self.assertEqual(rc, 0, msg)
         self.assertEqual(len(got), 2, 'the pair is published although the town job failed')
         self.assertEqual(extra, [])
         self.assertEqual([(j['width'], j['height']) for j in jobs], [(1920, 1080), (1920, 1080), (1440, 1440)], 'per-camera size')
-        (rc, msg, got, _, _, extra), _, root = self._capture_with({'topdown', 'town'}, 1)
+        (rc, msg, got, _, _, extra, _, _), _, root = self._capture_with({'topdown', 'town'}, 1)
         self.assertEqual(got, [], 'a broken pair is not published')
         self.assertEqual(len(extra), 1, 'the town frame is published on its own')
         self.assertTrue(extra[0].endswith('/frames/town/20261025/20261025T1800Z.png'))
-        (rc, msg, got, _, _, extra), _, _ = self._capture_with({'topdown', 'angled', 'town'}, 0)
+        (rc, msg, got, _, _, extra, err, _), _, _ = self._capture_with({'topdown', 'angled', 'town'}, 0)
+        self.assertEqual(err, {})
         self.assertEqual((rc, len(got), len(extra)), (0, 2, 1))
 
     def test_town_video_uses_its_own_frames(self):
@@ -754,6 +756,21 @@ class Timelapse(unittest.TestCase):
         finally:
             TV.all_stamps = old
         self.assertIn('town', TV.EXTRA)
+
+    def test_town_only_month_is_built(self):
+        import types
+        calls = []
+        old = (TV.all_stamps, TV.build)
+        TV.all_stamps = lambda v: {'town': ['20261001T1800Z'], 'angled': [], 'topdown': []}[v]
+        TV.build = lambda v, st, out, name: calls.append((v, st)) or {'view': v}
+        old_argv = TV.sys.argv
+        TV.sys.argv = ['tl_video.py', 'monthly', '--month', '2026-10']
+        try:
+            TV.main()
+        finally:
+            TV.all_stamps, TV.build = old
+            TV.sys.argv = old_argv
+        self.assertIn(('town', ['20261001T1800Z']), calls, 'a month with town frames but no pair is not skipped')
 
     def test_terrain_check(self):
         sky = bytes([160]) * 1000

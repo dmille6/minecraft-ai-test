@@ -245,6 +245,7 @@ def capture(cfg, stamp):
     except subprocess.TimeoutExpired:
         rc, msg = 'timeout', 'capture timed out'
     got, extra = [], []
+    raw_rc = rc
     n = len(VIEWS)
     # the pair is judged on its own result; capture.mjs exits non-zero when ANY job failed, so the pair cannot use rc
     # alone once extra cameras share the run -- each staged file is checked instead (it exists only if its job wrote it)
@@ -258,14 +259,17 @@ def capture(cfg, stamp):
                 rc, msg = 0, 'pair ok; an extra camera failed: ' + msg
         else:
             rc, msg = 'invalid', why
-    for s, f in zip(spec[n:], finals[n:]):          # each extra on its own
-        ok, _ = publish_pair([s['out']], [f], content_ok=lambda p: terrain_ok(small_gray(p)))
+    extra_err = {}
+    for v, s, f in zip(views[n:], spec[n:], finals[n:]):          # each extra on its own
+        ok, why = publish_pair([s['out']], [f], content_ok=lambda p: terrain_ok(small_gray(p)))
         if ok:
             extra.append(f)
+        else:
+            extra_err[v] = why if os.path.exists(s['out']) else 'not written (see capture_msg)'
     for s in spec:                                   # nothing half-published is left behind
         if os.path.exists(s['out']):
             os.remove(s['out'])
-    return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1), extra
+    return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1), extra, extra_err, raw_rc
 
 
 def frame_path(root, view, stamp):
@@ -329,11 +333,13 @@ def cmd_capture(cfg, a):
     if rc != 0:
         heartbeat(cfg, dict(row, ok=False, step='render', why=f'bluemap rc={rc} (see logs/render.log)'))
         return 0
-    crc, msg, got, cs, ccpu, extra = capture(cfg, stamp)
+    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(cfg, stamp)
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
                bytes=sum(os.path.getsize(p) for p in got + extra),
                extra={os.path.basename(os.path.dirname(os.path.dirname(p))): os.path.getsize(p) for p in extra},
                extra_expected=extra_views(cfg))
+    if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
+        row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
         if len(got) == len(VIEWS):
             import hashlib, re as _re

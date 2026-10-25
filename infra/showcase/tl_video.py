@@ -169,7 +169,8 @@ def main():
     a = ap.parse_args()
     now = dt.datetime.now(dt.timezone.utc)
     lo, hi, bucket, name = window(a.kind, a, now)
-    if a.kind == 'monthly' and not sample(paired_stamps(), lo, hi, bucket):
+    if a.kind == 'monthly' and not sample(paired_stamps(), lo, hi, bucket) and \
+            not any(sample(all_stamps(x), lo, hi, bucket) for x in EXTRA):     # a town-only month is still built (review P2)
         print(f'monthly {name}: SKIP -- no frames in that month yet')
         return 0
     rc = 0
