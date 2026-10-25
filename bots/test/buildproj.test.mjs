@@ -1,0 +1,210 @@
+// SHOP-01 STAGE A, THE BUILD PROJECT'S FILES (bots/src/buildproj.mjs): the record's generation chain, the slot and segment
+// leases with fresh epochs, the mutex (D7: an exclusive-create lockfile with the holder's pid), the intent logs, the barrier and
+// the fence. Behaviour over real temporary directories; the mutex's dead-holder reclaim is exercised with a real child process
+// that takes the lock and exits. Mutants are checked both ways (the real code passes, the mutant fails).
+import assert from 'node:assert'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+
+const P = await import('../src/buildproj.mjs')
+const PATH = new URL('../src/buildproj.mjs', import.meta.url)
+let pass = 0, fail = 0
+const t = async (name, fn) => {
+  try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 5).join('\n        ')}`) }
+}
+async function withMutant (old, neu, fn) {
+  const src = readFileSync(PATH, 'utf8')
+  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
+  assert.ok(src.split(old).length === 2, 'the mutation target is not unique')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, neu))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+async function mutantKilled (old, neu, scenario) {
+  await scenario(P)
+  let killed = false
+  await withMutant(old, neu, async M => { try { await scenario(M) } catch { killed = true } })
+  assert.ok(killed, 'the mutant survived its scenario')
+}
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'buildproj-'))
+const KEY = P.projKey({ x: 0, y: 70, z: 0 }, 'shop')
+
+console.log('THE RECORD')
+await t('the key names the home and the plot', () => assert.strictEqual(KEY, 'project-0_70_0.shop'))
+await t('publish a root, then transitions: the head walks the chain; a body of null writes nothing', () => {
+  const d = tmp()
+  assert.strictEqual(P.recordHead(d, KEY).head, null)
+  const a = P.publishRecord(d, KEY, () => ({ v: 1, state: 'open' }))
+  assert.strictEqual(a.result, 'accepted'); assert.strictEqual(a.gen, 1)
+  const b = P.publishRecord(d, KEY, cur => ({ ...cur, state: 'pad_done' }))
+  assert.strictEqual(b.gen, 2)
+  const h = P.recordHead(d, KEY)
+  assert.strictEqual(h.head.gen, 2); assert.strictEqual(h.head.rec.state, 'pad_done'); assert.strictEqual(h.head.rec.prev, 1)
+  assert.strictEqual(P.publishRecord(d, KEY, () => null).result, 'nothing')
+})
+await t('a generation that breaks the chain (wrong prevSha) is rejected and skipped; the head stays', () => {
+  const d = tmp()
+  P.publishRecord(d, KEY, () => ({ v: 1 }))
+  fs.writeFileSync(path.join(d, `${KEY}.g2.json`), JSON.stringify({ v: 1, gen: 2, prev: 1, prevSha: 'f'.repeat(64) }))
+  const h = P.recordHead(d, KEY)
+  assert.strictEqual(h.head.gen, 1); assert.deepStrictEqual(h.rejected.map(r => r.why), ['chain'])
+})
+await t('two writers on the same head: one links gen 2, the other rebases onto it (gen 3) -- never two gen 2s', () => {
+  const d = tmp()
+  P.publishRecord(d, KEY, () => ({ v: 1, n: 0 }))
+  // the second writer's mutate runs, then another writer links gen 2 first (simulated inside the first mutate)
+  let raced = false
+  const r = P.publishRecord(d, KEY, cur => {
+    if (!raced) { raced = true; P.publishRecord(d, KEY, c => ({ ...c, n: c.n + 10 })) }
+    return { ...cur, n: cur.n + 1 }
+  })
+  assert.strictEqual(r.result, 'accepted'); assert.strictEqual(r.gen, 3)
+  assert.strictEqual(P.recordHead(d, KEY).head.rec.n, 11, 'the rebase applied on top of the other writer')
+})
+
+console.log('LEASES AND SLOTS')
+await t('one holder at a time; a second is refused while the lease lives and for RECLAIM_MS after it lapses', () => {
+  const d = tmp(), now = 1_000_000
+  const a = P.takeLease(d, KEY, 'seg-pad', 'A', { now })
+  assert.ok(a.ok)
+  assert.strictEqual(P.takeLease(d, KEY, 'seg-pad', 'B', { now: now + 1 }).ok, false)
+  assert.strictEqual(P.takeLease(d, KEY, 'seg-pad', 'B', { now: now + P.LEASE_TTL_MS + 1 }).ok, false, 'lapsed, inside the reclaim grace')
+  const b = P.takeLease(d, KEY, 'seg-pad', 'B', { now: now + P.LEASE_TTL_MS + P.RECLAIM_MS + 1 })
+  assert.ok(b.ok); assert.strictEqual(b.gen, 2)
+})
+await t('a released lease is free at once; holdsLease is false for a lapsed lease even inside the grace (the holder may not click)', () => {
+  const d = tmp(), now = 2_000_000
+  const a = P.takeLease(d, KEY, 'seg-pad', 'A', { now })
+  assert.ok(P.holdsLease(d, KEY, 'seg-pad', 'A', a.gen, now + 10))
+  assert.ok(!P.holdsLease(d, KEY, 'seg-pad', 'A', a.gen, now + P.LEASE_TTL_MS + 5))
+  P.releaseLease(d, KEY, 'seg-pad', 'A', a.gen)
+  assert.ok(P.takeLease(d, KEY, 'seg-pad', 'B', { now: now + 20 }).ok)
+})
+await t('RENEWAL is a new generation (a fresh fencing epoch): the old generation no longer holds', () => {
+  const d = tmp(), now = 3_000_000
+  const a = P.takeLease(d, KEY, 'slot1', 'A', { now })
+  const g2 = P.renewLease(d, KEY, 'slot1', 'A', a.gen, { now: now + 1000 })
+  assert.strictEqual(g2, a.gen + 1)
+  assert.ok(!P.holdsLease(d, KEY, 'slot1', 'A', a.gen, now + 1001), 'the old epoch is fenced off')
+  assert.ok(P.holdsLease(d, KEY, 'slot1', 'A', g2, now + 1001))
+  assert.strictEqual(P.renewLease(d, KEY, 'slot1', 'B', g2, { now: now + 1002 }), null, 'only the holder renews')
+})
+await t('ADMISSION SLOTS: builders_max 2 admits two builders and refuses a third; a holder re-taking renews its own slot', () => {
+  const d = tmp(), now = 4_000_000
+  const a = P.takeSlot(d, KEY, 'A', 2, { now }), b = P.takeSlot(d, KEY, 'B', 2, { now })
+  assert.ok(a.ok && b.ok); assert.notStrictEqual(a.slot, b.slot)
+  assert.strictEqual(P.takeSlot(d, KEY, 'C', 2, { now }).ok, false)
+  const a2 = P.takeSlot(d, KEY, 'A', 2, { now: now + 5 })
+  assert.strictEqual(a2.slot, a.slot); assert.strictEqual(a2.gen, a.gen + 1)
+})
+await t('an unreadable lease directory BLOCKS (never two holders)', () => {
+  const s = P.leaseState('/proc/definitely/not/here/\0bad', KEY, 'slot1')
+  assert.ok(s === null || s.blocksUntil === Infinity)
+})
+
+console.log('THE MUTEX (D7)')
+await t('exclusive: a second taker is busy; only the holder (name and pid) releases it', () => {
+  const d = tmp()
+  assert.ok(P.mutexTake(d, KEY, 'A').ok)
+  assert.strictEqual(P.mutexTake(d, KEY, 'B').ok, false)
+  P.mutexRelease(d, KEY, 'B')
+  assert.strictEqual(P.mutexTake(d, KEY, 'B').ok, false, 'B could not release A\'s lock')
+  P.mutexRelease(d, KEY, 'A')
+  assert.ok(P.mutexTake(d, KEY, 'B').ok)
+})
+await t('A HOLDER THAT DIES: a real child process takes the lock and exits -> the next taker reclaims it at once (pid dead)', () => {
+  const d = tmp()
+  const mod = new URL('../src/buildproj.mjs', import.meta.url).href
+  execFileSync(process.execPath, ['--input-type=module', '-e', `const P = await import(${JSON.stringify(mod)}); const r = P.mutexTake(${JSON.stringify(d)}, ${JSON.stringify(KEY)}, 'child'); if (!r.ok) process.exit(3)`])
+  const lock = JSON.parse(fs.readFileSync(path.join(d, `${KEY}.mutate.lock`), 'utf8'))
+  assert.strictEqual(lock.holder, 'child')
+  const r = P.mutexTake(d, KEY, 'B')
+  assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.reclaimed, 'child')
+})
+await t('a LIVE holder younger than MUTEX_STALE_MS is never reclaimed; older is (a hung holder)', () => {
+  const d = tmp(), now = 5_000_000
+  assert.ok(P.mutexTake(d, KEY, 'A', { now, pid: 4242, alive: () => true }).ok)
+  assert.strictEqual(P.mutexTake(d, KEY, 'B', { now: now + 1000, alive: () => true }).ok, false)
+  assert.ok(P.mutexTake(d, KEY, 'B', { now: now + P.MUTEX_STALE_MS + 1, alive: () => true }).ok)
+})
+
+console.log('INTENTS AND THE BARRIER')
+await t('intents: open across holders, closed by settled or cancelled; a torn line is skipped', () => {
+  const d = tmp()
+  const a1 = P.intentOpen(d, KEY, 'A', { cell: [1, 2, 3], block: 'stone_bricks', lease: 4, seq: 10 })
+  const a2 = P.intentOpen(d, KEY, 'A', { cell: [1, 2, 4], block: 'stone_bricks', lease: 4, seq: 11 })
+  const b1 = P.intentOpen(d, KEY, 'B', { cell: [5, 2, 3], block: 'oak_planks', lease: 7, seq: 3 })
+  P.intentClose(d, KEY, 'A', a1, 'settled', { state: 'stone_bricks' })
+  P.intentClose(d, KEY, 'B', b1, 'cancelled')
+  fs.appendFileSync(path.join(d, `${KEY}.intents.A.jsonl`), '{"op":"open","id":"torn"')
+  assert.deepStrictEqual(P.openIntents(d, KEY).map(i => i.id), [a2])
+})
+await t('THE BARRIER: taken by A, it fences B (fenceRefusal barrier) but not A; released, B passes', () => {
+  const d = tmp(), now = 6_000_000
+  P.publishRecord(d, KEY, () => ({ v: 1 }), { now })
+  const sa = P.takeLease(d, KEY, 'slot1', 'A', { now }), ga = P.takeLease(d, KEY, 'seg-roof-inner', 'A', { now })
+  const sb = P.takeLease(d, KEY, 'slot2', 'B', { now }), gb = P.takeLease(d, KEY, 'seg-fit-out', 'B', { now })
+  const fa = { slot: 1, slotGen: sa.gen, seg: 'roof-inner', segGen: ga.gen, recordGen: 1, now }
+  const fb = { slot: 2, slotGen: sb.gen, seg: 'fit-out', segGen: gb.gen, recordGen: 1, now }
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'B', fb), null, 'before: B may click (control)')
+  const bar = P.barrierTake(d, KEY, 'A', { why: 'closer', now })
+  assert.ok(bar.ok)
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'B', fb), 'barrier')
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', fa), null)
+  assert.strictEqual(P.barrierTake(d, KEY, 'B', { now }).ok, false, 'one barrier at a time')
+  P.barrierRelease(d, KEY, 'A', bar.gen)
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'B', fb), null)
+})
+await t('THE BARRIER WAITS for every other holder\'s open intent: settled -> clear; or the sender RETIRED (playerLeft + 1 s) -> clear; never a timer', () => {
+  const d = tmp(), now = 7_000_000
+  const id = P.intentOpen(d, KEY, 'B', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 1, now })
+  P.intentOpen(d, KEY, 'A', { cell: [1, 0, 0], block: 'x', lease: 1, seq: 1, now })
+  assert.deepStrictEqual(P.barrierClear(d, KEY, 'A', { now }).waiting.map(i => i.holder), ['B'], 'A\'s own intent never blocks A')
+  assert.strictEqual(P.barrierClear(d, KEY, 'A', { now: now + 3_600_000 }).clear, false, 'an hour later: still waiting (no timer)')
+  assert.strictEqual(P.barrierClear(d, KEY, 'A', { retired: new Map([['B', now]]), now: now + 500 }).clear, false, 'retired 0.5 s ago: not yet')
+  assert.ok(P.barrierClear(d, KEY, 'A', { retired: new Map([['B', now]]), now: now + 1_000 }).clear)
+  P.intentClose(d, KEY, 'B', id, 'settled', { state: 'x' })
+  assert.ok(P.barrierClear(d, KEY, 'A', { now }).clear)
+})
+await t('THE FENCE names each lost guard: slot, segment, record generation', () => {
+  const d = tmp(), now = 8_000_000
+  P.publishRecord(d, KEY, () => ({ v: 1 }), { now })
+  const s = P.takeLease(d, KEY, 'slot1', 'A', { now }), g = P.takeLease(d, KEY, 'seg-pad', 'A', { now })
+  const f = { slot: 1, slotGen: s.gen, seg: 'pad', segGen: g.gen, recordGen: 1, now }
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', f), null)
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, now: now + P.LEASE_TTL_MS + 1 }), 'slot')
+  P.renewLease(d, KEY, 'seg-pad', 'A', g.gen, { now: now + 10 })
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, now: now + 11 }), 'segment', 'a renewal moved the epoch: the old token fails')
+  P.publishRecord(d, KEY, c => ({ ...c, t: 1 }), { now })
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, segGen: g.gen + 1, now: now + 12 }), 'record')
+})
+
+console.log('MUTANTS (anchored, unique; both ways)')
+await t('MUTANT the reclaim grace dropped (a lapsed lease is taken at once)', () => mutantKilled('now < cur.blocksUntil) return', 'now < cur.holdsUntil) return', M => {
+  const d = tmp(), now = 9_000_000
+  M.takeLease(d, KEY, 'seg-pad', 'A', { now })
+  assert.strictEqual(M.takeLease(d, KEY, 'seg-pad', 'B', { now: now + M.LEASE_TTL_MS + 1 }).ok, false)
+}))
+await t('MUTANT a live mutex reclaimed (the pid check ignored)', () => mutantKilled('const stale = (rec && Number.isInteger(rec.pid) && !alive(rec.pid)) || now - at > MUTEX_STALE_MS', 'const stale = true', M => {
+  const d = tmp()
+  M.mutexTake(d, KEY, 'A', { alive: () => true })
+  assert.strictEqual(M.mutexTake(d, KEY, 'B', { alive: () => true }).ok, false)
+}))
+await t('MUTANT the barrier no longer fences others', () => mutantKilled("if (b?.active && b.rec?.holder !== holder) return 'barrier'", '', M => {
+  const d = tmp(), now = 10_000_000
+  M.publishRecord(d, KEY, () => ({ v: 1 }), { now })
+  const s = M.takeLease(d, KEY, 'slot2', 'B', { now }), g = M.takeLease(d, KEY, 'seg-x', 'B', { now })
+  M.barrierTake(d, KEY, 'A', { now })
+  assert.strictEqual(M.fenceRefusal(d, KEY, 'B', { slot: 2, slotGen: s.gen, seg: 'x', segGen: g.gen, recordGen: 1, now }), 'barrier')
+}))
+await t('MUTANT the barrier waits on a timer (an old intent counted as settled)', () => mutantKilled('const waiting = openIntents(dir, key).filter(i => i.holder !== holder && !(retired.has(i.holder) && now - retired.get(i.holder) >= RETIRE_MS))', 'const waiting = openIntents(dir, key).filter(i => i.holder !== holder && now - i.at < 60_000)', M => {
+  const d = tmp(), now = 11_000_000
+  M.intentOpen(d, KEY, 'B', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 1, now })
+  assert.strictEqual(M.barrierClear(d, KEY, 'A', { now: now + 3_600_000 }).clear, false)
+}))
+
+console.log(`\n${pass} passed, ${fail} failed`)
+if (fail) process.exit(1)
