@@ -112,7 +112,7 @@ const byColumn = keys => {
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | unknown.
  */
 export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS } = {}) {
-  const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [] }
+  const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen }
   const { dir, key, me, home, record, palette } = p
   const stood = p.stood ?? []
   const now = () => e.now()
@@ -131,7 +131,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (now() - slotAt < PJ.LEASE_TTL_MS * RENEW_AT) return true
     const g = PJ.renewLease(dir, key, `slot${p.slot}`, me, slotGen, { now: now() })
     if (!g) return false
-    slotGen = g; slotAt = now(); return true
+    slotGen = g; slotAt = now(); out.slotGen = g; return true
   }
   const nodesFor = (block = new Set()) => byColumn(walkFrom(e.read, home, block, WALK_R, { stood }))
 

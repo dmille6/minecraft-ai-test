@@ -1,0 +1,152 @@
+// SHOP-01, THE WORKSHOP JOB'S POLICY (stage C; design docs/reports/building-tier-2026-10-23.md sections 4-5, cooperation A2/A7/A9).
+// Pure: the switch, the town order, the bill, spendableFor, the footprint price, the pool's stood cells, the rows. The skill
+// (skills.mjs build_shop) supplies readings and effects; the visit itself is buildrun.mjs.
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { reserveKeyOf, reserveCount } from './mats.mjs'
+import { BUILD_RESERVE } from './stocktarget.mjs'
+
+/** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
+export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
+export const SHOP_BLUEPRINT = 'workshop@1'
+export const SHOP_PLOT = 'shop'
+export const BUILDERS_MAX = 2
+export const SHOP_COOLDOWN_MS = 10 * 60_000
+export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
+export const SHOP_HEALTH_MIN = 10
+export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
+export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
+export const SHOP_VISIT_MS = 8 * 60_000
+// the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
+// descend, water) keep their survival digs: damage is rebuilt on the next visit
+export const FOOTPRINT_PROFILES = Object.freeze(new Set(['walk', 'gather', 'tunnel', 'composter_walk', 'town_deposit_walk']))
+export const TOWN_R = 16
+
+/** THE FOOTPRINT -> Set "x,y,z" of every record cell + 1 (a 3x3x3 around each). Pure. */
+export function footprintCells (record) {
+  const out = new Set()
+  for (const c of record?.cells ?? []) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.add(`${c.at[0] + dx},${c.at[1] + dy},${c.at[2] + dz}`)
+  return out
+}
+/** The footprint's price for a block on the current walk: 100 (mineflayer-pathfinder drops the move) on a work or travel walk,
+ *  else 0. One Set lookup (the A* hot path). Pure. */
+export const footprintCost = (cells, profile, block) => {
+  const p = block?.position
+  return p && cells && cells.size && FOOTPRINT_PROFILES.has(profile) && cells.has(`${p.x},${p.y},${p.z}`) ? 100 : 0
+}
+
+/**
+ * THE BILL of the open cells -> { name: n }. Pure. `has(name)` is the bag; the first palette choice, a fallback only when the
+ * first is not in the town (`inTown(name)`); '$planks' resolves to `planks` (the town's most-stocked species).
+ */
+export function billOf (record, palette, read, { done, inTown = () => true, planks = 'oak_planks' } = {}) {
+  const out = {}
+  for (const c of record?.cells ?? []) {
+    if (done(read(...c.at), palette, c.role)) continue
+    const name = c.role === 'fill' ? 'cobblestone' : resolve(palette, c.role, inTown, planks)
+    if (name) out[name] = (out[name] ?? 0) + 1
+  }
+  return out
+}
+/** A role's names in palette order ('$planks' -> the planks species, '$role' -> that role's names, once each). Pure. */
+export function roleNames (palette, role, planks = 'oak_planks', seen = new Set([role])) {
+  const out = []
+  for (const choice of palette?.[role] ?? []) {
+    if (choice === '$planks') out.push(planks)
+    else if (choice.startsWith('$')) { const r = choice.slice(1); if (!seen.has(r)) { seen.add(r); out.push(...roleNames(palette, r, planks, seen)) } } else out.push(choice)
+  }
+  return [...new Set(out)]
+}
+/** The block a bill counts for a role: the first of its names the town stocks, else its first name. Pure. */
+function resolve (palette, role, inTown, planks) {
+  const names = roleNames(palette, role, planks)
+  return names.find(n => inTown(n)) ?? names[0] ?? null
+}
+/** What the visit still needs from town -> { name: n }: the bill less the bag, capped at SHOP_BILL_CAP in all. Pure. */
+export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
+  const out = {}
+  let left = cap
+  for (const [n, c] of Object.entries(bill).sort((a, b) => b[1] - a[1])) {
+    const want = Math.max(0, c - (Number(bag[n]) || 0))
+    const take = Math.min(want, left)
+    if (take > 0) { out[n] = take; left -= take }
+  }
+  return out
+}
+/**
+ * SPENDABLE FOR A PROJECT (cooperation A9) -> n. Pure. The town's stock of `item` less its BUILD_RESERVE (by reserve family, the
+ * whole family's stock above the family's reserve: mats.mjs reserveCount) less every OTHER claim on it (draws in flight, other
+ * projects' claims: `claims` { name: n }), never below 0. A building part (no reserve key) is all of its stock less claims.
+ */
+export function spendableFor (item, stock = {}, { reserve = BUILD_RESERVE, claims = {} } = {}) {
+  const rk = reserveKeyOf(item)
+  const own = Number(stock[item]) || 0
+  const claimed = Number(claims[item]) || 0
+  if (!rk) return Math.max(0, own - claimed)
+  const famAbove = Math.max(0, reserveCount(rk, stock) - (Number(reserve?.[rk]) || 0))
+  return Math.max(0, Math.min(own, famAbove) - claimed)
+}
+
+/**
+ * THE TOWN ORDER (host part of buildEligible, design 4.1/A8) -> { order, skip }. Pure. At town only, shared towns only, no
+ * milestone holding, after the cooldown; the record complete is no order; S1 (no site) waits a day; a full slot set, low health,
+ * or a bag without room is a skip with its reason.
+ */
+export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
+  complete = false, slotsFree = true, health = 20, freeSlots = 36 } = {}) {
+  if (!on || !shared || !atTown || holds) return { order: null, skip: null }
+  if (complete) return { order: null, skip: 'complete' }
+  if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
+  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
+  if (!slotsFree) return { order: null, skip: 'slots_full' }
+  if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
+  if (freeSlots < SHOP_BAG_SLOTS_MIN) return { order: null, skip: 'room' }
+  return { order: { skill: 'build_shop', args: {} }, skip: null }
+}
+
+// ---- the pool's stood cells (D3 at runtime: step 1's carried item) ------------------------------------------------------------
+
+export const STOOD_MAX_LINES = 20_000
+export const STOOD_EVERY_MS = 30_000
+export const STOOD_REPEAT_MS = 10 * 60_000
+const stoodFile = (dir, key) => path.join(dir, `${key}.stood.jsonl`)
+/** Append one in-town feet cell (the caller rate-limits). Rotates at STOOD_MAX_LINES (the old file kept as .old). Never throws. */
+export function stoodAppend (dir, key, cell, { now = Date.now(), by = null } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = stoodFile(dir, key)
+    let lines = 0
+    try { lines = fs.readFileSync(f, 'utf8').split('\n').length } catch { /* none yet */ }
+    if (lines >= STOOD_MAX_LINES) { try { fs.renameSync(f, `${f}.old`) } catch { /* another rotated it */ } }
+    fs.appendFileSync(f, JSON.stringify({ c: cell, at: now, by }) + '\n')
+  } catch { /* telemetry-grade: the walk falls back to home's cell */ }
+}
+/** The pool's distinct stood cells inside the town circle of `home` -> [[x, y, z]] (both files, torn lines skipped). Pure over
+ *  the files. */
+export function stoodRead (dir, key, home) {
+  const seen = new Set(), out = []
+  for (const f of [`${stoodFile(dir, key)}.old`, stoodFile(dir, key)]) {
+    let text = ''
+    try { text = fs.readFileSync(f, 'utf8') } catch { continue }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      let r
+      try { r = JSON.parse(line) } catch { continue }
+      const c = r?.c
+      if (!Array.isArray(c) || c.length !== 3 || !c.every(Number.isInteger)) continue
+      if (Math.max(Math.abs(c[0] - home.x), Math.abs(c[2] - home.z)) > TOWN_R) continue
+      const k = c.join(',')
+      if (!seen.has(k)) { seen.add(k); out.push(c) }
+    }
+  }
+  return out
+}
+
+// ---- rows (detail strings only: no new ES fields -- an unmapped field rejects whole documents, town plan 4.2) -------------------
+
+const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(Array.isArray(f[k]) ? f[k].join(',') : f[k]).replace(/\s+/g, '_').slice(0, k === 'why' ? 120 : 48)}`).join(' ')
+export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
+export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'gen'], f)
+export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'ms', 'why'], f)

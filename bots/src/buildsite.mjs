@@ -598,6 +598,23 @@ export function workshopSectors (plan) {
   const taken = new Set(plots.filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
   return REST_ORDER.filter(s => !taken.has(s)).map(s => ({ sector: s, source: 'free' }))
 }
+/** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
+export function plinthCells (rec) {
+  const out = []
+  const pl = rec?.plan
+  if (pl && typeof pl === 'object') {
+    for (const st of pl.steps ?? []) if (Array.isArray(st?.c)) out.push(st.c)
+    if (pl.cap) out.push([pl.cap.x, pl.cap.y, pl.cap.z])
+    for (const c of pl.stair ?? []) if (Array.isArray(c) && c.length === 3) out.push(c)
+  }
+  for (const c of Array.isArray(rec?.prev) ? rec.prev : []) {
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
+    out.push([c.x, c.y, c.z])
+    for (const s of Array.isArray(c.stair) ? c.stair : []) if (Array.isArray(s) && s.length === 3) out.push(s)
+  }
+  return out
+}
+
 /** The plan's stood cells: the stand found-01 recorded for every PLACED plan cell (a bot stood there to place it). Pure. */
 export function planTownCells (plan) {
   const out = []
