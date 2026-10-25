@@ -1,0 +1,17 @@
+#!/bin/bash
+# dumpall.sh (run on 10.0.0.30 as mike, in ~/shop-1025): cp (read-only on the live files) the region files covering home +-64
+# of every bench world, then townplan_blockdump.py over the COPIES: home +-50, y home-16 .. home+32 -> dumps/<world>.json
+set -u
+cd ~/shop-1025 || exit 2
+mkdir -p dumps
+date -u +%FT%TZ > run.started
+while read W HX HY HZ; do
+  DST=copies/$W/region; mkdir -p "$DST"
+  for x in $(( (HX - 64) >> 9 )) $(( (HX + 64) >> 9 )); do for z in $(( (HZ - 64) >> 9 )) $(( (HZ + 64) >> 9 )); do
+    f=/srv/block2/$W/world/region/r.$x.$z.mca
+    [ -f "$f" ] && cp "$f" "$DST/" 2>/dev/null
+  done; done
+  nice -n 19 python3 townplan_blockdump.py "$DST" --box $((HX - 50)) $((HZ - 50)) $((HX + 50)) $((HZ + 50)) --y $((HY - 16)) $((HY + 32)) --out "dumps/$W.json" > "dumps/$W.log" 2>&1
+  echo "$W rc=$? $(stat -c %s dumps/$W.json 2>/dev/null)"
+done < worlds.txt
+date -u +%FT%TZ > run.finished

@@ -200,25 +200,46 @@ export function columnAt (read, x, z, L) {
 /**
  * THE PAD'S FLOOR LEVEL -> { ok, L, cols, cost } | { ok: false, why }. Pure. Every level home.y - 12 .. home.y + 12 where EVERY
  * pad column is feasible (columnAt) and the totals hold (fill <= 40, cut <= 30, litter <= 40); the least earthwork
- * (fill + cut + litter) wins, then the level nearest home's, then the lower. When none is feasible, the reason is the first
- * refusal at the level that got furthest through the pad.
+ * (fill + cut + litter) wins, then the level nearest home's, then the lower. When none is feasible, the reason is the one AT THE
+ * GROUND'S OWN LEVEL (the most common top floor of the pad's columns, ties lower): "a chest stands in the volume" is said at the
+ * ground, never "earthwork" at a level one block up. With no top floor at all, the level that got furthest through the pad.
  */
 export function levelFor (read, home, pad) {
   let best = null, why = null, mostCols = -1
+  const at = new Map()
   for (let L = home.y - 12; L <= home.y + 12; L++) {
     const cols = []
     let bad = null
     for (const [x, z] of pad) { const c = columnAt(read, x, z, L); if (!c.ok) { bad = c; break } cols.push(c) }
-    if (bad) { if (cols.length > mostCols) { mostCols = cols.length; why = bad } continue }
+    if (bad) { at.set(L, bad); if (cols.length > mostCols) { mostCols = cols.length; why = bad } continue }
     const fill = cols.reduce((n, c) => n + c.fill.length, 0), cut = cols.reduce((n, c) => n + c.cut.length, 0), litter = cols.reduce((n, c) => n + c.litter.length, 0)
     if (fill > EARTH.fill || cut > EARTH.cut || litter > LITTER_MAX) {
-      if (cols.length >= mostCols) { mostCols = cols.length; why = { why: litter > LITTER_MAX ? 'litter_over_40' : 'earthwork' } }
+      const w = { why: litter > LITTER_MAX ? 'litter_over_40' : 'earthwork' }
+      at.set(L, w)
+      if (cols.length >= mostCols) { mostCols = cols.length; why = w }
       continue
     }
     const cost = fill + cut + litter
     if (!best || cost < best.cost || (cost === best.cost && Math.abs(L - home.y) < Math.abs(best.L - home.y))) best = { ok: true, L, cols, cost }
   }
-  return best ?? { ok: false, why: why?.why ?? 'no_level', detail: why?.detail }
+  if (best) return best
+  const g = topFloorLevel(read, home, pad)
+  const w = (g != null && at.get(g)) || why
+  return { ok: false, why: w?.why ?? 'no_level', detail: w?.detail }
+}
+/** The most common top floor of the pad's columns (the highest floor with no floor above it in home.y +- 12; ties lower). Pure. */
+export function topFloorLevel (read, home, pad) {
+  const n = new Map()
+  for (const [x, z] of pad) {
+    for (let y = home.y + 12; y >= home.y - 12; y--) {
+      const b = read(x, y, z)
+      if (!b) break
+      if (solidFloor(b) && !solidFloor(read(x, y + 1, z))) { n.set(y, (n.get(y) ?? 0) + 1); break }
+    }
+  }
+  if (!n.size) return null
+  const top = Math.max(...n.values())
+  return Math.min(...[...n].filter(([, c]) => c === top).map(([y]) => y))
 }
 
 /**
@@ -348,7 +369,7 @@ export function stepFor (read, home, cell, nodes, { role = null } = {}) {
     if (role === 'light' && fy === 1) continue   // a torch never hangs from the face above it
     const sup = [cx + fx, cy + fy, cz + fz]
     if (!isSolid(read(...sup))) continue
-    const normal = [-fx, -fy, -fz]
+    const normal = [0 - fx, 0 - fy, 0 - fz]   // never -0 (a record compares and serialises cleanly)
     const fc = [sup[0] + 0.5 + normal[0] * 0.5, sup[1] + 0.5 + normal[1] * 0.5, sup[2] + 0.5 + normal[2] * 0.5]
     for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
       const sx = cx + dx, sz = cz + dz
