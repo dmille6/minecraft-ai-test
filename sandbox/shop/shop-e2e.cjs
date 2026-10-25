@@ -268,6 +268,9 @@ async function cleanup () {
   if (arenaOwned) await stopBot().catch(() => {})
   try { brain.close() } catch {}
   try { fs.unlinkSync(`${R}/${ENV_REL}`) } catch {}
+  // SHOP_KEEP=1 leaves the built workshop standing (and the arena force-loaded until a later scene's set-up clears it) for the
+  // structure count's positive control on the saved world (read r2 review, Claude Q3); the next scene's set-up refills the arena
+  if (arenaOwned && process.env.SHOP_KEEP === '1') { try { rconMany(['save-all flush']) } catch {} return }
   if (arenaOwned) { try { rconMany([`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..80]`, ...arenaCmds().slice(2, -1), `forceload remove ${A0} ${A0} ${A1} ${A1}`]) } catch {} }
 }
 let cleaning = false
