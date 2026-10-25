@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+# sandbox_read.py <skill-log.jsonl> <pool-state-dir> -- shopread's judge over a REAL SHOP-E2E run (Claude read r1 P3-3: no real
+# row had ever passed through the read). The run's rows as the canary arm, post-deploy; its pool directory as the town oracle
+# (linked under a temp root as _pool-<the bot's pool>); no structure count (exposure must stay NOT READY: no world evidence).
+import sys, os, json, tempfile
+import datetime as dt
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shopread as S
+from townplanread import pool_of
+
+log, pooldir = sys.argv[1], sys.argv[2]
+rows, raw = [], [json.loads(l) for l in open(log, encoding='utf-8', errors='replace') if l.strip().startswith('{')]
+bot = None
+for r in raw:
+    b = (r.get('bot') or {}).get('name'); bot = bot or b
+    t = dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00'))
+    sk = r.get('skill') or {}
+    name = sk.get('name')
+    feet = S.pos_of({'pos': (r.get('bot') or {}).get('pos')})
+    if name in S.ROW_KINDS or feet:
+        rows.append({'t': t, 'per': 'post', 'arm': 'canary', 'name': name if name in S.ROW_KINDS else '_pos', 'status': sk.get('status'),
+                     'detail': (sk.get('detail') or '') if name in S.ROW_KINDS else '', 'bot': b, 'item': None, 'feet': feet})
+root = tempfile.mkdtemp(prefix='shopread-sbx-')
+os.symlink(os.path.abspath(pooldir), os.path.join(root, '_pool-%s' % pool_of(bot)))
+projects = S.read_projects(root)
+cut = min(r['t'] for r in rows) - dt.timedelta(minutes=1)
+out, lists = S.judge(rows, projects, {}, cut=cut, gens=[])
+res = S.combine(out, lists)
+print('rows %d (raw %d) bot %s pool %s | record %s (files %d) leases %d files over %d names | zones file ok %s'
+      % (len(rows), len(raw), bot, pool_of(bot), 'yes' if projects[pool_of(bot)]['record'] else 'NO', projects[pool_of(bot)]['records_files'],
+         out.get('lease_files', 0), out.get('lease_names', 0), projects[pool_of(bot)]['zones_ok']))
+keys = ('licence_canary', 'visits_canary', 'placements', 'clears', 'replants', 'mutations', 'tree_clears', 'bag_rows', 'bag_names', 'bag_scaffold',
+        'build_rows_with_pos', 'unknown_rows', 'complete_towns', 'complete_towns_world')
+print('counts', {k: out.get(k, 0) for k in keys})
+print('gates', {k: res[k] for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'g5_unjudged', 'unknown_stood', 'bag_loss',
+                                    'oracle_missing', 'zone_unknown', 'arms_breach', 'liveness', 'exposure_ready')}, 'reported placed_twice', res['placed_twice'])
+print('lists', {k: v[:3] for k, v in res['_lists'].items() if v and not k.startswith('_')})
+bag = [r['detail'] for r in rows if r['name'] == '_build_bag']
+print('bag rows', bag[:3])

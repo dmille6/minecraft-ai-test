@@ -5,11 +5,22 @@ M = [
  ("out['off_record'] += 1;", "pass;"),
  ("out['clear_outside'] += 1;", "pass;"),
  ("out['zone'] += 1;", "pass;"),
+ ("            if op in ('place', 'clear', 'replant'):", "            if op in ('place', 'clear'):"),
  ("            out['lease_overlap'] += 1;", "            pass;"),
+ ("seg-[A-Za-z0-9-]+)", "seg-[a-z0-9-]+)"),
  ("out['felled_unplanted'] += 1;", "pass;"),
+ ("out['g5_unjudged'] += 1;", "pass;"),
  ("out['unknown_stood'] += 1;", "pass;"),
- ("out['placed_twice'] += 1;", "pass;"),
+ ("            for cand in (ck(p), ck([p[0], p[1] - 1, p[2]])):", "            for cand in (ck([p[0], p[1] - 1, p[2]]),):"),
+ ("        if name in BUILD_KINDS and r.get('feet') and unknown_open:", "        if r.get('feet') and unknown_open:"),
+ ("            for k in [k for k in unknown_open if k[0] == bot]:      # a new connection: its unknown set starts empty\n                del unknown_open[k]", "            pass"),
+ ("out['bag_loss'] += 1;", "pass;"),
+ ("                if unexplained < 0 and n not in SCAFFOLD_NAMES:", "                if unexplained < 0:"),
+ ("out['oracle_missing'] += 1;", "pass;"),
+ ("out['zone_unknown'] += 1;", "pass;"),
  ("out['arms_rows_control_post'] += 1", "pass"),
+ ("    res['exposure_ready'] = int(g('complete_towns_world') >= EXPOSE_TOWNS)", "    res['exposure_ready'] = int(g('complete_towns') >= EXPOSE_TOWNS)"),
+ ("            world[pool] = 'confirmed' if isinstance(b0, int) and isinstance(b1, int) and b1 > b0 else", "            world[pool] = 'confirmed' if True else"),
  ("if rec.get('prev') == head[0] and rec.get('prevSha') == head[1]:", "if rec.get('prev') == head[0]:"),
  ("            blocks_until = rel0 if rel0 is not None else (int(r0.get('until') or 0) + RECLAIM_MS)", "            blocks_until = int(r0.get('until') or 0) + RECLAIM_MS"),
  ("            elif op == 'known':\n                unknown_open.pop((bot, k), None)", "            elif op == 'known':\n                pass"),
@@ -21,7 +32,7 @@ for old, new in M:
     open(p, 'w').write(src.replace(old, new))
     r = subprocess.run([sys.executable, '-I', p, '--selftest'], cwd=D, capture_output=True, text=True)
     killed = r.returncode != 0
-    print('killed' if killed else 'SURVIVED', old[:70])
+    print('killed' if killed else 'SURVIVED', old[:80].replace('\n', ' '))
     bad += not killed
 os.unlink(os.path.join(D, '_mut.py'))
 print('control:', subprocess.run([sys.executable, '-I', os.path.join(D, 'shopread.py'), '--selftest'], cwd=D, capture_output=True, text=True).stdout.strip())
