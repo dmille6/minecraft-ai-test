@@ -9,9 +9,10 @@
 //   2. THE RUNNER RESERVATION (poolescape-01's firing, the watchdog's rescue: Runner.reserve -> `runner_reserved`): a found order
 //      the runner declined never ran -- the slot's visit and cooldown come back and the next decision issues it again; control:
 //      a found order that RAN and failed keeps its visit.
-//   3. THE SHOWCASE ZONES: found-01's fixture carries the owner's trial-chambers zone (#18) and the deployable infra file
-//      (protectzone-01's) does not. Pinned here, so the gap is a test line, not a memory: the fixture = the infra file + exactly
-//      that zone, and the seed's avoid box is that zone's box.
+//   3. THE SHOWCASE ZONES: the deployable infra file now carries the owner's trial-chambers zone (#18), byte-identical to the
+//      live /var/lib/mcai/_pool-showcase/protected-zones.json on 10.0.0.40 (showcase start 10-25; the gap this test pinned is
+//      closed). Pinned now as: the fixture and the infra file hold the same zone ids with the same boxes (the fixture's labels may
+//      differ), and the seed's avoid box is the trial-chambers zone's box.
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -154,16 +155,16 @@ await t('CONTROL: a found order that RAN and failed keeps its visit -> the next 
 })
 
 console.log('found x protectzone: the showcase zones files')
-await t('THE SHOWCASE ZONES: the fixture = protectzone-01\'s infra file + exactly trial-chambers-home-se (owner #18); the seed avoid box is that box', () => {
+await t('THE SHOWCASE ZONES: the infra file and the fixture hold the same zones (trial-chambers-home-se included, owner #18); the seed avoid box is that box', () => {
   const infra = JSON.parse(readFileSync(new URL('../../infra/showcase/protected-zones.showcase.json', import.meta.url), 'utf8'))
   const fix = JSON.parse(readFileSync(new URL('./fixtures/protected-zones.showcase.json', import.meta.url), 'utf8'))
   const site = JSON.parse(readFileSync(new URL('../../infra/showcase/town-site.json', import.meta.url), 'utf8'))
-  const ids = d => d.zones.map(z => z.id)
-  const extra = ids(fix).filter(id => !ids(infra).includes(id))
-  assert.deepEqual(extra, ['trial-chambers-home-se'], 'the only zone the deployable file lacks (install it before the showcase starts)')
-  assert.deepEqual(ids(infra).filter(id => !ids(fix).includes(id)), [], 'the fixture drops none')
+  const ids = d => d.zones.map(z => z.id).sort()
+  assert.deepEqual(ids(infra), ids(fix), 'the deployable file and the fixture name the same zones')
+  assert.ok(ids(infra).includes('trial-chambers-home-se'), 'the trial chambers are in the deployable file')
+  assert.equal(ids(infra).length, 8, 'positive control: seven villages + the trial chambers were compared')
   for (const z of infra.zones) assert.deepEqual(fix.zones.find(q => q.id === z.id).box, z.box, z.id)
-  const tc = fix.zones.find(z => z.id === 'trial-chambers-home-se')
+  const tc = infra.zones.find(z => z.id === 'trial-chambers-home-se')
   const av = (site.town_plan?.avoid ?? site.avoid ?? []).find(a => a.id === 'trial-chambers-home-se')
   assert.ok(av, 'the seed avoid box'); assert.deepEqual(av.box, tc.box)
 })

@@ -108,6 +108,20 @@
    ],
    "floor_y": 54,
    "source": "minecraft:village_snowy start chunk 59,-30: 3919 village blocks, 23 houses, pad 8"
+  },
+  {
+   "id": "trial-chambers-home-se",
+   "kind": "trial_chambers",
+   "label": "the trial chambers under the town",
+   "box": [
+    -20,
+    -47,
+    65,
+    88,
+    31,
+    164
+   ],
+   "source": "OWNER 2026-10-21 item 18: protect the trial chambers (agent survey x -16..84, y -43..27, z 69..160; pad 4)"
   }
  ],
  "generated_by": "infra/showcase/structure_zones.py",

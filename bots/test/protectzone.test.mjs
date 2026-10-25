@@ -540,12 +540,57 @@ test('BUCKET (Codex r1 P1): no fill or pour within 6 of a zone (the server ray, 
     assert.notEqual(far.failClass, 'protected_zone', `${action} 8 from the zone reaches the bucket's own checks: ${far.detail}`)
   }
 })
-test('DATA: the showcase file parses, binds to the showcase world, and every zone is a WHOLE COLUMN (Claude r1 P1: no tunnel under a footprint)', () => {
+// THE SHAPE RULE for the showcase zones file, as a pure function (CLAUDE.md: extract the decision, test its behaviour).
+//   A VILLAGE is a WHOLE COLUMN (Claude r1 P1: no tunnel under a footprint) with its deep floor under the village (r2 P2).
+//   ONE reviewed exemption (showcase start 10-25, owner 10-21 #18): the TRIAL CHAMBERS are an UNDERGROUND structure, so the
+//   zone is the owner's surveyed box (x -16..84, y -43..27, z 69..160) padded by 4 on every side, NOT a whole column: the
+//   town's ground above it (y ~69) must stay open, or ring@1's SE sector and the farm/pavilion plots could not be built. It
+//   carries no floor_y (closed to everyone inside it, survival digs excepted), and its top stays >= 30 below the town's ground.
+//   Any OTHER kind, or a second underground zone, is a problem until it gets its own reviewed exemption here.
+const TRIAL_SURVEY = [-16, -43, 69, 84, 27, 160], TRIAL_PAD = 4, TOWN_GROUND_Y = 69
+function zoneShapeProblems (zones) {
+  const out = []
+  for (const z of zones) {
+    if (z.kind === 'village') {
+      if (z.y0 !== -64) out.push(`${z.id}: a village must run from the world's bottom (y0 ${z.y0})`)
+      if (!(z.floorY >= 50 && z.floorY <= 60)) out.push(`${z.id}: a village needs its deep floor under it (${z.floorY})`)
+    } else if (z.kind === 'trial_chambers') {
+      const want = TRIAL_SURVEY.map((v, i) => (i < 3 ? v - TRIAL_PAD : v + TRIAL_PAD))
+      if ([z.x0, z.y0, z.z0, z.x1, z.y1, z.z1].join() !== want.join()) out.push(`${z.id}: not the owner's survey padded ${TRIAL_PAD} (${want})`)
+      if (z.floorY != null) out.push(`${z.id}: an underground zone takes no floor_y`)
+      if (z.y1 > TOWN_GROUND_Y - 30) out.push(`${z.id}: its top ${z.y1} is within 30 of the town's ground`)
+    } else out.push(`${z.id}: kind ${z.kind} has no reviewed shape rule`)
+  }
+  if (zones.filter(z => z.kind === 'trial_chambers').length > 1) out.push('more than one trial_chambers zone')
+  return out
+}
+test('DATA: the showcase file parses, binds to the showcase world; villages are WHOLE COLUMNS and the trial chambers are the ONE reviewed underground exemption', () => {
   const doc = JSON.parse(readFileSync(new URL('../../infra/showcase/protected-zones.showcase.json', import.meta.url), 'utf8'))
   const r = parseZones(doc, { worldId: '1292467317:1056448044' })
   assert.equal(r.why, 'ok'); assert.deepEqual(r.bad, [])
   assert.equal(parseZones(doc, { worldId: '-1909043226:-504800724' }).why, 'world_mismatch', 'the sandbox world (another seed) is refused')
-  for (const z of r.zones) { assert.equal(z.y0, -64, `${z.id} runs from the world's bottom`); assert.ok(z.floorY >= 50 && z.floorY <= 60, `${z.id} has its deep floor under the village (${z.floorY})`) }
+  assert.deepEqual(zoneShapeProblems(r.zones), [])
+  assert.equal(r.zones.filter(z => z.kind === 'village').length, 7, 'positive control: the rule judged the seven villages')
+  const tc = r.zones.find(z => z.kind === 'trial_chambers')
+  assert.ok(tc && tc.id === 'trial-chambers-home-se', 'the owner\'s trial chambers (#18) are in the deployable file')
+  for (const [x, y, z, what] of [[30, 0, 110, 'the chambers\' middle'], [-20, -47, 65, 'the padded corner'], [88, 31, 164, 'the far padded corner']]) assert.equal(zoneAt(r.zones, x, y, z)?.id, tc.id, `${what} at ${x},${y},${z} is protected`)
+  for (const [x, y, z, what] of [[30, 69, 110, 'the town ground over the chambers'], [30, 32, 110, 'one above the box'], [30, -48, 110, 'one below the box'], [-1, 71, 9, 'the planned composter']]) assert.equal(zoneAt(r.zones, x, y, z), null, `${what} at ${x},${y},${z} is not`)
+})
+test('DATA RULE (positive controls): each shape the exemption refuses is refused', () => {
+  const v = { id: 'v', kind: 'village', x0: 0, y0: -64, z0: 0, x1: 9, y1: 90, z1: 9, floorY: 54 }
+  const tc = { id: 't', kind: 'trial_chambers', x0: -20, y0: -47, z0: 65, x1: 88, y1: 31, z1: 164, floorY: null }
+  assert.deepEqual(zoneShapeProblems([v, tc]), [], 'the two legal shapes')
+  assert.match(zoneShapeProblems([{ ...v, y0: 40 }]).join(), /world's bottom/, 'a village that is not a whole column')
+  assert.match(zoneShapeProblems([{ ...v, floorY: null }]).join(), /deep floor/, 'a village with no floor')
+  assert.match(zoneShapeProblems([{ ...tc, floorY: -48 }]).join(), /no floor_y/, 'an underground zone with a floor exemption')
+  assert.match(zoneShapeProblems([{ ...tc, y1: 60 }]).join(), /survey|town's ground/, 'chambers reaching up to the town')
+  assert.match(zoneShapeProblems([{ ...tc, x0: -30 }]).join(), /survey/, 'a box that is not the survey')
+  assert.match(zoneShapeProblems([{ ...tc, kind: 'structure' }]).join(), /no reviewed shape rule/, 'an unreviewed underground kind')
+  assert.match(zoneShapeProblems([tc, { ...tc, id: 't2' }]).join(), /more than one/, 'a second underground zone')
+})
+test('DATA (continued): the near village is protected where it stands', () => {
+  const doc = JSON.parse(readFileSync(new URL('../../infra/showcase/protected-zones.showcase.json', import.meta.url), 'utf8'))
+  const r = parseZones(doc, { worldId: '1292467317:1056448044' })
   const v = r.zones.find(z => z.id === 'village-taiga-6_1')
   assert.ok(v, 'the near taiga village')
   for (const [x, y, z, what] of [[124, 64, -13, 'a chest'], [93, 77, 25, 'the bell'], [64, 70, -11, 'the crafting table'], [66, 70, -11, 'a bed'], [100, 12, 0, 'rock under it']]) assert.ok(zoneAt(r.zones, x, y, z), `${what} at ${x},${y},${z} is protected`)
