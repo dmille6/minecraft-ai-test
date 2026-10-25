@@ -105,6 +105,11 @@ def main():
             # fixed perspective: looking north at 50 degrees from the south, the town in the lower-middle third
             'angled': {'x': x + 0.5, 'y': y, 'z': z - 20.5, 'distance': 330, 'rotation': 0.0, 'angle': round(ang, 4),
                        'ortho': 0, 'mode': 'perspective', 'fov': 35},
+            # owner 10-25: the TOWN close-up -- flat orthographic, square, on home; distance 95 at 1440 x 1440 spans
+            # ~ +-57 blocks (12.7 px a block, measured 10-25 against the taiga village's west edge at x 49): the storehouse,
+            # the workshop, the ring out to ~60
+            'town': {'x': x + 0.5, 'y': y, 'z': z + 0.5, 'distance': 95, 'rotation': 0.0, 'angle': 0.0,
+                     'ortho': 1, 'mode': 'flat', 'fov': None, 'width': 1440, 'height': 1440},
         },
     }
     os.makedirs(TL, exist_ok=True)

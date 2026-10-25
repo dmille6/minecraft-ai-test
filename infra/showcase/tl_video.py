@@ -18,6 +18,7 @@ import argparse, datetime as dt, json, os, subprocess, sys, tempfile
 
 ROOT = os.environ.get('TL_ROOT', '/srv/showcase/timelapse')
 VIEWS = ('angled', 'topdown')
+EXTRA = ('town',)        # owner 10-25: the town close-up; built from ITS OWN frames (it is not part of the pair)
 FPS = 10
 LEVEL = 12
 MIN_CHANGED_FRAC = 0.002
@@ -172,8 +173,8 @@ def main():
         print(f'monthly {name}: SKIP -- no frames in that month yet')
         return 0
     rc = 0
-    for v in VIEWS:
-        st = sample(paired_stamps(), lo, hi, bucket)
+    for v in VIEWS + tuple(x for x in EXTRA if all_stamps(x)):
+        st = sample(paired_stamps() if v in VIEWS else all_stamps(v), lo, hi, bucket)
         try:
             side = build(v, st, os.path.join(ROOT, 'video', f'{name}-{v}.mp4'), name)
             print(json.dumps(side))

@@ -705,6 +705,56 @@ class Timelapse(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(moved, ['A', 'B'])
 
+    def _capture_with(self, writes, rc):
+        """Run TL.capture with capture.mjs faked: it writes the staged files whose view is in `writes`, exits rc."""
+        import tempfile, types
+        root = tempfile.mkdtemp()
+        cam = {'x': 0.5, 'y': 70, 'z': 0.5, 'distance': 95, 'rotation': 0.0, 'angle': 0.0, 'ortho': 1, 'mode': 'flat', 'fov': None}
+        cfg = {'root': root, 'web': 'http://x', 'map_id': 'm', 'width': 1920, 'height': 1080, 'capture_dir': root,
+               'cameras': {'topdown': cam, 'angled': cam, 'town': dict(cam, width=1440, height=1440)}}
+        seen = {}
+
+        def fake_run(cmd, input=None, **kw):
+            jobs = json.loads(input)
+            seen['jobs'] = jobs
+            for j in jobs:
+                if any(('/%s-' % v) in j['out'] for v in writes):
+                    open(j['out'], 'wb').write(b'x' * 30000)
+            return types.SimpleNamespace(returncode=rc, stdout='', stderr='FAIL' if rc else '')
+        old = (TL.subprocess.run, TL.small_gray, TL.terrain_ok)
+        TL.subprocess.run, TL.small_gray, TL.terrain_ok = fake_run, (lambda p: b''), (lambda g: True)
+        try:
+            out = TL.capture(cfg, '20261025T1800Z')
+        finally:
+            TL.subprocess.run, TL.small_gray, TL.terrain_ok = old
+        return out, seen['jobs'], root
+
+    def test_town_camera_is_extra_and_never_costs_the_pair(self):
+        self.assertEqual(TL.extra_views({'cameras': {'topdown': {}, 'angled': {}, 'town': {}}}), ['town'])
+        (rc, msg, got, _, _, extra), jobs, root = self._capture_with({'topdown', 'angled'}, 1)
+        self.assertEqual(rc, 0, msg)
+        self.assertEqual(len(got), 2, 'the pair is published although the town job failed')
+        self.assertEqual(extra, [])
+        self.assertEqual([(j['width'], j['height']) for j in jobs], [(1920, 1080), (1920, 1080), (1440, 1440)], 'per-camera size')
+        (rc, msg, got, _, _, extra), _, root = self._capture_with({'topdown', 'town'}, 1)
+        self.assertEqual(got, [], 'a broken pair is not published')
+        self.assertEqual(len(extra), 1, 'the town frame is published on its own')
+        self.assertTrue(extra[0].endswith('/frames/town/20261025/20261025T1800Z.png'))
+        (rc, msg, got, _, _, extra), _, _ = self._capture_with({'topdown', 'angled', 'town'}, 0)
+        self.assertEqual((rc, len(got), len(extra)), (0, 2, 1))
+
+    def test_town_video_uses_its_own_frames(self):
+        old = TV.all_stamps
+        TV.all_stamps = lambda v: {'town': ['20261025T1800Z'], 'angled': [], 'topdown': []}[v]
+        try:
+            st = TV.sample(TV.all_stamps('town'), dt.datetime(2026, 10, 25, tzinfo=dt.timezone.utc),
+                           dt.datetime(2026, 10, 26, tzinfo=dt.timezone.utc), None)
+            self.assertEqual(st, ['20261025T1800Z'])
+            self.assertEqual(TV.paired_stamps(), [], 'the town frame never enters the pair')
+        finally:
+            TV.all_stamps = old
+        self.assertIn('town', TV.EXTRA)
+
     def test_terrain_check(self):
         sky = bytes([160]) * 1000
         self.assertFalse(TL.terrain_ok(sky))
