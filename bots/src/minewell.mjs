@@ -109,6 +109,7 @@ const KEEP_OUT_WORDS = {
   // keepout-01 (keepout.mjs): the column above a live fire death site
   lava: { label: 'the column above a marked lava pool (a fire death site)', why: c => `the column above a marked lava pool (a fire death site; a column cell at ${c})` },
   protected: { label: 'a protected zone (scenery)', why: c => `a protected zone (scenery the bots never dig, at ${c})` },   // protectzone-01
+  workshop: { label: 'the town workshop', why: c => `the town workshop (a built cell of its record at ${c})` },   // shop-01
 }
 export const keepOutLabel = kind => (KEEP_OUT_WORDS[kind] ?? KEEP_OUT_WORDS.farm).label
 export const keepOutWhy = hit => (KEEP_OUT_WORDS[hit?.kind] ?? KEEP_OUT_WORDS.farm).why(`${hit.cell.x},${hit.cell.y},${hit.cell.z}`)

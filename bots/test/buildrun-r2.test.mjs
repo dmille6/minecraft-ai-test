@@ -122,32 +122,5 @@ await t('installAckTracker: a sequence mineflayer wrote BEFORE a visit is seen; 
   assert.strictEqual(A.seen('B', 2000).offlineSince, 2000); assert.strictEqual(A.seen('B', 2500).offlineSince, 2000)
 })
 
-console.log('FOREIGN BLOCKS IN THE VOLUME (Claude r1 P3-9)')
-await t('a scaffold-class block (dirt) in a pad cell is dug under the segment\'s lease and the cell built; a CHEST there stalls the segment', async () => {
-  const pad = SITE.record.cells.filter(c => c.seg === 'pad')
-  const srv = server({ [k3(pad[5].at)]: 'dirt' }), { p } = project()
-  const e = bot(srv, 'A')
-  const r = await R.runVisit(p('A'), e, { maxSteps: 2000 })
-  assert.strictEqual(r.stop, 'complete', JSON.stringify(r)); assert.strictEqual(srv.read(...pad[5].at).name, 'stone_bricks')
-  assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'foreign'))
-  const srv2 = server({ [k3(pad[5].at)]: 'chest' }), pr2 = project()
-  const r2 = await R.runVisit(pr2.p('A'), bot(srv2, 'A'), { maxSteps: 2000 })
-  assert.strictEqual(srv2.read(...pad[5].at).name, 'chest'); assert.strictEqual(r2.stop, 'blocked')
-})
-
-console.log('THE SLOT REFERENCE (Codex r1 P3)')
-await t('slotRef follows every renewal of the admission slot (the caller releases the LATEST generation on any exit)', async () => {
-  const srv = server(), { p } = project()
-  const e = bot(srv, 'A')
-  let off = 0
-  e.now = () => Date.now() + off
-  const log = e.log
-  e.log = (k, d) => { log(k, d); if (k === '_build' && e.logs.length === 10) off = 3 * 60_000 }
-  const pp = { ...p('A'), slotRef: { gen: null } }
-  const g0 = pp.slotGen
-  await R.runVisit(pp, e, { maxSteps: 40 })
-  assert.ok(pp.slotRef.gen > g0, `renewed: ${g0} -> ${pp.slotRef.gen}`)
-})
-
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

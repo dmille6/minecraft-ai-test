@@ -174,4 +174,4 @@ const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(
 export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'gen'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'ms', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)

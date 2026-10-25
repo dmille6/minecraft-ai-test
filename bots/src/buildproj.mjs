@@ -175,11 +175,13 @@ export const pidAlive = pid => { try { process.kill(pid, 0); return true } catch
 /**
  * THE MUTEX NOW -> { gen, rec, held, why }. Throws on an unreadable directory (the taker reads that as busy). The NEWEST
  * generation decides: released (its marker) -> free; torn (a kill inside the write) -> held for MUTEX_TORN_MS from its mtime;
- * its pid dead -> free; its holder's presence written AFTER it names another pid (the holder restarted: pid reuse cannot keep a
- * dead holder's lock) -> free; otherwise HELD, however old (no age reclaim: Codex r1 P1, a suspended live holder must not be
- * displaced while it may still send).
+ * its pid dead -> free; its holder's presence written AFTER it names another CONNECTION (the holder restarted -- under a new pid
+ * or the very same reused one: Codex r2 P2, a pid is not an incarnation) -> free; its holder RETIRED (`gone(rec)`: offline on the
+ * server for RETIRE_MS, as the taker has seen it -- an offline holder cannot send, and after its reconnect it takes the mutex anew)
+ * -> free; otherwise HELD, however old (no age reclaim: Codex r1 P1, a suspended live holder must not be displaced while it may
+ * still send).
  */
-export function mutexState (dir, key, { now = Date.now(), alive = pidAlive } = {}) {
+export function mutexState (dir, key, { now = Date.now(), alive = pidAlive, gone = () => false } = {}) {
   const g = gensOf(dir, MUTEX_RE(key)).at(-1)
   if (g == null) return { gen: 0, rec: null, held: false, why: 'none' }
   const f = mutexFile(dir, key, g)
@@ -188,7 +190,9 @@ export function mutexState (dir, key, { now = Date.now(), alive = pidAlive } = {
   if (!rec) { let m = now; try { m = fs.statSync(f).mtimeMs } catch { /* vanished: as just written */ } return { gen: g, rec: null, held: now - m < MUTEX_TORN_MS, why: 'torn' } }
   if (Number.isInteger(rec.pid) && !alive(rec.pid)) return { gen: g, rec, held: false, why: 'dead' }
   const pr = presenceRead(dir, key, rec.holder)
-  if (pr && Number.isInteger(pr.pid) && pr.pid !== rec.pid && Number(pr.at) > Number(rec.at)) return { gen: g, rec, held: false, why: 'superseded' }
+  const other = rec.conn ? !!pr?.conn && pr.conn !== rec.conn : Number.isInteger(pr?.pid) && pr.pid !== rec.pid
+  if (pr && other && Number(pr.at) > Number(rec.at)) return { gen: g, rec, held: false, why: 'superseded' }
+  try { if (gone(rec)) return { gen: g, rec, held: false, why: 'retired' } } catch { /* unknown: held */ }
   return { gen: g, rec, held: true, why: 'held' }
 }
 /**
@@ -197,17 +201,17 @@ export function mutexState (dir, key, { now = Date.now(), alive = pidAlive } = {
  * ever renamed or deleted under a holder. The created generation must still be the newest (a taker that read the listing long
  * ago, after the pruning, cannot hold beside a newer generation). Old generations beyond MUTEX_KEEP are pruned.
  */
-export function mutexTake (dir, key, holder, { now = Date.now(), pid = process.pid, alive = pidAlive } = {}) {
+export function mutexTake (dir, key, holder, { now = Date.now(), pid = process.pid, conn = null, alive = pidAlive, gone = () => false } = {}) {
   let st
-  try { st = mutexState(dir, key, { now, alive }) } catch { return { ok: false, why: 'busy (unreadable)' } }
+  try { st = mutexState(dir, key, { now, alive, gone }) } catch { return { ok: false, why: 'busy (unreadable)' } }
   if (st.held) return { ok: false, why: `busy (${st.rec?.holder ?? 'torn'})` }
   const n = st.gen + 1, f = mutexFile(dir, key, n)
-  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
+  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, conn, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
   let gens = []
   try { gens = gensOf(dir, MUTEX_RE(key)) } catch { /* judged below */ }
   if (gens.at(-1) !== n) { try { fs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
   for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { fs.unlinkSync(x) } catch { /* gone */ } } }
-  return { ok: true, gen: n, ...(['dead', 'superseded', 'torn'].includes(st.why) ? { reclaimed: st.rec?.holder ?? 'torn' } : {}) }
+  return { ok: true, gen: n, ...(['dead', 'superseded', 'torn', 'retired'].includes(st.why) ? { reclaimed: st.rec?.holder ?? 'torn' } : {}) }
 }
 /** Release the mutex: our own generation only (holder and pid; `gen` omitted: the newest). A marker, never a delete. Never throws. */
 export function mutexRelease (dir, key, holder, { pid = process.pid, gen = null } = {}) {

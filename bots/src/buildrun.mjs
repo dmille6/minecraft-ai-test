@@ -164,6 +164,10 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   const nodesFor = (block = new Set()) => byColumn(walkFrom(rd, home, block, WALK_R, { stood }))
   const conn = e.conn?.() ?? null
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
+  // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead
+  // holder's lock alive for good)
+  const gone = rec => { if (!rec?.holder || rec.holder === me) return false; const s = e.seen?.(rec.holder, now()); return !!s && !s.online && s.offlineSince != null && now() - s.offlineSince >= PJ.RETIRE_MS }
+  const mutex = () => PJ.mutexTake(dir, key, me, { now: now(), conn, gone })
 
   // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
   PJ.closeOwn(dir, key, me, { conn, acked: e.acked?.() ?? 0, now: now() })
@@ -178,12 +182,15 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]))
     if (!here) return 'stand'
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]))) return 'body'
+    // ...AND ITS OWN: a jump or a step-up puts the builder's head into the cell above it for a moment -- wait for it to land
+    for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100)
+    if (e.self && inCell(e.self(), cell)) return 'body'
     if (!(await e.hold(block))) return 'no_material'
     await e.look(here.support, here.face)
     if (e.aborted()) return 'aborted'
     let barGen = null
     if (closer) {
-      const m = PJ.mutexTake(dir, key, me, { now: now() })
+      const m = mutex()
       if (!m.ok) return 'busy'
       const b = PJ.barrierTake(dir, key, me, { why: 'closer', cell, now: now() })
       PJ.mutexRelease(dir, key, me, { gen: m.gen })
@@ -204,7 +211,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       const seq = e.nextSeq()
       const id = PJ.intentOpen(dir, key, me, { cell, block, lease: segGen, seq, conn, now: now() })
       const cancel = () => PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() })
-      const m = PJ.mutexTake(dir, key, me, { now: now() })
+      const m = mutex()
       if (!m.ok) { cancel(); return 'busy' }
       let released = false
       const release = () => { if (!released) { released = true; PJ.mutexRelease(dir, key, me, { gen: m.gen }) } }
@@ -316,6 +323,11 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         if (!open.length) { finished = true; break }
         if (now() - segAt >= PJ.LEASE_TTL_MS * RENEW_AT) { const ng = PJ.renewLease(dir, key, `seg-${seg}`, me, segGen, { now: now() }); if (!ng) { out.stop = 'fence:segment'; return out } segGen = ng; segAt = now() }
         if (!renewSlot()) { out.stop = 'fence:slot'; return out }
+        // AN UNKNOWN RECORD CELL (a dig of a foreign block the server never answered, this visit or an earlier one): asked again
+        // from a stand in reach before anything else here (Codex r2 P2: only record.clear cells were ever asked, so a pad cell
+        // left unknown blocked its segment for the connection's life); unanswered twice, it waits for the next visit
+        const unk = open.filter(c => unknown.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS)
+        if (unk.length) { const c = unk[0]; if ((await resolveUnknown(c.at)) == null) bump(c.at); continue }
         // A FOREIGN SCAFFOLD-CLASS BLOCK in an open cell (placed after siting): dug first, lowest first, under this segment's lease
         const foreign = open.filter(c => FOREIGN_CLEAR.test(nm(rd(...c.at))) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
