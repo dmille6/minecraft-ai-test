@@ -108,6 +108,21 @@
    ],
    "floor_y": 54,
    "source": "minecraft:village_snowy start chunk 59,-30: 3919 village blocks, 23 houses, pad 8"
+  },
+  {
+   "id": "trial-chambers-home-se",
+   "kind": "trial_chambers",
+   "label": "the trial chambers under the town",
+   "box": [
+    -20,
+    -64,
+    65,
+    88,
+    31,
+    164
+   ],
+   "floor_y": -47,
+   "source": "OWNER 2026-10-21 item 18: protect the trial chambers (agent survey x -16..84, y -43..27, z 69..160; pad 4). OWNER 2026-10-25: to bedrock with a floor, the village shape -- y0 -64, floor_y -47 (the old bottom): nobody tunnels in under them; a bot already below the floor digs out sideways"
   }
  ],
  "generated_by": "infra/showcase/structure_zones.py",
