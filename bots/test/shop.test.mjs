@@ -89,6 +89,23 @@ await t('leftoverNames: only what was drawn AND is held above the visit\'s start
   assert.deepStrictEqual(S.leftoverNames({}, {}, { cobblestone: 64 }), [], 'nothing drawn: nothing banked')
 })
 
+await t('bagBalance: the visit\'s books per name; a part used without a placement is a NEGATIVE unexplained (control: an exact visit is 0)', () => {
+  const ok = S.bagBalance({ bag0: { stone_bricks: 3, cobblestone: 64 }, took: { stone_bricks: 89, cobblestone: 8 }, crafted: { furnace: 1, cobblestone: -8 }, placed: { stone_bricks: 89, furnace: 1 }, back: {}, bag1: { stone_bricks: 3, cobblestone: 64 } })
+  assert.deepStrictEqual(Object.fromEntries(Object.entries(ok).map(([k, v]) => [k, v.unexplained])), { stone_bricks: 0, cobblestone: 0, furnace: 0 })
+  const lost = S.bagBalance({ bag0: {}, took: { glass_pane: 4 }, placed: { glass_pane: 2 }, back: { glass_pane: 1 }, bag1: {} })
+  assert.strictEqual(lost.glass_pane.unexplained, -1, 'one pane unaccounted')
+  const pick = S.bagBalance({ bag0: {}, took: { torch: 2 }, placed: { torch: 2 }, bag1: { torch: 5 } })
+  assert.strictEqual(pick.torch.unexplained, 5, 'a pickup is positive, never a loss')
+  assert.ok(S.SCAFFOLD_NAMES.has('cobblestone') && S.SCAFFOLD_NAMES.has('oak_planks') && !S.SCAFFOLD_NAMES.has('stone_bricks'))
+})
+await t('buildBagDetail: under 300 characters, the most negative first, every field in order', () => {
+  const bal = S.bagBalance({ bag0: { torch: 1 }, took: { stone_bricks: 89, oak_planks: 49, glass_pane: 4, cut_copper: 20, torch: 2, furnace: 2, crafting_table: 1, oak_sapling: 2, birch_sapling: 1, cobblestone: 64 }, placed: { stone_bricks: 88 }, bag1: {} })
+  const d = S.buildBagDetail('shop', bal)
+  assert.ok(d.length <= 300, d.length)
+  assert.ok(d.startsWith('project=shop stone_bricks=0/89/0/88/0/0') === false, 'not the most negative')
+  assert.match(d, /^project=shop cobblestone=0\/64\/0\/0\/0\/0 /, 'the most negative (-64) first')
+})
+
 console.log('THE FOOTPRINT PRICE')
 await t('a record cell + 1 costs 100 on a WORK or TRAVEL walk, 0 on an escape walk (survival digs kept), 0 outside', () => {
   const cells = S.footprintCells({ cells: [{ at: [10, 70, 10] }] })
@@ -125,7 +142,7 @@ const W = [
   ['index: the footprint price appended to the shared place array', IX, /moves\.exclusionAreasPlace = moves\.exclusionAreasPlace\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
   ['skills: the presence heartbeat while the connection lives', SK, /beat = setInterval\(\(\) => mark\(false\), PRESENCE_BEAT_MS\)/],
   ['skills: the heartbeat started at once when installed after login', SK, /if \(bot\.entity\) start\(\)/],
-  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true \}/],
+  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy \}/],
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
   ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
@@ -134,6 +151,7 @@ const W = [
   ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
   ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took\) \}/],
   ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
+  ['skills: one _build_bag row per visit, in the finally', SK, /if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],

@@ -135,7 +135,10 @@ const byColumn = keys => {
  *        attempts_spent | unknown.
  */
 export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS } = {}) {
-  const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen }
+  // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
+  // the caller's own object when given, so an aborted visit still reports what it placed
+  const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
+  const tally = name => { out.placedBy[name] = (out.placedBy[name] ?? 0) + 1 }
   const { dir, key, me, home, record, palette } = p
   const stood = p.stood ?? []
   const now = () => e.now()
@@ -273,7 +276,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
     const v = await click(r.cell, r.sapling, step, 'clear', seg.gen, { want: b => SAPLING.test(nm(b)) })
     PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen)
-    if (v === 'placed') { out.planted++; e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else { out.stop = 'no_step'; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }
+    if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else { out.stop = 'no_step'; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }
   }
 
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
@@ -298,7 +301,8 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const v = await digNamed(c.at, c.name, held)
         if (v === 'fence') return 'fence:segment'
         if (v === 'aborted') return 'aborted'
-        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind }) }
+        // a felled tree's row carries the replant cells reading a sapling AT the felling, of all of them (the read's G5)
+        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind, ...(c.kind === 'tree' ? { saplings: `${(record.replant ?? []).filter(r => SAPLING.test(nm(rd(...r.cell)))).length}/${(record.replant ?? []).length}` } : {}) }) }
       }
       return null
     } finally { PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen) }
@@ -356,7 +360,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const block = blockFor(palette, picked.role, e.has)
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
         const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role) })
-        if (v === 'placed') { out.placed++; e.log('_build', { op: 'place', seg, cell: picked.at, block }); continue }
+        if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block }); continue }
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
         bump(picked.at)                                               // body, stand, barrier_wait, refused, silent: an attempt

@@ -92,6 +92,31 @@ export function visitNeeds (record, bill, { saplingAt = () => false, town = {}, 
 export function leftoverNames (took = {}, held0 = {}, heldNow = {}) {
   return Object.keys(took).filter(n => (Number(took[n]) || 0) > 0 && (Number(heldNow[n]) || 0) > (Number(held0[n]) || 0))
 }
+/**
+ * THE VISIT'S BAG BALANCE (read r1: Codex P1-2, Claude P3-4) -> { name: { bag0, took, crafted, placed, back, bag1, unexplained } }
+ * for every name the visit touched. Pure. unexplained = bag1 - (bag0 + took + crafted - placed - back): NEGATIVE is a loss the visit
+ * cannot account for (a pickup on the way makes it positive; the pathfinder's scaffold of cobblestone or planks makes it
+ * negative and is legitimate for those two -- SCAFFOLD_NAMES -- so the read gates only the other names).
+ */
+export function bagBalance ({ bag0 = {}, took = {}, crafted = {}, placed = {}, back = {}, bag1 = {} } = {}) {
+  const names = new Set([...Object.keys(took), ...Object.keys(crafted), ...Object.keys(placed), ...Object.keys(back)])
+  const out = {}
+  const n = (m, k) => Number(m?.[k]) || 0
+  for (const k of names) {
+    const v = { bag0: n(bag0, k), took: n(took, k), crafted: n(crafted, k), placed: n(placed, k), back: n(back, k), bag1: n(bag1, k) }
+    v.unexplained = v.bag1 - (v.bag0 + v.took + v.crafted - v.placed - v.back)
+    out[k] = v
+  }
+  return out
+}
+export const SCAFFOLD_NAMES = Object.freeze(new Set(['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks', 'pale_oak_planks', 'bamboo_planks', 'crimson_planks', 'warped_planks']))
+/** `_build_bag` detail: `project=shop name=bag0/took/crafted/placed/back/bag1 ...` (under 300 characters: names by unexplained first). */
+export const buildBagDetail = (project, bal) => {
+  const parts = Object.entries(bal).sort((a, b) => a[1].unexplained - b[1].unexplained).map(([k, v]) => `${k}=${v.bag0}/${v.took}/${v.crafted}/${v.placed}/${v.back}/${v.bag1}`)
+  let s = `project=${project}`
+  for (const p of parts) { if ((s + ' ' + p).length > 290) break; s += ' ' + p }
+  return s
+}
 /** The skill's contract time (skills.mjs build_shop maxMs) and the least left for a bank to start (Claude r3 P3-1). */
 export const SHOP_SKILL_MS = 600_000
 export const SHOP_BANK_MIN_MS = 150_000
@@ -180,6 +205,6 @@ export function stoodRead (dir, key, home) {
 
 const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(Array.isArray(f[k]) ? f[k].join(',') : f[k]).replace(/\s+/g, '_').slice(0, k === 'why' ? 120 : 48)}`).join(' ')
 export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
-export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'gen'], f)
+export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
 export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)

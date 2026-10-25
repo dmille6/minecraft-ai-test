@@ -105,6 +105,28 @@ await t('MUTANT the visit never asks for its beat', () => both('beatConn: p.beat
   assert.strictEqual(r.placed, 0)
 }))
 
+console.log('THE READ\'S EVIDENCE (read r1)')
+await t('placedBy books every acknowledged placement by the HELD name (a torch that lands as a wall_torch is a torch); a caller\'s object is filled in place', async () => {
+  const srv = server(), { p } = project()
+  const placedBy = {}
+  const r = await R.runVisit({ ...p('A'), placedBy }, bot(srv, 'A', { as: n => (n === 'torch' ? 'wall_torch' : n) }), { maxSteps: 2000 })
+  assert.strictEqual(r.stop, 'complete')
+  assert.strictEqual(Object.values(placedBy).reduce((a, b) => a + b, 0), r.placed + r.planted)
+  assert.strictEqual(placedBy.stone_bricks, 89); assert.strictEqual(placedBy.torch, 2); assert.ok(!('wall_torch' in placedBy))
+  assert.strictEqual(r.placedBy, placedBy)
+})
+await t('a felled tree\'s clear row carries the replant cells reading a sapling at the felling (saplings=1/1)', async () => {
+  const log = B.footprint(BP, { x: SITE.record.anchor[0], z: SITE.record.anchor[1] }, SITE.record.orient).pad[30]
+  const at = [log[0], G + 1, log[1]]
+  const rp = { cell: [SITE.record.box[2] + 10, G + 1, SITE.record.box[1]], species: 'oak', sapling: 'oak_sapling', state: 'pending' }
+  const record = { ...SITE.record, clear: [{ at, kind: 'tree', name: 'oak_log' }], replant: [rp] }
+  const srv = server({ [k3(at)]: 'oak_log' }), { p } = project(record)
+  const e = bot(srv, 'A')
+  await R.runVisit(p('A'), e, { maxSteps: 2000 })
+  const row = e.logs.find(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'tree')
+  assert.ok(row, 'the felling row'); assert.strictEqual(row[1].saplings, '1/1')
+})
+
 console.log('THE SLOT REFERENCE (Codex r1 P3)')
 await t('slotRef follows every renewal of the admission slot (the caller releases the LATEST generation on any exit)', async () => {
   const srv = server(), { p } = project()
