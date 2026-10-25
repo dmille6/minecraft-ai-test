@@ -59,6 +59,24 @@ await t('spendableFor: a part is its stock less claims; a reserved family is abo
   assert.strictEqual(S.spendableFor('torch', { torch: 10 }, { reserve }), 0)
 })
 
+await t('visitNeeds: the bill, a sapling per pending replant without one, a missing station\'s inputs (none when the town has it)', () => {
+  const rec = { replant: [{ cell: [1, 70, 1], sapling: 'oak_sapling' }, { cell: [2, 70, 2], sapling: 'birch_sapling' }] }
+  const bill = { stone_bricks: 10, furnace: 2, crafting_table: 1 }
+  const got = S.visitNeeds(rec, bill, { saplingAt: c => c[0] === 2, town: { furnace: 0, crafting_table: 1 }, spare: { furnace: 1 }, planks: 'spruce_planks' })
+  assert.deepStrictEqual(got, { stone_bricks: 10, furnace: 2, crafting_table: 1, oak_sapling: 1, cobblestone: 8 })
+  assert.deepStrictEqual(S.visitNeeds({}, { crafting_table: 1 }, { planks: 'spruce_planks' }), { crafting_table: 1, spruce_planks: 4 }, 'no table in town: its planks')
+})
+await t('shopAllow: a PART (no reserve key) up to what the container shows; a reserved family through takeAllowed (control: takeAllowed gives a part 0)', async () => {
+  const M = await import('../src/mats.mjs')
+  assert.strictEqual(M.takeAllowed('stone_bricks', 30, { here: { stone_bricks: 20 } }), 0, 'the Paper r1 defect: a part is never drawn by takeAllowed')
+  assert.strictEqual(S.shopAllow('stone_bricks', 30, { here: { stone_bricks: 20 } }), 20)
+  assert.strictEqual(S.shopAllow('glass_pane', 4, { here: { glass_pane: 9 } }), 4)
+  assert.strictEqual(S.shopAllow('glass_pane', 4, { here: {} }), 0)
+  const o = { others: {}, here: { torch: 40 }, reserve: { torch: 32 } }
+  assert.strictEqual(S.shopAllow('torch', 20, o), M.takeAllowed('torch', 20, o), 'a reserved family is judged by takeAllowed')
+  assert.ok(S.shopAllow('torch', 20, o) <= 8, 'never through the torch reserve')
+})
+
 console.log('THE FOOTPRINT PRICE')
 await t('a record cell + 1 costs 100 on a WORK or TRAVEL walk, 0 on an escape walk (survival digs kept), 0 outside', () => {
   const cells = S.footprintCells({ cells: [{ at: [10, 70, 10] }] })
@@ -91,8 +109,15 @@ const W = [
   ['skills: build_shop contract expects world_change', SK, /build_shop:\s*\{\s*expects:\s*\['world_change'\]/],
   ['cognitive: the order comes from buildOrder', CG, /const r = buildOrder\(\{ on: SHOP\.on,/],
   ['cognitive: a decline refunds the cooldown', CG, /build_shop:\s*\['shopState',\s*'lastAt'\]/],
-  ['index: the footprint price pushed onto the shared break array', IX, /moves\.exclusionAreasBreak\.push\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
-  ['index: the footprint price pushed onto the shared place array', IX, /moves\.exclusionAreasPlace\.push\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
+  ['index: the footprint price appended to the shared break array', IX, /moves\.exclusionAreasBreak = moves\.exclusionAreasBreak\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
+  ['index: the footprint price appended to the shared place array', IX, /moves\.exclusionAreasPlace = moves\.exclusionAreasPlace\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
+  ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
+  ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = shopKeepOut\(\)/],
+  ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
+  ['skills: the visit draws with the part rule', SK, /matsWithdraw\(ctx, need, signal, 30_000, matsReserve\(\)\.table, shopAllow\)/],
+  ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = allow\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
+  ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
+  ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
 ]

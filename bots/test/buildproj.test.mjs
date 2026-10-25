@@ -1,7 +1,8 @@
 // SHOP-01 STAGE A, THE BUILD PROJECT'S FILES (bots/src/buildproj.mjs): the record's generation chain, the slot and segment
-// leases with fresh epochs, the mutex (D7: an exclusive-create lockfile with the holder's pid), the intent logs, the barrier and
-// the fence. Behaviour over real temporary directories; the mutex's dead-holder reclaim is exercised with a real child process
-// that takes the lock and exits. Mutants are checked both ways (the real code passes, the mutant fails).
+// leases with fresh epochs, the mutex (D7 r2: exclusive-create GENERATIONS, the newest deciding, no age reclaim), the intent logs
+// with their connection, presence and retirement, the barrier and the fence. Behaviour over real temporary directories; the
+// mutex's dead-holder reclaim is exercised with a real child process that takes the lock and exits; the reclaim RACE (Codex r1
+// P1) is interleaved through the liveness callback. Mutants are checked both ways (the real code passes, the mutant fails).
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -119,16 +120,47 @@ await t('A HOLDER THAT DIES: a real child process takes the lock and exits -> th
   const d = tmp()
   const mod = new URL('../src/buildproj.mjs', import.meta.url).href
   execFileSync(process.execPath, ['--input-type=module', '-e', `const P = await import(${JSON.stringify(mod)}); const r = P.mutexTake(${JSON.stringify(d)}, ${JSON.stringify(KEY)}, 'child'); if (!r.ok) process.exit(3)`])
-  const lock = JSON.parse(fs.readFileSync(path.join(d, `${KEY}.mutate.lock`), 'utf8'))
+  const lock = JSON.parse(fs.readFileSync(path.join(d, `${KEY}.mutate.g1.json`), 'utf8'))
   assert.strictEqual(lock.holder, 'child')
   const r = P.mutexTake(d, KEY, 'B')
   assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.reclaimed, 'child')
 })
-await t('a LIVE holder younger than MUTEX_STALE_MS is never reclaimed; older is (a hung holder)', () => {
+await t('NO AGE RECLAIM (Codex r1 P1): a LIVE holder is never displaced, an hour on (a suspended holder may still send); released, free at once', () => {
   const d = tmp(), now = 5_000_000
-  assert.ok(P.mutexTake(d, KEY, 'A', { now, pid: 4242, alive: () => true }).ok)
-  assert.strictEqual(P.mutexTake(d, KEY, 'B', { now: now + 1000, alive: () => true }).ok, false)
-  assert.ok(P.mutexTake(d, KEY, 'B', { now: now + P.MUTEX_STALE_MS + 1, alive: () => true }).ok)
+  const a = P.mutexTake(d, KEY, 'A', { now, pid: 4242, alive: () => true })
+  assert.ok(a.ok)
+  assert.strictEqual(P.mutexTake(d, KEY, 'B', { now: now + 3_600_000, alive: () => true }).ok, false)
+  P.mutexRelease(d, KEY, 'A', { pid: 4242, gen: a.gen })
+  const b = P.mutexTake(d, KEY, 'B', { now: now + 3_600_001, alive: () => true })
+  assert.ok(b.ok); assert.strictEqual(b.gen, a.gen + 1)
+})
+await t('THE RECLAIM RACE (Codex r1 P1): two takers that saw the same dead holder -- exactly one holds (the other gets EEXIST, busy)', () => {
+  const d = tmp(), now = 5_100_000
+  fs.writeFileSync(path.join(d, `${KEY}.mutate.g1.json`), JSON.stringify({ holder: 'dead', pid: 999_999, at: now }))
+  let ra = null
+  // A takes INSIDE B's liveness check of the dead holder: B has already judged gen 1 free when A creates gen 2
+  const rb = P.mutexTake(d, KEY, 'B', { now, alive: pid => { if (pid === 999_999 && !ra) ra = P.mutexTake(d, KEY, 'A', { now, alive: p => p !== 999_999 }); return pid !== 999_999 } })
+  assert.ok(ra?.ok, JSON.stringify(ra)); assert.strictEqual(ra.reclaimed, 'dead')
+  assert.strictEqual(rb.ok, false, JSON.stringify(rb))
+})
+await t('a TORN generation (a kill inside the write) is held for MUTEX_TORN_MS, then free; a holder SUPERSEDED by its own newer presence is free', () => {
+  const d = tmp(), now = Date.now()
+  fs.writeFileSync(path.join(d, `${KEY}.mutate.g1.json`), '{"holder":"A","pi')
+  assert.strictEqual(P.mutexTake(d, KEY, 'B', { now, alive: () => true }).ok, false, 'torn and fresh: held')
+  const b = P.mutexTake(d, KEY, 'B', { now: now + P.MUTEX_TORN_MS + 1000, alive: () => true })
+  assert.ok(b.ok, JSON.stringify(b))
+  const d2 = tmp()
+  assert.ok(P.mutexTake(d2, KEY, 'A', { now, pid: 4242, alive: () => true }).ok)
+  assert.strictEqual(P.mutexTake(d2, KEY, 'B', { now: now + 10, alive: () => true }).ok, false, 'control: A\'s process still holds')
+  P.presenceWrite(d2, KEY, 'A', { conn: 'c2', pid: 5151, now: now + 20 })   // A restarted as pid 5151 (pid 4242 may be reused)
+  assert.ok(P.mutexTake(d2, KEY, 'B', { now: now + 30, alive: () => true }).ok)
+})
+await t('old generations are pruned beyond MUTEX_KEEP; the newest always decides', () => {
+  const d = tmp()
+  for (let i = 0; i < P.MUTEX_KEEP + 5; i++) { const r = P.mutexTake(d, KEY, 'A'); assert.ok(r.ok); P.mutexRelease(d, KEY, 'A', { gen: r.gen }) }
+  const gens = fs.readdirSync(d).filter(n => /\.mutate\.g\d+\.json$/.test(n))
+  assert.ok(gens.length <= P.MUTEX_KEEP, `${gens.length} generations kept`)
+  assert.ok(P.mutexTake(d, KEY, 'B').ok)
 })
 
 console.log('INTENTS AND THE BARRIER')
@@ -158,14 +190,15 @@ await t('THE BARRIER: taken by A, it fences B (fenceRefusal barrier) but not A; 
   P.barrierRelease(d, KEY, 'A', bar.gen)
   assert.strictEqual(P.fenceRefusal(d, KEY, 'B', fb), null)
 })
-await t('THE BARRIER WAITS for every other holder\'s open intent: settled -> clear; or the sender RETIRED (playerLeft + 1 s) -> clear; never a timer', () => {
+await t('THE BARRIER WAITS for every other holder\'s open intent: settled -> clear; or the sender RETIRED (offline 1 s) -> clear; never a timer', () => {
   const d = tmp(), now = 7_000_000
   const id = P.intentOpen(d, KEY, 'B', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 1, now })
   P.intentOpen(d, KEY, 'A', { cell: [1, 0, 0], block: 'x', lease: 1, seq: 1, now })
   assert.deepStrictEqual(P.barrierClear(d, KEY, 'A', { now }).waiting.map(i => i.holder), ['B'], 'A\'s own intent never blocks A')
   assert.strictEqual(P.barrierClear(d, KEY, 'A', { now: now + 3_600_000 }).clear, false, 'an hour later: still waiting (no timer)')
-  assert.strictEqual(P.barrierClear(d, KEY, 'A', { retired: new Map([['B', now]]), now: now + 500 }).clear, false, 'retired 0.5 s ago: not yet')
-  assert.ok(P.barrierClear(d, KEY, 'A', { retired: new Map([['B', now]]), now: now + 1_000 }).clear)
+  const offline = (i, t) => P.intentRetired(i, { online: false, offlineSince: now, now: t })
+  assert.strictEqual(P.barrierClear(d, KEY, 'A', { isRetired: offline, now: now + 500 }).clear, false, 'offline 0.5 s: not yet')
+  assert.ok(P.barrierClear(d, KEY, 'A', { isRetired: offline, now: now + 1_000 }).clear)
   P.intentClose(d, KEY, 'B', id, 'settled', { state: 'x' })
   assert.ok(P.barrierClear(d, KEY, 'A', { now }).clear)
 })
@@ -182,13 +215,34 @@ await t('THE FENCE names each lost guard: slot, segment, record generation', () 
   assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, segGen: g.gen + 1, now: now + 12 }), 'record')
 })
 
+await t('intentRetired: a NEWER presence of another connection; offline >= 1 s; a playerLeft after the intent survives a rejoin; else live', () => {
+  const now = 12_000_000, i = { holder: 'B', conn: 'c1', at: now }
+  assert.ok(!P.intentRetired(i, { now }), 'nothing seen: live')
+  assert.ok(P.intentRetired(i, { presence: { conn: 'c2', at: now + 5 }, now: now + 6 }), 'B reconnected after the intent')
+  assert.ok(!P.intentRetired(i, { presence: { conn: 'c2', at: now - 5 }, now: now + 6 }), 'an OLDER presence of another connection proves nothing')
+  assert.ok(!P.intentRetired(i, { presence: { conn: 'c1', at: now + 5 }, now: now + 6 }), 'the same connection: live')
+  assert.ok(!P.intentRetired(i, { online: false, offlineSince: now, now: now + 999 }))
+  assert.ok(P.intentRetired(i, { online: false, offlineSince: now, now: now + 1_000 }))
+  assert.ok(P.intentRetired(i, { online: true, leftAt: now + 10, now: now + 2_000 }), 'left after the intent, online again since: still retired')
+  assert.ok(!P.intentRetired(i, { online: true, leftAt: now - 10, now: now + 2_000 }), 'a playerLeft BEFORE the intent: the intent is the new connection\'s')
+})
+await t('closeOwn: an earlier connection\'s open intents cancelled, this connection\'s acknowledged ones settled, the rest open; others untouched', () => {
+  const d = tmp(), now = 13_000_000
+  P.intentOpen(d, KEY, 'A', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 7, conn: 'old', now })
+  P.intentOpen(d, KEY, 'A', { cell: [1, 0, 0], block: 'x', lease: 1, seq: 3, conn: 'new', now })
+  const live = P.intentOpen(d, KEY, 'A', { cell: [2, 0, 0], block: 'x', lease: 1, seq: 9, conn: 'new', now })
+  const other = P.intentOpen(d, KEY, 'B', { cell: [3, 0, 0], block: 'x', lease: 1, seq: 1, conn: 'b1', now })
+  assert.deepStrictEqual(P.closeOwn(d, KEY, 'A', { conn: 'new', acked: 5, now }), { settled: 1, cancelled: 1 })
+  assert.deepStrictEqual(P.openIntents(d, KEY).map(i => i.id).sort(), [live, other].sort())
+})
+
 console.log('MUTANTS (anchored, unique; both ways)')
 await t('MUTANT the reclaim grace dropped (a lapsed lease is taken at once)', () => mutantKilled('now < cur.blocksUntil) return', 'now < cur.holdsUntil) return', M => {
   const d = tmp(), now = 9_000_000
   M.takeLease(d, KEY, 'seg-pad', 'A', { now })
   assert.strictEqual(M.takeLease(d, KEY, 'seg-pad', 'B', { now: now + M.LEASE_TTL_MS + 1 }).ok, false)
 }))
-await t('MUTANT a live mutex reclaimed (the pid check ignored)', () => mutantKilled('const stale = (rec && Number.isInteger(rec.pid) && !alive(rec.pid)) || now - at > MUTEX_STALE_MS', 'const stale = true', M => {
+await t('MUTANT a live mutex reclaimed (the pid check ignored)', () => mutantKilled("if (Number.isInteger(rec.pid) && !alive(rec.pid)) return { gen: g, rec, held: false, why: 'dead' }", "if (true) return { gen: g, rec, held: false, why: 'dead' }", M => {
   const d = tmp()
   M.mutexTake(d, KEY, 'A', { alive: () => true })
   assert.strictEqual(M.mutexTake(d, KEY, 'B', { alive: () => true }).ok, false)
@@ -200,7 +254,14 @@ await t('MUTANT the barrier no longer fences others', () => mutantKilled("if (b?
   M.barrierTake(d, KEY, 'A', { now })
   assert.strictEqual(M.fenceRefusal(d, KEY, 'B', { slot: 2, slotGen: s.gen, seg: 'x', segGen: g.gen, recordGen: 1, now }), 'barrier')
 }))
-await t('MUTANT the barrier waits on a timer (an old intent counted as settled)', () => mutantKilled('const waiting = openIntents(dir, key).filter(i => i.holder !== holder && !(retired.has(i.holder) && now - retired.get(i.holder) >= RETIRE_MS))', 'const waiting = openIntents(dir, key).filter(i => i.holder !== holder && now - i.at < 60_000)', M => {
+await t('MUTANT the newest-generation check dropped (a taker that read the listing long ago holds beside a newer generation)', () => mutantKilled('if (gens.at(-1) !== n) {', 'if (false) {', M => {
+  const d = tmp(), now = 14_000_000
+  fs.writeFileSync(path.join(d, `${KEY}.mutate.g1.json`), JSON.stringify({ holder: 'dead', pid: 999_999, at: now }))
+  // while B judges gen 1, gen 3 appears (held by a live process): B's gen 2 is not the newest and must not hold
+  const r = M.mutexTake(d, KEY, 'B', { now, alive: pid => { if (pid === 999_999) fs.writeFileSync(path.join(d, `${KEY}.mutate.g3.json`), JSON.stringify({ holder: 'C', pid: process.pid, at: now })); return pid !== 999_999 } })
+  assert.strictEqual(r.ok, false)
+}))
+await t('MUTANT the barrier waits on a timer (an old intent counted as settled)', () => mutantKilled('const waiting = openIntents(dir, key).filter(i => i.holder !== holder && !isRetired(i, now))', 'const waiting = openIntents(dir, key).filter(i => i.holder !== holder && now - i.at < 60_000)', M => {
   const d = tmp(), now = 11_000_000
   M.intentOpen(d, KEY, 'B', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 1, now })
   assert.strictEqual(M.barrierClear(d, KEY, 'A', { now: now + 3_600_000 }).clear, false)

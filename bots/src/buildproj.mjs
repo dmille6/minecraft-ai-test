@@ -11,15 +11,20 @@
 //                  `seg-<seg>`: found-01's lease shape -- exclusive create, the newest generation wins, a holder and an
 //                  `until`, a `.released` marker. EVERY ACQUISITION AND EVERY RENEWAL LINKS A NEW GENERATION: the fencing token
 //                  is the generation the sender holds now. A lapsed lease is another bot's only RECLAIM_MS after its until.
-//   THE MUTEX      `project-<...>.mutate.lock` around every final check and send. D7 (named deviation): the design asks for a
-//                  kernel flock through a native binding; none is installed, so it is an EXCLUSIVE-CREATE lockfile carrying the
-//                  holder's pid, reclaimed only when that process is dead or the hold is past MUTEX_STALE_MS (a sender
-//                  releases at settlement or after MUTEX_HOLD_MS). Taken non-blocking: busy is a free skip of that click.
+//   THE MUTEX      `project-<...>.mutate.g<N>.json` around every final check and send. D7 (named deviation): the design asks for
+//                  a kernel flock through a native binding; none is installed, so it is a chain of EXCLUSIVE-CREATE generations
+//                  (r2, Codex r1 P1: a rename-reclaim let two reclaimers hold at once). The newest generation decides: held
+//                  until its `.released` marker, unless its holder's process is dead or superseded (the holder's presence names
+//                  a newer process). NO AGE RECLAIM: a live holder, even a suspended one, is never displaced. Taken
+//                  non-blocking: busy is a free skip of that click.
 //   INTENTS        `project-<...>.intents.<holder>.jsonl`, appended and fsynced BEFORE the mutex: open {id, cell, block, lease,
-//                  seq}, then settled {id, state} on the server's acknowledgement of that sequence, or cancelled.
+//                  seq, conn}, then settled {id, state} on the server's acknowledgement of that sequence -- however late it
+//                  comes (buildack.mjs) -- or cancelled. `conn` names the sender's CONNECTION (pid and connect time).
+//   PRESENCE       `project-<...>.presence.<holder>.json`: the holder's current connection and pid, written at every login.
 //   THE BARRIER    `project-<...>.barrier.g<N>.json`: a closer cell or a fallback transition takes it under the mutex; from then
 //                  no other sender passes the fence; the holder waits for every other holder's open intent to be settled,
-//                  cancelled, or its sender RETIRED (playerLeft + RETIRE_MS), never on a timer, then clicks and releases it.
+//                  cancelled, or its sender RETIRED (intentRetired: the connection is gone), never on a timer, then clicks and
+//                  releases it.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -28,7 +33,8 @@ import crypto from 'node:crypto'
 export const LEASE_TTL_MS = 4 * 60_000
 export const RECLAIM_MS = 60_000
 export const MUTEX_HOLD_MS = 5_000
-export const MUTEX_STALE_MS = 15_000
+export const MUTEX_TORN_MS = 5_000
+export const MUTEX_KEEP = 16
 export const RETIRE_MS = 1_000
 export const BARRIER_MAX_MS = 10 * 60_000
 export const PUBLISH_TRIES = 3
@@ -76,6 +82,8 @@ export function recordHead (dir, key) {
   }
   return { ok: true, head, gens, rejected }
 }
+/** The record's newest generation NUMBER (a directory listing only; the caller's cache key) -> n | null. Never throws. */
+export function recordGenNow (dir, key) { try { return gensOf(dir, REC_RE(key)).at(-1) ?? null } catch { return null } }
 /**
  * PUBLISH A TRANSITION -> { result: 'accepted' | 'nothing' | 'lost' | 'error', gen, head }. `mutate(recOrNull)` returns the next
  * body or null; it is re-applied to the new head on a lost race (a rebase). Accepted = in the chain after the link.
@@ -160,40 +168,82 @@ export function takeSlot (dir, key, holder, max, opts = {}) {
 
 // ---- the mutex (D7) -------------------------------------------------------------------------------------------------------
 
-const lockFile = (dir, key) => path.join(dir, `${key}.mutate.lock`)
+const mutexFile = (dir, key, n) => path.join(dir, `${key}.mutate.g${n}.json`)
+const MUTEX_RE = key => new RegExp(`^${esc(key)}\\.mutate\\.g(\\d+)\\.json$`)
 /** Is a pid alive on this host? (EPERM: alive, another user's.) */
 export const pidAlive = pid => { try { process.kill(pid, 0); return true } catch (e) { return e?.code === 'EPERM' } }
 /**
- * TAKE THE MUTEX, NON-BLOCKING -> { ok: true } | { ok: false, why }. An existing lock is reclaimed only when its holder's process
- * is dead or it is older than MUTEX_STALE_MS: renamed aside (one renamer wins), then one more exclusive create.
+ * THE MUTEX NOW -> { gen, rec, held, why }. Throws on an unreadable directory (the taker reads that as busy). The NEWEST
+ * generation decides: released (its marker) -> free; torn (a kill inside the write) -> held for MUTEX_TORN_MS from its mtime;
+ * its pid dead -> free; its holder's presence written AFTER it names another pid (the holder restarted: pid reuse cannot keep a
+ * dead holder's lock) -> free; otherwise HELD, however old (no age reclaim: Codex r1 P1, a suspended live holder must not be
+ * displaced while it may still send).
+ */
+export function mutexState (dir, key, { now = Date.now(), alive = pidAlive } = {}) {
+  const g = gensOf(dir, MUTEX_RE(key)).at(-1)
+  if (g == null) return { gen: 0, rec: null, held: false, why: 'none' }
+  const f = mutexFile(dir, key, g)
+  const rec = readJ(f)
+  if (fs.existsSync(`${f}.released`)) return { gen: g, rec, held: false, why: 'released' }
+  if (!rec) { let m = now; try { m = fs.statSync(f).mtimeMs } catch { /* vanished: as just written */ } return { gen: g, rec: null, held: now - m < MUTEX_TORN_MS, why: 'torn' } }
+  if (Number.isInteger(rec.pid) && !alive(rec.pid)) return { gen: g, rec, held: false, why: 'dead' }
+  const pr = presenceRead(dir, key, rec.holder)
+  if (pr && Number.isInteger(pr.pid) && pr.pid !== rec.pid && Number(pr.at) > Number(rec.at)) return { gen: g, rec, held: false, why: 'superseded' }
+  return { gen: g, rec, held: true, why: 'held' }
+}
+/**
+ * TAKE THE MUTEX, NON-BLOCKING -> { ok: true, gen } | { ok: false, why }. A free newest generation N is taken by creating N+1
+ * EXCLUSIVELY: of any number of takers that saw N free, exactly one creates N+1, and the others get EEXIST (busy). Nothing is
+ * ever renamed or deleted under a holder. The created generation must still be the newest (a taker that read the listing long
+ * ago, after the pruning, cannot hold beside a newer generation). Old generations beyond MUTEX_KEEP are pruned.
  */
 export function mutexTake (dir, key, holder, { now = Date.now(), pid = process.pid, alive = pidAlive } = {}) {
-  const f = lockFile(dir, key)
-  const create = () => { try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, at: now })); return true } catch { return false } }
-  if (create()) return { ok: true }
-  const rec = readJ(f)
-  let mtimeMs = now
-  try { mtimeMs = fs.statSync(f).mtimeMs } catch { return create() ? { ok: true } : { ok: false, why: 'busy' } }
-  const at = Number(rec?.at ?? mtimeMs)
-  const stale = (rec && Number.isInteger(rec.pid) && !alive(rec.pid)) || now - at > MUTEX_STALE_MS
-  if (!stale) return { ok: false, why: `busy (${rec?.holder ?? 'unreadable'})` }
-  try { fs.renameSync(f, `${f}.stale.${crypto.randomBytes(4).toString('hex')}`) } catch { return { ok: false, why: 'busy (reclaimed by another)' } }
-  return create() ? { ok: true, reclaimed: rec?.holder ?? 'unreadable' } : { ok: false, why: 'busy' }
+  let st
+  try { st = mutexState(dir, key, { now, alive }) } catch { return { ok: false, why: 'busy (unreadable)' } }
+  if (st.held) return { ok: false, why: `busy (${st.rec?.holder ?? 'torn'})` }
+  const n = st.gen + 1, f = mutexFile(dir, key, n)
+  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
+  let gens = []
+  try { gens = gensOf(dir, MUTEX_RE(key)) } catch { /* judged below */ }
+  if (gens.at(-1) !== n) { try { fs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
+  for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { fs.unlinkSync(x) } catch { /* gone */ } } }
+  return { ok: true, gen: n, ...(['dead', 'superseded', 'torn'].includes(st.why) ? { reclaimed: st.rec?.holder ?? 'torn' } : {}) }
 }
-/** Release the mutex: only our own lock (holder and pid). Never throws. */
-export function mutexRelease (dir, key, holder, { pid = process.pid } = {}) {
-  try { const f = lockFile(dir, key); const rec = readJ(f); if (rec && rec.holder === holder && rec.pid === pid) fs.unlinkSync(f) } catch { /* gone */ }
+/** Release the mutex: our own generation only (holder and pid; `gen` omitted: the newest). A marker, never a delete. Never throws. */
+export function mutexRelease (dir, key, holder, { pid = process.pid, gen = null } = {}) {
+  try {
+    const g = gen ?? gensOf(dir, MUTEX_RE(key)).at(-1)
+    if (g == null) return
+    const f = mutexFile(dir, key, g)
+    const rec = readJ(f)
+    if (rec && rec.holder === holder && rec.pid === pid) fs.writeFileSync(`${f}.released`, String(Date.now()))
+  } catch { /* lapses only with the process */ }
 }
+
+// ---- presence (r2: a holder's connection, for the mutex and for retirement) -------------------------------------------------
+
+const presenceFile = (dir, key, holder) => path.join(dir, `${key}.presence.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+/** Write the holder's current connection (at every login): a temp file renamed into place. Never throws. */
+export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now = Date.now() } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = presenceFile(dir, key, holder), tmp = `${f}.${pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ holder, conn, pid, at: now }))
+    fs.renameSync(tmp, f)
+  } catch { /* the other retirement evidence still applies */ }
+}
+/** The holder's presence -> { holder, conn, pid, at } | null. */
+export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir, key, holder)) }
 
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
 const appendSynced = (f, line) => { const fd = fs.openSync(f, 'a'); try { fs.writeSync(fd, line); fs.fsyncSync(fd) } finally { fs.closeSync(fd) } }
 /** APPEND AN OPEN INTENT and fsync it (step 1, before the mutex) -> its id. Throws on a write failure: no intent, no click. */
-export function intentOpen (dir, key, holder, { cell, block, lease, seq, now = Date.now() }) {
+export function intentOpen (dir, key, holder, { cell, block, lease, seq, conn = null, now = Date.now() }) {
   const id = `${now.toString(36)}-${crypto.randomBytes(3).toString('hex')}`
   fs.mkdirSync(dir, { recursive: true })
-  appendSynced(intentFile(dir, key, holder), JSON.stringify({ op: 'open', id, holder, cell, block, lease, seq, at: now }) + '\n')
+  appendSynced(intentFile(dir, key, holder), JSON.stringify({ op: 'open', id, holder, cell, block, lease, seq, conn, at: now }) + '\n')
   return id
 }
 /** Close an intent: 'settled' (with the state the acknowledgement left in the cell) or 'cancelled'. Never throws. */
@@ -216,9 +266,35 @@ export function openIntents (dir, key) {
       try { r = JSON.parse(line) } catch { continue }
       if (r.op === 'open') open.set(r.id, r); else if (r.op === 'settled' || r.op === 'cancelled') open.delete(r.id)
     }
-    for (const r of open.values()) out.push({ holder: r.holder, id: r.id, cell: r.cell, block: r.block, lease: r.lease, seq: r.seq, at: r.at })
+    for (const r of open.values()) out.push({ holder: r.holder, id: r.id, cell: r.cell, block: r.block, lease: r.lease, seq: r.seq, conn: r.conn ?? null, at: r.at })
   }
   return out
+}
+/**
+ * CLOSE THIS HOLDER'S OWN LEFTOVERS at a visit's start (Claude r1 P2-2, Codex r1 P2): an open intent of ANOTHER connection of ours
+ * is cancelled (that connection is gone: the server allows one per name, so it can deliver nothing more); one of THIS connection
+ * whose sequence the server has already acknowledged (`acked`) is settled. -> { settled, cancelled }. Never throws.
+ */
+export function closeOwn (dir, key, holder, { conn = null, acked = 0, now = Date.now() } = {}) {
+  const r = { settled: 0, cancelled: 0 }
+  try {
+    for (const i of openIntents(dir, key).filter(x => x.holder === holder)) {
+      if (conn && i.conn !== conn) { intentClose(dir, key, holder, i.id, 'cancelled', { now }); r.cancelled++ } else if (Number.isInteger(i.seq) && i.seq <= acked) { intentClose(dir, key, holder, i.id, 'settled', { state: 'ack', now }); r.settled++ }
+    }
+  } catch { /* the barrier keeps waiting: safe */ }
+  return r
+}
+/**
+ * IS AN OPEN INTENT'S SENDER RETIRED? (its connection can deliver nothing more) Pure. Any one of:
+ *   - its holder's PRESENCE, written after the intent, names another connection (the holder reconnected);
+ *   - the holder is not online now and has not been for RETIRE_MS (`offlineSince`: first seen offline by this connection);
+ *   - a playerLeft for it was seen RETIRE_MS ago or more, after the intent was opened (a rejoin never undoes this: Claude r1 P2-2).
+ */
+export function intentRetired (i, { presence = null, online = true, offlineSince = null, leftAt = null, now = Date.now() } = {}) {
+  if (presence?.conn && i?.conn && presence.conn !== i.conn && Number(presence.at) > Number(i.at)) return true
+  if (!online && offlineSince != null && now - offlineSince >= RETIRE_MS) return true
+  if (leftAt != null && Number(i?.at) <= leftAt && now - leftAt >= RETIRE_MS) return true
+  return false
 }
 
 // ---- the barrier ------------------------------------------------------------------------------------------------------------
@@ -250,10 +326,10 @@ export function barrierRelease (dir, key, holder, gen) {
 }
 /**
  * MAY THE BARRIER'S HOLDER CLICK? -> { clear, waiting: [intent] }. Every OTHER holder's open intent must be settled or cancelled,
- * or its sender RETIRED (`retired`: holder -> the time its playerLeft was seen; retired RETIRE_MS ago or more). Never a timer.
+ * or its sender RETIRED (`isRetired(intent, now)`: intentRetired over what this bot has seen). Never a timer.
  */
-export function barrierClear (dir, key, holder, { retired = new Map(), now = Date.now() } = {}) {
-  const waiting = openIntents(dir, key).filter(i => i.holder !== holder && !(retired.has(i.holder) && now - retired.get(i.holder) >= RETIRE_MS))
+export function barrierClear (dir, key, holder, { isRetired = () => false, now = Date.now() } = {}) {
+  const waiting = openIntents(dir, key).filter(i => i.holder !== holder && !isRetired(i, now))
   return { clear: waiting.length === 0, waiting }
 }
 
