@@ -1,0 +1,6160 @@
+{
+ "world": "isolated-b",
+ "planGen": 5,
+ "planSha": "0956c1449434054868ce4fa18417c39cd4874033888d49763c5b0d91b216421e",
+ "v": 1,
+ "blueprint": "workshop@1",
+ "plot": "workshop",
+ "home": {
+  "x": 355,
+  "y": 73,
+  "z": 147
+ },
+ "sector": "NE",
+ "sector_source": "free",
+ "orient": "W",
+ "anchor": [
+  377,
+  123
+ ],
+ "box": [
+  369,
+  117,
+  377,
+  123
+ ],
+ "s": 71,
+ "floor": 70,
+ "earthwork": {
+  "fill": 27,
+  "cut": 2,
+  "litter": 4
+ },
+ "fill": [
+  [
+   377,
+   69,
+   121
+  ],
+  [
+   377,
+   70,
+   121
+  ],
+  [
+   377,
+   70,
+   118
+  ],
+  [
+   377,
+   69,
+   117
+  ],
+  [
+   377,
+   70,
+   117
+  ],
+  [
+   376,
+   69,
+   119
+  ],
+  [
+   376,
+   70,
+   119
+  ],
+  [
+   376,
+   69,
+   118
+  ],
+  [
+   376,
+   70,
+   118
+  ],
+  [
+   375,
+   69,
+   120
+  ],
+  [
+   375,
+   70,
+   120
+  ],
+  [
+   375,
+   69,
+   119
+  ],
+  [
+   375,
+   70,
+   119
+  ],
+  [
+   375,
+   69,
+   118
+  ],
+  [
+   375,
+   70,
+   118
+  ],
+  [
+   374,
+   69,
+   119
+  ],
+  [
+   374,
+   70,
+   119
+  ],
+  [
+   374,
+   68,
+   118
+  ],
+  [
+   374,
+   69,
+   118
+  ],
+  [
+   374,
+   70,
+   118
+  ],
+  [
+   373,
+   68,
+   122
+  ],
+  [
+   373,
+   69,
+   122
+  ],
+  [
+   373,
+   70,
+   122
+  ],
+  [
+   371,
+   70,
+   119
+  ],
+  [
+   370,
+   70,
+   120
+  ],
+  [
+   369,
+   69,
+   118
+  ],
+  [
+   369,
+   70,
+   118
+  ]
+ ],
+ "clear": [
+  {
+   "at": [
+    377,
+    71,
+    123
+   ],
+   "kind": "plant",
+   "name": "dandelion"
+  },
+  {
+   "at": [
+    377,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    377,
+    72,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    377,
+    73,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    377,
+    71,
+    121
+   ],
+   "kind": "scaffold",
+   "name": "cobblestone"
+  },
+  {
+   "at": [
+    377,
+    71,
+    120
+   ],
+   "kind": "plant",
+   "name": "poppy"
+  },
+  {
+   "at": [
+    377,
+    73,
+    120
+   ],
+   "kind": "scaffold",
+   "name": "cobblestone"
+  },
+  {
+   "at": [
+    377,
+    72,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    377,
+    74,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    377,
+    73,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    377,
+    74,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    73,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    72,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    73,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    74,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    72,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    73,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    71,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    72,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    376,
+    71,
+    119
+   ],
+   "kind": "cut",
+   "name": "grass_block"
+  },
+  {
+   "at": [
+    375,
+    71,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    73,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    74,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    71,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    72,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    73,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    71,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    72,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    73,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    71,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    72,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    73,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    69,
+    119
+   ],
+   "kind": "plant",
+   "name": "oak_sapling"
+  },
+  {
+   "at": [
+    375,
+    71,
+    119
+   ],
+   "kind": "cut",
+   "name": "grass_block"
+  },
+  {
+   "at": [
+    375,
+    72,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    71,
+    118
+   ],
+   "kind": "scaffold",
+   "name": "cobblestone"
+  },
+  {
+   "at": [
+    375,
+    72,
+    118
+   ],
+   "kind": "scaffold",
+   "name": "cobblestone"
+  },
+  {
+   "at": [
+    375,
+    73,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    71,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    72,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    375,
+    73,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    71,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    74,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    71,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    72,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    71,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    72,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    73,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    71,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    72,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    73,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    74,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    73,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    71,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    72,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    73,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    74,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    71,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    72,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    374,
+    73,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    71,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    74,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    71,
+    122
+   ],
+   "kind": "tree",
+   "name": "jungle_log"
+  },
+  {
+   "at": [
+    373,
+    71,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    71,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    71,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    74,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    71,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    71,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    72,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    373,
+    73,
+    117
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    71,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    73,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    74,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    71,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    72,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    71,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    71,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    72,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    73,
+    120
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    71,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    72,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    73,
+    119
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    71,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    72,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    372,
+    73,
+    118
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    371,
+    71,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    371,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    371,
+    73,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    371,
+    74,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    371,
+    71,
+    122
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    371,
+    71,
+    121
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    370,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    370,
+    73,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  },
+  {
+   "at": [
+    369,
+    72,
+    123
+   ],
+   "kind": "leaves",
+   "name": "oak_leaves"
+  }
+ ],
+ "trees": [
+  {
+   "base": [
+    373,
+    71,
+    122
+   ],
+   "species": "jungle",
+   "logs": 1
+  }
+ ],
+ "replant": [
+  {
+   "cell": [
+    368,
+    70,
+    132
+   ],
+   "species": "jungle",
+   "sapling": "jungle_sapling",
+   "state": "pending"
+  }
+ ],
+ "cells": [
+  {
+   "at": [
+    374,
+    68,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    373,
+    71,
+    118
+   ],
+   "support": [
+    375,
+    68,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 0
+  },
+  {
+   "at": [
+    373,
+    68,
+    122
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    68,
+    120
+   ],
+   "support": [
+    373,
+    67,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 1
+  },
+  {
+   "at": [
+    377,
+    69,
+    121
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    377,
+    68,
+    120
+   ],
+   "support": [
+    377,
+    68,
+    121
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 2
+  },
+  {
+   "at": [
+    377,
+    69,
+    117
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    68,
+    117
+   ],
+   "support": [
+    377,
+    69,
+    118
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 3
+  },
+  {
+   "at": [
+    376,
+    69,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    68,
+    120
+   ],
+   "support": [
+    376,
+    68,
+    119
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 4
+  },
+  {
+   "at": [
+    376,
+    69,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    68,
+    117
+   ],
+   "support": [
+    377,
+    69,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 5
+  },
+  {
+   "at": [
+    375,
+    69,
+    120
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    68,
+    120
+   ],
+   "support": [
+    375,
+    68,
+    120
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 6
+  },
+  {
+   "at": [
+    375,
+    69,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    68,
+    120
+   ],
+   "support": [
+    375,
+    68,
+    119
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 7
+  },
+  {
+   "at": [
+    375,
+    69,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    67,
+    116
+   ],
+   "support": [
+    375,
+    69,
+    119
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 8
+  },
+  {
+   "at": [
+    374,
+    69,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    374,
+    71,
+    120
+   ],
+   "support": [
+    375,
+    69,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 9
+  },
+  {
+   "at": [
+    374,
+    69,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    374,
+    71,
+    117
+   ],
+   "support": [
+    375,
+    69,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 10
+  },
+  {
+   "at": [
+    369,
+    69,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    368,
+    68,
+    118
+   ],
+   "support": [
+    369,
+    68,
+    118
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 11
+  },
+  {
+   "at": [
+    377,
+    70,
+    121
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    377,
+    71,
+    120
+   ],
+   "support": [
+    378,
+    70,
+    121
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 12
+  },
+  {
+   "at": [
+    377,
+    70,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    378,
+    68,
+    118
+   ],
+   "support": [
+    377,
+    70,
+    119
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 13
+  },
+  {
+   "at": [
+    377,
+    70,
+    117
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    377,
+    71,
+    116
+   ],
+   "support": [
+    378,
+    70,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 14
+  },
+  {
+   "at": [
+    376,
+    70,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    71,
+    120
+   ],
+   "support": [
+    377,
+    70,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 15
+  },
+  {
+   "at": [
+    376,
+    70,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    376,
+    71,
+    117
+   ],
+   "support": [
+    377,
+    70,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 16
+  },
+  {
+   "at": [
+    375,
+    70,
+    120
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    375,
+    71,
+    121
+   ],
+   "support": [
+    376,
+    70,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 17
+  },
+  {
+   "at": [
+    375,
+    70,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    374,
+    71,
+    120
+   ],
+   "support": [
+    376,
+    70,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 18
+  },
+  {
+   "at": [
+    375,
+    70,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    375,
+    71,
+    117
+   ],
+   "support": [
+    376,
+    70,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 19
+  },
+  {
+   "at": [
+    374,
+    70,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    374,
+    71,
+    120
+   ],
+   "support": [
+    375,
+    70,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 20
+  },
+  {
+   "at": [
+    374,
+    70,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    374,
+    71,
+    117
+   ],
+   "support": [
+    375,
+    70,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 21
+  },
+  {
+   "at": [
+    373,
+    70,
+    122
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    373,
+    71,
+    121
+   ],
+   "support": [
+    374,
+    70,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 22
+  },
+  {
+   "at": [
+    373,
+    69,
+    122
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    377,
+    68,
+    120
+   ],
+   "support": [
+    373,
+    70,
+    122
+   ],
+   "face": [
+    0,
+    -1,
+    0
+   ],
+   "order": 23
+  },
+  {
+   "at": [
+    371,
+    70,
+    119
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    371,
+    71,
+    118
+   ],
+   "support": [
+    372,
+    70,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 24
+  },
+  {
+   "at": [
+    370,
+    70,
+    120
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    370,
+    71,
+    119
+   ],
+   "support": [
+    371,
+    70,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 25
+  },
+  {
+   "at": [
+    369,
+    70,
+    118
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    368,
+    68,
+    118
+   ],
+   "support": [
+    369,
+    70,
+    119
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 26
+  },
+  {
+   "at": [
+    377,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    377,
+    71,
+    124
+   ],
+   "support": [
+    377,
+    70,
+    123
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 27
+  },
+  {
+   "at": [
+    377,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    379,
+    70,
+    122
+   ],
+   "support": [
+    377,
+    71,
+    123
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 28
+  },
+  {
+   "at": [
+    377,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    379,
+    70,
+    121
+   ],
+   "support": [
+    377,
+    71,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 29
+  },
+  {
+   "at": [
+    377,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    379,
+    70,
+    121
+   ],
+   "support": [
+    377,
+    70,
+    120
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 30
+  },
+  {
+   "at": [
+    377,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    378,
+    71,
+    117
+   ],
+   "support": [
+    377,
+    70,
+    119
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 31
+  },
+  {
+   "at": [
+    377,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    378,
+    71,
+    117
+   ],
+   "support": [
+    377,
+    71,
+    119
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 32
+  },
+  {
+   "at": [
+    377,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    378,
+    71,
+    117
+   ],
+   "support": [
+    377,
+    71,
+    118
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 33
+  },
+  {
+   "at": [
+    376,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    376,
+    71,
+    124
+   ],
+   "support": [
+    377,
+    71,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 34
+  },
+  {
+   "at": [
+    376,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    376,
+    70,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 35
+  },
+  {
+   "at": [
+    376,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    376,
+    71,
+    116
+   ],
+   "support": [
+    377,
+    71,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 36
+  },
+  {
+   "at": [
+    376,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    376,
+    71,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 37
+  },
+  {
+   "at": [
+    376,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    376,
+    71,
+    116
+   ],
+   "support": [
+    377,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 38
+  },
+  {
+   "at": [
+    376,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    376,
+    71,
+    116
+   ],
+   "support": [
+    377,
+    71,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 39
+  },
+  {
+   "at": [
+    376,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    376,
+    71,
+    116
+   ],
+   "support": [
+    377,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 40
+  },
+  {
+   "at": [
+    375,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    375,
+    70,
+    123
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 41
+  },
+  {
+   "at": [
+    375,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    375,
+    70,
+    121
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 42
+  },
+  {
+   "at": [
+    375,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    71,
+    116
+   ],
+   "support": [
+    376,
+    71,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 43
+  },
+  {
+   "at": [
+    375,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    71,
+    116
+   ],
+   "support": [
+    376,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 44
+  },
+  {
+   "at": [
+    375,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    71,
+    116
+   ],
+   "support": [
+    376,
+    71,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 45
+  },
+  {
+   "at": [
+    375,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    71,
+    116
+   ],
+   "support": [
+    376,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 46
+  },
+  {
+   "at": [
+    374,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    375,
+    71,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 47
+  },
+  {
+   "at": [
+    374,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    71,
+    116
+   ],
+   "support": [
+    375,
+    71,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 48
+  },
+  {
+   "at": [
+    374,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    71,
+    124
+   ],
+   "support": [
+    374,
+    71,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 49
+  },
+  {
+   "at": [
+    374,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    71,
+    116
+   ],
+   "support": [
+    375,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 50
+  },
+  {
+   "at": [
+    374,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    71,
+    116
+   ],
+   "support": [
+    375,
+    71,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 51
+  },
+  {
+   "at": [
+    374,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    71,
+    116
+   ],
+   "support": [
+    375,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 52
+  },
+  {
+   "at": [
+    373,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    373,
+    70,
+    123
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 53
+  },
+  {
+   "at": [
+    373,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    374,
+    71,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 54
+  },
+  {
+   "at": [
+    373,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    374,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 55
+  },
+  {
+   "at": [
+    373,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    374,
+    71,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 56
+  },
+  {
+   "at": [
+    373,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    374,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 57
+  },
+  {
+   "at": [
+    372,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    71,
+    123
+   ],
+   "support": [
+    372,
+    71,
+    124
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 58
+  },
+  {
+   "at": [
+    372,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    372,
+    70,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 59
+  },
+  {
+   "at": [
+    372,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    372,
+    71,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 60
+  },
+  {
+   "at": [
+    373,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    71,
+    124
+   ],
+   "support": [
+    372,
+    71,
+    121
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 61
+  },
+  {
+   "at": [
+    372,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    372,
+    70,
+    120
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 62
+  },
+  {
+   "at": [
+    372,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    373,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 63
+  },
+  {
+   "at": [
+    372,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    373,
+    71,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 64
+  },
+  {
+   "at": [
+    372,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    373,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 65
+  },
+  {
+   "at": [
+    371,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    71,
+    123
+   ],
+   "support": [
+    371,
+    71,
+    124
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 66
+  },
+  {
+   "at": [
+    371,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    371,
+    70,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 67
+  },
+  {
+   "at": [
+    371,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    371,
+    71,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 68
+  },
+  {
+   "at": [
+    371,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    371,
+    70,
+    120
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 69
+  },
+  {
+   "at": [
+    371,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    371,
+    71,
+    116
+   ],
+   "support": [
+    372,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 70
+  },
+  {
+   "at": [
+    371,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    371,
+    71,
+    116
+   ],
+   "support": [
+    372,
+    71,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 71
+  },
+  {
+   "at": [
+    371,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    371,
+    71,
+    116
+   ],
+   "support": [
+    372,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 72
+  },
+  {
+   "at": [
+    370,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    369,
+    71,
+    124
+   ],
+   "support": [
+    370,
+    70,
+    123
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 73
+  },
+  {
+   "at": [
+    370,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    370,
+    70,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 74
+  },
+  {
+   "at": [
+    370,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    370,
+    71,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 75
+  },
+  {
+   "at": [
+    370,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    370,
+    70,
+    120
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 76
+  },
+  {
+   "at": [
+    370,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    71,
+    120
+   ],
+   "support": [
+    370,
+    70,
+    119
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 77
+  },
+  {
+   "at": [
+    370,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    371,
+    71,
+    116
+   ],
+   "support": [
+    370,
+    71,
+    119
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 78
+  },
+  {
+   "at": [
+    370,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    371,
+    71,
+    116
+   ],
+   "support": [
+    370,
+    71,
+    118
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 79
+  },
+  {
+   "at": [
+    369,
+    71,
+    123
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    369,
+    71,
+    124
+   ],
+   "support": [
+    370,
+    71,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 80
+  },
+  {
+   "at": [
+    369,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    369,
+    70,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 81
+  },
+  {
+   "at": [
+    369,
+    71,
+    121
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    369,
+    71,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 82
+  },
+  {
+   "at": [
+    369,
+    71,
+    120
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    71,
+    120
+   ],
+   "support": [
+    369,
+    71,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 83
+  },
+  {
+   "at": [
+    369,
+    71,
+    119
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    368,
+    71,
+    120
+   ],
+   "support": [
+    370,
+    71,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 84
+  },
+  {
+   "at": [
+    369,
+    71,
+    118
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    367,
+    71,
+    119
+   ],
+   "support": [
+    369,
+    70,
+    118
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 85
+  },
+  {
+   "at": [
+    369,
+    71,
+    117
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    369,
+    69,
+    116
+   ],
+   "support": [
+    370,
+    71,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 86
+  },
+  {
+   "at": [
+    375,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    375,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    71,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 87
+  },
+  {
+   "at": [
+    374,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    374,
+    72,
+    121
+   ],
+   "support": [
+    375,
+    71,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 88
+  },
+  {
+   "at": [
+    373,
+    71,
+    122
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    373,
+    72,
+    121
+   ],
+   "support": [
+    374,
+    71,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 89
+  },
+  {
+   "at": [
+    377,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    377,
+    71,
+    124
+   ],
+   "support": [
+    377,
+    71,
+    123
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 90
+  },
+  {
+   "at": [
+    377,
+    72,
+    122
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    378,
+    71,
+    123
+   ],
+   "support": [
+    377,
+    71,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 91
+  },
+  {
+   "at": [
+    377,
+    72,
+    121
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    376,
+    72,
+    121
+   ],
+   "support": [
+    377,
+    72,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 92
+  },
+  {
+   "at": [
+    377,
+    72,
+    120
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    376,
+    72,
+    120
+   ],
+   "support": [
+    377,
+    72,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 93
+  },
+  {
+   "at": [
+    377,
+    72,
+    119
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    376,
+    72,
+    119
+   ],
+   "support": [
+    377,
+    72,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 94
+  },
+  {
+   "at": [
+    377,
+    72,
+    118
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    378,
+    71,
+    117
+   ],
+   "support": [
+    377,
+    71,
+    118
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 95
+  },
+  {
+   "at": [
+    377,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    378,
+    71,
+    117
+   ],
+   "support": [
+    377,
+    72,
+    118
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 96
+  },
+  {
+   "at": [
+    376,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    376,
+    71,
+    124
+   ],
+   "support": [
+    377,
+    72,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 97
+  },
+  {
+   "at": [
+    376,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    376,
+    71,
+    116
+   ],
+   "support": [
+    377,
+    72,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 98
+  },
+  {
+   "at": [
+    375,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    375,
+    71,
+    124
+   ],
+   "support": [
+    376,
+    72,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 99
+  },
+  {
+   "at": [
+    375,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    375,
+    71,
+    116
+   ],
+   "support": [
+    376,
+    72,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 100
+  },
+  {
+   "at": [
+    374,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    374,
+    70,
+    124
+   ],
+   "support": [
+    375,
+    72,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 101
+  },
+  {
+   "at": [
+    374,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    374,
+    71,
+    116
+   ],
+   "support": [
+    375,
+    72,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 102
+  },
+  {
+   "at": [
+    372,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    373,
+    72,
+    123
+   ],
+   "support": [
+    372,
+    72,
+    124
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 103
+  },
+  {
+   "at": [
+    372,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    372,
+    71,
+    116
+   ],
+   "support": [
+    372,
+    71,
+    117
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 104
+  },
+  {
+   "at": [
+    371,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    371,
+    72,
+    122
+   ],
+   "support": [
+    372,
+    72,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 105
+  },
+  {
+   "at": [
+    371,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    371,
+    71,
+    116
+   ],
+   "support": [
+    372,
+    72,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 106
+  },
+  {
+   "at": [
+    370,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    370,
+    72,
+    122
+   ],
+   "support": [
+    371,
+    72,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 107
+  },
+  {
+   "at": [
+    370,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    370,
+    72,
+    118
+   ],
+   "support": [
+    371,
+    72,
+    117
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 108
+  },
+  {
+   "at": [
+    369,
+    72,
+    123
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    369,
+    71,
+    124
+   ],
+   "support": [
+    370,
+    72,
+    123
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 109
+  },
+  {
+   "at": [
+    369,
+    72,
+    122
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    368,
+    71,
+    122
+   ],
+   "support": [
+    369,
+    72,
+    123
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 110
+  },
+  {
+   "at": [
+    369,
+    72,
+    121
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    368,
+    70,
+    121
+   ],
+   "support": [
+    369,
+    72,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 111
+  },
+  {
+   "at": [
+    369,
+    72,
+    120
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    368,
+    71,
+    120
+   ],
+   "support": [
+    369,
+    72,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 112
+  },
+  {
+   "at": [
+    369,
+    72,
+    119
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    370,
+    72,
+    119
+   ],
+   "support": [
+    369,
+    72,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 113
+  },
+  {
+   "at": [
+    369,
+    72,
+    118
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    370,
+    72,
+    118
+   ],
+   "support": [
+    369,
+    72,
+    119
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 114
+  },
+  {
+   "at": [
+    369,
+    72,
+    117
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    370,
+    72,
+    118
+   ],
+   "support": [
+    369,
+    71,
+    117
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 115
+  },
+  {
+   "at": [
+    376,
+    72,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    376,
+    72,
+    121
+   ],
+   "support": [
+    377,
+    72,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 116
+  },
+  {
+   "at": [
+    375,
+    72,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    375,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    72,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 117
+  },
+  {
+   "at": [
+    374,
+    72,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    374,
+    72,
+    121
+   ],
+   "support": [
+    375,
+    72,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 118
+  },
+  {
+   "at": [
+    372,
+    72,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    373,
+    72,
+    122
+   ],
+   "support": [
+    372,
+    72,
+    123
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 119
+  },
+  {
+   "at": [
+    371,
+    72,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    371,
+    72,
+    121
+   ],
+   "support": [
+    372,
+    72,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 120
+  },
+  {
+   "at": [
+    370,
+    72,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    370,
+    72,
+    121
+   ],
+   "support": [
+    371,
+    72,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 121
+  },
+  {
+   "at": [
+    376,
+    73,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    376,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    72,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 122
+  },
+  {
+   "at": [
+    375,
+    73,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    375,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    73,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 123
+  },
+  {
+   "at": [
+    374,
+    73,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    374,
+    72,
+    121
+   ],
+   "support": [
+    375,
+    73,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 124
+  },
+  {
+   "at": [
+    372,
+    73,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    372,
+    72,
+    121
+   ],
+   "support": [
+    372,
+    72,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 125
+  },
+  {
+   "at": [
+    371,
+    73,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    371,
+    72,
+    121
+   ],
+   "support": [
+    372,
+    73,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 126
+  },
+  {
+   "at": [
+    370,
+    73,
+    122
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    370,
+    72,
+    121
+   ],
+   "support": [
+    371,
+    73,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 127
+  },
+  {
+   "at": [
+    376,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    376,
+    72,
+    119
+   ],
+   "support": [
+    377,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 128
+  },
+  {
+   "at": [
+    375,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    375,
+    72,
+    119
+   ],
+   "support": [
+    376,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 129
+  },
+  {
+   "at": [
+    374,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    374,
+    72,
+    119
+   ],
+   "support": [
+    375,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 130
+  },
+  {
+   "at": [
+    373,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    373,
+    72,
+    117
+   ],
+   "support": [
+    374,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 131
+  },
+  {
+   "at": [
+    372,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    372,
+    72,
+    119
+   ],
+   "support": [
+    373,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 132
+  },
+  {
+   "at": [
+    371,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    371,
+    72,
+    119
+   ],
+   "support": [
+    372,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 133
+  },
+  {
+   "at": [
+    370,
+    72,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    370,
+    72,
+    119
+   ],
+   "support": [
+    371,
+    72,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 134
+  },
+  {
+   "at": [
+    376,
+    73,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    376,
+    72,
+    119
+   ],
+   "support": [
+    376,
+    72,
+    118
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 135
+  },
+  {
+   "at": [
+    375,
+    73,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    375,
+    72,
+    119
+   ],
+   "support": [
+    376,
+    73,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 136
+  },
+  {
+   "at": [
+    374,
+    73,
+    118
+   ],
+   "role": "window",
+   "seg": "wall-B",
+   "stand": [
+    374,
+    72,
+    119
+   ],
+   "support": [
+    375,
+    73,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 137
+  },
+  {
+   "at": [
+    373,
+    73,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    373,
+    72,
+    117
+   ],
+   "support": [
+    374,
+    73,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 138
+  },
+  {
+   "at": [
+    372,
+    73,
+    118
+   ],
+   "role": "window",
+   "seg": "wall-B",
+   "stand": [
+    372,
+    72,
+    119
+   ],
+   "support": [
+    373,
+    73,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 139
+  },
+  {
+   "at": [
+    371,
+    73,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    371,
+    72,
+    119
+   ],
+   "support": [
+    372,
+    73,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 140
+  },
+  {
+   "at": [
+    370,
+    73,
+    118
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    370,
+    72,
+    119
+   ],
+   "support": [
+    371,
+    73,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 141
+  },
+  {
+   "at": [
+    376,
+    72,
+    121
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    375,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    72,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 142
+  },
+  {
+   "at": [
+    376,
+    72,
+    120
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    375,
+    72,
+    120
+   ],
+   "support": [
+    376,
+    72,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 143
+  },
+  {
+   "at": [
+    376,
+    72,
+    119
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    375,
+    72,
+    119
+   ],
+   "support": [
+    376,
+    72,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 144
+  },
+  {
+   "at": [
+    376,
+    73,
+    121
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    375,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    73,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 145
+  },
+  {
+   "at": [
+    376,
+    73,
+    120
+   ],
+   "role": "window",
+   "seg": "wall-L",
+   "stand": [
+    375,
+    72,
+    120
+   ],
+   "support": [
+    376,
+    73,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 146
+  },
+  {
+   "at": [
+    376,
+    73,
+    119
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    375,
+    72,
+    119
+   ],
+   "support": [
+    376,
+    73,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 147
+  },
+  {
+   "at": [
+    370,
+    72,
+    121
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    371,
+    72,
+    121
+   ],
+   "support": [
+    370,
+    72,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 148
+  },
+  {
+   "at": [
+    370,
+    72,
+    120
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    371,
+    72,
+    120
+   ],
+   "support": [
+    370,
+    72,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 149
+  },
+  {
+   "at": [
+    370,
+    72,
+    119
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    371,
+    72,
+    119
+   ],
+   "support": [
+    370,
+    72,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 150
+  },
+  {
+   "at": [
+    370,
+    73,
+    121
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    371,
+    72,
+    121
+   ],
+   "support": [
+    370,
+    73,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 151
+  },
+  {
+   "at": [
+    370,
+    73,
+    120
+   ],
+   "role": "window",
+   "seg": "wall-R",
+   "stand": [
+    371,
+    72,
+    120
+   ],
+   "support": [
+    370,
+    73,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 152
+  },
+  {
+   "at": [
+    370,
+    73,
+    119
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    371,
+    72,
+    119
+   ],
+   "support": [
+    370,
+    73,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 153
+  },
+  {
+   "at": [
+    376,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    376,
+    73,
+    123
+   ],
+   "support": [
+    376,
+    73,
+    122
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 154
+  },
+  {
+   "at": [
+    376,
+    74,
+    121
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    377,
+    73,
+    121
+   ],
+   "support": [
+    376,
+    74,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 155
+  },
+  {
+   "at": [
+    376,
+    74,
+    120
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    377,
+    73,
+    120
+   ],
+   "support": [
+    376,
+    75,
+    120
+   ],
+   "face": [
+    0,
+    -1,
+    0
+   ],
+   "order": 156
+  },
+  {
+   "at": [
+    376,
+    74,
+    119
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    377,
+    73,
+    119
+   ],
+   "support": [
+    376,
+    74,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 157
+  },
+  {
+   "at": [
+    376,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    376,
+    73,
+    117
+   ],
+   "support": [
+    376,
+    75,
+    118
+   ],
+   "face": [
+    0,
+    -1,
+    0
+   ],
+   "order": 158
+  },
+  {
+   "at": [
+    375,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    375,
+    73,
+    123
+   ],
+   "support": [
+    376,
+    74,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 159
+  },
+  {
+   "at": [
+    375,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    375,
+    73,
+    117
+   ],
+   "support": [
+    376,
+    74,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 160
+  },
+  {
+   "at": [
+    374,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    374,
+    73,
+    123
+   ],
+   "support": [
+    375,
+    74,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 161
+  },
+  {
+   "at": [
+    374,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    374,
+    73,
+    117
+   ],
+   "support": [
+    375,
+    74,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 162
+  },
+  {
+   "at": [
+    373,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    373,
+    72,
+    122
+   ],
+   "support": [
+    374,
+    74,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 163
+  },
+  {
+   "at": [
+    373,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    373,
+    72,
+    117
+   ],
+   "support": [
+    374,
+    74,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 164
+  },
+  {
+   "at": [
+    372,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    372,
+    73,
+    123
+   ],
+   "support": [
+    373,
+    74,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 165
+  },
+  {
+   "at": [
+    372,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    372,
+    73,
+    117
+   ],
+   "support": [
+    373,
+    74,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 166
+  },
+  {
+   "at": [
+    371,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    371,
+    73,
+    123
+   ],
+   "support": [
+    372,
+    74,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 167
+  },
+  {
+   "at": [
+    371,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    371,
+    73,
+    117
+   ],
+   "support": [
+    372,
+    74,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 168
+  },
+  {
+   "at": [
+    370,
+    74,
+    122
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    370,
+    73,
+    123
+   ],
+   "support": [
+    371,
+    74,
+    122
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 169
+  },
+  {
+   "at": [
+    370,
+    74,
+    121
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    369,
+    73,
+    121
+   ],
+   "support": [
+    370,
+    74,
+    122
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 170
+  },
+  {
+   "at": [
+    370,
+    74,
+    120
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    369,
+    73,
+    120
+   ],
+   "support": [
+    370,
+    74,
+    121
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 171
+  },
+  {
+   "at": [
+    370,
+    74,
+    119
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    369,
+    73,
+    119
+   ],
+   "support": [
+    370,
+    74,
+    120
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 172
+  },
+  {
+   "at": [
+    370,
+    74,
+    118
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    370,
+    73,
+    117
+   ],
+   "support": [
+    371,
+    74,
+    118
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 173
+  },
+  {
+   "at": [
+    375,
+    74,
+    121
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    375,
+    72,
+    121
+   ],
+   "support": [
+    376,
+    74,
+    121
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 174
+  },
+  {
+   "at": [
+    375,
+    74,
+    120
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    375,
+    72,
+    120
+   ],
+   "support": [
+    376,
+    74,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 175
+  },
+  {
+   "at": [
+    375,
+    74,
+    119
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    375,
+    72,
+    119
+   ],
+   "support": [
+    376,
+    74,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 176
+  },
+  {
+   "at": [
+    374,
+    74,
+    121
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    374,
+    72,
+    121
+   ],
+   "support": [
+    375,
+    74,
+    121
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 177
+  },
+  {
+   "at": [
+    374,
+    74,
+    120
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    374,
+    72,
+    120
+   ],
+   "support": [
+    375,
+    74,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 178
+  },
+  {
+   "at": [
+    374,
+    74,
+    119
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    374,
+    72,
+    119
+   ],
+   "support": [
+    375,
+    74,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 179
+  },
+  {
+   "at": [
+    373,
+    74,
+    121
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    373,
+    72,
+    121
+   ],
+   "support": [
+    374,
+    74,
+    121
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 180
+  },
+  {
+   "at": [
+    373,
+    74,
+    120
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    373,
+    72,
+    120
+   ],
+   "support": [
+    374,
+    74,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 181
+  },
+  {
+   "at": [
+    373,
+    74,
+    119
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    373,
+    72,
+    119
+   ],
+   "support": [
+    374,
+    74,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 182
+  },
+  {
+   "at": [
+    372,
+    74,
+    121
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    372,
+    72,
+    121
+   ],
+   "support": [
+    373,
+    74,
+    121
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 183
+  },
+  {
+   "at": [
+    372,
+    74,
+    120
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    372,
+    72,
+    120
+   ],
+   "support": [
+    373,
+    74,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 184
+  },
+  {
+   "at": [
+    372,
+    74,
+    119
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    372,
+    72,
+    119
+   ],
+   "support": [
+    373,
+    74,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 185
+  },
+  {
+   "at": [
+    371,
+    74,
+    121
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    371,
+    72,
+    121
+   ],
+   "support": [
+    372,
+    74,
+    121
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 186
+  },
+  {
+   "at": [
+    371,
+    74,
+    120
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    371,
+    72,
+    120
+   ],
+   "support": [
+    372,
+    74,
+    120
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 187
+  },
+  {
+   "at": [
+    371,
+    74,
+    119
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    371,
+    72,
+    119
+   ],
+   "support": [
+    372,
+    74,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 188
+  },
+  {
+   "at": [
+    375,
+    72,
+    119
+   ],
+   "role": "light",
+   "seg": "fit-out",
+   "stand": [
+    375,
+    72,
+    120
+   ],
+   "support": [
+    376,
+    72,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 189
+  },
+  {
+   "at": [
+    374,
+    72,
+    119
+   ],
+   "role": "furnace",
+   "seg": "fit-out",
+   "stand": [
+    375,
+    72,
+    119
+   ],
+   "support": [
+    374,
+    72,
+    118
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 190
+  },
+  {
+   "at": [
+    373,
+    72,
+    119
+   ],
+   "role": "table",
+   "seg": "fit-out",
+   "stand": [
+    373,
+    72,
+    120
+   ],
+   "support": [
+    374,
+    72,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 191
+  },
+  {
+   "at": [
+    372,
+    72,
+    119
+   ],
+   "role": "furnace",
+   "seg": "fit-out",
+   "stand": [
+    372,
+    72,
+    120
+   ],
+   "support": [
+    373,
+    72,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 192
+  },
+  {
+   "at": [
+    371,
+    72,
+    119
+   ],
+   "role": "light",
+   "seg": "fit-out",
+   "stand": [
+    371,
+    72,
+    120
+   ],
+   "support": [
+    372,
+    72,
+    119
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 193
+  }
+ ],
+ "segments": [
+  {
+   "seg": "earth",
+   "layer": -1,
+   "deps": [],
+   "cells": 27,
+   "walks": 1,
+   "stands": 18
+  },
+  {
+   "seg": "pad",
+   "layer": 0,
+   "deps": [
+    "earth"
+   ],
+   "cells": 63,
+   "walks": 2,
+   "stands": 21
+  },
+  {
+   "seg": "ring",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 26,
+   "walks": 1,
+   "stands": 23
+  },
+  {
+   "seg": "wall-F",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 12,
+   "walks": 1,
+   "stands": 7
+  },
+  {
+   "seg": "wall-B",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 14,
+   "walks": 1,
+   "stands": 7
+  },
+  {
+   "seg": "wall-L",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 6,
+   "walks": 1,
+   "stands": 3
+  },
+  {
+   "seg": "wall-R",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 6,
+   "walks": 1,
+   "stands": 3
+  },
+  {
+   "seg": "roof-edge",
+   "layer": 2,
+   "deps": [
+    "ring",
+    "wall-F",
+    "wall-B",
+    "wall-L",
+    "wall-R"
+   ],
+   "cells": 20,
+   "walks": 1,
+   "stands": 20
+  },
+  {
+   "seg": "roof-inner",
+   "layer": 3,
+   "deps": [
+    "roof-edge"
+   ],
+   "cells": 15,
+   "walks": 1,
+   "stands": 15
+  },
+  {
+   "seg": "fit-out",
+   "layer": 4,
+   "deps": [
+    "roof-inner"
+   ],
+   "cells": 5,
+   "walks": 1,
+   "stands": 5
+  }
+ ],
+ "interior": {
+  "cells": 15,
+  "reachable": 12
+ },
+ "bom": {
+  "cobblestone": 27,
+  "stone_bricks": 89,
+  "$planks": 49,
+  "glass_pane": 4,
+  "cut_copper": 20,
+  "torch": 2,
+  "furnace": 2,
+  "crafting_table": 1
+ },
+ "builders_max": 2,
+ "structure_complete": false,
+ "plan": {
+  "gen": 5
+ }
+}
