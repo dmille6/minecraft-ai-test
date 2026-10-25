@@ -54,7 +54,18 @@ WORLD = [-30000000, -64, -30000000, 30000000, 320, 30000000]
 # stone that happen to lie inside a box only where protectzone lets them (survival), and that is not a breach.
 TRIAL_RX = (r'tuff_bricks|tuff_brick_(slab|stairs|wall)|chiseled_tuff(_bricks)?|polished_tuff(_slab|_stairs|_wall)?|'
             r'(waxed_)?(exposed_|weathered_|oxidized_)?(copper_block|cut_copper(_slab|_stairs)?|copper_grate|copper_door|'
-            r'copper_trapdoor|copper_bulb|chiseled_copper)|trial_spawner|vault|decorated_pot|heavy_core|waxed_copper_bulb')
+            r'copper_trapdoor|copper_bulb|chiseled_copper)|(waxed_)?(exposed_|weathered_|oxidized_)copper|'
+            r'trial_spawner|vault|decorated_pot|heavy_core')
+# COPPER WEATHERS ON ITS OWN (seen 10-25 15:45Z, the first live read: two unwaxed copper_block cells of the trial chambers at
+# 69..70,-2,134 read `exposed_copper` 30 min after the start, no bot near -- a false BREACH). A cell is compared by its CANONICAL
+# name: the oxidation stage is dropped and `copper` (an oxidised block's base name) equals `copper_block`. Waxing never
+# happens on its own, so `waxed_` stays part of the name.
+OXID = re.compile(r'(exposed_|weathered_|oxidized_)')
+
+
+def canon(name):
+    n = OXID.sub('', name)
+    return 'minecraft:copper_block' if n == 'minecraft:copper' else n
 
 
 def struct_rx(built_rx):
@@ -141,7 +152,7 @@ def zone_diff(base, now):
     """base, now: {"x,y,z": name}. -> (removed, changed, added) as sorted lists of "x,y,z name". Pure.
     removed: a baseline structure cell whose block is no longer a structure block; changed: another structure block now."""
     removed = sorted('%s %s' % (k, v) for k, v in base.items() if k not in now)
-    changed = sorted('%s %s->%s' % (k, v, now[k]) for k, v in base.items() if k in now and now[k] != v)
+    changed = sorted('%s %s->%s' % (k, v, now[k]) for k, v in base.items() if k in now and canon(now[k]) != canon(v))
     added = sorted('%s %s' % (k, v) for k, v in now.items() if k not in base)
     return removed, changed, added
 
@@ -435,6 +446,9 @@ def selftest():
     rm, ch, ad = zone_diff({'1,2,3': 'minecraft:bell', '4,5,6': 'minecraft:oak_door'}, {'4,5,6': 'minecraft:oak_door', '7,8,9': 'minecraft:torch'})
     assert rm == ['1,2,3 minecraft:bell'] and ch == [] and ad == ['7,8,9 minecraft:torch']
     assert zone_diff({'1,1,1': 'minecraft:chest'}, {'1,1,1': 'minecraft:barrel'})[1] == ['1,1,1 minecraft:chest->minecraft:barrel']
+    assert zone_diff({'1,1,1': 'minecraft:copper_block', '2,2,2': 'minecraft:cut_copper'},
+                     {'1,1,1': 'minecraft:exposed_copper', '2,2,2': 'minecraft:oxidized_cut_copper'}) == ([], [], []), 'weathering is not a breach'
+    assert zone_diff({'1,1,1': 'minecraft:waxed_copper_block'}, {'1,1,1': 'minecraft:copper_block'})[1], 'losing the wax is a change'
     base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {},
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])
@@ -464,6 +478,7 @@ def selftest():
         rx = struct_rx(SC.BUILT)
         assert rx.match('minecraft:bell') and rx.match('minecraft:tuff_bricks') and rx.match('minecraft:trial_spawner')
         assert rx.match('minecraft:dirt_path') and rx.match('minecraft:waxed_oxidized_cut_copper_stairs')
+        assert rx.match('minecraft:exposed_copper') and rx.match('minecraft:oxidized_copper') and rx.match('minecraft:waxed_weathered_copper')
         assert not rx.match('minecraft:stone') and not rx.match('minecraft:tuff') and not rx.match('minecraft:oak_log')
         print('selftest: structure palette checked against structcount.BUILT')
     except ImportError:
