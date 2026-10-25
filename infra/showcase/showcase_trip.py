@@ -91,7 +91,8 @@ def struct_rx(built_rx):
 
 # ------------------------------------------------------------------------------------------------ pure decisions
 def ts(s):
-    return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+    t = dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+    return t if t.tzinfo else t.replace(tzinfo=UTC)          # a naive epoch line is UTC, never a crash (verify P2)
 
 
 def in_box(p, b):
@@ -202,6 +203,8 @@ def verdict(f):
         watch.append('S3 zones file unreadable (%s): Z1 / UNDER saw nothing' % f['zones_error'])
     if f.get('mirror_age_min') is None or f.get('mirror_age_min', 0) > MIRROR_MAX_AGE_MIN:
         watch.append('S4 the region copy is %s min old (max %d): integrity read on stale data' % (f.get('mirror_age_min'), MIRROR_MAX_AGE_MIN))
+    if f.get('run_since_missing'):
+        watch.append('EPOCH no run epoch (%s): the read window may reach back past the last start' % RUN_SINCE)
     if f.get('gen_unknown'):
         watch.append('S5 rows naming an unknown plan generation %s' % f['gen_unknown'])
     if f['refusal_loops']:
@@ -410,6 +413,13 @@ def plan_read(rows, since, plans=None):
     return defects, report
 
 
+def new_defects(full, before):
+    """{gate: n} over the whole history, and over the history BEFORE this run's start -> the defects whose evidence arrived
+    during this run (verify 10-25, Codex P1: a defect from before a stop must not re-trip the restart, while the placements
+    from before it keep their G1-G4 cover). Every gate counts evidence rows, so adding rows never lowers a count. Pure."""
+    return {k: max(0, v - before.get(k, 0)) for k, v in full.items()}
+
+
 def read_epoch(path):
     try:
         return ts(open(path).read().strip())
@@ -513,13 +523,20 @@ def cmd_read(a):
                 sk = (r.get('raw') or {}).get('skill') or {}
                 prows.append({'t': r['t'], 'name': r['name'], 'status': sk.get('status'), 'detail': r.get('detail') or '', 'bot': b,
                               'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None})
-        defects, report = plan_read(prows, town_since)
+        full, report = plan_read(prows, town_since)
+        if run_since and run_since > town_since:
+            before, _ = plan_read([r for r in prows if r['t'] < run_since], town_since)
+            defects = new_defects(full, before)
+            report['defects_before_run'] = {k: v for k, v in before.items() if v}
+        else:
+            defects = full
     except Exception as e:
         plan_err = '%s: %s' % (type(e).__name__, str(e)[:200])
     paused = brain_paused() if not a.not_running else None
     first = min([v[0][0] for v in by_bot.values() if v], default=now)
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
-    facts = {'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
+    facts = {'run_since_missing': run_since is None and not a.since,
+             'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
              'bot_h': round(bot_h, 1), 'under': under, 'under_trapped': under_trapped, 'deep': deep, 'zones_error': zones_error,
              'mirror_age_min': region_age_min(a.zones_regions), 'gen_unknown': (report or {}).get('gen_unknown'),
              'brain_paused': paused,
@@ -558,6 +575,8 @@ def cmd_read(a):
             print('             found refusals %s' % report['found_why'])
         if report['lists']:
             print('             lists %s' % report['lists'])
+        if report.get('defects_before_run'):
+            print('             defects from BEFORE this run (reported, not judged again): %s' % report['defects_before_run'])
     print('VERDICT      %s%s' % (v, (' -- ' + '; '.join(why)) if why else ''))
     if a.json:
         try:                        # a failed write must never turn a TRIP into a crash (rc 1 -> no stop)
@@ -653,6 +672,9 @@ def selftest():
     assert zone_diff({'1,1,1': 'minecraft:cauldron'}, {'1,1,1': 'minecraft:water_cauldron'}) == ([], [], [])
     assert zone_diff({'1,1,1': 'minecraft:water_cauldron'}, {})[0], 'a filled cauldron taken away is a removal'
     plan_selftest(T)
+    assert new_defects({'G3 lid_unreach': 1, 'G1 found_lost': 2}, {'G3 lid_unreach': 1, 'G1 found_lost': 1}) == {'G3 lid_unreach': 0, 'G1 found_lost': 1}
+    assert ts('2026-10-25T15:13:00') == ts('2026-10-25T15:13:00Z'), 'a naive epoch is UTC'
+    assert verdict(dict(base, run_since_missing=True))[0] == 'WATCH'
     assert verdict(dict(base, deaths=4))[0] == 'TRIP' and verdict(dict(base, deaths=2))[0] == 'WATCH' and verdict(dict(base, deaths=1))[0] == 'OK'
     assert verdict(dict(base, stuck={'a': 30, 'b': 31, 'c': 40}))[0] == 'WATCH', 'stuck never stops the showcase on its own'
     assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
