@@ -138,6 +138,18 @@ def stuck_now(by_bot, end, min_min=STUCK_MIN, move=STUCK_MOVE, slack_min=10):
     return out
 
 
+def split_trapped(spells, refusals):
+    """spells {bot: [(start, end, min)]} still inside a zone; refusals {bot: [(t, n)]} from `_protect_zone` minute rows.
+    -> (trapped, still): a spell with a refusal inside it is a bot the guard is holding (Z1, TRIP); a spell with none is a bot
+    standing still on legal ground -- a village path is walkable (verify 10-25, Claude P2-D) -- reported, WATCH. Pure."""
+    trapped, still = {}, {}
+    for b, sp in spells.items():
+        for s_, e, m in sp:
+            held = any(s_ <= t <= e and n > 0 for t, n in refusals.get(b, []))
+            (trapped if held else still).setdefault(b, []).append((s_.strftime('%H:%M'), round(m)))
+    return trapped, still
+
+
 def death_peak(times, span_min=180):
     """times: death datetimes. -> the most deaths inside any span_min window. Pure."""
     t = sorted(times)
@@ -197,6 +209,8 @@ def verdict(f):
         watch.append('S5 no accepted town plan after %d min (UNEXPOSED: zero defects mean nothing yet)' % f['window_min'])
     if f['trapped']:
         trip.append('S3 Z1 trapped in a zone %s' % f['trapped'])
+    if f.get('still_in_zone'):
+        watch.append('S3 still in a zone with no refusal (legal ground) %s' % f['still_in_zone'])
     if f.get('deep'):
         watch.append('S3 DEEP below a village floor (legal ground) %s' % f['deep'])
     if f.get('zones_error'):
@@ -420,6 +434,45 @@ def new_defects(full, before):
     return {k: max(0, v - before.get(k, 0)) for k, v in full.items()}
 
 
+def plan_rows(since, paths=LOGS):
+    """The plan / found history since the town epoch, STREAMED (verify 10-25, Claude P2-B: Events.load keeps every row and its
+    raw dict, ~180k rows a day, so an hourly read from the founding would grow toward GBs on the live VM). Only lines naming
+    one of the reads' row kinds are parsed, and only the fields the reads use are kept. Rotated files are read too
+    (telemetry.open_log), and a file older than `since` is skipped by its mtime, as Events.load does.
+    -> (rows, {'files', 'lines', 'kept'}) -- the denominators."""
+    import townplanread as TP
+    import foundread as FD
+    from lib.telemetry import open_log
+    kinds = set(TP.ROW_KINDS) | set(FD.ROW_KINDS)
+    needles = [('"name":"%s"' % k).encode() for k in kinds]
+    rows, n_files, n_lines = [], 0, 0
+    for f in sorted(glob.glob(paths)):
+        try:
+            if dt.datetime.fromtimestamp(os.path.getmtime(f), UTC) < since:
+                continue
+        except OSError:
+            continue
+        n_files += 1
+        with open_log(f) as fh:
+            for line in fh:
+                n_lines += 1
+                lb = line.encode() if isinstance(line, str) else line
+                if not any(nd in lb for nd in needles):
+                    continue
+                try:
+                    d = json.loads(line)
+                    sk = d.get('skill') or {}
+                    t = ts(d.get('@timestamp'))
+                except Exception:
+                    continue
+                b = (d.get('bot') or {}).get('name')
+                if t < since or b not in NAMES or sk.get('name') not in kinds:
+                    continue
+                rows.append({'t': t, 'name': sk['name'], 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b,
+                             'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None})
+    return rows, {'files': n_files, 'lines': n_lines, 'kept': len(rows)}
+
+
 def read_epoch(path):
     try:
         return ts(open(path).read().strip())
@@ -494,9 +547,8 @@ def cmd_read(a):
     except Exception as e:
         zones_error = '%s: %s' % (type(e).__name__, str(e)[:80])
     closed, deepb = closed_and_deep(boxes, floors)
-    trapped = {b: [(s.strftime('%H:%M'), round(m)) for s, _, m in still_spells(v, closed, TRAP_MIN, TRAP_MOVE, max_gap_min=5)]
-               for b, v in by_bot.items()}
-    trapped = {b: v for b, v in trapped.items() if v}
+    spells = {b: still_spells(v, closed, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items()}
+    trapped, still_in_zone = split_trapped(spells, mins)
     deep = {b: sum(1 for _, p in v if p and any(in_box(p, x) for x in deepb)) for b, v in by_bot.items()}
     deep = {b: n for b, n in deep.items() if n}
     loops = {b: refusal_peak(v) for b, v in mins.items() if refusal_peak(v) >= LOOP_N}
@@ -516,14 +568,10 @@ def cmd_read(a):
     try:
         if town_since is None:
             raise RuntimeError('no town epoch in %s: the plan gates need the history from the founding' % a.town_since)
-        prows = []
-        for r in Events.load(paths=LOGS, since=town_since).rows:
-            b = (r.get('bot') or {}).get('name')
-            if b in NAMES:
-                sk = (r.get('raw') or {}).get('skill') or {}
-                prows.append({'t': r['t'], 'name': r['name'], 'status': sk.get('status'), 'detail': r.get('detail') or '', 'bot': b,
-                              'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None})
+        prows, hist = plan_rows(town_since)
+        report_hist = hist
         full, report = plan_read(prows, town_since)
+        report['history'] = report_hist
         if run_since and run_since > town_since:
             before, _ = plan_read([r for r in prows if r['t'] < run_since], town_since)
             defects = new_defects(full, before)
@@ -536,6 +584,7 @@ def cmd_read(a):
     first = min([v[0][0] for v in by_bot.values() if v], default=now)
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
     facts = {'run_since_missing': run_since is None and not a.since,
+             'still_in_zone': still_in_zone,
              'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
              'bot_h': round(bot_h, 1), 'under': under, 'under_trapped': under_trapped, 'deep': deep, 'zones_error': zones_error,
              'mirror_age_min': region_age_min(a.zones_regions), 'gen_unknown': (report or {}).get('gen_unknown'),
@@ -575,6 +624,8 @@ def cmd_read(a):
             print('             found refusals %s' % report['found_why'])
         if report['lists']:
             print('             lists %s' % report['lists'])
+        if report.get('history'):
+            print('             history from the town epoch: %s' % report['history'])
         if report.get('defects_before_run'):
             print('             defects from BEFORE this run (reported, not judged again): %s' % report['defects_before_run'])
     print('VERDICT      %s%s' % (v, (' -- ' + '; '.join(why)) if why else ''))
@@ -672,6 +723,10 @@ def selftest():
     assert zone_diff({'1,1,1': 'minecraft:cauldron'}, {'1,1,1': 'minecraft:water_cauldron'}) == ([], [], [])
     assert zone_diff({'1,1,1': 'minecraft:water_cauldron'}, {})[0], 'a filled cauldron taken away is a removal'
     plan_selftest(T)
+    sp = {'a': [(T(0), T(20), 20)], 'b': [(T(0), T(20), 20)]}
+    tr, st = split_trapped(sp, {'a': [(T(5), 3)], 'b': [(T(30), 3), (T(5), 0)]})
+    assert list(tr) == ['a'] and list(st) == ['b'], (tr, st)
+    assert verdict(dict(base, still_in_zone={'b': [('12:00', 20)]}))[0] == 'WATCH'
     assert new_defects({'G3 lid_unreach': 1, 'G1 found_lost': 2}, {'G3 lid_unreach': 1, 'G1 found_lost': 1}) == {'G3 lid_unreach': 0, 'G1 found_lost': 1}
     assert ts('2026-10-25T15:13:00') == ts('2026-10-25T15:13:00Z'), 'a naive epoch is UTC'
     assert verdict(dict(base, run_since_missing=True))[0] == 'WATCH'

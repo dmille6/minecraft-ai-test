@@ -84,7 +84,14 @@ change to the owner's zone, so the owner's call; until then a Paper scene of a m
    downtime). The far villages (outside the timelapse mirror's x,z -512..511) are compared daily against the nightly stage by
    `0 5 * * * /srv/showcase/trip/trip-cron.sh --far` (`zones-compare` exits 3 on a BREACH, which stops the bots).
    **Recovery after a tripwire stop** is a human's: read `trip.log`, fix or roll back the release, then `start-bots.sh` (its
-   10-min verifier needs all ten on the expected build), then `rm -f /srv/showcase/AUTO_FOLLOW`.
+   10-min verifier needs all ten on the expected build; it writes the run epoch `/srv/showcase/trip/RUN_SINCE`, and with
+   `/srv/showcase/LANE` present it never creates AUTO_FOLLOW). The read then judges deaths, stuck, zones and plan defects only
+   on evidence newer than the restart; earlier plan defects are printed, not judged again. **A structure BREACH is permanent**
+   until the baseline is retaken: accepting one (a repaired or owner-accepted change) needs the owner's OK and then
+   `showcase_trip.py zones-baseline --regions <a fresh copy> --out /srv/showcase/trip/zones-baseline.json`.
+   **The town epoch** `/srv/showcase/trip/TOWN_SINCE` (`2026-10-25T15:13:00Z`, written by hand at the start, root) is the
+   founding: the plan and found gates read their history from it, so it moves only with a new world. That history is bounded
+   by log retention (logrotate 14 days): a placement older than that loses its G1 cover; the plan generations keep it.
 
 **Tripwire lines** (`infra/showcase/showcase_trip.py` r2; each with its denominator): S0 liveness (TRIP 0 of 10 writing for
 15 min, WATCH fewer than 10); S1 deaths (TRIP >= 4 inside any 180-min span -- the fleet's 0.0195 / bot-h gives ~0.6 per 180 min
@@ -101,8 +108,9 @@ exposure mean nothing). Baseline: the 10-25 04:15Z nightly stage (pre-bot), 8 zo
 reads INTACT on the 3 zones it covers; a one-cell mutant baseline reads BREACH (village and trial chambers).
 
 **Rollback.** `/srv/showcase/bin/stop-bots.sh "<why>"` (12 s apart, disabled, AUTO_FOLLOW off; the world, plan generations and
-logs stay). The previous release returns with `showcase_ops.py activate /srv/showcase/releases/9e7d9980-6dd0ded8-fdd64ead`
-(symlink only while stopped). Undo the start inputs: `rm /srv/showcase/REQUIRED_KEPT /srv/showcase/town-site.json
+logs stay). Since r4 every `activate` checks REQUIRED_KEPT, so the pre-start release `9e7d9980` is REFUSED (it lacks all ten
+pieces) -- by design: the showcase never runs without the town plan's pieces. The rollback for a bad release is the previous
+release that passes REQUIRED_KEPT; for the start itself it is stopping, nothing else. Undo the start inputs: `rm /srv/showcase/REQUIRED_KEPT /srv/showcase/town-site.json
 /var/lib/mcai/_pool-showcase/town-site.json` (the gate then refuses any restart). Nothing in the world is reverted: the
 showcase never edits the world (design section 7), and a breach is reported, not repaired.
 
@@ -157,8 +165,10 @@ A survival fix = deaths, drowning, lava, falls, entombment, stuck, escape. It re
    commits (`git cherry-pick <base>..<promoted sha>`). A conflict is a reviewed rebase (Codex on the range-diff, as
    `prepare-variant.sh` records it). Full `npm test`. Stage with `--piece <run>` and `"kind": "survival"`, `"kept": <journal
    rows>` in its PIECES line (the `--piece` check also requires `pieces_in` to find the run kept and patch-equivalent in the
-   release). REQUIRED_KEPT gains the run's line (`<run> <promoted sha>`), so `pieces_in` checks THIS run's KEEP + promoted rows
-   and its patch-equivalence in the release on every later deploy (Codex P2: it checks only listed runs). No Paper re-run is
+   release). REQUIRED_KEPT gains the run's line (`<run> <promoted sha>`) only AFTER the fix is SHOWN (Claude verify P2: before
+   that, every activation would refuse the previous release, which is the rollback); from then `pieces_in` checks this run's
+   KEEP + promoted rows and its patch-equivalence on every later deploy. Note: `kept_runs` matches the run name, not the sha in
+   the promoted row (both reviews, P2, open). No Paper re-run is
    needed beyond the fleet's own record unless the cherry-pick conflicted.
 4. **Tripwire read** as 5.5: `showcase_trip.py read --since <activation>` at +60 and +180; TRIP -> back to the previous
    release. A survival fix is never judged by the showcase (one pool, no control): the showcase only refuses it if it broke
@@ -185,6 +195,21 @@ A survival fix = deaths, drowning, lava, falls, entombment, stuck, escape. It re
 The fixes were not re-reviewed before the start (the owner asked for one quick review; the weekly limit is near). The start
 proceeded because every P1 that could act during the start (S2, follower, re-keying) is closed by mechanism, and the open one
 (the underground escape) cannot be reached from bare ground on day one and is now a TRIP line.
+
+## 7b. Re-review of the start as deployed (operator request, 10-25 16:2x-17:1xZ)
+
+**Codex re-review: CHANGE, 4 P1 flagged LIVE NOW** -- G1-G4 cover expiring after 3 h (18:55Z for the first table), the r2
+shared-pool rewrite breaking D5, a filled cauldron reading as a removal, and REQUIRED_KEPT skipped by a manual activation with
+AUTO_FOLLOW off. **Independent Claude review: CHANGE, 0 P1 + 6 P2.** Per the operator's rule **the bots were stopped
+16:34-16:36Z** (`stop-bots.sh "re-review 10-25: Codex P1s flagged LIVE NOW ..."`). Fixes r4 (038b213d) -- see its message;
+seen on the VM: activating the older release REFUSED, the current one passes; a bare `follow` with AUTO_FOLLOW and LANE present
+did not act; doWeatherCycle false (the cauldron case was not reachable live). **Verification:** Claude APPROVE (no P1);
+Codex confirmed all four P1s closed and found ONE NEW P1 (a plan defect from before a stop re-trips every read after the
+restart) -> r5 (a22fa0db): S5 judges only evidence newer than RUN_SINCE. Claude's P2s taken in r6: the plan history is
+streamed (an hourly read on the VM: 1.5 s, max RSS 154 MB; 186 of 9,728 lines kept), Z1 TRIPs only with a refusal inside the
+still spell (else WATCH: a village path is walkable), and this doc's rollback, recovery, epoch and REQUIRED_KEPT notes.
+Open P2s: no bounded emergency stop behind ops.lock; `kept_runs` not bound to the promoted sha; the underground escape still
+unproved (owner question); exit 4 surfaces only in trip.log.
 
 ## 8. Start record (2026-10-25)
 
