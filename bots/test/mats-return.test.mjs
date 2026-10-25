@@ -29,6 +29,7 @@ const lastRow = () => [...RECS].reverse().find(r => r.skill?.name === '_mats_ret
 const field = (d, k) => (d.match(new RegExp(`(?:^| )${k}=(\\S+)`)) ?? [])[1]
 
 const BAG0 = { stone: 0, stone_bricks: 0, cobblestone: 0, oak_log: 0, oak_planks: 0 }
+const note0 = () => ({ v: 1, bot: 'MatsReturnBot', took: {}, fromBag: {}, at: Date.now(), furnace: null, loaded: null, tries: 0 })
 const note = () => ({ v: 1, bot: 'MatsReturnBot', kind: 'bricks', took: { cobblestone: 16, oak_log: 2 }, fromBag: {}, bag0: BAG0, at: Date.now(), phase: 'open', furnace: null, loaded: null, tries: 0 })
 const count = (w, n) => w.bot.inventory.items().filter(it => it.name === n).reduce((t, it) => t + it.count, 0)
 const inChest = (w, n) => w.containers.get('5,64,0').slots.filter(Boolean).filter(it => it.name === n).reduce((t, it) => t + it.count, 0)
@@ -241,4 +242,20 @@ test('A VANISHED INDEX ENTRY IS NEVER A DEPOSIT ELSEWHERE (Codex r5 P2-3): the o
   assert.equal(inChestAt(w, '20,64,0', 'stone_bricks'), 0, 'nothing went to the out-of-town chest')
   assert.equal(count(w, 'stone_bricks'), 8); assert.equal(S.readMatsNote(w.bot)?.phase, 'open')
   fs.rmSync(NOTE_FILE(), { force: true })
+})
+
+test('MATS-01 x JUNKOUT-01 (re-stack 10-25): an open note\'s torches are HELD -- junkout\'s tail never banks them; released at the close', async () => {
+  const TD = await import('../src/towndeposit.mjs')
+  const BK = await import('../src/bankable.mjs')
+  BK.clearWithdrawHolds()
+  const bag = [{ name: 'torch', count: 16, slot: 9 }, { name: 'oak_log', count: 2, slot: 10 }]
+  const tailNames = () => TD.townDepositPlan(bag, { tail: 'only', bagAllowance: true }).steps.map(st => st.name)
+  assert.ok(tailNames().includes('torch'), 'positive control: with no note the tail banks the torches')
+  const note = { ...note0(), kind: 'torch', bag0: { torch: 0, charcoal: 0, stick: 0 }, phase: 'open' }
+  const bot = { inventory: { items: () => bag } }
+  S.matsHoldNote(bot, note)
+  assert.equal(BK.withdrawHolds().torch, 16)
+  assert.ok(!tailNames().includes('torch'), 'held: the tail leaves the note\'s torches for the recovery')
+  S.matsReleaseNote(note)
+  assert.ok(tailNames().includes('torch'), 'released at the close')
 })
