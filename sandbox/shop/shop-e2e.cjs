@@ -69,6 +69,9 @@ const SPEC = {
 // the bill of workshop@1 on flat ground (no fill): the names the town + bag must lose exactly
 const BILL = { stone_bricks: 89, oak_planks: 49, glass_pane: 4, cut_copper: 20, torch: 2, furnace: 2, crafting_table: 1 }
 const ROLE_BLOCK = { base: 'stone_bricks', step: 'stone_bricks', wall: 'oak_planks', window: 'glass_pane', trim: 'cut_copper', roof: 'oak_planks', furnace: 'furnace', table: 'crafting_table', light: 'torch', fill: 'cobblestone' }
+// THE SERVER'S OWN NAMES for a role's block (r2, Paper r2: a torch clicked onto a side face IS a wall_torch -- the instrument
+// asked for `torch` and scored two correct cells wrong); cut copper may weather or be waxed. The first is ROLE_BLOCK's.
+const ROLE_OK = role => (role === 'light' ? ['torch', 'wall_torch'] : role === 'trim' ? ['cut_copper', 'exposed_cut_copper', 'weathered_cut_copper', 'oxidized_cut_copper', 'waxed_cut_copper', 'waxed_exposed_cut_copper', 'waxed_weathered_cut_copper', 'waxed_oxidized_cut_copper'] : [ROLE_BLOCK[role]])
 const WINDOW_MS = Number(process.env.SH_WINDOW_MS || 40 * 60000)
 const BASE_WINDOW_MS = Number(process.env.SH_BASE_WINDOW_MS || 12 * 60000)
 
@@ -126,18 +129,22 @@ function recordOf (poolDir) {
 }
 /** Every record cell by RCON -> { ok, bad: [cell: want] }. */
 function cellsCheck (rec) {
-  const cmds = rec.cells.map(c => `execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${ROLE_BLOCK[c.role]}`)
-  const r = rconMany(cmds)
+  const asks = rec.cells.flatMap((c, i) => ROLE_OK(c.role).map(n => ({ i, cmd: `execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${n}` })))
+  const r = rconMany(asks.map(a => a.cmd))
+  const ok = new Set(asks.filter((a, j) => /Test passed/.test(r[j]?.reply || '')).map(a => a.i))
   const bad = []
-  rec.cells.forEach((c, i) => { if (!/Test passed/.test(r[i]?.reply || '')) bad.push(`${c.at.join(',')}:${ROLE_BLOCK[c.role]}`) })
+  rec.cells.forEach((c, i) => { if (!ok.has(i)) bad.push(`${c.at.join(',')}:${ROLE_BLOCK[c.role]}`) })
   return { ok: bad.length === 0, bad, n: rec.cells.length }
 }
-/** Every block_place in the trace carried a sequence and was acknowledged (an ack >= it) within 5 s. */
+/** Every BUILDER click (a block_place carrying a sequence > 0: the builder's own) was acknowledged (an ack >= it) within 5 s.
+ *  A sequence-0 block_place is mineflayer's own activateBlock (a chest open for the withdraw, Paper r2: 4 of them, held item a
+ *  pickaxe) -- counted and shown as `foreign`, not judged (the builder never writes sequence 0). */
 function acksCheck (trace) {
   const ev = lines(trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
-  const places = ev.filter(e => e.pkt === 'block_place'), acks = ev.filter(e => e.pkt === 'ack')
-  const unacked = places.filter(p => !(Number.isInteger(p.seq) && p.seq > 0 && acks.some(a => a.ts >= p.ts && a.ts - p.ts <= 5000 && a.seq >= p.seq)))
-  return { places: places.length, acks: acks.length, unacked: unacked.length, first: unacked.slice(0, 3).map(p => `seq=${p.seq}@${JSON.stringify(p.loc)}`) }
+  const all = ev.filter(e => e.pkt === 'block_place'), acks = ev.filter(e => e.pkt === 'ack')
+  const places = all.filter(p => Number.isInteger(p.seq) && p.seq > 0)
+  const unacked = places.filter(p => !acks.some(a => a.ts >= p.ts && a.ts - p.ts <= 5000 && a.seq >= p.seq))
+  return { places: places.length, foreign: all.length - places.length, acks: acks.length, unacked: unacked.length, first: unacked.slice(0, 3).map(p => `seq=${p.seq}@${JSON.stringify(p.loc)}`) }
 }
 
 const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
@@ -238,7 +245,7 @@ async function runScene (scene) {
     record: rec ? { sector: rec.sector, source: rec.sector_source, anchor: rec.anchor, orient: rec.orient, s: rec.s, gen: rec.gen, complete: rec.structure_complete } : null,
     cells: cells && { n: cells.n, bad: cells.bad.length }, acks, d: { stock: diff(tb, ta), ground: diff({}, after.ground) }, rows }
   fs.appendFileSync(RES, JSON.stringify(r) + '\n')
-  console.log(`${scene.padEnd(6)} ${out.verdict} done=${r.done} record=${JSON.stringify(r.record)} cells=${JSON.stringify(r.cells)} acks=${JSON.stringify({ places: acks.places, acks: acks.acks, unacked: acks.unacked })} d(stock){${r.d.stock}} ground{${r.d.ground}}` + (out.why.length ? `\n   why: ${out.why.join('; ')}` : ''))
+  console.log(`${scene.padEnd(6)} ${out.verdict} done=${r.done} record=${JSON.stringify(r.record)} cells=${JSON.stringify(r.cells)} acks=${JSON.stringify({ places: acks.places, foreign: acks.foreign, acks: acks.acks, unacked: acks.unacked })} d(stock){${r.d.stock}} ground{${r.d.ground}}` + (out.why.length ? `\n   why: ${out.why.join('; ')}` : ''))
   console.log('   rows: ' + rows.filter(x => /_build_visit|_structure_complete|_shop_skip|_townplan$/.test(x.name)).map(x => `${x.name}:${x.status}:${x.detail.slice(0, 200)}`).join(' || '))
   return out.pass
 }
