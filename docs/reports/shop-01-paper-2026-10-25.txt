@@ -1,0 +1,46 @@
+shop-01 -- PAPER RECORD (2026-10-25). Building tier step 3: the workshop builder.
+Driver: sandbox/shop/shop-e2e.cjs on branch shop-sandbox-on-main (ebacb3a7 first, 30b9dafb from Paper r3 on). Locks: sandbox7 and
+sandbox8, tag `shop`, held from 18:13Z. Real bot (index.mjs) per scene; env FOUND=off SMELT_JOB=0 SHOP_COOLDOWN_MS=60000.
+
+SCENE SHOP-E2E: a fresh town with a town plan and stock in two chests (the workshop's whole bill: 89 stone bricks, 49 oak planks,
+4 glass panes, 20 cut copper, 2 torches, 2 furnaces, 1 crafting table, plus the rest of the town's usual stock). The candidate must
+site the record on the live world, draw the bill from the town under the reserve, and build the workshop end to end.
+  CANDIDATE_PASS needs: a `_structure_complete` row; EVERY record cell reads its role's block by RCON (`execute if block`);
+  every builder click (block_place with a sequence > 0) acknowledged by sequence within 5 s; the town stock down by exactly the bill.
+  BASE (the deployed base d55ce14d + matset-01 + mats-01, worktree mt2 @ 7049da16) is the positive control of the instrument:
+  BASE_SHAPE = no record, nothing built, the stock unchanged.
+
+RUNS
+  base-1   sandbox7  mt2 7049da16   driver ebacb3a7  BASE_SHAPE  record=null, stock unchanged
+  cand-1   sandbox8  wt4 b8608666   driver ebacb3a7  stopped by hand: every visit `no_material` (why=base_for_pad), took only
+           oak_planks:49 and torch:2. DEFECT: mats.mjs takeAllowed answers 0 for a name with no reserve key, so no building part
+           was ever drawn. Fixed in r2 (shopAllow; matsWithdraw `allow`).
+  cand-2   sandbox8  wt4 01954a1a   driver ebacb3a7  FAIL (instrument) -- the workshop COMPLETED in one visit: 167 placed,
+           1 refused, every builder click acknowledged. The two FAIL lines were the instrument's: (a) the 2 torch cells read
+           `wall_torch` (a torch clicked on a side face) and the check asked for exactly `torch`; (b) 4 sequence-0 block_place
+           packets were mineflayer's own activateBlock (chest opens for the withdraw, held item a pickaxe), not builder clicks.
+           Driver fixed (30b9dafb: ROLE_OK names; foreign sequence-0 packets counted, not judged). The one refused click: the bot
+           was mid-jump directly under a trim cell (feet y 121.23, cell y 123); the retry from y 121 placed it -> r3's own-body wait.
+  base-2   sandbox7  mt2 7049da16   driver 30b9dafb  BASE_SHAPE  {"places":0,"foreign":2,"unacked":0} stock unchanged
+  cand-3   sandbox8  wt4 60e25388   driver 30b9dafb  CANDIDATE_PASS  cells 167/167, builder clicks 167 acked 167, foreign 4,
+           d(stock) exactly the bill, refused 0, visit 86.6 s
+  cand-4   sandbox8  wt4 5f87e664   driver 30b9dafb  CANDIDATE_PASS  same shape, visit 86.1 s
+  cand-5   sandbox8  wt4 00718c01   driver 30b9dafb  CANDIDATE_PASS  same shape
+  cand-6   sandbox8  wt4 f7877dfc   driver 30b9dafb  CANDIDATE_PASS  same shape, visit 88.5 s  <- the converged code (r6)
+  The PASS line of cand-6:
+  shop   CANDIDATE_PASS done=true record={"sector":"W","source":"pavilion","anchor":[737,760],"orient":"S","s":120,"gen":2,
+  "complete":true} cells={"n":167,"bad":0} acks={"places":167,"foreign":4,"acks":171,"unacked":0} d(stock){stone_bricks-89
+  oak_planks-49 glass_pane-4 cut_copper-20 torch-2 furnace-2 crafting_table-1} ground{}
+
+THE KEEPALIVE PREMISE, MEASURED (both r6 reviews asked for it): the mutex and the barrier's retirement rule rely on a stopped
+process's socket being closed by the server before a peer may retire it (OWN_BEAT_MAX_MS 15 s + the keepalive drop < BEAT_STALE_MS
+60 s). A plain mineflayer client (scratch kaprobe/ka-probe.cjs; never moved, dug or placed) joined sandbox8 (Paper 1.21.8, default
+keepalive settings: no override in its configs or its java command line), was SIGSTOPped at 3, 5, 11 and 19 s after spawn, and the
+server logged `KaProbe lost connection: Timed out` 29-30 s after the stop each time (server clock: stop 21:46:26 -> 21:46:55;
+21:48:11 -> 21:48:41; 21:48:58 -> 21:49:27; 21:49:53 -> 21:50:22). On resume the client's write failed EPIPE (it could send
+nothing). So 15 + 30 = 45 s < 60 s: a 15 s margin.
+
+NOT RUN (named): the design's other shop-01 scenes -- CHAIN-1 (an empty bag, parts made by make_material first), GHOST-RESYNC,
+SHOP-BARRIER / SHOP-COOP2 (two builders, SIGSTOP holders), SHOP-CLEAR (trees and replants), SHOP-ZONE, SHOP-KILL, ENTOMB, and the
+terrain fixtures cut from region copies. Their logic is covered by the fake-server suites (buildrun*.test.mjs) only. The
+coordinator's scope for this step was the workshop end to end from stock plus the base control.

@@ -1,0 +1,463 @@
+#!/usr/bin/env python3
+# shopread.py [window_min] [--selftest] -- the read for canary `shop-01` (the building tier's WORKSHOP: a fitted, frozen record
+# per town, built by up to two builders on slot and segment leases; design docs/reports/building-tier-2026-10-23.md section 6.1
+# row 3). CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits). Judges the CANARY ARM; DiD against control for the
+# no-harm lines; DENOMINATORS FIRST. Needs townplanread.py beside it (kv, pool_of, read_plans, zones_of, in_box, did_z, ck).
+#
+# THE CHANGE (what only this build writes):
+#   _build_mode          once per spawn: the licence (phase=mode v=1 shop= blueprints= builders_max= reserve=)
+#   _build               op=sited|place|replant|clear|unknown|known  project seg cell block kind gen
+#   _build_seg           one per segment worked in a visit: seg open done
+#   _build_visit         every build_shop run, every exit: outcome stop placed refused silent cleared planted unknown slot gen took back
+#   _structure_complete  the record's completion transition, once per town
+# THE TOWN FILES (the oracle; /var/lib/mcai/_pool-<pool>/): project-<home>.shop.g<N>.json (the record chain: gen, prev, prevSha
+#   sha256 of the bytes), project-<home>.shop.<name>.lease.g<N>.json (+ .released), protected-zones.json.
+#
+# GATES (deterministic; each has a failing fixture and a passing control in --selftest)
+#   G1 off_record      a `_build op=place` cell that is not a cell of the town's record
+#   G2 clear_outside   a `_build op=clear` cell outside the record's clear list (kind=foreign: outside the record's cells)
+#   G3 zone            a placement or clear inside a protected zone
+#   G4 lease_overlap   two holders live on one lease (a later generation by ANOTHER holder taken before the earlier one was
+#                      released or lapsed + RECLAIM_MS), or a slot name beyond builders_max
+#   G5 felled_unplanted  a `kind=tree` clear in a town whose record has a replant cell with no `op=replant` row before it
+#   G6 unknown_stood   a bot standing ON a cell its own `op=unknown` row named, before an `op=known`/clear of it
+#   G7 placed_twice    one cell placed twice within PLACE_TWICE_MIN (a repair after damage is slower: the order's cooldown)
+#   ARMS               control rows of these kinds after the deploy (must be 0; build_shop is chatOnly -- a player's chat to a
+#                      CONTROL bot writes `_build_visit outcome=off`: read that row before calling it a leak)
+#   LIVENESS           canary `_build_mode` >= 1 and canary `_build_visit` >= 1
+#   EXPOSURE           canary towns with a `_structure_complete` row >= EXPOSE_TOWNS (design: >= 2). The structure count's
+#                      buildings per canary town are REPORTED from its mirror when present (world evidence); its PERSISTENT
+#                      rule and the record conformance F1 >= 0.98 need a `structcount scan --record` that is NOT BUILT: named,
+#                      never assumed
+#   NO HARM (WATCH, DiD of success shares; fails only below its tolerance with z < -2; UNEXPOSED under MIN_CELL)
+#     gather_ok, rung_ok (wooden/stone/iron pickaxe crafts); deaths: the default gate (two-death floor); immobile: immobiledid
+# NOT A GATE HERE (named): the builder's bag delta against confirmed placements (no begin-of-visit bag on the rows; the Paper
+#   scene's server stock delta is its gate) and litter cells added (structcount, daily).
+import sys, os, json, re, glob, hashlib
+import datetime as dt
+from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from townplanread import (kv, pool_of, read_plans, zones_of, in_box, did_z, ck, MIN_CELL)  # noqa: E402
+
+TOL = -0.20
+RUNGS = ('wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe')
+BUILDERS_MAX = 2
+RECLAIM_MS = 60_000
+PLACE_TWICE_MIN = 10
+EXPOSE_TOWNS = 2
+BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_structure_complete')
+ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
+REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.shop)\.g(\d+)\.json$')
+LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.shop)\.(slot\d+|seg-[a-z0-9-]+)\.lease\.g(\d+)\.json$')
+
+
+def xyz_of(s):
+    try:
+        a = [int(v) for v in str(s).split(',')]
+        return a if len(a) == 3 else None
+    except ValueError:
+        return None
+
+
+def record_head(files):
+    """files: [(gen, bytes)] -> the head record (buildproj.mjs recordHead, exactly: the root is the lowest gen with prev null;
+    each later gen is the head only when its prev is the head and its prevSha the head's bytes' sha256) | None."""
+    head = None
+    for gen, buf in sorted(files):
+        try:
+            rec = json.loads(buf.decode('utf-8'))
+        except Exception:
+            continue
+        if not isinstance(rec, dict) or rec.get('gen') != gen:
+            continue
+        sha = hashlib.sha256(buf).hexdigest()
+        if head is None:
+            if rec.get('prev') is None:
+                head = (gen, sha, rec)
+            continue
+        if rec.get('prev') == head[0] and rec.get('prevSha') == head[1]:
+            head = (gen, sha, rec)
+    return head[2] if head else None
+
+
+def read_projects(root='/var/lib/mcai'):
+    """-> { pool: { 'record': rec | None, 'leases': { name: [(gen, rec, released_ms|None)] }, 'dir': d } } for every town."""
+    out = {}
+    for d in glob.glob(os.path.join(root, '_pool-*')):
+        name = os.path.basename(d)[len('_pool-'):]
+        pool = pool_of(name)
+        try:
+            names = os.listdir(d)
+        except OSError:
+            continue
+        recs, leases = [], defaultdict(list)
+        for f in names:
+            m = REC_RE.match(f)
+            if m:
+                try:
+                    recs.append((int(m.group(5)), open(os.path.join(d, f), 'rb').read()))
+                except OSError:
+                    pass
+                continue
+            m = LEASE_RE.match(f)
+            if m:
+                p = os.path.join(d, f)
+                try:
+                    rec = json.load(open(p))
+                except Exception:
+                    rec = None
+                rel = None
+                try:
+                    rel = int(open(p + '.released').read().strip() or 0) or int(os.path.getmtime(p + '.released') * 1000)
+                except (OSError, ValueError):
+                    rel = None
+                leases[m.group(5)].append((int(m.group(6)), rec, rel))
+        out[pool] = {'record': record_head(recs) if recs else None, 'leases': dict(leases), 'dir': d}
+    return out
+
+
+def lease_overlaps(leases):
+    """{ name: [(gen, rec, released_ms)] } -> [(name, gen, why)]: a generation taken by ANOTHER holder while the one before it
+    still blocked (unreleased and inside until + RECLAIM_MS), and any slot name beyond BUILDERS_MAX."""
+    bad = []
+    for name, gens in leases.items():
+        m = re.match(r'^slot(\d+)$', name)
+        if m and int(m.group(1)) > BUILDERS_MAX:
+            bad.append((name, None, 'slot beyond builders_max'))
+        gs = sorted(gens, key=lambda g: g[0])
+        for (g0, r0, rel0), (g1, r1, _) in zip(gs, gs[1:]):
+            if not r0 or not r1 or r0.get('holder') == r1.get('holder'):
+                continue
+            blocks_until = rel0 if rel0 is not None else (int(r0.get('until') or 0) + RECLAIM_MS)
+            if int(r1.get('at') or 0) < blocks_until:
+                bad.append((name, g1, '%s took it at %s, %s held it until %s' % (r1.get('holder'), r1.get('at'), r0.get('holder'), blocks_until)))
+    return bad
+
+
+def pos_of(r):
+    p = r.get('pos')
+    if isinstance(p, dict) and all(k in p for k in 'xyz'):
+        return [int(p['x'] // 1), int((p['y'] + 1e-6) // 1), int(p['z'] // 1)]
+    if isinstance(p, (list, tuple)) and len(p) == 3:
+        return [int(p[0] // 1), int((p[1] + 1e-6) // 1), int(p[2] // 1)]
+    return None
+
+
+def judge(rows, projects, zones_by_pool):
+    """rows: [{t, per, arm, name, status, detail, bot, item, pos}]; projects: read_projects(); zones_by_pool: {pool: [box]}."""
+    out = Counter()
+    lists = defaultdict(list)
+    rows = sorted(rows, key=lambda r: r['t'])
+    placed = defaultdict(list)          # (pool, cell) -> [t]
+    replants = defaultdict(list)        # (pool, cell) -> [t]
+    unknown_open = {}                   # (bot, cell) -> t
+    complete_towns = set()
+    for r in rows:
+        f = kv(r['detail'])
+        arm, per, name, pool, bot = r['arm'], r['per'], r['name'], pool_of(r['bot']), r['bot']
+        if name in BUILD_KINDS and arm == 'control' and per == 'post':
+            out['arms_rows_control_post'] += 1
+            if name == '_build_visit':
+                lists['control_rows'].append('%s %s' % (bot, f.get('outcome')))
+        if name == 'craft':
+            out['craft_%s_%s' % (per, arm)] += 1
+            if r.get('item') in RUNGS:
+                out['rung_%s_%s' % (per, arm)] += 1
+                out['rung_ok_%s_%s' % (per, arm)] += int(r['status'] == 'success')
+        if name == 'gather':
+            out['gather_%s_%s' % (per, arm)] += 1
+            out['gather_ok_%s_%s' % (per, arm)] += int(r['status'] == 'success')
+        # G6: a bot standing on a cell its own unknown row named (feet = the cell + 1 in y)
+        if arm == 'canary' and per == 'post' and unknown_open:
+            p = r.get('feet')
+            if p:
+                below = ck([p[0], p[1] - 1, p[2]])
+                if (bot, below) in unknown_open and r['t'] > unknown_open[(bot, below)]:
+                    out['unknown_stood'] += 1; lists['unknown_stood'].append('%s on %s' % (bot, below))
+                    del unknown_open[(bot, below)]
+        if arm != 'canary' or per != 'post':
+            continue
+        if name == '_build_mode':
+            out['licence_canary'] += 1
+        elif name == '_build_visit':
+            out['visits_canary'] += 1
+            out['visit_%s' % f.get('stop', '?')] += 1
+            for k in ('placed', 'refused', 'silent', 'cleared', 'planted', 'unknown'):
+                try:
+                    out['sum_%s' % k] += int(f.get(k) or 0)
+                except ValueError:
+                    pass
+            if f.get('stop') not in ('complete', None):
+                lists['why'].append('%s %s:%s' % (bot, f.get('stop'), (f.get('why') or '-')[:50]))
+        elif name == '_structure_complete':
+            complete_towns.add(pool)
+        elif name == '_build':
+            op, cell = f.get('op'), xyz_of(f.get('cell'))
+            rec = (projects.get(pool) or {}).get('record')
+            if op == 'sited':
+                out['sited'] += 1
+                continue
+            if cell is None:
+                continue
+            k = ck(cell)
+            if op in ('place', 'clear'):
+                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
+                    out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
+            if op == 'place':
+                out['placements'] += 1
+                if rec is None:
+                    out['place_no_record'] += 1
+                elif k not in {ck(c['at']) for c in rec.get('cells') or []}:
+                    out['off_record'] += 1; lists['off_record'].append('%s %s %s' % (bot, k, f.get('block')))
+                prev = [t for t in placed[(pool, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]
+                if prev:
+                    out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
+                placed[(pool, k)].append(r['t'])
+            elif op == 'replant':
+                replants[(pool, k)].append(r['t'])
+            elif op == 'clear':
+                out['clears'] += 1
+                if rec is not None:
+                    if f.get('kind') == 'foreign':
+                        ok = k in {ck(c['at']) for c in rec.get('cells') or []}
+                    else:
+                        ok = k in {ck(c['at']) for c in rec.get('clear') or []}
+                    if not ok:
+                        out['clear_outside'] += 1; lists['clear_outside'].append('%s %s %s %s' % (bot, k, f.get('kind'), f.get('block')))
+                    if f.get('kind') == 'tree':
+                        missing = [ck(rp['cell']) for rp in rec.get('replant') or [] if not any(t <= r['t'] for t in replants.get((pool, ck(rp['cell'])), []))]
+                        if missing:
+                            out['felled_unplanted'] += 1; lists['felled_unplanted'].append('%s %s (no replant row at %s)' % (bot, k, ','.join(missing[:2])))
+                unknown_open.pop((bot, k), None)
+            elif op == 'unknown':
+                out['unknown_rows'] += 1
+                unknown_open[(bot, k)] = r['t']
+            elif op == 'known':
+                unknown_open.pop((bot, k), None)
+    for pool, pr in projects.items():
+        for name, gen, why in lease_overlaps(pr.get('leases') or {}):
+            out['lease_overlap'] += 1; lists['lease_overlap'].append('%s %s g%s: %s' % (pool, name, gen, why))
+    out['complete_towns'] = len(complete_towns)
+    lists['complete_towns'] = sorted(complete_towns)
+    return out, lists
+
+
+def combine(out, lists):
+    g = lambda k: out.get(k, 0)
+    res = {k: v for k, v in out.items()}
+    for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'unknown_stood', 'placed_twice'):
+        res[k] = g(k)
+    res['arms_breach'] = g('arms_rows_control_post')
+    res['liveness'] = int(g('licence_canary') >= 1 and g('visits_canary') >= 1)
+    res['exposure_ready'] = int(g('complete_towns') >= EXPOSE_TOWNS)
+    res['instrument_control'] = int(g('craft_post_control') >= 1 and g('gather_post_control') >= 1)
+    for name, key in (('gather_ok', 'gather'), ('rung_ok', 'rung')):
+        cells = [(g('%s_ok_pre_canary' % key), g('%s_pre_canary' % key)), (g('%s_ok_post_canary' % key), g('%s_post_canary' % key)),
+                 (g('%s_ok_pre_control' % key), g('%s_pre_control' % key)), (g('%s_ok_post_control' % key), g('%s_post_control' % key))]
+        d, z = did_z(cells)
+        res['%s_did' % name] = d; res['%s_z' % name] = z
+        res[name] = 1 if d is None or z is None or not (d < TOL and z < -2) else 0
+    res['_lists'] = dict(lists)
+    return res
+
+
+def verdict_of(res, name):
+    if res.get('%s_did' % name) is None or res.get('%s_z' % name) is None:
+        return 'UNEXPOSED'
+    return 'ok' if res[name] else 'DOWN'
+
+
+def selftest():
+    t0 = dt.datetime(2026, 10, 26, tzinfo=dt.timezone.utc)
+    R = lambda name, detail, arm='canary', per='post', s=0, status='success', bot='board-a-Alpha', item=None, feet=None: {
+        't': t0 + dt.timedelta(seconds=s), 'per': per, 'arm': arm, 'name': name, 'detail': detail, 'status': status, 'bot': bot, 'item': item, 'feet': feet}
+    rec = {'v': 1, 'gen': 1, 'prev': None, 'cells': [{'at': [10, 70, 10], 'role': 'base', 'seg': 'pad'}, {'at': [11, 70, 10], 'role': 'base', 'seg': 'pad'}],
+           'clear': [{'at': [12, 71, 10], 'kind': 'tree', 'name': 'oak_log'}], 'replant': [{'cell': [20, 70, 20], 'sapling': 'oak_sapling'}]}
+    proj = {'board-a': {'record': rec, 'leases': {}}}
+    base = [R('_build_mode', 'phase=mode v=1 shop=on'), R('_build', 'project=shop op=sited cell=10,10 gen=1', s=5),
+            R('_build', 'project=shop op=replant cell=20,70,20 block=oak_sapling', s=8),
+            R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9),
+            R('_build', 'project=shop op=place seg=pad cell=10,70,10 block=stone_bricks', s=10),
+            R('_build', 'project=shop op=place seg=pad cell=11,70,10 block=stone_bricks', s=11),
+            R('_build_visit', 'project=shop outcome=complete stop=complete placed=2 refused=0', s=12),
+            R('_structure_complete', 'project=shop op=complete kind=workshop@1 gen=2', s=12),
+            R('_structure_complete', 'project=shop op=complete', s=20, bot='board-b-Alpha'),
+            R('gather', '', arm='control', bot='hive-b-A'), R('craft', '', arm='control', bot='hive-b-A')]
+    res = combine(*judge(base, proj, {}))
+    for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'unknown_stood', 'placed_twice', 'arms_breach'):
+        assert res[k] == 0, (k, res)
+    assert res['liveness'] == 1 and res['exposure_ready'] == 1 and res['instrument_control'] == 1, res
+    assert res['placements'] == 2 and res['complete_towns'] == 2, res
+    # G1 off the record
+    assert combine(*judge(base + [R('_build', 'project=shop op=place seg=pad cell=30,70,30 block=stone_bricks', s=13)], proj, {}))['off_record'] == 1
+    # G2 a clear outside the clear list; a foreign clear outside the record's cells; a foreign clear INSIDE them is clean
+    assert combine(*judge(base + [R('_build', 'project=shop op=clear cell=40,70,40 block=oak_log kind=tree', s=14)], proj, {}))['clear_outside'] == 1
+    assert combine(*judge(base + [R('_build', 'project=shop op=clear seg=pad cell=50,70,50 block=dirt kind=foreign', s=14)], proj, {}))['clear_outside'] == 1
+    assert combine(*judge(base + [R('_build', 'project=shop op=clear seg=pad cell=10,70,10 block=dirt kind=foreign', s=9.5)], proj, {}))['clear_outside'] == 0
+    # G3 zone
+    assert combine(*judge(base, proj, {'board-a': [[10, 0, 10, 10, 200, 10]]}))['zone'] == 1
+    # G4 lease overlap: B took seg-pad while A's unreleased lease still blocked; a renewal by the SAME holder is fine; released -> fine
+    L = lambda holder, at, until: {'holder': holder, 'at': at, 'until': until}
+    p4 = {'board-a': {'record': rec, 'leases': {'seg-pad': [(1, L('A', 0, 240_000), None), (2, L('B', 100_000, 340_000), None)]}}}
+    assert combine(*judge(base, p4, {}))['lease_overlap'] == 1
+    p4b = {'board-a': {'record': rec, 'leases': {'seg-pad': [(1, L('A', 0, 240_000), None), (2, L('A', 100_000, 340_000), None), (3, L('B', 340_000 + RECLAIM_MS + 1, 1e9), None)]}}}
+    assert combine(*judge(base, p4b, {}))['lease_overlap'] == 0, 'a renewal and a take after the reclaim are clean'
+    p4c = {'board-a': {'record': rec, 'leases': {'seg-pad': [(1, L('A', 0, 240_000), 50_000), (2, L('B', 60_000, 300_000), None)]}}}
+    assert combine(*judge(base, p4c, {}))['lease_overlap'] == 0, 'released before the take'
+    assert combine(*judge(base, {'board-a': {'record': rec, 'leases': {'slot3': [(1, L('C', 0, 1), None)]}}}, {}))['lease_overlap'] == 1
+    # G5 a felling before its replant row
+    early = [x for x in base if 'op=replant' not in x['detail']] + [R('_build', 'project=shop op=replant cell=20,70,20 block=oak_sapling', s=30)]
+    assert combine(*judge(early, proj, {}))['felled_unplanted'] == 1
+    # G6 standing on an unknown cell (and not after it is known again)
+    unk = [R('_build', 'project=shop op=unknown cell=12,71,10 block=oak_log', s=40), R('status', '', s=41, feet=[12, 72, 10])]
+    rows6 = base + unk
+    for x in rows6:
+        x.setdefault('feet', None)
+    out6, _ = judge(rows6, proj, {})
+    assert out6['unknown_stood'] == 1, out6
+    rows6b = base + [unk[0], R('_build', 'project=shop op=known cell=12,71,10 block=air', s=40.5), unk[1]]
+    assert judge(rows6b, proj, {})[0]['unknown_stood'] == 0
+    # G7 the same cell placed twice inside 10 min; a repair after an hour is not
+    assert combine(*judge(base + [R('_build', 'project=shop op=place seg=pad cell=10,70,10 block=stone_bricks', s=60)], proj, {}))['placed_twice'] == 1
+    assert combine(*judge(base + [R('_build', 'project=shop op=place seg=pad cell=10,70,10 block=stone_bricks', s=3600)], proj, {}))['placed_twice'] == 0
+    # arms
+    assert combine(*judge(base + [R('_build_visit', 'project=shop outcome=off', arm='control', bot='hive-b-A')], proj, {}))['arms_breach'] == 1
+    # exposure: one town only -> not ready
+    assert combine(*judge([x for x in base if x['bot'] != 'board-b-Alpha'], proj, {}))['exposure_ready'] == 0
+    # the record head walk: a broken chain link is not the head
+    b1 = json.dumps({'gen': 1, 'prev': None, 'cells': []}).encode()
+    b2 = json.dumps({'gen': 2, 'prev': 1, 'prevSha': hashlib.sha256(b1).hexdigest(), 'cells': [{'at': [1, 2, 3]}]}).encode()
+    b3 = json.dumps({'gen': 3, 'prev': 2, 'prevSha': 'f' * 64, 'cells': []}).encode()
+    assert record_head([(1, b1), (2, b2), (3, b3)])['gen'] == 2
+    # no-harm: a rung collapse with enough rows -> DOWN; few rows -> UNEXPOSED
+    rows = []
+    for arm, per, ok, n in (('canary', 'pre', 9, 10), ('canary', 'post', 2, 10), ('control', 'pre', 9, 10), ('control', 'post', 9, 10)):
+        for i in range(n):
+            rows.append(R('craft', '', arm=arm, per=per, status='success' if i < ok else 'failed', item='stone_pickaxe', bot='board-a-A' if arm == 'canary' else 'hive-b-A'))
+    rr = combine(*judge(rows, {}, {}))
+    assert rr['rung_ok'] == 0 and verdict_of(rr, 'rung_ok') == 'DOWN', rr
+    assert verdict_of(combine(*judge(rows[:5], {}, {})), 'rung_ok') == 'UNEXPOSED'
+    print('shopread selftest: ok')
+
+
+def structcount_buildings(pools):
+    """The structure count's mirror on this host, if present -> { pool: buildings } | None (world evidence, reported only)."""
+    for p in (os.path.expanduser('~/structcount/mirror/structcount-day.json'), os.path.expanduser('~/structcount-day.json')):
+        try:
+            doc = json.load(open(p))
+        except Exception:
+            continue
+        towns = doc.get('towns') or doc.get('worlds') or {}
+        out = {}
+        for k, v in (towns.items() if isinstance(towns, dict) else []):
+            pool = pool_of(k)
+            if pool in pools and isinstance(v, dict):
+                out[pool] = v.get('buildings')
+        return {'day': doc.get('day'), 'buildings': out}
+    return None
+
+
+if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        selftest(); sys.exit(0)
+    from lib.telemetry import Events
+    ovr = os.environ.get('CANARY_DRYRUN')
+    if ovr:
+        CAN, CV, ISO = ovr.split(':', 2)
+        CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+    else:
+        man = json.load(open('/srv/mcbots/trial-manifest.json'))
+        CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+        CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+    CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+    now = dt.datetime.now(dt.timezone.utc)
+    elapsed = (now - CUT).total_seconds() / 60
+    assert elapsed > 0 and CAN, 'no canary declared'
+    W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else 360)
+    END, PRE = CUT + dt.timedelta(minutes=W), CUT - dt.timedelta(minutes=W)
+
+    def load_window(since, until):
+        ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=since, until=until)
+        key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+        out, seen = [], set()
+        for r in ev.rows:
+            if key(r) not in seen:
+                out.append(r); seen.add(key(r))
+        for k in range(0, (until.date() - since.date()).days + 1):
+            tag = (since.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
+            for g in glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % tag):
+                for r in Events.load(paths=g, since=since, until=until).rows:
+                    if key(r) not in seen:
+                        out.append(r); seen.add(key(r))
+        return out
+
+    raw = load_window(PRE, END)
+    rows, walked, offbuild = [], 0, 0
+    bots = defaultdict(set)
+    for r in raw:
+        b = (r.get('bot') or {}).get('name')
+        t = r.get('t')
+        if not b or t is None:
+            continue
+        walked += 1
+        arm = 'canary' if pool_of(b) in CANS else 'control'
+        per = 'post' if t >= CUT else 'pre'
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if arm == 'canary' and per == 'post' and CV and ver and not ver.startswith(CV):
+            offbuild += 1
+            continue
+        bots[(per, arm)].add(b)
+        sk = ((r.get('raw') or {}).get('skill') or {})
+        name = sk.get('name') or r.get('name')
+        feet = pos_of({'pos': (r.get('bot') or {}).get('pos')}) if arm == 'canary' and per == 'post' else None
+        if name in ROW_KINDS or feet:
+            item = (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None
+            rows.append({'t': t, 'per': per, 'arm': arm, 'name': name if name in ROW_KINDS else '_pos', 'status': sk.get('status'),
+                         'detail': r.get('detail') or '' if name in ROW_KINDS else '', 'bot': b, 'item': item, 'feet': feet})
+    projects = read_projects()
+    plans = read_plans()
+    zones_by_pool = {}
+    for pool, keys in plans.items():
+        for key, info in keys.items():
+            for wkey in info['worlds']:
+                world = json.loads(wkey) if wkey != '"__unparseable__"' else None
+                zones_by_pool.setdefault(pool, []).extend(zones_of(info['dir'], world))
+    out, lists = judge(rows, projects, zones_by_pool)
+    res = combine(out, lists)
+    L = res['_lists']
+    hrs = {k: len(v) * W / 60 for k, v in bots.items()}
+    recs = {p: pr['record'] for p, pr in projects.items() if pr.get('record')}
+    print('DENOMINATORS rows walked %d (canary rows on another build skipped %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | bot-h post canary %.1f control %.1f | towns with a workshop record %d (canary %d)'
+          % (walked, offbuild, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W,
+             hrs.get(('post', 'canary'), 0), hrs.get(('post', 'control'), 0), len(recs), sum(1 for p in recs if p in CANS)))
+    print('LIVENESS     licence rows canary %d | build visits canary %d -> %s' % (out.get('licence_canary', 0), out.get('visits_canary', 0), 'ok' if res['liveness'] else 'INERT'))
+    print('VISITS       stops %s | placed %d refused %d silent %d cleared %d planted %d unknown %d | sited %d'
+          % ({k[6:]: v for k, v in sorted(out.items()) if k.startswith('visit_')}, out.get('sum_placed', 0), out.get('sum_refused', 0), out.get('sum_silent', 0),
+             out.get('sum_cleared', 0), out.get('sum_planted', 0), out.get('sum_unknown', 0), out.get('sited', 0)))
+    print('             stops other than complete (first 6) %s' % L.get('why', [])[:6])
+    print('ARMS         control build rows after the deploy %d (must be 0) %s' % (res['arms_breach'], L.get('control_rows', [])[:3]))
+    print('DEFECTS      G1 off the record %d of %d placements %s | G2 clears outside the list %d of %d %s | G3 in a zone %d %s'
+          % (res['off_record'], out.get('placements', 0), L.get('off_record', [])[:3], res['clear_outside'], out.get('clears', 0), L.get('clear_outside', [])[:3], res['zone'], L.get('zone', [])[:3]))
+    print('             G4 lease overlaps %d %s | G5 fellings before their replant %d %s | G6 unknown cells stood on %d of %d unknown rows %s | G7 placed twice %d %s'
+          % (res['lease_overlap'], L.get('lease_overlap', [])[:3], res['felled_unplanted'], L.get('felled_unplanted', [])[:3], res['unknown_stood'],
+             out.get('unknown_rows', 0), L.get('unknown_stood', [])[:3], res['placed_twice'], L.get('placed_twice', [])[:3]))
+    print('NO HARM      gather DiD %s -> %s | pickaxe rungs DiD %s -> %s | deaths: the default gate (two-death floor) | immobile: immobiledid'
+          % tuple(x for n in ('gather_ok', 'rung_ok') for x in ('null' if res['%s_did' % n] is None else '%+.3f' % res['%s_did' % n], verdict_of(res, n))))
+    print('             (cells: gather canary %d->%d control %d->%d | rungs canary %d->%d control %d->%d; UNEXPOSED = a cell under %d rows, never ok)'
+          % (out.get('gather_pre_canary', 0), out.get('gather_post_canary', 0), out.get('gather_pre_control', 0), out.get('gather_post_control', 0),
+             out.get('rung_pre_canary', 0), out.get('rung_post_canary', 0), out.get('rung_pre_control', 0), out.get('rung_post_control', 0), MIN_CELL))
+    sc = structcount_buildings(CANS)
+    print('EXPOSURE     canary towns with the workshop complete %d %s (need %d) -> %s | INSTRUMENT control gather %d craft %d -> %s'
+          % (out.get('complete_towns', 0), L.get('complete_towns', []), EXPOSE_TOWNS, 'READY' if res['exposure_ready'] else 'NOT YET',
+             out.get('gather_post_control', 0), out.get('craft_post_control', 0), 'ok' if res['instrument_control'] else 'BLIND'))
+    print('             world evidence: structcount %s | PERSISTENT and conformance F1: NOT MEASURED (structcount scan --record is not built)'
+          % ('day %s buildings %s' % (sc['day'], sc['buildings']) if sc else 'mirror absent'))
+    try:
+        if ovr:
+            raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+        sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+        from readjson import emit
+        emit('shopread', W, {k: v for k, v in res.items() if not k.startswith('_')})
+    except Exception as e:
+        print('emit failed:', e)

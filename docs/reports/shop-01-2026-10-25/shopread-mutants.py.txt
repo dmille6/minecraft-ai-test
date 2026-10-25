@@ -1,0 +1,28 @@
+import subprocess, sys, os
+D = os.path.dirname(os.path.abspath(__file__))
+src = open(os.path.join(D, 'shopread.py')).read()
+M = [
+ ("out['off_record'] += 1;", "pass;"),
+ ("out['clear_outside'] += 1;", "pass;"),
+ ("out['zone'] += 1;", "pass;"),
+ ("            out['lease_overlap'] += 1;", "            pass;"),
+ ("out['felled_unplanted'] += 1;", "pass;"),
+ ("out['unknown_stood'] += 1;", "pass;"),
+ ("out['placed_twice'] += 1;", "pass;"),
+ ("out['arms_rows_control_post'] += 1", "pass"),
+ ("if rec.get('prev') == head[0] and rec.get('prevSha') == head[1]:", "if rec.get('prev') == head[0]:"),
+ ("            blocks_until = rel0 if rel0 is not None else (int(r0.get('until') or 0) + RECLAIM_MS)", "            blocks_until = int(r0.get('until') or 0) + RECLAIM_MS"),
+ ("            elif op == 'known':\n                unknown_open.pop((bot, k), None)", "            elif op == 'known':\n                pass"),
+]
+bad = 0
+for old, new in M:
+    assert src.count(old) == 1, ('ANCHOR', old)
+    p = os.path.join(D, '_mut.py')
+    open(p, 'w').write(src.replace(old, new))
+    r = subprocess.run([sys.executable, '-I', p, '--selftest'], cwd=D, capture_output=True, text=True)
+    killed = r.returncode != 0
+    print('killed' if killed else 'SURVIVED', old[:70])
+    bad += not killed
+os.unlink(os.path.join(D, '_mut.py'))
+print('control:', subprocess.run([sys.executable, '-I', os.path.join(D, 'shopread.py'), '--selftest'], cwd=D, capture_output=True, text=True).stdout.strip())
+sys.exit(1 if bad else 0)
