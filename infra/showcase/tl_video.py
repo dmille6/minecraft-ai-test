@@ -18,6 +18,7 @@ import argparse, datetime as dt, json, os, subprocess, sys, tempfile
 
 ROOT = os.environ.get('TL_ROOT', '/srv/showcase/timelapse')
 VIEWS = ('angled', 'topdown')
+EXTRA = ('town',)        # owner 10-25: the town close-up; built from ITS OWN frames (it is not part of the pair)
 FPS = 10
 LEVEL = 12
 MIN_CHANGED_FRAC = 0.002
@@ -168,12 +169,13 @@ def main():
     a = ap.parse_args()
     now = dt.datetime.now(dt.timezone.utc)
     lo, hi, bucket, name = window(a.kind, a, now)
-    if a.kind == 'monthly' and not sample(paired_stamps(), lo, hi, bucket):
+    if a.kind == 'monthly' and not sample(paired_stamps(), lo, hi, bucket) and \
+            not any(sample(all_stamps(x), lo, hi, bucket) for x in EXTRA):     # a town-only month is still built (review P2)
         print(f'monthly {name}: SKIP -- no frames in that month yet')
         return 0
     rc = 0
-    for v in VIEWS:
-        st = sample(paired_stamps(), lo, hi, bucket)
+    for v in VIEWS + tuple(x for x in EXTRA if all_stamps(x)):
+        st = sample(paired_stamps() if v in VIEWS else all_stamps(v), lo, hi, bucket)
         try:
             side = build(v, st, os.path.join(ROOT, 'video', f'{name}-{v}.mp4'), name)
             print(json.dumps(side))

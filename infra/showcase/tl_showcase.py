@@ -26,7 +26,14 @@ from showcasestatus import missing_slots       # noqa: E402  (one implementation
 
 CONF = os.environ.get('TL_CONF', '/srv/showcase/timelapse/tl.conf')
 NICE = ['nice', '-n', '19', 'ionice', '-c3']
-VIEWS = ('topdown', 'angled')
+VIEWS = ('topdown', 'angled')        # the PAIR: published together or not at all; the missing-slot count reads it
+
+
+def extra_views(cfg):
+    """Cameras beyond the pair (owner 10-25: `town`, a close-up on home). Each is captured in the SAME browser run and
+    published on its own -- a failed extra frame never costs the pair, and the pair's slot accounting is unchanged.
+    Sorted, so the order is stable. Pure."""
+    return sorted(v for v in (cfg.get('cameras') or {}) if v not in VIEWS)
 
 
 def now_utc():
@@ -216,7 +223,8 @@ def capture(cfg, stamp):
     spec, finals = [], []
     stage = os.path.join(cfg['root'], 'frames', '.staging')
     os.makedirs(stage, exist_ok=True)
-    for v in VIEWS:
+    views = list(VIEWS) + extra_views(cfg)
+    for v in views:
         cam = cfg['cameras'][v]
         final = frame_path(cfg['root'], v, stamp)
         os.makedirs(os.path.dirname(final), exist_ok=True)
@@ -225,7 +233,7 @@ def capture(cfg, stamp):
         if os.path.exists(out):
             os.remove(out)
         spec.append({'url': f"{cfg['web']}/{camera_hash(cfg['map_id'], cam)}", 'out': out,
-                     'width': cfg['width'], 'height': cfg['height'], 'fov': cam.get('fov'),
+                     'width': cam.get('width', cfg['width']), 'height': cam.get('height', cfg['height']), 'fov': cam.get('fov'),
                      'settle_ms': cfg.get('settle_ms', 6000)})
     env = dict(os.environ, PUPPETEER_CACHE_DIR=os.path.join(cfg['capture_dir'], '.cache'))
     c0, t0 = child_cpu_s(), time.time()
@@ -236,18 +244,32 @@ def capture(cfg, stamp):
         rc, msg = c.returncode, (c.stdout + c.stderr).strip()[-400:]
     except subprocess.TimeoutExpired:
         rc, msg = 'timeout', 'capture timed out'
-    got = []
-    if rc == 0:
-        ok, why = publish_pair([s['out'] for s in spec], finals,
+    got, extra = [], []
+    raw_rc = rc
+    n = len(VIEWS)
+    # the pair is judged on its own result; capture.mjs exits non-zero when ANY job failed, so the pair cannot use rc
+    # alone once extra cameras share the run -- each staged file is checked instead (it exists only if its job wrote it)
+    pair_ok = rc == 0 or all(os.path.exists(s['out']) for s in spec[:n])
+    if pair_ok:
+        ok, why = publish_pair([s['out'] for s in spec[:n]], finals[:n],
                                content_ok=lambda p: terrain_ok(small_gray(p)))
         if ok:
-            got = finals
+            got = finals[:n]
+            if rc != 0:
+                rc, msg = 0, 'pair ok; an extra camera failed: ' + msg
         else:
             rc, msg = 'invalid', why
+    extra_err = {}
+    for v, s, f in zip(views[n:], spec[n:], finals[n:]):          # each extra on its own
+        ok, why = publish_pair([s['out']], [f], content_ok=lambda p: terrain_ok(small_gray(p)))
+        if ok:
+            extra.append(f)
+        else:
+            extra_err[v] = why if os.path.exists(s['out']) else 'not written (see capture_msg)'
     for s in spec:                                   # nothing half-published is left behind
         if os.path.exists(s['out']):
             os.remove(s['out'])
-    return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1)
+    return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1), extra, extra_err, raw_rc
 
 
 def frame_path(root, view, stamp):
@@ -311,9 +333,13 @@ def cmd_capture(cfg, a):
     if rc != 0:
         heartbeat(cfg, dict(row, ok=False, step='render', why=f'bluemap rc={rc} (see logs/render.log)'))
         return 0
-    crc, msg, got, cs, ccpu = capture(cfg, stamp)
+    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(cfg, stamp)
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
-               bytes=sum(os.path.getsize(p) for p in got))
+               bytes=sum(os.path.getsize(p) for p in got + extra),
+               extra={os.path.basename(os.path.dirname(os.path.dirname(p))): os.path.getsize(p) for p in extra},
+               extra_expected=extra_views(cfg))
+    if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
+        row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
         if len(got) == len(VIEWS):
             import hashlib, re as _re

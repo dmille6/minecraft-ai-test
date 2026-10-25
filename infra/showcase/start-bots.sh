@@ -25,6 +25,8 @@ PY
 fi
 EXPECT=$(python3 -c "import json; print(json.load(open('$REL/RELEASE.json'))['expected_version'])")
 T0=$(date +%s)
+# the tripwire's run epoch: its 180-min read never reaches back past this start (docs/reports/showcase-progress-lane-2026-10-25.md)
+[ -d /srv/showcase/trip ] && date -u -d "@$T0" +%FT%TZ > /srv/showcase/trip/RUN_SINCE
 echo "== starting 10 bots, 12 s apart, release $(basename "$REL") ($EXPECT)"
 for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno; do
   systemctl enable --now "mcshow@showcase-$n" >/dev/null 2>&1 && echo "   started showcase-$n"
@@ -86,5 +88,9 @@ then
   echo "VERIFY FAILED: the brain is not serving gemma4 (see the share above) -- stopping the bots"
   SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; exit 1
 fi
-touch /srv/showcase/AUTO_FOLLOW
-echo "STARTED: 10 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."
+if [ -e /srv/showcase/LANE ]; then
+  echo "STARTED: 10 bots on $EXPECT; PROGRESS LANE: AUTO_FOLLOW stays off (the follower observes only)."
+else
+  touch /srv/showcase/AUTO_FOLLOW
+  echo "STARTED: 10 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."
+fi

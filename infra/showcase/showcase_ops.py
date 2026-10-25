@@ -30,6 +30,10 @@ SITE = f'{ROOT}/town-site.json'
 REQUIRED = f'{ROOT}/REQUIRED_KEPT'
 REVOKED = f'{ROOT}/REVOKED'
 AUTO = f'{ROOT}/AUTO_FOLLOW'
+# THE PROGRESS LANE (docs/reports/showcase-progress-lane-2026-10-25.md): while this file exists the follower only observes,
+# whatever AUTO_FOLLOW says and however it is run (re-review 10-25: the systemd drop-in covered the timer only), and
+# start-bots.sh never creates AUTO_FOLLOW.
+LANE = f'{ROOT}/LANE'
 FEED_KEY = '/home/mike/.ssh/id_ed25519_showcase_feed'
 MOD_KEY = '/home/mike/.ssh/id_ed25519_showcase_modules'
 BENCH = 'mike@10.0.0.31'
@@ -55,8 +59,12 @@ def git(*args, check=True):
 
 
 def fetch():
-    subprocess.run(['git', '-C', REPO, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'],
-                   capture_output=True, text=True)
+    # bounded (re-review 10-25, Codex P2): the follower holds ops.lock across this, and stop-bots.sh waits for that lock
+    try:
+        subprocess.run(['git', '-C', REPO, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'],
+                       capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def resolve(h):
@@ -165,10 +173,11 @@ def cmd_follow(a):
             and not any(x in str(r.get('note')) for x in revoked)]
     if warn:
         d['revert_notes_not_in_REVOKED'] = [f"{r.get('ts')} {r.get('run')}: {str(r.get('note'))[:100]}" for r in warn[-3:]]
-    d['auto'] = os.path.exists(AUTO)
+    d['auto'] = os.path.exists(AUTO) and not os.path.exists(LANE)
+    d['lane'] = os.path.exists(LANE)
     append(FOLLOW, d)
     print(json.dumps(d))
-    if not d['auto'] or getattr(a, 'observe_only', False):
+    if not d['auto'] or getattr(a, 'observe_only', False) or os.path.exists(LANE):
         return 0
     if not feed:
         return 0      # no fresh feed this hour: never act on stale evidence (an empty journal would read as "not kept")
@@ -382,12 +391,13 @@ def verify(bots, expected, since_epoch, wait_s):
 def cmd_activate(a):
     lk = lock()
     rel = json.load(open(os.path.join(os.path.abspath(a.release), 'RELEASE.json')))
-    if os.path.exists(AUTO):
-        feed = json.load(open(f'{OPS}/feed-last.json')) if os.path.exists(f'{OPS}/feed-last.json') else {}
-        ok, missing = pieces_in(rel['sha'], feed.get('journal') or [])
-        if not ok:
-            print(f'REFUSED: the bots run, and {rel["sha"][:8]} lacks the required town-plan pieces {missing}')
-            return 1
+    # EVERY activation, not only under AUTO_FOLLOW (re-review 10-25, Codex P1: in the lane AUTO_FOLLOW is off, so an older
+    # cached release could be activated without the required pieces). No feed = no journal = every piece missing: refused.
+    feed = json.load(open(f'{OPS}/feed-last.json')) if os.path.exists(f'{OPS}/feed-last.json') else {}
+    ok, missing = pieces_in(rel['sha'], feed.get('journal') or [])
+    if not ok:
+        print(f'REFUSED: {rel["sha"][:8]} lacks the required pieces {missing} (REQUIRED_KEPT); nothing switched')
+        return 1
     cur = current_release()
     return activate(os.path.abspath(a.release), prev_admissible=release_admissible((cur or {}).get('sha')))
 
