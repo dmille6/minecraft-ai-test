@@ -1416,7 +1416,7 @@ export class CognitiveLoop {
           const rec = h.ok ? (h.head?.rec ?? null) : null
           const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
             state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete, slotsFree: shopSlotsFree(bot),
-            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length })
+            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot) })
           if (r.order) { order = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
           this.shopSkipAt ??= {}
           if (r.skip && r.skip !== 'complete' && now - (this.shopSkipAt[r.skip] ?? -Infinity) >= 30 * 60 * 1000) {

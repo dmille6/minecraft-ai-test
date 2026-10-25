@@ -678,11 +678,14 @@ function connect() {
     const zonePlacePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet, grow: 1 })
     // THE PLAN'S FURNITURE (townplan-01; Paper FOUND-NOFIT 10-22) rides in the SAME entry (no new array entry): a placed or reserved
     // plan cell is never a path's dig. bot.townPlan.cells is kept by every head read, so the A* step costs one Set lookup.
-    // shop-01: THE WORKSHOP'S FOOTPRINT (its record's cells + 1) is never a WORK or TRAVEL walk's dig or scaffold (design 4.4;
-    // shop.mjs footprintCost reads the profile at search time, so the ascend/descend/water escapes keep their survival digs)
-    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block) || footprintCost(bot.shopFootprint, bot.movementProfile, block)]
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
-    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice, (block) => footprintCost(bot.shopFootprint, bot.movementProfile, block)]
+    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
+    // shop-01: THE WORKSHOP'S FOOTPRINT (its record's cells + 1) is never a WORK or TRAVEL walk's dig or scaffold (design 4.4).
+    // Pushed onto the SAME arrays before the clones below copy their references; shop.mjs footprintCost reads the walk's profile at
+    // search time, so the ascend/descend/water escapes keep their survival digs
+    moves.exclusionAreasBreak.push((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    moves.exclusionAreasPlace.push((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
