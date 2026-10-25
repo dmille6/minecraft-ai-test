@@ -4,7 +4,7 @@
  "planSha": "b90c0d79ecbb52faa9fe70ed9b86c8e77099def839f508a335cc5b3e4a7e3ffe",
  "v": 1,
  "blueprint": "workshop@1",
- "plot": "workshop",
+ "plot": "shop",
  "home": {
   "x": 355,
   "y": 73,
@@ -299,6 +299,7 @@
   }
  ],
  "trees": [],
+ "felled": 0,
  "replant": [],
  "cells": [
   {
@@ -485,18 +486,18 @@
    "role": "fill",
    "seg": "earth",
    "stand": [
-    313,
-    63,
-    151
+    315,
+    66,
+    152
    ],
    "support": [
-    315,
-    63,
+    316,
+    64,
     153
    ],
    "face": [
+    -1,
     0,
-    1,
     0
    ],
    "order": 7
@@ -1862,16 +1863,16 @@
    "stand": [
     313,
     65,
-    152
+    154
    ],
    "support": [
-    314,
-    65,
+    315,
+    66,
     153
    ],
    "face": [
+    -1,
     0,
-    1,
     0
    ],
    "order": 62
@@ -1891,13 +1892,13 @@
    ],
    "support": [
     320,
-    65,
-    154
+    66,
+    153
    ],
    "face": [
     0,
-    1,
-    0
+    0,
+    1
    ],
    "order": 63
   },
@@ -2060,9 +2061,9 @@
    "role": "base",
    "seg": "pad",
    "stand": [
-    321,
+    320,
     66,
-    157
+    158
    ],
    "support": [
     319,
@@ -3160,18 +3161,18 @@
    "role": "step",
    "seg": "ring",
    "stand": [
-    320,
-    66,
+    319,
+    67,
     158
    ],
    "support": [
-    319,
-    66,
+    320,
+    67,
     157
    ],
    "face": [
+    -1,
     0,
-    1,
     0
    ],
    "order": 114
@@ -3185,8 +3186,8 @@
    "role": "step",
    "seg": "ring",
    "stand": [
-    319,
-    67,
+    316,
+    66,
     158
    ],
    "support": [
@@ -5240,14 +5241,14 @@
     153
    ],
    "support": [
-    316,
+    315,
     67,
-    152
+    153
    ],
    "face": [
+    1,
     0,
-    0,
-    1
+    0
    ],
    "order": 197
   },
@@ -5329,7 +5330,7 @@
    ],
    "cells": 26,
    "walks": 2,
-   "stands": 16
+   "stands": 15
   },
   {
    "seg": "wall-F",
@@ -5408,6 +5409,7 @@
  ],
  "interior": {
   "cells": 15,
+  "open": 12,
   "reachable": 12
  },
  "bom": {
@@ -5424,5 +5426,6 @@
  "structure_complete": false,
  "plan": {
   "gen": 2
- }
+ },
+ "town_seeds": 23
 }

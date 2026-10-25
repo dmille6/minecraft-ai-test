@@ -1,35 +1,37 @@
 // THE BUILDING TIER'S SITING PLANNER (shop-01 step 1; design docs/reports/building-tier-2026-10-23.md sections 4.1-4.3, 4.6).
 // Pure over a `read(x, y, z)` and the town's FROZEN plan: no bot, no world writes, no files. The same function a bot will run at
 // a build visit is run OFFLINE on region copies (bots/scripts/buildsite-offline.mjs), so where the workshop goes is known, and
-// reviewed, before any actuator code exists.
+// reviewed, before any actuator code exists. Run report: docs/reports/shop-01-siting-2026-10-25.md.
 //
 // WHAT IT DECIDES, IN ORDER (each refusal is named; the first one met is the candidate's reason):
 //   1. the DOMAIN: every pad cell and every stand of the 1-cell ring around it at Chebyshev >= 22 and straight-line <= 44 from
-//      home, inside the plan's PAVILION sector (the workshop replaces the pavilion as the first roofed build: section 4.3);
-//      the doorway faces home (the front's outward normal is the cardinal nearest the door -> home direction);
-//   2. the PLAN: no cell meets a plan cell or stand (keepouts NEVER), a committed plot's box + 1 (BOX), an uncommitted keep-out
-//      plot's box + 1 or a path segment (SOFT); no protected zone; no plinth well cell or cap within 3; no tree-farm cell within
-//      2; not the Z0 ziggurat footprint + 8 or the M0 shaft origin + 8 (TP 2-8);
-//   3. the GROUND (B4): g0 = the most common ground level of the pad's columns (ties lower), the pad at s = g0 + 1; each column
-//      within 3 of g0; fill <= 40 cells and cut <= 30; no liquid in the volume or the ring; nothing unknown; a cut column's
-//      floor solid;
-//   4. what STANDS IN THE VOLUME (pad columns, s .. s+3): a container, station or other bot furniture refuses the site; scaffold
-//      litter (any other non-terrain, non-tree solid) is a fenced `scaffold` clear, at most 40; trees: every log of a tree
-//      with a log in the volume is reachable (y <= s + 6, within 3 of the footprint), one trunk per tree (a 2x2 trunk refuses),
-//      and each felled trunk gets a LEGAL REPLANT CELL (soil, 7 air above, 8-24 from the pad, outside every reservation, beside
-//      a walkable cell) reserved before anything is felled;
-//   5. THE PROOF: a construction sequence over the world as it will be after the clears and fills -- segment by segment in the
-//      blueprint's dependency order, a cell is placed only when it has a SUPPORT (a solid neighbour now), a STAND (a cell a bot
-//      walks to from home with every cell of this segment and before it in place; floors only from earlier segments), the face
-//      within 4.5 of the eye, the eye on the face's open side, and a clear sight line; then the finished building's interior is
-//      walkable from home through the open doorway. A cell with no step is `no_step` and the candidate fails.
+//      home, in the workshop's sector (the plan's pavilion sector; D1: a free sector when the plan left the pavilion unsited);
+//      the doorway faces home;
+//   2. the PLAN and the RECORDS: no plan cell or stand (keepouts NEVER), a committed plot's box + 1 (BOX), an uncommitted
+//      keep-out plot's box + 1 or a path segment (SOFT); no protected zone; no plinth well cell, cap or stair (and every column
+//      in its prev[] history) within 3, nor a junk-well site; no tree-farm cell within 2; not the Z0 ziggurat footprint + 8 or
+//      the M0 shaft origin + 8 (TP 2-8);
+//   3. the FLOOR LEVEL (B4, D2): any full-cube solid is a floor (a gravity block only over another floor); per pad column a fill
+//      of at most 3 down to one; the volume L+1 .. L+4 cleared (natural solids a CUT, at most 3 per column; other solids
+//      scaffold LITTER; logs and leaves trees; bot furniture anywhere from the fill's floor up refuses); fill <= 40, cut <= 30,
+//      litter <= 40; the least earthwork wins;
+//   4. TREES: every log of a tree with a log in the fill span or the volume is in the plot's clear box (the footprint + 3), in no
+//      reservation or zone, and within dig reach (5.0) of an eye on the pad; one trunk per tree (a 2x2 trunk refuses); a felled
+//      trunk gets a LEGAL REPLANT CELL (soil, 7 air above, 8-24 from the pad, outside every reservation, beside a walkable cell)
+//      reserved before anything is felled; a 1-log bush and floating logs owe none (D6);
+//   5. THE PROOF: a construction sequence over the world after the clears -- the fill (`earth`) first, then the blueprint's
+//      segments in order. A cell is placed only with a SUPPORT the builder would click (below or a side, never above, never a
+//      block the click would open: builder.mjs refUsable), a STAND walked to from TOWN (D3: the cells beside the town chests bots
+//      used, the plan's placed stations' stands, home's own start cell) with this segment's cells still to place as obstacles
+//      that are never floors, the face within 4.5 of the eye, the eye on its open side, and a sight line every cell of which is
+//      known and empty (exact voxel traversal); then every open interior cell is walked to through the open doorway.
 //
-// NOT PROVEN HERE (named; the actuator's and Paper's): the clear and fill sequence itself (dig reach and order), sapling
-// clearance by species beyond 7 air, bodies, ghost blocks, the lease protocol, and the room test with a lit light.
+// NOT PROVEN HERE (named; the actuator's and Paper's): the clear sequence itself (dig order; the reach rule above is the screen's),
+// bodies, ghost blocks, the lease and barrier protocol, the room test with a lit light, whether a sapling grows where reserved.
 
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, rot } from './townplan.mjs'
+import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, cellInZones, rot } from './townplan.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
@@ -39,32 +41,46 @@ export const DOMAIN = Object.freeze({ cheb: 22, line: 44 })
 export const EARTH = Object.freeze({ col: 3, fill: 40, cut: 30 })
 export const LITTER_MAX = 40
 export const REACH = 4.5
+export const DIG_REACH = 5.0
 export const EYE = 1.62
-export const TREE = Object.freeze({ above: 6, out: 3, maxLogs: 400 })
+export const TREE = Object.freeze({ out: 3, maxLogs: 400 })
 export const REPLANT = Object.freeze({ near: 8, far: 24, clear: 7 })
 export const WALK_R = 48
-export const SEED_R = 8
 export const PROOF_TRIES = 40
 
 const SOIL = new Set(['grass_block', 'dirt', 'podzol', 'coarse_dirt', 'rooted_dirt'])
 const LOG = /^(oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_(log|wood)$/
 const LEAVES = /_leaves$/
 const STEM = /(_stem|_hyphae|^mushroom_stem|_mushroom_block)$/
-// bot furniture and fittings that refuse a site when they stand in its volume (fitc.py's STATION list, plus the plan's FURNITURE)
+// bot furniture and fittings that refuse a site when they stand in its span (fitc.py's STATION list, plus the plan's FURNITURE)
 const BUILT = /(chest|barrel|furnace|smoker|crafting_table|_bed$|lectern|composter|torch|lantern|ladder|_door$|_sign$|_hanging_sign$|rail$|_trapdoor$|_fence_gate$|hopper|anvil|bell|brewing_stand|_button$|lever|_pressure_plate$|campfire|_carpet$|_banner$|flower_pot)/
+// a block the click would USE (it opens or toggles): never a support -- builder.mjs refUsable at eb407fa0, verbatim
+const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/
+// a 'block' bounding box that is NOT a full cube a bot stands on as one step: fences and walls are 1.5 high, slabs and stairs
+// are not one step, the rest are short or hollow (Codex siting r1 P2: a fence was walked as a floor)
+const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|lantern$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
+// a block that falls when a neighbour updates: a floor only over another floor
+const GRAVITY = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|[a-z_]+_concrete_powder|anvil)$/
 const SAPLING = { oak: 'oak_sapling', spruce: 'spruce_sapling', birch: 'birch_sapling', jungle: 'jungle_sapling', acacia: 'acacia_sapling', dark_oak: 'dark_oak_sapling', mangrove: 'mangrove_propagule', cherry: 'cherry_sapling', pale_oak: 'pale_oak_sapling' }
 const NEEDS_2X2 = new Set(['dark_oak', 'pale_oak'])
-// materials a bot places (scaffold, builds): never NATURAL ground, however they lie
+// materials a bot places (scaffold, builds): never NATURAL, however they lie
 const PLACED_MAT = /(_planks$|^cobblestone$|^mossy_cobblestone$|^stone_bricks$|^cobbled_deepslate$|glass|_wool$|_slab$|_stairs$|_wall$|_fence$|_concrete$|^bricks$|^smooth_stone$|copper|_bricks$|^stripped_)/
 const AIR = Object.freeze({ name: 'air', boundingBox: 'empty' })
+const SOLID = name => Object.freeze({ name, boundingBox: 'block' })
+const ROLE_BOX = { light: 'empty' }
 
-/** A NATURAL solid: a full block that is not a tree, leaves, liquid, bot furniture or a placed material. Pure. */
-export const naturalSolid = b => isSolid(b) && !isTreeish(b) && !LEAVES.test(nm(b)) && !isLiquid(b) && !BUILT.test(nm(b)) && !isFurniture(b) && !PLACED_MAT.test(nm(b))
+/** A full cube a bot stands on: a 'block' box that is not one of the PARTIAL shapes. Pure. */
+export const fullCube = b => isSolid(b) && !PARTIAL.test(nm(b))
+/** A NATURAL solid: a full cube that is not a tree, leaves, liquid, bot furniture or a placed material. Pure. */
+export const naturalSolid = b => fullCube(b) && !isTreeish(b) && !LEAVES.test(nm(b)) && !isLiquid(b) && !BUILT.test(nm(b)) && !isFurniture(b) && !PLACED_MAT.test(nm(b))
+/** A FLOOR for the pad: a full cube that is not a tree, leaves, liquid or bot furniture -- natural or placed (D2). Pure. */
+export const solidFloor = b => fullCube(b) && !isTreeish(b) && !LEAVES.test(nm(b)) && !isLiquid(b) && !BUILT.test(nm(b)) && !isFurniture(b)
+/** May a click use this block as its support? builder.mjs refUsable: solid, not a liquid, not a block the click would use. Pure. */
+export const refUsable = b => isSolid(b) && !isLiquid(b) && !USES.test(nm(b))
+
 /**
- * THE BUILD'S GROUND -> the y of the top SUPPORTED natural solid of the column (a natural solid on a natural solid), within
- * home.y +- 12; null if a read in the span is unknown; undefined if there is none. Pure. Not townplan's groundY: towns are
- * littered with floating scaffold (board-d 10-25: cobblestone on leaves at 82, granite over air at 71, podzol over air at 67,
- * grass at 65 -- the ground), and any "top solid with room above" rule reads the litter as ground.
+ * THE TOP SUPPORTED NATURAL GROUND of a column (a natural solid on a natural solid) within home.y +- 12 -> y; null if a read in
+ * the span is unknown; undefined if there is none. Pure. Used for replant soil only: the pad's floor is levelFor's (D2).
  */
 export function groundOf (read, x, z, hy) {
   for (let y = hy + 12; y >= hy - 12; y--) {
@@ -77,8 +93,6 @@ export function groundOf (read, x, z, hy) {
   }
   return undefined
 }
-const SOLID = name => Object.freeze({ name, boundingBox: 'block' })
-const ROLE_BOX = { light: 'empty' }
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 /** A blueprint by id ('workshop@1') from bots/src/blueprints/. */
@@ -117,9 +131,9 @@ export function facesHome (bp, home, anchor, orient) {
 }
 
 /**
- * THE RESERVATIONS a site must not meet -> a test object. Pure over the plan and the other records.
+ * THE RESERVATIONS a site must not meet -> { column(x, z, y0, y1) -> reason | null, zones }. Pure over the plan and the records.
  *   ctx.zones  [{ box: [x0,y0,z0,x1,y1,z1] }]  (protected zones + avoid boxes)
- *   ctx.wells  [[x, y, z]]  plinth well cells and caps (every record's plan and its prev[] history)
+ *   ctx.wells  [[x, y, z]]  plinth well cells, caps and stairs (every record's plan and its prev[] history), junk-well sites
  *   ctx.farm   [[x, z]]     tree-farm record cells
  *   ctx.z0     { centre: {x, z} } | null   ctx.m0 { origin: {x, z} } | null
  */
@@ -130,7 +144,6 @@ export function reservations (plan, ctx = {}) {
   const z0 = ctx.z0?.centre ? [ctx.z0.centre.x - 24 - 8, ctx.z0.centre.z - 24 - 8, ctx.z0.centre.x + 24 + 8, ctx.z0.centre.z + 24 + 8] : null
   const m0 = ctx.m0?.origin ? [ctx.m0.origin.x - 8, ctx.m0.origin.z - 8, ctx.m0.origin.x + 8, ctx.m0.origin.z + 8] : null
   const inB = (b, x, z) => b && x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]
-  /** The reservation a column meets -> a reason or null (y range for the plan's NEVER cells). */
   const column = (x, z, y0, y1) => {
     for (let y = y0; y <= y1; y++) if (ko.never(x, y, z)) return 'plan_cell'
     if (ko.boxAt(x, z)) return 'plan_box'
@@ -161,38 +174,41 @@ export function treeOf (read, start, max = TREE.maxLogs) {
 }
 const speciesOf = name => (LOG.exec(name) ?? [])[1] ?? null
 
-/** A FLOOR: a full solid that is not a tree, leaves, liquid or bot furniture -- natural or placed (blocks do not fall). Pure. */
-export const solidFloor = b => isSolid(b) && !isTreeish(b) && !LEAVES.test(nm(b)) && !isLiquid(b) && !BUILT.test(nm(b)) && !isFurniture(b)
-
 /**
  * ONE PAD COLUMN AT FLOOR LEVEL L (the pad at L + 1) -> { ok, why } | { ok, fill, plants, cut, litter, logs, leaves }. Pure.
- *   fill    the cells from the highest floor at or below L up to L that are not solid (at most EARTH.col deep)
- *   cut     NATURAL solids in the volume L+1 .. L+4 (at most EARTH.col per column); litter: every other floor there
- *   refused a liquid in L .. L+5, bot furniture in the volume, a mushroom, or an unknown read
+ *   floor   the highest floor at or below L within EARTH.col (a gravity block only over another floor)
+ *   fill    every cell from the floor up to L that is not a floor (at most EARTH.col); what stands there is cleared first
+ *   cut     NATURAL full cubes in the volume L+1 .. L+4 (at most EARTH.col per column); litter: every other solid there
+ *   refused a liquid in the fill span or L .. L+5, bot furniture ANYWHERE from the floor up to L+4 (Claude/Codex siting r1 P2:
+ *           a chest under the pad was a `plant` clear), a mushroom, an unknown read
  */
 export function columnAt (read, x, z, L) {
   const out = { ok: true, fill: [], plants: [], cut: [], litter: [], logs: [], leaves: [] }
+  const floorAt = y => { const b = read(x, y, z); return solidFloor(b) && (!GRAVITY.test(nm(b)) || solidFloor(read(x, y - 1, z))) }
   let f = L
-  while (f >= L - EARTH.col) { const b = read(x, f, z); if (!b) return { ok: false, why: 'unknown' }; if (solidFloor(b)) break; f-- }
+  while (f >= L - EARTH.col) { if (!read(x, f, z)) return { ok: false, why: 'unknown' }; if (floorAt(f)) break; f-- }
   if (f < L - EARTH.col) return { ok: false, why: 'fill_too_deep' }
-  for (let y = f + 1; y <= L; y++) {
-    const b = read(x, y, z)
+  const classify = (y, b, inVolume) => {
+    const n = nm(b)
     if (isLiquid(b)) return { ok: false, why: 'liquid' }
-    if (!replaceableCell(b)) out.plants.push([x, y, z])
-    out.fill.push([x, y, z])
-  }
-  for (let y = L; y <= L + 5; y++) { const b = read(x, y, z); if (!b) return { ok: false, why: 'unknown' }; if (isLiquid(b)) return { ok: false, why: 'liquid' } }
-  for (let y = L + 1; y <= L + 4; y++) {
-    const b = read(x, y, z), n = nm(b)
-    if (replaceableCell(b)) continue
     if (BUILT.test(n) || isFurniture(b)) return { ok: false, why: 'built_in_volume', detail: `${n}@${x},${y},${z}` }
     if (STEM.test(n)) return { ok: false, why: 'mushroom' }
-    if (LOG.test(n)) { out.logs.push([x, y, z]); continue }
-    if (LEAVES.test(n)) { out.leaves.push([x, y, z]); continue }
-    // a passable plant (a flower, sugar cane, a sapling) or snow is not replaceable by a click: it is cleared, never litter
-    if (isPassable(b) || n === 'snow' || !isSolid(b)) { out.plants.push([x, y, z]); continue }
-    if (naturalSolid(b)) out.cut.push([x, y, z]); else out.litter.push([x, y, z])
+    if (replaceableCell(b)) return null
+    if (LOG.test(n)) { out.logs.push([x, y, z]); return null }
+    if (LEAVES.test(n)) { out.leaves.push([x, y, z]); return null }
+    if (!isSolid(b) || n === 'snow') { out.plants.push([x, y, z]); return null }
+    if (inVolume && naturalSolid(b)) out.cut.push([x, y, z]); else out.litter.push([x, y, z])
+    return null
   }
+  for (let y = f + 1; y <= L; y++) {
+    const b = read(x, y, z)
+    if (!b) return { ok: false, why: 'unknown' }
+    const bad = classify(y, b, false)
+    if (bad) return bad
+    out.fill.push([x, y, z])
+  }
+  for (let y = L + 1; y <= L + 5; y++) { const b = read(x, y, z); if (!b) return { ok: false, why: 'unknown' }; if (isLiquid(b)) return { ok: false, why: 'liquid' } }
+  for (let y = L + 1; y <= L + 4; y++) { const bad = classify(y, read(x, y, z), true); if (bad) return bad }
   if (out.cut.length > EARTH.col) return { ok: false, why: 'cut_too_high' }
   return out
 }
@@ -201,8 +217,8 @@ export function columnAt (read, x, z, L) {
  * THE PAD'S FLOOR LEVEL -> { ok, L, cols, cost } | { ok: false, why }. Pure. Every level home.y - 12 .. home.y + 12 where EVERY
  * pad column is feasible (columnAt) and the totals hold (fill <= 40, cut <= 30, litter <= 40); the least earthwork
  * (fill + cut + litter) wins, then the level nearest home's, then the lower. When none is feasible, the reason is the one AT THE
- * GROUND'S OWN LEVEL (the most common top floor of the pad's columns, ties lower): "a chest stands in the volume" is said at the
- * ground, never "earthwork" at a level one block up. With no top floor at all, the level that got furthest through the pad.
+ * GROUND'S OWN LEVEL (the most common top floor of the pad's columns, ties lower); with no top floor at all, the level that got
+ * furthest through the pad.
  */
 export function levelFor (read, home, pad) {
   let best = null, why = null, mostCols = -1
@@ -251,52 +267,60 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
   for (const [x, z] of all) if (!inDomain(home, x, z)) return { ok: false, why: 'domain' }
   if (sector) for (const [x, z] of all) if (sectorOf(home, x, z) !== sector) return { ok: false, why: 'sector' }
   if (!facesHome(bp, home, anchor, orient)) return { ok: false, why: 'door_not_toward_home' }
-  // ---- the floor level (B4) and the plan's reservations over the whole span the level may take ----
-  for (const [x, z] of all) { const why = res.column(x, z, home.y - 12, home.y + 17); if (why) return { ok: false, why } }
+  // ---- the plan and the records over the whole span a level may take ----
+  for (const [x, z] of all) { const why = res.column(x, z, home.y - 16, home.y + 17); if (why) return { ok: false, why } }
   const xs = all.map(c => c[0]), zs = all.map(c => c[1])
   if (boxMeetsZones([Math.min(...xs), home.y - 16, Math.min(...zs), Math.max(...xs), home.y + 20, Math.max(...zs)], res.zones)) return { ok: false, why: 'zone' }
+  // ---- the floor level (B4, D2) ----
   const lv = levelFor(read, home, pad)
   if (!lv.ok) return { ok: false, why: lv.why, detail: lv.detail }
   const { L, cols } = lv
   const s = L + 1, g0 = L
   const fill = [], cut = [], clear = [], felled = new Map()
+  const cleared = new Set()
+  const addClear = (at, kind) => { const key = k3(...at); if (cleared.has(key)) return; cleared.add(key); clear.push({ at, kind, name: nm(read(...at)) }) }
   let litter = 0
   for (const c of cols) {
     fill.push(...c.fill)
-    for (const at of c.plants) clear.push({ at, kind: 'plant', name: nm(read(...at)) })
-    for (const at of c.cut) { cut.push(at); clear.push({ at, kind: 'cut', name: nm(read(...at)) }) }
-    for (const at of c.litter) { litter++; clear.push({ at, kind: 'scaffold', name: nm(read(...at)) }) }
-    for (const at of c.leaves) clear.push({ at, kind: 'leaves', name: nm(read(...at)) })
+    for (const at of c.plants) addClear(at, 'plant')
+    for (const at of c.cut) { cut.push(at); addClear(at, 'cut') }
+    for (const at of c.litter) { litter++; addClear(at, 'scaffold') }
+    for (const at of c.leaves) addClear(at, 'leaves')
     for (const at of c.logs) {
-      clear.push({ at, kind: 'tree', name: nm(read(...at)) })
-      if (![...felled.values()].some(t => t.keys.has(k3(...at)))) {
-        const logs = treeOf(read, at)
-        if (logs.length > TREE.maxLogs) return { ok: false, why: 'tree_too_big' }
-        felled.set(k3(...at), { logs, keys: new Set(logs.map(q => k3(...q))) })
-      }
+      if ([...felled.values()].some(t => t.keys.has(k3(...at)))) continue
+      const logs = treeOf(read, at)
+      if (logs.length > TREE.maxLogs) return { ok: false, why: 'tree_too_big' }
+      felled.set(k3(...at), { logs, keys: new Set(logs.map(q => k3(...q))) })
     }
   }
   for (const [x, z] of ring) for (let y = s - 1; y <= s + 2; y++) { const b = read(x, y, z); if (!b) return { ok: false, why: 'unknown' }; if (isLiquid(b)) return { ok: false, why: 'liquid' } }
-  if (litter > LITTER_MAX) return { ok: false, why: 'litter_over_40' }
-  // ---- the whole-tree rule: every log reachable; one trunk per tree ----
-  const padSet = new Set(pad.map(([x, z]) => k2(x, z)))
-  const near = (x, z) => { for (let dx = -TREE.out; dx <= TREE.out; dx++) for (let dz = -TREE.out; dz <= TREE.out; dz++) if (padSet.has(k2(x + dx, z + dz))) return true; return false }
+  // ---- trees: the clear box, the reservations, dig reach from the pad, one trunk, the replant owed ----
+  const bx0 = Math.min(...pad.map(c => c[0])) - TREE.out, bx1 = Math.max(...pad.map(c => c[0])) + TREE.out
+  const bz0 = Math.min(...pad.map(c => c[1])) - TREE.out, bz1 = Math.max(...pad.map(c => c[1])) + TREE.out
+  const eyes = pad.map(([x, z]) => [x + 0.5, s + 1 + EYE, z + 0.5])
+  const reachable = ([x, y, z]) => eyes.some(e => Math.hypot(e[0] - (x + 0.5), e[1] - (y + 0.5), e[2] - (z + 0.5)) <= DIG_REACH)
   const trees = []
   for (const t of felled.values()) {
-    if (t.logs.some(([x, y, z]) => y > s + TREE.above || !near(x, z))) return { ok: false, why: 'tree_out_of_reach' }
+    for (const c of t.logs) {
+      const [x, y, z] = c
+      if (x < bx0 || x > bx1 || z < bz0 || z > bz1) return { ok: false, why: 'tree_beyond_plot' }
+      if (res.column(x, z, y, y) || cellInZones(x, y, z, res.zones)) return { ok: false, why: 'tree_in_reservation' }
+      if (!reachable(c)) return { ok: false, why: 'tree_out_of_reach' }
+    }
+    for (const c of t.logs) addClear(c, 'tree')
     const bases = t.logs.filter(([x, y, z]) => { const below = nm(read(x, y - 1, z)); return !LOG.test(below) && !LEAVES.test(below) })
-    // FLOATING logs (no log stands on anything but logs or leaves: placed litter, or a tree whose trunk was cut away) are cleared
-    // with no replant owed: there is no trunk to replace
-    if (!bases.length) { for (const c of t.logs) if (!clear.some(e => e.at[0] === c[0] && e.at[1] === c[1] && e.at[2] === c[2])) clear.push({ at: c, kind: 'tree', name: nm(read(...c)) }); continue }
+    // D6: FLOATING logs (no log stands on anything but logs or leaves) and a 1-LOG BUSH owe no replant: there is no tree a
+    // sapling of that kind replaces (a jungle bush is one jungle log under oak leaves)
+    if (!bases.length || t.logs.length === 1) continue
     const lowest = Math.min(...bases.map(c => c[1]))
     const trunk = bases.filter(c => c[1] === lowest)
     const species = speciesOf(nm(read(...trunk[0])))
     if (trunk.length > 1 || NEEDS_2X2.has(species)) return { ok: false, why: 'tree_2x2' }
     if (!species) return { ok: false, why: 'tree_species' }
-    trees.push({ base: trunk[0], species, logs: t.logs.length, cells: t.logs })
-    for (const c of t.logs) if (!clear.some(e => e.at[0] === c[0] && e.at[1] === c[1] && e.at[2] === c[2])) clear.push({ at: c, kind: 'tree', name: nm(read(...c)) })
+    trees.push({ base: trunk[0], species, logs: t.logs.length })
   }
-  return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, sector }
+  if (litter > LITTER_MAX) return { ok: false, why: 'litter_over_40' }
+  return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, felled: felled.size, sector }
 }
 
 // ---- the walk and the proof ----------------------------------------------------------------------------------------------
@@ -305,23 +329,31 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
 export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z)) ?? read(x, y, z) }
 
 /**
- * WHERE A BOT CAN WALK FROM HOME -> Set of feet keys. As townplan.walkable, but `block` cells are OBSTACLES that are never a
- * floor (cells about to be placed: a stand may not rely on a block that is not there yet), and the radius is the build's. Pure.
+ * WHERE A BOT CAN WALK FROM TOWN -> Set of feet keys. Pure. A node: a full-cube floor, feet and head passable, dry and known;
+ * `block` cells are OBSTACLES that are never a floor (cells still to place: a stand may not rely on a block that is not there);
+ * 4-neighbour steps of dy -1, 0, +1 with head room (symmetric: a reached stand walks back); inside Chebyshev `radius` of home.
+ * THE SEEDS (D3): home's own start cell (the nearest node within 2 of home), and every node beside a TOWN cell -- a chest bots
+ * used, a placed plan station's stand (`town`: [[x, y, z]], Chebyshev 1 across, feet y - 1 .. y + 1). Never "every plaza cell":
+ * a pocket in the plaza is not town (Codex siting r1 P2: a moat inside the plaza was certified).
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R) {
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { town = [] } = {}) {
   const isNode = (x, y, z) => {
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
-    return !!f && !!a && !!h && isSolid(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
+    return !!f && !!a && !!h && fullCube(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
   }
-  // THE SEEDS: every walkable cell of the town's plaza (Chebyshev <= SEED_R, home.y +- 4), not one start cell -- a bot in town
-  // stands anywhere there, and town centres are boxed in by scaffold (board-a, hive-a, isolated-c 10-25: home's own cell has a
-  // block over its head). "Walks back to town" is reaching any seed: the steps are symmetric (+-1 with head room).
   const seen = new Set(), q = []
-  for (let dx = -SEED_R; dx <= SEED_R; dx++) for (let dz = -SEED_R; dz <= SEED_R; dz++) for (let dy = -4; dy <= 4; dy++) {
-    const c = [home.x + dx, home.y + dy, home.z + dz]
-    if (isNode(...c)) { seen.add(k3(...c)); q.push(c) }
+  const seed = c => { const key = k3(...c); if (!seen.has(key) && isNode(...c)) { seen.add(key); q.push(c) } }
+  outer: for (let r = 0; r <= 2; r++) {
+    for (const dy of [0, 1, -1, 2, -2]) {
+      for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue
+        const c = [home.x + dx, home.y + dy, home.z + dz]
+        if (isNode(...c)) { seed(c); break outer }
+      }
+    }
   }
+  for (const [tx, ty, tz] of town) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) seed([tx + dx, ty + dy, tz + dz])
   for (let i = 0; i < q.length; i++) {
     const [x, y, z] = q[i]
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -341,34 +373,42 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R) {
   return seen
 }
 
-const FACES = [[0, -1, 0], [0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
-/** Is the segment eye -> point clear of solids (sampled every 0.1; the eye's own cell and `skip` keys ignored)? Pure. */
-export function sightClear (read, eye, pt, skip = new Set()) {
-  const d = Math.hypot(pt[0] - eye[0], pt[1] - eye[1], pt[2] - eye[2])
-  const n = Math.max(1, Math.ceil(d / 0.1))
-  for (let i = 1; i < n; i++) {
-    const t = i / n
-    const x = Math.floor(eye[0] + (pt[0] - eye[0]) * t), y = Math.floor(eye[1] + (pt[1] - eye[1]) * t), z = Math.floor(eye[2] + (pt[2] - eye[2]) * t)
-    const key = k3(x, y, z)
-    if (skip.has(key)) continue
-    if (isSolid(read(x, y, z))) return false
+/**
+ * IS THE SEGMENT eye -> point OPEN? Exact voxel traversal (Amanatides-Woo) from the eye's cell to the point; every cell entered
+ * before the point is known and has an empty box, except `through` (the target). Stricter than any sampling: a cell the ray
+ * crosses is always entered (Codex siting r1 P2: 0.1 sampling stepped over a melon and a grass block). Pure.
+ */
+export function sightClear (read, eye, pt, through = new Set()) {
+  const d = [pt[0] - eye[0], pt[1] - eye[1], pt[2] - eye[2]]
+  const cell = [Math.floor(eye[0]), Math.floor(eye[1]), Math.floor(eye[2])]
+  const step = d.map(v => Math.sign(v))
+  const tMax = [0, 1, 2].map(i => d[i] === 0 ? Infinity : (step[i] > 0 ? cell[i] + 1 - eye[i] : eye[i] - cell[i]) / Math.abs(d[i]))
+  const tDelta = [0, 1, 2].map(i => d[i] === 0 ? Infinity : 1 / Math.abs(d[i]))
+  for (let guard = 0; guard < 64; guard++) {
+    const a = tMax[0] < tMax[1] ? (tMax[0] < tMax[2] ? 0 : 2) : (tMax[1] < tMax[2] ? 1 : 2)
+    if (tMax[a] >= 1 - 1e-9) return true
+    cell[a] += step[a]; tMax[a] += tDelta[a]
+    if (through.has(k3(...cell))) continue
+    const b = read(...cell)
+    if (!b || b.boundingBox !== 'empty') return false
   }
-  return true
+  return false
 }
 
+// the builder's support order: the block BELOW first, then the four sides; never the face above (builder.mjs supportsFor)
+const SUPPORTS = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
 /**
  * ONE STEP for a cell -> { stand, support, face } | null. Pure. `nodes` = walkable feet cells by column ("x,z" -> [y]).
- * A support is a solid neighbour now; the face is the support's face toward the cell; the eye (feet + 1.62, centred) is within
- * REACH of the face centre, on its open side, with a clear sight line; the stand is not the cell (feet or head) and is in the
- * build domain.
+ * A support is a block the builder would click (refUsable) below or beside the cell; the face is its face toward the cell; the
+ * eye (feet + 1.62, centred) is within REACH of the face centre, on its open side, with a clear sight line; the stand is not the
+ * cell (feet or head) and is in the build domain. Nearest wins.
  */
-export function stepFor (read, home, cell, nodes, { role = null } = {}) {
+export function stepFor (read, home, cell, nodes) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
-  for (const [fx, fy, fz] of FACES) {
-    if (role === 'light' && fy === 1) continue   // a torch never hangs from the face above it
+  for (const [fx, fy, fz] of SUPPORTS) {
     const sup = [cx + fx, cy + fy, cz + fz]
-    if (!isSolid(read(...sup))) continue
+    if (!refUsable(read(...sup))) continue
     const normal = [0 - fx, 0 - fy, 0 - fz]   // never -0 (a record compares and serialises cleanly)
     const fc = [sup[0] + 0.5 + normal[0] * 0.5, sup[1] + 0.5 + normal[1] * 0.5, sup[2] + 0.5 + normal[2] * 0.5]
     for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
@@ -382,7 +422,7 @@ export function stepFor (read, home, cell, nodes, { role = null } = {}) {
         const d = Math.hypot(...v)
         if (d > REACH || d >= bd) continue
         if (v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) continue
-        if (!sightClear(read, eye, fc, new Set([k3(sx, sy + 1, sz), k3(...sup), k3(cx, cy, cz)]))) continue
+        if (!sightClear(read, eye, fc, new Set([k3(cx, cy, cz)]))) continue
         best = { stand: [sx, sy, sz], support: sup, face: normal }; bd = d
       }
     }
@@ -395,14 +435,14 @@ const byColumn = keys => {
   for (const key of keys) { const [x, y, z] = key.split(',').map(Number); const c = k2(x, z); if (!m.has(c)) m.set(c, []); m.get(c).push(y) }
   return m
 }
-const blockFor = (bp, role) => { const first = (bp.palette[role] ?? ['stone'])[0]; return first.startsWith('$') ? 'oak_planks' : first }
+const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; const first = (bp.palette[role] ?? ['stone'])[0]; return first.startsWith('$') ? 'oak_planks' : first }
 
 /**
  * THE PROOF of a screened site (section 5 above) -> { ok, why, cells, segments, interior }. Pure.
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
- * the bottom up), then the blueprint's segments in order. The clears themselves (dig reach and order) are not proven here.
+ * the bottom up), then the blueprint's segments in order. `town` = the walk's town seeds (D3).
  */
-export function proveSite (read, home, bp, site) {
+export function proveSite (read, home, bp, site, { town = [] } = {}) {
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
   const R = overlay(read, over)
@@ -417,38 +457,39 @@ export function proveSite (read, home, bp, site) {
   let order = 0
   const segments = [...(earth.length ? [{ seg: 'earth', layer: -1, deps: [] }] : []), ...bp.segments.map(s => (s.seg === 'pad' && earth.length ? { ...s, deps: ['earth'] } : s))]
   for (const sg of segments) {
-    const mine = cells.filter(c => c.seg === sg.seg)
     // the cells STILL TO PLACE in this segment are obstacles and never floors; every placed cell (earlier segments, and this
     // one's so far) is in the overlay: a wall, and a floor. The walk is recomputed only when no cell has a step and something
     // was placed since the last walk (a builder walks onto the pad it has laid); with nothing new, the cell is no_step.
+    const mine = cells.filter(c => c.seg === sg.seg)
     const left = mine.slice().sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
-    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))))
+    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), WALK_R, { town }))
     let nodes = walkNow(), fresh = true, walks = 1
     while (left.length) {
       let pick = -1, step = null
       for (let i = 0; i < left.length; i++) {
-        step = stepFor(R, home, left[i].at, nodes, { role: left[i].role })
+        step = stepFor(R, home, left[i].at, nodes)
         if (step) { pick = i; break }
       }
       if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; continue }
       if (pick < 0) return { ok: false, why: 'no_step', detail: `${sg.seg} ${left.length} left, first ${left[0].role}@${left[0].at.join(',')}`, segments: segOut }
       fresh = false
       const c = left.splice(pick, 1)[0]
-      const box = ROLE_BOX[c.role] ?? 'block'
-      over.set(k3(...c.at), Object.freeze({ name: c.role === 'fill' ? 'cobblestone' : blockFor(bp, c.role), boundingBox: box }))
+      over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block' }))
       out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++ })
     }
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })
   }
-  // the finished building: its interior is walked to from home through the open doorway, and every stand walks back
-  const final = walkFrom(R, home)
+  // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
+  const final = walkFrom(R, home, new Set(), WALK_R, { town })
+  const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
-  const inside = interior.filter(k => final.has(k)).length
-  if (!inside) return { ok: false, why: 'interior_unreachable', segments: segOut }
-  return { ok: true, why: 'ok', cells: out, segments: segOut, interior: { cells: interior.length, reachable: inside } }
+  const open = interior.filter(k => !solidInside.has(k))
+  const inside = open.filter(k => final.has(k)).length
+  if (!open.length || inside < open.length) return { ok: false, why: 'interior_unreachable', detail: `${inside}/${open.length}`, segments: segOut }
+  return { ok: true, why: 'ok', cells: out, segments: segOut, interior: { cells: interior.length, open: open.length, reachable: inside } }
 }
 
-/** Replant cells for the felled trunks -> { ok, cells: [{ cell, species, state }] }. Pure. */
+/** Replant cells for the felled trunks -> { ok, cells: [{ cell, species, sapling, state }] }. Pure. */
 export function replantFor (read, home, site, res, walk) {
   if (!site.trees.length) return { ok: true, cells: [] }
   const padSet = new Set([...site.pad, ...site.ring].map(([x, z]) => k2(x, z)))
@@ -512,13 +553,19 @@ export function workshopSectors (plan) {
   const taken = new Set(plots.filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
   return REST_ORDER.filter(s => !taken.has(s)).map(s => ({ sector: s, source: 'free' }))
 }
+/** The plan's own town cells for the walk's seeds: every placed or reserved plan cell's stand. Pure. */
+export function planTownCells (plan) {
+  const out = []
+  for (const p of plan?.plots ?? []) for (const c of [...(p.cells ?? []), ...(p.stations ?? [])]) if ((c.state === 'placed') && Array.isArray(c.stand)) out.push(c.stand)
+  return out
+}
 
 /**
  * SITE A BLUEPRINT FOR A TOWN -> { ok, why, record | null, sectors: [{ sector, source, screened, tried, rejects, proofFails }] }.
  * Pure. Per sector in workshopSectors order: screen every anchor and orientation, sort the survivors (least earthwork, fewest
- * trees, least litter, nearest), prove at most `tries` (PROOF_TRIES); the first proven site with its replant cells wins.
+ * trees, nearest), prove at most `tries` (PROOF_TRIES); the first proven site with its replant cells wins.
  *   plan  the town plan's head (frozen)
- *   ctx   { zones, wells, farm, z0, m0 } (reservations); { tries }
+ *   ctx   { zones, wells, farm, z0, m0 } (reservations); { town } chest cells bots used (the walk's seeds, D3); { tries }
  */
 export function siteBlueprint (read, plan, bp, ctx = {}) {
   const home = plan?.home
@@ -526,6 +573,7 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
   const secs = workshopSectors(plan)
   if (!secs.length) return { ok: false, why: 'no_free_sector', sectors: [] }
   const res = reservations(plan, ctx)
+  const town = [...(ctx.town ?? []), ...planTownCells(plan)]
   const out = []
   for (const { sector, source } of secs) {
     const rejects = {}, ok = []
@@ -546,22 +594,22 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
     for (let i = 0; i < tries; i++) {
       const site = ok[i]
       row.tried = i + 1
-      const p = proveSite(read, home, bp, site)
+      const p = proveSite(read, home, bp, site, { town })
       if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; continue }
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
       for (const c of site.fill) over.set(k3(...c), SOLID('cobblestone'))
-      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home))
+      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), WALK_R, { town }))
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
-        v: 1, blueprint: bp.id, plot: 'workshop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
+        v: 1, blueprint: bp.id, plot: 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
         box: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)], s: site.s, floor: site.g0,
         earthwork: { fill: site.fill.length, cut: site.cut.length, litter: site.litter },
         fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })),
-        trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), replant: rp.cells,
+        trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled, replant: rp.cells,
         cells: p.cells, segments: p.segments, interior: p.interior, bom: billOf(bp, p.cells), builders_max: 2,
-        structure_complete: false, plan: { gen: plan.gen },
+        structure_complete: false, plan: { gen: plan.gen }, town_seeds: town.length,
       }
       return { ok: true, why: 'ok', record, sectors: out }
     }
