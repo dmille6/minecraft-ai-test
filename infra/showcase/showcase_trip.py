@@ -32,7 +32,7 @@ LINES (each with its denominator; a zero is printed beside the positive control 
   REPORTED        plan generations, found outcomes, founding placements (the evidence the town is being founded)
 VERDICT  TRIP (stop-bots.sh, or re-activate the previous release when a piece was just deployed) | WATCH | OK
 """
-import argparse, collections, datetime as dt, glob, json, math, os, re, sys
+import argparse, collections, contextlib, datetime as dt, glob, json, math, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -40,6 +40,13 @@ POOL_DIR = '/var/lib/mcai/_pool-showcase'
 LOGS = '/var/log/mcai/showcase-[A-Z]*/skill-*.jsonl*'
 NAMES = ['showcase-' + n for n in 'Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno'.split()]
 POOL = 'showcase'
+# THE TWO EPOCHS (re-review 10-25, Codex P1 / Claude P2): the town's founding (plan + found history is read from here, so a
+# placement never ages out of G1-G4) and the newest start of the bots (the 180-min read never reaches back past it, so a
+# restart after a tripwire stop is not re-tripped by the rows that caused the stop). One ISO line each.
+TOWN_SINCE = '/srv/showcase/trip/TOWN_SINCE'
+RUN_SINCE = '/srv/showcase/trip/RUN_SINCE'
+MIRROR_MAX_AGE_MIN = 60
+HEALTHZ = 'http://127.0.0.1:11612/healthz'
 UTC = dt.timezone.utc
 
 DEATH_TRIP, DEATH_WATCH = 4, 2
@@ -55,7 +62,11 @@ WORLD = [-30000000, -64, -30000000, 30000000, 320, 30000000]
 TRIAL_RX = (r'tuff_bricks|tuff_brick_(slab|stairs|wall)|chiseled_tuff(_bricks)?|polished_tuff(_slab|_stairs|_wall)?|'
             r'(waxed_)?(exposed_|weathered_|oxidized_)?(copper_block|cut_copper(_slab|_stairs)?|copper_grate|copper_door|'
             r'copper_trapdoor|copper_bulb|chiseled_copper)|(waxed_)?(exposed_|weathered_|oxidized_)copper|'
-            r'trial_spawner|vault|decorated_pot|heavy_core')
+            r'trial_spawner|vault|decorated_pot|heavy_core|'
+            # re-review 10-25 (Codex P1 / Claude P3): every cauldron state (rain or snow fills one only with weather on; the
+            # showcase runs doWeatherCycle false, checked 16:36Z), the trial chambers' plain tuff shapes, the village's logs
+            # and mossy cobblestone
+            r'(water_|lava_|powder_snow_)?cauldron|tuff_(stairs|slab|wall)|[a-z_]+_(log|wood)|mossy_cobblestone(_slab|_stairs|_wall)?')
 # COPPER WEATHERS ON ITS OWN (seen 10-25 15:45Z, the first live read: two unwaxed copper_block cells of the trial chambers at
 # 69..70,-2,134 read `exposed_copper` 30 min after the start, no bot near -- a false BREACH). A cell is compared by its CANONICAL
 # name: the oxidation stage is dropped and `copper` (an oxidised block's base name) equals `copper_block`. Waxing never
@@ -63,8 +74,13 @@ TRIAL_RX = (r'tuff_bricks|tuff_brick_(slab|stairs|wall)|chiseled_tuff(_bricks)?|
 OXID = re.compile(r'(exposed_|weathered_|oxidized_)')
 
 
+CAULDRON = re.compile(r'^minecraft:(water_|lava_|powder_snow_)cauldron$')
+
+
 def canon(name):
     n = OXID.sub('', name)
+    if CAULDRON.match(n):
+        return 'minecraft:cauldron'          # what is IN a cauldron is not the structure; the cauldron is
     return 'minecraft:copper_block' if n == 'minecraft:copper' else n
 
 
@@ -160,7 +176,9 @@ def zone_diff(base, now):
 def verdict(f):
     """f: the facts dict read() builds. -> (verdict, [reasons]). Pure: TRIP beats WATCH beats OK; UNKNOWN is never OK."""
     trip, watch = [], []
-    if f['live_bots'] == 0 and f['expect_running']:
+    if f['live_bots'] == 0 and f['expect_running'] and f.get('brain_paused'):
+        watch.append('S0 no row in %d min while the brain is PAUSED (%s)' % (LIVE_MIN, f['brain_paused']))
+    elif f['live_bots'] == 0 and f['expect_running']:
         trip.append('S0 no showcase bot wrote a row in %d min' % LIVE_MIN)
     elif f['live_bots'] < len(NAMES) and f['expect_running']:
         watch.append('S0 %d of %d bots wrote a row in %d min' % (f['live_bots'], len(NAMES), LIVE_MIN))
@@ -178,6 +196,14 @@ def verdict(f):
         watch.append('S5 no accepted town plan after %d min (UNEXPOSED: zero defects mean nothing yet)' % f['window_min'])
     if f['trapped']:
         trip.append('S3 Z1 trapped in a zone %s' % f['trapped'])
+    if f.get('deep'):
+        watch.append('S3 DEEP below a village floor (legal ground) %s' % f['deep'])
+    if f.get('zones_error'):
+        watch.append('S3 zones file unreadable (%s): Z1 / UNDER saw nothing' % f['zones_error'])
+    if f.get('mirror_age_min') is None or f.get('mirror_age_min', 0) > MIRROR_MAX_AGE_MIN:
+        watch.append('S4 the region copy is %s min old (max %d): integrity read on stale data' % (f.get('mirror_age_min'), MIRROR_MAX_AGE_MIN))
+    if f.get('gen_unknown'):
+        watch.append('S5 rows naming an unknown plan generation %s' % f['gen_unknown'])
     if f['refusal_loops']:
         watch.append('S3 Z2 refusal loop %s' % f['refusal_loops'])
     integ = f['integrity']
@@ -203,6 +229,26 @@ def verdict(f):
 def zone_boxes(path=os.path.join(POOL_DIR, 'protected-zones.json')):
     d = json.load(open(path))
     return [(z['id'], z['box']) for z in d.get('zones') or [] if isinstance(z.get('box'), list) and len(z['box']) == 6]
+
+
+def zone_floors(path=os.path.join(POOL_DIR, 'protected-zones.json')):
+    d = json.load(open(path))
+    return {z['id']: z.get('floor_y') for z in d.get('zones') or [] if isinstance(z.get('box'), list) and len(z['box']) == 6}
+
+
+def closed_and_deep(zones, floors):
+    """-> (closed boxes, deep boxes). Below a zone's floor_y protectzone lets a bot whose feet are also below it dig its way
+    out (protectzone.mjs blockedIn): that DEEP part is legal ground for a bot already there (re-review 10-25, Claude P2-2),
+    so Z1 judges only the part at or above the floor; the deep part is reported. Pure."""
+    closed, deep = [], []
+    for zid, b in zones:
+        f = floors.get(zid)
+        if f is not None and b[1] <= f - 1:
+            closed.append([b[0], f, b[2], b[3], b[4], b[5]])
+            deep.append([b[0], b[1], b[2], b[3], f - 1, b[5]])
+        else:
+            closed.append(list(b))
+    return closed, deep
 
 
 def scan_zone(world, rx, box):
@@ -280,6 +326,14 @@ def integrity(regions, baseline_path, only=None):
     return res
 
 
+def region_age_min(regions):
+    try:
+        newest = max(os.path.getmtime(f) for f in glob.glob(os.path.join(regions, 'r.*.mca')))
+    except ValueError:
+        return None
+    return round((dt.datetime.now(UTC).timestamp() - newest) / 60)
+
+
 def cmd_zones_compare(a):
     res = integrity(a.regions, a.baseline, a.zone)
     for zid, z in res.items():
@@ -287,36 +341,60 @@ def cmd_zones_compare(a):
         for k in ('removed', 'changed', 'added'):
             if z.get(k):
                 print('      %s %s' % (k, z[k][:5]))
-    return 3 if any(z['status'] == 'BREACH' for z in res.values()) else 0     # 3, so a crash (1) is never read as one
+    if any(z['status'] == 'BREACH' for z in res.values()):
+        return 3                    # 3, so a crash (1) is never read as one
+    age = region_age_min(a.regions)
+    if age is None or age > a.max_age_min:
+        print('  STALE: the newest region file in %s is %s min old (max %d): this compare saw old data' % (a.regions, age, a.max_age_min))
+        return 4
+    if any(z['status'] != 'INTACT' for z in res.values()):
+        return 4                    # blind somewhere (NOT COVERED / UNKNOWN / NO BASELINE): a WATCH, never a stop
+    return 0
 
 
 # ------------------------------------------------------------------------------------------------ the read
-def plan_read(rows, since):
-    """townplanread's D-gates and foundread's G-gates over the showcase pool, every showcase bot on the canary arm.
-    The reads key plans by pool_of_dir('_pool-showcase') = 'showcase' but rows by pool_of('showcase-Alpha') =
-    'showcase-Alpha', so the plan maps are re-keyed per bot pool here (the reads themselves are unchanged)."""
+@contextlib.contextmanager
+def showcase_pools(*mods):
+    """ONE SHARED TOWN, BOT IDENTITY KEPT (re-review 10-25, Codex P1 + Claude P3: the r2 rewrite set bot='showcase' on every
+    row, which made D5's "the root writer's own first audit" read anyone's). The reads' pool_of('showcase-Alpha') is
+    'showcase-Alpha' (two dash parts); here it answers 'showcase' for every showcase bot, so the plan maps (keyed by
+    pool_of_dir('_pool-showcase') = 'showcase') match, G4 sees two bots' chests side by side, G1/G3 read every bot's audits,
+    and every per-bot key ((pool, bot) in D5) still holds the real bot. The reads themselves are unchanged."""
+    olds = [m.pool_of for m in mods]
+    orig = olds[0]
+    f = lambda b: POOL if (b == POOL or str(b or '').startswith(POOL + '-')) else orig(b)
+    for m in mods:
+        m.pool_of = f
+    try:
+        yield
+    finally:
+        for m, o in zip(mods, olds):
+            m.pool_of = o
+
+
+def plan_read(rows, since, plans=None):
+    """townplanread's D-gates and foundread's G-gates over the showcase pool, every showcase bot on the canary arm. `rows`
+    must reach back to the town's founding (TOWN_SINCE): foundread builds its placement set from `_found` rows, so a window
+    that drops a placement drops its G1-G4 cover (re-review 10-25 P1)."""
     import townplanread as TP
     import foundread as FD
     ms = int(since.timestamp() * 1000)
-    plans = {POOL: v for k, v in TP.read_plans().items() if k == POOL}
-    pl = TP.judge_plans(plans, {POOL}, ms)
-    # ONE SHARED TOWN (Codex 10-25 P1): every showcase row is judged as pool 'showcase' (pool_of('showcase') == 'showcase'),
-    # so G4 sees two bots' chests side by side and G1/G3 read every bot's audits; the bot's name is lost from the lists only.
-    shared = lambda r: dict(r, bot=POOL, arm='canary', per='post', who=r['bot'])
-    assert TP.pool_of(POOL) == POOL
-    tprows = [shared(r) for r in rows if r['name'] in TP.ROW_KINDS]
-    rw, lists = TP.judge_rows(tprows, since, pl['_gen_index'], pl['_rejected'])
-    acc, zones = {}, {}
-    for pool, keys in plans.items():
-        for key, info in keys.items():
-            for wkey, files in info['worlds'].items():
-                world = json.loads(wkey) if wkey != '"__unparseable__"' else None
-                head, a_, _, _ = TP.walk(files, world)
-                if head is not None:
-                    acc.setdefault(POOL, []).extend(a_)
-                    zones.setdefault(POOL, []).extend(TP.zones_of(info['dir'], world))
-    fdrows = [shared(r) for r in rows if r['name'] in FD.ROW_KINDS]
-    fo, flists = FD.judge(fdrows, acc, zones)
+    if plans is None:
+        plans = {POOL: v for k, v in TP.read_plans().items() if k == POOL}
+    with showcase_pools(TP, FD):
+        pl = TP.judge_plans(plans, {POOL}, ms)
+        mark = lambda r: dict(r, arm='canary', per='post')
+        rw, lists = TP.judge_rows([mark(r) for r in rows if r['name'] in TP.ROW_KINDS], since, pl['_gen_index'], pl['_rejected'])
+        acc, zones = {}, {}
+        for pool, keys in plans.items():
+            for key, info in keys.items():
+                for wkey, files in info['worlds'].items():
+                    world = json.loads(wkey) if wkey != '"__unparseable__"' else None
+                    head, a_, _, _ = TP.walk(files, world)
+                    if head is not None:
+                        acc.setdefault(POOL, []).extend(a_)
+                        zones.setdefault(POOL, []).extend(TP.zones_of(info['dir'], world))
+        fo, flists = FD.judge([mark(r) for r in rows if r['name'] in FD.ROW_KINDS], acc, zones)
     defects = {'D1 chain_invalid': pl['chain_invalid'] + rw.get('chain_invalid', 0), 'D2 invalid_rows': rw.get('invalid_rows', 0),
                'D3 never_hits': rw.get('never_hits', 0), 'D4 zone_cells': pl['zone_cells'], 'D5 root_occupied': rw.get('root_occupied', 0),
                'G1 found_lost': fo.get('found_lost', 0), 'G2 off_plan': fo.get('off_plan', 0), 'G3 lid_unreach': fo.get('lid_unreach', 0),
@@ -326,17 +404,53 @@ def plan_read(rows, since):
               'found_rows': fo.get('rows_found_canary', 0), 'found_placed': fo.get('found_placed', 0),
               'found_work_placed': fo.get('found_work_placed', 0), 'found_store_placed': fo.get('found_store_placed', 0),
               'found_outcomes': {k[8:]: v for k, v in sorted(fo.items()) if k.startswith('outcome_')},
-              'found_why': flists.get('why', [])[:6], 'lists': {k: v[:3] for k, v in {**lists, **flists}.items() if v}}
+              'found_why': flists.get('why', [])[:6], 'lists': {k: v[:3] for k, v in {**lists, **flists}.items() if v},
+              'gen_unknown': {k: v for k, v in (('adopt_gen_unknown', rw.get('adopt_gen_unknown', 0)),
+                                                ('found_gen_unknown', fo.get('found_gen_unknown', 0))) if v}}
     return defects, report
+
+
+def read_epoch(path):
+    try:
+        return ts(open(path).read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def brain_paused():
+    """-> None when the brain proxy answers ok, else the reason (a pause file, an error). Never raises."""
+    import urllib.request, urllib.error
+    try:
+        d = json.loads(urllib.request.urlopen(HEALTHZ, timeout=8).read())
+    except urllib.error.HTTPError as e:
+        try:
+            d = json.loads(e.read())
+        except ValueError:
+            d = {'ok': False, 'error': 'http %d' % e.code}
+    except Exception as e:
+        d = {'ok': False, 'error': str(e)[:80]}
+    return None if d.get('ok') is True else str(d.get('paused') or d.get('error') or d)[:120]
+
+
+def dedupe_deaths(rows, gap_s=10):
+    """[(t, bot, detail)] -> the same, one per bot within gap_s (the fleet's re-death rows). Pure."""
+    out, last = [], {}
+    for t, b, d in sorted(rows):
+        if b in last and (t - last[b]).total_seconds() <= gap_s:
+            continue
+        out.append((t, b, d))
+        last[b] = t
+    return out
 
 
 def cmd_read(a):
     from lib.telemetry import Events
     now = dt.datetime.now(UTC)
-    since = ts(a.since) if a.since else now - dt.timedelta(minutes=a.minutes)
+    run_since, town_since = read_epoch(a.run_since), read_epoch(a.town_since)
+    since = ts(a.since) if a.since else max([now - dt.timedelta(minutes=a.minutes)] + ([run_since] if run_since else []))
     ev = Events.load(paths=LOGS, since=since)
     rows, by_bot, mins, builds = [], collections.defaultdict(list), collections.defaultdict(list), collections.Counter()
-    deaths, death_t, refused_by_op, newest = [], [], collections.Counter(), {}
+    death_rows, refused_by_op, newest = [], collections.Counter(), {}
     for r in ev.rows:
         b = (r.get('bot') or {}).get('name')
         if b not in NAMES:
@@ -349,30 +463,37 @@ def cmd_read(a):
         builds[((raw.get('code') or {}).get('version') or '?')[:15]] += 1
         newest[b] = max(newest.get(b, r['t']), r['t'])
         if r['name'] == '_death':
-            deaths.append('%s %s %s' % (b, r['t'].strftime('%H:%M:%S'), (r.get('detail') or '')[:90]))
-            death_t.append(r['t'])
+            death_rows.append((r['t'], b, (r.get('detail') or '')[:90]))
         if r['name'] == '_protect_zone':
             kvs = dict(re.findall(r'(?:^| )([a-z_]+)=(\d+)', r.get('detail') or ''))
             n = sum(int(kvs.get(k, 0)) for k in ('dig', 'place', 'use', 'open', 'sleep', 'craft'))
             mins[b].append((r['t'], n))
             for k, v in kvs.items():
                 refused_by_op[k] += int(v)
+    death_rows = dedupe_deaths(death_rows)
+    deaths = ['%s %s %s' % (b, t.strftime('%H:%M:%S'), d) for t, b, d in death_rows]
+    death_t = [t for t, _, _ in death_rows]
     for b in by_bot:
         by_bot[b].sort(key=lambda x: x[0])
     end = min(now, max([t for v in by_bot.values() for t, _ in v], default=now))
-    boxes = []
+    boxes, floors, zones_error = [], {}, None
     try:
-        boxes = zone_boxes(a.zones_file)
+        boxes, floors = zone_boxes(a.zones_file), zone_floors(a.zones_file)
+        if not boxes:
+            zones_error = 'no zone in the file'
     except Exception as e:
-        print('zones file unreadable: %s' % e)
-    trapped = {b: [(s.strftime('%H:%M'), round(m)) for s, _, m in still_spells(v, [bx for _, bx in boxes], TRAP_MIN, TRAP_MOVE)]
+        zones_error = '%s: %s' % (type(e).__name__, str(e)[:80])
+    closed, deepb = closed_and_deep(boxes, floors)
+    trapped = {b: [(s.strftime('%H:%M'), round(m)) for s, _, m in still_spells(v, closed, TRAP_MIN, TRAP_MOVE, max_gap_min=5)]
                for b, v in by_bot.items()}
     trapped = {b: v for b, v in trapped.items() if v}
+    deep = {b: sum(1 for _, p in v if p and any(in_box(p, x) for x in deepb)) for b, v in by_bot.items()}
+    deep = {b: n for b, n in deep.items() if n}
     loops = {b: refusal_peak(v) for b, v in mins.items() if refusal_peak(v) >= LOOP_N}
     ub = under_boxes(boxes)
     under = {b: sum(1 for _, p in v if p and any(in_box(p, x) for x in ub)) for b, v in by_bot.items()}
     under = {b: n for b, n in under.items() if n}
-    under_trapped = {b: [(s.strftime('%H:%M'), round(m)) for s, _, m in still_spells(v, ub, TRAP_MIN, TRAP_MOVE)] for b, v in by_bot.items()}
+    under_trapped = {b: [(s.strftime('%H:%M'), round(m)) for s, _, m in still_spells(v, ub, TRAP_MIN, TRAP_MOVE, max_gap_min=5)] for b, v in by_bot.items()}
     under_trapped = {b: v for b, v in under_trapped.items() if v}
     bot_h = sum((v[-1][0] - v[0][0]).total_seconds() / 3600 for v in by_bot.values() if v)
     integ = None
@@ -383,13 +504,26 @@ def cmd_read(a):
             print('integrity read failed: %s' % e)
     plan_err, defects, report = None, {}, {}
     try:
-        defects, report = plan_read(rows, since)
+        if town_since is None:
+            raise RuntimeError('no town epoch in %s: the plan gates need the history from the founding' % a.town_since)
+        prows = []
+        for r in Events.load(paths=LOGS, since=town_since).rows:
+            b = (r.get('bot') or {}).get('name')
+            if b in NAMES:
+                sk = (r.get('raw') or {}).get('skill') or {}
+                prows.append({'t': r['t'], 'name': r['name'], 'status': sk.get('status'), 'detail': r.get('detail') or '', 'bot': b,
+                              'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None})
+        defects, report = plan_read(prows, town_since)
     except Exception as e:
         plan_err = '%s: %s' % (type(e).__name__, str(e)[:200])
+    paused = brain_paused() if not a.not_running else None
+    first = min([v[0][0] for v in by_bot.values() if v], default=now)
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
     facts = {'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
-             'bot_h': round(bot_h, 1), 'under': under, 'under_trapped': under_trapped,
-             'window_min': round((now - since).total_seconds() / 60), 'plan_towns': (report or {}).get('plan_towns'),
+             'bot_h': round(bot_h, 1), 'under': under, 'under_trapped': under_trapped, 'deep': deep, 'zones_error': zones_error,
+             'mirror_age_min': region_age_min(a.zones_regions), 'gen_unknown': (report or {}).get('gen_unknown'),
+             'brain_paused': paused,
+             'window_min': round((now - first).total_seconds() / 60), 'plan_towns': (report or {}).get('plan_towns'),
              'stuck': stuck_now(by_bot, end),
              'trapped': trapped, 'refusal_loops': loops, 'integrity': integ, 'plan_defects': defects, 'plan_error': plan_err}
     v, why = verdict(facts)
@@ -397,13 +531,16 @@ def cmd_read(a):
     print('SHOWCASE TRIPWIRE %s  window %s .. %s (%d min)' % (now.strftime('%FT%TZ'), since.strftime('%FT%TZ'), now.strftime('%H:%M:%SZ'), W))
     print('DENOMINATORS rows walked %d | bots with rows %d of %d | builds %s | positions %d' % (
         len(rows), len(by_bot), len(NAMES), dict(builds), sum(1 for v in by_bot.values() for _, p in v if p)))
-    print('S0 LIVENESS  %d of %d bots wrote a row in the last %d min' % (live, len(NAMES), LIVE_MIN))
+    print('EPOCHS       run since %s, town since %s (plan gates read from the town epoch)' % (run_since, town_since))
+    print('S0 LIVENESS  %d of %d bots wrote a row in the last %d min | brain %s' % (live, len(NAMES), LIVE_MIN, paused or 'ok'))
     print('S1 DEATHS    %d in the window, at most %d inside 180 min, over %.1f bot-h observed (fleet 0.0195/bot-h -> %.2f expected) %s' % (
         len(deaths), facts['deaths'], bot_h, 0.0195 * bot_h, deaths[:6]))
     print('S2 STUCK     %s (still >= %d min, < %.0f blocks, to the window end)' % (facts['stuck'] or 'none', STUCK_MIN, STUCK_MOVE))
-    print('S3 UNDER     samples below an underground zone %s | trapped there %s' % (under or 'none', under_trapped or 'none'))
+    print('S3 UNDER     samples below an underground zone %s | trapped there %s | DEEP (below a village floor) %s' % (
+        under or 'none', under_trapped or 'none', deep or 'none'))
     print('S3 ZONES     zones %d | Z1 trapped %s | Z2 refusal loops %s | refusals by op %s (minute rows %d)' % (
         len(boxes), trapped or 'none', loops or 'none', dict(refused_by_op), sum(len(v) for v in mins.values())))
+    print('S4 REGIONS   %s, newest file %s min old' % (a.zones_regions, facts['mirror_age_min']))
     if integ is None:
         print('S4 INTEGRITY not read (baseline %s, regions %s)' % (a.zones_baseline, a.zones_regions))
     else:
@@ -423,13 +560,50 @@ def cmd_read(a):
             print('             lists %s' % report['lists'])
     print('VERDICT      %s%s' % (v, (' -- ' + '; '.join(why)) if why else ''))
     if a.json:
-        with open(a.json, 'w') as f:
-            json.dump({'t': now.strftime('%FT%TZ'), 'since': since.strftime('%FT%TZ'), 'verdict': v, 'why': why,
-                       'facts': facts, 'report': report, 'rows': len(rows), 'builds': dict(builds)}, f, default=str)
+        try:                        # a failed write must never turn a TRIP into a crash (rc 1 -> no stop)
+            with open(a.json, 'w') as f:
+                json.dump({'t': now.strftime('%FT%TZ'), 'since': since.strftime('%FT%TZ'), 'verdict': v, 'why': why,
+                           'facts': facts, 'report': report, 'rows': len(rows), 'builds': dict(builds)}, f, default=str)
+        except Exception as e:
+            print('json write failed: %s' % e)
     return {'OK': 0, 'WATCH': 0, 'TRIP': 2}[v]
 
 
 # ------------------------------------------------------------------------------------------------ selftest
+def plan_selftest(T):
+    """plan_read over fixtures (re-review 10-25: the r2 shared-pool rewrite was never run through the reads). Needs
+    townplanread.py + foundread.py beside this file; skipped (said so) without them."""
+    try:
+        import townplanread as TP, foundread as FD  # noqa: F401
+    except ImportError:
+        print('selftest: townplanread/foundread not beside this file -- plan_read checks skipped')
+        return
+    R = lambda name, detail, bot, m: {'t': T(m), 'name': name, 'detail': detail, 'bot': bot, 'status': 'success', 'item': None}
+    plan = {'gen': 1, 'at': 0, 'plots': [{'id': 'store', 'kind': 'storehouse', 'box': [7, -4, 15, 4],
+            'cells': [{'at': [9, 64, -2], 'kind': 'chest', 'state': 'placed'}, {'at': [9, 64, -1], 'kind': 'chest', 'state': 'placed'}]}],
+            'transitions': []}
+    with showcase_pools(TP, FD):
+        root = R('_townplan', 'op=root result=accepted gen=1', 'showcase-Alpha', 0)
+        other_occ = [root, R('_townplan_audit', 'placed=0 occupied=2 free=10', 'showcase-Bravo', 0.5),
+                     R('_townplan_audit', 'placed=0 occupied=0 free=12', 'showcase-Alpha', 1)]
+        own_occ = [root, R('_townplan_audit', 'placed=0 occupied=0', 'showcase-Bravo', 0.5),
+                   R('_townplan_audit', 'placed=0 occupied=3', 'showcase-Alpha', 1)]
+        mark = lambda rs: [dict(r, arm='canary', per='post') for r in rs]
+        d_other = TP.judge_rows(mark(other_occ), T(0), {}, {})[0].get('root_occupied', 0)
+        d_own = TP.judge_rows(mark(own_occ), T(0), {}, {})[0].get('root_occupied', 0)
+        assert (d_other, d_own) == (0, 1), 'D5 judges the ROOT WRITER\'s own first audit: other bot %d, own %d' % (d_other, d_own)
+        fr = [R('_found', 'order=F2 kind=chest outcome=placed at=9,64,-2 gen=1', 'showcase-Alpha', 1),
+              R('_found', 'order=F2 kind=chest outcome=placed at=9,64,-1 gen=1', 'showcase-Bravo', 2)]
+        g4 = FD.judge(mark(fr), {POOL: [(1, plan)]}, {})[0].get('shared_side', 0)
+        assert g4 == 1, 'G4 sees two BOTS\' chests side by side in one town (%d)' % g4
+        aud = [R('_townplan_audit', 'placed=1 missing=1 first=missing:chest@9,64,-2', 'showcase-Comet', 400)]
+        g1 = FD.judge(mark(fr + aud), {POOL: [(1, plan)]}, {})[0].get('found_lost', 0)
+        assert g1 == 1, 'G1: a placement 400 min old, then read missing, is lost (the read takes rows from the town epoch) (%d)' % g1
+        assert FD.judge(mark(aud), {POOL: [(1, plan)]}, {})[0].get('found_lost', 0) == 0, 'positive control: without the placement row G1 is blind'
+    assert TP.pool_of('showcase-Alpha') == 'showcase-Alpha', 'the module is restored after the read'
+    print('selftest: plan_read identity + shared pool + history checked (D5, G4, G1)')
+
+
 def selftest():
     T = lambda m: dt.datetime(2026, 10, 25, 12, 0, tzinfo=UTC) + dt.timedelta(minutes=m)
     P = lambda x, z, y=70: {'x': x, 'y': y, 'z': z}
@@ -449,7 +623,7 @@ def selftest():
     assert zone_diff({'1,1,1': 'minecraft:copper_block', '2,2,2': 'minecraft:cut_copper'},
                      {'1,1,1': 'minecraft:exposed_copper', '2,2,2': 'minecraft:oxidized_cut_copper'}) == ([], [], []), 'weathering is not a breach'
     assert zone_diff({'1,1,1': 'minecraft:waxed_copper_block'}, {'1,1,1': 'minecraft:copper_block'})[1], 'losing the wax is a change'
-    base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {},
+    base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])
     assert death_peak([T(0), T(10), T(170), T(179)]) == 4 and death_peak([T(0), T(10), T(200), T(390)]) == 2
@@ -462,6 +636,23 @@ def selftest():
     assert in_box(P(30, 100, -50), ub[0]) and not in_box(P(30, 100, -47), ub[0])
     assert verdict(dict(base, under={'a': 3}))[0] == 'WATCH' and verdict(dict(base, under_trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
     assert verdict(dict(base, window_min=90, plan_towns=0))[0] == 'WATCH' and verdict(dict(base, window_min=30, plan_towns=0))[0] == 'OK'
+    base = dict(base, mirror_age_min=10)
+    assert verdict(dict(base, mirror_age_min=90))[0] == 'WATCH' and verdict(dict(base, mirror_age_min=None))[0] == 'WATCH'
+    assert verdict(dict(base, zones_error='no zone'))[0] == 'WATCH' and verdict(dict(base, deep={'a': 9}))[0] == 'WATCH'
+    assert verdict(dict(base, live_bots=0, brain_paused='GPU_RESERVED'))[0] == 'WATCH', 'a paused brain is not a dead showcase'
+    assert verdict(dict(base, gen_unknown={'found_gen_unknown': 1}))[0] == 'WATCH'
+    cl, dp = closed_and_deep([('v', [0, -64, 0, 9, 90, 9]), ('t', [-20, -47, 65, 88, 31, 164])], {'v': 54, 't': None})
+    assert cl == [[0, 54, 0, 9, 90, 9], [-20, -47, 65, 88, 31, 164]] and dp == [[0, -64, 0, 9, 53, 9]]
+    still_deep = [(T(m), P(5, 5, 20)) for m in range(0, 30)]
+    assert not still_spells(still_deep, cl, TRAP_MIN, TRAP_MOVE, 5), 'a bot still in the deep part of a village column is not Z1'
+    assert still_spells([(T(m), P(5, 5, 70)) for m in range(0, 30)], cl, TRAP_MIN, TRAP_MOVE, 5), 'still in the village itself is'
+    assert not still_spells([(T(0), P(5, 5, 70)), (T(16), P(5, 5, 70))], cl, TRAP_MIN, TRAP_MOVE, 5), 'a 16-min gap is not 15 min seen'
+    dd = dedupe_deaths([(T(0), 'a', 'x'), (T(0.1), 'a', 'x'), (T(0.05), 'b', 'y'), (T(5), 'a', 'z')])
+    assert [(b, d) for _, b, d in dd] == [('a', 'x'), ('b', 'y'), ('a', 'z')], dd
+    assert canon('minecraft:water_cauldron') == canon('minecraft:cauldron') == canon('minecraft:powder_snow_cauldron')
+    assert zone_diff({'1,1,1': 'minecraft:cauldron'}, {'1,1,1': 'minecraft:water_cauldron'}) == ([], [], [])
+    assert zone_diff({'1,1,1': 'minecraft:water_cauldron'}, {})[0], 'a filled cauldron taken away is a removal'
+    plan_selftest(T)
     assert verdict(dict(base, deaths=4))[0] == 'TRIP' and verdict(dict(base, deaths=2))[0] == 'WATCH' and verdict(dict(base, deaths=1))[0] == 'OK'
     assert verdict(dict(base, stuck={'a': 30, 'b': 31, 'c': 40}))[0] == 'WATCH', 'stuck never stops the showcase on its own'
     assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
@@ -479,7 +670,7 @@ def selftest():
         assert rx.match('minecraft:bell') and rx.match('minecraft:tuff_bricks') and rx.match('minecraft:trial_spawner')
         assert rx.match('minecraft:dirt_path') and rx.match('minecraft:waxed_oxidized_cut_copper_stairs')
         assert rx.match('minecraft:exposed_copper') and rx.match('minecraft:oxidized_copper') and rx.match('minecraft:waxed_weathered_copper')
-        assert not rx.match('minecraft:stone') and not rx.match('minecraft:tuff') and not rx.match('minecraft:oak_log')
+        assert not rx.match('minecraft:stone') and not rx.match('minecraft:tuff') and rx.match('minecraft:spruce_log') and rx.match('minecraft:tuff_stairs')
         print('selftest: structure palette checked against structcount.BUILT')
     except ImportError:
         print('selftest: structcount.py not beside this file -- palette checks skipped')
@@ -497,6 +688,8 @@ def main():
     r.add_argument('--zones-regions', default='/srv/showcase/timelapse/mirror/world/region')
     r.add_argument('--zones-baseline', default='/srv/showcase/trip/zones-baseline.json')
     r.add_argument('--not-running', action='store_true', help='the bots are stopped on purpose (S0 does not trip)')
+    r.add_argument('--run-since', default=RUN_SINCE)
+    r.add_argument('--town-since', default=TOWN_SINCE)
     r.add_argument('--json')
     b = sp.add_parser('zones-baseline')
     b.add_argument('--regions', required=True)
@@ -506,6 +699,7 @@ def main():
     c.add_argument('--regions', required=True)
     c.add_argument('--baseline', required=True)
     c.add_argument('--zone', action='append')
+    c.add_argument('--max-age-min', type=int, default=26 * 60)
     sp.add_parser('selftest')
     a = ap.parse_args()
     return {'read': cmd_read, 'zones-baseline': cmd_zones_baseline, 'zones-compare': cmd_zones_compare,
