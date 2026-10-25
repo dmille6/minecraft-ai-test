@@ -12,7 +12,7 @@
 # The sha must descend from BASE (the fleet build matset-01 was made on). If the fleet has moved on, this refuses: the
 # change needs a successor variant on the new build first.
 set -u
-BASE=6e1afb52465d8f50658effe26224203004d9e5ac
+BASE=d55ce14d99e98c77ef02c540960f9798212e8b5b   # the fleet 10-25 (junkout-01); matset-01 re-stacked onto it
 MODE=${1:-}; SHA=${2:-}
 HERE=$(cd "$(dirname "$0")" && pwd)
 MAN=/srv/mcbots/trial-manifest.json
@@ -43,12 +43,12 @@ T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh || fail "copy the deploy script"
 sudo /root/d.sh "$SHA" matset-01-direct "$NOTES"; RC=$?
 [ "$RC" = 0 ] || fail "deploy-fleet exited $RC (the hold is released on exit; read its output, and roll back with: sudo /root/d.sh $BASE matset-01-rollback \"matset-01 rollback\")"
-python3 - "$T0" "$SHA" <<'EOF' || fail "journal append"
+python3 - "$T0" "$SHA" "$BASE" <<'EOF' || fail "journal append"
 import json, sys
-t0, sha = sys.argv[1], sys.argv[2]
+t0, sha, base = sys.argv[1], sys.argv[2], sys.argv[3]
 row = {'ts': t0, 'run': 'matset-01', 'phase': 'owner-direct',
-       'note': 'fleet-wide %s (base 6e1afb52); OWNER 10-23 "build now ... matset-01 (tier 1, an owner-direct rollout with a tripwire)"; '
-               'tripwire matsettrip.py --since %s --version %s; rollback = redeploy 6e1afb52' % (sha[:8], t0, sha[:8])}
+       'note': 'fleet-wide %s (base %s); OWNER 10-23 "build now ... matset-01 (tier 1, an owner-direct rollout with a tripwire)"; '
+               'tripwire matsettrip.py --since %s --version %s; rollback = redeploy %s' % (sha[:8], base[:8], t0, sha[:8], base[:8])}
 open('/home/mike/canary-journal.jsonl', 'a').write(json.dumps(row) + '\n')
 EOF
 mkdir -p "$HOME/mcai-analysis" && cp -p "$HERE/matsettrip.py" "$HOME/mcai-analysis/matsettrip.py"
