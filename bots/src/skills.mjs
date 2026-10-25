@@ -16110,8 +16110,12 @@ export function shopAckInstall (bot) {
   // this connection can still send
   const mark = (sync = true) => { try { if (planOn()) presenceWrite(townDir(), shopKey(), me(), { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now(), sync }) } catch { /* the other evidence applies */ } }
   let beat = null
+  // started at login -- or at once when installed after it (Claude r4 P3-1: a late install would otherwise never beat, and the
+  // sender's own fence would then refuse every click)
+  const start = () => { if (beat) return; acks.loginAt ??= Date.now(); mark(); beat = setInterval(() => mark(false), PRESENCE_BEAT_MS); beat.unref?.() }
   try {
-    bot.once?.('login', () => { acks.loginAt = Date.now(); mark(); beat = setInterval(() => mark(false), PRESENCE_BEAT_MS); beat.unref?.() })
+    bot.once?.('login', start)
+    if (bot.entity) start()
     bot.once?.('end', () => { if (beat) clearInterval(beat); acks.stop() })
   } catch { /* a bare bot */ }
   return acks
@@ -16238,7 +16242,7 @@ async function buildShop (ctx, args, signal) {
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()   // cells a dig left unanswered: unknown for the connection, asked again by the next visit
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown, beat: true }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null

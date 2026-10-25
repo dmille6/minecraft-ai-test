@@ -164,30 +164,46 @@ await t('PID REUSE (Codex r2 P2): the holder restarted under the SAME pid -- its
   const r = P.mutexTake(d, KEY, 'B', { now: now + 40, alive: () => true })
   assert.ok(r.ok, JSON.stringify(r)); assert.strictEqual(r.reclaimed, 'A')
 })
-await t('holderGone (Codex r3 P1): the evidence must POSTDATE the lock -- a stale offline notice from before a reconnect frees nothing', () => {
-  const at = 20_000_000
-  assert.ok(!P.holderGone(at, { online: false, offlineSince: at - 1, now: at + 3_600_000 }), 'the Codex scenario: noticed offline before A reconnected and locked')
-  assert.ok(!P.holderGone(at, { online: false, offlineSince: at + 1, now: at + P.OFFLINE_RETIRE_MS }), 'noticed after, not yet long enough')
-  assert.ok(P.holderGone(at, { online: false, offlineSince: at + 1, now: at + 1 + P.OFFLINE_RETIRE_MS }))
-  assert.ok(!P.holderGone(at, { online: true, offlineSince: at + 1, now: at + 3_600_000 }), 'online now: never')
-  assert.ok(!P.holderGone(NaN, { online: false, offlineSince: 1, now: 1e12 }), 'no time on the record: never')
+const beatOf = (conn, beat) => ({ conn, at: 0, beat })
+await t('holderGone (Codex r3/r4/r5 P1): FAIL CLOSED on presence; the lock connection\'s beat stale 60 s AND absent from the tab list 10 s since', () => {
+  const at = 21_000_000, off = { online: false, offlineSince: at + 1 }
+  const stale = beatOf('c2', at + 2_000), later = at + 2_000 + P.BEAT_STALE_MS
+  assert.ok(P.holderGone(at, { ...off, conn: 'c2', presence: stale, now: later }), 'positive control: dead connection, tab list agrees')
+  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: null, now: later }), 'Codex r5 P1: NO presence (missing or unreadable) is no evidence')
+  assert.ok(!P.holderGone(at, { ...off, conn: null, presence: stale, now: later }), 'a lock with no connection: no evidence')
+  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c2', at: 0 }, now: later }), 'a presence without a beat: no evidence')
+  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: beatOf('c3', at + 1), now: at + 3_600_000 }), 'another connection\'s presence: the callers\' rule')
+  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: beatOf('c2', at + 30_000), now: at + 35_000 }), 'Codex r4: the lock connection still BEATS')
+  assert.ok(!P.holderGone(at, { online: false, offlineSince: at - 1, conn: 'c2', presence: stale, now: later }), 'Codex r3: an offline notice from before the lock')
+  assert.ok(!P.holderGone(at, { online: false, offlineSince: later - P.OFFLINE_RETIRE_MS + 1, conn: 'c2', presence: stale, now: later }), 'absent, not yet 10 s')
+  assert.ok(!P.holderGone(at, { online: true, offlineSince: at + 1, conn: 'c2', presence: stale, now: later }), 'online now: never')
+  assert.ok(!P.holderGone(NaN, { ...off, conn: 'c2', presence: stale, now: later }), 'no time on the record: never')
 })
-await t('holderGone (Codex r4 P1): the holder\'s OWN heartbeat for the lock\'s connection decides before any tab list', () => {
+await t('MUTANT fail-open on presence (Codex r5 P1)', () => mutantKilled("  if (!presence?.conn || !conn || presence.conn !== conn || !Number.isFinite(Number(presence.beat))) return false\n", '', M => {
+  assert.ok(!M.holderGone(1000, { online: false, offlineSince: 1001, conn: 'c2', presence: null, now: 1e9 }))
+}))
+await t('MUTANT the heartbeat ignored (the receipt-time rule again)', () => mutantKilled('  if (now - Number(presence.beat) < BEAT_STALE_MS) return false\n', '', M => {
   const at = 21_000_000
-  const off = { online: false, offlineSince: at + 1 }
-  // the Codex r4 sequence: A (c2) locks at `at`; B processes c1's late leave after it, then sees nothing for a long while -- but
-  // c2 BEATS: never gone
-  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c2', at: at - 5_000, beat: at + 30_000 }, now: at + 35_000 }))
-  // c2's beat stopped 45 s ago (dead, or stopped past the server's keepalive) and the tab list agrees: gone
-  assert.ok(P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c2', at: at - 5_000, beat: at + 2_000 }, now: at + 2_000 + P.BEAT_STALE_MS }))
-  // a presence naming ANOTHER connection proves nothing for c2 here (the superseded rule is the caller's)
-  assert.ok(!P.holderGone(at, { ...off, conn: 'c2', presence: { conn: 'c3', at: at + 1, beat: at + 1 }, now: at + 3_600_000 }))
-  // no heartbeat at all (none written yet): the tab list's 10 s alone
-  assert.ok(P.holderGone(at, { ...off, conn: 'c2', presence: null, now: at + 1 + P.OFFLINE_RETIRE_MS }))
+  assert.ok(!M.holderGone(at, { online: false, offlineSince: at + 1, conn: 'c2', presence: beatOf('c2', at + 30_000), now: at + 35_000 }))
+}))
+await t('THE SENDER FENCES ITSELF on its own heartbeat (Codex r5 P1): published for its connection and younger than OWN_BEAT_MAX_MS, else `beat`', () => {
+  const d = tmp(), now = Date.now()
+  P.publishRecord(d, KEY, () => ({ v: 1 }), { now })
+  const s = P.takeLease(d, KEY, 'slot1', 'A', { now }), g = P.takeLease(d, KEY, 'seg-pad', 'A', { now })
+  const f = { slot: 1, slotGen: s.gen, seg: 'pad', segGen: g.gen, recordGen: 1, beatConn: 'A-c1', now }
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', f), 'beat', 'no presence: no send')
+  P.presenceWrite(d, KEY, 'A', { conn: 'A-c1', now: now - 60_000, beat: now - 1_000 })
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', f), null, 'a fresh beat of this connection: may send')
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, now: now - 1_000 + P.OWN_BEAT_MAX_MS }), 'beat', 'the beat is OWN_BEAT_MAX_MS old')
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, beatConn: 'A-c0' }), 'beat', 'the presence names another connection')
+  assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, beatConn: null }), null, 'control: no beat asked for')
+  assert.ok(P.OWN_BEAT_MAX_MS + 30_000 < P.BEAT_STALE_MS, 'own limit + the server keepalive stays under the peers\' limit')
 })
-await t('MUTANT the heartbeat ignored (the receipt-time rule again)', () => mutantKilled('  if (presence?.conn && Number.isFinite(Number(presence.beat)) && now - Number(presence.beat) < BEAT_STALE_MS) return false\n', '', M => {
-  const at = 21_000_000
-  assert.ok(!M.holderGone(at, { online: false, offlineSince: at + 1, conn: 'c2', presence: { conn: 'c2', at: at - 5_000, beat: at + 30_000 }, now: at + 35_000 }))
+await t('MUTANT the own-beat fence dropped', () => mutantKilled("  if (beatConn) { const pr = presenceRead(dir, key, holder); if (!pr || pr.conn !== beatConn || !(now - Number(pr.beat) < OWN_BEAT_MAX_MS)) return 'beat' }\n", '', M => {
+  const d = tmp(), now = Date.now()
+  M.publishRecord(d, KEY, () => ({ v: 1 }), { now })
+  const s = M.takeLease(d, KEY, 'slot1', 'A', { now }), g = M.takeLease(d, KEY, 'seg-pad', 'A', { now })
+  assert.strictEqual(M.fenceRefusal(d, KEY, 'A', { slot: 1, slotGen: s.gen, seg: 'pad', segGen: g.gen, recordGen: 1, beatConn: 'A-c1', now }), 'beat')
 }))
 await t('presenceWrite: `at` stays the connection\'s login, `beat` moves; a beat without fsync still lands', () => {
   const d = tmp()
@@ -197,7 +213,7 @@ await t('presenceWrite: `at` stays the connection\'s login, `beat` moves; a beat
   assert.strictEqual(pr.at, 1000); assert.strictEqual(pr.beat, 11_000); assert.strictEqual(pr.conn, 'A-c1')
 })
 await t('MUTANT the postdating dropped (the r3 rule again)', () => mutantKilled('  return !online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS\n', '  return !online && offlineSince != null && now - offlineSince >= RETIRE_MS\n', M => {
-  assert.ok(!M.holderGone(1000, { online: false, offlineSince: 999, now: 1e9 }))
+  assert.ok(!M.holderGone(1000, { online: false, offlineSince: 999, conn: 'c', presence: { conn: 'c', at: 0, beat: 0 }, now: 1e9 }))
 }))
 await t('A RETIRED HOLDER (offline on the server, as the taker saw it: `gone`) -> free; a live, online, suspended one stays held', () => {
   const d = tmp(), now = Date.now()
@@ -240,15 +256,16 @@ await t('THE BARRIER: taken by A, it fences B (fenceRefusal barrier) but not A; 
   P.barrierRelease(d, KEY, 'A', bar.gen)
   assert.strictEqual(P.fenceRefusal(d, KEY, 'B', fb), null)
 })
-await t('THE BARRIER WAITS for every other holder\'s open intent: settled -> clear; or the sender RETIRED (offline 1 s) -> clear; never a timer', () => {
+await t('THE BARRIER WAITS for every other holder\'s open intent: settled -> clear; or the sender RETIRED (its beat stale, absent 10 s) -> clear; never a timer', () => {
   const d = tmp(), now = 7_000_000
-  const id = P.intentOpen(d, KEY, 'B', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 1, now })
-  P.intentOpen(d, KEY, 'A', { cell: [1, 0, 0], block: 'x', lease: 1, seq: 1, now })
+  const id = P.intentOpen(d, KEY, 'B', { cell: [0, 0, 0], block: 'x', lease: 1, seq: 1, conn: 'B-c1', now })
+  P.intentOpen(d, KEY, 'A', { cell: [1, 0, 0], block: 'x', lease: 1, seq: 1, conn: 'A-c1', now })
   assert.deepStrictEqual(P.barrierClear(d, KEY, 'A', { now }).waiting.map(i => i.holder), ['B'], 'A\'s own intent never blocks A')
   assert.strictEqual(P.barrierClear(d, KEY, 'A', { now: now + 3_600_000 }).clear, false, 'an hour later: still waiting (no timer)')
-  const offline = (i, t) => P.intentRetired(i, { online: false, offlineSince: now + 1, now: t })
-  assert.strictEqual(P.barrierClear(d, KEY, 'A', { isRetired: offline, now: now + P.OFFLINE_RETIRE_MS }).clear, false, 'not yet')
-  assert.ok(P.barrierClear(d, KEY, 'A', { isRetired: offline, now: now + 1 + P.OFFLINE_RETIRE_MS }).clear)
+  const pres = { conn: 'B-c1', at: now - 1, beat: now + 1 }
+  const offline = (i, t) => P.intentRetired(i, { presence: pres, online: false, offlineSince: now + 1, now: t })
+  assert.strictEqual(P.barrierClear(d, KEY, 'A', { isRetired: offline, now: now + 1 + P.BEAT_STALE_MS - 1 }).clear, false, 'not yet')
+  assert.ok(P.barrierClear(d, KEY, 'A', { isRetired: offline, now: now + 1 + P.BEAT_STALE_MS }).clear)
   P.intentClose(d, KEY, 'B', id, 'settled', { state: 'x' })
   assert.ok(P.barrierClear(d, KEY, 'A', { now }).clear)
 })
@@ -265,17 +282,16 @@ await t('THE FENCE names each lost guard: slot, segment, record generation', () 
   assert.strictEqual(P.fenceRefusal(d, KEY, 'A', { ...f, segGen: g.gen + 1, now: now + 12 }), 'record')
 })
 
-await t('intentRetired: a NEWER presence of another connection; offline >= 1 s; a playerLeft after the intent survives a rejoin; else live', () => {
+await t('intentRetired: a NEWER presence of another connection; else holderGone for the intent\'s own connection (fail closed)', () => {
   const now = 12_000_000, i = { holder: 'B', conn: 'c1', at: now }
   assert.ok(!P.intentRetired(i, { now }), 'nothing seen: live')
   assert.ok(P.intentRetired(i, { presence: { conn: 'c2', at: now + 5 }, now: now + 6 }), 'B reconnected after the intent')
   assert.ok(!P.intentRetired(i, { presence: { conn: 'c2', at: now - 5 }, now: now + 6 }), 'an OLDER presence of another connection proves nothing')
   assert.ok(!P.intentRetired(i, { presence: { conn: 'c1', at: now + 5 }, now: now + 6 }), 'the same connection: live')
-  assert.ok(!P.intentRetired(i, { online: false, offlineSince: now + 5, now: now + 5 + P.OFFLINE_RETIRE_MS - 1 }))
-  assert.ok(P.intentRetired(i, { online: false, offlineSince: now + 5, now: now + 5 + P.OFFLINE_RETIRE_MS }))
-  assert.ok(!P.intentRetired(i, { online: false, offlineSince: now - 5, now: now + 3_600_000 }), 'Codex r3 P1: an offline notice from BEFORE the intent proves nothing')
-  assert.ok(!P.intentRetired(i, { presence: { conn: 'c1', at: now - 100, beat: now + 20_000 }, online: false, offlineSince: now + 5, now: now + 30_000 }), 'its own connection still BEATS: live, whatever the tab list says')
+  assert.ok(!P.intentRetired(i, { online: false, offlineSince: now + 5, now: now + 3_600_000 }), 'Codex r5 P1: no presence -> never by the tab list alone')
+  assert.ok(!P.intentRetired(i, { presence: { conn: 'c1', at: now - 100, beat: now + 20_000 }, online: false, offlineSince: now + 5, now: now + 30_000 }), 'its own connection still BEATS: live')
   assert.ok(P.intentRetired(i, { presence: { conn: 'c1', at: now - 100, beat: now + 1 }, online: false, offlineSince: now + 5, now: now + 1 + P.BEAT_STALE_MS }), 'the beat stopped and the tab list agrees: retired')
+  assert.ok(!P.intentRetired(i, { presence: { conn: 'c1', at: now - 100, beat: now + 1 }, online: false, offlineSince: now - 5, now: now + 3_600_000 }), 'Codex r3: an offline notice from BEFORE the intent proves nothing')
 })
 await t('closeOwn: an earlier connection\'s open intents cancelled, this connection\'s acknowledged ones settled, the rest open; others untouched', () => {
   const d = tmp(), now = 13_000_000

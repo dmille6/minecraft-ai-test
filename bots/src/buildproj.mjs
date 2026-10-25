@@ -43,7 +43,11 @@ export const OFFLINE_RETIRE_MS = 10_000
 // BEAT_STALE_MS means that connection's process is dead or stopped longer than the server's 30 s keepalive -- its socket is
 // closed by the server, so it can send nothing more even if it resumes
 export const PRESENCE_BEAT_MS = 10_000
-export const BEAT_STALE_MS = 45_000
+// a sender's own beat must be younger than OWN_BEAT_MAX_MS at its fence (Codex r5 P1: a connection whose heartbeat is not
+// being published must not send); peers wait BEAT_STALE_MS >= OWN_BEAT_MAX_MS + the server's 30 s keepalive + margin, so a
+// sender suspended right after a passing fence is dropped by the server before any peer may retire it
+export const OWN_BEAT_MAX_MS = 15_000
+export const BEAT_STALE_MS = 60_000
 export const BARRIER_MAX_MS = 10 * 60_000
 export const PUBLISH_TRIES = 3
 
@@ -308,18 +312,18 @@ export function intentRetired (i, { presence = null, online = true, offlineSince
   return holderGone(Number(i?.at), { conn: i?.conn ?? null, presence, online, offlineSince, now })
 }
 /**
- * HAS THE CONNECTION `conn` THAT DID SOMETHING AT `since` GONE AWAY? Pure. BOTH (Codex r3 P1, r4 P1: an observer's receipt time
- * of a playerLeft names no connection -- a late-processed leave of the PREVIOUS connection retired a live one):
- *   - the holder's own HEARTBEAT is not live for `conn`: its presence names `conn` and its beat is BEAT_STALE_MS old or more, or
- *     names no connection at all (an old writer, or none yet: the tab list alone then decides); a presence naming ANOTHER
- *     connection is the caller's superseded rule, not this one -- here it proves nothing for `conn`;
+ * HAS THE CONNECTION `conn` THAT DID SOMETHING AT `since` GONE AWAY? Pure. ALL of (Codex r3 P1, r4 P1, r5 P1):
+ *   - FAIL CLOSED: the holder's presence is readable, names `conn` and carries a beat -- no presence, an unreadable one, one
+ *     naming another connection (the callers' superseded rule) or no `conn` on the lock/intent is NO evidence of anything;
+ *   - that beat is BEAT_STALE_MS old or more (the sender fences itself at OWN_BEAT_MAX_MS: a connection that cannot publish its
+ *     beat does not send, so a stale beat means a dead process or one stopped past the server's keepalive);
  *   - the tab list has not shown the holder for OFFLINE_RETIRE_MS, first noticed missing AFTER `since`.
- * A live connection beats every PRESENCE_BEAT_MS, so whatever this bot's tab list says it is never gone. -> boolean
+ * -> boolean
  */
 export function holderGone (since, { conn = null, presence = null, online = true, offlineSince = null, now = Date.now() } = {}) {
   if (!Number.isFinite(since)) return false
-  if (presence?.conn && conn && presence.conn !== conn) return false
-  if (presence?.conn && Number.isFinite(Number(presence.beat)) && now - Number(presence.beat) < BEAT_STALE_MS) return false
+  if (!presence?.conn || !conn || presence.conn !== conn || !Number.isFinite(Number(presence.beat))) return false
+  if (now - Number(presence.beat) < BEAT_STALE_MS) return false
   return !online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS
 }
 
@@ -363,15 +367,17 @@ export function barrierClear (dir, key, holder, { isRetired = () => false, now =
 
 /**
  * MAY THIS SENDER CLICK NOW? -> null | the reason not to. Checked under the mutex, immediately before the send: the slot lease and
- * the segment lease still ours at their newest generations, the record still at the generation the step was planned on, and no
- * other holder's active barrier.
+ * the segment lease still ours at their newest generations, the record still at the generation the step was planned on, no
+ * other holder's active barrier, and (`beatConn`: the sender's connection) OUR OWN HEARTBEAT published for this connection and
+ * younger than OWN_BEAT_MAX_MS -- a sender that cannot be seen alive by its peers does not send (Codex r5 P1).
  */
-export function fenceRefusal (dir, key, holder, { slot, slotGen, seg, segGen, recordGen, now = Date.now() }) {
+export function fenceRefusal (dir, key, holder, { slot, slotGen, seg, segGen, recordGen, beatConn = null, now = Date.now() }) {
   if (!holdsLease(dir, key, `slot${slot}`, holder, slotGen, now)) return 'slot'
   if (!holdsLease(dir, key, `seg-${seg}`, holder, segGen, now)) return 'segment'
   const h = recordHead(dir, key)
   if (!h.ok || h.head?.gen !== recordGen) return 'record'
   const b = barrierState(dir, key, now)
   if (b?.active && b.rec?.holder !== holder) return 'barrier'
+  if (beatConn) { const pr = presenceRead(dir, key, holder); if (!pr || pr.conn !== beatConn || !(now - Number(pr.beat) < OWN_BEAT_MAX_MS)) return 'beat' }
   return null
 }
