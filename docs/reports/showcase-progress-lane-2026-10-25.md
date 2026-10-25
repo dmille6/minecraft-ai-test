@@ -185,3 +185,29 @@ A survival fix = deaths, drowning, lava, falls, entombment, stuck, escape. It re
 The fixes were not re-reviewed before the start (the owner asked for one quick review; the weekly limit is near). The start
 proceeded because every P1 that could act during the start (S2, follower, re-keying) is closed by mechanism, and the open one
 (the underground escape) cannot be reached from bare ground on day one and is now a TRIP line.
+
+## 8. Start record (2026-10-25)
+
+- **15:12Z** follower drop-in installed, timer stopped, service inactive. **15:13:03Z** `start-bots.sh`: gate 17/17; ten
+  `joined the game` 15:13:05 .. 15:14:55Z (12 s apart); verifier: all ten with a skill row on `d55ce14d...+83e4d9` and an llm
+  row; 12 of 12 decisions served by gemma4:26b. AUTO_FOLLOW removed and the timer restarted 15:15:06Z. Tripwire cron installed.
+- **Licences, 10 of 10 bots:** `_townplan_mode plan=on template=ring@1 seed=ok zones=8`, `_found_mode found=on floor_wood=8
+  floor_stone=8 below_stockpile=1`, `_protectzone_mode zones=8 why=ok`.
+- **Town plan adopted:** 15:13:35Z showcase-Alpha `_townplan op=root result=accepted gen=1 mode=greenfield orient=W
+  store=storehouse:7 work=5x3:5` -> `/var/lib/mcai/_pool-showcase/townplan-0_70_0.g1.json`.
+- **Founding:** 15:55:22Z showcase-Echo `_found order=work kind=crafting_table step=F1 outcome=placed at=-7,71,-7
+  source=crafted gen=3`; 16:06:30Z showcase-Echo `_found order=work kind=furnace step=F3b outcome=placed at=-8,71,-7 gen=5`.
+  The world agrees (the timelapse's own region copy reads `crafting_table` at -7,71,-7 and `furnace` at -8,71,-7). In the first
+  hour: 50 gathers ok, crafts of 9 crafting tables, 9 wooden and 8 stone pickaxes, 3 furnaces.
+- **Timelapse:** frames every 15 min continued through the start (15:00, 15:15, ... 16:15Z topdown + angled); render time rose
+  from ~5 s to 69-82 s as the world started changing. The 16:15Z frame shows the felling round home; the two stations are too
+  small at that camera distance to see.
+- **Tripwire reads:** 15:35Z (cron) OK. 15:45Z (+32 min) **TRIP, a FALSE BREACH**: two unwaxed `copper_block` cells of the trial
+  chambers (69..70,-2,134) had weathered to `exposed_copper`, with no bot near; the cron would have stopped the bots at 16:35Z.
+  Fixed in r3 (canonical names: the oxidation stage dropped; the baseline retaken from the same pre-bot stage with the wider
+  palette); no stop happened. 16:20Z (+67 min): **OK** -- 8,342 rows, 10 of 10 live, 11.0 bot-h, deaths 0 (0.22 expected),
+  stuck none, under none, Z1 none, refusals `place_refused 4`, `find_filtered` 1.27 M (the guard hiding zone blocks from
+  searches), 3 near zones INTACT, D1-D5 and G1-G5 all 0 with EXPOSURE 1 plan, 5 generations, 2 found placements.
+- **Open:** the trial chambers' under-box residual (owner question, section 3); `stage --piece` / `activate --lane` / the
+  piece-aware rollback rule before the first showcase-first piece (section 5); the zone-file branch `showcase-start-1025-zones`
+  (on d55ce14d, `npm test` 302/302) merges after junkout-01 reaches main.
