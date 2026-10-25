@@ -87,6 +87,14 @@ export function visitNeeds (record, bill, { saplingAt = () => false, town = {}, 
   }
   return out
 }
+/** THE LEFTOVERS -> [name]: what the visit drew (`took`) that the bag still holds ABOVE its count at the visit's start (`held0`),
+ *  so never anything the bot owned before the visit or kept (matsBank then banks at most `took` of each, above `held0`). Pure. */
+export function leftoverNames (took = {}, held0 = {}, heldNow = {}) {
+  return Object.keys(took).filter(n => (Number(took[n]) || 0) > 0 && (Number(heldNow[n]) || 0) > (Number(held0[n]) || 0))
+}
+/** The skill's contract time (skills.mjs build_shop maxMs) and the least left for a bank to start (Claude r3 P3-1). */
+export const SHOP_SKILL_MS = 600_000
+export const SHOP_BANK_MIN_MS = 150_000
 /**
  * HOW MUCH OF A NAME THE VISIT MAY TAKE from the container it stands at (matsWithdraw's `allow`) -> n. Pure. A reserved family
  * is mats.mjs takeAllowed (the BUILD_RESERVE and the outstanding draws, judged at the take); a building PART has no reserve

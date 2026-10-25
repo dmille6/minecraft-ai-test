@@ -59,6 +59,25 @@ const ownBody = async M => {
 await t('a click never goes into the builder\'s OWN body (it waits for the landing, then gives the cell up as a body)', () => ownBody(R))
 await t('MUTANT the own-body check dropped', () => both("    if (e.self && inCell(e.self(), cell)) return 'body'\n", '', ownBody))
 
+console.log('THE MUTEX AND A GONE HOLDER, THROUGH A VISIT (Codex r3 P1, Claude r3 P3-3)')
+const heldBy = (pr, at) => fs.writeFileSync(path.join(pr.dir, `${pr.key}.mutate.g1.json`), JSON.stringify({ holder: 'A', pid: process.pid, conn: 'A-c2', at }))
+await t('a holder that LEFT after taking the mutex (a playerLeft seen since): B\'s visit takes it and builds', async () => {
+  const srv = server(), pr = project(SITE.record, ['B'])
+  const at = Date.now() - 5_000
+  heldBy(pr, at)
+  srv.seen.set('A', { online: false, offlineSince: at + 10, leftAt: at + 10 })
+  const r = await R.runVisit(pr.p('B'), bot(srv, 'B'), { maxSteps: 20 })
+  assert.ok(r.placed > 0, JSON.stringify(r))
+})
+await t('THE CODEX r3 SCENARIO: B noticed A offline BEFORE A reconnected and took the mutex -- the stale notice frees nothing', async () => {
+  const srv = server(), pr = project(SITE.record, ['B'])
+  const at = Date.now() - 5_000
+  heldBy(pr, at)
+  srv.seen.set('A', { online: false, offlineSince: at - 60_000, leftAt: at - 60_000 })   // the tab list has not caught up
+  const r = await R.runVisit(pr.p('B'), bot(srv, 'B'), { maxSteps: 20 })
+  assert.strictEqual(r.placed, 0, `A's live mutex is never displaced (${r.stop})`)
+})
+
 console.log('THE SLOT REFERENCE (Codex r1 P3)')
 await t('slotRef follows every renewal of the admission slot (the caller releases the LATEST generation on any exit)', async () => {
   const srv = server(), { p } = project()

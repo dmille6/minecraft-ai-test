@@ -166,7 +166,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
   // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead
   // holder's lock alive for good)
-  const gone = rec => { if (!rec?.holder || rec.holder === me) return false; const s = e.seen?.(rec.holder, now()); return !!s && !s.online && s.offlineSince != null && now() - s.offlineSince >= PJ.RETIRE_MS }
+  const gone = rec => (!!rec?.holder && rec.holder !== me && PJ.holderGone(Number(rec.at), { ...(e.seen?.(rec.holder, now()) ?? {}), now: now() }))
   const mutex = () => PJ.mutexTake(dir, key, me, { now: now(), conn, gone })
 
   // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
@@ -246,7 +246,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (!renewSlot() || !held()) return 'fence'
     let v = await e.dig(at, name)
     for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
-    if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++ }
+    if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++; e.log('_build', { op: 'unknown', cell: at, block: name }) }
     return v
   }
   /** An unknown cell, asked again from a stand in reach -> its server name | null (still unknown). */
@@ -255,7 +255,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (!stand) return null
     await e.walkTo(stand)
     const n = await e.probe(at)
-    if (n != null) unknown.delete(kOf(at))
+    if (n != null) { unknown.delete(kOf(at)); e.log('_build', { op: 'known', cell: at, block: n }) }
     return n
   }
 

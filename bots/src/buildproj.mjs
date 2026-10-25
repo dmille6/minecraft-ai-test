@@ -36,6 +36,9 @@ export const MUTEX_HOLD_MS = 5_000
 export const MUTEX_TORN_MS = 5_000
 export const MUTEX_KEEP = 16
 export const RETIRE_MS = 1_000
+// "not in the tab list" is weaker evidence than a playerLeft event (a first notice can be the tab list lagging a join), so
+// it must last this long before it retires anything (Codex r3 P1)
+export const OFFLINE_RETIRE_MS = 10_000
 export const BARRIER_MAX_MS = 10 * 60_000
 export const PUBLISH_TRIES = 3
 
@@ -177,7 +180,8 @@ export const pidAlive = pid => { try { process.kill(pid, 0); return true } catch
  * generation decides: released (its marker) -> free; torn (a kill inside the write) -> held for MUTEX_TORN_MS from its mtime;
  * its pid dead -> free; its holder's presence written AFTER it names another CONNECTION (the holder restarted -- under a new pid
  * or the very same reused one: Codex r2 P2, a pid is not an incarnation) -> free; its holder RETIRED (`gone(rec)`: offline on the
- * server for RETIRE_MS, as the taker has seen it -- an offline holder cannot send, and after its reconnect it takes the mutex anew)
+ * server since AFTER the lock was taken, as the taker has seen it: holderGone -- an offline holder cannot send, and after its
+ * reconnect it takes the mutex anew)
  * -> free; otherwise HELD, however old (no age reclaim: Codex r1 P1, a suspended live holder must not be displaced while it may
  * still send).
  */
@@ -291,13 +295,22 @@ export function closeOwn (dir, key, holder, { conn = null, acked = 0, now = Date
 /**
  * IS AN OPEN INTENT'S SENDER RETIRED? (its connection can deliver nothing more) Pure. Any one of:
  *   - its holder's PRESENCE, written after the intent, names another connection (the holder reconnected);
- *   - the holder is not online now and has not been for RETIRE_MS (`offlineSince`: first seen offline by this connection);
- *   - a playerLeft for it was seen RETIRE_MS ago or more, after the intent was opened (a rejoin never undoes this: Claude r1 P2-2).
+ *   - holderGone (below) at the intent's time: the evidence that the connection is gone POSTDATES the intent.
  */
 export function intentRetired (i, { presence = null, online = true, offlineSince = null, leftAt = null, now = Date.now() } = {}) {
   if (presence?.conn && i?.conn && presence.conn !== i.conn && Number(presence.at) > Number(i.at)) return true
-  if (!online && offlineSince != null && now - offlineSince >= RETIRE_MS) return true
-  if (leftAt != null && Number(i?.at) <= leftAt && now - leftAt >= RETIRE_MS) return true
+  return holderGone(Number(i?.at), { online, offlineSince, leftAt, now })
+}
+/**
+ * HAS THE CONNECTION THAT DID SOMETHING AT `since` GONE AWAY? (what this bot has seen of its holder) Pure. EVIDENCE MUST POSTDATE
+ * `since` (Codex r3 P1: an offline notice from BEFORE a reconnect, not yet undone by the tab list, reclaimed the reconnected
+ * holder's fresh mutex): a playerLeft seen at or after `since`, RETIRE_MS ago or more (a rejoin never undoes it); or the holder
+ * not in the tab list now, first noticed missing AFTER `since`, for OFFLINE_RETIRE_MS or more. -> boolean
+ */
+export function holderGone (since, { online = true, offlineSince = null, leftAt = null, now = Date.now() } = {}) {
+  if (!Number.isFinite(since)) return false
+  if (leftAt != null && leftAt >= since && now - leftAt >= RETIRE_MS) return true
+  if (!online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS) return true
   return false
 }
 

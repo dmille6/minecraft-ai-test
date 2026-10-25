@@ -120,7 +120,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, leftoverNames, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16313,18 +16313,19 @@ async function buildShop (ctx, args, signal) {
     })
     bot.shopUnknown ??= new Set()   // cells a dig left unanswered: unknown for the connection, asked again by the next visit
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
-    // THE LEFTOVERS GO BACK (design 5 "returns what is left", cooperation A3): what this visit drew and did not place -- the bag
-    // above its count at the visit's start, at most what was drawn -- is banked in town chests, nearest first (mats-01's matsBank
-    // sweep: a full or unreachable chest is the next one's turn). NAMED DEVIATION: A3's reserved SITE CHEST does not exist on this
-    // base (cooperation's, not built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
-    let back = {}
-    const left = Object.keys(took).filter(n => (took[n] ?? 0) > 0 && countItem(bot, n) > (held0[n] ?? 0))
-    if (left.length) { try { back = await matsBank(ctx, left, held0, signal, took) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
+    // THE LEFTOVERS GO BACK (design 5 "returns what is left", cooperation A3), AFTER the completion is published (Claude r3 P3-1):
+    // what this visit drew and did not place (shop.mjs leftoverNames) is banked in town chests, nearest first (mats-01's matsBank
+    // sweep: a full or unreachable chest is the next one's turn) -- only while the skill's clock leaves SHOP_BANK_MIN_MS, else the
+    // fleet's town deposit takes them. NAMED DEVIATION: A3's reserved SITE CHEST does not exist on this base (cooperation's, not
+    // built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
+    let back = {}
+    const left = leftoverNames(took, held0, heldMap(bot))
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {

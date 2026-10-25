@@ -45,11 +45,12 @@ const ghostScene = async (M, probe) => {
   const unknown = new Set()
   const e = bot(s.srv, 'A', { dig: ghostDig(s.srv), probe })
   const r = await M.runVisit({ ...s.p('A'), unknown }, e, { maxSteps: 2000 })
-  return { s, r, unknown }
+  return { s, r, unknown, e }
 }
 await t('AN UNANSWERED PROBE CONFIRMS NOTHING (Codex r1 P2): the cell stays UNKNOWN -- not cleared, never placed into, kept for the next visit', async () => {
-  const { s, r, unknown } = await ghostScene(R, async () => null)
+  const { s, r, unknown, e: e0 } = await ghostScene(R, async () => null)
   assert.strictEqual(r.cleared, 0); assert.strictEqual(r.unknown, 1); assert.ok(unknown.has(k3(s.at)))
+  assert.ok(e0.logs.some(([k, d]) => k === '_build' && d.op === 'unknown' && k3(d.cell) === k3(s.at)), 'the read\'s evidence: an op=unknown row')
   assert.ok(!s.srv.placedAt.has(k3(s.at)), 'the ghost cell was never built into')
   assert.notStrictEqual(r.stop, 'complete')
   // the next visit asks the server again: it says air -> the cell is known, and built
