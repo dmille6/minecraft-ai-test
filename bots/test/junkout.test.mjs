@@ -152,12 +152,16 @@ await t('well visit: every gate refuses alone (and charges nothing it should not
   assert.equal(held.order, null); assert.equal(held.held.skill, 'dispose_well'); assert.notEqual(held.state.latched, true, 'HELD: no latch')
 })
 await t('well visit: the goal\'s wanted names travel as `keep` (only names on the list), and disposePlan never plans them', () => {
-  const r = W.wellVisitOrder(visitArgs({ keep: ['glass', 'oak_log', 'flint'] }))
-  assert.deepEqual(r.order.args.keep, ['glass', 'flint'], 'oak_log is not the well\'s: not carried')
-  const items = bagOf([it('glass', 12), it('flint', 30), it('egg', 16)], 5)
-  assert.deepEqual(W.disposePlan(items, { keep: ['glass'] }).stacks.map(s => s.name).sort(), ['egg', 'flint'])
-  assert.equal(W.disposePlan(items, { keep: ['glass'] }).slots, items.length, 'slots count the whole bag')
-  assert.deepEqual(W.disposePlan(items).stacks.map(s => s.name).sort(), ['egg', 'flint', 'glass'], 'positive control: without keep glass goes')
+  // matset-01 x junkout-01 (re-stack 10-25): plain glass is a BUILDING PART now (off the junk list); stained glass stays junk
+  const r = W.wellVisitOrder(visitArgs({ keep: ['white_stained_glass', 'oak_log', 'flint'] }))
+  assert.deepEqual(r.order.args.keep, ['white_stained_glass', 'flint'], 'oak_log is not the well\'s: not carried')
+  assert.deepEqual(W.wellVisitOrder(visitArgs({ keep: ['glass', 'flint'] })).order.args.keep, ['flint'], 'plain glass is not the well\'s either (matset-01)')
+  const items = bagOf([it('white_stained_glass', 12), it('flint', 30), it('egg', 16)], 5)
+  assert.deepEqual(W.disposePlan(items, { keep: ['white_stained_glass'] }).stacks.map(s => s.name).sort(), ['egg', 'flint'])
+  assert.equal(W.disposePlan(items, { keep: ['white_stained_glass'] }).slots, items.length, 'slots count the whole bag')
+  assert.deepEqual(W.disposePlan(items).stacks.map(s => s.name).sort(), ['egg', 'flint', 'white_stained_glass'], 'positive control: without keep it goes')
+  // and plain glass never goes, keep or not (matset-01: a building part)
+  assert.deepEqual(W.disposePlan(bagOf([it('glass', 12), it('egg', 16)], 5)).stacks.map(s => s.name), ['egg'])
 })
 await t('well visit: the visit counts LISTED stacks only (disposePlan, no options): no sword, no cobble at the cap, no at-target stock', () => {
   const items = bagOf([it('stone_sword', 1), ...Array.from({ length: 4 }, () => it('cobblestone', 64)), it('egg', 16)], 3)
@@ -292,7 +296,9 @@ await t('PROPERTY: over 500 random bags, no row step is ever a junk name, a sapl
   assert.ok(rows > 100, `positive control: the property saw ${rows} row steps`)
 })
 await t('notForChest / bankOwned: junk, compost inputs, saplings, bamboo, the peaceful plants (switch on) are never a chest\'s; tools, targets, iron are owned', () => {
-  for (const n of ['egg', 'flint', 'leaf_litter', 'oak_sapling', 'mangrove_propagule', 'bamboo', 'rail', 'glass']) assert.equal(TD.notForChest(n), true, n)
+  for (const n of ['egg', 'flint', 'leaf_litter', 'oak_sapling', 'mangrove_propagule', 'bamboo', 'rail', 'white_stained_glass']) assert.equal(TD.notForChest(n), true, n)
+  // matset-01 x junkout-01: plain glass and glass_pane are building parts -- a chest's, always banked
+  for (const n of ['glass', 'glass_pane', 'stone_bricks']) assert.equal(TD.notForChest(n), false, n)
   assert.equal(TD.notForChest('brown_mushroom'), false); assert.equal(TD.notForChest('brown_mushroom', { peaceful: true }), true)
   assert.equal(TD.notForChest('apple', { peaceful: true }), true)
   for (const n of ['torch', 'bone_meal', 'chest']) { assert.equal(TD.notForChest(n), false, n); assert.equal(TD.bankOwned(n), false, n) }
