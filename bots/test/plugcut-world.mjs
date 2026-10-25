@@ -180,7 +180,11 @@ export function makeWorldBot (cells, { feetY = 0.2, fill = 'stone', sink = 0, ri
     clearControlStates () { for (const k of Object.keys(ctl)) ctl[k] = false; controls.push('clear') },
     setControlState (name, on) { ctl[name] = !!on; controls.push(`${name}:${!!on}`) },
     async look (a) { yaw = a; looks.push(a) },
-    async lookAt () {},
+    // JIT 10-24 (plugcut-01 x lavastep-01): the plug looks first, then places with forceLook 'ignore' -- `onLookAt` lets a
+    // test hand the body to another owner DURING the look; _placeBlockWithOptions is mineflayer's, the same placement
+    lookCalls: 0,
+    async lookAt (...a) { bot.lookCalls++; if (bot.onLookAt) await bot.onLookAt(...a) },
+    async _placeBlockWithOptions (ref, face, opts) { if (opts?.forceLook !== 'ignore') await bot.lookAt(); return bot.placeBlock(ref, face) },
     pathfinder: { thinkTimeout: 1000, setGoal () {}, stop () {}, movements: {}, isMining: () => false,
                   getPathTo () { return canPath ? { path: [1, 2, 3] } : { path: [] } } },
     on () {}, once () {}, removeListener () {}, emit () {},

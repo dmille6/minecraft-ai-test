@@ -6437,7 +6437,21 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
     // THE HEAD AT THE DECISION (Codex r1 P2, Claude r1 P1): sampled here, at the last re-plan before the placement; the row
     // also prints the head after the settle (`sub=`), which a sinking bot can turn to 1 -- the read gates on sub0 only
     sub0 = submergedAt(bot) ? 1 : 0
-    try { await bot.placeBlock(at(...q.ref), new Vec3(...q.face)) } catch { /* verified below */ }
+    // PLUGCUT-01 x LAVASTEP-01 (JIT 10-24, Codex P2): mineflayer's placeBlock AWAITS a look before it sends the placement, and
+    // lavastep's in-flight guard is checked only when _genericPlace is entered -- a danger move that takes the body during that
+    // look would still get the plug sent under it. So the look is made HERE, the owner, the deadline and the plan are asked
+    // again, and the placement goes out with forceLook 'ignore' (no await between the guard and the packet).
+    const refB = at(...q.ref), faceV = new Vec3(...q.face)
+    if (typeof bot._placeBlockWithOptions === 'function' && refB?.position) {
+      try { await bot.lookAt(refB.position.offset(0.5 + faceV.x * 0.5, 0.5 + faceV.y * 0.5, 0.5 + faceV.z * 0.5), true) } catch { /* the placement reads back */ }
+      if (yieldTo()) return out(false, 'yielded')
+      if (Date.now() > deadline) { row(q, 'stopped', 'budget spent at the look'); return out(false, 'budget spent plugging') }
+      const last = plan()
+      if (!inFrame() || !last.ok || key3(last.plugs[0].cell) !== key3(q.cell) || key3(last.plugs[0].ref) !== key3(q.ref)) continue
+      try { await bot._placeBlockWithOptions(refB, faceV, { swingArm: 'right', forceLook: 'ignore' }) } catch { /* verified below */ }
+    } else {
+      try { await bot.placeBlock(refB, faceV) } catch { /* verified below */ }
+    }
     // A PLACEMENT IS ALWAYS READ BACK AND WRITTEN, even when another owner took the body meanwhile (Codex r1 P2): a plug that
     // took and was never counted would hide from the read's death linkage. The settle touches no control.
     await sleep(FLOW_SETTLE_MS)
