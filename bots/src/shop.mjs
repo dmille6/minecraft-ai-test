@@ -5,14 +5,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { reserveKeyOf, reserveCount } from './mats.mjs'
-import { BUILD_RESERVE } from './stocktarget.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
 export const SHOP_BLUEPRINT = 'workshop@1'
 export const SHOP_PLOT = 'shop'
 export const BUILDERS_MAX = 2
-export const SHOP_COOLDOWN_MS = 10 * 60_000
+export const SHOP_COOLDOWN_MS = Number(process.env.SHOP_COOLDOWN_MS) > 0 ? Number(process.env.SHOP_COOLDOWN_MS) : 10 * 60_000   // a setting (sandbox pacing)
 export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
@@ -79,7 +78,7 @@ export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
  * whole family's stock above the family's reserve: mats.mjs reserveCount) less every OTHER claim on it (draws in flight, other
  * projects' claims: `claims` { name: n }), never below 0. A building part (no reserve key) is all of its stock less claims.
  */
-export function spendableFor (item, stock = {}, { reserve = BUILD_RESERVE, claims = {} } = {}) {
+export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = {}) {   // reserve: mats.mjs matsReserve().table (its one reader)
   const rk = reserveKeyOf(item)
   const own = Number(stock[item]) || 0
   const claimed = Number(claims[item]) || 0
@@ -94,8 +93,10 @@ export function spendableFor (item, stock = {}, { reserve = BUILD_RESERVE, claim
  * or a bag without room is a skip with its reason.
  */
 export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
-  complete = false, slotsFree = true, health = 20, freeSlots = 36 } = {}) {
+  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
+  // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
+  if (!planned) return { order: null, skip: null }
   if (complete) return { order: null, skip: 'complete' }
   if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }

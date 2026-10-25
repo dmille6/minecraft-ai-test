@@ -24,7 +24,7 @@ await t('each refusal names its reason; away / isolated / a milestone holding / 
     const r = S.buildOrder({ ...base, ...patch })
     assert.strictEqual(r.order, null); assert.strictEqual(r.skip, why)
   }
-  for (const patch of [{ atTown: false }, { shared: false }, { holds: true }, { on: false }]) assert.deepStrictEqual(S.buildOrder({ ...base, ...patch }), { order: null, skip: null })
+  for (const patch of [{ atTown: false }, { shared: false }, { holds: true }, { on: false }, { planned: false }]) assert.deepStrictEqual(S.buildOrder({ ...base, ...patch }), { order: null, skip: null })
 })
 await t('the cooldown: inside it nothing; after it, the order (control)', () => {
   assert.strictEqual(S.buildOrder({ ...base, state: { lastAt: base.now - 1000 } }).order, null)
@@ -53,9 +53,10 @@ await t('needFromTown: the bill less the bag, the largest first, capped in all',
 })
 await t('spendableFor: a part is its stock less claims; a reserved family is above its reserve, less claims, never below 0', () => {
   assert.strictEqual(S.spendableFor('stone_bricks', { stone_bricks: 100 }, { claims: { stone_bricks: 30 } }), 70)
-  assert.strictEqual(S.spendableFor('torch', { torch: 40 }), 8, 'torch reserve 32')
-  assert.strictEqual(S.spendableFor('oak_log', { oak_log: 600, birch_log: 10 }), 98, 'the log FAMILY above 512, capped by this species')
-  assert.strictEqual(S.spendableFor('torch', { torch: 10 }), 0)
+  const reserve = { torch: 32, logs: 512 }
+  assert.strictEqual(S.spendableFor('torch', { torch: 40 }, { reserve }), 8, 'torch reserve 32')
+  assert.strictEqual(S.spendableFor('oak_log', { oak_log: 600, birch_log: 10 }, { reserve }), 98, 'the log FAMILY above 512, capped by this species')
+  assert.strictEqual(S.spendableFor('torch', { torch: 10 }, { reserve }), 0)
 })
 
 console.log('THE FOOTPRINT PRICE')
@@ -90,8 +91,8 @@ const W = [
   ['skills: build_shop contract expects world_change', SK, /build_shop:\s*\{\s*expects:\s*\['world_change'\]/],
   ['cognitive: the order comes from buildOrder', CG, /const r = buildOrder\(\{ on: SHOP\.on,/],
   ['cognitive: a decline refunds the cooldown', CG, /build_shop:\s*\['shopState',\s*'lastAt'\]/],
-  ['index: the footprint price on the shared break entry', IX, /planBreakCost\(bot\.townPlan\?\.cells, block\) \|\| footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)/],
-  ['index: the footprint price on the place entries', IX, /zonePlacePrice, \(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\]/],
+  ['index: the footprint price pushed onto the shared break array', IX, /moves\.exclusionAreasBreak\.push\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
+  ['index: the footprint price pushed onto the shared place array', IX, /moves\.exclusionAreasPlace\.push\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
 ]
