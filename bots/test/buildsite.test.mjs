@@ -168,23 +168,22 @@ await t('A MOAT 11 deep at Chebyshev 12-14: every candidate screens, none is wal
 await t('a ditch 1 deep at Chebyshev 12 is walked through (positive control)', () => {
   assert.ok(B.siteBlueprint(world(ring({}, 12, 12, G, G, 'air')), plan(), BP, { tries: 3 }).ok)
 })
-await t('AN INNER MOAT at Chebyshev 4-6 (Codex siting r1 P2): no town outside it -> no_proven_site; ONE chest outside -> still not; TWO -> proven', () => {
+await t('AN INNER MOAT at Chebyshev 4-6 (Codex siting r1 P2): no bot stood outside it -> no_proven_site; a cell a bot stood on outside it -> proven', () => {
   const cells = ring({}, 4, 6, G - 10, G, 'air')
   assert.strictEqual(B.siteBlueprint(world(cells), plan(), BP, { tries: 2 }).why, 'no_proven_site')
-  cells[`9,${G + 1},0`] = 'chest'
-  assert.strictEqual(B.siteBlueprint(world(cells), plan(), BP, { tries: 2, town: [[9, G + 1, 0]] }).why, 'no_proven_site', 'a lone chest is one piece of evidence (r3)')
-  cells[`9,${G + 1},3`] = 'chest'
-  assert.ok(B.siteBlueprint(world(cells), plan(), BP, { tries: 2, town: [[9, G + 1, 0], [9, G + 1, 3]] }).ok, 'two chests in one component are town')
+  assert.ok(B.siteBlueprint(world(cells), plan(), BP, { tries: 2, stood: [[9, G + 1, 0]] }).ok, 'a bot stood at (9, 0): the walk starts there too')
 })
-await t('A CHEST IN A WALL (Codex siting r2 P2): its far side is not town; the near side (with home) is', () => {
-  // a wall 3 high at x = 5 across the whole world, the chest set in it; home on the west, the domain (x >= 22) on the east
+await t('CHESTS IN A WALL seed nothing (Codex siting r2/r3 P2, Claude r3 P2: one chest, two chests, a double chest): only cells a bot STOOD on do', () => {
+  // a wall 3 high at x = 5 across the whole world with a double chest and a third chest set in it; home on the west
   const cells = {}
   for (let z = -60; z <= 60; z++) for (let y = G + 1; y <= G + 3; y++) cells[`5,${y},${z}`] = 'stone'
-  cells[`5,${G + 1},0`] = 'chest'
+  cells[`5,${G + 1},0`] = 'chest'; cells[`5,${G + 1},1`] = 'chest'; cells[`5,${G + 1},3`] = 'chest'
   const read = world(cells)
-  assert.ok(!B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`), 'the far side of the wall is not reached')
-  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`2,${G + 1},0`), 'the near side is (control)')
-  assert.strictEqual(B.siteBlueprint(read, plan(), BP, { tries: 2, town: [[5, G + 1, 0]] }).why, 'no_proven_site')
+  // the chests' own cells are not nodes (a chest is not passable): passing them as stood cells seeds nothing
+  assert.ok(!B.walkFrom(read, HOME, new Set(), 48, { stood: [[5, G + 1, 0], [5, G + 1, 1], [5, G + 1, 3]] }).has(`30,${G + 1},0`), 'the far side of the wall is not reached')
+  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { stood: [[2, G + 1, 0]] }).has(`2,${G + 1},0`), 'the near side is (control)')
+  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { stood: [[8, G + 1, 0]] }).has(`30,${G + 1},0`), 'a bot that STOOD east of the wall is evidence of that side')
+  assert.strictEqual(B.siteBlueprint(read, plan(), BP, { tries: 2, stood: [[2, G + 1, 0]] }).why, 'no_proven_site')
 })
 await t('A FENCE RING at Chebyshev 12 (Codex siting r1 P2): a fence is 1.5 high, never a step -> no_proven_site; cobblestone (1 high) -> proven', () => {
   assert.strictEqual(B.siteBlueprint(world(ring({}, 12, 12, G + 1, G + 1, 'oak_fence')), plan(), BP, { tries: 2 }).why, 'no_proven_site')
@@ -342,10 +341,29 @@ await t('a huge mushroom block in the volume refuses the site (mushroom)', () =>
   const [x, , z] = cellOf(4, 3, 0)
   assert.strictEqual(screen(world({ [`${x},${G + 1},${z}`]: 'red_mushroom_block' })).why, 'mushroom')
 })
-await t('town cells beyond the town circle (Chebyshev 16) seed nothing: two chests beside a moated site do not reach it', () => {
+await t('stood cells beyond the town circle (Chebyshev 16) seed nothing: one beside a moated site does not reach it; inside 16 it does (control)', () => {
   const cells = ring({}, 4, 6, G - 10, G, 'air')
-  cells[`30,${G + 1},3`] = 'chest'; cells[`30,${G + 1},6`] = 'chest'
-  assert.ok(!B.walkFrom(world(cells), HOME, new Set(), 48, { town: [[30, G + 1, 3], [30, G + 1, 6]] }).has(`30,${G + 1},0`))
+  assert.ok(!B.walkFrom(world(cells), HOME, new Set(), 48, { stood: [[30, G + 1, 3]] }).has(`30,${G + 1},0`))
+  assert.ok(B.walkFrom(world(cells), HOME, new Set(), 48, { stood: [[12, G + 1, 3]] }).has(`30,${G + 1},0`))
+})
+await t('AN UNDERMINED TREE (Claude siting r3 P2): an oak whose ground is dug out still owes its replant', () => {
+  const [x, , z] = cellOf(4, 3, 0)
+  const cells = oakAt(x, z)
+  cells[`${x},${G},${z}`] = 'air'; cells[`${x},${G - 1},${z}`] = 'air'
+  const r = screen(world(cells))
+  assert.strictEqual(r.why, 'ok'); assert.strictEqual(r.trees.length, 1)
+})
+await t('a lone JUNGLE log rooted on grass with no bush leaves is a stump and owes its replant (Codex siting r3 P2)', () => {
+  const [x, , z] = cellOf(4, 3, 0)
+  const r = screen(world({ [`${x},${G + 1},${z}`]: 'jungle_log' }))
+  assert.strictEqual(r.why, 'ok'); assert.strictEqual(r.trees.length, 1); assert.strictEqual(r.trees[0].species, 'jungle')
+})
+await t('a 2x2 trunk STAGGERED on a slope (bases at four heights) still refuses (Codex siting r3 P3)', () => {
+  const [x, , z] = cellOf(4, 3, 0)
+  const cells = {}
+  const cols = [[x, z, 0], [x + 1, z, 1], [x, z + 1, 2], [x + 1, z + 1, 3]]
+  for (const [a, b, h] of cols) { for (let y = G + 1; y < G + 1 + h; y++) cells[`${a},${y},${b}`] = 'dirt'; for (let y = G + 1 + h; y <= G + 5; y++) cells[`${a},${y},${b}`] = 'spruce_log' }
+  assert.strictEqual(screen(world(cells)).why, 'tree_2x2')
 })
 await t('a 2x2 trunk refuses the site (tree_2x2); a dark oak does too', () => {
   const [x, , z] = cellOf(4, 3, 0)
@@ -468,13 +486,12 @@ await t('walkFrom: a cell still to be placed is never a floor (a stand may not r
   assert.ok(B.walkFrom(over, HOME).has(`31,${G + 1},0`), 'a PLACED bridge is walked over (positive control)')
   assert.ok(!B.walkFrom(over, HOME, new Set([`30,${G},0`])).has(`31,${G + 1},0`), 'a bridge still to be placed is not')
 })
-await t('walkFrom: home boxed in (a block over its head, walls round it) walks out only from a town seed (a chest bots used)', () => {
+await t('walkFrom: home boxed in (a block over its head, walls round it) walks out only from a cell a bot stood on', () => {
   const cells = { [`0,${G + 2},0`]: 'diorite', [`1,${G + 1},0`]: 'stone', [`-1,${G + 1},0`]: 'stone', [`0,${G + 1},1`]: 'stone', [`0,${G + 1},-1`]: 'stone', [`1,${G + 2},0`]: 'stone', [`-1,${G + 2},0`]: 'stone', [`0,${G + 2},1`]: 'stone', [`0,${G + 2},-1`]: 'stone' }
   for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]) { cells[`${a},${G + 1},${b}`] = 'stone'; cells[`${a},${G + 2},${b}`] = 'stone' }
   const read = world(cells)
   assert.ok(!B.walkFrom(read, HOME).has(`30,${G + 1},0`), 'home alone: boxed in')
-  assert.ok(!B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`), 'ONE chest is one piece of evidence: not town (r3)')
-  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { town: [[5, G + 1, 0], [5, G + 1, 3]] }).has(`30,${G + 1},0`), 'two chests in one component seed the walk')
+  assert.ok(B.walkFrom(read, HOME, new Set(), 48, { stood: [[5, G + 1, 0]] }).has(`30,${G + 1},0`), 'a cell a bot stood on outside the box seeds the walk')
 })
 await t('walkFrom: a fence is never a floor (1.5 high), WATERLOGGED or not (Codex siting r2 P2); a full cube is (control)', () => {
   const w = n => B.walkFrom(world({ [`30,${G},0`]: n, [`30,${G - 1},0`]: 'stone' }), HOME)
@@ -512,14 +529,13 @@ writeJ('junkwell-site-0_70_0.g2.json', { x: 13, y: 70, z: 14 })
 writeJ('treefarm-0_70_0.g1.json', { cells: [{ x: 100, z: 100 }] })
 writeJ('treefarm-0_70_0.g2.json', { cells: [{ x: 15, z: 16 }] })
 writeJ('town-chest-0_70_0.containers.json', { world: 'w', entries: { '2,70,3': { o: 'took' }, '-4,70,5': { o: 'put' } } })
-await t('poolRecords reads the head, the plinth plan AND its prev[] columns {x,y,z,stair} (Codex siting r1 P2), the newest well site and farm, the town chests', () => {
+await t('poolRecords reads the head, the plinth plan AND its prev[] columns {x,y,z,stair} (Codex siting r1 P2), the newest well site and farm', () => {
   const r = RUN.poolRecords(tmp)
   assert.ok(r.head, r.why)
   const w = new Set(r.wells.map(c => c.join(',')))
   for (const c of ['1,70,2', '3,69,4', '5,68,6', '7,70,8', '9,69,10', '13,70,14']) assert.ok(w.has(c), `well cell ${c}`)
   assert.ok(!w.has('11,70,12'), 'the older well site is not read')
   assert.deepStrictEqual(r.farm, [[15, 16]], 'the newest tree-farm generation')
-  assert.deepStrictEqual(r.town.map(c => c.join(',')).sort(), ['-4,70,5', '2,70,3'])
   assert.strictEqual(r.zonesWhy, 'absent', 'no zones file: absent (a valid answer)')
 })
 await t('A MALFORMED zones file FAILS CLOSED (Codex siting r1 P2): records_unreadable, never zero zones', () => {
@@ -578,11 +594,14 @@ await t('MUTANT the walk\'s full-cube floor rule relaxed to any solid (a fence)'
   assert.ok(!M.walkFrom(world({ [`30,${G},0`]: 'oak_fence', [`30,${G - 1},0`]: 'stone' }), HOME).has(`30,${G + 1},0`))
 }))
 
-await t('MUTANT the town component\'s two-evidence rule relaxed to one (the chest-in-a-wall scenario)', () => mutantKilled('let keep = new Set([...evidence].filter(([, tags]) => tags.size >= 2).map(([id]) => id))', 'let keep = new Set([...evidence].filter(([, tags]) => tags.size >= 1).map(([id]) => id))', M => {
-  const cells = {}
-  for (let z = -60; z <= 60; z++) for (let y = G + 1; y <= G + 3; y++) cells[`5,${y},${z}`] = 'stone'
-  cells[`5,${G + 1},0`] = 'chest'
-  assert.ok(!M.walkFrom(world(cells), HOME, new Set(), 48, { town: [[5, G + 1, 0]] }).has(`30,${G + 1},0`))
+await t('MUTANT the town circle bound on stood cells dropped', () => mutantKilled('Math.max(Math.abs(c[0] - home.x), Math.abs(c[2] - home.z)) <= TOWN_R && isNode(...c)', 'isNode(...c)', M => {
+  assert.ok(!M.walkFrom(world(ring({}, 4, 6, G - 10, G, 'air')), HOME, new Set(), 48, { stood: [[30, G + 1, 3]] }).has(`30,${G + 1},0`))
+}))
+await t('MUTANT the undermined-tree rule dropped (bases on solid ground only)', () => mutantKilled("const bases = onGround.length ? onGround : undermined", "const bases = onGround", M => {
+  const [x, , z] = cellOf(4, 3, 0)
+  const cells = oakAt(x, z)
+  cells[`${x},${G},${z}`] = 'air'; cells[`${x},${G - 1},${z}`] = 'air'
+  assert.strictEqual(M.screenSite(world(cells), HOME, BP, A, O, M.reservations(plan(), {}), { sector: 'E' }).trees.length, 1)
 }))
 await t('MUTANT the edge/corner checks dropped from sightClear', () => mutantKilled('      for (const i of tied) { const c = cell.slice(); c[i] += step[i]; if (!open(c)) return false }\n', '', M => {
   const read = (x, y, z) => (x === 93 && y === 66 && z === 47 ? { name: 'stone_bricks', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })

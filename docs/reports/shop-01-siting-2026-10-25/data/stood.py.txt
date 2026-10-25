@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""stood.py <worlds.txt> -> JSON {world: {"cells": [[x,y,z],...], "rows": n, "bots": [..], "files": n}} on stdout.
+READ-ONLY. The feet cells bots of each pool stood on inside the town circle (Chebyshev 16 of home), from today's live skill logs
+(/var/log/mcai/<bot>/skill-<bot>.jsonl, full walk of each file). The siting planner's walk seeds (D3 r4)."""
+import json, os, re, sys, collections
+LOG = '/var/log/mcai'
+homes = {}
+for line in open(sys.argv[1]):
+    w, x, y, z = line.split()
+    homes[w] = (int(x), int(y), int(z))
+out = {w: {'cells': set(), 'rows': 0, 'bots': [], 'files': 0} for w in homes}
+for d in sorted(os.listdir(LOG)):
+    p = os.path.join(LOG, d)
+    if not os.path.isdir(p): continue
+    w = next((w for w in homes if re.match(r'^(self-)?%s-[A-Z][a-z]+$' % re.escape(w), d)), None)
+    if not w: continue
+    f = os.path.join(p, 'skill-%s.jsonl' % d)
+    if not os.path.exists(f): continue
+    hx, hy, hz = homes[w]
+    out[w]['bots'].append(d); out[w]['files'] += 1
+    with open(f, 'rb') as fh:
+        for raw in fh:
+            if b'"pos"' not in raw: continue
+            try: r = json.loads(raw)
+            except Exception: continue
+            pos = (r.get('bot') or {}).get('pos')
+            if not pos: continue
+            out[w]['rows'] += 1
+            x, y, z = pos.get('x'), pos.get('y'), pos.get('z')
+            if not all(isinstance(v, (int, float)) for v in (x, y, z)): continue
+            fx, fy, fz = int(x // 1), int((y + 1e-6) // 1), int(z // 1)
+            if max(abs(fx - hx), abs(fz - hz)) <= 16 and abs(fy - hy) <= 12: out[w]['cells'].add((fx, fy, fz))
+print(json.dumps({w: {'cells': sorted(v['cells']), 'rows': v['rows'], 'bots': v['bots'], 'files': v['files']} for w, v in out.items()}))
