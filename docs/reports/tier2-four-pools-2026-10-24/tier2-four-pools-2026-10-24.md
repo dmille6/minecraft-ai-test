@@ -6,7 +6,14 @@ draw takes what is free. This is the smallest mechanical enforcement, its replay
 with auto-registering tier 3 at draw time. Branch `tier2-min4-1024` (on `queue-speed-1023`, whose replay tools it
 reuses). Host 10.0.0.31: files read, read-only programs over ssh stdin; nothing written there.
 
-**BOTH ENGINES APPROVE round 3 (commit 7a8e7fe8)** — Codex and Claude, P3 nits only (section 7). Round 3 fixed
+**ROUND 4 (after the aborted install, 10-24):** the coordinator's staged install refused on test_threepool.py,
+117/177 with the patch vs 177/177 without: its draw-block cases cut the loop's `while` block out and run it alone
+under `set -u`, and the block read `$TIER2`, assigned outside the cut. **My earlier "163/163, 2 host-only skipped, as
+before" was a cheap negative: on the Mac (no GNU `timeout`) those draw-block cases SKIP, so the suite that would have
+caught this never ran on my change.** Fixed (section 7, round 4): every read is `${TIER2:-}`, a structural test proves
+the real loop assigns it on the only path into the block, tierrule.py is now loaded by path (a second bug the
+coordinator's layout exposed), and every suite was re-run in the coordinator's layout with `timeout`/`flock` present.
+Previously: **both engines approved round 3 (commit 7a8e7fe8)**, P3 nits only. Round 3 fixed
 Codex's round-2 P2 (R10's exit-2 path) and Claude's round-2 P3s. **Round 2**: both engines asked for changes in round 1. The headline replay number was wrong — a replay bug
 (poolescape-01) — and is corrected here; the loop gained a count interlock; the scheduler's tier-2 wait gained its
 12-h page; the wording no longer claims bounds the replay cannot support.
@@ -25,8 +32,8 @@ Codex's round-2 P2 (R10's exit-2 path) and Claude's round-2 P3s. **Round 2**: bo
 ## 1. The rule
 
 Patches are against the live files (md5s): drawrec.sh d0d4d51c, canary-loop.sh 344b1074, canary-sched.py 0d9a87f3 (the
-repo's scripts/host copies of the last two are identical). Patched copies (round 3): drawrec 01f8170e, loop 076a5799,
-scheduler 1a333d49.
+repo's scripts/host copies of the last two are identical). Patched copies (round 4): drawrec 5074388d, loop f727b377,
+scheduler 1a333d49 (unchanged since round 3).
 
 1. **drawrec.sh** (`patches/drawrec.sh.patch`). After the draw_k block: a registration with a `tier` key is classified
    with `tierrule.tier_of`; tier 2 sets `TARGET_K = MIN_K = 4`, so the draw is exactly 4 or `NONE`. Tier 2 whose draw_k
@@ -149,6 +156,29 @@ Every number below is conditional on A1 and A2. They can move other pools' eligi
 
 ## 5. Tests (all pass; every mutant killed; positive controls)
 
+**Round 4: every suite in the coordinator's layout** — a fresh copy of this branch's `scripts/` with the patched
+canary-loop.sh, canary-sched.py and drawrec.sh (and the patched test_canary_sched.py) in `scripts/host/`, run from
+`scripts/`, with `timeout` and `flock` on PATH. The Mac has neither, so two small shims stood in (a `timeout N cmd`
+that kills and exits 124; a `flock [-n] FD` that calls flock(2) on the inherited descriptor), each with a positive
+control (a held lock refuses a second process and frees on close; 124 / 0 / 1 for sleep / true / false).
+
+| suite | UNPATCHED live files, same layout | PATCHED (round 4) |
+|---|---|---|
+| test_threepool.py | 177/177 | **177/177** (no SKIPPED line: the draw-block cases ran) |
+| test_threepool.py with the ROUND-3 loop (positive control) | — | 117/177, `blk.sh: line 16: TIER2: unbound variable` — the coordinator's result, reproduced |
+| test_drawrequire.py | 35/35 | 35/35 |
+| host/test_bagfix_loop.py (v30check.py: a read-only fetch of the host's, md5 a6770a3d) | 17/21 | 17/21, the SAME 17 pass and the same 4 fail: the heavyread scope (`sudo -n systemd-run --scope`) cannot exist on a Mac. These 4 must be run on the host. The suite drives the RESUME path (the manifest already names the canary sha), so a resumed run under `set -u` is covered by the 17 |
+| test_holdtoken.py | 21/21 | 21/21 |
+| test_drawrec_tier2.py --mutants | — | 20/20, 6/6 mutants |
+| test_loop_tier2.py --mutants | — | 27/27, 15/15 mutants |
+| host/test_canary_sched.py --mutants | — | 106/106, 75/75 mutants |
+
+Outputs: `out/layout-round4/{patched,live}/`, the round-3 control `out/layout-round4/round3-loop-threepool.out`. The
+runner and shims are in `layout/` (`run_layout.sh patched|live`; its `M=` points at this session's scratch copies of the
+live and patched files — set it to yours). On the host none of the shims is needed.
+
+Rounds 1-3 (on the Mac, test_threepool's draw-block cases skipped — see the header):
+
 | suite | result |
 |---|---|
 | `patches/test_drawrec_tier2.py <patched drawrec> drawrequire tierrule --mutants` — the REAL drawrec Python block on fixtures | 19/19 (no tier / tier 3 unchanged; tier 2 with 2, 3, 4, 6 eligible; class / `True` tiers ignored; draw_k 2 and True refused, draw_k 4, 5, 0, False draw 4; tierrule missing with and without a tier key; draw_require + tier 2 with 3 and 2 others; tier-3 draw_require positive control); 5/5 mutants |
@@ -156,7 +186,7 @@ Every number below is conditional on A1 and A2. They can move other pools' eligi
 | `test_replay_min4.py --mutants` — the replay's waiting-world eligibility on a stub | 9/9 (the round-1 method loses the 4th pool — positive control; the regression; ledger and other-run exclusions still apply; own telemetry out of the median; steady release decided in the waiting world, with its control); 3/3 mutants |
 | scripts/host/test_canary_sched.py patched (`test_canary_sched.py.patch`) | 106/106 (93 + 13: tier-2 R10 waits on 2 and 3 exposure pools, launches on 4; a required pool off the list counts, one on it does not, placebo-c never; one exposure pool (exit 2) + 3 required launches, + 2 waits, untiered unchanged; tier 3 unchanged; unclassifiable tier blocks; `r10_wait_pages` decision; tier-2 wait flagged at 3 h and errored at 12 h, still not launched; untiered wait never errored; + 1 after round 3: an isolated-* required pool on its own); 75/75 mutants killed |
 | scripts/test_drawrequire.py on the patched drawrec | 35/35 |
-| scripts/test_threepool.py with the patched loop + drawrec | 163/163 (2 host-only skipped, as before) |
+| scripts/test_threepool.py with the patched loop + drawrec | ~~163/163 (2 host-only skipped, as before)~~ — the skipped part was the draw block; see round 4 |
 
 Reproduce: apply the three host patches to copies of the live files (md5s in section 1; they apply cleanly), then run
 the suites as in the table; outputs are in `out/test_*.out`. The replay: `python3 replay_min4.py <host copy> <scan>
@@ -173,7 +203,8 @@ count interlock refuses a tier-2 draw from a drawrec without the rule, so a part
 2. Stage in `~/t2min4/stage/`: apply `drawrec.sh.patch` to ~/mcai-analysis/drawrec.sh, `canary-loop.sh.patch` to
    ~/canary-loop.sh, `canary-sched.py.patch` to ~/canary-sched.py; `patch --dry-run` first.
 3. Run test_drawrec_tier2, test_loop_tier2 and test_canary_sched.py with `--mutants`, test_drawrequire, test_threepool,
-   test_bagfix_loop and test_holdtoken (the host-only loop suites included).
+   test_bagfix_loop and test_holdtoken (the host-only loop suites included). **test_threepool must print 177/177 and NO
+   `SKIPPED` line** — a skip there is the draw block not running.
 4. Positive control on live inputs: the staged drawrec for the current head prints the installed one's lines (plus the
    `tier 2:` line for a tier-2 run); `canary-sched.py status` from the staged copy matches except an R10 line.
 5. Back up (`*.bak-t2min4-<stamp>`), install by tmp+rename, re-read the digest, log to gate-installs.log and a draw-rules
@@ -219,6 +250,16 @@ byte-identical to the approved round 3):
 |---|---|---|
 | `isolated-*` has no test of its own; the mutant removed both exclusions at once | Codex | test-only: an `isolated-a` case, and the one mutant split into two (one per predicate) |
 | the fail-closed block on an unclassifiable tier now also applies on drawexposure exit 2 | Claude | section 1.3 says so |
+
+**Round 4 (the aborted install, coordinator 10-24).** Not a review finding — a staged-install refusal. Fixed:
+
+| finding | by | fix |
+|---|---|---|
+| test_threepool 117/177: its draw-block cases run the cut `while` block under `set -u`; the block read `$TIER2`, assigned outside the cut. My rounds 1-3 runs SKIPPED those cases (no GNU `timeout` on the Mac) and I reported the suite as passing | coordinator | every read is `${TIER2:-}` (the cut block then behaves as untiered, exactly as today). Structural test: every read is `${TIER2:-}`; the one assignment is unconditional at the draw phase's top level, after the phase opens and before the `while`; nothing closes the phase between them (comments stripped; positive control: the round-3 loop fails it; mutants: a bare `$TIER2` read, a conditional assignment, a phase closed in between) |
+| (found while re-running in that layout) tierrule.py was imported via sys.path, and `python3 -c` / `python3 -` put the WORKING DIRECTORY first: from `scripts/`, which holds a tierrule.py, a missing ~/mcai-analysis/tierrule.py was silently replaced and the fail-closed case drew | me | the loop and drawrec load ~/mcai-analysis/tierrule.py BY PATH (the scheduler already did); both suites now run with a decoy tierrule.py in the cwd and must still refuse (drawrec's block is now fed on stdin from that cwd, as drawrec.sh runs it); mutants restore the sys.path import |
+| run every suite in the coordinator's layout | coordinator | the table in section 5, with the unpatched control beside it |
+
+**Round 4 review:** (pending)
 
 ## 8. Questions for the owner
 

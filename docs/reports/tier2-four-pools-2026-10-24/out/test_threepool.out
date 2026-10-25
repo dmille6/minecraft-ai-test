@@ -94,6 +94,15 @@ PASS  drawsteady CLI: a malformed ledger line -> releases nothing
 PASS  drawsteady CLI: ledger unreadable -> RELEASE [] (fail closed)
 PASS  drawsteady CLI: unit list unreadable -> RELEASE [] (fail closed)
 PASS  drawsteady CLI: an unreadable log file in the candidate -> releases nothing
+PASS  loop draw block: four pools at once -> drawn, nothing journalled but the start
+PASS  loop draw block: three pools every 20 min -> SHORT x4, then DEPLOY on the 5th (blocked 80 min), journalled draw-three and paged
+PASS  loop draw block: two-pool draws count toward the hour (blocked by the minimum), and the third pool then deploys
+PASS  loop draw block: two pools for 2.7 h never deploy (never two); four then do
+PASS  loop draw block: a band-empty draw restarts the clock (journalled `draw`), so 3 more short draws are not enough
+PASS  loop draw block: an unreadable decision journals draw-error, never draw-short, and never deploys
+PASS  loop draw block: after 4 unreadable decisions, the hour starts at the first real short draw (deploys on the 4th+ short)
+PASS  loop draw block: an ordinary canary takes three pools at once (unchanged, no bag-fix rows)
+PASS  loop draw block: an old streak before this loop's start does not count (the start row breaks it)
 PASS  draw-decide: three pools, this run blocked 50 min (another run's rows would make it 95) -> DRAW SHORT
 PASS  draw-decide: the same run 19 min later (blocked 69 min) -> DRAW DEPLOY
 PASS  draw-decide: two pools after the hour -> DRAW SHORT (never two)
@@ -115,7 +124,7 @@ PASS  final at 3 pools with only a +1440 bag metric -> INCONCLUSIVE (evidence mu
 PASS  final at 3 pools with ONLY the four-pool edge registered -> INCONCLUSIVE, never KEEP (round 3, Claude 2a)
 PASS  final at 3 pools: a bag move of -0.55 passes the 4-pool edge (-0.5) but not the 3-pool edge (-0.6) -> INCONCLUSIVE
 PASS  final at 2 pools -> REVERT (no calibrated window)
-PASS  mutant runner control: the UNMUTATED copies pass every case (117)
+PASS  mutant runner control: the UNMUTATED copies pass every case (126)
 
 mutants (copies; anchors present and unique):
 PASS  mutant killed: bagfixrule.py: three pools at exactly 60 min
@@ -123,6 +132,7 @@ PASS  mutant killed: bagfixrule.py: a `draw` row does not break the streak
 PASS  mutant killed: bagfixrule.py: a draw-error row does not break the streak
 PASS  mutant killed: bagfixrule.py: a three-pool final uses the four-pool edge
 PASS  mutant killed: bagfixgate.py: primary spec ignores the pool count
+PASS  mutant killed: canary-loop.sh: an unreadable decision counts as short
 PASS  mutant killed: bagfixrule.py: silence inside the streak ignored
 PASS  mutant killed: bagfixrule.py: stale last short draw ignored
 PASS  mutant killed: bagfixrule.py: two pools deploy
@@ -136,6 +146,10 @@ PASS  mutant killed: bagfixgate.py: final evidence at +1440 always
 PASS  mutant killed: bagfixgate.py: extend-check at any pool count
 PASS  mutant killed: bagfixgate.py: draw-decide errors deploy
 PASS  mutant killed: bagfixgate.py: draw-decide counts other runs
+PASS  mutant killed: canary-loop.sh: any DRAW answer keeps the pick
+PASS  mutant killed: canary-loop.sh: a band-empty draw not journalled
+PASS  mutant killed: canary-loop.sh: a short draw keeps the pick
+PASS  mutant killed: canary-loop.sh: the decision skipped for bag fixes
 PASS  mutant killed: canary-loop.sh: deadline not moved
 PASS  mutant killed: drawrec.sh: release subtracted after the live canary
 PASS  mutant killed: drawsteady.py: any decision qualifies
@@ -163,7 +177,5 @@ PASS  mutant killed: drawsteady.py: fleet version not checked
 PASS  mutant killed: drawsteady.py: membership from log dirs
 PASS  mutant killed: drawsteady.py: roster ignored (loaded units only)
 PASS  mutant killed: drawsteady.py: malformed pool names accepted
-SKIPPED  canary-loop.sh draw-block mutants: host only
-SKIPPED  the loop draw block runs `timeout` (coreutils): host only
 
-163/163 pass; 2 SKIPPED (not passes)
+177/177 pass

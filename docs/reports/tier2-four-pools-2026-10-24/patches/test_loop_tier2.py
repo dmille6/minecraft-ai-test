@@ -43,7 +43,7 @@ fi
 '''
 
 
-def run(src, reg, draw_at_s, tierrule=True, max_h=None, npools=4):
+def run(src, reg, draw_at_s, tierrule=True, max_h=None, npools=4, decoy=False):
     d = tempfile.mkdtemp(prefix='looptier2-')
     try:
         ma = os.path.join(d, 'mcai-analysis'); os.makedirs(os.path.join(ma, 'registrations'))
@@ -61,12 +61,15 @@ def run(src, reg, draw_at_s, tierrule=True, max_h=None, npools=4):
                    'page() { echo "$1 $2" >> $PAGE; }\n'
                    'BAGFIX=""\n%s\n%s\necho "DRAWN $P"\n') % (d, regp, d, d, top, draw_block)
         hp = os.path.join(d, 'h.sh'); open(hp, 'w').write(harness)
+        wd = os.path.join(d, 'cwd'); os.makedirs(wd)
+        if decoy:     # a tierrule.py in the WORKING DIRECTORY (python3 -c puts the cwd first on sys.path)
+            shutil.copy(TRM, os.path.join(wd, 'tierrule.py'))
         env = dict(os.environ, HOME=d, FIX_CLK=clk, FIX_DRAW_AT=str(1000000 + draw_at_s), FIX_CALLS=os.path.join(d, 'calls'),
                    FIX_NPOOLS=str(npools), PYTHONDONTWRITEBYTECODE='1')
         env.pop('CANARY_T2_DRAW_MAX_H', None)
         if max_h is not None:
             env['CANARY_T2_DRAW_MAX_H'] = str(max_h)
-        r = subprocess.run(['bash', hp], capture_output=True, text=True, env=env, timeout=120)
+        r = subprocess.run(['bash', hp], capture_output=True, text=True, env=env, timeout=120, cwd=wd)
         J = [json.loads(l) for l in open(os.path.join(d, 'journal')) if l.strip()]
         pages = open(os.path.join(d, 'page')).read()
         calls = len(open(os.path.join(d, 'calls')).read().splitlines()) if os.path.exists(os.path.join(d, 'calls')) else 0
@@ -75,7 +78,36 @@ def run(src, reg, draw_at_s, tierrule=True, max_h=None, npools=4):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def structure(src):
+    """STRUCTURAL (behaviour cannot reach it without running the whole loop): the real loop never reads TIER2 unset.
+    (a) every read of TIER2 is ${TIER2:-}, so even an unset TIER2 is safe under set -u (test_threepool.py cuts the
+    `while` block out and runs it alone); (b) the one assignment sits at the top level of the DRAW phase's body (two
+    spaces, not inside a nested conditional) after the phase's `if` and before the `while`, and nothing at column 0
+    closes the phase between them, so on the only path into the block it has been assigned (or the loop exited). A
+    resume of a deployed canary skips the draw phase entirely and reads TIER2 nowhere else. Comments stripped first."""
+    L = [l for l in src.splitlines() if not l.lstrip().startswith('#')]
+    code = '\n'.join(L)
+    reads = re.findall(r'\$\{?TIER2(?::-\})?', code)
+    t('structure: every read of TIER2 is ${TIER2:-} (%d reads)' % len(reads), reads and all(r == '${TIER2:-}' for r in reads), reads)
+    i = [n for n, l in enumerate(L) if l.startswith('if [ "$(mf canary_code_version)" != "$SHA" ]; then')]
+    j = [n for n, l in enumerate(L) if 'TIER2=' in l]
+    k = [n for n, l in enumerate(L) if l.startswith('  while true; do D=$(bash $H/mcai-analysis/drawrec.sh')]
+    # the loop opens a manifest-sha phase more than once (the draw phase is the one holding the draw loop)
+    i = [max(n for n in i if n < j[0])] if len(j) == 1 and any(n < j[0] for n in i) else []
+    ok = len(i) == 1 and len(j) == 1 and len(k) == 1 and i[0] < j[0] < k[0]
+    t('structure: one assignment, after the draw phase opens and before the draw loop', ok, (i, j, k))
+    if not ok:
+        return
+    t('structure: the assignment is unconditional at the draw phase\'s top level', L[j[0]].startswith('  TIER2=$(python3 '),
+      L[j[0]])
+    # the phase's `if` is at column 0, so only a column-0 fi/else/elif could close or split it (column-0 lines inside
+    # the python -c strings are python, and never one of these words alone)
+    closers = [L[n] for n in range(j[0], k[0]) if re.match(r'^(fi|else)(\s|;|$)|^elif .*; then', L[n])]
+    t('structure: nothing closes or splits the draw phase between the assignment and the draw loop', not closers, closers)
+
+
 def cases(src):
+    structure(src)
     rc, o, ph, pg, n, J = run(src, {'tier': 2}, 0)
     t('ready: tier 2, 4 pools at once -> drawn, no draw-short', rc == 0 and 'DRAWN board-a' in o and 'draw-short' not in ph
       and ph[-1] == 'drawn', (rc, o, ph))
@@ -123,6 +155,9 @@ def cases(src):
     rc, o, ph, pg, n, J = run(src, {'tier': 2}, 0, tierrule=False)
     t('notierrule: a tier key with tierrule.py absent -> refused-tier2-tier, journalled, before the draw', rc == 2 and n == 0
       and ph == ['refused-tier2-tier'] and 'restore tierrule.py' in pg, (rc, o, ph, n))
+    rc, o, ph, pg, n, J = run(src, {'tier': 2}, 0, tierrule=False, decoy=True)
+    t('notierrule + a tierrule.py in the cwd: still refused (loaded by path, never from the cwd)', rc == 2 and n == 0
+      and ph == ['refused-tier2-tier'], (rc, o, ph, n))
     rc, o, ph, pg, n, J = run(src, {}, 0, tierrule=False)
     t('positive control: no tier key, tierrule.py absent -> drawn as today', rc == 0 and ph[-1] == 'drawn', (rc, o, ph))
 
@@ -135,12 +170,17 @@ MUTANTS = [
     ("if isinstance(k, int) and 1 <= k < 4: w.append", "if isinstance(k, int) and k < 4: w.append"),
     ("if q and len(q) > 4: w.append", "if False: w.append"),
     ("if q is None: w.append", "if False: w.append"),
-    ("    import tierrule; print('1' if tierrule.tier_of(r) == 2 else '')", "    print('')"),
+    ("    print('1' if m.tier_of(r) == 2 else '')", "    print('')"),
+    ("s = u.spec_from_file_location('tierrule', os.path.expanduser('~/mcai-analysis/tierrule.py')); m = u.module_from_spec(s); s.loader.exec_module(m)",
+     "import sys; sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); import tierrule as m"),
     ('T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-12}', 'T2_DRAW_MAX_H=${CANARY_T2_DRAW_MAX_H:-24}'),
-    ('  if [ -n "$TIER2" ] && [ "$(echo "$P" | tr \',\' \'\\n\' | grep -c .)" -ne 4 ]; then',
+    ('  if [ -n "${TIER2:-}" ] && [ "$(echo "$P" | tr \',\' \'\\n\' | grep -c .)" -ne 4 ]; then',
      '  if false; then'),
     ('    journal refused-tier2-tier "', '    true "'),
-    ('  if [ -n "$TIER2" ]; then _WFOR="exactly four pools (tier 2)"; else _WFOR="two pools"; fi',
+    ('    if [ -n "${TIER2:-}" ] && [ -z "$P" ]; then', '    if [ -n "$TIER2" ] && [ -z "$P" ]; then'),
+    ('  TIER2=$(python3 -c', '  true || TIER2=$(python3 -c'),
+    ('  _DRAW_T0=$(_now)\n', 'fi\nif true; then\n  _DRAW_T0=$(_now)\n'),
+    ('  if [ -n "${TIER2:-}" ]; then _WFOR="exactly four pools (tier 2)"; else _WFOR="two pools"; fi',
      '  _WFOR="two pools"'),
 ]
 

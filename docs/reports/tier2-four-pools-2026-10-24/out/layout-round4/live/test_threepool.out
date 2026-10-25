@@ -1,0 +1,181 @@
+PASS  n_pools counts distinct stripped names
+PASS  extend_min: 4 -> 1440, 3 -> 1920, 2/5 -> None
+PASS  bands: 4 -> the shipped -3.21/-0.127, 3 -> -4.09/-0.173 (bagband3.py), 2 -> None
+PASS  three_pool_ok: short draws at -80..-20 (blocked 80 min) -> yes
+PASS  three_pool_ok: blocked exactly 60 min -> no (> 1 h)
+PASS  three_pool_ok: blocked 61 min -> yes
+PASS  three_pool_ok: a `draw` row (band gave < 2, or a loop restart) at -30 breaks the streak -> no
+PASS  three_pool_ok: a 50-min silence inside the streak breaks it -> no (restarts at -40)
+PASS  three_pool_ok: the last short draw 50 min ago -> no (not continuous)
+PASS  three_pool_ok: no rows / only `draw` -> no
+PASS  three_pool_ok: an unreadable ts breaks the streak
+PASS  three_pool_ok: other phases are ignored
+PASS  three_pool_ok: a draw-error row (decision unreadable) breaks the streak -> no (round 3, both)
+PASS  three_pool_ok: draw-error rows alone never make an hour
+PASS  primary_spec: 4 pools -> the registered primary
+PASS  primary_spec: 3 pools with primary_by_pools["3"] -> same read/field/op, the 3-pool edge
+PASS  primary_spec: 3 pools without a 3-pool edge -> None (never the 4-pool edge)
+PASS  primary_spec: a malformed 3-pool edge -> None
+PASS  primary_spec: 2 or 5 pools -> None
+PASS  draw_decision: four pools -> DEPLOY with no history
+PASS  draw_decision: three pools after > 1 h of short draws -> DEPLOY
+PASS  draw_decision: three pools without it -> SHORT
+PASS  draw_decision: TWO pools, even after hours -> SHORT (never two)
+PASS  draw_decision: four names that are three pools are THREE
+PASS  draw_decision: zero or one pool -> NONE
+PASS  candidates: KEEP promoted fleet-wide 7 h ago -> both pools
+PASS  candidates: 5 h ago -> held (< 6 h)
+PASS  candidates: REVERT 7 h ago -> held (12 h)
+PASS  candidates: KEEP never promoted -> held
+PASS  candidates: promoted a DIFFERENT sha -> held
+PASS  candidates: a promotion BEFORE the decision -> held
+PASS  candidates: the same pool REVERTed 9 h ago too -> held
+PASS  candidates: 13 h ago -> neither (out of the 12-h window)
+PASS  candidates: a decision 3 min in the future (clock skew) HOLDS
+PASS  candidates: a decision 3 h in the future does not exist yet (replay) -> released
+PASS  candidates: an unreadable ts holds the pool
+PASS  parse_ledger: clean lines parse; blank lines are skipped
+PASS  v35.1: the exact live FLEET-WIDE row from September (outside the window) is ignored, not a refusal; the 7-h KEEP still parses
+PASS  v35.1: the same FLEET-WIDE row 3 h old is returned as fleet_wide (the caller suspends the release), not as pools
+PASS  v35.1: a malformed pool OUTSIDE the window is skipped; INSIDE it still refuses
+PASS  v35.1 (Codex): a FLEET-WIDE row 3 h AFTER `now` (a replay) does not exist yet: not fleet_wide, no suspension
+PASS  v35.1: a FLEET-WIDE row 5 min ahead (clock skew) still suspends
+PASS  v35.1: an unreadable ts refuses even on an old-looking row (its time is unknown)
+PASS  parse_ledger: a malformed line REFUSES (it could be the REVERT that holds a pool)
+PASS  parse_ledger: a canary_pool that is a LIST, or a malformed pool name, REFUSES (round 4, Codex)
+PASS  membership: every ENABLED bot; one missing from the loaded units is DOWN (round 4, Codex)
+PASS  parse_ledger: a row with no ts, a row naming no pool, or a non-dict REFUSES
+PASS  parse_ledger: a list canary_pool inside the window REFUSES
+PASS  parse_units: active/running only is up; inactive and failed are down
+PASS  bot_stats: hour mean 32, first half 35, second half 29
+PASS  qualify: five units up, rows, one build, both halves read -> qualified
+PASS  qualify: a unit down -> not qualified (a down bot holds its pool)
+PASS  qualify: a unit with NO log rows in the hour -> not qualified (never silently dropped)
+PASS  qualify: a log dir with no unit (retired) is not a member
+PASS  qualify: one bot with an old-build row (restart lag) -> not qualified
+PASS  qualify: 5 rows -> not qualified
+PASS  qualify: an unreadable file or a corrupt row -> not qualified
+PASS  qualify: a bot with no bag reading in one half -> not qualified
+PASS  qualify: no units / no fleet version -> not qualified
+PASS  steady: flat at 32, inside the controls on the hour, both halves and the change -> 6 h
+PASS  steady: fleet on another version, no later deploy -> 12 h
+PASS  steady: fleet on a LATER deploy (declared after the decision) -> 6 h; declared before -> 12 h
+PASS  steady: the pool did not qualify -> 12 h
+PASS  steady: hour mean 36 above the controls -> 12 h
+PASS  steady: hour mean 28 below the controls -> 12 h
+PASS  steady: DRIFTING DOWN through the band (33 -> 31, mean 32: every level inside) -> 12 h on the change (round 3, Codex)
+PASS  steady: three qualified controls -> 12 h
+PASS  steady: unqualified controls (None) do not count
+PASS  steady: unreadable fleet version -> 12 h
+PASS  loop: no literal EXTMIN=1440 remains
+PASS  loop: EXTMIN is parsed from `bagfixgate.py ext-min` (numeric field 2 of an EXTMIN line)
+PASS  loop: no EXTMIN = REVERT, decided before the extension phase runs
+PASS  loop: the containment deadline moves with the window (+ $EXTMIN - 1440)
+PASS  drawrec: the release is subtracted AFTER the 12-h ledger loop and BEFORE the live canary is added
+PASS  drawrec: _early comes only from a STEADY RELEASE line of drawsteady.py, and starts empty
+PASS  drawrec: a failed drawsteady releases nothing
+PASS  drawsteady CLI: KEEP+promoted 7 h ago, 5 units up, one build, bag 31 flat inside the controls -> releases pool-a (the retired old-build Charlie dir is not a member)
+PASS  drawsteady CLI: bag 40 above the controls -> releases nothing (carryover)
+PASS  drawsteady CLI: bag drifting 34 -> 28 (mean 31, inside) -> releases nothing (change between halves)
+PASS  drawsteady CLI: one old-build row in the hour -> releases nothing (restart lag)
+PASS  drawsteady CLI: a candidate unit DOWN -> releases nothing
+PASS  drawsteady CLI: an ENABLED candidate unit that systemd unloaded (absent from list-units) -> releases nothing
+PASS  drawsteady CLI: a REVERT whose canary_pool is a list -> releases nothing (ledger refused)
+PASS  drawsteady CLI: a candidate unit with no logs in the hour -> releases nothing (never dropped)
+PASS  drawsteady CLI: a corrupt row in a candidate bot's hour -> releases nothing
+PASS  drawsteady CLI: a CONTROL with an old-build row is NOT QUALIFIED (4 others remain -> released)
+PASS  drawsteady CLI: two controls unqualified -> 3 qualified (< 4) -> releases nothing
+PASS  drawsteady CLI: a REVERT -> releases nothing
+PASS  drawsteady CLI: a KEEP never promoted -> releases nothing
+PASS  drawsteady CLI: 5 h ago -> releases nothing
+PASS  drawsteady CLI v35.1: the exact September FLEET-WIDE row in the ledger -> pool-a still RELEASED (it was refused live)
+PASS  drawsteady CLI v35.1: a FLEET-WIDE deploy 2 h ago -> releases nothing (every pool and control just changed)
+PASS  drawsteady CLI: a malformed ledger line -> releases nothing
+PASS  drawsteady CLI: ledger unreadable -> RELEASE [] (fail closed)
+PASS  drawsteady CLI: unit list unreadable -> RELEASE [] (fail closed)
+PASS  drawsteady CLI: an unreadable log file in the candidate -> releases nothing
+PASS  loop draw block: four pools at once -> drawn, nothing journalled but the start
+PASS  loop draw block: three pools every 20 min -> SHORT x4, then DEPLOY on the 5th (blocked 80 min), journalled draw-three and paged
+PASS  loop draw block: two-pool draws count toward the hour (blocked by the minimum), and the third pool then deploys
+PASS  loop draw block: two pools for 2.7 h never deploy (never two); four then do
+PASS  loop draw block: a band-empty draw restarts the clock (journalled `draw`), so 3 more short draws are not enough
+PASS  loop draw block: an unreadable decision journals draw-error, never draw-short, and never deploys
+PASS  loop draw block: after 4 unreadable decisions, the hour starts at the first real short draw (deploys on the 4th+ short)
+PASS  loop draw block: an ordinary canary takes three pools at once (unchanged, no bag-fix rows)
+PASS  loop draw block: an old streak before this loop's start does not count (the start row breaks it)
+PASS  draw-decide: three pools, this run blocked 50 min (another run's rows would make it 95) -> DRAW SHORT
+PASS  draw-decide: the same run 19 min later (blocked 69 min) -> DRAW DEPLOY
+PASS  draw-decide: two pools after the hour -> DRAW SHORT (never two)
+PASS  draw-decide: no pick -> DRAW NONE
+PASS  draw-decide: an unreadable journal -> DRAW ERROR (never DEPLOY, never counted as blocked time)
+PASS  ext-min: 4 pools -> EXTMIN 1440
+PASS  ext-min: 3 pools -> EXTMIN 1920
+PASS  ext-min: 2 pools -> EXTMIN NONE
+PASS  extend-check at 3 pools: 0 linked, LB <= 2 -> EXTEND to 1920
+PASS  extend-check at 2 pools -> REVERT (no calibrated extension)
+PASS  extend-check at 4 pools -> EXTEND to 1440 (unchanged)
+PASS  poll at 3 pools reports "of 1920 min"
+PASS  final at 3 pools, +1980, output level, bound +1920 bag metric moved -> KEEP with the 3-pool band
+PASS  final at 3 pools asked at +1500 -> NOT_YET (before +1920; +1440 is not enough)
+PASS  final at 3 pools, canary output halved -> REVERT (c)
+PASS  fixture: the mild loss lies BETWEEN the 4-pool and 3-pool bands (-4.09 < net < -3.21)
+PASS  final at 3 pools, a mild loss inside the 3-pool null -> KEEP (the 4-pool band would REVERT it)
+PASS  final at 3 pools with only a +1440 bag metric -> INCONCLUSIVE (evidence must be at +1920)
+PASS  final at 3 pools with ONLY the four-pool edge registered -> INCONCLUSIVE, never KEEP (round 3, Claude 2a)
+PASS  final at 3 pools: a bag move of -0.55 passes the 4-pool edge (-0.5) but not the 3-pool edge (-0.6) -> INCONCLUSIVE
+PASS  final at 2 pools -> REVERT (no calibrated window)
+PASS  mutant runner control: the UNMUTATED copies pass every case (126)
+
+mutants (copies; anchors present and unique):
+PASS  mutant killed: bagfixrule.py: three pools at exactly 60 min
+PASS  mutant killed: bagfixrule.py: a `draw` row does not break the streak
+PASS  mutant killed: bagfixrule.py: a draw-error row does not break the streak
+PASS  mutant killed: bagfixrule.py: a three-pool final uses the four-pool edge
+PASS  mutant killed: bagfixgate.py: primary spec ignores the pool count
+PASS  mutant killed: canary-loop.sh: an unreadable decision counts as short
+PASS  mutant killed: bagfixrule.py: silence inside the streak ignored
+PASS  mutant killed: bagfixrule.py: stale last short draw ignored
+PASS  mutant killed: bagfixrule.py: two pools deploy
+PASS  mutant killed: bagfixrule.py: three pools deploy at once
+PASS  mutant killed: bagfixrule.py: duplicates counted as pools
+PASS  mutant killed: bagfixrule.py: three pools get 24 h
+PASS  mutant killed: bagfixrule.py: three pools get the four-pool bands
+PASS  mutant killed: bagfixgate.py: final ignores the pool count for the bands
+PASS  mutant killed: bagfixgate.py: final window fixed at 24 h
+PASS  mutant killed: bagfixgate.py: final evidence at +1440 always
+PASS  mutant killed: bagfixgate.py: extend-check at any pool count
+PASS  mutant killed: bagfixgate.py: draw-decide errors deploy
+PASS  mutant killed: bagfixgate.py: draw-decide counts other runs
+PASS  mutant killed: canary-loop.sh: any DRAW answer keeps the pick
+PASS  mutant killed: canary-loop.sh: a band-empty draw not journalled
+PASS  mutant killed: canary-loop.sh: a short draw keeps the pick
+PASS  mutant killed: canary-loop.sh: the decision skipped for bag fixes
+PASS  mutant killed: canary-loop.sh: deadline not moved
+PASS  mutant killed: drawrec.sh: release subtracted after the live canary
+PASS  mutant killed: drawsteady.py: any decision qualifies
+PASS  mutant killed: drawsteady.py: promotion not required
+PASS  mutant killed: drawsteady.py: no 6-h floor
+PASS  mutant killed: drawsteady.py: a held pool can still be released
+PASS  mutant killed: drawsteady.py: clock skew ignored
+PASS  mutant killed: drawsteady.py: promotion before the decision accepted
+PASS  mutant killed: drawsteady.py: a malformed ledger row tolerated
+PASS  mutant killed: drawsteady.py: v35 defect: every row validated regardless of age
+PASS  mutant killed: drawsteady.py: fleet-wide rows not recognised
+PASS  mutant killed: drawsteady.py: a recent fleet-wide deploy does not suspend the release
+PASS  mutant killed: drawsteady.py: future rows kept (a later fleet-wide deploy suspends a replay)
+PASS  mutant killed: drawsteady.py: an unreadable ts tolerated
+PASS  mutant killed: drawsteady.py: down unit ignored
+PASS  mutant killed: drawsteady.py: a member with no logs dropped
+PASS  mutant killed: drawsteady.py: restart lag ignored
+PASS  mutant killed: drawsteady.py: row floor ignored
+PASS  mutant killed: drawsteady.py: unreadable or corrupt logs ignored
+PASS  mutant killed: drawsteady.py: a half without a bag reading accepted
+PASS  mutant killed: drawsteady.py: carryover ignored
+PASS  mutant killed: drawsteady.py: the change between halves not tested
+PASS  mutant killed: drawsteady.py: too few control pools accepted
+PASS  mutant killed: drawsteady.py: fleet version not checked
+PASS  mutant killed: drawsteady.py: membership from log dirs
+PASS  mutant killed: drawsteady.py: roster ignored (loaded units only)
+PASS  mutant killed: drawsteady.py: malformed pool names accepted
+
+177/177 pass

@@ -29,7 +29,7 @@ def txt(n_in):
     return '\n'.join(L) + '\n'
 
 
-def run(src, reg, n_in, tierrule=True):
+def run(src, reg, n_in, tierrule=True, decoy=False):
     d = tempfile.mkdtemp(prefix='drt2-')
     try:
         ma = os.path.join(d, 'mcai-analysis'); os.makedirs(os.path.join(ma, 'registrations')); os.makedirs(os.path.join(d, 'digest'))
@@ -41,9 +41,12 @@ def run(src, reg, n_in, tierrule=True):
         open(os.path.join(ma, 'drawsteady.py'), 'w').write('print("STEADY RELEASE []")\n')
         tf = os.path.join(d, 'drawrec.txt'); open(tf, 'w').write(txt(n_in))
         py = src.split("python3 - <<'PY'\n", 1)[1].split('\nPY', 1)[0].replace('/tmp/drawrec.txt', tf)
-        open(os.path.join(d, 'block.py'), 'w').write(py)
         env = dict(os.environ, HOME=d, DRAW_RUN='r1', PYTHONDONTWRITEBYTECODE='1')
-        r = subprocess.run([sys.executable, '-B', os.path.join(d, 'block.py')], capture_output=True, text=True, env=env, timeout=120)
+        wd = os.path.join(d, 'cwd'); os.makedirs(wd)
+        if decoy:     # a tierrule.py in the WORKING DIRECTORY (python3 - puts the cwd first on sys.path)
+            shutil.copy(TRM, os.path.join(wd, 'tierrule.py'))
+        # fed on stdin, as drawrec.sh runs it (`python3 - <<'PY'`), from that working directory
+        r = subprocess.run([sys.executable, '-B', '-'], input=py, capture_output=True, text=True, env=env, timeout=120, cwd=wd)
         out = r.stdout + r.stderr
         m = re.search(r'DRAW \((.*?)\): (\[.*\]|NONE.*)$', r.stdout, re.M)
         drawn = re.findall(r"'([a-z]+-[a-z])'", m.group(2)) if m and m.group(2).startswith('[') else []
@@ -78,6 +81,8 @@ def cases(src):
     t('TIER 2 with draw_k True (an int to drawrec: caps at 1) -> nothing (the loop refuses it too)', p == [], o)
     p, o = run(src, {'tier': 2}, 6, tierrule=False)
     t('a tier declared but tierrule.py unreadable -> nothing drawn (fail closed)', p == [] and 'unreadable' in o, o)
+    p, o = run(src, {'tier': 2}, 6, tierrule=False, decoy=True)
+    t('a tier declared, tierrule.py absent but one in the cwd -> still nothing (loaded by path)', p == [] and 'unreadable' in o, o)
     p, o = run(src, {}, 6, tierrule=False)
     t('positive control: no tier key, tierrule.py absent -> today\'s draw (4)', len(p) == 4, o)
     p, o = run(src, {'tier': 2, 'draw_require_pools': ['hive-b']}, 3)
@@ -94,6 +99,8 @@ MUTANTS = [
     ("            if TARGET_K < 4:", "            if False:"),
     ("            _t2 = _TRM.tier_of(_r) == 2", "            _t2 = bool(_r.get('tier'))"),
     ("            _t2 = None\n            TARGET_K = 0; MIN_K = 1", "            _t2 = None\n            pass"),
+    ("            _ts = _iu.spec_from_file_location('tierrule', os.path.expanduser('~/mcai-analysis/tierrule.py'))\n            _TRM = _iu.module_from_spec(_ts); _ts.loader.exec_module(_TRM)",
+     "            sys.path.insert(0, os.path.expanduser('~/mcai-analysis')); import tierrule as _TRM"),
     ("    if _r is not None and 'tier' in _r:", "    if False:"),
 ]
 

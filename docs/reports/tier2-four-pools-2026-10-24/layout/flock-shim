@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""A minimal util-linux `flock -n FD` for macOS test runs: flock(2) on the inherited fd. The lock belongs to the open
+file description, which the calling shell shares, so it is held after this process exits -- as with the real tool.
+Only `flock -n <fd>` and `flock <fd>` are supported."""
+import fcntl, sys
+a = sys.argv[1:]
+nb = '-n' in a
+fds = [x for x in a if x.isdigit()]
+if len(fds) != 1 or any(x not in ('-n',) and not x.isdigit() for x in a):
+    sys.stderr.write('flock shim: only `flock [-n] FD`\n'); sys.exit(64)
+try:
+    fcntl.flock(int(fds[0]), fcntl.LOCK_EX | (fcntl.LOCK_NB if nb else 0))
+except BlockingIOError:
+    sys.exit(1)
+sys.exit(0)

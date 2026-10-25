@@ -13,15 +13,17 @@ PASS  TIER 2 with draw_k 0 (allows 4, or ignored by drawrec) -> exactly 4 drawn
 PASS  TIER 2 with draw_k False (allows 4, or ignored by drawrec) -> exactly 4 drawn
 PASS  TIER 2 with draw_k True (an int to drawrec: caps at 1) -> nothing (the loop refuses it too)
 PASS  a tier declared but tierrule.py unreadable -> nothing drawn (fail closed)
+PASS  a tier declared, tierrule.py absent but one in the cwd -> still nothing (loaded by path)
 PASS  positive control: no tier key, tierrule.py absent -> today's draw (4)
 PASS  TIER 2 + draw_require_pools [hive-b] (out of band), 3 others in band -> 4 drawn incl. hive-b
 PASS  TIER 2 + required hive-b + only 2 others in band -> nothing (waits; never 3)
 PASS  positive control: tier 3 + required hive-b + 2 others -> 3 drawn (as today)
-test_drawrec_tier2: 19/19 pass
+test_drawrec_tier2: 20/20 pass
 positive control: the anchor assertion fires on an absent anchor
   mutant 'TARGET_K = 4; MIN_K = 4'                                              killed
   mutant 'if TARGET_K < 4:'                                                     killed
   mutant '_t2 = _TRM.tier_of(_r) == 2'                                          killed
   mutant '_t2 = None\n            TARGET_K = 0; MIN_K = 1'                      killed
+  mutant "_ts = _iu.spec_from_file_location('tierrule', os.path.expanduser('~/mc" killed
   mutant "if _r is not None and 'tier' in _r:"                                  killed
-mutants: 5 of 5 killed
+mutants: 6 of 6 killed

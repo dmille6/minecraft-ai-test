@@ -1,6 +1,6 @@
 --- a/mcai-analysis/drawrec.sh
 +++ b/mcai-analysis/drawrec.sh
-@@ -301,6 +301,27 @@
+@@ -301,6 +301,28 @@
      elif isinstance(_dk, int) and 1 <= _dk < TARGET_K:
          TARGET_K = _dk; MIN_K = min(MIN_K, _dk)
          print('draw_k: registration caps the draw at %d pool(s)' % _dk)
@@ -11,8 +11,9 @@
 +    # unreadable) draws NOTHING (fail closed; the loop waits and its bound refuses). No `tier` key = exactly as before.
 +    if _r is not None and 'tier' in _r:
 +        try:
-+            sys.path.insert(0, os.path.expanduser('~/mcai-analysis'))
-+            import tierrule as _TRM
++            import importlib.util as _iu        # BY PATH: never a tierrule.py in the working directory
++            _ts = _iu.spec_from_file_location('tierrule', os.path.expanduser('~/mcai-analysis/tierrule.py'))
++            _TRM = _iu.module_from_spec(_ts); _ts.loader.exec_module(_TRM)
 +            _t2 = _TRM.tier_of(_r) == 2
 +        except Exception as _e:
 +            _t2 = None

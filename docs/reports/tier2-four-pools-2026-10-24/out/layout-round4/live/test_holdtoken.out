@@ -1,0 +1,118 @@
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:21Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner A:1): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-0zmdpmhm/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by A:1, not B:2: left in place
+released install-hold A:1
+no install-hold to release
+REFUSED: the slot is NOT free (our hold withdrawn):
+  S2 a canary loop is running (stub)
+REFUSED: the slot is NOT free (our hold withdrawn):
+  ERR slot check failed: RuntimeError: stub
+REFUSED: an install-hold already exists (owner ?): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-0zmdpmhm/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by ?, not D:4: left in place
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:21Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner F:6): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-0zmdpmhm/digest/INSTALL-HOLD -- not overwriting it
+released install-hold F:6
+PASS  the hold path is canary-sched.paths()["install_hold"] under SCHED_HOME
+PASS  no hold: owner is None
+PASS  claim with no hold, slot free -> rc 0, owner A:1
+PASS  a second claim is REFUSED (rc 3) and A:1 still owns it
+PASS  release by a non-owner leaves the hold
+PASS  release by the owner removes it
+PASS  release with no hold -> rc 0, nothing created
+PASS  claim on a BUSY slot -> rc 2 and our own hold withdrawn (no hold left)
+PASS  claim whose slot check RAISES -> rc 2 (fail closed), hold withdrawn
+PASS  an UNREADABLE hold is a hold: claim refused, file untouched
+PASS  an unreadable hold is not released by a token
+PASS  atomic: a competing claim during our slot check blocks on the tick lock, then is REFUSED; we keep the hold
+PASS  holdtoken CLI claim wires the scheduler's own slot check
+PASS  the installer never calls canary-sched install-hold or install-release
+PASS  the installer arms the release trap only AFTER a successful claim (claim || die, then trap)
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:21Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner A:1): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-cp2obx4k/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by A:1, not B:2: left in place
+released install-hold A:1
+no install-hold to release
+REFUSED: the slot is NOT free (our hold withdrawn):
+  S2 a canary loop is running (stub)
+REFUSED: the slot is NOT free (our hold withdrawn):
+  ERR slot check failed: RuntimeError: stub
+REFUSED: an install-hold already exists (owner ?): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-cp2obx4k/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by ?, not D:4: left in place
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:21Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner F:6): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-cp2obx4k/digest/INSTALL-HOLD -- not overwriting it
+released install-hold F:6
+PASS  mutant runner control: the unmutated copy passes (12)
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+INSTALL-HOLD by B:2 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+released install-hold B:2
+no install-hold to release
+no install-hold to release
+REFUSED: the slot is NOT free (our hold withdrawn):
+  S2 a canary loop is running (stub)
+REFUSED: the slot is NOT free (our hold withdrawn):
+  ERR slot check failed: RuntimeError: stub
+INSTALL-HOLD by D:4 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+released install-hold D:4
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+INSTALL-HOLD by E:5 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+install-hold owned by E:5, not F:6: left in place
+PASS  mutant killed: claim overwrites an existing hold
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner A:1): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-0evadnqg/digest/INSTALL-HOLD -- not overwriting it
+released install-hold B:2
+no install-hold to release
+no install-hold to release
+REFUSED: the slot is NOT free (our hold withdrawn):
+  S2 a canary loop is running (stub)
+REFUSED: the slot is NOT free (our hold withdrawn):
+  ERR slot check failed: RuntimeError: stub
+REFUSED: an install-hold already exists (owner ?): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-0evadnqg/digest/INSTALL-HOLD -- not overwriting it
+released install-hold D:4
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:22Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner F:6): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-0evadnqg/digest/INSTALL-HOLD -- not overwriting it
+released install-hold F:6
+PASS  mutant killed: release ignores the owner
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:23Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner A:1): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-eu5bolxy/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by A:1, not B:2: left in place
+released install-hold A:1
+no install-hold to release
+REFUSED: the slot is NOT free (our hold withdrawn):
+  S2 a canary loop is running (stub)
+REFUSED: an install-hold already exists (owner C:3): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-eu5bolxy/digest/INSTALL-HOLD -- not overwriting it
+REFUSED: an install-hold already exists (owner ?): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-eu5bolxy/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by ?, not D:4: left in place
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:23Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner F:6): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-eu5bolxy/digest/INSTALL-HOLD -- not overwriting it
+released install-hold F:6
+PASS  mutant killed: busy slot keeps the hold
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:23Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner A:1): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-sl9mz0cg/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by A:1, not B:2: left in place
+released install-hold A:1
+no install-hold to release
+INSTALL-HOLD by C:3 until 2026-10-24T23:46:23Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner C:3): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-sl9mz0cg/digest/INSTALL-HOLD -- not overwriting it
+REFUSED: an install-hold already exists (owner ?): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-sl9mz0cg/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by ?, not D:4: left in place
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:23Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner F:6): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-sl9mz0cg/digest/INSTALL-HOLD -- not overwriting it
+released install-hold F:6
+PASS  mutant killed: busy slot ignored
+INSTALL-HOLD by A:1 until 2026-10-24T23:46:24Z; the slot is free (checked under the same tick lock)
+REFUSED: an install-hold already exists (owner A:1): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-04rqogmb/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by A:1, not B:2: left in place
+released install-hold A:1
+no install-hold to release
+REFUSED: the slot is NOT free (our hold withdrawn):
+  S2 a canary loop is running (stub)
+REFUSED: the slot is NOT free (our hold withdrawn):
+  ERR slot check failed: RuntimeError: stub
+REFUSED: an install-hold already exists (owner ?): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-04rqogmb/digest/INSTALL-HOLD -- not overwriting it
+install-hold owned by ?, not D:4: left in place
+REFUSED: an install-hold already exists (owner F:6): /var/folders/5m/fnfxrnfn2rq9tltgv8ksnzm00000gn/T/holdtok-04rqogmb/digest/INSTALL-HOLD -- not overwriting it
+INSTALL-HOLD by F:6 until 2026-10-24T23:46:24Z; the slot is free (checked under the same tick lock)
+released install-hold F:6
+PASS  mutant killed: slot check outside the lock
+
+21/21 pass

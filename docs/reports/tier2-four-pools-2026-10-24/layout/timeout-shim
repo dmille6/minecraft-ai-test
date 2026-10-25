@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""A minimal GNU `timeout DURATION CMD...` for macOS test runs (coreutils absent): runs CMD, kills it after DURATION
+seconds and exits 124, else exits with CMD's status. Only the plain form the loop uses (`timeout N cmd ...`)."""
+import subprocess, sys
+a = sys.argv[1:]
+if not a or a[0].startswith('-'):
+    sys.stderr.write('timeout shim: only `timeout N cmd ...` is supported\n'); sys.exit(125)
+d = a[0].rstrip('s')
+try:
+    r = subprocess.run(a[1:], timeout=float(d))
+    sys.exit(r.returncode)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+except FileNotFoundError:
+    sys.exit(127)

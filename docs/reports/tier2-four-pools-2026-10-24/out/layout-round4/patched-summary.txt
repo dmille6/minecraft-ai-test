@@ -1,0 +1,10 @@
+f727b377b3ac6b07ca94391ccda6416f
+1a333d492f37fab2407dea4b3886f8c4
+5074388dd48822939f1e87bc0e337b8b
+threepool rc=0 177/177 pass
+drawrequire rc=0 35/35 pass
+bagfix_loop rc=1 17/21 pass
+holdtoken rc=0 21/21 pass
+drawrec_tier2 rc=0 mutants: 6 of 6 killed
+loop_tier2 rc=0 mutants: 15 of 15 killed
+canary_sched rc=0 106/106 tests pass 75/75 mutants killed 
