@@ -1,0 +1,5924 @@
+{
+ "world": "showcase",
+ "planGen": 11,
+ "planSha": "0791d4ca3832e7aa94aa410bc37c58d33b6315e06e001040a883b43eb6d492c8",
+ "v": 1,
+ "blueprint": "workshop@1",
+ "plot": "shop",
+ "home": {
+  "x": 0,
+  "y": 70,
+  "z": 0
+ },
+ "sector": "SE",
+ "sector_source": "pavilion",
+ "orient": "E",
+ "anchor": [
+  17,
+  28
+ ],
+ "box": [
+  17,
+  28,
+  25,
+  34
+ ],
+ "s": 72,
+ "floor": 71,
+ "earthwork": {
+  "fill": 16,
+  "cut": 0,
+  "litter": 0
+ },
+ "fill": [
+  [
+   17,
+   71,
+   28
+  ],
+  [
+   17,
+   71,
+   29
+  ],
+  [
+   17,
+   71,
+   30
+  ],
+  [
+   17,
+   71,
+   31
+  ],
+  [
+   17,
+   71,
+   32
+  ],
+  [
+   17,
+   71,
+   33
+  ],
+  [
+   17,
+   71,
+   34
+  ],
+  [
+   18,
+   71,
+   29
+  ],
+  [
+   18,
+   71,
+   30
+  ],
+  [
+   18,
+   71,
+   31
+  ],
+  [
+   18,
+   71,
+   32
+  ],
+  [
+   18,
+   71,
+   33
+  ],
+  [
+   18,
+   71,
+   34
+  ],
+  [
+   19,
+   71,
+   33
+  ],
+  [
+   19,
+   71,
+   34
+  ],
+  [
+   24,
+   71,
+   28
+  ]
+ ],
+ "clear": [
+  {
+   "at": [
+    17,
+    72,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    74,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    75,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    74,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    17,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    75,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    18,
+    74,
+    34
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    75,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    73,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    75,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    75,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    19,
+    74,
+    34
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    74,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    75,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    73,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    73,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    75,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    74,
+    34
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    75,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    73,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    73,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    75,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    73,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    75,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    21,
+    74,
+    34
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    28
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    73,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    75,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    73,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    73,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    75,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    73,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    73,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    75,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    22,
+    74,
+    34
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    73,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    74,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    75,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    73,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    74,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    73,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    74,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    73,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    74,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    23,
+    75,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    73,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    75,
+    29
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    73,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    73,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    74,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    75,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    73,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    73,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    24,
+    75,
+    33
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    25,
+    73,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    25,
+    75,
+    30
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    25,
+    73,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    25,
+    75,
+    31
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    25,
+    73,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    25,
+    75,
+    32
+   ],
+   "kind": "leaves",
+   "name": "spruce_leaves"
+  },
+  {
+   "at": [
+    20,
+    72,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    73,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    74,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    75,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    76,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    77,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    78,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    20,
+    79,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    23,
+    73,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    23,
+    74,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    23,
+    75,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    23,
+    76,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    23,
+    77,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  },
+  {
+   "at": [
+    23,
+    78,
+    31
+   ],
+   "kind": "tree",
+   "name": "spruce_log"
+  }
+ ],
+ "trees": [
+  {
+   "base": [
+    20,
+    72,
+    31
+   ],
+   "species": "spruce",
+   "logs": 8
+  },
+  {
+   "base": [
+    23,
+    73,
+    31
+   ],
+   "species": "spruce",
+   "logs": 6
+  }
+ ],
+ "felled": 2,
+ "replant": [
+  {
+   "cell": [
+    9,
+    71,
+    29
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending"
+  },
+  {
+   "cell": [
+    9,
+    71,
+    30
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending"
+  }
+ ],
+ "cells": [
+  {
+   "at": [
+    17,
+    71,
+    28
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    18,
+    71,
+    26
+   ],
+   "support": [
+    17,
+    70,
+    28
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 0
+  },
+  {
+   "at": [
+    17,
+    71,
+    29
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    16,
+    71,
+    30
+   ],
+   "support": [
+    17,
+    70,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 1
+  },
+  {
+   "at": [
+    17,
+    71,
+    30
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    16,
+    71,
+    30
+   ],
+   "support": [
+    17,
+    71,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 2
+  },
+  {
+   "at": [
+    17,
+    71,
+    31
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    16,
+    71,
+    31
+   ],
+   "support": [
+    17,
+    71,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 3
+  },
+  {
+   "at": [
+    17,
+    71,
+    32
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    16,
+    71,
+    32
+   ],
+   "support": [
+    17,
+    71,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 4
+  },
+  {
+   "at": [
+    17,
+    71,
+    33
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    16,
+    71,
+    33
+   ],
+   "support": [
+    17,
+    71,
+    32
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 5
+  },
+  {
+   "at": [
+    17,
+    71,
+    34
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    16,
+    71,
+    34
+   ],
+   "support": [
+    17,
+    71,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 6
+  },
+  {
+   "at": [
+    18,
+    71,
+    29
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    18,
+    72,
+    28
+   ],
+   "support": [
+    19,
+    71,
+    29
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 7
+  },
+  {
+   "at": [
+    18,
+    71,
+    30
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    19,
+    72,
+    30
+   ],
+   "support": [
+    18,
+    71,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 8
+  },
+  {
+   "at": [
+    18,
+    71,
+    31
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    19,
+    72,
+    31
+   ],
+   "support": [
+    18,
+    71,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 9
+  },
+  {
+   "at": [
+    18,
+    71,
+    32
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    19,
+    72,
+    32
+   ],
+   "support": [
+    18,
+    71,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 10
+  },
+  {
+   "at": [
+    18,
+    71,
+    33
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    71,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 11
+  },
+  {
+   "at": [
+    18,
+    71,
+    34
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    71,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 12
+  },
+  {
+   "at": [
+    19,
+    71,
+    33
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    20,
+    71,
+    33
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 13
+  },
+  {
+   "at": [
+    19,
+    71,
+    34
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    20,
+    71,
+    34
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 14
+  },
+  {
+   "at": [
+    24,
+    71,
+    28
+   ],
+   "role": "fill",
+   "seg": "earth",
+   "stand": [
+    24,
+    72,
+    29
+   ],
+   "support": [
+    25,
+    71,
+    28
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 15
+  },
+  {
+   "at": [
+    17,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    19,
+    72,
+    27
+   ],
+   "support": [
+    17,
+    71,
+    28
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 16
+  },
+  {
+   "at": [
+    17,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    16,
+    71,
+    31
+   ],
+   "support": [
+    17,
+    71,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 17
+  },
+  {
+   "at": [
+    17,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    16,
+    71,
+    30
+   ],
+   "support": [
+    17,
+    72,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 18
+  },
+  {
+   "at": [
+    17,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    16,
+    71,
+    31
+   ],
+   "support": [
+    17,
+    72,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 19
+  },
+  {
+   "at": [
+    17,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    16,
+    71,
+    32
+   ],
+   "support": [
+    17,
+    72,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 20
+  },
+  {
+   "at": [
+    17,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    16,
+    71,
+    33
+   ],
+   "support": [
+    17,
+    72,
+    32
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 21
+  },
+  {
+   "at": [
+    17,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    16,
+    71,
+    34
+   ],
+   "support": [
+    17,
+    72,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 22
+  },
+  {
+   "at": [
+    18,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    18,
+    71,
+    27
+   ],
+   "support": [
+    17,
+    72,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 23
+  },
+  {
+   "at": [
+    18,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    27
+   ],
+   "support": [
+    18,
+    71,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 24
+  },
+  {
+   "at": [
+    18,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    72,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 25
+  },
+  {
+   "at": [
+    18,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    27
+   ],
+   "support": [
+    18,
+    72,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 26
+  },
+  {
+   "at": [
+    18,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    72,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 27
+  },
+  {
+   "at": [
+    18,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 28
+  },
+  {
+   "at": [
+    18,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 29
+  },
+  {
+   "at": [
+    19,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    19,
+    72,
+    27
+   ],
+   "support": [
+    18,
+    72,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 30
+  },
+  {
+   "at": [
+    19,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    27
+   ],
+   "support": [
+    19,
+    71,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 31
+  },
+  {
+   "at": [
+    19,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    18,
+    72,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 32
+  },
+  {
+   "at": [
+    19,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    27
+   ],
+   "support": [
+    19,
+    72,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 33
+  },
+  {
+   "at": [
+    19,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    18,
+    72,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 34
+  },
+  {
+   "at": [
+    19,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    18,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 35
+  },
+  {
+   "at": [
+    19,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    18,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 36
+  },
+  {
+   "at": [
+    20,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    27
+   ],
+   "support": [
+    19,
+    72,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 37
+  },
+  {
+   "at": [
+    20,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    27
+   ],
+   "support": [
+    19,
+    72,
+    30
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 38
+  },
+  {
+   "at": [
+    20,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    27
+   ],
+   "support": [
+    20,
+    72,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 39
+  },
+  {
+   "at": [
+    20,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    35
+   ],
+   "support": [
+    19,
+    72,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 40
+  },
+  {
+   "at": [
+    20,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    35
+   ],
+   "support": [
+    19,
+    72,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 41
+  },
+  {
+   "at": [
+    20,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    35
+   ],
+   "support": [
+    19,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 42
+  },
+  {
+   "at": [
+    20,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    20,
+    72,
+    35
+   ],
+   "support": [
+    19,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 43
+  },
+  {
+   "at": [
+    21,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    27
+   ],
+   "support": [
+    20,
+    72,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 44
+  },
+  {
+   "at": [
+    21,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    27
+   ],
+   "support": [
+    20,
+    72,
+    30
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 45
+  },
+  {
+   "at": [
+    21,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    35
+   ],
+   "support": [
+    20,
+    72,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 46
+  },
+  {
+   "at": [
+    21,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    35
+   ],
+   "support": [
+    20,
+    72,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 47
+  },
+  {
+   "at": [
+    21,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    35
+   ],
+   "support": [
+    20,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 48
+  },
+  {
+   "at": [
+    21,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    72,
+    35
+   ],
+   "support": [
+    20,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 49
+  },
+  {
+   "at": [
+    22,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    27
+   ],
+   "support": [
+    21,
+    72,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 50
+  },
+  {
+   "at": [
+    22,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    29
+   ],
+   "support": [
+    22,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 51
+  },
+  {
+   "at": [
+    22,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    30
+   ],
+   "support": [
+    22,
+    72,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 52
+  },
+  {
+   "at": [
+    22,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    35
+   ],
+   "support": [
+    21,
+    72,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 53
+  },
+  {
+   "at": [
+    22,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    35
+   ],
+   "support": [
+    21,
+    72,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 54
+  },
+  {
+   "at": [
+    22,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    35
+   ],
+   "support": [
+    21,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 55
+  },
+  {
+   "at": [
+    22,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    22,
+    72,
+    35
+   ],
+   "support": [
+    21,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 56
+  },
+  {
+   "at": [
+    23,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    28
+   ],
+   "support": [
+    23,
+    72,
+    27
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 57
+  },
+  {
+   "at": [
+    23,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    29
+   ],
+   "support": [
+    23,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 58
+  },
+  {
+   "at": [
+    23,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    30
+   ],
+   "support": [
+    23,
+    72,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 59
+  },
+  {
+   "at": [
+    23,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    31
+   ],
+   "support": [
+    23,
+    72,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 60
+  },
+  {
+   "at": [
+    23,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    23,
+    72,
+    35
+   ],
+   "support": [
+    22,
+    72,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 61
+  },
+  {
+   "at": [
+    23,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    23,
+    72,
+    35
+   ],
+   "support": [
+    22,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 62
+  },
+  {
+   "at": [
+    23,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    23,
+    72,
+    35
+   ],
+   "support": [
+    22,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 63
+  },
+  {
+   "at": [
+    24,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    28
+   ],
+   "support": [
+    24,
+    72,
+    27
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 64
+  },
+  {
+   "at": [
+    24,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    29
+   ],
+   "support": [
+    24,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 65
+  },
+  {
+   "at": [
+    24,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    30
+   ],
+   "support": [
+    24,
+    72,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 66
+  },
+  {
+   "at": [
+    24,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    31
+   ],
+   "support": [
+    24,
+    72,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 67
+  },
+  {
+   "at": [
+    24,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    32
+   ],
+   "support": [
+    24,
+    72,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 68
+  },
+  {
+   "at": [
+    24,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    24,
+    72,
+    35
+   ],
+   "support": [
+    23,
+    72,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 69
+  },
+  {
+   "at": [
+    24,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    24,
+    72,
+    35
+   ],
+   "support": [
+    23,
+    72,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 70
+  },
+  {
+   "at": [
+    25,
+    72,
+    28
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    28
+   ],
+   "support": [
+    25,
+    72,
+    27
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 71
+  },
+  {
+   "at": [
+    25,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    29
+   ],
+   "support": [
+    25,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 72
+  },
+  {
+   "at": [
+    25,
+    72,
+    30
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    30
+   ],
+   "support": [
+    25,
+    72,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 73
+  },
+  {
+   "at": [
+    25,
+    72,
+    31
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    31
+   ],
+   "support": [
+    25,
+    72,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 74
+  },
+  {
+   "at": [
+    25,
+    72,
+    32
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    32
+   ],
+   "support": [
+    25,
+    72,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 75
+  },
+  {
+   "at": [
+    25,
+    72,
+    33
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    33
+   ],
+   "support": [
+    25,
+    72,
+    32
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 76
+  },
+  {
+   "at": [
+    25,
+    72,
+    34
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    26,
+    72,
+    34
+   ],
+   "support": [
+    25,
+    72,
+    35
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 77
+  },
+  {
+   "at": [
+    21,
+    72,
+    29
+   ],
+   "role": "base",
+   "seg": "pad",
+   "stand": [
+    21,
+    73,
+    28
+   ],
+   "support": [
+    22,
+    72,
+    29
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 78
+  },
+  {
+   "at": [
+    17,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    18,
+    73,
+    29
+   ],
+   "support": [
+    17,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 79
+  },
+  {
+   "at": [
+    17,
+    73,
+    29
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    18,
+    73,
+    29
+   ],
+   "support": [
+    17,
+    73,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 80
+  },
+  {
+   "at": [
+    17,
+    73,
+    30
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    16,
+    71,
+    30
+   ],
+   "support": [
+    17,
+    73,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 81
+  },
+  {
+   "at": [
+    17,
+    73,
+    31
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    16,
+    71,
+    31
+   ],
+   "support": [
+    17,
+    73,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 82
+  },
+  {
+   "at": [
+    17,
+    73,
+    32
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    16,
+    71,
+    32
+   ],
+   "support": [
+    17,
+    73,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 83
+  },
+  {
+   "at": [
+    17,
+    73,
+    33
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    16,
+    71,
+    33
+   ],
+   "support": [
+    17,
+    73,
+    32
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 84
+  },
+  {
+   "at": [
+    17,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    16,
+    71,
+    34
+   ],
+   "support": [
+    17,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 85
+  },
+  {
+   "at": [
+    18,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    18,
+    71,
+    27
+   ],
+   "support": [
+    17,
+    73,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 86
+  },
+  {
+   "at": [
+    18,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    18,
+    71,
+    35
+   ],
+   "support": [
+    17,
+    73,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 87
+  },
+  {
+   "at": [
+    19,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    19,
+    72,
+    27
+   ],
+   "support": [
+    18,
+    73,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 88
+  },
+  {
+   "at": [
+    19,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    19,
+    71,
+    35
+   ],
+   "support": [
+    18,
+    73,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 89
+  },
+  {
+   "at": [
+    20,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    20,
+    72,
+    27
+   ],
+   "support": [
+    19,
+    73,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 90
+  },
+  {
+   "at": [
+    20,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    20,
+    72,
+    35
+   ],
+   "support": [
+    19,
+    73,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 91
+  },
+  {
+   "at": [
+    22,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    22,
+    72,
+    27
+   ],
+   "support": [
+    22,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 92
+  },
+  {
+   "at": [
+    22,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    22,
+    72,
+    35
+   ],
+   "support": [
+    22,
+    72,
+    34
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 93
+  },
+  {
+   "at": [
+    23,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    23,
+    73,
+    29
+   ],
+   "support": [
+    22,
+    73,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 94
+  },
+  {
+   "at": [
+    23,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    23,
+    72,
+    35
+   ],
+   "support": [
+    22,
+    73,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 95
+  },
+  {
+   "at": [
+    24,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    24,
+    73,
+    29
+   ],
+   "support": [
+    23,
+    73,
+    28
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 96
+  },
+  {
+   "at": [
+    24,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    24,
+    72,
+    35
+   ],
+   "support": [
+    23,
+    73,
+    34
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 97
+  },
+  {
+   "at": [
+    25,
+    73,
+    28
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    28
+   ],
+   "support": [
+    25,
+    72,
+    28
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 98
+  },
+  {
+   "at": [
+    25,
+    73,
+    29
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    29
+   ],
+   "support": [
+    25,
+    73,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 99
+  },
+  {
+   "at": [
+    25,
+    73,
+    30
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    30
+   ],
+   "support": [
+    25,
+    73,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 100
+  },
+  {
+   "at": [
+    25,
+    73,
+    31
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    31
+   ],
+   "support": [
+    25,
+    73,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 101
+  },
+  {
+   "at": [
+    25,
+    73,
+    32
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    32
+   ],
+   "support": [
+    25,
+    73,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 102
+  },
+  {
+   "at": [
+    25,
+    73,
+    33
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    33
+   ],
+   "support": [
+    25,
+    73,
+    32
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 103
+  },
+  {
+   "at": [
+    25,
+    73,
+    34
+   ],
+   "role": "step",
+   "seg": "ring",
+   "stand": [
+    26,
+    72,
+    34
+   ],
+   "support": [
+    25,
+    73,
+    35
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 104
+  },
+  {
+   "at": [
+    18,
+    73,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    18,
+    73,
+    30
+   ],
+   "support": [
+    17,
+    73,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 105
+  },
+  {
+   "at": [
+    19,
+    73,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    19,
+    73,
+    30
+   ],
+   "support": [
+    18,
+    73,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 106
+  },
+  {
+   "at": [
+    20,
+    73,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    20,
+    73,
+    30
+   ],
+   "support": [
+    19,
+    73,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 107
+  },
+  {
+   "at": [
+    22,
+    73,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    21,
+    73,
+    29
+   ],
+   "support": [
+    22,
+    73,
+    28
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 108
+  },
+  {
+   "at": [
+    23,
+    73,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    23,
+    73,
+    30
+   ],
+   "support": [
+    22,
+    73,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 109
+  },
+  {
+   "at": [
+    24,
+    73,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    24,
+    73,
+    30
+   ],
+   "support": [
+    25,
+    73,
+    29
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 110
+  },
+  {
+   "at": [
+    18,
+    74,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    18,
+    73,
+    30
+   ],
+   "support": [
+    18,
+    73,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 111
+  },
+  {
+   "at": [
+    19,
+    74,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    19,
+    73,
+    30
+   ],
+   "support": [
+    18,
+    74,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 112
+  },
+  {
+   "at": [
+    20,
+    74,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    20,
+    73,
+    30
+   ],
+   "support": [
+    19,
+    74,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 113
+  },
+  {
+   "at": [
+    22,
+    74,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    21,
+    73,
+    29
+   ],
+   "support": [
+    22,
+    73,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 114
+  },
+  {
+   "at": [
+    23,
+    74,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    23,
+    73,
+    30
+   ],
+   "support": [
+    22,
+    74,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 115
+  },
+  {
+   "at": [
+    24,
+    74,
+    29
+   ],
+   "role": "wall",
+   "seg": "wall-F",
+   "stand": [
+    24,
+    73,
+    30
+   ],
+   "support": [
+    23,
+    74,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 116
+  },
+  {
+   "at": [
+    18,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    18,
+    73,
+    32
+   ],
+   "support": [
+    17,
+    73,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 117
+  },
+  {
+   "at": [
+    19,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    19,
+    73,
+    32
+   ],
+   "support": [
+    18,
+    73,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 118
+  },
+  {
+   "at": [
+    20,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    20,
+    73,
+    32
+   ],
+   "support": [
+    19,
+    73,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 119
+  },
+  {
+   "at": [
+    21,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    21,
+    73,
+    32
+   ],
+   "support": [
+    20,
+    73,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 120
+  },
+  {
+   "at": [
+    22,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    22,
+    73,
+    32
+   ],
+   "support": [
+    21,
+    73,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 121
+  },
+  {
+   "at": [
+    23,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    23,
+    73,
+    32
+   ],
+   "support": [
+    22,
+    73,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 122
+  },
+  {
+   "at": [
+    24,
+    73,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    24,
+    73,
+    32
+   ],
+   "support": [
+    25,
+    73,
+    33
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 123
+  },
+  {
+   "at": [
+    18,
+    74,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    18,
+    73,
+    32
+   ],
+   "support": [
+    18,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 124
+  },
+  {
+   "at": [
+    19,
+    74,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    19,
+    73,
+    32
+   ],
+   "support": [
+    18,
+    74,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 125
+  },
+  {
+   "at": [
+    20,
+    74,
+    33
+   ],
+   "role": "window",
+   "seg": "wall-B",
+   "stand": [
+    20,
+    73,
+    32
+   ],
+   "support": [
+    19,
+    74,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 126
+  },
+  {
+   "at": [
+    21,
+    74,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    21,
+    73,
+    32
+   ],
+   "support": [
+    20,
+    74,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 127
+  },
+  {
+   "at": [
+    22,
+    74,
+    33
+   ],
+   "role": "window",
+   "seg": "wall-B",
+   "stand": [
+    22,
+    73,
+    32
+   ],
+   "support": [
+    21,
+    74,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 128
+  },
+  {
+   "at": [
+    23,
+    74,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    23,
+    73,
+    32
+   ],
+   "support": [
+    22,
+    74,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 129
+  },
+  {
+   "at": [
+    24,
+    74,
+    33
+   ],
+   "role": "wall",
+   "seg": "wall-B",
+   "stand": [
+    24,
+    73,
+    32
+   ],
+   "support": [
+    23,
+    74,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 130
+  },
+  {
+   "at": [
+    18,
+    73,
+    30
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    19,
+    73,
+    30
+   ],
+   "support": [
+    18,
+    73,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 131
+  },
+  {
+   "at": [
+    18,
+    73,
+    31
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    19,
+    73,
+    31
+   ],
+   "support": [
+    18,
+    73,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 132
+  },
+  {
+   "at": [
+    18,
+    73,
+    32
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    19,
+    73,
+    32
+   ],
+   "support": [
+    18,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 133
+  },
+  {
+   "at": [
+    18,
+    74,
+    30
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    19,
+    73,
+    30
+   ],
+   "support": [
+    18,
+    74,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 134
+  },
+  {
+   "at": [
+    18,
+    74,
+    31
+   ],
+   "role": "window",
+   "seg": "wall-L",
+   "stand": [
+    19,
+    73,
+    31
+   ],
+   "support": [
+    18,
+    74,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 135
+  },
+  {
+   "at": [
+    18,
+    74,
+    32
+   ],
+   "role": "wall",
+   "seg": "wall-L",
+   "stand": [
+    19,
+    73,
+    32
+   ],
+   "support": [
+    18,
+    74,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 136
+  },
+  {
+   "at": [
+    24,
+    73,
+    30
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    23,
+    73,
+    30
+   ],
+   "support": [
+    24,
+    73,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 137
+  },
+  {
+   "at": [
+    24,
+    73,
+    31
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    23,
+    73,
+    31
+   ],
+   "support": [
+    24,
+    73,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 138
+  },
+  {
+   "at": [
+    24,
+    73,
+    32
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    23,
+    73,
+    32
+   ],
+   "support": [
+    24,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 139
+  },
+  {
+   "at": [
+    24,
+    74,
+    30
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    23,
+    73,
+    30
+   ],
+   "support": [
+    24,
+    74,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 140
+  },
+  {
+   "at": [
+    24,
+    74,
+    31
+   ],
+   "role": "window",
+   "seg": "wall-R",
+   "stand": [
+    23,
+    73,
+    31
+   ],
+   "support": [
+    24,
+    74,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 141
+  },
+  {
+   "at": [
+    24,
+    74,
+    32
+   ],
+   "role": "wall",
+   "seg": "wall-R",
+   "stand": [
+    23,
+    73,
+    32
+   ],
+   "support": [
+    24,
+    74,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 142
+  },
+  {
+   "at": [
+    18,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    17,
+    74,
+    29
+   ],
+   "support": [
+    18,
+    74,
+    29
+   ],
+   "face": [
+    0,
+    1,
+    0
+   ],
+   "order": 143
+  },
+  {
+   "at": [
+    18,
+    75,
+    30
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    17,
+    74,
+    30
+   ],
+   "support": [
+    18,
+    75,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 144
+  },
+  {
+   "at": [
+    18,
+    75,
+    31
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    17,
+    74,
+    31
+   ],
+   "support": [
+    18,
+    75,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 145
+  },
+  {
+   "at": [
+    18,
+    75,
+    32
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    17,
+    74,
+    32
+   ],
+   "support": [
+    18,
+    75,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 146
+  },
+  {
+   "at": [
+    18,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    17,
+    74,
+    33
+   ],
+   "support": [
+    18,
+    75,
+    32
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 147
+  },
+  {
+   "at": [
+    19,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    19,
+    74,
+    28
+   ],
+   "support": [
+    18,
+    75,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 148
+  },
+  {
+   "at": [
+    19,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    19,
+    74,
+    34
+   ],
+   "support": [
+    18,
+    75,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 149
+  },
+  {
+   "at": [
+    20,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    20,
+    74,
+    28
+   ],
+   "support": [
+    19,
+    75,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 150
+  },
+  {
+   "at": [
+    20,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    20,
+    74,
+    34
+   ],
+   "support": [
+    19,
+    75,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 151
+  },
+  {
+   "at": [
+    21,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    21,
+    73,
+    29
+   ],
+   "support": [
+    20,
+    75,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 152
+  },
+  {
+   "at": [
+    21,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    21,
+    73,
+    32
+   ],
+   "support": [
+    20,
+    75,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 153
+  },
+  {
+   "at": [
+    22,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    22,
+    74,
+    28
+   ],
+   "support": [
+    21,
+    75,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 154
+  },
+  {
+   "at": [
+    22,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    22,
+    74,
+    34
+   ],
+   "support": [
+    21,
+    75,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 155
+  },
+  {
+   "at": [
+    23,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    23,
+    74,
+    28
+   ],
+   "support": [
+    22,
+    75,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 156
+  },
+  {
+   "at": [
+    23,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    23,
+    74,
+    34
+   ],
+   "support": [
+    22,
+    75,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 157
+  },
+  {
+   "at": [
+    24,
+    75,
+    29
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    24,
+    74,
+    28
+   ],
+   "support": [
+    23,
+    75,
+    29
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 158
+  },
+  {
+   "at": [
+    24,
+    75,
+    30
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    25,
+    74,
+    30
+   ],
+   "support": [
+    24,
+    75,
+    29
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 159
+  },
+  {
+   "at": [
+    24,
+    75,
+    31
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    25,
+    74,
+    31
+   ],
+   "support": [
+    24,
+    75,
+    30
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 160
+  },
+  {
+   "at": [
+    24,
+    75,
+    32
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    25,
+    74,
+    32
+   ],
+   "support": [
+    24,
+    75,
+    31
+   ],
+   "face": [
+    0,
+    0,
+    1
+   ],
+   "order": 161
+  },
+  {
+   "at": [
+    24,
+    75,
+    33
+   ],
+   "role": "trim",
+   "seg": "roof-edge",
+   "stand": [
+    24,
+    74,
+    34
+   ],
+   "support": [
+    23,
+    75,
+    33
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 162
+  },
+  {
+   "at": [
+    19,
+    75,
+    30
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    19,
+    73,
+    30
+   ],
+   "support": [
+    18,
+    75,
+    30
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 163
+  },
+  {
+   "at": [
+    19,
+    75,
+    31
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    19,
+    73,
+    31
+   ],
+   "support": [
+    18,
+    75,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 164
+  },
+  {
+   "at": [
+    19,
+    75,
+    32
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    19,
+    73,
+    32
+   ],
+   "support": [
+    18,
+    75,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 165
+  },
+  {
+   "at": [
+    20,
+    75,
+    30
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    20,
+    73,
+    30
+   ],
+   "support": [
+    19,
+    75,
+    30
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 166
+  },
+  {
+   "at": [
+    20,
+    75,
+    31
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    20,
+    73,
+    31
+   ],
+   "support": [
+    19,
+    75,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 167
+  },
+  {
+   "at": [
+    20,
+    75,
+    32
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    20,
+    73,
+    32
+   ],
+   "support": [
+    19,
+    75,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 168
+  },
+  {
+   "at": [
+    21,
+    75,
+    30
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    21,
+    73,
+    30
+   ],
+   "support": [
+    20,
+    75,
+    30
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 169
+  },
+  {
+   "at": [
+    21,
+    75,
+    31
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    21,
+    73,
+    31
+   ],
+   "support": [
+    20,
+    75,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 170
+  },
+  {
+   "at": [
+    21,
+    75,
+    32
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    21,
+    73,
+    32
+   ],
+   "support": [
+    20,
+    75,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 171
+  },
+  {
+   "at": [
+    22,
+    75,
+    30
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    22,
+    73,
+    30
+   ],
+   "support": [
+    21,
+    75,
+    30
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 172
+  },
+  {
+   "at": [
+    22,
+    75,
+    31
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    22,
+    73,
+    31
+   ],
+   "support": [
+    21,
+    75,
+    31
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 173
+  },
+  {
+   "at": [
+    22,
+    75,
+    32
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    22,
+    73,
+    32
+   ],
+   "support": [
+    21,
+    75,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 174
+  },
+  {
+   "at": [
+    23,
+    75,
+    30
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    23,
+    73,
+    30
+   ],
+   "support": [
+    24,
+    75,
+    30
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 175
+  },
+  {
+   "at": [
+    23,
+    75,
+    31
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    23,
+    73,
+    31
+   ],
+   "support": [
+    24,
+    75,
+    31
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 176
+  },
+  {
+   "at": [
+    23,
+    75,
+    32
+   ],
+   "role": "roof",
+   "seg": "roof-inner",
+   "stand": [
+    23,
+    73,
+    32
+   ],
+   "support": [
+    24,
+    75,
+    32
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 177
+  },
+  {
+   "at": [
+    19,
+    73,
+    32
+   ],
+   "role": "light",
+   "seg": "fit-out",
+   "stand": [
+    19,
+    73,
+    31
+   ],
+   "support": [
+    18,
+    73,
+    32
+   ],
+   "face": [
+    1,
+    0,
+    0
+   ],
+   "order": 178
+  },
+  {
+   "at": [
+    20,
+    73,
+    32
+   ],
+   "role": "furnace",
+   "seg": "fit-out",
+   "stand": [
+    19,
+    73,
+    32
+   ],
+   "support": [
+    20,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 179
+  },
+  {
+   "at": [
+    21,
+    73,
+    32
+   ],
+   "role": "table",
+   "seg": "fit-out",
+   "stand": [
+    21,
+    73,
+    31
+   ],
+   "support": [
+    21,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 180
+  },
+  {
+   "at": [
+    22,
+    73,
+    32
+   ],
+   "role": "furnace",
+   "seg": "fit-out",
+   "stand": [
+    23,
+    73,
+    32
+   ],
+   "support": [
+    22,
+    73,
+    33
+   ],
+   "face": [
+    0,
+    0,
+    -1
+   ],
+   "order": 181
+  },
+  {
+   "at": [
+    23,
+    73,
+    32
+   ],
+   "role": "light",
+   "seg": "fit-out",
+   "stand": [
+    23,
+    73,
+    31
+   ],
+   "support": [
+    24,
+    73,
+    32
+   ],
+   "face": [
+    -1,
+    0,
+    0
+   ],
+   "order": 182
+  }
+ ],
+ "segments": [
+  {
+   "seg": "earth",
+   "layer": -1,
+   "deps": [],
+   "cells": 16,
+   "walks": 1,
+   "stands": 13
+  },
+  {
+   "seg": "pad",
+   "layer": 0,
+   "deps": [
+    "earth"
+   ],
+   "cells": 63,
+   "walks": 2,
+   "stands": 25
+  },
+  {
+   "seg": "ring",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 26,
+   "walks": 1,
+   "stands": 25
+  },
+  {
+   "seg": "wall-F",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 12,
+   "walks": 1,
+   "stands": 6
+  },
+  {
+   "seg": "wall-B",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 14,
+   "walks": 1,
+   "stands": 7
+  },
+  {
+   "seg": "wall-L",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 6,
+   "walks": 1,
+   "stands": 3
+  },
+  {
+   "seg": "wall-R",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ],
+   "cells": 6,
+   "walks": 1,
+   "stands": 3
+  },
+  {
+   "seg": "roof-edge",
+   "layer": 2,
+   "deps": [
+    "ring",
+    "wall-F",
+    "wall-B",
+    "wall-L",
+    "wall-R"
+   ],
+   "cells": 20,
+   "walks": 1,
+   "stands": 20
+  },
+  {
+   "seg": "roof-inner",
+   "layer": 3,
+   "deps": [
+    "roof-edge"
+   ],
+   "cells": 15,
+   "walks": 1,
+   "stands": 15
+  },
+  {
+   "seg": "fit-out",
+   "layer": 4,
+   "deps": [
+    "roof-inner"
+   ],
+   "cells": 5,
+   "walks": 1,
+   "stands": 5
+  }
+ ],
+ "interior": {
+  "cells": 15,
+  "open": 12,
+  "reachable": 12
+ },
+ "bom": {
+  "cobblestone": 16,
+  "stone_bricks": 89,
+  "$planks": 49,
+  "glass_pane": 4,
+  "cut_copper": 20,
+  "torch": 2,
+  "furnace": 2,
+  "crafting_table": 1
+ },
+ "builders_max": 2,
+ "structure_complete": false,
+ "plan": {
+  "gen": 11
+ },
+ "stood_seeds": 121
+}
