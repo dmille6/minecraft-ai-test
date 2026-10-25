@@ -38,33 +38,62 @@ export function dumpReader (dump) {
   }
 }
 
-const readJson = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null } }
+/** A JSON file -> its value; null when ABSENT (ENOENT). Anything else (unreadable, malformed) THROWS: a reservation file that
+ *  cannot be read is never "no reservations" (Codex siting r1 P2: a malformed zones file read as zero zones). */
+export function readJson (f) {
+  let buf
+  try { buf = fs.readFileSync(f, 'utf8') } catch (e) { if (e?.code === 'ENOENT') return null; throw new Error(`unreadable ${path.basename(f)}: ${e?.code ?? e}`) }
+  try { return JSON.parse(buf) } catch { throw new Error(`malformed ${path.basename(f)}`) }
+}
 
-/** The pool's records -> { key, world, head, zones, wells, farm }. */
-export function poolRecords (dir) {
-  const files = fs.readdirSync(dir)
-  const keys = [...new Set(files.map(f => /^(townplan-[-0-9_]+)\.g\d+\.json$/.exec(f)?.[1]).filter(Boolean))]
-  if (keys.length !== 1) return { why: `townplan keys ${keys.length}` }
-  const key = keys[0]
-  const g1 = readJson(path.join(dir, `${key}.g1.json`))
-  resetPlanWalks()
-  const h = planHead(dir, key, g1?.world ?? null, { fresh: true })
-  if (!h.ok || !h.head) return { why: `no head (${h.from}; rejected ${JSON.stringify(h.rejected)})`, key }
-  const zj = readJson(path.join(dir, 'protected-zones.json'))
-  const z = parseZones(zj, null)
-  if (!z.ok) return { why: `zones unreadable: ${z.why}`, key }
-  const home = key.replace(/^townplan-/, '')
-  const wells = []
-  const pr = readJson(path.join(dir, `junkwell-plinth-${home}.json`))
-  for (const pl of [pr?.plan, ...(Array.isArray(pr?.prev) ? pr.prev : [])]) {
-    if (!pl || typeof pl !== 'object') continue
-    for (const st of pl.steps ?? []) if (Array.isArray(st.c)) wells.push(st.c)
-    if (pl.cap) wells.push([pl.cap.x, pl.cap.y, pl.cap.z])
+/** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
+export function plinthCells (rec) {
+  const out = []
+  const pl = rec?.plan
+  if (pl && typeof pl === 'object') {
+    for (const st of pl.steps ?? []) if (Array.isArray(st?.c)) out.push(st.c)
+    if (pl.cap) out.push([pl.cap.x, pl.cap.y, pl.cap.z])
+    for (const c of pl.stair ?? []) if (Array.isArray(c) && c.length === 3) out.push(c)
   }
-  const tfs = files.filter(f => f.startsWith(`treefarm-${home}.g`) && f.endsWith('.json')).sort((a, b) => Number(/\.g(\d+)\./.exec(b)[1]) - Number(/\.g(\d+)\./.exec(a)[1]))
-  const tf = tfs.length ? readJson(path.join(dir, tfs[0])) : null
-  const farm = (tf?.cells ?? []).map(c => [c.x, c.z])
-  return { key, world: g1?.world ?? null, head: h.head, gens: h.gens, accepted: h.accepted, rejected: h.rejected, zones: z.zones, zonesWhy: z.why, wells, farm }
+  for (const c of Array.isArray(rec?.prev) ? rec.prev : []) {
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
+    out.push([c.x, c.y, c.z])
+    for (const s of Array.isArray(c.stair) ? c.stair : []) if (Array.isArray(s) && s.length === 3) out.push(s)
+  }
+  return out
+}
+
+/** The pool's records -> { key, world, head, zones, wells, farm, town } or { why }. Every file is read fail-closed (readJson). */
+export function poolRecords (dir) {
+  try {
+    const files = fs.readdirSync(dir)
+    const keys = [...new Set(files.map(f => /^(townplan-[-0-9_]+)\.g\d+\.json$/.exec(f)?.[1]).filter(Boolean))]
+    if (keys.length !== 1) return { why: `townplan keys ${keys.length}` }
+    const key = keys[0]
+    const g1 = readJson(path.join(dir, `${key}.g1.json`))
+    resetPlanWalks()
+    const h = planHead(dir, key, g1?.world ?? null, { fresh: true })
+    if (!h.ok || !h.head) return { why: `no head (${h.from}; rejected ${JSON.stringify(h.rejected)})`, key }
+    const z = parseZones(readJson(path.join(dir, 'protected-zones.json')), null)
+    if (!z.ok) return { why: `zones unreadable: ${z.why}`, key }
+    const home = key.replace(/^townplan-/, '')
+    const wells = plinthCells(readJson(path.join(dir, `junkwell-plinth-${home}.json`)))
+    // the junk-well SITE generations (an unraised well's cap): the newest only, as the well reads it
+    const gen = f => Number(/\.g(\d+)\./.exec(f)?.[1] ?? 0)
+    const sites = files.filter(f => f.startsWith(`junkwell-site-${home}.g`) && f.endsWith('.json')).sort((a, b) => gen(b) - gen(a))
+    const site = sites.length ? readJson(path.join(dir, sites[0])) : null
+    if (site && [site.x, site.y, site.z].every(Number.isFinite)) wells.push([site.x, site.y, site.z])
+    const tfs = files.filter(f => f.startsWith(`treefarm-${home}.g`) && f.endsWith('.json')).sort((a, b) => gen(b) - gen(a))
+    const tf = tfs.length ? readJson(path.join(dir, tfs[0])) : null
+    const farm = (tf?.cells ?? []).map(c => [c.x, c.z])
+    // THE TOWN (D3 seeds): every town chest a bot has opened (the town index's observations)
+    const cf = files.find(f => f === `town-chest-${home}.containers.json`)
+    const cj = cf ? readJson(path.join(dir, cf)) : null
+    const town = Object.keys(cj?.entries ?? {}).map(k => k.split(',').map(Number)).filter(c => c.length === 3 && c.every(Number.isFinite))
+    return { key, world: g1?.world ?? null, head: h.head, gens: h.gens, accepted: h.accepted, rejected: h.rejected, zones: z.zones, zonesWhy: z.why, wells, farm, town }
+  } catch (e) {
+    return { why: `records_unreadable: ${e.message}` }
+  }
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)
@@ -80,13 +109,13 @@ if (isMain) {
   if (!recs.head) { console.log(JSON.stringify({ world, ok: false, why: recs.why })); process.exit(0) }
   const zz = flag('--z0m0') ? (readJson(flag('--z0m0'))?.worlds?.[world] ?? {}) : {}
   const bp = loadBlueprint(flag('--blueprint') ?? 'workshop@1')
-  const r = siteBlueprint(read, recs.head.plan, bp, { zones: recs.zones, wells: recs.wells, farm: recs.farm, z0: zz.ziggurat ?? null, m0: zz.shaft ?? null, tries: flag('--tries') ? Number(flag('--tries')) : undefined })
+  const r = siteBlueprint(read, recs.head.plan, bp, { zones: recs.zones, wells: recs.wells, farm: recs.farm, town: recs.town, z0: zz.ziggurat ?? null, m0: zz.shaft ?? null, tries: flag('--tries') ? Number(flag('--tries')) : undefined })
   const out = flag('--out')
   if (out && r.record) fs.writeFileSync(out, JSON.stringify({ world, planGen: recs.head.gen, planSha: recs.head.sha, ...r.record }, null, 1) + '\n')
   const rec = r.record
   console.log(JSON.stringify({
     world, ok: r.ok, why: r.why, plan: { key: recs.key, gen: recs.head.gen, mode: recs.head.plan.mode, pavilion: (recs.head.plan.plots ?? []).find(p => p.kind === 'pavilion')?.sector ?? null, rejectedGens: recs.rejected.length },
-    records: { zones: recs.zones.length, zonesWhy: recs.zonesWhy, wellCells: recs.wells.length, farmCells: recs.farm.length, z0: !!zz.ziggurat?.centre, m0: !!zz.shaft?.origin },
+    records: { zones: recs.zones.length, zonesWhy: recs.zonesWhy, wellCells: recs.wells.length, farmCells: recs.farm.length, townCells: recs.town.length, z0: !!zz.ziggurat?.centre, m0: !!zz.shaft?.origin },
     sectors: r.sectors,
     site: rec ? { sector: rec.sector, source: rec.sector_source, anchor: rec.anchor, orient: rec.orient, box: rec.box, s: rec.s, earthwork: rec.earthwork, trees: rec.trees.length, replant: rec.replant.length, clear: rec.clear.length, cells: rec.cells.length, segments: rec.segments.map(s => `${s.seg}:${s.cells}/${s.stands}st`).join(' '), interior: rec.interior, bom: rec.bom } : null,
     ms: Date.now() - t0,
