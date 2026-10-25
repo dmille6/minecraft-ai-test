@@ -4,7 +4,7 @@
  "planSha": "f491b4c9667854a9ae62d12876d6713d21529ae673ada74f4a3dcda00050538c",
  "v": 1,
  "blueprint": "workshop@1",
- "plot": "workshop",
+ "plot": "shop",
  "home": {
   "x": -68,
   "y": 68,
@@ -641,6 +641,7 @@
   }
  ],
  "trees": [],
+ "felled": 0,
  "replant": [],
  "cells": [
   {
@@ -1077,9 +1078,9 @@
    "role": "fill",
    "seg": "earth",
    "stand": [
-    -45,
+    -44,
     61,
-    -95
+    -99
    ],
    "support": [
     -42,
@@ -1502,8 +1503,8 @@
    "role": "base",
    "seg": "pad",
    "stand": [
-    -43,
-    64,
+    -40,
+    63,
     -88
    ],
    "support": [
@@ -1577,18 +1578,18 @@
    "role": "base",
    "seg": "pad",
    "stand": [
-    -40,
-    63,
+    -39,
+    64,
     -88
    ],
    "support": [
-    -39,
-    63,
+    -40,
+    64,
     -89
    ],
    "face": [
-    0,
     1,
+    0,
     0
    ],
    "order": 37
@@ -3077,18 +3078,18 @@
    "role": "step",
    "seg": "ring",
    "stand": [
-    -43,
-    64,
-    -88
-   ],
-   "support": [
     -42,
     64,
+    -87
+   ],
+   "support": [
+    -43,
+    65,
     -89
    ],
    "face": [
-    0,
     1,
+    0,
     0
    ],
    "order": 97
@@ -3252,9 +3253,9 @@
    "role": "step",
    "seg": "ring",
    "stand": [
-    -36,
+    -35,
     64,
-    -90
+    -94
    ],
    "support": [
     -37,
@@ -3552,7 +3553,7 @@
    "role": "step",
    "seg": "ring",
    "stand": [
-    -41,
+    -39,
     64,
     -98
    ],
@@ -3627,19 +3628,19 @@
    "role": "step",
    "seg": "ring",
    "stand": [
-    -38,
-    64,
-    -98
+    -36,
+    65,
+    -97
    ],
    "support": [
     -37,
-    64,
-    -97
+    65,
+    -96
    ],
    "face": [
     0,
-    1,
-    0
+    0,
+    -1
    ],
    "order": 119
   },
@@ -5582,14 +5583,14 @@
     -93
    ],
    "support": [
-    -39,
+    -38,
     65,
-    -92
+    -93
    ],
    "face": [
+    -1,
     0,
-    0,
-    -1
+    0
    ],
    "order": 197
   },
@@ -5634,12 +5635,12 @@
    "support": [
     -39,
     65,
-    -94
+    -96
    ],
    "face": [
     0,
     0,
-    -1
+    1
    ],
    "order": 199
   }
@@ -5661,7 +5662,7 @@
    ],
    "cells": 63,
    "walks": 2,
-   "stands": 24
+   "stands": 25
   },
   {
    "seg": "ring",
@@ -5671,7 +5672,7 @@
    ],
    "cells": 26,
    "walks": 2,
-   "stands": 17
+   "stands": 18
   },
   {
    "seg": "wall-F",
@@ -5750,6 +5751,7 @@
  ],
  "interior": {
   "cells": 15,
+  "open": 12,
   "reachable": 12
  },
  "bom": {
@@ -5766,5 +5768,6 @@
  "structure_complete": false,
  "plan": {
   "gen": 2
- }
+ },
+ "town_seeds": 30
 }
