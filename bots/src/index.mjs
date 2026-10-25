@@ -60,7 +60,7 @@ import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
 import { createHash as shopHash } from 'node:crypto'
-import { shopStoodTick, shopFootprintRefresh } from './skills.mjs'   // shop-01: the walks' seeds and the footprint
+import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'   // shop-01: the walks' seeds, the footprint, the acks
 import { SHOP, buildModeDetail, footprintCost, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
@@ -197,6 +197,9 @@ function connect() {
     auth: config.mc.auth,
     version: config.mc.version,
   })
+  // shop-01 r2: the click acknowledgements are tracked for the CONNECTION's whole life, installed before login so no sequence is
+  // written unseen (Codex r1 P2: a tracker per visit started blind); late acknowledgements settle this bot's own intents
+  if (SHOP.on) { try { bot.shopAcks = shopAckInstall(bot) } catch {} }
 
   // Two counters that answer a question every other field we log is blind to:
   // is the world model wrong, or is the server holding the bot still? See
@@ -682,10 +685,10 @@ function connect() {
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
     // shop-01: THE WORKSHOP'S FOOTPRINT (its record's cells + 1) is never a WORK or TRAVEL walk's dig or scaffold (design 4.4).
-    // Pushed onto the SAME arrays before the clones below copy their references; shop.mjs footprintCost reads the walk's profile at
+    // Appended (concat, never push: townground's transit invariant) before the clones below copy them; shop.mjs footprintCost reads the walk's profile at
     // search time, so the ascend/descend/water escapes keep their survival digs
-    moves.exclusionAreasBreak.push((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
-    moves.exclusionAreasPlace.push((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a

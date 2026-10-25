@@ -4,7 +4,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { reserveKeyOf, reserveCount } from './mats.mjs'
+import { reserveKeyOf, reserveCount, takeAllowed } from './mats.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -72,6 +72,30 @@ export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
     if (take > 0) { out[n] = take; left -= take }
   }
   return out
+}
+/**
+ * WHAT A VISIT DRAWS -> { name: n } (r2): the open cells' bill; a sapling for every pending replant whose cell holds none (Codex r1
+ * P2: C1's remedy made executable -- the town's saplings come with the bill); and the inputs of a station the town cannot supply
+ * (8 cobblestone a furnace, 4 planks a table: Claude r1 P3-4, the craft never eats the fill). Pure.
+ */
+export function visitNeeds (record, bill, { saplingAt = () => false, town = {}, spare = {}, planks = 'oak_planks' } = {}) {
+  const out = { ...bill }
+  for (const r of record?.replant ?? []) if (r?.sapling && !saplingAt(r.cell)) out[r.sapling] = (out[r.sapling] ?? 0) + 1
+  for (const [item, input, n] of [['furnace', 'cobblestone', 8], ['crafting_table', planks, 4]]) {
+    const lack = (Number(bill[item]) || 0) - (Number(spare[item]) || 0)
+    if (lack > 0 && (Number(town[item]) || 0) < lack) out[input] = (out[input] ?? 0) + n * lack
+  }
+  return out
+}
+/**
+ * HOW MUCH OF A NAME THE VISIT MAY TAKE from the container it stands at (matsWithdraw's `allow`) -> n. Pure. A reserved family
+ * is mats.mjs takeAllowed (the BUILD_RESERVE and the outstanding draws, judged at the take); a building PART has no reserve
+ * (Paper r1: takeAllowed answers 0 for a name with no reserve key, so stone bricks, panes, cut copper, stations and saplings
+ * were never drawn) and is taken up to what the container shows.
+ */
+export function shopAllow (name, want, o = {}) {
+  if (reserveKeyOf(name)) return takeAllowed(name, want, o)
+  return Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.[name]) || 0))
 }
 /**
  * SPENDABLE FOR A PROJECT (cooperation A9) -> n. Pure. The town's stock of `item` less its BUILD_RESERVE (by reserve family, the

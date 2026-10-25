@@ -3,23 +3,28 @@
 // sandbox proves is the code the bots run. Progress is the WORLD: every step re-reads it, nothing is counted.
 //
 // THE ORDER OF A VISIT (the two orders step 1's reviews asked to be stated, Claude r2/r3 P3):
+//   0. OWN LEFTOVERS CLOSED: an open intent of an earlier connection of ours is cancelled, one already acknowledged is settled.
 //   1. REPLANT FIRST: every pending replant cell gets its sapling (planted, read back) before any trunk is felled (B4).
 //   2. CLEARS, low before high: plants, leaves, scaffold litter and cuts, then tree logs from the BOTTOM UP while the bot stands
 //      on the ground; a log a ground stand cannot reach waits until the pad exists and is felled from an eye on the pad (the
-//      screen measured dig reach from pad eyes). A dig the server does not confirm marks the cell UNKNOWN: two resync probes, else
-//      it is left and the segment that needs it yields.
+//      screen measured dig reach from pad eyes). The named block and the leases are checked again AT the dig, after the walk.
+//      A dig the server does not confirm marks the cell UNKNOWN: up to two resync probes, each answered by the SERVER's word on
+//      the cell or by nothing; still unanswered, the cell stays unknown -- for the connection, across visits (`p.unknown`) --
+//      and reads as unknown to every geometry of the visit (no stand, no support, never placed into) until a probe answers.
 //   3. SEGMENTS in the record's order (earth, pad, ring, walls, roof edge, roof inner, fit-out), each under its own lease and
 //      only when its dependencies read COMPLETE in the world. Inside a segment the LOWEST placeable cell goes first, the nearest
 //      to the bot among those: bottom-up wherever the world allows it, never a cell placed while one below it in the same column
-//      is open (a cell above an open one waits).
+//      is open (a cell above an open one waits). A record cell holding a SCAFFOLD-CLASS foreign block (dirt, cobble, stone...:
+//      FOREIGN_CLEAR) is dug first, under the segment's lease; a container or a station in a record cell stalls the segment.
 //
 // THE SEND PROTOCOL for every click (design 4.1, in this order, nothing awaited from the fence to the send):
-//   look -> intent appended + fsynced (cell, block, segment-lease generation, sequence) -> mutex, non-blocking (busy: the intent
-//   is cancelled, a free skip) -> fence (slot, segment, record generation, another's barrier) -> send block_place with the
-//   sequence -> release the mutex at the ACKNOWLEDGEMENT of that sequence, or after MUTEX_HOLD_MS with the intent still open ->
-//   the intent settled with the cell's state once acknowledged. A ROOF cell is a CLOSER (it closes over the interior): before its
-//   send the builder takes the barrier under the mutex and waits until every other builder's open intent is settled, cancelled,
-//   or its sender retired; never on a timer.
+//   look -> intent appended + fsynced (cell, block, segment-lease generation, sequence, connection) -> mutex, non-blocking (busy:
+//   the intent is cancelled, a free skip) -> fence (slot, segment, record generation, another's barrier) -> send block_place
+//   with the sequence -> release the mutex at the ACKNOWLEDGEMENT of that sequence, or after MUTEX_HOLD_MS with the intent still
+//   open (and still TRACKED: a later acknowledgement settles it, buildack.mjs) -> the intent settled once acknowledged. A ROOF
+//   cell is a CLOSER (it closes over the interior): before its send the builder takes the barrier under the mutex and waits
+//   until every other builder's open intent is settled, cancelled, or its sender retired (buildproj.mjs intentRetired); never on
+//   a timer. After the wait the block is HELD again and the face looked at again.
 
 import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE } from './buildsite.mjs'
 import { isSolid, replaceableCell } from './townplan.mjs'
@@ -37,7 +42,22 @@ export const PROBES_MAX = 2
 export const RENEW_AT = 0.5
 export const CLOSER_SEGS = new Set(['roof-edge', 'roof-inner'])
 const SAPLING = /_sapling$|^mangrove_propagule$/
+const AIR = n => n === 'air' || n === 'cave_air'
+// a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
+// fleet's scaffold. Never a container, a station or a part: those stall the segment and say so
+export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel)$/
 
+/**
+ * A BLOCK'S FAMILY for "is this cell done" (r2, Claude r1 P2-1): a torch clicked onto a side face IS a wall_torch; cut copper
+ * weathers (exposed_, weathered_, oxidized_) and may be waxed. Pure.
+ */
+export function blockFamily (n) {
+  const s = String(n ?? '')
+  if (s === 'wall_torch') return 'torch'
+  if (s === 'soul_wall_torch') return 'soul_torch'
+  if (/copper/.test(s)) return s.replace(/^waxed_/, '').replace(/^(exposed|weathered|oxidized)_/, '')
+  return s
+}
 /** The block a cell's role wants, from what the bag holds -> a name | null. '$planks' is any planks species carried. */
 export function blockFor (palette, role, has) {
   if (role === 'fill') return has('cobblestone') ? 'cobblestone' : null
@@ -52,15 +72,15 @@ export function blockFor (palette, role, has) {
   }
   return pick(palette[role])
 }
-/** Does the world show this cell done? The role's palette names, any planks for '$planks'. Pure. */
+/** Does the world show this cell done? The role's palette names BY FAMILY, any planks for '$planks'. Pure. */
 export function cellDone (b, palette, role) {
   const n = nm(b)
   if (!n || n === 'air') return false
   if (role === 'fill') return isSolid(b)
   const ok = new Set()
-  const add = list => { for (const c of list ?? []) { if (c === '$planks') ok.add('*planks'); else if (c.startsWith('$')) add(palette[c.slice(1)]); else ok.add(c) } }
+  const add = list => { for (const c of list ?? []) { if (c === '$planks') ok.add('*planks'); else if (c.startsWith('$')) add(palette[c.slice(1)]); else ok.add(blockFamily(c)) } }
   add(palette[role])
-  return ok.has(n) || (ok.has('*planks') && /_planks$/.test(n))
+  return ok.has(blockFamily(n)) || (ok.has('*planks') && /_planks$/.test(n))
 }
 /** Can two segments run at once? No cell, stand or support of one lies in the other's cells (design 4.1). Pure. */
 export function concurrentOk (record, segA, segB) {
@@ -105,19 +125,27 @@ const byColumn = keys => {
 }
 
 /**
- * ONE VISIT -> { stop, why, placed, refused, silent, cleared, planted, unknown, segs: [{ seg, open, done }] }.
- *   p   { dir, key, me, home, stood, record, recordGen, palette, slot, slotGen }   (the caller holds the admission slot)
- *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, dig, probe, retired, aborted, log,
- *       now, spawnedAt
- * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | unknown.
+ * ONE VISIT -> { stop, why, placed, refused, silent, cleared, planted, unknown, segs: [{ seg, open, done }], slotGen }.
+ *   p   { dir, key, me, home, stood, record, recordGen, palette, slot, slotGen, slotRef?, unknown? }   (the caller holds the
+ *       admission slot; `slotRef.gen` follows every renewal, for the caller's release on ANY exit; `unknown` a Set kept for the
+ *       connection)
+ *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, track, untrack, conn, acked, seen, dig,
+ *       probe, aborted, log, now, sleep, spawnedAt
+ * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
+ *        attempts_spent | unknown.
  */
 export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS } = {}) {
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen }
   const { dir, key, me, home, record, palette } = p
   const stood = p.stood ?? []
   const now = () => e.now()
+  const slotRef = p.slotRef ?? { gen: p.slotGen }
   let slotGen = p.slotGen, slotAt = now()
-  const tries = new Map(), unknown = new Set()
+  slotRef.gen = slotGen
+  const tries = new Map()
+  const unknown = p.unknown ?? new Set()
+  // THE VISIT'S READ: an UNKNOWN cell (a dig the server never answered) reads as unknown -- no stand, no support, never clear
+  const rd = (x, y, z) => (unknown.has(k3(x, y, z)) ? null : e.read(x, y, z))
   let needSapling = null
   const bump = c => { const n = (tries.get(kOf(c)) ?? 0) + 1; tries.set(kOf(c), n); return n }
   let steps = 0
@@ -131,9 +159,14 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (now() - slotAt < PJ.LEASE_TTL_MS * RENEW_AT) return true
     const g = PJ.renewLease(dir, key, `slot${p.slot}`, me, slotGen, { now: now() })
     if (!g) return false
-    slotGen = g; slotAt = now(); out.slotGen = g; return true
+    slotGen = g; slotAt = now(); out.slotGen = g; slotRef.gen = g; return true
   }
-  const nodesFor = (block = new Set()) => byColumn(walkFrom(e.read, home, block, WALK_R, { stood }))
+  const nodesFor = (block = new Set()) => byColumn(walkFrom(rd, home, block, WALK_R, { stood }))
+  const conn = e.conn?.() ?? null
+  const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
+
+  // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
+  PJ.closeOwn(dir, key, me, { conn, acked: e.acked?.() ?? 0, now: now() })
 
   // ---- the click (placements and saplings) -----------------------------------------------------------------------------------
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
@@ -142,7 +175,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (e.aborted()) return 'aborted'
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
     const feet = e.feet()
-    const here = stepFor(e.read, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]))
+    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]))
     if (!here) return 'stand'
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]))) return 'body'
     if (!(await e.hold(block))) return 'no_material'
@@ -153,33 +186,37 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       const m = PJ.mutexTake(dir, key, me, { now: now() })
       if (!m.ok) return 'busy'
       const b = PJ.barrierTake(dir, key, me, { why: 'closer', cell, now: now() })
-      PJ.mutexRelease(dir, key, me)
+      PJ.mutexRelease(dir, key, me, { gen: m.gen })
       if (!b.ok) return 'busy'
       barGen = b.gen
       const until = now() + barrierWaitMs
-      while (!PJ.barrierClear(dir, key, me, { retired: e.retired(), now: now() }).clear) {
+      while (!PJ.barrierClear(dir, key, me, { isRetired, now: now() }).clear) {
         if (e.aborted()) { PJ.barrierRelease(dir, key, me, barGen); return 'aborted' }
         if (now() > until) { PJ.barrierRelease(dir, key, me, barGen); return 'barrier_wait' }
         await e.sleep(250)
       }
-      // the wait moved time: look again (a fresh face), nothing awaited after this
+      // the wait moved time (Claude r1 P3-1: a reflex or a meal may have changed the hand): hold the block again, look again;
+      // nothing awaited after this
+      if (!(await e.hold(block))) { PJ.barrierRelease(dir, key, me, barGen); return 'no_material' }
       await e.look(here.support, here.face)
     }
     try {
       const seq = e.nextSeq()
-      const id = PJ.intentOpen(dir, key, me, { cell, block, lease: segGen, seq, now: now() })
+      const id = PJ.intentOpen(dir, key, me, { cell, block, lease: segGen, seq, conn, now: now() })
+      const cancel = () => PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() })
       const m = PJ.mutexTake(dir, key, me, { now: now() })
-      if (!m.ok) { PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() }); return 'busy' }
+      if (!m.ok) { cancel(); return 'busy' }
       let released = false
-      const release = () => { if (!released) { released = true; PJ.mutexRelease(dir, key, me) } }
+      const release = () => { if (!released) { released = true; PJ.mutexRelease(dir, key, me, { gen: m.gen }) } }
       try {
         const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, now: now() })
-        if (why) { PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() }); return `fence:${why}` }
-        if (!replaceableCell(e.read(...cell)) && nm(e.read(...cell)) !== 'air') { PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() }); return 'refused' }
+        if (why) { cancel(); return `fence:${why}` }
+        if (!replaceableCell(rd(...cell)) && nm(rd(...cell)) !== 'air') { cancel(); return 'refused' }
         e.send(here.support, here.face, seq)   // SYNCHRONOUS after the fence: no await between them
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
-        if (v !== 'acked') return 'silent'   // the intent stays OPEN: a barrier waits for it until its ack or our retirement
+        // the intent stays OPEN and is TRACKED by the connection: its acknowledgement, however late, settles it (buildack.mjs)
+        if (v !== 'acked') { e.track?.(id, seq); return 'silent' }
         const state = nm(e.read(...cell))
         PJ.intentClose(dir, key, me, id, 'settled', { state, now: now() })
         return (want ? want(e.read(...cell)) : state === block) ? 'placed' : 'refused'
@@ -187,14 +224,42 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     } finally { if (barGen != null) PJ.barrierRelease(dir, key, me, barGen) }
   }
 
+  // ---- a dig of a NAMED block (clears and foreign blocks) ----------------------------------------------------------------------
+  // -> 'confirmed' | 'standing' | 'unconfirmed' | 'refused' | 'gone' | 'no_stand' | 'fence' | 'aborted'. The named block and the
+  // lease are checked AGAIN after the walk, at the dig (Codex r1 P2: a replacement placed during the walk, or a lease lapsed in it,
+  // was dug anyway). An unconfirmed dig asks the server (the probe): air confirms, any other name means it stands, nothing leaves
+  // the cell unknown.
+  const digNamed = async (at, name, held) => {
+    const stand = digStand(rd, at, nodesFor())
+    if (!stand) return 'no_stand'
+    if (!renewSlot() || !held()) return 'fence'
+    await e.walkTo(stand)
+    if (e.aborted()) return 'aborted'
+    if (nm(rd(...at)) !== name) return 'gone'
+    if (!renewSlot() || !held()) return 'fence'
+    let v = await e.dig(at, name)
+    for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
+    if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++ }
+    return v
+  }
+  /** An unknown cell, asked again from a stand in reach -> its server name | null (still unknown). */
+  const resolveUnknown = async at => {
+    const stand = digStand(e.read, at, nodesFor())
+    if (!stand) return null
+    await e.walkTo(stand)
+    const n = await e.probe(at)
+    if (n != null) unknown.delete(kOf(at))
+    return n
+  }
+
   // ---- 1. replant first --------------------------------------------------------------------------------------------------------
   for (const r of record.replant ?? []) {
     const g = guard(); if (g) { out.stop = g; return out }
-    if (SAPLING.test(nm(e.read(...r.cell)))) continue
+    if (SAPLING.test(nm(rd(...r.cell)))) continue
     // C1: no sapling in the bag -- the clear waits (its tree stands), the other work goes on; the visit reports it at its end
     if (!e.has(r.sapling)) { needSapling = r.sapling; continue }
     const nodes = nodesFor()
-    const step = stepFor(e.read, home, r.cell, nodes)
+    const step = stepFor(rd, home, r.cell, nodes)
     if (!step || step.support[1] !== r.cell[1] - 1) { out.stop = 'no_step'; out.why = `replant ${r.cell.join(',')}`; return out }
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
@@ -206,26 +271,27 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
 
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
   // Re-run after every segment that completes: a log no ground stand reaches comes down once the pad gives it an eye
-  const replanted = () => (record.replant ?? []).every(r => SAPLING.test(nm(e.read(...r.cell))))
-  const isClear = at => { const b = e.read(...at); return !!b && (nm(b) === 'air' || replaceableCell(b)) }
+  const replanted = () => (record.replant ?? []).every(r => SAPLING.test(nm(rd(...r.cell))))
+  const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b)) }
   const clears = async () => {
-    // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug
-    const todo = (record.clear ?? []).filter(c => nm(e.read(...c.at)) === c.name && !unknown.has(kOf(c.at))).sort((a, b) => a.at[1] - b.at[1])
+    // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
+    // an UNKNOWN cell is asked again first
+    const todo = (record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1])
     if (!todo.length) return null
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) return null                                       // another builder is clearing: its segments wait for it
+    const held = () => PJ.holdsLease(dir, key, 'seg-clear', me, seg.gen, now())
     try {
       for (const c of todo) {
         const g = guard(); if (g) return g
         if (c.kind === 'tree' && !replanted()) { needSapling ??= 'a sapling'; continue }   // never a tree before its sapling (B4)
+        if (unknown.has(kOf(c.at))) { const n = await resolveUnknown(c.at); if (n == null || n !== c.name) continue }
+        if (nm(rd(...c.at)) !== c.name) continue
         if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await e.sleep(SPAWN_DIG_QUIET_MS)
-        const stand = digStand(e.read, c.at, nodesFor())
-        if (!stand) continue                                       // not from here yet: after the next segment, or the next visit
-        if (!renewSlot() || !PJ.holdsLease(dir, key, 'seg-clear', me, seg.gen, now())) return 'fence:segment'
-        await e.walkTo(stand)
-        let v = await e.dig(c.at)
-        for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { await e.probe(c.at); v = isClear(c.at) ? 'confirmed' : 'unconfirmed' }
-        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind }) } else if (v === 'unconfirmed') { unknown.add(kOf(c.at)); out.unknown++ }
+        const v = await digNamed(c.at, c.name, held)
+        if (v === 'fence') return 'fence:segment'
+        if (v === 'aborted') return 'aborted'
+        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind }) }
       }
       return null
     } finally { PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen) }
@@ -234,8 +300,8 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
 
   // ---- 3. segments ------------------------------------------------------------------------------------------------------------
   for (const { seg, deps } of segmentsOf(record)) {
-    if (segComplete(e.read, record, palette, seg)) continue
-    if (!deps.every(d => segComplete(e.read, record, palette, d))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(e.read, record, palette, d)).join(',')}`; return out }
+    if (segComplete(rd, record, palette, seg)) continue
+    if (!deps.every(d => segComplete(rd, record, palette, d))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d)).join(',')}`; return out }
     const lease = PJ.takeLease(dir, key, `seg-${seg}`, me, { now: now() })
     if (!lease.ok) continue                                          // another builder holds it: the next segment
     let segGen = lease.gen, segAt = now()
@@ -245,11 +311,22 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       for (;;) {
         const g = guard(); if (g) { out.stop = g; return out }
         const mine = record.cells.filter(c => c.seg === seg)
-        const open = mine.filter(c => !cellDone(e.read(...c.at), palette, c.role))
+        const open = mine.filter(c => !cellDone(rd(...c.at), palette, c.role))
         row.open = open.length; row.done = mine.length - open.length
         if (!open.length) { finished = true; break }
         if (now() - segAt >= PJ.LEASE_TTL_MS * RENEW_AT) { const ng = PJ.renewLease(dir, key, `seg-${seg}`, me, segGen, { now: now() }); if (!ng) { out.stop = 'fence:segment'; return out } segGen = ng; segAt = now() }
         if (!renewSlot()) { out.stop = 'fence:slot'; return out }
+        // A FOREIGN SCAFFOLD-CLASS BLOCK in an open cell (placed after siting): dug first, lowest first, under this segment's lease
+        const foreign = open.filter(c => FOREIGN_CLEAR.test(nm(rd(...c.at))) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS).sort((a, b) => a.at[1] - b.at[1])
+        if (foreign.length) {
+          const f = foreign[0], name = nm(rd(...f.at))
+          const sg = segGen
+          const v = await digNamed(f.at, name, () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()))
+          if (v === 'fence') { out.stop = 'fence:segment'; return out }
+          if (v === 'aborted') { out.stop = 'aborted'; return out }
+          if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: 'foreign' }) } else bump(f.at)
+          continue
+        }
         const blocking = new Set(open.filter(c => c.role !== 'light').map(c => kOf(c.at)))
         const nodes = nodesFor(blocking)
         const feet = e.feet()
@@ -258,7 +335,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const cand = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         let picked = null, step = null
-        for (const c of cand) { step = stepFor(e.read, home, c.at, nodes); if (step) { picked = c; break } }
+        for (const c of cand) { step = stepFor(rd, home, c.at, nodes); if (step) { picked = c; break } }
         if (!picked) {
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : cand.length ? 'no_step' : 'attempts_spent'
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
@@ -277,7 +354,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     } finally { PJ.releaseLease(dir, key, `seg-${seg}`, me, segGen); out.segs.push(row); e.log('_build_seg', { seg, open: row.open, done: row.done }) }
     if (finished) { const s = await clears(); if (s) { out.stop = s; return out } }
   }
-  out.stop = record.cells.every(c => cellDone(e.read(...c.at), palette, c.role)) ? 'complete' : needSapling ? 'no_sapling' : 'unknown'
+  out.stop = record.cells.every(c => cellDone(rd(...c.at), palette, c.role)) ? 'complete' : needSapling ? 'no_sapling' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`
   return out
 }

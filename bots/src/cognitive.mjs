@@ -26,7 +26,7 @@ import { townPlinthState } from './skills.mjs'
 // mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
 import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
-import { shopRecordHead, shopSlotsFree } from './skills.mjs'
+import { shopRecordHead, shopSlotsFree, shopDamaged } from './skills.mjs'
 import { SHOP, buildOrder } from './shop.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -1415,7 +1415,7 @@ export class CognitiveLoop {
           const h = shopRecordHead()
           const rec = h.ok ? (h.head?.rec ?? null) : null
           const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
-            state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete, slotsFree: shopSlotsFree(bot),
+            state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete && !shopDamaged(bot, rec), slotsFree: shopSlotsFree(bot),
             health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot) })
           if (r.order) { order = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
           this.shopSkipAt ??= {}

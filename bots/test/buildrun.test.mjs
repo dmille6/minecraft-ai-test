@@ -3,121 +3,19 @@
 // stays silent); digs clear. The workshop is built end to end from the siting planner's own record on flat ground; two
 // builders run interleaved and never place a cell twice; a lost lease stops at the fence; a silent click keeps its intent open
 // and another builder's closer waits for it until the sender retires; a replant comes before its tree; no material stops.
+// The fakes are test/helpers/buildfake.mjs; the r2 scenarios are buildrun-r2.test.mjs (one file each keeps both inside the
+// runner's per-file timeout).
 import assert from 'node:assert'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import { createRequire } from 'node:module'
-
-const B = await import('../src/buildsite.mjs')
-const R = await import('../src/buildrun.mjs')
-const PJ = await import('../src/buildproj.mjs')
-const { AckTracker } = await import('../src/buildack.mjs')
-const RUN_PATH = new URL('../src/buildrun.mjs', import.meta.url)
-const mcData = createRequire(import.meta.url)('minecraft-data')('1.21.8')
+const { B, R, PJ, both, G, HOME, k3, server, KIT, bot, BP, SITE, project, allDone } = await import('./helpers/buildfake.mjs')
+const { AckTracker, installAckTracker } = await import('../src/buildack.mjs')
+const { EventEmitter } = await import('node:events')
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 5).join('\n        ')}`) }
 }
-async function withMutant (old, neu, fn) {
-  const src = readFileSync(RUN_PATH, 'utf8')
-  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
-  assert.ok(src.split(old).length === 2, 'the mutation target is not unique')
-  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
-  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
-}
-
-/** BOTH WAYS: the scenario passes on the real module, and throws on the mutant. */
-const both = async (old, neu, scenario) => {
-  await scenario(R)
-  let killed = false
-  await withMutant(old, neu, async M => { try { await scenario(M) } catch { killed = true } })
-  assert.ok(killed, 'the mutant survived')
-}
-
-const G = 69
-const HOME = { x: 0, y: G + 1, z: 0 }
-const box = n => mcData.blocksByName[n]?.boundingBox ?? 'block'
-const k3 = a => a.join(',')
-/** THE FAKE SERVER: flat ground (stone below G, grass at G), a shared mutable cell map, placement counts per cell. */
-function server (cells0 = {}) {
-  const cells = new Map(Object.entries(cells0))
-  const placedAt = new Map()
-  const read = (x, y, z) => {
-    if (Math.abs(x) > 60 || Math.abs(z) > 60 || y < G - 20 || y > G + 40) return null
-    const n = cells.get(`${x},${y},${z}`) ?? (y < G ? 'stone' : y === G ? 'grass_block' : 'air')
-    return { name: n, boundingBox: box(n) }
-  }
-  return { read, cells, placedAt, retired: new Map(), set: (a, n) => cells.set(k3(a), n) }
-}
-const KIT = () => ({ stone_bricks: 89, oak_planks: 49, glass_pane: 4, cut_copper: 20, torch: 2, furnace: 2, crafting_table: 1, cobblestone: 64, oak_sapling: 4 })
-/** One bot's effects on the fake server. `ack(target)` -> 'ok' | 'refuse' | 'silent' | a delay in ms. */
-function bot (srv, name, { inv = KIT(), feet = [2, G + 1, 0], ack = () => 'ok', capWait = null, others = () => [], aborted = () => false } = {}) {
-  const tr = new AckTracker()
-  let at = feet.slice(), held = null
-  const logs = []
-  const has = n => (inv[n] ?? 0) > 0
-  has.planks = () => Object.keys(inv).find(k => /_planks$/.test(k) && inv[k] > 0) ?? null
-  const e = {
-    read: srv.read, logs, inv,
-    feet: () => at.slice(),
-    bodies: () => others().map(f => ({ x: f[0] + 0.5, y: f[1], z: f[2] + 0.5, w: 0.6, h: 1.8 })),
-    walkTo: async s => { at = s.slice(); return true },
-    hold: async n => { if (!has(n)) return false; held = n; return true },
-    has,
-    look: async () => {},
-    nextSeq: () => tr.next(),
-    send: (support, face, seq) => {
-      const target = support.map((v, i) => v + face[i])
-      const how = ack(target, held)
-      const apply = () => {
-        const b = srv.read(...target)
-        if (how !== 'refuse' && b && (b.name === 'air' || b.name === 'short_grass') && has(held)) {
-          srv.set(target, held); inv[held]--; srv.placedAt.set(k3(target), (srv.placedAt.get(k3(target)) ?? 0) + 1)
-        }
-        tr.ack(seq)
-      }
-      if (how === 'silent') return
-      if (typeof how === 'number') setTimeout(apply, how); else setImmediate(apply)
-    },
-    waitAck: (seq, ms) => tr.wait(seq, capWait ?? ms),
-    dig: async c => { srv.set(c, 'air'); return 'confirmed' },
-    probe: async () => {},
-    retired: () => srv.retired,
-    aborted,
-    log: (k, d) => logs.push([k, d]),
-    now: () => Date.now(),
-    sleep: ms => new Promise(r => setTimeout(r, Math.min(ms, 5))),
-    spawnedAt: () => 0,
-    tracker: tr,
-  }
-  return e
-}
-const SECTORS = { gate: 'S', shaft: 'SW', monument: 'NW', well: 'W', farm: 'N' }
-const plan = () => ({
-  v: 1, template: 'ring@1', gen: 3, prev: 2, home: HOME, s: G, mode: 'retrofit', at: 1, world: 'w',
-  plots: [{ id: 'core', kind: 'plaza', box: [-6, -6, 6, 6], y: G, state: 'existing', keepout: false },
-    ...Object.entries(SECTORS).map(([id, sector]) => ({ id, kind: id, sector, state: 'planned' })),
-    { id: 'pavilion', kind: 'pavilion', sector: 'E', state: 'planned' }, { id: 'hall', kind: 'hall', sector: null, state: 'unsited' }],
-  paths: [], groups: {}, transitions: [],
-})
-const BP = B.loadBlueprint('workshop@1')
-const SITE = B.siteBlueprint(server().read, plan(), BP, { tries: 2 })
-assert.ok(SITE.ok, 'the flat site')
-/** A fresh project directory with the record published and a slot per builder. */
-function project (record = SITE.record, names = ['A']) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'buildrun-'))
-  const key = PJ.projKey(HOME, 'shop')
-  const pub = PJ.publishRecord(dir, key, () => ({ ...record }))
-  const slots = {}
-  for (const n of names) slots[n] = PJ.takeSlot(dir, key, n, 2)
-  const p = n => ({ dir, key, me: n, home: HOME, stood: [], record, recordGen: pub.gen, palette: BP.palette, slot: slots[n].slot, slotGen: slots[n].gen })
-  return { dir, key, p, slots }
-}
-const allDone = (srv, record = SITE.record) => record.cells.every(c => R.cellDone(srv.read(...c.at), BP.palette, c.role))
 
 console.log('THE ACK TRACKER')
 await t('next() is above every sequence written; an ack at or above wakes the waiter; below does not; a timeout returns timeout', async () => {
@@ -202,8 +100,8 @@ await t('A SILENT CLICK keeps its intent OPEN; another builder\'s closer waits f
   const b = bot(srv, 'B')
   const r1 = await R.runVisit(p('B'), b, { maxSteps: 60, barrierWaitMs: 50 })
   assert.strictEqual(r1.placed, 0, `B placed nothing while A's intent is open (${r1.stop})`)
-  // A RETIRES (playerLeft seen, 1 s ago): B's closers go
-  srv.retired.set('A', Date.now() - 2000)
+  // A RETIRES (offline for 2 s, as B's connection has seen it): B's closers go
+  srv.seen.set('A', { online: false, offlineSince: Date.now() - 2000, leftAt: null })
   const r2 = await R.runVisit(p('B'), bot(srv, 'B'), { maxSteps: 2000, barrierWaitMs: 50 })
   assert.ok(r2.placed > 0, JSON.stringify(r2))
 })
@@ -238,12 +136,6 @@ await t('A CLEAR NEVER DIGS A BUILT CELL (found in stage B: the pad laid over a 
   const r = await R.runVisit(p('A'), bot(srv, 'A'), { maxSteps: 2000 })
   assert.strictEqual(srv.read(...b.padCell).name, 'stone_bricks'); assert.strictEqual(r.cleared, 0); assert.strictEqual(r.stop, 'complete')
 })
-await t('MUTANT a clear judged by "not air" again (digs the pad)', () => both("const todo = (record.clear ?? []).filter(c => nm(e.read(...c.at)) === c.name && !unknown.has(kOf(c.at)))", "const todo = (record.clear ?? []).filter(c => !isClear(c.at) && !unknown.has(kOf(c.at)))", async M => {
-  const b = builtOverClear(), srv = server(b.cells), { p } = project(b.record)
-  await M.runVisit(p('A'), bot(srv, 'A'), { maxSteps: 30 })
-  assert.strictEqual(srv.read(...b.padCell).name, 'stone_bricks')
-}))
-
 console.log('PURE PIECES')
 await t('blockFor: the palette\'s first choice held, else its fallback; $planks is any planks species carried', () => {
   const has = n => ['birch_planks', 'glass_pane'].includes(n); has.planks = () => 'birch_planks'
@@ -264,7 +156,7 @@ await t('concurrentOk: two walls do not share a cell or stand? the pad and the r
 })
 
 console.log('MUTANTS (anchored, unique; both ways)')
-await t('MUTANT the fence skipped before the send', () => both("if (why) { PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() }); return `fence:${why}` }", '', async M => {
+await t('MUTANT the fence skipped before the send', () => both('if (why) { cancel(); return `fence:${why}` }', '', async M => {
   const srv = server(), { p, dir, key, slots } = project()
   const e = bot(srv, 'A')
   const log = e.log

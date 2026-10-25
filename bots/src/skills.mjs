@@ -116,10 +116,11 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells } from './buildsite.mjs'
-import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState } from './buildproj.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow } from './buildproj.mjs'
+import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -2008,9 +2009,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // TOWN GROUND IS FILTERED AT ENUMERATION (townground.mjs; Codex r1 P1): a matcher that also sees the cell, so the
     // 32 candidates are all eligible -- filtering after the search would let 32 town cells hide every one outside.
     // The palette pre-check calls the matcher with no position (a type test only); every real cell has one.
+    const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
+      if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
@@ -12931,7 +12934,8 @@ function matsTaking (bot, name) {
  *  the clock less `reserveMs`. THE RESERVE IS JUDGED AT EVERY TAKE (Codex r1 P1-1, mats.mjs takeAllowed): the index's other
  *  known containers plus what the server shows in this one now -- another bot's withdrawal since the order's reading is
  *  seen, never spent through. */
-async function matsWithdraw (ctx, take, signal, reserveMs, reserve) {
+// `allow` (shop-01 r2): how much of a name may be taken here; mats' own orders keep takeAllowed (a part has no reserve key there)
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
   const left = { ...take }
@@ -12945,7 +12949,7 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve) {
     const takes = []
     for (const [n, want] of Object.entries(left)) {
       if (!(want > 0)) continue
-      const c = takeAllowed(n, want, { others, here, reserve, taking: matsTaking(bot, n) })
+      const c = allow(n, want, { others, here, reserve, taking: matsTaking(bot, n) })
       if (c < Math.min(want, here[n] ?? 0)) out.capped++
       if (c > 0) takes.push({ name: n, count: c })
     }
@@ -13745,7 +13749,9 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
   const liveZones = () => { try { return bot.protectZones?.() ?? [] } catch { return [] } }
   const townNow = () => {
-    const farm = { forbid: null, bottom: null }   // no tree farm on this base (treefarm-02 composes its cells here)
+    // no tree farm on this base (treefarm-02 composes its cells here); THE WORKSHOP'S RECORD CELLS take the slot (shop-01 r2, Codex
+    // r1 P2 / Claude r1 P2-3: a target dig is not a pathfinder move, so the footprint price never reached the stair)
+    const farm = shopKeepOut()
     return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
   }
   // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one --
@@ -16169,6 +16175,63 @@ export function shopStoodTick (bot) {
     stoodAppend(townDir(), shopKey(), c, { by: bot.username ?? null })
   } catch { /* telemetry-grade */ }
 }
+/**
+ * THE CONNECTION'S ACKNOWLEDGEMENT TRACKER (shop-01 r2; index.mjs installs it right after createBot, before login, so no sequence
+ * is written unseen): its settler closes this bot's own intents however late their acknowledgement comes; its presence, written
+ * at login, names this connection (buildproj.mjs intentRetired, the mutex's superseded holder).
+ */
+export function shopAckInstall (bot) {
+  const acks = installAckTracker(bot)
+  acks.conn = `${process.pid}-${Date.now().toString(36)}`
+  const me = () => bot.username ?? config.bot?.name ?? 'bot'
+  acks.onSettle(id => { try { projIntentClose(townDir(), shopKey(), me(), id, 'settled', { state: 'ack' }) } catch { /* the barrier waits: safe */ } })
+  const mark = () => { try { if (planOn()) presenceWrite(townDir(), shopKey(), me(), { conn: acks.conn }) } catch { /* the other evidence applies */ } }
+  try { bot.once?.('login', mark); bot.once?.('end', () => acks.stop()) } catch { /* a bare bot */ }
+  return acks
+}
+/** THE WORKSHOP'S RECORD CELLS -> { cells: Set "x,y,z", bottom } | null (no record, or unreadable). Cached by the record's newest
+ *  generation number (one directory listing per call): mine asks at every plan and every dig. */
+let shopCellCache = null
+export function shopCellsNow () {
+  try {
+    if (!SHOP.on) return null
+    const dir = townDir(), key = shopKey()
+    const g = recordGenNow(dir, key)
+    if (g == null) return null
+    if (shopCellCache && shopCellCache.key === key && shopCellCache.g === g) return shopCellCache
+    const h = recordHead(dir, key)
+    if (!h.ok || !h.head?.rec?.cells?.length) return null
+    const cells = new Set(h.head.rec.cells.map(c => c.at.join(',')))
+    shopCellCache = { key, g, cells, bottom: Math.min(...h.head.rec.cells.map(c => c.at[1])) }
+    return shopCellCache
+  } catch { return null }
+}
+/** mine's keep-out part (minewell.mjs composeKeepOut): a record cell is never dug by a stair, never a stair's start. */
+export function shopKeepOut () {
+  const s = shopCellsNow()
+  return s ? { forbid: c => (c && s.cells.has(`${c.x},${c.y},${c.z}`) ? 'workshop' : null), bottom: s.bottom } : { forbid: null, bottom: null }
+}
+/**
+ * IS A COMPLETE WORKSHOP DAMAGED? (shop-01 r2, Codex r1 P2: completion is reassessed against the WORLD, so a cut cell is
+ * rebuilt) -> true when a loaded record cell no longer reads done. Unloaded cells say nothing. Cached 60 s on the bot (the
+ * order reads it every decision). Never throws.
+ */
+export function shopDamaged (bot, rec = null) {
+  try {
+    const r = rec ?? shopRecordHead().head?.rec
+    if (!r?.structure_complete) return false
+    const now = Date.now()
+    if (bot.shopDamage && now - bot.shopDamage.at < 60_000) return bot.shopDamage.v
+    const bp = shopBlueprint()
+    let v = false
+    for (const c of r.cells ?? []) {
+      const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
+      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role)) { v = true; break }
+    }
+    bot.shopDamage = { at: now, v }
+    return v
+  } catch { return false }
+}
 /** The footprint for the walks' price (index.mjs reads bot.shopFootprint in the A* step). Refreshed with the record. */
 export function shopFootprintRefresh (bot) {
   try { const h = shopRecordHead(); if (h.ok) bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set() } catch { /* keep the last */ }
@@ -16209,19 +16272,30 @@ async function buildShop (ctx, args, signal) {
   }
   shopFootprintRefresh(bot)
   const rec = rh.head.rec
-  if (rec.structure_complete) return out('no_effect', 'complete', 'the workshop stands')
+  // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
+  if (rec.structure_complete && !shopDamaged(bot, rec)) return out('no_effect', 'complete', 'the workshop stands')
   const slot = takeSlot(dir, key, me, BUILDERS_MAX)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
-  let slotGen = slot.gen, effects = null
+  const slotRef = { gen: slot.gen }   // follows every renewal inside the visit: the release below is the LATEST generation (Codex r1 P3)
+  let effects = null
   try {
-    // THE BILL (design 4.6 P2): the open cells' blocks less the bag, from town under the BUILD_RESERVE and the outstanding draws
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn })
+    // THE BAG'S KEEPS at the visit's start (cooperation A2; Codex r1 P3): the bill is drawn on top of them and the visit spends
+    // only what is held above them
+    const held0 = heldMap(bot)
+    const keep = townKeeps(held0, { wanted: bot.currentWants ?? [] }).keep
+    const spare0 = Object.fromEntries(Object.entries(held0).map(([n, c]) => [n, Math.max(0, c - (keep[n] ?? 0))]))
+    // THE BILL (design 4.6 P2): the open cells' blocks, the pending replants' saplings, a missing station's inputs -- less the
+    // bag's spare -- from town under the BUILD_RESERVE and the outstanding draws (a part: up to what the container shows)
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
     const planks = Object.entries(town).filter(([n]) => /_planks$/.test(n)).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'oak_planks'
     const bill = billOf(rec, bp.palette, read, { done: buildCellDone, inTown: n => (town[n] ?? 0) > 0, planks })
-    const need = needFromTown(bill, heldMap(bot))
+    const want = visitNeeds(rec, bill, { saplingAt: c => /_sapling$|^mangrove_propagule$/.test(read(...c)?.name ?? ''), town, spare: spare0, planks })
+    const need = needFromTown(want, spare0)
     let took = {}
-    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table); took = w.took ?? {} }
+    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow); took = w.took ?? {} }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table)
     for (const item of ['furnace', 'crafting_table']) {
       const lack = (bill[item] ?? 0) - countItem(bot, item)
@@ -16229,16 +16303,19 @@ async function buildShop (ctx, args, signal) {
     }
     check(signal)
     effects = botBuildEffects(bot, {
+      acks,
+      keep,
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
       aborted: () => !!signal?.aborted,
       log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: SHOP_PLOT, ...d }) : buildRowDetail({ project: SHOP_PLOT, ...d }) }) } catch { /* telemetry */ } },
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
-    slotGen = r.slotGen ?? slotGen
+    bot.shopUnknown ??= new Set()   // cells a dig left unanswered: unknown for the connection, asked again by the next visit
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
-      try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ }
+      bot.shopDamage = null
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
     const status = r.placed > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
@@ -16246,7 +16323,7 @@ async function buildShop (ctx, args, signal) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
   } finally {
-    releaseLease(dir, key, `slot${slot.slot}`, me, slotGen)
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
     try { effects?.close() } catch { /* gone */ }
   }
 }
