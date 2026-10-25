@@ -211,6 +211,15 @@ still spell (else WATCH: a village path is walkable), and this doc's rollback, r
 Open P2s: no bounded emergency stop behind ops.lock; `kept_runs` not bound to the promoted sha; the underground escape still
 unproved (owner question); exit 4 surfaces only in trip.log.
 
+**Verify-2 (Codex): CHANGE, 3 new P1** in r5/r6 -- the "defects before the run" subtraction is unsound (G1/G3 not monotone; D4
+read from the current plan in both passes) and the row filter missed `"name": "x"`. -> r7 (43b53edc): S5 is STICKY until a
+human acknowledges it by item (`showcase_trip.py ack --why ...`, multiset, pruned when an item goes away so it re-arms); regex
+filter; bad files named. **Verify-3 (Codex): CHANGE** on the ack path (unlocked writes, no prune while stopped, an unreadable
+ACK, bad files dropping defects, D4 identity) -> r8 (5e3ca7f0) fixes each. **Accepted residual:** a G1/G3 item string has no
+time, so an acknowledged item that is replaced and fails again with an identical string between two hourly reads stays
+acknowledged; the ack path is unused until a defect occurs (none so far). **Bots restarted 16:49:04Z** (gate 17/17, ten on the
+expected build, 37/37 decisions gemma4, LANE: AUTO_FOLLOW not created, RUN_SINCE written).
+
 ## 8. Start record (2026-10-25)
 
 - **15:12Z** follower drop-in installed, timer stopped, service inactive. **15:13:03Z** `start-bots.sh`: gate 17/17; ten
