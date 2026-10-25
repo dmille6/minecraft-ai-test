@@ -27,6 +27,12 @@ RUNS
   cand-4   sandbox8  wt4 5f87e664   driver 30b9dafb  CANDIDATE_PASS  same shape, visit 86.1 s
   cand-5   sandbox8  wt4 00718c01   driver 30b9dafb  CANDIDATE_PASS  same shape
   cand-6   sandbox8  wt4 f7877dfc   driver 30b9dafb  CANDIDATE_PASS  same shape, visit 88.5 s  <- the converged code (r6)
+  cand-7   sandbox8  wt4 91547151   driver 30b9dafb  CANDIDATE_PASS  same shape; the new _build_bag row exact on all 7 names:
+           stone_bricks=0/89/0/89/0/0 oak_planks=0/49/0/49/0/0 cut_copper=0/20/0/20/0/0 glass_pane=0/4/0/4/0/0 torch=0/2/0/2/0/0
+           furnace=0/2/0/2/0/0 crafting_table=0/1/0/1/0/0 (bag0/took/crafted/placed/back/bag1)
+  cand-8   sandbox8  wt4 64941a93   driver 30b9dafb  CANDIDATE_PASS  same shape; the bag row with `exit=complete silent=0`
+  cand-8k  sandbox8  wt4 64941a93   driver 73dab611  CANDIDATE_PASS, SHOP_KEEP=1 (the workshop left standing for the structure
+           count below; the next scene's set-up refills the arena)
   The PASS line of cand-6:
   shop   CANDIDATE_PASS done=true record={"sector":"W","source":"pavilion","anchor":[737,760],"orient":"S","s":120,"gen":2,
   "complete":true} cells={"n":167,"bad":0} acks={"places":167,"foreign":4,"acks":171,"unacked":0} d(stock){stone_bricks-89
@@ -39,6 +45,21 @@ keepalive settings: no override in its configs or its java command line), was SI
 server logged `KaProbe lost connection: Timed out` 29-30 s after the stop each time (server clock: stop 21:46:26 -> 21:46:55;
 21:48:11 -> 21:48:41; 21:48:58 -> 21:49:27; 21:49:53 -> 21:50:22). On resume the client's write failed EPIPE (it could send
 nothing). So 15 + 30 = 45 s < 60 s: a 15 s margin.
+
+THE READ OVER REAL ROWS (Claude read r1 P3-3): docs/reports/shop-01-2026-10-25/shopread-sandbox.py.txt runs shopread's judge over a
+SHOP-E2E skill log with its pool directory as the town oracle. cand-7 and cand-8: clean -- 167 placements on the record (G1 0),
+10 lease names incl. the wall segments (G4 0), the bag row judged (cand-8: exit=complete silent=0) with G8 0, liveness 1, exposure
+NOT READY (no structure count: correct). On cand-6's log it found a read defect (zone_unknown fired on a town without a zones
+file; the bot reads a missing file as no zones) -- fixed in read r2.
+
+THE STRUCTURE COUNT'S POSITIVE CONTROL (Claude read r2 Q3): structcount.py scan (10.0.0.30) on a COPY of the sandbox's region file
+r.1.1.mca, home 760,120,760, r 96 (docs/reports/shop-01-2026-10-25/structcount-probe.sh.txt).
+  - after cand-8 (driver cleanup refilled the arena with air): sandbox8 built_cells 0, buildings 0 -- the same as the base world:
+    a scan after a normal run can see nothing. Hence SHOP_KEEP.
+  - after cand-8k (the workshop kept, save-all flush, region saved 23:01:53): sandbox8 built_cells 169, structures 1, BUILDINGS 1:
+    a lit room, floor 13, enclosure 0.94, roof_built 1.0, doors 1, centre 734.4,121,764 -- inside the record box [731,760,737,768].
+  - sandbox7 (base, no workshop): built_cells 0, buildings 0.
+  So the read's world exposure (a lit room inside the record's box, none there before) sees the workshop, and the base shows none.
 
 NOT RUN (named): the design's other shop-01 scenes -- CHAIN-1 (an empty bag, parts made by make_material first), GHOST-RESYNC,
 SHOP-BARRIER / SHOP-COOP2 (two builders, SIGSTOP holders), SHOP-CLEAR (trees and replants), SHOP-ZONE, SHOP-KILL, ENTOMB, and the

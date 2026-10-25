@@ -1,0 +1,22 @@
+#!/bin/bash
+# The structure count's positive control on a world where SHOP-E2E built the workshop (Claude read r2 Q3): copy the sandbox's
+# region file READ-ONLY into a temp dir, run `structcount.py scan` on the copy around the town home, print the buildings and
+# rooms; then the same on the BASE sandbox (no workshop) as the control. Temp dirs removed. Run on 10.0.0.30.
+set -u
+H=760,120,760
+for SB in sandbox8 sandbox7; do
+  T=$(mktemp -d /tmp/scprobe-XXXXXX)
+  cp /srv/block2/$SB/world/region/r.1.1.mca "$T/" 2>&1 || { echo "$SB: cannot copy"; rm -rf "$T"; continue; }
+  ls -la --time-style=+%H:%M:%S "$T"/r.1.1.mca /srv/block2/$SB/world/region/r.1.1.mca | awk '{print $6, $7}'
+  python3 ~/structcount/bin/structcount.py scan "$SB" "$T" "$H" --r 96 --json "$T/out.json" > "$T/scan.out" 2>&1
+  echo "== $SB rc=$?"
+  python3 -c "
+import json,sys
+d=json.load(open('$T/out.json'))
+w=d.get('$SB', d) if isinstance(d, dict) else d
+keys=('built_cells','structures','buildings','unlit_rooms','building_rooms','litter_cells','surface_structures')
+print({k: (w.get(k) if isinstance(w, dict) else None) for k in keys})
+" 2>&1 | head -5
+  tail -3 "$T/scan.out"
+  rm -rf "$T"
+done

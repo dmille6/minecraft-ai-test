@@ -31,6 +31,27 @@ CONVERGED at f7877dfc: Codex APPROVE r6, Claude APPROVE r6. npm test 313/313 at 
 BASE_SHAPE (base-2). eslint no-undef: one hit, bots/src/reflex.mjs:2506 'withinBody', pre-existing on the base (the same hit at
 7049da16).
 
+THE READ AND THE READ'S TELEMETRY (after the builder converged)
+ROUND  CODE                 CODEX                                      CLAUDE
+read1  50111124 (read r1)   CHANGES: P1 exposure from the code's own   CHANGES: P2 the wall leases unread (seg-wall-F); P2 G6 on
+                            row; P1 no bag-conservation gate; P1 blind the wrong cell, fires after a reconnect; P2 exposure is
+                            oracle; P2 G7 false on repairs; P2 G5 on   the code's claim and the oracle goes blind; P3 x5
+                            telemetry; P2 replants not in G3; P2
+                            litter; P3 denominators
+read2  e5482972 (builder    CHANGES: P2 x4 (a partial bank is a false  CHANGES: P2 G8 false on silent clicks, deaths, aborts;
+       r7 91547151 + read   loss; G6 order on a reconnect's own row;   Q3: world exposure adequate for exposure once the
+       r2)                  zones schema; G5 denominator) + P2 record- structure count's positive control is shown
+                            specific world verification before KEEP
+read3  this round's tip     (pending)                                  (pending)
+       (builder r8 64941a93
+       + read r3)
+- Builder r7 (91547151) and r8 (64941a93) are TELEMETRY ONLY: placedBy, saplings= on a felling, the _build_bag row (books kept
+  as they happen: onTook, onBanked, crafts in a finally; exit= and silent= on the row). npm test 313/313 at both.
+- Read r3: G8 judged only on a clean exit with silent=0; G6 resets on the reconnect's own row first; the zones file by the
+  bot's own schema; G5's denominator must equal the record's replant count; the world exposure is RECORD-SPECIFIC (a lit room
+  inside the record's box, none there before the deploy) with its positive control measured on sandbox8 (the Paper record).
+  26 mutants, all killed.
+
 STATED RESIDUALS (both engines saw them; none is a P1/P2)
 - A3's reserved SITE CHEST does not exist on this base (cooperation's job): the visit draws from any fresh, known town container
   and banks its leftovers into ordinary town chests (A3's own fallback); the bank is skipped when < 150 s of the skill's 600 s
@@ -40,6 +61,9 @@ STATED RESIDUALS (both engines saw them; none is a P1/P2)
 - A replant whose nearest face is not below stops the visit (fine on every bench record).
 - `fence:beat` (own heartbeat > 15 s old: a stalled event loop or a failed write) ends that visit; the next visit proceeds.
 - Fail closed: a holder whose presence never lands is never retired by peers (it also cannot send: its own fence refuses).
-- Not a gate in the read: the builder's bag delta against confirmed placements (no begin-of-visit bag on the rows; the Paper
-  scene's stock delta is its gate), litter cells, and the record conformance F1 / PERSISTENT rule (needs a structcount
-  `scan --record` that is not built).
+- Not measured by the read: the design's PERSISTENT rule (a second clean survey; the structure count is nightly) and record
+  conformance F1 >= 0.98 (needs a structcount `scan --record`, not built). Codex read r2 asks for record-specific verification
+  before KEEP: read r3's lit-room-inside-the-record-box check is record-specific; full cell conformance is not.
+- Litter is reported (a DiD across the nightly counts), not gated.
+- Barrier generation files are never pruned (one per closer click; ~35 per workshop): a small, bounded-per-build leak of
+  state files (the mutex generations are pruned to 16).

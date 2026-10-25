@@ -27,15 +27,15 @@
 #   G6 unknown_stood   a bot's OWN build row whose position (its stand) is IN or ON a cell its own `op=unknown` row named, before
 #                      an `op=known`/clear of it or its next `_build_mode` (a new connection)
 #   G8 bag_loss        a `_build_bag` part (any name but cobblestone and planks, which the pathfinder may scaffold) the visit
-#                      cannot account for (unexplained < 0)
+#                      cannot account for (unexplained < 0) -- judged only on a clean exit with silent=0 (bag_unjudged: reported)
 #   ORACLE             oracle_missing: a canary town with build mutations and no readable record; zone_unknown: ... and a
 #                      protected-zones.json that is present but unreadable (a MISSING file is no zones, as the bot reads it)
 #   ARMS               control rows of these kinds after the deploy (must be 0; build_shop is chatOnly -- a player's chat to a
 #                      CONTROL bot writes `_build_visit outcome=off`: read that row before calling it a leak)
 #   LIVENESS           canary `_build_mode` >= 1 and canary `_build_visit` >= 1
 #   EXPOSURE           WORLD EVIDENCE (read r1, both engines: a completion row is the code's own claim): a canary town counts
-#                      when it has a `_structure_complete` row AND the first structure count after that row shows its
-#                      BUILDINGS (lit rooms) above the last count before the deploy; >= EXPOSE_TOWNS such towns. NOT MEASURED
+#                      when it has a `_structure_complete` row AND the first structure count after that row shows a LIT ROOM
+#                      INSIDE ITS RECORD'S BOX (rooms_in_box; none there before the deploy); >= EXPOSE_TOWNS such towns. NOT MEASURED
 #                      (named): the design's PERSISTENT rule and record conformance F1 >= 0.98 (a `structcount scan --record`
 #                      is not built)
 #   NO HARM (WATCH, DiD of success shares; fails only below its tolerance with z < -2; UNEXPOSED under MIN_CELL)
@@ -132,11 +132,31 @@ def read_projects(root='/var/lib/mcai'):
             zok = True
         else:
             try:
-                zok = isinstance(json.load(open(zf)), dict)
+                zok = zones_valid(json.load(open(zf)))
             except Exception:
                 zok = False
         out[pool] = {'record': record_head(recs) if recs else None, 'records_files': len(recs), 'leases': dict(leases), 'dir': d, 'zones_ok': zok}
     return out
+
+
+def zones_valid(raw):
+    """THE BOT'S OWN SCHEMA (protectzone.mjs parseZones; Codex read r2 P2-3): an object, version 1, a `zones` list of at most 64,
+    every zone an id string and a 6-integer ordered box within the spans, floor_y (if any) an integer inside it. Anything less
+    makes the bot keep its last good list -- which this read cannot see -- so G3 cannot be judged: False (fail closed)."""
+    isint = lambda v: isinstance(v, int) and not isinstance(v, bool)
+    if not isinstance(raw, dict) or raw.get('version') != 1 or not isinstance(raw.get('zones'), list) or len(raw['zones']) > 64:
+        return False
+    for z in raw['zones']:
+        b = z.get('box') if isinstance(z, dict) else None
+        if not (isinstance(z, dict) and isinstance(z.get('id'), str) and z['id'] and isinstance(b, list) and len(b) == 6 and all(isint(v) for v in b)):
+            return False
+        x0, y0, z0, x1, y1, z1 = b
+        if x0 > x1 or y0 > y1 or z0 > z1 or x1 - x0 > 1024 or z1 - z0 > 1024 or y1 - y0 > 448:
+            return False
+        fy = z.get('floor_y')
+        if fy is not None and not (isint(fy) and y0 <= fy <= y1):
+            return False
+    return True
 
 
 def lease_overlaps(leases):
@@ -172,10 +192,29 @@ def structcount_gens(root=os.path.expanduser('~/structcount/in')):
     return sorted(out, key=lambda g: g[0])
 
 
-def world_evidence(gens, cut, complete_at):
-    """gens: structcount_gens(); cut: the deploy time; complete_at: {pool: first completion time}. -> ({pool: why}, litter)
-    A completed town is CONFIRMED when the first count after its completion shows more buildings than the last count before the
-    deploy. litter: {pool: (before, after)} for every town both counts cover (the no-harm line's cells)."""
+def rooms_in_box(doc, box):
+    """The structure count's lit, roofed rooms (B5 buildings: `building_rooms`, JSON strings with a `centre`) whose centre lies in
+    the record's box [x0, z0, x1, z1] (+-1) -> n. Record-SPECIFIC world evidence (Codex read r2 P2-5): another town building
+    rising elsewhere does not count. Positive control, 10-25 on sandbox8 after SHOP-E2E: one lit room, centre 734.4,121,764 in the
+    record box [731,760,737,768]; the base world: none."""
+    n = 0
+    for raw in (doc or {}).get('building_rooms') or []:
+        try:
+            r = json.loads(raw) if isinstance(raw, str) else raw
+            cx, _, cz = r.get('centre')
+        except Exception:
+            continue
+        if r.get('lit') and box and box[0] - 1 <= cx <= box[2] + 1 and box[1] - 1 <= cz <= box[3] + 1:
+            n += 1
+    return n
+
+
+def world_evidence(gens, cut, complete_at, boxes=None):
+    """gens: structcount_gens(); cut: the deploy time; complete_at: {pool: first completion time}; boxes: {pool: the record's box}.
+    -> ({pool: why}, litter). A completed town is CONFIRMED when the first count after its completion shows a lit room INSIDE ITS
+    RECORD'S BOX and the last count before the deploy showed none there. litter: {pool: (before, after)} for every town both
+    counts cover (the no-harm line's cells)."""
+    boxes = boxes or {}
     before = [g for g in gens if g[0] < cut]
     base = before[-1][1] if before else None
     world = {}
@@ -185,9 +224,11 @@ def world_evidence(gens, cut, complete_at):
             world[pool] = 'no count before the deploy'
         elif not after:
             world[pool] = 'no count after the completion yet'
+        elif not boxes.get(pool):
+            world[pool] = 'no record box'
         else:
-            b0 = (base.get(pool) or {}).get('buildings'); b1 = (after[0][1].get(pool) or {}).get('buildings')
-            world[pool] = 'confirmed' if isinstance(b0, int) and isinstance(b1, int) and b1 > b0 else 'buildings %s -> %s' % (b0, b1)
+            r0, r1 = rooms_in_box(base.get(pool), boxes[pool]), rooms_in_box(after[0][1].get(pool), boxes[pool])
+            world[pool] = 'confirmed' if r0 == 0 and r1 >= 1 else 'lit rooms in the record box %d -> %d' % (r0, r1)
     litter = {}
     last = gens[-1][1] if gens and gens[-1][0] > cut else None
     if base is not None and last is not None:
@@ -236,6 +277,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
             cans.add(pool)
         if arm != 'canary' or per != 'post':
             continue
+        if name == '_build_mode':
+            for k in [k for k in unknown_open if k[0] == bot]:      # a new connection: its unknown set starts empty -- FIRST
+                del unknown_open[k]
         # G6 on the bot's OWN build rows only (their position is the builder's stand): feet IN the cell or ON it
         if name in BUILD_KINDS and r.get('feet') and unknown_open:
             p = r['feet']
@@ -247,8 +291,6 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
             out['build_rows_with_pos'] += 1
         if name == '_build_mode':
             out['licence_canary'] += 1
-            for k in [k for k in unknown_open if k[0] == bot]:      # a new connection: its unknown set starts empty
-                del unknown_open[k]
         elif name == '_build_visit':
             out['visits_canary'] += 1
             out['visit_%s' % f.get('stop', '?')] += 1
@@ -261,6 +303,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
                 lists['why'].append('%s %s:%s' % (bot, f.get('stop'), (f.get('why') or '-')[:50]))
         elif name == '_build_bag':
             out['bag_rows'] += 1
+            # G8 judges only a CLEAN exit with no silent click (Claude read r2 P2: a late-acked silent click placed its block
+            # untallied; a death or an abort leaves the bag mid-visit) -- the rest are reported, never a loss
+            if f.get('exit') in (None, '-', 'aborted', 'error', 'died', 'off') or f.get('silent') != '0':
+                out['bag_unjudged'] += 1; lists['bag_unjudged'].append('%s exit=%s silent=%s' % (bot, f.get('exit'), f.get('silent')))
+                continue
             for m in BAG_RE.finditer(r['detail'] or ''):
                 n = m.group(1)
                 b0, took, crafted, pl, back, b1 = (int(m.group(i)) for i in range(2, 8))
@@ -308,8 +355,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
                 if f.get('kind') == 'tree':
                     out['tree_clears'] += 1
                     m = re.match(r'^(\d+)/(\d+)$', f.get('saplings') or '')
-                    if not m:
-                        out['g5_unjudged'] += 1; lists['g5_unjudged'].append('%s %s' % (bot, k))
+                    need = len(rec.get('replant') or []) if rec is not None else None
+                    if not m or int(m.group(1)) > int(m.group(2)) or (need is not None and int(m.group(2)) != need):
+                        out['g5_unjudged'] += 1; lists['g5_unjudged'].append('%s %s saplings=%s record=%s' % (bot, k, f.get('saplings'), need))
                     elif int(m.group(1)) < int(m.group(2)):
                         out['felled_unplanted'] += 1; lists['felled_unplanted'].append('%s %s saplings=%s' % (bot, k, f.get('saplings')))
                 unknown_open.pop((bot, k), None)
@@ -333,7 +381,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
             out['lease_overlap'] += 1; lists['lease_overlap'].append('%s %s g%s: %s' % (pool, name, gen, why))
     out['complete_towns'] = len(complete_at)
     lists['complete_towns'] = sorted(complete_at)
-    world, litter = world_evidence(list(gens), cut, complete_at) if cut is not None else ({}, {})
+    boxes = {p: (pr.get('record') or {}).get('box') for p, pr in projects.items()}
+    world, litter = world_evidence(list(gens), cut, complete_at, boxes) if cut is not None else ({}, {})
     out['complete_towns_world'] = sum(1 for v in world.values() if v == 'confirmed')
     lists['world'] = ['%s: %s' % kv_ for kv_ in sorted(world.items())]
     lists['_litter'] = litter
@@ -345,7 +394,7 @@ def combine(out, lists):
     g = lambda k: out.get(k, 0)
     res = {k: v for k, v in out.items()}
     for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'g5_unjudged', 'unknown_stood', 'bag_loss',
-              'oracle_missing', 'zone_unknown', 'placed_twice'):
+              'bag_unjudged', 'oracle_missing', 'zone_unknown', 'placed_twice'):
         res[k] = g(k)
     res['arms_breach'] = g('arms_rows_control_post')
     res['liveness'] = int(g('licence_canary') >= 1 and g('visits_canary') >= 1)
@@ -376,11 +425,14 @@ def selftest():
     CUT = t0 - dt.timedelta(hours=1)
     R = lambda name, detail, arm='canary', per='post', s=0, status='success', bot='board-a-Alpha', item=None, feet=None: {
         't': t0 + dt.timedelta(seconds=s), 'per': per, 'arm': arm, 'name': name, 'detail': detail, 'status': status, 'bot': bot, 'item': item, 'feet': feet}
-    rec = {'v': 1, 'gen': 1, 'prev': None, 'cells': [{'at': [10, 70, 10], 'role': 'base', 'seg': 'pad'}, {'at': [11, 70, 10], 'role': 'base', 'seg': 'pad'}],
+    rec = {'v': 1, 'gen': 1, 'prev': None, 'box': [9, 9, 13, 12], 'cells': [{'at': [10, 70, 10], 'role': 'base', 'seg': 'pad'}, {'at': [11, 70, 10], 'role': 'base', 'seg': 'pad'}],
            'clear': [{'at': [12, 71, 10], 'kind': 'tree', 'name': 'oak_log'}], 'replant': [{'cell': [20, 70, 20], 'sapling': 'oak_sapling'}]}
     PR = lambda **kw: {'record': rec, 'records_files': 1, 'leases': {}, 'zones_ok': True, **kw}
     proj = {'board-a': PR(), 'board-b': PR()}
-    day = lambda b_a, b_b, la=100, lb=100, lc=100: {'board-a': {'buildings': b_a, 'litter_cells': la}, 'board-b': {'buildings': b_b, 'litter_cells': lb}, 'hive-b': {'buildings': 0, 'litter_cells': lc}}
+    room = lambda x, z, lit=True: json.dumps({'centre': [x, 71, z], 'lit': lit})
+    town = lambda b, lit_c: {'buildings': b, 'building_rooms': [room(11, 10)] * b if lit_c else ([room(60, 60)] * b), 'litter_cells': 100}
+    def day(b_a, b_b, la=100, lb=100, lc=100, where_a=True):
+        return {'board-a': {**town(b_a, where_a), 'litter_cells': la}, 'board-b': {**town(b_b, True), 'litter_cells': lb}, 'hive-b': {'buildings': 0, 'building_rooms': [], 'litter_cells': lc}}
     gens = [(CUT - dt.timedelta(hours=2), day(0, 0)), (t0 + dt.timedelta(hours=3), day(1, 1))]
     base = [R('_build_mode', 'phase=mode v=1 shop=on'), R('_build', 'project=shop op=sited cell=10,10 gen=1', s=5),
             R('_build', 'project=shop op=replant cell=20,70,20 block=oak_sapling', s=8),
@@ -388,7 +440,7 @@ def selftest():
             R('_build', 'project=shop op=place seg=pad cell=10,70,10 block=stone_bricks', s=10),
             R('_build', 'project=shop op=place seg=pad cell=11,70,10 block=stone_bricks', s=11),
             R('_build_visit', 'project=shop outcome=complete stop=complete placed=2 refused=0', s=12),
-            R('_build_bag', 'project=shop stone_bricks=0/2/0/2/0/0 cobblestone=64/0/0/0/0/60', s=12),
+            R('_build_bag', 'project=shop exit=complete silent=0 stone_bricks=0/2/0/2/0/0 cobblestone=64/0/0/0/0/60', s=12),
             R('_structure_complete', 'project=shop op=complete kind=workshop@1 gen=2', s=12),
             R('_build', 'project=shop op=place seg=pad cell=10,70,10 block=stone_bricks', s=15, bot='board-b-Alpha'),
             R('_structure_complete', 'project=shop op=complete', s=20, bot='board-b-Alpha'),
@@ -425,6 +477,8 @@ def selftest():
     # G5 from the felling's own evidence: fewer saplings than replant cells; a tree clear without the field is unjudged
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1', s=9)])['felled_unplanted'] == 1
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9)])['g5_unjudged'] == 1
+    assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/0', s=9)])['g5_unjudged'] == 1, 'Codex read r2 P2-4: 0/0 against a record with a replant'
+    assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=2/1', s=9)])['g5_unjudged'] == 1, 'an impossible fraction'
     # G6 on the bot's own build rows: the stand IN or ON the unknown cell; not after it is known again; not after a new connection
     unk = R('_build', 'project=shop op=unknown cell=12,71,10 block=oak_log', s=40)
     on = R('_build_seg', 'project=shop seg=pad open=1 done=1', s=41, feet=[12, 72, 10])
@@ -435,10 +489,14 @@ def selftest():
     assert J(base + [unk, walk])['unknown_stood'] == 0, 'another skill walking over it (the server may have resynced it): not judged'
     assert J(base + [unk, R('_build', 'project=shop op=known cell=12,71,10 block=air', s=40.5), on])['unknown_stood'] == 0
     assert J(base + [unk, R('_build_mode', 'phase=mode v=1 shop=on', s=40.5), on])['unknown_stood'] == 0, 'a reconnect: a new connection'
+    assert J(base + [unk, R('_build_mode', 'phase=mode v=1 shop=on', s=40.5, feet=[12, 72, 10])])['unknown_stood'] == 0, 'the mode row itself, standing there (Codex read r2 P2-2)'
     # G8 a part the visit cannot account for; cobblestone/planks short = scaffold, never a loss
-    assert J(base + [R('_build_bag', 'project=shop glass_pane=0/4/0/2/1/0', s=50)])['bag_loss'] == 1
-    assert J(base + [R('_build_bag', 'project=shop oak_planks=0/49/0/40/0/0', s=50)])['bag_loss'] == 0
-    assert J(base + [R('_build_bag', 'project=shop torch=0/2/0/2/0/3', s=50)])['bag_loss'] == 0, 'a pickup is not a loss'
+    assert J(base + [R('_build_bag', 'project=shop exit=no_material silent=0 glass_pane=0/4/0/2/1/0', s=50)])['bag_loss'] == 1
+    assert J(base + [R('_build_bag', 'project=shop exit=complete silent=0 oak_planks=0/49/0/40/0/0', s=50)])['bag_loss'] == 0
+    assert J(base + [R('_build_bag', 'project=shop exit=complete silent=0 torch=0/2/0/2/0/3', s=50)])['bag_loss'] == 0, 'a pickup is not a loss'
+    for ex, si in (('died', '0'), ('aborted', '-'), ('complete', '1'), ('error', '0'), ('-', '-')):
+        rj = J(base + [R('_build_bag', 'project=shop exit=%s silent=%s glass_pane=0/4/0/2/0/0' % (ex, si), s=50)])
+        assert rj['bag_loss'] == 0 and rj['bag_unjudged'] == 1, ('Claude read r2 P2: not judged', ex, si)
     # ORACLE: a town building with no readable record; with no readable zones file
     assert J(base, {**proj, 'board-a': PR(record=None, records_files=0)})['oracle_missing'] == 1
     assert J(base, {**proj, 'board-b': PR(zones_ok=False)})['zone_unknown'] == 1
@@ -451,6 +509,9 @@ def selftest():
     assert J(base, g=gens[:1])['exposure_ready'] == 0, 'no count after the completion yet'
     assert J(base, g=[gens[0], (gens[1][0], day(1, 0))])['exposure_ready'] == 0, 'board-b shows no building'
     assert J(base, g=[])['exposure_ready'] == 0, 'no mirror: never ready'
+    assert J(base, g=[gens[0], (gens[1][0], day(1, 1, where_a=False))])['exposure_ready'] == 0, 'Codex read r2 P2-5: a lit room ELSEWHERE in board-a does not count'
+    assert J(base, g=[gens[0], (gens[1][0], {**day(1, 1), 'board-a': {'buildings': 1, 'building_rooms': [room(11, 10, lit=False)], 'litter_cells': 100}})])['exposure_ready'] == 0, 'an unlit room is no building'
+    assert rooms_in_box({'building_rooms': [json.dumps({'centre': [734.4, 121, 764.0], 'lit': True})]}, [731, 760, 737, 768]) == 1, 'the sandbox8 positive control'
     assert J([x for x in base if x['bot'] != 'board-b-Alpha'])['exposure_ready'] == 0, 'one town'
     # litter DiD: canary towns' change less the control towns'
     rl = J(base, g=[gens[0], (gens[1][0], day(1, 1, la=180, lb=140, lc=110))])
@@ -466,6 +527,11 @@ def selftest():
         open(os.path.join(d, 'project-0_70_0.shop.seg-wall-F.lease.g1.json'), 'w').write(json.dumps(L('A', 0, 1)))
     pj = read_projects(root)
     assert pj['board-a']['zones_ok'] is True and pj['board-b']['zones_ok'] is False, pj
+    good = {'version': 1, 'zones': [{'id': 'v', 'box': [0, 0, 0, 10, 10, 10]}]}
+    assert zones_valid(good) and zones_valid({'version': 1, 'zones': []})
+    for bad in ({}, {'version': 1, 'zones': None}, {'version': 2, 'zones': []}, {'version': 1, 'zones': [{'box': [0, 0, 0, 1, 1, 1]}]},
+                {'version': 1, 'zones': [{'id': 'v', 'box': [5, 0, 0, 1, 1, 1]}]}, {'version': 1, 'zones': [{'id': 'v', 'box': [0, 0, 0, 1, 1, 1], 'floor_y': 9}]}, None, []):
+        assert not zones_valid(bad), ('Codex read r2 P2-3', bad)
     assert pj['board-a']['record']['gen'] == 1 and list(pj['board-a']['leases']) == ['seg-wall-F'], pj['board-a']
     # the record head walk: a broken chain link is not the head
     b1 = json.dumps({'gen': 1, 'prev': None, 'cells': []}).encode()
@@ -572,8 +638,8 @@ if __name__ == '__main__':
           % (res['off_record'], G('placements'), L.get('off_record', [])[:3], res['clear_outside'], G('clears'), L.get('clear_outside', [])[:3], res['zone'], G('mutations'), L.get('zone', [])[:3]))
     print('             G4 lease overlaps %d of %d files %s | G5 fellings with a replant cell unplanted %d of %d tree clears (unjudged %d) %s'
           % (res['lease_overlap'], G('lease_files'), L.get('lease_overlap', [])[:3], res['felled_unplanted'], G('tree_clears'), res['g5_unjudged'], L.get('felled_unplanted', [])[:3]))
-    print('             G6 unknown cells stood on %d of %d unknown rows %s | G8 bag losses %d of %d names %s | REPORTED G7 placed twice %d %s'
-          % (res['unknown_stood'], G('unknown_rows'), L.get('unknown_stood', [])[:3], res['bag_loss'], G('bag_names'), L.get('bag_loss', [])[:3], res['placed_twice'], L.get('placed_twice', [])[:3]))
+    print('             G6 unknown cells stood on %d of %d unknown rows %s | G8 bag losses %d of %d names (%d of %d bag rows unjudged: not a clean exit %s) | REPORTED G7 placed twice %d %s'
+          % (res['unknown_stood'], G('unknown_rows'), L.get('unknown_stood', [])[:3], res['bag_loss'], G('bag_names'), res['bag_unjudged'], G('bag_rows'), L.get('bag_unjudged', [])[:2], res['placed_twice'], L.get('placed_twice', [])[:3]))
     print('NO HARM      gather DiD %s -> %s | pickaxe rungs DiD %s -> %s | litter DiD (cells per town, canary less control) %s | deaths: the default gate (two-death floor) | immobile: immobiledid'
           % tuple([x for n in ('gather_ok', 'rung_ok') for x in ('null' if res['%s_did' % n] is None else '%+.3f' % res['%s_did' % n], verdict_of(res, n))]
                   + ['null' if res['litter_did'] is None else '%+.1f' % res['litter_did']]))
