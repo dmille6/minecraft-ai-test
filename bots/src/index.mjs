@@ -58,6 +58,9 @@ import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
+import { createHash as shopHash } from 'node:crypto'
+import { shopStoodTick, shopFootprintRefresh } from './skills.mjs'   // shop-01: the walks' seeds and the footprint
+import { SHOP, buildModeDetail, footprintCost, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
@@ -338,6 +341,17 @@ function connect() {
     // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs)
     try { matsHoldNote(bot, readMatsNote(bot)) } catch {}   // holds live in memory: an open note's are set again at spawn
     try { const sw = matsEnabled(process.env, config.memory.scope); logEvent({ kind: 'mats_mode', status: 'success', snapshot: snapshot(bot), detail: matsModeDetail({ on: sw.on, why: sw.why, reserve: matsReserve(), buffers: matsBuffers() }) }) } catch {}
+    // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
+    // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
+    if (SHOP.on) {
+      try { logEvent({ kind: 'build_mode', status: 'success', snapshot: snapshot(bot), detail: buildModeDetail(shopHash('sha256').update(JSON.stringify(matsReserve().table ?? {})).digest('hex').slice(0, 8)) }) } catch {}
+      bot.shopSpawnAt = Date.now()
+      bot.on('spawn', () => { bot.shopSpawnAt = Date.now() })
+      try { shopFootprintRefresh(bot) } catch {}
+      const shopTimer = setInterval(() => { try { shopStoodTick(bot) } catch {} }, STOOD_EVERY_MS); shopTimer.unref?.()
+      const shopFpTimer = setInterval(() => { try { shopFootprintRefresh(bot) } catch {} }, 60_000); shopFpTimer.unref?.()
+      bot.once('end', () => { clearInterval(shopTimer); clearInterval(shopFpTimer) })
+    }
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -657,9 +671,11 @@ function connect() {
     const zonePlacePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet, grow: 1 })
     // THE PLAN'S FURNITURE (townplan-01; Paper FOUND-NOFIT 10-22) rides in the SAME entry (no new array entry): a placed or reserved
     // plan cell is never a path's dig. bot.townPlan.cells is kept by every head read, so the A* step costs one Set lookup.
-    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
+    // shop-01: THE WORKSHOP'S FOOTPRINT (its record's cells + 1) is never a WORK or TRAVEL walk's dig or scaffold (design 4.4;
+    // shop.mjs footprintCost reads the profile at search time, so the ascend/descend/water escapes keep their survival digs)
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block) || footprintCost(bot.shopFootprint, bot.movementProfile, block)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
-    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
+    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice, (block) => footprintCost(bot.shopFootprint, bot.movementProfile, block)]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a

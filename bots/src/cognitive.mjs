@@ -26,6 +26,8 @@ import { townPlinthState } from './skills.mjs'
 // mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
 import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
+import { shopRecordHead, shopSlotsFree } from './skills.mjs'
+import { SHOP, buildOrder } from './shop.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -227,7 +229,7 @@ export const LIVELOCK_LATCH_MS = 600_000
 export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'],
-               make_material: ['matsState', 'lastIssuedAt'] }[skill]
+               make_material: ['matsState', 'lastIssuedAt'], build_shop: ['shopState', 'lastAt'] }[skill]
   // found-01: found_store / found_work charge the cooldown AND the visit at issue (found.mjs foundIssued); a declined run refunds both
   // ...the cooldown goes back to the one before this order (foundIssued keeps it as prevLastAt: Claude code r9 P3), else none
   if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: 'prevLastAt' in st.foundState ? st.foundState.prevLastAt : -Infinity, visitUsed: false } }
@@ -1400,6 +1402,30 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // THE WORKSHOP (shop-01; shop.mjs buildOrder decides, this supplies readings and keeps the state). After the materials job,
+    // only with NOTHING chosen above: at town, shared towns only, never a trip; SHOP=off switches it off. The cooldown is charged
+    // at issue and refunded on a decline (refundDeclined).
+    if (!order && SHOP.on) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const atTown = !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= TOWN_RADIUS
+        if (atTown) {
+          const now = Date.now()
+          const h = shopRecordHead()
+          const rec = h.ok ? (h.head?.rec ?? null) : null
+          const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
+            state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete, slotsFree: shopSlotsFree(bot),
+            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length })
+          if (r.order) { order = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
+          this.shopSkipAt ??= {}
+          if (r.skip && r.skip !== 'complete' && now - (this.shopSkipAt[r.skip] ?? -Infinity) >= 30 * 60 * 1000) {
+            this.shopSkipAt[r.skip] = now
+            logEvent({ kind: 'shop_skip', status: 'no_effect', detail: `why=${r.skip}`, snapshot: snap })
+          }
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -1542,6 +1568,8 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
       // THE MATERIALS JOB (mats-01): its state, and its body time toward the 10 min per bot-hour budget
       if (!declined && admitted.skill === 'make_material') this.matsState = matsOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.matsState ?? {})
+      // THE WORKSHOP (shop-01): the visit's stop rides with the cooldown (S1: no_site waits a day)
+      if (!declined && admitted.skill === 'build_shop') this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
       if (!declined && (admitted.skill === 'make_material' || admitted.skill === 'mats_return')) {
         (this.matsBody ??= []).push({ t: Date.now(), ms: Math.max(0, Date.now() - (this.matsIssuedAt ?? Date.now())) })
       }

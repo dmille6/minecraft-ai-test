@@ -13,7 +13,8 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import { planHead, resetPlanWalks } from '../src/planstore.mjs'
 import { parseZones } from '../src/townplan.mjs'
-import { loadBlueprint, siteBlueprint } from '../src/buildsite.mjs'
+import { loadBlueprint, siteBlueprint, plinthCells } from '../src/buildsite.mjs'
+export { plinthCells }
 
 const require = createRequire(import.meta.url)
 const mcData = require('minecraft-data')('1.21.8')
@@ -44,23 +45,6 @@ export function readJson (f) {
   let buf
   try { buf = fs.readFileSync(f, 'utf8') } catch (e) { if (e?.code === 'ENOENT') return null; throw new Error(`unreadable ${path.basename(f)}: ${e?.code ?? e}`) }
   try { return JSON.parse(buf) } catch { throw new Error(`malformed ${path.basename(f)}`) }
-}
-
-/** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
-export function plinthCells (rec) {
-  const out = []
-  const pl = rec?.plan
-  if (pl && typeof pl === 'object') {
-    for (const st of pl.steps ?? []) if (Array.isArray(st?.c)) out.push(st.c)
-    if (pl.cap) out.push([pl.cap.x, pl.cap.y, pl.cap.z])
-    for (const c of pl.stair ?? []) if (Array.isArray(c) && c.length === 3) out.push(c)
-  }
-  for (const c of Array.isArray(rec?.prev) ? rec.prev : []) {
-    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
-    out.push([c.x, c.y, c.z])
-    for (const s of Array.isArray(c.stair) ? c.stair : []) if (Array.isArray(s) && s.length === 3) out.push(s)
-  }
-  return out
 }
 
 /** The pool's records -> { key, world, head, zones, wells, farm } or { why }. Every file is read fail-closed (readJson). */

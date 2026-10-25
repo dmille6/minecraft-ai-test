@@ -114,6 +114,12 @@ import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
+// shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
+import { loadBlueprint, siteBlueprint, plinthCells } from './buildsite.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState } from './buildproj.mjs'
+import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
+import { botBuildEffects } from './buildbot.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
@@ -16033,6 +16039,137 @@ async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal
 /** place() with its options (the tests: a builder's planTemp late re-check is only reachable through the builders otherwise). */
 export const placeForTest = (ctx, args, signal, opts) => place(ctx, args, signal, opts)
 
+// ================================================================================================================================
+// SHOP-01: THE WORKSHOP (building tier step 3; design docs/reports/building-tier-2026-10-23.md sections 4-5). shop.mjs decides,
+// buildsite.mjs sites, buildproj.mjs keeps the files, buildrun.mjs runs the visit, buildbot.mjs touches the world. SHOP=off: nothing.
+// ================================================================================================================================
+const shopKey = () => projKey(planHomeP(), SHOP_PLOT)
+let shopBp = null
+const shopBlueprint = () => (shopBp ??= loadBlueprint(SHOP_BLUEPRINT))
+/** The project's record head in this town -> recordHead's answer. Never throws. */
+export function shopRecordHead () { try { return recordHead(townDir(), shopKey()) } catch { return { ok: false, head: null, gens: [], rejected: [] } } }
+/** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
+export function shopSlotsFree (bot) {
+  try {
+    for (let k = 1; k <= BUILDERS_MAX; k++) {
+      const s = projLeaseState(townDir(), shopKey(), `slot${k}`)
+      if (!s || s.rec?.holder === bot?.username || Date.now() >= s.blocksUntil) return true
+    }
+    return false
+  } catch { return false }
+}
+/** The reservations' inputs at runtime: zones, the plinth record's cells (plan and prev[]), the newest junk-well site, the farm. */
+function shopCtx (bot) {
+  const zones = townPlanZones(bot)
+  const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+  const wells = []
+  try { wells.push(...plinthCells(JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-plinth-${hk}.json`), 'utf8')))) } catch { /* none */ }
+  try {
+    const re = new RegExp(`^junkwell-site-${hk.replace(/[-]/g, '\\-')}\\.g(\\d+)\\.json$`)
+    const g = fs.readdirSync(townDir()).map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)[0]
+    if (g != null) { const s = JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-site-${hk}.g${g}.json`), 'utf8')); if ([s?.x, s?.y, s?.z].every(Number.isFinite)) wells.push([s.x, s.y, s.z]) }
+  } catch { /* none */ }
+  const farm = [...treeFarmCells()].map(k => k.split(',').map(Number))
+  return { zonesKnown: zones.known, zones: zones.zones, wells, farm }
+}
+/** THE POOL'S STOOD CELLS (D3 at runtime): this bot's in-town feet cell, at most once per cell per STOOD_REPEAT_MS. index.mjs calls
+ *  it every STOOD_EVERY_MS. Never throws. */
+export function shopStoodTick (bot) {
+  try {
+    if (!SHOP.on || !planOn()) return
+    const p = bot?.entity?.position
+    if (!p) return
+    if (Math.max(Math.abs(p.x - config.world.homeX), Math.abs(p.z - config.world.homeZ)) > SHOP_TOWN_R) return
+    if (!bot.entity.onGround) return
+    const c = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], k = c.join(',')
+    bot.shopStoodAt ??= new Map()
+    if (Date.now() - (bot.shopStoodAt.get(k) ?? -Infinity) < STOOD_REPEAT_MS) return
+    bot.shopStoodAt.set(k, Date.now())
+    stoodAppend(townDir(), shopKey(), c, { by: bot.username ?? null })
+  } catch { /* telemetry-grade */ }
+}
+/** The footprint for the walks' price (index.mjs reads bot.shopFootprint in the A* step). Refreshed with the record. */
+export function shopFootprintRefresh (bot) {
+  try { const h = shopRecordHead(); if (h.ok) bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set() } catch { /* keep the last */ }
+}
+
+/**
+ * build_shop -- ONE BUILD VISIT (shop.mjs buildOrder issues it; chatOnly). Site the record when the town has none (the planner on
+ * the live world, the pool's stood cells as the walk's seeds); take an admission slot; draw the open cells' bill from town under
+ * the reserve and the claim set (mats-01's withdraw), craft the stations the town lacks; run the visit (buildrun.mjs); on
+ * completion publish the record's `structure_complete` transition. One `_build_visit` row per run, ALWAYS.
+ */
+async function buildShop (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const f = { project: SHOP_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn()) return out('no_effect', 'off', 'the workshop job is switched off (SHOP=off or TOWNPLAN=off)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot', home = planHomeP(), bp = shopBlueprint()
+  const stood = stoodRead(dir, key, home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the workshop record could not be read')
+  if (!rh.head) {
+    const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, stood })
+    if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'sited', cell: s.record.anchor, kind: `${s.record.sector}/${s.record.orient}/${s.record.sector_source}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the workshop record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  if (rec.structure_complete) return out('no_effect', 'complete', 'the workshop stands')
+  const slot = takeSlot(dir, key, me, BUILDERS_MAX)
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  let slotGen = slot.gen, effects = null
+  try {
+    // THE BILL (design 4.6 P2): the open cells' blocks less the bag, from town under the BUILD_RESERVE and the outstanding draws
+    const read = planReader(bot)
+    const town = matsTownStock(bot)?.stock ?? {}
+    const planks = Object.entries(town).filter(([n]) => /_planks$/.test(n)).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'oak_planks'
+    const bill = billOf(rec, bp.palette, read, { done: buildCellDone, inTown: n => (town[n] ?? 0) > 0, planks })
+    const need = needFromTown(bill, heldMap(bot))
+    let took = {}
+    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table); took = w.took ?? {} }
+    // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table)
+    for (const item of ['furnace', 'crafting_table']) {
+      const lack = (bill[item] ?? 0) - countItem(bot, item)
+      if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    }
+    check(signal)
+    effects = botBuildEffects(bot, {
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: SHOP_PLOT, ...d }) : buildRowDetail({ project: SHOP_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, slot: slot.slot, slotGen: slot.gen }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    slotGen = r.slotGen ?? slotGen
+    if (r.stop === 'complete') {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ }
+    }
+    const status = r.placed > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotGen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
+
 /** found_store / found_work -- the town orders (found.mjs foundOrder; chatOnly, housekeeping). One `_found` row per run, ALWAYS. */
 async function foundStore (ctx, args, signal) { return foundRun(ctx, { ...args, kind: 'chest' }, signal, 'store') }
 async function foundWork (ctx, args, signal) { return foundRun(ctx, args, signal, 'work') }
@@ -16355,6 +16492,7 @@ export const SKILL_CONTRACTS = {
   // THE MATERIALS JOB (mats-01): parts made from town stock and banked -- the bag ends where it began, so its evidence is its
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
+  build_shop: { expects: ['world_change'], maxMs: 600_000 },
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
@@ -17497,6 +17635,7 @@ export const SKILLS = {
   smelt_town: { run: smeltTown, usage: 'smelt_town', args: [], chatOnly: true },
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
+  build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
