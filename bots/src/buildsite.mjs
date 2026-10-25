@@ -312,28 +312,25 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
       if (!reachable(c)) return { ok: false, why: 'tree_out_of_reach' }
     }
     for (const c of t.logs) addClear(c, 'tree')
-    // THE TRUNKS. Every log standing on solid ground that is not a log or leaves is a trunk: two trunks whose logs touch are TWO
-    // trees, each owing its sapling (Claude siting r2 P2). With none, the tree's LOWEST logs are its trunk when air is under them
-    // -- the ground was dug out from under a real tree (Claude siting r3 P2) -- and the logs are floating when leaves are
-    const onGround = t.logs.filter(([x, y, z]) => { const below = read(x, y - 1, z); return isSolid(below) && !LOG.test(nm(below)) && !LEAVES.test(nm(below)) })
-    const low = Math.min(...t.logs.map(c => c[1]))
-    const undermined = t.logs.filter(([x, y, z]) => y === low && !isSolid(read(x, y - 1, z)) && !LEAVES.test(nm(read(x, y - 1, z))))
-    const bases = onGround.length ? onGround : undermined
+    // THE SAPLINGS OWED (r5, conservative by construction): EVERY log with neither a log nor leaves under it owes one -- a trunk on
+    // the ground, a trunk whose ground was dug out (Claude r3 P2), a second trunk touching the first however it stands (Claude r2
+    // P2, Codex r4 P2). A branch over air owes one too: an over-count costs saplings and replant cells, never a tree. Logs that
+    // stand only on logs or leaves are floating and owe nothing. Only GROUNDED bases take part in the 2x2 test below
+    const bases = t.logs.filter(([x, y, z]) => { const below = nm(read(x, y - 1, z)); return !LOG.test(below) && !LEAVES.test(below) })
+    const grounded = bases.filter(([x, y, z]) => isSolid(read(x, y - 1, z)))
     // D6: FLOATING logs (no log stands on anything but logs or leaves) and a JUNGLE BUSH (one jungle log, the bush the jungle
     // generates under oak leaves: r4 requires the oak leaves, Codex r3 P2) owe no replant: no sapling of that kind replaces them.
     // Any other single log, a jungle one included, is the stump of a real tree and owes its sapling (Codex siting r2 P2)
-    const bush = t.logs.length === 1 && speciesOf(nm(read(...t.logs[0]))) === 'jungle' && (() => {
-      const [x, y, z] = t.logs[0]
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) if (nm(read(x + dx, y + dy, z + dz)) === 'oak_leaves') return true
-      return false
-    })()
+    // a jungle BUSH is one jungle log CAPPED by oak leaves (the leaves directly on top: Codex r4 P2, a stump with a leaf beside it
+    // is a stump)
+    const bush = t.logs.length === 1 && speciesOf(nm(read(...t.logs[0]))) === 'jungle' && nm(read(t.logs[0][0], t.logs[0][1] + 1, t.logs[0][2])) === 'oak_leaves'
     if (!bases.length || bush) continue
     for (const b of bases) {
       const species = speciesOf(nm(read(...b)))
       // a 2x2 trunk -- a base with a CARDINAL neighbour base within 3 levels: a mega spruce, even staggered on a slope (Codex r3
       // P3) -- refuses, as a dark oak does: one sapling does not replace it. Two trees touching DIAGONALLY are two trunks.
       // Conservative: a branch or a fallen log lying on the ground beside its trunk refuses too
-      if (NEEDS_2X2.has(species) || bases.some(o => o !== b && Math.abs(o[1] - b[1]) <= 3 && Math.abs(o[0] - b[0]) + Math.abs(o[2] - b[2]) === 1)) return { ok: false, why: 'tree_2x2' }
+      if (NEEDS_2X2.has(species) || (grounded.includes(b) && grounded.some(o => o !== b && Math.abs(o[1] - b[1]) <= 3 && Math.abs(o[0] - b[0]) + Math.abs(o[2] - b[2]) === 1))) return { ok: false, why: 'tree_2x2' }
       trees.push({ base: b, species, logs: t.logs.length })
     }
   }
@@ -393,8 +390,24 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stoo
     }
   }
   for (const c of stood) if (Array.isArray(c) && c.length === 3 && Math.max(Math.abs(c[0] - home.x), Math.abs(c[2] - home.z)) <= TOWN_R && isNode(...c)) tagged.push([c])
+  // THE TOWN (r5): of the pieces the town circle's walkable cells fall into, only the one holding the MOST stood cells (ties: the
+  // larger piece) -- a bot that dropped, swam or dug into a pit logs a position there, and a stand reached only from a pit does
+  // not walk back to town (Claude siting r4 P2). The steps are symmetric, so every cell reached walks back to this piece.
+  const comp = new Map(), size = []
+  for (const [c] of tagged) {
+    if (comp.has(k3(...c))) continue
+    const id = size.length, q = [c]
+    comp.set(k3(...c), id)
+    for (let i = 0; i < q.length; i++) for (const n of next(q[i], TOWN_R)) { const key = k3(...n); if (!comp.has(key)) { comp.set(key, id); q.push(n) } }
+    size.push(q.length)
+  }
+  // one vote per DISTINCT stood cell (a position logged a thousand times is one cell)
+  const votes = new Map(), voted = new Set()
+  for (const [c] of tagged) { const key = k3(...c); if (voted.has(key)) continue; voted.add(key); const id = comp.get(key); votes.set(id, (votes.get(id) ?? 0) + 1) }
+  let town = -1
+  for (const [id, v] of votes) if (town < 0 || v > votes.get(town) || (v === votes.get(town) && size[id] > size[town])) town = id
   const seen = new Set(), q = []
-  for (const [c] of tagged) { const key = k3(...c); if (!seen.has(key)) { seen.add(key); q.push(c) } }
+  for (const [c] of tagged) { const key = k3(...c); if (comp.get(key) === town && !seen.has(key)) { seen.add(key); q.push(c) } }
   for (let i = 0; i < q.length; i++) for (const n of next(q[i], radius)) { const key = k3(...n); if (!seen.has(key)) { seen.add(key); q.push(n) } }
   return seen
 }
