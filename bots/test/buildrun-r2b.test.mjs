@@ -63,7 +63,7 @@ console.log('THE MUTEX AND A GONE HOLDER, THROUGH A VISIT (Codex r3 P1, Claude r
 const heldBy = (pr, at) => fs.writeFileSync(path.join(pr.dir, `${pr.key}.mutate.g1.json`), JSON.stringify({ holder: 'A', pid: process.pid, conn: 'A-c2', at }))
 await t('a holder GONE after taking the mutex (its beat stopped, absent from the tab list 10 s since): B\'s visit takes it and builds', async () => {
   const srv = server(), pr = project(SITE.record, ['B'])
-  const at = Date.now() - 60_000
+  const at = Date.now() - 120_000
   heldBy(pr, at)
   PJ.presenceWrite(pr.dir, pr.key, 'A', { conn: 'A-c2', now: at - 1_000, beat: at + 1_000 })
   srv.seen.set('A', { online: false, offlineSince: at + 10, leftAt: null })
@@ -87,6 +87,23 @@ await t('THE CODEX r3 SCENARIO: B noticed A offline BEFORE A reconnected and too
   const r = await R.runVisit(pr.p('B'), bot(srv, 'B'), { maxSteps: 20 })
   assert.strictEqual(r.placed, 0, `A's live mutex is never displaced (${r.stop})`)
 })
+
+console.log('THE SENDER FENCES ITSELF ON ITS OWN BEAT (Codex r5 P1)')
+const ownBeat = async (M, age) => {
+  const srv = server(), pr = project()
+  PJ.presenceWrite(pr.dir, pr.key, 'A', { conn: 'A-c1', now: Date.now() - 600_000, beat: Date.now() - age })
+  return M.runVisit({ ...pr.p('A'), beat: true }, bot(srv, 'A'), { maxSteps: 12 })
+}
+await t('a builder whose own beat is not published (20 s old) sends nothing (fence:beat); a fresh beat builds (control)', async () => {
+  const stale = await ownBeat(R, 20_000)
+  assert.strictEqual(stale.placed, 0); assert.strictEqual(stale.stop, 'fence:beat', JSON.stringify(stale))
+  const fresh = await ownBeat(R, 1_000)
+  assert.ok(fresh.placed > 0, JSON.stringify(fresh))
+})
+await t('MUTANT the visit never asks for its beat', () => both('beatConn: p.beat ? conn : null, now: now() })', 'beatConn: null, now: now() })', async M => {
+  const r = await ownBeat(M, 20_000)
+  assert.strictEqual(r.placed, 0)
+}))
 
 console.log('THE SLOT REFERENCE (Codex r1 P3)')
 await t('slotRef follows every renewal of the admission slot (the caller releases the LATEST generation on any exit)', async () => {

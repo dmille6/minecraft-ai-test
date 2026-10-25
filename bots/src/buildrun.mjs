@@ -216,7 +216,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       let released = false
       const release = () => { if (!released) { released = true; PJ.mutexRelease(dir, key, me, { gen: m.gen }) } }
       try {
-        const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, now: now() })
+        const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, beatConn: p.beat ? conn : null, now: now() })
         if (why) { cancel(); return `fence:${why}` }
         if (!replaceableCell(rd(...cell)) && nm(rd(...cell)) !== 'air') { cancel(); return 'refused' }
         e.send(here.support, here.face, seq)   // SYNCHRONOUS after the fence: no await between them
