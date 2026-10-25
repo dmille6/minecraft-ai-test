@@ -163,11 +163,13 @@ t('WIRED: no driver reads the lock by hand any more; every lock-checking driver 
   const wired = drivers.filter(f => /\bsbx\.requireSandboxLock\(SERVER, /.test(code(f)))
   // 13 from sandbox58 + homefix-e2e, homefix2-e2e and drown/hf2-ab (homefix-02's drivers) + keepout/keepout-e2e (keepout-01's)
   // + protectzone/protectzone-e2e (protectzone-01's), moved onto the shared check at merge
+  // + lavastep/lavastep-e2e (lavastep-01, merged 10-25)
   // + poolescape/poolescape-e2e (poolescape-01's, written on the shared check from the start)
   // + failmine/scene-e2e (the failure-mining scene library's generic driver, 10-24, tag failmine)
   // + craft/ironsmelt-e2e (ironsmelt-01's, written on the shared check from the start)
-  assert.equal(wired.length, 23, `expected the 23 lock-checking drivers, saw ${wired.map(f => path.basename(f))}`)
+  assert.equal(wired.length, 24, `expected the 24 lock-checking drivers, saw ${wired.map(f => path.basename(f))}`)
   // + townplan/townplan-e2e (townplan-01's and found-01's, moved onto the shared check at their JIT 10-23c re-stack)
+  // + lavastep/lavastep-e2e (lavastep-01's, written on the shared check from the start)
   for (const f of wired) assert.match(code(f), /require\('\.\.\/lib\/sbxlock\.cjs'\)|from '\.\.\/lib\/sbxlock\.cjs'/, `${path.basename(f)} never imports sbx`)
 })
 t("sbxlock.sh's own name list is the registry's", () => {
@@ -229,6 +231,22 @@ const probeLocal = cmd => spawnSync('bash', ['-c', cmd], { encoding: 'utf8' }).s
 const G = path.join(ROOT, 'mcai-sandbox.lock')
 
 try {
+  t('an ADVENTURE marker is reported by take and status; with none, nothing is (lavastep-01, Claude r4 P2-3)', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'sbxmode-'))
+    const quiet = lock(['take', 'sandbox7', 'lavastep'], root)
+    assert.equal(quiet.rc, 0, quiet.out); assert.doesNotMatch(quiet.out, /WARNING/, 'no marker, no warning')
+    mkdirSync(path.join(root, 'mcai-sandbox-mode', 'sandbox7'), { recursive: true })
+    writeFileSync(path.join(root, 'mcai-sandbox-mode', 'sandbox7', 'abcd1234'), 'adventure since 2026-10-23T20:00:00Z by lavastep-e2e host=h pid=1 run=abcd1234\n')
+    const st = lock(['status'], root)
+    assert.equal(st.rc, 0, st.out); assert.match(st.out, /WARNING: sandbox7's default game mode may be ADVENTURE .*abcd1234: adventure since/)
+    assert.doesNotMatch(st.out, /WARNING: sandbox6/, 'only the marked server')
+    assert.equal(lock(['release', 'sandbox7', 'lavastep'], root).rc, 0)
+    const again = lock(['take', 'sandbox7', 'lavastep'], root)
+    assert.match(again.out, /^TAKEN [^\n]*\nWARNING: sandbox7's default game mode may be ADVENTURE/, 'take warns right after TAKEN')
+    const other = lock(['take', 'sandbox6', 'lavastep'], root)
+    assert.doesNotMatch(other.out, /WARNING/, 'a take of another server does not warn')
+    rmSync(root, { recursive: true, force: true })
+  })
   t('take ONE sandbox: TAKEN, owner first word is the tag; a second take of it is HELD', () => {
     const a = lock(['take', 'sandbox6', 'kitshrink', 'agent-ac33', 'drill'])
     assert.equal(a.rc, 0, a.out); assert.match(a.out, /^TAKEN .*mcai-sandbox\.lock\.sandbox6: kitshrink agent-ac33 drill since /)

@@ -1,0 +1,30 @@
+lavastep-01 PAPER DRIVER -- review record (sandbox/lavastep/lavastep-e2e.mjs, gate-controls.mjs, paired.sh)
+Branch lavastep-sandbox-on-d1a0a88. Each round's findings and answers are in its commit message.
+
+Round    sha        Codex                           Claude
+d1       9cf9d544   CHANGE 4 P1                     CHANGE 2 P1
+d2       1af6f993   CHANGE 3 P1                     APPROVE
+d3       585e4db8   CHANGE 1 P1                     (cut off by an API rate limit)
+d4       4b10f503   CHANGE 1 P1 + 4 P2              APPROVE (3 P2)
+d5       514337d9   CHANGE 1 P1 + 4 P2              APPROVE (2 P2)
+d6       25110ca3+0567de46  CHANGE 1 P1 + 2 P2      APPROVE (1 P2)
+d7       8b18c92b   CHANGE 2 P1                     APPROVE (2 P2)
+d8       6bc0db8a   CHANGE 1 P1 + 1 P2              APPROVE (1 P2)
+d9       47370686   CHANGE 1 P1 + 1 P2              APPROVE (P3 only)
+d10      5105a9da   CHANGE 1 P1 (recovery text)     APPROVE (P3 only)
+d11      40be73d8   APPROVE (1 P3)                  in flight when converged
+
+CONVERGED at d11 under the operator's convergence rule (2026-10-24: no P1/P2 from either engine -> converged; P3s
+recorded as follow-ups; the driver is a sandbox tool). The Paper evidence on the canary branches (paper-v4) was
+collected with d4 and judged admissible by both engines (Codex d5/d6, Claude d5); d5-d11 change only future-run safety.
+
+FOLLOW-UPS (P3, not blocking)
+- Codex d11: repeat the "run pgrep in a shell ON the worlds host" caveat in the FATAL text (it is in the header only).
+- Claude d9 P3-5: a command that provably never left the worlds host still needs the hand recovery (disclosed trade);
+  a NOT_SENT reply from the RCON helper could let the driver clear its own file.
+- Claude d9 P3-4: `sbxlock.sh status` could list worlds-host .inflight-* files too (today only the warning copies show).
+- Claude d7 P3-4 / d8 P3-3: older checkouts must not run; d8+ refuse to share a server with pre-r8 markers.
+- Claude d2/d3: two arms run concurrently, not synchronised (slots counterbalanced; mspt and release times recorded).
+- Residuals (disclosed in the header): an adventure-mode bot can use doors/buttons/chests at world spawn for ~70 ms
+  (an orphaned one until the next same-server run kills it); a SIGKILLed run's own arena (box, forceload, objective,
+  claim) is left for hand clean-up and makes the next run of that arena refuse with the exact command.
