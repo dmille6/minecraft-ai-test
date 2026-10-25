@@ -227,6 +227,9 @@ test('AN ABORT MID-SWEEP KEEPS WHAT LANDED (Codex r4 P2-2): 4 into the first che
   await S.SKILLS.mats_return.run({ bot: w.bot }, {}, ac.signal).catch(() => {})
   assert.ok(walks >= 1, 'the walk to the second chest was the one aborted')
   assert.deepEqual(S.readMatsNote(w.bot)?.deposited, { stone_bricks: 4 })
+  // the aborted recovery leaves the note open: its 8 bricks are HELD from junkout's rows (Codex fix review P2)
+  const { withdrawHolds } = await import('../src/bankable.mjs')
+  assert.equal(withdrawHolds().stone_bricks, 8, 'held on the abort exit too')
   fs.rmSync(NOTE_FILE(), { force: true })
 })
 

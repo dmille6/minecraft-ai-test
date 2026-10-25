@@ -12784,6 +12784,9 @@ export function matsHoldNote (bot, note) {
     for (const n of obligations(note.kind)) swapWithdrawHold(n, Math.max(0, (held[n] ?? 0) - (Number(note.bag0?.[n]) || 0)), until)
   } catch { /* a hold is a guard, never a failure */ }
 }
+/** EVERY EXIT that leaves a note OPEN -- normal, a throw, an abort -- refreshes its holds (Codex fix review P2: an abort after a
+ *  recovery's craft left the new torches unheld for junkout's rows). */
+function matsHoldIfOpen (bot) { try { const nt = readMatsNote(bot); if (nt?.phase === 'open') matsHoldNote(bot, nt) } catch { /* a guard */ } }
 export function matsReleaseNote (note) {
   try { for (const n of obligations(note?.kind)) swapWithdrawHold(n, 0) } catch { /* nothing held */ }
 }
@@ -13306,6 +13309,7 @@ async function makeMaterial (ctx, args, signal) {
         else { note.phase = 'open'; note.deposited = { ...f.deposited }; writeMatsNote(bot, note); matsHoldNote(bot, note); f.stop += '+note_open' }
       }
     } catch { uncertain = true }
+    matsHoldIfOpen(bot)                   // an aborted order's note (no bank: the reflex owns the body) is held too
     try { await pl.settle() } catch { /* settled */ }
     pl.restore()
     // t1 BEFORE the release (Codex r2 P2-6): the next maker's ml= can only start after this one's ends
@@ -13475,6 +13479,7 @@ async function matsReturn (ctx, _args, signal) {
     if (giveUp()) { try { clearMatsNote(bot) } catch { /* none */ } matsReleaseNote(note); stop = 'abandoned' } else stop = 'error'
     return (result = { status: 'failed', failClass: 'other', detail: `mats_return stopped${stop === 'abandoned' ? ' (the note is given up)' : ''}: ${String(e?.message ?? e).slice(0, 120)}` })
   } finally {
+    matsHoldIfOpen(bot)
     try { rpl?.restore() } catch { /* restored */ }
     const kvs = m => Object.entries(m ?? {}).filter(([, c]) => c).map(([n, c]) => `${n}:${c}`).join(',') || '-'
     const verdict = Object.keys(forbidden).length ? 'forbidden' : bal ? bal.verdict : stop === 'open' ? 'pending' : stop === 'error' || stop === 'abandoned' ? 'unreconciled' : '-'
