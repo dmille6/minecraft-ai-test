@@ -45,6 +45,12 @@ POOL = 'showcase'
 # restart after a tripwire stop is not re-tripped by the rows that caused the stop). One ISO line each.
 TOWN_SINCE = '/srv/showcase/trip/TOWN_SINCE'
 RUN_SINCE = '/srv/showcase/trip/RUN_SINCE'
+# S5 IS STICKY UNTIL A HUMAN ACKNOWLEDGES IT (verify-2 10-25, Codex P1: subtracting a "before the run" count is not sound --
+# G1/G3 counts are not monotone, a replacement can cancel a new defect, and D4 is judged on the CURRENT plan files in both
+# passes). Every defect is an ITEM (the reads' own list strings); the read TRIPs on any item not in ACK.json (a multiset), and
+# prunes from ACK.json every acknowledged item that no longer appears, so a defect that goes away and comes back trips again.
+# `showcase_trip.py ack --why "<...>"` acknowledges the current items (recovery, a human's step).
+ACK = '/srv/showcase/trip/ACK.json'
 MIRROR_MAX_AGE_MIN = 60
 HEALTHZ = 'http://127.0.0.1:11612/healthz'
 UTC = dt.timezone.utc
@@ -424,7 +430,40 @@ def plan_read(rows, since, plans=None):
               'found_why': flists.get('why', [])[:6], 'lists': {k: v[:3] for k, v in {**lists, **flists}.items() if v},
               'gen_unknown': {k: v for k, v in (('adopt_gen_unknown', rw.get('adopt_gen_unknown', 0)),
                                                 ('found_gen_unknown', fo.get('found_gen_unknown', 0))) if v}}
+    items = {'D1 chain_invalid': pl['_lists'].get('invalid', []) + lists.get('invalid', []),
+             'D2 invalid_rows': lists.get('invalid_rows', []), 'D3 never_hits': lists.get('never_hits', []),
+             'D4 zone_cells': pl['_lists'].get('zone', []), 'D5 root_occupied': lists.get('root_occupied', []),
+             'G1 found_lost': flists.get('lost', []), 'G2 off_plan': flists.get('off_plan', []),
+             'G3 lid_unreach': flists.get('lid_unreach', []), 'G4 shared_side': flists.get('shared_side', []),
+             'G5 zone': flists.get('zone', [])}
+    report['items'] = defect_items(defects, items)
     return defects, report
+
+
+def defect_items(counts, lists):
+    """{gate: n}, {gate: [item]} -> {gate: [item]} with exactly n items per gate: a count the read did not list gets
+    `<gate> unlisted #i` items, so no counted defect can hide behind a missing list entry. Pure."""
+    out = {}
+    for g, n in counts.items():
+        it = list(lists.get(g, []))[:n] if n else []
+        out[g] = it + ['%s unlisted #%d' % (g, i) for i in range(len(it), n)]
+    return out
+
+
+def unacked(items, ack):
+    """{gate: [item]}, {gate: [item]} -> (new {gate: [item]}, pruned ack {gate: [item]}). Multisets: two identical items
+    need two acknowledgements; an acknowledged item no longer present is dropped from the ack. Pure."""
+    new, keep = {}, {}
+    for g, it in items.items():
+        have = collections.Counter(it)
+        a = collections.Counter((ack or {}).get(g, []))
+        extra = have - a
+        if extra:
+            new[g] = sorted(extra.elements())
+        k = a & have
+        if k:
+            keep[g] = sorted(k.elements())
+    return new, keep
 
 
 def new_defects(full, before):
@@ -444,8 +483,8 @@ def plan_rows(since, paths=LOGS):
     import foundread as FD
     from lib.telemetry import open_log
     kinds = set(TP.ROW_KINDS) | set(FD.ROW_KINDS)
-    needles = [('"name":"%s"' % k).encode() for k in kinds]
-    rows, n_files, n_lines = [], 0, 0
+    needle = re.compile(rb'"name"\s*:\s*"(' + b'|'.join(re.escape(k.encode()) for k in sorted(kinds)) + rb')"')
+    rows, n_files, n_lines, bad = [], 0, 0, []
     for f in sorted(glob.glob(paths)):
         try:
             if dt.datetime.fromtimestamp(os.path.getmtime(f), UTC) < since:
@@ -453,11 +492,16 @@ def plan_rows(since, paths=LOGS):
         except OSError:
             continue
         n_files += 1
-        with open_log(f) as fh:
-            for line in fh:
+        try:
+            fh = open_log(f)
+        except Exception as e:
+            bad.append('%s: %s' % (os.path.basename(f), type(e).__name__))
+            continue
+        try:
+          for line in fh:
                 n_lines += 1
                 lb = line.encode() if isinstance(line, str) else line
-                if not any(nd in lb for nd in needles):
+                if not needle.search(lb):
                     continue
                 try:
                     d = json.loads(line)
@@ -470,7 +514,11 @@ def plan_rows(since, paths=LOGS):
                     continue
                 rows.append({'t': t, 'name': sk['name'], 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b,
                              'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None})
-    return rows, {'files': n_files, 'lines': n_lines, 'kept': len(rows)}
+        except Exception as e:      # a corrupt archive is named; the readable files are still judged
+            bad.append('%s: %s' % (os.path.basename(f), type(e).__name__))
+        finally:
+            fh.close()
+    return rows, {'files': n_files, 'lines': n_lines, 'kept': len(rows), 'bad_files': bad}
 
 
 def read_epoch(path):
@@ -572,12 +620,25 @@ def cmd_read(a):
         report_hist = hist
         full, report = plan_read(prows, town_since)
         report['history'] = report_hist
-        if run_since and run_since > town_since:
-            before, _ = plan_read([r for r in prows if r['t'] < run_since], town_since)
-            defects = new_defects(full, before)
-            report['defects_before_run'] = {k: v for k, v in before.items() if v}
-        else:
-            defects = full
+        if hist.get('bad_files'):
+            raise RuntimeError('unreadable log files %s' % hist['bad_files'][:3])
+        ackd = {}
+        if os.path.exists(a.ack):
+            ackd = json.load(open(a.ack)).get('items') or {}
+        new, keep = unacked(report['items'], ackd)
+        defects = {g: len(new.get(g, [])) for g in full}
+        report['acked'] = {g: v for g, v in keep.items() if v}
+        report['new_items'] = new
+        if ackd and keep != {g: v for g, v in ackd.items() if v} and not a.not_running:
+            try:
+                d = json.load(open(a.ack))
+                d['items'] = keep
+                d.setdefault('pruned', []).append(now.strftime('%FT%TZ'))
+                with open(a.ack + '.part', 'w') as f:
+                    json.dump(d, f, indent=1)
+                os.replace(a.ack + '.part', a.ack)
+            except Exception as e:
+                print('ack prune failed: %s' % e)
     except Exception as e:
         plan_err = '%s: %s' % (type(e).__name__, str(e)[:200])
     paused = brain_paused() if not a.not_running else None
@@ -626,8 +687,10 @@ def cmd_read(a):
             print('             lists %s' % report['lists'])
         if report.get('history'):
             print('             history from the town epoch: %s' % report['history'])
-        if report.get('defects_before_run'):
-            print('             defects from BEFORE this run (reported, not judged again): %s' % report['defects_before_run'])
+        if report.get('acked'):
+            print('             ACKNOWLEDGED (not judged again until they go away and come back): %s' % report['acked'])
+        if report.get('new_items'):
+            print('             NEW defect items %s' % report['new_items'])
     print('VERDICT      %s%s' % (v, (' -- ' + '; '.join(why)) if why else ''))
     if a.json:
         try:                        # a failed write must never turn a TRIP into a crash (rc 1 -> no stop)
@@ -727,7 +790,14 @@ def selftest():
     tr, st = split_trapped(sp, {'a': [(T(5), 3)], 'b': [(T(30), 3), (T(5), 0)]})
     assert list(tr) == ['a'] and list(st) == ['b'], (tr, st)
     assert verdict(dict(base, still_in_zone={'b': [('12:00', 20)]}))[0] == 'WATCH'
-    assert new_defects({'G3 lid_unreach': 1, 'G1 found_lost': 2}, {'G3 lid_unreach': 1, 'G1 found_lost': 1}) == {'G3 lid_unreach': 0, 'G1 found_lost': 1}
+    assert defect_items({'G1': 2, 'G3': 0}, {'G1': ['x']}) == {'G1': ['x', 'G1 unlisted #1'], 'G3': []}
+    n, k = unacked({'G1': ['x', 'y'], 'G3': ['z']}, {'G1': ['x'], 'G4': ['gone']})
+    assert n == {'G1': ['y'], 'G3': ['z']} and k == {'G1': ['x']}, (n, k)
+    assert unacked({'G1': ['x', 'x']}, {'G1': ['x']})[0] == {'G1': ['x']}, 'a second identical item needs its own ack'
+    assert unacked({'G1': []}, {'G1': ['x']}) == ({}, {}), 'an acked item that went away is pruned: if it comes back it trips'
+    import re as _re
+    _nd = _re.compile(rb'"name"\s*:\s*"(_found)"')
+    assert _nd.search(b'{"skill": {"name": "_found"}}') and _nd.search(b'"name":"_found"') and not _nd.search(b'"name":"_found_mode"')
     assert ts('2026-10-25T15:13:00') == ts('2026-10-25T15:13:00Z'), 'a naive epoch is UTC'
     assert verdict(dict(base, run_since_missing=True))[0] == 'WATCH'
     assert verdict(dict(base, deaths=4))[0] == 'TRIP' and verdict(dict(base, deaths=2))[0] == 'WATCH' and verdict(dict(base, deaths=1))[0] == 'OK'
@@ -755,6 +825,24 @@ def selftest():
     return 0
 
 
+def cmd_ack(a):
+    """Acknowledge every CURRENT plan/found defect item (recovery, a human's step): they stop tripping until they go away and
+    come back. Writes ACK.json with the why; prints what it acknowledged."""
+    town_since = read_epoch(a.town_since)
+    if town_since is None:
+        print('REFUSED: no town epoch in %s' % a.town_since)
+        return 1
+    prows, hist = plan_rows(town_since)
+    _, report = plan_read(prows, town_since)
+    items = {g: v for g, v in report['items'].items() if v}
+    d = {'t': dt.datetime.now(UTC).strftime('%FT%TZ'), 'why': a.why, 'items': items, 'history': hist}
+    with open(a.ack + '.part', 'w') as f:
+        json.dump(d, f, indent=1)
+    os.replace(a.ack + '.part', a.ack)
+    print('ACKNOWLEDGED %s (%s)' % (items or 'nothing', a.why))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest='cmd', required=True)
@@ -767,6 +855,11 @@ def main():
     r.add_argument('--not-running', action='store_true', help='the bots are stopped on purpose (S0 does not trip)')
     r.add_argument('--run-since', default=RUN_SINCE)
     r.add_argument('--town-since', default=TOWN_SINCE)
+    r.add_argument('--ack', default=ACK)
+    k = sp.add_parser('ack')
+    k.add_argument('--why', required=True)
+    k.add_argument('--ack', default=ACK)
+    k.add_argument('--town-since', default=TOWN_SINCE)
     r.add_argument('--json')
     b = sp.add_parser('zones-baseline')
     b.add_argument('--regions', required=True)
@@ -779,7 +872,7 @@ def main():
     c.add_argument('--max-age-min', type=int, default=26 * 60)
     sp.add_parser('selftest')
     a = ap.parse_args()
-    return {'read': cmd_read, 'zones-baseline': cmd_zones_baseline, 'zones-compare': cmd_zones_compare,
+    return {'read': cmd_read, 'ack': cmd_ack, 'zones-baseline': cmd_zones_baseline, 'zones-compare': cmd_zones_compare,
             'selftest': lambda _a: selftest()}[a.cmd](a)
 
 
