@@ -311,6 +311,11 @@ test('INSTRUMENT: one row per distinct set of cells per window (a re-plan of the
   assert.equal(lidplaceRowDue(seen, 'b', 1000), true, 'another set of cells is a new row')
   assert.equal(lidplaceRowDue(seen, 'a', LIDPLACE_ROW_WINDOW_MS + 1), true, 'the same set after the window')
 })
+test('LICENCE: `_lidplace_mode` once per spawn, on=0 under LIDPLACE=0', () => {
+  assert.equal(LP.lidPlaceModeDetail({}), `on=1 cost=${LID_PLACE_COST} row_window_ms=${LP.LIDPLACE_ROW_WINDOW_MS}`)
+  assert.match(LP.lidPlaceModeDetail({ LIDPLACE: '0' }), /^on=0 /)
+  once(IDX, "logEvent({ kind: 'lidplace_mode', status: 'success', snapshot: snapshot(bot), detail: lidPlaceModeDetail(process.env) })")
+})
 test('WIRING the instrument: path_update logs `lidplace` from chosenLidPlaces, sampled by lidplaceRowDue, AFTER the lava corridor guard', () => {
   const lava = once(IDX, 'const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)')
   const ch = once(IDX, 'const lpc = chosenLidPlaces(r.path)')
