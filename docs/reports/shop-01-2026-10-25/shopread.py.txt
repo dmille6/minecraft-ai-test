@@ -225,18 +225,31 @@ def conformance(surveys, rec, since):
     # changed chunk at its autosave, ~5 min; an unchanged or unloaded one exactly) -- never the region file's mtime, which a
     # quiet chunk never advances (a workshop that persists unchanged must still read as two observations an hour apart)
     def t(sv):
+        # a time with no zone, or no time, is no observation (r6, Codex P2: a naive `at` raised TypeError)
         try:
-            return dt.datetime.fromisoformat(str(sv.get('at')).replace('Z', '+00:00')) - dt.timedelta(minutes=SAVE_LAG_MIN)
+            v = dt.datetime.fromisoformat(str(sv.get('at')).replace('Z', '+00:00'))
         except Exception:
             return None
-    mine = sorted([sv for sv in surveys or [] if sv.get('valid') is True and sv.get('record_gen') == rec.get('_gen')
-                   and sv.get('record_sha') == rec.get('_sha') and t(sv) is not None and t(sv) >= since], key=t)
+        return v - dt.timedelta(minutes=SAVE_LAG_MIN) if v.tzinfo is not None else None
+
+    def f1(sv):
+        # a score that is not a finite number in [0, 1] is no score (r6, Codex P2: f1 "oops" raised ValueError)
+        try:
+            v = float(sv.get('f1'))
+        except Exception:
+            return None
+        return v if v == v and 0.0 <= v <= 1.0 else None
+    mine = sorted([sv for sv in surveys or [] if isinstance(sv, dict) and sv.get('valid') is True and sv.get('record_gen') == rec.get('_gen')
+                   and sv.get('record_sha') == rec.get('_sha') and t(sv) is not None and t(sv) >= since and f1(sv) is not None], key=t)
     if not mine:
         return False, 'no valid survey of this record after the completion (%d surveys)' % len(surveys or [])
     newest = mine[-1]
-    if not (float(newest.get('f1') or 0) >= CONFORM_F1):
-        return False, 'newest survey F1 %s at %s' % (newest.get('f1'), newest.get('region_mtime'))
-    good = [sv for sv in mine if float(sv.get('f1') or 0) >= CONFORM_F1]
+    # the persistent pair lies AFTER the last bad survey (r6, Claude P3-4: good, damaged, repaired is not an hour of persistence);
+    # a bad NEWEST survey leaves nothing after it (damage after a good pair revokes it)
+    last_bad = max([i for i, sv in enumerate(mine) if f1(sv) < CONFORM_F1], default=-1)
+    if last_bad == len(mine) - 1:
+        return False, 'newest survey F1 %s at %s' % (newest.get('f1'), newest.get('at'))
+    good = [sv for sv in mine[last_bad + 1:] if f1(sv) >= CONFORM_F1]
     if not good or (t(good[-1]) - t(good[0])).total_seconds() < CONFORM_GAP_MIN * 60:
         return False, '%d good survey(s), not %d min apart' % (len(good), CONFORM_GAP_MIN)
     return True, 'F1 %s .. %s over %d surveys, %s -> %s' % (good[0].get('f1'), newest.get('f1'), len(mine), good[0].get('at'), newest.get('at'))
@@ -541,6 +554,13 @@ def selftest():
     assert not conformance([SV('a', 5, 1.0, sha='x'), SV('a', 70, 1.0, sha='x')], hd, since)[0], 'another record body'
     assert not conformance([SV('a', -90, 1.0), SV('a', -10, 1.0)], hd, since)[0], 'world states before the completion'
     assert not conformance([SV('a', 5, 1.0), SV('a', 70, 1.0)], None, since)[0]
+    # r6: a bad survey between two good ones breaks the pair; the pair after it counts (Claude P3-4)
+    assert not conformance([SV('a', 5, 1.0), SV('a', 40, 0.9), SV('a', 70, 1.0)], hd, since)[0], 'good, damaged, repaired: no hour after the damage'
+    assert conformance([SV('a', 5, 1.0), SV('a', 40, 0.9), SV('a', 50, 1.0), SV('a', 115, 1.0)], hd, since)[0], 'an hour of good surveys after the damage'
+    # r6: malformed fields are no observation, never a crash (Codex P2)
+    naive = dict(SV('a', 70, 1.0), at=(t0 + dt.timedelta(minutes=76)).strftime('%Y-%m-%dT%H:%M:%S'))
+    for bad in (naive, dict(SV('a', 70, 1.0), f1='oops'), dict(SV('a', 70, 1.0), f1=float('nan')), dict(SV('a', 70, 1.0), f1=1.5), dict(SV('a', 70, 1.0), at=None), 'junk'):
+        assert not conformance([SV('a', 5, 1.0), bad], hd, since)[0], bad
     # through judge: both towns conformant -> READY; one -> not; no mirror -> never
     projc = {p: dict(proj[p], record=dict(rec, _gen=1, _sha='abc')) for p in proj}
     sv_both = (True, {'board-a': [SV('board-a', 30, 1.0), SV('board-a', 100, 1.0)], 'board-b': [SV('board-b', 30, 1.0), SV('board-b', 100, 0.99)]})

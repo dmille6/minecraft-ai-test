@@ -26,8 +26,8 @@ esac
 J=$(ssh -o BatchMode=yes 10.0.0.30 "nice -n 19 python3 -I $T/shopconform.py survey /srv/block2/$W/world --records $T/records --pool $POOL --blueprint $T/workshop@1.json")
 RC=$?
 case "$OUT" in
-  31:*) printf '%s\n' "$J" | ssh -o BatchMode=yes 10.0.0.31 "mkdir -p \$(dirname '${OUT#31:}') && cat > '${OUT#31:}'" ;;
-  *)    printf '%s\n' "$J" > "$OUT" ;;
+  31:*) printf '%s\n' "$J" | ssh -o BatchMode=yes 10.0.0.31 "mkdir -p \$(dirname '${OUT#31:}') && cat > '${OUT#31:}'" || { echo "survey NOT delivered to $OUT"; exit 6; } ;;
+  *)    printf '%s\n' "$J" > "$OUT" || { echo "survey NOT written to $OUT"; exit 6; } ;;
 esac
 printf '%s\n' "$J" | python3 -c "import json,sys; d=json.load(sys.stdin); print({k: d.get(k) for k in ('pool','record_gen','region_mtime','cells','tp','fp','fn','unknown','f1','valid','why')}); print('bad', d.get('bad'))"
 exit $RC
