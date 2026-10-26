@@ -62,7 +62,7 @@ const { pathfinder, Movements } = breq('mineflayer-pathfinder')
 const { SKILLS } = await import(path.join(BOT_ROOT, 'bots/src/skills.mjs'))
 void SKILLS
 const { Runner } = await import(path.join(BOT_ROOT, 'bots/src/runner.mjs'))
-const { tapRecords } = await import(path.join(BOT_ROOT, 'bots/src/logger.mjs'))
+const { tapRecords, logEvent } = await import(path.join(BOT_ROOT, 'bots/src/logger.mjs'))
 const { withApproachBound } = await import(path.join(BOT_ROOT, 'bots/src/digapproach.mjs'))
 const LPPATH = path.join(BOT_ROOT, 'bots/src/lidplace.mjs')
 const LP = fs.existsSync(LPPATH) ? await import(LPPATH) : null
@@ -135,6 +135,17 @@ function wire () {
     if (typeof LP.installLidPrice !== 'function') throw new Error('lidplace.mjs without installLidPrice: this driver is stale for that build')
     LP.installLidPrice(moves, lidPlacePrice)   // on `moves`, before the clone copies it (index.mjs)
     bot.lidPrice = lidPlacePrice              // as index.mjs: planDigApproach's capped-search fallback reads it (Codex r3 P3)
+    // as index.mjs: the `_lidplace` instrument on the CHOSEN route (one row per distinct cells per 30 s)
+    if (typeof LP.chosenLidPlaces === 'function') {
+      const seen = new Map()
+      bot.on('path_update', r => {
+        if (!r || !(r.status === 'success' || r.status === 'partial') || !Array.isArray(r.path)) return
+        const lpc = LP.chosenLidPlaces(r.path)
+        if (!lpc) return
+        const key = lpc.cells.map(q => `${q.x},${q.y},${q.z}`).join('|')
+        if (LP.lidplaceRowDue(seen, key, Date.now())) logEvent({ kind: 'lidplace', status: 'no_effect', detail: LP.lidplaceRowDetail(lpc, { status: r.status, profile: 'sandbox', off: lidPlacePrice.off }) })
+      })
+    }
     // A POSITIVE CONTROL ON THE WIRING (a stale wiring once read as "the candidate towers on the lid"): the price of a block on
     // the arena chest's lid must be LID_PLACE_COST now, or the run is not a candidate run
     const probe = lidPlacePrice([{ x: C.x, y: C.y, z: C.z, dx: 0, dy: 1, dz: 0 }])
@@ -198,6 +209,7 @@ async function scene (s) {
     placed: placed.length, placedOnLid: onLid.length, placedCells: placed.slice(0, 16).map(p => `${p.x},${p.y},${p.z}${p.err ? '!' : ''}`),
     placeLog: placed.slice(0, 12).map(p => ({ c: `${p.x},${p.y},${p.z}`, at: p.at, ok: !!p.ok, err: p.err ?? null })),
     runs: runs.map(([k, r]) => ({ skill: k, status: r?.status, fc: r?.failClass ?? null, detail: String(r?.detail ?? '').slice(0, 220) })),
+    lidplaceRows: rows.filter(r => r.skill?.name === '_lidplace').map(r => String(r.skill?.detail ?? '').slice(0, 160)),
     rows: rows.filter(r => /^_(goto|gather|approach|reach)/.test(r.skill?.name ?? '')).map(r => ({ name: r.skill?.name, status: r.skill?.status, detail: String(r.skill?.detail ?? '').slice(0, 160) })).slice(0, 8) }
   await disconnect()
   return ev

@@ -285,10 +285,44 @@ test('COMPOSTER (composter.mjs composterSafeMovements): its clone keeps the base
   assert.equal(m.getNeighbors({ x: 0, y: 71, z: 0, remainingBlocks: 64 }).some(n => !keep(n)), false, 'and filtered')
 })
 
+// ---- the instrument (`_lidplace`: a priced move on the CHOSEN route) ----------------------------------------------------
+test('INSTRUMENT: the chosen route of the chest-floored pit carries its lid placement (n, why, cells); the Gale candidate route carries none', () => {
+  const { chosenLidPlaces, lidplaceRowDetail } = LP
+  const pit = plan(moves(world(pitCells()), { canDig: true }), [0, 70, 0], new goals.GoalY(74))
+  const c = chosenLidPlaces(pit.path)
+  assert.ok(c, 'the pit route is priced (the lid tower is its only way out)')
+  assert.ok(c.cells.some(q => q.x === 0 && q.y === 70 && q.z === 0 && q.why === 'lid'), JSON.stringify(c.cells))
+  assert.equal(c.surcharge, c.cells.length * LID_PLACE_COST)
+  assert.match(lidplaceRowDetail(c, { status: 'success', profile: 'gather', goal: '0,74,0' }), /^moves=\d+ n=\d+ lid=\d+ plan=0 surcharge=\d+ cells=0,70,0:lid.* status=success profile=gather goal=0,74,0 off=0$/)
+  const gale = plan(moves(world({ '0,70,0': 'chest' })), [0, 71, 0], new goals.GoalY(74))
+  assert.equal(chosenLidPlaces(gale.path), null, 'the route taken around the lid carries no priced move')
+  const base = plan(moves(world({ '0,70,0': 'chest' }), { price: false }), [0, 71, 0], new goals.GoalY(74))
+  assert.equal(chosenLidPlaces(base.path), null, 'positive control on the field: an unpriced build never marks a move')
+  const guard = placeGuardCells({ plots: [{ cells: [{ at: [0, 70, 0], kind: 'chest', stand: [0, 70, 2], state: 'reserved' }] }] })
+  const fenced = { '0,69,0': 'stone' }; for (let y = 70; y <= 74; y++) for (const [x, z] of RING) fenced[`${x},${y},${z}`] = 'bedrock'
+  const pl = chosenLidPlaces(plan(moves(world(fenced), { guard }), [0, 70, 0], new goals.GoalY(75)).path)
+  assert.ok(pl && pl.cells.some(q => q.why === 'plan'), `a plan cell is named as plan: ${JSON.stringify(pl)}`)
+  assert.equal(chosenLidPlaces(null), null); assert.equal(chosenLidPlaces([]), null)
+})
+test('INSTRUMENT: one row per distinct set of cells per window (a re-plan of the same route is not a new row)', () => {
+  const { lidplaceRowDue, LIDPLACE_ROW_WINDOW_MS } = LP
+  const seen = new Map()
+  assert.equal(lidplaceRowDue(seen, 'a', 0), true); assert.equal(lidplaceRowDue(seen, 'a', 1000), false)
+  assert.equal(lidplaceRowDue(seen, 'b', 1000), true, 'another set of cells is a new row')
+  assert.equal(lidplaceRowDue(seen, 'a', LIDPLACE_ROW_WINDOW_MS + 1), true, 'the same set after the window')
+})
+test('WIRING the instrument: path_update logs `lidplace` from chosenLidPlaces, sampled by lidplaceRowDue, AFTER the lava corridor guard', () => {
+  const lava = once(IDX, 'const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)')
+  const ch = once(IDX, 'const lpc = chosenLidPlaces(r.path)')
+  once(IDX, 'if (lidplaceRowDue(lidplaceSeen, key, Date.now())) {')
+  once(IDX, "logEvent({ kind: 'lidplace', status: 'no_effect', snapshot: snapshot(bot),")
+  assert.ok(lava < ch, 'a refused leg is never counted as a chosen route')
+})
+
 // ---- mutants (lidplace.mjs, composter.mjs) ---------------------------------------------------------------------------
 const COMP_URL = new URL('../src/composter.mjs', import.meta.url)
 test('MUTANT KILLED: the surcharge never added -> Gale towers on the chest again', async () => {
-  await withMutant(LP_URL, '      if (add > 0) n.cost += add\n', '      void add\n', async mod => {
+  await withMutant(LP_URL, '      if (add > 0) { n.cost += add; n.lidPlace = cells }', '      if (add > 0) { n.lidPlace = cells }', async mod => {
     const r = plan(moves(world({ '0,70,0': 'chest' }), { mod }), [0, 71, 0], new goals.GoalY(74))
     assert.ok(r.placed.includes('0,71,0'), `${r.placed}`)
   })
@@ -300,7 +334,7 @@ test('MUTANT KILLED: the price made a veto (priced neighbours dropped) -> the bo
   })
 })
 test('MUTANT KILLED: the lid read one cell too high (the cell itself, not the one below) -> Gale towers on the chest again', async () => {
-  await withMutant(LP_URL, ' || !!(lidded && lidded(x, y - 1, z))', ' || !!(lidded && lidded(x, y, z))', async mod => {
+  await withMutant(LP_URL, "  return lidded && lidded(x, y - 1, z) ? 'lid' : null", "  return lidded && lidded(x, y, z) ? 'lid' : null", async mod => {
     const r = plan(moves(world({ '0,70,0': 'chest' }), { mod }), [0, 71, 0], new goals.GoalY(74))
     assert.ok(r.placed.includes('0,71,0'), `${r.placed}`)
   })

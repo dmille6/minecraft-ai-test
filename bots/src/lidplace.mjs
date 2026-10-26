@@ -78,9 +78,12 @@ export function placeGuardCells (plan) {
 
 /** Is a block placed INTO (x, y, z) one to avoid? guard = placeGuardCells' set (or null); lidded(x, y, z) = a lidded
  *  container stands there. Pure. */
-export function placeGuarded (guard, lidded, x, y, z) {
-  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false
-  return !!(guard && guard.size && guard.has(k3(x, y, z))) || !!(lidded && lidded(x, y - 1, z))
+export function placeGuarded (guard, lidded, x, y, z) { return placeGuardWhy(guard, lidded, x, y, z) !== null }
+/** ...and WHY -> 'plan' (a guarded plan cell) | 'lid' (over a lidded container) | null. Pure. */
+export function placeGuardWhy (guard, lidded, x, y, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null
+  if (guard && guard.size && guard.has(k3(x, y, z))) return 'plan'
+  return lidded && lidded(x, y - 1, z) ? 'lid' : null
 }
 
 /**
@@ -106,12 +109,18 @@ export function landingCells (p, emptyAt) {
  * THE SURCHARGE FOR ONE NEIGHBOUR -> LID_PLACE_COST x its placements that may land in a guarded cell (each counted once).
  * Pure over its inputs. `toPlace` is mineflayer-pathfinder's Move.toPlace; a `useOne` entry places nothing.
  */
-export function lidPlaceSurcharge (toPlace, guard, lidded, emptyAt = null) {
+export function lidPlaceSurcharge (toPlace, guard, lidded, emptyAt = null, out = null) {
   if (!Array.isArray(toPlace) || !toPlace.length) return 0
   let n = 0
   for (const p of toPlace) {
     if (!p || p.useOne) continue
-    if (landingCells(p, emptyAt).some(c => placeGuarded(guard, lidded, c.x, c.y, c.z))) n++
+    for (const c of landingCells(p, emptyAt)) {
+      const why = placeGuardWhy(guard, lidded, c.x, c.y, c.z)
+      if (!why) continue
+      n++
+      if (out) out.push({ x: c.x, y: c.y, z: c.z, why })   // the instrument's record (index.mjs `_lidplace`)
+      break
+    }
   }
   return n * LID_PLACE_COST
 }
@@ -150,9 +159,9 @@ export function makeLidPlacePrice ({ registry, stateIdAt, guard = () => null, on
   const ids = liddedStateIds(registry), empty = emptyStateIds(registry)
   const lidded = (x, y, z) => ids.has(stateIdAt(x, y, z))
   const emptyAt = (x, y, z) => empty.has(stateIdAt(x, y, z))
-  const price = (toPlace) => {
+  const price = (toPlace, out = null) => {
     if (!on || price.off > 0) return 0
-    const v = lidPlaceSurcharge(toPlace, guard(), lidded, emptyAt)
+    const v = lidPlaceSurcharge(toPlace, guard(), lidded, emptyAt, out)
     if (v > 0) price.hits++
     return v
   }
@@ -191,11 +200,47 @@ export function installLidPrice (movements, price) {
   movements.getNeighbors = function (node) {
     const ns = inner.call(this, node)
     for (const n of ns) {
-      const add = n?.toPlace?.length ? price(n.toPlace) : 0
-      if (add > 0) n.cost += add
+      if (!n?.toPlace?.length) continue
+      const cells = []
+      const add = price(n.toPlace, cells)
+      if (add > 0) { n.cost += add; n.lidPlace = cells }   // kept on the Move: a CHOSEN priced move is read off the path
     }
     return ns
   }
   movements.__lidPrice = true
   return movements
+}
+
+/**
+ * THE INSTRUMENT (`_lidplace`, coordinator 10-26): the priced moves of a path the planner CHOSE -> null, or
+ * { moves, surcharge, cells: [{ x, y, z, why }] } (every guarded landing, in path order). Pure. A move carries `lidPlace`
+ * only when installLidPrice priced it, so a path with none says the price never bit on the route actually taken.
+ */
+export function chosenLidPlaces (path) {
+  if (!Array.isArray(path)) return null
+  let moves = 0
+  const cells = []
+  for (const n of path) {
+    if (!Array.isArray(n?.lidPlace) || !n.lidPlace.length) continue
+    moves++
+    cells.push(...n.lidPlace)
+  }
+  return moves ? { moves, surcharge: cells.length * LID_PLACE_COST, cells } : null
+}
+/** THE SAMPLE: one row per distinct chosen set of cells per window -> boolean. `seen` is a Map the caller keeps. Pure
+ *  given `now`. A re-plan of the same route (path_update fires on every partial) is not a new row. */
+export const LIDPLACE_ROW_WINDOW_MS = 30_000
+export function lidplaceRowDue (seen, key, now, windowMs = LIDPLACE_ROW_WINDOW_MS) {
+  const last = seen.get(key)
+  if (last !== undefined && now - last < windowMs) return false
+  seen.set(key, now)
+  if (seen.size > 64) for (const [k, t] of seen) if (now - t >= windowMs) seen.delete(k)
+  return true
+}
+/** The row's detail, key=value (a read parses fields, never prose). At most `max` cells are named; n= counts them all. */
+export function lidplaceRowDetail (c, { status = '?', profile = '?', goal = '?', off = 0, max = 4 } = {}) {
+  const named = c.cells.slice(0, max).map(q => `${q.x},${q.y},${q.z}:${q.why}`).join('|')
+  const lids = c.cells.filter(q => q.why === 'lid').length
+  return `moves=${c.moves} n=${c.cells.length} lid=${lids} plan=${c.cells.length - lids} surcharge=${c.surcharge} cells=${named} ` +
+         `status=${status} profile=${profile} goal=${goal} off=${off}`
 }
