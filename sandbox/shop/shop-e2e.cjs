@@ -224,20 +224,25 @@ function recordOf (poolDir) {
 }
 /** Every record cell by RCON -> { ok, bad: [cell: want], standing: {stock name: n}, fallback: n }. `standing` is what the cells
  *  HOLD (the names the town + bags must have lost); `fallback` counts cells holding a later palette choice than the first. */
-function cellsCheck (rec) {
+function cellsCheck (rec, placedCells = null) {
   const asks = rec.cells.flatMap((c, i) => ROLE_OK(c.role).map(n => ({ i, n, cmd: `execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${n}` })))
   const r = rconMany(asks.map(a => a.cmd))
   const held = new Map()
   asks.forEach((a, j) => { if (/Test passed/.test(r[j]?.reply || '') && !held.has(a.i)) held.set(a.i, a.n) })
-  const bad = [], standing = {}
+  const bad = [], standing = {}, kept = {}
   let fallback = 0
+  // THE TOWN'S OWN LITTER KEPT AS A CELL (r15: a clear-list block at a record cell that already reads its role's block is the
+  // cell, never dug): no place row and in the record's clear list -- it stands, but the stock never paid it (terrain-a r16:
+  // board-a's oak_planks litter at a wall cell read as one plank short)
+  const litter = new Set((rec.clear ?? []).map(c => c.at.join(',')))
   rec.cells.forEach((c, i) => {
     if (!held.has(i)) { bad.push(`${c.at.join(',')}:${ROLE_BLOCK[c.role]}`); return }
     const n = stockName(held.get(i))
+    if (placedCells && litter.has(c.at.join(',')) && !placedCells.has(c.at.join(','))) { kept[n] = (kept[n] || 0) + 1; return }
     standing[n] = (standing[n] || 0) + 1
     if (stockName(ROLE_OK(c.role)[0]) !== n) fallback++
   })
-  return { ok: bad.length === 0, bad, n: rec.cells.length, standing, fallback }
+  return { ok: bad.length === 0, bad, n: rec.cells.length, standing, kept, fallback }
 }
 /** Every BUILDER click (a block_place carrying a sequence > 0: the builder's own) was acknowledged (an ack >= it) within 5 s.
  *  A sequence-0 block_place is mineflayer's own activateBlock (a chest open for the withdraw, Paper r2: 4 of them, held item a
@@ -337,6 +342,12 @@ async function runScene (scene) {
   const skillLogs = names.map(nm => `${R}/sandbox/log/shop-e2e/${tag}/skill-${nm}.jsonl`)
   const pool = `sbxsh-${tag}`
   const poolDir = `${R}/sandbox/state/_pool-${pool}`
+  // SH_SEED_POOL=<an earlier run's pool dir>: the town plan and the workshop record it SITED are copied in first, so the scene
+  // runs a record an earlier build proved (F2: a record sited before the replant rule tightened, its replant cell unreachable)
+  if (process.env.SH_SEED_POOL) {
+    fs.mkdirSync(poolDir, { recursive: true })
+    for (const n of fs.readdirSync(process.env.SH_SEED_POOL)) if (/^(project-760_120_760\.shop\.g\d+\.json|townplan-760_120_760\.g\d+\.json)$/.test(n)) fs.copyFileSync(path.join(process.env.SH_SEED_POOL, n), path.join(poolDir, n))
+  }
   const per = names.map((nm, i) => {
     const sfx = i ? `-${i + 1}` : ''
     let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
@@ -381,8 +392,12 @@ async function runScene (scene) {
       rcon(`gamemode survival ${NAME}`, `effect clear ${NAME}`)
     }
   }
-  const done = await waitFor(() => (CANDIDATE ? allRows().some(r => r.ts >= t0 && r.name === '_structure_complete') : false), winMs - (Date.now() - t0), 5000)
-  if (done) await sleep(8000)
+  // a scene whose bot fells trees: the stock is read AT the completion (tree r19: 2 s after it build_composter crafted from the
+  // bot's OWN felled logs -- the wood family moved by a job that is not the build; the leftovers' bank-back moves bag -> town,
+  // which the town + bag sum does not see)
+  const quick = !!(spec.trees || spec.terrain)
+  const done = await waitFor(() => (CANDIDATE ? allRows().some(r => r.ts >= t0 && r.name === '_structure_complete') : false), winMs - (Date.now() - t0), quick ? 500 : 5000)
+  if (done) await sleep(quick ? 500 : 8000)
   const after = snapshot(names)
   const rows = allRows().filter(r => r.ts >= t0 - 5000 || /_mode$/.test(r.name))
   await stopBot()
@@ -401,12 +416,13 @@ async function runScene (scene) {
   if (CANDIDATE) {
     need(!!done, 'a _structure_complete row inside the window')
     need(!!rec, 'the record exists in the pool state')
-    if (rec) { cells = cellsCheck(rec); need(cells.ok, `every record cell reads its role's block (${cells.bad.length} of ${cells.n} wrong: ${cells.bad.slice(0, 5).join(' ')})`) }
+    const placedCells = new Set(rows.filter(r => r.name === '_build' && kv1(r.detail, 'op') === 'place').map(r => kv1(r.detail, 'cell')))
+    if (rec) { cells = cellsCheck(rec, placedCells); need(cells.ok, `every record cell reads its role's block (${cells.bad.length} of ${cells.n} wrong: ${cells.bad.slice(0, 5).join(' ')})`) }
     const made = rows.filter(r => r.name === '_make_material' && /verdict=ok/.test(r.detail) && /(?:^| )kind=bricks/.test(r.detail)).reduce((t, r) => t + (Number(kv1(r.detail, 'made')) || 0), 0)
     // the names the town + bags must have lost: what the record's cells HOLD (a fallback cell is paid in its fallback's name),
     // every bill name not standing at zero
     const owed = Object.fromEntries([...Object.keys(BILL), ...Object.keys(cells?.standing || {})].map(n => [n, cells?.standing?.[n] || 0]))
-    if (cells) { extra.fallback_cells = cells.fallback }
+    if (cells) { extra.fallback_cells = cells.fallback; if (Object.keys(cells.kept).length) extra.litter_kept = cells.kept }
     if (spec.terrain && cells) { for (const n of Object.keys(owed)) if (/_planks$/.test(n) && n !== 'oak_planks') { owed.oak_planks = (owed.oak_planks || 0) + owed[n]; delete owed[n] } }
     for (const [n, c] of Object.entries(cells ? owed : BILL)) {
       let d = (ta[n] || 0) - (tb[n] || 0)
