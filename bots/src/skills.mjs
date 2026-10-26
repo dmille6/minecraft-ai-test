@@ -120,7 +120,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
@@ -7352,7 +7352,17 @@ export function findTownComposter (bot) {
  */
 export function shopShareHeld (bot) {
   if (!SHOP.on) return false
-  try { const held = heldMap(bot); const dr = drawnRead(townDir(), shopKey(), bot.username ?? 'bot'); return Object.keys(drawnHeld(dr.drawn, held, dr.bag)).length > 0 } catch { return false }
+  try {
+    const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot'
+    const dr = drawnRead(dir, key, me)
+    if (!Object.keys(dr.drawn).length) return false
+    const held = heldMap(bot)
+    const rec = shopRecordHead().head?.rec
+    const st = shareState(dr, held, { complete: !!rec?.structure_complete, completeAt: rec?.completeAt ?? null })
+    // the lifecycle (r16 reviews): a completed build's share cleared, a consumed one retired to what is left (baseline the bag now)
+    if (st.write) drawnWrite(dir, key, me, st.write, { bag: held })
+    return st.held
+  } catch { return false }
 }
 export function townBuildPlan (bot) {
   if (shopShareHeld(bot)) return null
@@ -7963,7 +7973,7 @@ async function buildComposter (ctx, _args, signal) {
                  '3 logs of one kind (2 if a crafting table is carried) -- gather 3 logs and the next town visit builds it'
   if (findTownComposter(bot)) return skip('the town already has a composter')
   const pre = townBuildPlan(bot)
-  if (!pre) return skip(REMEDY)
+  if (!pre) return skip(shopShareHeld(bot) ? 'the bag holds the workshop\'s drawn materials: the composter waits until they are placed (or the share lapses)' : REMEDY)
   // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot. And NO CIRCULAR REMEDY: the
   // composter is what would free slots, and it does not exist yet -- the refusal names what frees one from HERE.
   if (free() < pre.slotsNeeded) return skip(noRoomToBuild(bot, pre, `building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}`))

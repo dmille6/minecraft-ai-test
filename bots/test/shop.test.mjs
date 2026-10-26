@@ -77,6 +77,24 @@ console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')
     assert.deepStrictEqual(S.drawnAfter({ drawn: {}, took: { torch: 2 }, back: { torch: 2 }, bag1: { torch: 2 } }), {}, 'banked back: nothing drawn')
     assert.deepStrictEqual(S.drawnAfter({ drawn: { stone_bricks: 89 }, bag1: { stone_bricks: 40 } }), { stone_bricks: 40 }, 'never above the bag')
   })
+  await t('shareState: a live share holds; none, a stale one (TTL), and a completed build\'s do not (r16 reviews P2)', () => {
+    const now = 10 * 3600_000, dr = { drawn: { oak_planks: 36 }, bag: { oak_planks: 36 }, at: now - 60_000 }
+    assert.deepStrictEqual(S.shareState(dr, { oak_planks: 36 }, { now }), { held: true, share: { oak_planks: 36 }, write: null }, 'live (control)')
+    assert.strictEqual(S.shareState({ drawn: {} }, { oak_planks: 36 }, { now }).held, false)
+    assert.strictEqual(S.shareState({ ...dr, at: now - S.SHARE_TTL_MS - 1 }, { oak_planks: 36 }, { now }).held, false, 'not written for > TTL')
+    const done = S.shareState(dr, { oak_planks: 36 }, { now, complete: true, completeAt: now - 1000 })
+    assert.deepStrictEqual(done, { held: false, share: {}, write: {} }, 'another builder completed the workshop: cleared')
+    assert.strictEqual(S.shareState({ ...dr, at: now }, { oak_planks: 36 }, { now, complete: true, completeAt: now - 1000 }).held, true, 'a repair visit\'s newer share holds')
+  })
+  await t('shareState: a consumed share is retired, so a later pickup never resurrects it (r16 Codex P2)', () => {
+    const now = 10 * 3600_000
+    const st = S.shareState({ drawn: { oak_planks: 4 }, bag: { oak_planks: 20 }, at: now - 1000 }, { oak_planks: 16 }, { now })
+    assert.deepStrictEqual(st, { held: false, share: {}, write: {} }, 'drawn 4, baseline 20, bag 16: spent; retired to nothing')
+    // after the retire is written (share {}), the replenished bag holds no share at all
+    assert.strictEqual(S.shareState({ drawn: {}, bag: {}, at: now }, { oak_planks: 20 }, { now }).held, false)
+    // a partial spend retires to what is left
+    assert.deepStrictEqual(S.shareState({ drawn: { oak_planks: 10 }, bag: { oak_planks: 30 }, at: now - 1000 }, { oak_planks: 25 }, { now }).write, { oak_planks: 5 })
+  })
   await t('drawnWrite / drawnRead round trip; junk counts dropped; a missing file reads {}', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drawn-'))
     assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { drawn: {}, bag: {}, at: null })
@@ -226,7 +244,7 @@ const W = [
   ['skills: the junk well plans nothing while the bot holds a workshop share', SK, /function wellBuildPlanOf \(bot\) \{\n\s*if \(shopShareHeld\(bot\)\) return null/],
   ['skills: found-01 founds nothing while the bot holds a workshop share', SK, /if \(shopShareHeld\(bot\)\) return out\('no_effect', 'refused', 'the bag holds the workshop/],
   ['cognitive: no found order while the bot holds a workshop share', CG, /if \(!tp\) return null\n\s*if \(shopShareHeld\(bot\)\) return null\s*\n\s*const items = bot\.inventory\?\.items\?\.\(\) \?\? \[\]\n\s*const wanted = /],
-  ['skills: shopShareHeld reads the clamped share', SK, /return Object\.keys\(drawnHeld\(dr\.drawn, held, dr\.bag\)\)\.length > 0/],
+  ['skills: shopShareHeld judges the share by its lifecycle and writes the retire/clear back', SK, /const st = shareState\(dr, held, \{ complete: !!rec\?\.structure_complete, completeAt: rec\?\.completeAt \?\? null \}\)\n(?:\s*\/\/[^\n]*\n)*\s*if \(st\.write\) drawnWrite\(dir, key, me, st\.write, \{ bag: held \}\)\n\s*return st\.held/],
   ['skills: the bag row reports the share\'s writes', SK, /drawn: drawn0 \? \(drawnFails \? `fail:\$\{drawnFails\}` : 'ok'\) : '-' \}/],
   ['skills: persist writes the bag balance with its baseline and counts a failure', SK, /if \(!drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 \}\), \{ bag: b1 \}\)\) drawnFails\+\+/],
 ]
