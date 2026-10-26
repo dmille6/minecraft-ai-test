@@ -69,9 +69,16 @@ function resolve (palette, role, inTown, planks) {
  * no_material stop: matsBank cannot bank a kept name back) became the bag's own stockpile -- held, unspendable, and the town
  * already at BUILD_RESERVE: the builder held 36 planks and stopped `no_material` on one wall cell for 40 minutes.
  */
-export function drawnHeld (drawn = {}, held = {}) {
+export function drawnHeld (drawn = {}, held = {}, bagAt = null) {
+  // a DECREASE of the bag since the record was written (another job spent some: the peaceful kit's composter) comes off the
+  // project's share first, so the bot's own stock is never relabelled the project's (r10, Codex P2); with no baseline, the
+  // clamp to the bag alone. An increase (a pickup) is the bot's own.
   const out = {}
-  for (const [n, c] of Object.entries(drawn ?? {})) { const v = Math.min(Number(c) || 0, Number(held?.[n]) || 0); if (v > 0) out[n] = v }
+  for (const [n, c] of Object.entries(drawn ?? {})) {
+    const fell = bagAt && Number.isFinite(Number(bagAt[n])) ? Math.max(0, Number(bagAt[n]) - (Number(held?.[n]) || 0)) : 0
+    const v = Math.min((Number(c) || 0) - fell, Number(held?.[n]) || 0)
+    if (v > 0) out[n] = v
+  }
   return out
 }
 /** The bag less the project's share -> { name: n }: what the bot owns, the only counts its keeps are computed from. Pure. */
@@ -233,4 +240,4 @@ const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(
 export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'drawn', 'ms', 'why'], f)

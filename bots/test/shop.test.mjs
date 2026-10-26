@@ -57,6 +57,20 @@ console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')
   await t('drawnHeld clamps to the bag (another job spent some: the composter crafted from them)', () => {
     assert.deepStrictEqual(S.drawnHeld({ oak_planks: 49, glass_pane: 4, gone: 3 }, { oak_planks: 36, glass_pane: 4 }), { oak_planks: 36, glass_pane: 4 })
   })
+  await t('a decrease since the record comes off the project\'s share first; a pickup is the bot\'s own (r10 Codex P2)', () => {
+    // 20 own + 36 drawn = 56 when written; the kit spent 10 -> 46: the share is 26, the own 20 stay own
+    assert.deepStrictEqual(S.drawnHeld({ oak_planks: 36 }, { oak_planks: 46 }, { oak_planks: 56 }), { oak_planks: 26 })
+    // a pickup of 10 -> 66: the share stays 36
+    assert.deepStrictEqual(S.drawnHeld({ oak_planks: 36 }, { oak_planks: 66 }, { oak_planks: 56 }), { oak_planks: 36 })
+    // without the baseline (an r10 file), the clamp alone (control)
+    assert.deepStrictEqual(S.drawnHeld({ oak_planks: 36 }, { oak_planks: 46 }), { oak_planks: 36 })
+  })
+  await t('Codex r10 P2 case: 20 own + 36 drawn, all 36 placed, the record rewritten at each placement: the own 20 stay kept', () => {
+    // the per-placement write leaves { drawn: 0 } -- nothing the project's; with the old one-write record (36 drawn, bag 56) the
+    // baseline still gives the decrease (56 -> 20) to the share first: 36 - 36 = 0
+    assert.deepStrictEqual(S.drawnHeld({ oak_planks: 36 }, { oak_planks: 20 }, { oak_planks: 56 }), {})
+    assert.strictEqual(spare({ ...bag, oak_planks: 20 }, {})('oak_planks'), 0)
+  })
   await t('drawnAfter: drawn + took + crafted - placed - back, clamped to [0, bag]', () => {
     assert.deepStrictEqual(S.drawnAfter({ drawn: { oak_planks: 10 }, took: { oak_planks: 49, stone_bricks: 89 }, crafted: { oak_planks: -4, crafting_table: 1 },
       placed: { oak_planks: 40, stone_bricks: 89, crafting_table: 1 }, back: { oak_planks: 5 }, bag1: { oak_planks: 30, crafting_table: 0 } }), { oak_planks: 10 })
@@ -65,10 +79,11 @@ console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')
   })
   await t('drawnWrite / drawnRead round trip; junk counts dropped; a missing file reads {}', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drawn-'))
-    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), {})
-    assert.strictEqual(BP.drawnWrite(dir, 'project-1_2_3.shop', 'bot-A', { oak_planks: 36, x: 'no', y: -2, z: 0 }), true)
-    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { oak_planks: 36 })
-    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-B'), {}, 'per holder')
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { drawn: {}, bag: {} })
+    assert.strictEqual(BP.drawnWrite(dir, 'project-1_2_3.shop', 'bot-A', { oak_planks: 36, x: 'no', y: -2, z: 0 }, { bag: { oak_planks: 56, torch: 2 } }), true)
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { drawn: { oak_planks: 36 }, bag: { oak_planks: 56 } })
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-B'), { drawn: {}, bag: {} }, 'per holder')
+    assert.strictEqual(BP.drawnWrite(path.join(dir, 'no\0such'), 'k', 'bot-A', { oak_planks: 1 }), false, 'a failed write says so')
     assert.ok(!fs.readdirSync(dir).some(n => n.endsWith('.tmp')), 'no temp file left')
   })
 }
@@ -187,18 +202,22 @@ const W = [
   ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = allow\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
   ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
   ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock, each deposit booked as it lands', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took, \{ onBanked: \(n2, c2\) => \{ backAll\[n2\] = /],
-  ['skills: each verified take booked as it lands', SK, /shopAllow, \(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c \}\)/],
+  ['skills: each verified take booked as it lands', SK, /shopAllow, \(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c; persist\(\) \}\)/],
   ['skills: matsWithdraw reports each verified take', SK, /try \{ onTook\?\.\(k, c\) \} catch/],
-  ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
+  ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*completed = true\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
   ['skills: one _build_bag row per visit, in the finally', SK, /if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
   ['skills: the bag row names the exit (a death inside the visit: died) and the silent clicks', SK, /\{ exit: diedAt \? 'died' : \(f\.outcome \?\? '-'\), silent: f\.silent \?\? '-' \}/],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
   ['skills: the visit\'s keeps are computed from the bot\'s OWN stock (the drawn share excluded)', SK, /const keep = townKeeps\(ownCounts\(held0, drawn0\), \{ wanted: bot\.currentWants \?\? \[\] \}\)\.keep/],
-  ['skills: the drawn share read and clamped at the visit\'s start', SK, /drawn0 = drawnHeld\(drawnRead\(dir, key, me\), held0\)/],
-  ['skills: the draw recorded as the project\'s at once, before any placement', SK, /if \(Object\.keys\(tookAll\)\.length\) drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, bag1: heldMap\(bot\) \}\)\)/],
-  ['skills: the drawn share rewritten on every exit, in the finally', SK, /if \(drawn0\) \{ try \{ drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap\(bot\) \}\)\) \}/],
+  ['skills: the drawn share read and clamped (with its baseline) at the visit\'s start', SK, /drawn0 = drawnHeld\(dr\.drawn, held0, dr\.bag\)/],
+  ['skills: nothing drawn unless the record can be written', SK, /if \(Object\.keys\(need\)\.length && !drawnWrite\(dir, key, me, drawn0, \{ bag: held0 \}\)\) return out\('no_effect', 'state_unwritable'/],
+  ['skills: the share persisted after EVERY verified take', SK, /\(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c; persist\(\) \}\); took = w\.took/],
+  ['skills: the share persisted after every placement', SK, /if \(kind === '_build' && d\?\.op === 'place'\) persist\(\)/],
+  ['skills: the share persisted after every bank-back', SK, /backAll\[n2\] = \(backAll\[n2\] \?\? 0\) \+ c2; persist\(\)/],
+  ['skills: the share persisted (or cleared on completion) in the finally', SK, /if \(drawn0\) \{ try \{ if \(completed\) drawnWrite\(dir, key, me, \{\}\); else persist\(\) \}/],
+  ['skills: persist writes the bag balance with its baseline and counts a failure', SK, /if \(!drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 \}\), \{ bag: b1 \}\)\) drawnFails\+\+/],
 ]
 for (const [name, src, re] of W) {
   await t(`${name} (and a mutant of it fails)`, () => {
