@@ -12989,6 +12989,8 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
     check(signal)
     if (deadline - Date.now() < n * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS) { res.stop = res.stop ?? 'late'; break }
     let lease = null, furnace = null, leaseAt = null
+    // ledger-01's records for this session, the smelt convention (its `_furnace_session` row carries open= and loads=)
+    const ledgerH = { ledgerOpen: null, ledgerLoads: { ok: 0, fail: 0 } }
     const skip = why => { bot.matsFurnaceSkip = { ...(bot.matsFurnaceSkip ?? {}), [cand.k]: Date.now() + 30 * 60_000 }; res.tried.push(`${cand.k}:${why}`) }
     try {
       lease = acquireFurnaceLease(townDir(), cand.pos, leaseHolder(bot), { what: 'mats' })
@@ -13010,7 +13012,7 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
         furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} })
       } catch (e) { if (e.aborted) throw e; skip('window'); furnace = null; continue }
       // ledger-01's opener set (re-stack onto 112beb04): the window as it opened, before any click
-      if (LEDGER.on) { try { ledgerObserve(bot, cand.pos, furnace, 'make_material', 'open') } catch { /* never breaks the order */ } }
+      if (LEDGER.on) { try { ledgerH.ledgerOpen = ledgerObserve(bot, cand.pos, furnace, 'make_material', 'open') } catch { /* never breaks the order */ } }
       const rd = which => { try { const it = furnace[which](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
       // MAT-HOT's second reading (Claude r1 P3): the window's burn progress (mineflayer's furnace.fuel, apart from the fuel slot)
       // -- an empty fuel slot can coexist with coal still burning; the block state is read too (furnace.fuel can miss the open)
@@ -13043,6 +13045,9 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
         if (onLoad) { const ia = winCount(input); onLoad({ furnace: cand.k, input: { name: input, n }, fuel: { name: planksName, n: want }, out: outName, prior: priorOut?.count ?? 0, inputBefore, inputAfter: ia ?? undefined }) }
         await furnace.putFuel(fDef.id, null, want)
         res.loaded = want
+        // the LOAD's verifying view is its own record (r2, Codex P2: smelt's ledgerLoad; else an empty-at-open furnace stays
+        // recorded empty through the batch); a load that could not be recorded is counted
+        if (LEDGER.on) { try { const lo = ledgerObserve(bot, cand.pos, furnace, 'make_material', 'load'); if (lo.rec) ledgerH.ledgerLoads.ok++; else if (lo.miss === 'fail') ledgerH.ledgerLoads.fail++ } catch { ledgerH.ledgerLoads.fail++ } }
         // THE WAIT: until the output holds all n (one take at the end: the crafts take whole units), the clock, or a slot read
         // that fails (the block is gone). Ended by THE CLOCK, the batch is cut: one freshly lit plank is the clock's (Claude r2 P2-B)
         let ended = null
@@ -13080,7 +13085,7 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
       // inside this interval, and G5 would read a healthy hand-off as an overlap
       const t1 = Date.now()
       try { lease?.release?.() } catch { /* expires by TTL */ }
-      if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${cand.k} lease=${lease?.n ?? '-'} t0=${leaseAt} t1=${t1} by=make_material` }) } catch { /* never break */ } }
+      if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${cand.k} lease=${lease?.n ?? '-'} t0=${leaseAt} t1=${t1} by=make_material${ledgerRowFields(ledgerH)}` }) } catch { /* never break */ } }
     }
   }
   res.stop = res.stop ?? 'no_furnace'
@@ -13413,6 +13418,7 @@ async function matsReturnDrain (ctx, note, signal) {
   const { bot } = ctx
   const pos = keyVec(note.furnace)
   let lease = null, win = null, leaseAt = null
+  const retLedger = { ledgerOpen: null, ledgerLoads: { ok: 0, fail: 0 } }   // ledger-01's open record, on the session row
   const cold = () => { try { const v = bot.blockAt?.(pos)?.getProperties?.()?.lit; return v === false || v === 'false' } catch { return false } }
   try {
     if (!note.loaded) return { code: 'no_load_record', done: true }     // killed before the load: nothing went in
@@ -13438,7 +13444,7 @@ async function matsReturnDrain (ctx, note, signal) {
     if (!((() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })() >= 3)) return { code: 'bag_full', done: false }
     try { win = await withTimeout(bot.openFurnace(bot.blockAt(pos)), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e.aborted) throw e; return { code: 'window', done: false } }
     // ledger-01's opener set (re-stack onto 112beb04): the window as it opened, before any click
-    if (LEDGER.on) { try { ledgerObserve(bot, pos, win, 'mats_return', 'open') } catch { /* never breaks the recovery */ } }
+    if (LEDGER.on) { try { retLedger.ledgerOpen = ledgerObserve(bot, pos, win, 'mats_return', 'open') } catch { /* never breaks the recovery */ } }
     const rd = k => { try { const it = win[k](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
     const slots = { input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem') }
     if (Object.values(slots).includes(undefined) || !cold() || (win.fuel ?? 0) > 0) { try { win.close() } catch { /* closed */ } win = null; return { code: 'unreadable_or_lit', done: false } }
@@ -13459,7 +13465,7 @@ async function matsReturnDrain (ctx, note, signal) {
     const t1 = Date.now()                                                   // before the release (Codex r2 P2-6)
     try { lease?.release?.() } catch { /* TTL */ }
     // the furnace lease's interval, as smelt, the drain and make_material write it: the read's G5 pairs every session type
-    if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${note.furnace} lease=${lease?.n ?? '-'} t0=${leaseAt} t1=${t1} by=mats_return` }) } catch { /* never break */ } }
+    if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${note.furnace} lease=${lease?.n ?? '-'} t0=${leaseAt} t1=${t1} by=mats_return${ledgerRowFields(retLedger)}` }) } catch { /* never break */ } }
   }
 }
 
