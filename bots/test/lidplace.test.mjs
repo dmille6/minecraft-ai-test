@@ -318,6 +318,15 @@ test('INSTRUMENT: one row per distinct set of cells per window (a re-plan of the
   assert.equal(lidplaceRowDue(seen, 'b', 1000), true, 'another set of cells is a new row')
   assert.equal(lidplaceRowDue(seen, 'a', LIDPLACE_ROW_WINDOW_MS + 1), true, 'the same set after the window')
 })
+test('POSITIVE CONTROL: `_lidplace_hits` every 10 min carries the price\'s own counter (hits since the last row, total, off)', () => {
+  const price = { hits: 7, off: 0 }
+  assert.equal(LP.lidplaceHitsDetail(price, 3), 'hits=4 total=7 off=0'); assert.equal(LP.lidplaceHitsDetail(null, 0), 'hits=0 total=0 off=0')
+  const fn = LP.makeLidPlacePrice({ registry, stateIdAt: world({ '0,70,0': 'chest' }).stateIdAt })
+  fn([{ x: 0, y: 70, z: 0, dx: 0, dy: 1, dz: 0 }]); fn([{ x: 5, y: 70, z: 0, dx: 0, dy: 1, dz: 0 }])
+  assert.equal(fn.hits, 1, 'one priced placement counted, one free one not')
+  once(IDX, "try { logEvent({ kind: 'lidplace_hits', status: 'success', detail: lidplaceHitsDetail(lidPlacePrice, lidHitsPrev) }); lidHitsPrev = lidPlacePrice.hits } catch {")
+  once(IDX, '}, LIDPLACE_HITS_MS)')
+})
 test('LICENCE: `_lidplace_mode` once per spawn, on=0 under LIDPLACE=0', () => {
   assert.equal(LP.lidPlaceModeDetail({}), `on=1 cost=${LID_PLACE_COST} row_window_ms=${LP.LIDPLACE_ROW_WINDOW_MS}`)
   assert.match(LP.lidPlaceModeDetail({ LIDPLACE: '0' }), /^on=0 /)
@@ -416,7 +425,9 @@ test('MUTANT KILLED: planDigApproach without the base-cost retry -> the deep pit
     const bot = { entity: { position: V(0.5, 70, 0.5) }, gatherMovements: m, lidPrice: m.__lidPriceFn, inventory: { items: () => [] }, heldItem: null, blockAt: w.blockAt,
       pathfinder: { getPathFromTo: function * (mv, at, goal, o) { yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
     const r = mod.planDigApproach(bot, { x: 0, y: 77, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(77), endsInReach: () => true })
-    assert.notEqual(r?.status, 'success', 'the mutant keeps the priced failure')
+    // non-null: a throw (planDigApproach's catch -> null) must not pass for the mutant's reason (Claude rebase review P3)
+    assert.ok(r, 'a verdict, not a swallowed throw'); assert.equal(r.lidFallback, false)
+    assert.notEqual(r.status, 'success', 'the mutant keeps the priced failure')
   })
 })
 test('MUTANT (index): the install moved after the clones is detected', () => {

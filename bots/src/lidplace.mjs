@@ -246,3 +246,8 @@ export function lidplaceRowDetail (c, { status = '?', profile = '?', goal = '?',
   return `moves=${c.moves} n=${c.cells.length} lid=${lids} plan=${c.cells.length - lids} surcharge=${c.surcharge} cells=${named || '-'} ` +
          `status=${status} profile=${profile} goal=${goal} off=${off}`
 }
+
+/** THE POSITIVE CONTROL for a zero `_lidplace` count (Claude rebase review P2): the price's own counter, every
+ *  LIDPLACE_HITS_MS, so a dead price and a perfectly-avoided lid do not read the same. Pure. */
+export const LIDPLACE_HITS_MS = 10 * 60_000
+export const lidplaceHitsDetail = (price, prevHits) => `hits=${(price?.hits ?? 0) - (prevHits ?? 0)} total=${price?.hits ?? 0} off=${price?.off ?? 0}`
