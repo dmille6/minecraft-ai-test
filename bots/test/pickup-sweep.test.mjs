@@ -195,64 +195,52 @@ test('MUTANT KILLED: moving the row outside the retire branch makes a clean swee
     })
 })
 
-// ---- lidplace-01 Paper 10-26: a drop still FALLING is waited for, then walked to where it landed -------------------------
+// ---- pickupwait-01 (Paper 10-26): a drop still FALLING is walked to where it will LIE, not where the client last saw it --
+// mineflayer does not simulate other entities, so a falling item's client copy sits at a stale mid-air point for ~1 s.
 import * as SKM from '../src/skills.mjs'
-function fallingBot (mod, { fallMs = 300, from = 5, to = 1 } = {}) {
-  const t0 = Date.now()
-  const pos = { x: 2, z: 0, get y () { const k = Math.min(1, (Date.now() - t0) / fallMs); return from + (to - from) * k }, distanceTo (o) { return Math.hypot(this.x - o.x, this.y - o.y, this.z - o.z) } }
-  const drop = { id: 7, name: 'item', position: pos }
+function dropBot (mod, { y = 5, ground = 1, below = 'air' } = {}) {
+  const drop = { id: 7, name: 'item', position: V(2, y, 0) }
   const goals = []
   let alive = true
   const bot = {
-    entity: { position: V(0, 1, 0) }, entities: { 7: drop },
-    blockAt: p => ({ name: p.y < to ? 'stone' : 'air', boundingBox: p.y < to ? 'block' : 'empty' }),
-    nearestEntity: pred => (alive && pred(drop) ? drop : null),
-    pathfinder: { async goto (g) { goals.push(+g.y.toFixed(2)); alive = false } },
-  }
-  return { bot, goals, run: () => mod.pickupNearbyItems(bot, null) }
-}
-test('A FALLING DROP: the sweep waits until it lands and walks to the landing, not to the mid-air point (Paper 10-26)', async () => {
-  const { goals, run } = fallingBot(SKM)
-  await run()
-  assert.deepEqual(goals, [1], `walked to ${goals}`)
-  assert.equal(SKM.dropAirborne({ name: 'air', boundingBox: 'empty' }), true)
-  for (const b of [{ name: 'water', boundingBox: 'empty' }, { name: 'stone', boundingBox: 'block' }, null, {}]) assert.equal(SKM.dropAirborne(b), false, JSON.stringify(b))
-})
-test('A FALLING DROP: the wait is bounded (a drop that never lands is walked to after DROP_SETTLE_MS)', async () => {
-  const { goals, run } = fallingBot(SKM, { fallMs: 1e7, from: 5, to: -1e5 })   // still falling ~1 block per 100 ms the whole time
-  const t0 = Date.now(); await run()
-  assert.equal(goals.length, 1); assert.ok(Date.now() - t0 < SKM.DROP_SETTLE_MS + 1000)
-})
-test('MUTANT KILLED: the settle wait removed -> the walk goes to the mid-air position', async () => {
-  const url = new URL('../src/skills.mjs', import.meta.url)
-  const src = readFileSync(url, 'utf8')
-  const old = '    try { await awaitDropSettled(bot, drop, signal) } catch (e) { releaseSought(); throw e }\n'
-  assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION DID NOT APPLY (anchor missing or not unique)')
-  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
-  try {
-    const mod = await import(out.href)
-    const { goals, run } = fallingBot(mod)
-    await run()
-    assert.ok(goals[0] > 1.5, `the mutant walked to ${goals} (mid-air), not the landing at 1`)
-  } finally { try { unlinkSync(out) } catch {} }
-})
-test('A DROP AT REST on a block with no collision box (a rail, a torch: Claude r3 P3) is walked to at once, not after DROP_SETTLE_MS', async () => {
-  const drop = { id: 8, name: 'item', position: V(2, 5, 0) }
-  const goals = []
-  let alive = true
-  const bot = {
-    entity: { position: V(0, 5, 0) }, entities: { 8: drop },
-    blockAt: () => ({ name: 'rail', boundingBox: 'empty' }),
+    entity: { position: V(0, ground, 0) }, entities: { 7: drop },
+    blockAt: p => (p.y < ground ? { name: 'stone', boundingBox: 'block' } : { name: below, boundingBox: below === 'stone' ? 'block' : 'empty' }),
     nearestEntity: pred => (alive && pred(drop) ? drop : null),
     pathfinder: { async goto (g) { goals.push(g.y); alive = false } },
   }
-  const t0 = Date.now(); await SKM.pickupNearbyItems(bot, null)
-  assert.deepEqual(goals, [5]); assert.ok(Date.now() - t0 < 600, `waited ${Date.now() - t0} ms`)
-  assert.equal(SKM.dropAtRest(5, 5.004), true); assert.equal(SKM.dropAtRest(5, 4.8), false); assert.equal(SKM.dropAtRest(NaN, 5), false)
+  return { bot, goals, run: () => mod.pickupNearbyItems(bot, null) }
+}
+test('A FALLING DROP (stale at y 5 over open air, ground top at 1) is walked to where it will lie: y 1', async () => {
+  const { goals, run } = dropBot(SKM)
+  await run()
+  assert.deepEqual(goals, [1], `walked to ${goals}`)
 })
-test('A FALLING DROP: an abort mid-wait propagates (and the sweep does not walk)', async () => {
-  const { bot, goals } = fallingBot(SKM, { fallMs: 1e7, from: 5, to: -1e5 })
-  const ac = new AbortController(); setTimeout(() => ac.abort(), 150)
-  await assert.rejects(SKM.pickupNearbyItems(bot, ac.signal)); assert.deepEqual(goals, [])
+test('A DROP AT REST is walked to where it is: on the ground, on a rail (no collision box, Claude r3 P3), on water', async () => {
+  for (const [y, below, want] of [[1, 'air', 1], [1.06, 'rail', 1], [3.9, 'water', 3]]) {   // GoalNear floors its point
+    const { goals, run } = dropBot(SKM, { y, below })
+    await run()
+    assert.deepEqual(goals, [want], `${below}: walked to ${goals}`)
+  }
+  assert.equal(SKM.dropFallsThrough({ name: 'air', boundingBox: 'empty' }), true)
+  for (const b of [{ name: 'water', boundingBox: 'empty' }, { name: 'stone', boundingBox: 'block' }, null, {}]) assert.equal(SKM.dropFallsThrough(b), false, JSON.stringify(b))
+})
+test('dropLanding: an unknown (unloaded) cell stops the scan; the scan is bounded by DROP_SCAN_DOWN', () => {
+  const at = SKM.dropLanding({ blockAt: p => (p.y >= 3 ? { name: 'air', boundingBox: 'empty' } : null) }, { x: 0.5, y: 9, z: 0.5 })
+  assert.equal(at.y, 3, 'stops above the unknown cell')
+  const deep = SKM.dropLanding({ blockAt: () => ({ name: 'air', boundingBox: 'empty' }) }, { x: 0.5, y: 100, z: 0.5 })
+  assert.equal(deep.y, 99 - SKM.DROP_SCAN_DOWN)
+})
+test('MUTANT KILLED: the landing scan removed -> the walk goes to the stale mid-air point', async () => {
+  const url = new URL('../src/skills.mjs', import.meta.url)
+  const src = readFileSync(url, 'utf8')
+  const old = '        new goals.GoalNear(at.x, at.y, at.z, 1)), 6000, bot)\n'
+  assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION DID NOT APPLY (anchor missing or not unique)')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, '        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)\n').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const mod = await import(out.href)
+    const { goals, run } = dropBot(mod)
+    await run()
+    assert.deepEqual(goals, [5], `the mutant walked to ${goals}`)
+  } finally { try { unlinkSync(out) } catch {} }
 })

@@ -1610,38 +1610,38 @@ export function wellSwordsNow (bot) {
   try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }
 }
 
-/** How long the sweep waits for a falling drop to land (a log from 5 up falls in ~1 s). */
-export const DROP_SETTLE_MS = 2_000
-/** Is a drop over this block still falling? Pure: the cell just under the item has no collision box and is not a liquid
- *  (an item floats in water: waiting would only spend the budget). Unknown cell -> not falling (walk as before). */
-export function dropAirborne (below) {
-  if (!below || typeof below.boundingBox !== 'string') return false
-  if (/^(water|lava|bubble_column)$/.test(below.name ?? '')) return false
-  return below.boundingBox === 'empty'
+/** How far below a drop the landing scan looks (a log cut from a tall tree falls < 20). */
+export const DROP_SCAN_DOWN = 24
+/** Does a falling drop pass through this cell? Pure: no collision box and not a liquid (an item floats ON water). An unknown
+ *  cell (unloaded) stops the scan: no guess past what the bot can see. */
+export function dropFallsThrough (b) {
+  if (!b || typeof b.boundingBox !== 'string') return false
+  if (/^(water|lava|bubble_column)$/.test(b.name ?? '')) return false
+  return b.boundingBox === 'empty'
 }
-/** Has a drop stopped moving? Pure: two consecutive reads of its height, 100 ms apart, within 0.01. A drop at rest on a
- *  block with no collision box (a rail, a torch, a pressure plate, a cobweb) is airborne by dropAirborne and still at rest. */
-export const dropAtRest = (prevY, y) => Number.isFinite(prevY) && Number.isFinite(y) && Math.abs(y - prevY) < 0.01
 /**
- * Wait, at most `maxMs`, for a falling drop to land, come to rest, or vanish (collected, despawned). Aborts propagate.
- * WHY (Paper 10-26, sandbox7, lidplace-01's scenes, BOTH arms): a log cut 4-6 blocks up was chased while it fell -- the
- * goal froze at its mid-air position (`GoalNear(drop.position)` is read once) and the walk ran out its 6 s (`path_budget`,
- * d=0,4.6,0); a bot standing under the log caught the drop anyway, a bot one cell to the side lost it.
+ * WHERE A DROP WILL LIE -> { x, y, z }. The drop's own position, lowered through every cell it falls through to the top of
+ * the first one it cannot. WHY (Paper 10-26, sandbox7, lidplace-01's scenes, BOTH arms): a log cut 4-6 blocks up was
+ * chased while it fell. `GoalNear(drop.position)` is read once, and mineflayer does not simulate other entities -- the
+ * server moves an item's client copy about once a second -- so the goal froze mid-air and the walk ran out its 6 s
+ * (`_pickup_skipped err=path_budget d=0,4.6,0`). A bot under the log caught the drop; a bot one cell to the side lost it.
+ * A drop already at rest (on the ground, on a rail, on water) maps to where it is.
  */
-export async function awaitDropSettled (bot, drop, signal, maxMs = DROP_SETTLE_MS) {
-  const t0 = Date.now()
-  let prevY = NaN
-  const falling = () => {
-    try {
-      if (bot.entities && bot.entities[drop.id] !== drop) return false     // gone: nothing to wait for
-      const p = drop.position
-      if (!dropAirborne(bot.blockAt?.(new Vec3(Math.floor(p.x), Math.floor(p.y - 0.05), Math.floor(p.z))))) return false
-      const still = dropAtRest(prevY, p.y)
-      prevY = p.y
-      return !still
-    } catch { return false }
+export function dropLanding (bot, pos, maxDown = DROP_SCAN_DOWN) {
+  const x = Math.floor(pos.x), z = Math.floor(pos.z)
+  let cy = Math.floor(pos.y - 0.05)
+  let fell = false
+  for (let k = 0; k < maxDown; k++) {
+    let b = null
+    try { b = bot.blockAt?.(new Vec3(x, cy, z)) ?? null } catch { b = null }
+    if (!dropFallsThrough(b)) break
+    // the cell holds the item only if the one below stops it; keep falling while the next one is open too
+    let under = null
+    try { under = bot.blockAt?.(new Vec3(x, cy - 1, z)) ?? null } catch { under = null }
+    if (!dropFallsThrough(under)) break
+    cy--; fell = true
   }
-  while (falling() && Date.now() - t0 < maxMs) await sleep(100, signal)
+  return fell ? { x: pos.x, y: cy, z: pos.z } : { x: pos.x, y: pos.y, z: pos.z }
 }
 
 /** Walk over anything on the floor within a few blocks. */
@@ -1689,12 +1689,12 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
-    // A DROP STILL FALLING IS NOT A PLACE TO WALK TO (awaitDropSettled): wait, bounded, then walk to where it LANDED.
-    try { await awaitDropSettled(bot, drop, signal) } catch (e) { releaseSought(); throw e }
     const walkT0 = Date.now()
     try {
+      // A DROP STILL FALLING IS WALKED TO WHERE IT WILL LIE, not where the client last saw it (dropLanding)
+      const at = dropLanding(bot, drop.position)
       await withTimeout(bot.pathfinder.goto(
-        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
+        new goals.GoalNear(at.x, at.y, at.z, 1)), 6000, bot)
     } catch (e) {
       releaseSought()
       if (e.aborted || signal?.aborted) throw e
