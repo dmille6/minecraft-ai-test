@@ -7,9 +7,9 @@
 //     log floating 7 above the chest, so the only way to cut it is to tower (the showcase shape: Gale, 10-25 19:06Z, towered
 //     for spruce_log on top of found-01's store chest);
 //   - index.mjs's movement profiles are copied here (index.mjs is not importable): the walk profile (no digging, towers,
-//     placeCost 5, maxDropDown 6) and the gather approach cloned from it (canDig, towers, dontCreateFlow); when <botRoot> has
-//     bots/src/lidplace.mjs its makeLidPlacePrice is appended to exclusionAreasPlace EXACTLY as index.mjs builds it (the
-//     world's state id under the asked cell; no town plan in the sandbox, so guard() is null). A base build has no
+//     placeCost 5, maxDropDown 6) and the gather approach cloned from it (canDig, towers, dontCreateFlow, withApproachBound);
+//     when <botRoot> has bots/src/lidplace.mjs its makeLidPlacePrice + installLidPrice go on the walk profile before the clone
+//     EXACTLY as index.mjs does (the world's state id under the placed cell; no town plan in the sandbox, so guard() is null). A base build has no
 //     lidplace.mjs: nothing is installed (the base as shipped);
 //   - no reflex layer; resistance on the bot (a fall off a tower is not the question).
 // OUTCOMES FROM THE WORLD: every block the bot placed (a recorder on bot._genericPlace, under bot.placeBlock, which
@@ -63,6 +63,7 @@ const { SKILLS } = await import(path.join(BOT_ROOT, 'bots/src/skills.mjs'))
 void SKILLS
 const { Runner } = await import(path.join(BOT_ROOT, 'bots/src/runner.mjs'))
 const { tapRecords } = await import(path.join(BOT_ROOT, 'bots/src/logger.mjs'))
+const { withApproachBound } = await import(path.join(BOT_ROOT, 'bots/src/digapproach.mjs'))
 const LPPATH = path.join(BOT_ROOT, 'bots/src/lidplace.mjs')
 const LP = fs.existsSync(LPPATH) ? await import(LPPATH) : null
 const sha = (() => { try { return execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim() } catch { return 'unknown' } })()
@@ -131,14 +132,20 @@ function wire () {
     const lidScratch = new Vec3(0, 0, 0)
     const lidPlacePrice = LP.makeLidPlacePrice({ registry: bot.registry, on: LP.lidPlaceOn(process.env), guard: () => bot.townPlan?.guard ?? null,
       stateIdAt: (x, y, z) => { lidScratch.x = x; lidScratch.y = y; lidScratch.z = z; return bot.world.getBlockStateId(lidScratch) } })
-    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat(lidPlacePrice)
+    if (typeof LP.installLidPrice !== 'function') throw new Error('lidplace.mjs without installLidPrice: this driver is stale for that build')
+    LP.installLidPrice(moves, lidPlacePrice)   // on `moves`, before the clone copies it (index.mjs)
+    // A POSITIVE CONTROL ON THE WIRING (a stale wiring once read as "the candidate towers on the lid"): the price of a block on
+    // the arena chest's lid must be LID_PLACE_COST now, or the run is not a candidate run
+    const probe = lidPlacePrice([{ x: C.x, y: C.y, z: C.z, dx: 0, dy: 1, dz: 0 }])
+    if (probe !== LP.LID_PLACE_COST) throw new Error(`the lid price reads ${probe} on the arena chest's lid, not ${LP.LID_PLACE_COST}`)
   }
   const gatherMoves = Object.create(Object.getPrototypeOf(moves)); Object.assign(gatherMoves, moves)
   gatherMoves.canDig = true; gatherMoves.allowParkour = false; gatherMoves.allow1by1towers = true; gatherMoves.maxDropDown = 6; gatherMoves.dontCreateFlow = true
   bot.pathfinder.setMovements(moves)
   bot.gatherMovements = gatherMoves
   bot.collectBlock = { movements: gatherMoves }
-  bot.withGatherMovements = async fn => { bot.pathfinder.setMovements(gatherMoves); try { return await fn() } finally { bot.pathfinder.setMovements(moves) } }
+  // as index.mjs: the gather walk's re-plans held to the approach's cost cap (Codex r1 P3)
+  bot.withGatherMovements = async fn => { bot.pathfinder.setMovements(gatherMoves); try { return await withApproachBound(bot, fn) } finally { bot.pathfinder.setMovements(moves) } }
   bot.ascentMovements = gatherMoves
   bot.withAscentMovements = bot.withGatherMovements
   bot.assertNav = () => {}
@@ -146,7 +153,16 @@ function wire () {
   // bot._genericPlace(ref, face), which mineflayer-pathfinder's executor reaches via bot.placeBlock(ref, face)
   const placed = []
   const gp = bot._genericPlace?.bind(bot)
-  if (gp) bot._genericPlace = (ref, face, ...rest) => { const p = ref?.position?.plus?.(face); if (p) placed.push({ x: p.x, y: p.y, z: p.z, t: Date.now() }); return gp(ref, face, ...rest) }
+  if (gp) {
+    bot._genericPlace = (ref, face, ...rest) => {
+      const p = ref?.position?.plus?.(face)
+      const e = p ? { x: p.x, y: p.y, z: p.z, t: Date.now(), at: bot.entity?.position?.toString?.() } : null
+      if (e) placed.push(e)
+      const pr = gp(ref, face, ...rest)
+      Promise.resolve(pr).then(() => { if (e) e.ok = true }, err => { if (e) e.err = String(err?.message ?? err).slice(0, 60) })
+      return pr
+    }
+  }
   // ...and every dig (a block placed and dug again is not a block on the lid)
   const dg = bot.dig.bind(bot)
   bot.dig = (b, ...rest) => { const p = b?.position; if (p) placed.digs.push(`${p.x},${p.y},${p.z}:${b.name}`); return dg(b, ...rest) }
@@ -178,7 +194,8 @@ async function scene (s) {
     lidColumn: [0, 1, 2, 3].map(d => `${lid.y + d}:${['air', 'dirt', 'spruce_log', 'chest', 'bedrock'].find(b => isBlock(lid.x, lid.y + d, lid.z, b)) ?? 'other'}`).join(' '), chestThere: isBlock(C.x, C.y, C.z, 'chest'), logGone: isBlock(L.x, L.y, L.z, 'air'),
     logsInBag: bot.inventory.items().filter(i => i.name === 'spruce_log').reduce((a, i) => a + i.count, 0),
     digs: placed.digs.slice(0, 12),
-    placed: placed.length, placedOnLid: onLid.length, placedCells: placed.slice(0, 16).map(p => `${p.x},${p.y},${p.z}`),
+    placed: placed.length, placedOnLid: onLid.length, placedCells: placed.slice(0, 16).map(p => `${p.x},${p.y},${p.z}${p.err ? '!' : ''}`),
+    placeLog: placed.slice(0, 12).map(p => ({ c: `${p.x},${p.y},${p.z}`, at: p.at, ok: !!p.ok, err: p.err ?? null })),
     runs: runs.map(([k, r]) => ({ skill: k, status: r?.status, fc: r?.failClass ?? null, detail: String(r?.detail ?? '').slice(0, 220) })),
     rows: rows.filter(r => /^_(goto|gather|approach|reach)/.test(r.skill?.name ?? '')).map(r => ({ name: r.skill?.name, status: r.skill?.status, detail: String(r.skill?.detail ?? '').slice(0, 160) })).slice(0, 8) }
   await disconnect()

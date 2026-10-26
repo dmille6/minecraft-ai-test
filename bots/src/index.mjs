@@ -54,7 +54,7 @@ import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's lice
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
-import { makeLidPlacePrice, lidPlaceOn } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
+import { makeLidPlacePrice, lidPlaceOn, installLidPrice } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
@@ -661,13 +661,15 @@ function connect() {
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
     // LIDPLACE-01 (lidplace.mjs): a scaffold or bridge block on a chest's lid, in a placed or reserved plan cell or in its stand
-    // is PRICED (10, never a veto: a bot on a chest in a pit still has its tower). The plan's guard set is kept by every head
-    // read (skills.mjs townPlanHead); the lid test is one state-id read of the cell below -- no Block built in the A* step.
-    // LIDPLACE=0 -> 0 everywhere (the base's profile). On the SHARED array, before every clone below copies its reference.
+    // costs 20 more -- added to the NEIGHBOUR after the library has judged it legal (an exclusionAreasPlace price can push a
+    // near-100 move over the library's cut and delete a bot's only way out: Codex r1 P1). The plan's guard set is kept by every
+    // head read (skills.mjs townPlanHead); the lid test is one state-id read of the cell below -- no Block built in the A* step.
+    // LIDPLACE=0 -> 0 everywhere (the base's profile). An own getNeighbors on `moves`, installed BEFORE every clone below copies
+    // it (Object.assign), so the walk, gather, ascent, descent, water, tunnel and composter profiles all carry it.
     const lidScratch = new Vec3(0, 0, 0)
     const lidPlacePrice = makeLidPlacePrice({ registry: bot.registry, on: lidPlaceOn(process.env), guard: () => bot.townPlan?.guard ?? null,
       stateIdAt: (x, y, z) => { lidScratch.x = x; lidScratch.y = y; lidScratch.z = z; return bot.world.getBlockStateId(lidScratch) } })
-    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat(lidPlacePrice)
+    installLidPrice(moves, lidPlacePrice)
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
