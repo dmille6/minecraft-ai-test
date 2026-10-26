@@ -222,6 +222,11 @@ const W = [
   ['skills: the share persisted (or cleared on completion) in the finally, a failure counted', SK, /if \(drawn0\) \{ try \{ if \(completed\) \{ if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+ \} else persist\(\) \} catch \{ drawnFails\+\+ \} \}\n\s*if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
   ['skills: the share cleared AT the completion, before the bank-back', SK, /completed = true\n(?:\s*\/\/[^\n]*\n)*\s*if \(drawn0 && !drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+/],
   ['skills: a complete workshop\'s visit clears a stale share', SK, /if \(Object\.keys\(drawnRead\(dir, key, me\)\.drawn\)\.length\) drawnWrite\(dir, key, me, \{\}\)\n\s*return out\('no_effect', 'complete'/],
+  ['skills: the composter\'s plan reads the bot\'s OWN wood (the workshop\'s share excluded)', SK, /const own = stationOwn\(bot, items\)\n\s*return composterBuildPlan\(own, \{ tableAvailable: \(own\.crafting_table \?\? 0\) > 0, items \}\)/],
+  ['skills: the composter\'s at-site plan reads the OWN wood too', SK, /const counts = stationOwn\(bot, items\(\)\)\n\s*const plan = composterBuildPlan\(counts,/],
+  ['skills: the well\'s plan reads the OWN wood', SK, /const own = stationOwn\(bot, items\)\n\s*return wellBuildPlan\(own,/],
+  ['skills: the well\'s at-site plan reads the OWN wood', SK, /const ownAt = stationOwn\(bot, items\(\)\)\n\s*const plan = wellBuildPlan\(ownAt,/],
+  ['skills: stationOwn subtracts the clamped share', SK, /return \{ \.\.\.ownCounts\(held, drawnHeld\(dr\.drawn, held, dr\.bag\)\) \}/],
   ['skills: the bag row reports the share\'s writes', SK, /drawn: drawn0 \? \(drawnFails \? `fail:\$\{drawnFails\}` : 'ok'\) : '-' \}/],
   ['skills: persist writes the bag balance with its baseline and counts a failure', SK, /if \(!drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 \}\), \{ bag: b1 \}\)\) drawnFails\+\+/],
 ]
