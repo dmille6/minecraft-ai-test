@@ -807,6 +807,13 @@ CLEAR LIST. Never in a protected zone, the showcase's village boxes, or another 
   - felling needs the sapling in the bag first. The remedy is a withdraw from town (640 oak and 323 birch saplings in chests);
   - after a crash, the next visit plants pending obligations before any clear;
   - **no legal replant cell means no site** (re-fit), never a felled tree without its sapling.
+  - **AMENDMENT S2 (owner sign-off 10-26, via the coordinator; shop-01 r18-r20, F2):** siting still refuses a site with no legal
+    replant cell (the siting proof and the visit now share one test, `buildsite.mjs replantCellAt`). A replant that the
+    VISIT cannot plant (the world changed since siting) is MOVED to another legal cell (the band, then the whole town walk,
+    never nearer the pad than the band; at most 4 moves, never back to a cell already refused); with no legal cell anywhere
+    in the walk it is DEFERRED for 3 visits and then SKIPPED -- its tree may then be felled without a sapling. Every move,
+    deferral and skip is a named `_build` row (`replant_moved` / `replant_deferred` / `replant_skipped`) the read reports,
+    and the read's G5 counts only the replants not skipped. If the town's reservations cannot be read, nothing moves or skips.
 - **Small hills:** terrain above s-1, at most 3 high per column and 30 cells per plot (the screen's limits), is dug. Holes, at
   most 3 deep and 40 cells, are filled with cobble. Larger relief refuses the site (re-fit).
 - **Foreign blocks after siting:** blocks of the pathfinder's scaffold list (cobble, dirt, natural stone) that appear inside a
