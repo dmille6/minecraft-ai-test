@@ -71,3 +71,57 @@ NOT RUN (named): the design's other shop-01 scenes -- CHAIN-1 (an empty bag, par
 SHOP-BARRIER / SHOP-COOP2 (two builders, SIGSTOP holders), SHOP-CLEAR (trees and replants), SHOP-ZONE, SHOP-KILL, ENTOMB, and the
 terrain fixtures cut from region copies. Their logic is covered by the fake-server suites (buildrun*.test.mjs) only. The
 coordinator's scope for this step was the workshop end to end from stock plus the base control.
+
+
+==================================================================================================================================
+PAPER ROUND 2 (2026-10-26, owner YES 10-25 via the coordinator: "run the remaining Paper scenes") -- driver branch
+shop-sandbox-on-main (sandbox/shop/shop-e2e.cjs; the scenes below + their instrument fixes), BASE = 7049da16 (mats-01),
+CANDIDATE named per run. Every scene under a per-server `shop` sandbox lock, taken and released per scene; sandbox5..8 only;
+RCON only via sbx-rcon.py; the terrain fixtures are READ-ONLY dumps of copied region files (no fleet world touched).
+
+THE SCENES (full text in the driver's header):
+  chain      80 bricks (9 short), cobble + logs, a clean furnace: the materials job must MAKE the missing bricks.
+  coop2      two builders on one town, the stock doubled: one place row per cell, both place, the barrier, no lease overlap.
+  tree       a trunk grid on grass + saplings: replants before the first felling, clears inside the record's list, wood family.
+  kill       SIGKILL after the 40th place row, restart on the same state: no cell twice, no intent left open.
+  terrain-a  board-a's own ground (home +-50), rebuilt in the arena by terrain/fixture.py.
+  terrain-c  hive-c's own ground, the same way.
+
+BASE (7049da16), every scene: BASE_SHAPE (no _build row, no record, the bill's names untouched) -- coop2, tree, kill, chain,
+terrain-a (r2; r1 the bot died in the fixture refill -> the driver sets bags after the fixture and fails any death), terrain-c.
+
+CANDIDATE, in order (what each round found, and what fixed it):
+  a85af3e4 (r9, as approved)
+    coop2      FAIL  the driver scored the palette's own fallbacks wrong (instrument, fixed); then: 24 of 167 cells on fallbacks
+                     (plank windows / trim) -- the first builder held the parts while the second drew its bill
+    kill       FAIL  DEADLOCK: after the restart the bag's 36 drawn planks were all kept as stockpile_wood and the town sat at
+                     BUILD_RESERVE (planks 71): `no_material wall_for_wall-F` on ONE cell for 35 min           -> r10-r13
+    chain      FAIL  the same deadlock on roof-inner (the materials job made 60 bricks meanwhile)               -> r10-r13
+    tree       FAIL  wood accounting only (felled logs crafted into planks: the driver's wood-family rule)  -> driver
+  5b7391e1 (r13: the drawn share, both engines APPROVE)
+    kill       PASS  (rerun; r1 of it failed on the killed connection's last unanswered click -> the driver's dead window)
+    tree       PASS  5 tree clears, the replant before the first, 167/167
+    coop2      FAIL  stock only: both placed 89/78, 0 fallbacks, 167/167 -- planks -57 vs -49 + a 2nd table: build_composter
+                     crafted from the builder's share between visits                                    -> r16-r17
+    chain      FAIL  160/167, no_material on the roof: the same composter leak with the town at the reserve -> r16-r17
+    terrain-a  FAIL  the clear pass dug its OWN wall: board-a's oak_planks litter was listed at a wall cell (cleared, built,
+                     cleared again) -> no_step 35 min                                                     -> r15
+    terrain-c  FAIL  no_step on a REPLANT cell (771,118,786) every visit: the tree may not fall before its sapling, and the
+                     sapling cell has no stand -> nothing placed (OPEN, named below)
+    shop (r12, kept on sandbox7 for the conformance negative): PASS; on the trial composition x 112beb04: PASS
+  df54f015 (r16: the share holds the stations; r17 its lifecycle)
+    chain      PASS  bricks made 12 (>= 9), 167/167, the stock exact (bricks = made - 89)
+    coop2      PASS  167/167, both placed (24 / 143), no lease overlap; 22 cells on fallbacks this time (the race above: OPEN)
+    terrain-a  complete, 195/195 right (28 fill cells, 20 clears), every click acked; the wood line reads -48 vs -49 because
+                     the kept board-a litter plank IS one wall cell (r15's rule) -- an instrument count, not a loss
+    kill, terrain-c  see the coordinator report (running at this commit)
+
+OPEN, named (not fixed here):
+  F1 the fallback race (coop2): with two builders the first draws the WHOLE bill; the second's bill takes the palette
+     fallbacks while the parts sit in the first's bag (0 of 167 in one run, 22-24 in two others). Legal by the palette;
+     cosmetic (plank windows/trim). Options: count peers' drawn shares as "in town" for the bill, or draw per segment.
+  F2 the replant dead end (terrain-c): a replant cell with no reachable stand blocks the tree (B4: never before its sapling)
+     and with it every segment behind it. The siting proof must require a stand for each replant cell, or the visit must
+     pick another cell (a refusal with no executable remedy: CLAUDE.md).
+  F3 the residual whole-bag consumers of a share: the smelt job's furnace craft, build_plinth's bag cobble, the model's own
+     crafts.

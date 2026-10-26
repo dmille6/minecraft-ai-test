@@ -96,7 +96,8 @@ export function shareState (dr = {}, held = {}, { now = Date.now(), complete = f
   const drawn = dr?.drawn ?? {}
   if (!Object.keys(drawn).length) return { held: false, share: {}, write: null }
   const at = Number(dr?.at)
-  if (complete && !(at > Number(completeAt ?? Infinity))) return { held: false, share: {}, write: {} }
+  // a complete record WITHOUT its completion time is no boundary (r17 Codex P2): the share stands until its TTL
+  if (complete && Number.isFinite(Number(completeAt)) && !(at > Number(completeAt))) return { held: false, share: {}, write: {} }
   if (!Number.isFinite(at) || now - at > ttl) return { held: false, share: {}, write: null }
   const share = drawnHeld(drawn, held, dr?.bag)
   const fell = Object.keys(drawn).some(n => (share[n] ?? 0) < (Number(drawn[n]) || 0))
