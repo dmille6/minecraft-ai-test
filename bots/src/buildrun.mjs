@@ -293,7 +293,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     // -- and the next visit cleared its own wall again, then could not re-place it: `no_step` every visit for 35 min)
     const roleAt = new Map(record.cells.map(c => [kOf(c.at), c.role]))
     const builtDone = c => roleAt.has(kOf(c.at)) && cellDone(e.read(...c.at), palette, roleAt.get(kOf(c.at)))
-    const todo = (record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !builtDone(c))).sort((a, b) => a.at[1] - b.at[1])
+    const todo = (record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1])
     if (!todo.length) return null
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) return null                                       // another builder is clearing: its segments wait for it
@@ -304,6 +304,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         if (c.kind === 'tree' && !replanted()) { needSapling ??= 'a sapling'; continue }   // never a tree before its sapling (B4)
         if (unknown.has(kOf(c.at))) { const n = await resolveUnknown(c.at); if (n == null || n !== c.name) continue }
         if (nm(rd(...c.at)) !== c.name) continue
+        if (builtDone(c)) continue      // AT the dig (one guard for every path: an UNKNOWN cell resolved to a done one, r15 Codex P2)
         if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await e.sleep(SPAWN_DIG_QUIET_MS)
         const v = await digNamed(c.at, c.name, held)
         if (v === 'fence') return 'fence:segment'
