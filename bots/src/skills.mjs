@@ -116,11 +116,11 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells } from './buildsite.mjs'
-import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS } from './buildproj.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16286,8 +16286,15 @@ async function buildShop (ctx, args, signal) {
   const slotRef = { gen: slot.gen }   // follows every renewal inside the visit: the release below is the LATEST generation (Codex r1 P3)
   let effects = null
   // THE BAG BALANCE's inputs (the read's conservation gate): set as the visit learns them; written once, in the finally
-  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
   const crafted = {}
+  // THE PROJECT'S SHARE, PERSISTED AS IT CHANGES (r10 reviews, both: a kill between two writes turned the draw into stockpile):
+  // after every verified take, the station crafts, every placement and every bank-back, and in the finally
+  const persist = () => {
+    if (!drawn0) return
+    const b1 = heldMap(bot)
+    if (!drawnWrite(dir, key, me, drawnAfter({ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 }), { bag: b1 })) drawnFails++
+  }
   const onDeath = () => { diedAt = Date.now() }
   try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
   try {
@@ -16296,7 +16303,11 @@ async function buildShop (ctx, args, signal) {
     // THE BAG'S KEEPS at the visit's start (cooperation A2; Codex r1 P3): the bill is drawn on top of them and the visit spends
     // only what is held above them
     const held0 = heldMap(bot)
-    const keep = townKeeps(held0, { wanted: bot.currentWants ?? [] }).keep
+    // the keeps are the bot's OWN stock's: what earlier visits drew for this project (the drawn file, clamped to the bag) is the
+    // project's, never the bag's stockpile (shop.mjs drawnHeld; Paper 10-25 SHOP-KILL / CHAIN-1)
+    const dr = drawnRead(dir, key, me)
+    drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
+    const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
     const spare0 = Object.fromEntries(Object.entries(held0).map(([n, c]) => [n, Math.max(0, c - (keep[n] ?? 0))]))
     // THE BILL (design 4.6 P2): the open cells' blocks, the pending replants' saplings, a missing station's inputs -- less the
     // bag's spare -- from town under the BUILD_RESERVE and the outstanding draws (a part: up to what the container shows)
@@ -16308,7 +16319,9 @@ async function buildShop (ctx, args, signal) {
     const need = needFromTown(want, spare0)
     let took = {}
     bag0 = held0
-    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c }); took = w.took ?? {} }
+    // nothing is drawn unless its record can be written (a draw the next visit cannot see is the deadlock again; r10 Codex P2)
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' })
+    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() }); took = w.took ?? {} }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
     const preCraft = heldMap(bot)
@@ -16321,6 +16334,7 @@ async function buildShop (ctx, args, signal) {
       // booked on every exit, an abort mid-craft included
       const postCraft = heldMap(bot)
       for (const k of new Set([...Object.keys(preCraft), ...Object.keys(postCraft)])) { const d = (postCraft[k] ?? 0) - (preCraft[k] ?? 0); if (d) crafted[k] = d }
+      persist()
     }
     check(signal)
     effects = botBuildEffects(bot, {
@@ -16328,7 +16342,7 @@ async function buildShop (ctx, args, signal) {
       keep,
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
       aborted: () => !!signal?.aborted,
-      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: SHOP_PLOT, ...d }) : buildRowDetail({ project: SHOP_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: SHOP_PLOT, ...d }) : buildRowDetail({ project: SHOP_PLOT, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()   // cells a dig left unanswered: unknown for the connection, asked again by the next visit
@@ -16336,6 +16350,7 @@ async function buildShop (ctx, args, signal) {
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
+      completed = true
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
     // THE LEFTOVERS GO BACK (design 5 "returns what is left", cooperation A3), AFTER the completion is published (Claude r3 P3-1):
@@ -16345,9 +16360,9 @@ async function buildShop (ctx, args, signal) {
     // built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2 } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
-    return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-', drawn: drawnFails ? `fail:${drawnFails}` : 'ok' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
@@ -16357,6 +16372,9 @@ async function buildShop (ctx, args, signal) {
     // ONE `_build_bag` ROW PER VISIT that reached its bag (every exit: an abort included) -- shop.mjs bagBalance
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(SHOP_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-' }) }) } catch { /* telemetry */ } }
+    // the project's share after the visit (every exit): what it drew and still holds, the next visit's to spend -- cleared when
+    // the workshop completed (its leftovers are the bag's own from then; a repair draws afresh; r10 Claude P3)
+    if (drawn0) { try { if (completed) drawnWrite(dir, key, me, {}); else persist() } catch { /* the next visit clamps */ } }
   }
 }
 
