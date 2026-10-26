@@ -43,13 +43,19 @@ export const k3 = a => a.join(',')
  *  buildRowDetail), its value uncut. Throws an AssertionError naming the lost field. */
 export const LOST = []
 // a throw inside the runner can be swallowed (a best-effort catch): the loss is also recorded and fails the process at exit
-process.on('exit', () => { if (LOST.length) { console.log(`  FAIL  a runner row lost a field in the log formatter: ${LOST.slice(0, 3).join(' | ')}`); process.exitCode = 1 } })
+// process.exit(1), not exitCode: a later exit listener could set exitCode back to 0 (Codex r27 P3)
+process.on('exit', () => { if (LOST.length) { console.log(`  FAIL  a runner row lost a field in the log formatter: ${LOST.slice(0, 3).join(' | ')}`); process.exit(1) } })
 export function rowSurvives (kind, d) {
   try { rowCheck(kind, d) } catch (err) { LOST.push(err.message); throw err }
 }
 function rowCheck (kind, d) {
   const f = { project: 'shop', ...d }
+  for (const [key, v] of Object.entries(f)) {   // a primitive or an array: an object formats as [object Object] (Claude r27 P3-2)
+    if (v != null && typeof v === 'object' && !Array.isArray(v)) assert.fail(`${kind} row field \`${key}\` is an object; the log formatter cannot carry it`)
+  }
   const detail = kind === '_build_seg' ? SHOPM.buildSegDetail(f) : SHOPM.buildRowDetail(f)
+  // logger.mjs cuts every detail at 300 chars: a longer row loses its trailing keys (Claude r27 P3-1)
+  assert.ok(detail.length <= 300, `${kind} row is ${detail.length} chars; the logger keeps 300 (${detail.slice(0, 80)}...)`)
   const got = Object.fromEntries(detail.split(' ').filter(Boolean).map(p => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)]))
   for (const [key, v] of Object.entries(f)) {
     if (v == null) continue
