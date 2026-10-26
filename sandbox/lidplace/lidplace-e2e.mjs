@@ -140,9 +140,9 @@ function wire () {
       const seen = new Map()
       bot.on('path_update', r => {
         if (!r || !(r.status === 'success' || r.status === 'partial') || !Array.isArray(r.path)) return
-        const lpc = LP.chosenLidPlaces(r.path)
+        const lpc = LP.chosenLidPlaces(r.path, lidPlacePrice.cellsOf)
         if (!lpc) return
-        const key = lpc.cells.map(q => `${q.x},${q.y},${q.z}`).join('|')
+        const key = lpc.cells.map(q => `${q.x},${q.y},${q.z}`).join('|') || `moves=${lpc.moves}`
         if (LP.lidplaceRowDue(seen, key, Date.now())) logEvent({ kind: 'lidplace', status: 'no_effect', detail: LP.lidplaceRowDetail(lpc, { status: r.status, profile: 'sandbox', off: lidPlacePrice.off }) })
       })
     }
