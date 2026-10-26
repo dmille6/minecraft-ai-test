@@ -37,6 +37,42 @@ await t('S1: no site waits a DAY (not the 10-min cooldown); with a record it is 
   assert.ok(S.buildOrder({ ...base, state: st, record: { cells: [] } }).order)
 })
 
+console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')
+{
+  const TD = await import('../src/towndeposit.mjs')
+  const BP = await import('../src/buildproj.mjs')
+  // the kill scene's bag at the stuck visit (00:57:11Z): 36 planks the earlier visit drew, the town at BUILD_RESERVE (71 planks)
+  const bag = { oak_slab: 5, cut_copper: 20, glass_pane: 4, crafting_table: 1, iron_pickaxe: 1, iron_axe: 1, iron_shovel: 1, oak_planks: 36, furnace: 2, torch: 2 }
+  const spare = (held, drawn) => { const k = TD.townKeeps(S.ownCounts(held, S.drawnHeld(drawn, held))).keep; return n => (held[n] ?? 0) - (k[n] ?? 0) }
+  await t('the deadlock reproduced: with no drawn record the bag\'s 36 planks are ALL kept (stockpile_wood) -- spare 0 (control)', () => {
+    assert.strictEqual(spare(bag, {})('oak_planks'), 0)
+  })
+  await t('with the drawn record the project\'s planks are spendable: spare 36', () => {
+    assert.strictEqual(spare(bag, { oak_planks: 49, stone_bricks: 48, cut_copper: 20, glass_pane: 4, furnace: 2 })('oak_planks'), 36)
+  })
+  await t('the bot\'s OWN planks stay kept: 20 own + 36 drawn -> spare 36, never the own 20', () => {
+    const b = { ...bag, oak_planks: 56 }
+    assert.strictEqual(spare(b, { oak_planks: 36 })('oak_planks'), 36)
+  })
+  await t('drawnHeld clamps to the bag (another job spent some: the composter crafted from them)', () => {
+    assert.deepStrictEqual(S.drawnHeld({ oak_planks: 49, glass_pane: 4, gone: 3 }, { oak_planks: 36, glass_pane: 4 }), { oak_planks: 36, glass_pane: 4 })
+  })
+  await t('drawnAfter: drawn + took + crafted - placed - back, clamped to [0, bag]', () => {
+    assert.deepStrictEqual(S.drawnAfter({ drawn: { oak_planks: 10 }, took: { oak_planks: 49, stone_bricks: 89 }, crafted: { oak_planks: -4, crafting_table: 1 },
+      placed: { oak_planks: 40, stone_bricks: 89, crafting_table: 1 }, back: { oak_planks: 5 }, bag1: { oak_planks: 30, crafting_table: 0 } }), { oak_planks: 10 })
+    assert.deepStrictEqual(S.drawnAfter({ drawn: {}, took: { torch: 2 }, back: { torch: 2 }, bag1: { torch: 2 } }), {}, 'banked back: nothing drawn')
+    assert.deepStrictEqual(S.drawnAfter({ drawn: { stone_bricks: 89 }, bag1: { stone_bricks: 40 } }), { stone_bricks: 40 }, 'never above the bag')
+  })
+  await t('drawnWrite / drawnRead round trip; junk counts dropped; a missing file reads {}', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drawn-'))
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), {})
+    assert.strictEqual(BP.drawnWrite(dir, 'project-1_2_3.shop', 'bot-A', { oak_planks: 36, x: 'no', y: -2, z: 0 }), true)
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { oak_planks: 36 })
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-B'), {}, 'per holder')
+    assert.ok(!fs.readdirSync(dir).some(n => n.endsWith('.tmp')), 'no temp file left')
+  })
+}
+
 console.log('THE BILL AND THE SPENDABLE')
 await t('roleNames: the palette in order, $wall and $planks resolved, once each', () => {
   assert.deepStrictEqual(S.roleNames(bp.palette, 'window', 'birch_planks'), ['glass_pane', 'birch_planks'])
@@ -159,6 +195,10 @@ const W = [
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
+  ['skills: the visit\'s keeps are computed from the bot\'s OWN stock (the drawn share excluded)', SK, /const keep = townKeeps\(ownCounts\(held0, drawn0\), \{ wanted: bot\.currentWants \?\? \[\] \}\)\.keep/],
+  ['skills: the drawn share read and clamped at the visit\'s start', SK, /drawn0 = drawnHeld\(drawnRead\(dir, key, me\), held0\)/],
+  ['skills: the draw recorded as the project\'s at once, before any placement', SK, /if \(Object\.keys\(tookAll\)\.length\) drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, bag1: heldMap\(bot\) \}\)\)/],
+  ['skills: the drawn share rewritten on every exit, in the finally', SK, /if \(drawn0\) \{ try \{ drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap\(bot\) \}\)\) \}/],
 ]
 for (const [name, src, re] of W) {
   await t(`${name} (and a mutant of it fails)`, () => {
