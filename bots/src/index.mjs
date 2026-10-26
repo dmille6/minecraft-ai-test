@@ -54,6 +54,7 @@ import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's lice
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
+import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
@@ -676,6 +677,17 @@ function connect() {
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
+    // LIDPLACE-01 (lidplace.mjs): a scaffold or bridge block on a chest's lid, in a placed or reserved plan cell or in its stand
+    // costs 20 more -- added to the NEIGHBOUR after the library has judged it legal (an exclusionAreasPlace price can push a
+    // near-100 move over the library's cut and delete a bot's only way out: Codex r1 P1). The plan's guard set is kept by every
+    // head read (skills.mjs townPlanHead); the lid test is one state-id read of the cell below -- no Block built in the A* step.
+    // LIDPLACE=0 -> 0 everywhere (the base's profile). An own getNeighbors on `moves`, installed BEFORE every clone below copies
+    // it (Object.assign), so the walk, gather, ascent, descent, water, tunnel and composter profiles all carry it.
+    const lidScratch = new Vec3(0, 0, 0)
+    const lidPlacePrice = makeLidPlacePrice({ registry: bot.registry, on: lidPlaceOn(process.env), guard: () => bot.townPlan?.guard ?? null,
+      stateIdAt: (x, y, z) => { lidScratch.x = x; lidScratch.y = y; lidScratch.z = z; return bot.world.getBlockStateId(lidScratch) } })
+    installLidPrice(moves, lidPlacePrice)
+    bot.lidPrice = lidPlacePrice   // digapproach.mjs planDigApproach's capped-search fallback reads it (withoutLidPrice)
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -1066,6 +1078,7 @@ function connect() {
 
     let lavaCorridorLoggedAt = 0
     let deathSiteCrossLoggedAt = 0
+    const lidplaceSeen = new Map()   // lidplace-01's row sample (lidplaceRowDue)
     let lastPlannedPath = null
     bot.lastPlannedPath = () => lastPlannedPath
     bot.on('goal_reached', () => { markPathEnded(lastPlannedPath, 'goal_reached') })
@@ -1092,6 +1105,18 @@ function connect() {
         }
         // POSITIVE CONTROL for the death-site price: a route the corridor guard accepted that still passes through a disc is logged
         // (not refused -- the price is a detour, and a bot standing inside a disc has to walk out of it).
+        // LIDPLACE-01's INSTRUMENT: the CHOSEN route places on a lid or in a plan cell (the price is a preference, not a veto,
+        // so this is how often it was outbid) -- one row per distinct set of cells per 30 s, the cells named
+        const lpc = chosenLidPlaces(r.path)
+        if (lpc) {
+          const key = lpc.cells.map(q => `${q.x},${q.y},${q.z}`).join('|')
+          if (lidplaceRowDue(lidplaceSeen, key, Date.now())) {
+            const g = bot.pathfinder?.goal
+            logEvent({ kind: 'lidplace', status: 'no_effect', snapshot: snapshot(bot),
+                       detail: lidplaceRowDetail(lpc, { status: r.status, profile: bot.movementProfile ?? 'walk', off: bot.lidPrice?.off ?? 0,
+                                                        goal: g && Number.isFinite(g.x) && Number.isFinite(g.z) ? `${g.x},${Number.isFinite(g.y) ? g.y : '?'},${g.z}` : (g?.constructor?.name ?? '-') }) })
+          }
+        }
         const crossed = pathCrossesDeathSite(bot.deathSitesNow?.() ?? [], r.path)
         if (crossed && Date.now() - deathSiteCrossLoggedAt > 5_000) { deathSiteCrossLoggedAt = Date.now(); logEvent({ kind: 'death_site_route_crossed', status: 'no_effect', detail: `${crossed.site.kind} x${crossed.site.deaths ?? 1} at ${crossed.site.x},${crossed.site.y},${crossed.site.z}; the planned route passes ${crossed.node.x},${crossed.node.y},${crossed.node.z} (${r.path.length} nodes)`, snapshot: snapshot(bot) }) }
         // THE LAST PLANNED PATH, KEPT FOR THE FALL RECORD (fallpath.mjs): captured only once the corridor guard has
