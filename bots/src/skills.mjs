@@ -7400,18 +7400,7 @@ export function findTownComposter (bot) {
 /** What this bot could build a composter from, right now. A table counts only if CARRIED (composter.mjs). */
 export function townBuildPlan (bot) {
   const items = bot.inventory?.items?.() ?? []
-  const own = stationOwn(bot, items)
-  return composterBuildPlan(own, { tableAvailable: (own.crafting_table ?? 0) > 0, items })
-}
-/**
- * A TOWN STATION'S WOOD IS THE BOT'S OWN -- the composter's and the junk well's (Paper 10-25 SHOP-COOP2 r13 and SHOP-KILL): the workshop's share of the bag (shop-01's
- * drawn file, clamped with its baseline) is the town's project -- build_composter crafted slabs, a table and the composter from
- * a builder's bill planks between two visits (coop2: planks -57 against a bill of -49, a second table). -> counts less the share.
- */
-function stationOwn (bot, items) {   // the composter's AND the well's (r14: both build from wood held)
-  const held = Object.fromEntries(heldCounts(items))
-  if (!SHOP.on) return held
-  try { const dr = drawnRead(townDir(), shopKey(), bot.username ?? 'bot'); return { ...ownCounts(held, drawnHeld(dr.drawn, held, dr.bag)) } } catch { return held }
+  return composterBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items), items })
 }
 const readCell = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: blockNameOf(bot, b), boundingBox: b.boundingBox } : null }
 /**
@@ -8077,8 +8066,8 @@ async function buildComposter (ctx, _args, signal) {
     // AT THE SITE: the table actually in reach, then the ingredients and the free slots, all read again here.
     const tableHere = bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
     let table = tableHere && bot.entity.position.distanceTo(tableHere.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH ? tableHere : null
-    const counts = stationOwn(bot, items())
-    const plan = composterBuildPlan(counts, { tableAvailable: !!table || (counts.crafting_table ?? 0) > 0, items: items() })
+    const counts = Object.fromEntries(heldCounts(items()))
+    const plan = composterBuildPlan(counts, { tableAvailable: !!table || townPlanTableAvailable(items()), items: items() })
     if (!plan) return skip(REMEDY)
     chain = chainConsumes(plan)
     if (free() < plan.slotsNeeded) return skip(noRoomToBuild(bot, plan, `at the site the bag has ${free()} free slots and the craft chain needs ${plan.slotsNeeded}`))
@@ -8417,8 +8406,7 @@ function wellBuildPlanOf (bot) {
   const items = bot.inventory?.items?.() ?? []
   const r = recordedWellSite(bot)
   const need = r ? trapdoorsNeeded(wellStage(readWellCell(bot), r)) : 2
-  const own = stationOwn(bot, items)
-  return wellBuildPlan(own, { tableAvailable: (own.crafting_table ?? 0) > 0, items, need: Math.max(1, need) })
+  return wellBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items), items, need: Math.max(1, need) })
 }
 /** The other players this bot can see, as feet positions (well.mjs wellAdmission). */
 const playersSeen = bot => Object.values(bot.players ?? {}).filter(p => p?.username && p.username !== bot.username && p.entity?.position)
@@ -9393,9 +9381,8 @@ async function buildWell (ctx, _args, signal) {
     // A RETAKEN MISS REFILLS THE SLOT ITS THROW FREED (a test caught it), so the room is re-judged after each phase: at
     // most WELL_PIT_PHASES phases, each from the bag as the server holds it.
     const roomNow = () => {
-      const own = stationOwn(bot, items())
-      const tableNow = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 }) || (own.crafting_table ?? 0) > 0
-      const p = wellBuildPlan(own, { tableAvailable: tableNow, items: items(), need })
+      const tableNow = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 }) || townPlanTableAvailable(items())
+      const p = wellBuildPlan(Object.fromEntries(heldCounts(items())), { tableAvailable: tableNow, items: items(), need })
       return wellBuildRoom({ free: free(), slotsNeeded: p?.carried ? 0 : (p?.slotsNeeded ?? pre.slotsNeeded), junkStacks: disposePlan(items()).junkStacks })
     }
     for (let phase = 0, room = roomNow(); room.pitFirst && carried() < need && phase < WELL_PIT_PHASES; phase++, room = roomNow()) {
@@ -9415,8 +9402,7 @@ async function buildWell (ctx, _args, signal) {
     if (carried() < need) {
       const tableHere = bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
       let table = tableHere && q().distanceTo(tableHere.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH ? tableHere : null
-      const ownAt = stationOwn(bot, items())
-      const plan = wellBuildPlan(ownAt, { tableAvailable: !!table || (ownAt.crafting_table ?? 0) > 0, items: items(), need })
+      const plan = wellBuildPlan(Object.fromEntries(heldCounts(items())), { tableAvailable: !!table || townPlanTableAvailable(items()), items: items(), need })
       if (!plan || plan.carried) throw hkStop('well_craft', WELL_WOOD_REMEDY)
       chain = wellChainConsumes(plan)
       if (free() < plan.slotsNeeded) throw hkStop('well_no_room', `at the site the bag has ${free()} free slots and the trapdoor chain needs ${plan.slotsNeeded}`)
