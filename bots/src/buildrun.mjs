@@ -288,8 +288,12 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b)) }
   const clears = async () => {
     // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
-    // an UNKNOWN cell is asked again first
-    const todo = (record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1])
+    // an UNKNOWN cell is asked again first. AND NEVER A RECORD CELL THAT READS DONE (Paper 10-25 SHOP-TERRAIN board-a: a town's
+    // oak_planks litter listed for clearing at a WALL cell; the bot cleared it, placed its own oak_planks there -- the same name
+    // -- and the next visit cleared its own wall again, then could not re-place it: `no_step` every visit for 35 min)
+    const roleAt = new Map(record.cells.map(c => [kOf(c.at), c.role]))
+    const builtDone = c => roleAt.has(kOf(c.at)) && cellDone(e.read(...c.at), palette, roleAt.get(kOf(c.at)))
+    const todo = (record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !builtDone(c))).sort((a, b) => a.at[1] - b.at[1])
     if (!todo.length) return null
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) return null                                       // another builder is clearing: its segments wait for it
