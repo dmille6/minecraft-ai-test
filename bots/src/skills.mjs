@@ -120,7 +120,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -7398,7 +7398,31 @@ export function findTownComposter (bot) {
   } catch { return null }
 }
 /** What this bot could build a composter from, right now. A table counts only if CARRIED (composter.mjs). */
+/**
+ * THE WORKSHOP'S SHARE HOLDS THE STATIONS (Paper 10-25, SHOP-COOP2 / CHAIN-1 / SHOP-TERRAIN board-a, candidate r13): between two
+ * visits a builder's bag holds its drawn share of the bill, and build_composter (a town without a composter) crafted slabs, a
+ * table and the composter out of it -- 6-10 planks a time; with the town at BUILD_RESERVE the next visit could draw no more and
+ * stopped no_material on the roof (chain, terrain-a). r14 tried to make each station read only the bot's OWN wood and both
+ * reviews showed the class unbounded (execution, recipes, found-01, the smelt furnace). So the gate is by STATE: while the bot
+ * holds a workshop share it builds no town station (the composter, the junk well, found-01's stations); the share empties as the
+ * workshop is built or completes. -> bool. Never throws (an unreadable share is none: the stations as before).
+ */
+export function shopShareHeld (bot) {
+  if (!SHOP.on) return false
+  try {
+    const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot'
+    const dr = drawnRead(dir, key, me)
+    if (!Object.keys(dr.drawn).length) return false
+    const held = heldMap(bot)
+    const rec = shopRecordHead().head?.rec
+    const st = shareState(dr, held, { complete: !!rec?.structure_complete, completeAt: rec?.completeAt ?? null })
+    // the lifecycle (r16 reviews): a completed build's share cleared, a consumed one retired to what is left (baseline the bag now)
+    if (st.write) drawnWrite(dir, key, me, st.write, { bag: held })
+    return st.held
+  } catch { return false }
+}
 export function townBuildPlan (bot) {
+  if (shopShareHeld(bot)) return null
   const items = bot.inventory?.items?.() ?? []
   return composterBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items), items })
 }
@@ -8006,7 +8030,7 @@ async function buildComposter (ctx, _args, signal) {
                  '3 logs of one kind (2 if a crafting table is carried) -- gather 3 logs and the next town visit builds it'
   if (findTownComposter(bot)) return skip('the town already has a composter')
   const pre = townBuildPlan(bot)
-  if (!pre) return skip(REMEDY)
+  if (!pre) return skip(shopShareHeld(bot) ? 'the bag holds the workshop\'s drawn materials: the composter waits until they are placed (or the share lapses)' : REMEDY)
   // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot. And NO CIRCULAR REMEDY: the
   // composter is what would free slots, and it does not exist yet -- the refusal names what frees one from HERE.
   if (free() < pre.slotsNeeded) return skip(noRoomToBuild(bot, pre, `building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}`))
@@ -8403,6 +8427,7 @@ export function townWellBuildPlan (bot) {
 }
 /** The trapdoors still needed follow the recorded site's stage (Codex review): a floored pit needs only its cap. */
 function wellBuildPlanOf (bot) {
+  if (shopShareHeld(bot)) return null   // the workshop's share holds the stations (shopShareHeld)
   const items = bot.inventory?.items?.() ?? []
   const r = recordedWellSite(bot)
   const need = r ? trapdoorsNeeded(wellStage(readWellCell(bot), r)) : 2
@@ -16405,6 +16430,7 @@ async function foundRun (ctx, args, signal, order) {
     return { status, ...(failClass ? { failClass } : {}), detail }
   }
   if (!FOUND.on || !planOn()) return out('no_effect', 'off', 'founding is switched off (FOUND=off or TOWNPLAN=off)')
+  if (shopShareHeld(bot)) return out('no_effect', 'refused', 'the bag holds the workshop\'s drawn materials: no station is founded until they are placed')
   if (!KIND_ITEM[kind]) return out('no_effect', 'refused', `nothing to found: ${kind}`)
   const zones = townPlanZones(bot)
   if (!zones.known) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is founded until they are')

@@ -12,7 +12,7 @@
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow, shopShareHeld } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -854,6 +854,7 @@ export class CognitiveLoop {
       try { townPlanHead(bot) } catch { /* the cached head serves */ }
       const tp = townPlanNow(bot)
       if (!tp) return null
+      if (shopShareHeld(bot)) return null   // the workshop's share holds the stations (skills.mjs shopShareHeld)
       const items = bot.inventory?.items?.() ?? []
       const wanted = [...(this.#wantedItems(milestone) ?? [])]
       const bankGroups = foundBankGroups(bot, wanted)
