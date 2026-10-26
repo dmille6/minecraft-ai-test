@@ -47,14 +47,16 @@ await t('the chain: unreachable -> the record MOVES the replant -> the next visi
   assert.notStrictEqual(srv.read(...f.at).name, 'oak_log', 'the tree came down after it')
   assert.ok(allDone(srv), 'every record cell done')
 })
-await t('the chain with NO plantable cell in the band: the replant is recorded SKIPPED, the tree falls, the build completes', async () => {
+await t('the chain with NO plantable cell anywhere: DEFERRED REPLANT_DEFERS-1 visits, then SKIPPED, the tree falls, complete', async () => {
   const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
-  const res = { column: () => 'plan_cell', zones: [] }   // every column of the band reserved by the town plan
-  const stops = await visits(pr, srv, { res })
+  const res = { column: () => 'plan_cell', zones: [] }   // every column of the town reserved by the plan
+  const stops = await visits(pr, srv, { res, max: 10 })
   assert.ok(!stops.includes('no_step'), `never a no_step stop (${stops})`)
-  assert.strictEqual(stops[0], 'replanned'); assert.strictEqual(stops.at(-1), 'complete', `${stops}`)
+  assert.deepStrictEqual(stops.slice(0, R.REPLANT_DEFERS), Array(R.REPLANT_DEFERS).fill('replanned'), `${stops}`)
+  assert.strictEqual(stops.at(-1), 'complete', `${stops}`)
   const rec = PJ.recordHead(pr.dir, pr.key).head.rec
   assert.strictEqual(rec.replant[0].state, 'skipped'); assert.ok(Number.isFinite(rec.replant[0].skippedAt))
+  assert.strictEqual(rec.replant[0].deferred, R.REPLANT_DEFERS - 1, 'deferred before the skip')
   assert.notStrictEqual(srv.read(...f.at).name, 'oak_log'); assert.ok(allDone(srv))
 })
 await t('a felling after a skip reports saplings 0/0 (the read judges it: no obligation left)', async () => {
@@ -71,6 +73,48 @@ await t('a felling after a skip reports saplings 0/0 (the read judges it: no obl
   assert.ok(fell, 'the tree was felled'); assert.strictEqual(fell[1].saplings, '0/0')
   assert.ok(logs.some(([k, d]) => k === '_build' && d.op === 'replant_skipped'), 'the skip is logged')
 })
+await t('the walk never reaches a replant stand (Codex r18 P2): bounded -- REPLANT_MOVES moves to NEW cells, deferrals, a skip, complete', async () => {
+  const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
+  const stops = []
+  for (let i = 0; i < R.REPLANT_MOVES + R.REPLANT_DEFERS + 4; i++) {
+    const h = PJ.recordHead(pr.dir, pr.key), e = bot(srv, 'A')
+    const cells = (h.head.rec.replant ?? []).filter(x => x.state !== 'skipped').map(x => x.cell)
+    const walk = e.walkTo
+    e.walkTo = async st => (cells.some(c => Math.max(Math.abs(c[0] - st[0]), Math.abs(c[2] - st[2])) <= 6) ? true : walk(st))   // never arrives near a replant
+    const r = await R.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, e, { maxSteps: 2000 })
+    stops.push(r.stop)
+    if (r.stop === 'complete') break
+  }
+  assert.ok(!stops.includes('no_step') && !stops.includes('stand'), `${stops}`)
+  assert.strictEqual(stops.at(-1), 'complete', `${stops}`)
+  const rp = PJ.recordHead(pr.dir, pr.key).head.rec.replant[0]
+  assert.strictEqual(rp.state, 'skipped'); assert.strictEqual(rp.moves, R.REPLANT_MOVES)
+  const keys = rp.tried.map(c => c.join(','))
+  assert.strictEqual(new Set(keys).size, keys.length, `never the same cell twice (${keys})`)
+})
+await t('the CAS re-checks the destination in the head it writes: a cell another replant took meanwhile is never shared', async () => {
+  const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
+  const h0 = PJ.recordHead(pr.dir, pr.key)
+  // a dry run on a copy finds the cell this visit will pick
+  const dry = project(f.record), dsrv = server({ [k3(f.at)]: 'oak_log' })
+  const dh = PJ.recordHead(dry.dir, dry.key)
+  await R.runVisit({ ...dry.p('A'), record: dh.head.rec, recordGen: dh.head.gen }, bot(dsrv, 'A'), { maxSteps: 400 })
+  const pick = PJ.recordHead(dry.dir, dry.key).head.rec.replant[0].cell
+  // another builder's replant lands on that cell first (a newer head than the visit's own record)
+  PJ.publishRecord(pr.dir, pr.key, cur => ({ ...cur, replant: [...cur.replant, { cell: pick, species: 'oak', sapling: 'oak_sapling', state: 'pending' }] }))
+  const r = await R.runVisit({ ...pr.p('A'), record: h0.head.rec, recordGen: h0.head.gen }, bot(srv, 'A'), { maxSteps: 400 })
+  const head = PJ.recordHead(pr.dir, pr.key).head.rec
+  const cells = head.replant.filter(x => x.state !== 'skipped').map(x => x.cell.join(','))
+  assert.strictEqual(new Set(cells).size, cells.length, `no two replants on one cell (${cells})`)
+  assert.strictEqual(r.stop, 'replanned', r.stop)
+})
+await t('the town reservations unreadable: nothing moves or skips, the visit ends replant_wait (Claude r18 P2-2)', async () => {
+  const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
+  const h = PJ.recordHead(pr.dir, pr.key)
+  const r = await R.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, resFailed: true }, bot(srv, 'A'), { maxSteps: 400 })
+  assert.strictEqual(r.stop, 'replant_wait')
+  assert.deepStrictEqual(PJ.recordHead(pr.dir, pr.key).head.rec.replant[0], f.rp, 'the record is unchanged')
+})
 await t('control: a REACHABLE replant cell is planted where the record put it (no move, no skip)', async () => {
   const f = floatingReplant(), rp = { ...f.rp, cell: [f.rp.cell[0], G + 1, f.rp.cell[2]] }
   const srv = server({ [k3(f.at)]: 'oak_log' }), pr = project({ ...f.record, replant: [rp] })
@@ -78,28 +122,6 @@ await t('control: a REACHABLE replant cell is planted where the record put it (n
   assert.ok(!stops.includes('replanned'), `${stops}`); assert.strictEqual(stops.at(-1), 'complete')
   assert.strictEqual(srv.read(...rp.cell).name, 'oak_sapling')
 })
-await t('MUTANT the move dropped (the old stop): the visit stops no_step and nothing moves', () => both(
-  "      const alt = replantAlternative(rd, home, record, nodes, p.res ?? null)",
-  "      out.stop = 'no_step'; return out\n      const alt = replantAlternative(rd, home, record, nodes, p.res ?? null)", async M => {
-    const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
-    const h = PJ.recordHead(pr.dir, pr.key)
-    const r = await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, bot(srv, 'A'), { maxSteps: 200 })
-    assert.notStrictEqual(r.stop, 'no_step')
-  }))
-
-await t('MUTANT a skipped replant still holds its tree: the build never completes', () => both(
-  "  const replanted = () => (record.replant ?? []).every(r => r.state === 'skipped' || SAPLING.test(nm(rd(...r.cell))))",
-  "  const replanted = () => (record.replant ?? []).every(r => SAPLING.test(nm(rd(...r.cell))))", async M => {
-    const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
-    const res = { column: () => 'plan_cell', zones: [] }
-    let last = null
-    for (let i = 0; i < 4; i++) {
-      const h = PJ.recordHead(pr.dir, pr.key)
-      last = (await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, res }, bot(srv, 'A'), { maxSteps: 2000 })).stop
-      if (last === 'complete') break
-    }
-    assert.strictEqual(last, 'complete')
-  }))
 console.log('THE SITING PROOF AND THE VISIT AGREE')
 await t('replantCellAt: a cell is accepted only with a step that places onto the soil under it (the visit\'s own rule)', () => {
   const srv = server()

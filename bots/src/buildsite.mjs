@@ -586,16 +586,22 @@ export function replantFor (read, home, site, res, walk) {
  * other cell of the same band around the RECORD's pad that replantCellAt accepts from here, never a record cell's column nor
  * another replant's. Pure. null: no cell in the band can be planted from here (the caller records the replant SKIPPED).
  */
-export function replantAlternative (read, home, record, nodes, res = null) {
+export function replantAlternative (read, home, record, nodes, res = null, exclude = []) {
   const pad = (record?.cells ?? []).filter(c => c.seg === 'pad').map(c => [c.at[0], c.at[2]])
   if (!pad.length) return null
   const footprint = new Set((record.cells ?? []).map(c => k2(c.at[0], c.at[2])))
-  const taken = new Set((record.replant ?? []).filter(r => r.state !== 'skipped').map(r => k2(r.cell[0], r.cell[2])))
-  for (const [, x, z] of replantBand(pad, footprint)) {
-    if (taken.has(k2(x, z))) continue
-    const cell = replantCellAt(read, home, x, z, res, nodes)
-    if (cell) return cell
-  }
+  // never another replant's column, nor a cell this replant has already been refused at (r19, Codex r18 P2: A -> B -> A)
+  const taken = new Set([...(record.replant ?? []).filter(r => r.state !== 'skipped').map(r => k2(r.cell[0], r.cell[2])),
+    ...exclude.map(c => k2(c[0], c[2]))])
+  const seen = new Set()
+  const tryAt = (x, z) => { const k = k2(x, z); if (seen.has(k) || taken.has(k) || footprint.has(k)) return null; seen.add(k); return replantCellAt(read, home, x, z, res, nodes) }
+  for (const [, x, z] of replantBand(pad, footprint)) { const c = tryAt(x, z); if (c) return c }
+  // THEN THE WHOLE TOWN WALK (r19, Claude r18 P2-1: design S2 -- never a felled tree without its sapling while ANY legal cell
+  // exists): every walked column, nearest the pad first
+  const xs = pad.map(c => c[0]), zs = pad.map(c => c[1])
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2
+  const cols = [...nodes.keys()].map(k => k.split(',').map(Number)).sort((a, b) => Math.hypot(a[0] - cx, a[1] - cz) - Math.hypot(b[0] - cx, b[1] - cz))
+  for (const [x, z] of cols) { const c = tryAt(x, z); if (c) return c }
   return null
 }
 
