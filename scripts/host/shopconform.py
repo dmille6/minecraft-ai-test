@@ -33,9 +33,46 @@ TB = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(TB)
 
 F1_MIN = 0.98
 REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.shop)\.g(\d+)\.json$')
-NOT_SOLID = re.compile(r'^(\?|air|cave_air|void_air|water|lava|bubble_column|short_grass|tall_grass|fern|large_fern|dead_bush|vine|'
-                       r'snow\[.*|.*_sapling|.*_carpet|.*_flower|dandelion|poppy|blue_orchid|allium|azure_bluet|.*_tulip|oxeye_daisy|'
-                       r'cornflower|lily_of_the_valley|torch|wall_torch|.*_button|.*_pressure_plate|ladder|rail|.*_rail|.*_sign|.*_banner)$')
+# THE BUILDER'S SOLID (r2, Codex P2 / Claude P3-1): townplan.mjs isSolid = a bounding box that is not 'empty'. The names whose
+# bounding box is 'empty' in minecraft-data 1.21.8 (the fleet's version), generated once with
+#   node -e "require('minecraft-data')('1.21.8').blocksArray.filter(b => b.boundingBox === 'empty').map(b => b.name)"
+# (a blacklist missed redstone_wire, fire, kelp, cobweb ... and refused carpets, which ARE solid to the builder).
+EMPTY_BBOX = frozenset("""
+    acacia_button acacia_hanging_sign acacia_pressure_plate acacia_sapling acacia_sign acacia_wall_sign activator_rail air
+    allium attached_melon_stem attached_pumpkin_stem azure_bluet bamboo_button bamboo_hanging_sign bamboo_pressure_plate
+    bamboo_sapling bamboo_sign bamboo_wall_sign beetroots big_dripleaf_stem birch_button birch_hanging_sign
+    birch_pressure_plate birch_sapling birch_sign birch_wall_sign black_banner black_wall_banner blue_banner blue_orchid
+    blue_wall_banner brain_coral brain_coral_fan brain_coral_wall_fan brown_banner brown_mushroom brown_wall_banner
+    bubble_column bubble_coral bubble_coral_fan bubble_coral_wall_fan bush cactus_flower carrots cave_air cave_vines
+    cave_vines_plant cherry_button cherry_hanging_sign cherry_pressure_plate cherry_sapling cherry_sign cherry_wall_sign
+    closed_eyeblossom cobweb cornflower crimson_button crimson_fungus crimson_hanging_sign crimson_pressure_plate
+    crimson_roots crimson_sign crimson_wall_sign cyan_banner cyan_wall_banner dandelion dark_oak_button
+    dark_oak_hanging_sign dark_oak_pressure_plate dark_oak_sapling dark_oak_sign dark_oak_wall_sign dead_brain_coral
+    dead_brain_coral_fan dead_brain_coral_wall_fan dead_bubble_coral dead_bubble_coral_fan dead_bubble_coral_wall_fan
+    dead_bush dead_fire_coral dead_fire_coral_fan dead_fire_coral_wall_fan dead_horn_coral dead_horn_coral_fan
+    dead_horn_coral_wall_fan dead_tube_coral dead_tube_coral_fan dead_tube_coral_wall_fan detector_rail end_gateway
+    end_portal fern fire fire_coral fire_coral_fan fire_coral_wall_fan firefly_bush frogspawn glow_lichen gray_banner
+    gray_wall_banner green_banner green_wall_banner hanging_roots heavy_weighted_pressure_plate horn_coral horn_coral_fan
+    horn_coral_wall_fan jungle_button jungle_hanging_sign jungle_pressure_plate jungle_sapling jungle_sign jungle_wall_sign
+    kelp kelp_plant large_fern lava leaf_litter lever light light_blue_banner light_blue_wall_banner light_gray_banner
+    light_gray_wall_banner light_weighted_pressure_plate lilac lily_of_the_valley lime_banner lime_wall_banner
+    magenta_banner magenta_wall_banner mangrove_button mangrove_hanging_sign mangrove_pressure_plate mangrove_propagule
+    mangrove_sign mangrove_wall_sign melon_stem moving_piston nether_portal nether_sprouts nether_wart oak_button
+    oak_hanging_sign oak_pressure_plate oak_sapling oak_sign oak_wall_sign open_eyeblossom orange_banner orange_tulip
+    orange_wall_banner oxeye_daisy pale_hanging_moss pale_oak_button pale_oak_hanging_sign pale_oak_pressure_plate
+    pale_oak_sapling pale_oak_sign pale_oak_wall_sign peony pink_banner pink_petals pink_tulip pink_wall_banner
+    pitcher_plant polished_blackstone_button polished_blackstone_pressure_plate poppy potatoes powder_snow powered_rail
+    pumpkin_stem purple_banner purple_wall_banner rail red_banner red_mushroom red_tulip red_wall_banner redstone_torch
+    redstone_wall_torch redstone_wire resin_clump rose_bush sculk_vein seagrass short_dry_grass short_grass small_dripleaf
+    snow soul_fire soul_torch soul_wall_torch spore_blossom spruce_button spruce_hanging_sign spruce_pressure_plate
+    spruce_sapling spruce_sign spruce_wall_sign stone_button stone_pressure_plate structure_void sugar_cane sunflower
+    sweet_berry_bush tall_dry_grass tall_grass tall_seagrass torch torchflower torchflower_crop tripwire tripwire_hook
+    tube_coral tube_coral_fan tube_coral_wall_fan twisting_vines twisting_vines_plant vine void_air wall_torch warped_button
+    warped_fungus warped_hanging_sign warped_pressure_plate warped_roots warped_sign warped_wall_sign water weeping_vines
+    weeping_vines_plant wheat white_banner white_tulip white_wall_banner wildflowers wither_rose yellow_banner
+    yellow_wall_banner
+""".split())
+assert len(EMPTY_BBOX) == 242
 
 
 def record_head(files):
@@ -94,7 +131,7 @@ def cell_done(name, palette, role):
     if not n or n in ('air', 'cave_air', 'void_air', '?'):
         return False
     if role == 'fill':
-        return not NOT_SOLID.match(n)
+        return n not in EMPTY_BBOX
     ok, planks = role_ok(palette, role)
     return family(n) in ok or (planks and n.endswith('_planks'))
 
@@ -126,6 +163,16 @@ def extent(rec):
     return min(c[0] for c in cs), min(c[1] for c in cs), min(c[2] for c in cs), max(c[0] for c in cs), max(c[1] for c in cs), max(c[2] for c in cs)
 
 
+def section_ok(pal, vals):
+    """A section's palette and packed values decode to a name for each of its 4096 cells -> bool. Pure. One name needs no data;
+    several need 4096 values each inside the palette (r2, Codex P2: missing data read as the first name scored 1.0)."""
+    if not pal:
+        return False
+    if vals is None:
+        return len(pal) == 1
+    return len(vals) >= 4096 and max(vals[:4096]) < len(pal)
+
+
 def reader_from_regions(rdir, ext):
     """A reader over the region files in rdir for the extent (townplan_blockdump's decoding) -> read(x, y, z) -> name | '?'."""
     x0, y0, z0, x1, y1, z1 = ext
@@ -142,6 +189,8 @@ def reader_from_regions(rdir, ext):
                     continue
                 pal = [TB.name_of(p) for p in (bs.get('palette') or [])]
                 vals = TB.section_values(bs)
+                # a palette of several names with no readable packed data is UNKNOWN, never its first name (r2, Codex P2)
+                undecodable = not section_ok(pal, vals)
                 for ly in range(16):
                     y = sy * 16 + ly
                     if y < y0 or y > y1:
@@ -154,11 +203,11 @@ def reader_from_regions(rdir, ext):
                             x = cx * 16 + lx
                             if x < x0 or x > x1:
                                 continue
-                            grid[(x, y, z)] = pal[vals[(ly * 16 + lz) * 16 + lx]] if vals is not None else (pal[0] if pal else 'air')
+                            grid[(x, y, z)] = '?' if undecodable else (pal[vals[(ly * 16 + lz) * 16 + lx]] if vals is not None else pal[0])
     return lambda x, y, z: grid.get((x, y, z), '?')
 
 
-def survey(world_dir, records_dir, pool, blueprint):
+def survey(world_dir, records_dir, pool, blueprint, world=None):
     files = []
     for f in os.listdir(records_dir):
         m = REC_RE.match(f)
@@ -187,7 +236,7 @@ def survey(world_dir, records_dir, pool, blueprint):
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     iso = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
-    return {'v': 1, 'pool': pool, 'key': keys[0], 'record_gen': gen, 'record_sha': sha, 'complete_in_record': bool(rec.get('structure_complete')),
+    return {'v': 1, 'pool': pool, 'world': world, 'key': keys[0], 'record_gen': gen, 'record_sha': sha, 'complete_in_record': bool(rec.get('structure_complete')),
             'at': iso(dt.datetime.now(dt.timezone.utc).timestamp()), 'region_mtime': iso(max(mt)) if mt else None, 'f1_min': F1_MIN, **score,
             'valid': score['valid'] and bool(mt)}
 
@@ -228,7 +277,14 @@ def selftest():
     assert cell_done('birch_planks', pal, 'window') and cell_done('waxed_oxidized_cut_copper', pal, 'trim') and cell_done('oak_planks', pal, 'trim')
     assert not cell_done('copper_block', pal, 'trim') and not cell_done('air', pal, 'base') and not cell_done('cobblestone', pal, 'base')
     assert cell_done('dirt', pal, 'fill') and not cell_done('water', pal, 'fill') and not cell_done('short_grass', pal, 'fill')
+    # the builder's solid (r2): redstone, fire, kelp and cobweb are not; a carpet is
+    for n in ('redstone_wire', 'fire', 'kelp', 'cobweb'):
+        assert not cell_done(n, pal, 'fill'), n
+    assert cell_done('white_carpet', pal, 'fill')
     assert cell_done('glass_pane[waterlogged]', pal, 'window')
+    # a section decodes only with its data (r2): several names and no data is unknown, never the first name
+    assert section_ok(['stone'], None) and not section_ok(['stone_bricks', 'air'], None) and not section_ok([], None)
+    assert section_ok(['a', 'b'], [0, 1] * 2048) and not section_ok(['a', 'b'], [0, 2] * 2048) and not section_ok(['a', 'b'], [0] * 100)
     # the record head walk (buildproj.mjs recordHead): a broken link is not the head
     import hashlib as h
     b1 = json.dumps({'gen': 1, 'prev': None}).encode()
@@ -248,7 +304,7 @@ def main():
     a = ap.parse_args()
     if a.cmd == 'selftest':
         selftest(); return 0
-    out = survey(a.world_dir, a.records, a.pool, a.blueprint)
+    out = survey(a.world_dir, a.records, a.pool, a.blueprint, world=os.path.basename(os.path.dirname(os.path.abspath(a.world_dir))))
     txt = json.dumps(out)
     if a.out:
         open(a.out, 'w').write(txt)
