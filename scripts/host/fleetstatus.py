@@ -316,6 +316,85 @@ def elk_disk(now, client=None):
     return out
 
 
+# SHOWCASE HEADER (2026-10-26): the showcase sat stopped by its tripwire for 18 h (10-25 19:37Z .. 10-26 13:40Z) and
+# nobody noticed, because the only sign was "SHOWCASE bots: 0 skill docs in 3 h" at the very bottom of the report. Up or
+# down is now one header line. DOWN = the showcase skill stream's newest doc is >= SHOWCASE_DOWN_AFTER old. The stop's
+# reason comes from the showcase VM's /srv/showcase/ops/deploy.jsonl ("stop-bots" rows; a "why" starting "tripwire" is
+# a trip, anything else a deliberate stop) ONLY if a copy sits at SHOWCASE_DEPLOY_LOG: this host has no route to read
+# 10.0.0.40, so without one the line says where to look rather than guessing.
+SHOWCASE_DOWN_AFTER = dt.timedelta(minutes=30)
+SHOWCASE_ROSTER = dt.timedelta(hours=24)        # the denominator: bots that wrote a showcase skill row in this window
+SHOWCASE_LOOKBACK = dt.timedelta(days=7)        # how far back the newest row is sought
+SHOWCASE_DEPLOY_LOG = '~/showcase-ops/deploy.jsonl'
+SHOWCASE_STOP_SLACK = dt.timedelta(minutes=15)  # a stop is "the" stop if it is no older than the newest row minus this
+
+
+def showcase_stop(path, newest, now):
+    """The stop that began this outage: the FIRST stop-bots row of a deploy.jsonl copy in [newest - SHOWCASE_STOP_SLACK,
+    now], as (when, kind, why). A later stop issued while already down does not relabel it, and a row after `now` (a
+    --now replay) is not seen. None when there is no such row; raises OSError when the file cannot be read."""
+    stop = None
+    with open(os.path.expanduser(path)) as fh:
+        for line in fh:
+            try:
+                r = json.loads(line)
+                t = _ts(r['t'])
+            except (ValueError, KeyError, TypeError):
+                continue
+            if (r.get('event') == 'stop-bots' and newest - SHOWCASE_STOP_SLACK <= t <= now
+                    and (stop is None or t < stop[0])):
+                stop = (t, str(r.get('why') or ''))
+    if stop is None:
+        return None
+    t, why = stop
+    if why.strip().lower().startswith('tripwire'):
+        why = why.split('TRIP --', 1)[1] if 'TRIP --' in why else why.split(':', 1)[-1]
+        return t, 'tripwire', why.strip()
+    return t, 'deliberate', why.strip()
+
+
+def showcase_line(now, client=None, deploy_log=None):
+    """One header line: is the showcase running? NEVER raises. DOWN and PARTIAL are '!! ' lines; OK names its
+    denominator (bots seen in SHOWCASE_ROSTER) and the newest row's age."""
+    try:
+        return _showcase_line(now, client, deploy_log or SHOWCASE_DEPLOY_LOG)
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! showcase: UNREADABLE ({type(e).__name__}: {str(e)[:100]}) -- stream mcai-skill-showcase'
+
+
+def _showcase_line(now, client, deploy_log):
+    kw = {'client': client} if client else {}
+    wk = EsEvents.load('showcase-skill', since=now - SHOWCASE_LOOKBACK, until=now, gaps='allow', **kw)
+    newest = wk.newest_in_window()
+    if newest is None:
+        return (f'!! SHOWCASE DOWN >= {SHOWCASE_LOOKBACK.days} d: no showcase skill row in {SHOWCASE_LOOKBACK.days} d '
+                f'(the stream answered: {wk.total():,} docs) -- read /srv/showcase/ops/trip.log on 10.0.0.40')
+    age = now - newest
+    if age >= SHOWCASE_DOWN_AFTER:
+        hrs = f'{age.total_seconds() / 3600:.1f} h'
+        try:
+            stop = showcase_stop(deploy_log, newest, now)
+        except OSError:
+            return (f'!! SHOWCASE DOWN {hrs}: last skill row {newest:%m-%d %H:%MZ} -- check trip.log and deploy.jsonl '
+                    f'in /srv/showcase/ops on 10.0.0.40 (no copy of deploy.jsonl here)')
+        if stop is None:
+            return (f'!! SHOWCASE DOWN {hrs}: last skill row {newest:%m-%d %H:%MZ}, NO stop recorded in deploy.jsonl '
+                    f'since -- the bots died or stopped shipping; check filebeat and the bots on 10.0.0.40')
+        t, kind, why = stop
+        tail = ('read /srv/showcase/ops/trip.log on 10.0.0.40' if kind == 'tripwire'
+                else 'stopped on purpose; restart it when that work is done')
+        return f'!! SHOWCASE DOWN {hrs}: {kind} stop {t:%m-%d %H:%MZ} "{why[:90]}" -- {tail}'
+    roster = EsEvents.load('showcase-skill', since=now - SHOWCASE_ROSTER, until=now, gaps='allow', **kw).bots_present()
+    live = EsEvents.load('showcase-skill', since=now - SHOWCASE_DOWN_AFTER, until=now, gaps='allow', **kw).bots_present()
+    absent = sorted(set(roster) - set(live))
+    mins = int(age.total_seconds() // 60)
+    if absent:
+        return (f'!! showcase PARTIAL: {len(live)} of {len(roster)} bots (seen in {SHOWCASE_ROSTER.total_seconds() / 3600:.0f} h) '
+                f'wrote a row in the last {SHOWCASE_DOWN_AFTER.total_seconds() / 60:.0f} min; absent {", ".join(absent[:5])}'
+                f'{" ..." if len(absent) > 5 else ""}; last row {mins} min ago')
+    return f'showcase OK: {len(live)} of {len(roster)} bots, last row {mins} min ago'
+
+
 SHOWCASE_OPS = 'mcai-showcase-ops'      # the showcase VM's timelapse heartbeat rows (filebeat route ops)
 
 
@@ -537,6 +616,8 @@ def show(rep):
         print(rep['coop'])
     if rep.get('structcount'):
         print(rep['structcount'])
+    if rep.get('showcase_head'):
+        print(rep['showcase_head'])
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -591,6 +672,7 @@ def main():
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
     rep['bags'] = bag_report(now, a.stack)
     if not a.no_showcase:
+        rep['showcase_head'] = showcase_line(now)
         rep['showcase'] = showcase_report(until)
     show(rep)
     if a.json:
