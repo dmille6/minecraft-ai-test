@@ -122,6 +122,7 @@ import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
+import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
@@ -3646,6 +3647,62 @@ export function townIndexTransfers (bot, pos, moves = [], { op = null, pre = nul
     return n
   } catch { return 0 }
 }
+// ---- THE TOWN LEDGER (ledger-01; ledger.mjs): what every TOWN furnace showed at each open and each load -------------------
+// Observe-only: it writes its own files and one `_ledger_station` row per record; nothing reads it in ledger-01. THE SCOPE
+// IS THE DRAIN'S (a furnace within DRAIN_RADIUS of home, at town's level: depositTargetOk), so the consumer (furnaceseen-01)
+// reads facts about exactly the furnaces it may walk to.
+let ldLastAt = 0
+const ldNow = () => { ldLastAt = Math.max(Date.now(), ldLastAt + 1); return ldLastAt }
+/** A furnace the drain could pick (townFurnaces' own predicate). */
+const ledgerScope = pos => {
+  try { const h = homeVec(); return !!pos && Math.hypot(pos.x - h.x, pos.z - h.z) <= DRAIN_RADIUS && depositTargetOk(h, pos) } catch { return false }
+}
+/** What the furnace WINDOW shows now -> { input, fuel, output, lit }; a slot that throws reads `undefined` (unreadable). */
+export function readFurnaceWindow (furnace) {
+  const rd = which => { try { return furnace[which]?.() ?? null } catch { return undefined } }
+  let lit = false
+  try { lit = (Number(furnace.fuel) || 0) > 0 } catch { lit = false }
+  return { input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem'), lit }
+}
+/**
+ * ONE FURNACE OBSERVATION -> the record written (with its outcome), or null (not a town furnace, the ledger off, a slot that
+ * could not be read, or the write failed). `phase` 'open': call it right after the open, BEFORE any click; 'load': the
+ * verifying view after this bot put input or fuel in. The slots are what the WINDOW shows (the server's last update).
+ * `seen` is a caller's own readFurnaceWindow(): the drain passes the read its row prints, so the row and the record come
+ * from ONE in-memory read (design 6.4, Claude r9 #5).
+ */
+export function ledgerFurnace (bot, pos, furnace, by = '-', phase = 'open', seen = null) {
+  return ledgerObserve(bot, pos, furnace, by, phase, seen).rec
+}
+/**
+ * The same observation -> { rec, miss }: `miss` names why nothing was written, so a row can carry an INDEPENDENT marker for
+ * the read (Codex r1 P2-3: a missing record must be visible, not absent from the denominator):
+ *   off      LEDGER=off                 scope   not a town furnace (beyond the drain's radius or level)
+ *   unread   a window slot threw        fail    the ledger could not be read or the append failed (a DEFECT for the read)
+ */
+export function ledgerObserve (bot, pos, furnace, by = '-', phase = 'open', seen = null) {
+  try {
+    if (!LEDGER.on) return { rec: null, miss: 'off' }
+    if (!furnace || !ledgerScope(pos)) return { rec: null, miss: 'scope' }
+    const { input, fuel, output, lit } = seen ?? readFurnaceWindow(furnace)
+    if (input === undefined || fuel === undefined || output === undefined) return { rec: null, miss: 'unread' }   // no evidence
+    const slots = furnaceSlots({ input, fuel, output, lit })
+    const rec = recordStation(townDir(), ledgerHomeKey(homeVec()), bot.worldId ?? null,
+      { id: indexId(bot, 'L'), f: posKey(pos), bot: bot.username ?? null, by, phase, slots, at: ldNow() })
+    if (!rec) return { rec: null, miss: 'fail' }
+    try { logEvent({ kind: 'ledger_station', status: 'success', snapshot: snapshot(bot), detail: ledgerStationDetail(rec) }) } catch { /* never break a job */ }
+    return { rec, miss: null }
+  } catch { return { rec: null, miss: 'fail' } }
+}
+/** The window fields a `_furnace_session` row carries for L1 (`in`/`fuel`/`out` at the open). Pure. */
+const ledgerRowFields = h => {
+  if (!h?.ledgerOpen || h.ledgerOpen.miss === 'off') return ''      // LEDGER=off: the base row, byte for byte
+  const { rec, miss } = h.ledgerOpen
+  const L = h.ledgerLoads ?? { ok: 0, fail: 0 }
+  return (rec ? ` open=${rec.id} in=${rec.slots.in ? rec.slots.in.join(':') : '0'} fuel=${rec.slots.fuel ? rec.slots.fuel.join(':') : '0'} out=${rec.slots.out ? rec.slots.out.join(':') : '0'}` : ` open=${miss}`) +
+    ` loads=${L.ok}/${L.ok + L.fail}`
+}
+
 /** The town's index, folded now -> { k: entry }, or null when it cannot be read or the index is off (then no reader acts on
  *  it: an unreadable index is never "every container unknown" -- Claude code r1 P3). */
 export function townIndexEntries (bot) {
@@ -11739,7 +11796,7 @@ async function smelt (ctx, args, signal, opts = {}) {
     // ONE ROW PER LEASE ACTUALLY HELD, timed from its acquisition to just before its release (Codex code r1 P1-4, Claude
     // r1 P2-4): a session that switched furnaces (it placed its own) logs both, each with its own interval.
     for (const h of session.held) {
-      try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(ctx.bot), detail: `furnace=${h.furnace} lease=${h.unleased ? 'unleased' : h.n ?? '-'} t0=${h.at} t1=${h.end ?? Date.now()} by=${opts.by ?? 'smelt'}` }) } catch { /* never break a smelt */ }
+      try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(ctx.bot), detail: `furnace=${h.furnace} lease=${h.unleased ? 'unleased' : h.n ?? '-'} t0=${h.at} t1=${h.end ?? Date.now()} by=${opts.by ?? 'smelt'}${ledgerRowFields(h)}` }) } catch { /* never break a smelt */ }
     }
   }
 }
@@ -12055,6 +12112,14 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
              detail: `the furnace at ${block.position.x},${block.position.z} did not open — ` +
                      'stand next to it and face it, then smelt again' }
   }
+  // ledger-01: what the furnace showed at the open, BEFORE any click (one record, its outcome in the same append)
+  const ledgerH = session.held[session.held.length - 1] ?? null
+  { const lo = ledgerObserve(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'open'); if (ledgerH) { ledgerH.ledgerOpen = lo; ledgerH.ledgerLoads = { ok: 0, fail: 0 } } }
+  // every LOAD's verifying view is its own record; a load that could not be recorded is counted (scope/off/unread are not)
+  const ledgerLoad = () => {
+    const lo = ledgerObserve(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'load')
+    if (ledgerH?.ledgerLoads) { if (lo.rec) ledgerH.ledgerLoads.ok++; else if (lo.miss === 'fail') ledgerH.ledgerLoads.fail++ }
+  }
 
   let loaded = false
   // A FURNACE SESSION IS STATIONARY BY DESIGN (smeltjob-01, Paper 10-15): eight items are 80 s standing at the furnace, and
@@ -12115,6 +12180,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
     await furnace.putInput(inDef.id, null, plan.batch)
     await loadNext()
     loaded = true
+    // ledger-01: the LOAD's verifying view (its own record and evidence, after this bot's clicks)
+    ledgerLoad()
 
     // THE WAIT, AND IT IS THE ONLY PLACE THIS SKILL SPENDS TIME.
     // check(signal) first in every iteration and sleep(ms, signal) for every
@@ -12145,7 +12212,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
       // queued -- an EMPTY fuel slot takes the next one (a sword only once the furnace is cold). Never reached without
       // swords: the queue is then empty after the first load.
       confirmBurn()
-      if (queue.length && inp && slot('fuelItem') === null) await loadNext()
+      // ...and every LATER load is recorded too (Codex r1 P2-2: the peaceful kit's next sword, or the ordinary load after it)
+      if (queue.length && inp && slot('fuelItem') === null && await loadNext()) ledgerLoad()
       await sleep(SMELT_POLL_MS, signal)
     }
   } finally {
@@ -12694,9 +12762,12 @@ async function furnaceDrain (ctx, _args, signal) {
       f.stop = 'window'; return (result = { status: 'unknown', failClass: 'furnace_window', detail: `the furnace at ${at} did not open` })
     }
     opened = true
-    const rd = which => { try { const it = furnace[which](); return it ? `${it.name}:${it.count}` : '0' } catch { return '?' } }
-    f.out = rd('outputItem'); f.inp = rd('inputItem'); f.fuel = rd('fuelItem')
-    if ((furnace.fuel ?? 0) > 0) { f.stop = 'lit'; try { furnace.close() } catch { /* closed */ } furnace = null; return (result = { status: 'no_effect', detail: `the furnace at ${at} is burning; it is left alone` }) }
+    // ONE READ of the window, before any click: the row's out/in/fuel and the ledger-01 record both come from it
+    const seen = readFurnaceWindow(furnace)
+    const rd = it => (it === undefined ? '?' : it ? `${it.name}:${it.count}` : '0')
+    f.out = rd(seen.output); f.inp = rd(seen.input); f.fuel = rd(seen.fuel)
+    if (LEDGER.on) { const lo = ledgerObserve(bot, pos, furnace, 'drain', 'open', seen); f.ledger = lo.rec?.id ?? lo.miss }
+    if (seen.lit) { f.stop = 'lit'; try { furnace.close() } catch { /* closed */ } furnace = null; return (result = { status: 'no_effect', detail: `the furnace at ${at} is burning; it is left alone` }) }
     if ([f.out, f.inp, f.fuel].every(x => x === '0')) { f.stop = 'empty'; try { furnace.close() } catch { /* closed */ } furnace = null; remember(true); return (result = { status: 'no_effect', detail: `the furnace at ${at} is empty` }) }
     const win = furnace
     furnace = null

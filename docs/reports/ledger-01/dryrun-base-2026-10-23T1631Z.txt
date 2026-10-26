@@ -1,0 +1,10 @@
+rows walked 254586  |  canary board-a,hive-b  sha 6e1afb52  cutoff 16:31Z  window +120 min  |  bots pre/post canary 10/10 control 70/70  |  canary bot-h 19.9  |  offbuild canary rows 0, no-version 0
+LIVENESS     canary _ledger_mode on=on 0 | canary _ledger_station 0
+EXPOSURE     window records by canary pool {} -> station_exposure 0 (every pool >= 10; registered min 50)
+PRIMARY      records: open 0 load 0 | entry 0 coalesced 0 drop 0 (coalesced share nan) | per canary bot-h 0.00 | empty repeating another bot's empty < 60 min: 0
+L1 (defect)  11 defects over 11 (opening rows that read a window + coalesced records) | raced (concurrent appends, reported) 0 | [('drain_without_record', 'board-a-Alpha', '352,62,163', None), ('drain_without_record', 'board-a-Delta', '340,62,137', None), ('drain_without_record', 'board-a-Delta', '354,61,166', None), ('drain_without_record', 'hive-b-Delta', '366,69,140', None)]
+L2 (defect)  unparsed lines 0 in 0 files | dropped transitions 0 | drops 0 (0.0000 of records) -> 0
+L3 (block)   append p95 None ms (< 5) | fold p95 None ms (< 50) | 0 bytes per town-day (< 2097152) -> NOT OK
+ARMS         control _ledger_mode / _ledger_station rows post 0 (blocks KEEP)
+INSTRUMENT   control drains that read a window post 115 (the positive control) | drains per bot-h DiD -0.615 (no change expected)
+emit failed: CANARY_DRYRUN set -- not emitting
