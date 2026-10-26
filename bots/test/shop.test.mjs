@@ -85,6 +85,7 @@ console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')
     const done = S.shareState(dr, { oak_planks: 36 }, { now, complete: true, completeAt: now - 1000 })
     assert.deepStrictEqual(done, { held: false, share: {}, write: {} }, 'another builder completed the workshop: cleared')
     assert.strictEqual(S.shareState({ ...dr, at: now }, { oak_planks: 36 }, { now, complete: true, completeAt: now - 1000 }).held, true, 'a repair visit\'s newer share holds')
+    assert.deepStrictEqual(S.shareState(dr, { oak_planks: 36 }, { now, complete: true, completeAt: null }), { held: true, share: { oak_planks: 36 }, write: null }, 'r17 Codex P2: no completeAt is no boundary: the TTL decides')
   })
   await t('shareState: a consumed share is retired, so a later pickup never resurrects it (r16 Codex P2)', () => {
     const now = 10 * 3600_000
