@@ -81,6 +81,27 @@ export function drawnHeld (drawn = {}, held = {}, bagAt = null) {
   }
   return out
 }
+/** How long a share outlives its last write (a visit, or the decrease below) before it is the bag's own: a builder that has not
+ *  visited for this long holds no workshop materials (r16 reviews, both P2: a share that never empties barred the bot from
+ *  every town station for good). A live build rewrites its share at every take, placement and exit. */
+export const SHARE_TTL_MS = 2 * 3600_000
+/**
+ * THE SHARE'S STATE for the town-station gate (skills.mjs shopShareHeld) -> { held: bool, share, write: null | {} | share }.
+ * Pure. Not held when: no share; written longer than SHARE_TTL_MS ago; or the workshop is COMPLETE and the share is no newer
+ * than the completion (another builder finished: a completed build's leftovers are the bag's own -- `write: {}` clears it).
+ * A share the bag has fallen below (another job spent some) is RETIRED down to what is left (`write: share`), so a later
+ * pickup of the same name is the bot's own and never resurrects it (r16 Codex P2: drawn 4, baseline 20, bag 16 then 20).
+ */
+export function shareState (dr = {}, held = {}, { now = Date.now(), complete = false, completeAt = null, ttl = SHARE_TTL_MS } = {}) {
+  const drawn = dr?.drawn ?? {}
+  if (!Object.keys(drawn).length) return { held: false, share: {}, write: null }
+  const at = Number(dr?.at)
+  if (complete && !(at > Number(completeAt ?? Infinity))) return { held: false, share: {}, write: {} }
+  if (!Number.isFinite(at) || now - at > ttl) return { held: false, share: {}, write: null }
+  const share = drawnHeld(drawn, held, dr?.bag)
+  const fell = Object.keys(drawn).some(n => (share[n] ?? 0) < (Number(drawn[n]) || 0))
+  return { held: Object.keys(share).length > 0, share, write: fell ? share : null }
+}
 /** The bag less the project's share -> { name: n }: what the bot owns, the only counts its keeps are computed from. Pure. */
 export function ownCounts (held = {}, drawn = {}) {
   const out = {}
