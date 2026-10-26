@@ -107,6 +107,39 @@ ONE shared pool: any > 0 is TRIP; a failed read is WATCH; no accepted plan after
 exposure mean nothing). Baseline: the 10-25 04:15Z nightly stage (pre-bot), 8 zones, every box chunk `ok`; the mirror compare
 reads INTACT on the 3 zones it covers; a one-cell mutant baseline reads BREACH (village and trial chambers).
 
+**S6 SHOP (r9, 10-26, coordinator: the workshop's rows must never pass silently).** `showcase_trip.py` runs shopread (the
+workshop's own read, installed beside it from a named sha: `/srv/showcase/trip/shopread.py` from shop-on-27babc1's
+`docs/reports/shop-01-2026-10-25/shopread.py.txt`) over the showcase as ONE pool, rows from the town epoch.
+- **TRIP** on the read's defect gates. They are sticky until acknowledged (`ack`), like S5:
+  - H1 off_record: a placement in no record cell;
+  - H2 clear_outside;
+  - H3 zone: a mutation in a protected box;
+  - H4 lease_overlap;
+  - H5 felled_unplanted (a skipped replant is no obligation, owner 10-26);
+  - H6 bag_loss: a lost material;
+  - H7 unknown_stood;
+  - H8 conformance: a completed workshop whose newest counted survey has F1 < 0.98.
+- **WATCH**, from this run's rows only (RUN_SINCE), and never a stop:
+  - stuck_on_cell, and a STALLED pool (stalled=true, with the cells waiting);
+  - stuck_unwritten and replant_skipped;
+  - the blind gates g5_unjudged, oracle_missing and zone_unknown;
+  - a completed workshop with no survey (conformance UNJUDGED: the showcase has no survey job yet);
+  - shopread missing, or the shop read failing.
+- An EXPOSURE line for the shop (record, visits, placements, complete); zero visits reads UNEXPOSED.
+- Tests: the selftest (S6 fixtures; plan_rows feet from a real log line, by shopread's own pos_of; a BROKEN shopread: S5 still
+  read, S6 a WATCH, the shop acks kept, `ack` refused) and `test_showcase_trip_mutants.py --shopread <path>` (each mutant killed
+  by an assertion).
+- **A shop read that fails** (shopread missing, replaced mid-install, crashing) is a WATCH. It carries the shop acknowledgements
+  through unchanged, so the next good read does not re-trip what a human acknowledged. `ack` REFUSES until shopread runs.
+- **Named limits (r1 reviews, P3):**
+  - **Retroactive zones.** History is judged against the CURRENT zones file and the current record head, so a protected box
+    added later turns earlier placements into defects (as G5 does).
+  - **One shop project key per pool.** shopread merges every shop project key in the pool dir; a second one (a moved plan
+    home) is not reachable today.
+  - **Permanent WATCH.** Once the workshop completes, "conformance UNJUDGED" stays lit until a survey job exists on the
+    showcase. That WATCH means "not surveyed", not "damage".
+  - **Repeated damage.** Each new failing survey is a new H8 item and trips again.
+
 **Rollback.** `/srv/showcase/bin/stop-bots.sh "<why>"` (12 s apart, disabled, AUTO_FOLLOW off; the world, plan generations and
 logs stay). Since r4 every `activate` checks REQUIRED_KEPT, so the pre-start release `9e7d9980` is REFUSED (it lacks all ten
 pieces) -- by design: the showcase never runs without the town plan's pieces. The rollback for a bad release is the previous
