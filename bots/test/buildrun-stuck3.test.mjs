@@ -113,5 +113,26 @@ await t('a FUTURE stamp beside a valid one: the valid one still backs the projec
   assert.strictEqual(S.buildOrder({ ...base, now, stuckAt: n => PJ.stuckAt(pr.dir, pr.key, { before: n + 60_000 }) }).skip, 'stuck_on_cell')
 })
 
+// NOT STALLED: another builder holds an independent open segment's lease (fit-out). A's loop-end stuck must NOT stamp the
+// project back-off (B is still working); A backs ITSELF off through its own stop (Claude r24 P3: nothing pinned `stalled`)
+const leaseHeld = async Mod => {
+  const srv = server(sealed()), pr = project(RECORD, ['A', 'B'])
+  const held = PJ.takeLease(pr.dir, pr.key, 'seg-fit-out', 'B', { now: Date.now() })
+  assert.ok(held.ok, 'B holds fit-out')
+  let last = null
+  for (let i = 0; i < R.STUCK_VISITS; i++) last = await visit(Mod, pr, srv)
+  assert.strictEqual(last.r.stop, 'stuck_on_cell')
+  const row = last.e.logs.find(([k, d]) => k === '_build' && d.op === 'stuck_on_cell')
+  assert.ok(row && !row[1].stalled, `fit-out is open under B's lease: not stalled (${JSON.stringify(row?.[1])})`)
+  assert.strictEqual(PJ.stuckAt(pr.dir, pr.key), null, 'no project stamp while another builder works an open segment')
+  const base = { on: true, shared: true, atTown: true, holds: false, record: {}, planned: true, freeSlots: 30 }
+  const now = Date.now()
+  assert.strictEqual(S.buildOrder({ ...base, now, state: {}, stuckAt: n => PJ.stuckAt(pr.dir, pr.key, { before: n + 60_000 }) }).order?.skill, 'build_shop', 'B (no own stop) is not held off')
+  assert.strictEqual(S.buildOrder({ ...base, now: now + S.SHOP_COOLDOWN_MS + 1, state: { lastAt: now, lastStop: last.r.stop }, stuckAt: () => null }).skip, 'stuck_on_cell', 'A backs itself off by its own stop')
+}
+await t('a loop-end stuck while B holds an independent segment: stuck_on_cell, NOT stalled, no project stamp; A backs itself off', () => leaseHeld(R))
+await t('MUTANT the r23 stamp (atEnd, not stalled): the project is stamped while B works', () => bothA(
+  "stuckAt: worst.length && stalled ? t :", "stuckAt: worst.length && atEnd ? t :", leaseHeld))
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
