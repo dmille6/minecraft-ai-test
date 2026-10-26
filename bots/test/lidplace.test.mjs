@@ -61,12 +61,12 @@ function moves (w, { price = true, guard = null, step = null, canDig = false, mo
   m.canDig = canDig; m.allowParkour = false; m.allowSprinting = false; m.allow1by1towers = true; m.maxDropDown = 6
   m.placeCost = 5   // index.mjs: a pillar step is not as cheap as a walk step
   if (step) m.exclusionAreasStep = [...m.exclusionAreasStep, step]
-  if (price) mod.installLidPrice(m, mod.makeLidPlacePrice({ registry, stateIdAt: w.stateIdAt, guard: () => guard }))
+  if (price) { const fn = mod.makeLidPlacePrice({ registry, stateIdAt: w.stateIdAt, guard: () => guard }); mod.installLidPrice(m, fn); m.__lidPriceFn = fn }
   return m
 }
 /** The REAL A* from a node -> { status, path, placed: ['x,y,z' of every block the path places] }. */
-function plan (m, from, goal, blocks = 64) {
-  const r = new AStar(new Move(from[0], from[1], from[2], blocks, 0), m, goal, 4000, 4000, -1).compute()
+function plan (m, from, goal, blocks = 64, radius = -1) {
+  const r = new AStar(new Move(from[0], from[1], from[2], blocks, 0), m, goal, 4000, 4000, radius).compute()
   const placed = r.path.flatMap(n => (n.toPlace ?? []).filter(p => !p.useOne).map(p => `${p.x + p.dx},${p.y + p.dy},${p.z + p.dz}`))
   return { status: r.status, path: r.path, placed, end: r.path.at(-1) }
 }
@@ -103,14 +103,17 @@ test('PRICE: a block landing on a lid or in a guarded cell costs LID_PLACE_COST 
   assert.equal(lidPlaceSurcharge([tp(14, 69, 10, 0, 1, 0)], g, null), 0, 'a free cell')
   assert.equal(lidPlaceSurcharge(null, g, lidded), 0); assert.equal(lidPlaceSurcharge([], g, lidded), 0)
 })
-test('LANDING: a block lands at ref + face, or IN the reference cell when that cell is empty (vanilla BlockPlaceContext)', () => {
-  const { landingCell, emptyStateIds } = LP
+test('LANDING: a block lands at ref + face; with an EMPTY reference it may land in either cell (the server\'s replace-clicked rule, or a ref the path fills first)', () => {
+  const { landingCells, emptyStateIds } = LP
   const p = { x: 0, y: 71, z: 0, dx: 0, dy: 1, dz: 0 }
-  assert.deepEqual(landingCell(p, () => false), { x: 0, y: 72, z: 0 }); assert.deepEqual(landingCell(p, null), { x: 0, y: 72, z: 0 })
-  assert.deepEqual(landingCell(p, (x, y, z) => x === 0 && y === 71 && z === 0), { x: 0, y: 71, z: 0 })
+  assert.deepEqual(landingCells(p, () => false), [{ x: 0, y: 72, z: 0 }]); assert.deepEqual(landingCells(p, null), [{ x: 0, y: 72, z: 0 }])
+  assert.deepEqual(landingCells(p, (x, y, z) => x === 0 && y === 71 && z === 0), [{ x: 0, y: 71, z: 0 }, { x: 0, y: 72, z: 0 }])
   const lidded = (x, y, z) => x === 0 && y === 70 && z === 0
   assert.equal(lidPlaceSurcharge([p], null, lidded, () => true), LID_PLACE_COST, 'a click on the air lid lands on the lid')
   assert.equal(lidPlaceSurcharge([p], null, lidded, () => false), 0, 'a click on a real block at the lid lands above it')
+  const q = { x: 2, y: 71, z: 0, dx: 1, dy: 0, dz: 0 }, lid3 = (x, y, z) => x === 3 && y === 70 && z === 0
+  assert.equal(lidPlaceSurcharge([q], null, lid3, () => true), LID_PLACE_COST, 'an empty ref whose ref + face is the lid: priced (Claude r2 P1)')
+  assert.equal(lidPlaceSurcharge([{ x: 0, y: 70, z: 0, dx: 0, dy: 1, dz: 0 }], null, (x, y, z) => y === 69 || y === 70, () => true), LID_PLACE_COST, 'both cells guarded: counted once')
   const e = emptyStateIds(registry)
   for (const n of ['air', 'cave_air', 'water', 'short_grass']) assert.ok(e.has(registry.blocksByName[n].defaultState), n)
   for (const n of ['stone', 'dirt', 'chest', 'bedrock']) assert.ok(!e.has(registry.blocksByName[n].defaultState), n)
@@ -161,7 +164,7 @@ test('MOVES: the tower on a chest, a bridge onto a lid (2.4.5 hands exclusionAre
   const death = () => 16
   const j = nb(moves(wj, { step: death }), { x: 0, y: 70, z: 0 }, [1, 71, 0]), j0 = nb(moves(wj, { step: death, price: false }), { x: 0, y: 70, z: 0 }, [1, 71, 0])
   assert.ok(j0 && j0.toPlace.length === 2, `positive control: the base jump-up places two ${JSON.stringify(j0?.toPlace)}`)
-  // C's reference is D, still air when the move is planned: by landingCell's rule C is judged as landing in D -- the lid -- so
+  // C's reference is D, still air when the move is planned: landingCells counts D (the lid) for C too, so
   // the move pays twice. An over-price on a move that DOES cover a lid; never an under-price, never a deletion.
   assert.ok(j, 'the jump-up survives'); assert.equal(j.cost, j0.cost + 2 * LID_PLACE_COST)
 })
@@ -216,6 +219,38 @@ test('CHAIN Codex r1 P1: the same pit with an iron-block ceiling to dig by hand,
   const cand = plan(moves(w, { canDig: true, step: () => 16 }), [0, 70, 0], new goals.GoalY(74))
   assert.equal(cand.status, 'success', 'the candidate gets out'); assert.ok(cand.placed.includes('0,70,0'), `by the lid tower: ${cand.placed}`)
 })
+// Codex r2 P1: a COST-CAPPED search (digapproach.mjs: searchRadius 400 = slack over the start's heuristic). The pit is 7 deep
+// with three iron ceilings to dig by hand inside a death disc: the base gets out under the cap; the surcharge spends it.
+const deepPit = () => { const c = { '0,69,0': 'chest', '0,72,0': 'iron_block', '0,74,0': 'iron_block', '0,76,0': 'iron_block' }; for (let y = 69; y <= 76; y++) for (const [x, z] of RING) c[`${x},${y},${z}`] = 'bedrock'; return c }
+test('CHAIN Codex r2 P1 (capped A*): the surcharge can spend a search\'s cost cap -- withoutLidPriceSync gives the base\'s search back', () => {
+  const w = world(deepPit())
+  const base = plan(moves(w, { price: false, canDig: true, step: () => 16 }), [0, 70, 0], new goals.GoalY(77), 64, 400)
+  assert.equal(base.status, 'success', `positive control: the base gets out under the cap (${base.path.reduce((a, n) => a + n.cost, 0).toFixed(0)})`)
+  const m = moves(w, { canDig: true, step: () => 16 })
+  const priced = plan(m, [0, 70, 0], new goals.GoalY(77), 64, 400)
+  assert.notEqual(priced.status, 'success', 'the priced search alone loses it (the reason for the fallback)')
+  const price = m.__lidPriceFn
+  const back = LP.withoutLidPriceSync(price, () => plan(m, [0, 70, 0], new goals.GoalY(77), 64, 400))
+  assert.equal(back.status, 'success', 'the fallback search gets out'); assert.equal(price.off, 0, 'and the price is back on after it')
+})
+test('planDigApproach (the REAL capped caller): a priced search that failed after the price touched it is re-run at base costs and says lidFallback', async () => {
+  const { planDigApproach } = await import('../src/digapproach.mjs')
+  const w = world(deepPit())
+  const m = moves(w, { canDig: true, step: () => 16 })
+  const runs = []
+  const bot = { entity: { position: V(0.5, 70, 0.5) }, gatherMovements: m, lidPrice: m.__lidPriceFn, inventory: { items: () => [] }, heldItem: null,
+    blockAt: w.blockAt,
+    pathfinder: { getPathFromTo: function * (mv, at, goal, o) { runs.push(mv.__lidPriceFn.off); yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
+  const r = planDigApproach(bot, { x: 0, y: 77, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(77), endsInReach: () => true })
+  assert.ok(r, 'a verdict'); assert.equal(r.status, 'success'); assert.equal(r.lidFallback, true)
+  assert.deepEqual(runs, [0, 1], 'priced first, then the base costs')
+  // positive control: where the priced search succeeds, no second search and no fallback
+  const w2 = world({ '0,70,0': 'chest' }), m2 = moves(w2, { canDig: true }), runs2 = []
+  const bot2 = { ...bot, gatherMovements: m2, lidPrice: m2.__lidPriceFn, blockAt: w2.blockAt, entity: { position: V(0.5, 71, 0.5) },
+    pathfinder: { getPathFromTo: function * (mv, at, goal, o) { runs2.push(mv.__lidPriceFn.off); yield { result: new AStar(new Move(0, 71, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
+  const r2 = planDigApproach(bot2, { x: 0, y: 74, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(74), endsInReach: () => true })
+  assert.equal(r2.lidFallback, false); assert.deepEqual(runs2, [0])
+})
 test('CHAIN boxed in a storehouse (chests on all eight sides, a wall 3 high beyond, no digging): the base builds on a lid; the candidate towers in place and gets out, every lid open', () => {
   const cells = {}
   for (const [x, z] of RING) cells[`${x},70,${z}`] = 'chest'
@@ -269,10 +304,22 @@ test('MUTANT KILLED: the lid read one cell too high (the cell itself, not the on
   })
 })
 test('MUTANT KILLED: the empty-reference rule dropped -> the mid-air tower over the air lid goes unpriced', async () => {
-  await withMutant(LP_URL, '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return { x: p.x, y: p.y, z: p.z }\n', '', async mod => {
+  await withMutant(LP_URL, '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }, out]\n', '', async mod => {
     const w = world({ '0,70,0': 'chest' })
     const up = nb(moves(w, { mod }), { x: 0, y: 72, z: 0 }, [0, 73, 0]), up0 = nb(moves(w, { price: false }), { x: 0, y: 72, z: 0 }, [0, 73, 0])
     assert.equal(up.cost, up0.cost, 'the mutant does not price it')
+  })
+})
+test('MUTANT KILLED (Claude r2 P1): an empty reference read as the ref cell ONLY -> a bridge\'s next block onto a lid goes unpriced', async () => {
+  await withMutant(LP_URL, '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }, out]\n', '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }]\n', async mod => {
+    const cells = { '3,70,0': 'chest' }
+    for (let x = -2; x <= 5; x++) for (let z = -2; z <= 2; z++) for (let y = 61; y <= 69; y++) cells[`${x},${y},${z}`] = 'air'
+    cells['0,71,0'] = 'stone'; cells['3,70,0'] = 'chest'; for (let y = 61; y <= 69; y++) cells[`3,${y},0`] = 'stone'
+    const w = world(cells)
+    const real = nb(moves(w), { x: 2, y: 72, z: 0 }, [3, 72, 0]), mut = nb(moves(w, { mod }), { x: 2, y: 72, z: 0 }, [3, 72, 0]), b0 = nb(moves(w, { price: false }), { x: 2, y: 72, z: 0 }, [3, 72, 0])
+    assert.ok(b0 && b0.toPlace.length === 1 && b0.toPlace[0].x === 2 && b0.toPlace[0].y === 71, `positive control: the bridge's ref is the (air) previous bridge cell ${JSON.stringify(b0?.toPlace)}`)
+    assert.equal(real.cost, b0.cost + LID_PLACE_COST, 'the real rule prices the block landing on the lid')
+    assert.equal(mut.cost, b0.cost, 'the mutant does not')
   })
 })
 test('MUTANT KILLED: the stand cells dropped from the guard', async () => {
@@ -305,7 +352,22 @@ const idxWired = s => {
 test('WIRING index.mjs: the price built as tested, installed on `moves` before every clone and before setMovements', () => idxWired(IDX))
 test('WIRING skills.mjs: every head read keeps bot.townPlan.guard', () => {
   once(SKS, "cells: planFurnitureCells(h.head.plan), guard: placeGuardCells(h.head.plan), at: Date.now() } : null")
-  once(SKS, "import { placeGuardCells } from './lidplace.mjs'")
+  once(SKS, "import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'")
+})
+test('WIRING the capped fallback: index.mjs exposes the price; gather walks a lidFallback plan at the base\'s costs', () => {
+  const add = once(IDX, 'installLidPrice(moves, lidPlacePrice)'), exp = once(IDX, 'bot.lidPrice = lidPlacePrice')
+  assert.ok(exp > add)
+  once(SKS, 'await (plan.lidFallback ? withoutLidPrice(bot.lidPrice ?? null, approachWalk) : approachWalk())')
+})
+test('MUTANT KILLED: planDigApproach without the base-cost retry -> the deep pit\'s approach is lost', async () => {
+  await withMutant(new URL('../src/digapproach.mjs', import.meta.url), "      if (r2?.status === 'success') { result = r2; lidFallback = true }\n", '', async mod => {
+    const w = world(deepPit())
+    const m = moves(w, { canDig: true, step: () => 16 })
+    const bot = { entity: { position: V(0.5, 70, 0.5) }, gatherMovements: m, lidPrice: m.__lidPriceFn, inventory: { items: () => [] }, heldItem: null, blockAt: w.blockAt,
+      pathfinder: { getPathFromTo: function * (mv, at, goal, o) { yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
+    const r = mod.planDigApproach(bot, { x: 0, y: 77, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(77), endsInReach: () => true })
+    assert.notEqual(r?.status, 'success', 'the mutant keeps the priced failure')
+  })
 })
 test('MUTANT (index): the install moved after the clones is detected', () => {
   const line = 'installLidPrice(moves, lidPlacePrice)'

@@ -19,13 +19,13 @@
 //
 // IT ALSO READS THE RIGHT CELL. A toPlace entry is { x, y, z, dx, dy, dz }: the reference block and the face, so the block
 // lands at (x + dx, y + dy, z + dz) -- what the executor sends (index.js `bot.placeBlock(refBlock, new Vec3(dx, dy, dz))`) --
-// or, when the reference cell is itself empty, IN the reference cell (landingCell below: the Paper finding).
+// or, when the reference cell is empty now, possibly IN the reference cell (landingCells below: the Paper finding).
 // exclusionAreasPlace would have been handed blockC for getMoveForward's bridge, the cell ABOVE its placement (2.4.5; fixed
 // upstream in PrismarineJS/mineflayer-pathfinder#351, merged 2025-08-18, unreleased: npm's latest is still 2.4.5).
 // `useOne` entries (a fence gate opened, nothing placed) are skipped.
 //
 // THE NUMBER: 20 per guarded placement. A tower from a chest top pays for the lid block (and, as planned, for the next one up:
-// its reference is the lid cell, still air at planning time, so landingCell judges it as landing there -- an over-price near
+// its reference is the lid cell, still air at planning time, so landingCells counts the lid too -- an over-price near
 // a lid, never an under-price), and stepping off to tower beside it costs a drop (1) plus one more tower step (1 + placeCost
 // 5) = 7, so the open side wins by 13 or more; a reserved plan cell or a stand costs a detour of ~20 blocks before it is used. Never a veto: a bot whose only way out
 // is the lid tower still takes it (the chain tests). The A* explores a little more before it takes a priced move; 20 is
@@ -78,34 +78,34 @@ export function placeGuarded (guard, lidded, x, y, z) {
 }
 
 /**
- * WHERE A PLACEMENT LANDS -> the cell. Pure. The pathfinder's executor clicks face (dx, dy, dz) of the reference block (x, y, z)
- * and predicts the block at ref + face. The SERVER does not always agree: vanilla BlockPlaceContext places INTO the clicked
- * cell when that cell is itself replaceable (air, water, grass...). The executor clicks an AIR reference when the A* was
- * re-planned from a body in mid-jump: the start node is the floored position, getMoveUp's reference is the cell under it,
- * and that cell is air. Paper 10-26 (sandbox7, the onchest scene): a bot jumping on a chest re-planned from y 108, clicked
- * the top of the air lid cell, and the dirt landed ON THE LID (107) while the client recorded 108. So an empty reference
- * means the block lands in the reference cell. `emptyAt(x, y, z)` = that cell has no collision box (unloaded reads as air).
- * The world is read as it is NOW, so a reference the same move (or the path before it) will have filled -- a jump-up's C on its
- * D, the second block of a tower -- is judged as landing in that reference cell: near a guarded cell that over-prices a move
- * that does cover it; it never under-prices one.
+ * WHERE A PLACEMENT MAY LAND -> [cell] or [ref cell, ref + face]. Pure. The pathfinder's executor clicks face (dx, dy, dz) of
+ * the reference block (x, y, z), read at EXECUTION time (index.js `refBlock = bot.blockAt(placingBlock)`), and predicts the
+ * block at ref + face. The SERVER does not always agree: vanilla BlockPlaceContext places INTO the clicked cell when that cell
+ * is itself replaceable (air, water, grass...). Paper 10-26 (sandbox7, the onchest scene): a bot jumping on a chest re-planned
+ * from y 108, clicked the top of the AIR lid cell, and the dirt landed ON THE LID (107) while the client recorded 108.
+ * But an empty reference at PLANNING time is usually a block the same move or the path before it will have placed by then (a
+ * bridge's previous block, a jump-up's D under its C, a tower's previous block), and then the block lands at ref + face
+ * (Claude r2 P1: a bridge's next block onto a lid read as "lands in the previous bridge cell" and went unpriced). The planner
+ * cannot tell the two apart, so an empty reference yields BOTH cells and the surcharge counts the placement once if either is
+ * guarded: an over-price near a guarded cell, never an under-price. `emptyAt(x, y, z)` = no collision box (unloaded: air).
  */
-export function landingCell (p, emptyAt) {
-  if (!p) return null
-  if (emptyAt && emptyAt(p.x, p.y, p.z)) return { x: p.x, y: p.y, z: p.z }
-  return { x: p.x + (p.dx ?? 0), y: p.y + (p.dy ?? 0), z: p.z + (p.dz ?? 0) }
+export function landingCells (p, emptyAt) {
+  if (!p) return []
+  const out = { x: p.x + (p.dx ?? 0), y: p.y + (p.dy ?? 0), z: p.z + (p.dz ?? 0) }
+  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }, out]
+  return [out]
 }
 
 /**
- * THE SURCHARGE FOR ONE NEIGHBOUR -> LID_PLACE_COST x the guarded cells its placements land in. Pure over its inputs.
- * `toPlace` is mineflayer-pathfinder's Move.toPlace; a `useOne` entry places nothing; landingCell says where each lands.
+ * THE SURCHARGE FOR ONE NEIGHBOUR -> LID_PLACE_COST x its placements that may land in a guarded cell (each counted once).
+ * Pure over its inputs. `toPlace` is mineflayer-pathfinder's Move.toPlace; a `useOne` entry places nothing.
  */
 export function lidPlaceSurcharge (toPlace, guard, lidded, emptyAt = null) {
   if (!Array.isArray(toPlace) || !toPlace.length) return 0
   let n = 0
   for (const p of toPlace) {
     if (!p || p.useOne) continue
-    const c = landingCell(p, emptyAt)
-    if (c && placeGuarded(guard, lidded, c.x, c.y, c.z)) n++
+    if (landingCells(p, emptyAt).some(c => placeGuarded(guard, lidded, c.x, c.y, c.z))) n++
   }
   return n * LID_PLACE_COST
 }
@@ -138,12 +138,39 @@ export function liddedStateIds (registry) {
  * THE PRICE index.mjs installs -> (toPlace) => surcharge. `stateIdAt(x, y, z)` is the world's state id there (0 when
  * unloaded: no lid); `guard()` returns the plan's current guard set or null; `on` false -> always 0. Built once; per
  * placement it is one or two Set lookups and two state-id reads (the reference, the cell under the landing; no Block object).
+ * The function carries two counters: `hits` (placements it priced, ever) and `off` (> 0 while withoutLidPrice holds it).
  */
 export function makeLidPlacePrice ({ registry, stateIdAt, guard = () => null, on = true }) {
   const ids = liddedStateIds(registry), empty = emptyStateIds(registry)
   const lidded = (x, y, z) => ids.has(stateIdAt(x, y, z))
   const emptyAt = (x, y, z) => empty.has(stateIdAt(x, y, z))
-  return (toPlace) => (on ? lidPlaceSurcharge(toPlace, guard(), lidded, emptyAt) : 0)
+  const price = (toPlace) => {
+    if (!on || price.off > 0) return 0
+    const v = lidPlaceSurcharge(toPlace, guard(), lidded, emptyAt)
+    if (v > 0) price.hits++
+    return v
+  }
+  price.hits = 0
+  price.off = 0
+  return price
+}
+
+/**
+ * A BOUNDED SEARCH'S FALLBACK (Codex r2 P1). A surcharge after legality never deletes a neighbour, but a COST-CAPPED search
+ * (A* drops a node whose g + h passes startNode.h + searchRadius: digapproach.mjs's 400 slack) can lose a route the base
+ * keeps -- the surcharge spends the cap. So a capped caller whose priced search failed AFTER the price touched it runs the
+ * same search, and the walk it admits, inside this: the base's costs exactly. -> fn's result. `price` null: just fn().
+ */
+export async function withoutLidPrice (price, fn) {
+  if (!price) return fn()
+  price.off++
+  try { return await fn() } finally { price.off-- }
+}
+/** The synchronous form, for a search (getPathFromTo pumped in place). */
+export function withoutLidPriceSync (price, fn) {
+  if (!price) return fn()
+  price.off++
+  try { return fn() } finally { price.off-- }
 }
 
 /**

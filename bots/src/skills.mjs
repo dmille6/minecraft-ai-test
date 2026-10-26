@@ -113,7 +113,7 @@ import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnkn
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
-import { placeGuardCells } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
+import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -1319,8 +1319,10 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
         const watch = observeApproachDig(bot)
         let walked
         try {
-          await bot.withGatherMovements(() =>
+          // a plan admitted only at the base's costs (lidplace.mjs: the lid surcharge spent the cap) is walked at them too
+          const approachWalk = () => bot.withGatherMovements(() =>
             withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
+          await (plan.lidFallback ? withoutLidPrice(bot.lidPrice ?? null, approachWalk) : approachWalk())
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
           if (e.aborted || signal?.aborted) {
@@ -1345,7 +1347,7 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
         logEvent({ kind: 'dig_approach', status: inReach ? 'success' : 'fail',
                    detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), ` +
                            `in_reach=${inReach}${said ? ` (${said})` : ''} ` +
-                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms} ` +
+                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms}${plan.lidFallback ? ' lid_fallback=1' : ''} ` +
                            `walk_ms=${walked.walkMs} dig_ms=${Math.round(plan.digMs ?? 0)} ` +
                            `attempted=${walked.attempted.length ? walked.attempted.join(',') : 'none'} ` +
                            `dug=${walked.dug.length ? walked.dug.join(',') : 'none'} ` +
@@ -1611,6 +1613,28 @@ export function wellSwordsNow (bot) {
   try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }
 }
 
+/** How long the sweep waits for a falling drop to land (a log from 5 up falls in ~1 s). */
+export const DROP_SETTLE_MS = 2_000
+/** Is a drop over this block still falling? Pure: the cell just under the item has no collision box and is not a liquid
+ *  (an item floats in water: waiting would only spend the budget). Unknown cell -> not falling (walk as before). */
+export function dropAirborne (below) {
+  if (!below || typeof below.boundingBox !== 'string') return false
+  if (/^(water|lava|bubble_column)$/.test(below.name ?? '')) return false
+  return below.boundingBox === 'empty'
+}
+/** Wait, at most `maxMs`, for a falling drop to land or vanish (collected, despawned). Aborts propagate. */
+export async function awaitDropSettled (bot, drop, signal, maxMs = DROP_SETTLE_MS) {
+  const t0 = Date.now()
+  const falling = () => {
+    try {
+      if (bot.entities && bot.entities[drop.id] !== drop) return false     // gone: nothing to wait for
+      const p = drop.position
+      return dropAirborne(bot.blockAt?.(new Vec3(Math.floor(p.x), Math.floor(p.y - 0.05), Math.floor(p.z))))
+    } catch { return false }
+  }
+  while (falling() && Date.now() - t0 < maxMs) await sleep(100, signal)
+}
+
 /** Walk over anything on the floor within a few blocks. */
 /**
  * ONE UNREACHABLE DROP MUST NOT ABANDON THE OTHERS.
@@ -1656,6 +1680,11 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
+    // A DROP STILL FALLING IS NOT A PLACE TO WALK TO (lidplace-01 Paper 10-26, Claude + Codex r2): a log cut 4-5 blocks
+    // up was chased while it fell, the goal frozen at its mid-air position, and the walk ran out its 6 s (`path_budget`,
+    // d=0,4.6,0) -- in both arms; a bot under its own tower caught the drop anyway, one a cell to the side lost it.
+    // Wait (bounded) until the cell under it holds something, then walk to where it LANDED.
+    try { await awaitDropSettled(bot, drop, signal) } catch (e) { releaseSought(); throw e }
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
