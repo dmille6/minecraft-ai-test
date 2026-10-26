@@ -135,7 +135,7 @@ export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
  */
 export function visitNeeds (record, bill, { saplingAt = () => false, town = {}, spare = {}, planks = 'oak_planks' } = {}) {
   const out = { ...bill }
-  for (const r of record?.replant ?? []) if (r?.sapling && !saplingAt(r.cell)) out[r.sapling] = (out[r.sapling] ?? 0) + 1
+  for (const r of record?.replant ?? []) if (r?.sapling && r.state !== 'skipped' && !saplingAt(r.cell)) out[r.sapling] = (out[r.sapling] ?? 0) + 1
   for (const [item, input, n] of [['furnace', 'cobblestone', 8], ['crafting_table', planks, 4]]) {
     const lack = (Number(bill[item]) || 0) - (Number(spare[item]) || 0)
     if (lack > 0 && (Number(town[item]) || 0) < lack) out[input] = (out[input] ?? 0) + n * lack
