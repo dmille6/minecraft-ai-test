@@ -16206,7 +16206,7 @@ async function buildShop (ctx, args, signal) {
   const rec = rh.head.rec
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
-    // a share left by a visit killed after the completion (or another holder's) is cleared here: the leftovers are the bag's own
+    // this holder's share left by a visit killed after the completion is cleared here (each holder clears its own): the leftovers are the bag's own
     // (r11 Codex P3: the completing visit's own clear is not restart-safe)
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the workshop stands')
@@ -16235,7 +16235,13 @@ async function buildShop (ctx, args, signal) {
     const held0 = heldMap(bot)
     // the keeps are the bot's OWN stock's: what earlier visits drew for this project (the drawn file, clamped to the bag) is the
     // project's, never the bag's stockpile (shop.mjs drawnHeld; Paper 10-25 SHOP-KILL / CHAIN-1)
-    const dr = drawnRead(dir, key, me)
+    let dr = drawnRead(dir, key, me)
+    // a share written BEFORE the workshop completed is a completed build's leftovers (a kill between the completion and its
+    // clear): the bag's own, cleared here, on the path a later repair visit takes (r12 Codex P3)
+    if (rec.structure_complete && Object.keys(dr.drawn).length && !(Number(dr.at) > Number(rec.completeAt ?? Infinity))) {
+      if (!drawnWrite(dir, key, me, {})) drawnFails++
+      dr = { drawn: {}, bag: {}, at: null }
+    }
     drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
     const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
     const spare0 = Object.fromEntries(Object.entries(held0).map(([n, c]) => [n, Math.max(0, c - (keep[n] ?? 0))]))
@@ -16250,7 +16256,7 @@ async function buildShop (ctx, args, signal) {
     let took = {}
     bag0 = held0
     // nothing is drawn unless its record can be written (a draw the next visit cannot see is the deadlock again; r10 Codex P2)
-    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' })
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
     if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() }); took = w.took ?? {} }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
