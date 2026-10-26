@@ -257,12 +257,12 @@ export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir,
 
 const drawnFile = (dir, key, holder) => path.join(dir, `${key}.drawn.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 const counts = m => Object.fromEntries(Object.entries(m ?? {}).map(([n, c]) => [n, Math.floor(Number(c))]).filter(([, c]) => Number.isFinite(c) && c > 0))
-/** What this holder drew from town for the project and has not placed or banked back -> { drawn: { name: n }, bag: { name: n } }
+/** What this holder drew from town for the project and has not placed or banked back -> { drawn: { name: n }, bag: { name: n }, at }
  *  (`bag`: the bag's count of each drawn name when it was written -- the baseline a later decrease is measured from). Both {}
  *  when the file is absent or unreadable; only counts (finite, > 0) survive the read. */
 export function drawnRead (dir, key, holder) {
   const j = readJ(drawnFile(dir, key, holder))
-  return { drawn: counts(j?.drawn), bag: counts(j?.bag) }
+  return { drawn: counts(j?.drawn), bag: counts(j?.bag), at: Number.isFinite(Number(j?.at)) ? Number(j.at) : null }
 }
 /** Replace the holder's drawn counts and their bag baseline (a temp file renamed into place, fsynced). -> true | false (never
  *  throws; the caller counts a failure). */

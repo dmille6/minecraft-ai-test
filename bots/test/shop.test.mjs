@@ -79,10 +79,12 @@ console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')
   })
   await t('drawnWrite / drawnRead round trip; junk counts dropped; a missing file reads {}', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drawn-'))
-    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { drawn: {}, bag: {} })
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { drawn: {}, bag: {}, at: null })
     assert.strictEqual(BP.drawnWrite(dir, 'project-1_2_3.shop', 'bot-A', { oak_planks: 36, x: 'no', y: -2, z: 0 }, { bag: { oak_planks: 56, torch: 2 } }), true)
-    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A'), { drawn: { oak_planks: 36 }, bag: { oak_planks: 56 } })
-    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-B'), { drawn: {}, bag: {} }, 'per holder')
+    const r = BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-A')
+    assert.deepStrictEqual({ drawn: r.drawn, bag: r.bag }, { drawn: { oak_planks: 36 }, bag: { oak_planks: 56 } })
+    assert.ok(Number.isFinite(r.at), 'the write time is kept (the completion test reads it)')
+    assert.deepStrictEqual(BP.drawnRead(dir, 'project-1_2_3.shop', 'bot-B'), { drawn: {}, bag: {}, at: null }, 'per holder')
     assert.strictEqual(BP.drawnWrite(path.join(dir, 'no\0such'), 'k', 'bot-A', { oak_planks: 1 }), false, 'a failed write says so')
     assert.ok(!fs.readdirSync(dir).some(n => n.endsWith('.tmp')), 'no temp file left')
   })
@@ -212,7 +214,8 @@ const W = [
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
   ['skills: the visit\'s keeps are computed from the bot\'s OWN stock (the drawn share excluded)', SK, /const keep = townKeeps\(ownCounts\(held0, drawn0\), \{ wanted: bot\.currentWants \?\? \[\] \}\)\.keep/],
   ['skills: the drawn share read and clamped (with its baseline) at the visit\'s start', SK, /drawn0 = drawnHeld\(dr\.drawn, held0, dr\.bag\)/],
-  ['skills: nothing drawn unless the record can be written', SK, /if \(Object\.keys\(need\)\.length && !drawnWrite\(dir, key, me, drawn0, \{ bag: held0 \}\)\) return out\('no_effect', 'state_unwritable'/],
+  ['skills: nothing drawn unless the record can be written (the failure counted)', SK, /if \(Object\.keys\(need\)\.length && !drawnWrite\(dir, key, me, drawn0, \{ bag: held0 \}\)\) return \(drawnFails\+\+, out\('no_effect', 'state_unwritable'/],
+  ['skills: a share older than the completion is cleared on the repair path', SK, /if \(rec\.structure_complete && Object\.keys\(dr\.drawn\)\.length && !\(Number\(dr\.at\) > Number\(rec\.completeAt \?\? Infinity\)\)\) \{\n\s*if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+/],
   ['skills: the share persisted after EVERY verified take', SK, /\(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c; persist\(\) \}\); took = w\.took/],
   ['skills: the share persisted after every placement', SK, /if \(kind === '_build' && d\?\.op === 'place'\) persist\(\)/],
   ['skills: the share persisted after every bank-back', SK, /backAll\[n2\] = \(backAll\[n2\] \?\? 0\) \+ c2; persist\(\)/],

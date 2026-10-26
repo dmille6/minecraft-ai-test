@@ -1,0 +1,24 @@
+#!/bin/bash
+# negative.sh <server> <pool dir> -- the conformance NEGATIVE on a kept sandbox workshop (sandbox5..8 only), under the lock:
+#   P: survey the standing workshop (positive control, must be F1 1.0)
+#   C: remove 7 cells (furnaces, table, windows -> air), survey (must be F1 < 0.98)
+#   D: also swap 4 base cells to cobblestone, survey (must be lower still)
+set -u
+SRV=$1 POOL=$2
+case "$SRV" in sandbox5|sandbox6|sandbox7|sandbox8) ;; *) echo "sandbox only"; exit 2;; esac
+S=/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad
+C=$S/shop/conform
+RUN=$S/shop/wt4/scripts/host/shopconform-run.sh
+cd $S/shopbx || exit 2
+bash sandbox/sbxlock.sh take "$SRV" shop "shop-01 conformance negative" | tail -1 || exit 3
+trap 'bash $S/shopbx/sandbox/sbxlock.sh release "$SRV" shop | tail -1' EXIT
+REC=$(ls -1 $POOL/project-*.shop.g*.json | sort -t g -k3 -n | tail -1)
+echo "record $REC"
+ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py $SRV - <<< 'save-all flush' > /dev/null
+bash $RUN $SRV $POOL sandbox-Shop $C/neg-$SRV-P.json 2>/dev/null
+python3 $C/negcmds.py $REC remove | ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py $SRV - | grep -c "Changed the block"
+sleep 3
+bash $RUN $SRV $POOL sandbox-Shop $C/neg-$SRV-C.json 2>/dev/null
+python3 $C/negcmds.py $REC swap | ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py $SRV - | grep -c "Changed the block"
+sleep 3
+bash $RUN $SRV $POOL sandbox-Shop $C/neg-$SRV-D.json 2>/dev/null

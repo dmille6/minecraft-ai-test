@@ -1,0 +1,16 @@
+"""readcheck.py <pool dir> <survey.json>... -- the read's conformance() over real sandbox surveys of a real record (positive/negative)."""
+import datetime as dt, glob, json, os, re, sys
+sys.path.insert(0, '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/shop/readtest')
+sys.path.insert(0, '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/shop/wt4/scripts')
+import shopread as SR  # noqa: E402
+pool = sys.argv[1]
+files = []
+for f in glob.glob(os.path.join(pool, 'project-*.shop.g*.json')):
+    m = re.search(r'\.g(\d+)\.json$', f)
+    files.append((int(m.group(1)), open(f, 'rb').read()))
+rec = SR.record_head(files)
+since = dt.datetime.fromtimestamp(rec['completeAt'] / 1000, dt.timezone.utc)
+svs = [json.load(open(p)) for p in sys.argv[2:]]
+for p, s in zip(sys.argv[2:], svs):
+    print(os.path.basename(p), s.get('at'), 'f1', s.get('f1'), 'valid', s.get('valid'), 'gen', s.get('record_gen'), 'sha ok', s.get('record_sha') == rec['_sha'])
+print('completion', since.isoformat(), '->', SR.conformance(svs, rec, since))
