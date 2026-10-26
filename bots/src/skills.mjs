@@ -13020,6 +13020,8 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
       try {
         furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} })
       } catch (e) { if (e.aborted) throw e; skip('window'); furnace = null; continue }
+      // ledger-01's opener set (re-stack onto 112beb04): the window as it opened, before any click
+      if (LEDGER.on) { try { ledgerObserve(bot, cand.pos, furnace, 'make_material', 'open') } catch { /* never breaks the order */ } }
       const rd = which => { try { const it = furnace[which](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
       // MAT-HOT's second reading (Claude r1 P3): the window's burn progress (mineflayer's furnace.fuel, apart from the fuel slot)
       // -- an empty fuel slot can coexist with coal still burning; the block state is read too (furnace.fuel can miss the open)
@@ -13446,6 +13448,8 @@ async function matsReturnDrain (ctx, note, signal) {
     // ROOM AGAIN AFTER THE WALK (Codex r3 P1-3): pickups on the way can fill the three slots the check before it saw
     if (!((() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })() >= 3)) return { code: 'bag_full', done: false }
     try { win = await withTimeout(bot.openFurnace(bot.blockAt(pos)), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e.aborted) throw e; return { code: 'window', done: false } }
+    // ledger-01's opener set (re-stack onto 112beb04): the window as it opened, before any click
+    if (LEDGER.on) { try { ledgerObserve(bot, pos, win, 'mats_return', 'open') } catch { /* never breaks the recovery */ } }
     const rd = k => { try { const it = win[k](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
     const slots = { input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem') }
     if (Object.values(slots).includes(undefined) || !cold() || (win.fuel ?? 0) > 0) { try { win.close() } catch { /* closed */ } win = null; return { code: 'unreadable_or_lit', done: false } }
