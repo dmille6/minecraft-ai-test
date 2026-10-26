@@ -511,6 +511,128 @@ def t_showcase_streams_are_not_the_bench_streams():
     assert not ({S['skill']['index'], S['llm']['index']} & {S['showcase-skill']['index'], S['showcase-llm']['index']})
 
 
+
+# SHOWCASE HEADER (2026-10-26: an 18 h tripwire stop sat unnoticed at the bottom of the report)
+SCNOW_SHOW = dt.datetime(2026, 10, 26, 14, 0, tzinfo=dt.timezone.utc)
+TRIP_WHY = 'tripwire: VERDICT      TRIP -- S5 G3 lid_unreach 1'
+
+
+def _show_docs(last, bots=('show-Ada', 'show-Bo'), first='2026-10-25T12:00:00'):
+    """Showcase skill rows every 5 min per bot from `first` to `last` (inclusive), ISO Z timestamps."""
+    t, end, out = _ts(first), _ts(last), []
+    while t <= end:
+        out += [TE.doc(t.strftime('%Y-%m-%dT%H:%M:%S.000Z'), 'gather', bot=b, pool='showcase') for b in bots]
+        t += dt.timedelta(minutes=5)
+    return out
+
+
+def _ts(s):
+    return dt.datetime.fromisoformat(s.replace('Z', '')).replace(tzinfo=dt.timezone.utc)
+
+
+def _deploy_log(*rows):
+    p = os.path.join(tempfile.mkdtemp(), 'deploy.jsonl')
+    with open(p, 'w') as fh:
+        for t, ev, why in rows:
+            fh.write(json.dumps({'t': t, 'event': ev, 'why': why}) + '\n')
+        fh.write('not json\n')
+    return p
+
+
+def _show(docs, log='/nonexistent/deploy.jsonl', now=SCNOW_SHOW):
+    fake = TE.FakeES(docs)
+    real = FS.EsEvents.load
+
+    def load(stream='skill', **kw):
+        kw.setdefault('now', now)
+        return real(stream, **kw)
+    FS.EsEvents.load = load
+    try:
+        return FS.showcase_line(now, client=fake, deploy_log=log)
+    finally:
+        FS.EsEvents.load = real
+
+
+def t_showcase_head_ok_names_denominator_and_age():
+    # positive control for every DOWN test below: the same query, on rows up to 13:55, finds both bots
+    line = _show(_show_docs('2026-10-26T13:55:00'))
+    assert line == 'showcase OK: 2 of 2 bots, last row 5 min ago', line
+
+
+def t_showcase_head_tripwire_stop_is_down_with_reason():
+    log = _deploy_log(('2026-10-25T18:13:44Z', 'stop-bots', 'owner 10-25: restart for zones'),
+                      ('2026-10-25T18:20:00Z', 'activated', ''),
+                      ('2026-10-25T19:37:09Z', 'stop-bots', TRIP_WHY))
+    line = _show(_show_docs('2026-10-25T19:35:00'), log=log)
+    assert line == ('!! SHOWCASE DOWN 18.4 h: tripwire stop 10-25 19:37Z "S5 G3 lid_unreach 1" -- '
+                    'read /srv/showcase/ops/trip.log on 10.0.0.40'), line
+
+
+def t_showcase_head_deliberate_stop_is_named_deliberate():
+    log = _deploy_log(('2026-10-25T19:37:09Z', 'stop-bots', 'owner 10-25: trial chambers to bedrock'))
+    line = _show(_show_docs('2026-10-25T19:35:00'), log=log)
+    assert line.startswith('!! SHOWCASE DOWN 18.4 h: deliberate stop 10-25 19:37Z "owner 10-25: trial chambers'), line
+    assert 'stopped on purpose' in line and 'tripwire' not in line, line
+
+
+def t_showcase_head_old_stop_is_not_this_outage():
+    # the only stop predates the newest row by hours: it did not cause this gap
+    log = _deploy_log(('2026-10-25T13:00:00Z', 'stop-bots', TRIP_WHY))
+    line = _show(_show_docs('2026-10-25T19:35:00'), log=log)
+    assert line.startswith('!! SHOWCASE DOWN 18.4 h: last skill row 10-25 19:35Z, NO stop recorded'), line
+
+
+def t_showcase_head_first_stop_wins_and_future_rows_are_unseen():
+    # Codex P2 10-26: a --now replay must not see a later stop, and a stop issued while already down is not the cause
+    log = _deploy_log(('2026-10-25T19:37:09Z', 'stop-bots', TRIP_WHY),
+                      ('2026-10-25T22:00:00Z', 'stop-bots', 'operator: belt and braces'),
+                      ('2026-10-26T15:00:00Z', 'stop-bots', 'operator maintenance'))
+    line = _show(_show_docs('2026-10-25T19:35:00'), log=log)
+    assert line.startswith('!! SHOWCASE DOWN 18.4 h: tripwire stop 10-25 19:37Z'), line
+    log = _deploy_log(('2026-10-26T15:00:00Z', 'stop-bots', 'operator maintenance'))
+    line = _show(_show_docs('2026-10-25T19:35:00'), log=log)
+    assert 'NO stop recorded' in line, line
+
+
+def t_showcase_head_without_deploy_log_says_where_to_look():
+    line = _show(_show_docs('2026-10-25T19:35:00'))
+    assert line.startswith('!! SHOWCASE DOWN 18.4 h: last skill row 10-25 19:35Z -- check trip.log'), line
+    assert '10.0.0.40' in line, line
+
+
+def t_showcase_head_threshold_is_30_min():
+    assert _show(_show_docs('2026-10-26T13:31:00', first='2026-10-25T12:01:00')).startswith('showcase OK'), 'a 29-min gap is not down'
+    line = _show(_show_docs('2026-10-26T13:30:00'))
+    assert line.startswith('!! SHOWCASE DOWN 0.5 h'), line
+
+
+def t_showcase_head_partial_names_absent_bot():
+    docs = _show_docs('2026-10-26T13:55:00', bots=('show-Ada',)) + _show_docs('2026-10-26T10:00:00', bots=('show-Bo',))
+    line = _show(docs)
+    assert line.startswith('!! showcase PARTIAL: 1 of 2 bots') and 'absent show-Bo' in line, line
+
+
+def t_showcase_head_empty_week_and_dead_es_never_raise():
+    line = _show([TE.doc('2026-10-01T00:00:00.000Z', 'gather', bot='show-Ada')])
+    assert line.startswith('!! SHOWCASE DOWN >= 7 d'), line
+
+    def dead(method, path, body=None, timeout=120):
+        raise RuntimeError('refused')
+    line = FS.showcase_line(SCNOW_SHOW, client=dead)
+    assert line.startswith('!! showcase: UNREADABLE (RuntimeError'), line
+
+
+def t_showcase_head_is_in_the_header():
+    out = io.StringIO()
+    rep = run(fleet_docs(), stdout=out)          # the fake answers every index, so the fleet docs read as the showcase
+    head = out.getvalue().splitlines()[:8]
+    assert rep.get('showcase_head', '').startswith('showcase OK: 2 of 2 bots'), rep.get('showcase_head')
+    assert rep['showcase_head'] in head, head
+    out = io.StringIO()
+    rep = run(fleet_docs(stop_at_hour=12), stdout=out)   # Bravo's rows end 11:50; Alpha keeps one 19:53 row
+    head = out.getvalue().splitlines()[:8]
+    assert any(x.startswith('!! showcase PARTIAL: 1 of 2 bots') and 'absent self-isolated-a-Bravo' in x for x in head), head
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 
 if __name__ == '__main__':
