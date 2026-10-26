@@ -29,6 +29,15 @@ LINES (each with its denominator; a zero is printed beside the positive control 
                   to another block name is a BREACH (TRIP); an unreadable chunk is UNKNOWN (WATCH, never OK)
   S5 TOWN PLAN    townplanread D1 chain_invalid, D2 invalid rows, D3 never hits, D4 plan cells in a zone/avoid box, D5 root
                   occupied; foundread G1 found lost, G2 off plan, G3 lid/unreachable, G4 shared side, G5 in a zone. Any > 0: TRIP
+  S6 SHOP         shopread (the workshop's own read, installed beside this file from a named sha) over the showcase as ONE pool.
+                  TRIP on what the read gates as a defect, sticky until acknowledged like S5: H1 off_record (a placement in
+                  no record cell), H2 clear_outside, H3 zone (a mutation in a protected box), H4 lease_overlap, H5
+                  felled_unplanted (a tree felled before its sapling; a SKIPPED replant is no obligation, owner 10-26), H6
+                  bag_loss (a lost material: a clean visit's bag short of what it took), H7 unknown_stood, H8 conformance (a
+                  completed workshop whose NEWEST counted survey has F1 < 0.98). WATCH, from this run's rows only (never a
+                  stop): stuck_on_cell, a STALLED pool (stalled=true: every open segment waits on a stuck cell),
+                  stuck_unwritten, replant_skipped; blind gates (g5_unjudged, oracle_missing, zone_unknown); a completed
+                  workshop with no survey to judge it (conformance UNJUDGED). No shopread beside this file: WATCH, never OK
   REPORTED        plan generations, found outcomes, founding placements (the evidence the town is being founded)
 VERDICT  TRIP (stop-bots.sh, or re-activate the previous release when a piece was just deployed) | WATCH | OK
 """
@@ -51,6 +60,15 @@ RUN_SINCE = '/srv/showcase/trip/RUN_SINCE'
 # prunes from ACK.json every acknowledged item that no longer appears, so a defect that goes away and comes back trips again.
 # `showcase_trip.py ack --why "<...>"` acknowledges the current items (recovery, a human's step).
 ACK = '/srv/showcase/trip/ACK.json'
+# the workshop's conformance surveys (shopconform); absent on the showcase until a survey job writes them -> UNJUDGED (WATCH)
+SURVEYS = '/srv/showcase/trip/shopconform/surveys'
+POOL_ROOT = os.path.dirname(POOL_DIR)
+# S6: the read's defect gates (TRIP, sticky until acknowledged) and the run's WATCH rows (shop-01 F2/F4)
+SHOP_TRIP = (('H1 off_record', 'off_record'), ('H2 clear_outside', 'clear_outside'), ('H3 zone', 'zone'),
+             ('H4 lease_overlap', 'lease_overlap'), ('H5 felled_unplanted', 'felled_unplanted'), ('H6 bag_loss', 'bag_loss'),
+             ('H7 unknown_stood', 'unknown_stood'))
+SHOP_WATCH_OPS = ('stuck_on_cell', 'stuck_unwritten', 'replant_skipped')
+SHOP_BLIND = ('g5_unjudged', 'oracle_missing', 'zone_unknown')
 MIRROR_MAX_AGE_MIN = 60
 HEALTHZ = 'http://127.0.0.1:11612/healthz'
 UTC = dt.timezone.utc
@@ -252,6 +270,15 @@ def verdict(f):
             trip.append('S5 %s %d' % (k, v))
     if f['plan_error']:
         watch.append('S5 the plan read failed: %s' % f['plan_error'])
+    # S6 SHOP (the workshop): a defect TRIPs; the run's stuck / stalled / skipped rows and every blind gate are WATCH
+    for k, v in sorted((f.get('shop_defects') or {}).items()):
+        if v:
+            trip.append('S6 %s %d' % (k, v))
+    for k, v in sorted((f.get('shop_watch') or {}).items()):
+        if v:
+            watch.append('S6 %s %s' % (k, v))
+    if f.get('shop_error'):
+        watch.append('S6 the shop read failed: %s' % f['shop_error'])
     return ('TRIP' if trip else 'WATCH' if watch else 'OK'), trip + watch
 
 
@@ -445,7 +472,71 @@ def plan_read(rows, since, plans=None):
              'G3 lid_unreach': flists.get('lid_unreach', []), 'G4 shared_side': flists.get('shared_side', []),
              'G5 zone': flists.get('zone', [])}
     report['items'] = defect_items(defects, items)
+    report['_zones'] = zones
     return defects, report
+
+
+def shop_kinds():
+    """The workshop's row kinds (shopread.BUILD_KINDS), or none when shopread is not beside this file."""
+    try:
+        import shopread as SR
+        return set(SR.BUILD_KINDS)
+    except ImportError:
+        return set()
+
+
+def feet_of(pos):
+    """A row's bot.pos -> [x, y, z] floored, or None. Pure (shopread.pos_of's rule, here so plan_rows needs no import)."""
+    try:
+        return [math.floor(float(pos[k])) for k in ('x', 'y', 'z')] if isinstance(pos, dict) else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def shop_read(rows, run_since, zones, projects=None, surveys=None):
+    """S6: shopread's judge over the showcase pool (every showcase bot on the canary arm, like plan_read). `rows` reach back to
+    the town epoch (the defect gates are sticky until acknowledged, like S5); the WATCH rows count only from `run_since`.
+    `zones`: the plan's protected boxes (plan_read's). -> (defects {gate: n}, watch {name: value}, report, items {gate: [item]})."""
+    import townplanread as TP
+    import shopread as SR
+    with showcase_pools(TP, SR):
+        if projects is None:
+            projects = {k: v for k, v in SR.read_projects(POOL_ROOT).items() if k == POOL}
+        if surveys is None:
+            surveys = SR.load_surveys(SURVEYS)
+        mark = lambda r: dict(r, arm='canary', per='post')
+        out, lists = SR.judge([mark(r) for r in rows if r['name'] in SR.ROW_KINDS], projects, {POOL: list(zones)}, cut=None,
+                              gens=(), surveys=surveys)
+    defects = {g: out.get(k, 0) for g, k in SHOP_TRIP}
+    items = {g: list(lists.get(k, [])) for g, k in SHOP_TRIP}
+    # H8: a completed workshop whose NEWEST counted survey fails F1 (shopread.conformance's own words); no survey is UNJUDGED
+    conf = [x for x in lists.get('conformance', []) if ': newest survey F1 ' in x]
+    defects['H8 conformance'] = len(conf)
+    items['H8 conformance'] = conf
+    unjudged = [x for x in lists.get('conformance', []) if ': newest survey F1 ' not in x and ': F1 ' not in x]
+    # WATCH: this run's rows only (a stuck cell from before a restart is not judged again by the restart)
+    recent = [r for r in rows if r['name'] == '_build' and r['t'] >= run_since]
+    watch, stalled = {}, {}
+    for r in recent:
+        f = TP.kv(r['detail'])
+        if f.get('op') in SHOP_WATCH_OPS:
+            watch[f['op']] = watch.get(f['op'], 0) + 1
+        if f.get('op') == 'stuck_on_cell' and f.get('stalled') == 'true':
+            stalled[r['bot']] = f.get('waiting') or '?'
+    if stalled:
+        watch['STALLED (every open segment waits on a stuck cell; cells waiting by bot)'] = stalled
+    for k in SHOP_BLIND:
+        if out.get(k):
+            watch['%s (blind)' % k] = out[k]
+    if unjudged:
+        watch['conformance UNJUDGED'] = unjudged[:3]
+    report = {'visits': out.get('visits_canary', 0), 'placements': out.get('placements', 0), 'clears': out.get('clears', 0),
+              'complete': out.get('complete_towns', 0), 'record': bool((projects.get(POOL) or {}).get('record')),
+              'stops': {k[6:]: v for k, v in sorted(out.items()) if k.startswith('visit_')},
+              'reported': {k: out.get(k, 0) for k in ('placed_twice', 'bag_unjudged', 'replant_moved', 'replant_deferred', 'deferred',
+                                                     'stuck_on_cell', 'replant_skipped', 'stuck_unwritten')},
+              'surveys': bool(surveys and surveys[0]), 'why': lists.get('why', [])[:4]}
+    return defects, watch, report, defect_items(defects, items)
 
 
 @contextlib.contextmanager
@@ -508,7 +599,7 @@ def plan_rows(since, paths=LOGS):
     import townplanread as TP
     import foundread as FD
     from lib.telemetry import open_log
-    kinds = set(TP.ROW_KINDS) | set(FD.ROW_KINDS)
+    kinds = set(TP.ROW_KINDS) | set(FD.ROW_KINDS) | shop_kinds()
     needle = re.compile(rb'"name"\s*:\s*"(' + b'|'.join(re.escape(k.encode()) for k in sorted(kinds)) + rb')"')
     rows, n_files, n_lines, bad = [], 0, 0, []
     for f in sorted(glob.glob(paths)):
@@ -538,8 +629,11 @@ def plan_rows(since, paths=LOGS):
                 b = (d.get('bot') or {}).get('name')
                 if t < since or b not in NAMES or sk.get('name') not in kinds:
                     continue
-                rows.append({'t': t, 'name': sk['name'], 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b,
-                             'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None})
+                row = {'t': t, 'name': sk['name'], 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b,
+                       'item': (sk.get('args') or {}).get('item') if isinstance(sk.get('args'), dict) else None}
+                if sk['name'] in shop_kinds():
+                    row['feet'] = feet_of((d.get('bot') or {}).get('pos'))      # shopread G6: the builder's stand
+                rows.append(row)
         except Exception as e:      # a corrupt archive is named; the readable files are still judged
             bad.append('%s: %s' % (os.path.basename(f), type(e).__name__))
         finally:
@@ -642,6 +736,7 @@ def cmd_read(a):
         except Exception as e:
             print('integrity read failed: %s' % e)
     plan_err, defects, report = None, {}, {}
+    shop_full, shop_watch, shop_report, shop_error = {}, {}, None, None
     try:
         if town_since is None:
             raise RuntimeError('no town epoch in %s: the plan gates need the history from the founding' % a.town_since)
@@ -649,6 +744,16 @@ def cmd_read(a):
         report_hist = hist
         full, report = plan_read(prows, town_since)
         report['history'] = report_hist
+        # S6: a shop read failure is its own WATCH and never drops the plan's defects
+        try:
+            if not shop_kinds():
+                raise ImportError('shopread.py is not beside %s' % HERE)
+            zl = [b for v in (report.get('_zones') or {}).values() for b in v]
+            shop_full, shop_watch, shop_report, shop_items = shop_read(prows, run_since or since, zl)
+            full = dict(full, **shop_full)
+            report['items'] = dict(report['items'], **shop_items)
+        except Exception as e:
+            shop_error = '%s: %s' % (type(e).__name__, str(e)[:200])
         # a bad file is a WATCH beside the verdict, never a reason to drop the defects the readable history shows
         report['bad_files'] = hist.get('bad_files') or []
         with ack_lock(a.ack):
@@ -686,7 +791,10 @@ def cmd_read(a):
              'brain_paused': paused,
              'window_min': round((now - first).total_seconds() / 60), 'plan_towns': (report or {}).get('plan_towns'),
              'stuck': stuck_now(by_bot, end),
-             'trapped': trapped, 'refusal_loops': loops, 'integrity': integ, 'plan_defects': defects, 'plan_error': plan_err}
+             'trapped': trapped, 'refusal_loops': loops, 'integrity': integ,
+             'plan_defects': {k: v for k, v in defects.items() if k not in shop_full},
+             'shop_defects': {k: v for k, v in defects.items() if k in shop_full}, 'shop_watch': shop_watch,
+             'shop_error': shop_error if not plan_err else 'not read (the plan read failed first)', 'plan_error': plan_err}
     v, why = verdict(facts)
     W = (now - since).total_seconds() / 60
     print('SHOWCASE TRIPWIRE %s  window %s .. %s (%d min)' % (now.strftime('%FT%TZ'), since.strftime('%FT%TZ'), now.strftime('%H:%M:%SZ'), W))
@@ -707,7 +815,13 @@ def cmd_read(a):
     else:
         for zid, z in integ.items():
             print('S4 INTEGRITY %-24s %s %s' % (zid, z['status'], {k: v for k, v in z.items() if k.endswith('_n')}))
-    print('S5 TOWN PLAN %s%s' % (defects, (' | READ FAILED ' + plan_err) if plan_err else ''))
+    print('S5 TOWN PLAN %s%s' % (facts['plan_defects'], (' | READ FAILED ' + plan_err) if plan_err else ''))
+    print('S6 SHOP      defects %s | watch %s%s' % (facts['shop_defects'], shop_watch or 'none', (' | ' + facts['shop_error']) if facts['shop_error'] else ''))
+    if shop_report:
+        print('EXPOSURE     shop: record %s, visits %d, placements %d, clears %d, complete %d, surveys %s%s' % (
+            shop_report['record'], shop_report['visits'], shop_report['placements'], shop_report['clears'], shop_report['complete'],
+            shop_report['surveys'], '' if shop_report['visits'] else ' -- UNEXPOSED: zero defects mean nothing yet'))
+        print('REPORTED     shop stops %s | %s%s' % (shop_report['stops'], shop_report['reported'], (' | why ' + str(shop_report['why'])) if shop_report['why'] else ''))
     if report:
         print('EXPOSURE     towns with an accepted plan %d, accepted generations %d, found placements %d%s' % (
             report['plan_towns'], report['gens'], report['found_placed'], '' if report['plan_towns'] else ' -- UNEXPOSED: zero defects mean nothing yet'))
@@ -732,7 +846,7 @@ def cmd_read(a):
         try:                        # a failed write must never turn a TRIP into a crash (rc 1 -> no stop)
             with open(a.json, 'w') as f:
                 json.dump({'t': now.strftime('%FT%TZ'), 'since': since.strftime('%FT%TZ'), 'verdict': v, 'why': why,
-                           'facts': facts, 'report': report, 'rows': len(rows), 'builds': dict(builds)}, f, default=str)
+                           'facts': facts, 'report': report, 'shop': shop_report, 'rows': len(rows), 'builds': dict(builds)}, f, default=str)
         except Exception as e:
             print('json write failed: %s' % e)
     return {'OK': 0, 'WATCH': 0, 'TRIP': 2}[v]
@@ -771,6 +885,69 @@ def plan_selftest(T):
         assert FD.judge(mark(aud), {POOL: [(1, plan)]}, {})[0].get('found_lost', 0) == 0, 'positive control: without the placement row G1 is blind'
     assert TP.pool_of('showcase-Alpha') == 'showcase-Alpha', 'the module is restored after the read'
     print('selftest: plan_read identity + shared pool + history checked (D5, G4, G1)')
+
+
+def shop_selftest(T):
+    """S6 over fixtures: shopread's judge through shop_read and the verdict. Needs shopread.py + townplanread.py beside this
+    file; skipped (said so) without them."""
+    try:
+        import shopread as SR, townplanread as TP  # noqa: F401
+    except ImportError:
+        print('selftest: shopread/townplanread not beside this file -- S6 checks skipped')
+        return
+    R = lambda name, detail, bot, m, feet=None: {'t': T(m), 'name': name, 'detail': detail, 'bot': bot, 'status': 'success', 'item': None, 'feet': feet}
+    rec = {'cells': [{'at': [1, 70, 1], 'role': 'base'}, {'at': [2, 70, 1], 'role': 'base'}], 'clear': [], 'replant': [], '_gen': 1, '_sha': 'x'}
+    pj = {POOL: {'record': rec, 'records_files': 1, 'leases': {}, 'dir': '/nonexistent', 'zones_ok': True}}
+    nos = (False, {})
+    base = [R('_build_mode', 'phase=mode', 'showcase-Alpha', 0), R('_build_visit', 'project=shop outcome=placed stop=deadline placed=1', 'showcase-Alpha', 1)]
+    ok = base + [R('_build', 'project=shop op=place cell=1,70,1 block=stone_bricks', 'showcase-Alpha', 2)]
+    d, w, rep_, it = shop_read(ok, T(0), [], projects=pj, surveys=nos)
+    assert not any(d.values()) and not w and rep_['placements'] == 1, ('a placement on a record cell is no defect', d, w)
+    off = base + [R('_build', 'project=shop op=place cell=9,70,9 block=stone_bricks', 'showcase-Bravo', 2)]
+    d, w, _, it = shop_read(off, T(0), [], projects=pj, surveys=nos)
+    assert d.get('H1 off_record') == 1 and it['H1 off_record'] == ['showcase-Bravo 9,70,9 stone_bricks'], (d, it)
+    vbase = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
+             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {}, 'plan_error': None}
+    assert verdict(dict(vbase, shop_defects=d))[0] == 'TRIP', 'an off-record placement TRIPs'
+    assert verdict(dict(vbase, shop_defects={'H1 off_record': 0}))[0] == 'OK'
+    stuck = base + [R('_build', 'project=shop op=stuck_on_cell cell=1,70,1 visits=3 n=1 segs=earth+pad waiting=168 stalled=true', 'showcase-Comet', 30)]
+    d, w, _, _ = shop_read(stuck, T(10), [], projects=pj, surveys=nos)
+    SK = 'STALLED (every open segment waits on a stuck cell; cells waiting by bot)'
+    assert not any(d.values()) and w['stuck_on_cell'] == 1 and w.get(SK) == {'showcase-Comet': '168'}, (d, w)
+    v, why = verdict(dict(vbase, shop_watch=w))
+    assert v == 'WATCH' and any('STALLED' in x for x in why), (v, why)
+    _, w_old, _, _ = shop_read(stuck, T(40), [], projects=pj, surveys=nos)
+    assert not w_old, 'a stuck row from before this run (RUN_SINCE) is not judged again: %s' % w_old
+    sk = base + [R('_build', 'project=shop op=replant_skipped cell=5,70,5 why=no_cell result=accepted', 'showcase-Delta', 5),
+                 R('_build', 'project=shop op=stuck_unwritten cell=1,70,1 n=1', 'showcase-Delta', 6)]
+    _, w, _, _ = shop_read(sk, T(0), [], projects=pj, surveys=nos)
+    assert w == {'replant_skipped': 1, 'stuck_unwritten': 1}, w
+    bag = base + [R('_build_bag', 'project=shop exit=complete silent=0 drawn=ok stone_bricks=10/0/0/2/0/5', 'showcase-Echo', 9)]
+    d, _, _, _ = shop_read(bag, T(0), [], projects=pj, surveys=nos)
+    assert d.get('H6 bag_loss') == 1, 'a lost material (10 - 2 placed = 8 expected, 5 held) TRIPs: %s' % d
+    zone = base + [R('_build', 'project=shop op=place cell=1,70,1 block=stone_bricks', 'showcase-Alpha', 2)]
+    d, _, _, _ = shop_read(zone, T(0), [[0, 60, 0, 3, 80, 3]], projects=pj, surveys=nos)
+    assert d.get('H3 zone') == 1, 'a placement in a protected box TRIPs: %s' % d
+    done = ok + [R('_structure_complete', 'project=shop op=complete gen=1', 'showcase-Alpha', 3)]
+    _, w, _, _ = shop_read(done, T(0), [], projects=pj, surveys=nos)
+    assert 'conformance UNJUDGED' in w, 'a completed workshop with no survey is UNJUDGED (WATCH): %s' % w
+    bad = (True, {POOL: [{'pool': POOL, 'valid': True, 'record_gen': 1, 'record_sha': 'x', 'at': '2026-10-25T13:00:00Z', 'f1': 0.5}]})
+    d, w, _, it = shop_read(done, T(0), [], projects=pj, surveys=bad)
+    assert d.get('H8 conformance') == 1 and 'conformance UNJUDGED' not in w, ('a survey that fails F1 TRIPs', d, w)
+    assert TP.pool_of('showcase-Alpha') == 'showcase-Alpha' and SR.pool_of('showcase-Alpha') == 'showcase-Alpha', 'restored after the read'
+    # plan_rows keeps the shop rows, with the builder's feet (G6), from a real log line
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, 'skill-showcase-Alpha.jsonl')
+        with open(p, 'w') as fh:
+            for name, det in (('_build', 'project=shop op=place cell=1,70,1 block=stone_bricks'), ('_found', 'order=F2 kind=chest outcome=placed'),
+                              ('_build_x', 'not a shop kind')):
+                fh.write(json.dumps({'@timestamp': '2026-10-25T12:05:00Z', 'bot': {'name': 'showcase-Alpha', 'pos': {'x': 1.5, 'y': 70, 'z': 1.2}},
+                                     'skill': {'name': name, 'status': 'success', 'detail': det}}) + '\n')
+        prs, hist = plan_rows(T(0), paths=os.path.join(td, 'skill-*.jsonl'))
+        got = {r['name']: r.get('feet') for r in prs}
+        assert got == {'_build': [1, 70, 1], '_found': None}, ('plan_rows: the shop row kept with its feet, other kinds untouched', got)
+    print('selftest: S6 shop checked (H1, H3, H6, H8 TRIP; stuck / stalled / skipped / unwritten / unjudged WATCH; the run window)')
 
 
 def selftest():
@@ -827,6 +1004,7 @@ def selftest():
     assert zone_diff({'1,1,1': 'minecraft:cauldron'}, {'1,1,1': 'minecraft:water_cauldron'}) == ([], [], [])
     assert zone_diff({'1,1,1': 'minecraft:water_cauldron'}, {})[0], 'a filled cauldron taken away is a removal'
     plan_selftest(T)
+    shop_selftest(T)
     sp = {'a': [(T(0), T(20), 20)], 'b': [(T(0), T(20), 20)]}
     tr, st = split_trapped(sp, {'a': [(T(5), 3)], 'b': [(T(30), 3), (T(5), 0)]})
     assert list(tr) == ['a'] and list(st) == ['b'], (tr, st)
@@ -881,6 +1059,9 @@ def cmd_ack(a):
         print('REFUSED: the history is partial (unreadable %s); acknowledge only what was read in full' % hist['bad_files'][:3])
         return 1
     _, report = plan_read(prows, town_since)
+    if shop_kinds():
+        zl = [b for v in (report.get('_zones') or {}).values() for b in v]
+        report['items'] = dict(report['items'], **shop_read(prows, town_since, zl)[3])
     items = {g: v for g, v in report['items'].items() if v}
     d = {'t': dt.datetime.now(UTC).strftime('%FT%TZ'), 'why': a.why, 'items': items, 'history': hist}
     with ack_lock(a.ack):
