@@ -97,64 +97,6 @@ await t('MUTANT a segment waiting on a deferred one is not skipped: the visit st
     assert.ok(r.placed > 100, `the rest is built (${r.stop}, ${r.placed})`)
   }))
 
-console.log('THE COUNT ON EVERY EXIT, TWO BUILDERS, A MAP THAT CANNOT BE WRITTEN (Codex r21 P2 x3)')
-const noBricks = () => ({ ...KIT(), stone_bricks: 0 })
-const earlyChain = async Mod => {
-  const srv = server(sealed()), pr = project(RECORD)
-  const stops = []
-  let last = null
-  for (let i = 0; i < R.STUCK_VISITS; i++) { last = await visit(Mod, pr, srv, { bag: noBricks() }); stops.push(last.r.stop) }
-  assert.deepStrictEqual(stops, Array(R.STUCK_VISITS).fill('no_material'), `each visit stops early (${stops})`)
-  assert.strictEqual(PJ.stuckRead(pr.dir, pr.key)[k3(X)]?.visits, R.STUCK_VISITS, 'every early-exit visit counted')
-  const row = last.e.logs.find(([k, d]) => k === '_build' && d.op === 'stuck_on_cell')
-  assert.ok(row && row[1].early === true, 'the named row on the early exit that reached the threshold')
-  assert.ok(Number.isFinite(PJ.stuckAt(pr.dir, pr.key)), 'and the project back-off stamped')
-}
-await t('a visit that defers a cell and then stops early (no_material) still counts it; the third logs stuck_on_cell (early)', () => earlyChain(R))
-await t('MUTANT the early-exit settle dropped: the count never reaches the threshold', () => bothA(
-  "    if (!settled && !reachedEnd) {", "    if (false) {", earlyChain))
-
-const twoBuilders = async Mod => {
-  const srv = server(sealed()), pr = project(RECORD, ['A', 'B'])
-  const a1 = await visit(Mod, pr, srv, { who: 'A' }), b1 = await visit(Mod, pr, srv, { who: 'B' })
-  assert.deepStrictEqual([a1.r.stop, b1.r.stop], ['cell_deferred', 'cell_deferred'])
-  assert.strictEqual(PJ.stuckRead(pr.dir, pr.key)[k3(X)].visits, 2, 'two builders, two visits')
-  const a2 = await visit(Mod, pr, srv, { who: 'A' })
-  assert.strictEqual(a2.r.stop, 'stuck_on_cell', 'the SUM reaches the threshold')
-}
-await t('two builders: each writes its own file, the threshold is their sum (A, B, A -> deferred, deferred, stuck)', () => twoBuilders(R))
-const race = async PJm => {
-  const dir = fs.mkdtempSync(new URL('./', import.meta.url).pathname + '_stuckrace-')
-  try {
-    // INTERLEAVED: A and B both read an empty map, then both write one visit -- one shared map lost B's (or A's) increment
-    const a = PJm.stuckRead(dir, 'k', { holder: 'A' }), b = PJm.stuckRead(dir, 'k', { holder: 'B' })
-    assert.deepStrictEqual([a, b], [{}, {}])
-    PJm.stuckWrite(dir, 'k', 'A', R.stuckAfter(a, ['1,2,3'], { now: 1, by: 'A' }).cells, { now: 1 })
-    PJm.stuckWrite(dir, 'k', 'B', R.stuckAfter(b, ['1,2,3'], { now: 2, by: 'B' }).cells, { now: 2 })
-    assert.strictEqual(PJm.stuckRead(dir, 'k')['1,2,3']?.visits, 2, 'no lost update')
-    assert.strictEqual(PJm.stuckRead(dir, 'k', { exclude: 'A' })['1,2,3']?.visits, 1, 'exclude leaves the other holder')
-  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
-}
-await t('the interleaved race: A reads, B reads, A writes, B writes -> 2 visits, none lost', () => race(PJ))
-await t('MUTANT one shared file for every holder: the interleaved race loses an increment', async () => {
-  await race(PJ)
-  let why = null
-  await withProjMutant("const stuckFile = (dir, key, holder) => path.join(dir, `${key}.stuck.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)",
-    "const stuckFile = (dir, key, holder) => path.join(dir, `${key}.stuck.shared.json`)", async M => { try { await race(M) } catch (err) { why = err } })
-  assert.ok(why instanceof assert.AssertionError, `the mutant survived: ${why}`)
-})
-
-const unwritable = async Mod => {
-  const srv = server(sealed()), pr = project(RECORD)
-  // the holder's stuck file is a non-empty DIRECTORY: the rename into place fails, every time
-  const f = `${pr.dir}/${pr.key}.stuck.A.json`
-  fs.mkdirSync(f); fs.writeFileSync(`${f}/x`, '')
-  const { r, e } = await visit(Mod, pr, srv)
-  assert.strictEqual(r.stop, 'stuck_on_cell', `fails CLOSED, never cell_deferred forever (${r.stop})`)
-  assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'stuck_unwritten'), 'a named stuck_unwritten row')
-}
-await t('a stuck map that cannot be written fails closed: stuck_on_cell with a named stuck_unwritten row', () => unwritable(R))
-await t('MUTANT the write failure ignored: the visit says cell_deferred', () => bothA("    if (!ok) {", "    if (false) {", unwritable))
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

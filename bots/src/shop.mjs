@@ -213,8 +213,11 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (complete) return { order: null, skip: 'complete' }
   if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
-  // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop
-  if (Number.isFinite(stuckAt) && now - stuckAt < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
+  // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
+  // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h
+  const sa = typeof stuckAt === 'function' ? stuckAt() : stuckAt
+  if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
