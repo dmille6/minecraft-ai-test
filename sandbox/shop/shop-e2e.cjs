@@ -245,12 +245,13 @@ function cellsCheck (rec) {
 function acksCheck (trace, { deadFrom = null, deadTo = null } = {}) {
   const ev = lines(trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
   const all = ev.filter(e => e.pkt === 'block_place'), acks = ev.filter(e => e.pkt === 'ack')
-  // a click sent in the last 5 s of a SIGKILLed connection can never be answered to it (kill r13: seq 41, sent as the kill
-  // landed): excluded and counted as `dead`; the cell itself is judged by RCON and the place-once rule
-  const dead = all.filter(p => deadFrom != null && p.ts >= deadFrom && p.ts <= deadTo)
-  const places = all.filter(p => Number.isInteger(p.seq) && p.seq > 0 && !dead.includes(p))
-  const unacked = places.filter(p => !acks.some(a => a.ts >= p.ts && a.ts - p.ts <= 5000 && a.seq >= p.seq))
-  return { places: places.length, foreign: all.length - places.length - dead.length, dead: dead.length, acks: acks.length, unacked: unacked.length, first: unacked.slice(0, 3).map(p => `seq=${p.seq}@${JSON.stringify(p.loc)}`) }
+  const places = all.filter(p => Number.isInteger(p.seq) && p.seq > 0)
+  const unacked0 = places.filter(p => !acks.some(a => a.ts >= p.ts && a.ts - p.ts <= 5000 && a.seq >= p.seq))
+  // an UNANSWERED click sent in the last 5 s of a SIGKILLed connection could never be answered to it (kill r13: seq 41, sent as
+  // the kill landed): counted as `dead`, not judged; its cell is judged by RCON and the place-once rule. Answered ones count.
+  const dead = unacked0.filter(p => deadFrom != null && p.ts >= deadFrom && p.ts <= deadTo)
+  const unacked = unacked0.filter(p => !dead.includes(p))
+  return { places: places.length, foreign: all.length - places.length, dead: dead.length, acks: acks.length, unacked: unacked.length, first: unacked.slice(0, 3).map(p => `seq=${p.seq}@${JSON.stringify(p.loc)}`) }
 }
 
 /** Two holders live on one lease (buildproj.mjs rule: another holder may take only after a release or until + 60 s) -> [why]. */
@@ -476,7 +477,7 @@ async function runScene (scene) {
     record: rec ? { sector: rec.sector, source: rec.sector_source, anchor: rec.anchor, orient: rec.orient, s: rec.s, gen: rec.gen, complete: rec.structure_complete, clear: (rec.clear || []).length, replant: (rec.replant || []).length } : null,
     cells: cells && { n: cells.n, bad: cells.bad.length }, acks, extra, d: { stock: diff(tb, ta), ground: diff({}, after.ground) }, rows }
   fs.appendFileSync(RES, JSON.stringify(r) + '\n')
-  console.log(`${scene.padEnd(6)} ${out.verdict} done=${r.done} record=${JSON.stringify(r.record)} cells=${JSON.stringify(r.cells)} acks=${JSON.stringify({ places: acks.places, foreign: acks.foreign, acks: acks.acks, unacked: acks.unacked })} extra=${JSON.stringify(extra)} d(stock){${r.d.stock}} ground{${r.d.ground}}` + (out.why.length ? `\n   why: ${out.why.join('; ')}` : ''))
+  console.log(`${scene.padEnd(6)} ${out.verdict} done=${r.done} record=${JSON.stringify(r.record)} cells=${JSON.stringify(r.cells)} acks=${JSON.stringify({ places: acks.places, foreign: acks.foreign, dead: acks.dead, acks: acks.acks, unacked: acks.unacked })} extra=${JSON.stringify(extra)} d(stock){${r.d.stock}} ground{${r.d.ground}}` + (out.why.length ? `\n   why: ${out.why.join('; ')}` : ''))
   console.log('   rows: ' + rows.filter(x => /_build_visit|_structure_complete|_shop_skip|_townplan$|_make_material/.test(x.name)).map(x => `${x.bot || ''}${x.name}:${x.status}:${x.detail.slice(0, 160)}`).join(' || '))
   return out.pass
 }
