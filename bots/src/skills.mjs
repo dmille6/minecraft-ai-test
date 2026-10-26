@@ -7398,7 +7398,21 @@ export function findTownComposter (bot) {
   } catch { return null }
 }
 /** What this bot could build a composter from, right now. A table counts only if CARRIED (composter.mjs). */
+/**
+ * THE WORKSHOP'S SHARE HOLDS THE STATIONS (Paper 10-25, SHOP-COOP2 / CHAIN-1 / SHOP-TERRAIN board-a, candidate r13): between two
+ * visits a builder's bag holds its drawn share of the bill, and build_composter (a town without a composter) crafted slabs, a
+ * table and the composter out of it -- 6-10 planks a time; with the town at BUILD_RESERVE the next visit could draw no more and
+ * stopped no_material on the roof (chain, terrain-a). r14 tried to make each station read only the bot's OWN wood and both
+ * reviews showed the class unbounded (execution, recipes, found-01, the smelt furnace). So the gate is by STATE: while the bot
+ * holds a workshop share it builds no town station (the composter, the junk well, found-01's stations); the share empties as the
+ * workshop is built or completes. -> bool. Never throws (an unreadable share is none: the stations as before).
+ */
+export function shopShareHeld (bot) {
+  if (!SHOP.on) return false
+  try { const held = heldMap(bot); const dr = drawnRead(townDir(), shopKey(), bot.username ?? 'bot'); return Object.keys(drawnHeld(dr.drawn, held, dr.bag)).length > 0 } catch { return false }
+}
 export function townBuildPlan (bot) {
+  if (shopShareHeld(bot)) return null
   const items = bot.inventory?.items?.() ?? []
   return composterBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items), items })
 }
@@ -8403,6 +8417,7 @@ export function townWellBuildPlan (bot) {
 }
 /** The trapdoors still needed follow the recorded site's stage (Codex review): a floored pit needs only its cap. */
 function wellBuildPlanOf (bot) {
+  if (shopShareHeld(bot)) return null   // the workshop's share holds the stations (shopShareHeld)
   const items = bot.inventory?.items?.() ?? []
   const r = recordedWellSite(bot)
   const need = r ? trapdoorsNeeded(wellStage(readWellCell(bot), r)) : 2
@@ -16411,6 +16426,7 @@ async function foundRun (ctx, args, signal, order) {
     return { status, ...(failClass ? { failClass } : {}), detail }
   }
   if (!FOUND.on || !planOn()) return out('no_effect', 'off', 'founding is switched off (FOUND=off or TOWNPLAN=off)')
+  if (shopShareHeld(bot)) return out('no_effect', 'refused', 'the bag holds the workshop\'s drawn materials: no station is founded until they are placed')
   if (!KIND_ITEM[kind]) return out('no_effect', 'refused', `nothing to found: ${kind}`)
   const zones = townPlanZones(bot)
   if (!zones.known) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is founded until they are')
