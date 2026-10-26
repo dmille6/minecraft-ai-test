@@ -19,13 +19,13 @@
 //
 // IT ALSO READS THE RIGHT CELL. A toPlace entry is { x, y, z, dx, dy, dz }: the reference block and the face, so the block
 // lands at (x + dx, y + dy, z + dz) -- what the executor sends (index.js `bot.placeBlock(refBlock, new Vec3(dx, dy, dz))`) --
-// or, when the reference cell is empty now, possibly IN the reference cell (landingCells below: the Paper finding).
+// or, when the reference cell is empty now, possibly IN the reference cell (lidPlaceSurcharge below: the Paper finding).
 // exclusionAreasPlace would have been handed blockC for getMoveForward's bridge, the cell ABOVE its placement (2.4.5; fixed
 // upstream in PrismarineJS/mineflayer-pathfinder#351, merged 2025-08-18, unreleased: npm's latest is still 2.4.5).
 // `useOne` entries (a fence gate opened, nothing placed) are skipped.
 //
 // THE NUMBER: 20 per guarded placement. A tower from a chest top pays for the lid block (and, as planned, for the next one up:
-// its reference is the lid cell, still air at planning time, so landingCells counts the lid too -- an over-price near
+// its reference is the lid cell, still air at planning time, so the lid is counted too -- an over-price near
 // a lid, never an under-price), and stepping off to tower beside it costs a drop (1) plus one more tower step (1 + placeCost
 // 5) = 7, so the open side wins by 13 or more; a reserved plan cell or a stand costs a detour of ~20 blocks before it is used. Never a veto: a bot whose only way out
 // is the lid tower still takes it (the chain tests). The A* explores a little more before it takes a priced move; 20 is
@@ -90,7 +90,7 @@ export function placeGuardWhy (guard, lidded, x, y, z) {
 }
 
 /**
- * WHERE A PLACEMENT MAY LAND -> [cell] or [ref cell, ref + face]. Pure. The pathfinder's executor clicks face (dx, dy, dz) of
+ * WHERE A PLACEMENT MAY LAND (lidPlaceSurcharge below judges these cells): ref + face, or ALSO the ref cell itself. The pathfinder's executor clicks face (dx, dy, dz) of
  * the reference block (x, y, z), read at EXECUTION time (index.js `refBlock = bot.blockAt(placingBlock)`), and predicts the
  * block at ref + face. The SERVER does not always agree: vanilla BlockPlaceContext places INTO the clicked cell when that cell
  * is itself replaceable (air, water, grass...). Paper 10-26 (sandbox7, the onchest scene): a bot jumping on a chest re-planned
@@ -101,29 +101,24 @@ export function placeGuardWhy (guard, lidded, x, y, z) {
  * cannot tell the two apart, so an empty reference yields BOTH cells and the surcharge counts the placement once if either is
  * guarded: an over-price near a guarded cell, never an under-price. `emptyAt(x, y, z)` = no collision box (unloaded: air).
  */
-export function landingCells (p, emptyAt) {
-  if (!p) return []
-  const out = { x: p.x + (p.dx ?? 0), y: p.y + (p.dy ?? 0), z: p.z + (p.dz ?? 0) }
-  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }, out]
-  return [out]
-}
-
 /**
  * THE SURCHARGE FOR ONE NEIGHBOUR -> LID_PLACE_COST x its placements that may land in a guarded cell (each counted once).
  * Pure over its inputs. `toPlace` is mineflayer-pathfinder's Move.toPlace; a `useOne` entry places nothing.
  */
 export function lidPlaceSurcharge (toPlace, guard, lidded, emptyAt = null, out = null) {
   if (!Array.isArray(toPlace) || !toPlace.length) return 0
+  // SCALARS ONLY in the A* step (Codex rebase r2 P3): the cells named above -- ref + face, and the ref itself
+  // when it is empty -- with a record allocated only for the instrument (`out`)
   let n = 0
   for (const p of toPlace) {
     if (!p || p.useOne) continue
-    for (const c of landingCells(p, emptyAt)) {
-      const why = placeGuardWhy(guard, lidded, c.x, c.y, c.z)
-      if (!why) continue
-      n++
-      if (out) out.push({ x: c.x, y: c.y, z: c.z, why })   // the instrument's record (index.mjs `_lidplace`)
-      break
-    }
+    const fx = p.x + (p.dx ?? 0), fy = p.y + (p.dy ?? 0), fz = p.z + (p.dz ?? 0)
+    let why = null, x = fx, y = fy, z = fz
+    if (emptyAt && emptyAt(p.x, p.y, p.z)) { why = placeGuardWhy(guard, lidded, p.x, p.y, p.z); if (why) { x = p.x; y = p.y; z = p.z } }
+    if (!why) { why = placeGuardWhy(guard, lidded, fx, fy, fz); x = fx; y = fy; z = fz }
+    if (!why) continue
+    n++
+    if (out) out.push({ x, y, z, why })   // the instrument's record (index.mjs `_lidplace`)
   }
   return n * LID_PLACE_COST
 }
