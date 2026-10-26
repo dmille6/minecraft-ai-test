@@ -157,3 +157,56 @@ OPEN, named: F1 (cosmetic fallbacks with two builders; not cheap: a peer-aware b
 stalls the second builder); F3 + lavastep's seal cobble (Claude) as a whole-bag consumer; F4 a SEGMENT cell with no step
 (seen only on a record sited by the older proof: `earth: 1 open, 1 placeable now`) stops every visit -- the same class as F2
 for ordinary cells; the skip of a replant is a deviation from design S2 needing the OWNER's sign-off (Claude).
+
+==================================================================================================================================
+PAPER ROUND 4 (2026-10-26, coordinator: the closer abort, F4, the rebuild on mats-on-2096b39; owner 10-26 replant skip approved)
+
+FINAL SHA: shop-on-27babc1 30670216 (r21..r28 on 6d69476f's parent fc6541f9 line; base mats-on-2096b39 27babc10).
+npm 321/321 at 30670216. Reviews: both engines APPROVE 5c9b038c (r27). The r27 P3s were folded into 30670216 (tests only), and
+each engine then confirmed that commit (see the PIECES line).
+
+What changed since round 3:
+  r21  the closer path's abort window closed (an abort at the second hold/look sends nothing, the barrier released); F4: a record
+       cell no stand reaches is DEFERRED, the segments not waiting on it are built, after STUCK_VISITS (3) the visit ends
+       stuck_on_cell (a named row) and the order backs off 6 h.
+  r22  the count on every exit; one stuck file per holder (no lost update); an unwritable map fails closed (stuck_unwritten).
+  r23  the back-off stamped only at the loop's end; a stuck EARTH cell named STALLED (pad waits on earth, everything on pad):
+       `stalled`, `waiting` on the row, read r10 STALLED POOLS -- NOT FIXED: the remedy (re-site) is a follow-up.
+  r24  the 24 h age-out per holder before the sum; a future stamp dropped before the max; stamp only when stalled.
+  r25  tests: a loop-end stuck while another builder holds a segment is not stalled and stamps nothing.
+  r26  PAPER CAUGHT: shop.mjs buildRowDetail's whitelist dropped every F2/F4 field (visits, n, segs, waiting, stalled, early,
+       to, result, why) -- the logged stuck row was `op=stuck_on_cell cell=...`; the read could never see a stall, nor a
+       replant's destination. Fixed; the fake runner's rows now pass through the real formatter (r27, r28: exit hard, the 300-char
+       logger cut, objects refused).
+
+Final runs at 30670216, each under its own sandbox lock, released between scenes:
+  shop (SHOP-E2E, sandbox8)  CANDIDATE_PASS 167/167
+  kill (sandbox8)            CANDIDATE_PASS 167/167
+  tree (sandbox8)            CANDIDATE_PASS 167/167, 5 felled, replant 1
+  terrain-a (sandbox8)       FAIL, then CANDIDATE_PASS on the rerun. Both readings are recorded:
+    reading 1: 195/195 cells, structure complete, but cobblestone town + bag -15 against the bill -28, ground +4 cobblestone.
+      CAUSE, measured: the bot dug the scene's 17 cobblestone SCAFFOLD clears holding its iron_pickaxe (25 held=iron_pickaxe
+      rows; the passing runs held dirt and dug by hand, so cobblestone dropped nothing). 13 drops were picked up and 4 lay on the
+      ground: 13 + 4 = 17, the clears exactly. The town truly kept that cobble. The DRIVER's exact-bill check assumes a scaffold
+      clear yields nothing: an instrument gap, not a build defect. Follow-up: allow 0 <= d + bill <= the cobblestone clears,
+      with the ground counted.
+    reading 2 (rerun): CANDIDATE_PASS, cobblestone -28, ground {}.
+  terrain-c fresh (sandbox6) `no_site` (no proven site, sector S): design S2's own refusal, as in rounds 2-3.
+  terrain-c SEEDED, the F4 reproduction (sandbox5; SH_SEED_POOL = the record r13 sited):
+    OLD (r20, pre-F4, p2-terrain-c-seeded-r20.out): `no_step earth: 1 open, 1 placeable now` on every visit, a loop.
+    BASE (fleet 112beb04 / mt2): no shop skill -- `no record on the base`, BASE_UNEXPECTED by construction.
+    NEW (30670216): the replants moved (771,118,786 -> 745,120,805; 752,117,794 -> 781,121,778) ->
+      deferred earth (27 cells, then 765,119,795) -> cell_deferred (33 placed) -> stuck_on_cell
+      `visits=3 n=1 segs=earth+pad+ring+wall-F+wall-B+wall-L+wall-R+roof-edge+roof-inner+fit-out waiting=168 stalled=true`
+      -> shop_skip why=stuck_on_cell (the project back-off). No visit loops; the stall is named.
+    The read (r10, shopread-sandbox over the real rows): STALLED POOLS {sandbox-Shop: 168}, stuck_on_cell 1, deferred 3,
+    replant_moved 2 with destinations.
+
+OPEN, named (not fixed):
+  F4 remedy: a stuck cell that every open segment waits on (an EARTH cell) STALLS the project. The executable remedy is to
+    re-site (publish a fresh record from the current proof). The siting proof guarantees a stand for every cell AT SITING TIME
+    only; a world change after siting can stall a current record too.
+  A stand blocked by a BODY does not enter F4 (attempts per visit, as before).
+  The per-bot back-off is in memory (restart = one more short visit).
+  F1 (cosmetic fallbacks), F3 and lavastep's seal cobble: as in round 3.
+  The driver's terrain-a cobblestone check (above).
