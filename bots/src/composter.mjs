@@ -808,12 +808,14 @@ export function composterFloorFilter (stateIdAt, registry) {
   }
 }
 
-/** A clone of `base` whose getNeighbors drops every neighbour `keep` refuses. The base is not touched. */
+/** A clone of `base` whose getNeighbors drops every neighbour `keep` refuses. The base is not touched. The base's OWN
+ *  getNeighbors, if it has one (lidplace.mjs installLidPrice), runs first: the clone keeps every policy the base carries. */
 export function composterSafeMovements (base, keep) {
   if (!base) return base
   const proto = Object.getPrototypeOf(base)
   const m = Object.assign(Object.create(proto), base)
-  m.getNeighbors = function (node) { return proto.getNeighbors.call(this, node).filter(keep) }
+  const inner = base.getNeighbors ?? proto.getNeighbors
+  m.getNeighbors = function (node) { return inner.call(this, node).filter(keep) }
   return m
 }
 
