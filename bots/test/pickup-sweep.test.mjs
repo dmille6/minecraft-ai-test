@@ -195,48 +195,59 @@ test('MUTANT KILLED: moving the row outside the retire branch makes a clean swee
     })
 })
 
-// ---- pickupwait-01 (Paper 10-26): a drop still FALLING is walked to where it will LIE, not where the client last saw it --
-// mineflayer does not simulate other entities, so a falling item's client copy sits at a stale mid-air point for ~1 s.
+// ---- pickupwait-01 (Paper 10-26): a drop still IN THE AIR is waited for (bounded), then walked to where it came down --
+// mineflayer does not simulate other entities, so a falling item's client copy jumps about once a second.
 import * as SKM from '../src/skills.mjs'
-function dropBot (mod, { y = 5, ground = 1, below = 'air' } = {}) {
-  const drop = { id: 7, name: 'item', position: V(2, y, 0) }
+const AIR = { name: 'air', boundingBox: 'empty' }, STONE = { name: 'stone', boundingBox: 'block' }
+/** The drop's client copy sits at `y` until `landAt` ms, then jumps to `to` (the server's update). Ground top at 1. */
+function dropBot (mod, { y = 5, to = 1, landAt = 400, cellAt = null } = {}) {
+  const t0 = Date.now()
+  const pos = { x: 2, z: 0, get y () { return Date.now() - t0 < landAt ? y : to }, distanceTo (o) { return Math.hypot(this.x - o.x, this.y - o.y, this.z - o.z) } }
+  const drop = { id: 7, name: 'item', position: pos }
   const goals = []
   let alive = true
   const bot = {
-    entity: { position: V(0, ground, 0) }, entities: { 7: drop },
-    blockAt: p => (p.y < ground ? { name: 'stone', boundingBox: 'block' } : { name: below, boundingBox: below === 'stone' ? 'block' : 'empty' }),
+    entity: { position: V(0, 1, 0) }, entities: { 7: drop },
+    blockAt: cellAt ?? (p => (p.y < 1 ? STONE : AIR)),
     nearestEntity: pred => (alive && pred(drop) ? drop : null),
     pathfinder: { async goto (g) { goals.push(g.y); alive = false } },
   }
-  return { bot, goals, run: () => mod.pickupNearbyItems(bot, null) }
+  return { bot, goals, run: sig => mod.pickupNearbyItems(bot, sig ?? null) }
 }
-test('A FALLING DROP (stale at y 5 over open air, ground top at 1) is walked to where it will lie: y 1', async () => {
+test('A DROP IN THE AIR (client copy stale at y 5 for 400 ms, then down at 1) is waited for and walked to y 1', async () => {
   const { goals, run } = dropBot(SKM)
   await run()
   assert.deepEqual(goals, [1], `walked to ${goals}`)
 })
-test('A DROP AT REST is walked to where it is: on the ground, on a rail (no collision box, Claude r3 P3), on water', async () => {
-  for (const [y, below, want] of [[1, 'air', 1], [1.06, 'rail', 1], [3.9, 'water', 3]]) {   // GoalNear floors its point
-    const { goals, run } = dropBot(SKM, { y, below })
-    await run()
-    assert.deepEqual(goals, [want], `${below}: walked to ${goals}`)
+test('THE WAIT IS BOUNDED: a drop whose copy never comes down is walked to after DROP_SETTLE_MS', async () => {
+  const { goals, run } = dropBot(SKM, { landAt: 1e9 })
+  const t0 = Date.now(); await run()
+  assert.deepEqual(goals, [5]); assert.ok(Date.now() - t0 >= SKM.DROP_SETTLE_MS - 50 && Date.now() - t0 < SKM.DROP_SETTLE_MS + 1500)
+})
+test('A DROP AT REST is walked to at once: on the ground, on a rail or a torch (no collision box: Claude r3 P3), on water', async () => {
+  const RAIL = { name: 'rail', boundingBox: 'empty' }, WATER = { name: 'water', boundingBox: 'empty' }
+  for (const [y, cellAt, want, what] of [[1, null, 1, 'ground'], [1.06, p => (p.y < 1 ? STONE : p.y < 2 ? RAIL : AIR), 1, 'rail'],
+                                         [1.9, p => (p.y < 1 ? STONE : p.y < 2 ? WATER : AIR), 1, 'water']]) {
+    const { goals, run } = dropBot(SKM, { y, to: y, landAt: 1e9, cellAt })
+    const t0 = Date.now(); await run()
+    assert.deepEqual(goals, [want], `${what}: walked to ${goals}`); assert.ok(Date.now() - t0 < 400, `${what}: waited ${Date.now() - t0} ms`)
   }
-  assert.equal(SKM.dropFallsThrough({ name: 'air', boundingBox: 'empty' }), true)
-  for (const b of [{ name: 'water', boundingBox: 'empty' }, { name: 'stone', boundingBox: 'block' }, null, {}]) assert.equal(SKM.dropFallsThrough(b), false, JSON.stringify(b))
+  assert.equal(SKM.dropInAir(p => (p.y < 1 ? STONE : AIR), { x: 0, y: 1.5, z: 0 }), true, 'its last block, 0.5 up: falling')
+  assert.equal(SKM.dropInAir(p => (p.y < 1 ? STONE : AIR), { x: 0, y: 1.0, z: 0 }), false, 'on the ground')
+  assert.equal(SKM.dropInAir(() => null, { x: 0, y: 9, z: 0 }), false, 'unloaded: not judged')
 })
-test('dropLanding: an unknown (unloaded) cell stops the scan; the scan is bounded by DROP_SCAN_DOWN', () => {
-  const at = SKM.dropLanding({ blockAt: p => (p.y >= 3 ? { name: 'air', boundingBox: 'empty' } : null) }, { x: 0.5, y: 9, z: 0.5 })
-  assert.equal(at.y, 3, 'stops above the unknown cell')
-  const deep = SKM.dropLanding({ blockAt: () => ({ name: 'air', boundingBox: 'empty' }) }, { x: 0.5, y: 100, z: 0.5 })
-  assert.equal(deep.y, 99 - SKM.DROP_SCAN_DOWN)
+test('A DROP IN THE AIR: an abort mid-wait propagates, and the sweep does not walk', async () => {
+  const { goals, run } = dropBot(SKM, { landAt: 1e9 })
+  const ac = new AbortController(); setTimeout(() => ac.abort(), 150)
+  await assert.rejects(run(ac.signal)); assert.deepEqual(goals, [])
 })
-test('MUTANT KILLED: the landing scan removed -> the walk goes to the stale mid-air point', async () => {
+test('MUTANT KILLED: the wait removed -> the walk goes to the stale mid-air point', async () => {
   const url = new URL('../src/skills.mjs', import.meta.url)
   const src = readFileSync(url, 'utf8')
-  const old = '        new goals.GoalNear(at.x, at.y, at.z, 1)), 6000, bot)\n'
+  const old = '    try { await awaitDropSettled(bot, drop, signal) } catch (e) { releaseSought(); throw e }\n'
   assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION DID NOT APPLY (anchor missing or not unique)')
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, '        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)\n').replace(/from '\.\//g, "from '../src/"))
+  writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
   try {
     const mod = await import(out.href)
     const { goals, run } = dropBot(mod)

@@ -1610,38 +1610,48 @@ export function wellSwordsNow (bot) {
   try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }
 }
 
-/** How far below a drop the landing scan looks (a log cut from a tall tree falls < 20). */
-export const DROP_SCAN_DOWN = 24
+/** How long the sweep waits for a falling drop's client copy to come down (the server moves it about once a second). */
+export const DROP_SETTLE_MS = 3_000
 /** Does a falling drop pass through this cell? Pure: no collision box and not a liquid (an item floats ON water). An unknown
- *  cell (unloaded) stops the scan: no guess past what the bot can see. */
+ *  cell (unloaded) is not judged: the sweep walks as before. */
 export function dropFallsThrough (b) {
   if (!b || typeof b.boundingBox !== 'string') return false
   if (/^(water|lava|bubble_column)$/.test(b.name ?? '')) return false
   return b.boundingBox === 'empty'
 }
 /**
- * WHERE A DROP WILL LIE -> { x, y, z }. The drop's own position, lowered through every cell it falls through to the top of
- * the first one it cannot. WHY (Paper 10-26, sandbox7, lidplace-01's scenes, BOTH arms): a log cut 4-6 blocks up was
- * chased while it fell. `GoalNear(drop.position)` is read once, and mineflayer does not simulate other entities -- the
- * server moves an item's client copy about once a second -- so the goal froze mid-air and the walk ran out its 6 s
- * (`_pickup_skipped err=path_budget d=0,4.6,0`). A bot under the log caught the drop; a bot one cell to the side lost it.
- * A drop already at rest (on the ground, on a rail, on water) maps to where it is.
+ * IS THIS DROP STILL IN THE AIR? Pure over `blockAt`. The cell it is in and the cell under that: both open -> falling; the
+ * cell it is in open over a stop, and the item more than 0.3 up inside it -> falling (its last block); else at rest -- on
+ * the ground, on a rail, a torch or a plate (no collision box, but the item sits on the floor of that cell: Claude r3 P3),
+ * on water.
  */
-export function dropLanding (bot, pos, maxDown = DROP_SCAN_DOWN) {
-  const x = Math.floor(pos.x), z = Math.floor(pos.z)
-  let cy = Math.floor(pos.y - 0.05)
-  let fell = false
-  for (let k = 0; k < maxDown; k++) {
-    let b = null
-    try { b = bot.blockAt?.(new Vec3(x, cy, z)) ?? null } catch { b = null }
-    if (!dropFallsThrough(b)) break
-    // the cell holds the item only if the one below stops it; keep falling while the next one is open too
-    let under = null
-    try { under = bot.blockAt?.(new Vec3(x, cy - 1, z)) ?? null } catch { under = null }
-    if (!dropFallsThrough(under)) break
-    cy--; fell = true
+export function dropInAir (blockAt, pos) {
+  const x = Math.floor(pos.x), z = Math.floor(pos.z), y0 = Math.floor(pos.y - 0.05)
+  let c0 = null, c1 = null
+  try { c0 = blockAt(new Vec3(x, y0, z)) } catch {}
+  if (!dropFallsThrough(c0)) return false
+  try { c1 = blockAt(new Vec3(x, y0 - 1, z)) } catch {}
+  if (dropFallsThrough(c1)) return true
+  return pos.y - y0 > 0.3
+}
+/**
+ * Wait, at most `maxMs`, while the drop's client copy is in the air (dropInAir) and the entity still exists. WHY (Paper
+ * 10-26, sandbox7, lidplace-01's scenes, BOTH arms): a log cut 4-6 blocks up was chased while it fell. `GoalNear(drop
+ * .position)` is read once, and mineflayer does not simulate other entities -- the server moves an item's client copy about
+ * once a second -- so the goal froze mid-air and the walk ran out its 6 s (`_pickup_skipped err=path_budget d=0,4.6,0`); a
+ * bot under the log caught the drop, a bot one cell to the side lost it. (Not "until it stops moving": two reads between
+ * server updates are identical while the item is still 3 blocks up -- pickupwait r1 on Paper. Not "where it will land":
+ * a block drop leaves with sideways speed -- pickupwait r2 walked into the wrong cell 6 of 6.) Aborts propagate.
+ */
+export async function awaitDropSettled (bot, drop, signal, maxMs = DROP_SETTLE_MS) {
+  const t0 = Date.now()
+  const inAir = () => {
+    try {
+      if (bot.entities && bot.entities[drop.id] !== drop) return false
+      return typeof bot.blockAt === 'function' && dropInAir(p => bot.blockAt(p), drop.position)
+    } catch { return false }
   }
-  return fell ? { x: pos.x, y: cy, z: pos.z } : { x: pos.x, y: pos.y, z: pos.z }
+  while (inAir() && Date.now() - t0 < maxMs) await sleep(100, signal)
 }
 
 /** Walk over anything on the floor within a few blocks. */
@@ -1689,12 +1699,12 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
+    // A DROP STILL IN THE AIR IS NOT A PLACE TO WALK TO (awaitDropSettled): wait, bounded, for it to come down
+    try { await awaitDropSettled(bot, drop, signal) } catch (e) { releaseSought(); throw e }
     const walkT0 = Date.now()
     try {
-      // A DROP STILL FALLING IS WALKED TO WHERE IT WILL LIE, not where the client last saw it (dropLanding)
-      const at = dropLanding(bot, drop.position)
       await withTimeout(bot.pathfinder.goto(
-        new goals.GoalNear(at.x, at.y, at.z, 1)), 6000, bot)
+        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
     } catch (e) {
       releaseSought()
       if (e.aborted || signal?.aborted) throw e
