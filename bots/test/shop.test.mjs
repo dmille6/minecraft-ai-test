@@ -154,8 +154,8 @@ await t('buildBagDetail: under 300 characters, the most negative first, every fi
   const d = S.buildBagDetail('shop', bal)
   assert.ok(d.length <= 300, d.length)
   assert.ok(d.startsWith('project=shop stone_bricks=0/89/0/88/0/0') === false, 'not the most negative')
-  assert.match(d, /^project=shop exit=- silent=- cobblestone=0\/64\/0\/0\/0\/0 /, 'the most negative (-64) first')
-  assert.match(S.buildBagDetail('shop', bal, { exit: 'complete', silent: 0 }), /^project=shop exit=complete silent=0 /)
+  assert.match(d, /^project=shop exit=- silent=- drawn=- cobblestone=0\/64\/0\/0\/0\/0 /, 'the most negative (-64) first')
+  assert.match(S.buildBagDetail('shop', bal, { exit: 'complete', silent: 0 }), /^project=shop exit=complete silent=0 drawn=- /)
 })
 
 console.log('THE FOOTPRINT PRICE')
@@ -204,9 +204,9 @@ const W = [
   ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock, each deposit booked as it lands', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took, \{ onBanked: \(n2, c2\) => \{ backAll\[n2\] = /],
   ['skills: each verified take booked as it lands', SK, /shopAllow, \(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c; persist\(\) \}\)/],
   ['skills: matsWithdraw reports each verified take', SK, /try \{ onTook\?\.\(k, c\) \} catch/],
-  ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*completed = true\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
+  ['skills: the completion published BEFORE the bank', SK, /bot\.shopDamage = null\n\s*completed = true\n(?:\s*\/\/[^\n]*\n)*\s*if \(drawn0 && !drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+\n\s*if \(pub\.result === 'accepted'\)[^\n]*\n\s*\}\n(?:\s*\/\/[^\n]*\n)*\s*let back = \{\}/],
   ['skills: one _build_bag row per visit, in the finally', SK, /if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
-  ['skills: the bag row names the exit (a death inside the visit: died) and the silent clicks', SK, /\{ exit: diedAt \? 'died' : \(f\.outcome \?\? '-'\), silent: f\.silent \?\? '-' \}/],
+  ['skills: the bag row names the exit (a death inside the visit: died) and the silent clicks', SK, /\{ exit: diedAt \? 'died' : \(f\.outcome \?\? '-'\), silent: f\.silent \?\? '-', drawn: /],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
   ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
   ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
@@ -216,7 +216,10 @@ const W = [
   ['skills: the share persisted after EVERY verified take', SK, /\(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c; persist\(\) \}\); took = w\.took/],
   ['skills: the share persisted after every placement', SK, /if \(kind === '_build' && d\?\.op === 'place'\) persist\(\)/],
   ['skills: the share persisted after every bank-back', SK, /backAll\[n2\] = \(backAll\[n2\] \?\? 0\) \+ c2; persist\(\)/],
-  ['skills: the share persisted (or cleared on completion) in the finally', SK, /if \(drawn0\) \{ try \{ if \(completed\) drawnWrite\(dir, key, me, \{\}\); else persist\(\) \}/],
+  ['skills: the share persisted (or cleared on completion) in the finally, a failure counted', SK, /if \(drawn0\) \{ try \{ if \(completed\) \{ if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+ \} else persist\(\) \} catch \{ drawnFails\+\+ \} \}\n\s*if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
+  ['skills: the share cleared AT the completion, before the bank-back', SK, /completed = true\n(?:\s*\/\/[^\n]*\n)*\s*if \(drawn0 && !drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+/],
+  ['skills: a complete workshop\'s visit clears a stale share', SK, /if \(Object\.keys\(drawnRead\(dir, key, me\)\.drawn\)\.length\) drawnWrite\(dir, key, me, \{\}\)\n\s*return out\('no_effect', 'complete'/],
+  ['skills: the bag row reports the share\'s writes', SK, /drawn: drawn0 \? \(drawnFails \? `fail:\$\{drawnFails\}` : 'ok'\) : '-' \}/],
   ['skills: persist writes the bag balance with its baseline and counts a failure', SK, /if \(!drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 \}\), \{ bag: b1 \}\)\) drawnFails\+\+/],
 ]
 for (const [name, src, re] of W) {
