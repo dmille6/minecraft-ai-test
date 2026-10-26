@@ -104,10 +104,14 @@ test('PRICE: a block landing on a lid or in a guarded cell costs LID_PLACE_COST 
   assert.equal(lidPlaceSurcharge(null, g, lidded), 0); assert.equal(lidPlaceSurcharge([], g, lidded), 0)
 })
 test('LANDING: a block lands at ref + face; with an EMPTY reference it may land in either cell (the server\'s replace-clicked rule, or a ref the path fills first)', () => {
-  const { landingCells, emptyStateIds } = LP
+  const { emptyStateIds } = LP
   const p = { x: 0, y: 71, z: 0, dx: 0, dy: 1, dz: 0 }
-  assert.deepEqual(landingCells(p, () => false), [{ x: 0, y: 72, z: 0 }]); assert.deepEqual(landingCells(p, null), [{ x: 0, y: 72, z: 0 }])
-  assert.deepEqual(landingCells(p, (x, y, z) => x === 0 && y === 71 && z === 0), [{ x: 0, y: 71, z: 0 }, { x: 0, y: 72, z: 0 }])
+  const at = (guard, emptyAt) => { const out = []; lidPlaceSurcharge([p], new Set(guard), null, emptyAt, out); return out.map(q => `${q.x},${q.y},${q.z}`) }
+  assert.deepEqual(at(['0,72,0'], () => false), ['0,72,0'], 'ref + face'); assert.deepEqual(at(['0,72,0'], null), ['0,72,0'])
+  assert.deepEqual(at(['0,71,0'], () => false), [], 'a solid reference: the block cannot land in it')
+  assert.deepEqual(at(['0,71,0'], () => true), ['0,71,0'], 'an EMPTY reference: the server places into the clicked cell')
+  assert.deepEqual(at(['0,72,0'], () => true), ['0,72,0'], '...or the path fills it first and the block lands at ref + face')
+  assert.deepEqual(at(['0,71,0', '0,72,0'], () => true), ['0,71,0'], 'counted once')
   const lidded = (x, y, z) => x === 0 && y === 70 && z === 0
   assert.equal(lidPlaceSurcharge([p], null, lidded, () => true), LID_PLACE_COST, 'a click on the air lid lands on the lid')
   assert.equal(lidPlaceSurcharge([p], null, lidded, () => false), 0, 'a click on a real block at the lid lands above it')
@@ -164,7 +168,7 @@ test('MOVES: the tower on a chest, a bridge onto a lid (2.4.5 hands exclusionAre
   const death = () => 16
   const j = nb(moves(wj, { step: death }), { x: 0, y: 70, z: 0 }, [1, 71, 0]), j0 = nb(moves(wj, { step: death, price: false }), { x: 0, y: 70, z: 0 }, [1, 71, 0])
   assert.ok(j0 && j0.toPlace.length === 2, `positive control: the base jump-up places two ${JSON.stringify(j0?.toPlace)}`)
-  // C's reference is D, still air when the move is planned: landingCells counts D (the lid) for C too, so
+  // C's reference is D, still air when the move is planned: D (the lid) is counted for C too, so
   // the move pays twice. An over-price on a move that DOES cover a lid; never an under-price, never a deletion.
   assert.ok(j, 'the jump-up survives'); assert.equal(j.cost, j0.cost + 2 * LID_PLACE_COST)
 })
@@ -350,14 +354,14 @@ test('MUTANT KILLED: the lid read one cell too high (the cell itself, not the on
   })
 })
 test('MUTANT KILLED: the empty-reference rule dropped -> the mid-air tower over the air lid goes unpriced', async () => {
-  await withMutant(LP_URL, '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }, out]\n', '', async mod => {
+  await withMutant(LP_URL, '    if (emptyAt && emptyAt(p.x, p.y, p.z)) { why = placeGuardWhy(guard, lidded, p.x, p.y, p.z); if (why) { x = p.x; y = p.y; z = p.z } }\n', '', async mod => {
     const w = world({ '0,70,0': 'chest' })
     const up = nb(moves(w, { mod }), { x: 0, y: 72, z: 0 }, [0, 73, 0]), up0 = nb(moves(w, { price: false }), { x: 0, y: 72, z: 0 }, [0, 73, 0])
     assert.equal(up.cost, up0.cost, 'the mutant does not price it')
   })
 })
 test('MUTANT KILLED (Claude r2 P1): an empty reference read as the ref cell ONLY -> a bridge\'s next block onto a lid goes unpriced', async () => {
-  await withMutant(LP_URL, '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }, out]\n', '  if (emptyAt && emptyAt(p.x, p.y, p.z)) return [{ x: p.x, y: p.y, z: p.z }]\n', async mod => {
+  await withMutant(LP_URL, '    if (!why) { why = placeGuardWhy(guard, lidded, fx, fy, fz); x = fx; y = fy; z = fz }\n', '    if (!why && !(emptyAt && emptyAt(p.x, p.y, p.z))) { why = placeGuardWhy(guard, lidded, fx, fy, fz); x = fx; y = fy; z = fz }\n', async mod => {
     const cells = { '3,70,0': 'chest' }
     for (let x = -2; x <= 5; x++) for (let z = -2; z <= 2; z++) for (let y = 61; y <= 69; y++) cells[`${x},${y},${z}`] = 'air'
     cells['0,71,0'] = 'stone'; cells['3,70,0'] = 'chest'; for (let y = 61; y <= 69; y++) cells[`3,${y},0`] = 'stone'
