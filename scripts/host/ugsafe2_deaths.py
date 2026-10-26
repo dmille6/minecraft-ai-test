@@ -19,7 +19,7 @@ for d in ds:
           + (f" | ep len={ep['len']:.0f}s sealed={ep['sealed']} y0={ep['y0']}" if ep else '') + f" tags={d['entry_tags']}")
     if CTX:
         for c in d['ctx']:
-            if c[0] >= -120 and c[1] not in ('_path_reset', '_affordance_scan', '_reach_probe', '_pickup_skipped', '_path_failure_shapes', '_chunks_evicted', '_livelock_not_fixated', '_explore_toward_known', '_work_order', '_pickups', '_water_float', '_water_float_ended', '_water_surface', '_water_surface_ended', '_inventory_mutation'):
+            if c[0] >= -120 and c[1] not in ('_path_reset', '_affordance_scan', '_reach_probe', '_pickup_skipped', '_pickup_wait', '_path_failure_shapes', '_chunks_evicted', '_livelock_not_fixated', '_explore_toward_known', '_work_order', '_pickups', '_water_float', '_water_float_ended', '_water_surface', '_water_surface_ended', '_inventory_mutation'):
                 print(f"      {c[0]:7.1f} {c[1]:28s} {str(c[2]):9s} y={c[4]!s:6.6s} dur={c[5]} {c[6]} | {c[3][:200]}")
         print('      llm:', d['ctx_ms'])
 

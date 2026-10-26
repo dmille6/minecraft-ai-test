@@ -1712,13 +1712,16 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     // come down; a drop that vanished meanwhile is not walked to (Codex r1 P2). One `_pickup_wait` row per real wait.
     const waitT0 = Date.now()
     let settled = 'none'
-    try { settled = await awaitDropSettled(bot, drop, signal, Math.max(0, Math.min(DROP_SETTLE_MS, SWEEP_SETTLE_MS - waited))) } catch (e) { releaseSought(); throw e }
+    const budget = Math.min(DROP_SETTLE_MS, SWEEP_SETTLE_MS - waited)
+    // the sweep's budget spent: no wait at all, and no row for one (Codex + Claude r2 P3)
+    if (budget > 0) { try { settled = await awaitDropSettled(bot, drop, signal, budget) } catch (e) { releaseSought(); throw e } }
     const waitMs = Date.now() - waitT0
     waited += waitMs
     if (settled !== 'none') {
       let what = '?'
       try { what = drop.getDroppedItem?.()?.name ?? '?' } catch {}
-      logEvent({ kind: 'pickup_wait', status: settled === 'landed' ? 'success' : 'no_effect',
+      // 'gone' is the drop collected (or despawned) DURING the wait -- in practice the bot caught it: success (Claude r2 P3)
+      logEvent({ kind: 'pickup_wait', status: settled === 'timeout' ? 'no_effect' : 'success',
                  detail: `drop ${drop.id} outcome=${settled} wait_ms=${waitMs} sweep_wait_ms=${waited} item=${what} attempt=${i + 1}/4` })
     }
     if (settled === 'gone') { releaseSought(); refused.add(drop.id); continue }

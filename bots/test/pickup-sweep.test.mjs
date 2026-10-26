@@ -252,6 +252,7 @@ test('A DROP THAT VANISHES MID-WAIT is not walked to (Codex r1 P2); the next dro
     assert.deepEqual(goals, ['3,1'], `walked to ${goals}`)
     const w = rows.filter(r => r.skill?.name === '_pickup_wait')
     assert.equal(w.length, 1); assert.match(w[0].skill.detail, /^drop 7 outcome=gone wait_ms=\d+ sweep_wait_ms=\d+ item=\? attempt=1\/4$/)
+    assert.equal(w[0].skill.status, 'success', 'gone = caught during the wait')
   } finally { untap() }
 })
 test('THE SWEEP\'S WAIT IS CAPPED (SWEEP_SETTLE_MS): four drops that never come down cost at most ~4 s of waiting in all', async () => {
@@ -261,9 +262,14 @@ test('THE SWEEP\'S WAIT IS CAPPED (SWEEP_SETTLE_MS): four drops that never come 
   const bot = { entity: { position: V(0, 1, 0) }, entities, blockAt: p => (p.y < 1 ? STONE : AIR),
     nearestEntity: pred => ds.filter(e => entities[e.id] === e && pred(e))[0] ?? null,
     pathfinder: { async goto (g) { delete entities[g.x] } } }
-  const t0 = Date.now(); await SKM.pickupNearbyItems(bot, null)
+  const rows = []; const untap = tapRecords(r => rows.push(r))
+  const t0 = Date.now()
+  try { await SKM.pickupNearbyItems(bot, null) } finally { untap() }
   const ms = Date.now() - t0
   assert.ok(ms >= SKM.SWEEP_SETTLE_MS - 100 && ms < SKM.SWEEP_SETTLE_MS + 4 * 250 + 800, `the sweep took ${ms} ms`)
+  const w = rows.filter(r => r.skill?.name === '_pickup_wait').map(r => r.skill.detail)
+  assert.equal(w.length, 2, `two real waits (2 s each), no row for the drops after the budget: ${w}`)
+  assert.ok(w.every(d => /outcome=timeout wait_ms=(19|20|21)\d\d /.test(d)), w.join(' | '))
 })
 test('A DROP AT REST is walked to at once: on the ground, on a rail or a torch (no collision box: Claude r3 P3), on water', async () => {
   const RAIL = { name: 'rail', boundingBox: 'empty' }, WATER = { name: 'water', boundingBox: 'empty' }
@@ -288,7 +294,7 @@ test('A DROP IN THE AIR: an abort mid-wait propagates, and the sweep does not wa
 test('MUTANT KILLED: the wait removed -> the walk goes to the stale mid-air point', async () => {
   const url = new URL('../src/skills.mjs', import.meta.url)
   const src = readFileSync(url, 'utf8')
-  const old = '    try { settled = await awaitDropSettled(bot, drop, signal, Math.max(0, Math.min(DROP_SETTLE_MS, SWEEP_SETTLE_MS - waited))) } catch (e) { releaseSought(); throw e }\n'
+  const old = '    if (budget > 0) { try { settled = await awaitDropSettled(bot, drop, signal, budget) } catch (e) { releaseSought(); throw e } }\n'
   assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION DID NOT APPLY (anchor missing or not unique)')
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
   writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
