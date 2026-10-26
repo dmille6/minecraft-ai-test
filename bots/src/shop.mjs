@@ -144,9 +144,9 @@ export function bagBalance ({ bag0 = {}, took = {}, crafted = {}, placed = {}, b
 }
 export const SCAFFOLD_NAMES = Object.freeze(new Set(['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks', 'pale_oak_planks', 'bamboo_planks', 'crimson_planks', 'warped_planks']))
 /** `_build_bag` detail: `project=shop name=bag0/took/crafted/placed/back/bag1 ...` (under 300 characters: names by unexplained first). */
-export const buildBagDetail = (project, bal, { exit = '-', silent = '-' } = {}) => {
+export const buildBagDetail = (project, bal, { exit = '-', silent = '-', drawn = '-' } = {}) => {
   const parts = Object.entries(bal).sort((a, b) => a[1].unexplained - b[1].unexplained).map(([k, v]) => `${k}=${v.bag0}/${v.took}/${v.crafted}/${v.placed}/${v.back}/${v.bag1}`)
-  let s = `project=${project} exit=${String(exit).replace(/\s+/g, '_').slice(0, 24)} silent=${silent}`
+  let s = `project=${project} exit=${String(exit).replace(/\s+/g, '_').slice(0, 24)} silent=${silent} drawn=${drawn}`
   for (const p of parts) { if ((s + ' ' + p).length > 290) break; s += ' ' + p }
   return s
 }
@@ -240,4 +240,4 @@ const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(
 export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'drawn', 'ms', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)
