@@ -56,6 +56,7 @@ function moves (w, { price = true, guard = null, step = null, canDig = false, mo
                 pathfinder: { bestHarvestTool: () => null }, game: { minY: -64, height: 384 } }
   const m = new Movements(bot)
   m.canDig = canDig; m.allowParkour = false; m.allowSprinting = false; m.allow1by1towers = true; m.maxDropDown = 6
+  m.placeCost = 5   // index.mjs: a pillar step is not as cheap as a walk step
   if (step) m.exclusionAreasStep = [...m.exclusionAreasStep, step]
   if (price) m.exclusionAreasPlace = [...m.exclusionAreasPlace, mod.makeLidPlacePrice({ registry, stateIdAt: w.stateIdAt, guard: () => guard })]
   return m

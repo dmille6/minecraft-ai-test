@@ -12,12 +12,12 @@
 // rules name: a bot standing ON a chest at the bottom of a pit has the tower as its one way up. LID_PLACE_COST is arithmetic:
 //   - one priced placement per move, except getMoveJumpUp, which may place D and C (two prices);
 //   - getMoveJumpUp also pays exclusionStep three times in safeOrBreak (A, H, B), and the death-site step price is 16
-//     (deathsites.mjs DEATH_SITE_STEP_COST): 2 move + 2 x 1 placeCost + 2 x 10 + 3 x 16 = 72 <= 100, ~28 left for digs;
-//   - getMoveUp (the 1x1 tower): 1 + 1 + 10 + one step price; getMoveForward (a bridge): 1 + 1 + 10 + three step prices.
+//     (deathsites.mjs DEATH_SITE_STEP_COST); index.mjs sets placeCost 5: 2 move + 2 x 5 + 2 x 10 + 3 x 16 = 80 <= 100;
+//   - getMoveUp (the 1x1 tower): 1 + 5 + 10 + one step price; getMoveForward (a bridge): 1 + 5 + 10 + three step prices.
 //   So inside a death disc every priced move survives. What a price CAN still do (townground.mjs's lesson): a move the base
-//   already prices within 10 of 100 (a jump-up digging three hard blocks inside a death disc) AND that places on a lid is
-//   dropped. That is the only deletion, and the bot keeps every unpriced move. Against a 1-per-block walk, 10 prefers any
-//   detour under ~10 blocks -- in town, stepping off the chest to tower beside it costs 1-2.
+//   already prices within 10 of 100 (a jump-up digging hard blocks by hand: laborCost is 1 + 3 x digTime s each) AND that
+//   places on a lid is dropped. That is the only deletion; every unpriced move stays. A tower from a chest top pays twice
+//   (the lid and the cell above it: 20), so stepping off and towering one block higher beside it (1 + 6 = 7) wins.
 
 // WHICH CELL THE PATHFINDER ASKS ABOUT. The README says the function is handed "the Block the bot is planning to place a block
 // inside", and getMoveUp and getMoveJumpUp do that. getMoveForward in 2.4.5 passes blockC -- the cell ABOVE its placement D
