@@ -52,6 +52,9 @@
 /** LIDPLACE=0 -> no surcharge anywhere: every profile is exactly the base's (the rollback without a deploy). */
 export const lidPlaceOn = (env = process.env) => String(env?.LIDPLACE ?? '1') !== '0'
 
+/** The licence row's detail (index.mjs `_lidplace_mode`, once per spawn). Pure. */
+export const lidPlaceModeDetail = (env = process.env) => `on=${lidPlaceOn(env) ? 1 : 0} cost=${LID_PLACE_COST} row_window_ms=${LIDPLACE_ROW_WINDOW_MS}`
+
 /** The surcharge per guarded placement (see THE NUMBER above). Added after legality: it can never delete a move. */
 export const LID_PLACE_COST = 20
 /** Blocks whose lid a solid block above keeps shut (vanilla ChestBlock / EnderChestBlock / CopperChestBlock). */
