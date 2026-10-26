@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -594,8 +595,8 @@ STACK = [M1, M2, S1, S2]
 
 class PieceStack(unittest.TestCase):
     def ref(self, sha=S2, rel=R40, runs=('matset-01', 'mats-01', 'shop-01'), rows=ROWS, commits=STACK, revoked=(), kept=None,
-            cherry=no_cherry, docs=docs_d):
-        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, cherry, list(revoked), kept, docs) or ''
+            revoked_in=no_cherry, docs=docs_d):
+        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, revoked_in, list(revoked), kept, docs) or ''
 
     def test_the_owner_stack_stages(self):
         self.assertEqual(self.ref(), '')
@@ -659,13 +660,13 @@ class PieceStack(unittest.TestCase):
         self.assertIn('is not in the stack', self.ref(sha=M2, commits=[M1, M2]))
 
     def test_patch_equivalence_is_not_membership(self):
-        # shop-01 recorded at Q40, patch-equivalent inside S2 (a cherry-pick): refused, even when cherry_eq says yes
+        # shop-01 recorded at Q40, patch-equivalent inside S2 (a cherry-pick): refused -- membership is ancestry only
         rows = ROWS[:2] + [piece('shop-01', Q40, R40)]
-        self.assertIn('is not in the stack', self.ref(rows=rows, cherry=lambda x, y: (x, y) == (Q40, S2)))
+        self.assertIn('is not in the stack', self.ref(rows=rows, revoked_in=lambda x, y: True))
 
     def test_a_revoked_sha_in_the_stack_is_refused(self):
         self.assertIn('REVOKED', self.ref(revoked=[M2]))
-        self.assertIn('REVOKED', self.ref(revoked=[Q40], cherry=lambda x, y: (x, y) == (Q40, S2)), 'a revoked sha cherry-picked back')
+        self.assertIn('REVOKED', self.ref(revoked=[Q40], revoked_in=lambda x, y: (x, y) == (Q40, S2)), 'a revoked sha cherry-picked back')
         self.assertEqual(self.ref(revoked=[Q40]), '')
 
     def test_names_twice_and_bad_shas(self):
@@ -692,7 +693,7 @@ class StagePieceCommand(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
                                                   'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
-                                                  'current_release', 'stage', 'pieces_in', 'docs_only_change')}
+                                                  'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in')}
         SO.ROOT = self.d
         for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
                      ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
@@ -713,6 +714,7 @@ class StagePieceCommand(unittest.TestCase):
         SO.is_anc = anc2
         SO.cherry_equivalent = no_cherry
         SO.docs_only_change = docs_d
+        SO.revoked_patch_in = no_cherry
         SO.current_release = lambda: {'sha': R40}
         SO.pieces_in = lambda sha, journal: (True, [])
         self.calls = []
@@ -784,9 +786,62 @@ class StagePieceCommand(unittest.TestCase):
         rc, out = self.run_stage()
         self.assertEqual(rc, 0, out)
 
+    def test_a_failed_stage_is_journalled(self):
+        SO.stage = lambda *a, **k: (False, 'x is already staged without (or with another) piece record')
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('piece record', out)
+        self.assertIn('piece record', self.refused_rows()[-1]['why'], 'Codex r2 P3')
+
     def test_piece_and_bootstrap_are_exclusive(self):
         rc, out = self.run_stage(bootstrap=True)
         self.assertEqual(rc, 1); self.assertIn('exclusive', out); self.assertEqual(self.calls, [])
+
+
+class GitHelpers(unittest.TestCase):
+    """docs_only_change and revoked_patch_in against a REAL throwaway repository."""
+    def g(self, *a):
+        return subprocess.run(['git', '-C', self.d, *a], capture_output=True, text=True, check=True).stdout.strip()
+
+    def commit(self, msg):
+        self.g('add', '-A'); self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', msg)
+        return self.g('rev-parse', 'HEAD')
+
+    def put(self, path, text):
+        p = os.path.join(self.d, path); os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w') as f:
+            f.write(text)
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.g('init', '-q', '-b', 'main')
+        self.put('bots/src/p.mjs', 'export const p = 1\n' * 20); self.put('docs/r.md', 'review\n')
+        self.base = self.commit('base')
+
+    def test_a_docs_edit_is_docs_only(self):
+        self.put('docs/r.md', 'review r2\n'); b = self.commit('docs')
+        self.assertTrue(SO.docs_only_change(self.base, b, repo=self.d))
+
+    def test_code_moved_into_docs_is_not_docs_only(self):
+        self.g('mv', 'bots/src/p.mjs', 'docs/p.mjs'); b = self.commit('move')
+        self.assertFalse(SO.docs_only_change(self.base, b, repo=self.d), 'a rename lists its source path too')
+
+    def test_a_deleted_code_file_is_not_docs_only(self):
+        os.remove(os.path.join(self.d, 'bots/src/p.mjs')); b = self.commit('delete')
+        self.assertFalse(SO.docs_only_change(self.base, b, repo=self.d))
+
+    def test_a_failed_diff_fails_closed(self):
+        self.assertFalse(SO.docs_only_change(self.base, 'f' * 40, repo=self.d))
+
+    def test_a_revoked_commit_picked_alone_is_found(self):
+        self.g('checkout', '-q', '-b', 'side')
+        self.put('bots/src/u.mjs', 'unrelated\n'); self.commit('unrelated')
+        self.put('bots/src/x.mjs', 'revoked\n'); x = self.commit('revoked')
+        self.g('checkout', '-q', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(x, clean, repo=self.d), 'not picked: not in the stack')
+        self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'cherry-pick', x)
+        picked = self.g('rev-parse', 'HEAD')
+        self.assertTrue(SO.revoked_patch_in(x, picked, repo=self.d), 'picked alone, without its branch-mate')
 
 
 class StageCache(unittest.TestCase):

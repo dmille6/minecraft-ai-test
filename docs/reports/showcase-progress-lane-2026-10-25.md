@@ -190,6 +190,11 @@ A survival fix = deaths, drowning, lava, falls, entombment, stuck, escape. It re
    KEEP + promoted rows and its patch-equivalence on every later deploy. Note: `kept_runs` matches the run name, not the sha in
    the promoted row (both reviews, P2, open). No Paper re-run is
    needed beyond the fleet's own record unless the cherry-pick conflicted.
+   **NOT SUPPORTED by the built `stage --piece` (10-25 r3, Codex r2 P3):** its survival check (`survival_kept`) needs a
+   `promoted` row naming the piece line's OWN sha, and membership is by ancestry, so a cherry-picked fix (a new sha) can
+   satisfy neither. Until a reviewed binding between a promoted sha and its re-stacked sha exists, a survival fix reaches the
+   showcase only by step 2 (no showcase-only piece outstanding), or by the fleet promoting a sha that already contains the
+   showcase's pieces; and `pieces_in`/REQUIRED_KEPT is not this step's check (the stack rule is).
 4. **Tripwire read** as 5.5: `showcase_trip.py read --since <activation>` at +60 and +180; TRIP -> back to the previous
    release. A survival fix is never judged by the showcase (one pool, no control): the showcase only refuses it if it broke
    something the owner protects.

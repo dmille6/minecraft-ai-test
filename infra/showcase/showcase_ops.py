@@ -284,7 +284,7 @@ ENGINES = ('codex', 'claude')
 HEX40 = re.compile(r'[0-9a-f]{40}')
 
 
-def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq, revoked, kept=None, docs_only=None):
+def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_in, revoked, kept=None, docs_only=None):
     """THE PROGRESS LANE'S STAGE RULE (docs/reports/showcase-progress-lane-2026-10-25.md 5; owner 10-25: a STACK of pieces --
     e.g. matset-01 + mats-01 + shop-01 -- staged together) -> None (stage it) | the reason not to. Pure.
       sha         the stack's tip; release_sha the CURRENT showcase release; runs the stack's piece names (in any order)
@@ -292,6 +292,7 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq
       commits     every commit in release_sha..sha (git rev-list)
       kept        {run: (ok, why)} -- for a survival piece, survival_kept(): KEEP recorded and a `promoted` row naming ITS sha
       docs_only   docs_only(a, b) -> True when every path changed in a..b is under docs/ (a review record after the approval)
+      revoked_in  revoked_in(x, sha) -> True when the revoked commit x's OWN patch is in the stack (a cherry-pick of it alone)
     Refused unless: the current release is the stack's ancestor and the stack adds something; every named run's newest row is
     kind building -- paper {"result": CANDIDATE_PASS|PASS, "sha"} and reviews [{"engine", "verdict": "APPROVE", "sha"}] from
     BOTH codex and claude, every one of those shas the piece's own or an ancestor of it with only docs/ changed since (an
@@ -350,7 +351,7 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq
     stray = [c for c in commits if not any(c != b and is_anc(b, c) and is_anc(c, p) for p, b in pieces)]
     if stray:
         return f'{len(stray)} commit(s) in {release_sha[:8]}..{sha[:8]} belong to no named piece (first {stray[0][:8]}): stage only reviewed pieces'
-    bad = [x for x in (revoked or []) if is_anc(x, sha) or cherry_eq(x, sha)]
+    bad = [x for x in (revoked or []) if is_anc(x, sha) or revoked_in(x, sha)]
     if bad:
         return f'the stack contains a REVOKED sha {bad[0][:8]}'
     return None
@@ -370,10 +371,28 @@ def survival_kept(journal, run, psha, resolve_hex):
                    f'(journal phases {sorted({str(r.get("phase")) for r in rows})})')
 
 
-def docs_only_change(a, b):
-    out = subprocess.run(['git', '-C', REPO, 'diff', '--name-only', a, b], capture_output=True, text=True)
-    names = [n for n in out.stdout.splitlines() if n.strip()]
-    return out.returncode == 0 and all(n.startswith('docs/') for n in names)
+def docs_only_change(a, b, repo=None):
+    """Every path changed between a and b is under docs/ -> bool. --no-renames (r2, both reviews P2: with rename detection a
+    code file MOVED into docs/ lists only its docs/ destination), NUL-separated names, submodule (gitlink) changes shown; a
+    failed diff is False (fail closed); identical trees are True."""
+    out = subprocess.run(['git', '-C', repo or REPO, 'diff', '--no-renames', '--name-only', '-z', '--ignore-submodules=none', a, b],
+                         capture_output=True)
+    if out.returncode:
+        return False
+    names = [n for n in out.stdout.decode('utf-8', 'surrogateescape').split('\0') if n]
+    return all(n.startswith('docs/') for n in names)
+
+
+def revoked_patch_in(x, sha, repo=None):
+    """The revoked commit x's OWN patch is in sha's history (a cherry-pick of x alone) -> bool. `git cherry <sha> <x> <x^>`
+    names x alone; its `-` says an equivalent change is in <sha> (r2, both reviews P2: cherry_equivalent asks for EVERY commit
+    from the merge base to x, so a revoked commit picked without its branch-mates was missed). A root commit or a git failure
+    is False here; the caller also refuses x by ancestry."""
+    r = subprocess.run(['git', '-C', repo or REPO, 'cherry', sha, x, f'{x}^'], capture_output=True, text=True)
+    if r.returncode:
+        return False
+    lines = [l for l in r.stdout.splitlines() if l.strip()]
+    return len(lines) == 1 and lines[0].startswith('-')
 
 
 def write_envs(release_dir, rel):
@@ -441,7 +460,7 @@ def stage_piece(a, sha, feed, last):
     journal = (feed or {}).get('journal') or []
     newest = {r: next((x for x in reversed(rows) if isinstance(x, dict) and x.get('run') == r), {}) for r in runs}
     kept = {r: survival_kept(journal, r, str(newest[r].get('sha') or ''), resolve) for r in runs}
-    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, cherry_equivalent, revoked, kept, docs_only_change)
+    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, revoked_patch_in, revoked, kept, docs_only_change)
     if why:
         return refuse(why)
     ok, missing = pieces_in(sha, journal)
@@ -450,8 +469,10 @@ def stage_piece(a, sha, feed, last):
     prev = os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None
     ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=False, why=f'piece stack {",".join(runs)}',
                     extra={'piece': runs, 'prev': rel_sha, 'prev_release': prev})
-    print(('STAGED ' if ok else 'FAILED ') + out)
-    return 0 if ok else 1
+    if not ok:
+        return refuse(out)   # a conflicting cached release included (Codex r2 P3)
+    print('STAGED ' + out)
+    return 0
 
 
 # ------------------------------------------------------------------------------------------------ activate
