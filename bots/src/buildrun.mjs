@@ -41,6 +41,8 @@ export const SPAWN_DIG_QUIET_MS = 3_000
 export const PROBES_MAX = 2
 export const RENEW_AT = 0.5
 export const CLOSER_SEGS = new Set(['roof-edge', 'roof-inner'])
+export const REPLANT_MOVES = 4      // a replant moves at most this often (each to a cell never tried before)
+export const REPLANT_DEFERS = 3     // visits with no plantable cell anywhere in the walk before the replant is skipped
 const SAPLING = /_sapling$|^mangrove_propagule$/
 const AIR = n => n === 'air' || n === 'cave_air'
 // a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
@@ -263,6 +265,36 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   }
 
   // ---- 1. replant first --------------------------------------------------------------------------------------------------------
+  // THE REPLANT REMEDY (F2; Paper 10-25 SHOP-TERRAIN hive-c: `no_step replant` every visit for 40 min, nothing placed): a replant
+  // the visit cannot plant never stops the build. One record transition, then the visit ends `replanned` (the next visit builds
+  // on the new generation), BOUNDED (r19, both r18 reviews):
+  //   MOVE   to the nearest cell replantCellAt accepts from here -- the band, then the whole town walk -- never a cell this
+  //          replant was already refused at (`tried`: no A -> B -> A) nor one another replant holds IN THE HEAD being written
+  //          (the CAS re-checks it: no two trunks on one sapling), at most REPLANT_MOVES times;
+  //   DEFER  with no such cell (the walk may be partial, a chunk unloaded): the obligation stands, counted, REPLANT_DEFERS visits;
+  //   SKIP   only after the moves and the deferrals are spent: NAMED DEVIATION from design S2 ("never a felled tree without its
+  //          sapling"), the coordinator's 10-26 remedy; the read reports every skip (`replant_skipped`) and G5 counts the rest.
+  //   With the town's reservations unreadable (p.resFailed) nothing moves or skips: the visit ends `replant_wait`.
+  const replantRemedy = (r, nodes, why) => {
+    const at = r.cell.join(',')
+    if (p.resFailed) { out.stop = 'replant_wait'; out.why = `replant ${at}: ${why}; the town's reservations could not be read`; return out }
+    const tried = (r.tried ?? []).some(c => c.join(',') === at) ? [...r.tried] : [...(r.tried ?? []), r.cell]   // each cell once
+    const alt = (r.moves ?? 0) < REPLANT_MOVES ? replantAlternative(rd, home, record, nodes, p.res ?? null, tried) : null
+    let kind = null
+    const pub = PJ.publishRecord(dir, key, cur => {
+      const i = (cur?.replant ?? []).findIndex(x => x.cell.join(',') === at && x.state !== 'skipped')
+      if (i < 0) return null
+      const x = cur.replant[i]
+      if (alt && cur.replant.some((y, j) => j !== i && y.state !== 'skipped' && y.cell.join(',') === alt.join(','))) return null
+      if (alt) { cur.replant[i] = { ...x, cell: alt, movedFrom: x.cell, tried, moves: (x.moves ?? 0) + 1 }; kind = 'replant_moved' }
+      else if ((x.deferred ?? 0) + 1 >= REPLANT_DEFERS) { cur.replant[i] = { ...x, tried, state: 'skipped', skippedAt: now() }; kind = 'replant_skipped' }
+      else { cur.replant[i] = { ...x, tried, deferred: (x.deferred ?? 0) + 1, deferredAt: now() }; kind = 'replant_deferred' }
+      return cur
+    }, { by: me })
+    e.log('_build', { op: kind ?? 'replant_unchanged', cell: r.cell, why, ...(alt ? { to: alt.join(',') } : {}), result: pub.result })
+    out.stop = 'replanned'; out.why = `replant ${at}: ${why} -> ${kind ?? 'unchanged (another builder moved it first)'}${alt && kind === 'replant_moved' ? ` ${alt.join(',')}` : ''}`
+    return out
+  }
   for (const r of record.replant ?? []) {
     const g = guard(); if (g) { out.stop = g; return out }
     if (r.state === 'skipped') continue
@@ -271,23 +303,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     if (!e.has(r.sapling)) { needSapling = r.sapling; continue }
     const nodes = nodesFor()
     const step = stepFor(rd, home, r.cell, nodes)
-    if (!step || step.support[1] !== r.cell[1] - 1) {
-      // NEVER A DEAD END (Paper 10-25 SHOP-TERRAIN hive-c: `no_step replant` every visit, nothing placed): the record MOVES the
-      // replant to the nearest cell the visit can plant from here, or, with none in the band, records it SKIPPED (its tree may
-      // then fall without it: the read's G5 counts only the replants not skipped). One record transition; the visit ends with
-      // `replanned` and the next one builds on the new generation.
-      const alt = replantAlternative(rd, home, record, nodes, p.res ?? null)
-      const at = r.cell.join(',')
-      const pub = PJ.publishRecord(dir, key, cur => {
-        const i = (cur?.replant ?? []).findIndex(x => x.cell.join(',') === at && x.state !== 'skipped')
-        if (i < 0) return null
-        cur.replant[i] = alt ? { ...cur.replant[i], cell: alt, movedFrom: cur.replant[i].cell } : { ...cur.replant[i], state: 'skipped', skippedAt: now() }
-        return cur
-      }, { by: me })
-      e.log('_build', { op: alt ? 'replant_moved' : 'replant_skipped', cell: r.cell, ...(alt ? { to: alt.join(',') } : {}), result: pub.result })
-      out.stop = 'replanned'; out.why = `replant ${at}: ${alt ? `moved to ${alt.join(',')}` : 'no plantable cell in the band: skipped'}`
-      return out
-    }
+    if (!step || step.support[1] !== r.cell[1] - 1) return replantRemedy(r, nodes, 'no_step')
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
@@ -296,7 +312,11 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     // a silent replant click is counted (Claude read r3 P3-1: its late acknowledgement may have planted the sapling untallied, so
     // the bag row must not read as a clean exit)
     if (v === 'silent') out.silent++
-    if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else { out.stop = 'no_step'; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }
+    if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else if (v === 'stand' || v === 'refused') {
+      // the walk did not reach the proven stand, or the server refused the sapling: the same remedy as no step (r19, both r18
+      // reviews: any other outcome ended the visit no_step, every visit, forever)
+      return replantRemedy(r, nodesFor(), v)
+    } else { out.stop = v; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }   // busy, body, silent: transient, retried next visit
   }
 
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
