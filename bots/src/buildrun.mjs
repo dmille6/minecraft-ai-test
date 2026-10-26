@@ -43,6 +43,22 @@ export const RENEW_AT = 0.5
 export const CLOSER_SEGS = new Set(['roof-edge', 'roof-inner'])
 export const REPLANT_MOVES = 4      // a replant moves at most this often (each to a cell never tried before)
 export const REPLANT_DEFERS = 3     // visits with no plantable cell anywhere in the walk before the replant is skipped
+export const STUCK_VISITS = 3       // visits a record cell may find no stand before the build reports stuck_on_cell (F4)
+/**
+ * THE STUCK MAP AFTER A VISIT (F4) -> { cells, stuck: [key] }. Pure. `prev` the file's map, `deferred` the cells this visit found
+ * no stand for, `done(k)` whether a cell now reads done. A deferred cell counts one more visit; a cell that now reads done (built
+ * from a later stand, or by another builder) leaves the map; the others carry over. `stuck`: the cells at STUCK_VISITS or more.
+ */
+export function stuckAfter (prev = {}, deferred = [], { done = () => false, now = Date.now(), by = null, limit = STUCK_VISITS } = {}) {
+  const cells = {}
+  for (const [k, v] of Object.entries(prev ?? {})) if (!done(k)) cells[k] = { ...v }
+  for (const k of new Set(deferred)) {
+    if (done(k)) continue
+    const v = cells[k] ?? { visits: 0, firstAt: now, by }
+    cells[k] = { ...v, visits: (Number(v.visits) || 0) + 1, lastAt: now, by }
+  }
+  return { cells, stuck: Object.keys(cells).filter(k => cells[k].visits >= limit) }
+}
 const SAPLING = /_sapling$|^mangrove_propagule$/
 const AIR = n => n === 'air' || n === 'cave_air'
 // a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
@@ -211,6 +227,9 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       // nothing awaited after this
       if (!(await e.hold(block))) { PJ.barrierRelease(dir, key, me, barGen); return 'no_material' }
       await e.look(here.support, here.face)
+      // an abort while the re-hold or the re-look was awaited (lavastep's danger move reserves the body and aborts the skill:
+      // Claude re-stack P3) sends nothing
+      if (e.aborted()) { PJ.barrierRelease(dir, key, me, barGen); return 'aborted' }
     }
     try {
       const seq = e.nextSeq()
@@ -357,8 +376,13 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   { const s = await clears(); if (s) { out.stop = s; return out } }
 
   // ---- 3. segments ------------------------------------------------------------------------------------------------------------
+  // F4 (Paper 10-26 SHOP-TERRAIN hive-c: `no_step earth: 1 open` every visit): a cell no stand reaches is DEFERRED -- the visit
+  // goes on with every segment that does not wait on its segment; later visits ask again (the walk grows with every stand the
+  // town's bots occupy), and a cell deferred STUCK_VISITS visits ends the visit `stuck_on_cell` (a named row; the order backs off)
+  const deferredSegs = new Set(), deferredCells = []
   for (const { seg, deps } of segmentsOf(record)) {
     if (segComplete(rd, record, palette, seg)) continue
+    if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
     if (!deps.every(d => segComplete(rd, record, palette, d))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d)).join(',')}`; return out }
     const lease = PJ.takeLease(dir, key, `seg-${seg}`, me, { now: now() })
     if (!lease.ok) continue                                          // another builder holds it: the next segment
@@ -400,7 +424,14 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         let picked = null, step = null
         for (const c of cand) { step = stepFor(rd, home, c.at, nodes); if (step) { picked = c; break } }
         if (!picked) {
-          out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : cand.length ? 'no_step' : 'attempts_spent'
+          if (cand.length && !open.some(c => !isClear(c.at))) {
+            // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
+            for (const c of cand) deferredCells.push(kOf(c.at))
+            deferredSegs.add(seg)
+            e.log('_build', { op: 'deferred', seg, cell: cand[0].at, n: cand.length })
+            break
+          }
+          out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
           return out
         }
@@ -416,6 +447,23 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       }
     } finally { PJ.releaseLease(dir, key, `seg-${seg}`, me, segGen); out.segs.push(row); e.log('_build_seg', { seg, open: row.open, done: row.done }) }
     if (finished) { const s = await clears(); if (s) { out.stop = s; return out } }
+  }
+  // the stuck map: this visit's deferrals counted, built cells dropped (F4)
+  const doneAt = k => { const c = record.cells.find(x => kOf(x.at) === k); return !!c && cellDone(rd(...c.at), palette, c.role) }
+  const prevStuck = PJ.stuckRead(dir, key)
+  if (deferredCells.length || Object.keys(prevStuck).length) {
+    const st = stuckAfter(prevStuck, deferredCells, { done: doneAt, now: now(), by: me })
+    PJ.stuckWrite(dir, key, st.cells, { now: now() })
+    if (deferredCells.length) {
+      const worst = st.stuck.length ? st.stuck : []
+      if (worst.length) {
+        e.log('_build', { op: 'stuck_on_cell', cell: worst[0].split(',').map(Number), visits: st.cells[worst[0]].visits, n: worst.length })
+        out.stop = 'stuck_on_cell'; out.why = `${worst.length} cell(s) no stand has reached in ${STUCK_VISITS}+ visits (first ${worst[0]})`
+        return out
+      }
+      out.stop = 'cell_deferred'; out.why = `${new Set(deferredCells).size} cell(s) no stand reaches now (segments ${[...deferredSegs].join(',')}): asked again next visit`
+      return out
+    }
   }
   out.stop = record.cells.every(c => cellDone(rd(...c.at), palette, c.role)) ? 'complete' : needSapling ? 'no_sapling' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`

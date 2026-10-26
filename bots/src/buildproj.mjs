@@ -253,6 +253,27 @@ export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now 
 /** The holder's presence -> { holder, conn, pid, at } | null. */
 export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir, key, holder)) }
 
+// ---- stuck cells (F4, Paper 10-26 SHOP-TERRAIN hive-c: an ordinary record cell no stand reaches stopped every visit) -------------
+
+const stuckFile = (dir, key) => path.join(dir, `${key}.stuck.json`)
+/** The record cells visits found with NO stand -> { 'x,y,z': { visits, firstAt, lastAt, by } } ({} when none or unreadable). */
+export function stuckRead (dir, key) {
+  const j = readJ(stuckFile(dir, key))
+  const out = {}
+  for (const [k, v] of Object.entries(j?.cells ?? {})) if (/^-?\d+,-?\d+,-?\d+$/.test(k) && Number.isFinite(Number(v?.visits))) out[k] = { visits: Number(v.visits), firstAt: Number(v.firstAt) || null, lastAt: Number(v.lastAt) || null, by: v.by ?? null }
+  return out
+}
+/** Replace the stuck map (temp + rename, fsynced) -> true | false (never throws). */
+export function stuckWrite (dir, key, cells, { now = Date.now() } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = stuckFile(dir, key), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, at: now, cells: cells ?? {} }))
+    fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+
 // ---- drawn (Paper 10-25 SHOP-KILL / CHAIN-1: the project's materials in the holder's bag) --------------------------------------
 
 const drawnFile = (dir, key, holder) => path.join(dir, `${key}.drawn.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
