@@ -421,7 +421,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 placed[(pool, k)].append(r['t'])
             elif op == 'replant':
                 out['replants'] += 1
-            elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell'):
+            elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):
                 out[op] = out.get(op, 0) + 1; lists.setdefault(op, []).append('%s %s %s' % (bot, k, f.get('to') or ''))
             elif op == 'clear':
                 out['clears'] += 1
@@ -609,6 +609,8 @@ def selftest():
     # F4: a stuck build is a named row the read counts (never silent)
     rst = J(base + [R('_build', 'project=shop op=deferred seg=pad cell=10,70,10 n=1', s=30), R('_build', 'project=shop op=stuck_on_cell cell=10,70,10 visits=3 n=1', s=31)])
     assert rst.get('deferred') == 1 and rst.get('stuck_on_cell') == 1, rst
+    rsu = J(base + [R('_build', 'project=shop op=stuck_unwritten cell=10,70,10 n=1', s=30)])
+    assert rsu.get('stuck_unwritten') == 1, rsu
     # G6 on the bot's own build rows: the stand IN or ON the unknown cell; not after it is known again; not after a new connection
     unk = R('_build', 'project=shop op=unknown cell=12,71,10 block=oak_log', s=40)
     on = R('_build_seg', 'project=shop seg=pad open=1 done=1', s=41, feet=[12, 72, 10])
@@ -777,8 +779,8 @@ if __name__ == '__main__':
           % (res['lease_overlap'], G('lease_files'), L.get('lease_overlap', [])[:3], res['felled_unplanted'], G('tree_clears'), res['g5_unjudged'], L.get('felled_unplanted', [])[:3]))
     print('             G6 unknown cells stood on %d of %d unknown rows %s | G8 bag losses %d of %d names (%d of %d bag rows unjudged: not a clean exit %s) | REPORTED G7 placed twice %d %s'
           % (res['unknown_stood'], G('unknown_rows'), L.get('unknown_stood', [])[:3], res['bag_loss'], G('bag_names'), res['bag_unjudged'], G('bag_rows'), L.get('bag_unjudged', [])[:2], res['placed_twice'], L.get('placed_twice', [])[:3]))
-    print('             REPORTED replants moved %d deferred %d skipped %d %s | cells deferred %d | STUCK ON CELL %d %s'
-          % (res.get('replant_moved', 0), res.get('replant_deferred', 0), res.get('replant_skipped', 0), L.get('replant_skipped', [])[:3], res.get('deferred', 0), res.get('stuck_on_cell', 0), L.get('stuck_on_cell', [])[:3]))
+    print('             REPORTED replants moved %d deferred %d skipped %d %s | cells deferred %d | STUCK ON CELL %d %s | stuck map unwritten %d %s'
+          % (res.get('replant_moved', 0), res.get('replant_deferred', 0), res.get('replant_skipped', 0), L.get('replant_skipped', [])[:3], res.get('deferred', 0), res.get('stuck_on_cell', 0), L.get('stuck_on_cell', [])[:3], res.get('stuck_unwritten', 0), L.get('stuck_unwritten', [])[:3]))
     print('NO HARM      gather DiD %s -> %s | pickaxe rungs DiD %s -> %s | litter DiD (cells per town, canary less control) %s | deaths: the default gate (two-death floor) | immobile: immobiledid'
           % tuple([x for n in ('gather_ok', 'rung_ok') for x in ('null' if res['%s_did' % n] is None else '%+.3f' % res['%s_did' % n], verdict_of(res, n))]
                   + ['null' if res['litter_did'] is None else '%+.1f' % res['litter_did']]))

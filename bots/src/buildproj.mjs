@@ -255,20 +255,48 @@ export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir,
 
 // ---- stuck cells (F4, Paper 10-26 SHOP-TERRAIN hive-c: an ordinary record cell no stand reaches stopped every visit) -------------
 
-const stuckFile = (dir, key) => path.join(dir, `${key}.stuck.json`)
-/** The record cells visits found with NO stand -> { 'x,y,z': { visits, firstAt, lastAt, by } } ({} when none or unreadable). */
-export function stuckRead (dir, key) {
-  const j = readJ(stuckFile(dir, key))
+// ONE FILE PER HOLDER (Codex r21 P2: one shared map, read-increment-replace, lost a concurrent builder's increments). A holder
+// writes only its own file, so no update is lost; a reader SUMS the holders' visits per cell.
+const stuckFile = (dir, key, holder) => path.join(dir, `${key}.stuck.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const stuckNames = (dir, key) => {
+  try { const re = new RegExp(`^${esc(key)}\\.stuck\\..+\\.json$`); return fs.readdirSync(dir).filter(x => re.test(x)) } catch { return [] }
+}
+const stuckCells = j => {
   const out = {}
-  for (const [k, v] of Object.entries(j?.cells ?? {})) if (/^-?\d+,-?\d+,-?\d+$/.test(k) && Number.isFinite(Number(v?.visits))) out[k] = { visits: Number(v.visits), firstAt: Number(v.firstAt) || null, lastAt: Number(v.lastAt) || null, by: v.by ?? null }
+  for (const [k, v] of Object.entries(j?.cells ?? {})) if (/^-?\d+,-?\d+,-?\d+$/.test(k) && Number.isFinite(Number(v?.visits)) && Number(v.visits) > 0) out[k] = { visits: Math.floor(Number(v.visits)), firstAt: Number(v.firstAt) || null, lastAt: Number(v.lastAt) || null, by: v.by ?? null }
   return out
 }
-/** Replace the stuck map (temp + rename, fsynced) -> true | false (never throws). */
-export function stuckWrite (dir, key, cells, { now = Date.now() } = {}) {
+/** The record cells visits found with NO stand -> { 'x,y,z': { visits, firstAt, lastAt, by } } ({} when none or unreadable).
+ *  `holder` given: that holder's own file only. Otherwise every holder's, visits SUMMED per cell (`by` the latest). */
+export function stuckRead (dir, key, { holder = null, exclude = null } = {}) {
+  if (holder != null) return stuckCells(readJ(stuckFile(dir, key, holder)))
+  const out = {}
+  const skip = exclude != null ? path.basename(stuckFile(dir, key, exclude)) : null
+  for (const n of stuckNames(dir, key).filter(x => x !== skip)) {
+    for (const [k, v] of Object.entries(stuckCells(readJ(path.join(dir, n))))) {
+      const o = out[k]
+      if (!o) { out[k] = { ...v }; continue }
+      out[k] = { visits: o.visits + v.visits, firstAt: Math.min(o.firstAt ?? Infinity, v.firstAt ?? Infinity) === Infinity ? null : Math.min(o.firstAt ?? Infinity, v.firstAt ?? Infinity), lastAt: Math.max(o.lastAt ?? 0, v.lastAt ?? 0) || null, by: (v.lastAt ?? 0) > (o.lastAt ?? 0) ? v.by : o.by }
+    }
+  }
+  return out
+}
+/** When a visit last reported stuck_on_cell, over every holder's file (or `holder`'s) -> ms | null. The order's back-off reads
+ *  this, so it holds for the PROJECT across restarts and across bots (Claude r21 P3-3), not per bot in memory. */
+export function stuckAt (dir, key, { holder = null } = {}) {
+  let best = null
+  for (const n of holder != null ? [path.basename(stuckFile(dir, key, holder))] : stuckNames(dir, key)) {
+    const t = Number(readJ(path.join(dir, n))?.stuckAt)
+    if (Number.isFinite(t) && t > 0 && (best == null || t > best)) best = t
+  }
+  return best
+}
+/** Replace THIS HOLDER's stuck map (temp + rename, fsynced) -> true | false (never throws; the caller fails closed on false). */
+export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt = null } = {}) {
   try {
     fs.mkdirSync(dir, { recursive: true })
-    const f = stuckFile(dir, key), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
-    writeSynced(tmp, JSON.stringify({ v: 1, at: now, cells: cells ?? {} }))
+    const f = stuckFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 2, holder, at: now, stuckAt: Number.isFinite(stuckAt) ? stuckAt : null, cells: cells ?? {} }))
     fs.renameSync(tmp, f)
     return true
   } catch { return false }

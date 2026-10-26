@@ -380,6 +380,38 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   // goes on with every segment that does not wait on its segment; later visits ask again (the walk grows with every stand the
   // town's bots occupy), and a cell deferred STUCK_VISITS visits ends the visit `stuck_on_cell` (a named row; the order backs off)
   const deferredSegs = new Set(), deferredCells = []
+  // THE STUCK MAP, settled on EVERY exit (Codex r21 P2 / Claude P3-1: written only at the loop's end, a visit that deferred a cell
+  // and then stopped early -- blocked, no_material, deps_open, a fence, the deadline -- never counted). Counts are per holder
+  // file (buildproj stuckRead/stuckWrite: no lost update between two builders), summed for the threshold. An early exit keeps its
+  // own stop (it names its own remedy) but logs the named row when the threshold is reached; at the loop's end the visit stops
+  // cell_deferred or stuck_on_cell. A map that cannot be written FAILS CLOSED: a `stuck_unwritten` row and stuck_on_cell (Codex
+  // r21 P2: an unwritable map counted 1 forever and said cell_deferred every visit).
+  const doneAt = k => { const c = record.cells.find(x => kOf(x.at) === k); return !!c && cellDone(rd(...c.at), palette, c.role) }
+  let settled = false, reachedEnd = false
+  const settleStuck = atEnd => {
+    settled = true
+    const own = PJ.stuckRead(dir, key, { holder: me })
+    if (!deferredCells.length && !Object.keys(own).length) return null
+    const t = now()
+    const st = stuckAfter(own, deferredCells, { done: doneAt, now: t, by: me })
+    const others = PJ.stuckRead(dir, key, { exclude: me })
+    const total = k => (st.cells[k]?.visits ?? 0) + (doneAt(k) ? 0 : (others[k]?.visits ?? 0))
+    const mine = [...new Set(deferredCells)].filter(k => !doneAt(k))
+    const worst = mine.filter(k => total(k) >= STUCK_VISITS)
+    const prevAt = PJ.stuckAt(dir, key, { holder: me })
+    const ok = PJ.stuckWrite(dir, key, me, st.cells, { now: t, stuckAt: worst.length ? t : (Object.keys(st.cells).length ? prevAt : null) })
+    if (!deferredCells.length) return null
+    if (!ok) {
+      e.log('_build', { op: 'stuck_unwritten', cell: mine[0]?.split(',').map(Number) ?? null, n: mine.length })
+      return { stop: 'stuck_on_cell', unwritten: true, why: `the stuck map cannot be written (${mine.length} cell(s) no stand reaches): backing off` }
+    }
+    if (worst.length) {
+      e.log('_build', { op: 'stuck_on_cell', cell: worst[0].split(',').map(Number), visits: total(worst[0]), n: worst.length, ...(atEnd ? {} : { early: true }) })
+      return { stop: 'stuck_on_cell', why: `${worst.length} cell(s) no stand has reached in ${STUCK_VISITS}+ visits (first ${worst[0]})` }
+    }
+    return { stop: 'cell_deferred', why: `${new Set(deferredCells).size} cell(s) no stand reaches now (segments ${[...deferredSegs].join(',')}): asked again next visit` }
+  }
+  try {
   for (const { seg, deps } of segmentsOf(record)) {
     if (segComplete(rd, record, palette, seg)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
@@ -448,23 +480,14 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     } finally { PJ.releaseLease(dir, key, `seg-${seg}`, me, segGen); out.segs.push(row); e.log('_build_seg', { seg, open: row.open, done: row.done }) }
     if (finished) { const s = await clears(); if (s) { out.stop = s; return out } }
   }
-  // the stuck map: this visit's deferrals counted, built cells dropped (F4)
-  const doneAt = k => { const c = record.cells.find(x => kOf(x.at) === k); return !!c && cellDone(rd(...c.at), palette, c.role) }
-  const prevStuck = PJ.stuckRead(dir, key)
-  if (deferredCells.length || Object.keys(prevStuck).length) {
-    const st = stuckAfter(prevStuck, deferredCells, { done: doneAt, now: now(), by: me })
-    PJ.stuckWrite(dir, key, st.cells, { now: now() })
-    if (deferredCells.length) {
-      const worst = st.stuck.length ? st.stuck : []
-      if (worst.length) {
-        e.log('_build', { op: 'stuck_on_cell', cell: worst[0].split(',').map(Number), visits: st.cells[worst[0]].visits, n: worst.length })
-        out.stop = 'stuck_on_cell'; out.why = `${worst.length} cell(s) no stand has reached in ${STUCK_VISITS}+ visits (first ${worst[0]})`
-        return out
-      }
-      out.stop = 'cell_deferred'; out.why = `${new Set(deferredCells).size} cell(s) no stand reaches now (segments ${[...deferredSegs].join(',')}): asked again next visit`
-      return out
-    }
+    reachedEnd = true
+  } finally {
+    // an early exit (any `return out` above): count this visit's deferrals; the early stop stands, except a map that cannot be
+    // written, which fails closed. Never throws (a finally must not replace the visit's own result).
+    if (!settled && !reachedEnd) { try { const r = settleStuck(false); if (r?.unwritten) { out.stop = r.stop; out.why = r.why } else if (r?.stop === 'stuck_on_cell') out.stuck = true } catch { /* the next visit counts */ } }
   }
+  // the loop's end: this visit's deferrals counted, built cells dropped (F4)
+  { const r = settleStuck(true); if (r) { out.stop = r.stop; out.why = r.why; return out } }
   out.stop = record.cells.every(c => cellDone(rd(...c.at), palette, c.role)) ? 'complete' : needSapling ? 'no_sapling' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`
   return out

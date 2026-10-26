@@ -206,13 +206,15 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  * or a bag without room is a skip with its reason.
  */
 export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
-  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true } = {}) {
+  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
   if (complete) return { order: null, skip: 'complete' }
   if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
+  // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop
+  if (Number.isFinite(stuckAt) && now - stuckAt < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
