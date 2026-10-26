@@ -82,14 +82,14 @@ await t('stuckAfter: counts a visit per deferred cell, drops a cell that now rea
   const c = R.stuckAfter(b.cells, ['1,2,3'], { now: 3 })
   assert.deepStrictEqual(c.stuck, ['1,2,3'])
 })
-await t('MUTANT the old stop restored: the first visit stops no_step with the rest unbuilt', () => both(
+await t('MUTANT the old stop restored: the first visit stops no_step with the rest unbuilt', () => bothA(
   "          if (cand.length && !open.some(c => !isClear(c.at))) {",
   "          if (false) {", async M => {
     const srv = server(sealed()), pr = project(RECORD)
     const { r } = await visit(M, pr, srv)
     assert.ok(r.placed > 100, `the rest is built (${r.stop}, ${r.placed})`)
   }))
-await t('MUTANT a segment waiting on a deferred one is not skipped: the visit stops deps_open, the rest unbuilt', () => both(
+await t('MUTANT a segment waiting on a deferred one is not skipped: the visit stops deps_open, the rest unbuilt', () => bothA(
   "    if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }",
   "", async M => {
     const srv = server(sealed()), pr = project(RECORD)

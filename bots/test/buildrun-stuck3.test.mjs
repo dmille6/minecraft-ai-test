@@ -95,5 +95,23 @@ await t('buildOrder: a stuckAt more than a minute in the future is ignored; a fu
   assert.strictEqual(reads, 1, 'complete / cooldown never read the stuck files')
 })
 
+await t('age-out per holder BEFORE the sum: stale B (9) + fresh C (1) + A now -> 2, not 11 (Codex r23 P2)', async () => {
+  const srv = server(sealed()), pr = project(RECORD)
+  const old = Date.now() - R.STUCK_FORGET_MS - 60_000, fresh = Date.now() - 60_000
+  assert.ok(PJ.stuckWrite(pr.dir, pr.key, 'B', { [k3(X)]: { visits: 9, firstAt: old, lastAt: old, by: 'B' } }, { now: old }))
+  assert.ok(PJ.stuckWrite(pr.dir, pr.key, 'C', { [k3(X)]: { visits: 1, firstAt: fresh, lastAt: fresh, by: 'C' } }, { now: fresh }))
+  assert.strictEqual(PJ.stuckRead(pr.dir, pr.key, { since: Date.now() - R.STUCK_FORGET_MS })[k3(X)].visits, 1, 'only C counts')
+  const { r } = await visit(R, pr, srv)
+  assert.strictEqual(r.stop, 'cell_deferred', `C's 1 + A's 1 = 2 < 3 (${r.stop})`)
+})
+await t('a FUTURE stamp beside a valid one: the valid one still backs the project off (Codex r23 P2)', () => {
+  const pr = project(RECORD), now = Date.now()
+  assert.ok(PJ.stuckWrite(pr.dir, pr.key, 'A', {}, { now, stuckAt: now + 10 * 3600_000 }))
+  assert.ok(PJ.stuckWrite(pr.dir, pr.key, 'B', {}, { now, stuckAt: now - 60_000 }))
+  assert.strictEqual(PJ.stuckAt(pr.dir, pr.key, { before: now + 60_000 }), now - 60_000)
+  const base = { on: true, shared: true, atTown: true, holds: false, record: {}, planned: true, freeSlots: 30, state: {} }
+  assert.strictEqual(S.buildOrder({ ...base, now, stuckAt: n => PJ.stuckAt(pr.dir, pr.key, { before: n + 60_000 }) }).skip, 'stuck_on_cell')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

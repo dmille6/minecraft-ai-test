@@ -392,27 +392,29 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   const settleStuck = atEnd => {
     settled = true
     const t = now()
-    const fresh = m => Object.fromEntries(Object.entries(m).filter(([, v]) => t - (v.lastAt ?? 0) < STUCK_FORGET_MS))
+    const since = t - STUCK_FORGET_MS + 1
     const own0 = PJ.stuckRead(dir, key, { holder: me })
     if (!deferredCells.length && !Object.keys(own0).length) return null
-    const own = fresh(own0)
+    const own = PJ.stuckRead(dir, key, { holder: me, since })
     const st = stuckAfter(own, deferredCells, { done: doneAt, now: t, by: me })
-    const others = fresh(PJ.stuckRead(dir, key, { exclude: me }))
+    const others = PJ.stuckRead(dir, key, { exclude: me, since })   // each holder aged out before the sum
     const total = k => (st.cells[k]?.visits ?? 0) + (doneAt(k) ? 0 : (others[k]?.visits ?? 0))
     const mine = [...new Set(deferredCells)].filter(k => !doneAt(k))
     const worst = mine.filter(k => total(k) >= STUCK_VISITS)
     const prevAt = PJ.stuckAt(dir, key, { holder: me })
+    // STALLED (Claude r22 P2-2): every open segment is deferred or waits on one -- an EARTH cell (pad waits on earth, everything on
+    // pad) stops the whole project; named on the row so the read reports the project stalled, never "no effect". A segment
+    // another builder holds is neither deferred nor complete, so it is never stalled.
+    const stalled = atEnd && segmentsOf(record).every(s => deferredSegs.has(s.seg) || segComplete(rd, record, palette, s.seg))
     // THE PROJECT BACK-OFF IS STAMPED ONLY AT THE LOOP'S END (Claude r22 P2-1: an early no_material after the threshold stamped
-    // it, and the town waited 6 h for a workshop its mats job could finish in minutes); an early exit counts and names the row
-    const ok = PJ.stuckWrite(dir, key, me, st.cells, { now: t, stuckAt: worst.length && atEnd ? t : (Object.keys(st.cells).length ? prevAt : null) })
+    // it, and the town waited 6 h for a workshop its mats job could finish in minutes) AND ONLY WHEN NOTHING ELSE IS OPEN (Claude
+    // r23 P3: another builder still working an independent segment must not be held off); this bot's own stop still backs IT off
+    const ok = PJ.stuckWrite(dir, key, me, st.cells, { now: t, stuckAt: worst.length && stalled ? t : (Object.keys(st.cells).length ? prevAt : null) })
     if (!deferredCells.length) return null
     if (!ok) {
       e.log('_build', { op: 'stuck_unwritten', cell: mine[0]?.split(',').map(Number) ?? null, n: mine.length })
       return { stop: 'stuck_on_cell', unwritten: true, why: `the stuck map cannot be written (${mine.length} cell(s) no stand reaches): backing off` }
     }
-    // STALLED (Claude r22 P2-2): every open segment is deferred or waits on one -- an EARTH cell (pad waits on earth, everything on
-    // pad) stops the whole project; named on the row so the read reports the project stalled, never "no effect"
-    const stalled = atEnd && segmentsOf(record).every(s => deferredSegs.has(s.seg) || segComplete(rd, record, palette, s.seg))
     // what it costs: the open record cells in the deferred segments (the stuck cells and every cell waiting on them)
     const waiting = record.cells.filter(c => deferredSegs.has(c.seg) && !cellDone(rd(...c.at), palette, c.role)).length
     if (worst.length) {

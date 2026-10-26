@@ -67,7 +67,7 @@ await t('a visit that defers a cell and then stops early (no_material) still cou
 await t('MUTANT the early-exit settle dropped: the count never reaches the threshold', () => bothA(
   "    if (!settled && !reachedEnd) {", "    if (false) {", earlyChain))
 await t('MUTANT an early exit stamps the back-off (r22): stuckAt set after no_material', () => bothA(
-  "stuckAt: worst.length && atEnd ? t :", "stuckAt: worst.length ? t :", earlyChain))
+  "stuckAt: worst.length && stalled ? t :", "stuckAt: worst.length ? t :", earlyChain))
 
 const twoBuilders = async Mod => {
   const srv = server(sealed()), pr = project(RECORD, ['A', 'B'])

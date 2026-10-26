@@ -16162,7 +16162,7 @@ let shopBp = null
 const shopBlueprint = () => (shopBp ??= loadBlueprint(SHOP_BLUEPRINT))
 /** The project's record head in this town -> recordHead's answer. Never throws. */
 /** When any builder's visit last reported stuck_on_cell (the order's project-wide back-off) -> ms | null. Never throws. */
-export function shopStuckAt () { try { return projStuckAt(townDir(), shopKey()) } catch { return null } }
+export function shopStuckAt (now = Date.now()) { try { return projStuckAt(townDir(), shopKey(), { before: now + 60_000 }) } catch { return null } }
 export function shopRecordHead () { try { return recordHead(townDir(), shopKey()) } catch { return { ok: false, head: null, gens: [], rejected: [] } } }
 /** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
 export function shopSlotsFree (bot) {

@@ -268,12 +268,15 @@ const stuckCells = j => {
 }
 /** The record cells visits found with NO stand -> { 'x,y,z': { visits, firstAt, lastAt, by } } ({} when none or unreadable).
  *  `holder` given: that holder's own file only. Otherwise every holder's, visits SUMMED per cell (`by` the latest). */
-export function stuckRead (dir, key, { holder = null, exclude = null } = {}) {
-  if (holder != null) return stuckCells(readJ(stuckFile(dir, key, holder)))
+export function stuckRead (dir, key, { holder = null, exclude = null, since = null } = {}) {
+  // `since`: each HOLDER's entries older than it are dropped BEFORE the sum (Codex r23 P2: filtered after, one fresh holder's
+  // newest lastAt carried every stale holder's visits into the count)
+  const keep = c => since == null ? c : Object.fromEntries(Object.entries(c).filter(([, v]) => (v.lastAt ?? 0) >= since))
+  if (holder != null) return keep(stuckCells(readJ(stuckFile(dir, key, holder))))
   const out = {}
   const skip = exclude != null ? path.basename(stuckFile(dir, key, exclude)) : null
   for (const n of stuckNames(dir, key).filter(x => x !== skip)) {
-    for (const [k, v] of Object.entries(stuckCells(readJ(path.join(dir, n))))) {
+    for (const [k, v] of Object.entries(keep(stuckCells(readJ(path.join(dir, n)))))) {
       const o = out[k]
       if (!o) { out[k] = { ...v }; continue }
       out[k] = { visits: o.visits + v.visits, firstAt: Math.min(o.firstAt ?? Infinity, v.firstAt ?? Infinity) === Infinity ? null : Math.min(o.firstAt ?? Infinity, v.firstAt ?? Infinity), lastAt: Math.max(o.lastAt ?? 0, v.lastAt ?? 0) || null, by: (v.lastAt ?? 0) > (o.lastAt ?? 0) ? v.by : o.by }
@@ -283,11 +286,13 @@ export function stuckRead (dir, key, { holder = null, exclude = null } = {}) {
 }
 /** When a visit last reported stuck_on_cell, over every holder's file (or `holder`'s) -> ms | null. The order's back-off reads
  *  this, so it holds for the PROJECT across restarts and across bots (Claude r21 P3-3), not per bot in memory. */
-export function stuckAt (dir, key, { holder = null } = {}) {
+export function stuckAt (dir, key, { holder = null, before = Infinity } = {}) {
+  // `before`: a stamp later than it (a skewed or bad clock) is dropped BEFORE the latest is taken (Codex r23 P2: one future stamp
+  // won the max and the guard then discarded it, masking every holder's valid stamp)
   let best = null
   for (const n of holder != null ? [path.basename(stuckFile(dir, key, holder))] : stuckNames(dir, key)) {
     const t = Number(readJ(path.join(dir, n))?.stuckAt)
-    if (Number.isFinite(t) && t > 0 && (best == null || t > best)) best = t
+    if (Number.isFinite(t) && t > 0 && t <= before && (best == null || t > best)) best = t
   }
   return best
 }

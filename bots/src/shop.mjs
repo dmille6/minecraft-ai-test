@@ -216,7 +216,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h
-  const sa = typeof stuckAt === 'function' ? stuckAt() : stuckAt
+  const sa = typeof stuckAt === 'function' ? stuckAt(now) : stuckAt
   if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
