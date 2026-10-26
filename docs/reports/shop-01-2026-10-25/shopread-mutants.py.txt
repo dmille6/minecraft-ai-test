@@ -2,7 +2,9 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
- ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred'):"),
+ ("                if op == 'stuck_on_cell' and f.get('stalled') == 'true':", "                if False:"),
+ ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_unwritten'):"),
+ ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell'):"),
  ("need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped'])", "need = len(rec.get('replant') or [])"),
  ("out['off_record'] += 1;", "pass;"),
  ("out['clear_outside'] += 1;", "pass;"),
