@@ -1378,7 +1378,7 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
             // gather" with nothing to say whether the walk was digging.
             const w = watch.stop()
             logEvent({ kind: 'dig_approach', status: 'aborted',
-                       detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), aborted ` +
+                       detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), aborted${plan.lidFallback ? ' lid_fallback=1' : ''} ` +
                                `[walk_ms=${w.walkMs} attempted=${w.attempted.length ? w.attempted.join(',') : 'none'} ` +
                                `dug=${w.dug.length ? w.dug.join(',') : 'none'}]` })
             throw e

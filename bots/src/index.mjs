@@ -1110,16 +1110,19 @@ function connect() {
         // (not refused -- the price is a detour, and a bot standing inside a disc has to walk out of it).
         // LIDPLACE-01's INSTRUMENT: the CHOSEN route places on a lid or in a plan cell (the price is a preference, not a veto,
         // so this is how often it was outbid) -- one row per distinct set of cells per 30 s, the cells named
-        const lpc = chosenLidPlaces(r.path)
-        if (lpc) {
-          const key = lpc.cells.map(q => `${q.x},${q.y},${q.z}`).join('|')
-          if (lidplaceRowDue(lidplaceSeen, key, Date.now())) {
-            const g = bot.pathfinder?.goal
-            logEvent({ kind: 'lidplace', status: 'no_effect', snapshot: snapshot(bot),
-                       detail: lidplaceRowDetail(lpc, { status: r.status, profile: bot.movementProfile ?? 'walk', off: bot.lidPrice?.off ?? 0,
-                                                        goal: g && Number.isFinite(g.x) && Number.isFinite(g.z) ? `${g.x},${Number.isFinite(g.y) ? g.y : '?'},${g.z}` : (g?.constructor?.name ?? '-') }) })
+        // an instrument never breaks the route it watches (Codex rebase r1 P2: snapshot() reads the inventory)
+        try {
+          const lpc = chosenLidPlaces(r.path, bot.lidPrice?.cellsOf ?? null)
+          if (lpc) {
+            const key = lpc.cells.map(q => `${q.x},${q.y},${q.z}`).join('|') || `moves=${lpc.moves}`
+            if (lidplaceRowDue(lidplaceSeen, key, Date.now())) {
+              const g = bot.pathfinder?.goal
+              logEvent({ kind: 'lidplace', status: 'no_effect', snapshot: snapshot(bot),
+                         detail: lidplaceRowDetail(lpc, { status: r.status, profile: bot.movementProfile ?? 'walk', off: bot.lidPrice?.off ?? 0,
+                                                          goal: g && Number.isFinite(g.x) && Number.isFinite(g.z) ? `${g.x},${Number.isFinite(g.y) ? g.y : '?'},${g.z}` : (g?.constructor?.name ?? '-') }) })
+            }
           }
-        }
+        } catch { /* the row is lost; the route is not */ }
         const crossed = pathCrossesDeathSite(bot.deathSitesNow?.() ?? [], r.path)
         if (crossed && Date.now() - deathSiteCrossLoggedAt > 5_000) { deathSiteCrossLoggedAt = Date.now(); logEvent({ kind: 'death_site_route_crossed', status: 'no_effect', detail: `${crossed.site.kind} x${crossed.site.deaths ?? 1} at ${crossed.site.x},${crossed.site.y},${crossed.site.z}; the planned route passes ${crossed.node.x},${crossed.node.y},${crossed.node.z} (${r.path.length} nodes)`, snapshot: snapshot(bot) }) }
         // THE LAST PLANNED PATH, KEPT FOR THE FALL RECORD (fallpath.mjs): captured only once the corridor guard has

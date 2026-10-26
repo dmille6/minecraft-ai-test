@@ -170,6 +170,8 @@ export function makeLidPlacePrice ({ registry, stateIdAt, guard = () => null, on
   }
   price.hits = 0
   price.off = 0
+  /** The guarded landing cells of one move's toPlace -> [{ x, y, z, why }], read NOW (the instrument, path_update only). */
+  price.cellsOf = (toPlace) => { const out = []; lidPlaceSurcharge(toPlace, guard(), lidded, emptyAt, out); return out }
   return price
 }
 
@@ -204,9 +206,9 @@ export function installLidPrice (movements, price) {
     const ns = inner.call(this, node)
     for (const n of ns) {
       if (!n?.toPlace?.length) continue
-      const cells = []
-      const add = price(n.toPlace, cells)
-      if (add > 0) { n.cost += add; n.lidPlace = cells }   // kept on the Move: a CHOSEN priced move is read off the path
+      const add = price(n.toPlace)
+      // a SCALAR marker only (Codex rebase r1 P2: no allocation in the A* step); the chosen path's cells are read in path_update
+      if (add > 0) { n.cost += add; n.lidPlace = add }
     }
     return ns
   }
@@ -216,19 +218,21 @@ export function installLidPrice (movements, price) {
 
 /**
  * THE INSTRUMENT (`_lidplace`, coordinator 10-26): the priced moves of a path the planner CHOSE -> null, or
- * { moves, surcharge, cells: [{ x, y, z, why }] } (every guarded landing, in path order). Pure. A move carries `lidPlace`
- * only when installLidPrice priced it, so a path with none says the price never bit on the route actually taken.
+ * { moves, surcharge, cells: [{ x, y, z, why }] }. A move carries the scalar `lidPlace` (its surcharge) only when
+ * installLidPrice priced it, so a path with none says the price never bit on the route actually taken; `cellsOf` (the
+ * price's own, makeLidPlacePrice) names the cells of the priced moves only.
  */
-export function chosenLidPlaces (path) {
+export function chosenLidPlaces (path, cellsOf = null) {
   if (!Array.isArray(path)) return null
-  let moves = 0
+  let moves = 0, surcharge = 0
   const cells = []
   for (const n of path) {
-    if (!Array.isArray(n?.lidPlace) || !n.lidPlace.length) continue
+    if (!(n?.lidPlace > 0)) continue
     moves++
-    cells.push(...n.lidPlace)
+    surcharge += n.lidPlace
+    if (cellsOf) cells.push(...cellsOf(n.toPlace))
   }
-  return moves ? { moves, surcharge: cells.length * LID_PLACE_COST, cells } : null
+  return moves ? { moves, surcharge, cells } : null
 }
 /** THE SAMPLE: one row per distinct chosen set of cells per window -> boolean. `seen` is a Map the caller keeps. Pure
  *  given `now`. A re-plan of the same route (path_update fires on every partial) is not a new row. */
@@ -244,6 +248,6 @@ export function lidplaceRowDue (seen, key, now, windowMs = LIDPLACE_ROW_WINDOW_M
 export function lidplaceRowDetail (c, { status = '?', profile = '?', goal = '?', off = 0, max = 4 } = {}) {
   const named = c.cells.slice(0, max).map(q => `${q.x},${q.y},${q.z}:${q.why}`).join('|')
   const lids = c.cells.filter(q => q.why === 'lid').length
-  return `moves=${c.moves} n=${c.cells.length} lid=${lids} plan=${c.cells.length - lids} surcharge=${c.surcharge} cells=${named} ` +
+  return `moves=${c.moves} n=${c.cells.length} lid=${lids} plan=${c.cells.length - lids} surcharge=${c.surcharge} cells=${named || '-'} ` +
          `status=${status} profile=${profile} goal=${goal} off=${off}`
 }

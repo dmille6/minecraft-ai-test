@@ -240,12 +240,12 @@ test('planDigApproach (the REAL capped caller): a priced search that failed afte
   const runs = []
   const bot = { entity: { position: V(0.5, 70, 0.5) }, gatherMovements: m, lidPrice: m.__lidPriceFn, inventory: { items: () => [] }, heldItem: null,
     blockAt: w.blockAt,
-    pathfinder: { getPathFromTo: function * (mv, at, goal, o) { runs.push(mv.__lidPriceFn.off); budgets.push(o.timeout); yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
+    pathfinder: { getPathFromTo: function * (mv, at, goal, o) { runs.push(mv.__lidPriceFn.off); budgets.push(o.timeout); if (runs.length === 1) { const t = Date.now() + 25; while (Date.now() < t) {} }   /* the first search spends 25 ms */ yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
   const budgets = []
   const r = planDigApproach(bot, { x: 0, y: 77, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(77), endsInReach: () => true, timeout: 3000 })
   assert.ok(r, 'a verdict'); assert.equal(r.status, 'success'); assert.equal(r.lidFallback, true)
   assert.deepEqual(runs, [0, 1], 'priced first, then the base costs')
-  assert.equal(budgets[0], 3000); assert.ok(budgets[1] > 0 && budgets[1] <= 3000 - 1 && budgets[1] < budgets[0], `the retry gets only the time left (Claude r3 P3): ${budgets}`)
+  assert.equal(budgets[0], 3000); assert.ok(budgets[1] > 0 && budgets[1] <= 3000 - 25, `the retry gets only the time left (Claude r3 P3): ${budgets}`)
   // positive control: where the priced search succeeds, no second search and no fallback
   const w2 = world({ '0,70,0': 'chest' }), m2 = moves(w2, { canDig: true }), runs2 = []
   const bot2 = { ...bot, gatherMovements: m2, lidPrice: m2.__lidPriceFn, blockAt: w2.blockAt, entity: { position: V(0.5, 71, 0.5) },
@@ -288,11 +288,13 @@ test('COMPOSTER (composter.mjs composterSafeMovements): its clone keeps the base
 // ---- the instrument (`_lidplace`: a priced move on the CHOSEN route) ----------------------------------------------------
 test('INSTRUMENT: the chosen route of the chest-floored pit carries its lid placement (n, why, cells); the Gale candidate route carries none', () => {
   const { chosenLidPlaces, lidplaceRowDetail } = LP
-  const pit = plan(moves(world(pitCells()), { canDig: true }), [0, 70, 0], new goals.GoalY(74))
-  const c = chosenLidPlaces(pit.path)
+  const pitMoves = moves(world(pitCells()), { canDig: true }), pitPrice = pitMoves.__lidPriceFn
+  const pit = plan(pitMoves, [0, 70, 0], new goals.GoalY(74))
+  const c = chosenLidPlaces(pit.path, pitPrice.cellsOf)
   assert.ok(c, 'the pit route is priced (the lid tower is its only way out)')
   assert.ok(c.cells.some(q => q.x === 0 && q.y === 70 && q.z === 0 && q.why === 'lid'), JSON.stringify(c.cells))
-  assert.equal(c.surcharge, c.cells.length * LID_PLACE_COST)
+  assert.ok(c.surcharge >= LID_PLACE_COST && c.surcharge % LID_PLACE_COST === 0, `surcharge ${c.surcharge}`)
+  assert.ok(chosenLidPlaces(pit.path).moves === c.moves && chosenLidPlaces(pit.path).cells.length === 0, 'without cellsOf: the counts, no cells')
   assert.match(lidplaceRowDetail(c, { status: 'success', profile: 'gather', goal: '0,74,0' }), /^moves=\d+ n=\d+ lid=\d+ plan=0 surcharge=\d+ cells=0,70,0:lid.* status=success profile=gather goal=0,74,0 off=0$/)
   const gale = plan(moves(world({ '0,70,0': 'chest' })), [0, 71, 0], new goals.GoalY(74))
   assert.equal(chosenLidPlaces(gale.path), null, 'the route taken around the lid carries no priced move')
@@ -300,7 +302,8 @@ test('INSTRUMENT: the chosen route of the chest-floored pit carries its lid plac
   assert.equal(chosenLidPlaces(base.path), null, 'positive control on the field: an unpriced build never marks a move')
   const guard = placeGuardCells({ plots: [{ cells: [{ at: [0, 70, 0], kind: 'chest', stand: [0, 70, 2], state: 'reserved' }] }] })
   const fenced = { '0,69,0': 'stone' }; for (let y = 70; y <= 74; y++) for (const [x, z] of RING) fenced[`${x},${y},${z}`] = 'bedrock'
-  const pl = chosenLidPlaces(plan(moves(world(fenced), { guard }), [0, 70, 0], new goals.GoalY(75)).path)
+  const fm = moves(world(fenced), { guard })
+  const pl = chosenLidPlaces(plan(fm, [0, 70, 0], new goals.GoalY(75)).path, fm.__lidPriceFn.cellsOf)
   assert.ok(pl && pl.cells.some(q => q.why === 'plan'), `a plan cell is named as plan: ${JSON.stringify(pl)}`)
   assert.equal(chosenLidPlaces(null), null); assert.equal(chosenLidPlaces([]), null)
 })
@@ -318,16 +321,18 @@ test('LICENCE: `_lidplace_mode` once per spawn, on=0 under LIDPLACE=0', () => {
 })
 test('WIRING the instrument: path_update logs `lidplace` from chosenLidPlaces, sampled by lidplaceRowDue, AFTER the lava corridor guard', () => {
   const lava = once(IDX, 'const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)')
-  const ch = once(IDX, 'const lpc = chosenLidPlaces(r.path)')
+  const ch = once(IDX, 'const lpc = chosenLidPlaces(r.path, bot.lidPrice?.cellsOf ?? null)')
   once(IDX, 'if (lidplaceRowDue(lidplaceSeen, key, Date.now())) {')
   once(IDX, "logEvent({ kind: 'lidplace', status: 'no_effect', snapshot: snapshot(bot),")
   assert.ok(lava < ch, 'a refused leg is never counted as a chosen route')
+  const tr = IDX.lastIndexOf('try {', ch), cat = IDX.indexOf('} catch {', ch)
+  assert.ok(tr > lava && cat > ch && IDX.slice(tr, ch).split('\n').length <= 3, 'the instrument sits inside its own try (Codex rebase r1 P2)')
 })
 
 // ---- mutants (lidplace.mjs, composter.mjs) ---------------------------------------------------------------------------
 const COMP_URL = new URL('../src/composter.mjs', import.meta.url)
 test('MUTANT KILLED: the surcharge never added -> Gale towers on the chest again', async () => {
-  await withMutant(LP_URL, '      if (add > 0) { n.cost += add; n.lidPlace = cells }', '      if (add > 0) { n.lidPlace = cells }', async mod => {
+  await withMutant(LP_URL, '      if (add > 0) { n.cost += add; n.lidPlace = add }', '      if (add > 0) { n.lidPlace = add }', async mod => {
     const r = plan(moves(world({ '0,70,0': 'chest' }), { mod }), [0, 71, 0], new goals.GoalY(74))
     assert.ok(r.placed.includes('0,71,0'), `${r.placed}`)
   })
