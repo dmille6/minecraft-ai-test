@@ -125,3 +125,35 @@ OPEN, named (not fixed here):
      pick another cell (a refusal with no executable remedy: CLAUDE.md).
   F3 the residual whole-bag consumers of a share: the smelt job's furnace craft, build_plinth's bag cobble, the model's own
      crafts.
+
+
+==================================================================================================================================
+PAPER ROUND 3 (2026-10-26, coordinator: F2 blocks registration; the formal re-stack onto the fleet 112beb04)
+
+F2 (the replant dead end), shop-01 r18-r20 on shop-on-7049da1 (2b573ad6, 2372c34d, 7b211cb9; both engines APPROVE at r20):
+  base (7049da16): terrain-c, tree, kill BASE_SHAPE.
+  terrain-c, fresh siting (r18, r19): `no_site` -- with the tightened replant rule (replantCellAt, the visit's own step test)
+             the siting proof refuses hive-c's only site (sector S), whose replant cell no stand reaches: design S2's own
+             remedy (no legal replant cell -> no site), no stopped visit. The workshop is not built in hive-c at this sha.
+  terrain-c, SEEDED with the record r13 sited (SH_SEED_POOL; its replant cell unreachable): the remedy ran on real ground --
+             `replant 771,118,786: no_step -> replant_moved 745,120,805`, planted the next visit, the next replant moved and
+             planted too; no replant stopped a visit. The build then stopped `no_step earth: 1 open` every visit (F4 below).
+  tree (r19, r20): CANDIDATE_PASS (r19 first FAILED on the wood count: build_composter crafted from the bot's OWN felled logs
+             2 s after the completion -> the driver reads the stock at the completion on tree/terrain scenes).
+  kill (r18, r19, r20): CANDIDATE_PASS.
+  terrain-a (item 2, r18): CANDIDATE_PASS, 195/195, the town's kept litter plank counted apart (litter_kept oak_planks 1).
+
+THE RE-STACK onto 112beb04 (lavastep-01 + ledger-01 on d55ce14d):
+  matset-on-112beb0 2096b392 (matset-01 cherry-picked, range-diff all `=`)
+  mats-on-2096b39   27babc10 (mats-01 cherry-picked; index.mjs both sides kept; f80bd175 + 27babc10: ledger-01's window records
+                    at make_material's open and load and at mats_return's open, the session rows carry ledgerRowFields)
+                    reviews: Codex r2 APPROVE, Claude APPROVE. npm 309/309.
+                    mats-e2e (sandbox5): bricks, kill, torch, furn CANDIDATE_PASS at 27babc10; base 2096b392 BASE_SHAPE x4.
+  shop-on-27babc1   fc6541f9 (shop-01 r20b cherry-picked, no conflict; range-diff 36 `=`, 6 context-only)
+                    reviews: Codex APPROVE, Claude APPROVE (P3: the closer path's second hold/look has no abort check before
+                    the send -- a lavastep abort in that window; named). npm 317/317. SHOP-E2E (sandbox8) CANDIDATE_PASS.
+
+OPEN, named: F1 (cosmetic fallbacks with two builders; not cheap: a peer-aware bill also needs place-time no-fallback, which
+stalls the second builder); F3 + lavastep's seal cobble (Claude) as a whole-bag consumer; F4 a SEGMENT cell with no step
+(seen only on a record sited by the older proof: `earth: 1 open, 1 placeable now`) stops every visit -- the same class as F2
+for ordinary cells; the skip of a replant is a deviation from design S2 needing the OWNER's sign-off (Claude).
