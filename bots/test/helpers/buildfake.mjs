@@ -12,6 +12,7 @@ import { EventEmitter } from 'node:events'
 
 export const B = await import('../../src/buildsite.mjs')
 export const R = await import('../../src/buildrun.mjs')
+const SHOPM = await import('../../src/shop.mjs')
 export const PJ = await import('../../src/buildproj.mjs')
 const { installAckTracker } = await import('../../src/buildack.mjs')
 const RUN_PATH = new URL('../../src/buildrun.mjs', import.meta.url)
@@ -38,6 +39,25 @@ export const G = 69
 export const HOME = { x: 0, y: G + 1, z: 0 }
 const box = n => mcData.blocksByName[n]?.boundingBox ?? 'block'
 export const k3 = a => a.join(',')
+/** Every non-null field of a runner row survives the real formatter (skills.mjs log: `_build_seg` -> buildSegDetail, else
+ *  buildRowDetail), its value uncut. Throws an AssertionError naming the lost field. */
+export const LOST = []
+// a throw inside the runner can be swallowed (a best-effort catch): the loss is also recorded and fails the process at exit
+process.on('exit', () => { if (LOST.length) { console.log(`  FAIL  a runner row lost a field in the log formatter: ${LOST.slice(0, 3).join(' | ')}`); process.exitCode = 1 } })
+export function rowSurvives (kind, d) {
+  try { rowCheck(kind, d) } catch (err) { LOST.push(err.message); throw err }
+}
+function rowCheck (kind, d) {
+  const f = { project: 'shop', ...d }
+  const detail = kind === '_build_seg' ? SHOPM.buildSegDetail(f) : SHOPM.buildRowDetail(f)
+  const got = Object.fromEntries(detail.split(' ').filter(Boolean).map(p => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)]))
+  for (const [key, v] of Object.entries(f)) {
+    if (v == null) continue
+    const want = String(Array.isArray(v) ? v.join(',') : v).replace(/\s+/g, '_')
+    assert.ok(key in got, `${kind} row field \`${key}\` is dropped by the log formatter (${detail})`)
+    assert.strictEqual(got[key], want, `${kind} row field \`${key}\` is cut by the log formatter`)
+  }
+}
 /** THE FAKE SERVER: flat ground (stone below G, grass at G), a shared mutable cell map, placement counts per cell. */
 export function server (cells0 = {}) {
   const cells = new Map(Object.entries(cells0))
@@ -93,7 +113,10 @@ export function bot (srv, name, { inv = KIT(), feet = [2, G + 1, 0], ack = () =>
     dig: dig ?? (async (c, expect) => { if (expect && srv.read(...c)?.name !== expect) return 'refused'; srv.set(c, 'air'); return 'confirmed' }),
     probe,
     aborted,
-    log: (k, d) => logs.push([k, d]),
+    // THE ROW AS IT REACHES THE LOGS (Claude r26 P3: this fake kept the raw objects, so a formatter that dropped a field --
+    // r26, every F2/F4 field -- failed no chain test): each row runs through skills' formatter, and every non-null field the
+    // runner put on it must appear in the detail, uncut
+    log: (k, d) => { logs.push([k, d]); rowSurvives(k, d) },
     now: () => Date.now(),
     sleep: ms => new Promise(r => setTimeout(r, Math.min(ms, 5))),
     spawnedAt: () => 0,
