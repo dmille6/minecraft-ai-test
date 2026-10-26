@@ -45,6 +45,7 @@ async function withProjMutant (old, neu, fn) {
   try { return await fn(await import(out.href)) } finally { try { fs.unlinkSync(out) } catch {} }
 }
 
+const kvOf = s => Object.fromEntries(s.split(' ').filter(Boolean).map(p => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)]))
 console.log('AN EARTH CELL NO STAND REACHES STALLS THE PROJECT -- NAMED, NOT HIDDEN (Claude r22 P2-2)')
 // the motivating field case: an earth (fill) cell; pad waits on earth and every other segment on pad
 const E = [5, G + 1, 25]
@@ -62,6 +63,9 @@ const earthChain = async Mod => {
   assert.ok(row && row[1].stalled === true, 'the row says STALLED: every open segment waits on the stuck cell')
   assert.strictEqual(row[1].waiting, EARTH.cells.length, 'and what it costs: every record cell waits on it')
   assert.match(last.r.why, /STALLED/)
+  // THE ROW AS IT REACHES THE LOGS (skills formats every _build row through shop.mjs buildRowDetail): the fields the read reads
+  const d = kvOf(S.buildRowDetail({ project: 'shop', ...row[1] }))
+  assert.deepStrictEqual([d.op, d.stalled, d.waiting, d.visits], ['stuck_on_cell', 'true', String(EARTH.cells.length), String(R.STUCK_VISITS)], JSON.stringify(d))
   assert.ok(Number.isFinite(PJ.stuckAt(pr.dir, pr.key)), 'and the project backs off')
 }
 await t('a sealed EARTH cell: deferred (nothing placed), deferred, stuck_on_cell stalled=true -- the project stall is named', () => earthChain(R))
@@ -133,6 +137,26 @@ const leaseHeld = async Mod => {
 await t('a loop-end stuck while B holds an independent segment: stuck_on_cell, NOT stalled, no project stamp; A backs itself off', () => leaseHeld(R))
 await t('MUTANT the r23 stamp (atEnd, not stalled): the project is stamped while B works', () => bothA(
   "stuckAt: worst.length && stalled ? t :", "stuckAt: worst.length && atEnd ? t :", leaseHeld))
+
+const rowFields = Sm => {
+  const st = kvOf(Sm.buildRowDetail({ project: 'shop', op: 'stuck_on_cell', cell: [1, 70, 2], visits: 3, n: 1, segs: 'earth+pad', waiting: 168, stalled: true }))
+  assert.deepStrictEqual([st.stalled, st.waiting, st.visits], ['true', '168', '3'], JSON.stringify(st))
+  const m = kvOf(Sm.buildRowDetail({ project: 'shop', op: 'replant_moved', cell: [1, 70, 2], why: 'no_step', to: '3,70,4', result: 'accepted' }))
+  assert.deepStrictEqual([m.op, m.to, m.result, m.why], ['replant_moved', '3,70,4', 'accepted', 'no_step'])
+  const e = kvOf(Sm.buildRowDetail({ project: 'shop', op: 'stuck_on_cell', cell: [1, 70, 2], visits: 3, n: 1, segs: 'extra+extra2', waiting: 2, early: true }))
+  assert.deepStrictEqual([e.early, e.n, e.segs, e.waiting], ['true', '1', 'extra+extra2', '2'])
+}
+await t('the row formatter keeps the F2/F4 fields the read reads (stalled/waiting/visits; replant_moved to/result/why; early/n)', () => rowFields(S))
+await t('MUTANT the r25 whitelist (shop.mjs): the stuck row reaches the logs without stalled/waiting', async () => {
+  const src = fs.readFileSync(new URL('../src/shop.mjs', import.meta.url), 'utf8')
+  const old = "'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)"
+  assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION ANCHOR missing or not unique')
+  const out = new URL(`./_mutant-shop-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, "'saplings', 'gen'], f)").replace(/from '\.\//g, "from '../src/"))
+  let why = null
+  try { await rowFields(await import(out.href)) } catch (err) { why = err } finally { try { fs.unlinkSync(out) } catch {} }
+  assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason: ${why}`)
+})
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
