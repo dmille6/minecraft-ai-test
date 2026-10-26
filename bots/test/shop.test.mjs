@@ -222,6 +222,11 @@ const W = [
   ['skills: the share persisted (or cleared on completion) in the finally, a failure counted', SK, /if \(drawn0\) \{ try \{ if \(completed\) \{ if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+ \} else persist\(\) \} catch \{ drawnFails\+\+ \} \}\n\s*if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
   ['skills: the share cleared AT the completion, before the bank-back', SK, /completed = true\n(?:\s*\/\/[^\n]*\n)*\s*if \(drawn0 && !drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+/],
   ['skills: a complete workshop\'s visit clears a stale share', SK, /if \(Object\.keys\(drawnRead\(dir, key, me\)\.drawn\)\.length\) drawnWrite\(dir, key, me, \{\}\)\n\s*return out\('no_effect', 'complete'/],
+  ['skills: the composter plans nothing while the bot holds a workshop share', SK, /export function townBuildPlan \(bot\) \{\n\s*if \(shopShareHeld\(bot\)\) return null/],
+  ['skills: the junk well plans nothing while the bot holds a workshop share', SK, /function wellBuildPlanOf \(bot\) \{\n\s*if \(shopShareHeld\(bot\)\) return null/],
+  ['skills: found-01 founds nothing while the bot holds a workshop share', SK, /if \(shopShareHeld\(bot\)\) return out\('no_effect', 'refused', 'the bag holds the workshop/],
+  ['cognitive: no found order while the bot holds a workshop share', CG, /if \(!tp\) return null\n\s*if \(shopShareHeld\(bot\)\) return null\s*\n\s*const items = bot\.inventory\?\.items\?\.\(\) \?\? \[\]\n\s*const wanted = /],
+  ['skills: shopShareHeld reads the clamped share', SK, /return Object\.keys\(drawnHeld\(dr\.drawn, held, dr\.bag\)\)\.length > 0/],
   ['skills: the bag row reports the share\'s writes', SK, /drawn: drawn0 \? \(drawnFails \? `fail:\$\{drawnFails\}` : 'ok'\) : '-' \}/],
   ['skills: persist writes the bag balance with its baseline and counts a failure', SK, /if \(!drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 \}\), \{ bag: b1 \}\)\) drawnFails\+\+/],
 ]
