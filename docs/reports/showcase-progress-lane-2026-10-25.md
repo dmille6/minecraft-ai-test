@@ -134,6 +134,18 @@ monuments). It runs on the showcase BEFORE the fleet; the fleet canary follows a
    as its acceptance:
    * `stage --piece`: the current release is the sha's ancestor; a PIECES line names it with a Paper PASS; REQUIRED_KEPT still
      passes against it; RELEASE.json carries `piece: <run>` and `prev: <release>`;
+     **BUILT 10-25 (branch `showcase-stage-piece`, owner: a STACK -- matset-01 + mats-01 + shop-01 -- stages together):**
+     `showcase_ops.py stage <sha> --piece matset-01,mats-01,shop-01`. The rule is `piece_stack_refusal()` (pure, tested): the
+     current release is the tip's ancestor and the stack adds commits; every named run's NEWEST PIECES line is kind `building`
+     (a Paper PASS and no FAIL in `paper`, a Codex AND a Claude APPROVE in `reviews`) or `survival` (KEPT + promoted in the
+     follower's journal); every piece's sha is in the stack (ancestry or patch equivalence) and its base is the stack's
+     ancestor; EVERY commit in `release..sha` lies in some named piece's own range `(base, sha]` (no unreviewed commit rides
+     along; the tip's ancestry is not enough); no REVOKED sha is in the stack. The command runs only in the lane (`LANE`
+     present, `AUTO_FOLLOW` absent), on a verified observation (its policy and dependency digests), with REQUIRED_KEPT checked
+     against the stack; a refusal is journalled `piece-refused` in ops/deploy.jsonl. RELEASE.json carries `piece: [runs]`,
+     `prev: <release sha>`, `prev_release: <the harness release dir>`; a cached plain stage of the same sha is never reused as
+     a piece release. Stage only: activation is `activate <release>` as before. `activate --lane` and piece-aware rollback
+     below are STILL NOT BUILT.
    * `activate --lane`: restarts and verifies ALL TEN (not only the running ones -- with AUTO_FOLLOW off `activate()` today
      verifies only active bots, and after a stop it only switches the symlink);
    * piece-aware rollback: `release_admissible()` judges against the fleet build, so a showcase-only previous release is

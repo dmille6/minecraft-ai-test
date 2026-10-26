@@ -553,6 +553,195 @@ class GuardScript(unittest.TestCase):
         self.assertEqual(self.run_guard('run-y-2-200', ['RESV run-x-1-100'], wait=2), 1)
 
 
+# ------------------------------------------------------------------------------------------------ stage --piece (the lane)
+SO = load('showcase_ops', 'showcase_ops.py')
+# the showcase release R, then a STACK: matset (M1) <- mats (M2) <- shop (S1 <- S2); X is a stray commit on top; Q a side branch from R
+R40, M1, M2, S1, S2, X40, Q40 = ('e' * 40), ('1' * 40), ('2' * 40), ('3' * 40), ('4' * 40), ('5' * 40), ('6' * 40)
+LINE = {R40: 0, M1: 1, M2: 2, S1: 3, S2: 4, X40: 5}
+
+
+def anc2(x, y):
+    if x == y:
+        return True
+    if x in LINE and y in LINE:
+        return LINE[x] <= LINE[y]
+    return x == R40 and y == Q40
+
+
+def no_cherry(x, y):
+    return False
+
+
+def piece(run, sha, base, kind='building', paper='docs/reports/x-paper.txt CANDIDATE_PASS', reviews=('Codex r3 APPROVE', 'Claude r1 APPROVE')):
+    return {'run': run, 'sha': sha, 'base': base, 'kind': kind, 'paper': paper, 'reviews': list(reviews), 'owner': '10-23 Q4'}
+
+
+ROWS = [piece('matset-01', M1, R40), piece('mats-01', M2, M1), piece('shop-01', S2, M2)]
+STACK = [M1, M2, S1, S2]
+
+
+class PieceStack(unittest.TestCase):
+    def ref(self, sha=S2, rel=R40, runs=('matset-01', 'mats-01', 'shop-01'), rows=ROWS, commits=STACK, revoked=(), kept=None, cherry=no_cherry):
+        # '' for staged: a refused mutant then FAILS an assertIn (None would raise, an ERROR the mutant runner does not count)
+        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, cherry, list(revoked), kept) or ''
+
+    def test_the_owner_stack_stages(self):
+        self.assertEqual(self.ref(), '')
+
+    def test_a_piece_left_out_of_the_stack_is_refused(self):
+        # matset-01 not named: M1 lies in no named piece's own range (the tip's ancestry is not enough)
+        self.assertIn('belong to no named piece', self.ref(runs=('mats-01', 'shop-01')))
+
+    def test_a_stray_commit_on_top_is_refused(self):
+        self.assertIn('belong to no named piece', self.ref(sha=X40, commits=STACK + [X40]))
+
+    def test_a_run_without_a_pieces_line_is_refused(self):
+        self.assertIn('no PIECES.jsonl line', self.ref(runs=('matset-01', 'mats-01', 'shop-01', 'house-01')))
+
+    def test_the_newest_line_of_a_run_speaks_for_it(self):
+        rows = ROWS + [piece('shop-01', S2, M2, paper='FAIL at cand-9')]
+        self.assertIn('no Paper PASS', self.ref(rows=rows))
+        self.assertEqual(self.ref(rows=rows + [piece('shop-01', S2, M2)]), '')
+
+    def test_a_building_piece_needs_paper_pass_and_both_approves(self):
+        for bad, why in ((piece('shop-01', S2, M2, paper='docs/x.txt'), 'no Paper PASS'),
+                         (piece('shop-01', S2, M2, reviews=['Claude r6 APPROVE']), 'no Codex APPROVE'),
+                         (piece('shop-01', S2, M2, reviews=['Codex r6 APPROVE', 'Claude r6 CHANGES']), 'no Claude APPROVE')):
+            self.assertIn(why, self.ref(rows=ROWS[:2] + [bad]))
+
+    def test_a_survival_piece_must_be_kept(self):
+        rows = ROWS[:2] + [piece('shop-01', S2, M2, kind='survival')]
+        self.assertIn('KEPT on the fleet first', self.ref(rows=rows, kept={'shop-01': (False, 'not kept yet')}))
+        self.assertEqual(self.ref(rows=rows, kept={'shop-01': (True, 'kept and promoted')}), '')
+
+    def test_an_unknown_kind_is_refused(self):
+        self.assertIn('kind must be', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, kind='misc')]))
+
+    def test_the_stack_must_build_on_the_current_release(self):
+        self.assertIn('not an ancestor', self.ref(sha=Q40, commits=[Q40], rows=ROWS + [piece('q', Q40, R40)], runs=('q',), rel=M1))
+        self.assertIn('adds nothing', self.ref(sha=R40, commits=[]))
+        self.assertIn('no current release', self.ref(rel=None))
+
+    def test_a_piece_sha_outside_the_stack_is_refused(self):
+        self.assertIn('is not in the stack', self.ref(sha=M2, commits=[M1, M2]))
+
+    def test_a_piece_recorded_on_another_branch_is_refused(self):
+        # shop-01's line names Q40 (a side branch): not an ancestor of S2 and not patch-equivalent inside it -> refused; a piece
+        # stages from the branch its PIECES line names (its commits must lie in the stack itself, the stray rule)
+        rows = ROWS[:2] + [piece('shop-01', Q40, R40)]
+        self.assertIn('is not in the stack', self.ref(rows=rows))
+
+    def test_a_revoked_sha_in_the_stack_is_refused(self):
+        self.assertIn('REVOKED', self.ref(revoked=[M2]))
+
+    def test_names_twice_and_bad_shas(self):
+        self.assertIn('named twice', self.ref(runs=('mats-01', 'mats-01')))
+        self.assertIn('40 hex', self.ref(sha='abc'))
+        self.assertIn('40-hex sha and base', self.ref(rows=ROWS[:2] + [dict(piece('shop-01', S2, M2), base='')]))
+
+
+class StagePieceCommand(unittest.TestCase):
+    """cmd_stage --piece wiring over a temp /srv/showcase: the lane only, AUTO_FOLLOW off, a verified observation, REQUIRED_KEPT,
+    and stage() called with the piece record. Nothing here builds a release (stage() is replaced)."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
+                                                  'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
+                                                  'current_release', 'stage', 'pieces_in')}
+        SO.ROOT = self.d
+        for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
+                     ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
+                     ('AUTO', 'AUTO_FOLLOW'), ('LANE', 'LANE'), ('PIECES', 'PIECES.jsonl')):
+            setattr(SO, k, os.path.join(self.d, v))
+        os.makedirs(os.path.join(self.d, 'ops'))
+        with open(SO.LEDGER, 'w') as f:
+            f.write(json.dumps({'sha': R40, 'verified': True, 'policy': 'p1', 'deps': 'd1'}) + '\n')
+        with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
+            json.dump({'journal': []}, f)
+        with open(SO.PIECES, 'w') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in ROWS))
+        open(SO.LANE, 'w').close()
+        SO.lock = lambda: None
+        SO.fetch = lambda: None
+        SO.resolve = lambda h: h if len(h) == 40 else None
+        SO.git = lambda *a, check=True: '\n'.join(STACK) if a and a[0] == 'rev-list' else ''
+        SO.is_anc = anc2
+        SO.cherry_equivalent = no_cherry
+        SO.current_release = lambda: {'sha': R40}
+        SO.pieces_in = lambda sha, journal: (True, [])
+        self.calls = []
+        SO.stage = lambda *a, **k: (self.calls.append((a, k)), (True, '/x/release'))[1]
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(SO, k, v)
+
+    def run_stage(self, sha=S2, piece='matset-01,mats-01,shop-01', bootstrap=False):
+        import types, io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = SO.cmd_stage(types.SimpleNamespace(sha=sha, piece=piece, bootstrap=bootstrap))
+        return rc, buf.getvalue()
+
+    def test_stages_the_stack_with_its_piece_record(self):
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 0, out)
+        (args, kw), = self.calls
+        self.assertEqual(args[0], S2)
+        self.assertEqual(kw['extra']['piece'], ['matset-01', 'mats-01', 'shop-01'])
+        self.assertEqual(kw['extra']['prev'], R40)
+        self.assertFalse(kw['bootstrap'])
+
+    def test_outside_the_lane_nothing_is_staged(self):
+        os.remove(SO.LANE)
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('progress lane', out); self.assertEqual(self.calls, [])
+
+    def test_with_auto_follow_on_nothing_is_staged(self):
+        open(SO.AUTO, 'w').close()
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertEqual(self.calls, [])
+
+    def test_an_unverified_observation_refuses(self):
+        with open(SO.LEDGER, 'a') as f:
+            f.write(json.dumps({'sha': R40, 'verified': False}) + '\n')
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('not verified', out); self.assertEqual(self.calls, [])
+
+    def test_required_kept_still_applies(self):
+        SO.pieces_in = lambda sha, journal: (False, ['townplan-01'])
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('REQUIRED_KEPT', out); self.assertEqual(self.calls, [])
+
+    def test_a_refused_stack_is_journalled_and_not_staged(self):
+        rc, out = self.run_stage(piece='mats-01,shop-01')
+        self.assertEqual(rc, 1); self.assertIn('no named piece', out); self.assertEqual(self.calls, [])
+        rows = [json.loads(l) for l in open(SO.DEPLOY)]
+        self.assertEqual(rows[-1]['event'], 'piece-refused')
+
+    def test_piece_and_bootstrap_are_exclusive(self):
+        rc, out = self.run_stage(bootstrap=True)
+        self.assertEqual(rc, 1); self.assertIn('exclusive', out); self.assertEqual(self.calls, [])
+
+
+class StageCache(unittest.TestCase):
+    def test_a_cached_plain_release_is_never_reused_as_a_piece_release(self):
+        d = tempfile.mkdtemp()
+        saved = (SO.RELEASES, SO.OPS)
+        try:
+            SO.RELEASES, SO.OPS = os.path.join(d, 'releases'), os.path.join(d, 'ops')
+            os.makedirs(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1')); os.makedirs(SO.OPS)
+            open(os.path.join(SO.OPS, 'policy-p1.env'), 'w').close()
+            with open(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1', 'RELEASE.json'), 'w') as f:
+                json.dump({'sha': S2}, f)
+            ok, why = SO.stage(S2, 'p1', 'd1', extra={'piece': ['shop-01'], 'prev': R40})
+            self.assertFalse(ok); self.assertIn('without (or with another) piece record', why)
+            ok2, _ = SO.stage(S2, 'p1', 'd1')
+            self.assertTrue(ok2, 'a plain stage still reuses its own cache')
+        finally:
+            SO.RELEASES, SO.OPS = saved
+
+
 class SaveHoldLock(unittest.TestCase):
     def setUp(self):
         self.R = load('rcon', 'rcon.py')

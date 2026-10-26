@@ -4,6 +4,9 @@ Design: docs/reports/showcase-2026-10-20.md sections 3 and 9. Pure decisions liv
 
     showcase_ops.py follow                    hourly (timer): observe the bench, decide, act only if AUTO_FOLLOW
     showcase_ops.py stage <sha> [--bootstrap] build releases/<sha8>-<policy8>-<deps8>/ (never touches a bot)
+    showcase_ops.py stage <sha> --piece <run>[,<run>...]
+                                              the PROGRESS LANE: a stack of showcase-first pieces (each a PIECES.jsonl line)
+                                              on top of the current release (docs/reports/showcase-progress-lane-2026-10-25.md 5)
     showcase_ops.py activate <release-dir>    switch the harness symlink; restart+verify running bots 12 s apart
     showcase_ops.py gate                      the start-bots gate: every check, each with its remedy; exit 1 if any fails
     showcase_ops.py status                    the newest follow decision and the current release
@@ -29,6 +32,7 @@ ARTIFACTS = f'{ROOT}/artifacts'
 SITE = f'{ROOT}/town-site.json'
 REQUIRED = f'{ROOT}/REQUIRED_KEPT'
 REVOKED = f'{ROOT}/REVOKED'
+PIECES = f'{ROOT}/PIECES.jsonl'
 AUTO = f'{ROOT}/AUTO_FOLLOW'
 # THE PROGRESS LANE (docs/reports/showcase-progress-lane-2026-10-25.md): while this file exists the follower only observes,
 # whatever AUTO_FOLLOW says and however it is run (re-review 10-25: the systemd drop-in covered the timer only), and
@@ -230,7 +234,7 @@ def capture_modules(want_digest):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def stage(sha, policy_dig, deps_dig, bootstrap=False, why=''):
+def stage(sha, policy_dig, deps_dig, bootstrap=False, why='', extra=None):
     if not (sha and re.fullmatch(r'[0-9a-f]{40}', sha)):
         return False, f'sha must be 40 hex: {sha!r}'
     if not policy_dig or not os.path.exists(f'{OPS}/policy-{policy_dig}.env'):
@@ -240,6 +244,10 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why=''):
     name = f'{sha[:8]}-{policy_dig[:8]}-{deps_dig[:8]}'
     dst = f'{RELEASES}/{name}'
     if os.path.exists(f'{dst}/RELEASE.json'):
+        # a PIECE release is never served from a cache that lacks its piece record (an earlier plain stage of the same sha)
+        old = json.load(open(f'{dst}/RELEASE.json'))
+        if extra and any(old.get(k) != v for k, v in extra.items() if k in ('piece', 'prev')):
+            return False, f'{name} is already staged without (or with another) piece record {old.get("piece")}; remove it first'
         return True, dst
     tmp = tempfile.mkdtemp(dir=RELEASES, prefix='.stage-')
     try:
@@ -254,7 +262,7 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why=''):
         shutil.copy(f'{OPS}/policy-{policy_dig}.env', f'{tmp}/control.env')
         os.makedirs(f'{tmp}/env', exist_ok=True)
         rel = {'sha': sha, 'policy': policy_dig, 'deps': deps_dig, 'expected_version': f'{sha}+{src_digest(tmp + "/src")}',
-               'staged_at': FR.iso(now_utc()), 'bootstrap': bootstrap, 'why': why}
+               'staged_at': FR.iso(now_utc()), 'bootstrap': bootstrap, 'why': why, **(extra or {})}
         if os.path.exists(SITE):
             write_envs(tmp, rel)
         with open(f'{tmp}/RELEASE.json', 'w') as f:
@@ -267,6 +275,71 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why=''):
         shutil.rmtree(tmp, ignore_errors=True)
         append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'stage-failed', 'sha': sha, 'error': str(e)[:300]})
         return False, str(e)
+
+
+APPROVE = re.compile(r'\bAPPROVE\b')
+PAPER_PASS = re.compile(r'\b(CANDIDATE_PASS|PASS)\b')
+
+
+def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq, revoked, kept=None):
+    """THE PROGRESS LANE'S STAGE RULE (docs/reports/showcase-progress-lane-2026-10-25.md 5; owner 10-25: a STACK of pieces --
+    e.g. matset-01 + mats-01 + shop-01 -- staged together) -> None (stage it) | the reason not to. Pure.
+      sha         the stack's tip; release_sha the CURRENT showcase release; runs the stack's piece names (in any order)
+      rows        PIECES.jsonl rows; the NEWEST row of a run speaks for it
+      commits     every commit in release_sha..sha (git rev-list)
+      kept        {run: (ok, why)} the journal's KEEP+promoted record (followrule.kept_runs) -- for a survival piece
+    Refused unless: the current release is the stack's ancestor and the stack adds something; every named run has a row of
+    kind building (a Paper PASS and an APPROVE from BOTH Codex and Claude in its reviews) or survival (KEPT on the fleet); every
+    piece's sha is inside the stack (ancestry or patch equivalence) and its base is the stack's ancestor; NOTHING in
+    release..sha lies outside the named pieces (no unreviewed commit rides along); no REVOKED sha is in the stack."""
+    if not (sha and re.fullmatch(r'[0-9a-f]{40}', sha)):
+        return f'sha must be 40 hex: {sha!r}'
+    if not release_sha:
+        return 'no current release: a piece stacks on a release (stage --bootstrap first)'
+    if sha == release_sha or not commits:
+        return f'{sha[:8]} adds nothing to the current release {release_sha[:8]}'
+    if not is_anc(release_sha, sha):
+        return f'the current release {release_sha[:8]} is not an ancestor of {sha[:8]}: a piece stack builds ON the showcase release'
+    if not runs:
+        return 'no piece named (--piece <run>[,<run>...])'
+    if len(set(runs)) != len(runs):
+        return f'a piece named twice: {runs}'
+    pieces = []
+    for run in runs:
+        mine = [r for r in rows if isinstance(r, dict) and r.get('run') == run]
+        if not mine:
+            return f'{run}: no PIECES.jsonl line (register the piece first: section 5 step 3)'
+        r = mine[-1]
+        psha, base, kind = str(r.get('sha') or ''), str(r.get('base') or ''), r.get('kind')
+        if not re.fullmatch(r'[0-9a-f]{40}', psha) or not re.fullmatch(r'[0-9a-f]{40}', base):
+            return f'{run}: its line needs a 40-hex sha and base ({psha[:12]!r}, {base[:12]!r})'
+        if kind == 'building':
+            if not PAPER_PASS.search(str(r.get('paper') or '')) or re.search(r'\bFAIL\b', str(r.get('paper') or '')):
+                return f'{run}: no Paper PASS in its line ({str(r.get("paper"))[:80]!r})'
+            rv = [str(x) for x in (r.get('reviews') or [])]
+            for eng in ('codex', 'claude'):
+                if not any(eng in x.lower() and APPROVE.search(x) for x in rv):
+                    return f'{run}: no {eng.capitalize()} APPROVE in its reviews {rv[:3]}'
+        elif kind == 'survival':
+            ok, why = (kept or {}).get(run, (False, 'no journal record'))
+            if not ok:
+                return f'{run}: a survival piece must be KEPT on the fleet first ({why})'
+        else:
+            return f'{run}: kind must be building or survival, not {kind!r}'
+        if not (is_anc(psha, sha) or cherry_eq(psha, sha)):
+            return f'{run}: its sha {psha[:8]} is not in the stack {sha[:8]}'
+        if not is_anc(base, sha):
+            return f'{run}: its base {base[:8]} is not an ancestor of the stack {sha[:8]}'
+        pieces.append((psha, base))
+    # a commit belongs to a piece when it lies in that piece's OWN range (base, sha]: the tip's ancestry alone would let every
+    # commit below it ride along unnamed
+    stray = [c for c in commits if not any(c != b and is_anc(b, c) and is_anc(c, p) for p, b in pieces)]
+    if stray:
+        return f'{len(stray)} commit(s) in {release_sha[:8]}..{sha[:8]} belong to no named piece (first {stray[0][:8]}): stage only reviewed pieces'
+    bad = [x for x in (revoked or []) if is_anc(x, sha)]
+    if bad:
+        return f'the stack contains a REVOKED sha {bad[0][:8]}'
+    return None
 
 
 def write_envs(release_dir, rel):
@@ -286,6 +359,8 @@ def cmd_stage(a):
     ledger = FR.load_jsonl(LEDGER)
     last = ledger[-1] if ledger else {}
     sha = resolve(a.sha) or a.sha
+    if getattr(a, 'piece', None):
+        return stage_piece(a, sha, feed, last)
     if a.bootstrap:
         promoted = FR.promotions((feed or {}).get('journal') or [], resolve)
         if not last.get('verified'):
@@ -302,6 +377,44 @@ def cmd_stage(a):
                   f'{(d.get("target") or "")[:8]}); use --bootstrap for the first release')
             return 1
     ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=a.bootstrap, why='operator stage')
+    print(('STAGED ' if ok else 'FAILED ') + out)
+    return 0 if ok else 1
+
+
+def stage_piece(a, sha, feed, last):
+    """`stage <sha> --piece <runs>`: the lane only (LANE present, AUTO_FOLLOW absent), the newest observation verified (its
+    pinned policy and dependency digest are the release's), piece_stack_refusal None, and REQUIRED_KEPT still passes against
+    the stack (pieces_in). RELEASE.json carries piece: [runs] and prev: the release it stacks on. Stages only: activation
+    is `showcase_ops.py activate <release>` (with its own REQUIRED_KEPT check)."""
+    runs = [r.strip() for r in a.piece.split(',') if r.strip()]
+    if a.bootstrap:
+        print('REFUSED: --piece and --bootstrap are exclusive')
+        return 1
+    if not os.path.exists(LANE) or os.path.exists(AUTO):
+        print(f'REFUSED: a piece stages only in the progress lane ({LANE} present, {AUTO} absent)')
+        return 1
+    if not last.get('verified'):
+        print('REFUSED: the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
+        return 1
+    cur = current_release()
+    rel_sha = (cur or {}).get('sha')
+    rows = FR.load_jsonl(PIECES)
+    commits = git('rev-list', f'{rel_sha}..{sha}', check=False).split() if rel_sha and resolve(sha) else []
+    revoked = [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
+    journal = (feed or {}).get('journal') or []
+    kept = FR.kept_runs(journal, [(r, (next((x for x in reversed(rows) if x.get('run') == r), {}) or {}).get('sha') or '') for r in runs])
+    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, cherry_equivalent, revoked, kept)
+    if why:
+        print(f'REFUSED: {why}')
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'piece-refused', 'sha': sha, 'piece': runs, 'why': why[:300]})
+        return 1
+    ok, missing = pieces_in(sha, journal)
+    if not ok:
+        print(f'REFUSED: {sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
+        return 1
+    prev = os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None
+    ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=False, why=f'piece stack {",".join(runs)}',
+                    extra={'piece': runs, 'prev': rel_sha, 'prev_release': prev})
     print(('STAGED ' if ok else 'FAILED ') + out)
     return 0 if ok else 1
 
@@ -578,6 +691,7 @@ def main():
     s = sub.add_parser('stage')
     s.add_argument('sha')
     s.add_argument('--bootstrap', action='store_true')
+    s.add_argument('--piece', default=None, help='the progress lane: <run>[,<run>...] -- PIECES.jsonl lines stacked on the current release')
     t = sub.add_parser('activate')
     t.add_argument('release')
     sub.add_parser('gate')
