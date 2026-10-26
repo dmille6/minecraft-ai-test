@@ -113,6 +113,7 @@ import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnkn
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
+import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations } from './buildsite.mjs'
@@ -1331,8 +1332,10 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
         const watch = observeApproachDig(bot)
         let walked
         try {
-          await bot.withGatherMovements(() =>
+          // a plan admitted only at the base's costs (lidplace.mjs: the lid surcharge spent the cap) is walked at them too
+          const approachWalk = () => bot.withGatherMovements(() =>
             withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
+          await (plan.lidFallback ? withoutLidPrice(bot.lidPrice ?? null, approachWalk) : approachWalk())
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
           if (e.aborted || signal?.aborted) {
@@ -1357,7 +1360,7 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
         logEvent({ kind: 'dig_approach', status: inReach ? 'success' : 'fail',
                    detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), ` +
                            `in_reach=${inReach}${said ? ` (${said})` : ''} ` +
-                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms} ` +
+                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms}${plan.lidFallback ? ' lid_fallback=1' : ''} ` +
                            `walk_ms=${walked.walkMs} dig_ms=${Math.round(plan.digMs ?? 0)} ` +
                            `attempted=${walked.attempted.length ? walked.attempted.join(',') : 'none'} ` +
                            `dug=${walked.dug.length ? walked.dug.join(',') : 'none'} ` +
@@ -15753,7 +15756,7 @@ export function townPlanSeed (bot) {
 /** The town's head plan (this world) -> planHead's answer; the in-memory copy the adopters read is refreshed with it. */
 export function townPlanHead (bot) {
   const h = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
-  if (h.ok && bot) bot.townPlan = h.head ? { gen: h.head.gen, plan: h.head.plan, ko: keepouts(h.head.plan), cells: planFurnitureCells(h.head.plan), at: Date.now() } : null
+  if (h.ok && bot) bot.townPlan = h.head ? { gen: h.head.gen, plan: h.head.plan, ko: keepouts(h.head.plan), cells: planFurnitureCells(h.head.plan), guard: placeGuardCells(h.head.plan), at: Date.now() } : null
   return h
 }
 /** THE ADOPTERS' VIEW: the last head this bot read (every tick refreshes it) -> { gen, plan, ko } | null (no plan: the base). */
