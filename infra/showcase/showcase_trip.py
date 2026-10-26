@@ -41,7 +41,7 @@ LINES (each with its denominator; a zero is printed beside the positive control 
   REPORTED        plan generations, found outcomes, founding placements (the evidence the town is being founded)
 VERDICT  TRIP (stop-bots.sh, or re-activate the previous release when a piece was just deployed) | WATCH | OK
 """
-import argparse, collections, contextlib, datetime as dt, glob, json, math, os, re, sys
+import argparse, collections, contextlib, datetime as dt, functools, glob, json, math, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -476,20 +476,36 @@ def plan_read(rows, since, plans=None):
     return defects, report
 
 
-def shop_kinds():
-    """The workshop's row kinds (shopread.BUILD_KINDS), or none when shopread is not beside this file."""
+SHOP_GATES = tuple(g for g, _ in SHOP_TRIP) + ('H8 conformance',)
+
+
+@functools.lru_cache(maxsize=1)
+def shop_module():
+    """-> (shopread, None) or (None, why). ANY failure -- missing, a SyntaxError, an import-time crash, no BUILD_KINDS / pos_of
+    (Codex S6 r1 P1: only ImportError was caught, and a broken shopread aborted the whole S5 read) -- is a reason, never raised."""
     try:
         import shopread as SR
-        return set(SR.BUILD_KINDS)
-    except ImportError:
-        return set()
+        set(SR.BUILD_KINDS), SR.pos_of, SR.judge, SR.read_projects, SR.load_surveys
+        return SR, None
+    except BaseException as e:          # noqa: B036 -- a broken module must never take the S5 read down with it
+        if isinstance(e, (KeyboardInterrupt, SystemExit)):
+            raise
+        return None, '%s: %s' % (type(e).__name__, str(e)[:160])
+
+
+def shop_kinds():
+    """The workshop's row kinds (shopread.BUILD_KINDS), or none when shopread is unusable (shop_module says why)."""
+    SR, _ = shop_module()
+    return set(SR.BUILD_KINDS) if SR else set()
 
 
 def feet_of(pos):
-    """A row's bot.pos -> [x, y, z] floored, or None. Pure (shopread.pos_of's rule, here so plan_rows needs no import)."""
+    """A row's bot.pos -> shopread's OWN normalisation (pos_of: y + 1e-6 before the floor; Codex S6 r1 P2 -- a plain floor read
+    y 71.9999999 as 71, and G6 / H7 then saw a bot ON a cell it stands above), or None."""
+    SR, _ = shop_module()
     try:
-        return [math.floor(float(pos[k])) for k in ('x', 'y', 'z')] if isinstance(pos, dict) else None
-    except (KeyError, TypeError, ValueError):
+        return SR.pos_of({'pos': pos}) if SR else None
+    except Exception:
         return None
 
 
@@ -746,8 +762,8 @@ def cmd_read(a):
         report['history'] = report_hist
         # S6: a shop read failure is its own WATCH and never drops the plan's defects
         try:
-            if not shop_kinds():
-                raise ImportError('shopread.py is not beside %s' % HERE)
+            if shop_module()[0] is None:
+                raise RuntimeError('shopread unusable beside %s (%s)' % (HERE, shop_module()[1]))
             zl = [b for v in (report.get('_zones') or {}).values() for b in v]
             shop_full, shop_watch, shop_report, shop_items = shop_read(prows, run_since or since, zl)
             full = dict(full, **shop_full)
@@ -764,6 +780,10 @@ def cmd_read(a):
                 except Exception as e:
                     ackd = {}            # an unreadable ACK acknowledges NOTHING: every defect trips (fail closed)
                     report['ack_error'] = str(e)[:80]
+            if shop_error:
+                # the shop read FAILED: its acknowledged items are carried as present, so this read neither prunes them nor
+                # re-trips them when shopread recovers (Codex S6 r1 P2); a failure is its own WATCH
+                report['items'] = dict(report['items'], **{g: list(ackd.get(g, [])) for g in SHOP_GATES if ackd.get(g)})
             new, keep = unacked(report['items'], ackd)
             defects = {g: len(new.get(g, [])) for g in full}
             report['acked'] = {g: v for g, v in keep.items() if v}
@@ -947,7 +967,46 @@ def shop_selftest(T):
         prs, hist = plan_rows(T(0), paths=os.path.join(td, 'skill-*.jsonl'))
         got = {r['name']: r.get('feet') for r in prs}
         assert got == {'_build': [1, 70, 1], '_found': None}, ('plan_rows: the shop row kept with its feet, other kinds untouched', got)
+    assert feet_of({'x': 1.5, 'y': 71.9999999, 'z': -0.5}) == SR.pos_of({'pos': {'x': 1.5, 'y': 71.9999999, 'z': -0.5}}) == [1, 72, -1], \
+        'feet: shopread\'s own normalisation (y + 1e-6), never a plain floor'
     print('selftest: S6 shop checked (H1, H3, H6, H8 TRIP; stuck / stalled / skipped / unwritten / unjudged WATCH; the run window)')
+
+
+def shop_failure_selftest():
+    """A BROKEN shopread (a SyntaxError beside the file) never aborts the S5 read, and never drops the shop acknowledgements (Codex
+    S6 r1 P1 + P2). Runs `read` in a child process with only the files it needs, a synthetic log and a pool dir."""
+    import shutil, subprocess, tempfile
+    try:
+        import townplanread, foundread  # noqa: F401
+    except ImportError:
+        print('selftest: townplanread/foundread not beside this file -- the broken-shopread check skipped')
+        return
+    with tempfile.TemporaryDirectory() as td:
+        for f in ('showcase_trip.py', 'townplanread.py', 'foundread.py'):
+            shutil.copy(os.path.join(HERE, f), td)
+        shutil.copytree(os.path.join(HERE, 'lib'), os.path.join(td, 'lib'))
+        open(os.path.join(td, 'shopread.py'), 'w').write('def broken(:\n')
+        ack = os.path.join(td, 'ACK.json')
+        json.dump({'items': {'H1 off_record': ['showcase-Bravo 9,70,9 stone_bricks']}}, open(ack, 'w'))
+        open(os.path.join(td, 'TOWN'), 'w').write('2026-10-25T12:00:00Z')
+        open(os.path.join(td, 'RUN'), 'w').write('2026-10-25T12:00:00Z')
+        code = ('import sys; sys.argv=["x","read","--minutes","180","--not-running","--run-since",%r,"--town-since",%r,"--ack",%r,'
+                '"--zones-file","/nonexistent","--zones-baseline","/nonexistent"]; import showcase_trip as M; M.LOGS=%r; '
+                'M.brain_paused=lambda: None; sys.exit(M.main())') % (os.path.join(td, 'RUN'), os.path.join(td, 'TOWN'), ack,
+                                                                      os.path.join(td, 'none-*.jsonl'))
+        p = subprocess.run([sys.executable, '-c', code], cwd=td, capture_output=True, text=True, timeout=120)
+        out = p.stdout + p.stderr
+        assert 'S5 TOWN PLAN' in out and 'READ FAILED' not in out.split('S5 TOWN PLAN', 1)[1].split('\n', 1)[0], \
+            'a broken shopread must not abort the S5 read:\n' + out[-1200:]
+        assert 'S6 the shop read failed' in out, 'a broken shopread is its own WATCH:\n' + out[-800:]
+        kept = json.load(open(ack)).get('items') or {}
+        assert kept.get('H1 off_record') == ['showcase-Bravo 9,70,9 stone_bricks'], 'a failed shop read keeps the shop acks: %s' % kept
+        code2 = ('import sys; sys.argv=["x","ack","--why","t","--ack",%r,"--town-since",%r]; import showcase_trip as M; M.LOGS=%r; '
+                 'sys.exit(M.main())') % (ack, os.path.join(td, 'TOWN'), os.path.join(td, 'none-*.jsonl'))
+        p2 = subprocess.run([sys.executable, '-c', code2], cwd=td, capture_output=True, text=True, timeout=120)
+        assert p2.returncode == 1 and 'REFUSED: shopread unusable' in p2.stdout, 'ack refuses LOUDLY on a broken shopread:\n' + (p2.stdout + p2.stderr)[-800:]
+        assert (json.load(open(ack)).get('items') or {}).get('H1 off_record'), 'a refused ack leaves ACK.json as it was'
+    print('selftest: a broken shopread -- S5 still read, S6 a WATCH, the shop acknowledgements kept')
 
 
 def selftest():
@@ -1005,6 +1064,7 @@ def selftest():
     assert zone_diff({'1,1,1': 'minecraft:water_cauldron'}, {})[0], 'a filled cauldron taken away is a removal'
     plan_selftest(T)
     shop_selftest(T)
+    shop_failure_selftest()
     sp = {'a': [(T(0), T(20), 20)], 'b': [(T(0), T(20), 20)]}
     tr, st = split_trapped(sp, {'a': [(T(5), 3)], 'b': [(T(30), 3), (T(5), 0)]})
     assert list(tr) == ['a'] and list(st) == ['b'], (tr, st)
@@ -1059,9 +1119,17 @@ def cmd_ack(a):
         print('REFUSED: the history is partial (unreadable %s); acknowledge only what was read in full' % hist['bad_files'][:3])
         return 1
     _, report = plan_read(prows, town_since)
-    if shop_kinds():
+    # an ack acknowledges what was READ IN FULL: a shop read that cannot run refuses, like a partial history (Codex + Claude S6
+    # r1 P2 -- an ack without the shop items would drop the shop acknowledgements, and a raise here crashed the recovery)
+    if shop_module()[0] is None:
+        print('REFUSED: shopread unusable (%s); fix /srv/showcase/trip/shopread.py, then acknowledge' % shop_module()[1])
+        return 1
+    try:
         zl = [b for v in (report.get('_zones') or {}).values() for b in v]
         report['items'] = dict(report['items'], **shop_read(prows, town_since, zl)[3])
+    except Exception as e:
+        print('REFUSED: the shop read failed (%s: %s); nothing acknowledged' % (type(e).__name__, str(e)[:160]))
+        return 1
     items = {g: v for g, v in report['items'].items() if v}
     d = {'t': dt.datetime.now(UTC).strftime('%FT%TZ'), 'why': a.why, 'items': items, 'history': hist}
     with ack_lock(a.ack):

@@ -43,6 +43,16 @@ MUTANTS = [
     ("                    row['feet'] = feet_of((d.get('bot') or {}).get('pos'))", "                    row['feet'] = None", 'plan_rows'),
     # the shared pool not applied to shopread (every bot its own pool: the record never matches)
     ("    with showcase_pools(TP, SR):", "    with showcase_pools(TP):", 'record cell'),
+    # r2 (Codex + Claude S6 r1): a failed shop read prunes the shop acks
+    ("                report['items'] = dict(report['items'], **{g: list(ackd.get(g, [])) for g in SHOP_GATES if ackd.get(g)})",
+     "                pass", 'keeps the shop acks'),
+    # r2: feet by a plain floor, not shopread's pos_of
+    ("        return SR.pos_of({'pos': pos}) if SR else None",
+     "        return [math.floor(float(pos[k])) for k in ('x', 'y', 'z')] if SR and isinstance(pos, dict) else None", 'feet'),
+    # r2: only ImportError isolated (a SyntaxError in shopread takes the S5 read down)
+    ("    except BaseException as e:          # noqa: B036", "    except ImportError as e:          # noqa: B036", 'must not abort the S5 read'),
+    # r2: ack no longer refuses on a broken shopread
+    ("    if shop_module()[0] is None:\n        print('REFUSED: shopread unusable", "    if False:\n        print('REFUSED: shopread unusable", 'ack refuses LOUDLY'),
 ]
 
 
