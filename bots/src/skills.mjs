@@ -1611,6 +1611,58 @@ export function wellSwordsNow (bot) {
   try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }
 }
 
+/** How long the sweep waits for a falling drop's client copy to come down (the server moves it about once a second). */
+export const DROP_SETTLE_MS = 2_000
+/** ...and the most a whole sweep (<= 4 drops) spends waiting: 4 x (6 s walk + 0.25 s) + 4 s = 29 s stays under the 35 s
+ *  stuck threshold with the bot standing still (Codex r1). */
+export const SWEEP_SETTLE_MS = 4_000
+/** Does a falling drop pass through this cell? Pure: no collision box and not a liquid (an item floats ON water). An unknown
+ *  cell (unloaded) is not judged: the sweep walks as before. */
+export function dropFallsThrough (b) {
+  if (!b || typeof b.boundingBox !== 'string') return false
+  if (/^(water|lava|bubble_column)$/.test(b.name ?? '')) return false
+  return b.boundingBox === 'empty'
+}
+/**
+ * IS THIS DROP STILL IN THE AIR? Pure over `blockAt`: the cell its client copy is in AND the cell under that are both
+ * open. Anything less is "close enough to walk": a drop in its last block is within GoalNear's range 1 of where it lands,
+ * and a drop just spawned by an ordinary dig (0.1-0.6 up in the emptied cell, over the floor) is not waited for (Claude r1
+ * P2-1: the old "> 0.3 up in its last block" rule held every other ground dig for a server update). At rest by the same
+ * test: the ground, a rail, a torch, a plate, a snow layer (no collision box per the registry, but over a floor), water.
+ * Waits wrongly (bounded, rare): a cobweb two cells deep; a drop on a FULL snow cell above another open cell.
+ */
+export function dropInAir (blockAt, pos) {
+  const x = Math.floor(pos.x), z = Math.floor(pos.z), y0 = Math.floor(pos.y - 0.05)
+  let c0 = null, c1 = null
+  try { c0 = blockAt(new Vec3(x, y0, z)) } catch {}
+  if (!dropFallsThrough(c0)) return false
+  try { c1 = blockAt(new Vec3(x, y0 - 1, z)) } catch {}
+  return dropFallsThrough(c1)
+}
+/**
+ * Wait, at most `maxMs`, while the drop's client copy is in the air (dropInAir) and the entity still exists -> 'none' (it
+ * was never in the air), 'landed', 'gone' (collected, merged, despawned) or 'timeout'. WHY (Paper 10-26, sandbox7,
+ * lidplace-01's scenes, BOTH arms): a log cut 4-6 blocks up was chased while it fell. `GoalNear(drop.position)` is read
+ * once, and mineflayer does not simulate other entities -- the server moves an item's client copy about once a second -- so
+ * the goal froze mid-air and the walk ran out its 6 s (`_pickup_skipped err=path_budget d=0,4.6,0`); a bot under the log
+ * caught the drop, a bot one cell to the side lost it. (Not "until it stops moving": two reads between server updates are
+ * identical while the item is still 3 blocks up -- pickupwait r1 on Paper. Not "where it will land": a block drop leaves
+ * with sideways speed -- pickupwait r2 walked into the wrong cell 6 of 6.) Aborts propagate.
+ */
+export async function awaitDropSettled (bot, drop, signal, maxMs = DROP_SETTLE_MS) {
+  const t0 = Date.now()
+  const gone = () => !!bot.entities && bot.entities[drop.id] !== drop
+  const inAir = () => {
+    try { return !gone() && typeof bot.blockAt === 'function' && dropInAir(p => bot.blockAt(p), drop.position) } catch { return false }
+  }
+  if (!inAir()) return 'none'   // never waited (an untracked entity is never waited for either)
+  while (inAir()) {
+    if (Date.now() - t0 >= maxMs) return 'timeout'
+    await sleep(100, signal)
+  }
+  return gone() ? 'gone' : 'landed'
+}
+
 /** Walk over anything on the floor within a few blocks. */
 /**
  * ONE UNREACHABLE DROP MUST NOT ABANDON THE OTHERS.
@@ -1645,6 +1697,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
   // FOOD IS NOT CHASED IN A PEACEFUL WORLD (foodskip.mjs; FOOD_SKIP=auto|on|off). Read once per sweep. This governs the
   // WALK only: the server still hands over food that lands within ~1 block of the bot.
   const food = foodSkipNow(bot)
+  let waited = 0   // ms this sweep has spent waiting for drops to come down (SWEEP_SETTLE_MS)
   for (let i = 0; i < 4; i++) {
     check(signal)
     const drop = bot.nearestEntity?.(e =>
@@ -1656,6 +1709,23 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
+    // A DROP STILL IN THE AIR IS NOT A PLACE TO WALK TO (awaitDropSettled): wait, bounded per drop AND per sweep, for it to
+    // come down; a drop that vanished meanwhile is not walked to (Codex r1 P2). One `_pickup_wait` row per real wait.
+    const waitT0 = Date.now()
+    let settled = 'none'
+    const budget = Math.min(DROP_SETTLE_MS, SWEEP_SETTLE_MS - waited)
+    // the sweep's budget spent: no wait at all, and no row for one (Codex + Claude r2 P3)
+    if (budget > 0) { try { settled = await awaitDropSettled(bot, drop, signal, budget) } catch (e) { releaseSought(); throw e } }
+    const waitMs = Date.now() - waitT0
+    waited += waitMs
+    if (settled !== 'none') {
+      let what = '?'
+      try { what = drop.getDroppedItem?.()?.name ?? '?' } catch {}
+      // 'gone' is the drop collected (or despawned) DURING the wait -- in practice the bot caught it: success (Claude r2 P3)
+      logEvent({ kind: 'pickup_wait', status: settled === 'timeout' ? 'no_effect' : 'success',
+                 detail: `drop ${drop.id} outcome=${settled} wait_ms=${waitMs} sweep_wait_ms=${waited} item=${what} attempt=${i + 1}/4` })
+    }
+    if (settled === 'gone') { releaseSought(); refused.add(drop.id); continue }
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
@@ -1680,7 +1750,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       logEvent({ kind: 'pickup_skipped', status: 'success',
                  detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +
                          `(${refused.size} retired, attempt ${i + 1}/4) err=${e?.failClass ?? e?.name ?? 'Error'} ` +
-                         `item=${what} d=${off} ms=${Date.now() - walkT0}` })
+                         `item=${what} d=${off} ms=${Date.now() - walkT0} wait=${waitMs}` })
       continue
     }
     try { await sleep(250, signal) } finally { releaseSought() }
