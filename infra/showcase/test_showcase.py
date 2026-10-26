@@ -874,7 +874,21 @@ class GitHelpers(unittest.TestCase):
         self.assertTrue(SO.revoked_patch_in(r, self.pick(r), repo=self.d), 'Codex r3 P2: a root has no x^')
 
     def test_an_unreadable_revoked_line_fails_closed(self):
-        self.assertTrue(SO.revoked_patch_in('f' * 40, self.base, repo=self.d))
+        self.assertEqual(SO.revoked_patch_in('f' * 40, self.base, repo=self.d), 'unreadable')
+        self.assertIn('unreadable here', SO.piece_stack_refusal(S2, R40, ['matset-01', 'mats-01', 'shop-01'], ROWS, STACK, anc2,
+                                                                 lambda x, y: 'unreadable', [Q40], None, docs_d) or '')
+
+    def test_a_revoked_rename_picked_is_found(self):
+        self.put('bots/src/big.mjs', ''.join(f'line {i}\n' for i in range(60))); self.commit('big')
+        self.g('checkout', '-q', '-b', 'side')
+        self.g('mv', 'bots/src/big.mjs', 'bots/src/moved.mjs')
+        with open(os.path.join(self.d, 'bots/src/moved.mjs'), 'a') as f:
+            f.write('one more\n')
+        x = self.commit('rename + edit')
+        self.g('checkout', '-q', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(x, clean, repo=self.d))
+        self.assertTrue(SO.revoked_patch_in(x, self.pick(x), repo=self.d), 'Codex r4 P2: a rename, both sides --no-renames')
 
 
 class StageCache(unittest.TestCase):

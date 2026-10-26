@@ -351,9 +351,12 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_i
     stray = [c for c in commits if not any(c != b and is_anc(b, c) and is_anc(c, p) for p, b in pieces)]
     if stray:
         return f'{len(stray)} commit(s) in {release_sha[:8]}..{sha[:8]} belong to no named piece (first {stray[0][:8]}): stage only reviewed pieces'
-    bad = [x for x in (revoked or []) if is_anc(x, sha) or revoked_in(x, sha)]
-    if bad:
-        return f'the stack contains a REVOKED sha {bad[0][:8]}'
+    for x in revoked or []:
+        hit = is_anc(x, sha) or revoked_in(x, sha)
+        if hit == 'unreadable':
+            return f'the REVOKED line {x[:12]} is unreadable here (fetch it or fix the line): no stack stages until it is'
+        if hit:
+            return f'the stack contains a REVOKED sha {x[:8]}'
     return None
 
 
@@ -410,16 +413,17 @@ def revoked_patch_in(x, sha, repo=None):
     repo = repo or REPO
     par = subprocess.run(['git', '-C', repo, 'rev-list', '--parents', '-n', '1', x], capture_output=True, text=True)
     if par.returncode or not par.stdout.split():
-        return True
+        return 'unreadable'   # truthy: refused, and named as unreadable (Claude r4 P3)
     parents = par.stdout.split()[1:]
     base = [parents[0], x] if parents else ['--root', x]
-    mine, ok = _patch_ids(['diff-tree', '-p', '--no-color', '--full-index', *base], repo)
+    # --no-renames on BOTH sides (Codex r4 P2: diff-tree shows a rename as delete + add while log detects it: two patch ids)
+    mine, ok = _patch_ids(['diff-tree', '-p', '--no-color', '--full-index', '--no-renames', *base], repo)
     if not ok:
         return True
     if not mine:
         return False   # an empty change (nothing to re-apply)
     want = set(mine)
-    theirs, ok = _patch_ids(['log', '-p', '--no-color', '--full-index', '--diff-merges=first-parent', '--format=commit %H', sha, f'^{x}'], repo)
+    theirs, ok = _patch_ids(['log', '-p', '--no-color', '--full-index', '--no-renames', '--diff-merges=first-parent', '--format=commit %H', sha, f'^{x}'], repo)
     if not ok:
         return True
     return bool(want & set(theirs))
