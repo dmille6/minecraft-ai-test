@@ -14,6 +14,7 @@ import http.server
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -842,6 +843,38 @@ class GitHelpers(unittest.TestCase):
         self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'cherry-pick', x)
         picked = self.g('rev-parse', 'HEAD')
         self.assertTrue(SO.revoked_patch_in(x, picked, repo=self.d), 'picked alone, without its branch-mate')
+
+    def pick(self, *a):
+        self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'cherry-pick', *a)
+        return self.g('rev-parse', 'HEAD')
+
+    def test_a_revoked_merge_picked_with_mainline_is_found(self):
+        # side: two commits merged into an integration branch by a MERGE m (the revoked line names m); the stack picks m -m 1
+        self.g('checkout', '-q', '-b', 'integ')
+        self.g('checkout', '-q', '-b', 'side')
+        self.put('bots/src/a.mjs', 'a\n'); self.commit('a')
+        self.put('bots/src/b.mjs', 'b\n'); self.commit('b')
+        self.g('checkout', '-q', 'integ')
+        self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'merge', '-q', '--no-ff', '-m', 'merge side', 'side')
+        m = self.g('rev-parse', 'HEAD')
+        self.g('checkout', '-q', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(m, clean, repo=self.d))
+        self.assertTrue(SO.revoked_patch_in(m, self.pick('-m', '1', m), repo=self.d), 'Codex r3 P2: a merge picked -m 1')
+
+    def test_a_revoked_root_picked_is_found(self):
+        self.g('checkout', '-q', '--orphan', 'other')
+        self.g('rm', '-rq', '--cached', '.')
+        for n in ('bots', 'docs'):
+            shutil.rmtree(os.path.join(self.d, n))
+        self.put('bots/src/z.mjs', 'root of another history\n'); r = self.commit('other root')
+        self.g('checkout', '-q', '-f', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(r, clean, repo=self.d))
+        self.assertTrue(SO.revoked_patch_in(r, self.pick(r), repo=self.d), 'Codex r3 P2: a root has no x^')
+
+    def test_an_unreadable_revoked_line_fails_closed(self):
+        self.assertTrue(SO.revoked_patch_in('f' * 40, self.base, repo=self.d))
 
 
 class StageCache(unittest.TestCase):

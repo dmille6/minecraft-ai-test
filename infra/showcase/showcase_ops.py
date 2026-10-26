@@ -383,16 +383,46 @@ def docs_only_change(a, b, repo=None):
     return all(n.startswith('docs/') for n in names)
 
 
+EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+
+def _patch_ids(args, repo):
+    """`git <args> | git patch-id --stable` -> ({patch id: commit}, ok)."""
+    log = subprocess.run(['git', '-C', repo, *args], capture_output=True)
+    if log.returncode:
+        return {}, False
+    pid = subprocess.run(['git', '-C', repo, 'patch-id', '--stable'], input=log.stdout, capture_output=True)
+    if pid.returncode:
+        return {}, False
+    out = {}
+    for line in pid.stdout.decode('utf-8', 'replace').splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            out[parts[0]] = parts[1]
+    return out, True
+
+
 def revoked_patch_in(x, sha, repo=None):
-    """The revoked commit x's OWN patch is in sha's history (a cherry-pick of x alone) -> bool. `git cherry <sha> <x> <x^>`
-    names x alone; its `-` says an equivalent change is in <sha> (r2, both reviews P2: cherry_equivalent asks for EVERY commit
-    from the merge base to x, so a revoked commit picked without its branch-mates was missed). A root commit or a git failure
-    is False here; the caller also refuses x by ancestry."""
-    r = subprocess.run(['git', '-C', repo or REPO, 'cherry', sha, x, f'{x}^'], capture_output=True, text=True)
-    if r.returncode:
-        return False
-    lines = [l for l in r.stdout.splitlines() if l.strip()]
-    return len(lines) == 1 and lines[0].startswith('-')
+    """The revoked commit x's OWN patch is in sha's history -> bool, by `git patch-id --stable`: x's change against its FIRST
+    parent (a merge: what `cherry-pick -m 1` applies; a root: against the empty tree) compared with every commit reachable
+    from sha and not from x, each against its first parent (r3, Codex P2 x2: `git cherry` skips merges and needs x^).
+    FAILS CLOSED: an unreadable x or a git failure is True (the stack is refused, naming the REVOKED line)."""
+    repo = repo or REPO
+    par = subprocess.run(['git', '-C', repo, 'rev-list', '--parents', '-n', '1', x], capture_output=True, text=True)
+    if par.returncode or not par.stdout.split():
+        return True
+    parents = par.stdout.split()[1:]
+    base = [parents[0], x] if parents else ['--root', x]
+    mine, ok = _patch_ids(['diff-tree', '-p', '--no-color', '--full-index', *base], repo)
+    if not ok:
+        return True
+    if not mine:
+        return False   # an empty change (nothing to re-apply)
+    want = set(mine)
+    theirs, ok = _patch_ids(['log', '-p', '--no-color', '--full-index', '--diff-merges=first-parent', '--format=commit %H', sha, f'^{x}'], repo)
+    if not ok:
+        return True
+    return bool(want & set(theirs))
 
 
 def write_envs(release_dir, rel):
