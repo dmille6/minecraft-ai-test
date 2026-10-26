@@ -33,6 +33,12 @@ RUNS
   cand-8   sandbox8  wt4 64941a93   driver 30b9dafb  CANDIDATE_PASS  same shape; the bag row with `exit=complete silent=0`
   cand-8k  sandbox8  wt4 64941a93   driver 73dab611  CANDIDATE_PASS, SHOP_KEEP=1 (the workshop left standing for the structure
            count below; the next scene's set-up refills the arena)
+  cand-9   sandbox8  wt4 64941a93   driver 73dab611  FAIL (instrument residue of cand-8k): torch town + bag -1 against a bill of
+           -2. The set-up's fills popped cand-8k's standing wall torch as an ITEM (its kill ran before the fills); the bot picked it
+           up (a _pickups row) and the visit banked it back (back=torch:1; its _build_bag row torch=0/2/0/2/1/0 books +1, a pickup,
+           never a loss). Every cell right, every click acked. Driver fixed (6b291623: items killed after the fills).
+  cand-10  sandbox8  wt4 115ac326   driver 6b291623  CANDIDATE_PASS  <- the final code (r9); the arena cleaned up after it
+  Locks sandbox7 and sandbox8 (tag shop) released after cand-10.
   The PASS line of cand-6:
   shop   CANDIDATE_PASS done=true record={"sector":"W","source":"pavilion","anchor":[737,760],"orient":"S","s":120,"gen":2,
   "complete":true} cells={"n":167,"bad":0} acks={"places":167,"foreign":4,"acks":171,"unacked":0} d(stock){stone_bricks-89

@@ -42,9 +42,18 @@ read2  e5482972 (builder    CHANGES: P2 x4 (a partial bank is a false  CHANGES: 
        r7 91547151 + read   loss; G6 order on a reconnect's own row;   Q3: world exposure adequate for exposure once the
        r2)                  zones schema; G5 denominator) + P2 record- structure count's positive control is shown
                             specific world verification before KEEP
-read3  this round's tip     (pending)                                  (pending)
-       (builder r8 64941a93
-       + read r3)
+read3  7359a372 (builder r8 CHANGES: P2 missing room data read as zero;    APPROVE (P3: a silent replant click not counted)
+       64941a93 + read r3)  P2 the room check ignores height and passes
+                            an incomplete workshop -- record conformance
+                            F1 + PERSISTENT required before any KEEP
+read4  115ac326 (builder r9 CHANGES: one P2 in the DRAFT only (primary    APPROVE: the stricter exposure rule is correct and safe
+       + read r4)           field named a field r4 no longer emits) --   (fails closed everywhere: exposure_ready 0 by
+                            fixed in the draft; the read and r9 clean     construction; INCONCLUSIVE, never KEEP)
+                            (exposure fails closed everywhere)
+- Read r4: unknown room data is unknown; the room must lie in the record's cell extent including height; EXPOSURE NEVER READY
+  until a record-conformance + persistence source exists (conformance_source 0): the room check is reported as PRELIMINARY.
+  The draft says shop-01 is NOT REGISTRABLE until that source exists (it could only end INCONCLUSIVE). 27 mutants killed.
+- Builder r9 (115ac326): a silent replant click counts as silent. npm test 313/313 at 115ac326; Paper cand-10 CANDIDATE_PASS.
 - Builder r7 (91547151) and r8 (64941a93) are TELEMETRY ONLY: placedBy, saplings= on a felling, the _build_bag row (books kept
   as they happen: onTook, onBanked, crafts in a finally; exit= and silent= on the row). npm test 313/313 at both.
 - Read r3: G8 judged only on a clean exit with silent=0; G6 resets on the reconnect's own row first; the zones file by the
