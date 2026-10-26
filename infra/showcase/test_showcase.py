@@ -14,7 +14,9 @@ import http.server
 import importlib.util
 import json
 import os
+import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -551,6 +553,377 @@ class GuardScript(unittest.TestCase):
 
     def test_ack_for_another_reservation_is_refused(self):
         self.assertEqual(self.run_guard('run-y-2-200', ['RESV run-x-1-100'], wait=2), 1)
+
+
+# ------------------------------------------------------------------------------------------------ stage --piece (the lane)
+SO = load('showcase_ops', 'showcase_ops.py')
+# the showcase release R, then a STACK: matset (M1) <- mats (M2) <- shop (S1 <- S2); X is a stray commit on top; Q a side branch
+# from R; D is a docs-only commit on S2 (a review record after the approval)
+R40, M1, M2, S1, S2, X40, Q40, D40 = ('e' * 40), ('1' * 40), ('2' * 40), ('3' * 40), ('4' * 40), ('5' * 40), ('6' * 40), ('7' * 40)
+LINE = {R40: 0, M1: 1, M2: 2, S1: 3, S2: 4, D40: 5, X40: 6}
+
+
+def anc2(x, y):
+    if x == y:
+        return True
+    if x in LINE and y in LINE:
+        return LINE[x] <= LINE[y]
+    return x == R40 and y == Q40
+
+
+def no_cherry(x, y):
+    return False
+
+
+def docs_d(a, b):
+    # only S2..D40 is docs-only
+    return (a, b) == (S2, D40)
+
+
+def rv(sha, codex='APPROVE', claude='APPROVE'):
+    return [{'engine': 'codex', 'verdict': codex, 'sha': sha, 'round': 'r3'}, {'engine': 'claude', 'verdict': claude, 'sha': sha, 'round': 'r1'}]
+
+
+def piece(run, sha, base, kind='building', paper=None, reviews=None):
+    return {'run': run, 'sha': sha, 'base': base, 'kind': kind,
+            'paper': paper if paper is not None else {'result': 'CANDIDATE_PASS', 'sha': sha, 'record': 'docs/reports/x-paper.txt'},
+            'reviews': reviews if reviews is not None else rv(sha), 'owner': '10-23 Q4'}
+
+
+ROWS = [piece('matset-01', M1, R40), piece('mats-01', M2, M1), piece('shop-01', S2, M2)]
+STACK = [M1, M2, S1, S2]
+
+
+class PieceStack(unittest.TestCase):
+    def ref(self, sha=S2, rel=R40, runs=('matset-01', 'mats-01', 'shop-01'), rows=ROWS, commits=STACK, revoked=(), kept=None,
+            revoked_in=no_cherry, docs=docs_d):
+        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, revoked_in, list(revoked), kept, docs) or ''
+
+    def test_the_owner_stack_stages(self):
+        self.assertEqual(self.ref(), '')
+
+    def test_a_piece_left_out_of_the_stack_is_refused(self):
+        # matset-01 not named: M1 lies in no named piece's own range (the tip's ancestry is not enough)
+        self.assertIn('belong to no named piece', self.ref(runs=('mats-01', 'shop-01')))
+
+    def test_a_stray_commit_on_top_is_refused(self):
+        self.assertIn('belong to no named piece', self.ref(sha=X40, commits=STACK + [D40, X40]))
+
+    def test_a_run_without_a_pieces_line_is_refused(self):
+        self.assertIn('no PIECES.jsonl line', self.ref(runs=('matset-01', 'mats-01', 'shop-01', 'house-01')))
+
+    def test_the_newest_line_of_a_run_speaks_for_it(self):
+        failed = piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_FAIL', 'sha': S2})
+        self.assertIn('no Paper PASS', self.ref(rows=ROWS + [failed]))
+        self.assertEqual(self.ref(rows=ROWS + [failed, piece('shop-01', S2, M2)]), '')
+
+    def test_paper_must_be_a_pass_of_this_sha(self):
+        for bad in ({'result': 'CANDIDATE_FAIL', 'sha': S2}, {'result': 'NOT A PASS', 'sha': S2}, 'r6 CANDIDATE_PASS',
+                    {'result': 'CANDIDATE_PASS', 'sha': S1}, {'result': 'CANDIDATE_PASS', 'sha': S2[:8]}, {'result': 'CANDIDATE_PASS'}):
+            self.assertIn('no Paper PASS', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, paper=bad)]), bad)
+
+    def test_each_engine_must_approve_this_sha(self):
+        cases = ((rv(S2, codex='CHANGES'), 'no Codex APPROVE'), (rv(S2, claude='CHANGES'), 'no Claude APPROVE'),
+                 (rv(S1), 'no Codex APPROVE'),                                   # approved an EARLIER sha with code after it
+                 ([{'engine': 'codex', 'verdict': 'CHANGES (claude APPROVE)', 'sha': S2}], 'no Codex APPROVE'),
+                 (['Codex r6 APPROVE', 'Claude r6 APPROVE'], 'no Codex APPROVE'),  # free text never counts
+                 ([{'engine': 'codex', 'verdict': 'APPROVE', 'sha': S2}], 'no Claude APPROVE'))
+        for reviews, why in cases:
+            self.assertIn(why, self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, reviews=reviews)]), reviews)
+
+    def test_an_approval_covers_a_later_docs_only_record_and_nothing_else(self):
+        # the line names D40 (the review record after the approved S2): the approval of S2 covers it, docs only
+        rows = ROWS[:2] + [piece('shop-01', D40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2}, reviews=rv(S2))]
+        self.assertEqual(self.ref(sha=D40, commits=STACK + [D40], rows=rows), '')
+        # the same line naming X40 (code after the approval) is refused
+        rows = ROWS[:2] + [piece('shop-01', X40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2}, reviews=rv(S2))]
+        self.assertIn('no Paper PASS', self.ref(sha=X40, commits=STACK + [D40, X40], rows=rows))
+        rows = ROWS[:2] + [piece('shop-01', X40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': X40}, reviews=rv(S2))]
+        self.assertIn('no Codex APPROVE', self.ref(sha=X40, commits=STACK + [D40, X40], rows=rows))
+
+    def test_a_survival_piece_must_be_kept(self):
+        rows = ROWS[:2] + [piece('shop-01', S2, M2, kind='survival')]
+        self.assertIn('KEPT on the fleet first', self.ref(rows=rows, kept={'shop-01': (False, 'not kept yet')}))
+        self.assertEqual(self.ref(rows=rows, kept={'shop-01': (True, 'kept and promoted')}), '')
+
+    def test_an_unknown_kind_is_refused(self):
+        self.assertIn('kind must be', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, kind='misc')]))
+
+    def test_the_stack_must_build_on_the_current_release(self):
+        self.assertIn('not an ancestor', self.ref(sha=Q40, commits=[Q40], rows=ROWS + [piece('q', Q40, R40)], runs=('q',), rel=M1))
+        self.assertIn('adds nothing', self.ref(sha=R40, commits=[]))
+        self.assertIn('no current release', self.ref(rel=None))
+
+    def test_a_piece_base_off_the_stack_is_refused(self):
+        self.assertIn('its base', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, Q40)]))
+
+    def test_a_piece_sha_outside_the_stack_is_refused(self):
+        self.assertIn('is not in the stack', self.ref(sha=M2, commits=[M1, M2]))
+
+    def test_patch_equivalence_is_not_membership(self):
+        # shop-01 recorded at Q40, patch-equivalent inside S2 (a cherry-pick): refused -- membership is ancestry only
+        rows = ROWS[:2] + [piece('shop-01', Q40, R40)]
+        self.assertIn('is not in the stack', self.ref(rows=rows, revoked_in=lambda x, y: True))
+
+    def test_a_revoked_sha_in_the_stack_is_refused(self):
+        self.assertIn('REVOKED', self.ref(revoked=[M2]))
+        self.assertIn('REVOKED', self.ref(revoked=[Q40], revoked_in=lambda x, y: (x, y) == (Q40, S2)), 'a revoked sha cherry-picked back')
+        self.assertEqual(self.ref(revoked=[Q40]), '')
+
+    def test_names_twice_and_bad_shas(self):
+        self.assertIn('named twice', self.ref(runs=('mats-01', 'mats-01')))
+        self.assertIn('40 hex', self.ref(sha='abc'))
+        self.assertIn('40-hex sha and base', self.ref(rows=ROWS[:2] + [dict(piece('shop-01', S2, M2), base='')]))
+
+
+class SurvivalKept(unittest.TestCase):
+    def test_bound_to_the_piece_sha(self):
+        res = {S2[:8]: S2, M1[:8]: M1}.get
+        keep = {'run': 'surv', 'phase': 'recorded', 'note': 'KEEP read +180'}
+        self.assertTrue(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{S2[:8]} fleet-wide'}], 'surv', S2, res)[0])
+        # kept and promoted at M1: a newer line naming S2 is NOT kept (Codex r1 P1)
+        self.assertFalse(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{M1[:8]} fleet-wide'}], 'surv', S2, res)[0])
+        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'promoted', 'note': S2[:8]}], 'surv', S2, res)[0], 'no KEEP')
+        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'owner-direct', 'note': S2[:8]}], 'surv', S2, res)[0], 'owner-direct')
+
+
+class StagePieceCommand(unittest.TestCase):
+    """cmd_stage --piece wiring over a temp /srv/showcase: the lane only, AUTO_FOLLOW off, a verified observation, REQUIRED_KEPT,
+    and stage() called with the piece record. Nothing here builds a release (stage() is replaced)."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
+                                                  'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
+                                                  'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in')}
+        SO.ROOT = self.d
+        for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
+                     ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
+                     ('AUTO', 'AUTO_FOLLOW'), ('LANE', 'LANE'), ('PIECES', 'PIECES.jsonl')):
+            setattr(SO, k, os.path.join(self.d, v))
+        os.makedirs(os.path.join(self.d, 'ops'))
+        with open(SO.LEDGER, 'w') as f:
+            f.write(json.dumps({'sha': R40, 'verified': True, 'policy': 'p1', 'deps': 'd1'}) + '\n')
+        with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
+            json.dump({'journal': []}, f)
+        with open(SO.PIECES, 'w') as f:
+            f.write(''.join(json.dumps(r) + '\n' for r in ROWS))
+        open(SO.LANE, 'w').close()
+        SO.lock = lambda: None
+        SO.fetch = lambda: None
+        SO.resolve = lambda h: h if len(h) == 40 else None
+        SO.git = lambda *a, check=True: '\n'.join(STACK) if a and a[0] == 'rev-list' else ''
+        SO.is_anc = anc2
+        SO.cherry_equivalent = no_cherry
+        SO.docs_only_change = docs_d
+        SO.revoked_patch_in = no_cherry
+        SO.current_release = lambda: {'sha': R40}
+        SO.pieces_in = lambda sha, journal: (True, [])
+        self.calls = []
+        SO.stage = lambda *a, **k: (self.calls.append((a, k)), (True, '/x/release'))[1]
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(SO, k, v)
+
+    def run_stage(self, sha=S2, piece='shop-01,matset-01,mats-01', bootstrap=False):
+        import types, io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = SO.cmd_stage(types.SimpleNamespace(sha=sha, piece=piece, bootstrap=bootstrap))
+        return rc, buf.getvalue()
+
+    def refused_rows(self):
+        try:
+            return [json.loads(l) for l in open(SO.DEPLOY) if json.loads(l).get('event') == 'piece-refused']
+        except FileNotFoundError:
+            return []
+
+    def test_stages_the_stack_with_its_piece_record(self):
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 0, out)
+        (args, kw), = self.calls
+        self.assertEqual(args[0], S2)
+        self.assertEqual(kw['extra']['piece'], ['mats-01', 'matset-01', 'shop-01'], 'sorted: the stack in any order is one record')
+        self.assertEqual(kw['extra']['prev'], R40)
+        self.assertFalse(kw['bootstrap'])
+
+    def test_outside_the_lane_nothing_is_staged(self):
+        os.remove(SO.LANE)
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('progress lane', out); self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.refused_rows()), 1, 'journalled')
+
+    def test_with_auto_follow_on_nothing_is_staged(self):
+        open(SO.AUTO, 'w').close()
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertEqual(self.calls, [])
+
+    def test_an_unverified_observation_refuses(self):
+        with open(SO.LEDGER, 'a') as f:
+            f.write(json.dumps({'sha': R40, 'verified': False}) + '\n')
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('not verified', out); self.assertEqual(self.calls, [])
+
+    def test_required_kept_still_applies(self):
+        SO.pieces_in = lambda sha, journal: (False, ['townplan-01'])
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('REQUIRED_KEPT', out); self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.refused_rows()), 1)
+
+    def test_a_refused_stack_is_journalled_and_not_staged(self):
+        rc, out = self.run_stage(piece='mats-01,shop-01')
+        self.assertEqual(rc, 1); self.assertIn('no named piece', out); self.assertEqual(self.calls, [])
+        self.assertEqual(self.refused_rows()[-1]['event'], 'piece-refused')
+
+    def test_a_survival_piece_needs_a_promotion_naming_its_sha(self):
+        with open(SO.PIECES, 'a') as f:
+            f.write(json.dumps(piece('shop-01', S2, M2, kind='survival')) + '\n')
+        with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
+            json.dump({'journal': [{'run': 'shop-01', 'phase': 'recorded', 'note': 'KEEP'}, {'run': 'shop-01', 'phase': 'promoted', 'note': M1}]}, f)
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1, out); self.assertIn('KEPT on the fleet first', out); self.assertEqual(self.calls, [])
+        with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
+            json.dump({'journal': [{'run': 'shop-01', 'phase': 'recorded', 'note': 'KEEP'}, {'run': 'shop-01', 'phase': 'promoted', 'note': S2}]}, f)
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 0, out)
+
+    def test_a_failed_stage_is_journalled(self):
+        SO.stage = lambda *a, **k: (False, 'x is already staged without (or with another) piece record')
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1); self.assertIn('piece record', out)
+        self.assertIn('piece record', self.refused_rows()[-1]['why'], 'Codex r2 P3')
+
+    def test_piece_and_bootstrap_are_exclusive(self):
+        rc, out = self.run_stage(bootstrap=True)
+        self.assertEqual(rc, 1); self.assertIn('exclusive', out); self.assertEqual(self.calls, [])
+
+
+class GitHelpers(unittest.TestCase):
+    """docs_only_change and revoked_patch_in against a REAL throwaway repository."""
+    def g(self, *a):
+        return subprocess.run(['git', '-C', self.d, *a], capture_output=True, text=True, check=True).stdout.strip()
+
+    def commit(self, msg):
+        self.g('add', '-A'); self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', msg)
+        return self.g('rev-parse', 'HEAD')
+
+    def put(self, path, text):
+        p = os.path.join(self.d, path); os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, 'w') as f:
+            f.write(text)
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.g('init', '-q', '-b', 'main')
+        self.put('bots/src/p.mjs', 'export const p = 1\n' * 20); self.put('docs/r.md', 'review\n')
+        self.base = self.commit('base')
+
+    def test_a_docs_edit_is_docs_only(self):
+        self.put('docs/r.md', 'review r2\n'); b = self.commit('docs')
+        self.assertTrue(SO.docs_only_change(self.base, b, repo=self.d))
+
+    def test_code_moved_into_docs_is_not_docs_only(self):
+        self.g('mv', 'bots/src/p.mjs', 'docs/p.mjs'); b = self.commit('move')
+        self.assertFalse(SO.docs_only_change(self.base, b, repo=self.d), 'a rename lists its source path too')
+
+    def test_a_deleted_code_file_is_not_docs_only(self):
+        os.remove(os.path.join(self.d, 'bots/src/p.mjs')); b = self.commit('delete')
+        self.assertFalse(SO.docs_only_change(self.base, b, repo=self.d))
+
+    def test_a_failed_diff_fails_closed(self):
+        self.assertFalse(SO.docs_only_change(self.base, 'f' * 40, repo=self.d))
+
+    def test_a_revoked_commit_picked_alone_is_found(self):
+        self.g('checkout', '-q', '-b', 'side')
+        self.put('bots/src/u.mjs', 'unrelated\n'); self.commit('unrelated')
+        self.put('bots/src/x.mjs', 'revoked\n'); x = self.commit('revoked')
+        self.g('checkout', '-q', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(x, clean, repo=self.d), 'not picked: not in the stack')
+        self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'cherry-pick', x)
+        picked = self.g('rev-parse', 'HEAD')
+        self.assertTrue(SO.revoked_patch_in(x, picked, repo=self.d), 'picked alone, without its branch-mate')
+
+    def pick(self, *a):
+        self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'cherry-pick', *a)
+        return self.g('rev-parse', 'HEAD')
+
+    def test_a_revoked_merge_picked_with_mainline_is_found(self):
+        # side: two commits merged into an integration branch by a MERGE m (the revoked line names m); the stack picks m -m 1
+        self.g('checkout', '-q', '-b', 'integ')
+        self.g('checkout', '-q', '-b', 'side')
+        self.put('bots/src/a.mjs', 'a\n'); self.commit('a')
+        self.put('bots/src/b.mjs', 'b\n'); self.commit('b')
+        self.g('checkout', '-q', 'integ')
+        self.g('-c', 'user.name=t', '-c', 'user.email=t@t', 'merge', '-q', '--no-ff', '-m', 'merge side', 'side')
+        m = self.g('rev-parse', 'HEAD')
+        self.g('checkout', '-q', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(m, clean, repo=self.d))
+        self.assertTrue(SO.revoked_patch_in(m, self.pick('-m', '1', m), repo=self.d), 'Codex r3 P2: a merge picked -m 1')
+
+    def test_a_revoked_root_picked_is_found(self):
+        self.g('checkout', '-q', '--orphan', 'other')
+        self.g('rm', '-rq', '--cached', '.')
+        for n in ('bots', 'docs'):
+            shutil.rmtree(os.path.join(self.d, n))
+        self.put('bots/src/z.mjs', 'root of another history\n'); r = self.commit('other root')
+        self.g('checkout', '-q', '-f', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(r, clean, repo=self.d))
+        self.assertTrue(SO.revoked_patch_in(r, self.pick(r), repo=self.d), 'Codex r3 P2: a root has no x^')
+
+    def test_an_unreadable_revoked_line_fails_closed(self):
+        self.assertEqual(SO.revoked_patch_in('f' * 40, self.base, repo=self.d), 'unreadable')
+        self.assertIn('unreadable here', SO.piece_stack_refusal(S2, R40, ['matset-01', 'mats-01', 'shop-01'], ROWS, STACK, anc2,
+                                                                 lambda x, y: 'unreadable', [Q40], None, docs_d) or '')
+
+    def test_a_revoked_rename_picked_is_found(self):
+        self.put('bots/src/big.mjs', ''.join(f'line {i}\n' for i in range(60))); self.commit('big')
+        self.g('checkout', '-q', '-b', 'side')
+        self.g('mv', 'bots/src/big.mjs', 'bots/src/moved.mjs')
+        with open(os.path.join(self.d, 'bots/src/moved.mjs'), 'a') as f:
+            f.write('one more\n')
+        x = self.commit('rename + edit')
+        self.g('checkout', '-q', 'main')
+        self.put('bots/src/s.mjs', 'stack\n'); clean = self.commit('stack')
+        self.assertFalse(SO.revoked_patch_in(x, clean, repo=self.d))
+        self.assertTrue(SO.revoked_patch_in(x, self.pick(x), repo=self.d), 'Codex r4 P2: a rename, both sides --no-renames')
+
+
+class StageCache(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = (SO.RELEASES, SO.OPS)
+        SO.RELEASES, SO.OPS = os.path.join(self.d, 'releases'), os.path.join(self.d, 'ops')
+        os.makedirs(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1')); os.makedirs(SO.OPS)
+        open(os.path.join(SO.OPS, 'policy-p1.env'), 'w').close()
+
+    def tearDown(self):
+        SO.RELEASES, SO.OPS = self.saved
+
+    def cached(self, rel):
+        with open(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1', 'RELEASE.json'), 'w') as f:
+            json.dump(dict({'sha': S2}, **rel), f)
+
+    def test_a_cached_plain_release_is_never_reused_as_a_piece_release(self):
+        self.cached({})
+        ok, why = SO.stage(S2, 'p1', 'd1', extra={'piece': ['shop-01'], 'prev': R40, 'prev_release': 'r1'})
+        self.assertFalse(ok); self.assertIn('without (or with another) piece record', why)
+        ok2, _ = SO.stage(S2, 'p1', 'd1')
+        self.assertTrue(ok2, 'a plain stage still reuses its own cache')
+
+    def test_a_piece_release_from_another_predecessor_is_not_reused(self):
+        rec = {'piece': ['shop-01'], 'prev': R40, 'prev_release': 'r1'}
+        self.cached(rec)
+        self.assertTrue(SO.stage(S2, 'p1', 'd1', extra=dict(rec))[0], 'the same record reuses')
+        ok, why = SO.stage(S2, 'p1', 'd1', extra=dict(rec, prev_release='r2'))
+        self.assertFalse(ok, 'Codex r1 P2: another predecessor release dir'); self.assertIn('piece record', why)
+
+    def test_a_plain_stage_never_reuses_a_piece_release(self):
+        self.cached({'piece': ['shop-01'], 'prev': R40, 'prev_release': 'r1'})
+        ok, why = SO.stage(S2, 'p1', 'd1')
+        self.assertFalse(ok); self.assertIn('plain stage never reuses', why)
 
 
 class SaveHoldLock(unittest.TestCase):
