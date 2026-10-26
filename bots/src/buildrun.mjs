@@ -26,7 +26,7 @@
 //   until every other builder's open intent is settled, cancelled, or its sender retired (buildproj.mjs intentRetired); never on
 //   a timer. After the wait the block is HELD again and the face looked at again.
 
-import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE } from './buildsite.mjs'
+import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative } from './buildsite.mjs'
 import { isSolid, replaceableCell } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 
@@ -265,12 +265,29 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
   // ---- 1. replant first --------------------------------------------------------------------------------------------------------
   for (const r of record.replant ?? []) {
     const g = guard(); if (g) { out.stop = g; return out }
+    if (r.state === 'skipped') continue
     if (SAPLING.test(nm(rd(...r.cell)))) continue
     // C1: no sapling in the bag -- the clear waits (its tree stands), the other work goes on; the visit reports it at its end
     if (!e.has(r.sapling)) { needSapling = r.sapling; continue }
     const nodes = nodesFor()
     const step = stepFor(rd, home, r.cell, nodes)
-    if (!step || step.support[1] !== r.cell[1] - 1) { out.stop = 'no_step'; out.why = `replant ${r.cell.join(',')}`; return out }
+    if (!step || step.support[1] !== r.cell[1] - 1) {
+      // NEVER A DEAD END (Paper 10-25 SHOP-TERRAIN hive-c: `no_step replant` every visit, nothing placed): the record MOVES the
+      // replant to the nearest cell the visit can plant from here, or, with none in the band, records it SKIPPED (its tree may
+      // then fall without it: the read's G5 counts only the replants not skipped). One record transition; the visit ends with
+      // `replanned` and the next one builds on the new generation.
+      const alt = replantAlternative(rd, home, record, nodes, p.res ?? null)
+      const at = r.cell.join(',')
+      const pub = PJ.publishRecord(dir, key, cur => {
+        const i = (cur?.replant ?? []).findIndex(x => x.cell.join(',') === at && x.state !== 'skipped')
+        if (i < 0) return null
+        cur.replant[i] = alt ? { ...cur.replant[i], cell: alt, movedFrom: cur.replant[i].cell } : { ...cur.replant[i], state: 'skipped', skippedAt: now() }
+        return cur
+      }, { by: me })
+      e.log('_build', { op: alt ? 'replant_moved' : 'replant_skipped', cell: r.cell, ...(alt ? { to: alt.join(',') } : {}), result: pub.result })
+      out.stop = 'replanned'; out.why = `replant ${at}: ${alt ? `moved to ${alt.join(',')}` : 'no plantable cell in the band: skipped'}`
+      return out
+    }
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
@@ -284,7 +301,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
 
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
   // Re-run after every segment that completes: a log no ground stand reaches comes down once the pad gives it an eye
-  const replanted = () => (record.replant ?? []).every(r => SAPLING.test(nm(rd(...r.cell))))
+  const replanted = () => (record.replant ?? []).every(r => r.state === 'skipped' || SAPLING.test(nm(rd(...r.cell))))
   const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b)) }
   const clears = async () => {
     // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
@@ -310,7 +327,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         if (v === 'fence') return 'fence:segment'
         if (v === 'aborted') return 'aborted'
         // a felled tree's row carries the replant cells reading a sapling AT the felling, of all of them (the read's G5)
-        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind, ...(c.kind === 'tree' ? { saplings: `${(record.replant ?? []).filter(r => SAPLING.test(nm(rd(...r.cell)))).length}/${(record.replant ?? []).length}` } : {}) }) }
+        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind, ...(c.kind === 'tree' ? { saplings: `${(record.replant ?? []).filter(r => r.state !== 'skipped' && SAPLING.test(nm(rd(...r.cell)))).length}/${(record.replant ?? []).filter(r => r.state !== 'skipped').length}` } : {}) }) }
       }
       return null
     } finally { PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen) }

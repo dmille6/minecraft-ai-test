@@ -421,6 +421,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 placed[(pool, k)].append(r['t'])
             elif op == 'replant':
                 out['replants'] += 1
+            elif op in ('replant_moved', 'replant_skipped'):
+                out[op] = out.get(op, 0) + 1; lists.setdefault(op, []).append('%s %s %s' % (bot, k, f.get('to') or ''))
             elif op == 'clear':
                 out['clears'] += 1
                 if rec is not None:
@@ -433,7 +435,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 if f.get('kind') == 'tree':
                     out['tree_clears'] += 1
                     m = re.match(r'^(\d+)/(\d+)$', f.get('saplings') or '')
-                    need = len(rec.get('replant') or []) if rec is not None else None
+                    # a SKIPPED replant (shop-01 F2: no plantable cell in the band from where the builder stood) is no obligation
+                    need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped']) if rec is not None else None
                     if not m or int(m.group(1)) > int(m.group(2)) or (need is not None and int(m.group(2)) != need):
                         out['g5_unjudged'] += 1; lists['g5_unjudged'].append('%s %s saplings=%s record=%s' % (bot, k, f.get('saplings'), need))
                     elif int(m.group(1)) < int(m.group(2)):
@@ -597,6 +600,12 @@ def selftest():
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9)])['g5_unjudged'] == 1
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/0', s=9)])['g5_unjudged'] == 1, 'Codex read r2 P2-4: 0/0 against a record with a replant'
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=2/1', s=9)])['g5_unjudged'] == 1, 'an impossible fraction'
+    # shop-01 F2: a SKIPPED replant is no obligation -- 0/0 against a record whose only replant is skipped is judged and clean
+    recs = dict(rec, replant=[{'cell': [20, 70, 20], 'sapling': 'oak_sapling', 'state': 'skipped'}])
+    projs = {p: dict(proj[p], record=recs) for p in proj}
+    felled00 = [x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/0', s=9)]
+    rs = J(felled00 + [R('_build', 'project=shop op=replant_skipped cell=20,70,20 result=accepted', s=8)], projects=projs)
+    assert rs['g5_unjudged'] == 0 and rs['felled_unplanted'] == 0 and rs.get('replant_skipped') == 1, rs
     # G6 on the bot's own build rows: the stand IN or ON the unknown cell; not after it is known again; not after a new connection
     unk = R('_build', 'project=shop op=unknown cell=12,71,10 block=oak_log', s=40)
     on = R('_build_seg', 'project=shop seg=pad open=1 done=1', s=41, feet=[12, 72, 10])

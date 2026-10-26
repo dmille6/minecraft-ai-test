@@ -534,44 +534,69 @@ export function proveSite (read, home, bp, site, { stood = [] } = {}) {
   return { ok: true, why: 'ok', cells: out, segments: segOut, interior: { cells: interior.length, open: open.length, reachable: inside } }
 }
 
-/** Replant cells for the felled trunks -> { ok, cells: [{ cell, species, sapling, state }] }. Pure. */
-export function replantFor (read, home, site, res, walk) {
-  if (!site.trees.length) return { ok: true, cells: [] }
-  const padSet = new Set([...site.pad, ...site.ring].map(([x, z]) => k2(x, z)))
-  const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
+/**
+ * ONE REPLANT CELL at column (x, z) -> [x, y, z] | null. Pure. The planner's AND the visit's rule (Paper 10-25 SHOP-TERRAIN
+ * hive-c, twice: the planner accepted a cell by a loose "a walk node beside it" test, the visit's stepFor found no stand placing
+ * onto the soil below, and every visit stopped no_step before anything was placed): soil ground, REPLANT.clear air above, no
+ * reservation or zone, and a STEP the visit accepts -- stepFor with its support the soil block under the cell.
+ */
+export function replantCellAt (read, home, x, z, res, nodes) {
+  const g = groundOf(read, x, z, home.y)
+  if (g == null || !SOIL.has(nm(read(x, g, z)))) return null
+  for (let y = g + 1; y <= g + REPLANT.clear; y++) { const b = read(x, y, z); if (!b || nm(b) !== 'air') return null }
+  if (res?.column?.(x, z, g, g + 1) || boxMeetsZones([x, g, z, x, g + 1, z], res?.zones ?? [])) return null
+  const step = stepFor(read, home, [x, g + 1, z], nodes)
+  return step && step.support[1] === g ? [x, g + 1, z] : null
+}
+/** The replant band around a pad (REPLANT.near .. far, never the footprint) -> [[d, x, z]], nearest first. Pure. */
+function replantBand (padXZ, footprint) {
+  const xs = padXZ.map(c => c[0]), zs = padXZ.map(c => c[1])
   const bx0 = Math.min(...xs), bx1 = Math.max(...xs), bz0 = Math.min(...zs), bz1 = Math.max(...zs)
-  const nodes = byColumn(walk)
-  const used = new Set(), out = []
   const cand = []
   for (let x = bx0 - REPLANT.far; x <= bx1 + REPLANT.far; x++) for (let z = bz0 - REPLANT.far; z <= bz1 + REPLANT.far; z++) {
     const d = Math.max(bx0 - x, x - bx1, bz0 - z, z - bz1, 0)
-    if (d < REPLANT.near || d > REPLANT.far || padSet.has(k2(x, z))) continue
+    if (d < REPLANT.near || d > REPLANT.far || footprint.has(k2(x, z))) continue
     cand.push([d, x, z])
   }
-  cand.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
+  return cand.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
+}
+/** Replant cells for the felled trunks -> { ok, cells: [{ cell, species, sapling, state }] }. Pure. */
+export function replantFor (read, home, site, res, walk) {
+  if (!site.trees.length) return { ok: true, cells: [] }
+  const footprint = new Set([...site.pad, ...site.ring].map(([x, z]) => k2(x, z)))
+  const cand = replantBand(site.pad, footprint)
+  const nodes = byColumn(walk)
+  const used = new Set(), out = []
   for (const t of site.trees) {
     let got = null
     for (const [, x, z] of cand) {
       if (used.has(k2(x, z))) continue
-      const g = groundOf(read, x, z, home.y)
-      if (g == null || !SOIL.has(nm(read(x, g, z)))) continue
-      let clear = true
-      for (let y = g + 1; y <= g + REPLANT.clear; y++) { const b = read(x, y, z); if (!b || nm(b) !== 'air') { clear = false; break } }
-      if (!clear) continue
-      if (res.column(x, z, g, g + 1) || boxMeetsZones([x, g, z, x, g + 1, z], res.zones)) continue
-      let reach = false
-      for (let dx = -1; dx <= 1 && !reach; dx++) for (let dz = -1; dz <= 1 && !reach; dz++) {
-        if (!dx && !dz) continue
-        if ((nodes.get(k2(x + dx, z + dz)) ?? []).some(y => y >= g && y <= g + 2)) reach = true
-      }
-      if (!reach) continue
-      got = { cell: [x, g + 1, z], species: t.species, sapling: SAPLING[t.species], state: 'pending' }
+      const cell = replantCellAt(read, home, x, z, res, nodes)
+      if (!cell) continue
+      got = { cell, species: t.species, sapling: SAPLING[t.species], state: 'pending' }
       break
     }
     if (!got) return { ok: false, cells: out }
     used.add(k2(got.cell[0], got.cell[2])); out.push(got)
   }
   return { ok: true, cells: out }
+}
+/**
+ * THE VISIT'S REMEDY for a replant cell it cannot reach now (the world changed since siting) -> [x, y, z] | null: the nearest
+ * other cell of the same band around the RECORD's pad that replantCellAt accepts from here, never a record cell's column nor
+ * another replant's. Pure. null: no cell in the band can be planted from here (the caller records the replant SKIPPED).
+ */
+export function replantAlternative (read, home, record, nodes, res = null) {
+  const pad = (record?.cells ?? []).filter(c => c.seg === 'pad').map(c => [c.at[0], c.at[2]])
+  if (!pad.length) return null
+  const footprint = new Set((record.cells ?? []).map(c => k2(c.at[0], c.at[2])))
+  const taken = new Set((record.replant ?? []).filter(r => r.state !== 'skipped').map(r => k2(r.cell[0], r.cell[2])))
+  for (const [, x, z] of replantBand(pad, footprint)) {
+    if (taken.has(k2(x, z))) continue
+    const cell = replantCellAt(read, home, x, z, res, nodes)
+    if (cell) return cell
+  }
+  return null
 }
 
 /** The bill of a proven cell list by palette role (the first choice; fallbacks are the record's). Pure. */
