@@ -62,6 +62,32 @@ function resolve (palette, role, inTown, planks) {
   const names = roleNames(palette, role, planks)
   return names.find(n => inTown(n)) ?? names[0] ?? null
 }
+/**
+ * THE PROJECT'S SHARE OF THE BAG (Paper 10-25, SHOP-KILL and CHAIN-1: a deadlock) -> { name: n }: the drawn record clamped to
+ * what the bag holds now. Pure. Why: the visit's keeps (towndeposit townKeeps: STOCKPILE_KEEP wood, the stone family) are
+ * computed from the bag at the visit's start, so materials an EARLIER visit drew and did not place (a kill, a deps_open stop, a
+ * no_material stop: matsBank cannot bank a kept name back) became the bag's own stockpile -- held, unspendable, and the town
+ * already at BUILD_RESERVE: the builder held 36 planks and stopped `no_material` on one wall cell for 40 minutes.
+ */
+export function drawnHeld (drawn = {}, held = {}) {
+  const out = {}
+  for (const [n, c] of Object.entries(drawn ?? {})) { const v = Math.min(Number(c) || 0, Number(held?.[n]) || 0); if (v > 0) out[n] = v }
+  return out
+}
+/** The bag less the project's share -> { name: n }: what the bot owns, the only counts its keeps are computed from. Pure. */
+export function ownCounts (held = {}, drawn = {}) {
+  const out = {}
+  for (const [n, c] of Object.entries(held ?? {})) { const v = (Number(c) || 0) - (Number(drawn?.[n]) || 0); if (v > 0) out[n] = v }
+  return out
+}
+/** The drawn record after a visit -> { name: n }: drawn + took + crafted - placed - back, never below 0 nor above the bag. Pure. */
+export function drawnAfter ({ drawn = {}, took = {}, crafted = {}, placed = {}, back = {}, bag1 = {} } = {}) {
+  const names = new Set([drawn, took, crafted, placed, back].flatMap(m => Object.keys(m ?? {})))
+  const n = (m, k) => Number(m?.[k]) || 0
+  const out = {}
+  for (const k of names) { const v = Math.min(n(bag1, k), n(drawn, k) + n(took, k) + n(crafted, k) - n(placed, k) - n(back, k)); if (v > 0) out[k] = v }
+  return out
+}
 /** What the visit still needs from town -> { name: n }: the bill less the bag, capped at SHOP_BILL_CAP in all. Pure. */
 export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
   const out = {}

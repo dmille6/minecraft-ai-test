@@ -253,6 +253,29 @@ export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now 
 /** The holder's presence -> { holder, conn, pid, at } | null. */
 export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir, key, holder)) }
 
+// ---- drawn (Paper 10-25 SHOP-KILL / CHAIN-1: the project's materials in the holder's bag) --------------------------------------
+
+const drawnFile = (dir, key, holder) => path.join(dir, `${key}.drawn.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+/** What this holder drew from town for the project and has not placed or banked back -> { name: n } ({} when none or unreadable).
+ *  Only counts (finite, > 0) survive the read. */
+export function drawnRead (dir, key, holder) {
+  const j = readJ(drawnFile(dir, key, holder))
+  const out = {}
+  for (const [n, c] of Object.entries(j?.drawn ?? {})) { const v = Math.floor(Number(c)); if (Number.isFinite(v) && v > 0) out[n] = v }
+  return out
+}
+/** Replace the holder's drawn counts (a temp file renamed into place, fsynced). -> true | false (never throws). */
+export function drawnWrite (dir, key, holder, drawn, { now = Date.now() } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = drawnFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    const clean = Object.fromEntries(Object.entries(drawn ?? {}).map(([n, c]) => [n, Math.floor(Number(c))]).filter(([, c]) => Number.isFinite(c) && c > 0))
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, drawn: clean }))
+    fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
