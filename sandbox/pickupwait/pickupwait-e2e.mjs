@@ -7,7 +7,9 @@
 // WHAT IS SYNTHETIC, said so in every result row:
 //   - the arena: a flat plain (stone to 101, dirt 102-105, open air from 106); scene `hole`: a 1x1 shaft 4 deep (floor
 //     101, open 102-105) with ONE spruce log floating 7 above its mouth (y 113); the bot starts one block east on the
-//     plain, so it towers beside the shaft, cuts the log, and the drop falls past it into the shaft;
+//     plain, so it towers beside the shaft, cuts the log, and the drop falls past it into the shaft; scene `ground`
+//     (the control): one log on the plain 3 blocks from the bot, an ordinary dig -- gather time per arm is the read;
+//   - after the gather the bot walks back to its start (the chain: out of the shaft again), 20 s;
 //   - index.mjs's movement profiles are copied here (the walk profile: no digging, towers, placeCost 5, maxDropDown 6; the
 //     gather approach cloned from it: canDig, towers, dontCreateFlow, withApproachBound);
 //   - no reflex layer; resistance on the bot.
@@ -82,7 +84,9 @@ const result = r => { fs.appendFileSync(RES, JSON.stringify({ at: new Date().toI
 
 // ---------------------------------------------------------------- the arena
 const R = 24
-const LOG = () => ({ x: C.x, y: 113, z: C.z })
+// hole: 7 above the shaft's mouth; ground: an ordinary dig on the plain, 3 blocks from the bot (the CONTROL scene: a
+// fresh drop over the floor must not be waited for -- gather time per arm is the read)
+const LOG = s => (s === 'ground' ? { x: C.x + 4, y: 106, z: C.z } : { x: C.x, y: 113, z: C.z })
 async function plain () {
   const x0 = C.x - R, x1 = C.x + R, z0 = C.z - R, z1 = C.z + R
   const c = [`kill @e[type=!player,x=${x0},y=90,z=${z0},dx=${2 * R},dy=40,dz=${2 * R}]`]
@@ -90,9 +94,9 @@ async function plain () {
   return c
 }
 async function arena (s) {
-  if (s !== 'hole') throw new Error(`unknown scene ${s}`)
+  if (s !== 'hole' && s !== 'ground') throw new Error(`unknown scene ${s}`)
   const c = await plain()
-  c.push(`fill ${C.x} 102 ${C.z} ${C.x} 105 ${C.z} minecraft:air`)      // the shaft: floor 101, open 102..105
+  if (s === 'hole') c.push(`fill ${C.x} 102 ${C.z} ${C.x} 105 ${C.z} minecraft:air`)      // the shaft: floor 101, open 102..105
   const L = LOG(s)
   c.push(`setblock ${L.x} ${L.y} ${L.z} minecraft:spruce_log`)
   await batch(c)
@@ -156,8 +160,15 @@ async function scene (s) {
   const placed = wire()
   const rows = []; const untap = tapRecords(r => rows.push(r))
   const runs = []
+  const g0 = Date.now()
+  let gatherMs = null, backOut = null
   try {
     runs.push(['gather', await runner.run('gather', { block: 'spruce_log', count: 1 }, { trigger: 'llm:sandbox' })])
+    gatherMs = Date.now() - g0
+    // THE CHAIN (Claude r1 P3): a bot the fix sent down the shaft must still get back out -- walk back to the start
+    const { goals } = breq('mineflayer-pathfinder')
+    try { await Promise.race([bot.pathfinder.goto(new goals.GoalNear(start.x, start.y, start.z, 1)), sleep(20000).then(() => { throw new Error('timeout') })]); backOut = 'ok' } catch (e) { backOut = String(e?.name ?? e?.message ?? e).slice(0, 40) }
+    try { bot.pathfinder.setGoal(null) } catch {}
   } finally { untap() }
   await sleep(1500)
   const end = posOf()
@@ -165,7 +176,8 @@ async function scene (s) {
   const ev = { scene: s, start, end, logGone: isBlock(L.x, L.y, L.z, 'air'),
     logsInBag: bot.inventory.items().filter(i => i.name === 'spruce_log').reduce((a, i) => a + i.count, 0),
     pickupSkipped: rows.filter(r => r.skill?.name === '_pickup_skipped').map(r => String(r.skill?.detail ?? '').replace(/^.*?(err=)/, '$1').slice(0, 120)),
-    placed: placed.length,
+    placed: placed.length, gatherMs, backOut,
+    pickupWait: rows.filter(r => r.skill?.name === '_pickup_wait').map(r => String(r.skill?.detail ?? '').replace(/^drop \d+ /, '').slice(0, 100)),
     runs: runs.map(([k, r]) => ({ skill: k, status: r?.status, fc: r?.failClass ?? null, detail: String(r?.detail ?? '').slice(0, 220) })),
     rows: rows.filter(r => /^_(goto|gather|approach|reach|pickup)/.test(r.skill?.name ?? '')).map(r => ({ name: r.skill?.name, status: r.skill?.status, detail: String(r.skill?.detail ?? '').slice(0, 160) })).slice(0, 8) }
   await disconnect()

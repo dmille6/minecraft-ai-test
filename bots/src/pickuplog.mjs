@@ -47,7 +47,7 @@ export function isJunk (name) {
 
 /** Kinds this file writes, and kinds too frequent to be an "action": never pushed into the action ring. */
 const RING_IGNORES = new Set(['_pickups', '_junk_pickup', '_dig_sync'])
-const SEEK_TTL_MS = 15_000     // pickupNearbyItems: 6 s goto + 250 ms settle; collectblock re-goals per target
+const SEEK_TTL_MS = 15_000     // pickupNearbyItems: <= 2 s fall wait (pickupwait-01) + 6 s goto + 250 ms settle; collectblock re-goals per target
 
 // ---------------------------------------------------------------- attribution -----
 
