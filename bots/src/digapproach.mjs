@@ -344,13 +344,14 @@ export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach
   if (!goal) return null
 
   const t0 = Date.now()
-  const search = () => {
+  // ONE time budget for the search and its lid fallback together (Claude r3 P3): the retry gets only what is left
+  const search = (budget) => {
     const t1 = Date.now()
     const gen = bot.pathfinder.getPathFromTo(moves, at, goal,
-      { timeout, searchRadius: slack, optimizePath: true })
+      { timeout: budget, searchRadius: slack, optimizePath: true })
     let r = gen.next()?.value?.result
     for (let i = 0; i < APPROACH_PUMPS && r?.status === 'partial'
-                    && Date.now() - t1 < timeout; i++) {
+                    && Date.now() - t1 < budget; i++) {
       r = gen.next()?.value?.result ?? r
     }
     return r
@@ -362,9 +363,10 @@ export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach
   let lidFallback = false
   try {
     const h0 = lp ? lp.hits : 0
-    result = search()
-    if (lp && !(lp.off > 0) && result?.status !== 'success' && lp.hits > h0) {
-      const r2 = withoutLidPriceSync(lp, search)
+    result = search(timeout)
+    const left = timeout - (Date.now() - t0)
+    if (lp && !(lp.off > 0) && result?.status !== 'success' && lp.hits > h0 && left > 0) {
+      const r2 = withoutLidPriceSync(lp, () => search(left))
       if (r2?.status === 'success') { result = r2; lidFallback = true }
     }
   } catch {

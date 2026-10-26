@@ -1613,28 +1613,6 @@ export function wellSwordsNow (bot) {
   try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }
 }
 
-/** How long the sweep waits for a falling drop to land (a log from 5 up falls in ~1 s). */
-export const DROP_SETTLE_MS = 2_000
-/** Is a drop over this block still falling? Pure: the cell just under the item has no collision box and is not a liquid
- *  (an item floats in water: waiting would only spend the budget). Unknown cell -> not falling (walk as before). */
-export function dropAirborne (below) {
-  if (!below || typeof below.boundingBox !== 'string') return false
-  if (/^(water|lava|bubble_column)$/.test(below.name ?? '')) return false
-  return below.boundingBox === 'empty'
-}
-/** Wait, at most `maxMs`, for a falling drop to land or vanish (collected, despawned). Aborts propagate. */
-export async function awaitDropSettled (bot, drop, signal, maxMs = DROP_SETTLE_MS) {
-  const t0 = Date.now()
-  const falling = () => {
-    try {
-      if (bot.entities && bot.entities[drop.id] !== drop) return false     // gone: nothing to wait for
-      const p = drop.position
-      return dropAirborne(bot.blockAt?.(new Vec3(Math.floor(p.x), Math.floor(p.y - 0.05), Math.floor(p.z))))
-    } catch { return false }
-  }
-  while (falling() && Date.now() - t0 < maxMs) await sleep(100, signal)
-}
-
 /** Walk over anything on the floor within a few blocks. */
 /**
  * ONE UNREACHABLE DROP MUST NOT ABANDON THE OTHERS.
@@ -1680,11 +1658,6 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
-    // A DROP STILL FALLING IS NOT A PLACE TO WALK TO (lidplace-01 Paper 10-26, Claude + Codex r2): a log cut 4-5 blocks
-    // up was chased while it fell, the goal frozen at its mid-air position, and the walk ran out its 6 s (`path_budget`,
-    // d=0,4.6,0) -- in both arms; a bot under its own tower caught the drop anyway, one a cell to the side lost it.
-    // Wait (bounded) until the cell under it holds something, then walk to where it LANDED.
-    try { await awaitDropSettled(bot, drop, signal) } catch (e) { releaseSought(); throw e }
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(

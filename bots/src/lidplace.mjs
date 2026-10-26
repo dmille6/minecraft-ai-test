@@ -42,6 +42,12 @@
 //
 // NOT HERE: the reflex and skill pillars that call bot.placeBlock directly (reflex.mjs air/scaffold/entombment, skills.mjs
 // ride-floor-down) never consult the pathfinder. Survival places where it must (protectzone's rule too).
+// CAPPED SEARCHES (Codex r2 P1; Claude r3): planDigApproach is the one capped search that can place AND admits a walk -- it
+// has the base-cost fallback (withoutLidPrice). reachprobe.mjs (radius 96, the walk profile) prices too and has none: its
+// contract is reorder-only, so a priced miss changes candidate ORDER, never admission. The ore tunnel's profile has no
+// scaffolding (no placements, no surcharge). A non-fallback approach walk re-plans priced under the 400 cap: a world change
+// mid-walk can fail where the base would re-plan -- rare and bounded, accepted. The fallback's walk holds the price off for
+// the whole bot (one price object), so any re-plan in that walk runs at base costs: countable as `lid_fallback=1`.
 
 /** LIDPLACE=0 -> no surcharge anywhere: every profile is exactly the base's (the rollback without a deploy). */
 export const lidPlaceOn = (env = process.env) => String(env?.LIDPLACE ?? '1') !== '0'

@@ -240,10 +240,12 @@ test('planDigApproach (the REAL capped caller): a priced search that failed afte
   const runs = []
   const bot = { entity: { position: V(0.5, 70, 0.5) }, gatherMovements: m, lidPrice: m.__lidPriceFn, inventory: { items: () => [] }, heldItem: null,
     blockAt: w.blockAt,
-    pathfinder: { getPathFromTo: function * (mv, at, goal, o) { runs.push(mv.__lidPriceFn.off); yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
-  const r = planDigApproach(bot, { x: 0, y: 77, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(77), endsInReach: () => true })
+    pathfinder: { getPathFromTo: function * (mv, at, goal, o) { runs.push(mv.__lidPriceFn.off); budgets.push(o.timeout); yield { result: new AStar(new Move(0, 70, 0, 64, 0), mv, goal, o.timeout, o.timeout, o.searchRadius).compute() } } } }
+  const budgets = []
+  const r = planDigApproach(bot, { x: 0, y: 77, z: 0 }, { goals, reachGoalFor: () => new goals.GoalY(77), endsInReach: () => true, timeout: 3000 })
   assert.ok(r, 'a verdict'); assert.equal(r.status, 'success'); assert.equal(r.lidFallback, true)
   assert.deepEqual(runs, [0, 1], 'priced first, then the base costs')
+  assert.equal(budgets[0], 3000); assert.ok(budgets[1] > 0 && budgets[1] <= 3000 - 1 && budgets[1] < budgets[0], `the retry gets only the time left (Claude r3 P3): ${budgets}`)
   // positive control: where the priced search succeeds, no second search and no fallback
   const w2 = world({ '0,70,0': 'chest' }), m2 = moves(w2, { canDig: true }), runs2 = []
   const bot2 = { ...bot, gatherMovements: m2, lidPrice: m2.__lidPriceFn, blockAt: w2.blockAt, entity: { position: V(0.5, 71, 0.5) },

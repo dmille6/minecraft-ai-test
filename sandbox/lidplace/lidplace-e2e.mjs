@@ -134,6 +134,7 @@ function wire () {
       stateIdAt: (x, y, z) => { lidScratch.x = x; lidScratch.y = y; lidScratch.z = z; return bot.world.getBlockStateId(lidScratch) } })
     if (typeof LP.installLidPrice !== 'function') throw new Error('lidplace.mjs without installLidPrice: this driver is stale for that build')
     LP.installLidPrice(moves, lidPlacePrice)   // on `moves`, before the clone copies it (index.mjs)
+    bot.lidPrice = lidPlacePrice              // as index.mjs: planDigApproach's capped-search fallback reads it (Codex r3 P3)
     // A POSITIVE CONTROL ON THE WIRING (a stale wiring once read as "the candidate towers on the lid"): the price of a block on
     // the arena chest's lid must be LID_PLACE_COST now, or the run is not a candidate run
     const probe = lidPlacePrice([{ x: C.x, y: C.y, z: C.z, dx: 0, dy: 1, dz: 0 }])
