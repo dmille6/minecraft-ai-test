@@ -598,9 +598,14 @@ export function replantAlternative (read, home, record, nodes, res = null, exclu
   for (const [, x, z] of replantBand(pad, footprint)) { const c = tryAt(x, z); if (c) return c }
   // THEN THE WHOLE TOWN WALK (r19, Claude r18 P2-1: design S2 -- never a felled tree without its sapling while ANY legal cell
   // exists): every walked column, nearest the pad first
+  // ... keeping the band's own clearance from the building (r20, Codex r19 P2: a sapling beside the walls grows into the stand
+  // ring the construction proof walks): never nearer the pad than REPLANT.near
   const xs = pad.map(c => c[0]), zs = pad.map(c => c[1])
-  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2
-  const cols = [...nodes.keys()].map(k => k.split(',').map(Number)).sort((a, b) => Math.hypot(a[0] - cx, a[1] - cz) - Math.hypot(b[0] - cx, b[1] - cz))
+  const bx0 = Math.min(...xs), bx1 = Math.max(...xs), bz0 = Math.min(...zs), bz1 = Math.max(...zs)
+  const cx = (bx0 + bx1) / 2, cz = (bz0 + bz1) / 2
+  const cols = [...nodes.keys()].map(k => k.split(',').map(Number))
+    .filter(([x, z]) => Math.max(bx0 - x, x - bx1, bz0 - z, z - bz1, 0) >= REPLANT.near)
+    .sort((a, b) => Math.hypot(a[0] - cx, a[1] - cz) - Math.hypot(b[0] - cx, b[1] - cz))
   for (const [x, z] of cols) { const c = tryAt(x, z); if (c) return c }
   return null
 }

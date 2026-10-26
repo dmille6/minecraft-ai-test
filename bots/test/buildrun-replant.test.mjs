@@ -122,6 +122,22 @@ await t('control: a REACHABLE replant cell is planted where the record put it (n
   assert.ok(!stops.includes('replanned'), `${stops}`); assert.strictEqual(stops.at(-1), 'complete')
   assert.strictEqual(srv.read(...rp.cell).name, 'oak_sapling')
 })
+await t('the wide search keeps the band\'s clearance: soil only in the ring beside the walls is never a replant cell (Codex r19 P2)', () => {
+  const f = floatingReplant(), srv = server()
+  const pad = SITE.record.cells.filter(c => c.seg === 'pad').map(c => [c.at[0], c.at[2]])
+  const bx1 = Math.max(...pad.map(c => c[0])), z0 = Math.min(...pad.map(c => c[1]))
+  const bx0 = Math.min(...pad.map(c => c[0])), bz0 = z0, bz1 = Math.max(...pad.map(c => c[1]))
+  const dOf = (x, z) => Math.max(bx0 - x, x - bx1, bz0 - z, z - bz1, 0)
+  // the whole band reserved by the plan, and the only walked columns right beside the pad (inside REPLANT.near): the wide
+  // search must not fall back into the clearance ring
+  const res = { column: (x, z) => (dOf(x, z) >= B.REPLANT.near && dOf(x, z) <= B.REPLANT.far ? 'plan_cell' : null), zones: [] }
+  const nodes = new Map()
+  for (let d = 1; d < B.REPLANT.near; d++) nodes.set(`${bx1 + d},${z0}`, [G + 1])
+  assert.strictEqual(B.replantAlternative(srv.read, HOME, f.record, nodes, res, [f.rp.cell]), null, 'nothing inside the clearance')
+  // control: the same stands with the band free -> a band cell (planted FROM the ring), never a ring cell
+  const ok = B.replantAlternative(srv.read, HOME, f.record, nodes, null, [f.rp.cell])
+  assert.ok(ok && dOf(ok[0], ok[2]) >= B.REPLANT.near, `a cell at the band's distance (${ok})`)
+})
 console.log('THE SITING PROOF AND THE VISIT AGREE')
 await t('replantCellAt: a cell is accepted only with a step that places onto the soil under it (the visit\'s own rule)', () => {
   const srv = server()

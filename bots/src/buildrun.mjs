@@ -282,6 +282,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
     const alt = (r.moves ?? 0) < REPLANT_MOVES ? replantAlternative(rd, home, record, nodes, p.res ?? null, tried) : null
     let kind = null
     const pub = PJ.publishRecord(dir, key, cur => {
+      kind = null                                       // per attempt: a lost CAS retried against a newer head re-decides (Codex r19 P3)
       const i = (cur?.replant ?? []).findIndex(x => x.cell.join(',') === at && x.state !== 'skipped')
       if (i < 0) return null
       const x = cur.replant[i]
@@ -291,7 +292,8 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
       else { cur.replant[i] = { ...x, tried, deferred: (x.deferred ?? 0) + 1, deferredAt: now() }; kind = 'replant_deferred' }
       return cur
     }, { by: me })
-    e.log('_build', { op: kind ?? 'replant_unchanged', cell: r.cell, why, ...(alt ? { to: alt.join(',') } : {}), result: pub.result })
+    if (pub.result !== 'accepted') kind = null       // logged only for a transition that was written
+    e.log('_build', { op: kind ?? 'replant_unchanged', cell: r.cell, why, ...(alt && kind === 'replant_moved' ? { to: alt.join(',') } : {}), result: pub.result })
     out.stop = 'replanned'; out.why = `replant ${at}: ${why} -> ${kind ?? 'unchanged (another builder moved it first)'}${alt && kind === 'replant_moved' ? ` ${alt.join(',')}` : ''}`
     return out
   }
