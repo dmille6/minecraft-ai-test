@@ -132,7 +132,7 @@ await t('a SILENT replant click is counted silent (the bag row then reads as not
   const record = { ...SITE.record, replant: [rp] }
   const srv = server(), { p } = project(record)
   const r = await R.runVisit(p('A'), bot(srv, 'A', { ack: t2 => (k3(t2) === k3(rp.cell) ? 'silent' : 'ok'), capWait: 20 }), { maxSteps: 50 })
-  assert.strictEqual(r.silent, 1, JSON.stringify(r)); assert.strictEqual(r.stop, 'no_step')
+  assert.strictEqual(r.silent, 1, JSON.stringify(r)); assert.strictEqual(r.stop, 'silent', 'a silent replant is transient: the next visit reads the cell again (F2 r19)')
 })
 
 console.log('THE SLOT REFERENCE (Codex r1 P3)')
