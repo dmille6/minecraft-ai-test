@@ -246,8 +246,10 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why='', extra=None):
     if os.path.exists(f'{dst}/RELEASE.json'):
         # a PIECE release is never served from a cache that lacks its piece record (an earlier plain stage of the same sha)
         old = json.load(open(f'{dst}/RELEASE.json'))
-        if extra and any(old.get(k) != v for k, v in extra.items() if k in ('piece', 'prev')):
+        if extra and any(old.get(k) != v for k, v in extra.items() if k in ('piece', 'prev', 'prev_release')):
             return False, f'{name} is already staged without (or with another) piece record {old.get("piece")}; remove it first'
+        if not extra and old.get('piece'):
+            return False, f'{name} is staged as the piece release {old.get("piece")}; a plain stage never reuses it (remove it first)'
         return True, dst
     tmp = tempfile.mkdtemp(dir=RELEASES, prefix='.stage-')
     try:
@@ -277,22 +279,28 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why='', extra=None):
         return False, str(e)
 
 
-APPROVE = re.compile(r'\bAPPROVE\b')
-PAPER_PASS = re.compile(r'\b(CANDIDATE_PASS|PASS)\b')
+PAPER_OK = ('CANDIDATE_PASS', 'PASS')
+ENGINES = ('codex', 'claude')
+HEX40 = re.compile(r'[0-9a-f]{40}')
 
 
-def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq, revoked, kept=None):
+def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq, revoked, kept=None, docs_only=None):
     """THE PROGRESS LANE'S STAGE RULE (docs/reports/showcase-progress-lane-2026-10-25.md 5; owner 10-25: a STACK of pieces --
     e.g. matset-01 + mats-01 + shop-01 -- staged together) -> None (stage it) | the reason not to. Pure.
       sha         the stack's tip; release_sha the CURRENT showcase release; runs the stack's piece names (in any order)
       rows        PIECES.jsonl rows; the NEWEST row of a run speaks for it
       commits     every commit in release_sha..sha (git rev-list)
-      kept        {run: (ok, why)} the journal's KEEP+promoted record (followrule.kept_runs) -- for a survival piece
-    Refused unless: the current release is the stack's ancestor and the stack adds something; every named run has a row of
-    kind building (a Paper PASS and an APPROVE from BOTH Codex and Claude in its reviews) or survival (KEPT on the fleet); every
-    piece's sha is inside the stack (ancestry or patch equivalence) and its base is the stack's ancestor; NOTHING in
-    release..sha lies outside the named pieces (no unreviewed commit rides along); no REVOKED sha is in the stack."""
-    if not (sha and re.fullmatch(r'[0-9a-f]{40}', sha)):
+      kept        {run: (ok, why)} -- for a survival piece, survival_kept(): KEEP recorded and a `promoted` row naming ITS sha
+      docs_only   docs_only(a, b) -> True when every path changed in a..b is under docs/ (a review record after the approval)
+    Refused unless: the current release is the stack's ancestor and the stack adds something; every named run's newest row is
+    kind building -- paper {"result": CANDIDATE_PASS|PASS, "sha"} and reviews [{"engine", "verdict": "APPROVE", "sha"}] from
+    BOTH codex and claude, every one of those shas the piece's own or an ancestor of it with only docs/ changed since (an
+    approval never covers code that came after it) -- or survival (kept); every piece's sha is an ANCESTOR of the tip (a
+    re-stacked piece needs a line naming its re-stacked sha: patch equivalence is not membership) and its base is too;
+    NOTHING in release..sha lies outside the named pieces' own ranges (base, sha]; no REVOKED sha is in the stack (by
+    ancestry or patch equivalence)."""
+    docs_only = docs_only or (lambda a, b: False)
+    if not (sha and HEX40.fullmatch(sha)):
         return f'sha must be 40 hex: {sha!r}'
     if not release_sha:
         return 'no current release: a piece stacks on a release (stage --bootstrap first)'
@@ -304,6 +312,11 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq
         return 'no piece named (--piece <run>[,<run>...])'
     if len(set(runs)) != len(runs):
         return f'a piece named twice: {runs}'
+
+    def covers(evidence_sha, psha):
+        # the evidence names the piece's sha, or an ancestor of it with nothing but docs/ changed since
+        e = str(evidence_sha or '')
+        return bool(HEX40.fullmatch(e)) and (e == psha or (is_anc(e, psha) and docs_only(e, psha)))
     pieces = []
     for run in runs:
         mine = [r for r in rows if isinstance(r, dict) and r.get('run') == run]
@@ -311,23 +324,24 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq
             return f'{run}: no PIECES.jsonl line (register the piece first: section 5 step 3)'
         r = mine[-1]
         psha, base, kind = str(r.get('sha') or ''), str(r.get('base') or ''), r.get('kind')
-        if not re.fullmatch(r'[0-9a-f]{40}', psha) or not re.fullmatch(r'[0-9a-f]{40}', base):
+        if not HEX40.fullmatch(psha) or not HEX40.fullmatch(base):
             return f'{run}: its line needs a 40-hex sha and base ({psha[:12]!r}, {base[:12]!r})'
         if kind == 'building':
-            if not PAPER_PASS.search(str(r.get('paper') or '')) or re.search(r'\bFAIL\b', str(r.get('paper') or '')):
-                return f'{run}: no Paper PASS in its line ({str(r.get("paper"))[:80]!r})'
-            rv = [str(x) for x in (r.get('reviews') or [])]
-            for eng in ('codex', 'claude'):
-                if not any(eng in x.lower() and APPROVE.search(x) for x in rv):
-                    return f'{run}: no {eng.capitalize()} APPROVE in its reviews {rv[:3]}'
+            p = r.get('paper')
+            if not (isinstance(p, dict) and p.get('result') in PAPER_OK and covers(p.get('sha'), psha)):
+                return f'{run}: no Paper PASS of {psha[:8]} (paper: {{"result": "CANDIDATE_PASS", "sha": <40 hex>, "record": ...}}; got {str(p)[:80]!r})'
+            rv = [x for x in (r.get('reviews') or []) if isinstance(x, dict)]
+            for eng in ENGINES:
+                if not any(str(x.get('engine') or '').lower() == eng and x.get('verdict') == 'APPROVE' and covers(x.get('sha'), psha) for x in rv):
+                    return f'{run}: no {eng.capitalize()} APPROVE of {psha[:8]} in its reviews (each {{"engine", "verdict", "sha"}})'
         elif kind == 'survival':
             ok, why = (kept or {}).get(run, (False, 'no journal record'))
             if not ok:
                 return f'{run}: a survival piece must be KEPT on the fleet first ({why})'
         else:
             return f'{run}: kind must be building or survival, not {kind!r}'
-        if not (is_anc(psha, sha) or cherry_eq(psha, sha)):
-            return f'{run}: its sha {psha[:8]} is not in the stack {sha[:8]}'
+        if not is_anc(psha, sha):
+            return f'{run}: its sha {psha[:8]} is not in the stack {sha[:8]} (a re-stacked piece needs a line naming its re-stacked sha)'
         if not is_anc(base, sha):
             return f'{run}: its base {base[:8]} is not an ancestor of the stack {sha[:8]}'
         pieces.append((psha, base))
@@ -336,10 +350,30 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, cherry_eq
     stray = [c for c in commits if not any(c != b and is_anc(b, c) and is_anc(c, p) for p, b in pieces)]
     if stray:
         return f'{len(stray)} commit(s) in {release_sha[:8]}..{sha[:8]} belong to no named piece (first {stray[0][:8]}): stage only reviewed pieces'
-    bad = [x for x in (revoked or []) if is_anc(x, sha)]
+    bad = [x for x in (revoked or []) if is_anc(x, sha) or cherry_eq(x, sha)]
     if bad:
         return f'the stack contains a REVOKED sha {bad[0][:8]}'
     return None
+
+
+def survival_kept(journal, run, psha, resolve_hex):
+    """A survival piece's fleet record, BOUND TO ITS SHA -> (ok, why). ok iff the journal has a `recorded` KEEP row for the run
+    and a `promoted` row for it whose note names (resolves to) the piece's own sha. owner-direct does not count: a piece is
+    a canary-kept change (lane doc 6), and followrule.kept_runs ignores the sha."""
+    rows = [r for r in journal if r.get('run') == run]
+    keep = any(r.get('phase') == 'recorded' and str(r.get('note', '')).strip().split(' ')[0].upper() == 'KEEP' for r in rows)
+    named = any(r.get('phase') == 'promoted' and any(resolve_hex(h) == psha for h in FR.HEX.findall(str(r.get('note', ''))))
+                for r in rows)
+    if keep and named:
+        return True, 'kept and promoted at its sha'
+    return False, (f'{run}: KEEP {"yes" if keep else "no"}, a promotion naming {psha[:8]} {"yes" if named else "no"} '
+                   f'(journal phases {sorted({str(r.get("phase")) for r in rows})})')
+
+
+def docs_only_change(a, b):
+    out = subprocess.run(['git', '-C', REPO, 'diff', '--name-only', a, b], capture_output=True, text=True)
+    names = [n for n in out.stdout.splitlines() if n.strip()]
+    return out.returncode == 0 and all(n.startswith('docs/') for n in names)
 
 
 def write_envs(release_dir, rel):
@@ -384,34 +418,35 @@ def cmd_stage(a):
 def stage_piece(a, sha, feed, last):
     """`stage <sha> --piece <runs>`: the lane only (LANE present, AUTO_FOLLOW absent), the newest observation verified (its
     pinned policy and dependency digest are the release's), piece_stack_refusal None, and REQUIRED_KEPT still passes against
-    the stack (pieces_in). RELEASE.json carries piece: [runs] and prev: the release it stacks on. Stages only: activation
-    is `showcase_ops.py activate <release>` (with its own REQUIRED_KEPT check)."""
-    runs = [r.strip() for r in a.piece.split(',') if r.strip()]
+    the stack (pieces_in). RELEASE.json carries piece: [runs, sorted], prev: the release sha it stacks on, prev_release: the
+    harness release dir. Every refusal is journalled `piece-refused` in ops/deploy.jsonl. Stages only: activation is
+    `showcase_ops.py activate <release>` (with its own REQUIRED_KEPT check)."""
+    runs = sorted(r.strip() for r in a.piece.split(',') if r.strip())
+
+    def refuse(why):
+        print(f'REFUSED: {why}')
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'piece-refused', 'sha': sha, 'piece': runs, 'why': why[:300]})
+        return 1
     if a.bootstrap:
-        print('REFUSED: --piece and --bootstrap are exclusive')
-        return 1
+        return refuse('--piece and --bootstrap are exclusive')
     if not os.path.exists(LANE) or os.path.exists(AUTO):
-        print(f'REFUSED: a piece stages only in the progress lane ({LANE} present, {AUTO} absent)')
-        return 1
+        return refuse(f'a piece stages only in the progress lane ({LANE} present, {AUTO} absent)')
     if not last.get('verified'):
-        print('REFUSED: the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
-        return 1
+        return refuse('the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
     cur = current_release()
     rel_sha = (cur or {}).get('sha')
     rows = FR.load_jsonl(PIECES)
     commits = git('rev-list', f'{rel_sha}..{sha}', check=False).split() if rel_sha and resolve(sha) else []
     revoked = [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
     journal = (feed or {}).get('journal') or []
-    kept = FR.kept_runs(journal, [(r, (next((x for x in reversed(rows) if x.get('run') == r), {}) or {}).get('sha') or '') for r in runs])
-    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, cherry_equivalent, revoked, kept)
+    newest = {r: next((x for x in reversed(rows) if isinstance(x, dict) and x.get('run') == r), {}) for r in runs}
+    kept = {r: survival_kept(journal, r, str(newest[r].get('sha') or ''), resolve) for r in runs}
+    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, cherry_equivalent, revoked, kept, docs_only_change)
     if why:
-        print(f'REFUSED: {why}')
-        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'piece-refused', 'sha': sha, 'piece': runs, 'why': why[:300]})
-        return 1
+        return refuse(why)
     ok, missing = pieces_in(sha, journal)
     if not ok:
-        print(f'REFUSED: {sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
-        return 1
+        return refuse(f'{sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
     prev = os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None
     ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=False, why=f'piece stack {",".join(runs)}',
                     extra={'piece': runs, 'prev': rel_sha, 'prev_release': prev})

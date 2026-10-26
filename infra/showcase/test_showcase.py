@@ -555,9 +555,10 @@ class GuardScript(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ stage --piece (the lane)
 SO = load('showcase_ops', 'showcase_ops.py')
-# the showcase release R, then a STACK: matset (M1) <- mats (M2) <- shop (S1 <- S2); X is a stray commit on top; Q a side branch from R
-R40, M1, M2, S1, S2, X40, Q40 = ('e' * 40), ('1' * 40), ('2' * 40), ('3' * 40), ('4' * 40), ('5' * 40), ('6' * 40)
-LINE = {R40: 0, M1: 1, M2: 2, S1: 3, S2: 4, X40: 5}
+# the showcase release R, then a STACK: matset (M1) <- mats (M2) <- shop (S1 <- S2); X is a stray commit on top; Q a side branch
+# from R; D is a docs-only commit on S2 (a review record after the approval)
+R40, M1, M2, S1, S2, X40, Q40, D40 = ('e' * 40), ('1' * 40), ('2' * 40), ('3' * 40), ('4' * 40), ('5' * 40), ('6' * 40), ('7' * 40)
+LINE = {R40: 0, M1: 1, M2: 2, S1: 3, S2: 4, D40: 5, X40: 6}
 
 
 def anc2(x, y):
@@ -572,8 +573,19 @@ def no_cherry(x, y):
     return False
 
 
-def piece(run, sha, base, kind='building', paper='docs/reports/x-paper.txt CANDIDATE_PASS', reviews=('Codex r3 APPROVE', 'Claude r1 APPROVE')):
-    return {'run': run, 'sha': sha, 'base': base, 'kind': kind, 'paper': paper, 'reviews': list(reviews), 'owner': '10-23 Q4'}
+def docs_d(a, b):
+    # only S2..D40 is docs-only
+    return (a, b) == (S2, D40)
+
+
+def rv(sha, codex='APPROVE', claude='APPROVE'):
+    return [{'engine': 'codex', 'verdict': codex, 'sha': sha, 'round': 'r3'}, {'engine': 'claude', 'verdict': claude, 'sha': sha, 'round': 'r1'}]
+
+
+def piece(run, sha, base, kind='building', paper=None, reviews=None):
+    return {'run': run, 'sha': sha, 'base': base, 'kind': kind,
+            'paper': paper if paper is not None else {'result': 'CANDIDATE_PASS', 'sha': sha, 'record': 'docs/reports/x-paper.txt'},
+            'reviews': reviews if reviews is not None else rv(sha), 'owner': '10-23 Q4'}
 
 
 ROWS = [piece('matset-01', M1, R40), piece('mats-01', M2, M1), piece('shop-01', S2, M2)]
@@ -581,9 +593,9 @@ STACK = [M1, M2, S1, S2]
 
 
 class PieceStack(unittest.TestCase):
-    def ref(self, sha=S2, rel=R40, runs=('matset-01', 'mats-01', 'shop-01'), rows=ROWS, commits=STACK, revoked=(), kept=None, cherry=no_cherry):
-        # '' for staged: a refused mutant then FAILS an assertIn (None would raise, an ERROR the mutant runner does not count)
-        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, cherry, list(revoked), kept) or ''
+    def ref(self, sha=S2, rel=R40, runs=('matset-01', 'mats-01', 'shop-01'), rows=ROWS, commits=STACK, revoked=(), kept=None,
+            cherry=no_cherry, docs=docs_d):
+        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, cherry, list(revoked), kept, docs) or ''
 
     def test_the_owner_stack_stages(self):
         self.assertEqual(self.ref(), '')
@@ -593,21 +605,39 @@ class PieceStack(unittest.TestCase):
         self.assertIn('belong to no named piece', self.ref(runs=('mats-01', 'shop-01')))
 
     def test_a_stray_commit_on_top_is_refused(self):
-        self.assertIn('belong to no named piece', self.ref(sha=X40, commits=STACK + [X40]))
+        self.assertIn('belong to no named piece', self.ref(sha=X40, commits=STACK + [D40, X40]))
 
     def test_a_run_without_a_pieces_line_is_refused(self):
         self.assertIn('no PIECES.jsonl line', self.ref(runs=('matset-01', 'mats-01', 'shop-01', 'house-01')))
 
     def test_the_newest_line_of_a_run_speaks_for_it(self):
-        rows = ROWS + [piece('shop-01', S2, M2, paper='FAIL at cand-9')]
-        self.assertIn('no Paper PASS', self.ref(rows=rows))
-        self.assertEqual(self.ref(rows=rows + [piece('shop-01', S2, M2)]), '')
+        failed = piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_FAIL', 'sha': S2})
+        self.assertIn('no Paper PASS', self.ref(rows=ROWS + [failed]))
+        self.assertEqual(self.ref(rows=ROWS + [failed, piece('shop-01', S2, M2)]), '')
 
-    def test_a_building_piece_needs_paper_pass_and_both_approves(self):
-        for bad, why in ((piece('shop-01', S2, M2, paper='docs/x.txt'), 'no Paper PASS'),
-                         (piece('shop-01', S2, M2, reviews=['Claude r6 APPROVE']), 'no Codex APPROVE'),
-                         (piece('shop-01', S2, M2, reviews=['Codex r6 APPROVE', 'Claude r6 CHANGES']), 'no Claude APPROVE')):
-            self.assertIn(why, self.ref(rows=ROWS[:2] + [bad]))
+    def test_paper_must_be_a_pass_of_this_sha(self):
+        for bad in ({'result': 'CANDIDATE_FAIL', 'sha': S2}, {'result': 'NOT A PASS', 'sha': S2}, 'r6 CANDIDATE_PASS',
+                    {'result': 'CANDIDATE_PASS', 'sha': S1}, {'result': 'CANDIDATE_PASS', 'sha': S2[:8]}, {'result': 'CANDIDATE_PASS'}):
+            self.assertIn('no Paper PASS', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, paper=bad)]), bad)
+
+    def test_each_engine_must_approve_this_sha(self):
+        cases = ((rv(S2, codex='CHANGES'), 'no Codex APPROVE'), (rv(S2, claude='CHANGES'), 'no Claude APPROVE'),
+                 (rv(S1), 'no Codex APPROVE'),                                   # approved an EARLIER sha with code after it
+                 ([{'engine': 'codex', 'verdict': 'CHANGES (claude APPROVE)', 'sha': S2}], 'no Codex APPROVE'),
+                 (['Codex r6 APPROVE', 'Claude r6 APPROVE'], 'no Codex APPROVE'),  # free text never counts
+                 ([{'engine': 'codex', 'verdict': 'APPROVE', 'sha': S2}], 'no Claude APPROVE'))
+        for reviews, why in cases:
+            self.assertIn(why, self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, reviews=reviews)]), reviews)
+
+    def test_an_approval_covers_a_later_docs_only_record_and_nothing_else(self):
+        # the line names D40 (the review record after the approved S2): the approval of S2 covers it, docs only
+        rows = ROWS[:2] + [piece('shop-01', D40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2}, reviews=rv(S2))]
+        self.assertEqual(self.ref(sha=D40, commits=STACK + [D40], rows=rows), '')
+        # the same line naming X40 (code after the approval) is refused
+        rows = ROWS[:2] + [piece('shop-01', X40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2}, reviews=rv(S2))]
+        self.assertIn('no Paper PASS', self.ref(sha=X40, commits=STACK + [D40, X40], rows=rows))
+        rows = ROWS[:2] + [piece('shop-01', X40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': X40}, reviews=rv(S2))]
+        self.assertIn('no Codex APPROVE', self.ref(sha=X40, commits=STACK + [D40, X40], rows=rows))
 
     def test_a_survival_piece_must_be_kept(self):
         rows = ROWS[:2] + [piece('shop-01', S2, M2, kind='survival')]
@@ -622,22 +652,37 @@ class PieceStack(unittest.TestCase):
         self.assertIn('adds nothing', self.ref(sha=R40, commits=[]))
         self.assertIn('no current release', self.ref(rel=None))
 
+    def test_a_piece_base_off_the_stack_is_refused(self):
+        self.assertIn('its base', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, Q40)]))
+
     def test_a_piece_sha_outside_the_stack_is_refused(self):
         self.assertIn('is not in the stack', self.ref(sha=M2, commits=[M1, M2]))
 
-    def test_a_piece_recorded_on_another_branch_is_refused(self):
-        # shop-01's line names Q40 (a side branch): not an ancestor of S2 and not patch-equivalent inside it -> refused; a piece
-        # stages from the branch its PIECES line names (its commits must lie in the stack itself, the stray rule)
+    def test_patch_equivalence_is_not_membership(self):
+        # shop-01 recorded at Q40, patch-equivalent inside S2 (a cherry-pick): refused, even when cherry_eq says yes
         rows = ROWS[:2] + [piece('shop-01', Q40, R40)]
-        self.assertIn('is not in the stack', self.ref(rows=rows))
+        self.assertIn('is not in the stack', self.ref(rows=rows, cherry=lambda x, y: (x, y) == (Q40, S2)))
 
     def test_a_revoked_sha_in_the_stack_is_refused(self):
         self.assertIn('REVOKED', self.ref(revoked=[M2]))
+        self.assertIn('REVOKED', self.ref(revoked=[Q40], cherry=lambda x, y: (x, y) == (Q40, S2)), 'a revoked sha cherry-picked back')
+        self.assertEqual(self.ref(revoked=[Q40]), '')
 
     def test_names_twice_and_bad_shas(self):
         self.assertIn('named twice', self.ref(runs=('mats-01', 'mats-01')))
         self.assertIn('40 hex', self.ref(sha='abc'))
         self.assertIn('40-hex sha and base', self.ref(rows=ROWS[:2] + [dict(piece('shop-01', S2, M2), base='')]))
+
+
+class SurvivalKept(unittest.TestCase):
+    def test_bound_to_the_piece_sha(self):
+        res = {S2[:8]: S2, M1[:8]: M1}.get
+        keep = {'run': 'surv', 'phase': 'recorded', 'note': 'KEEP read +180'}
+        self.assertTrue(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{S2[:8]} fleet-wide'}], 'surv', S2, res)[0])
+        # kept and promoted at M1: a newer line naming S2 is NOT kept (Codex r1 P1)
+        self.assertFalse(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{M1[:8]} fleet-wide'}], 'surv', S2, res)[0])
+        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'promoted', 'note': S2[:8]}], 'surv', S2, res)[0], 'no KEEP')
+        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'owner-direct', 'note': S2[:8]}], 'surv', S2, res)[0], 'owner-direct')
 
 
 class StagePieceCommand(unittest.TestCase):
@@ -647,7 +692,7 @@ class StagePieceCommand(unittest.TestCase):
         self.d = tempfile.mkdtemp()
         self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
                                                   'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
-                                                  'current_release', 'stage', 'pieces_in')}
+                                                  'current_release', 'stage', 'pieces_in', 'docs_only_change')}
         SO.ROOT = self.d
         for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
                      ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
@@ -667,6 +712,7 @@ class StagePieceCommand(unittest.TestCase):
         SO.git = lambda *a, check=True: '\n'.join(STACK) if a and a[0] == 'rev-list' else ''
         SO.is_anc = anc2
         SO.cherry_equivalent = no_cherry
+        SO.docs_only_change = docs_d
         SO.current_release = lambda: {'sha': R40}
         SO.pieces_in = lambda sha, journal: (True, [])
         self.calls = []
@@ -676,19 +722,25 @@ class StagePieceCommand(unittest.TestCase):
         for k, v in self.saved.items():
             setattr(SO, k, v)
 
-    def run_stage(self, sha=S2, piece='matset-01,mats-01,shop-01', bootstrap=False):
+    def run_stage(self, sha=S2, piece='shop-01,matset-01,mats-01', bootstrap=False):
         import types, io, contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             rc = SO.cmd_stage(types.SimpleNamespace(sha=sha, piece=piece, bootstrap=bootstrap))
         return rc, buf.getvalue()
 
+    def refused_rows(self):
+        try:
+            return [json.loads(l) for l in open(SO.DEPLOY) if json.loads(l).get('event') == 'piece-refused']
+        except FileNotFoundError:
+            return []
+
     def test_stages_the_stack_with_its_piece_record(self):
         rc, out = self.run_stage()
         self.assertEqual(rc, 0, out)
         (args, kw), = self.calls
         self.assertEqual(args[0], S2)
-        self.assertEqual(kw['extra']['piece'], ['matset-01', 'mats-01', 'shop-01'])
+        self.assertEqual(kw['extra']['piece'], ['mats-01', 'matset-01', 'shop-01'], 'sorted: the stack in any order is one record')
         self.assertEqual(kw['extra']['prev'], R40)
         self.assertFalse(kw['bootstrap'])
 
@@ -696,6 +748,7 @@ class StagePieceCommand(unittest.TestCase):
         os.remove(SO.LANE)
         rc, out = self.run_stage()
         self.assertEqual(rc, 1); self.assertIn('progress lane', out); self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.refused_rows()), 1, 'journalled')
 
     def test_with_auto_follow_on_nothing_is_staged(self):
         open(SO.AUTO, 'w').close()
@@ -712,12 +765,24 @@ class StagePieceCommand(unittest.TestCase):
         SO.pieces_in = lambda sha, journal: (False, ['townplan-01'])
         rc, out = self.run_stage()
         self.assertEqual(rc, 1); self.assertIn('REQUIRED_KEPT', out); self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.refused_rows()), 1)
 
     def test_a_refused_stack_is_journalled_and_not_staged(self):
         rc, out = self.run_stage(piece='mats-01,shop-01')
         self.assertEqual(rc, 1); self.assertIn('no named piece', out); self.assertEqual(self.calls, [])
-        rows = [json.loads(l) for l in open(SO.DEPLOY)]
-        self.assertEqual(rows[-1]['event'], 'piece-refused')
+        self.assertEqual(self.refused_rows()[-1]['event'], 'piece-refused')
+
+    def test_a_survival_piece_needs_a_promotion_naming_its_sha(self):
+        with open(SO.PIECES, 'a') as f:
+            f.write(json.dumps(piece('shop-01', S2, M2, kind='survival')) + '\n')
+        with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
+            json.dump({'journal': [{'run': 'shop-01', 'phase': 'recorded', 'note': 'KEEP'}, {'run': 'shop-01', 'phase': 'promoted', 'note': M1}]}, f)
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1, out); self.assertIn('KEPT on the fleet first', out); self.assertEqual(self.calls, [])
+        with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
+            json.dump({'journal': [{'run': 'shop-01', 'phase': 'recorded', 'note': 'KEEP'}, {'run': 'shop-01', 'phase': 'promoted', 'note': S2}]}, f)
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 0, out)
 
     def test_piece_and_bootstrap_are_exclusive(self):
         rc, out = self.run_stage(bootstrap=True)
@@ -725,21 +790,38 @@ class StagePieceCommand(unittest.TestCase):
 
 
 class StageCache(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = (SO.RELEASES, SO.OPS)
+        SO.RELEASES, SO.OPS = os.path.join(self.d, 'releases'), os.path.join(self.d, 'ops')
+        os.makedirs(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1')); os.makedirs(SO.OPS)
+        open(os.path.join(SO.OPS, 'policy-p1.env'), 'w').close()
+
+    def tearDown(self):
+        SO.RELEASES, SO.OPS = self.saved
+
+    def cached(self, rel):
+        with open(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1', 'RELEASE.json'), 'w') as f:
+            json.dump(dict({'sha': S2}, **rel), f)
+
     def test_a_cached_plain_release_is_never_reused_as_a_piece_release(self):
-        d = tempfile.mkdtemp()
-        saved = (SO.RELEASES, SO.OPS)
-        try:
-            SO.RELEASES, SO.OPS = os.path.join(d, 'releases'), os.path.join(d, 'ops')
-            os.makedirs(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1')); os.makedirs(SO.OPS)
-            open(os.path.join(SO.OPS, 'policy-p1.env'), 'w').close()
-            with open(os.path.join(SO.RELEASES, f'{S2[:8]}-p1-d1', 'RELEASE.json'), 'w') as f:
-                json.dump({'sha': S2}, f)
-            ok, why = SO.stage(S2, 'p1', 'd1', extra={'piece': ['shop-01'], 'prev': R40})
-            self.assertFalse(ok); self.assertIn('without (or with another) piece record', why)
-            ok2, _ = SO.stage(S2, 'p1', 'd1')
-            self.assertTrue(ok2, 'a plain stage still reuses its own cache')
-        finally:
-            SO.RELEASES, SO.OPS = saved
+        self.cached({})
+        ok, why = SO.stage(S2, 'p1', 'd1', extra={'piece': ['shop-01'], 'prev': R40, 'prev_release': 'r1'})
+        self.assertFalse(ok); self.assertIn('without (or with another) piece record', why)
+        ok2, _ = SO.stage(S2, 'p1', 'd1')
+        self.assertTrue(ok2, 'a plain stage still reuses its own cache')
+
+    def test_a_piece_release_from_another_predecessor_is_not_reused(self):
+        rec = {'piece': ['shop-01'], 'prev': R40, 'prev_release': 'r1'}
+        self.cached(rec)
+        self.assertTrue(SO.stage(S2, 'p1', 'd1', extra=dict(rec))[0], 'the same record reuses')
+        ok, why = SO.stage(S2, 'p1', 'd1', extra=dict(rec, prev_release='r2'))
+        self.assertFalse(ok, 'Codex r1 P2: another predecessor release dir'); self.assertIn('piece record', why)
+
+    def test_a_plain_stage_never_reuses_a_piece_release(self):
+        self.cached({'piece': ['shop-01'], 'prev': R40, 'prev_release': 'r1'})
+        ok, why = SO.stage(S2, 'p1', 'd1')
+        self.assertFalse(ok); self.assertIn('plain stage never reuses', why)
 
 
 class SaveHoldLock(unittest.TestCase):

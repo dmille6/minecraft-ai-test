@@ -125,27 +125,35 @@ monuments). It runs on the showcase BEFORE the fleet; the fleet canary follows a
 2. **Paper.** The piece's own Paper scenes on a sandbox under the shared sandbox lock, PASS with a BASE control on the same
    scene; the record in `docs/reports/<run>-paper-*.txt`. No Paper PASS, no showcase.
 3. **Register** the piece: one line appended to `/srv/showcase/PIECES.jsonl` --
-   `{"run", "sha", "base": <showcase sha>, "kind": "building", "paper": <record path + PASS line>, "reviews": [...],
-   "tripwire_extra": <the piece's own defect gates, or null>, "owner": "10-23 Q4"}`.
+   `{"run", "sha", "base": <the sha it builds on>, "kind": "building",
+   "paper": {"result": "CANDIDATE_PASS", "sha": <the sha the Paper ran>, "record": <docs/reports/... path>},
+   "reviews": [{"engine": "codex", "verdict": "APPROVE", "sha": <the approved sha>, "round": "r6"}, {"engine": "claude", ...}],
+   "tripwire_extra": <the piece's own defect gates, or null>, "owner": "10-23 Q4"}`. Every sha is 40 hex. The paper and
+   review shas must be the line's `sha`, or an ancestor of it with ONLY `docs/` changed since (the review record committed
+   after the approval); free-text reviews never count. A re-stacked piece gets a NEW line naming its re-stacked sha.
 4. **Deploy to the showcase** (AUTO_FOLLOW stays OFF while any piece is ahead of the fleet):
-   `showcase_ops.py stage <sha> --piece <run>` -- **NOT BUILT: until it is, this procedure cannot run** (today `stage` takes only
-   the follower's DUE target or a `--bootstrap` promoted sha, so a showcase-first sha is refused, and nothing may be staged by
-   hand around it). The build item, on main's `infra/showcase/showcase_ops.py` + `test_showcase.py`, with Codex's 10-25 P1s
+   `showcase_ops.py stage <sha> --piece <run>[,<run>...]` -- BUILT 10-25 (branch `showcase-stage-piece`; see the note below;
+   nothing may be staged by hand around it). `activate --lane` and piece-aware rollback are not built yet. The build item, on main's `infra/showcase/showcase_ops.py` + `test_showcase.py`, with Codex's 10-25 P1s
    as its acceptance:
    * `stage --piece`: the current release is the sha's ancestor; a PIECES line names it with a Paper PASS; REQUIRED_KEPT still
      passes against it; RELEASE.json carries `piece: <run>` and `prev: <release>`;
      **BUILT 10-25 (branch `showcase-stage-piece`, owner: a STACK -- matset-01 + mats-01 + shop-01 -- stages together):**
      `showcase_ops.py stage <sha> --piece matset-01,mats-01,shop-01`. The rule is `piece_stack_refusal()` (pure, tested): the
      current release is the tip's ancestor and the stack adds commits; every named run's NEWEST PIECES line is kind `building`
-     (a Paper PASS and no FAIL in `paper`, a Codex AND a Claude APPROVE in `reviews`) or `survival` (KEPT + promoted in the
-     follower's journal); every piece's sha is in the stack (ancestry or patch equivalence) and its base is the stack's
+     (a structured Paper PASS and a Codex AND a Claude APPROVE, each of the line's sha: step 3) or `survival` (KEEP and a
+     promotion naming its sha in the follower's journal); every piece's sha is an ANCESTOR of the tip and its base is the stack's
      ancestor; EVERY commit in `release..sha` lies in some named piece's own range `(base, sha]` (no unreviewed commit rides
-     along; the tip's ancestry is not enough); no REVOKED sha is in the stack. The command runs only in the lane (`LANE`
-     present, `AUTO_FOLLOW` absent), on a verified observation (its policy and dependency digests), with REQUIRED_KEPT checked
-     against the stack; a refusal is journalled `piece-refused` in ops/deploy.jsonl. RELEASE.json carries `piece: [runs]`,
-     `prev: <release sha>`, `prev_release: <the harness release dir>`; a cached plain stage of the same sha is never reused as
-     a piece release. Stage only: activation is `activate <release>` as before. `activate --lane` and piece-aware rollback
-     below are STILL NOT BUILT.
+     along; the tip's ancestry is not enough); no REVOKED sha is in the stack (by ancestry or as a cherry-pick). The command
+     runs only in the lane (`LANE` present, `AUTO_FOLLOW` absent), on a verified observation (its policy and dependency
+     digests), with REQUIRED_KEPT checked against the stack; EVERY refusal is journalled `piece-refused` in ops/deploy.jsonl.
+     RELEASE.json carries `piece: [runs, sorted]`, `prev: <release sha>`, `prev_release: <the harness release dir>`; a cached
+     release is reused only for the same piece record, and a plain stage never reuses a piece release. Stage only: activation
+     is `activate <release>` as before. `activate --lane` and piece-aware rollback below are STILL NOT BUILT.
+     **r2 (Codex r1 CHANGES: 1 P1, 1 P2, 2 P3; Claude r1 CHANGES: 1 P2, 4 P3):** the paper and the reviews are structured and
+     bound to the piece's sha (above), so a line whose sha moved past its approval is refused; a SURVIVAL piece needs a
+     recorded KEEP and a `promoted` row naming ITS sha (`survival_kept`; followrule.kept_runs ignores the sha, and
+     `owner-direct` does not count for a piece); patch equivalence is NOT membership (the stray rule needs ancestry, so it
+     could only ever fail closed): a piece's line names the sha actually in the stack.
    * `activate --lane`: restarts and verifies ALL TEN (not only the running ones -- with AUTO_FOLLOW off `activate()` today
      verifies only active bots, and after a stop it only switches the symlink);
    * piece-aware rollback: `release_admissible()` judges against the fleet build, so a showcase-only previous release is
