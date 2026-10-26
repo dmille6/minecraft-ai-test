@@ -54,7 +54,7 @@ import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's lice
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
-import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail, lidPlaceModeDetail } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
+import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail, lidPlaceModeDetail, lidplaceHitsDetail, LIDPLACE_HITS_MS } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
@@ -691,6 +691,13 @@ function connect() {
       stateIdAt: (x, y, z) => { lidScratch.x = x; lidScratch.y = y; lidScratch.z = z; return bot.world.getBlockStateId(lidScratch) } })
     installLidPrice(moves, lidPlacePrice)
     bot.lidPrice = lidPlacePrice   // digapproach.mjs planDigApproach's capped-search fallback reads it (withoutLidPrice)
+    // the price's own counter, every 10 min (`_lidplace_hits hits= total= off=`): the read's positive control for a zero
+    let lidHitsPrev = 0
+    const lidHitsTimer = setInterval(() => {
+      try { logEvent({ kind: 'lidplace_hits', status: 'success', detail: lidplaceHitsDetail(lidPlacePrice, lidHitsPrev) }); lidHitsPrev = lidPlacePrice.hits } catch { /* a row never breaks the bot */ }
+    }, LIDPLACE_HITS_MS)
+    lidHitsTimer.unref?.()
+    bot.once('end', () => clearInterval(lidHitsTimer))
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -1106,8 +1113,6 @@ function connect() {
           if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
           return
         }
-        // POSITIVE CONTROL for the death-site price: a route the corridor guard accepted that still passes through a disc is logged
-        // (not refused -- the price is a detour, and a bot standing inside a disc has to walk out of it).
         // LIDPLACE-01's INSTRUMENT: the CHOSEN route places on a lid or in a plan cell (the price is a preference, not a veto,
         // so this is how often it was outbid) -- one row per distinct set of cells per 30 s, the cells named
         // an instrument never breaks the route it watches (Codex rebase r1 P2: snapshot() reads the inventory)
@@ -1123,6 +1128,8 @@ function connect() {
             }
           }
         } catch { /* the row is lost; the route is not */ }
+        // POSITIVE CONTROL for the death-site price: a route the corridor guard accepted that still passes through a disc is logged
+        // (not refused -- the price is a detour, and a bot standing inside a disc has to walk out of it).
         const crossed = pathCrossesDeathSite(bot.deathSitesNow?.() ?? [], r.path)
         if (crossed && Date.now() - deathSiteCrossLoggedAt > 5_000) { deathSiteCrossLoggedAt = Date.now(); logEvent({ kind: 'death_site_route_crossed', status: 'no_effect', detail: `${crossed.site.kind} x${crossed.site.deaths ?? 1} at ${crossed.site.x},${crossed.site.y},${crossed.site.z}; the planned route passes ${crossed.node.x},${crossed.node.y},${crossed.node.z} (${r.path.length} nodes)`, snapshot: snapshot(bot) }) }
         // THE LAST PLANNED PATH, KEPT FOR THE FALL RECORD (fallpath.mjs): captured only once the corridor guard has
