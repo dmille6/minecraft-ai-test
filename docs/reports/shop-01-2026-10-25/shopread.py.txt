@@ -33,13 +33,15 @@
 #   ARMS               control rows of these kinds after the deploy (must be 0; build_shop is chatOnly -- a player's chat to a
 #                      CONTROL bot writes `_build_visit outcome=off`: read that row before calling it a leak)
 #   LIVENESS           canary `_build_mode` >= 1 and canary `_build_visit` >= 1
-#   EXPOSURE           NEEDS RECORD CONFORMANCE (F1 >= 0.98 on the record's cells and states) AND PERSISTENCE (a clean survey
-#                      >= 1 h later) -- Codex read r3. No source exists (a structcount scan --record is not built), so exposure
-#                      is NEVER ready from this read (fail closed: INCONCLUSIVE, never KEEP). PRELIMINARY, reported: a town with a
-#                      `_structure_complete` row whose first structure count after it shows a LIT ROOM INSIDE THE RECORD'S CELL
-#                      EXTENT (rooms_in_box, height included), none there before the deploy; missing room data is unknown. NOT MEASURED
-#                      (named): the design's PERSISTENT rule and record conformance F1 >= 0.98 (a `structcount scan --record`
-#                      is not built)
+#   EXPOSURE           RECORD CONFORMANCE AND PERSISTENCE (Codex read r3; owner 10-25): a canary town counts when it has a
+#                      `_structure_complete` row AND two VALID conformance surveys of ITS CURRENT RECORD (gen and sha) -- observed
+#                      times (the survey's `at` less SAVE_LAG_MIN) after the completion, >= CONFORM_GAP_MIN apart -- both F1 >= 0.98, its
+#                      NEWEST survey also >= 0.98 (damage since revokes it); >= EXPOSE_TOWNS such towns. The surveys are
+#                      scripts/host/shopconform.py's (the record's cells judged by the builder's own rule against a copy of the
+#                      region files), mirrored to SURVEY_DIR on this host by scripts/host/shopconform-run.sh. No survey directory:
+#                      conformance_source 0 and exposure NEVER ready (fail closed). Invalid surveys (any unknown cell) never count.
+#                      PRELIMINARY, reported: a LIT ROOM INSIDE THE RECORD'S CELL EXTENT in the first structure count after the
+#                      completion (rooms_in_box), none there before the deploy; missing room data is unknown.
 #   NO HARM (WATCH, DiD of success shares; fails only below its tolerance with z < -2; UNEXPOSED under MIN_CELL)
 #     gather_ok, rung_ok (wooden/stone/iron pickaxe crafts); litter cells (structcount, canary vs control towns, reported);
 #     deaths: the default gate (two-death floor); immobile: immobiledid
@@ -58,6 +60,10 @@ BUILDERS_MAX = 2
 RECLAIM_MS = 60_000
 PLACE_TWICE_MIN = 10
 EXPOSE_TOWNS = 2
+CONFORM_F1 = 0.98
+CONFORM_GAP_MIN = 60
+SAVE_LAG_MIN = 6
+SURVEY_DIR = os.path.expanduser('~/shopconform/surveys')
 BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete')
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
 REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.shop)\.g(\d+)\.json$')
@@ -92,7 +98,7 @@ def record_head(files):
             continue
         if rec.get('prev') == head[0] and rec.get('prevSha') == head[1]:
             head = (gen, sha, rec)
-    return head[2] if head else None
+    return dict(head[2], _gen=head[0], _sha=head[1]) if head else None
 
 
 def read_projects(root='/var/lib/mcai'):
@@ -194,6 +200,48 @@ def structcount_gens(root=os.path.expanduser('~/structcount/in')):
     return sorted(out, key=lambda g: g[0])
 
 
+def load_surveys(root=SURVEY_DIR):
+    """-> (present, {pool: [survey]}) from the conformance surveys' mirror (shopconform.py's JSON, one file each)."""
+    if not os.path.isdir(root):
+        return False, {}
+    out = defaultdict(list)
+    for f in glob.glob(os.path.join(root, '*.json')):
+        try:
+            d = json.load(open(f))
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get('pool'):
+            out[d['pool']].append(d)
+    return True, dict(out)
+
+
+def conformance(surveys, rec, since):
+    """A completed town's CONFORMANCE from its surveys -> (ok, why). Pure. Counted: valid surveys of THIS record (gen and sha) whose
+    observed time (`at` less SAVE_LAG_MIN) is after `since` (the completion). ok when two of them lie >= CONFORM_GAP_MIN apart with F1 >= CONFORM_F1
+    each AND the newest counted survey has F1 >= CONFORM_F1 (damage after a good pair revokes it)."""
+    if rec is None:
+        return False, 'no record'
+    # THE OBSERVED TIME is the survey's own time less SAVE_LAG_MIN: the copy holds the world as the server last SAVED it (a loaded,
+    # changed chunk at its autosave, ~5 min; an unchanged or unloaded one exactly) -- never the region file's mtime, which a
+    # quiet chunk never advances (a workshop that persists unchanged must still read as two observations an hour apart)
+    def t(sv):
+        try:
+            return dt.datetime.fromisoformat(str(sv.get('at')).replace('Z', '+00:00')) - dt.timedelta(minutes=SAVE_LAG_MIN)
+        except Exception:
+            return None
+    mine = sorted([sv for sv in surveys or [] if sv.get('valid') is True and sv.get('record_gen') == rec.get('_gen')
+                   and sv.get('record_sha') == rec.get('_sha') and t(sv) is not None and t(sv) >= since], key=t)
+    if not mine:
+        return False, 'no valid survey of this record after the completion (%d surveys)' % len(surveys or [])
+    newest = mine[-1]
+    if not (float(newest.get('f1') or 0) >= CONFORM_F1):
+        return False, 'newest survey F1 %s at %s' % (newest.get('f1'), newest.get('region_mtime'))
+    good = [sv for sv in mine if float(sv.get('f1') or 0) >= CONFORM_F1]
+    if not good or (t(good[-1]) - t(good[0])).total_seconds() < CONFORM_GAP_MIN * 60:
+        return False, '%d good survey(s), not %d min apart' % (len(good), CONFORM_GAP_MIN)
+    return True, 'F1 %s .. %s over %d surveys, %s -> %s' % (good[0].get('f1'), newest.get('f1'), len(mine), good[0].get('at'), newest.get('at'))
+
+
 def rooms_in_box(doc, box):
     """The structure count's lit rooms (B5 buildings: `building_rooms`, JSON strings with a `centre`) whose centre lies inside the
     record's cells' extent box = [x0, y0, z0, x1, y1, z1] (+-1) -> n, or None when the town's room data is missing or malformed
@@ -265,7 +313,7 @@ def pos_of(r):
     return None
 
 
-def judge(rows, projects, zones_by_pool, cut=None, gens=()):
+def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
     """rows: [{t, per, arm, name, status, detail, bot, item, feet}]; projects: read_projects(); zones_by_pool: {pool: [box]};
     gens: structcount_gens() (the world evidence; empty: none)."""
     out = Counter()
@@ -402,6 +450,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=()):
     world, litter = world_evidence(list(gens), cut, complete_at, boxes) if cut is not None else ({}, {})
     out['complete_towns_room'] = sum(1 for v in world.values() if v == 'room')
     lists['world'] = ['%s: %s' % kv_ for kv_ in sorted(world.items())]
+    present, by_pool = surveys if surveys is not None else (False, {})
+    out['conformance_source'] = int(bool(present))
+    conf = {p: conformance(by_pool.get(p), (projects.get(p) or {}).get('record'), t) for p, t in complete_at.items()}
+    out['complete_towns_conform'] = sum(1 for ok, _ in conf.values() if ok)
+    lists['conformance'] = ['%s: %s' % (p, why) for p, (ok, why) in sorted(conf.items())]
     lists['_litter'] = litter
     lists['_cans'] = sorted(cans)
     return out, lists
@@ -415,11 +468,10 @@ def combine(out, lists):
         res[k] = g(k)
     res['arms_breach'] = g('arms_rows_control_post')
     res['liveness'] = int(g('licence_canary') >= 1 and g('visits_canary') >= 1)
-    # EXPOSURE NEEDS RECORD CONFORMANCE AND PERSISTENCE (Codex read r3: the design's F1 >= 0.98 on the record's cells and states,
-    # then a clean survey >= 1 h later). No source for them exists yet (a structcount scan --record is not built), so exposure is
-    # NEVER ready from this read: the room check above is PRELIMINARY evidence, reported. Fail closed: INCONCLUSIVE, never KEEP.
-    res['conformance_source'] = 0
-    res['exposure_ready'] = int(res['conformance_source'] == 1 and g('complete_towns_room') >= EXPOSE_TOWNS)
+    # EXPOSURE IS RECORD CONFORMANCE AND PERSISTENCE (Codex read r3; owner 10-25): two surveys >= 1 h apart with F1 >= 0.98 and the
+    # newest still >= 0.98, per town; no survey mirror -> never ready (fail closed). The room check stays PRELIMINARY, reported.
+    res['conformance_source'] = g('conformance_source')
+    res['exposure_ready'] = int(res['conformance_source'] == 1 and g('complete_towns_conform') >= EXPOSE_TOWNS)
     res['instrument_control'] = int(g('craft_post_control') >= 1 and g('gather_post_control') >= 1)
     for name, key in (('gather_ok', 'gather'), ('rung_ok', 'rung')):
         cells = [(g('%s_ok_pre_canary' % key), g('%s_pre_canary' % key)), (g('%s_ok_post_canary' % key), g('%s_post_canary' % key)),
@@ -473,6 +525,30 @@ def selftest():
     assert res['liveness'] == 1 and res['instrument_control'] == 1, res
     assert res['placements'] == 3 and res['complete_towns'] == 2 and res['complete_towns_room'] == 2, res
     assert res['exposure_ready'] == 0 and res['conformance_source'] == 0, 'Codex read r3: never READY without a conformance source'
+    # CONFORMANCE (owner 10-25): two valid surveys of THIS record >= 60 min apart, F1 >= 0.98, the newest too
+    hd = {'_gen': 1, '_sha': 'abc'}
+    SV = lambda pool, m, f1, valid=True, gen=1, sha='abc': {'pool': pool, 'record_gen': gen, 'record_sha': sha, 'valid': valid, 'f1': f1,
+                                                         'at': (t0 + dt.timedelta(minutes=m + SAVE_LAG_MIN)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                                         'region_mtime': (t0 - dt.timedelta(hours=5)).strftime('%Y-%m-%dT%H:%M:%SZ')}
+    since = t0
+    assert conformance([SV('a', 5, 1.0), SV('a', 70, 1.0)], hd, since)[0]
+    assert not conformance([SV('a', 5, 1.0), SV('a', 40, 1.0)], hd, since)[0], 'not 60 min apart'
+    assert not conformance([SV('a', 5, 1.0)], hd, since)[0], 'one survey'
+    assert not conformance([SV('a', 5, 1.0), SV('a', 70, 0.979)], hd, since)[0], 'the newest below 0.98 (damage, or 7 cells missing)'
+    assert not conformance([SV('a', 5, 1.0), SV('a', 70, 1.0), SV('a', 130, 0.97)], hd, since)[0], 'damage after a good pair revokes'
+    assert not conformance([SV('a', 5, 1.0), SV('a', 70, 1.0, valid=False)], hd, since)[0], 'an invalid survey never counts'
+    assert not conformance([SV('a', 5, 1.0, gen=2), SV('a', 70, 1.0, gen=2)], hd, since)[0], 'another record generation'
+    assert not conformance([SV('a', 5, 1.0, sha='x'), SV('a', 70, 1.0, sha='x')], hd, since)[0], 'another record body'
+    assert not conformance([SV('a', -90, 1.0), SV('a', -10, 1.0)], hd, since)[0], 'world states before the completion'
+    assert not conformance([SV('a', 5, 1.0), SV('a', 70, 1.0)], None, since)[0]
+    # through judge: both towns conformant -> READY; one -> not; no mirror -> never
+    projc = {p: dict(proj[p], record=dict(rec, _gen=1, _sha='abc')) for p in proj}
+    sv_both = (True, {'board-a': [SV('board-a', 30, 1.0), SV('board-a', 100, 1.0)], 'board-b': [SV('board-b', 30, 1.0), SV('board-b', 100, 0.99)]})
+    rc = combine(*judge(base, projc, {}, cut=CUT, gens=gens, surveys=sv_both))
+    assert rc['conformance_source'] == 1 and rc['complete_towns_conform'] == 2 and rc['exposure_ready'] == 1, rc
+    sv_one = (True, {'board-a': sv_both[1]['board-a'], 'board-b': [SV('board-b', 30, 1.0)]})
+    assert combine(*judge(base, projc, {}, cut=CUT, gens=gens, surveys=sv_one))['exposure_ready'] == 0
+    assert combine(*judge(base, projc, {}, cut=CUT, gens=gens, surveys=(False, sv_both[1])))['exposure_ready'] == 0, 'no mirror: fail closed'
     assert res['bag_scaffold'] == 4, 'cobblestone short by 4: scaffold, reported, not a loss'
     # G1 off the record
     assert J(base + [R('_build', 'project=shop op=place seg=pad cell=30,70,30 block=stone_bricks', s=13)])['off_record'] == 1
@@ -643,7 +719,8 @@ if __name__ == '__main__':
                 world = json.loads(wkey) if wkey != '"__unparseable__"' else None
                 zones_by_pool.setdefault(pool, []).extend(zones_of(info['dir'], world))
     gens = structcount_gens()
-    out, lists = judge(rows, projects, zones_by_pool, cut=CUT, gens=gens)
+    surveys = load_surveys()
+    out, lists = judge(rows, projects, zones_by_pool, cut=CUT, gens=gens, surveys=surveys)
     res = combine(out, lists)
     L = res['_lists']
     hrs = {k: len(v) * W / 60 for k, v in bots.items()}
@@ -674,10 +751,11 @@ if __name__ == '__main__':
     print('             (gather canary %d/%d -> %d/%d control %d/%d -> %d/%d | rungs canary %d/%d -> %d/%d control %d/%d -> %d/%d ok/rows; UNEXPOSED = a cell under %d rows, never ok)'
           % tuple([G('%s_%s' % (a, b)) for b in ('pre_canary', 'post_canary', 'pre_control', 'post_control') for a in ('gather_ok', 'gather')]
                   + [G('%s_%s' % (a, b)) for b in ('pre_canary', 'post_canary', 'pre_control', 'post_control') for a in ('rung_ok', 'rung')] + [MIN_CELL]))
-    print('EXPOSURE     canary towns complete by their rows %d %s | with a lit room in the record extent (PRELIMINARY) %d of need %d; exposure -> %s | INSTRUMENT control gather %d craft %d -> %s'
+    print('EXPOSURE     canary towns complete by their rows %d %s | with a lit room in the record extent (PRELIMINARY) %d (need %d conformant); exposure -> %s | INSTRUMENT control gather %d craft %d -> %s'
           % (G('complete_towns'), L.get('complete_towns', []), G('complete_towns_room'), EXPOSE_TOWNS, 'READY' if res['exposure_ready'] else 'NOT YET',
              G('gather_post_control'), G('craft_post_control'), 'ok' if res['instrument_control'] else 'BLIND'))
-    print('             world per town %s | EXPOSURE NEEDS conformance F1 >= 0.98 + PERSISTENT: no source (a structcount scan --record is not built) -> never READY' % L.get('world', []))
+    print('             CONFORMANCE (the exposure) source %s: towns conformant %d (need %d) %s | PRELIMINARY world per town %s'
+          % ('present (%d towns surveyed)' % len(surveys[1]) if surveys[0] else 'ABSENT (%s): never READY' % SURVEY_DIR, G('complete_towns_conform'), EXPOSE_TOWNS, L.get('conformance', []), L.get('world', [])))
     try:
         if ovr:
             raise RuntimeError('CANARY_DRYRUN set -- not emitting')
