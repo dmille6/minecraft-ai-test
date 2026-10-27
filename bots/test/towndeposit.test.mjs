@@ -75,10 +75,10 @@ test('the families are milestones.mjs\'s own, and the held targets match the gat
   }
 })
 
-test('keeps: wood to 64 units (logs first), the stone FAMILY to 64 (andesite counts), iron never, wanted to a stack', () => {
+test('keeps: wood to WOOD_KEEP (16) units (logs first), the stone FAMILY to 64 (andesite counts), iron never, wanted to a stack', () => {
   const { keep, why } = townKeeps({ oak_log: 50, birch_log: 30, oak_planks: 40, cobblestone: 100, andesite: 20, raw_iron: 9, iron_ingot: 4, coal: 30, stick: 40, dirt: 40, bucket: 1 }, { wanted: ['stick'] })
-  assert.equal(keep.oak_log, 50); assert.equal(keep.birch_log, 14)
-  assert.equal(keep.oak_planks, 4, '64 units already in logs; 4 planks kept for the ladder\'s means'); assert.equal(why.oak_planks, 'ladder_means')
+  assert.equal(keep.oak_log, 16); assert.equal(keep.birch_log, undefined, 'logbank-01: 16 units, the most-held species first')
+  assert.equal(keep.oak_planks, 4, '16 units already in logs; 4 planks kept for the ladder\'s means'); assert.equal(why.oak_planks, 'ladder_means')
   assert.equal(keep.cobblestone, 64, 'cobblestone first: a pickaxe and a furnace are made of it')
   assert.equal(keep.andesite, 0 + (keep.andesite ?? 0), 'andesite never banks anyway')
   // cobblekeep-01: a bucket held -> one iron craft left, 3 units, ingots first, each name whole; raw_iron 9 + ingots 4 -> the
@@ -242,9 +242,10 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   const moved = items.find(i => i.slot === picks[0].slot)
   assert.equal(131 - moved.durabilityUsed, 60, 'the 60-use copy moves; the 120-use one and the spent one stay')
   assert.deepEqual(p.steps.filter(s => s.name === 'cobblestone').map(s => s.count), [20], 'creditCap 64: the 20 stack, never a partial')
-  assert.deepEqual(p.steps.filter(s => s.name === 'oak_log').map(s => s.count), [10], '138 logs, keep 64 units, creditCap 64: the 10 stack only (the next 64 would pass the cap)')
-  assert.ok(p.steps.every(s => items.find(i => i.slot === s.slot).count === s.count), 'every step is a whole stack')
-  assert.equal(p.freed, p.steps.length)
+  assert.deepEqual(p.steps.filter(s => s.name === 'oak_log').map(s => s.count), [10, 32, 16], '138 logs, keep 16 units, creditCap 64: the 10 stack whole, then one 64 halved twice (logbank-01) -- 58 under the cap')
+  assert.ok(p.steps.filter(s => !s.half).every(s => items.find(i => i.slot === s.slot).count === s.count), 'every non-half step is a whole stack')
+  assert.ok(p.steps.filter(s => s.half).every(s => LOGS.includes(s.name)), 'only logs halve')
+  assert.equal(p.freed, p.steps.filter(s => !s.half).length)
   // cobblekeep-01: no bucket and no iron pickaxe -> 6 iron units are the bot's own (3 ingots + 5 raw), and the coal smelts them
   assert.deepEqual(p.steps.filter(s => ['raw_iron', 'coal'].includes(s.name)), [], 'two iron crafts to go: nothing of it banks')
   assert.equal(p.freed, 3, 'pickaxe + cobble 20 + logs 10')
@@ -272,7 +273,12 @@ function randomBag (r) {
   }
   return out
 }
-const after = (items, plan) => { const gone = new Set(plan.steps.map(s => s.slot)); return items.filter(i => !gone.has(i.slot)) }
+// logbank-01: a log HALF leaves part of its slot -- subtract what each step moved, never drop the whole slot
+const after = (items, plan) => {
+  const moved = {}
+  for (const st of plan.steps) moved[st.slot] = (moved[st.slot] ?? 0) + st.count
+  return items.map(i => ({ ...i, count: i.count - (moved[i.slot] ?? 0) })).filter(i => i.count > 0)
+}
 const fakeBot = (items, ironNear) => ({ inventory: { items: () => items }, registry: mcData, findBlock: () => (ironNear ? { position: new Vec3(0, 0, 0) } : null),
                                          entity: { position: new Vec3(0, 70, 0) } })
 const GUARDED = [...MS.MILESTONES_BY_ROLE.gatherer, ...MS.SUSTAINING].filter(r => !['deposit_surplus', 'return', 'patrol'].includes(r.id))
@@ -288,7 +294,7 @@ test('PROPERTY: over 400 random full bags, no gatherer or SUSTAINING rung change
     const plan = townDepositPlan(items, { wanted })
     if (plan.steps.length) plansWithSteps++
     const rest = after(items, plan)
-    assert.ok(wood(rest) >= Math.min(wood(items), 64), `wood deficit deepened (bag ${k})`)
+    assert.ok(wood(rest) >= Math.min(wood(items), TD.WOOD_KEEP), `wood deficit deepened (bag ${k})`)
     assert.ok(stone(rest) >= Math.min(stone(items), 64), `stone deficit deepened (bag ${k})`)
     for (const ironNear of [true, false]) {
       for (const rung of GUARDED) {
@@ -317,10 +323,12 @@ test('fit: EMPTY slots only, one per stack, in order; a full container takes not
 
 test('the visit\'s allowance: what an earlier container took is spent (creditCap caps the VISIT)', () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ...filler(30)])
-  assert.deepEqual(townDepositPlan(items).steps.map(s => s.count), [10], 'cap 64: the 10 only (the next 64 passes the cap)')
+  // whole stacks only here (halves: false): the cap's arithmetic; the halves' own cap is the LOGBANK tests'
+  assert.deepEqual(townDepositPlan(items, { halves: false }).steps.map(s => s.count), [10], 'cap 64: the 10 only (the next 64 passes the cap)')
   const after10 = items.filter(i => !(i.name === 'oak_log' && i.count === 10))
-  assert.deepEqual(townDepositPlan(after10).steps.map(s => s.count), [64], 'a fresh plan would take 64 more...')
-  assert.deepEqual(townDepositPlan(after10, { already: { oak_log: 10 } }).steps, [], '...the visit has 54 left: no whole stack fits')
+  assert.deepEqual(townDepositPlan(after10, { halves: false }).steps.map(s => s.count), [64], 'a fresh plan would take 64 more...')
+  assert.deepEqual(townDepositPlan(after10, { already: { oak_log: 10 }, halves: false }).steps, [], '...the visit has 54 left: no whole stack fits')
+  assert.deepEqual(townDepositPlan(after10, { already: { oak_log: 10 } }).steps.map(s => s.count), [32, 16], '...and with halves, 48 of those 54')
   const copper = bag([['raw_copper', 7], ['raw_copper', 7], ...filler(34)])
   assert.equal(townDepositPlan(copper.slice(1), { already: { raw_copper: 7 } }).steps.length, 1, 'the cap is spent, not the reduced bag\'s count (Codex round 2)')
 })
@@ -491,7 +499,14 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     },
     clickWindow: async (slot, btn, mode) => {
       const win = bot.currentWindow
-      assert.equal(btn, 0); assert.equal(mode, 0, 'left clicks only')
+      // logbank-01: a right click (btn 1) is allowed ONLY as the log half-split's pickup: an empty cursor on a bag stack
+      assert.equal(mode, 0, 'mode 0 clicks only'); assert.ok(btn === 0 || btn === 1)
+      if (btn === 1) {
+        assert.ok(!win.selectedItem && slot >= win.inventoryStart && /_log$/.test(win.slots[slot]?.name ?? ''), 'a right click only lifts half a bag log stack')
+        st.rightClicks = (st.rightClicks ?? 0) + 1; st.clicks++
+        for (const w of [win, win.server]) { const at = w.slots[slot]; const take = Math.ceil(at.count / 2); w.selectedItem = { ...at, count: take }; at.count -= take; if (!at.count) w.slots[slot] = null }
+        return
+      }
       st.clicks++
       if (win?.foreign) { st.foreignClicks = (st.foreignClicks ?? 0) + 1; return }
       if (onClick) onClick(slot, win)
@@ -518,7 +533,7 @@ const total = l => l.reduce((a, i) => a + (i?.count ?? 0), 0)
 const chestAt = (x, y = 70, z = 0, extra = {}) => ({ pos: new Vec3(x, y, z), items: Array(27).fill(null), ...extra })
 const filledChest = (x, empty = 0, extra = {}) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < empty ? null : item('dirt', 64))), ...extra })
 const fullBag = () => bag([['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20],
-  ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['apple', 45], ['raw_iron', 5], ['coal', 9], ['dirt', 30], ['raw_copper', 7], ...filler(22)])
+  ['oak_log', 16], ['oak_log', 10], ['white_wool', 2], ['apple', 45], ['raw_iron', 5], ['coal', 9], ['dirt', 30], ['raw_copper', 7], ...filler(22)])
 const run = (bot, signal = null) => SKILLS.town_deposit.run({ bot }, {}, signal)
 const rowsOf = async fn => {
   const rows = []
@@ -536,7 +551,7 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   assert.equal(r.status, 'success', r.detail)
   for (const now of [bot.inventory.items(), serverBag(w)]) {
     assert.equal(now.length, 32)
-    assert.equal(sumOf(now, 'cobblestone'), 128); assert.equal(sumOf(now, 'oak_log'), 128)
+    assert.equal(sumOf(now, 'cobblestone'), 128); assert.equal(sumOf(now, 'oak_log'), 16)
     assert.equal(sumOf(now, 'raw_iron'), 5); assert.equal(sumOf(now, 'apple'), 45); assert.equal(sumOf(now, 'dirt'), 30)
     const picks = now.filter(i => i.name === 'stone_pickaxe').map(i => 131 - i.durabilityUsed).sort((a, b) => a - b)
     assert.deepEqual(picks, [1, 120], 'the spent copy and the best copy stay; the 60-use copy is banked')
@@ -547,7 +562,7 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   assert.equal(st.clicks, 8, 'two left clicks per stack')
   assert.deepEqual(st.opened, ['2,70,0', '2,70,0'], 'opened, then opened again to read the server\'s copy')
   assert.equal(rows.length, 1)
-  assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 bagdelta 38 tools stone_pickaxe@60 banked .*stone_pickaxe:1/)
+  assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 bagdelta 38 tools stone_pickaxe@60 logs banked 10 kept 16 keep 16 banked .*stone_pickaxe:1/)
 })
 
 // ---- TOOLKIT-03 x COBBLEKEEP-01: what the town deposit banks, the smelt job's coal search finds ----------------------------
@@ -645,7 +660,7 @@ test('SKILL: two containers share ONE visit allowance: the first takes 2 stacks,
   const r = await run(bot)
   assert.equal(r.status, 'success', r.detail)
   const both = [...a.items, ...b.items]
-  assert.equal(sumOf(both, 'oak_log'), 10, 'logs: 10 this visit (64 more would pass the 64 cap)')
+  assert.equal(sumOf(both, 'oak_log'), 58, 'logs: 10 whole + one 64 halved to 16 (32+16, logbank-01) = 58 this visit, under the 64 cap')
   assert.equal(sumOf(both, 'raw_copper'), 14, 'both copper stacks: 7 in the first chest does not use up the second 7 (Codex round 2)')
   assert.equal(sumOf(both, 'raw_gold'), 3)
   assert.equal(a.items.filter(x => x && x.name !== 'dirt').length, 2, 'the first chest took two stacks')
@@ -667,7 +682,7 @@ test('SKILL: a click that fails with the stack on the cursor puts it back and st
   await run(w.bot)
   assert.equal(total(serverBag(w)) + total(c.items), total(items))
   assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
-  assert.equal(sumOf(serverBag(w), 'oak_log'), 138, 'the log stack is back in the bag')
+  assert.equal(sumOf(serverBag(w), 'oak_log'), 26, 'the log stack is back in the bag')
 })
 
 test('SKILL: a cursor that cannot be put back is NEVER closed on: the window is HELD (withdraw\'s hold), the run says so', async () => {
@@ -767,7 +782,7 @@ test('SKILL: an abort mid-run closes the window and throws; nothing dropped', as
 })
 
 test('SKILL: nothing above the keeps -> no_effect, no chest opened', async () => {
-  const items = bag([['cobblestone', 64], ['oak_log', 64], ['stone_pickaxe', 1, 100], ['raw_iron', 20], ...filler(32)])
+  const items = bag([['cobblestone', 64], ['oak_log', 16], ['stone_pickaxe', 1, 100], ['raw_iron', 20], ...filler(32)])
   const { bot, st } = world({ items, containers: [chestAt(2)] })
   const r = await run(bot)
   assert.equal(r.status, 'no_effect'); assert.equal(st.opened.length, 0)
@@ -822,7 +837,7 @@ for (const [difficulty, want, stale] of [['peaceful', false, false], ['hard', tr
     const restore = await kitSwitch(difficulty)
     if (stale) (await import('../src/foodskip.mjs')).setPeacefulFood(difficulty !== 'peaceful')   // the trigger must read the switch itself (Codex, junkwell merge)
     try {
-      const items = bag([['dirt', 16], ['oak_log', 64], ['cobblestone', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['stick', 8],
+      const items = bag([['dirt', 16], ['oak_log', 16], ['cobblestone', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['stick', 8],
         ['furnace', 1], ['stone_sword', 1, 131], ['stone_sword', 1, 100], ...filler(27)])
       assert.equal(items.length, 36)
       const { bot } = world({ items, containers: [chestAt(2)], botAt: new Vec3(3, 70, 0) })
@@ -924,7 +939,9 @@ test('THE WINDOW CHANGED under the run (another window opened): no click goes in
 
 test('A HELD CURSOR OUTRANKS AN EARLIER SUCCESS: chest A takes a stack, chest B holds the cursor -> transfer_unsettled', async () => {
   const a = filledChest(2, 1), b = chestAt(-5)   // -5: the memory test above marked -4,70,0 full in this file's town
-  const w = world({ items: fullBag(), containers: [a, b], failDest: cur => cur.name === 'oak_log', cursorStuck: true })
+  // logbank-01: raw_copper, not oak_log -- fullBag's logs are now 16 + 10, so a stuck 10 merges back into the 16 (a settled
+  // cursor); the copper stack is the only one of its name, as the 10 among two full 64s was
+  const w = world({ items: fullBag(), containers: [a, b], failDest: cur => cur.name === 'raw_copper', cursorStuck: true })
   const { out: r, rows } = await rowsOf(() => run(w.bot))
   try {
     assert.equal(r.failClass, 'transfer_unsettled', JSON.stringify(r) + ' ' + rows.map(x => x.skill.detail).join(' | ') + ' opened=' + w.st.opened); assert.match(r.detail, /\d+ item\(s\) were banked before it/)
@@ -1122,8 +1139,8 @@ test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2
     assert.equal(wellLogs(), 0, 'positive control of the gate: a stale floor throws nothing')
     // ONLY A BAG ABOVE ITS KEEP RECOUNTS (Claude code r2 P3): the same stale town, a bag holding just its keep -> no keys
     const TD0 = await import('../src/towndeposit.mjs')
-    assert.ok((TD0.townKeeps({ oak_log: 64 }, { wanted: bot.currentWants ?? [] }).keep.oak_log ?? 0) >= 64, 'the fixture: 64 logs are all keep')
-    assert.deepEqual(SK.stockCountKeys(bot, bag([['oak_log', 64], ['crafting_table', 1]]), { floor: true }), [], 'a bag at its keep: no recount')
+    assert.ok((TD0.townKeeps({ oak_log: 16 }, { wanted: bot.currentWants ?? [] }).keep.oak_log ?? 0) >= 16, 'the fixture: 16 logs are all keep')
+    assert.deepEqual(SK.stockCountKeys(bot, bag([['oak_log', 16], ['crafting_table', 1]]), { floor: true }), [], 'a bag at its keep: no recount')
     assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), ['2,70,0'], 'positive control: 192 logs recount the stale chest')
     const { ran } = await decisions(bot, 1)
     assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
@@ -1620,4 +1637,85 @@ test('junkout-01 x KEEPOUT CONTROL (real loop): the exit BACKING OFF (a failed e
   assert.equal(ran[0], 'town_deposit', JSON.stringify(ran))
   assert.ok(!ran.includes('keepout_exit'), JSON.stringify(ran))
   assert.equal(sumOf(chest.items, 'torch'), 11)
+})
+
+// ---- logbank-01 (OWNER 10-27): bank the logs, keep a small personal amount (16 wood units) -------------------------------
+const WK = await import('../src/woodkeep.mjs')
+const logsIn = l => LOGS.reduce((t, n) => t + sumOf(l, n), 0)
+
+test('LOGBANK: ONE number -- the deposit keep, the stockpile_wood ceiling and found\'s no-floor wood are WOOD_KEEP (16); stone stays 64', () => {
+  assert.equal(WK.LOGBANK.on, true, 'on by default (no env)'); assert.equal(TD.WOOD_KEEP, 16); assert.equal(WK.WOOD_KEEP, 16)
+  for (const n of [0, 1, 2, 3, 14, 540]) assert.ok(MS.woodStockpileTarget(n) <= TD.WOOD_KEEP, `lap ${n}`)
+  assert.equal(MS.woodStockpileTarget(540), TD.WOOD_KEEP, 'the rung asks for exactly the keep at its ceiling')
+  assert.equal(MS.stockpileTarget(16, 8, 540), 64, 'stone still escalates to 64')
+  assert.equal(townKeeps({ oak_log: 73 }).keep.oak_log, 16)
+  assert.equal(townKeeps({ cobblestone: 100 }).keep.cobblestone, 64, 'cobble unchanged (owner did not ask)')
+})
+
+test('LOGBANK half-split, pure: 64 with room 48 -> 32 then 16 (keeps exactly 16); never below the keep; a single log never splits', () => {
+  assert.deepEqual(TD.logHalfSteps([{ slot: 9, count: 64 }], 48), [{ slot: 9, count: 32, from: 64, half: true }, { slot: 9, count: 16, from: 32, half: true }])
+  assert.deepEqual(TD.logHalfSteps([{ slot: 9, count: 64 }], 31), [], 'no half fits: nothing moves')
+  assert.deepEqual(TD.logHalfSteps([{ slot: 9, count: 1 }], 5), [])
+  for (let held = 2; held <= 64; held++) for (let room = 0; room < held; room++) {
+    const moved = TD.logHalfSteps([{ slot: 9, count: held }], room).reduce((t, x) => t + x.count, 0)
+    assert.ok(moved <= room, `held ${held} room ${room}: moved ${moved} past the keep`)
+  }
+})
+
+test('LOGBANK plan: a bot holding 64+9 logs banks the 9 whole and halves the 64 down to 16; halves never count in freed', () => {
+  const items = bag([['oak_log', 64], ['oak_log', 9], ...filler(34)])
+  const p = townDepositPlan(items, { tail: false })
+  const logs = p.steps.filter(s => s.name === 'oak_log')
+  assert.deepEqual(logs.map(s => [s.count, !!s.half]), [[9, false], [32, true], [16, true]])
+  assert.equal(p.freed, 1, 'only the whole 9-stack frees a slot')
+  assert.equal(logsIn(after(items, p)), 16, 'the bag keeps exactly the personal 16')
+  // a single 64 stack: before logbank the whole-stack rule could move nothing (64 > room 48)
+  const one = townDepositPlan(bag([['oak_log', 64], ...filler(35)]), { tail: false })
+  assert.equal(logsIn(after(bag([['oak_log', 64], ...filler(35)]), one)), 16)
+  assert.equal(one.freed, 0, 'a half alone frees nothing, so it never fires a full-bag order by itself')
+  // MUTANT: halves off (the kill switch's planner path) -> the 64 stays
+  const off = townDepositPlan(items, { tail: false, halves: false })
+  assert.equal(logsIn(after(items, off)), 64, 'without halves only the 9 leaves')
+})
+
+test('LOGBANK SKILL: a full bag with 64+64+10 logs at town banks down toward 16 through real clicks; the row says logs banked/kept', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ...filler(33)]); const c = chestAt(2)
+  const w = world({ items, containers: [c] })
+  const { out: r, rows } = await rowsOf(() => run(w.bot))
+  assert.equal(r.status, 'success', r.detail)
+  const kept = logsIn(serverBag(w)), banked = sumOf(c.items, 'oak_log')
+  assert.equal(kept + banked, 138, 'nothing lost'); assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+  assert.ok(w.st.rightClicks >= 1, 'a half-split ran')
+  assert.equal(banked, 58, 'the 10 whole + 32 + 16 halved from one 64; the visit\'s creditCap 64 bounds it')
+  assert.ok(banked <= TD.CREDIT_CAP && kept >= TD.WOOD_KEEP)
+  assert.match(rows[0].skill.detail, new RegExp(`logs banked ${banked} kept ${kept} keep 16`))
+})
+
+test('LOGBANK r1 fixes: halves rank LAST (after the rows), never block the valve, and a full bag of logs-only surplus fires the order', () => {
+  const items = bag([['oak_log', 64], ['torch', 12], ...filler(34)])
+  const p = townDepositPlan(items, {})
+  const last = p.steps.findIndex(s => s.half)
+  assert.ok(last >= 0, 'positive control: a half is planned')
+  assert.ok(p.steps.slice(last).every(s => s.half), `halves after every whole stack: ${JSON.stringify(p.steps)}`)
+  assert.equal(fitToContainer(p.steps, [null, ...Array(26).fill(item('dirt', 64))])[0].half, undefined, 'one empty slot takes the slot-freeing stack')
+  // the order: freed 0 but a log half -> town_deposit at a full bag; the same plan without halves -> nothing
+  const P = { x: 3, y: 70, z: 0 }, HOME = { x: 0, y: 70, z: 0 }
+  const half = { freed: 0, steps: [{ slot: 9, name: 'oak_log', count: 32, half: true }] }
+  assert.equal(townDepositOrder({ now: 1e9, slots: 36, pos: P, home: HOME, plan: half, container: true }).order?.skill, 'town_deposit')
+  assert.equal(townDepositOrder({ now: 1e9, slots: 36, pos: P, home: HOME, plan: { freed: 0, steps: [] }, container: true }).order, null, 'control: nothing to bank, no order')
+})
+
+test('LOGBANK SKILL: a right click that lifts the wrong count stops the run and settles the cursor back; nothing dropped or credited wrongly', async () => {
+  const items = bag([['oak_log', 64], ...filler(35)]); const c = chestAt(2)
+  const w = world({ items, containers: [c] })
+  const inner = w.bot.clickWindow
+  w.bot.clickWindow = async (slot, btn, mode) => {   // the server splits differently from the plan's prediction: 1 short
+    await inner(slot, btn, mode)
+    if (btn === 1) { const win = w.bot.currentWindow; win.selectedItem.count -= 1; win.slots[slot].count += 1; win.server.selectedItem.count -= 1; win.server.slots[slot].count += 1 }
+  }
+  const r = await run(w.bot)
+  assert.notEqual(r.status, 'success')
+  assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+  assert.equal(logsIn(serverBag(w)) + sumOf(c.items, 'oak_log'), 64, 'nothing lost')
+  assert.equal(sumOf(c.items, 'oak_log'), 0, 'the wrong-count cursor is never put in the chest')
 })

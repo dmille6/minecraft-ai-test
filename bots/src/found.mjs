@@ -13,7 +13,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { LOGS, PLANKS, COBBLE, PLANKS_MEANS, STOCKPILE_KEEP } from './towndeposit.mjs'
+import { LOGS, PLANKS, COBBLE, PLANKS_MEANS, STOCKPILE_KEEP, WOOD_KEEP } from './towndeposit.mjs'
 import { scaffoldKeep } from './bankable.mjs'
 
 // THE SWITCH. townplan-01 shipped this code DORMANT (FOUND=on only); found-01 makes it default-on. FOUND=off is its rollback.
@@ -29,7 +29,7 @@ export const FLOOR_STONE = 8
  * MAY FOUNDING SPEND BELOW THE 64-UNIT STOCKPILE? -- OWNER DECISION 2026-10-22 ~13:00Z: YES, to craft the first table, chest and
  * furnace, for founding only.
  * true: the floor above (8 wood units + 4 planks + the scaffold reserve; 8 cobblestone + the reserve). false: the stockpile's own
- * cap (STOCKPILE_KEEP, 64) for both -- a fresh bot then founds nothing until it holds more than 64. Founding only: no other order
+ * caps (WOOD_KEEP 16 for wood since logbank-01, STOCKPILE_KEEP 64 for stone) -- a fresh bot then founds nothing until it holds more than 64. Founding only: no other order
  * reads it.
  */
 export const FOUND_BELOW_STOCKPILE = true
@@ -58,7 +58,7 @@ const sum = (c, names) => names.reduce((t, n) => t + (c[n] ?? 0), 0)
  * scaffold reserve's stone. `wanted` = the active rung's wanted names with counts ({ name: n }).
  */
 export function foundMeans (items = [], { wanted = {}, belowStockpile = FOUND_BELOW_STOCKPILE } = {}) {
-  const floorWood = belowStockpile ? FLOOR_WOOD_UNITS : STOCKPILE_KEEP, floorStoneMin = belowStockpile ? FLOOR_STONE : STOCKPILE_KEEP
+  const floorWood = belowStockpile ? FLOOR_WOOD_UNITS : WOOD_KEEP, floorStoneMin = belowStockpile ? FLOOR_STONE : STOCKPILE_KEEP
   const c = countsOf(items)
   const logs = sum(c, LOGS), planks = sum(c, PLANKS)
   const wantWood = Object.entries(wanted ?? {}).filter(([n]) => LOGS.includes(n)).reduce((t, [, v]) => t + (Number(v) || 0), 0) +

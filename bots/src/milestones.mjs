@@ -14,6 +14,7 @@
 // tools" is unreachable. Setting an impossible goal would produce failures
 // that look like bad model judgement -- the worst kind of confounder.
 
+import { WOOD_KEEP } from './woodkeep.mjs'
 import { equivalentTools } from './skills.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 import { bankableInventory } from './bankable.mjs'
@@ -727,8 +728,12 @@ export const STOCKPILE_MAX = 64
  * counter was read in three places and assigned in none, and every comparison
  * against NaN is false, so the goal could neither be completed nor failed.
  */
-export const stockpileTarget = (base, step, n) =>
-  Math.min(base + (Number.isFinite(n) ? n : 0) * step, STOCKPILE_MAX)
+export const stockpileTarget = (base, step, n, max = STOCKPILE_MAX) =>
+  Math.min(base + (Number.isFinite(n) ? n : 0) * step, max)
+
+// logbank-01 (OWNER 10-27): the wood rung's ceiling is the personal wood keep (woodkeep.mjs WOOD_KEEP, 16), the same number
+// the town deposit keeps -- so a deposit down to it never re-opens this rung. Stone keeps STOCKPILE_MAX.
+export const woodStockpileTarget = n => stockpileTarget(8, 4, n, WOOD_KEEP)
 
 export const SUSTAINING = [
   {
@@ -749,9 +754,9 @@ export const SUSTAINING = [
     // holding 300 planks and no logs has plenty of wood and was being told it
     // had none.
     id: 'stockpile_wood',
-    describe: n => `Stockpile ${stockpileTarget(8, 4, n)} logs (any kind).`,
-    done: (b, n) => woodUnits(b) >= stockpileTarget(8, 4, n),
-    progress: (b, n) => `${woodUnits(b)}/${stockpileTarget(8, 4, n)} logs (any kind, planks count as 1/4)`,
+    describe: n => `Stockpile ${woodStockpileTarget(n)} logs (any kind).`,
+    done: (b, n) => woodUnits(b) >= woodStockpileTarget(n),
+    progress: (b, n) => `${woodUnits(b)}/${woodStockpileTarget(n)} logs (any kind, planks count as 1/4)`,
     hint: 'gather with block=oak_log, or any other _log you can see.',
   },
   // The ladder sits between wood and stone: a bot has just been asked for logs,

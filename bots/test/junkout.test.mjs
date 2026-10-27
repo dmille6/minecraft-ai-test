@@ -264,6 +264,10 @@ await t('the full-bag plan (append): base steps FIRST, then the rows; a name the
   const items = bagOf([...tailBag(), ...Array.from({ length: 17 }, (_, i) => it('ladder', 1 + (i % 3)))])
   assert.equal(items.length, 36)
   const p = TD.townDepositPlan(items)
+  // logbank-01: a log HALF frees no slot and ranks after the rows; the whole-stack order is unchanged
+  const halves = p.steps.filter(s => s.half)
+  assert.ok(p.steps.slice(p.steps.length - halves.length).every(s => s.half), 'halves last')
+  p.steps = p.steps.filter(s => !s.half)
   const first = p.steps.findIndex(s => s.allowance)
   assert.ok(first > 0 && p.steps.slice(first).every(s => s.allowance), `base first: ${JSON.stringify(p.steps.map(s => s.name))}`)
   assert.ok(p.steps.slice(0, first).some(s => s.name === 'stone_pickaxe'), 'the base tool rule banks the spares (a ceiling, design 3 C)')

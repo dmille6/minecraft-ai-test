@@ -38,12 +38,16 @@ const stone = SUSTAINING.find(m => m.id === 'stockpile_stone')
 // The laps the fleet is ACTUALLY on, not the 0-40 the old test sampled.
 const OBSERVED_LAPS = [0, 1, 5, 40, 524, 540, 638, 763, 924, 1055]
 
-test('POSITIVE CONTROL: both rungs exist and the low laps are unchanged', () => {
+test('POSITIVE CONTROL: both rungs exist and the low laps are unchanged', async () => {
   assert.ok(wood && stone, 'both stockpile rungs must be in SUSTAINING')
   assert.equal(stockpileTarget(8, 4, 0), 8, 'lap 0 still asks for 8 logs')
   assert.equal(stockpileTarget(16, 8, 0), 16, 'lap 0 still asks for 16 stone')
   assert.equal(stockpileTarget(8, 4, 3), 20, 'lap 3 still asks for 20 -- it still escalates')
   assert.equal(stockpileTarget(16, 8, 4), 48, 'lap 4 still asks for 48')
+  // logbank-01 (OWNER 10-27): the WOOD rung's ceiling is the personal keep (16), the town deposit's own number
+  const MS = await import('../src/milestones.mjs'), WK = await import('../src/woodkeep.mjs')
+  assert.equal(MS.woodStockpileTarget(0), 8); assert.equal(MS.woodStockpileTarget(3), WK.WOOD_KEEP, 'lap 3: 20 capped at the keep')
+  assert.equal(wood.describe(540), `Stockpile ${WK.WOOD_KEEP} logs (any kind).`, 'the prompt text reads the same number')
 })
 
 test('THE BUG: no lap may ask for more than a bot can carry', () => {
@@ -80,9 +84,9 @@ test('POSITIVE CONTROL: an empty bot is still asked, at every lap', () => {
 test('describe and progress print the capped number, not the raw formula', () => {
   // The model reads these strings; a capped done() with an uncapped describe
   // would tell the bot to fetch 4,228 logs and then call it finished at 64.
-  assert.match(wood.describe(1055), /Stockpile 64 logs/, wood.describe(1055))
+  assert.match(wood.describe(1055), /Stockpile 16 logs/, wood.describe(1055))   // logbank-01: the wood ceiling is WOOD_KEEP
   assert.match(stone.describe(1055), /Stockpile 64 cobblestone/, stone.describe(1055))
-  assert.match(wood.progress(bot({ oak_log: 3 }), 1055), /3\/64/,
+  assert.match(wood.progress(bot({ oak_log: 3 }), 1055), /3\/16/,
     wood.progress(bot({ oak_log: 3 }), 1055))
   assert.match(stone.progress(bot({ cobblestone: 3 }), 1055), /3\/64/,
     stone.progress(bot({ cobblestone: 3 }), 1055))

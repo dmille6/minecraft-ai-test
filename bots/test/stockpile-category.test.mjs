@@ -55,8 +55,9 @@ test('a genuinely empty bot is still asked — the milestone must survive', () =
 test('the target still scales with the lap', () => {
   const b = bot({ oak_log: 20 })
   assert.equal(wood.done(b, 0), true, 'lap 0 wants 8')
-  assert.equal(wood.done(b, 3), true, 'lap 3 wants 20')
-  assert.equal(wood.done(b, 4), false, 'lap 4 wants 24')
+  assert.equal(wood.done(b, 3), true, 'lap 3 wants 16 (20 capped at the logbank-01 keep)')
+  assert.equal(wood.done(bot({ oak_log: 10 }), 1), false, 'lap 1 wants 12: it still scales')
+  assert.equal(wood.done(bot({ oak_log: 15 }), 540), false, 'the ceiling is 16'); assert.equal(wood.done(bot({ oak_log: 16 }), 540), true)
 })
 
 test('progress reports the category, so the model can see it move', () => {
